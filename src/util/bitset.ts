@@ -1,29 +1,71 @@
 export class Bitset {
-  private bits: number;
+  private bits: number[];
 
   constructor() {
-    this.bits = 0;
+    this.bits = [];
+  }
+
+  addIndexBitmask(arrayIndex: number, bitmask: number) {
+    this.bits[arrayIndex] |= bitmask;
+  }
+
+  addBit(bptr: BitPtr) {
+    this.addIndexBitmask(bptr.arrayIndex, bptr.bitmask);
   }
 
   add(n: number): void {
-    this.bits |= 1 << n;
+    const arrayIndex = Math.floor(n / 32);
+    const bitmask = 1 << n % 32;
+    this.addIndexBitmask(arrayIndex, bitmask);
   }
 
   delete(n: number): void {
-    this.bits &= ~(1 << n);
+    const arrayIndex = Math.floor(n / 32);
+    const current = this.bits[arrayIndex];
+    if (current === undefined) {
+      this.bits[arrayIndex] = 0;
+    } else {
+      const bitIndex = n % 32;
+      this.bits[arrayIndex] = current & (1 << bitIndex);
+    }
+  }
+
+  hasIndexBitmask(arrayIndex: number, bitmask: number) {
+    return (this.bits[arrayIndex] & bitmask) !== 0;
+  }
+
+  hasBit(bptr: BitPtr) {
+    return this.hasIndexBitmask(bptr.arrayIndex, bptr.bitmask);
   }
 
   has(n: number): boolean {
-    return (this.bits & (1 << n)) !== 0;
+    const arrayIndex = Math.floor(n / 32);
+    if (arrayIndex >= this.bits.length) return false;
+    const bitIndex = n % 32;
+    const bitmask = 1 << bitIndex;
+    return this.hasIndexBitmask(arrayIndex, bitmask);
   }
 
   forEach(callback: (n: number) => void): void {
-    let currentBits = this.bits;
-    for (let i = 0; i < 32; i++) {
-      if ((currentBits & 1) !== 0) {
-        callback(i);
+    this.bits.forEach((b, j) => {
+      for (let i = 0; i < 32; i++) {
+        if ((b & 1) !== 0) {
+          callback(i + j * 32);
+        }
+        b >>= 1;
       }
-      currentBits >>= 1;
-    }
+    });
+  }
+}
+
+export class BitPtr {
+  public readonly arrayIndex: number;
+  public readonly bitmask: number;
+  constructor(n: number) {
+    this.arrayIndex = Math.floor(n / 32);
+    this.bitmask = 1 << n % 32;
+  }
+  public equals(other: BitPtr) {
+    return this.arrayIndex == other.arrayIndex && this.bitmask == other.bitmask;
   }
 }
