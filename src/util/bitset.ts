@@ -9,6 +9,10 @@ export class Bitset {
     this.bits[arrayIndex] |= bitmask;
   }
 
+  setIndexBitmask(arrayIndex: number, bitmask: number) {
+    this.bits[arrayIndex] = bitmask;
+  }
+
   addBit(bptr: BitPtr) {
     this.addIndexBitmask(bptr.arrayIndex, bptr.bitmask);
   }
