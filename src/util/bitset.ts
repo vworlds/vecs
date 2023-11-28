@@ -23,11 +23,13 @@ export class Bitset {
     const arrayIndex = Math.floor(n / 32);
     const current = this.bits[arrayIndex];
     if (current === undefined) {
-      this.bits[arrayIndex] = 0;
+      return;
     } else {
       const bitIndex = n % 32;
       this.bits[arrayIndex] = current & (1 << bitIndex);
     }
+    while (this.bits.length && this.bits[this.bits.length - 1] === 0)
+      this.bits.pop();
   }
 
   hasIndexBitmask(arrayIndex: number, bitmask: number) {
@@ -44,6 +46,20 @@ export class Bitset {
     const bitIndex = n % 32;
     const bitmask = 1 << bitIndex;
     return this.hasIndexBitmask(arrayIndex, bitmask);
+  }
+
+  hasBitset(other: Bitset): boolean {
+    if (this.bits.length < other.bits.length) {
+      return false;
+    }
+
+    for (let i = 0; i < other.bits.length; i++) {
+      if ((this.bits[i] & other.bits[i]) !== other.bits[i]) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   forEach(callback: (n: number) => void): void {
