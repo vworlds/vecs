@@ -38,7 +38,7 @@ export class ArrayMap<T> {
   }
 
   clear() {
-    this.backend = [];
+    this.backend.length = 0;
   }
 
   get size(): number {
