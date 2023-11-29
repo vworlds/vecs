@@ -58,7 +58,7 @@ export class Bitset {
     }
 
     for (let i = 0; i < other.bits.length; i++) {
-      if ((this.bits[i] & other.bits[i]) !== other.bits[i]) {
+      if ((this.bits[i] & other.bits[i]) !== (other.bits[i] || 0)) {
         return false;
       }
     }
