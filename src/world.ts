@@ -1,0 +1,169 @@
+import { ComponentSnapshot, StateDiff } from "@vworlds/protocol";
+import { Component } from "./component.js";
+import { Entity } from "./entity.js";
+import { EntityTestFunc, System, SystemBase } from "./system.js";
+import { ArrayMap } from "../../util/array_map.js";
+import { Parent } from "../components/parent.js";
+import { Type } from "../components/types.js";
+import { BitPtr } from "../../util/bitset.js";
+
+export class World {
+  private entities = new Map<number, Entity>(); // maps entity Id to Entity
+  private archChangeQueue: Set<Entity> = new Set<Entity>();
+  private entitiesWithoutParent: Entity[] = [];
+  private systems = new ArrayMap<SystemBase>();
+  private componentClasses = new ArrayMap<typeof Component>();
+  private updatedComponents: Component[] = [];
+  constructor(private scene: Phaser.Scene) {}
+
+  private getOrCreateEntity(eid: number) {
+    let e = this.entities.get(eid);
+    if (!e) {
+      e = new Entity(this, eid);
+      this.entities.set(eid, e);
+    }
+    return e;
+  }
+
+  public _getComponentInstance(type: number) {
+    const ComponentClass = this.componentClasses.get(type);
+    if (!ComponentClass) {
+      throw "unregistered component type";
+    }
+    return new ComponentClass();
+  }
+
+  public archetypeChanged(e: Entity) {
+    this.archChangeQueue.add(e);
+    e.children.forEach((child) => this.archetypeChanged(child));
+  }
+
+  public _notifyComponentAdded(e: Entity, c: Component) {
+    if (c.type == Type.PARENT && e.parent === undefined)
+      this.entitiesWithoutParent.push(e);
+
+    this.archetypeChanged(e);
+  }
+
+  public _notifyComponentRemoved(e: Entity, c: Component) {
+    if (e.empty()) this.entities.delete(e.eid);
+    this.archetypeChanged(e);
+  }
+
+  private updateNetworkComponent(snapshot: ComponentSnapshot) {
+    const e = this.getOrCreateEntity(snapshot.eid);
+    const c = e.add(snapshot.type, false);
+    c.updateFromSnapshot(snapshot);
+    return c;
+  }
+
+  private removeNetworkComponent(cid: number) {
+    const type = cid & 0xff;
+    const eid = cid >> 8;
+    this.entities.get(eid)?.remove(type);
+  }
+
+  private updateArchetypes() {
+    this.entitiesWithoutParent.forEach((e) => {
+      const parent = e.get(Parent);
+      if (parent) {
+        const parentEntity = this.entities.get(parent.pid);
+        if (parentEntity) {
+          e.parent = parentEntity;
+          parentEntity.children.add(e);
+        } else console.error("Parent entity not found");
+      }
+    });
+    this.entitiesWithoutParent.length = 0;
+    if (this.archChangeQueue.size > 0) {
+      this.systems.forEach((s) => {
+        this.archChangeQueue.forEach((e) => {
+          if (s.belongs(e)) {
+            e._addSystem(s);
+          } else {
+            e._removeSystem(s);
+          }
+        });
+      });
+      this.archChangeQueue.forEach((e) => {
+        e.clearDeleted();
+        if (e.empty()) {
+          e.destroy();
+        }
+      });
+      this.archChangeQueue.clear();
+    }
+    this.updatedComponents.forEach((c) => {
+      c.entity._notifyModified(c);
+    });
+    this.updatedComponents.length = 0;
+  }
+
+  public _queueUpdatedComponent(c: Component) {
+    this.updatedComponents.push(c);
+  }
+
+  public register(ComponentClass: typeof Component) {
+    ComponentClass.bitPtr = new BitPtr(ComponentClass.type);
+    this.componentClasses.set(ComponentClass.type, ComponentClass);
+  }
+
+  public addSystem(s: SystemBase) {
+    this.systems.set(s.id, s);
+  }
+
+  public getSystem(key: number): SystemBase | undefined {
+    return this.systems.get(key);
+  }
+
+  public createSystem<S extends (typeof Component)[]>(
+    name: string,
+    componentWatchlist: readonly [...S],
+    entityTestFunc?: EntityTestFunc
+  ) {
+    const system = new System(name, componentWatchlist, entityTestFunc);
+    this.addSystem(system);
+    return system;
+  }
+
+  public scene_preload() {
+    this.componentClasses.forEach((ComponentClass) => {
+      ComponentClass.scene_preload(this.scene);
+    });
+  }
+
+  public scene_create() {
+    this.componentClasses.forEach((ComponentClass) => {
+      ComponentClass.scene_create(this.scene);
+    });
+  }
+
+  public update(diff: StateDiff) {
+    if (!diff.from) {
+      // this is a full snapshot. Destroy everything.
+      this.entities.forEach((e) => {
+        e.destroy();
+      });
+      this.entities.clear();
+    }
+
+    diff.snapshots?.forEach((snapshot) => {
+      this.updatedComponents.push(this.updateNetworkComponent(snapshot));
+    });
+
+    diff.removed?.forEach((id) => {
+      this.removeNetworkComponent(id);
+    });
+
+    this.updateArchetypes();
+
+    this.systems.forEach((s) => {
+      s.run();
+      this.updateArchetypes();
+    });
+  }
+
+  public getEntity(id: number): Entity | undefined {
+    return this.entities.get(id);
+  }
+}
