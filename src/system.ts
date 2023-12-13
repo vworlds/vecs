@@ -16,7 +16,7 @@ export abstract class SystemBase {
   protected _onEnter: EntityCallback[] = [];
   protected _onExit: EntityCallback[] = [];
   protected readonly _belongs: EntityTestFunc | undefined;
-  private readonly updateQueue: Component[] = [];
+  private readonly updateQueue: (Component | undefined)[] = [];
 
   public readonly watchlistBitmask: Bitset;
   public readonly key: BitPtr;
@@ -53,9 +53,15 @@ export abstract class SystemBase {
   }
   public exit(e: Entity) {
     this._onExit.forEach((callback) => callback(e));
+    // remove queued updates for components of the exiting entity:
+    this.updateQueue.forEach((c, i) => {
+      if (!c) return;
+      if (c.entity === e) this.updateQueue[i] = undefined;
+    });
   }
   public run() {
     this.updateQueue.forEach((c) => {
+      if (!c) return;
       const callback = this.callbacks.get(c.type);
       if (callback) {
         callback(c);
