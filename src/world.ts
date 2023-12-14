@@ -9,7 +9,7 @@ import { BitPtr } from "../../util/bitset.js";
 
 export class World {
   private entities = new Map<number, Entity>(); // maps entity Id to Entity
-  private archChangeQueue: Set<Entity> = new Set<Entity>();
+  private archChangeQueue: Entity[] = [];
   private entitiesWithoutParent: Entity[] = [];
   private systems = new ArrayMap<SystemBase>();
   private componentClasses = new ArrayMap<typeof Component>();
@@ -34,7 +34,9 @@ export class World {
   }
 
   public archetypeChanged(e: Entity) {
-    this.archChangeQueue.add(e);
+    if (e._archetypeChanged) return;
+    e._archetypeChanged = true;
+    this.archChangeQueue.push(e);
     e.children.forEach((child) => this.archetypeChanged(child));
   }
 
@@ -75,7 +77,7 @@ export class World {
       }
     });
     this.entitiesWithoutParent.length = 0;
-    if (this.archChangeQueue.size > 0) {
+    if (this.archChangeQueue.length > 0) {
       this.systems.forEach((s) => {
         this.archChangeQueue.forEach((e) => {
           if (s.belongs(e)) {
@@ -91,11 +93,15 @@ export class World {
           e.destroy();
         }
       });
-      this.archChangeQueue.clear();
     }
     this.updatedComponents.forEach((c) => {
       c.entity._notifyModified(c);
     });
+    this.archChangeQueue.forEach((e) => {
+      e._updateSystems();
+      e._archetypeChanged = false;
+    });
+    this.archChangeQueue.length = 0;
     this.updatedComponents.length = 0;
   }
 

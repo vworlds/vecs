@@ -13,10 +13,12 @@ export class Entity {
 
   public readonly componentBitmask = new Bitset();
   private readonly systems = new Set<SystemBase>();
+  private readonly newSystems: SystemBase[] = [];
   public properties = new Map<string, any>();
   public declare _events: EntityEvents;
   public parent: Entity | undefined;
   private _children: Set<Entity> | undefined;
+  public _archetypeChanged: boolean = false;
 
   constructor(public readonly world: World, public readonly eid: number) {}
 
@@ -101,7 +103,7 @@ export class Entity {
 
   public _addSystem(s: SystemBase) {
     if (!this.systems.has(s)) {
-      this.systems.add(s);
+      this.newSystems.push(s);
       s.enter(this);
     }
   }
@@ -110,6 +112,13 @@ export class Entity {
     if (this.systems.delete(s)) {
       s.exit(this);
     }
+  }
+
+  public _updateSystems() {
+    this.newSystems.forEach((s) => {
+      this.systems.add(s);
+    });
+    this.newSystems.length = 0;
   }
 
   public empty() {
@@ -134,5 +143,9 @@ export class Entity {
   }
   public clearDeleted() {
     this.deletedComponents.clear();
+  }
+
+  public forEachComponent(callback: (c: Component) => void) {
+    this.components.forEach(callback);
   }
 }

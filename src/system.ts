@@ -50,6 +50,7 @@ export abstract class SystemBase {
 
   public enter(e: Entity) {
     this._onEnter.forEach((callback) => callback(e));
+    e.forEachComponent((c) => this.notifyModified(c));
   }
   public exit(e: Entity) {
     this._onExit.forEach((callback) => callback(e));
