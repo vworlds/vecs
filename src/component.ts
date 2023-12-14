@@ -8,9 +8,6 @@ export class Component {
   public static type: Type = 255;
   public static bitPtr: BitPtr;
 
-  public static scene_preload(scene: Phaser.Scene) {}
-  public static scene_create(scene: Phaser.Scene) {}
-
   public updateFromSnapshot(state: ComponentSnapshot) {}
 
   public get type(): number {

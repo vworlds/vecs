@@ -122,7 +122,7 @@ export class World {
     return this.systems.get(key);
   }
 
-  public createSystem<S extends (typeof Component)[]>(
+  public system<S extends (typeof Component)[]>(
     name: string,
     componentWatchlist: readonly [...S],
     entityTestFunc?: EntityTestFunc
@@ -130,18 +130,6 @@ export class World {
     const system = new System(name, componentWatchlist, entityTestFunc);
     this.addSystem(system);
     return system;
-  }
-
-  public scene_preload() {
-    this.componentClasses.forEach((ComponentClass) => {
-      ComponentClass.scene_preload(this.scene);
-    });
-  }
-
-  public scene_create() {
-    this.componentClasses.forEach((ComponentClass) => {
-      ComponentClass.scene_create(this.scene);
-    });
   }
 
   public update(diff: StateDiff) {
