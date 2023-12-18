@@ -1,11 +1,13 @@
 import { ComponentSnapshot, StateDiff } from "@vworlds/protocol";
 import { Component } from "./component.js";
 import { Entity } from "./entity.js";
-import { EntityTestFunc, System, SystemBase } from "./system.js";
+import { EntityTestFunc, PARENT, System, SystemBase } from "./system.js";
 import { ArrayMap } from "../../util/array_map.js";
-import { Parent } from "../components/parent.js";
-import { Type } from "../components/types.js";
+import { Parent } from "./parent.js";
 import { BitPtr } from "../../util/bitset.js";
+import { TagModule } from "./tags.js";
+
+const PARENT_TYPE = 31;
 
 export class World {
   private entities = new Map<number, Entity>(); // maps entity Id to Entity
@@ -14,7 +16,11 @@ export class World {
   private systems = new ArrayMap<SystemBase>();
   private componentClasses = new ArrayMap<typeof Component>();
   private updatedComponents: Component[] = [];
-  constructor(private scene: Phaser.Scene) {}
+  public readonly tags: TagModule;
+  constructor() {
+    this.register(Parent, PARENT_TYPE);
+    this.tags = new TagModule(this);
+  }
 
   private getOrCreateEntity(eid: number) {
     let e = this.entities.get(eid);
@@ -41,7 +47,7 @@ export class World {
   }
 
   public _notifyComponentAdded(e: Entity, c: Component) {
-    if (c.type == Type.PARENT && e.parent === undefined)
+    if (c.type == PARENT_TYPE && e.parent === undefined)
       this.entitiesWithoutParent.push(e);
 
     this.archetypeChanged(e);
@@ -112,7 +118,12 @@ export class World {
     this.updatedComponents.push(c);
   }
 
-  public register(ComponentClass: typeof Component) {
+  public register(ComponentClass: typeof Component, type: number) {
+    const C = this.componentClasses.get(type);
+    if (C) {
+      throw `Component ${type} already registered`;
+    }
+    ComponentClass.type = type;
     ComponentClass.bitPtr = new BitPtr(ComponentClass.type);
     this.componentClasses.set(ComponentClass.type, ComponentClass);
   }

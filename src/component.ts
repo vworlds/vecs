@@ -1,7 +1,7 @@
 import { ComponentSnapshot } from "@vworlds/protocol";
 import { BitPtr, Bitset } from "../../util/bitset.js";
 import type { Entity } from "./entity.js";
-import { Type } from "../components/types.js";
+import { Type } from "../types.js";
 
 export class Component {
   public entity!: Entity;
