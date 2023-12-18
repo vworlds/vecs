@@ -69,7 +69,7 @@ export class TagModule {
     return h;
   }
 
-  mapTagToComponents(tagId: number, ...ComponentClasses: (typeof Component)[]) {
+  map(tagId: number, ComponentClasses: (typeof Component)[]) {
     this.with(tagId)
       .onCreate((e) => {
         ComponentClasses.forEach((C) => {
@@ -82,9 +82,9 @@ export class TagModule {
         });
       });
   }
-  public createTagComponent(type: Type) {
+  public createTagComponent() {
     class TagComponent extends Component {}
-    this.world.register(TagComponent, type);
+    this.world.register(TagComponent);
     return TagComponent;
   }
 }

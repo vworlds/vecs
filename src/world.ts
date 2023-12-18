@@ -8,6 +8,7 @@ import { BitPtr } from "../../util/bitset.js";
 import { TagModule } from "./tags.js";
 
 const PARENT_TYPE = 31;
+const LOCAL_COMPONENT_MIN = 256;
 
 export class World {
   private entities = new Map<number, Entity>(); // maps entity Id to Entity
@@ -16,6 +17,7 @@ export class World {
   private systems = new ArrayMap<SystemBase>();
   private componentClasses = new ArrayMap<typeof Component>();
   private updatedComponents: Component[] = [];
+  private localComponentCounter = LOCAL_COMPONENT_MIN;
   public readonly tags: TagModule;
   constructor() {
     this.register(Parent, PARENT_TYPE);
@@ -118,7 +120,12 @@ export class World {
     this.updatedComponents.push(c);
   }
 
-  public register(ComponentClass: typeof Component, type: number) {
+  public register(ComponentClass: typeof Component, type?: number | undefined) {
+    if (type === undefined) {
+      type = this.localComponentCounter++;
+    } else if (type >= LOCAL_COMPONENT_MIN) {
+      throw `Network components must have type < ${LOCAL_COMPONENT_MIN}"`;
+    }
     const C = this.componentClasses.get(type);
     if (C) {
       throw `Component ${type} already registered`;
