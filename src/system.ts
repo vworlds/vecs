@@ -186,21 +186,21 @@ export class System<S extends (typeof Component)[]> extends SystemBase {
     callback: (c: InstanceType<C>) => void
   ): System<S>;
 
-  onUpdate<C extends S[number], J extends S[number][]>(
+  onUpdate<C extends S[number], J extends (typeof Component)[]>(
     ComponentClass: C,
     inject: readonly [...J],
     callback: (
       c: InstanceType<C>,
-      injected: { [K in keyof J]: InstanceType<J[K]> }
+      injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
   ): System<S>;
 
-  onUpdate<C extends S[number], J extends S[number][]>(
+  onUpdate<C extends S[number], J extends (typeof Component)[]>(
     ComponentClass: C,
     injectOrCallback: readonly [...J] | ((c: InstanceType<C>) => void),
     callback?: (
       c: InstanceType<C>,
-      injected: { [K in keyof J]: InstanceType<J[K]> }
+      injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
   ): System<S> {
     if (typeof injectOrCallback === "function") {

@@ -7,6 +7,7 @@ export class Component {
   public entity!: Entity;
   public static type: Type = 255;
   public static bitPtr: BitPtr;
+  private dirty: boolean = false;
 
   public updateFromSnapshot(state: ComponentSnapshot) {}
 

@@ -96,6 +96,7 @@ export class World {
     }
     this.updatedComponents.forEach((c) => {
       c.entity._notifyModified(c);
+      c["dirty"] = false;
     });
     this.archChangeQueue.forEach((e) => {
       e._updateSystems();
@@ -106,6 +107,8 @@ export class World {
   }
 
   public _queueUpdatedComponent(c: Component) {
+    if (c["dirty"]) return;
+    c["dirty"] = true;
     this.updatedComponents.push(c);
   }
 
