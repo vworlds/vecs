@@ -20,7 +20,7 @@ export class World {
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   public readonly tags: TagModule;
   constructor() {
-    this.register(Parent, PARENT_TYPE);
+    this.register(Parent, PARENT_TYPE, "NetworkedParent");
     this.tags = new TagModule(this);
   }
 
@@ -39,6 +39,10 @@ export class World {
       throw "unregistered component type";
     }
     return new ComponentClass();
+  }
+
+  public getComponentClass(type: number) {
+    return this.componentClasses.get(type);
   }
 
   public archetypeChanged(e: Entity) {
@@ -120,7 +124,11 @@ export class World {
     this.updatedComponents.push(c);
   }
 
-  public register(ComponentClass: typeof Component, type?: number | undefined) {
+  public register(
+    ComponentClass: typeof Component,
+    type?: number | undefined,
+    componentName?: string | undefined
+  ) {
     if (type === undefined) {
       type = this.localComponentCounter++;
     } else if (type >= LOCAL_COMPONENT_MIN) {
@@ -131,6 +139,7 @@ export class World {
       throw `Component ${type} already registered`;
     }
     ComponentClass.type = type;
+    ComponentClass.componentName = componentName || ComponentClass.name;
     ComponentClass.bitPtr = new BitPtr(ComponentClass.type);
     this.componentClasses.set(ComponentClass.type, ComponentClass);
   }

@@ -5,7 +5,8 @@ import { Type } from "../types.js";
 
 export class Component {
   public entity!: Entity;
-  public static type: Type = 255;
+  public static type: number = 255;
+  public static componentName: string = "anonymous";
   public static bitPtr: BitPtr;
   private dirty: boolean = false;
 

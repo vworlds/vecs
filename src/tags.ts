@@ -38,7 +38,7 @@ export class TagHandler {
 export class TagModule {
   private handlers = new Map<number, TagHandler>();
   constructor(private world: World) {
-    world.register(Tags, TAGS_TYPE);
+    world.register(Tags, TAGS_TYPE, "NetworkedTags");
     world
       .system("Tags", [Tags])
       .onUpdate(Tags, (tags) => {
