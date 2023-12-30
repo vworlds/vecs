@@ -44,7 +44,7 @@ export class Entity {
     if (c) {
       return c;
     }
-    c = this.world._getComponentInstance(type);
+    c = this.world["getComponentInstance"](type);
 
     c.entity = this;
     this.components.set(type, c);

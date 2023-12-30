@@ -33,7 +33,7 @@ export class World {
     return e;
   }
 
-  public _getComponentInstance(type: number) {
+  private getComponentInstance(type: number) {
     const ComponentClass = this.componentClasses.get(type);
     if (!ComponentClass) {
       throw "unregistered component type";
