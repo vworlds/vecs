@@ -74,7 +74,13 @@ export class World {
   private removeNetworkComponent(cid: number) {
     const type = cid & 0xff;
     const eid = cid >> 8;
-    this.entities.get(eid)?.remove(type);
+    const e = this.entities.get(eid);
+    if (!e) return;
+    if (type == 255) {
+      e.forEachComponent((c) => {
+        e.remove(c.type);
+      });
+    } else e.remove(type);
   }
 
   private updateArchetypes() {
