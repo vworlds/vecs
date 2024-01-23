@@ -80,7 +80,9 @@ export class World {
       e.forEachComponent((c) => {
         e.remove(c.type);
       });
-    } else e.remove(type);
+    } else {
+      e.remove(type);
+    }
   }
 
   private updateArchetypes() {

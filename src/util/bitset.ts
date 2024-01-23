@@ -29,8 +29,7 @@ export class Bitset {
     if (current === undefined) {
       return;
     } else {
-      const bitIndex = n % 32;
-      this.bits[arrayIndex] = current & (1 << bitIndex);
+      this.bits[arrayIndex] = current & ~(1 << n % 32);
     }
     while (this.bits.length && this.bits[this.bits.length - 1] === 0)
       this.bits.pop();
