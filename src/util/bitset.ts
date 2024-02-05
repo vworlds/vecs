@@ -5,6 +5,13 @@ export class Bitset {
     this.bits = [];
   }
 
+  equal(other: Bitset) {
+    return (
+      this.bits.length === other.bits.length &&
+      this.bits.every((v, i) => other.bits[i] === v)
+    );
+  }
+
   addIndexBitmask(arrayIndex: number, bitmask: number) {
     this.bits[arrayIndex] |= bitmask;
   }

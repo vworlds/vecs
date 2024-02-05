@@ -234,7 +234,7 @@ export function HAS(...components: ComponentClassArray): EntityTestFunc {
 
 export function HAS_ONLY(...components: ComponentClassArray): EntityTestFunc {
   const testBitmask = calculateComponentBitmask(components);
-  return (e: Entity) => e.componentBitmask === testBitmask;
+  return (e: Entity) => e.componentBitmask.equal(testBitmask);
 }
 
 export function NOT(func: EntityTestFunc): EntityTestFunc {
