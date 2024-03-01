@@ -20,7 +20,7 @@ export class World {
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   public readonly tags: TagModule;
   constructor() {
-    this.register(Parent, PARENT_TYPE, "NetworkedParent");
+    this.registerComponent(Parent, PARENT_TYPE, "NetworkedParent");
     this.tags = new TagModule(this);
   }
 
@@ -36,7 +36,7 @@ export class World {
   private getComponentInstance(type: number) {
     const ComponentClass = this.componentClasses.get(type);
     if (!ComponentClass) {
-      throw "unregistered component type";
+      throw `unregistered component type ${type}`;
     }
     return new ComponentClass();
   }
@@ -132,11 +132,34 @@ export class World {
     this.updatedComponents.push(c);
   }
 
-  public register(
+  public registerComponent(ComponentClass: typeof Component): void;
+  public registerComponent(
     ComponentClass: typeof Component,
-    type?: number | undefined,
-    componentName?: string | undefined
-  ) {
+    type: number
+  ): void;
+  public registerComponent(
+    ComponentClass: typeof Component,
+    componentName?: string
+  ): void;
+  public registerComponent(
+    ComponentClass: typeof Component,
+    type: number,
+    componentName: string
+  ): void;
+  public registerComponent(
+    ComponentClass: typeof Component,
+    typeOrComponentName?: number | string,
+    componentName?: string
+  ): void {
+    let type: number | undefined = undefined;
+
+    // Determine if the second argument is type or componentName based on its type
+    if (typeof typeOrComponentName === "number") {
+      type = typeOrComponentName;
+    } else if (typeof typeOrComponentName === "string") {
+      componentName = typeOrComponentName;
+    }
+
     if (type === undefined) {
       type = this.localComponentCounter++;
     } else if (type >= LOCAL_COMPONENT_MIN) {
