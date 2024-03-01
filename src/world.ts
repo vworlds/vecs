@@ -12,6 +12,7 @@ const LOCAL_COMPONENT_MIN = 256;
 
 export class World {
   private entities = new Map<number, Entity>(); // maps entity Id to Entity
+  private componentNameTypeMap = new Map<string, number>();
   private archChangeQueue: Entity[] = [];
   private entitiesWithoutParent: Entity[] = [];
   private systems = new ArrayMap<SystemBase>();
@@ -19,6 +20,7 @@ export class World {
   private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   public readonly tags: TagModule;
+  private registrationDisabled = false;
   constructor() {
     this.registerComponent(Parent, PARENT_TYPE, "NetworkedParent");
     this.tags = new TagModule(this);
@@ -151,6 +153,9 @@ export class World {
     typeOrComponentName?: number | string,
     componentName?: string
   ): void {
+    if (this.registrationDisabled) {
+      throw "World component registartion is disabled";
+    }
     let type: number | undefined = undefined;
 
     // Determine if the second argument is type or componentName based on its type
@@ -160,19 +165,37 @@ export class World {
       componentName = typeOrComponentName;
     }
 
+    componentName = componentName || ComponentClass.name;
+    let local = false;
     if (type === undefined) {
-      type = this.localComponentCounter++;
-    } else if (type >= LOCAL_COMPONENT_MIN) {
-      throw `Network components must have type < ${LOCAL_COMPONENT_MIN}"`;
+      // attempt to get type id from name->type map
+      type = this.componentNameTypeMap.get(componentName);
+      if (type === undefined) {
+        type = this.localComponentCounter++;
+        local = true;
+      }
     }
+
     const C = this.componentClasses.get(type);
     if (C) {
-      throw `Component ${type} already registered`;
+      if (local) this.localComponentCounter--;
+      throw `Trying to register ${componentName} with type=${type} which is already registered to ${C.name}`;
     }
+    this.registerComponentType(componentName, type);
     ComponentClass.type = type;
-    ComponentClass.componentName = componentName || ComponentClass.name;
+    ComponentClass.componentName = componentName;
     ComponentClass.bitPtr = new BitPtr(ComponentClass.type);
     this.componentClasses.set(ComponentClass.type, ComponentClass);
+    console.log(
+      "Registered component %s with type=%d as %s component",
+      componentName,
+      type,
+      local ? "local" : "networked"
+    );
+  }
+
+  public registerComponentType(componentName: string, type: number) {
+    this.componentNameTypeMap.set(componentName, type);
   }
 
   public addSystem(s: SystemBase) {
@@ -220,5 +243,9 @@ export class World {
 
   public getEntity(id: number): Entity | undefined {
     return this.entities.get(id);
+  }
+
+  public disableRegistration() {
+    this.registrationDisabled = true;
   }
 }

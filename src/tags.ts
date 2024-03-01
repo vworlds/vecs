@@ -1,7 +1,6 @@
 import { Component } from "./component.js";
 import { type World } from "./world.js";
 import { Entity } from "./entity.js";
-import { Type } from "../types.js";
 import { Bitset } from "../../util/bitset.js";
 import { ComponentSnapshot } from "@vworlds/protocol";
 
@@ -82,9 +81,9 @@ export class TagModule {
         });
       });
   }
-  public createTagComponent() {
+  public createTagComponent(componentName: string) {
     class TagComponent extends Component {}
-    this.world.registerComponent(TagComponent);
+    this.world.registerComponent(TagComponent, componentName);
     return TagComponent;
   }
 }
