@@ -1,13 +1,12 @@
 import { ComponentSnapshot } from "@vworlds/protocol";
 import { BitPtr, Bitset } from "../../util/bitset.js";
 import type { Entity } from "./entity.js";
-import { Type } from "../types.js";
 
 export class Component {
   public entity!: Entity;
-  public static type: number = 255;
+  public static _type: number;
   public static componentName: string = "anonymous";
-  public static bitPtr: BitPtr;
+  public static _bitPtr: BitPtr;
   private dirty: boolean = false;
 
   public updateFromSnapshot(state: ComponentSnapshot) {}
@@ -15,6 +14,22 @@ export class Component {
   public get type(): number {
     const ComponentClass = this.constructor as typeof Component;
     return ComponentClass.type;
+  }
+
+  public static get type() {
+    return this._type;
+  }
+
+  public static set type(t: number) {
+    if (t === this._type) return;
+    if (this._type !== undefined)
+      throw `Component type was already set to ${this._type}`;
+    this._bitPtr = new BitPtr(t);
+    this._type = t;
+  }
+
+  public static get bitPtr(): BitPtr {
+    return this._bitPtr;
   }
 
   public modified() {

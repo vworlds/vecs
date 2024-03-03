@@ -17,11 +17,10 @@ export abstract class SystemBase {
   protected _onExit: EntityCallback[] = [];
   protected readonly _belongs: EntityTestFunc | undefined;
   private readonly updateQueue: (Component | undefined)[] = [];
+  private _writes: (typeof Component)[] = [];
+  private _reads: (typeof Component)[] = [];
 
   public readonly watchlistBitmask: Bitset;
-  public readonly key: BitPtr;
-  public readonly id: number;
-  private static keyCounter: number = 0;
   constructor(
     public readonly name: string,
     public readonly componentWatchlist: ComponentClassArray,
@@ -29,12 +28,27 @@ export abstract class SystemBase {
   ) {
     this.watchlistBitmask = calculateComponentBitmask(componentWatchlist);
     this._belongs = entityTestFunc;
-    this.id = SystemBase.keyCounter++;
-    this.key = new BitPtr(this.id);
+    this._reads = componentWatchlist;
   }
 
   public toString(): string {
     return this.name;
+  }
+
+  public writes(...w: ComponentClassArray) {
+    this._writes.push(...w);
+    return this;
+  }
+  public reads(...r: ComponentClassArray) {
+    this._reads.push(...r);
+    return this;
+  }
+
+  public getWrites() {
+    return this._writes;
+  }
+  public getReads() {
+    return this._reads;
   }
 
   public notifyModified(c: Component) {

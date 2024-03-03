@@ -3,6 +3,7 @@ import { type World } from "./world.js";
 import { Entity } from "./entity.js";
 import { Bitset } from "../../util/bitset.js";
 import { ComponentSnapshot } from "@vworlds/protocol";
+import { SystemBase } from "./system.js";
 
 const TAGS_TYPE = 30;
 
@@ -36,9 +37,10 @@ export class TagHandler {
 
 export class TagModule {
   private handlers = new Map<number, TagHandler>();
+  private system: SystemBase;
   constructor(private world: World) {
     world.registerComponent(Tags, TAGS_TYPE, "NetworkedTags");
-    world
+    this.system = world
       .system("Tags", [Tags])
       .onUpdate(Tags, (tags) => {
         this.handlers.forEach((h, id) => {
@@ -80,6 +82,8 @@ export class TagModule {
           e.remove(C);
         });
       });
+    this.system.writes(...ComponentClasses);
+    this.world.reindexSystems();
   }
   public createTagComponent(componentName: string) {
     class TagComponent extends Component {}

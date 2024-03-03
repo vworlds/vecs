@@ -4,8 +4,8 @@ import { Entity } from "./entity.js";
 import { EntityTestFunc, PARENT, System, SystemBase } from "./system.js";
 import { ArrayMap } from "../../util/array_map.js";
 import { Parent } from "./parent.js";
-import { BitPtr } from "../../util/bitset.js";
 import { TagModule } from "./tags.js";
+import { sortSystems } from "./sort.js";
 
 const PARENT_TYPE = 31;
 const LOCAL_COMPONENT_MIN = 256;
@@ -15,12 +15,13 @@ export class World {
   private componentNameTypeMap = new Map<string, number>();
   private archChangeQueue: Entity[] = [];
   private entitiesWithoutParent: Entity[] = [];
-  private systems = new ArrayMap<SystemBase>();
+  private systems: SystemBase[] = [];
   private componentClasses = new ArrayMap<typeof Component>();
   private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   public readonly tags: TagModule;
-  private registrationDisabled = false;
+  private componentRegistrationDisabled = false;
+  private systemRegistrationDisabled = false;
   constructor() {
     this.registerComponent(Parent, PARENT_TYPE, "NetworkedParent");
     this.tags = new TagModule(this);
@@ -153,7 +154,7 @@ export class World {
     typeOrComponentName?: number | string,
     componentName?: string
   ): void {
-    if (this.registrationDisabled) {
+    if (this.componentRegistrationDisabled) {
       throw "World component registartion is disabled";
     }
     let type: number | undefined = undefined;
@@ -184,7 +185,6 @@ export class World {
     this.registerComponentType(componentName, type);
     ComponentClass.type = type;
     ComponentClass.componentName = componentName;
-    ComponentClass.bitPtr = new BitPtr(ComponentClass.type);
     this.componentClasses.set(ComponentClass.type, ComponentClass);
     console.log(
       "Registered component %s with type=%d as %s component",
@@ -199,11 +199,7 @@ export class World {
   }
 
   public addSystem(s: SystemBase) {
-    this.systems.set(s.id, s);
-  }
-
-  public getSystem(key: number): SystemBase | undefined {
-    return this.systems.get(key);
+    this.systems.push(s);
   }
 
   public system<S extends (typeof Component)[]>(
@@ -245,7 +241,18 @@ export class World {
     return this.entities.get(id);
   }
 
-  public disableRegistration() {
-    this.registrationDisabled = true;
+  public disableComponentRegistration() {
+    this.componentRegistrationDisabled = true;
+  }
+
+  public start() {
+    this.componentRegistrationDisabled = true;
+    this.systemRegistrationDisabled = true;
+    this.reindexSystems();
+  }
+  public reindexSystems() {
+    this.systems = sortSystems(this.systems);
+    console.log("Reindexed systems:");
+    this.systems.forEach((s) => console.log(s.name));
   }
 }
