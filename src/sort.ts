@@ -1,23 +1,16 @@
 import { SystemBase } from "./system.js";
 
-class Graph {
-  adjacencyList: Map<SystemBase, SystemBase[]>;
-
-  constructor() {
-    this.adjacencyList = new Map();
-  }
-
-  addEdge(from: SystemBase, to: SystemBase): void {
-    if (!this.adjacencyList.get(from)) {
-      this.adjacencyList.set(from, []);
-    }
-    this.adjacencyList.get(from)?.push(to);
-  }
-}
+type Graph = Map<SystemBase, SystemBase[]>;
 
 function buildGraph(systems: SystemBase[]): Graph {
-  const graph = new Graph();
+  const graph = new Map<SystemBase, SystemBase[]>();
 
+  // Initialize the adjacency list with all systems
+  systems.forEach((system) => {
+    graph.set(system, []);
+  });
+
+  // Now, add edges based on the write-read relationships
   for (let i = 0; i < systems.length; i++) {
     for (let j = 0; j < systems.length; j++) {
       if (
@@ -26,7 +19,7 @@ function buildGraph(systems: SystemBase[]): Graph {
           .getWrites()
           .some((component) => systems[j].getReads().includes(component))
       ) {
-        graph.addEdge(systems[i], systems[j]);
+        graph.get(systems[i])?.push(systems[j]);
       }
     }
   }
@@ -42,7 +35,7 @@ function topologicalSortUtil(
 ): void {
   visited.add(system);
 
-  const neighbors = graph.adjacencyList.get(system);
+  const neighbors = graph.get(system);
   neighbors?.forEach((neighbor) => {
     if (!visited.has(neighbor)) {
       topologicalSortUtil(neighbor, visited, stack, graph);
@@ -56,7 +49,7 @@ function topologicalSort(graph: Graph): SystemBase[] {
   let stack: SystemBase[] = [];
   let visited = new Set<SystemBase>();
 
-  graph.adjacencyList.forEach((_, system) => {
+  graph.forEach((_, system) => {
     if (!visited.has(system)) {
       topologicalSortUtil(system, visited, stack, graph);
     }
