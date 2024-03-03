@@ -35,6 +35,10 @@ export class Component {
   public modified() {
     this.entity.world._queueUpdatedComponent(this);
   }
+
+  public static toString(): string {
+    return this.componentName;
+  }
 }
 
 export type ComponentClassArray = (typeof Component)[];
