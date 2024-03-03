@@ -11,14 +11,16 @@ type EntityCallback = (e: Entity) => void;
 type ComponentCallback = (c: Component) => void;
 export type EntityTestFunc = (e: Entity) => boolean;
 
+export type SystemDependency = string | symbol | typeof Component;
+
 export abstract class SystemBase {
   protected callbacks = new ArrayMap<ComponentCallback>();
   protected _onEnter: EntityCallback[] = [];
   protected _onExit: EntityCallback[] = [];
   protected readonly _belongs: EntityTestFunc | undefined;
   private readonly updateQueue: (Component | undefined)[] = [];
-  private _writes: (typeof Component)[] = [];
-  private _reads: (typeof Component)[] = [];
+  private _writes: SystemDependency[] = [];
+  private _reads: SystemDependency[] = [];
 
   public readonly watchlistBitmask: Bitset;
   constructor(
@@ -35,11 +37,11 @@ export abstract class SystemBase {
     return this.name;
   }
 
-  public writes(...w: ComponentClassArray) {
+  public writes(...w: SystemDependency[]) {
     this._writes.push(...w);
     return this;
   }
-  public reads(...r: ComponentClassArray) {
+  public reads(...r: SystemDependency[]) {
     this._reads.push(...r);
     return this;
   }

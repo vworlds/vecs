@@ -1,13 +1,31 @@
-import { SystemBase } from "./system.js";
+import { SystemBase, SystemDependency } from "./system.js";
 
 type Graph = Map<SystemBase, SystemBase[]>;
 
 function buildGraph(systems: SystemBase[]): Graph {
   const graph = new Map<SystemBase, SystemBase[]>();
+  const componentWriters = new Map<SystemDependency, SystemBase>(); // Track which system writes to each component
 
   // Initialize the adjacency list with all systems
   systems.forEach((system) => {
     graph.set(system, []);
+  });
+
+  // Now, add edges based on the write-read relationships and check for write conflicts
+  systems.forEach((writerSystem) => {
+    writerSystem.getWrites().forEach((dependency) => {
+      const conflictingSystem = componentWriters.get(dependency);
+      if (conflictingSystem) {
+        // Throw an exception if another system is found writing to the same component
+        throw new Error(
+          `Component write conflict for component/symbol "${String(
+            dependency
+          )}" between "${writerSystem.name}" and "${conflictingSystem.name}".`
+        );
+      } else {
+        componentWriters.set(dependency, writerSystem); // Mark this system as the writer for the component
+      }
+    });
   });
 
   // Now, add edges based on the write-read relationships

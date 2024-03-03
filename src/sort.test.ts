@@ -1,66 +1,63 @@
-import { Component } from "./component.js";
 import { sortSystems } from "./sort.js";
-import { System, SystemBase } from "./system.js";
+import { System, SystemBase, SystemDependency } from "./system.js";
 
 function makeComponent(type: number) {
-  class TestComponent extends Component {}
-  TestComponent.type = type;
-  TestComponent.componentName = `Component${type}`;
-  return TestComponent;
+  return Symbol(`Component${type}`);
 }
 
 function createSystem(
   id: number,
-  reads: (typeof Component)[],
-  writes: (typeof Component)[]
+  reads: SystemDependency[],
+  writes: SystemDependency[]
 ) {
-  return new System(`system${id}`, reads).writes(...writes);
+  return new System(`system${id}`, []).reads(...reads).writes(...writes);
 }
 
-test("basic dependency resolution", () => {
-  const Component1 = makeComponent(1);
-  const Component2 = makeComponent(2);
-  const Component3 = makeComponent(3);
-  const Component4 = makeComponent(4);
+const C1 = makeComponent(1);
+const C2 = makeComponent(2);
+const C3 = makeComponent(3);
+const C4 = makeComponent(4);
+const C5 = makeComponent(5);
 
+test("basic dependency resolution", () => {
   const systems: SystemBase[] = [];
-  systems.push(createSystem(1, [Component1, Component2], [Component3]));
-  systems.push(createSystem(2, [Component3], [Component4]));
-  systems.push(createSystem(3, [Component1], [Component2]));
-  systems.push(createSystem(4, [Component1], []));
-  systems.push(createSystem(5, [Component1], [Component3]));
+  systems.push(createSystem(0, [C1, C2, C3], [C5]));
+  systems.push(createSystem(1, [C1, C2], ["test"]));
+  systems.push(createSystem(2, [C3, C5], [C4]));
+  systems.push(createSystem(3, [C1], [C2]));
+  systems.push(createSystem(4, [C1], []));
+  systems.push(createSystem(5, [C1], [C3]));
+  systems.push(createSystem(6, [], [C1]));
+  systems.push(createSystem(7, ["test"], []));
 
   const sortedSystems = sortSystems(systems);
   const systemNames = sortedSystems.map((s) => s.name);
 
   expect(systemNames).toStrictEqual([
+    "system6",
     "system5",
     "system4",
     "system3",
     "system1",
+    "system7",
+    "system0",
     "system2",
   ]);
 });
 
 // Multiple Dependencies: Testing sorting with systems having complex interdependencies
 test("multiple dependencies", () => {
-  const Component1 = makeComponent(1);
-  const Component2 = makeComponent(2);
-  const Component3 = makeComponent(3);
-  const Component4 = makeComponent(4);
-  const Component5 = makeComponent(5);
-
   const systems: SystemBase[] = [];
   // System 1 writes to Component 1 and 2, read by multiple systems
-  systems.push(createSystem(1, [], [Component1, Component2]));
+  systems.push(createSystem(1, [], [C1, C2]));
   // System 2 reads from Component 1 and writes to Component 3, creating a chain of dependencies
-  systems.push(createSystem(2, [Component1], [Component3]));
+  systems.push(createSystem(2, [C1], [C3]));
   // System 3 reads from Component 2 and Component 3, and writes to Component 4
-  systems.push(createSystem(3, [Component2, Component3], [Component4]));
+  systems.push(createSystem(3, [C2, C3], [C4]));
   // System 4 only reads from Component 4, so it should be one of the last
-  systems.push(createSystem(4, [Component4], []));
+  systems.push(createSystem(4, [C4], []));
   // System 5 writes to Component 5, which is not read by others, testing isolation
-  systems.push(createSystem(5, [], [Component5]));
+  systems.push(createSystem(5, [], [C5]));
 
   const sortedSystems = sortSystems(systems);
   const systemNames = sortedSystems.map((s) => s.name);
@@ -78,19 +75,13 @@ test("multiple dependencies", () => {
 
 // No Dependencies: Testing sorting with systems that have no interdependencies
 test("no dependencies", () => {
-  const Component6 = makeComponent(6);
-  const Component7 = makeComponent(7);
-  const Component8 = makeComponent(8);
-  const Component9 = makeComponent(9);
-  const Component10 = makeComponent(10);
-
   const systems: SystemBase[] = [];
   // Each system writes to and reads from a unique component, ensuring no dependencies
-  systems.push(createSystem(1, [], [Component6]));
-  systems.push(createSystem(2, [], [Component7]));
-  systems.push(createSystem(3, [], [Component8]));
-  systems.push(createSystem(4, [], [Component9]));
-  systems.push(createSystem(5, [], [Component10]));
+  systems.push(createSystem(1, [], [C1]));
+  systems.push(createSystem(2, [], [C2]));
+  systems.push(createSystem(3, [], [C3]));
+  systems.push(createSystem(4, [], [C4]));
+  systems.push(createSystem(5, [], [C5]));
 
   const sortedSystems = sortSystems(systems);
   const systemNames = sortedSystems.map((s) => s.name);
@@ -111,15 +102,15 @@ test("no dependencies", () => {
 
 // Circular Dependency Detection: Ensures that the sorter throws an exception when there is a circular dependency among systems
 test("circular dependency detection", () => {
-  const Component1 = makeComponent(1);
-  const Component2 = makeComponent(2);
-
   const systems: SystemBase[] = [];
-  // System 1 writes to Component 1, which is read by System 2
-  systems.push(createSystem(1, [], [Component1]));
-  // System 2 writes to Component 2, which is read by System 1, creating a circular dependency
-  systems.push(createSystem(2, [Component1], [Component2]));
-  systems.push(createSystem(3, [Component2], [Component1]));
+
+  //the following three systems set up a circular dependency c1->c2->c3->c1
+  systems.push(createSystem(1, [C1], [C2]));
+  systems.push(createSystem(2, [C2, C4], [C3]));
+  systems.push(createSystem(3, [C3, C5], [C1]));
+
+  systems.push(createSystem(4, [C1], [C4]));
+  systems.push(createSystem(5, [C2], [C5]));
 
   // Expect sortSystems to throw an error due to the circular dependency
   expect(() => sortSystems(systems)).toThrow(
@@ -129,8 +120,7 @@ test("circular dependency detection", () => {
 
 // Single System: Testing sorting with only a single system to ensure it handles minimal cases
 test("single system", () => {
-  const Component11 = makeComponent(11);
-  const systems: SystemBase[] = [createSystem(1, [], [Component11])];
+  const systems: SystemBase[] = [createSystem(1, [], [C1])];
 
   const sortedSystems = sortSystems(systems);
   const systemNames = sortedSystems.map((s) => s.name);
@@ -152,23 +142,17 @@ test("empty system set", () => {
 
 // Interleaved Dependencies: Testing sorting with systems where dependencies are interleaved among multiple systems
 test("interleaved dependencies", () => {
-  const Component1 = makeComponent(1);
-  const Component2 = makeComponent(2);
-  const Component3 = makeComponent(3);
-  const Component4 = makeComponent(4);
-  const Component5 = makeComponent(5);
-
   const systems: SystemBase[] = [];
   // System 1 writes to Component 1, read by System 2
-  systems.push(createSystem(1, [], [Component1]));
+  systems.push(createSystem(1, [], [C1]));
   // System 2 reads from Component 1 and writes to Component 2, read by System 3
-  systems.push(createSystem(2, [Component1], [Component2]));
+  systems.push(createSystem(2, [C1], [C2]));
   // System 3 reads from Component 2 and writes to Component 3, read by System 4
-  systems.push(createSystem(3, [Component2], [Component3]));
+  systems.push(createSystem(3, [C2], [C3]));
   // System 4 reads from Component 3 and writes to Component 4, read by System 5
-  systems.push(createSystem(4, [Component3], [Component4]));
+  systems.push(createSystem(4, [C3], [C4]));
   // System 5 reads from Component 4 and writes to Component 5, completing the chain
-  systems.push(createSystem(5, [Component4], [Component5]));
+  systems.push(createSystem(5, [C4], [C5]));
 
   const sortedSystems = sortSystems(systems);
   const systemNames = sortedSystems.map((s) => s.name);
@@ -182,4 +166,19 @@ test("interleaved dependencies", () => {
     "system4",
     "system5",
   ]);
+});
+
+// Write Conflict Detection: Testing that an exception is thrown when two systems write to the same component
+test("write conflict detection", () => {
+  const systems: SystemBase[] = [];
+
+  // System 1 writes to Component 1
+  systems.push(createSystem(1, [], [C1]));
+  // System 2 also attempts to write to Component 1, which should cause a conflict
+  systems.push(createSystem(2, [], [C1]));
+
+  // Expect sortSystems to throw an error due to the write conflict on Component 1
+  expect(() => sortSystems(systems)).toThrow(
+    /Component write conflict for component\/symbol "Symbol\(Component1\)" between "system\d" and "system\d"./
+  );
 });
