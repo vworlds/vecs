@@ -6,6 +6,7 @@ import { ArrayMap } from "../../util/array_map.js";
 import { Parent } from "./parent.js";
 import { TagModule } from "./tags.js";
 import { sortSystems } from "./sort.js";
+import { Hook } from "./hook.js";
 
 const PARENT_TYPE = 31;
 const LOCAL_COMPONENT_MIN = 256;
@@ -22,6 +23,7 @@ export class World {
   public readonly tags: TagModule;
   private componentRegistrationDisabled = false;
   private systemRegistrationDisabled = false;
+  private componentHooks = new Map<typeof Component, Hook>();
   constructor() {
     this.registerComponent(Parent, PARENT_TYPE, "NetworkedParent");
     this.tags = new TagModule(this);
@@ -36,12 +38,17 @@ export class World {
     return e;
   }
 
-  private getComponentInstance(type: number) {
+  private getComponentInstance(type: number, entity: Entity) {
     const ComponentClass = this.componentClasses.get(type);
     if (!ComponentClass) {
       throw `unregistered component type ${type}`;
     }
-    return new ComponentClass();
+    const c = new ComponentClass();
+    c.entity = entity;
+    const hook = this.componentHooks.get(ComponentClass)?.["onAddHandler"];
+    if (hook) hook(c as any);
+
+    return c;
   }
 
   public getComponentClass(type: number) {
@@ -63,6 +70,11 @@ export class World {
   }
 
   public _notifyComponentRemoved(e: Entity, c: Component) {
+    const hook = this.componentHooks.get(c.constructor as typeof Component)?.[
+      "onRemoveHandler"
+    ];
+    if (hook) hook(c as any);
+
     if (e.empty()) this.entities.delete(e.eid);
     this.archetypeChanged(e);
   }
@@ -118,6 +130,10 @@ export class World {
       });
     }
     this.updatedComponents.forEach((c) => {
+      const hook = this.componentHooks.get(c.constructor as typeof Component)?.[
+        "onSetHandler"
+      ];
+      if (hook) hook(c as any);
       c.entity._notifyModified(c);
       c["dirty"] = false;
     });
@@ -199,6 +215,8 @@ export class World {
   }
 
   public addSystem(s: SystemBase) {
+    if (this.systemRegistrationDisabled)
+      throw "System registration is disabled";
     this.systems.push(s);
   }
 
@@ -222,7 +240,8 @@ export class World {
     }
 
     diff.snapshots?.forEach((snapshot) => {
-      this.updatedComponents.push(this.updateNetworkComponent(snapshot));
+      const c = this.updateNetworkComponent(snapshot);
+      c.modified();
     });
 
     diff.removed?.forEach((id) => {
@@ -254,5 +273,13 @@ export class World {
     this.systems = sortSystems(this.systems);
     console.log("Reindexed systems:");
     this.systems.forEach((s) => console.log(s.name));
+  }
+  public hook<T extends typeof Component>(C: T): Hook<InstanceType<T>> {
+    let h = this.componentHooks.get(C);
+    if (!h) {
+      h = new Hook();
+      this.componentHooks.set(C, h);
+    }
+    return h as any;
   }
 }

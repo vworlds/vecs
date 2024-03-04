@@ -44,9 +44,8 @@ export class Entity {
     if (c) {
       return c;
     }
-    c = this.world["getComponentInstance"](type);
+    c = this.world["getComponentInstance"](type, this);
 
-    c.entity = this;
     this.components.set(type, c);
     this.componentBitmask.add(type);
     this.world._notifyComponentAdded(this, c);
@@ -147,5 +146,9 @@ export class Entity {
 
   public forEachComponent(callback: (c: Component) => void) {
     this.components.forEach(callback);
+  }
+
+  public toString(): string {
+    return `Entity${this.eid}`;
   }
 }
