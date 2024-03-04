@@ -1,11 +1,15 @@
 import { ComponentSnapshot, StateDiff } from "@vworlds/protocol";
-import { Component, ComponentClassOrType, ComponentMeta } from "./component.js";
+import {
+  Component,
+  ComponentClassOrType,
+  ComponentMeta,
+  Hook,
+} from "./component.js";
 import { Entity } from "./entity.js";
 import { System } from "./system.js";
 import { Parent } from "./parent.js";
 import { TagModule } from "./tags.js";
 import { sortSystems } from "./sort.js";
-import { Hook } from "./hook.js";
 
 const PARENT_TYPE = 31;
 const LOCAL_COMPONENT_MIN = 256;
@@ -23,7 +27,6 @@ export class World {
   public readonly tags: TagModule;
   private componentRegistrationDisabled = false;
   private systemRegistrationDisabled = false;
-  private componentHooks = new Map<typeof Component, Hook>();
   constructor() {
     this.registerComponent(Parent, PARENT_TYPE, "NetworkedParent");
     this.tags = new TagModule(this);
@@ -56,8 +59,8 @@ export class World {
     if (!meta) throw `unregistered component meta for ${ComponentClass.name}`;
 
     const c = new ComponentClass(entity, meta);
-    const hook = this.componentHooks.get(ComponentClass)?.["onAddHandler"];
-    if (hook) hook(c as any);
+    const hook = meta["onAddHandler"];
+    if (hook) hook(c);
 
     return c;
   }
@@ -67,14 +70,15 @@ export class World {
   }
 
   public getComponentMeta(ComponentClass: typeof Component) {
-    return this.componentClasses.get(ComponentClass);
+    const meta = this.componentClasses.get(ComponentClass);
+    if (!meta)
+      throw `Unregistered component ${ComponentClass.constructor.name}`;
+    return meta;
   }
 
   public getComponentType(typeOrClass: ComponentClassOrType) {
     if (typeof typeOrClass === "function") {
-      const meta = this.getComponentMeta(typeOrClass);
-      if (!meta) throw `Unregistered component ${typeOrClass.constructor.name}`;
-      return meta.type;
+      return this.getComponentMeta(typeOrClass).type;
     }
     return typeOrClass;
   }
@@ -94,10 +98,8 @@ export class World {
   }
 
   public _notifyComponentRemoved(e: Entity, c: Component) {
-    const hook = this.componentHooks.get(c.constructor as typeof Component)?.[
-      "onRemoveHandler"
-    ];
-    if (hook) hook(c as any);
+    const hook = c.meta["onRemoveHandler"];
+    if (hook) hook(c);
 
     if (e.empty()) this.entities.delete(e.eid);
     this.archetypeChanged(e);
@@ -154,10 +156,8 @@ export class World {
       });
     }
     this.updatedComponents.forEach((c) => {
-      const hook = this.componentHooks.get(c.constructor as typeof Component)?.[
-        "onSetHandler"
-      ];
-      if (hook) hook(c as any);
+      const hook = c.meta["onSetHandler"];
+      if (hook) hook(c);
       c.entity._notifyModified(c);
       c["dirty"] = false;
     });
@@ -289,17 +289,14 @@ export class World {
     this.systemRegistrationDisabled = true;
     this.reindexSystems();
   }
+
   public reindexSystems() {
     this.systems = sortSystems(this.systems);
     console.log("Reindexed systems:");
     this.systems.forEach((s) => console.log(s.name));
   }
+
   public hook<T extends typeof Component>(C: T): Hook<InstanceType<T>> {
-    let h = this.componentHooks.get(C);
-    if (!h) {
-      h = new Hook();
-      this.componentHooks.set(C, h);
-    }
-    return h as any;
+    return this.getComponentMeta(C) as any;
   }
 }
