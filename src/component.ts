@@ -10,6 +10,7 @@ export interface Hook<C extends Component = Component> {
 }
 
 export class ComponentMeta implements Hook<Component> {
+  public readonly Class: typeof Component;
   public readonly type: number;
   public readonly componentName: string;
   public readonly bitPtr: BitPtr;
@@ -17,7 +18,8 @@ export class ComponentMeta implements Hook<Component> {
   private onRemoveHandler: ((c: Component) => void) | undefined;
   private onSetHandler: ((c: Component) => void) | undefined;
 
-  constructor(type: number, componentName: string) {
+  constructor(Class: typeof Component, type: number, componentName: string) {
+    this.Class = Class;
     this.type = type;
     this.componentName = componentName;
     this.bitPtr = new BitPtr(type);

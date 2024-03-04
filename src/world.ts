@@ -10,6 +10,7 @@ import { System } from "./system.js";
 import { Parent } from "./parent.js";
 import { TagModule } from "./tags.js";
 import { sortSystems } from "./sort.js";
+import { ArrayMap } from "../../util/array_map.js";
 
 const PARENT_TYPE = 31;
 const LOCAL_COMPONENT_MIN = 256;
@@ -20,8 +21,8 @@ export class World {
   private archChangeQueue: Entity[] = [];
   private entitiesWithoutParent: Entity[] = [];
   private systems: System[] = [];
-  private componentClasses = new Map<typeof Component, ComponentMeta>();
-  private type2Class = new Map<number, typeof Component>();
+  private Class2Meta = new Map<typeof Component, ComponentMeta>();
+  private Type2Meta = new ArrayMap<ComponentMeta>();
   private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   public readonly tags: TagModule;
@@ -45,34 +46,23 @@ export class World {
     typeOrClass: ComponentClassOrType,
     entity: Entity
   ) {
-    let ComponentClass: typeof Component;
-    if (typeof typeOrClass === "function") {
-      ComponentClass = typeOrClass;
-    } else {
-      const C = this.type2Class.get(typeOrClass);
-      if (!C) {
-        throw `unregistered component type ${typeOrClass}`;
-      }
-      ComponentClass = C;
-    }
-    const meta = this.componentClasses.get(ComponentClass);
-    if (!meta) throw `unregistered component meta for ${ComponentClass.name}`;
-
-    const c = new ComponentClass(entity, meta);
+    const meta = this.getComponentMeta(typeOrClass);
+    const c = new meta.Class(entity, meta);
     const hook = meta["onAddHandler"];
     if (hook) hook(c);
 
     return c;
   }
 
-  public getComponentClass(type: number) {
-    return this.type2Class.get(type);
-  }
-
-  public getComponentMeta(ComponentClass: typeof Component) {
-    const meta = this.componentClasses.get(ComponentClass);
+  public getComponentMeta(typeOrClass: ComponentClassOrType) {
+    let meta: ComponentMeta | undefined;
+    if (typeof typeOrClass === "function") {
+      meta = this.Class2Meta.get(typeOrClass);
+    } else {
+      meta = this.Type2Meta.get(typeOrClass);
+    }
     if (!meta)
-      throw `Unregistered component ${ComponentClass.constructor.name}`;
+      throw `unregistered component meta for component type or class '${typeOrClass}'`;
     return meta;
   }
 
@@ -217,15 +207,15 @@ export class World {
       }
     }
 
-    let meta = this.componentClasses.get(ComponentClass);
+    let meta = this.Class2Meta.get(ComponentClass);
     if (meta) {
       if (local) this.localComponentCounter--;
       throw `Trying to register ${componentName} with type=${type} which is already registered to ${meta.componentName}`;
     }
     this.registerComponentType(componentName, type);
-    meta = new ComponentMeta(type, componentName);
-    this.componentClasses.set(ComponentClass, meta);
-    this.type2Class.set(type, ComponentClass);
+    meta = new ComponentMeta(ComponentClass, type, componentName);
+    this.Class2Meta.set(ComponentClass, meta);
+    this.Type2Meta.set(type, meta);
     console.log(
       "Registered component %s with type=%d as %s component",
       componentName,
