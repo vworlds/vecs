@@ -15,6 +15,13 @@ export type EntityTestFunc = (e: Entity) => boolean;
 
 export type SystemDependency = number | string | symbol | typeof Component;
 
+type ComponentOrParent = typeof Component | { parent: typeof Component };
+type ComponentInstance<T> = T extends { parent: typeof Component }
+  ? InstanceType<T["parent"]>
+  : T extends typeof Component
+  ? InstanceType<T>
+  : never;
+
 type SystemQuery =
   | ComponentClassArray
   | ComponentClassOrType
@@ -55,16 +62,15 @@ function PARENT(func: EntityTestFunc) {
   return (e: Entity) => (e.parent && func(e.parent)) || false;
 }
 
-const defaultBelongsFunc: EntityTestFunc = (e: Entity) => false;
-
-export abstract class SystemBase {
+export class System {
   protected callbacks = new ArrayMap<ComponentCallback>();
   protected _onEnter: EntityCallback[] = [];
   protected _onExit: EntityCallback[] = [];
-  protected _belongs: EntityTestFunc = defaultBelongsFunc;
+  protected _belongs: EntityTestFunc = (e: Entity) => false;
   private readonly updateQueue: (Component | undefined)[] = [];
   private _writes: SystemDependency[] = [];
   protected _reads: SystemDependency[] = [];
+  private hasQuery = false;
 
   protected watchlistBitmask: Bitset = new Bitset();
   constructor(public readonly name: string, public readonly world: World) {}
@@ -120,19 +126,6 @@ export abstract class SystemBase {
     });
     this.updateQueue.length = 0;
   }
-}
-
-type ComponentOrParent = typeof Component | { parent: typeof Component };
-type ComponentInstance<T> = T extends { parent: typeof Component }
-  ? InstanceType<T["parent"]>
-  : T extends typeof Component
-  ? InstanceType<T>
-  : never;
-
-export class System<S extends (typeof Component)[] = []> extends SystemBase {
-  constructor(name: string, world: World) {
-    super(name, world);
-  }
 
   private getComponent<Class extends ComponentOrParent>(
     e: Entity,
@@ -169,8 +162,8 @@ export class System<S extends (typeof Component)[] = []> extends SystemBase {
       e: Entity,
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
-  ): System<S>;
-  public onEnter(callback: (e: Entity) => void): System<S>;
+  ): System;
+  public onEnter(callback: (e: Entity) => void): System;
 
   // Implement the overloaded function
   public onEnter<J extends ComponentOrParent[]>(
@@ -179,7 +172,7 @@ export class System<S extends (typeof Component)[] = []> extends SystemBase {
       e: Entity,
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
-  ): System<S> {
+  ): System {
     if (typeof injectOrCallback === "function") {
       // It is the second signature
       this._onEnter.push(injectOrCallback);
@@ -199,8 +192,8 @@ export class System<S extends (typeof Component)[] = []> extends SystemBase {
       e: Entity,
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
-  ): System<S>;
-  public onExit(callback: (e: Entity) => void): System<S>;
+  ): System;
+  public onExit(callback: (e: Entity) => void): System;
 
   // Implement the overloaded function
   public onExit<J extends ComponentOrParent[]>(
@@ -209,7 +202,7 @@ export class System<S extends (typeof Component)[] = []> extends SystemBase {
       e: Entity,
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
-  ): System<S> {
+  ): System {
     if (typeof injectOrCallback === "function") {
       // It is the second signature
       this._onExit.push(injectOrCallback);
@@ -223,35 +216,33 @@ export class System<S extends (typeof Component)[] = []> extends SystemBase {
     return this;
   }
 
-  public onUpdate<C extends S[number]>(
+  public onUpdate<C extends typeof Component>(
     ComponentClass: C,
     callback: (c: InstanceType<C>) => void
-  ): System<S>;
+  ): System;
 
-  onUpdate<C extends S[number], J extends (typeof Component)[]>(
+  onUpdate<C extends typeof Component, J extends (typeof Component)[]>(
     ComponentClass: C,
     inject: readonly [...J],
     callback: (
       c: InstanceType<C>,
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
-  ): System<S>;
+  ): System;
 
-  onUpdate<C extends S[number], J extends (typeof Component)[]>(
+  onUpdate<C extends typeof Component, J extends (typeof Component)[]>(
     ComponentClass: C,
     injectOrCallback: readonly [...J] | ((c: InstanceType<C>) => void),
     callback?: (
       c: InstanceType<C>,
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
-  ): System<S> {
+  ): System {
+    const type = this.world.getComponentType(ComponentClass);
     if (typeof injectOrCallback === "function") {
       // Only ComponentClass and callback are passed
       callback = injectOrCallback;
-      this.callbacks.set(
-        this.world.getComponentType(ComponentClass),
-        callback as any
-      );
+      this.callbacks.set(type, callback as any);
     } else {
       // ComponentClass, inject, and callback are passed
       const inject = injectOrCallback;
@@ -266,8 +257,17 @@ export class System<S extends (typeof Component)[] = []> extends SystemBase {
         }
       };
 
-      this.callbacks.set(this.world.getComponentType(ComponentClass), cb);
+      this.callbacks.set(type, cb);
     }
+
+    this.watchlistBitmask.add(type);
+    this._reads.push(ComponentClass);
+
+    if (!this.hasQuery) {
+      const watchlist: number[] = this.watchlistBitmask.indices();
+      this._belongs = HAS(this.world, ...watchlist);
+    }
+
     return this;
   }
 
@@ -317,24 +317,12 @@ export class System<S extends (typeof Component)[] = []> extends SystemBase {
 
   public query(q: SystemQuery) {
     this._belongs = this.queryBuilder(q);
+    this.hasQuery = true;
     return this;
   }
 
   public requires(...components: ComponentClassArray) {
     this.query(components);
-    return this;
-  }
-  public watch<S extends (typeof Component)[] = []>(
-    ...componentWatchlist: readonly [...S]
-  ): System<S> {
-    this.watchlistBitmask = calculateComponentBitmask(
-      componentWatchlist as any as ComponentClassArray,
-      this.world
-    );
-    if (this._belongs == defaultBelongsFunc) {
-      this._belongs = HAS(this.world, ...componentWatchlist);
-    }
-    this._reads.push(...componentWatchlist);
     return this;
   }
 }

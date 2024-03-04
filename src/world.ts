@@ -1,7 +1,7 @@
 import { ComponentSnapshot, StateDiff } from "@vworlds/protocol";
 import { Component, ComponentClassOrType, ComponentMeta } from "./component.js";
 import { Entity } from "./entity.js";
-import { System, SystemBase } from "./system.js";
+import { System } from "./system.js";
 import { Parent } from "./parent.js";
 import { TagModule } from "./tags.js";
 import { sortSystems } from "./sort.js";
@@ -15,7 +15,7 @@ export class World {
   private componentNameTypeMap = new Map<string, number>();
   private archChangeQueue: Entity[] = [];
   private entitiesWithoutParent: Entity[] = [];
-  private systems: SystemBase[] = [];
+  private systems: System[] = [];
   private componentClasses = new Map<typeof Component, ComponentMeta>();
   private type2Class = new Map<number, typeof Component>();
   private updatedComponents: Component[] = [];
@@ -238,7 +238,7 @@ export class World {
     this.componentNameTypeMap.set(componentName, type);
   }
 
-  public addSystem(s: SystemBase) {
+  public addSystem(s: System) {
     if (this.systemRegistrationDisabled)
       throw "System registration is disabled";
     this.systems.push(s);

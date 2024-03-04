@@ -1,9 +1,9 @@
-import { SystemBase } from "./system.js";
+import { System } from "./system.js";
 
-type Graph = Map<SystemBase, SystemBase[]>;
+type Graph = Map<System, System[]>;
 
-function buildGraph(systems: SystemBase[]): Graph {
-  const graph = new Map<SystemBase, SystemBase[]>();
+function buildGraph(systems: System[]): Graph {
+  const graph = new Map<System, System[]>();
 
   // Initialize the adjacency list with all systems
   systems.forEach((system) => {
@@ -28,11 +28,11 @@ function buildGraph(systems: SystemBase[]): Graph {
 }
 
 function topologicalSortUtil(
-  system: SystemBase,
-  visited: Set<SystemBase>,
-  stack: SystemBase[],
+  system: System,
+  visited: Set<System>,
+  stack: System[],
   graph: Graph,
-  currentStack: Set<SystemBase> // Add this parameter to keep track of the current call stack
+  currentStack: Set<System> // Add this parameter to keep track of the current call stack
 ): boolean {
   // This function now returns a boolean to indicate success or failure
   visited.add(system);
@@ -60,11 +60,11 @@ function topologicalSortUtil(
   return true; // No cycle was detected for this path
 }
 
-function topologicalSort(graph: Graph): SystemBase[] | null {
+function topologicalSort(graph: Graph): System[] | null {
   // This function now returns an array or null in case of failure
-  let stack: SystemBase[] = [];
-  let visited = new Set<SystemBase>();
-  let currentStack = new Set<SystemBase>(); // This set keeps track of the current call stack
+  let stack: System[] = [];
+  let visited = new Set<System>();
+  let currentStack = new Set<System>(); // This set keeps track of the current call stack
 
   for (const system of graph.keys()) {
     if (!visited.has(system)) {
@@ -82,7 +82,7 @@ function topologicalSort(graph: Graph): SystemBase[] | null {
   return stack.reverse();
 }
 
-export function sortSystems(systems: SystemBase[]): SystemBase[] {
+export function sortSystems(systems: System[]): System[] {
   // Adjust the return type to indicate that it might fail
   const graph = buildGraph(systems);
   const sortedSystems = topologicalSort(graph);

@@ -3,7 +3,7 @@ import { type World } from "./world.js";
 import { Entity } from "./entity.js";
 import { Bitset } from "../../util/bitset.js";
 import { ComponentSnapshot } from "@vworlds/protocol";
-import { SystemBase } from "./system.js";
+import { System } from "./system.js";
 
 const TAGS_TYPE = 30;
 
@@ -37,12 +37,11 @@ export class TagHandler {
 
 export class TagModule {
   private handlers = new Map<number, TagHandler>();
-  private system: SystemBase;
+  private system: System;
   constructor(private world: World) {
     world.registerComponent(Tags, TAGS_TYPE, "NetworkedTags");
     this.system = world
       .system("Tags")
-      .watch(Tags)
       .onUpdate(Tags, (tags) => {
         this.handlers.forEach((h, id) => {
           const has = tags.tags.has(id);

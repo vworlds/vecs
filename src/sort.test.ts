@@ -1,20 +1,19 @@
-import { Component } from "./component.js";
 import { sortSystems } from "./sort.js";
-import { System, SystemBase } from "./system.js";
+import { System, SystemDependency } from "./system.js";
+import { World } from "./world.js";
 
 function makeComponent(type: number) {
-  class TestComponent extends Component {}
-  TestComponent.type = type;
-  TestComponent.componentName = `Component${type}`;
-  return TestComponent;
+  return Symbol(`Component${type}`);
 }
+
+const world = new World();
 
 function createSystem(
   id: number,
-  reads: (typeof Component)[],
-  writes: (typeof Component)[]
+  reads: SystemDependency[],
+  writes: SystemDependency[]
 ) {
-  return new System(`system${id}`, reads).writes(...writes);
+  return new System(`system${id}`, world).reads(...reads).writes(...writes);
 }
 
 test("basic dependency resolution", () => {
@@ -23,7 +22,7 @@ test("basic dependency resolution", () => {
   const Component3 = makeComponent(3);
   const Component4 = makeComponent(4);
 
-  const systems: SystemBase[] = [];
+  const systems: System[] = [];
   systems.push(createSystem(1, [Component1, Component2], [Component3]));
   systems.push(createSystem(2, [Component3], [Component4]));
   systems.push(createSystem(3, [Component1], [Component2]));
@@ -50,7 +49,7 @@ test("multiple dependencies", () => {
   const Component4 = makeComponent(4);
   const Component5 = makeComponent(5);
 
-  const systems: SystemBase[] = [];
+  const systems: System[] = [];
   // System 1 writes to Component 1 and 2, read by multiple systems
   systems.push(createSystem(1, [], [Component1, Component2]));
   // System 2 reads from Component 1 and writes to Component 3, creating a chain of dependencies
@@ -84,7 +83,7 @@ test("no dependencies", () => {
   const Component9 = makeComponent(9);
   const Component10 = makeComponent(10);
 
-  const systems: SystemBase[] = [];
+  const systems: System[] = [];
   // Each system writes to and reads from a unique component, ensuring no dependencies
   systems.push(createSystem(1, [], [Component6]));
   systems.push(createSystem(2, [], [Component7]));
@@ -114,7 +113,7 @@ test("circular dependency detection", () => {
   const Component1 = makeComponent(1);
   const Component2 = makeComponent(2);
 
-  const systems: SystemBase[] = [];
+  const systems: System[] = [];
   // System 1 writes to Component 1, which is read by System 2
   systems.push(createSystem(1, [], [Component1]));
   // System 2 writes to Component 2, which is read by System 1, creating a circular dependency
@@ -130,7 +129,7 @@ test("circular dependency detection", () => {
 // Single System: Testing sorting with only a single system to ensure it handles minimal cases
 test("single system", () => {
   const Component11 = makeComponent(11);
-  const systems: SystemBase[] = [createSystem(1, [], [Component11])];
+  const systems: System[] = [createSystem(1, [], [Component11])];
 
   const sortedSystems = sortSystems(systems);
   const systemNames = sortedSystems.map((s) => s.name);
@@ -141,7 +140,7 @@ test("single system", () => {
 
 // Empty System Set: Testing sorting with an empty array of systems to ensure graceful handling
 test("empty system set", () => {
-  const systems: SystemBase[] = [];
+  const systems: System[] = [];
 
   const sortedSystems = sortSystems(systems);
   const systemNames = sortedSystems.map((s) => s.name);
@@ -158,7 +157,7 @@ test("interleaved dependencies", () => {
   const Component4 = makeComponent(4);
   const Component5 = makeComponent(5);
 
-  const systems: SystemBase[] = [];
+  const systems: System[] = [];
   // System 1 writes to Component 1, read by System 2
   systems.push(createSystem(1, [], [Component1]));
   // System 2 reads from Component 1 and writes to Component 2, read by System 3

@@ -82,6 +82,12 @@ export class Bitset {
       }
     });
   }
+
+  indices(): number[] {
+    const idx: number[] = [];
+    this.forEach((i) => idx.push(i));
+    return idx;
+  }
 }
 
 export class BitPtr {

@@ -1,7 +1,7 @@
 import { Component } from "./component.js";
 import type { World } from "./world.js";
 import { ArrayMap } from "../../util/array_map.js";
-import { type SystemBase } from "./system.js";
+import { type System } from "./system.js";
 import { Events } from "@vworlds/utils";
 import { Bitset } from "../../util/bitset.js";
 
@@ -12,8 +12,8 @@ export class Entity {
   private deletedComponents = new ArrayMap<Component>(); //maps deleted component types to Components
 
   public readonly componentBitmask = new Bitset();
-  private readonly systems = new Set<SystemBase>();
-  private readonly newSystems: SystemBase[] = [];
+  private readonly systems = new Set<System>();
+  private readonly newSystems: System[] = [];
   public properties = new Map<string, any>();
   public declare _events: EntityEvents;
   public parent: Entity | undefined;
@@ -91,18 +91,18 @@ export class Entity {
     return this._events;
   }
 
-  public _hasSystem(s: SystemBase) {
+  public _hasSystem(s: System) {
     return this.systems.has(s);
   }
 
-  public _addSystem(s: SystemBase) {
+  public _addSystem(s: System) {
     if (!this.systems.has(s)) {
       this.newSystems.push(s);
       s.enter(this);
     }
   }
 
-  public _removeSystem(s: SystemBase) {
+  public _removeSystem(s: System) {
     if (this.systems.delete(s)) {
       s.exit(this);
     }
