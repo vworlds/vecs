@@ -3,35 +3,71 @@ import { Bitset } from "../../util/bitset.js";
 import {
   Component,
   ComponentClassArray,
+  ComponentClassOrType,
   calculateComponentBitmask,
 } from "./component.js";
 import type { Entity } from "./entity.js";
+import { type World } from "./world.js";
 
 type EntityCallback = (e: Entity) => void;
 type ComponentCallback = (c: Component) => void;
 export type EntityTestFunc = (e: Entity) => boolean;
 
-export type SystemDependency = string | symbol | typeof Component;
+export type SystemDependency = number | string | symbol | typeof Component;
+
+type SystemQuery =
+  | ComponentClassArray
+  | ComponentClassOrType
+  | EntityTestFunc
+  | { HAS: ComponentClassArray | ComponentClassOrType }
+  | { HAS_ONLY: ComponentClassArray | ComponentClassOrType }
+  | { AND: SystemQuery[] }
+  | { OR: SystemQuery[] }
+  | { NOT: SystemQuery }
+  | { PARENT: SystemQuery };
+
+function HAS(world: World, ...components: ComponentClassArray): EntityTestFunc {
+  const testBitmask = calculateComponentBitmask(components, world);
+  return (e: Entity) => e.componentBitmask.hasBitset(testBitmask);
+}
+
+function HAS_ONLY(
+  world: World,
+  ...components: ComponentClassArray
+): EntityTestFunc {
+  const testBitmask = calculateComponentBitmask(components, world);
+  return (e: Entity) => e.componentBitmask.equal(testBitmask);
+}
+
+function NOT(func: EntityTestFunc): EntityTestFunc {
+  return (e: Entity) => !func(e);
+}
+
+function AND(...funcs: EntityTestFunc[]): EntityTestFunc {
+  return (e: Entity) => funcs.every((f) => f(e));
+}
+
+function OR(...funcs: EntityTestFunc[]): EntityTestFunc {
+  return (e: Entity) => funcs.some((f) => f(e));
+}
+
+function PARENT(func: EntityTestFunc) {
+  return (e: Entity) => (e.parent && func(e.parent)) || false;
+}
+
+const defaultBelongsFunc: EntityTestFunc = (e: Entity) => false;
 
 export abstract class SystemBase {
   protected callbacks = new ArrayMap<ComponentCallback>();
   protected _onEnter: EntityCallback[] = [];
   protected _onExit: EntityCallback[] = [];
-  protected readonly _belongs: EntityTestFunc | undefined;
+  protected _belongs: EntityTestFunc = defaultBelongsFunc;
   private readonly updateQueue: (Component | undefined)[] = [];
   private _writes: SystemDependency[] = [];
-  private _reads: SystemDependency[] = [];
+  protected _reads: SystemDependency[] = [];
 
-  public readonly watchlistBitmask: Bitset;
-  constructor(
-    public readonly name: string,
-    public readonly componentWatchlist: ComponentClassArray,
-    entityTestFunc?: EntityTestFunc
-  ) {
-    this.watchlistBitmask = calculateComponentBitmask(componentWatchlist);
-    this._belongs = entityTestFunc;
-    this._reads = componentWatchlist;
-  }
+  protected watchlistBitmask: Bitset = new Bitset();
+  constructor(public readonly name: string, public readonly world: World) {}
 
   public toString(): string {
     return this.name;
@@ -54,14 +90,12 @@ export abstract class SystemBase {
   }
 
   public notifyModified(c: Component) {
-    const C = c.constructor as typeof Component;
-    if (!this.watchlistBitmask.hasBit(C.bitPtr)) return;
+    if (!this.watchlistBitmask.hasBit(c.bitPtr)) return;
     this.updateQueue.push(c);
   }
 
   public belongs(e: Entity): boolean {
-    if (this._belongs) return this._belongs(e);
-    return e.componentBitmask.hasBitset(this.watchlistBitmask);
+    return this._belongs(e);
   }
 
   public enter(e: Entity) {
@@ -95,17 +129,9 @@ type ComponentInstance<T> = T extends { parent: typeof Component }
   ? InstanceType<T>
   : never;
 
-export class System<S extends (typeof Component)[]> extends SystemBase {
-  constructor(
-    name: string,
-    componentWatchlist: readonly [...S],
-    entityTestFunc?: EntityTestFunc
-  ) {
-    super(
-      name,
-      componentWatchlist as any as ComponentClassArray,
-      entityTestFunc
-    );
+export class System<S extends (typeof Component)[] = []> extends SystemBase {
+  constructor(name: string, world: World) {
+    super(name, world);
   }
 
   private getComponent<Class extends ComponentOrParent>(
@@ -222,7 +248,10 @@ export class System<S extends (typeof Component)[]> extends SystemBase {
     if (typeof injectOrCallback === "function") {
       // Only ComponentClass and callback are passed
       callback = injectOrCallback;
-      this.callbacks.set(ComponentClass.type, callback as any);
+      this.callbacks.set(
+        this.world.getComponentType(ComponentClass),
+        callback as any
+      );
     } else {
       // ComponentClass, inject, and callback are passed
       const inject = injectOrCallback;
@@ -237,34 +266,75 @@ export class System<S extends (typeof Component)[]> extends SystemBase {
         }
       };
 
-      this.callbacks.set(ComponentClass.type, cb);
+      this.callbacks.set(this.world.getComponentType(ComponentClass), cb);
     }
     return this;
   }
-}
 
-export function HAS(...components: ComponentClassArray): EntityTestFunc {
-  const testBitmask = calculateComponentBitmask(components);
-  return (e: Entity) => e.componentBitmask.hasBitset(testBitmask);
-}
+  private queryBuilder(q: SystemQuery): EntityTestFunc {
+    if (
+      typeof q === "number" ||
+      (typeof q === "function" && q.prototype instanceof Component)
+    ) {
+      return HAS(this.world, q as typeof Component);
+    } else if (typeof q === "function") {
+      return q as EntityTestFunc;
+    }
 
-export function HAS_ONLY(...components: ComponentClassArray): EntityTestFunc {
-  const testBitmask = calculateComponentBitmask(components);
-  return (e: Entity) => e.componentBitmask.equal(testBitmask);
-}
+    if (q instanceof Array) {
+      return HAS(this.world, ...q);
+    }
 
-export function NOT(func: EntityTestFunc): EntityTestFunc {
-  return (e: Entity) => !func(e);
-}
+    if ("HAS" in q) {
+      return this.queryBuilder(q.HAS);
+    }
 
-export function AND(...funcs: EntityTestFunc[]): EntityTestFunc {
-  return (e: Entity) => funcs.every((f) => f(e));
-}
+    if ("HAS_ONLY" in q) {
+      const v = q.HAS_ONLY;
+      if (v instanceof Array) {
+        return HAS_ONLY(this.world, ...v);
+      }
+      return HAS_ONLY(this.world, v);
+    }
 
-export function OR(...funcs: EntityTestFunc[]): EntityTestFunc {
-  return (e: Entity) => funcs.some((f) => f(e));
-}
+    if ("AND" in q) {
+      return AND(...q.AND.map((sq) => this.queryBuilder(sq)));
+    }
 
-export function PARENT(func: EntityTestFunc) {
-  return (e: Entity) => (e.parent && func(e.parent)) || false;
+    if ("OR" in q) {
+      return OR(...q.OR.map((sq) => this.queryBuilder(sq)));
+    }
+
+    if ("NOT" in q) {
+      return NOT(this.queryBuilder(q.NOT));
+    }
+
+    if ("PARENT" in q) {
+      return PARENT(this.queryBuilder(q.PARENT));
+    }
+    throw "Unrecognized query term";
+  }
+
+  public query(q: SystemQuery) {
+    this._belongs = this.queryBuilder(q);
+    return this;
+  }
+
+  public requires(...components: ComponentClassArray) {
+    this.query(components);
+    return this;
+  }
+  public watch<S extends (typeof Component)[] = []>(
+    ...componentWatchlist: readonly [...S]
+  ): System<S> {
+    this.watchlistBitmask = calculateComponentBitmask(
+      componentWatchlist as any as ComponentClassArray,
+      this.world
+    );
+    if (this._belongs == defaultBelongsFunc) {
+      this._belongs = HAS(this.world, ...componentWatchlist);
+    }
+    this._reads.push(...componentWatchlist);
+    return this;
+  }
 }

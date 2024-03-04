@@ -36,15 +36,13 @@ export class Entity {
     typeOrClass: number | typeof Component,
     markAsModified: boolean = true
   ) {
-    let type: number;
-    if (typeof typeOrClass === "function") type = typeOrClass.type;
-    else type = typeOrClass;
+    const type = this.world.getComponentType(typeOrClass);
 
     let c = this.components.get(type);
     if (c) {
       return c;
     }
-    c = this.world["getComponentInstance"](type, this);
+    c = this.world["getComponentInstance"](typeOrClass, this);
 
     this.components.set(type, c);
     this.componentBitmask.add(type);
@@ -57,10 +55,7 @@ export class Entity {
   public remove<C extends typeof Component>(Class: C): void;
   public remove(type: number): void;
   public remove(typeOrClass: number | typeof Component): void {
-    let type: number;
-    if (typeof typeOrClass === "function") type = typeOrClass.type;
-    else type = typeOrClass;
-
+    const type = this.world.getComponentType(typeOrClass);
     const c = this.components.get(type);
     if (c) {
       this.components.delete(type);
@@ -77,14 +72,14 @@ export class Entity {
   }
 
   public get<C extends typeof Component>(
-    ComponentClass: C,
+    typeOrClass: number | C,
     get_deleted: boolean = false
   ): InstanceType<C> | undefined {
-    const c = this.components.get(ComponentClass.type);
+    const type = this.world.getComponentType(typeOrClass);
+
+    const c = this.components.get(type);
     if (!c && get_deleted) {
-      return this.deletedComponents.get(ComponentClass.type) as
-        | InstanceType<C>
-        | undefined;
+      return this.deletedComponents.get(type) as InstanceType<C> | undefined;
     }
     return c as InstanceType<C> | undefined;
   }

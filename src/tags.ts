@@ -41,7 +41,8 @@ export class TagModule {
   constructor(private world: World) {
     world.registerComponent(Tags, TAGS_TYPE, "NetworkedTags");
     this.system = world
-      .system("Tags", [Tags])
+      .system("Tags")
+      .watch(Tags)
       .onUpdate(Tags, (tags) => {
         this.handlers.forEach((h, id) => {
           const has = tags.tags.has(id);

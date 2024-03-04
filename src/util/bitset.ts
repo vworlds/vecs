@@ -87,9 +87,9 @@ export class Bitset {
 export class BitPtr {
   public readonly arrayIndex: number;
   public readonly bitmask: number;
-  constructor(n: number) {
-    this.arrayIndex = Math.floor(n / 32);
-    this.bitmask = 1 << n % 32;
+  constructor(public readonly value: number) {
+    this.arrayIndex = Math.floor(value / 32);
+    this.bitmask = 1 << value % 32;
   }
   public equals(other: BitPtr) {
     return this.arrayIndex == other.arrayIndex && this.bitmask == other.bitmask;

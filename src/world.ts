@@ -1,8 +1,7 @@
 import { ComponentSnapshot, StateDiff } from "@vworlds/protocol";
-import { Component } from "./component.js";
+import { Component, ComponentClassOrType, ComponentMeta } from "./component.js";
 import { Entity } from "./entity.js";
-import { EntityTestFunc, PARENT, System, SystemBase } from "./system.js";
-import { ArrayMap } from "../../util/array_map.js";
+import { System, SystemBase } from "./system.js";
 import { Parent } from "./parent.js";
 import { TagModule } from "./tags.js";
 import { sortSystems } from "./sort.js";
@@ -17,7 +16,8 @@ export class World {
   private archChangeQueue: Entity[] = [];
   private entitiesWithoutParent: Entity[] = [];
   private systems: SystemBase[] = [];
-  private componentClasses = new ArrayMap<typeof Component>();
+  private componentClasses = new Map<typeof Component, ComponentMeta>();
+  private type2Class = new Map<number, typeof Component>();
   private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   public readonly tags: TagModule;
@@ -38,13 +38,24 @@ export class World {
     return e;
   }
 
-  private getComponentInstance(type: number, entity: Entity) {
-    const ComponentClass = this.componentClasses.get(type);
-    if (!ComponentClass) {
-      throw `unregistered component type ${type}`;
+  private getComponentInstance(
+    typeOrClass: ComponentClassOrType,
+    entity: Entity
+  ) {
+    let ComponentClass: typeof Component;
+    if (typeof typeOrClass === "function") {
+      ComponentClass = typeOrClass;
+    } else {
+      const C = this.type2Class.get(typeOrClass);
+      if (!C) {
+        throw `unregistered component type ${typeOrClass}`;
+      }
+      ComponentClass = C;
     }
-    const c = new ComponentClass();
-    c.entity = entity;
+    const meta = this.componentClasses.get(ComponentClass);
+    if (!meta) throw `unregistered component meta for ${ComponentClass.name}`;
+
+    const c = new ComponentClass(entity, meta);
     const hook = this.componentHooks.get(ComponentClass)?.["onAddHandler"];
     if (hook) hook(c as any);
 
@@ -52,7 +63,20 @@ export class World {
   }
 
   public getComponentClass(type: number) {
-    return this.componentClasses.get(type);
+    return this.type2Class.get(type);
+  }
+
+  public getComponentMeta(ComponentClass: typeof Component) {
+    return this.componentClasses.get(ComponentClass);
+  }
+
+  public getComponentType(typeOrClass: ComponentClassOrType) {
+    if (typeof typeOrClass === "function") {
+      const meta = this.getComponentMeta(typeOrClass);
+      if (!meta) throw `Unregistered component ${typeOrClass.constructor.name}`;
+      return meta.type;
+    }
+    return typeOrClass;
   }
 
   public archetypeChanged(e: Entity) {
@@ -193,15 +217,15 @@ export class World {
       }
     }
 
-    const C = this.componentClasses.get(type);
-    if (C) {
+    let meta = this.componentClasses.get(ComponentClass);
+    if (meta) {
       if (local) this.localComponentCounter--;
-      throw `Trying to register ${componentName} with type=${type} which is already registered to ${C.name}`;
+      throw `Trying to register ${componentName} with type=${type} which is already registered to ${meta.componentName}`;
     }
     this.registerComponentType(componentName, type);
-    ComponentClass.type = type;
-    ComponentClass.componentName = componentName;
-    this.componentClasses.set(ComponentClass.type, ComponentClass);
+    meta = new ComponentMeta(type, componentName);
+    this.componentClasses.set(ComponentClass, meta);
+    this.type2Class.set(type, ComponentClass);
     console.log(
       "Registered component %s with type=%d as %s component",
       componentName,
@@ -220,12 +244,8 @@ export class World {
     this.systems.push(s);
   }
 
-  public system<S extends (typeof Component)[]>(
-    name: string,
-    componentWatchlist: readonly [...S],
-    entityTestFunc?: EntityTestFunc
-  ) {
-    const system = new System(name, componentWatchlist, entityTestFunc);
+  public system(name: string) {
+    const system = new System(name, this);
     this.addSystem(system);
     return system;
   }
