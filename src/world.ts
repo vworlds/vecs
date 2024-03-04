@@ -266,7 +266,7 @@ export class World {
     });
   }
 
-  public getEntity(id: number): Entity | undefined {
+  public entity(id: number): Entity | undefined {
     return this.entities.get(id);
   }
 
@@ -280,10 +280,12 @@ export class World {
     this.reindexSystems();
   }
 
-  public reindexSystems() {
+  private reindexSystems() {
     this.systems = sortSystems(this.systems);
-    console.log("Reindexed systems:");
-    this.systems.forEach((s) => console.log(s.name));
+    console.log(
+      "System pipeline: %s",
+      this.systems.map((s) => s.name).join(" -> ")
+    );
   }
 
   public hook<T extends typeof Component>(C: T): Hook<InstanceType<T>> {
