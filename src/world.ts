@@ -12,7 +12,7 @@ import { TagModule } from "./tags.js";
 import { sortSystems } from "./sort.js";
 import { ArrayMap } from "../../util/array_map.js";
 
-const PARENT_TYPE = 31;
+const PARENT_TYPE = 0;
 const LOCAL_COMPONENT_MIN = 256;
 
 export class World {

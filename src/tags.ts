@@ -5,7 +5,7 @@ import { Bitset } from "../../util/bitset.js";
 import { ComponentSnapshot } from "@vworlds/protocol";
 import { System } from "./system.js";
 
-const TAGS_TYPE = 30;
+const TAGS_TYPE = 1;
 
 type TagHandlerCallback = (e: Entity) => void;
 
