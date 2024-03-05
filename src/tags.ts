@@ -38,6 +38,7 @@ export class TagHandler {
 export class TagModule {
   private handlers = new Map<number, TagHandler>();
   private system: System;
+  private tagMap = new Map<string, number>();
   constructor(private world: World) {
     world.registerComponent(Tags, TAGS_TYPE, "NetworkedTags");
     this.system = world
@@ -61,17 +62,23 @@ export class TagModule {
         });
       });
   }
-  with(tagId: number): TagHandler {
-    let h = this.handlers.get(tagId);
+
+  with(tagIdOrName: number | string): TagHandler {
+    if (typeof tagIdOrName === "string") {
+      const t = this.tagMap.get(tagIdOrName);
+      if (!t) throw `Unregistered tag ${tagIdOrName}`;
+      tagIdOrName = t;
+    }
+    let h = this.handlers.get(tagIdOrName);
     if (!h) {
       h = new TagHandler();
-      this.handlers.set(tagId, h);
+      this.handlers.set(tagIdOrName, h);
     }
     return h;
   }
 
-  map(tagId: number, ComponentClasses: (typeof Component)[]) {
-    this.with(tagId)
+  map(tagIdOrName: number | string, ComponentClasses: (typeof Component)[]) {
+    this.with(tagIdOrName)
       .onCreate((e) => {
         ComponentClasses.forEach((C) => {
           e.add(C);
@@ -83,11 +90,16 @@ export class TagModule {
         });
       });
     this.system.writes(...ComponentClasses);
-    this.world.reindexSystems();
+    this.world["reindexSystems"]();
   }
+
   public createTagComponent(componentName: string) {
     class TagComponent extends Component {}
     this.world.registerComponent(TagComponent, componentName);
     return TagComponent;
+  }
+
+  public registerTag(name: string, tagId: number) {
+    this.tagMap.set(name, tagId);
   }
 }
