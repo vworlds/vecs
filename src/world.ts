@@ -7,19 +7,16 @@ import {
 } from "./component.js";
 import { Entity } from "./entity.js";
 import { System } from "./system.js";
-import { Parent } from "./parent.js";
 import { TagModule } from "./tags.js";
 import { sortSystems } from "./sort.js";
 import { ArrayMap } from "../../util/array_map.js";
 
-const PARENT_TYPE = 0;
 const LOCAL_COMPONENT_MIN = 256;
 
 export class World {
   private entities = new Map<number, Entity>(); // maps entity Id to Entity
   private componentNameTypeMap = new Map<string, number>();
   private archChangeQueue: Entity[] = [];
-  private entitiesWithoutParent: Entity[] = [];
   private systems: System[] = [];
   private Class2Meta = new Map<typeof Component, ComponentMeta>();
   private Type2Meta = new ArrayMap<ComponentMeta>();
@@ -29,7 +26,6 @@ export class World {
   private componentRegistrationDisabled = false;
   private systemRegistrationDisabled = false;
   constructor() {
-    this.registerComponent(Parent, PARENT_TYPE, "NetworkedParent");
     this.tags = new TagModule(this);
   }
 
@@ -81,9 +77,6 @@ export class World {
   }
 
   public _notifyComponentAdded(e: Entity, c: Component) {
-    if (c.type == PARENT_TYPE && e.parent === undefined)
-      this.entitiesWithoutParent.push(e);
-
     this.archetypeChanged(e);
   }
 
@@ -117,17 +110,6 @@ export class World {
   }
 
   private updateArchetypes() {
-    this.entitiesWithoutParent.forEach((e) => {
-      const parent = e.get(Parent);
-      if (parent) {
-        const parentEntity = this.entities.get(parent.pid);
-        if (parentEntity) {
-          e.parent = parentEntity;
-          parentEntity.children.add(e);
-        } else console.error("Parent entity not found");
-      }
-    });
-    this.entitiesWithoutParent.length = 0;
     if (this.archChangeQueue.length > 0) {
       this.systems.forEach((s) => {
         this.archChangeQueue.forEach((e) => {
