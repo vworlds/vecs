@@ -7,7 +7,6 @@ import {
 } from "./component.js";
 import { Entity } from "./entity.js";
 import { System } from "./system.js";
-import { TagModule } from "./tags.js";
 import { sortSystems } from "./sort.js";
 import { ArrayMap } from "../../util/array_map.js";
 
@@ -22,12 +21,9 @@ export class World {
   private Type2Meta = new ArrayMap<ComponentMeta>();
   private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
-  public readonly tags: TagModule;
   private componentRegistrationDisabled = false;
   private systemRegistrationDisabled = false;
-  constructor() {
-    this.tags = new TagModule(this);
-  }
+  constructor() {}
 
   private getOrCreateEntity(eid: number) {
     let e = this.entities.get(eid);
