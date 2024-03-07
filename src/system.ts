@@ -12,6 +12,7 @@ import { type World } from "./world.js";
 
 type EntityCallback = (e: Entity) => void;
 type ComponentCallback = (c: Component) => void;
+type OnRunCallback = (now: number, delta: number) => void;
 export type EntityTestFunc = (e: Entity) => boolean;
 
 export type SystemDependency = number | string | symbol | typeof Component;
@@ -64,9 +65,10 @@ function PARENT(func: EntityTestFunc) {
 }
 
 export class System {
-  protected callbacks = new ArrayMap<ComponentCallback>();
+  protected componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
   protected _onEnter: EntityCallback[] = [];
   protected _onExit: EntityCallback[] = [];
+  private _onRun: OnRunCallback | undefined;
   protected _belongs: EntityTestFunc = (e: Entity) => false;
   private readonly updateQueue: (Component | undefined)[] = [];
   private _writes: SystemDependency[] = [];
@@ -82,9 +84,11 @@ export class System {
   }
 
   public phase(p: string | IPhase) {
-    if (!(p instanceof Phase)) throw "Invalid Phase object";
-    if (p.world !== this.world)
-      throw "Phase does not belong to this system's world";
+    if (typeof p !== "string") {
+      if (!(p instanceof Phase)) throw "Invalid Phase object";
+      if (p.world !== this.world)
+        throw "Phase does not belong to this system's world";
+    }
     this._phase = p;
     return this;
   }
@@ -126,10 +130,12 @@ export class System {
       if (c.entity === e) this.updateQueue[i] = undefined;
     });
   }
-  public run() {
+  public run(now: number, delta: number) {
+    if (this._onRun) this._onRun(now, delta);
+
     this.updateQueue.forEach((c) => {
       if (!c) return;
-      const callback = this.callbacks.get(c.type);
+      const callback = this.componentUpdateCallbacks.get(c.type);
       if (callback) {
         callback(c);
       }
@@ -226,6 +232,10 @@ export class System {
     return this;
   }
 
+  public onRun(callback: OnRunCallback) {
+    this._onRun = callback;
+  }
+
   public onUpdate<C extends typeof Component>(
     ComponentClass: C,
     callback: (c: InstanceType<C>) => void
@@ -252,7 +262,7 @@ export class System {
     if (typeof injectOrCallback === "function") {
       // Only ComponentClass and callback are passed
       callback = injectOrCallback;
-      this.callbacks.set(type, callback as any);
+      this.componentUpdateCallbacks.set(type, callback as any);
     } else {
       // ComponentClass, inject, and callback are passed
       const inject = injectOrCallback;
@@ -267,7 +277,7 @@ export class System {
         }
       };
 
-      this.callbacks.set(type, cb);
+      this.componentUpdateCallbacks.set(type, cb);
     }
 
     this.watchlistBitmask.add(type);

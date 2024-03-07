@@ -1,4 +1,3 @@
-import { ComponentSnapshot, StateDiff } from "@vworlds/protocol";
 import {
   Component,
   ComponentClassOrType,
@@ -29,7 +28,7 @@ export class World {
   private pipeline = new Map<string, Phase>();
   constructor() {}
 
-  private getOrCreateEntity(eid: number) {
+  public getOrCreateEntity(eid: number) {
     let e = this.entities.get(eid);
     if (!e) {
       e = new Entity(this, eid);
@@ -86,27 +85,6 @@ export class World {
 
     if (e.empty()) this.entities.delete(e.eid);
     this.archetypeChanged(e);
-  }
-
-  private updateNetworkComponent(snapshot: ComponentSnapshot) {
-    const e = this.getOrCreateEntity(snapshot.eid);
-    const c = e.add(snapshot.type, false);
-    c.updateFromSnapshot(snapshot);
-    return c;
-  }
-
-  private removeNetworkComponent(cid: number) {
-    const type = cid & 0xff;
-    const eid = cid >> 8;
-    const e = this.entities.get(eid);
-    if (!e) return;
-    if (type == 255) {
-      e.forEachComponent((c) => {
-        e.remove(c.type);
-      });
-    } else {
-      e.remove(type);
-    }
   }
 
   private updateArchetypes() {
@@ -222,32 +200,6 @@ export class World {
     return system;
   }
 
-  public update(diff: StateDiff) {
-    if (!diff.from) {
-      // this is a full snapshot. Destroy everything.
-      this.entities.forEach((e) => {
-        e.destroy();
-      });
-      this.entities.clear();
-    }
-
-    diff.snapshots?.forEach((snapshot) => {
-      const c = this.updateNetworkComponent(snapshot);
-      c.modified();
-    });
-
-    diff.removed?.forEach((id) => {
-      this.removeNetworkComponent(id);
-    });
-
-    this.updateArchetypes();
-
-    /*     this.pendingSystems.forEach((s) => {
-      s.run();
-      this.updateArchetypes();
-    }); */
-  }
-
   public entity(id: number): Entity | undefined {
     return this.entities.get(id);
   }
@@ -288,7 +240,7 @@ export class World {
       console.log(
         "Phase %s : %s",
         phase.name,
-        this.pendingSystems.map((s) => s.name).join(" -> ")
+        phase.systems.map((s) => s.name).join(" -> ")
       );
     });
   }
@@ -303,10 +255,17 @@ export class World {
     return phase;
   }
 
-  public runPhase(phase: Phase) {
+  public runPhase(phase: IPhase, now: number, delta: number) {
     (phase as Phase).systems.forEach((s) => {
-      s.run();
+      s.run(now, delta);
       this.updateArchetypes();
     });
+  }
+
+  public clearAllEntities() {
+    this.entities.forEach((e) => {
+      e.destroy();
+    });
+    this.entities.clear();
   }
 }
