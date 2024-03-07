@@ -7,6 +7,7 @@ import {
   calculateComponentBitmask,
 } from "./component.js";
 import type { Entity } from "./entity.js";
+import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world.js";
 
 type EntityCallback = (e: Entity) => void;
@@ -71,12 +72,21 @@ export class System {
   private _writes: SystemDependency[] = [];
   protected _reads: SystemDependency[] = [];
   private hasQuery = false;
+  public _phase: string | Phase | undefined;
 
   protected watchlistBitmask: Bitset = new Bitset();
   constructor(public readonly name: string, public readonly world: World) {}
 
   public toString(): string {
     return this.name;
+  }
+
+  public phase(p: string | IPhase) {
+    if (!(p instanceof Phase)) throw "Invalid Phase object";
+    if (p.world !== this.world)
+      throw "Phase does not belong to this system's world";
+    this._phase = p;
+    return this;
   }
 
   public writes(...w: SystemDependency[]) {

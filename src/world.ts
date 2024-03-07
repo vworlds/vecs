@@ -9,6 +9,7 @@ import { Entity } from "./entity.js";
 import { System } from "./system.js";
 import { sortSystems } from "./sort.js";
 import { ArrayMap } from "../../util/array_map.js";
+import { IPhase, Phase } from "./phase.js";
 
 const LOCAL_COMPONENT_MIN = 256;
 
@@ -16,13 +17,16 @@ export class World {
   private entities = new Map<number, Entity>(); // maps entity Id to Entity
   private componentNameTypeMap = new Map<string, number>();
   private archChangeQueue: Entity[] = [];
-  private systems: System[] = [];
+  private pendingSystems: System[] = [];
+  private allSystems: System[] = [];
+
   private Class2Meta = new Map<typeof Component, ComponentMeta>();
   private Type2Meta = new ArrayMap<ComponentMeta>();
   private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   private componentRegistrationDisabled = false;
   private systemRegistrationDisabled = false;
+  private pipeline = new Map<string, Phase>();
   constructor() {}
 
   private getOrCreateEntity(eid: number) {
@@ -107,7 +111,7 @@ export class World {
 
   private updateArchetypes() {
     if (this.archChangeQueue.length > 0) {
-      this.systems.forEach((s) => {
+      this.allSystems.forEach((s) => {
         this.archChangeQueue.forEach((e) => {
           if (s.belongs(e)) {
             e._addSystem(s);
@@ -209,7 +213,7 @@ export class World {
   public addSystem(s: System) {
     if (this.systemRegistrationDisabled)
       throw "System registration is disabled";
-    this.systems.push(s);
+    this.pendingSystems.push(s);
   }
 
   public system(name: string) {
@@ -238,10 +242,10 @@ export class World {
 
     this.updateArchetypes();
 
-    this.systems.forEach((s) => {
+    /*     this.pendingSystems.forEach((s) => {
       s.run();
       this.updateArchetypes();
-    });
+    }); */
   }
 
   public entity(id: number): Entity | undefined {
@@ -259,14 +263,50 @@ export class World {
   }
 
   private reindexSystems() {
-    this.systems = sortSystems(this.systems);
-    console.log(
-      "System pipeline: %s",
-      this.systems.map((s) => s.name).join(" -> ")
-    );
+    let _defaultPhase = this.pipeline.get("update");
+    if (!_defaultPhase) {
+      _defaultPhase = new Phase("update", this);
+      this.pipeline.set(_defaultPhase.name, _defaultPhase);
+    }
+
+    const defaultPhase = _defaultPhase;
+
+    this.pendingSystems.forEach((s) => {
+      let phase = s._phase as Phase | undefined;
+      if (typeof phase === "string") {
+        phase = this.pipeline.get(phase);
+      }
+      phase = phase || defaultPhase;
+      phase.systems.push(s);
+    });
+    this.pendingSystems.length = 0;
+
+    this.allSystems.length = 0;
+    this.pipeline.forEach((phase) => {
+      phase.systems = sortSystems(phase.systems);
+      this.allSystems.push(...phase.systems);
+      console.log(
+        "Phase %s : %s",
+        phase.name,
+        this.pendingSystems.map((s) => s.name).join(" -> ")
+      );
+    });
   }
 
   public hook<T extends typeof Component>(C: T): Hook<InstanceType<T>> {
     return this.getComponentMeta(C) as any;
+  }
+
+  public addPhase(name: string): IPhase {
+    const phase = new Phase(name, this);
+    this.pipeline.set(name, phase);
+    return phase;
+  }
+
+  public runPhase(phase: Phase) {
+    (phase as Phase).systems.forEach((s) => {
+      s.run();
+      this.updateArchetypes();
+    });
   }
 }
