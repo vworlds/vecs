@@ -1,4 +1,3 @@
-import { ComponentSnapshot } from "@vworlds/protocol";
 import { BitPtr, Bitset } from "../../util/bitset.js";
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
@@ -52,8 +51,6 @@ export class Component {
     public readonly entity: Entity,
     public readonly meta: ComponentMeta
   ) {}
-
-  public updateFromSnapshot(state: ComponentSnapshot) {}
 
   public get type(): number {
     return this.meta.type;
