@@ -16,6 +16,7 @@ export class World {
   private entities = new Map<number, Entity>(); // maps entity Id to Entity
   private componentNameTypeMap = new Map<string, number>();
   private archChangeQueue: Entity[] = [];
+  private destroyedEntities: Entity[] = [];
   private pendingSystems: System[] = [];
   private allSystems: System[] = [];
 
@@ -83,8 +84,15 @@ export class World {
     const hook = c.meta["onRemoveHandler"];
     if (hook) hook(c);
 
-    if (e.empty()) this.entities.delete(e.eid);
     this.archetypeChanged(e);
+  }
+
+  public _notifyEntityDestroyed(e: Entity) {
+    if (!this.entities.delete(e.eid)) return;
+    e.forEachComponent((c) => {
+      e.remove(c.type);
+    });
+    this.destroyedEntities.push(e);
   }
 
   private updateArchetypes() {
@@ -99,12 +107,15 @@ export class World {
         });
       });
       this.archChangeQueue.forEach((e) => {
-        e.clearDeleted();
-        if (e.empty()) {
-          e.destroy();
-        }
+        e.clearDeletedComponents();
       });
     }
+
+    this.destroyedEntities.forEach((e) => {
+      e["_destroy"]();
+    });
+    this.destroyedEntities.length = 0;
+
     this.updatedComponents.forEach((c) => {
       const hook = c.meta["onSetHandler"];
       if (hook) hook(c);

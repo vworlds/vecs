@@ -19,6 +19,7 @@ export class Entity {
   public parent: Entity | undefined;
   private _children: Set<Entity> | undefined;
   public _archetypeChanged: boolean = false;
+  private destroyed = false;
 
   constructor(public readonly world: World, public readonly eid: number) {}
 
@@ -115,27 +116,38 @@ export class Entity {
     this.newSystems.length = 0;
   }
 
-  public empty() {
+  public get empty() {
     return this.components.size == 0;
   }
 
-  public destroy() {
+  private _destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.systems.forEach((s) => {
       s.exit(this);
     });
     this.systems.clear();
+
+    if (this._events) {
+      this._events.emit("destroy");
+      this._events.removeAllListeners("destroy");
+    }
+  }
+
+  public destroy() {
+    this.world._notifyEntityDestroyed(this);
     this.children.forEach((child) => {
       child.destroy();
     });
-    if (!this._events) return;
-    this._events.emit("destroy");
+    this.children.clear();
     if (this.parent) {
       this.parent.children.delete(this);
       this.world.archetypeChanged(this.parent);
       this.parent = undefined;
     }
   }
-  public clearDeleted() {
+
+  public clearDeletedComponents() {
     this.deletedComponents.clear();
   }
 
