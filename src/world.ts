@@ -27,15 +27,37 @@ export class World {
   private componentRegistrationDisabled = false;
   private systemRegistrationDisabled = false;
   private pipeline = new Map<string, Phase>();
+  private eidCounter = 0;
   constructor() {}
 
-  public getOrCreateEntity(eid: number) {
+  public getOrCreateEntity(
+    eid: number,
+    onCreateCallback?: (e: Entity) => void
+  ) {
     let e = this.entities.get(eid);
     if (!e) {
       e = new Entity(this, eid);
       this.entities.set(eid, e);
+      if (onCreateCallback) onCreateCallback(e);
     }
     return e;
+  }
+
+  public entity(id: number): Entity | undefined {
+    return this.entities.get(id);
+  }
+
+  public createEntity(): Entity {
+    const eid = this.eidCounter++;
+    const e = new Entity(this, eid);
+    this.entities.set(eid, e);
+    return e;
+  }
+
+  public setEntityIdRange(min: number) {
+    if (this.componentRegistrationDisabled)
+      throw "setEntityIdRange must be called before registering components";
+    this.eidCounter = min;
   }
 
   private getComponentInstance(
@@ -209,10 +231,6 @@ export class World {
     const system = new System(name, this);
     this.addSystem(system);
     return system;
-  }
-
-  public entity(id: number): Entity | undefined {
-    return this.entities.get(id);
   }
 
   public disableComponentRegistration() {
