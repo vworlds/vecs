@@ -15,7 +15,7 @@ type ComponentCallback = (c: Component) => void;
 type OnRunCallback = (now: number, delta: number) => void;
 export type EntityTestFunc = (e: Entity) => boolean;
 
-export type SystemDependency = number | string | symbol | typeof Component;
+export type SystemDependency = number | string | symbol;
 
 type ComponentOrParent = typeof Component | { parent: typeof Component };
 type ComponentOrParentType = number | { parent: number };
@@ -95,12 +95,20 @@ export class System {
     return this;
   }
 
-  public writes(...w: SystemDependency[]) {
-    this._writes.push(...w);
+  public writes(...w: (SystemDependency | typeof Component)[]) {
+    w.forEach((d) => {
+      if (typeof d === "function")
+        this._writes.push(this.world.getComponentType(d));
+      else this._writes.push(d);
+    });
     return this;
   }
-  public reads(...r: SystemDependency[]) {
-    this._reads.push(...r);
+  public reads(...r: (SystemDependency | typeof Component)[]) {
+    r.forEach((d) => {
+      if (typeof d === "function")
+        this._reads.push(this.world.getComponentType(d));
+      else this._reads.push(d);
+    });
     return this;
   }
 
@@ -296,7 +304,7 @@ export class System {
     }
 
     this.watchlistBitmask.add(type);
-    this._reads.push(ComponentClass);
+    this.reads(ComponentClass);
 
     if (!this.hasQuery) {
       const watchlist: number[] = this.watchlistBitmask.indices();
