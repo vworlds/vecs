@@ -6,7 +6,6 @@ import {
 } from "./component.js";
 import { Entity } from "./entity.js";
 import { System } from "./system.js";
-import { sortSystems } from "./sort.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 
@@ -264,7 +263,6 @@ export class World {
 
     this.allSystems.length = 0;
     this.pipeline.forEach((phase) => {
-      phase.systems = sortSystems(phase.systems);
       this.allSystems.push(...phase.systems);
       console.log(
         "Phase %s : %s",

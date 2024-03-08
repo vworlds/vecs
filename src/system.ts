@@ -15,8 +15,6 @@ type ComponentCallback = (c: Component) => void;
 type OnRunCallback = (now: number, delta: number) => void;
 export type EntityTestFunc = (e: Entity) => boolean;
 
-export type SystemDependency = number | string | symbol;
-
 type ComponentOrParent = typeof Component | { parent: typeof Component };
 type ComponentOrParentType = number | { parent: number };
 
@@ -73,8 +71,6 @@ export class System {
   private _onRun: OnRunCallback | undefined;
   protected _belongs: EntityTestFunc = (e: Entity) => false;
   private readonly updateQueue: (Component | undefined)[] = [];
-  private _writes: SystemDependency[] = [];
-  protected _reads: SystemDependency[] = [];
   private hasQuery = false;
   public _phase: string | Phase | undefined;
 
@@ -93,30 +89,6 @@ export class System {
     }
     this._phase = p;
     return this;
-  }
-
-  public writes(...w: (SystemDependency | typeof Component)[]) {
-    w.forEach((d) => {
-      if (typeof d === "function")
-        this._writes.push(this.world.getComponentType(d));
-      else this._writes.push(d);
-    });
-    return this;
-  }
-  public reads(...r: (SystemDependency | typeof Component)[]) {
-    r.forEach((d) => {
-      if (typeof d === "function")
-        this._reads.push(this.world.getComponentType(d));
-      else this._reads.push(d);
-    });
-    return this;
-  }
-
-  public getWrites() {
-    return this._writes;
-  }
-  public getReads() {
-    return this._reads;
   }
 
   public notifyModified(c: Component) {
@@ -304,7 +276,6 @@ export class System {
     }
 
     this.watchlistBitmask.add(type);
-    this.reads(ComponentClass);
 
     if (!this.hasQuery) {
       const watchlist: number[] = this.watchlistBitmask.indices();
