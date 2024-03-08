@@ -1,4 +1,4 @@
-import { BitPtr, Bitset } from "../../util/bitset.js";
+import { BitPtr, Bitset } from "./util/bitset.js";
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
 

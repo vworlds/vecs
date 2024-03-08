@@ -1,5 +1,5 @@
-import { ArrayMap } from "../../util/array_map.js";
-import { Bitset } from "../../util/bitset.js";
+import { ArrayMap } from "./util/array_map.js";
+import { Bitset } from "./util/bitset.js";
 import {
   Component,
   ComponentClassArray,

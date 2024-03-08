@@ -1,0 +1,25 @@
+{
+  "name": "@vworlds/vecs",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "clean": "rimraf dist && rimraf tsconfig.tsbuildinfo",
+    "prepack": "yarn build",
+    "build": "yarn clean && yarn compile",
+    "compile": "tsc --build && cp \"./package.json\" ./dist/",
+    "test": "NODE_OPTIONS=--experimental-vm-modules yarn jest"
+  },
+  "devDependencies": {
+    "jest": "^29.3.0",
+    "@types/jest": "^29.2.3",
+    "ts-jest": "^29.0.0",
+    "ts-node": "^10.9.1",
+    "@types/node": "^17.0.31"
+  },
+  "dependencies": {
+    "eventemitter3": "^4.0.7"
+  },
+  "license": "UNLICENSED"
+}

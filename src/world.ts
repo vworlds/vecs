@@ -7,7 +7,7 @@ import {
 import { Entity } from "./entity.js";
 import { System } from "./system.js";
 import { sortSystems } from "./sort.js";
-import { ArrayMap } from "../../util/array_map.js";
+import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 
 const LOCAL_COMPONENT_MIN = 256;
