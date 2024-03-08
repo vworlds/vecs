@@ -18,6 +18,8 @@ export type EntityTestFunc = (e: Entity) => boolean;
 export type SystemDependency = number | string | symbol | typeof Component;
 
 type ComponentOrParent = typeof Component | { parent: typeof Component };
+type ComponentOrParentType = number | { parent: number };
+
 type ComponentInstance<T> = T extends { parent: typeof Component }
   ? InstanceType<T["parent"]>
   : T extends typeof Component
@@ -143,33 +145,42 @@ export class System {
     this.updateQueue.length = 0;
   }
 
-  private getComponent<Class extends ComponentOrParent>(
+  private getComponent(
     e: Entity,
-    C: Class,
+    C: ComponentOrParentType,
     considerDeleted: boolean
   ) {
     let c: Component | undefined;
-    if (typeof C === "function") {
+    if (typeof C === "number") {
       c = e.get(C, considerDeleted); // obtain an instance of C
     } else {
-      // parent: C was used, so we ask the parent for an instance of C.parent
       c = e.parent && e.parent.get(C.parent, considerDeleted);
     }
     return c;
   }
 
-  private getInjected<J extends ComponentOrParent[]>(
+  private getInjected(
     e: Entity,
-    inject: readonly [...J],
+    inject: ComponentOrParentType[],
     considerDeleted = false
   ) {
-    const injected = [] as { [K in keyof J]: ComponentInstance<J[K]> };
+    const injected: Component[] = [];
     inject.forEach((C) => {
       const c = this.getComponent(e, C, considerDeleted);
       if (!c) throw "system does not contain component";
       injected.push(c);
     });
     return injected;
+  }
+
+  private mapInjectedClassToTypes<J extends ComponentOrParent[]>(
+    inject: readonly [...J]
+  ): ComponentOrParentType[] {
+    //map injected class constructors to type numbers which are faster to search for later
+    return inject.map((C) => {
+      if (typeof C === "function") return this.world.getComponentType(C);
+      return { parent: this.world.getComponentType(C.parent) };
+    });
   }
 
   public onEnter<J extends ComponentOrParent[]>(
@@ -194,9 +205,9 @@ export class System {
       this._onEnter.push(injectOrCallback);
     } else {
       // It is the first signature
+      const inject = this.mapInjectedClassToTypes(injectOrCallback);
       this._onEnter.push((e: Entity) => {
-        const inject = injectOrCallback;
-        callback!(e, this.getInjected(e, inject));
+        callback!(e, this.getInjected(e, inject) as any);
       });
     }
     return this;
@@ -224,9 +235,9 @@ export class System {
       this._onExit.push(injectOrCallback);
     } else {
       // It is the first signature
+      const inject = this.mapInjectedClassToTypes(injectOrCallback);
       this._onExit.push((e: Entity) => {
-        const inject = injectOrCallback;
-        callback!(e, this.getInjected(e, inject, true));
+        callback!(e, this.getInjected(e, inject, true) as any);
       });
     }
     return this;
@@ -266,10 +277,14 @@ export class System {
     } else {
       // ComponentClass, inject, and callback are passed
       const inject = injectOrCallback;
+      //map injected class constructors to component type numbers which are faster to search for later
+      const injectedComponentTypes = inject.map((C) =>
+        this.world.getComponentType(C)
+      );
       const cb = (c: Component) => {
         const injected: any[] = [];
-        inject.forEach((InjectedComponent) => {
-          injected.push(c.entity.get(InjectedComponent));
+        injectedComponentTypes.forEach((InjectedComponentType) => {
+          injected.push(c.entity.get(InjectedComponentType));
         });
 
         if (callback) {
