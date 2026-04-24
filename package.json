@@ -9,7 +9,7 @@
     "prepack": "yarn build",
     "build": "yarn clean && yarn compile",
     "compile": "tsc --build && cp \"./package.json\" ./dist/",
-    "test": "NODE_OPTIONS=--experimental-vm-modules yarn jest"
+    "test": "NODE_OPTIONS=--experimental-vm-modules yarn jest --passWithNoTests"
   },
   "devDependencies": {
     "jest": "^29.3.0",

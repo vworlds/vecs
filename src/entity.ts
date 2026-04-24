@@ -2,7 +2,7 @@ import { Component } from "./component.js";
 import type { World } from "./world.js";
 import { ArrayMap } from "./util/array_map.js";
 import { type System } from "./system.js";
-import { Events } from "@vworlds/utils";
+import { Events } from "./util/events.js";
 import { Bitset } from "./util/bitset.js";
 
 type EntityEvents = Events<{ destroy(): void }>;
