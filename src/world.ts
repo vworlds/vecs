@@ -11,6 +11,36 @@ import { IPhase, Phase } from "./phase.js";
 
 const LOCAL_COMPONENT_MIN = 256;
 
+/**
+ * The central ECS container.
+ *
+ * A `World` owns all entities, components, systems, and the update pipeline.
+ * Typical lifecycle:
+ *
+ * 1. **Register components** — call {@link registerComponent} (and optionally
+ *    {@link registerComponentType}) for every component class.
+ * 2. **Register systems** — call {@link system} (or {@link addSystem}) to
+ *    create and configure {@link System | systems}.
+ * 3. **Start** — call {@link start} to freeze registration and sort systems
+ *    into their phases.
+ * 4. **Run loop** — call {@link runPhase} once per frame for each phase.
+ *
+ * ```ts
+ * const world = new World();
+ *
+ * world.registerComponent(Position);
+ * world.registerComponent(Velocity);
+ *
+ * world.system("Move")
+ *   .requires(Position, Velocity)
+ *   .onUpdate(Position, (pos) => { pos.x += vel.x; });
+ *
+ * world.start();
+ *
+ * // game loop:
+ * world.runPhase(updatePhase, Date.now(), 16);
+ * ```
+ */
 export class World {
   private entities = new Map<number, Entity>(); // maps entity Id to Entity
   private componentNameTypeMap = new Map<string, number>();
@@ -29,6 +59,24 @@ export class World {
   private eidCounter = 0;
   constructor() {}
 
+  /**
+   * Return the entity with id `eid`, creating it if it does not yet exist.
+   *
+   * Used by networking code to materialise server-assigned entities:
+   *
+   * ```ts
+   * const e = world.getOrCreateEntity(snapshot.eid, (e) => {
+   *   networkEntities.add(e);
+   * });
+   * const c = e.add(snapshot.type, false);
+   * ```
+   *
+   * @param eid - The entity id to look up or create.
+   * @param onCreateCallback - Optional callback invoked only when a **new**
+   *   entity is created, before it is returned. Use this to initialise
+   *   bookkeeping (e.g. tracking it in a local set).
+   * @returns The existing or newly created entity.
+   */
   public getOrCreateEntity(
     eid: number,
     onCreateCallback?: (e: Entity) => void
@@ -42,10 +90,24 @@ export class World {
     return e;
   }
 
+  /**
+   * Look up an entity by id.
+   *
+   * @param id - Numeric entity id.
+   * @returns The entity, or `undefined` if no entity with that id exists.
+   */
   public entity(id: number): Entity | undefined {
     return this.entities.get(id);
   }
 
+  /**
+   * Create a new entity with an auto-assigned id and register it in the world.
+   *
+   * The id counter starts at 0 (or at the value set by
+   * {@link setEntityIdRange}) and increments by one for each call.
+   *
+   * @returns The new entity.
+   */
   public createEntity(): Entity {
     const eid = this.eidCounter++;
     const e = new Entity(this, eid);
@@ -53,6 +115,16 @@ export class World {
     return e;
   }
 
+  /**
+   * Set the starting value for the auto-incrementing entity id counter.
+   *
+   * Must be called **before** the first {@link registerComponent} call.
+   * Useful when the world runs alongside a server that owns a different id
+   * range — for example, locally-created client entities can start at a high
+   * offset to avoid collisions with server-assigned ids.
+   *
+   * @param min - The first id that will be assigned by {@link createEntity}.
+   */
   public setEntityIdRange(min: number) {
     if (this.componentRegistrationDisabled)
       throw "setEntityIdRange must be called before registering components";
@@ -71,6 +143,13 @@ export class World {
     return c;
   }
 
+  /**
+   * Retrieve the {@link ComponentMeta} record for a registered component.
+   *
+   * @param typeOrClass - A component class constructor or a numeric type id.
+   * @returns The corresponding `ComponentMeta`.
+   * @throws If no component with that class or type id has been registered.
+   */
   public getComponentMeta(typeOrClass: ComponentClassOrType) {
     let meta: ComponentMeta | undefined;
     if (typeof typeOrClass === "function") {
@@ -83,6 +162,12 @@ export class World {
     return meta;
   }
 
+  /**
+   * Resolve a component class or type id to its numeric type id.
+   *
+   * @param typeOrClass - A component class constructor or a numeric type id.
+   * @returns The numeric type id.
+   */
   public getComponentType(typeOrClass: ComponentClassOrType) {
     if (typeof typeOrClass === "function") {
       return this.getComponentMeta(typeOrClass).type;
@@ -90,6 +175,16 @@ export class World {
     return typeOrClass;
   }
 
+  /**
+   * Mark an entity's archetype as changed, queuing it for re-evaluation
+   * against all system queries at the end of the current system run.
+   *
+   * Also recursively marks all children as changed so that `{ PARENT: ... }`
+   * queries are re-evaluated.
+   *
+   * @internal Called automatically by {@link Entity.add} and
+   * {@link Entity.remove}.
+   */
   public archetypeChanged(e: Entity) {
     if (e._archetypeChanged) return;
     e._archetypeChanged = true;
@@ -97,10 +192,12 @@ export class World {
     e.children.forEach((child) => this.archetypeChanged(child));
   }
 
+  /** @internal */
   public _notifyComponentAdded(e: Entity, c: Component) {
     this.archetypeChanged(e);
   }
 
+  /** @internal */
   public _notifyComponentRemoved(e: Entity, c: Component) {
     const hook = c.meta["onRemoveHandler"];
     if (hook) hook(c);
@@ -108,6 +205,7 @@ export class World {
     this.archetypeChanged(e);
   }
 
+  /** @internal */
   public _notifyEntityDestroyed(e: Entity) {
     if (!this.entities.delete(e.eid)) return;
     e.forEachComponent((c) => {
@@ -151,12 +249,31 @@ export class World {
     this.updatedComponents.length = 0;
   }
 
+  /** @internal Queues a component for onSet / onUpdate delivery. */
   public _queueUpdatedComponent(c: Component) {
     if (c["dirty"]) return;
     c["dirty"] = true;
     this.updatedComponents.push(c);
   }
 
+  /**
+   * Register a component class with the world.
+   *
+   * Must be called before any entity can use the component. Registration is
+   * disabled once {@link start} is called.
+   *
+   * **Overloads:**
+   * - `registerComponent(Class)` — type id auto-assigned from the name map, or
+   *   from a local counter (≥ 256) if the name is not yet mapped.
+   * - `registerComponent(Class, type)` — explicit numeric type id.
+   * - `registerComponent(Class, componentName)` — auto-assigned id, custom
+   *   display name (useful when the class name differs from the network name).
+   * - `registerComponent(Class, type, componentName)` — explicit id + name.
+   *
+   * @param ComponentClass - The component class to register.
+   * @throws If the class has already been registered, or if registration is
+   *   disabled.
+   */
   public registerComponent(ComponentClass: typeof Component): void;
   public registerComponent(
     ComponentClass: typeof Component,
@@ -216,26 +333,80 @@ export class World {
     );
   }
 
+  /**
+   * Pre-register a component name → type id mapping without associating a
+   * class.
+   *
+   * Useful when network messages refer to components by type id and the
+   * corresponding class may be registered later. Call this before
+   * {@link registerComponent} to ensure the class picks up the server-assigned
+   * id rather than a locally generated one.
+   *
+   * @param componentName - The string name used in network payloads.
+   * @param type - The numeric type id assigned by the server.
+   */
   public registerComponentType(componentName: string, type: number) {
     this.componentNameTypeMap.set(componentName, type);
   }
 
+  /**
+   * Register a pre-built {@link System} with the world.
+   *
+   * In most cases it is more convenient to use {@link system} which both
+   * creates and registers in one call. Use `addSystem` when you need to
+   * subclass `System` directly.
+   *
+   * @param s - The system to add.
+   * @throws If system registration is disabled (after {@link start}).
+   */
   public addSystem(s: System) {
     if (this.systemRegistrationDisabled)
       throw "System registration is disabled";
     this.pendingSystems.push(s);
   }
 
+  /**
+   * Create a new {@link System}, register it, and return it for configuration.
+   *
+   * This is the primary way to define systems:
+   *
+   * ```ts
+   * world.system("Render")
+   *   .phase("update")
+   *   .requires(Position, Sprite)
+   *   .onEnter([Sprite], (e, [sprite]) => sprite.initialize(scene))
+   *   .onUpdate(Position, (pos) => { ... });
+   * ```
+   *
+   * @param name - A unique display name for the system.
+   * @returns The new `System` instance.
+   */
   public system(name: string) {
     const system = new System(name, this);
     this.addSystem(system);
     return system;
   }
 
+  /**
+   * Prevent any further calls to {@link registerComponent}.
+   *
+   * Called automatically by {@link start}. Can be called early if you want to
+   * lock component registration before systems are fully configured.
+   */
   public disableComponentRegistration() {
     this.componentRegistrationDisabled = true;
   }
 
+  /**
+   * Freeze registration and prepare the world for running.
+   *
+   * Disables both component and system registration, then distributes all
+   * pending systems into their assigned pipeline phases (defaulting to
+   * `"update"`). Logs the resulting phase → system order to the console.
+   *
+   * Call this once, after all components and systems are registered but before
+   * the first {@link runPhase} call.
+   */
   public start() {
     this.componentRegistrationDisabled = true;
     this.systemRegistrationDisabled = true;
@@ -272,16 +443,59 @@ export class World {
     });
   }
 
+  /**
+   * Return the {@link Hook} for a component class.
+   *
+   * Hooks let you react to component lifecycle events (add / remove / set)
+   * without building a full {@link System}. The hook is backed by the
+   * component's {@link ComponentMeta} and the same object is returned on every
+   * call.
+   *
+   * ```ts
+   * world.hook(Sprite)
+   *   .onAdd(c  => c.initialize(scene))
+   *   .onRemove(c => c.destroy());
+   * ```
+   *
+   * @param C - The component class.
+   * @returns The `Hook` for that component type.
+   */
   public hook<T extends typeof Component>(C: T): Hook<InstanceType<T>> {
     return this.getComponentMeta(C) as any;
   }
 
+  /**
+   * Add a named phase to the update pipeline and return it.
+   *
+   * Phases are executed in insertion order when you call {@link runPhase} for
+   * each one. Systems are assigned to a phase via {@link System.phase}.
+   *
+   * ```ts
+   * const preUpdate = world.addPhase("preupdate");
+   * const update    = world.addPhase("update");
+   * const send      = world.addPhase("send");
+   * ```
+   *
+   * @param name - Unique phase name. Systems can reference it by this string.
+   * @returns The new {@link IPhase}.
+   */
   public addPhase(name: string): IPhase {
     const phase = new Phase(name, this);
     this.pipeline.set(name, phase);
     return phase;
   }
 
+  /**
+   * Execute all systems in the given phase for one tick.
+   *
+   * After each system runs, pending archetype changes (entity add/remove
+   * component events) are flushed so that `onEnter` / `onExit` callbacks are
+   * delivered before the next system in the same phase executes.
+   *
+   * @param phase - The {@link IPhase} to run (returned by {@link addPhase}).
+   * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
+   * @param delta - Milliseconds elapsed since the previous tick.
+   */
   public runPhase(phase: IPhase, now: number, delta: number) {
     (phase as Phase).systems.forEach((s) => {
       s.run(now, delta);
@@ -289,6 +503,12 @@ export class World {
     });
   }
 
+  /**
+   * Destroy every entity currently tracked by the world.
+   *
+   * Triggers all `onRemove` hooks and `onExit` callbacks. Useful when
+   * transitioning between game sessions or resetting to a clean state.
+   */
   public clearAllEntities() {
     this.entities.forEach((e) => {
       e.destroy();
