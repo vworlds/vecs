@@ -117,8 +117,7 @@ function PARENT(func: EntityTestFunc) {
  */
 export class System {
   protected componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
-  protected eachCallback: ComponentCallback | undefined;
-  protected eachComponentType: number | undefined;
+  protected eachCallback: EntityCallback | undefined;
   protected entities = new Set<Entity>();
   protected _onEnter: EntityCallback[] = [];
   protected _onExit: EntityCallback[] = [];
@@ -197,13 +196,9 @@ export class System {
   public run(now: number, delta: number) {
     if (this._onRun) this._onRun(now, delta);
 
-    if (this.eachCallback && this.eachComponentType !== undefined) {
+    if (this.eachCallback) {
       const cb = this.eachCallback;
-      const type = this.eachComponentType;
-      this.entities.forEach((e) => {
-        const c = e.get(type);
-        if (c) cb(c);
-      });
+      this.entities.forEach((e) => cb(e));
     }
 
     this.updateQueue.forEach((c) => {
@@ -471,108 +466,51 @@ export class System {
 
   /**
    * Register a callback that fires **every tick** for every entity currently
-   * tracked by this system, for the given component type.
+   * tracked by this system, with the listed components resolved from each
+   * entity.
    *
    * Unlike {@link onUpdate} (which only fires when `component.modified()` is
    * called), `onEach` fires unconditionally on every tick the system runs,
-   * once per tracked entity that has the watched component.
+   * once per tracked entity. Components missing from an entity appear as
+   * `undefined` in the resolved tuple.
    *
-   * The system will automatically begin tracking entities that have this
-   * component type (equivalent to adding it to a `requires` / `HAS` query)
-   * unless a custom {@link query} was already set.
+   * `onEach` does **not** modify the system's query — define membership with
+   * {@link requires} or {@link query} as usual.
    *
    * Only a single `onEach` callback may be registered per system; calling
    * `onEach` a second time throws.
    *
-   * @param ComponentClass - The component class to iterate over.
-   * @param callback - Receives the component instance from each tracked entity.
+   * @param components - Component classes to resolve from each entity.
+   * @param callback - Receives the entity and a tuple of resolved component
+   *   instances (or `undefined` for any component the entity lacks).
    * @returns `this` for chaining.
    * @throws If `onEach` has already been registered on this system.
    *
    * @example
    * ```ts
-   * world.system("ApplyVelocity")
-   *   .onEach(Position, (pos) => {
-   *     pos.x += pos.entity.get(Velocity)!.vx;
+   * world.system("Move")
+   *   .requires(Position, Velocity)
+   *   .onEach([Position, Velocity], (e, [pos, vel]) => {
+   *     pos.x += vel.vx;
+   *     pos.y += vel.vy;
    *   });
    * ```
    */
-  public onEach<C extends typeof Component>(
-    ComponentClass: C,
-    callback: (c: InstanceType<C>) => void
-  ): System;
-
-  /**
-   * Register a per-tick callback for `ComponentClass` with additional
-   * components injected from the same entity.
-   *
-   * Unlike {@link onUpdate}, this fires every tick regardless of whether
-   * `component.modified()` was called.
-   *
-   * @param ComponentClass - The component class to iterate over.
-   * @param inject - Additional component classes to resolve from the entity.
-   * @param callback - Receives the component instance and the injected tuple.
-   * @returns `this` for chaining.
-   *
-   * @example
-   * ```ts
-   * world.system("SyncSprite")
-   *   .onEach(Position, [Sprite], (pos, [sprite]) => {
-   *     sprite.sprite.setPosition(pos.x, pos.y);
-   *   });
-   * ```
-   */
-  public onEach<C extends typeof Component, J extends (typeof Component)[]>(
-    ComponentClass: C,
-    inject: readonly [...J],
+  public onEach<J extends (typeof Component)[]>(
+    components: readonly [...J],
     callback: (
-      c: InstanceType<C>,
-      injected: { [K in keyof J]: ComponentInstance<J[K]> }
-    ) => void
-  ): System;
-
-  public onEach<C extends typeof Component, J extends (typeof Component)[]>(
-    ComponentClass: C,
-    injectOrCallback: readonly [...J] | ((c: InstanceType<C>) => void),
-    callback?: (
-      c: InstanceType<C>,
-      injected: { [K in keyof J]: ComponentInstance<J[K]> }
+      e: Entity,
+      resolved: { [K in keyof J]: InstanceType<J[K]> | undefined }
     ) => void
   ): System {
     if (this.eachCallback) {
       throw `onEach already registered for system '${this.name}'`;
     }
-    const type = this.world.getComponentType(ComponentClass);
-    if (typeof injectOrCallback === "function") {
-      // Only ComponentClass and callback are passed
-      callback = injectOrCallback;
-      this.eachCallback = callback as ComponentCallback;
-    } else {
-      // ComponentClass, inject, and callback are passed
-      const inject = injectOrCallback;
-      const injectedComponentTypes = inject.map((C) =>
-        this.world.getComponentType(C)
-      );
-      this.eachCallback = (c: Component) => {
-        const injected: any[] = [];
-        injectedComponentTypes.forEach((InjectedComponentType) => {
-          injected.push(c.entity.get(InjectedComponentType));
-        });
-
-        if (callback) {
-          callback(c as InstanceType<C>, injected as any);
-        }
-      };
-    }
-    this.eachComponentType = type;
-
-    this.watchlistBitmask.add(type);
-
-    if (!this.hasQuery) {
-      const watchlist: number[] = this.watchlistBitmask.indices();
-      this._belongs = HAS(this.world, ...watchlist);
-    }
-
+    const types = components.map((C) => this.world.getComponentType(C));
+    this.eachCallback = (e: Entity) => {
+      const resolved = types.map((t) => e.get(t));
+      callback(e, resolved as any);
+    };
     return this;
   }
 
