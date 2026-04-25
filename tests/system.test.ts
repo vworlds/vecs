@@ -547,6 +547,23 @@ describe("System — onEach", () => {
     expect(sys.onEach(Position, () => {})).toBe(sys);
   });
 
+  it("onEach throws if registered twice on the same system", () => {
+    const { w } = setup();
+    const sys = w.system("test");
+    sys.onEach(Position, () => {});
+    expect(() => sys.onEach(Velocity, () => {})).toThrow();
+  });
+
+  it("entities are only tracked when onEach is registered", () => {
+    const { w, phase } = setup();
+    const sys = w.system("test").phase(phase).requires(Position);
+    w.start();
+    const e = w.createEntity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    expect((sys as any).entities.size).toBe(0);
+  });
+
   it("onEach and onUpdate coexist: only onEach fires when component is unmodified", () => {
     const { w, phase } = setup();
     const eachCb = vi.fn();

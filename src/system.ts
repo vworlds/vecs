@@ -117,8 +117,9 @@ function PARENT(func: EntityTestFunc) {
  */
 export class System {
   protected componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
-  protected componentEachCallbacks = new ArrayMap<ComponentCallback>();
-  protected trackedEntities = new Set<Entity>();
+  protected eachCallback: ComponentCallback | undefined;
+  protected eachComponentType: number | undefined;
+  protected entities = new Set<Entity>();
   protected _onEnter: EntityCallback[] = [];
   protected _onExit: EntityCallback[] = [];
   private _onRun: OnRunCallback | undefined;
@@ -178,13 +179,13 @@ export class System {
   public enter(e: Entity) {
     this._onEnter.forEach((callback) => callback(e));
     e.forEachComponent((c) => this.notifyModified(c));
-    this.trackedEntities.add(e);
+    if (this.eachCallback) this.entities.add(e);
   }
 
   /** @internal Fires `onExit` callbacks when an entity leaves the system. */
   public exit(e: Entity) {
     this._onExit.forEach((callback) => callback(e));
-    this.trackedEntities.delete(e);
+    this.entities.delete(e);
     // remove queued updates for components of the exiting entity:
     this.updateQueue.forEach((c, i) => {
       if (!c) return;
@@ -196,12 +197,12 @@ export class System {
   public run(now: number, delta: number) {
     if (this._onRun) this._onRun(now, delta);
 
-    if (this.componentEachCallbacks.size > 0) {
-      this.trackedEntities.forEach((e) => {
-        this.componentEachCallbacks.forEach((cb, type) => {
-          const c = e.get(type);
-          if (c) cb(c);
-        });
+    if (this.eachCallback && this.eachComponentType !== undefined) {
+      const cb = this.eachCallback;
+      const type = this.eachComponentType;
+      this.entities.forEach((e) => {
+        const c = e.get(type);
+        if (c) cb(c);
       });
     }
 
@@ -480,9 +481,13 @@ export class System {
    * component type (equivalent to adding it to a `requires` / `HAS` query)
    * unless a custom {@link query} was already set.
    *
+   * Only a single `onEach` callback may be registered per system; calling
+   * `onEach` a second time throws.
+   *
    * @param ComponentClass - The component class to iterate over.
    * @param callback - Receives the component instance from each tracked entity.
    * @returns `this` for chaining.
+   * @throws If `onEach` has already been registered on this system.
    *
    * @example
    * ```ts
@@ -534,18 +539,21 @@ export class System {
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
   ): System {
+    if (this.eachCallback) {
+      throw `onEach already registered for system '${this.name}'`;
+    }
     const type = this.world.getComponentType(ComponentClass);
     if (typeof injectOrCallback === "function") {
       // Only ComponentClass and callback are passed
       callback = injectOrCallback;
-      this.componentEachCallbacks.set(type, callback as any);
+      this.eachCallback = callback as ComponentCallback;
     } else {
       // ComponentClass, inject, and callback are passed
       const inject = injectOrCallback;
       const injectedComponentTypes = inject.map((C) =>
         this.world.getComponentType(C)
       );
-      const cb = (c: Component) => {
+      this.eachCallback = (c: Component) => {
         const injected: any[] = [];
         injectedComponentTypes.forEach((InjectedComponentType) => {
           injected.push(c.entity.get(InjectedComponentType));
@@ -555,9 +563,8 @@ export class System {
           callback(c as InstanceType<C>, injected as any);
         }
       };
-
-      this.componentEachCallbacks.set(type, cb);
     }
+    this.eachComponentType = type;
 
     this.watchlistBitmask.add(type);
 
