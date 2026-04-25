@@ -420,138 +420,161 @@ describe("System — onEach", () => {
   it("onEach fires every tick for a tracked entity", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
-    w.system("test").phase(phase).onEach(Position, cb);
+    w.system("test").phase(phase).requires(Position).onEach([Position], cb);
     w.start();
     const e = w.createEntity();
     const pos = e.add(Position);
-    w.runPhase(phase, 0, 0); // tick 1: entity enters (after run, so no onEach yet)
-    w.runPhase(phase, 0, 0); // tick 2: first onEach
-    expect(cb).toHaveBeenCalledWith(pos);
+    w.runPhase(phase, 0, 0); // entry happens after run() in updateArchetypes
+    w.runPhase(phase, 0, 0); // first onEach
+    expect(cb).toHaveBeenCalledWith(e, [pos]);
   });
 
   it("onEach fires across multiple ticks", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
-    w.system("test").phase(phase).onEach(Position, cb);
+    w.system("test").phase(phase).requires(Position).onEach([Position], cb);
     w.start();
     const e = w.createEntity();
     e.add(Position);
-    w.runPhase(phase, 0, 0); // tick 1: enter (no onEach)
-    w.runPhase(phase, 0, 0); // tick 2: onEach #1
-    w.runPhase(phase, 0, 0); // tick 3: onEach #2
-    w.runPhase(phase, 0, 0); // tick 4: onEach #3
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
     expect(cb).toHaveBeenCalledTimes(3);
   });
 
   it("onEach fires for every matching entity in one tick", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
-    w.system("test").phase(phase).onEach(Position, cb);
+    w.system("test").phase(phase).requires(Position).onEach([Position], cb);
     w.start();
     const a = w.createEntity();
     const posA = a.add(Position);
     const b = w.createEntity();
     const posB = b.add(Position);
-    w.runPhase(phase, 0, 0); // tick 1: both entities enter
-    w.runPhase(phase, 0, 0); // tick 2: onEach fires for both
-    expect(cb).toHaveBeenCalledWith(posA);
-    expect(cb).toHaveBeenCalledWith(posB);
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalledWith(a, [posA]);
+    expect(cb).toHaveBeenCalledWith(b, [posB]);
     expect(cb).toHaveBeenCalledTimes(2);
   });
 
-  it("onEach is not called for entities that don't match the query", () => {
+  it("onEach is not called for entities that don't match the system query", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
-    w.system("test").phase(phase).onEach(Position, cb);
+    w.system("test").phase(phase).requires(Position).onEach([Position], cb);
     w.start();
     const a = w.createEntity();
-    a.add(Position); // matches
+    a.add(Position);
     const b = w.createEntity();
-    b.add(Velocity); // does not match
-    w.runPhase(phase, 0, 0); // tick 1: only 'a' enters
-    w.runPhase(phase, 0, 0); // tick 2: onEach fires for 'a' only
+    b.add(Velocity);
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
     expect(cb).toHaveBeenCalledTimes(1);
-    expect(cb).toHaveBeenCalledWith(a.get(Position));
+    expect(cb).toHaveBeenCalledWith(a, [a.get(Position)]);
+  });
+
+  it("missing components on a tracked entity are passed as undefined", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    // Entity matches via Position only, but onEach also asks for Velocity:
+    w.system("test")
+      .phase(phase)
+      .requires(Position)
+      .onEach([Position, Velocity], cb);
+    w.start();
+    const e = w.createEntity();
+    const pos = e.add(Position);
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalledWith(e, [pos, undefined]);
   });
 
   it("onEach stops firing after entity component is removed", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
-    w.system("test").phase(phase).onEach(Position, cb);
+    w.system("test").phase(phase).requires(Position).onEach([Position], cb);
     w.start();
     const e = w.createEntity();
     e.add(Position);
-    w.runPhase(phase, 0, 0); // tick 1: entity enters
-    w.runPhase(phase, 0, 0); // tick 2: onEach fires (#1)
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
     e.remove(Position);
-    w.runPhase(phase, 0, 0); // tick 3: entity exits (after run), still fires? No — exits mid-tick via updateArchetypes
-    w.runPhase(phase, 0, 0); // tick 4: entity fully exited, no onEach
-    // After removal, entity exits after tick 3's run+updateArchetypes.
-    // In tick 3 the entity is still tracked at run time (exit happens after run),
-    // so onEach fires once more in tick 3. Tick 4 it should NOT fire.
+    // Entity exits during updateArchetypes after run() in the next tick.
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
     const callsBefore = cb.mock.calls.length;
-    w.runPhase(phase, 0, 0); // tick 5: no onEach
+    w.runPhase(phase, 0, 0);
     expect(cb).toHaveBeenCalledTimes(callsBefore);
   });
 
   it("onEach stops firing after entity is destroyed", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
-    w.system("test").phase(phase).onEach(Position, cb);
+    w.system("test").phase(phase).requires(Position).onEach([Position], cb);
     w.start();
     const e = w.createEntity();
     e.add(Position);
-    w.runPhase(phase, 0, 0); // tick 1: entity enters
-    w.runPhase(phase, 0, 0); // tick 2: onEach fires
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
     e.destroy();
-    w.runPhase(phase, 0, 0); // tick 3: entity destroyed; exit triggered in updateArchetypes
+    w.runPhase(phase, 0, 0);
     const countAfterDestroy = cb.mock.calls.length;
-    w.runPhase(phase, 0, 0); // tick 4: no entity, no onEach
+    w.runPhase(phase, 0, 0);
     expect(cb).toHaveBeenCalledTimes(countAfterDestroy);
   });
 
-  it("onEach with injection delivers the typed injected tuple", () => {
+  it("onEach with multiple components delivers the resolved tuple", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
     w.system("test")
       .phase(phase)
       .requires(Position, Velocity)
-      .onEach(Position, [Velocity], cb);
+      .onEach([Position, Velocity], cb);
     w.start();
     const e = w.createEntity();
     const pos = e.add(Position);
     const vel = e.add(Velocity);
-    w.runPhase(phase, 0, 0); // tick 1: entity enters
-    w.runPhase(phase, 0, 0); // tick 2: onEach fires with injection
-    expect(cb).toHaveBeenCalledWith(pos, [vel]);
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalledWith(e, [pos, vel]);
   });
 
-  it("onEach without explicit query implicitly requires its component", () => {
+  it("onEach does NOT modify the system query — without requires/query no entity matches", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
-    w.system("test").phase(phase).onEach(Position, cb);
+    w.system("test").phase(phase).onEach([Position], cb);
     w.start();
-    const withPos = w.createEntity();
-    withPos.add(Position);
-    const withoutPos = w.createEntity();
-    withoutPos.add(Velocity); // no Position — must not match
-    w.runPhase(phase, 0, 0); // tick 1: only withPos enters
-    w.runPhase(phase, 0, 0); // tick 2: onEach fires once
-    expect(cb).toHaveBeenCalledTimes(1);
-    expect(cb).toHaveBeenCalledWith(withPos.get(Position));
+    const e = w.createEntity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("onEach with empty component list still fires per entity", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    w.system("test").phase(phase).requires(Position).onEach([], cb);
+    w.start();
+    const e = w.createEntity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalledWith(e, []);
   });
 
   it("onEach returns the system for chaining", () => {
     const { w } = setup();
     const sys = w.system("test");
-    expect(sys.onEach(Position, () => {})).toBe(sys);
+    expect(sys.onEach([Position], () => {})).toBe(sys);
   });
 
   it("onEach throws if registered twice on the same system", () => {
     const { w } = setup();
     const sys = w.system("test");
-    sys.onEach(Position, () => {});
-    expect(() => sys.onEach(Velocity, () => {})).toThrow();
+    sys.onEach([Position], () => {});
+    expect(() => sys.onEach([Velocity], () => {})).toThrow();
   });
 
   it("entities are only tracked when onEach is registered", () => {
@@ -564,36 +587,28 @@ describe("System — onEach", () => {
     expect((sys as any).entities.size).toBe(0);
   });
 
-  it("onEach and onUpdate coexist: only onEach fires when component is unmodified", () => {
+  it("onEach and onUpdate coexist on the same system", () => {
     const { w, phase } = setup();
     const eachCb = vi.fn();
     const updateCb = vi.fn();
     w.system("test")
       .phase(phase)
-      .onEach(Position, eachCb)
+      .requires(Position)
+      .onEach([Position], eachCb)
       .onUpdate(Position, updateCb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position, false); // add without markAsModified
-    w.runPhase(phase, 0, 0); // tick 1: entity enters; enter() queues pos for onUpdate
-    w.runPhase(phase, 0, 0); // tick 2: onEach fires; onUpdate fires (from enter-queue)
-    expect(eachCb).toHaveBeenCalledWith(pos);
+    const pos = e.add(Position, false);
+    w.runPhase(phase, 0, 0); // entry queues pos for onUpdate
+    w.runPhase(phase, 0, 0); // both fire
+    expect(eachCb).toHaveBeenCalledWith(e, [pos]);
     expect(updateCb).toHaveBeenCalledWith(pos);
     eachCb.mockClear();
     updateCb.mockClear();
 
-    // No modified() call — onEach fires every tick, onUpdate does NOT
-    w.runPhase(phase, 0, 0); // tick 3: only onEach fires
-    expect(eachCb).toHaveBeenCalledWith(pos);
-    expect(updateCb).not.toHaveBeenCalled();
-    eachCb.mockClear();
-
-    // Now mark as modified — onUpdate will fire on the NEXT tick (after
-    // updateArchetypes delivers the notification to the updateQueue)
-    pos.modified();
-    w.runPhase(phase, 0, 0); // tick 4: onEach fires; modified delivered to queue via updateArchetypes
-    w.runPhase(phase, 0, 0); // tick 5: onEach fires; onUpdate fires (queue drained)
+    // Without modified(): onEach fires, onUpdate does not.
+    w.runPhase(phase, 0, 0);
     expect(eachCb).toHaveBeenCalled();
-    expect(updateCb).toHaveBeenCalledWith(pos);
+    expect(updateCb).not.toHaveBeenCalled();
   });
 });

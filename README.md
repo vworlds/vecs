@@ -388,26 +388,20 @@ Called when `component.modified()` is queued on a watched component of a tracked
 
 Calling `onUpdate` also adds that component type to the system's implicit `HAS` query (unless you called `query()` first).
 
-#### `.onEach(ComponentClass, callback)` / `.onEach(ComponentClass, inject, callback)`
+#### `.onEach(components, callback)`
 
 Called every tick for **every tracked entity**, unconditionally. Unlike `onUpdate` (which only fires when `component.modified()` is called), `onEach` fires regardless of whether the component was modified — use it for per-entity logic that must run on every frame.
 
-```ts
-// Simple — receives the component instance from each tracked entity:
-.onEach(Position, (pos) => {
-  pos.x += 1; // runs for every entity every tick
-})
+The callback receives the entity and a tuple of resolved component instances. If the entity does not have a listed component, the corresponding tuple slot is `undefined`.
 
-// With injection — receives the component and extra components:
-.onEach(Position, [Velocity], (pos, [vel]) => {
+```ts
+.onEach([Position, Velocity], (e, [pos, vel]) => {
   pos.x += vel.vx;
   pos.y += vel.vy;
 })
 ```
 
-Calling `onEach` also adds that component type to the system's implicit `HAS` query (unless you called `query()` first).
-
-Note: a freshly-entered entity receives its first `onEach` invocation on the tick **after** it enters (because `enter` is processed in `updateArchetypes()`, which runs after `run()` in the same tick).
+`onEach` does not modify the system's query — define membership with `requires(...)` or `query(...)` as usual. Only one `onEach` may be registered per system; a second call throws.
 
 #### `.onRun(callback)`
 
