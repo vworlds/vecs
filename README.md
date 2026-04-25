@@ -183,7 +183,7 @@ const e = world.entity(42);
 world.clearAllEntities();
 
 // Reserve a high id range for locally-created entities so they don't
-// collide with server-assigned ids (call before registerComponent):
+// collide with server-assigned ids (call before world.start()):
 world.setEntityIdRange(0x10000);
 ```
 
