@@ -72,16 +72,16 @@ world
   .system("Move")
   .phase(update)
   .requires(Position, Velocity)
-  .onEnter([Position, Velocity], (e, [pos, vel]) => {
+  .enter([Position, Velocity], (e, [pos, vel]) => {
     console.log(`entity ${e.eid} entered Move with pos=(${pos.x},${pos.y})`);
   })
-  .onUpdate(Velocity, [Position], (vel, [pos]) => {
+  .update(Velocity, [Position], (vel, [pos]) => {
     // Called whenever vel.modified() is queued.
     pos.x += vel.vx;
     pos.y += vel.vy;
     pos.modified(); // propagate position change to other systems
   })
-  .onExit((e) => {
+  .exit((e) => {
     console.log(`entity ${e.eid} left Move`);
   });
 
@@ -90,7 +90,7 @@ world
   .system("Health")
   .phase(cleanup)
   .requires(Health)
-  .onUpdate(Health, (health) => {
+  .update(Health, (health) => {
     if (health.hp <= 0) {
       health.entity.destroy();
     }
@@ -194,9 +194,9 @@ world.setEntityIdRange(0x10000);
 world.system("MySystem")
   .phase("update")
   .requires(A, B)
-  .onEnter(...)
-  .onUpdate(...)
-  .onExit(...);
+  .enter(...)
+  .update(...)
+  .exit(...);
 
 world.start(); // must be called once, after all systems are set up
 ```
@@ -258,7 +258,7 @@ Every component instance exposes:
 | `entity` | The `Entity` this component belongs to. |
 | `meta` | `ComponentMeta` — holds the type id, name, and bitset pointer. |
 | `type` | Numeric type id (shorthand for `meta.type`). |
-| `modified()` | Queue an `onSet` / `onUpdate` notification. Call after mutating fields. |
+| `modified()` | Queue an `onSet` / `update` notification. Call after mutating fields. |
 
 ---
 
@@ -274,7 +274,7 @@ const e = world.createEntity();
 | `world` | The `World` that owns this entity. |
 | `add(Class)` | Attach a component; returns the typed instance. Idempotent. |
 | `get(Class)` | Return the component instance, or `undefined` if not present. |
-| `remove(Class)` | Detach a component (triggers `onRemove` hooks and `onExit` callbacks). |
+| `remove(Class)` | Detach a component (triggers `onRemove` hooks and `exit` callbacks). |
 | `destroy()` | Remove all components and unregister the entity. Recurses to children. |
 | `empty` | `true` when no components are attached. |
 | `forEachComponent(cb)` | Iterate over all attached components. |
@@ -341,74 +341,74 @@ Assign the system to a named phase or an `IPhase` reference. Systems without a p
 .phase(myPhase)       // by IPhase reference
 ```
 
-#### `.onEnter(callback)` / `.onEnter(inject, callback)`
+#### `.enter(callback)` / `.enter(inject, callback)`
 
 Called once when an entity first matches the system's query.
 
 ```ts
 // No injection:
-.onEnter((e) => { console.log("entity joined", e.eid); })
+.enter((e) => { console.log("entity joined", e.eid); })
 
 // With injection — component instances resolved from the entity:
-.onEnter([Position, Sprite], (e, [pos, sprite]) => {
+.enter([Position, Sprite], (e, [pos, sprite]) => {
   sprite.setPosition(pos.x, pos.y);
 })
 
 // Resolve from parent:
-.onEnter([{ parent: Container }], (e, [container]) => {
+.enter([{ parent: Container }], (e, [container]) => {
   container.add(e.get(Sprite)!.gameObject);
 })
 ```
 
-#### `.onExit(callback)` / `.onExit(inject, callback)`
+#### `.exit(callback)` / `.exit(inject, callback)`
 
 Called when an entity leaves the system (component removed or entity destroyed). Components removed in the same frame are still accessible in exit callbacks.
 
 ```ts
-.onExit([Sprite], (e, [sprite]) => {
+.exit([Sprite], (e, [sprite]) => {
   sprite.destroy();
 })
 ```
 
-#### `.onUpdate(ComponentClass, callback)` / `.onUpdate(ComponentClass, inject, callback)`
+#### `.update(ComponentClass, callback)` / `.update(ComponentClass, inject, callback)`
 
 Called when `component.modified()` is queued on a watched component of a tracked entity.
 
 ```ts
 // Simple — receives the modified component:
-.onUpdate(Position, (pos) => {
+.update(Position, (pos) => {
   renderer.setPosition(pos.x, pos.y);
 })
 
 // With injection — receives the modified component and extra components:
-.onUpdate(Position, [Sprite], (pos, [sprite]) => {
+.update(Position, [Sprite], (pos, [sprite]) => {
   sprite.sprite.setPosition(pos.x, pos.y);
 })
 ```
 
-Calling `onUpdate` also adds that component type to the system's implicit `HAS` query (unless you called `query()` first).
+Calling `update` also adds that component type to the system's implicit `HAS` query (unless you called `query()` first).
 
-#### `.onEach(components, callback)`
+#### `.each(components, callback)`
 
-Called every tick for **every tracked entity**, unconditionally. Unlike `onUpdate` (which only fires when `component.modified()` is called), `onEach` fires regardless of whether the component was modified — use it for per-entity logic that must run on every frame.
+Called every tick for **every tracked entity**, unconditionally. Unlike `update` (which only fires when `component.modified()` is called), `each` fires regardless of whether the component was modified — use it for per-entity logic that must run on every frame.
 
 The callback receives the entity and a tuple of resolved component instances. If the entity does not have a listed component, the corresponding tuple slot is `undefined`.
 
 ```ts
-.onEach([Position, Velocity], (e, [pos, vel]) => {
+.each([Position, Velocity], (e, [pos, vel]) => {
   pos.x += vel.vx;
   pos.y += vel.vy;
 })
 ```
 
-`onEach` does not modify the system's query — define membership with `requires(...)` or `query(...)` as usual. Only one `onEach` may be registered per system; a second call throws.
+`each` does not modify the system's query — define membership with `requires(...)` or `query(...)` as usual. Only one `each` may be registered per system; a second call throws.
 
-#### `.onRun(callback)`
+#### `.run(callback)`
 
 Called every tick when the system's phase runs, regardless of entity state. Use this for polling, network I/O, timers, etc.
 
 ```ts
-.onRun((now, delta) => {
+.run((now, delta) => {
   sendNetworkPacket(now);
 })
 ```
