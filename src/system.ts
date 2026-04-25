@@ -117,6 +117,8 @@ function PARENT(func: EntityTestFunc) {
  */
 export class System {
   protected componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
+  protected componentEachCallbacks = new ArrayMap<ComponentCallback>();
+  protected trackedEntities = new Set<Entity>();
   protected _onEnter: EntityCallback[] = [];
   protected _onExit: EntityCallback[] = [];
   private _onRun: OnRunCallback | undefined;
@@ -176,11 +178,13 @@ export class System {
   public enter(e: Entity) {
     this._onEnter.forEach((callback) => callback(e));
     e.forEachComponent((c) => this.notifyModified(c));
+    this.trackedEntities.add(e);
   }
 
   /** @internal Fires `onExit` callbacks when an entity leaves the system. */
   public exit(e: Entity) {
     this._onExit.forEach((callback) => callback(e));
+    this.trackedEntities.delete(e);
     // remove queued updates for components of the exiting entity:
     this.updateQueue.forEach((c, i) => {
       if (!c) return;
@@ -188,9 +192,18 @@ export class System {
     });
   }
 
-  /** @internal Execute one tick: run `onRun`, then drain the update queue. */
+  /** @internal Execute one tick: run `onRun`, fire `onEach`, then drain the update queue. */
   public run(now: number, delta: number) {
     if (this._onRun) this._onRun(now, delta);
+
+    if (this.componentEachCallbacks.size > 0) {
+      this.trackedEntities.forEach((e) => {
+        this.componentEachCallbacks.forEach((cb, type) => {
+          const c = e.get(type);
+          if (c) cb(c);
+        });
+      });
+    }
 
     this.updateQueue.forEach((c) => {
       if (!c) return;
@@ -443,6 +456,107 @@ export class System {
       };
 
       this.componentUpdateCallbacks.set(type, cb);
+    }
+
+    this.watchlistBitmask.add(type);
+
+    if (!this.hasQuery) {
+      const watchlist: number[] = this.watchlistBitmask.indices();
+      this._belongs = HAS(this.world, ...watchlist);
+    }
+
+    return this;
+  }
+
+  /**
+   * Register a callback that fires **every tick** for every entity currently
+   * tracked by this system, for the given component type.
+   *
+   * Unlike {@link onUpdate} (which only fires when `component.modified()` is
+   * called), `onEach` fires unconditionally on every tick the system runs,
+   * once per tracked entity that has the watched component.
+   *
+   * The system will automatically begin tracking entities that have this
+   * component type (equivalent to adding it to a `requires` / `HAS` query)
+   * unless a custom {@link query} was already set.
+   *
+   * @param ComponentClass - The component class to iterate over.
+   * @param callback - Receives the component instance from each tracked entity.
+   * @returns `this` for chaining.
+   *
+   * @example
+   * ```ts
+   * world.system("ApplyVelocity")
+   *   .onEach(Position, (pos) => {
+   *     pos.x += pos.entity.get(Velocity)!.vx;
+   *   });
+   * ```
+   */
+  public onEach<C extends typeof Component>(
+    ComponentClass: C,
+    callback: (c: InstanceType<C>) => void
+  ): System;
+
+  /**
+   * Register a per-tick callback for `ComponentClass` with additional
+   * components injected from the same entity.
+   *
+   * Unlike {@link onUpdate}, this fires every tick regardless of whether
+   * `component.modified()` was called.
+   *
+   * @param ComponentClass - The component class to iterate over.
+   * @param inject - Additional component classes to resolve from the entity.
+   * @param callback - Receives the component instance and the injected tuple.
+   * @returns `this` for chaining.
+   *
+   * @example
+   * ```ts
+   * world.system("SyncSprite")
+   *   .onEach(Position, [Sprite], (pos, [sprite]) => {
+   *     sprite.sprite.setPosition(pos.x, pos.y);
+   *   });
+   * ```
+   */
+  public onEach<C extends typeof Component, J extends (typeof Component)[]>(
+    ComponentClass: C,
+    inject: readonly [...J],
+    callback: (
+      c: InstanceType<C>,
+      injected: { [K in keyof J]: ComponentInstance<J[K]> }
+    ) => void
+  ): System;
+
+  public onEach<C extends typeof Component, J extends (typeof Component)[]>(
+    ComponentClass: C,
+    injectOrCallback: readonly [...J] | ((c: InstanceType<C>) => void),
+    callback?: (
+      c: InstanceType<C>,
+      injected: { [K in keyof J]: ComponentInstance<J[K]> }
+    ) => void
+  ): System {
+    const type = this.world.getComponentType(ComponentClass);
+    if (typeof injectOrCallback === "function") {
+      // Only ComponentClass and callback are passed
+      callback = injectOrCallback;
+      this.componentEachCallbacks.set(type, callback as any);
+    } else {
+      // ComponentClass, inject, and callback are passed
+      const inject = injectOrCallback;
+      const injectedComponentTypes = inject.map((C) =>
+        this.world.getComponentType(C)
+      );
+      const cb = (c: Component) => {
+        const injected: any[] = [];
+        injectedComponentTypes.forEach((InjectedComponentType) => {
+          injected.push(c.entity.get(InjectedComponentType));
+        });
+
+        if (callback) {
+          callback(c as InstanceType<C>, injected as any);
+        }
+      };
+
+      this.componentEachCallbacks.set(type, cb);
     }
 
     this.watchlistBitmask.add(type);
