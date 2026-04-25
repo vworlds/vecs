@@ -33,7 +33,7 @@ const LOCAL_COMPONENT_MIN = 256;
  *
  * world.system("Move")
  *   .requires(Position, Velocity)
- *   .onUpdate(Position, (pos) => { pos.x += vel.x; });
+ *   .update(Position, (pos) => { pos.x += vel.x; });
  *
  * world.start();
  *
@@ -251,7 +251,7 @@ export class World {
     this.updatedComponents.length = 0;
   }
 
-  /** @internal Queues a component for onSet / onUpdate delivery. */
+  /** @internal Queues a component for onSet / update delivery. */
   public _queueUpdatedComponent(c: Component) {
     if (c["dirty"]) return;
     c["dirty"] = true;
@@ -376,8 +376,8 @@ export class World {
    * world.system("Render")
    *   .phase("update")
    *   .requires(Position, Sprite)
-   *   .onEnter([Sprite], (e, [sprite]) => sprite.initialize(scene))
-   *   .onUpdate(Position, (pos) => { ... });
+   *   .enter([Sprite], (e, [sprite]) => sprite.initialize(scene))
+   *   .update(Position, (pos) => { ... });
    * ```
    *
    * @param name - A unique display name for the system.
@@ -491,7 +491,7 @@ export class World {
    * Execute all systems in the given phase for one tick.
    *
    * After each system runs, pending archetype changes (entity add/remove
-   * component events) are flushed so that `onEnter` / `onExit` callbacks are
+   * component events) are flushed so that `enter` / `exit` callbacks are
    * delivered before the next system in the same phase executes.
    *
    * @param phase - The {@link IPhase} to run (returned by {@link addPhase}).
@@ -500,7 +500,7 @@ export class World {
    */
   public runPhase(phase: IPhase, now: number, delta: number) {
     (phase as Phase).systems.forEach((s) => {
-      s.run(now, delta);
+      s._run(now, delta);
       this.updateArchetypes();
     });
   }
@@ -508,7 +508,7 @@ export class World {
   /**
    * Destroy every entity currently tracked by the world.
    *
-   * Triggers all `onRemove` hooks and `onExit` callbacks. Useful when
+   * Triggers all `onRemove` hooks and `exit` callbacks. Useful when
    * transitioning between game sessions or resetting to a clean state.
    */
   public clearAllEntities() {

@@ -12,7 +12,7 @@ import { type World } from "./world.js";
 
 type EntityCallback = (e: Entity) => void;
 type ComponentCallback = (c: Component) => void;
-type OnRunCallback = (now: number, delta: number) => void;
+type RunCallback = (now: number, delta: number) => void;
 
 /** A function that tests whether a given entity belongs to a system. */
 export type EntityTestFunc = (e: Entity) => boolean;
@@ -98,9 +98,9 @@ function PARENT(func: EntityTestFunc) {
  * world.system("Move")
  *   .requires(Position, Velocity)       // track entities with both components
  *   .phase("update")
- *   .onEnter([Position], (e, [pos]) => { pos.x = 0; })
- *   .onUpdate(Position, (pos) => { pos.x += pos.vx; })
- *   .onExit((e) => { console.log("entity left", e.eid); });
+ *   .enter([Position], (e, [pos]) => { pos.x = 0; })
+ *   .update(Position, (pos) => { pos.x += pos.vx; })
+ *   .exit((e) => { console.log("entity left", e.eid); });
  * ```
  *
  * All builder methods return `this` for chaining. Call {@link World.start}
@@ -109,7 +109,7 @@ function PARENT(func: EntityTestFunc) {
  *
  * ### Component injection
  *
- * `onEnter`, `onExit`, and `onUpdate` support *injection*: pass an array of
+ * `enter`, `exit`, and `update` support *injection*: pass an array of
  * component classes as the first argument and they will be resolved from the
  * entity and passed as a typed tuple to the callback. Use
  * `{ parent: SomeComponent }` to resolve from the entity's parent instead of
@@ -119,9 +119,9 @@ export class System {
   protected componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
   protected eachCallback: EntityCallback | undefined;
   protected entities = new Set<Entity>();
-  protected _onEnter: EntityCallback[] = [];
-  protected _onExit: EntityCallback[] = [];
-  private _onRun: OnRunCallback | undefined;
+  protected _enterCallback: EntityCallback[] = [];
+  protected _exitCallback: EntityCallback[] = [];
+  private _runCallback: RunCallback | undefined;
   protected _belongs: EntityTestFunc = (e: Entity) => false;
   private readonly updateQueue: (Component | undefined)[] = [];
   private hasQuery = false;
@@ -174,16 +174,16 @@ export class System {
     return this._belongs(e);
   }
 
-  /** @internal Fires `onEnter` callbacks for a newly matched entity. */
-  public enter(e: Entity) {
-    this._onEnter.forEach((callback) => callback(e));
+  /** @internal Fires `enter` callbacks for a newly matched entity. */
+  public _enter(e: Entity) {
+    this._enterCallback.forEach((callback) => callback(e));
     e.forEachComponent((c) => this.notifyModified(c));
     if (this.eachCallback) this.entities.add(e);
   }
 
-  /** @internal Fires `onExit` callbacks when an entity leaves the system. */
-  public exit(e: Entity) {
-    this._onExit.forEach((callback) => callback(e));
+  /** @internal Fires `exit` callbacks when an entity leaves the system. */
+  public _exit(e: Entity) {
+    this._exitCallback.forEach((callback) => callback(e));
     this.entities.delete(e);
     // remove queued updates for components of the exiting entity:
     this.updateQueue.forEach((c, i) => {
@@ -192,9 +192,9 @@ export class System {
     });
   }
 
-  /** @internal Execute one tick: run `onRun`, fire `onEach`, then drain the update queue. */
-  public run(now: number, delta: number) {
-    if (this._onRun) this._onRun(now, delta);
+  /** @internal Execute one tick: run `run`, fire `each`, then drain the update queue. */
+  public _run(now: number, delta: number) {
+    if (this._runCallback) this._runCallback(now, delta);
 
     if (this.eachCallback) {
       const cb = this.eachCallback;
@@ -260,13 +260,13 @@ export class System {
    *
    * @example
    * ```ts
-   * system.onEnter([Position, Sprite], (e, [pos, sprite]) => {
+   * system.enter([Position, Sprite], (e, [pos, sprite]) => {
    *   sprite.initialize(scene);
    *   sprite.sprite.setPosition(pos.x, pos.y);
    * });
    * ```
    */
-  public onEnter<J extends ComponentOrParent[]>(
+  public enter<J extends ComponentOrParent[]>(
     inject: readonly [...J],
     callback: (
       e: Entity,
@@ -280,10 +280,10 @@ export class System {
    * @param callback - Receives only the entity (no injection).
    * @returns `this` for chaining.
    */
-  public onEnter(callback: (e: Entity) => void): System;
+  public enter(callback: (e: Entity) => void): System;
 
   // Implement the overloaded function
-  public onEnter<J extends ComponentOrParent[]>(
+  public enter<J extends ComponentOrParent[]>(
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (
       e: Entity,
@@ -292,11 +292,11 @@ export class System {
   ): System {
     if (typeof injectOrCallback === "function") {
       // It is the second signature
-      this._onEnter.push(injectOrCallback);
+      this._enterCallback.push(injectOrCallback);
     } else {
       // It is the first signature
       const inject = this.mapInjectedClassToTypes(injectOrCallback);
-      this._onEnter.push((e: Entity) => {
+      this._enterCallback.push((e: Entity) => {
         callback!(e, this.getInjected(e, inject) as any);
       });
     }
@@ -316,7 +316,7 @@ export class System {
    * @param callback - Receives the entity and the resolved component tuple.
    * @returns `this` for chaining.
    */
-  public onExit<J extends ComponentOrParent[]>(
+  public exit<J extends ComponentOrParent[]>(
     inject: readonly [...J],
     callback: (
       e: Entity,
@@ -330,10 +330,10 @@ export class System {
    * @param callback - Receives only the entity.
    * @returns `this` for chaining.
    */
-  public onExit(callback: (e: Entity) => void): System;
+  public exit(callback: (e: Entity) => void): System;
 
   // Implement the overloaded function
-  public onExit<J extends ComponentOrParent[]>(
+  public exit<J extends ComponentOrParent[]>(
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (
       e: Entity,
@@ -342,11 +342,11 @@ export class System {
   ): System {
     if (typeof injectOrCallback === "function") {
       // It is the second signature
-      this._onExit.push(injectOrCallback);
+      this._exitCallback.push(injectOrCallback);
     } else {
       // It is the first signature
       const inject = this.mapInjectedClassToTypes(injectOrCallback);
-      this._onExit.push((e: Entity) => {
+      this._exitCallback.push((e: Entity) => {
         callback!(e, this.getInjected(e, inject, true) as any);
       });
     }
@@ -364,8 +364,8 @@ export class System {
    *   (ms since the last tick).
    * @returns `this` for chaining.
    */
-  public onRun(callback: OnRunCallback): System {
-    this._onRun = callback;
+  public run(callback: RunCallback): System {
+    this._runCallback = callback;
     return this;
   }
 
@@ -384,12 +384,12 @@ export class System {
    * @example
    * ```ts
    * world.system("RenderPosition")
-   *   .onUpdate(Position, (pos) => {
+   *   .update(Position, (pos) => {
    *     sprite.setPosition(pos.x, pos.y);
    *   });
    * ```
    */
-  public onUpdate<C extends typeof Component>(
+  public update<C extends typeof Component>(
     ComponentClass: C,
     callback: (c: InstanceType<C>) => void
   ): System;
@@ -406,12 +406,12 @@ export class System {
    * @example
    * ```ts
    * world.system("SyncSprite")
-   *   .onUpdate(Position, [Sprite], (pos, [sprite]) => {
+   *   .update(Position, [Sprite], (pos, [sprite]) => {
    *     sprite.sprite.setPosition(pos.x, pos.y);
    *   });
    * ```
    */
-  onUpdate<C extends typeof Component, J extends (typeof Component)[]>(
+  update<C extends typeof Component, J extends (typeof Component)[]>(
     ComponentClass: C,
     inject: readonly [...J],
     callback: (
@@ -420,7 +420,7 @@ export class System {
     ) => void
   ): System;
 
-  onUpdate<C extends typeof Component, J extends (typeof Component)[]>(
+  update<C extends typeof Component, J extends (typeof Component)[]>(
     ComponentClass: C,
     injectOrCallback: readonly [...J] | ((c: InstanceType<C>) => void),
     callback?: (
@@ -469,34 +469,34 @@ export class System {
    * tracked by this system, with the listed components resolved from each
    * entity.
    *
-   * Unlike {@link onUpdate} (which only fires when `component.modified()` is
-   * called), `onEach` fires unconditionally on every tick the system runs,
+   * Unlike {@link update} (which only fires when `component.modified()` is
+   * called), `each` fires unconditionally on every tick the system runs,
    * once per tracked entity. Components missing from an entity appear as
    * `undefined` in the resolved tuple.
    *
-   * `onEach` does **not** modify the system's query — define membership with
+   * `each` does **not** modify the system's query — define membership with
    * {@link requires} or {@link query} as usual.
    *
-   * Only a single `onEach` callback may be registered per system; calling
-   * `onEach` a second time throws.
+   * Only a single `each` callback may be registered per system; calling
+   * `each` a second time throws.
    *
    * @param components - Component classes to resolve from each entity.
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances (or `undefined` for any component the entity lacks).
    * @returns `this` for chaining.
-   * @throws If `onEach` has already been registered on this system.
+   * @throws If `each` has already been registered on this system.
    *
    * @example
    * ```ts
    * world.system("Move")
    *   .requires(Position, Velocity)
-   *   .onEach([Position, Velocity], (e, [pos, vel]) => {
+   *   .each([Position, Velocity], (e, [pos, vel]) => {
    *     pos.x += vel.vx;
    *     pos.y += vel.vy;
    *   });
    * ```
    */
-  public onEach<J extends (typeof Component)[]>(
+  public each<J extends (typeof Component)[]>(
     components: readonly [...J],
     callback: (
       e: Entity,
@@ -504,7 +504,7 @@ export class System {
     ) => void
   ): System {
     if (this.eachCallback) {
-      throw `onEach already registered for system '${this.name}'`;
+      throw `each already registered for system '${this.name}'`;
     }
     const types = components.map((C) => this.world.getComponentType(C));
     this.eachCallback = (e: Entity) => {
@@ -561,9 +561,9 @@ export class System {
   /**
    * Set the entity membership predicate using the {@link SystemQuery} DSL.
    *
-   * Replaces any implicit query derived from `onUpdate` watchlists and any
+   * Replaces any implicit query derived from `update` watchlists and any
    * previous `requires` call. After calling `query`, auto-expanding of
-   * `onUpdate` watchlists is disabled.
+   * `update` watchlists is disabled.
    *
    * @param q - A {@link SystemQuery} expression.
    * @returns `this` for chaining.

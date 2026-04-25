@@ -148,7 +148,7 @@ export class Component {
   /**
    * Notify the world that this component's data has changed.
    *
-   * Queues the component for delivery to all {@link System.onUpdate} callbacks
+   * Queues the component for delivery to all {@link System.update} callbacks
    * that watch this component type. Call this after mutating the component's
    * fields to ensure systems react to the new values.
    */

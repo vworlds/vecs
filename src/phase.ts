@@ -7,7 +7,7 @@ import { type World } from "./world.js";
  *
  * Created internally by {@link World.addPhase}. The systems in a phase run in
  * the order they were registered. Between each system run the world flushes
- * pending archetype changes, so `onEnter` / `onExit` callbacks are always
+ * pending archetype changes, so `enter` / `exit` callbacks are always
  * delivered before the next system executes.
  *
  * @internal The concrete class is not part of the public API. Use
@@ -34,7 +34,7 @@ export class Phase {
  * const preUpdate = world.addPhase("preupdate");
  * const send      = world.addPhase("send");
  *
- * world.system("NetworkUpdate").phase(preUpdate).onRun(tick);
+ * world.system("NetworkUpdate").phase(preUpdate).run(tick);
  *
  * // each frame:
  * world.runPhase(preUpdate, now, delta);

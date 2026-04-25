@@ -75,11 +75,11 @@ export class Entity {
    *
    * If the component is already present the existing instance is returned and
    * no callback is fired. Pass `markAsModified = false` to suppress the
-   * initial `onSet` / `onUpdate` notification (useful when bulk-loading
+   * initial `onSet` / `update` notification (useful when bulk-loading
    * network snapshots before systems are running).
    *
    * @param Class - The component class to instantiate.
-   * @param markAsModified - Whether to immediately queue an `onUpdate`
+   * @param markAsModified - Whether to immediately queue an `update`
    *   notification. Defaults to `true`.
    * @returns The new (or existing) component instance, typed as
    *   `InstanceType<Class>`.
@@ -119,7 +119,7 @@ export class Entity {
   /**
    * Remove the component of the given class from this entity.
    *
-   * The `onRemove` hook and any `onExit` callbacks on matching systems are
+   * The `onRemove` hook and any `exit` callbacks on matching systems are
    * called when archetype changes are flushed at the end of the next system
    * run. Does nothing if the component is not present.
    *
@@ -156,7 +156,7 @@ export class Entity {
    * @param typeOrClass - Component class or numeric type id.
    * @param get_deleted - If `true`, also search components that were removed
    *   in the current frame but not yet garbage-collected. Useful inside
-   *   `onExit` callbacks to read final component values.
+   *   `exit` callbacks to read final component values.
    * @returns The component instance or `undefined`.
    */
   public get<C extends typeof Component>(
@@ -196,14 +196,14 @@ export class Entity {
   public _addSystem(s: System) {
     if (!this.systems.has(s)) {
       this.newSystems.push(s);
-      s.enter(this);
+      s._enter(this);
     }
   }
 
   /** @internal */
   public _removeSystem(s: System) {
     if (this.systems.delete(s)) {
-      s.exit(this);
+      s._exit(this);
     }
   }
 
@@ -224,7 +224,7 @@ export class Entity {
     if (this.destroyed) return;
     this.destroyed = true;
     this.systems.forEach((s) => {
-      s.exit(this);
+      s._exit(this);
     });
     this.systems.clear();
 
@@ -237,7 +237,7 @@ export class Entity {
   /**
    * Destroy this entity and recursively destroy all of its children.
    *
-   * All components are removed (triggering `onRemove` hooks and `onExit`
+   * All components are removed (triggering `onRemove` hooks and `exit`
    * callbacks), the entity is unregistered from the world, and the `"destroy"`
    * event is emitted. The entity must not be used after calling this method.
    */
