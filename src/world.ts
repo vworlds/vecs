@@ -118,16 +118,18 @@ export class World {
   /**
    * Set the starting value for the auto-incrementing entity id counter.
    *
-   * Must be called **before** the first {@link registerComponent} call.
-   * Useful when the world runs alongside a server that owns a different id
-   * range — for example, locally-created client entities can start at a high
-   * offset to avoid collisions with server-assigned ids.
+   * Must be called **before** {@link start} (or
+   * {@link disableComponentRegistration}). Useful when the world runs alongside
+   * a server that owns a different id range — for example, locally-created
+   * client entities can start at a high offset to avoid collisions with
+   * server-assigned ids.
    *
    * @param min - The first id that will be assigned by {@link createEntity}.
+   * @throws If called after registration has been disabled.
    */
   public setEntityIdRange(min: number) {
     if (this.componentRegistrationDisabled)
-      throw "setEntityIdRange must be called before registering components";
+      throw "setEntityIdRange must be called before component registration is disabled";
     this.eidCounter = min;
   }
 

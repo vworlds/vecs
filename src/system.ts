@@ -353,9 +353,11 @@ export class System {
    *
    * @param callback - Receives `now` (absolute timestamp in ms) and `delta`
    *   (ms since the last tick).
+   * @returns `this` for chaining.
    */
-  public onRun(callback: OnRunCallback) {
+  public onRun(callback: OnRunCallback): System {
     this._onRun = callback;
+    return this;
   }
 
   /**
