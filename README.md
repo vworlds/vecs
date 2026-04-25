@@ -388,6 +388,27 @@ Called when `component.modified()` is queued on a watched component of a tracked
 
 Calling `onUpdate` also adds that component type to the system's implicit `HAS` query (unless you called `query()` first).
 
+#### `.onEach(ComponentClass, callback)` / `.onEach(ComponentClass, inject, callback)`
+
+Called every tick for **every tracked entity**, unconditionally. Unlike `onUpdate` (which only fires when `component.modified()` is called), `onEach` fires regardless of whether the component was modified — use it for per-entity logic that must run on every frame.
+
+```ts
+// Simple — receives the component instance from each tracked entity:
+.onEach(Position, (pos) => {
+  pos.x += 1; // runs for every entity every tick
+})
+
+// With injection — receives the component and extra components:
+.onEach(Position, [Velocity], (pos, [vel]) => {
+  pos.x += vel.vx;
+  pos.y += vel.vy;
+})
+```
+
+Calling `onEach` also adds that component type to the system's implicit `HAS` query (unless you called `query()` first).
+
+Note: a freshly-entered entity receives its first `onEach` invocation on the tick **after** it enters (because `enter` is processed in `updateArchetypes()`, which runs after `run()` in the same tick).
+
 #### `.onRun(callback)`
 
 Called every tick when the system's phase runs, regardless of entity state. Use this for polling, network I/O, timers, etc.
