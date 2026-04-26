@@ -506,6 +506,20 @@ export class World {
   }
 
   /**
+   * Run every phase in the pipeline in insertion order (the order phases were
+   * registered via {@link addPhase}). Equivalent to calling
+   * {@link runPhase} for each phase manually.
+   *
+   * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
+   * @param delta - Milliseconds elapsed since the previous tick.
+   */
+  public progress(now: number, delta: number) {
+    this.pipeline.forEach((phase) => {
+      this.runPhase(phase, now, delta);
+    });
+  }
+
+  /**
    * Destroy every entity currently tracked by the world.
    *
    * Triggers all `onRemove` hooks and `exit` callbacks. Useful when

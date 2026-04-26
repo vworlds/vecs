@@ -153,4 +153,22 @@ describe("World — phases", () => {
     const h2 = w.hook(A);
     expect(h1).toBe(h2);
   });
+
+  it("progress runs all phases in insertion order", () => {
+    const w = new World();
+    const order: string[] = [];
+
+    const pre = w.addPhase("pre");
+    const update = w.addPhase("update");
+    const post = w.addPhase("post");
+
+    w.system("s1").phase(pre).run(() => order.push("pre"));
+    w.system("s2").phase(update).run(() => order.push("update"));
+    w.system("s3").phase(post).run(() => order.push("post"));
+
+    w.start();
+    w.progress(0, 16);
+
+    expect(order).toEqual(["pre", "update", "post"]);
+  });
 });
