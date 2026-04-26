@@ -22,7 +22,7 @@ yarn add @vworlds/vecs
 ### Lifecycle in brief
 
 ```
-registerComponent() × N  →  system() × N  →  start()  →  runPhase() every frame
+registerComponent() × N  →  system() × N  →  start()  →  progress() every frame
 ```
 
 After `start()`, no new components or systems can be registered.
@@ -130,8 +130,7 @@ hp.modified();
 let now = 0;
 for (let tick = 0; tick < 5; tick++) {
   now += 16;
-  world.runPhase(update, now, 16);
-  world.runPhase(cleanup, now, 16);
+  world.progress(now, 16);
 }
 ```
 
@@ -209,7 +208,10 @@ const preUpdate = world.addPhase("preupdate");
 const update    = world.addPhase("update");
 const send      = world.addPhase("send");
 
-// Each frame, drive them manually:
+// Each frame, run all phases in registration order:
+world.progress(Date.now(), deltaMs);
+
+// Or drive individual phases manually:
 world.runPhase(preUpdate, Date.now(), deltaMs);
 world.runPhase(update,    Date.now(), deltaMs);
 world.runPhase(send,      Date.now(), deltaMs);
