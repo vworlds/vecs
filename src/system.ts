@@ -118,7 +118,8 @@ function PARENT(func: EntityTestFunc) {
 export class System {
   protected componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
   protected eachCallback: EntityCallback | undefined;
-  protected entities = new Set<Entity>();
+  protected _entities = new Set<Entity>();
+  protected _tracks = false;
   protected _enterCallback: EntityCallback[] = [];
   protected _exitCallback: EntityCallback[] = [];
   private _runCallback: RunCallback | undefined;
@@ -140,6 +141,16 @@ export class System {
   /** Returns the system name. */
   public toString(): string {
     return this.name;
+  }
+
+  /**
+   * Read-only view of the entities currently tracked by this system.
+   *
+   * Empty unless {@link track} (or {@link each}, which implies it) was
+   * called during system configuration.
+   */
+  public get entities(): ReadonlySet<Entity> {
+    return this._entities;
   }
 
   /**
@@ -178,13 +189,13 @@ export class System {
   public _enter(e: Entity) {
     this._enterCallback.forEach((callback) => callback(e));
     e.forEachComponent((c) => this.notifyModified(c));
-    if (this.eachCallback) this.entities.add(e);
+    if (this._tracks) this._entities.add(e);
   }
 
   /** @internal Fires `exit` callbacks when an entity leaves the system. */
   public _exit(e: Entity) {
     this._exitCallback.forEach((callback) => callback(e));
-    this.entities.delete(e);
+    this._entities.delete(e);
     // remove queued updates for components of the exiting entity:
     this.updateQueue.forEach((c, i) => {
       if (!c) return;
@@ -198,7 +209,7 @@ export class System {
 
     if (this.eachCallback) {
       const cb = this.eachCallback;
-      this.entities.forEach((e) => cb(e));
+      this._entities.forEach((e) => cb(e));
     }
 
     this.updateQueue.forEach((c) => {
@@ -475,7 +486,8 @@ export class System {
    * `undefined` in the resolved tuple.
    *
    * `each` does **not** modify the system's query — define membership with
-   * {@link requires} or {@link query} as usual.
+   * {@link requires} or {@link query} as usual. It does, however, implicitly
+   * enable {@link track}, so matched entities are exposed via {@link entities}.
    *
    * Only a single `each` callback may be registered per system; calling
    * `each` a second time throws.
@@ -506,11 +518,30 @@ export class System {
     if (this.eachCallback) {
       throw `each already registered for system '${this.name}'`;
     }
+    this.track();
     const types = components.map((C) => this.world.getComponentType(C));
     this.eachCallback = (e: Entity) => {
       const resolved = types.map((t) => e.get(t));
       callback(e, resolved as any);
     };
+    return this;
+  }
+
+  /**
+   * Enable entity tracking: matched entities are inserted into
+   * {@link entities} as they enter the system and removed as they exit.
+   *
+   * Idempotent. Intended to be called during system configuration before
+   * `world.start()`; entities already matched when `track` is called late
+   * will not be backfilled.
+   *
+   * {@link each} implies `track` — call this directly only when you want
+   * the tracked set without an `each` callback.
+   *
+   * @returns `this` for chaining.
+   */
+  public track(): System {
+    this._tracks = true;
     return this;
   }
 

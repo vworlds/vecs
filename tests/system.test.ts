@@ -577,14 +577,63 @@ describe("System — each", () => {
     expect(() => sys.each([Velocity], () => {})).toThrow();
   });
 
-  it("entities are only tracked when each is registered", () => {
+  it("entities are only tracked when track or each is registered", () => {
     const { w, phase } = setup();
     const sys = w.system("test").phase(phase).requires(Position);
     w.start();
     const e = w.createEntity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
-    expect((sys as any).entities.size).toBe(0);
+    expect(sys.entities.size).toBe(0);
+  });
+
+  it("track() populates entities on enter and clears them on exit", () => {
+    const { w, phase } = setup();
+    const sys = w.system("test").phase(phase).requires(Position).track();
+    w.start();
+    const e = w.createEntity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    expect(sys.entities.size).toBe(1);
+    expect(sys.entities.has(e)).toBe(true);
+    e.remove(Position);
+    w.runPhase(phase, 0, 0);
+    expect(sys.entities.size).toBe(0);
+  });
+
+  it("track() returns the system and is idempotent", () => {
+    const { w, phase } = setup();
+    const sys = w.system("test").phase(phase).requires(Position);
+    expect(sys.track()).toBe(sys);
+    expect(sys.track().track()).toBe(sys);
+    w.start();
+    const e = w.createEntity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    expect(sys.entities.size).toBe(1);
+  });
+
+  it("each() implies track() — entities is populated without an explicit track call", () => {
+    const { w, phase } = setup();
+    const sys = w.system("test")
+      .phase(phase)
+      .requires(Position)
+      .each([Position], () => {});
+    w.start();
+    const e = w.createEntity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    expect(sys.entities.has(e)).toBe(true);
+  });
+
+  it("system.entities is typed as a ReadonlySet", () => {
+    const { w } = setup();
+    const sys = w.system("test").requires(Position).track();
+    const fakeEntity = {} as any;
+    // @ts-expect-error entities is a ReadonlySet — add() is not exposed
+    sys.entities.add(fakeEntity);
+    // @ts-expect-error entities is a ReadonlySet — delete() is not exposed
+    sys.entities.delete(fakeEntity);
   });
 
   it("each and update coexist on the same system", () => {
