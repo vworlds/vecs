@@ -116,7 +116,14 @@ function PARENT(func: EntityTestFunc) {
  * `{ parent: SomeComponent }` to resolve from the entity's parent instead of
  * the entity itself.
  */
-export class System {
+
+type MaybeRequired<C, R extends (typeof Component)[]> = C extends typeof Component
+  ? C extends R[number]
+    ? InstanceType<C>
+    : InstanceType<C> | undefined
+  : never;
+
+export class System<R extends (typeof Component)[] = []> {
   protected componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
   protected eachCallback: EntityCallback | undefined;
   protected _entities = new Set<Entity>();
@@ -284,7 +291,7 @@ export class System {
       e: Entity,
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
-  ): System;
+  ): this;
 
   /**
    * Register a callback that fires when an entity enters this system.
@@ -292,7 +299,7 @@ export class System {
    * @param callback - Receives only the entity (no injection).
    * @returns `this` for chaining.
    */
-  public enter(callback: (e: Entity) => void): System;
+  public enter(callback: (e: Entity) => void): this;
 
   // Implement the overloaded function
   public enter<J extends ComponentOrParent[]>(
@@ -301,7 +308,7 @@ export class System {
       e: Entity,
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
-  ): System {
+  ): this {
     if (typeof injectOrCallback === "function") {
       // It is the second signature
       this._enterCallback.push(injectOrCallback);
@@ -334,7 +341,7 @@ export class System {
       e: Entity,
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
-  ): System;
+  ): this;
 
   /**
    * Register a callback that fires when an entity exits this system.
@@ -342,7 +349,7 @@ export class System {
    * @param callback - Receives only the entity.
    * @returns `this` for chaining.
    */
-  public exit(callback: (e: Entity) => void): System;
+  public exit(callback: (e: Entity) => void): this;
 
   // Implement the overloaded function
   public exit<J extends ComponentOrParent[]>(
@@ -351,7 +358,7 @@ export class System {
       e: Entity,
       injected: { [K in keyof J]: ComponentInstance<J[K]> }
     ) => void
-  ): System {
+  ): this {
     if (typeof injectOrCallback === "function") {
       // It is the second signature
       this._exitCallback.push(injectOrCallback);
@@ -376,7 +383,7 @@ export class System {
    *   (ms since the last tick).
    * @returns `this` for chaining.
    */
-  public run(callback: RunCallback): System {
+  public run(callback: RunCallback): this {
     this._runCallback = callback;
     return this;
   }
@@ -404,7 +411,7 @@ export class System {
   public update<C extends typeof Component>(
     ComponentClass: C,
     callback: (c: InstanceType<C>) => void
-  ): System;
+  ): this;
 
   /**
    * Register a callback that fires when `ComponentClass` is modified, with
@@ -428,18 +435,18 @@ export class System {
     inject: readonly [...J],
     callback: (
       c: InstanceType<C>,
-      injected: { [K in keyof J]: ComponentInstance<J[K]> }
+      injected: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => void
-  ): System;
+  ): this;
 
   update<C extends typeof Component, J extends (typeof Component)[]>(
     ComponentClass: C,
     injectOrCallback: readonly [...J] | ((c: InstanceType<C>) => void),
     callback?: (
       c: InstanceType<C>,
-      injected: { [K in keyof J]: ComponentInstance<J[K]> }
+      injected: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => void
-  ): System {
+  ): this {
     const type = this.world.getComponentType(ComponentClass);
     if (typeof injectOrCallback === "function") {
       // Only ComponentClass and callback are passed
@@ -483,8 +490,9 @@ export class System {
    *
    * Unlike {@link update} (which only fires when `component.modified()` is
    * called), `each` fires unconditionally on every tick the system runs,
-   * once per tracked entity. Components missing from an entity appear as
-   * `undefined` in the resolved tuple.
+   * once per tracked entity. Components declared via {@link requires} are
+   * guaranteed non-null in the resolved tuple; any other component class
+   * may be `undefined` if the entity lacks it.
    *
    * `each` does **not** modify the system's query — define membership with
    * {@link requires} or {@link query} as usual. It does, however, implicitly
@@ -495,7 +503,7 @@ export class System {
    *
    * @param components - Component classes to resolve from each entity.
    * @param callback - Receives the entity and a tuple of resolved component
-   *   instances (or `undefined` for any component the entity lacks).
+   *   instances (`undefined` for components not covered by {@link requires}).
    * @returns `this` for chaining.
    * @throws If `each` has already been registered on this system.
    *
@@ -513,9 +521,9 @@ export class System {
     components: readonly [...J],
     callback: (
       e: Entity,
-      resolved: { [K in keyof J]: InstanceType<J[K]> | undefined }
+      resolved: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => void
-  ): System {
+  ): this {
     if (this.eachCallback) {
       throw `each already registered for system '${this.name}'`;
     }
@@ -541,7 +549,7 @@ export class System {
    *
    * @returns `this` for chaining.
    */
-  public track(): System {
+  public track(): this {
     this._tracks = true;
     return this;
   }
@@ -568,10 +576,10 @@ export class System {
   public sort<J extends (typeof Component)[]>(
     components: readonly [...J],
     compare: (
-      a: { [K in keyof J]: InstanceType<J[K]> | undefined },
-      b: { [K in keyof J]: InstanceType<J[K]> | undefined }
+      a: { [K in keyof J]: MaybeRequired<J[K], R> },
+      b: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => number
-  ): System {
+  ): this {
     this.track();
     const types = components.map((C) => this.world.getComponentType(C));
     this._entities = new OrderedSet<Entity>((a, b) =>
@@ -634,26 +642,48 @@ export class System {
    * previous `requires` call. After calling `query`, auto-expanding of
    * `update` watchlists is disabled.
    *
+   * The optional `guaranteed` tuple is a pure type-level hint: it tells
+   * `sort`, `each`, and `update` callbacks which components are guaranteed
+   * to be present on every matched entity, eliminating `| undefined` from
+   * those positions. It has no effect at runtime.
+   *
    * @param q - A {@link SystemQuery} expression.
+   * @param _guaranteed - Component classes guaranteed present on every matched
+   *   entity (type hint only — not validated at runtime).
    * @returns `this` for chaining.
+   *
+   * @example
+   * ```ts
+   * world.system("Move")
+   *   .query({ AND: [{ HAS: Position }, { HAS: Velocity }] }, [Position, Velocity])
+   *   .each([Position, Velocity], (e, [pos, vel]) => {
+   *     pos.x += vel.vx;  // no ! needed
+   *   });
+   * ```
    */
-  public query(q: SystemQuery) {
+  public query<T extends (typeof Component)[] = []>(
+    q: SystemQuery,
+    _guaranteed?: readonly [...T]
+  ): System<T> {
     this._belongs = this.queryBuilder(q);
     this.hasQuery = true;
-    return this;
+    return this as unknown as System<T>;
   }
 
   /**
    * Shorthand for `query([...components])` — the system tracks entities that
    * have **all** of the listed component types.
    *
-   * Equivalent to `query({ HAS: components })`.
+   * Equivalent to `query({ HAS: components })`. Unlike `query`, passing
+   * component classes here also informs the types of {@link sort} and
+   * {@link each} callbacks: listed components will be non-nullable in those
+   * tuples.
    *
-   * @param components - One or more component classes or type ids.
+   * @param components - One or more component classes.
    * @returns `this` for chaining.
    */
-  public requires(...components: ComponentClassArray) {
+  public requires<T extends (typeof Component)[]>(...components: [...T]): System<T> {
     this.query(components);
-    return this;
+    return this as unknown as System<T>;
   }
 }

@@ -666,7 +666,7 @@ describe("System — sort", () => {
   it("sort() returns this for chaining", () => {
     const { w } = setup();
     const sys = w.system("test").requires(Position);
-    expect(sys.sort([Position], ([a], [b]) => a!.x - b!.x)).toBe(sys);
+    expect(sys.sort([Position], ([a], [b]) => a.x - b.x)).toBe(sys);
   });
 
   it("sort() implies track()", () => {
@@ -675,7 +675,7 @@ describe("System — sort", () => {
       .system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], ([a], [b]) => a!.x - b!.x);
+      .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
     const e = w.createEntity();
     const pos = e.add(Position);
@@ -690,7 +690,7 @@ describe("System — sort", () => {
       .system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], ([a], [b]) => a!.x - b!.x);
+      .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
 
     const e1 = w.createEntity();
@@ -716,8 +716,8 @@ describe("System — sort", () => {
     w.system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], ([a], [b]) => a!.x - b!.x)
-      .each([Position], (_e, [pos]) => visited.push(pos!.x));
+      .sort([Position], ([a], [b]) => a.x - b.x)
+      .each([Position], (_e, [pos]) => visited.push(pos.x));
     w.start();
 
     const e1 = w.createEntity();
@@ -744,7 +744,7 @@ describe("System — sort", () => {
       .system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], ([a], [b]) => a!.x - b!.x);
+      .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
 
     const e1 = w.createEntity();
@@ -772,7 +772,7 @@ describe("System — sort", () => {
       .sort(
         [Position, Velocity],
         ([posA, velA], [posB, velB]) =>
-          posA!.x + velA!.vx - (posB!.x + velB!.vx)
+          posA.x + velA.vx - (posB.x + velB.vx)
       );
     w.start();
 
