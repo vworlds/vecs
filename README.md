@@ -334,6 +334,15 @@ Declare which entities the system should track:
 | `{ PARENT: q }` | Entity's parent matches q |
 | An array `[A, B]` | Shorthand for `HAS: [A, B]` |
 
+**Type inference:** `requires()` records the listed classes as a type parameter on the system. Callbacks in `.sort()`, `.each()`, and `.update()` inject then treat those components as non-nullable — no `!` needed. For complex `query()` expressions the type system cannot introspect, pass a second argument as an explicit hint:
+
+```ts
+.query({ AND: [{ HAS: Position }, { HAS: Velocity }] }, [Position, Velocity])
+.each([Position, Velocity], (e, [pos, vel]) => {
+  pos.x += vel.vx; // pos and vel are non-null
+})
+```
+
 #### `.phase(p)`
 
 Assign the system to a named phase or an `IPhase` reference. Systems without a phase run in `"update"`.
@@ -388,22 +397,46 @@ Called when `component.modified()` is queued on a watched component of a tracked
 })
 ```
 
+Injected components listed in `requires()` are non-nullable in the callback; any others are `Type | undefined`.
+
 Calling `update` also adds that component type to the system's implicit `HAS` query (unless you called `query()` first).
 
 #### `.each(components, callback)`
 
 Called every tick for **every tracked entity**, unconditionally. Unlike `update` (which only fires when `component.modified()` is called), `each` fires regardless of whether the component was modified — use it for per-entity logic that must run on every frame.
 
-The callback receives the entity and a tuple of resolved component instances. If the entity does not have a listed component, the corresponding tuple slot is `undefined`.
+The callback receives the entity and a tuple of resolved component instances. Components declared via `requires()` are guaranteed non-null; any others are `undefined` if the entity lacks them.
 
 ```ts
+.requires(Position, Velocity)
 .each([Position, Velocity], (e, [pos, vel]) => {
-  pos.x += vel.vx;
+  pos.x += vel.vx; // non-null — both are in requires()
   pos.y += vel.vy;
 })
 ```
 
 `each` does not modify the system's query — define membership with `requires(...)` or `query(...)` as usual. Only one `each` may be registered per system; a second call throws.
+
+#### `.sort(components, compare)`
+
+Enable sorted entity tracking. Matched entities are stored in an ordered set whose insertion position is determined by `compare`, which receives a tuple of resolved component instances for each pair being ordered. Implies `.track()`.
+
+Components declared via `requires()` are non-null in the compare callback.
+
+```ts
+world.system("Render")
+  .requires(Position, Sprite)
+  .sort([Position], ([posA], [posB]) => posA.z - posB.z)
+  .each([Position, Sprite], (e, [pos, sprite]) => {
+    sprite.draw(pos.x, pos.y);
+  });
+```
+
+Iterating `system.entities` after a phase run yields entities in the sorted order.
+
+#### `.track()`
+
+Enable entity tracking without an `each` callback — matched entities are exposed via `system.entities` as they enter and leave. `each` and `sort` imply `track` automatically; call this directly only when you need the set without a per-tick callback.
 
 #### `.run(callback)`
 

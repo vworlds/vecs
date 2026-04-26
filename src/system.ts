@@ -108,13 +108,17 @@ function PARENT(func: EntityTestFunc) {
  * once all systems are registered; after that, drive the loop with
  * {@link World.runPhase}.
  *
- * ### Component injection
+ * ### Component injection and type inference
  *
- * `enter`, `exit`, and `update` support *injection*: pass an array of
- * component classes as the first argument and they will be resolved from the
- * entity and passed as a typed tuple to the callback. Use
- * `{ parent: SomeComponent }` to resolve from the entity's parent instead of
- * the entity itself.
+ * `enter`, `exit`, `update`, `each`, and `sort` all accept an array of
+ * component classes that are resolved from the entity and passed as a typed
+ * tuple to the callback. Use `{ parent: SomeComponent }` to resolve from the
+ * entity's parent instead of the entity itself.
+ *
+ * Components declared via {@link requires} (or the second argument of
+ * {@link query}) are tracked as a type parameter `R` on the system. In
+ * `sort`, `each`, and `update` inject callbacks, those components appear as
+ * non-nullable; any component not in `R` remains `Type | undefined`.
  */
 
 type MaybeRequired<C, R extends (typeof Component)[]> = C extends typeof Component
