@@ -1,5 +1,6 @@
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
+import { OrderedSet } from "./util/ordered_set.js";
 import {
   Component,
   ComponentClassArray,
@@ -542,6 +543,43 @@ export class System {
    */
   public track(): System {
     this._tracks = true;
+    return this;
+  }
+
+  /**
+   * Enable sorted entity tracking: matched entities are stored in insertion
+   * order determined by `compare`, which receives a tuple of resolved
+   * component instances for each pair of entities being ordered.
+   *
+   * Implies {@link track}.
+   *
+   * @param components - Component classes to resolve and pass to `compare`.
+   * @param compare - Returns a negative number, zero, or positive number when
+   *   `a` should sort before, equal to, or after `b`.
+   * @returns `this` for chaining.
+   *
+   * @example
+   * ```ts
+   * world.system("Render")
+   *   .requires(Position, Sprite)
+   *   .sort([Position], ([posA], [posB]) => posA.z - posB.z);
+   * ```
+   */
+  public sort<J extends (typeof Component)[]>(
+    components: readonly [...J],
+    compare: (
+      a: { [K in keyof J]: InstanceType<J[K]> | undefined },
+      b: { [K in keyof J]: InstanceType<J[K]> | undefined }
+    ) => number
+  ): System {
+    this.track();
+    const types = components.map((C) => this.world.getComponentType(C));
+    this._entities = new OrderedSet<Entity>((a, b) =>
+      compare(
+        types.map((t) => a.get(t, true)) as any,
+        types.map((t) => b.get(t, true)) as any
+      )
+    );
     return this;
   }
 

@@ -661,3 +661,140 @@ describe("System — each", () => {
     expect(updateCb).not.toHaveBeenCalled();
   });
 });
+
+describe("System — sort", () => {
+  it("sort() returns this for chaining", () => {
+    const { w } = setup();
+    const sys = w.system("test").requires(Position);
+    expect(sys.sort([Position], ([a], [b]) => a!.x - b!.x)).toBe(sys);
+  });
+
+  it("sort() implies track()", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .requires(Position)
+      .sort([Position], ([a], [b]) => a!.x - b!.x);
+    w.start();
+    const e = w.createEntity();
+    const pos = e.add(Position);
+    pos.x = 5;
+    w.runPhase(phase, 0, 0);
+    expect(sys.entities.has(e)).toBe(true);
+  });
+
+  it("entities are iterated in sorted order", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .requires(Position)
+      .sort([Position], ([a], [b]) => a!.x - b!.x);
+    w.start();
+
+    const e1 = w.createEntity();
+    const p1 = e1.add(Position, false);
+    p1.x = 30;
+
+    const e2 = w.createEntity();
+    const p2 = e2.add(Position, false);
+    p2.x = 10;
+
+    const e3 = w.createEntity();
+    const p3 = e3.add(Position, false);
+    p3.x = 20;
+
+    w.runPhase(phase, 0, 0);
+
+    expect([...sys.entities]).toEqual([e2, e3, e1]);
+  });
+
+  it("each() visits entities in sorted order", () => {
+    const { w, phase } = setup();
+    const visited: number[] = [];
+    w.system("test")
+      .phase(phase)
+      .requires(Position)
+      .sort([Position], ([a], [b]) => a!.x - b!.x)
+      .each([Position], (_e, [pos]) => visited.push(pos!.x));
+    w.start();
+
+    const e1 = w.createEntity();
+    const p1 = e1.add(Position, false);
+    p1.x = 30;
+
+    const e2 = w.createEntity();
+    const p2 = e2.add(Position, false);
+    p2.x = 10;
+
+    const e3 = w.createEntity();
+    const p3 = e3.add(Position, false);
+    p3.x = 20;
+
+    w.runPhase(phase, 0, 0); // enter
+    w.runPhase(phase, 0, 0); // each fires
+
+    expect(visited).toEqual([10, 20, 30]);
+  });
+
+  it("exiting entity is removed from the sorted set", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .requires(Position)
+      .sort([Position], ([a], [b]) => a!.x - b!.x);
+    w.start();
+
+    const e1 = w.createEntity();
+    const p1 = e1.add(Position, false);
+    p1.x = 10;
+
+    const e2 = w.createEntity();
+    const p2 = e2.add(Position, false);
+    p2.x = 20;
+
+    w.runPhase(phase, 0, 0);
+    expect([...sys.entities]).toEqual([e1, e2]);
+
+    e1.remove(Position);
+    w.runPhase(phase, 0, 0);
+    expect([...sys.entities]).toEqual([e2]);
+  });
+
+  it("sort with multiple components passes tuples to compare", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .requires(Position, Velocity)
+      .sort(
+        [Position, Velocity],
+        ([posA, velA], [posB, velB]) =>
+          posA!.x + velA!.vx - (posB!.x + velB!.vx)
+      );
+    w.start();
+
+    const e1 = w.createEntity();
+    const p1 = e1.add(Position, false);
+    const v1 = e1.add(Velocity, false);
+    p1.x = 10;
+    v1.vx = 5; // sum = 15
+
+    const e2 = w.createEntity();
+    const p2 = e2.add(Position, false);
+    const v2 = e2.add(Velocity, false);
+    p2.x = 1;
+    v2.vx = 1; // sum = 2
+
+    const e3 = w.createEntity();
+    const p3 = e3.add(Position, false);
+    const v3 = e3.add(Velocity, false);
+    p3.x = 5;
+    v3.vx = 5; // sum = 10
+
+    w.runPhase(phase, 0, 0);
+    expect([...sys.entities]).toEqual([e2, e3, e1]);
+  });
+});
