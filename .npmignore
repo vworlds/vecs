@@ -1,0 +1,9 @@
+src/
+tests/
+.github/
+.devcontainer/
+.claude/
+tsconfig.json
+vitest.config.ts
+yarn.lock
+*.tsbuildinfo
