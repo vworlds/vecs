@@ -634,3 +634,12 @@ describe("System — sort", () => {
     expect([...sys.entities]).toEqual([e2, e3, e1]);
   });
 });
+
+describe("System — destroy", () => {
+  it("destroy() throws — destroying a system is not supported", () => {
+    const { w, phase } = setup();
+    const sys = w.system("test").phase(phase).requires(Position);
+    w.start();
+    expect(() => sys.destroy()).toThrow();
+  });
+});

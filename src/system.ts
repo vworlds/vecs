@@ -279,6 +279,16 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   }
 
   /**
+   * Not supported on `System`. Throws unconditionally.
+   *
+   * Systems are owned by the world for the duration of the session. If you
+   * need a temporary reactive set, use a standalone {@link Query} instead.
+   */
+  public override destroy(): never {
+    throw `destroy() is not supported on System '${this.name}'`;
+  }
+
+  /**
    * Set the entity membership predicate using the {@link SystemQuery} DSL.
    *
    * Replaces any implicit query derived from `update` watchlists and any
