@@ -107,8 +107,49 @@ export class Query<R extends (typeof Component)[] = []> {
    * @param callback - Called once per tracked entity, in insertion order
    *   (or sort order when {@link sort} is configured).
    */
-  public forEach(callback: (e: Entity) => void): void {
-    this._entities?.forEach(callback);
+  public forEach(callback: (e: Entity) => void): void;
+
+  /**
+   * Iterate over every entity currently tracked by this query, with component
+   * injection.
+   *
+   * Components declared via {@link requires} (or the `_guaranteed` hint of
+   * {@link query}) are non-nullable in the resolved tuple; any other requested
+   * component may be `undefined` if the entity lacks it.
+   *
+   * @param components - Component classes to resolve from each entity.
+   * @param callback - Receives the entity and a tuple of resolved component
+   *   instances.
+   */
+  public forEach<J extends (typeof Component)[]>(
+    components: readonly [...J],
+    callback: (
+      e: Entity,
+      resolved: { [K in keyof J]: MaybeRequired<J[K], R> }
+    ) => void
+  ): void;
+
+  public forEach<J extends (typeof Component)[]>(
+    componentsOrCallback:
+      | readonly [...J]
+      | ((e: Entity) => void),
+    callback?: (
+      e: Entity,
+      resolved: { [K in keyof J]: MaybeRequired<J[K], R> }
+    ) => void
+  ): void {
+    if (typeof componentsOrCallback === "function") {
+      this._entities?.forEach(componentsOrCallback);
+    } else {
+      if (!this._entities || !this.world) return;
+      const types = componentsOrCallback.map((C) =>
+        this.world.getComponentType(C)
+      );
+      this._entities.forEach((e) => {
+        const resolved = types.map((t) => e.get(t));
+        callback!(e, resolved as any);
+      });
+    }
   }
 
   /** Returns `true` if the entity satisfies this query's predicate. */

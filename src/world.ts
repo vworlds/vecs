@@ -8,7 +8,7 @@ import { Entity } from "./entity.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
 import { Filter } from "./filter.js";
-import { buildEntityTest, type QueryDSL, type ExtractRequired } from "./dsl.js";
+import { type QueryDSL, type ExtractRequired } from "./dsl.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 
@@ -448,7 +448,7 @@ export class World {
     q: QueryDSL,
     _guaranteed?: readonly (typeof Component)[]
   ): Filter<any> {
-    return new Filter(this, buildEntityTest(this, q));
+    return new Filter(this, q);
   }
 
   /**

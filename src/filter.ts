@@ -1,7 +1,12 @@
 import { Component } from "./component.js";
 import type { Entity } from "./entity.js";
 import type { World } from "./world.js";
-import type { EntityTestFunc, MaybeRequired } from "./dsl.js";
+import {
+  buildEntityTest,
+  type EntityTestFunc,
+  type MaybeRequired,
+  type QueryDSL,
+} from "./dsl.js";
 
 /**
  * A non-reactive, one-shot entity filter.
@@ -15,6 +20,11 @@ import type { EntityTestFunc, MaybeRequired } from "./dsl.js";
  *
  * ```ts
  * const f = world.filter([Position, Velocity]);
+ *
+ * // Entity only:
+ * f.forEach((e) => console.log(e.eid));
+ *
+ * // With component injection:
  * f.forEach([Position, Velocity], (e, [pos, vel]) => {
  *   pos.x += vel.vx;
  * });
@@ -27,14 +37,26 @@ import type { EntityTestFunc, MaybeRequired } from "./dsl.js";
  * appear as non-nullable in `forEach` callback tuples.
  */
 export class Filter<R extends (typeof Component)[] = []> {
+  private readonly belongs: EntityTestFunc;
+
   constructor(
     private readonly world: World,
-    private readonly belongs: EntityTestFunc
-  ) {}
+    dsl: QueryDSL
+  ) {
+    this.belongs = buildEntityTest(world, dsl);
+  }
 
   /**
    * Iterate all world entities and call `callback` for each one that matches
    * the DSL this filter was created with.
+   *
+   * @param callback - Receives only the entity.
+   */
+  public forEach(callback: (e: Entity) => void): void;
+
+  /**
+   * Iterate all world entities and call `callback` for each one that matches
+   * the DSL, with component injection.
    *
    * Components declared via {@link World.filter}'s DSL (or `_guaranteed`) are
    * non-nullable in the resolved tuple; any other requested component may be
@@ -50,12 +72,30 @@ export class Filter<R extends (typeof Component)[] = []> {
       e: Entity,
       resolved: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => void
+  ): void;
+
+  public forEach<J extends (typeof Component)[]>(
+    componentsOrCallback:
+      | readonly [...J]
+      | ((e: Entity) => void),
+    callback?: (
+      e: Entity,
+      resolved: { [K in keyof J]: MaybeRequired<J[K], R> }
+    ) => void
   ): void {
-    const types = components.map((C) => this.world.getComponentType(C));
-    this.world._forEachEntity((e) => {
-      if (!this.belongs(e)) return;
-      const resolved = types.map((t) => e.get(t));
-      callback(e, resolved as any);
-    });
+    if (typeof componentsOrCallback === "function") {
+      this.world._forEachEntity((e) => {
+        if (this.belongs(e)) componentsOrCallback(e);
+      });
+    } else {
+      const types = componentsOrCallback.map((C) =>
+        this.world.getComponentType(C)
+      );
+      this.world._forEachEntity((e) => {
+        if (!this.belongs(e)) return;
+        const resolved = types.map((t) => e.get(t));
+        callback!(e, resolved as any);
+      });
+    }
   }
 }

@@ -19,7 +19,7 @@ function setup() {
   return { w };
 }
 
-describe("Filter — runtime behaviour", () => {
+describe("Filter — entity-only forEach", () => {
   it("visits only matching entities", () => {
     const { w } = setup();
     const ePos = w.createEntity();
@@ -31,13 +31,89 @@ describe("Filter — runtime behaviour", () => {
     eBoth.add(Velocity);
 
     const seen: unknown[] = [];
-    w.filter([Position]).forEach([Position], (e) => seen.push(e));
+    w.filter([Position]).forEach((e) => seen.push(e));
 
     expect(seen).toContain(ePos);
     expect(seen).toContain(eBoth);
     expect(seen).not.toContain(eVel);
   });
 
+  it("reflects world state on each call — non-reactive", () => {
+    const { w } = setup();
+    const f = w.filter([Position]);
+    const e = w.createEntity();
+    e.add(Position);
+
+    const before: unknown[] = [];
+    f.forEach((ent) => before.push(ent));
+    expect(before).toContain(e);
+
+    e.remove(Position);
+
+    const after: unknown[] = [];
+    f.forEach((ent) => after.push(ent));
+    expect(after).not.toContain(e);
+  });
+
+  it("works with EntityTestFunc DSL", () => {
+    const { w } = setup();
+    const e = w.createEntity();
+    e.add(Position);
+
+    const seen: unknown[] = [];
+    w.filter((ent) => ent.get(Position) !== undefined).forEach((ent) => seen.push(ent));
+
+    expect(seen).toContain(e);
+  });
+
+  it("AND DSL matches only entities with all required components", () => {
+    const { w } = setup();
+    const ePos = w.createEntity();
+    ePos.add(Position);
+    const eBoth = w.createEntity();
+    eBoth.add(Position);
+    eBoth.add(Velocity);
+
+    const seen: unknown[] = [];
+    w.filter({ AND: [{ HAS: Position }, { HAS: Velocity }] }).forEach((e) => seen.push(e));
+
+    expect(seen).toContain(eBoth);
+    expect(seen).not.toContain(ePos);
+  });
+
+  it("OR DSL matches entities with any component", () => {
+    const { w } = setup();
+    const ePos = w.createEntity();
+    ePos.add(Position);
+    const eVel = w.createEntity();
+    eVel.add(Velocity);
+    const eSprite = w.createEntity();
+    eSprite.add(Sprite);
+
+    const seen: unknown[] = [];
+    w.filter({ OR: [Position, Velocity] }).forEach((e) => seen.push(e));
+
+    expect(seen).toContain(ePos);
+    expect(seen).toContain(eVel);
+    expect(seen).not.toContain(eSprite);
+  });
+
+  it("NOT DSL excludes matching entities", () => {
+    const { w } = setup();
+    const ePos = w.createEntity();
+    ePos.add(Position);
+    const eVel = w.createEntity();
+    eVel.add(Velocity);
+
+    const seen: unknown[] = [];
+    w.filter({ NOT: Position }).forEach((e) => seen.push(e));
+
+    expect(seen).not.toContain(ePos);
+    expect(seen).toContain(eVel);
+  });
+});
+
+describe("Filter — forEach with injection", () => {
   it("resolves injected components", () => {
     const { w } = setup();
     const e = w.createEntity();
@@ -56,7 +132,7 @@ describe("Filter — runtime behaviour", () => {
     const { w } = setup();
     w.createEntity().add(Position);
 
-    let vel: Velocity | undefined = new Velocity();
+    let vel: Velocity | undefined;
     w.filter([Position]).forEach([Position, Velocity], (_e, [_p, v]) => {
       vel = v as Velocity | undefined;
     });
@@ -64,92 +140,12 @@ describe("Filter — runtime behaviour", () => {
     expect(vel).toBeUndefined();
   });
 
-  it("reflects world state on each call — non-reactive", () => {
-    const { w } = setup();
-    const f = w.filter([Position]);
-
-    const e = w.createEntity();
-    e.add(Position);
-
-    const before: unknown[] = [];
-    f.forEach([Position], (ent) => before.push(ent));
-    expect(before).toContain(e);
-
-    e.remove(Position);
-
-    const after: unknown[] = [];
-    f.forEach([Position], (ent) => after.push(ent));
-    expect(after).not.toContain(e);
-  });
-
-  it("works with EntityTestFunc DSL", () => {
-    const { w } = setup();
-    const e = w.createEntity();
-    e.add(Position);
-
-    const seen: unknown[] = [];
-    w.filter((ent) => ent.get(Position) !== undefined).forEach([], (ent) => seen.push(ent));
-
-    expect(seen).toContain(e);
-  });
-
-  it("AND DSL matches only entities with all required components", () => {
-    const { w } = setup();
-    const ePos = w.createEntity();
-    ePos.add(Position);
-    const eBoth = w.createEntity();
-    eBoth.add(Position);
-    eBoth.add(Velocity);
-
-    const seen: unknown[] = [];
-    w.filter({ AND: [{ HAS: Position }, { HAS: Velocity }] }).forEach(
-      [],
-      (e) => seen.push(e)
-    );
-
-    expect(seen).toContain(eBoth);
-    expect(seen).not.toContain(ePos);
-  });
-
-  it("OR DSL matches entities with any component", () => {
-    const { w } = setup();
-    const ePos = w.createEntity();
-    ePos.add(Position);
-    const eVel = w.createEntity();
-    eVel.add(Velocity);
-    const eSprite = w.createEntity();
-    eSprite.add(Sprite);
-
-    const seen: unknown[] = [];
-    w.filter({ OR: [Position, Velocity] }).forEach([], (e) => seen.push(e));
-
-    expect(seen).toContain(ePos);
-    expect(seen).toContain(eVel);
-    expect(seen).not.toContain(eSprite);
-  });
-
-  it("NOT DSL excludes matching entities", () => {
-    const { w } = setup();
-    const ePos = w.createEntity();
-    ePos.add(Position);
-    const eVel = w.createEntity();
-    eVel.add(Velocity);
-
-    const seen: unknown[] = [];
-    w.filter({ NOT: Position }).forEach([], (e) => seen.push(e));
-
-    expect(seen).not.toContain(ePos);
-    expect(seen).toContain(eVel);
-  });
-
   it("_guaranteed override lets caller assert non-null for opaque DSL", () => {
     const { w } = setup();
     const e = w.createEntity();
-    const pos = e.add(Position);
-    pos.x = 7;
+    e.add(Position).x = 7;
 
     let result = 0;
-    // OR can't be deduced — use _guaranteed to tell the type system Position is safe
     w.filter({ OR: [Position, Velocity] }, [Position]).forEach(
       [Position],
       (_e, [p]) => {
@@ -165,8 +161,7 @@ describe("Filter — type deduction (compile-time)", () => {
   it("plain array DSL deduces required components", () => {
     const { w } = setup();
     const e = w.createEntity();
-    const pos = e.add(Position);
-    pos.x = 1;
+    e.add(Position).x = 1;
     e.add(Velocity).vx = 2;
 
     let sum = 0;
@@ -181,8 +176,7 @@ describe("Filter — type deduction (compile-time)", () => {
 
   it("HAS DSL deduces required components", () => {
     const { w } = setup();
-    const e = w.createEntity();
-    e.add(Position).x = 5;
+    w.createEntity().add(Position).x = 5;
 
     let sum = 0;
     w.filter({ HAS: [Position] }).forEach([Position], (_e, [p]) => {

@@ -204,7 +204,7 @@ describe("Query — entity tracking via world pipeline", () => {
     expect(q.entities.size).toBe(0);
   });
 
-  it("forEach iterates all matched entities", () => {
+  it("forEach (entity-only) iterates all matched entities", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);
     w.start();
@@ -218,6 +218,37 @@ describe("Query — entity tracking via world pipeline", () => {
     expect(visited).toContain(a);
     expect(visited).toContain(b);
     expect(visited.length).toBe(2);
+  });
+
+  it("forEach with injection resolves components for each entity", () => {
+    const { w, tick } = setup();
+    const q = w.query("test").requires(Position, Velocity);
+    w.start();
+    const e = w.createEntity();
+    const pos = e.add(Position);
+    const vel = e.add(Velocity);
+    pos.x = 3;
+    vel.vx = 4;
+    tick();
+    let sum = 0;
+    q.forEach([Position, Velocity], (_e, [p, v]) => {
+      sum += p.x + v.vx; // non-null — both in requires()
+    });
+    expect(sum).toBe(7);
+  });
+
+  it("forEach with injection yields undefined for components not in requires", () => {
+    const { w, tick } = setup();
+    const q = w.query("test").requires(Position);
+    w.start();
+    const e = w.createEntity();
+    e.add(Position);
+    tick();
+    let velSeen: Velocity | undefined;
+    q.forEach([Position, Velocity], (_e, [_p, v]) => {
+      velSeen = v as Velocity | undefined;
+    });
+    expect(velSeen).toBeUndefined();
   });
 
   it("entities is typed as a ReadonlySet", () => {

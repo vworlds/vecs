@@ -19,6 +19,7 @@ yarn add @vworlds/vecs
 | **Entity** | An integer id with a set of components. Create via the world. |
 | **Query** | A reactive, always-updated set of entities that match a predicate. |
 | **System** | A `Query` with per-tick runtime logic (phases, `update`, `each`, `run`). |
+| **Filter** | A non-reactive, one-shot scan: walks all world entities on each `forEach` call. |
 
 ### Lifecycle in brief
 
@@ -203,7 +204,7 @@ world.start(); // distributes systems to phases, freezes component registration
 
 #### Queries
 
-A standalone `Query` is a reactive entity set without a phase or per-tick callbacks. Use it when you need to read the matched set at any time — for example to find the nearest enemy or to enumerate scene nodes.
+A standalone `Query` is a reactive entity set without a phase or per-tick callbacks. Use it when you need the matched set kept up-to-date automatically — for example to enumerate scene nodes or find the nearest enemy.
 
 ```ts
 const enemies = world.query("Enemies")
@@ -218,6 +219,33 @@ world.start();
 const lateQuery = world.query("Walls").requires(Wall);
 // lateQuery.entities immediately contains all current Wall entities
 ```
+
+#### Filters
+
+A `Filter` is a non-reactive, one-shot scan. It holds no tracked entity set — each `forEach` call walks all world entities at that moment. Use it for ad-hoc lookups that don't need to stay live.
+
+```ts
+// Entity only:
+world.filter([Position]).forEach((e) => console.log(e.eid));
+
+// With component injection:
+world.filter([Position, Velocity])
+  .forEach([Position, Velocity], (e, [pos, vel]) => {
+    pos.x += vel.vx;
+  });
+
+// Full DSL, with auto-deduced required components:
+world.filter({ AND: [{ HAS: Position }, { HAS: Velocity }] })
+  .forEach([Position, Velocity], (e, [pos, vel]) => {
+    pos.x += vel.vx; // pos and vel are non-null — deduced from AND of HAS
+  });
+
+// Manual type hint for queries the extractor can't see through:
+world.filter({ OR: [Position, Velocity] }, [Position])
+  .forEach([Position], (e, [pos]) => pos.x);
+```
+
+Unlike `Query`, a `Filter` requires no name, no `world.start()`, and no `destroy()` — create it anywhere and discard it freely.
 
 #### Phases
 
@@ -497,7 +525,8 @@ console.log(projectiles.entities.size, "active projectiles");
 | `.sort(components, compare)` | Store matched entities in sorted order. |
 | `.track()` | Enable tracking (implied by `sort`; backfills when called after `start`). |
 | `.belongs(e)` | Returns `true` if the entity satisfies the predicate. |
-| `.forEach(callback)` | Iterate all currently tracked entities. |
+| `.forEach(callback)` | Iterate all currently tracked entities (entity only). |
+| `.forEach(components, callback)` | Iterate with component injection — same signature as `Filter.forEach`. |
 | `.entities` | `ReadonlySet<Entity>` of all currently tracked entities. |
 | `.destroy()` | Remove the query from the world and all entities. See below. |
 
@@ -514,6 +543,35 @@ q.destroy(); // unregisters from world and all entities
 `System` does **not** support `destroy()` — calling it throws. Systems are owned by the world for the lifetime of the session. Use a standalone `Query` when you need a temporary reactive set.
 
 Both `System` and `Query` share the same query DSL, enter/exit callbacks, sort, and `entities` set — `System` extends `Query` and layers phase execution on top.
+
+---
+
+### Filter
+
+A `Filter` is created via `world.filter(dsl)` and provides a non-reactive `forEach`. It accepts the same [`QueryDSL`](#-requirescomponents-and-queryq) expressions as systems and queries.
+
+```ts
+const f = world.filter([Position, Velocity]);
+```
+
+| Method | Description |
+|---|---|
+| `.forEach(callback)` | Walk all world entities; invoke callback for each matching one. |
+| `.forEach(components, callback)` | Same, with component injection and non-null types for required components. |
+
+**Type inference** works the same way as for `requires()` on systems/queries: component classes extractable from the DSL (`HAS`, `HAS_ONLY`, plain arrays, and `AND` of those) are non-nullable in the callback tuple. Pass a `_guaranteed` second argument to `world.filter()` as a manual override when inference can't reach:
+
+```ts
+// Auto-deduced — both non-null:
+world.filter([Position, Velocity])
+  .forEach([Position, Velocity], (e, [pos, vel]) => { ... });
+
+// Manual hint for OR / NOT / PARENT / custom function:
+world.filter({ OR: [Position, Velocity] }, [Position])
+  .forEach([Position], (e, [pos]) => pos.x);
+```
+
+A `Filter` holds no tracked set, makes no registration calls, and needs no `destroy()`.
 
 ---
 
