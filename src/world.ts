@@ -5,6 +5,7 @@ import {
   Hook,
 } from "./component.js";
 import { Entity } from "./entity.js";
+import { Query } from "./query.js";
 import { System } from "./system.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
@@ -14,15 +15,15 @@ const LOCAL_COMPONENT_MIN = 256;
 /**
  * The central ECS container.
  *
- * A `World` owns all entities, components, systems, and the update pipeline.
- * Typical lifecycle:
+ * A `World` owns all entities, components, systems, queries, and the update
+ * pipeline. Typical lifecycle:
  *
  * 1. **Register components** — call {@link registerComponent} (and optionally
  *    {@link registerComponentType}) for every component class.
- * 2. **Register systems** — call {@link system} (or {@link addSystem}) to
- *    create and configure {@link System | systems}.
- * 3. **Start** — call {@link start} to freeze registration and sort systems
- *    into their phases.
+ * 2. **Register systems and queries** — call {@link system} and {@link query}
+ *    to create and configure them.
+ * 3. **Start** — call {@link start} to freeze component registration and
+ *    distribute systems into their phases.
  * 4. **Run loop** — call {@link runPhase} once per frame for each phase.
  *
  * ```ts
@@ -46,15 +47,13 @@ export class World {
   private componentNameTypeMap = new Map<string, number>();
   private archChangeQueue: Entity[] = [];
   private destroyedEntities: Entity[] = [];
-  private pendingSystems: System[] = [];
-  private allSystems: System[] = [];
+  private allQueries: Query[] = [];
 
   private Class2Meta = new Map<typeof Component, ComponentMeta>();
   private Type2Meta = new ArrayMap<ComponentMeta>();
   private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   private componentRegistrationDisabled = false;
-  private systemRegistrationDisabled = false;
   private pipeline = new Map<string, Phase>();
   private eidCounter = 0;
   constructor() {}
@@ -218,12 +217,12 @@ export class World {
 
   private updateArchetypes() {
     if (this.archChangeQueue.length > 0) {
-      this.allSystems.forEach((s) => {
+      this.allQueries.forEach((q) => {
         this.archChangeQueue.forEach((e) => {
-          if (s.belongs(e)) {
-            e._addSystem(s);
+          if (q.belongs(e)) {
+            e._addQuery(q);
           } else {
-            e._removeSystem(s);
+            e._removeQuery(q);
           }
         });
       });
@@ -244,7 +243,7 @@ export class World {
       c["dirty"] = false;
     });
     this.archChangeQueue.forEach((e) => {
-      e._updateSystems();
+      e._updateQueries();
       e._archetypeChanged = false;
     });
     this.archChangeQueue.length = 0;
@@ -351,26 +350,18 @@ export class World {
     this.componentNameTypeMap.set(componentName, type);
   }
 
-  /**
-   * Register a pre-built {@link System} with the world.
-   *
-   * In most cases it is more convenient to use {@link system} which both
-   * creates and registers in one call. Use `addSystem` when you need to
-   * subclass `System` directly.
-   *
-   * @param s - The system to add.
-   * @throws If system registration is disabled (after {@link start}).
-   */
-  public addSystem(s: System) {
-    if (this.systemRegistrationDisabled)
-      throw "System registration is disabled";
-    this.pendingSystems.push(s);
+  /** @internal Called by the {@link Query} constructor to register itself. */
+  public _addQuery(q: Query) {
+    this.allQueries.push(q);
+  }
+
+  /** @internal Iterate over all entities currently in the world. */
+  public _forEachEntity(callback: (e: Entity) => void): void {
+    this.entities.forEach(callback);
   }
 
   /**
    * Create a new {@link System}, register it, and return it for configuration.
-   *
-   * This is the primary way to define systems:
    *
    * ```ts
    * world.system("Render")
@@ -384,9 +375,32 @@ export class World {
    * @returns The new `System` instance.
    */
   public system(name: string) {
-    const system = new System(name, this);
-    this.addSystem(system);
-    return system;
+    return new System(name, this);
+  }
+
+  /**
+   * Create a standalone {@link Query}, register it, and return it for
+   * configuration.
+   *
+   * Unlike a {@link System}, a standalone query has no phase and no per-tick
+   * callbacks — it is a reactive, always-updated entity set that can be read
+   * at any time after {@link start}. Standalone queries can also be created
+   * after {@link start}; existing matched entities are backfilled immediately.
+   *
+   * ```ts
+   * const enemies = world.query("Enemies")
+   *   .requires(Enemy, Health)
+   *   .enter((e) => console.log("enemy spawned", e.eid));
+   *
+   * world.start();
+   * // enemies.entities is kept up-to-date automatically
+   * ```
+   *
+   * @param name - A unique display name for the query.
+   * @returns The new `Query` instance.
+   */
+  public query(name: string) {
+    return new Query(name, this);
   }
 
   /**
@@ -400,18 +414,17 @@ export class World {
   }
 
   /**
-   * Freeze registration and prepare the world for running.
+   * Freeze component registration and prepare the world for running.
    *
-   * Disables both component and system registration, then distributes all
-   * pending systems into their assigned pipeline phases (defaulting to
-   * `"update"`). Logs the resulting phase → system order to the console.
+   * Distributes all systems registered so far into their pipeline phases
+   * (defaulting to `"update"`) and logs the phase → system order to the
+   * console. Systems and queries can still be created after this call —
+   * standalone queries will immediately backfill existing matched entities.
    *
-   * Call this once, after all components and systems are registered but before
-   * the first {@link runPhase} call.
+   * Call this once before the first {@link runPhase} call.
    */
   public start() {
     this.componentRegistrationDisabled = true;
-    this.systemRegistrationDisabled = true;
     this.reindexSystems();
   }
 
@@ -424,19 +437,17 @@ export class World {
 
     const defaultPhase = _defaultPhase;
 
-    this.pendingSystems.forEach((s) => {
-      let phase = s._phase as Phase | undefined;
+    this.allQueries.forEach((q) => {
+      if (!(q instanceof System)) return;
+      let phase = q._phase as Phase | undefined;
       if (typeof phase === "string") {
         phase = this.pipeline.get(phase);
       }
       phase = phase || defaultPhase;
-      phase.systems.push(s);
+      phase.systems.push(q);
     });
-    this.pendingSystems.length = 0;
 
-    this.allSystems.length = 0;
     this.pipeline.forEach((phase) => {
-      this.allSystems.push(...phase.systems);
       console.log(
         "Phase %s : %s",
         phase.name,

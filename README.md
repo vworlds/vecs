@@ -14,18 +14,19 @@ yarn add @vworlds/vecs
 
 | Concept | What it is |
 |---|---|
-| **World** | Central container. Owns all entities, runs all systems. |
+| **World** | Central container. Owns all entities, runs all systems and queries. |
 | **Component** | A plain data class. Extend `Component` and attach instances to entities. |
 | **Entity** | An integer id with a set of components. Create via the world. |
-| **System** | Reactive logic. Declare which components you need; get called when things change. |
+| **Query** | A reactive, always-updated set of entities that match a predicate. |
+| **System** | A `Query` with per-tick runtime logic (phases, `update`, `each`, `run`). |
 
 ### Lifecycle in brief
 
 ```
-registerComponent() × N  →  system() × N  →  start()  →  progress() every frame
+registerComponent() × N  →  system() / query() × N  →  start()  →  progress() every frame
 ```
 
-After `start()`, no new components or systems can be registered.
+After `start()`, component registration is disabled. Systems and queries can still be created — standalone queries backfill existing matched entities immediately.
 
 ---
 
@@ -197,7 +198,25 @@ world.system("MySystem")
   .update(...)
   .exit(...);
 
-world.start(); // must be called once, after all systems are set up
+world.start(); // distributes systems to phases, freezes component registration
+```
+
+#### Queries
+
+A standalone `Query` is a reactive entity set without a phase or per-tick callbacks. Use it when you need to read the matched set at any time — for example to find the nearest enemy or to enumerate scene nodes.
+
+```ts
+const enemies = world.query("Enemies")
+  .requires(Enemy, Health)
+  .enter((e) => console.log("enemy spawned", e.eid))
+  .exit((e)  => console.log("enemy died",    e.eid));
+
+world.start();
+// enemies.entities is kept up-to-date automatically
+
+// Can also be created after start(); existing matched entities are backfilled:
+const lateQuery = world.query("Walls").requires(Wall);
+// lateQuery.entities immediately contains all current Wall entities
 ```
 
 #### Phases
@@ -436,7 +455,9 @@ Iterating `system.entities` after a phase run yields entities in the sorted orde
 
 #### `.track()`
 
-Enable entity tracking without an `each` callback — matched entities are exposed via `system.entities` as they enter and leave. `each` and `sort` imply `track` automatically; call this directly only when you need the set without a per-tick callback.
+Enable entity tracking without an `each` callback — matched entities are exposed via `system.entities` (or `query.entities`) as they enter and leave. `each` and `sort` imply `track` automatically; call this directly only when you need the tracked set without a per-tick callback.
+
+When called after `world.start()`, `track()` immediately backfills existing entities that satisfy the query predicate.
 
 #### `.run(callback)`
 
@@ -447,6 +468,39 @@ Called every tick when the system's phase runs, regardless of entity state. Use 
   sendNetworkPacket(now);
 })
 ```
+
+---
+
+### Query
+
+A standalone query is created via `world.query(name)` and configured through the same fluent builder API as `System` (`requires`, `query`, `enter`, `exit`, `sort`, `track`, `forEach`, `entities`). It has no phase and no per-tick callbacks.
+
+```ts
+const projectiles = world.query("Projectiles")
+  .requires(Position, Velocity)
+  .sort([Position], ([a], [b]) => a.z - b.z)
+  .enter([Position], (e, [pos]) => { pos.x = spawnX; });
+
+world.start();
+
+// Anywhere in game code:
+projectiles.forEach((e) => { /* ... */ });
+console.log(projectiles.entities.size, "active projectiles");
+```
+
+| Method | Description |
+|---|---|
+| `.requires(...components)` | Set the membership predicate and start tracking. |
+| `.query(expr)` | Set the membership predicate using the {@link SystemQuery} DSL. |
+| `.enter(callback)` / `.enter(inject, callback)` | Fires when an entity joins the query. |
+| `.exit(callback)` / `.exit(inject, callback)` | Fires when an entity leaves the query. |
+| `.sort(components, compare)` | Store matched entities in sorted order. |
+| `.track()` | Enable tracking (implied by `sort`; backfills when called after `start`). |
+| `.belongs(e)` | Returns `true` if the entity satisfies the predicate. |
+| `.forEach(callback)` | Iterate all currently tracked entities. |
+| `.entities` | `ReadonlySet<Entity>` of all currently tracked entities. |
+
+Both `System` and `Query` share the same query DSL, enter/exit callbacks, sort, and `entities` set — `System` extends `Query` and layers phase execution on top.
 
 ---
 

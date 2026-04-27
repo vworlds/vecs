@@ -1,4 +1,5 @@
 export { type System } from "./system.js";
+export { Query } from "./query.js";
 export { World } from "./world.js";
 export { Component, type ComponentMeta } from "./component.js";
 export { type Entity } from "./entity.js";

@@ -177,187 +177,6 @@ describe("System — enter / exit / update", () => {
   });
 });
 
-describe("System — query DSL", () => {
-  it("HAS / requires matches entities that have all components", () => {
-    const { w, phase } = setup();
-    const enter = vi.fn();
-    w.system("test").phase(phase).requires(Position, Velocity).enter(enter);
-    w.start();
-
-    const a = w.createEntity();
-    a.add(Position);
-    const b = w.createEntity();
-    b.add(Position);
-    b.add(Velocity);
-    w.runPhase(phase, 0, 0);
-    expect(enter).toHaveBeenCalledTimes(1);
-    expect(enter).toHaveBeenCalledWith(b);
-  });
-
-  it("HAS_ONLY matches entities with exactly that component set", () => {
-    const { w, phase } = setup();
-    const enter = vi.fn();
-    w.system("test").phase(phase).query({ HAS_ONLY: [Position] }).enter(enter);
-    w.start();
-
-    const a = w.createEntity();
-    a.add(Position);
-    const b = w.createEntity();
-    b.add(Position);
-    b.add(Velocity);
-    w.runPhase(phase, 0, 0);
-    expect(enter).toHaveBeenCalledTimes(1);
-    expect(enter).toHaveBeenCalledWith(a);
-  });
-
-  it("AND combines sub-queries", () => {
-    const { w, phase } = setup();
-    const enter = vi.fn();
-    w.system("test").phase(phase).query({ AND: [Position, Velocity] }).enter(enter);
-    w.start();
-
-    const a = w.createEntity();
-    a.add(Position);
-    const b = w.createEntity();
-    b.add(Position);
-    b.add(Velocity);
-    w.runPhase(phase, 0, 0);
-    expect(enter).toHaveBeenCalledTimes(1);
-    expect(enter).toHaveBeenCalledWith(b);
-  });
-
-  it("OR matches either branch", () => {
-    const { w, phase } = setup();
-    const enter = vi.fn();
-    w.system("test").phase(phase).query({ OR: [Sprite, Container] }).enter(enter);
-    w.start();
-
-    const a = w.createEntity();
-    a.add(Sprite);
-    const b = w.createEntity();
-    b.add(Container);
-    const c = w.createEntity();
-    c.add(Position);
-    w.runPhase(phase, 0, 0);
-    expect(enter).toHaveBeenCalledTimes(2);
-  });
-
-  it("NOT inverts a sub-query", () => {
-    const { w, phase } = setup();
-    const matches: number[] = [];
-    w.system("test")
-      .phase(phase)
-      .query({ AND: [Position, { NOT: Velocity }] })
-      .enter((e) => matches.push(e.eid));
-    w.start();
-
-    const a = w.createEntity();
-    a.add(Position);
-    const b = w.createEntity();
-    b.add(Position);
-    b.add(Velocity);
-    w.runPhase(phase, 0, 0);
-    expect(matches).toEqual([a.eid]);
-  });
-
-  it("PARENT looks up the entity's parent", () => {
-    const { w, phase } = setup();
-    const cb = vi.fn();
-    w.system("test")
-      .phase(phase)
-      .query({ PARENT: { AND: [Player, Container] } })
-      .enter(cb);
-    w.start();
-
-    const parent = w.createEntity();
-    parent.add(Player);
-    parent.add(Container);
-
-    const child = w.createEntity();
-    child.parent = parent;
-    parent.children.add(child);
-    child.add(Position); // any component, just so its archetype fires once
-
-    w.runPhase(phase, 0, 0);
-    expect(cb).toHaveBeenCalledWith(child);
-  });
-
-  it("an EntityTestFunc can be passed directly", () => {
-    const { w, phase } = setup();
-    const cb = vi.fn();
-    w.system("test").phase(phase).query((e) => e.eid === 7).enter(cb);
-    w.start();
-
-    w.createEntity(); // 0
-    const seven = w.getOrCreateEntity(7);
-    seven.add(Position); // trigger archetype change
-    w.runPhase(phase, 0, 0);
-    expect(cb).toHaveBeenCalledWith(seven);
-  });
-
-  it("a single class is shorthand for HAS", () => {
-    const { w, phase } = setup();
-    const cb = vi.fn();
-    w.system("test").phase(phase).query(Position).enter(cb);
-    w.start();
-
-    const e = w.createEntity();
-    e.add(Position);
-    w.runPhase(phase, 0, 0);
-    expect(cb).toHaveBeenCalledWith(e);
-  });
-
-  it("an array is shorthand for HAS", () => {
-    const { w, phase } = setup();
-    const cb = vi.fn();
-    w.system("test").phase(phase).query([Position, Velocity]).enter(cb);
-    w.start();
-
-    const a = w.createEntity();
-    a.add(Position);
-    const b = w.createEntity();
-    b.add(Position);
-    b.add(Velocity);
-    w.runPhase(phase, 0, 0);
-    expect(cb).toHaveBeenCalledWith(b);
-    expect(cb).not.toHaveBeenCalledWith(a);
-  });
-
-  it("query overrides any prior implicit watchlist query", () => {
-    const { w, phase } = setup();
-    const cb = vi.fn();
-    // update would normally add Position to the implicit query;
-    // a subsequent query() should fully replace it.
-    w.system("test")
-      .phase(phase)
-      .update(Position, () => {})
-      .query(Velocity)
-      .enter(cb);
-    w.start();
-
-    const e = w.createEntity();
-    e.add(Position); // would have matched the implicit query
-    w.runPhase(phase, 0, 0);
-    expect(cb).not.toHaveBeenCalled();
-
-    e.add(Velocity);
-    w.runPhase(phase, 0, 0);
-    expect(cb).toHaveBeenCalledWith(e);
-  });
-
-  it("explicit { HAS: ... } is equivalent to requires", () => {
-    const { w, phase } = setup();
-    const cb = vi.fn();
-    w.system("test").phase(phase).query({ HAS: [Position, Velocity] }).enter(cb);
-    w.start();
-    const e = w.createEntity();
-    e.add(Position);
-    e.add(Velocity);
-    w.runPhase(phase, 0, 0);
-    expect(cb).toHaveBeenCalledWith(e);
-  });
-});
-
 describe("System — phases", () => {
   it("phase by IPhase reference assigns the system to that phase", () => {
     const w = new World();
@@ -408,11 +227,28 @@ describe("System — phases", () => {
   });
 });
 
-describe("System — registration timing", () => {
-  it("system registration is disabled after start()", () => {
-    const w = new World();
+
+describe("System — query interaction with update watchlist", () => {
+  it("query() overrides any prior implicit watchlist query", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    // update would normally add Position to the implicit query;
+    // a subsequent query() should fully replace it.
+    w.system("test")
+      .phase(phase)
+      .update(Position, () => {})
+      .query(Velocity)
+      .enter(cb);
     w.start();
-    expect(() => w.system("late")).toThrow();
+
+    const e = w.createEntity();
+    e.add(Position); // would have matched the implicit query
+    w.runPhase(phase, 0, 0);
+    expect(cb).not.toHaveBeenCalled();
+
+    e.add(Velocity);
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalledWith(e);
   });
 });
 

@@ -1,7 +1,7 @@
 import { Component } from "./component.js";
 import type { World } from "./world.js";
 import { ArrayMap } from "./util/array_map.js";
-import { type System } from "./system.js";
+import { type Query } from "./query.js";
 import { Events } from "./util/events.js";
 import { Bitset } from "./util/bitset.js";
 
@@ -31,12 +31,12 @@ export class Entity {
 
   /**
    * Bitmask representing the set of component types currently attached to this
-   * entity. Used by the world to efficiently match entities against system
-   * queries.
+   * entity. Used by the world to efficiently match entities against query
+   * predicates.
    */
   public readonly componentBitmask = new Bitset();
-  private readonly systems = new Set<System>();
-  private readonly newSystems: System[] = [];
+  private readonly queries = new Set<Query>();
+  private readonly newQueries: Query[] = [];
 
   /**
    * A free-form property bag that modules can use to associate arbitrary data
@@ -143,10 +143,10 @@ export class Entity {
     }
   }
 
-  /** @internal Called by systems to deliver update notifications. */
+  /** @internal Called by queries to deliver update notifications. */
   public _notifyModified(component: Component) {
-    this.systems.forEach((s) => {
-      s.notifyModified(component);
+    this.queries.forEach((q) => {
+      q.notifyModified(component);
     });
   }
 
@@ -188,31 +188,31 @@ export class Entity {
   }
 
   /** @internal */
-  public _hasSystem(s: System) {
-    return this.systems.has(s);
+  public _hasQuery(q: Query) {
+    return this.queries.has(q);
   }
 
   /** @internal */
-  public _addSystem(s: System) {
-    if (!this.systems.has(s)) {
-      this.newSystems.push(s);
-      s._enter(this);
+  public _addQuery(q: Query) {
+    if (!this.queries.has(q)) {
+      this.newQueries.push(q);
+      q._enter(this);
     }
   }
 
   /** @internal */
-  public _removeSystem(s: System) {
-    if (this.systems.delete(s)) {
-      s._exit(this);
+  public _removeQuery(q: Query) {
+    if (this.queries.delete(q)) {
+      q._exit(this);
     }
   }
 
   /** @internal */
-  public _updateSystems() {
-    this.newSystems.forEach((s) => {
-      this.systems.add(s);
+  public _updateQueries() {
+    this.newQueries.forEach((q) => {
+      this.queries.add(q);
     });
-    this.newSystems.length = 0;
+    this.newQueries.length = 0;
   }
 
   /** `true` when the entity has no components attached. */
@@ -223,10 +223,10 @@ export class Entity {
   private _destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.systems.forEach((s) => {
-      s._exit(this);
+    this.queries.forEach((q) => {
+      q._exit(this);
     });
-    this.systems.clear();
+    this.queries.clear();
 
     if (this._events) {
       this._events.emit("destroy");
