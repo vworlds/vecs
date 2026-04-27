@@ -127,11 +127,12 @@ type MaybeRequired<C, R extends (typeof Component)[]> = C extends typeof Compone
     : InstanceType<C> | undefined
   : never;
 
+const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
+
 export class System<R extends (typeof Component)[] = []> {
   protected componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
   protected eachCallback: EntityCallback | undefined;
-  protected _entities = new Set<Entity>();
-  protected _tracks = false;
+  protected _entities: Set<Entity> | undefined;
   protected _enterCallback: EntityCallback[] = [];
   protected _exitCallback: EntityCallback[] = [];
   private _runCallback: RunCallback | undefined;
@@ -162,7 +163,7 @@ export class System<R extends (typeof Component)[] = []> {
    * called during system configuration.
    */
   public get entities(): ReadonlySet<Entity> {
-    return this._entities;
+    return this._entities ?? EMPTY_ENTITIES;
   }
 
   /**
@@ -201,13 +202,13 @@ export class System<R extends (typeof Component)[] = []> {
   public _enter(e: Entity) {
     this._enterCallback.forEach((callback) => callback(e));
     e.forEachComponent((c) => this.notifyModified(c));
-    if (this._tracks) this._entities.add(e);
+    this._entities?.add(e);
   }
 
   /** @internal Fires `exit` callbacks when an entity leaves the system. */
   public _exit(e: Entity) {
     this._exitCallback.forEach((callback) => callback(e));
-    this._entities.delete(e);
+    this._entities?.delete(e);
     // remove queued updates for components of the exiting entity:
     this.updateQueue.forEach((c, i) => {
       if (!c) return;
@@ -221,7 +222,7 @@ export class System<R extends (typeof Component)[] = []> {
 
     if (this.eachCallback) {
       const cb = this.eachCallback;
-      this._entities.forEach((e) => cb(e));
+      this._entities?.forEach((e) => cb(e));
     }
 
     this.updateQueue.forEach((c) => {
@@ -554,7 +555,7 @@ export class System<R extends (typeof Component)[] = []> {
    * @returns `this` for chaining.
    */
   public track(): this {
-    this._tracks = true;
+    this._entities ??= new Set<Entity>();
     return this;
   }
 
@@ -584,7 +585,6 @@ export class System<R extends (typeof Component)[] = []> {
       b: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => number
   ): this {
-    this.track();
     const types = components.map((C) => this.world.getComponentType(C));
     this._entities = new OrderedSet<Entity>((a, b) =>
       compare(
