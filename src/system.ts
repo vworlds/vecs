@@ -1,12 +1,12 @@
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
 import { Component } from "./component.js";
-import { Query, HAS, type SystemQuery, type MaybeRequired } from "./query.js";
+import { Query, HAS, type QueryDSL, type MaybeRequired } from "./query.js";
 import type { Entity } from "./entity.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world.js";
 
-export type { SystemQuery, EntityTestFunc } from "./query.js";
+export type { QueryDSL as SystemQuery, EntityTestFunc } from "./query.js";
 
 type ComponentCallback = (c: Component) => void;
 type RunCallback = (now: number, delta: number) => void;
@@ -289,7 +289,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   }
 
   /**
-   * Set the entity membership predicate using the {@link SystemQuery} DSL.
+   * Set the entity membership predicate using the {@link QueryDSL} DSL.
    *
    * Replaces any implicit query derived from `update` watchlists and any
    * previous `requires` call. After calling `query`, auto-expanding of
@@ -300,7 +300,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * to be present on every matched entity, eliminating `| undefined` from
    * those positions. It has no effect at runtime.
    *
-   * @param q - A {@link SystemQuery} expression.
+   * @param q - A {@link QueryDSL} expression.
    * @param _guaranteed - Component classes guaranteed present on every matched
    *   entity (type hint only — not validated at runtime).
    * @returns `this` for chaining.
@@ -315,7 +315,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * ```
    */
   public override query<T extends (typeof Component)[] = []>(
-    q: SystemQuery,
+    q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): System<T> {
     super.query(q, _guaranteed);

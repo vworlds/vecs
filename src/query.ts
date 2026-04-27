@@ -45,16 +45,16 @@ type ComponentInstance<T> = T extends { parent: typeof Component }
  * - An array `[A, B]` is equivalent to `{ HAS: [A, B] }`.
  * - Pass an {@link EntityTestFunc} directly for fully custom membership logic.
  */
-export type SystemQuery =
+export type QueryDSL =
   | ComponentClassArray
   | ComponentClassOrType
   | EntityTestFunc
   | { HAS: ComponentClassArray | ComponentClassOrType }
   | { HAS_ONLY: ComponentClassArray | ComponentClassOrType }
-  | { AND: SystemQuery[] }
-  | { OR: SystemQuery[] }
-  | { NOT: SystemQuery }
-  | { PARENT: SystemQuery };
+  | { AND: QueryDSL[] }
+  | { OR: QueryDSL[] }
+  | { NOT: QueryDSL }
+  | { PARENT: QueryDSL };
 
 export function HAS(world: World, ...components: ComponentClassArray): EntityTestFunc {
   const testBitmask = calculateComponentBitmask(components, world);
@@ -334,14 +334,14 @@ export class Query<R extends (typeof Component)[] = []> {
   }
 
   /**
-   * Set the entity membership predicate using the {@link SystemQuery} DSL.
+   * Set the entity membership predicate using the {@link QueryDSL} DSL.
    *
    * Replaces any previous predicate. The optional `guaranteed` tuple is a
    * pure type-level hint: it tells {@link sort} callbacks which components are
    * guaranteed present on every matched entity, eliminating `| undefined` from
    * those positions. It has no effect at runtime.
    *
-   * @param q - A {@link SystemQuery} expression.
+   * @param q - A {@link QueryDSL} expression.
    * @param _guaranteed - Component classes guaranteed present on every matched
    *   entity (type hint only — not validated at runtime).
    * @returns `this` for chaining.
@@ -356,7 +356,7 @@ export class Query<R extends (typeof Component)[] = []> {
    * ```
    */
   public query<T extends (typeof Component)[] = []>(
-    q: SystemQuery,
+    q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): Query<T> {
     this._belongs = this.queryBuilder(q);
@@ -433,7 +433,7 @@ export class Query<R extends (typeof Component)[] = []> {
     });
   }
 
-  private queryBuilder(q: SystemQuery): EntityTestFunc {
+  private queryBuilder(q: QueryDSL): EntityTestFunc {
     if (
       typeof q === "number" ||
       (typeof q === "function" && q.prototype instanceof Component)
