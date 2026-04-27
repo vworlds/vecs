@@ -114,17 +114,12 @@ world.start(); // freeze registration, sort systems into phases
 // ─── Create entities ───────────────────────────────────────────────────────
 
 const bullet = world.createEntity();
-const pos = bullet.add(Position);
-pos.x = 0;
-pos.y = 0;
+bullet.set(Position, { x: 0, y: 0 });
 
-const vel = bullet.add(Velocity);
-vel.vx = 5;
-vel.vy = 0;
+const vel = bullet.set(Velocity, { vx: 5, vy: 0 });
 vel.modified(); // first update: notify Move system
 
-const hp = bullet.add(Health);
-hp.hp = 3;
+const hp = bullet.set(Health, { hp: 3 });
 hp.modified();
 
 // ─── Game loop ─────────────────────────────────────────────────────────────
@@ -322,6 +317,7 @@ const e = world.createEntity();
 | `eid` | Unique numeric entity id. |
 | `world` | The `World` that owns this entity. |
 | `add(Class)` | Attach a component; returns the typed instance. Idempotent. |
+| `set(Class, props)` | Like `add`, but also assigns the given partial properties onto the instance. Returns the typed instance. |
 | `get(Class)` | Return the component instance, or `undefined` if not present. |
 | `remove(Class)` | Detach a component (triggers `onRemove` hooks and `exit` callbacks). |
 | `destroy()` | Remove all components and unregister the entity. Recurses to children. |

@@ -514,8 +514,7 @@ describe("System — sort", () => {
       .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
-    pos.x = 5;
+    e.set(Position, { x: 5 });
     w.runPhase(phase, 0, 0);
     expect(sys.entities.has(e)).toBe(true);
   });

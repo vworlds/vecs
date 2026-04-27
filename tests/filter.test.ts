@@ -117,8 +117,7 @@ describe("Filter — forEach with injection", () => {
   it("resolves injected components", () => {
     const { w } = setup();
     const e = w.createEntity();
-    const pos = e.add(Position);
-    pos.x = 42;
+    const pos = e.set(Position, { x: 42 });
 
     let received: Position | undefined;
     w.filter([Position]).forEach([Position], (_e, [p]) => {
@@ -143,7 +142,7 @@ describe("Filter — forEach with injection", () => {
   it("_guaranteed override lets caller assert non-null for opaque DSL", () => {
     const { w } = setup();
     const e = w.createEntity();
-    e.add(Position).x = 7;
+    e.set(Position, { x: 7 });
 
     let result = 0;
     w.filter({ OR: [Position, Velocity] }, [Position]).forEach(
@@ -161,8 +160,8 @@ describe("Filter — type deduction (compile-time)", () => {
   it("plain array DSL deduces required components", () => {
     const { w } = setup();
     const e = w.createEntity();
-    e.add(Position).x = 1;
-    e.add(Velocity).vx = 2;
+    e.set(Position, { x: 1 });
+    e.set(Velocity, { vx: 2 });
 
     let sum = 0;
     w.filter([Position, Velocity]).forEach(
@@ -176,7 +175,7 @@ describe("Filter — type deduction (compile-time)", () => {
 
   it("HAS DSL deduces required components", () => {
     const { w } = setup();
-    w.createEntity().add(Position).x = 5;
+    w.createEntity().set(Position, { x: 5 });
 
     let sum = 0;
     w.filter({ HAS: [Position] }).forEach([Position], (_e, [p]) => {
@@ -188,8 +187,8 @@ describe("Filter — type deduction (compile-time)", () => {
   it("AND of HAS deduces all required components", () => {
     const { w } = setup();
     const e = w.createEntity();
-    e.add(Position).x = 3;
-    e.add(Velocity).vx = 4;
+    e.set(Position, { x: 3 });
+    e.set(Velocity, { vx: 4 });
 
     let sum = 0;
     w.filter({ AND: [{ HAS: Position }, { HAS: Velocity }] }).forEach(

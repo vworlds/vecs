@@ -117,6 +117,33 @@ export class Entity {
   }
 
   /**
+   * Add a component of type `Class` (if not already present) and assign the
+   * provided properties onto the instance, then return it.
+   *
+   * @param Class - The component class to instantiate.
+   * @param props - Optional properties to assign onto the component instance.
+   * @returns The new (or existing) component instance with the given properties applied.
+   */
+  public set<C extends typeof Component>(
+    Class: C,
+    props: Partial<InstanceType<C>>
+  ): InstanceType<C>;
+  /**
+   * Add a component by its numeric type id and assign the provided properties.
+   *
+   * @param type - Numeric component type id.
+   * @param props - Optional properties to assign onto the component instance.
+   */
+  public set(type: number, props: Partial<Component>): Component;
+  public set(
+    typeOrClass: number | typeof Component,
+    props: Partial<Component>
+  ): Component {
+    const c = this.add(typeOrClass as any);
+    return Object.assign(c, props);
+  }
+
+  /**
    * Remove the component of the given class from this entity.
    *
    * The `onRemove` hook and any `exit` callbacks on matching systems are

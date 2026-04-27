@@ -38,6 +38,43 @@ describe("Entity — components", () => {
     expect(pos).toBeInstanceOf(Position);
   });
 
+  it("set returns a typed instance with the given properties applied", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const e = w.createEntity();
+    const pos = e.set(Position, { x: 10, y: 20 });
+    expect(pos).toBeInstanceOf(Position);
+    expect(pos.x).toBe(10);
+    expect(pos.y).toBe(20);
+  });
+
+  it("set is idempotent — returns the existing instance with updated properties", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const e = w.createEntity();
+    const a = e.set(Position, { x: 1 });
+    const b = e.set(Position, { x: 99 });
+    expect(a).toBe(b);
+    expect(a.x).toBe(99);
+  });
+
+  it("set only assigns present properties — absent keys leave defaults intact", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const e = w.createEntity();
+    const pos = e.set(Position, { x: 5 });
+    expect(pos.x).toBe(5);
+    expect(pos.y).toBe(0); // default unchanged
+  });
+
+  it("set(typeId, props) works with numeric type ids", () => {
+    const w = new World();
+    w.registerComponent(Position, 7);
+    const e = w.createEntity();
+    const pos = e.set(7, {});
+    expect(pos).toBeInstanceOf(Position);
+  });
+
   it("get returns the component or undefined", () => {
     const w = new World();
     w.registerComponent(Position);
