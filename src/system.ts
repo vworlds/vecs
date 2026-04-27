@@ -1,12 +1,13 @@
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
 import { Component } from "./component.js";
-import { Query, HAS, type QueryDSL, type MaybeRequired } from "./query.js";
+import { Query } from "./query.js";
+import { HAS, type QueryDSL, type MaybeRequired } from "./dsl.js";
 import type { Entity } from "./entity.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world.js";
 
-export type { QueryDSL as SystemQuery, EntityTestFunc } from "./query.js";
+export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
 type ComponentCallback = (c: Component) => void;
 type RunCallback = (now: number, delta: number) => void;

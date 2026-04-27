@@ -1,17 +1,17 @@
 import { OrderedSet } from "./util/ordered_set.js";
-import {
-  Component,
-  ComponentClassArray,
-  ComponentClassOrType,
-  calculateComponentBitmask,
-} from "./component.js";
+import { Component } from "./component.js";
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
+import {
+  buildEntityTest,
+  type EntityTestFunc,
+  type QueryDSL,
+  type MaybeRequired,
+} from "./dsl.js";
+
+export type { EntityTestFunc, QueryDSL, MaybeRequired };
 
 type EntityCallback = (e: Entity) => void;
-
-/** A function that tests whether a given entity belongs to a query. */
-export type EntityTestFunc = (e: Entity) => boolean;
 
 type ComponentOrParent = typeof Component | { parent: typeof Component };
 type ComponentOrParentType = number | { parent: number };
@@ -20,75 +20,6 @@ type ComponentInstance<T> = T extends { parent: typeof Component }
   ? InstanceType<T["parent"]>
   : T extends typeof Component
   ? InstanceType<T>
-  : never;
-
-/**
- * A composable query expression used to declare which entities a
- * {@link Query} or {@link System} should track.
- *
- * Queries can be nested arbitrarily:
- *
- * ```ts
- * // Entities that have Position AND (Sprite OR Container):
- * world.system("render").query({
- *   AND: [Position, { OR: [Sprite, Container] }]
- * });
- *
- * // Entities that have a parent with Player AND Container:
- * world.system("attach").query({
- *   PARENT: { AND: [Player, Container] }
- * });
- * ```
- *
- * Short forms:
- * - A single class or type id is equivalent to `{ HAS: [C] }`.
- * - An array `[A, B]` is equivalent to `{ HAS: [A, B] }`.
- * - Pass an {@link EntityTestFunc} directly for fully custom membership logic.
- */
-export type QueryDSL =
-  | ComponentClassArray
-  | ComponentClassOrType
-  | EntityTestFunc
-  | { HAS: ComponentClassArray | ComponentClassOrType }
-  | { HAS_ONLY: ComponentClassArray | ComponentClassOrType }
-  | { AND: QueryDSL[] }
-  | { OR: QueryDSL[] }
-  | { NOT: QueryDSL }
-  | { PARENT: QueryDSL };
-
-export function HAS(world: World, ...components: ComponentClassArray): EntityTestFunc {
-  const testBitmask = calculateComponentBitmask(components, world);
-  return (e: Entity) => e.componentBitmask.hasBitset(testBitmask);
-}
-
-function HAS_ONLY(
-  world: World,
-  ...components: ComponentClassArray
-): EntityTestFunc {
-  const testBitmask = calculateComponentBitmask(components, world);
-  return (e: Entity) => e.componentBitmask.equal(testBitmask);
-}
-
-function NOT(func: EntityTestFunc): EntityTestFunc {
-  return (e: Entity) => !func(e);
-}
-
-function AND(...funcs: EntityTestFunc[]): EntityTestFunc {
-  return (e: Entity) => funcs.every((f) => f(e));
-}
-
-function OR(...funcs: EntityTestFunc[]): EntityTestFunc {
-  return (e: Entity) => funcs.some((f) => f(e));
-}
-
-function PARENT(func: EntityTestFunc) {
-  return (e: Entity) => (e.parent && func(e.parent)) || false;
-}
-
-export type MaybeRequired<C, R extends (typeof Component)[]> = C extends typeof Component
-  ? C extends R[number]
-    ? InstanceType<C>
-    : InstanceType<C> | undefined
   : never;
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
@@ -359,7 +290,7 @@ export class Query<R extends (typeof Component)[] = []> {
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): Query<T> {
-    this._belongs = this.queryBuilder(q);
+    this._belongs = buildEntityTest(this.world, q);
     this.hasQuery = true;
     this.backfill();
     return this as unknown as Query<T>;
@@ -433,47 +364,4 @@ export class Query<R extends (typeof Component)[] = []> {
     });
   }
 
-  private queryBuilder(q: QueryDSL): EntityTestFunc {
-    if (
-      typeof q === "number" ||
-      (typeof q === "function" && q.prototype instanceof Component)
-    ) {
-      return HAS(this.world, q as typeof Component);
-    } else if (typeof q === "function") {
-      return q as EntityTestFunc;
-    }
-
-    if (q instanceof Array) {
-      return HAS(this.world, ...q);
-    }
-
-    if ("HAS" in q) {
-      return this.queryBuilder(q.HAS);
-    }
-
-    if ("HAS_ONLY" in q) {
-      const v = q.HAS_ONLY;
-      if (v instanceof Array) {
-        return HAS_ONLY(this.world, ...v);
-      }
-      return HAS_ONLY(this.world, v);
-    }
-
-    if ("AND" in q) {
-      return AND(...q.AND.map((sq) => this.queryBuilder(sq)));
-    }
-
-    if ("OR" in q) {
-      return OR(...q.OR.map((sq) => this.queryBuilder(sq)));
-    }
-
-    if ("NOT" in q) {
-      return NOT(this.queryBuilder(q.NOT));
-    }
-
-    if ("PARENT" in q) {
-      return PARENT(this.queryBuilder(q.PARENT));
-    }
-    throw "Unrecognized query term";
-  }
 }

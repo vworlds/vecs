@@ -7,6 +7,8 @@ import {
 import { Entity } from "./entity.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
+import { Filter } from "./filter.js";
+import { buildEntityTest, type QueryDSL, type ExtractRequired } from "./dsl.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 
@@ -408,6 +410,45 @@ export class World {
    */
   public query(name: string) {
     return new Query(name, this);
+  }
+
+  /**
+   * Create a non-reactive {@link Filter} that matches entities satisfying `q`.
+   *
+   * Unlike {@link query}, the returned filter holds no tracked entity set and
+   * registers nothing with the world. Each call to {@link Filter.forEach} walks
+   * all current world entities and invokes the callback for matching ones.
+   *
+   * Component classes guaranteed present on every matched entity are inferred
+   * automatically from the DSL where possible (plain arrays, `HAS`, `HAS_ONLY`,
+   * and `AND` of those forms). For cases the type extractor cannot see through
+   * (`OR`, `NOT`, `PARENT`, custom `EntityTestFunc`), pass a `_guaranteed`
+   * tuple as a type-level override:
+   *
+   * ```ts
+   * // Auto-deduced — pos and vel are non-nullable
+   * world.filter([Position, Velocity])
+   *   .forEach([Position, Velocity], (e, [pos, vel]) => { ... });
+   *
+   * // Manual override for an opaque query
+   * world.filter(myTestFunc, [Position])
+   *   .forEach([Position], (e, [pos]) => pos.x);
+   * ```
+   *
+   * @param q - A {@link QueryDSL} expression.
+   * @param _guaranteed - Optional type hint declaring which components are
+   *   guaranteed present (not validated at runtime).
+   */
+  public filter<Q extends QueryDSL>(q: Q): Filter<ExtractRequired<Q>>;
+  public filter<T extends (typeof Component)[]>(
+    q: QueryDSL,
+    _guaranteed: readonly [...T]
+  ): Filter<T>;
+  public filter(
+    q: QueryDSL,
+    _guaranteed?: readonly (typeof Component)[]
+  ): Filter<any> {
+    return new Filter(this, buildEntityTest(this, q));
   }
 
   /**
