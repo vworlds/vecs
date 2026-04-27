@@ -366,6 +366,21 @@ export class Query<R extends (typeof Component)[] = []> {
   }
 
   /**
+   * Remove this query from the world and all entities.
+   *
+   * Every entity that currently belongs to this query has the query silently
+   * removed (no exit callbacks are fired). After this call the query is
+   * unregistered from its world and `world` is set to `undefined` by force.
+   *
+   * Calling any method on the query after `destroy()` is **undefined behavior**.
+   */
+  public destroy(): void {
+    this.world._removeQuery(this);
+    this._entities?.clear();
+    (this as any).world = undefined;
+  }
+
+  /**
    * Shorthand for `query([...components])` — tracks entities that have
    * **all** of the listed component types.
    *

@@ -355,6 +355,13 @@ export class World {
     this.allQueries.push(q);
   }
 
+  /** @internal Called by {@link Query.destroy} to unregister a query and remove it from all entities. */
+  public _removeQuery(q: Query): void {
+    const idx = this.allQueries.indexOf(q);
+    if (idx !== -1) this.allQueries.splice(idx, 1);
+    this.entities.forEach((e) => e._purgeQuery(q));
+  }
+
   /** @internal Iterate over all entities currently in the world. */
   public _forEachEntity(callback: (e: Entity) => void): void {
     this.entities.forEach(callback);

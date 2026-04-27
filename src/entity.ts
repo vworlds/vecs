@@ -192,6 +192,13 @@ export class Entity {
     return this.queries.has(q);
   }
 
+  /** @internal Removes a query from this entity's tracking sets without firing any callbacks. */
+  public _purgeQuery(q: Query): void {
+    this.queries.delete(q);
+    const idx = this.newQueries.indexOf(q);
+    if (idx !== -1) this.newQueries.splice(idx, 1);
+  }
+
   /** @internal */
   public _addQuery(q: Query) {
     if (!this.queries.has(q)) {

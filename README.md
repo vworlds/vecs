@@ -499,6 +499,19 @@ console.log(projectiles.entities.size, "active projectiles");
 | `.belongs(e)` | Returns `true` if the entity satisfies the predicate. |
 | `.forEach(callback)` | Iterate all currently tracked entities. |
 | `.entities` | `ReadonlySet<Entity>` of all currently tracked entities. |
+| `.destroy()` | Remove the query from the world and all entities. See below. |
+
+#### `.destroy()`
+
+Permanently removes a standalone query from the world. All entity references are silently purged (no exit callbacks fire), the tracked entity set is cleared, and the query's `world` reference is set to `undefined`. After this call, any use of the query object is **undefined behavior**.
+
+```ts
+const q = world.query("Temporary").requires(Position);
+// ... use q.entities ...
+q.destroy(); // unregisters from world and all entities
+```
+
+`System` does **not** support `destroy()` — calling it throws. Systems are owned by the world for the lifetime of the session. Use a standalone `Query` when you need a temporary reactive set.
 
 Both `System` and `Query` share the same query DSL, enter/exit callbacks, sort, and `entities` set — `System` extends `Query` and layers phase execution on top.
 
