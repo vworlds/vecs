@@ -69,9 +69,12 @@ export class ComponentMeta implements Hook<Component> {
   public readonly componentName: string;
   /** Pre-computed bit-pointer into the entity archetype {@link Bitset}. */
   public readonly bitPtr: BitPtr;
-  private onAddHandler: ((c: Component) => void) | undefined;
-  private onRemoveHandler: ((c: Component) => void) | undefined;
-  private onSetHandler: ((c: Component) => void) | undefined;
+  /** @internal */
+  public _onAddHandler: ((c: Component) => void) | undefined;
+  /** @internal */
+  public _onRemoveHandler: ((c: Component) => void) | undefined;
+  /** @internal */
+  public _onSetHandler: ((c: Component) => void) | undefined;
   /**
    * Type ids of components that cannot coexist with this one on the same entity.
    * Set via {@link World.setExclusiveComponents}. `undefined` means no restrictions.
@@ -87,19 +90,19 @@ export class ComponentMeta implements Hook<Component> {
 
   /** @inheritdoc */
   public onAdd(handler: (c: Component) => void): ComponentMeta {
-    this.onAddHandler = handler;
+    this._onAddHandler = handler;
     return this;
   }
 
   /** @inheritdoc */
   public onRemove(handler: (c: Component) => void): ComponentMeta {
-    this.onRemoveHandler = handler;
+    this._onRemoveHandler = handler;
     return this;
   }
 
   /** @inheritdoc */
   public onSet(handler: (c: Component) => void): ComponentMeta {
-    this.onSetHandler = handler;
+    this._onSetHandler = handler;
     return this;
   }
 }
@@ -131,7 +134,8 @@ export type ComponentClassArray = ComponentClassOrType[];
  * the world when {@link Entity.add} is called.
  */
 export class Component {
-  private dirty: boolean = false;
+  /** @internal */
+  public _dirty: boolean = false;
 
   constructor(
     /** The entity this component belongs to. */

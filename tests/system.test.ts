@@ -197,7 +197,7 @@ describe("System — phases", () => {
     w.addPhase("custom");
     w.system("test").phase("custom").run(cb);
     w.start();
-    const custom = [...w["pipeline"].values()].find((p) => p.name === "custom")!;
+    const custom = [...w._pipeline.values()].find((p) => p.name === "custom")!;
     w.runPhase(custom, 0, 0);
     expect(cb).toHaveBeenCalled();
   });
@@ -207,7 +207,7 @@ describe("System — phases", () => {
     const cb = vi.fn();
     w.system("test").run(cb);
     w.start();
-    const update = [...w["pipeline"].values()].find((p) => p.name === "update")!;
+    const update = [...w._pipeline.values()].find((p) => p.name === "update")!;
     w.runPhase(update, 0, 0);
     expect(cb).toHaveBeenCalled();
   });

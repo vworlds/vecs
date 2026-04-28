@@ -201,7 +201,7 @@ describe("Entity — lifecycle and hierarchy", () => {
   it("children set is created lazily", () => {
     const w = new World();
     const e = w.createEntity();
-    expect(e["_children"]).toBeUndefined();
+    expect(e._children).toBeUndefined();
     const c = e.children;
     expect(c).toBeInstanceOf(Set);
     expect(e.children).toBe(c); // memoized

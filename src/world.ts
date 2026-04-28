@@ -56,7 +56,8 @@ export class World {
   private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   private componentRegistrationDisabled = false;
-  private pipeline = new Map<string, Phase>();
+  /** @internal */
+  public _pipeline = new Map<string, Phase>();
   private eidCounter = 0;
   constructor() {}
 
@@ -190,7 +191,7 @@ export class World {
 
   /** @internal */
   public _notifyComponentRemoved(e: Entity, c: Component) {
-    const hook = c.meta["onRemoveHandler"];
+    const hook = c.meta._onRemoveHandler;
     if (hook) hook(c);
 
     this.archetypeChanged(e);
@@ -222,15 +223,15 @@ export class World {
     }
 
     this.destroyedEntities.forEach((e) => {
-      e["_destroy"]();
+      e._destroy();
     });
     this.destroyedEntities.length = 0;
 
     this.updatedComponents.forEach((c) => {
-      const hook = c.meta["onSetHandler"];
+      const hook = c.meta._onSetHandler;
       if (hook) hook(c);
       c.entity._notifyModified(c);
-      c["dirty"] = false;
+      c._dirty = false;
     });
     this.archChangeQueue.forEach((e) => {
       e._updateQueries();
@@ -242,8 +243,8 @@ export class World {
 
   /** @internal Queues a component for onSet / update delivery. */
   public _queueUpdatedComponent(c: Component) {
-    if (c["dirty"]) return;
-    c["dirty"] = true;
+    if (c._dirty) return;
+    c._dirty = true;
     this.updatedComponents.push(c);
   }
 
@@ -465,10 +466,10 @@ export class World {
   }
 
   private reindexSystems() {
-    let _defaultPhase = this.pipeline.get("update");
+    let _defaultPhase = this._pipeline.get("update");
     if (!_defaultPhase) {
       _defaultPhase = new Phase("update", this);
-      this.pipeline.set(_defaultPhase.name, _defaultPhase);
+      this._pipeline.set(_defaultPhase.name, _defaultPhase);
     }
 
     const defaultPhase = _defaultPhase;
@@ -477,13 +478,13 @@ export class World {
       if (!(q instanceof System)) return;
       let phase = q._phase as Phase | undefined;
       if (typeof phase === "string") {
-        phase = this.pipeline.get(phase);
+        phase = this._pipeline.get(phase);
       }
       phase = phase || defaultPhase;
       phase.systems.push(q);
     });
 
-    this.pipeline.forEach((phase) => {
+    this._pipeline.forEach((phase) => {
       console.log(
         "Phase %s : %s",
         phase.name,
@@ -530,7 +531,7 @@ export class World {
    */
   public addPhase(name: string): IPhase {
     const phase = new Phase(name, this);
-    this.pipeline.set(name, phase);
+    this._pipeline.set(name, phase);
     return phase;
   }
 
@@ -561,7 +562,7 @@ export class World {
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public progress(now: number, delta: number) {
-    this.pipeline.forEach((phase) => {
+    this._pipeline.forEach((phase) => {
       this.runPhase(phase, now, delta);
     });
   }
@@ -570,7 +571,7 @@ export class World {
    * Declare a group of mutually exclusive components.
    *
    * After this call, adding any component in the group to an entity that
-   * already has another component from the same group will throw.
+   * already has another component from the same group will remove the other component
    *
    * ```ts
    * world.setExclusiveComponents(Walking, Running, Idle);

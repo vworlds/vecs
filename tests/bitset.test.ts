@@ -46,13 +46,13 @@ describe("Bitset", () => {
     b.add(0);
     b.add(32);
     b.add(64);
-    expect(b["bits"].length).toBe(3);
+    expect(b._bits.length).toBe(3);
     b.delete(64);
-    expect(b["bits"].length).toBe(2);
+    expect(b._bits.length).toBe(2);
     b.delete(32);
-    expect(b["bits"].length).toBe(1);
+    expect(b._bits.length).toBe(1);
     b.delete(0);
-    expect(b["bits"].length).toBe(0);
+    expect(b._bits.length).toBe(0);
   });
 
   it("delete on absent word is a no-op", () => {

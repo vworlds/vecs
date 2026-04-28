@@ -47,7 +47,8 @@ export class Entity {
 
   /** Parent entity in the scene hierarchy, or `undefined` if root. */
   public parent: Entity | undefined;
-  private _children: Set<Entity> | undefined;
+  /** @internal */
+  public _children: Set<Entity> | undefined;
   public _archetypeChanged: boolean = false;
   private destroyed = false;
 
@@ -74,7 +75,7 @@ export class Entity {
     meta: ComponentMeta,
   ) {
     const c = new meta.Class(this, meta);
-    const hook = meta["onAddHandler"];
+    const hook = meta._onAddHandler;
     if (hook) hook(c);
     return c;
   }
@@ -273,7 +274,8 @@ export class Entity {
     return this.components.size == 0;
   }
 
-  private _destroy() {
+  /** @internal */
+  public _destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
     this.queries.forEach((q) => {

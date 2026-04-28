@@ -17,10 +17,11 @@
  * ```
  */
 export class Bitset {
-  private bits: number[];
+  /** @internal */
+  public _bits: number[];
 
   constructor() {
-    this.bits = [];
+    this._bits = [];
   }
 
   /**
@@ -28,8 +29,8 @@ export class Bitset {
    */
   equal(other: Bitset) {
     return (
-      this.bits.length === other.bits.length &&
-      this.bits.every((v, i) => other.bits[i] === v)
+      this._bits.length === other._bits.length &&
+      this._bits.every((v, i) => other._bits[i] === v)
     );
   }
 
@@ -39,7 +40,7 @@ export class Bitset {
    * @internal Low-level bulk operation; prefer {@link add} for single bits.
    */
   addIndexBitmask(arrayIndex: number, bitmask: number) {
-    this.bits[arrayIndex] |= bitmask;
+    this._bits[arrayIndex] |= bitmask;
   }
 
   /**
@@ -48,7 +49,7 @@ export class Bitset {
    * @internal Used by network deserialization to set a whole word at once.
    */
   setIndexBitmask(arrayIndex: number, bitmask: number) {
-    this.bits[arrayIndex] = bitmask;
+    this._bits[arrayIndex] = bitmask;
   }
 
   /**
@@ -79,14 +80,14 @@ export class Bitset {
    */
   delete(n: number): void {
     const arrayIndex = Math.floor(n / 32);
-    const current = this.bits[arrayIndex];
+    const current = this._bits[arrayIndex];
     if (current === undefined) {
       return;
     } else {
-      this.bits[arrayIndex] = current & ~(1 << n % 32);
+      this._bits[arrayIndex] = current & ~(1 << n % 32);
     }
-    while (this.bits.length && this.bits[this.bits.length - 1] === 0)
-      this.bits.pop();
+    while (this._bits.length && this._bits[this._bits.length - 1] === 0)
+      this._bits.pop();
   }
 
   /**
@@ -103,7 +104,7 @@ export class Bitset {
    */
   has(n: number): boolean {
     const arrayIndex = Math.floor(n / 32);
-    if (arrayIndex >= this.bits.length) return false;
+    if (arrayIndex >= this._bits.length) return false;
     const bitIndex = n % 32;
     const bitmask = 1 << bitIndex;
     return this.hasIndexBitmask(arrayIndex, bitmask);
@@ -115,7 +116,7 @@ export class Bitset {
    * @internal
    */
   hasIndexBitmask(arrayIndex: number, bitmask: number) {
-    return (this.bits[arrayIndex] & bitmask) !== 0;
+    return (this._bits[arrayIndex] & bitmask) !== 0;
   }
 
   /**
@@ -126,12 +127,12 @@ export class Bitset {
    * system's `HAS` query.
    */
   hasBitset(other: Bitset): boolean {
-    if (this.bits.length < other.bits.length) {
+    if (this._bits.length < other._bits.length) {
       return false;
     }
 
-    for (let i = 0; i < other.bits.length; i++) {
-      if ((this.bits[i] & other.bits[i]) !== (other.bits[i] || 0)) {
+    for (let i = 0; i < other._bits.length; i++) {
+      if ((this._bits[i] & other._bits[i]) !== (other._bits[i] || 0)) {
         return false;
       }
     }
@@ -145,7 +146,7 @@ export class Bitset {
    * @param callback - Called with each set bit index.
    */
   forEach(callback: (n: number) => void): void {
-    this.bits.forEach((b, j) => {
+    this._bits.forEach((b, j) => {
       for (let i = 0; i < 32; i++) {
         if ((b & 1) !== 0) {
           callback(i + j * 32);
