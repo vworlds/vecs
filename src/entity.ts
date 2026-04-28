@@ -1,4 +1,4 @@
-import { Component } from "./component.js";
+import { Component, ComponentMeta } from "./component.js";
 import type { World } from "./world.js";
 import { ArrayMap } from "./util/array_map.js";
 import { type Query } from "./query.js";
@@ -70,6 +70,15 @@ export class Entity {
     return this._children;
   }
 
+  private getComponentInstance(
+    meta: ComponentMeta,
+  ) {
+    const c = new meta.Class(this, meta);
+    const hook = meta["onAddHandler"];
+    if (hook) hook(c);
+    return c;
+  }
+
   /**
    * Add a component of type `Class` to this entity and return the instance.
    *
@@ -106,7 +115,17 @@ export class Entity {
     if (c) {
       return c;
     }
-    c = this.world["getComponentInstance"](typeOrClass, this);
+
+    const meta = this.world.getComponentMeta(typeOrClass);
+    if (meta.exclusive) {
+      for (const exclusiveType of meta.exclusive) {
+        if (this.components.has(exclusiveType)) {
+          this.remove(exclusiveType);
+        }
+      }
+    }
+
+    c = this.getComponentInstance(meta);
 
     this.components.set(type, c);
     this.componentBitmask.add(type);

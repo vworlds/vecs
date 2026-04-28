@@ -72,6 +72,11 @@ export class ComponentMeta implements Hook<Component> {
   private onAddHandler: ((c: Component) => void) | undefined;
   private onRemoveHandler: ((c: Component) => void) | undefined;
   private onSetHandler: ((c: Component) => void) | undefined;
+  /**
+   * Type ids of components that cannot coexist with this one on the same entity.
+   * Set via {@link World.setExclusiveComponents}. `undefined` means no restrictions.
+   */
+  public exclusive: number[] | undefined = undefined;
 
   constructor(Class: typeof Component, type: number, componentName: string) {
     this.Class = Class;

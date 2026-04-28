@@ -20,6 +20,7 @@ yarn add @vworlds/vecs
 | **Query** | A reactive, always-updated set of entities that match a predicate. |
 | **System** | A `Query` with per-tick runtime logic (phases, `update`, `each`, `run`). |
 | **Filter** | A non-reactive, one-shot scan: walks all world entities on each `forEach` call. |
+| **Exclusive components** | A group of components where at most one may be present on any entity at a time. |
 
 ### Lifecycle in brief
 
@@ -160,6 +161,23 @@ world.registerComponentType("Position", 1);
 ```
 
 After `world.start()` any further call to `registerComponent` throws.
+
+#### Exclusive components
+
+Declare a group of components that cannot coexist on the same entity. Adding a member of the group automatically removes any other member that was already present.
+
+```ts
+world.setExclusiveComponents(Walking, Running, Idle);
+
+const e = world.createEntity();
+e.add(Walking);
+e.add(Running); // Walking is automatically removed first
+// e.get(Walking) === undefined, e.get(Running) is defined
+```
+
+Each call to `setExclusiveComponents` defines one independent group. Components not in the group are unaffected. A component may belong to at most one exclusivity group (calling `setExclusiveComponents` a second time with the same class overwrites its group).
+
+`setExclusiveComponents` may be called before or after `world.start()`.
 
 #### Entity management
 

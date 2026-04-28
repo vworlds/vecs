@@ -134,18 +134,6 @@ export class World {
     this.eidCounter = min;
   }
 
-  private getComponentInstance(
-    typeOrClass: ComponentClassOrType,
-    entity: Entity
-  ) {
-    const meta = this.getComponentMeta(typeOrClass);
-    const c = new meta.Class(entity, meta);
-    const hook = meta["onAddHandler"];
-    if (hook) hook(c);
-
-    return c;
-  }
-
   /**
    * Retrieve the {@link ComponentMeta} record for a registered component.
    *
@@ -576,6 +564,27 @@ export class World {
     this.pipeline.forEach((phase) => {
       this.runPhase(phase, now, delta);
     });
+  }
+
+  /**
+   * Declare a group of mutually exclusive components.
+   *
+   * After this call, adding any component in the group to an entity that
+   * already has another component from the same group will throw.
+   *
+   * ```ts
+   * world.setExclusiveComponents(Walking, Running, Idle);
+   * // entity.add(Running) throws if entity already has Walking or Idle
+   * ```
+   *
+   * @param components - Two or more component classes that cannot coexist.
+   * @throws If any class has not been registered.
+   */
+  public setExclusiveComponents(...components: (typeof Component)[]): void {
+    const types = components.map((C) => this.getComponentType(C));
+    for (let i = 0; i < components.length; i++) {
+      this.getComponentMeta(components[i]).exclusive = types.filter((_, j) => j !== i);
+    }
   }
 
   /**
