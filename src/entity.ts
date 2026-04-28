@@ -159,7 +159,8 @@ export class Entity {
     typeOrClass: number | typeof Component,
     props: Partial<Component>
   ): Component {
-    const c = this.add(typeOrClass as any);
+    const c = this.add(typeOrClass as any, false);
+    this.world._queueUpdatedComponent(c)
     return Object.assign(c, props);
   }
 
