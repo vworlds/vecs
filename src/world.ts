@@ -65,7 +65,7 @@ export class World {
    * const e = world.getOrCreateEntity(snapshot.eid, (e) => {
    *   networkEntities.add(e);
    * });
-   * const c = e.add(snapshot.type, false);
+   * e.add(snapshot.type, false);
    * ```
    *
    * @param eid - The entity id to look up or create.

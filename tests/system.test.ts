@@ -42,8 +42,8 @@ describe("System — enter / exit / update", () => {
     w.system("test").phase(phase).requires(Position, Velocity).enter([Position, Velocity], cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
-    const vel = e.add(Velocity);
+    const pos = e.add(Position).get(Position)!;
+    const vel = e.add(Velocity).get(Velocity)!;
     w.runPhase(phase, 0, 0);
     expect(cb).toHaveBeenCalledWith(e, [pos, vel]);
   });
@@ -67,7 +67,7 @@ describe("System — enter / exit / update", () => {
     w.system("test").phase(phase).requires(Position).exit([Position], cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
+    const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0);
     e.remove(Position);
     w.runPhase(phase, 0, 0);
@@ -80,7 +80,7 @@ describe("System — enter / exit / update", () => {
     w.system("test").phase(phase).requires(Position).update(Position, cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position, false);
+    const pos = e.add(Position, false).get(Position)!;
     w.runPhase(phase, 0, 0); // entity entered
     cb.mockClear();
     pos.modified();
@@ -94,7 +94,7 @@ describe("System — enter / exit / update", () => {
     w.system("test").phase(phase).requires(Position).update(Position, cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
+    const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0); // tick 1 enters the entity & queues pos
     w.runPhase(phase, 0, 0); // tick 2 drains the queue
     expect(cb).toHaveBeenCalledWith(pos);
@@ -106,8 +106,8 @@ describe("System — enter / exit / update", () => {
     w.system("test").phase(phase).requires(Position, Velocity).update(Velocity, [Position], cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
-    const vel = e.add(Velocity, false);
+    const pos = e.add(Position).get(Position)!;
+    const vel = e.add(Velocity, false).get(Velocity)!;
     w.runPhase(phase, 0, 0);
     cb.mockClear();
     vel.modified();
@@ -121,7 +121,7 @@ describe("System — enter / exit / update", () => {
     w.system("test").phase(phase).update(Position, cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
+    const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0); // enter
     w.runPhase(phase, 0, 0); // drain
     expect(cb).toHaveBeenCalledWith(pos);
@@ -254,7 +254,7 @@ describe("System — each", () => {
     w.system("test").phase(phase).requires(Position).each([Position], cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
+    const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0); // entry happens after run() in updateArchetypes
     w.runPhase(phase, 0, 0); // first each
     expect(cb).toHaveBeenCalledWith(e, [pos]);
@@ -280,9 +280,9 @@ describe("System — each", () => {
     w.system("test").phase(phase).requires(Position).each([Position], cb);
     w.start();
     const a = w.createEntity();
-    const posA = a.add(Position);
+    const posA = a.add(Position).get(Position)!;
     const b = w.createEntity();
-    const posB = b.add(Position);
+    const posB = b.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
     expect(cb).toHaveBeenCalledWith(a, [posA]);
@@ -312,7 +312,7 @@ describe("System — each", () => {
     w.system("test").phase(phase).requires(Position).each([Position, Velocity], cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
+    const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
     expect(cb).toHaveBeenCalledWith(e, [pos, undefined]);
@@ -358,8 +358,8 @@ describe("System — each", () => {
     w.system("test").phase(phase).requires(Position, Velocity).each([Position, Velocity], cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
-    const vel = e.add(Velocity);
+    const pos = e.add(Position).get(Position)!;
+    const vel = e.add(Velocity).get(Velocity)!;
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
     expect(cb).toHaveBeenCalledWith(e, [pos, vel]);
@@ -473,7 +473,7 @@ describe("System — each", () => {
       .update(Position, updateCb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position, false);
+    const pos = e.add(Position, false).get(Position)!;
     w.runPhase(phase, 0, 0); // entry queues pos for update
     w.runPhase(phase, 0, 0); // both fire
     expect(eachCb).toHaveBeenCalledWith(e, [pos]);

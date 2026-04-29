@@ -41,8 +41,7 @@ describe("exclusive components", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running, Idle);
     const e = w.createEntity();
-    e.add(Walking);
-    expect(e.get(Walking)).toBeDefined();
+    expect(e.add(Walking).get(Walking)).toBeDefined();
   });
 
   it("adding a second exclusive component removes the first", () => {
@@ -70,8 +69,8 @@ describe("exclusive components", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running);
     const e = w.createEntity();
-    const first = e.add(Walking);
-    const second = e.add(Walking);
+    const first = e.add(Walking).get(Walking);
+    const second = e.add(Walking).get(Walking);
     expect(second).toBe(first);
     expect(e.get(Walking)).toBeDefined();
   });

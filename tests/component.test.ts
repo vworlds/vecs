@@ -11,7 +11,7 @@ describe("Component", () => {
     const w = new World();
     w.registerComponent(Health, 42);
     const e = w.createEntity();
-    const h = e.add(Health);
+    const h = e.add(Health).get(Health)!;
     expect(h.type).toBe(42);
     expect(h.type).toBe(h.meta.type);
   });
@@ -19,14 +19,14 @@ describe("Component", () => {
   it("bitPtr is shorthand for meta.bitPtr", () => {
     const w = new World();
     w.registerComponent(Health);
-    const h = w.createEntity().add(Health);
+    const h = w.createEntity().add(Health).get(Health)!;
     expect(h.bitPtr).toBe(h.meta.bitPtr);
   });
 
   it("toString returns the component name", () => {
     const w = new World();
     w.registerComponent(Health, "HP");
-    const h = w.createEntity().add(Health);
+    const h = w.createEntity().add(Health).get(Health)!;
     expect(h.toString()).toBe("HP");
   });
 
@@ -36,7 +36,7 @@ describe("Component", () => {
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const h = env.w.createEntity().add(Health, false);
+    const h = env.w.createEntity().add(Health, false).get(Health)!;
     h.modified();
     env.tick();
     expect(onSet).toHaveBeenCalledWith(h);
@@ -48,7 +48,7 @@ describe("Component", () => {
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const h = env.w.createEntity().add(Health, false);
+    const h = env.w.createEntity().add(Health, false).get(Health)!;
     h.modified();
     h.modified();
     h.modified();
@@ -64,7 +64,7 @@ describe("Hook", () => {
     const onAdd = vi.fn();
     env.w.hook(Health).onAdd(onAdd);
     env.start();
-    const h = env.w.createEntity().add(Health);
+    const h = env.w.createEntity().add(Health).get(Health)!;
     expect(onAdd).toHaveBeenCalledWith(h);
   });
 
@@ -75,7 +75,7 @@ describe("Hook", () => {
     env.w.hook(Health).onRemove(onRemove);
     env.start();
     const e = env.w.createEntity();
-    const h = e.add(Health);
+    const h = e.add(Health).get(Health)!;
     e.remove(Health);
     expect(onRemove).toHaveBeenCalledWith(h);
   });

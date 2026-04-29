@@ -94,7 +94,7 @@ export class Entity {
    * @returns The new (or existing) component instance, typed as
    *   `InstanceType<Class>`.
    */
-  public add<C extends typeof Component>(Class: C, markAsModified?: boolean): InstanceType<C>;
+  public _add<C extends typeof Component>(Class: C, markAsModified?: boolean): InstanceType<C>;
   /**
    * Add a component by its numeric type id.
    *
@@ -102,8 +102,8 @@ export class Entity {
    *   {@link World.getComponentType}).
    * @param markAsModified - Whether to queue an update notification.
    */
-  public add(type: number, markAsModified?: boolean): Component;
-  public add(typeOrClass: number | typeof Component, markAsModified: boolean = true) {
+  public _add(type: number, markAsModified?: boolean): Component;
+  public _add(typeOrClass: number | typeof Component, markAsModified: boolean = true) {
     const type = this.world.getComponentType(typeOrClass);
 
     let c = this.components.get(type);
@@ -133,6 +133,33 @@ export class Entity {
   }
 
   /**
+   * Add a component of type `Class` to this entity and return the entity.
+   *
+   * If the component is already present the existing instance is returned and
+   * no callback is fired. Pass `markAsModified = false` to suppress the
+   * initial `onSet` / `update` notification (useful when bulk-loading
+   * network snapshots before systems are running).
+   *
+   * @param Class - The component class to instantiate.
+   * @param markAsModified - Whether to immediately queue an `update`
+   *   notification. Defaults to `true`.
+   * @returns This entity, for chaining.
+   */
+  public add<C extends typeof Component>(Class: C, markAsModified?: boolean): Entity;
+  /**
+   * Add a component by its numeric type id.
+   *
+   * @param type - Numeric component type id (as returned by
+   *   {@link World.getComponentType}).
+   * @param markAsModified - Whether to queue an update notification.
+   */
+  public add(type: number, markAsModified?: boolean): Entity;
+  public add(typeOrClass: number | typeof Component, markAsModified: boolean = true): Entity {
+    this._add(typeOrClass as any, markAsModified);
+    return this;
+  }
+
+  /**
    * Add a component of type `Class` (if not already present) and assign the
    * provided properties onto the instance, then return it.
    *
@@ -152,7 +179,7 @@ export class Entity {
    */
   public set(type: number, props: Partial<Component>): Component;
   public set(typeOrClass: number | typeof Component, props: Partial<Component>): Component {
-    const c = this.add(typeOrClass as any, false);
+    const c = this._add(typeOrClass as any, false);
     this.world._queueUpdatedComponent(c);
     return Object.assign(c, props);
   }

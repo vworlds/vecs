@@ -309,9 +309,13 @@ class Position extends Component {
 
 world.registerComponent(Position);
 
-const pos = entity.add(Position);
+entity.add(Position);
+const pos = entity.get(Position)!;
 pos.x = 100;
 pos.modified(); // tell the world this component changed
+
+// Alternatively:
+entity.set(Position, { x: 100 });
 ```
 
 Every component instance exposes:
@@ -335,7 +339,7 @@ const e = world.createEntity();
 | ---------------------- | -------------------------------------------------------------------------------------------------------- |
 | `eid`                  | Unique numeric entity id.                                                                                |
 | `world`                | The `World` that owns this entity.                                                                       |
-| `add(Class)`           | Attach a component; returns the typed instance. Idempotent.                                              |
+| `add(Class)`           | Attach a component and return the entity for chaining. Idempotent.                                       |
 | `set(Class, props)`    | Like `add`, but also assigns the given partial properties onto the instance. Returns the typed instance. |
 | `get(Class)`           | Return the component instance, or `undefined` if not present.                                            |
 | `remove(Class)`        | Detach a component (triggers `onRemove` hooks and `exit` callbacks).                                     |

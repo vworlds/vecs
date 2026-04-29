@@ -293,8 +293,8 @@ describe("Query — enter/exit callbacks", () => {
     w.query("test").requires(Position, Velocity).enter([Position, Velocity], cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
-    const vel = e.add(Velocity);
+    const pos = e.add(Position).get(Position)!;
+    const vel = e.add(Velocity).get(Velocity)!;
     tick();
     expect(cb).toHaveBeenCalledWith(e, [pos, vel]);
   });
@@ -318,7 +318,7 @@ describe("Query — enter/exit callbacks", () => {
     w.query("test").requires(Position).exit([Position], cb);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
+    const pos = e.add(Position).get(Position)!;
     tick();
     e.remove(Position);
     tick();

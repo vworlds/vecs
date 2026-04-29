@@ -11,11 +11,12 @@ class Velocity extends Component {
 }
 
 describe("Entity — components", () => {
-  it("add returns a typed instance bound to the entity", () => {
+  it("add returns the entity for chaining", () => {
     const w = new World();
     w.registerComponent(Position);
     const e = w.createEntity();
-    const pos = e.add(Position);
+    expect(e.add(Position)).toBe(e);
+    const pos = e.get(Position)!;
     expect(pos).toBeInstanceOf(Position);
     expect(pos.entity).toBe(e);
     expect(pos.x).toBe(0);
@@ -25,8 +26,8 @@ describe("Entity — components", () => {
     const w = new World();
     w.registerComponent(Position);
     const e = w.createEntity();
-    const a = e.add(Position);
-    const b = e.add(Position);
+    const a = e.add(Position).get(Position);
+    const b = e.add(Position).get(Position);
     expect(a).toBe(b);
   });
 
@@ -34,7 +35,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.registerComponent(Position, 5);
     const e = w.createEntity();
-    const pos = e.add(5);
+    const pos = e.add(5).get(5);
     expect(pos).toBeInstanceOf(Position);
   });
 
@@ -107,8 +108,7 @@ describe("Entity — components", () => {
     w.registerComponent(Position);
     const e = w.createEntity();
     expect(e.get(Position)).toBeUndefined();
-    const pos = e.add(Position);
-    expect(e.get(Position)).toBe(pos);
+    expect(e.add(Position).get(Position)).toBeInstanceOf(Position);
   });
 
   it("remove detaches a component", () => {
@@ -124,7 +124,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.registerComponent(Position);
     const e = w.createEntity();
-    const pos = e.add(Position);
+    const pos = e.add(Position).get(Position)!;
     e.remove(Position);
     expect(e.get(Position)).toBeUndefined();
     expect(e.get(Position, true)).toBe(pos);
