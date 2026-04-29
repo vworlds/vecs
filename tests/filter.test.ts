@@ -22,11 +22,11 @@ function setup() {
 describe("Filter — entity-only forEach", () => {
   it("visits only matching entities", () => {
     const { w } = setup();
-    const ePos = w.createEntity();
+    const ePos = w.entity();
     ePos.add(Position);
-    const eVel = w.createEntity();
+    const eVel = w.entity();
     eVel.add(Velocity);
-    const eBoth = w.createEntity();
+    const eBoth = w.entity();
     eBoth.add(Position);
     eBoth.add(Velocity);
 
@@ -41,7 +41,7 @@ describe("Filter — entity-only forEach", () => {
   it("reflects world state on each call — non-reactive", () => {
     const { w } = setup();
     const f = w.filter([Position]);
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
 
     const before: unknown[] = [];
@@ -57,7 +57,7 @@ describe("Filter — entity-only forEach", () => {
 
   it("works with EntityTestFunc DSL", () => {
     const { w } = setup();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
 
     const seen: unknown[] = [];
@@ -68,9 +68,9 @@ describe("Filter — entity-only forEach", () => {
 
   it("AND DSL matches only entities with all required components", () => {
     const { w } = setup();
-    const ePos = w.createEntity();
+    const ePos = w.entity();
     ePos.add(Position);
-    const eBoth = w.createEntity();
+    const eBoth = w.entity();
     eBoth.add(Position);
     eBoth.add(Velocity);
 
@@ -83,11 +83,11 @@ describe("Filter — entity-only forEach", () => {
 
   it("OR DSL matches entities with any component", () => {
     const { w } = setup();
-    const ePos = w.createEntity();
+    const ePos = w.entity();
     ePos.add(Position);
-    const eVel = w.createEntity();
+    const eVel = w.entity();
     eVel.add(Velocity);
-    const eSprite = w.createEntity();
+    const eSprite = w.entity();
     eSprite.add(Sprite);
 
     const seen: unknown[] = [];
@@ -100,9 +100,9 @@ describe("Filter — entity-only forEach", () => {
 
   it("NOT DSL excludes matching entities", () => {
     const { w } = setup();
-    const ePos = w.createEntity();
+    const ePos = w.entity();
     ePos.add(Position);
-    const eVel = w.createEntity();
+    const eVel = w.entity();
     eVel.add(Velocity);
 
     const seen: unknown[] = [];
@@ -116,7 +116,7 @@ describe("Filter — entity-only forEach", () => {
 describe("Filter — forEach with injection", () => {
   it("resolves injected components", () => {
     const { w } = setup();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.set(Position, { x: 42 }).get(Position)!;
 
     let received: Position | undefined;
@@ -129,7 +129,7 @@ describe("Filter — forEach with injection", () => {
 
   it("absent injected component is undefined", () => {
     const { w } = setup();
-    w.createEntity().add(Position);
+    w.entity().add(Position);
 
     let vel: Velocity | undefined;
     w.filter([Position]).forEach([Position, Velocity], (_e, [_p, v]) => {
@@ -141,7 +141,7 @@ describe("Filter — forEach with injection", () => {
 
   it("_guaranteed override lets caller assert non-null for opaque DSL", () => {
     const { w } = setup();
-    const e = w.createEntity();
+    const e = w.entity();
     e.set(Position, { x: 7 });
 
     let result = 0;
@@ -156,7 +156,7 @@ describe("Filter — forEach with injection", () => {
 describe("Filter — type deduction (compile-time)", () => {
   it("plain array DSL deduces required components", () => {
     const { w } = setup();
-    const e = w.createEntity();
+    const e = w.entity();
     e.set(Position, { x: 1 });
     e.set(Velocity, { vx: 2 });
 
@@ -169,7 +169,7 @@ describe("Filter — type deduction (compile-time)", () => {
 
   it("HAS DSL deduces required components", () => {
     const { w } = setup();
-    w.createEntity().set(Position, { x: 5 });
+    w.entity().set(Position, { x: 5 });
 
     let sum = 0;
     w.filter({ HAS: [Position] }).forEach([Position], (_e, [p]) => {
@@ -180,7 +180,7 @@ describe("Filter — type deduction (compile-time)", () => {
 
   it("AND of HAS deduces all required components", () => {
     const { w } = setup();
-    const e = w.createEntity();
+    const e = w.entity();
     e.set(Position, { x: 3 });
     e.set(Velocity, { vx: 4 });
 

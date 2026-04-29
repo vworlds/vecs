@@ -40,14 +40,14 @@ describe("exclusive components", () => {
   it("adding the first component in an exclusive group attaches it normally", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running, Idle);
-    const e = w.createEntity();
+    const e = w.entity();
     expect(e.add(Walking).get(Walking)).toBeDefined();
   });
 
   it("adding a second exclusive component removes the first", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running, Idle);
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Walking);
     e.add(Running);
     expect(e.get(Running)).toBeDefined();
@@ -57,7 +57,7 @@ describe("exclusive components", () => {
   it("switching to any member of the group evicts all others", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running, Idle);
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Walking);
     e.add(Idle);
     expect(e.get(Idle)).toBeDefined();
@@ -68,7 +68,7 @@ describe("exclusive components", () => {
   it("add is idempotent — re-adding the same exclusive component keeps it", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running);
-    const e = w.createEntity();
+    const e = w.entity();
     const first = e.add(Walking).get(Walking);
     const second = e.add(Walking).get(Walking);
     expect(second).toBe(first);
@@ -78,7 +78,7 @@ describe("exclusive components", () => {
   it("non-exclusive components are unaffected", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running);
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Walking);
     e.add(Health);
     e.add(Jumping);
@@ -91,7 +91,7 @@ describe("exclusive components", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running);
     w.setExclusiveComponents(Idle, Jumping);
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Walking);
     e.add(Idle);
     expect(e.get(Walking)).toBeDefined();
@@ -101,7 +101,7 @@ describe("exclusive components", () => {
   it("exclusive switch via Entity.set also evicts conflicting members", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running);
-    const e = w.createEntity();
+    const e = w.entity();
     e.set(Walking, {});
     e.set(Running, {});
     expect(e.get(Running)).toBeDefined();

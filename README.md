@@ -114,7 +114,7 @@ world.start(); // freeze registration, sort systems into phases
 
 // ─── Create entities ───────────────────────────────────────────────────────
 
-const bullet = world.createEntity();
+const bullet = world.entity();
 bullet.set(Position, { x: 0, y: 0 });
 
 const vel = bullet.set(Velocity, { vx: 5, vy: 0 }).get(Velocity)!;
@@ -167,7 +167,7 @@ Declare a group of components that cannot coexist on the same entity. Adding a m
 ```ts
 world.setExclusiveComponents(Walking, Running, Idle);
 
-const e = world.createEntity();
+const e = world.entity();
 e.add(Walking);
 e.add(Running); // Walking is automatically removed first
 // e.get(Walking) === undefined, e.get(Running) is defined
@@ -180,16 +180,16 @@ Each call to `setExclusiveComponents` defines one independent group. Components 
 #### Entity management
 
 ```ts
-// Locally-owned entity with an auto-incrementing id:
-const e = world.createEntity();
+// New entity with an auto-incrementing id:
+const e = world.entity();
+
+// Look up by id (returns undefined if not found):
+const e = world.entity(42);
 
 // Server-assigned id; creates the entity if it doesn't exist yet:
 const e = world.getOrCreateEntity(serverId, (newEntity) => {
   tracked.add(newEntity);
 });
-
-// Look up by id (returns undefined if not found):
-const e = world.entity(42);
 
 // Destroy everything (e.g. on level reset):
 world.clearAllEntities();
@@ -330,7 +330,7 @@ Every component instance exposes:
 ### Entity
 
 ```ts
-const e = world.createEntity();
+const e = world.entity();
 ```
 
 | Property / Method      | Description                                                                                                   |

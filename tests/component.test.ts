@@ -10,7 +10,7 @@ describe("Component", () => {
   it("type is shorthand for meta.type", () => {
     const w = new World();
     w.registerComponent(Health, 42);
-    const e = w.createEntity();
+    const e = w.entity();
     const h = e.add(Health).get(Health)!;
     expect(h.type).toBe(42);
     expect(h.type).toBe(h.meta.type);
@@ -19,14 +19,14 @@ describe("Component", () => {
   it("bitPtr is shorthand for meta.bitPtr", () => {
     const w = new World();
     w.registerComponent(Health);
-    const h = w.createEntity().add(Health).get(Health)!;
+    const h = w.entity().add(Health).get(Health)!;
     expect(h.bitPtr).toBe(h.meta.bitPtr);
   });
 
   it("toString returns the component name", () => {
     const w = new World();
     w.registerComponent(Health, "HP");
-    const h = w.createEntity().add(Health).get(Health)!;
+    const h = w.entity().add(Health).get(Health)!;
     expect(h.toString()).toBe("HP");
   });
 
@@ -36,7 +36,7 @@ describe("Component", () => {
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const h = env.w.createEntity().add(Health, false).get(Health)!;
+    const h = env.w.entity().add(Health, false).get(Health)!;
     h.modified();
     env.tick();
     expect(onSet).toHaveBeenCalledWith(h);
@@ -48,7 +48,7 @@ describe("Component", () => {
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const h = env.w.createEntity().add(Health, false).get(Health)!;
+    const h = env.w.entity().add(Health, false).get(Health)!;
     h.modified();
     h.modified();
     h.modified();
@@ -61,7 +61,7 @@ describe("Entity.modified", () => {
   it("returns the entity for chaining", () => {
     const w = new World();
     w.registerComponent(Health);
-    const e = w.createEntity();
+    const e = w.entity();
     const h = e.add(Health).get(Health)!;
     expect(e.modified(h)).toBe(e);
   });
@@ -72,7 +72,7 @@ describe("Entity.modified", () => {
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const e = env.w.createEntity();
+    const e = env.w.entity();
     const h = e.add(Health, false).get(Health)!;
     e.modified(h);
     env.tick();
@@ -85,7 +85,7 @@ describe("Entity.modified", () => {
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const e = env.w.createEntity();
+    const e = env.w.entity();
     const h = e.add(Health, false).get(Health)!;
     e.modified(h);
     e.modified(h);
@@ -100,7 +100,7 @@ describe("Entity.modified", () => {
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const e = env.w.createEntity();
+    const e = env.w.entity();
     e.add(Health, false).modified(e.get(Health)!);
     env.tick();
     expect(onSet).toHaveBeenCalledTimes(1);
@@ -114,7 +114,7 @@ describe("Hook", () => {
     const onAdd = vi.fn();
     env.w.hook(Health).onAdd(onAdd);
     env.start();
-    const h = env.w.createEntity().add(Health).get(Health)!;
+    const h = env.w.entity().add(Health).get(Health)!;
     expect(onAdd).toHaveBeenCalledWith(h);
   });
 
@@ -124,7 +124,7 @@ describe("Hook", () => {
     const onRemove = vi.fn();
     env.w.hook(Health).onRemove(onRemove);
     env.start();
-    const e = env.w.createEntity();
+    const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
     e.remove(Health);
     expect(onRemove).toHaveBeenCalledWith(h);
@@ -136,7 +136,7 @@ describe("Hook", () => {
     const onRemove = vi.fn();
     env.w.hook(Health).onRemove(onRemove);
     env.start();
-    const e = env.w.createEntity();
+    const e = env.w.entity();
     e.add(Health);
     e.destroy();
     expect(onRemove).toHaveBeenCalledTimes(1);

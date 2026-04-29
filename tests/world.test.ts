@@ -5,10 +5,10 @@ class A extends Component {}
 class B extends Component {}
 
 describe("World — entity management", () => {
-  it("createEntity assigns sequential ids starting at 0", () => {
+  it("entity() assigns sequential ids starting at 0", () => {
     const w = new World();
-    const a = w.createEntity();
-    const b = w.createEntity();
+    const a = w.entity();
+    const b = w.entity();
     expect(a.eid).toBe(0);
     expect(b.eid).toBe(1);
     expect(a.world).toBe(w);
@@ -16,7 +16,7 @@ describe("World — entity management", () => {
 
   it("entity(id) returns the entity or undefined", () => {
     const w = new World();
-    const e = w.createEntity();
+    const e = w.entity();
     expect(w.entity(e.eid)).toBe(e);
     expect(w.entity(999)).toBeUndefined();
   });
@@ -40,8 +40,8 @@ describe("World — entity management", () => {
   it("setEntityIdRange shifts the auto-incrementing counter", () => {
     const w = new World();
     w.setEntityIdRange(1000);
-    expect(w.createEntity().eid).toBe(1000);
-    expect(w.createEntity().eid).toBe(1001);
+    expect(w.entity().eid).toBe(1000);
+    expect(w.entity().eid).toBe(1001);
   });
 
   it("setEntityIdRange after start() throws", () => {
@@ -54,14 +54,14 @@ describe("World — entity management", () => {
     const w = new World();
     w.registerComponent(A);
     w.setEntityIdRange(500);
-    expect(w.createEntity().eid).toBe(500);
+    expect(w.entity().eid).toBe(500);
   });
 
   it("clearAllEntities destroys every entity", () => {
     const w = new World();
     w.registerComponent(A);
-    const e1 = w.createEntity();
-    const e2 = w.createEntity();
+    const e1 = w.entity();
+    const e2 = w.entity();
     e1.add(A);
     e2.add(A);
     w.clearAllEntities();

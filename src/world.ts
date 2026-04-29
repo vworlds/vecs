@@ -87,28 +87,29 @@ export class World {
   }
 
   /**
+   * Create a new entity with an auto-assigned id and register it in the world.
+   *
+   * The id counter starts at 0 (or at the value set by
+   * {@link setEntityIdRange}) and increments by one for each call.
+   */
+  public entity(): Entity;
+
+  /**
    * Look up an entity by id.
    *
    * @param id - Numeric entity id.
    * @returns The entity, or `undefined` if no entity with that id exists.
    */
-  public entity(id: number): Entity | undefined {
-    return this.entities.get(id);
-  }
+  public entity(id: number): Entity | undefined;
 
-  /**
-   * Create a new entity with an auto-assigned id and register it in the world.
-   *
-   * The id counter starts at 0 (or at the value set by
-   * {@link setEntityIdRange}) and increments by one for each call.
-   *
-   * @returns The new entity.
-   */
-  public createEntity(): Entity {
-    const eid = this.eidCounter++;
-    const e = new Entity(this, eid);
-    this.entities.set(eid, e);
-    return e;
+  public entity(id?: number): Entity | undefined {
+    if (id === undefined) {
+      const eid = this.eidCounter++;
+      const e = new Entity(this, eid);
+      this.entities.set(eid, e);
+      return e;
+    }
+    return this.entities.get(id);
   }
 
   /**
@@ -120,7 +121,7 @@ export class World {
    * client entities can start at a high offset to avoid collisions with
    * server-assigned ids.
    *
-   * @param min - The first id that will be assigned by {@link createEntity}.
+   * @param min - The first id that will be assigned by {@link entity}.
    * @throws If called after registration has been disabled.
    */
   public setEntityIdRange(min: number) {
