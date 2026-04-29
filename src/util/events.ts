@@ -13,23 +13,17 @@ declare type ValidEventMap<T = any> = T extends {
   ? T
   : never;
 declare type Handler<T extends any | ((...args: any[]) => R), R = any> = T;
-export declare type EventListener<
-  T extends ValidEventMap,
-  K extends EventNames<T>
-> = T extends string | symbol
-  ? (...args: any[]) => void
-  : K extends keyof T
-  ? Handler<T[K], void>
-  : never;
-declare type EventArgs<
-  T extends ValidEventMap,
-  K extends EventNames<T>
-> = Parameters<EventListener<T, K>>;
-export declare type EventNames<T extends ValidEventMap> = T extends
+export declare type EventListener<T extends ValidEventMap, K extends EventNames<T>> = T extends
   | string
   | symbol
-  ? T
-  : keyof T;
+  ? (...args: any[]) => void
+  : K extends keyof T
+    ? Handler<T[K], void>
+    : never;
+declare type EventArgs<T extends ValidEventMap, K extends EventNames<T>> = Parameters<
+  EventListener<T, K>
+>;
+export declare type EventNames<T extends ValidEventMap> = T extends string | symbol ? T : keyof T;
 class events<EventMap extends ValidEventMap = any> {
   public on<T extends EventNames<EventMap>>(
     event: T,
@@ -38,10 +32,7 @@ class events<EventMap extends ValidEventMap = any> {
   ): events<EventMap> {
     return 0 as any;
   }
-  public emit<T extends EventNames<EventMap>>(
-    event: T,
-    ...args: EventArgs<EventMap, T>
-  ): boolean {
+  public emit<T extends EventNames<EventMap>>(event: T, ...args: EventArgs<EventMap, T>): boolean {
     return 0 as any;
   }
   public once<T extends EventNames<EventMap>>(
@@ -90,6 +81,4 @@ class events<EventMap extends ValidEventMap = any> {
 
 (events as any) = EventEmitter;
 
-export class Events<
-  EventMap extends ValidEventMap = any
-> extends events<EventMap> {}
+export class Events<EventMap extends ValidEventMap = any> extends events<EventMap> {}

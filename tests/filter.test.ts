@@ -145,12 +145,9 @@ describe("Filter — forEach with injection", () => {
     e.set(Position, { x: 7 });
 
     let result = 0;
-    w.filter({ OR: [Position, Velocity] }, [Position]).forEach(
-      [Position],
-      (_e, [p]) => {
-        result += p.x; // p is Position (not Position | undefined)
-      }
-    );
+    w.filter({ OR: [Position, Velocity] }, [Position]).forEach([Position], (_e, [p]) => {
+      result += p.x; // p is Position (not Position | undefined)
+    });
 
     expect(result).toBe(7);
   });
@@ -164,12 +161,9 @@ describe("Filter — type deduction (compile-time)", () => {
     e.set(Velocity, { vx: 2 });
 
     let sum = 0;
-    w.filter([Position, Velocity]).forEach(
-      [Position, Velocity],
-      (_e, [p, v]) => {
-        sum += p.x + v.vx; // both non-null — compile error if they were | undefined
-      }
-    );
+    w.filter([Position, Velocity]).forEach([Position, Velocity], (_e, [p, v]) => {
+      sum += p.x + v.vx; // both non-null — compile error if they were | undefined
+    });
     expect(sum).toBe(3);
   });
 

@@ -1,9 +1,4 @@
-import {
-  Component,
-  ComponentClassOrType,
-  ComponentMeta,
-  Hook,
-} from "./component.js";
+import { Component, ComponentClassOrType, ComponentMeta, Hook } from "./component.js";
 import { Entity } from "./entity.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
@@ -56,7 +51,8 @@ export class World {
   private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   private componentRegistrationDisabled = false;
-  private pipeline = new Map<string, Phase>();
+  /** @internal */
+  public _pipeline = new Map<string, Phase>();
   private eidCounter = 0;
   constructor() {}
 
@@ -78,15 +74,14 @@ export class World {
    *   bookkeeping (e.g. tracking it in a local set).
    * @returns The existing or newly created entity.
    */
-  public getOrCreateEntity(
-    eid: number,
-    onCreateCallback?: (e: Entity) => void
-  ) {
+  public getOrCreateEntity(eid: number, onCreateCallback?: (e: Entity) => void) {
     let e = this.entities.get(eid);
     if (!e) {
       e = new Entity(this, eid);
       this.entities.set(eid, e);
-      if (onCreateCallback) onCreateCallback(e);
+      if (onCreateCallback) {
+        onCreateCallback(e);
+      }
     }
     return e;
   }
@@ -129,8 +124,9 @@ export class World {
    * @throws If called after registration has been disabled.
    */
   public setEntityIdRange(min: number) {
-    if (this.componentRegistrationDisabled)
+    if (this.componentRegistrationDisabled) {
       throw "setEntityIdRange must be called before component registration is disabled";
+    }
     this.eidCounter = min;
   }
 
@@ -148,8 +144,9 @@ export class World {
     } else {
       meta = this.Type2Meta.get(typeOrClass);
     }
-    if (!meta)
+    if (!meta) {
       throw `unregistered component meta for component type or class '${typeOrClass}'`;
+    }
     return meta;
   }
 
@@ -177,7 +174,9 @@ export class World {
    * {@link Entity.remove}.
    */
   public archetypeChanged(e: Entity) {
-    if (e._archetypeChanged) return;
+    if (e._archetypeChanged) {
+      return;
+    }
     e._archetypeChanged = true;
     this.archChangeQueue.push(e);
     e.children.forEach((child) => this.archetypeChanged(child));
@@ -190,15 +189,19 @@ export class World {
 
   /** @internal */
   public _notifyComponentRemoved(e: Entity, c: Component) {
-    const hook = c.meta["onRemoveHandler"];
-    if (hook) hook(c);
+    const hook = c.meta._onRemoveHandler;
+    if (hook) {
+      hook(c);
+    }
 
     this.archetypeChanged(e);
   }
 
   /** @internal */
   public _notifyEntityDestroyed(e: Entity) {
-    if (!this.entities.delete(e.eid)) return;
+    if (!this.entities.delete(e.eid)) {
+      return;
+    }
     e.forEachComponent((c) => {
       e.remove(c.type);
     });
@@ -221,29 +224,40 @@ export class World {
       });
     }
 
-    this.destroyedEntities.forEach((e) => {
-      e["_destroy"]();
-    });
-    this.destroyedEntities.length = 0;
+    if (this.destroyedEntities.length > 0) {
+      this.destroyedEntities.forEach((e) => {
+        e._destroy();
+      });
+      this.destroyedEntities.length = 0;
+    }
 
-    this.updatedComponents.forEach((c) => {
-      const hook = c.meta["onSetHandler"];
-      if (hook) hook(c);
-      c.entity._notifyModified(c);
-      c["dirty"] = false;
-    });
-    this.archChangeQueue.forEach((e) => {
-      e._updateQueries();
-      e._archetypeChanged = false;
-    });
-    this.archChangeQueue.length = 0;
-    this.updatedComponents.length = 0;
+    if (this.updatedComponents.length > 0) {
+      this.updatedComponents.forEach((c) => {
+        const hook = c.meta._onSetHandler;
+        if (hook) {
+          hook(c);
+        }
+        c.entity._notifyModified(c);
+        c._dirty = false;
+      });
+      this.updatedComponents.length = 0;
+    }
+
+    if (this.archChangeQueue.length > 0) {
+      this.archChangeQueue.forEach((e) => {
+        e._updateQueries();
+        e._archetypeChanged = false;
+      });
+      this.archChangeQueue.length = 0;
+    }
   }
 
   /** @internal Queues a component for onSet / update delivery. */
   public _queueUpdatedComponent(c: Component) {
-    if (c["dirty"]) return;
-    c["dirty"] = true;
+    if (c._dirty) {
+      return;
+    }
+    c._dirty = true;
     this.updatedComponents.push(c);
   }
 
@@ -266,14 +280,8 @@ export class World {
    *   disabled.
    */
   public registerComponent(ComponentClass: typeof Component): void;
-  public registerComponent(
-    ComponentClass: typeof Component,
-    type: number
-  ): void;
-  public registerComponent(
-    ComponentClass: typeof Component,
-    componentName?: string
-  ): void;
+  public registerComponent(ComponentClass: typeof Component, type: number): void;
+  public registerComponent(ComponentClass: typeof Component, componentName?: string): void;
   public registerComponent(
     ComponentClass: typeof Component,
     type: number,
@@ -309,7 +317,9 @@ export class World {
 
     let meta = this.Class2Meta.get(ComponentClass);
     if (meta) {
-      if (local) this.localComponentCounter--;
+      if (local) {
+        this.localComponentCounter--;
+      }
       throw `Trying to register ${componentName} with type=${type} which is already registered to ${meta.componentName}`;
     }
     this.registerComponentType(componentName, type);
@@ -348,7 +358,9 @@ export class World {
   /** @internal Called by {@link Query.destroy} to unregister a query and remove it from all entities. */
   public _removeQuery(q: Query): void {
     const idx = this.allQueries.indexOf(q);
-    if (idx !== -1) this.allQueries.splice(idx, 1);
+    if (idx !== -1) {
+      this.allQueries.splice(idx, 1);
+    }
     this.entities.forEach((e) => e._purgeQuery(q));
   }
 
@@ -432,10 +444,7 @@ export class World {
     q: QueryDSL,
     _guaranteed: readonly [...T]
   ): Filter<T>;
-  public filter(
-    q: QueryDSL,
-    _guaranteed?: readonly (typeof Component)[]
-  ): Filter<any> {
+  public filter(q: QueryDSL, _guaranteed?: readonly (typeof Component)[]): Filter<any> {
     return new Filter(this, q);
   }
 
@@ -465,30 +474,28 @@ export class World {
   }
 
   private reindexSystems() {
-    let _defaultPhase = this.pipeline.get("update");
+    let _defaultPhase = this._pipeline.get("update");
     if (!_defaultPhase) {
       _defaultPhase = new Phase("update", this);
-      this.pipeline.set(_defaultPhase.name, _defaultPhase);
+      this._pipeline.set(_defaultPhase.name, _defaultPhase);
     }
 
     const defaultPhase = _defaultPhase;
 
     this.allQueries.forEach((q) => {
-      if (!(q instanceof System)) return;
+      if (!(q instanceof System)) {
+        return;
+      }
       let phase = q._phase as Phase | undefined;
       if (typeof phase === "string") {
-        phase = this.pipeline.get(phase);
+        phase = this._pipeline.get(phase);
       }
       phase = phase || defaultPhase;
       phase.systems.push(q);
     });
 
-    this.pipeline.forEach((phase) => {
-      console.log(
-        "Phase %s : %s",
-        phase.name,
-        phase.systems.map((s) => s.name).join(" -> ")
-      );
+    this._pipeline.forEach((phase) => {
+      console.log("Phase %s : %s", phase.name, phase.systems.map((s) => s.name).join(" -> "));
     });
   }
 
@@ -530,7 +537,7 @@ export class World {
    */
   public addPhase(name: string): IPhase {
     const phase = new Phase(name, this);
-    this.pipeline.set(name, phase);
+    this._pipeline.set(name, phase);
     return phase;
   }
 
@@ -561,7 +568,8 @@ export class World {
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public progress(now: number, delta: number) {
-    this.pipeline.forEach((phase) => {
+    this.updateArchetypes();
+    this._pipeline.forEach((phase) => {
       this.runPhase(phase, now, delta);
     });
   }
@@ -570,7 +578,7 @@ export class World {
    * Declare a group of mutually exclusive components.
    *
    * After this call, adding any component in the group to an entity that
-   * already has another component from the same group will throw.
+   * already has another component from the same group will remove the other component
    *
    * ```ts
    * world.setExclusiveComponents(Walking, Running, Idle);

@@ -132,7 +132,9 @@ describe("OrderedSet", () => {
 
   it("binary search handles first and last element", () => {
     const s = new OrderedSet<number>(numCmp);
-    for (let i = 1; i <= 10; i++) s.add(i);
+    for (let i = 1; i <= 10; i++) {
+      s.add(i);
+    }
     expect(s.has(1)).toBe(true);
     expect(s.has(10)).toBe(true);
     expect(s.delete(1)).toBe(true);

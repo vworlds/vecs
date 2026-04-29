@@ -75,6 +75,33 @@ describe("Entity — components", () => {
     expect(pos).toBeInstanceOf(Position);
   });
 
+  it("set marks a new component as modified", () => {
+    const env = makeWorldWithFlushPhase();
+    env.w.registerComponent(Position);
+    env.start();
+    const onSet = vi.fn();
+    env.w.hook(Position).onSet(onSet);
+    const e = env.w.createEntity();
+    e.set(Position, { x: 1 });
+    env.tick();
+    expect(onSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("set marks an already-present component as modified", () => {
+    const env = makeWorldWithFlushPhase();
+    env.w.registerComponent(Position);
+    env.start();
+    const onSet = vi.fn();
+    env.w.hook(Position).onSet(onSet);
+    const e = env.w.createEntity();
+    e.add(Position);
+    env.tick(); // flush the initial add notification
+    onSet.mockClear();
+    e.set(Position, { x: 42 });
+    env.tick();
+    expect(onSet).toHaveBeenCalledTimes(1);
+  });
+
   it("get returns the component or undefined", () => {
     const w = new World();
     w.registerComponent(Position);
@@ -201,7 +228,7 @@ describe("Entity — lifecycle and hierarchy", () => {
   it("children set is created lazily", () => {
     const w = new World();
     const e = w.createEntity();
-    expect(e["_children"]).toBeUndefined();
+    expect(e._children).toBeUndefined();
     const c = e.children;
     expect(c).toBeInstanceOf(Set);
     expect(e.children).toBe(c); // memoized

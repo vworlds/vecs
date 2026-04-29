@@ -75,12 +75,11 @@ function PARENT(func: EntityTestFunc) {
  * the `_guaranteed` hint). Components in `R` are non-nullable; others are
  * `InstanceType<C> | undefined`.
  */
-export type MaybeRequired<C, R extends (typeof Component)[]> =
-  C extends typeof Component
-    ? C extends R[number]
-      ? InstanceType<C>
-      : InstanceType<C> | undefined
-    : never;
+export type MaybeRequired<C, R extends (typeof Component)[]> = C extends typeof Component
+  ? C extends R[number]
+    ? InstanceType<C>
+    : InstanceType<C> | undefined
+  : never;
 
 /**
  * Statically extracts the component classes that are **guaranteed present** on
@@ -94,30 +93,28 @@ export type MaybeRequired<C, R extends (typeof Component)[]> =
  * - `{OR: ...}` / `{NOT: ...}` / `{PARENT: ...}` → `[]` (no guarantee)
  * - `EntityTestFunc` / numeric type id → `[]` (opaque)
  */
-export type ExtractRequired<Q> =
-  Q extends typeof Component
-    ? [Q]
-    : Q extends readonly (typeof Component)[]
+export type ExtractRequired<Q> = Q extends typeof Component
+  ? [Q]
+  : Q extends readonly (typeof Component)[]
     ? Q
     : Q extends { HAS: infer H }
-    ? ExtractRequired<H>
-    : Q extends { HAS_ONLY: infer H }
-    ? ExtractRequired<H>
-    : Q extends { AND: infer A extends readonly QueryDSL[] }
-    ? ExtractAndChain<A>
-    : [];
+      ? ExtractRequired<H>
+      : Q extends { HAS_ONLY: infer H }
+        ? ExtractRequired<H>
+        : Q extends { AND: infer A extends readonly QueryDSL[] }
+          ? ExtractAndChain<A>
+          : [];
 
-type ExtractAndChain<A extends readonly QueryDSL[]> =
-  A extends readonly [infer First, ...infer Rest extends readonly QueryDSL[]]
-    ? [...ExtractRequired<First>, ...ExtractAndChain<Rest>]
-    : [];
+type ExtractAndChain<A extends readonly QueryDSL[]> = A extends readonly [
+  infer First,
+  ...infer Rest extends readonly QueryDSL[],
+]
+  ? [...ExtractRequired<First>, ...ExtractAndChain<Rest>]
+  : [];
 
 /** Convert a {@link QueryDSL} expression into a runtime entity-test predicate. */
 export function buildEntityTest(world: World, q: QueryDSL): EntityTestFunc {
-  if (
-    typeof q === "number" ||
-    (typeof q === "function" && q.prototype instanceof Component)
-  ) {
+  if (typeof q === "number" || (typeof q === "function" && q.prototype instanceof Component)) {
     return HAS(world, q as typeof Component);
   } else if (typeof q === "function") {
     return q as EntityTestFunc;

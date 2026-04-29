@@ -43,11 +43,12 @@ export class Entity {
    * with an entity without registering a component.
    */
   public properties = new Map<string, any>();
-  public declare _events: EntityEvents;
+  declare public _events: EntityEvents;
 
   /** Parent entity in the scene hierarchy, or `undefined` if root. */
   public parent: Entity | undefined;
-  private _children: Set<Entity> | undefined;
+  /** @internal */
+  public _children: Set<Entity> | undefined;
   public _archetypeChanged: boolean = false;
   private destroyed = false;
 
@@ -66,16 +67,18 @@ export class Entity {
    * both will keep the parent–child links consistent.
    */
   public get children(): Set<Entity> {
-    if (!this._children) this._children = new Set<Entity>();
+    if (!this._children) {
+      this._children = new Set<Entity>();
+    }
     return this._children;
   }
 
-  private getComponentInstance(
-    meta: ComponentMeta,
-  ) {
+  private getComponentInstance(meta: ComponentMeta) {
     const c = new meta.Class(this, meta);
-    const hook = meta["onAddHandler"];
-    if (hook) hook(c);
+    const hook = meta._onAddHandler;
+    if (hook) {
+      hook(c);
+    }
     return c;
   }
 
@@ -93,10 +96,7 @@ export class Entity {
    * @returns The new (or existing) component instance, typed as
    *   `InstanceType<Class>`.
    */
-  public add<C extends typeof Component>(
-    Class: C,
-    markAsModified?: boolean
-  ): InstanceType<C>;
+  public add<C extends typeof Component>(Class: C, markAsModified?: boolean): InstanceType<C>;
   /**
    * Add a component by its numeric type id.
    *
@@ -105,10 +105,7 @@ export class Entity {
    * @param markAsModified - Whether to queue an update notification.
    */
   public add(type: number, markAsModified?: boolean): Component;
-  public add(
-    typeOrClass: number | typeof Component,
-    markAsModified: boolean = true
-  ) {
+  public add(typeOrClass: number | typeof Component, markAsModified: boolean = true) {
     const type = this.world.getComponentType(typeOrClass);
 
     let c = this.components.get(type);
@@ -130,7 +127,9 @@ export class Entity {
     this.components.set(type, c);
     this.componentBitmask.add(type);
     this.world._notifyComponentAdded(this, c);
-    if (markAsModified) this.world._queueUpdatedComponent(c);
+    if (markAsModified) {
+      this.world._queueUpdatedComponent(c);
+    }
 
     return c;
   }
@@ -154,11 +153,9 @@ export class Entity {
    * @param props - Optional properties to assign onto the component instance.
    */
   public set(type: number, props: Partial<Component>): Component;
-  public set(
-    typeOrClass: number | typeof Component,
-    props: Partial<Component>
-  ): Component {
-    const c = this.add(typeOrClass as any);
+  public set(typeOrClass: number | typeof Component, props: Partial<Component>): Component {
+    const c = this.add(typeOrClass as any, false);
+    this.world._queueUpdatedComponent(c);
     return Object.assign(c, props);
   }
 
@@ -242,7 +239,9 @@ export class Entity {
   public _purgeQuery(q: Query): void {
     this.queries.delete(q);
     const idx = this.newQueries.indexOf(q);
-    if (idx !== -1) this.newQueries.splice(idx, 1);
+    if (idx !== -1) {
+      this.newQueries.splice(idx, 1);
+    }
   }
 
   /** @internal */
@@ -273,8 +272,11 @@ export class Entity {
     return this.components.size == 0;
   }
 
-  private _destroy() {
-    if (this.destroyed) return;
+  /** @internal */
+  public _destroy() {
+    if (this.destroyed) {
+      return;
+    }
     this.destroyed = true;
     this.queries.forEach((q) => {
       q._exit(this);
