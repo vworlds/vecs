@@ -81,6 +81,21 @@ export class Entity {
   }
 
   /**
+   * Queue an `onSet` / `update` notification for the given component and
+   * return the entity for chaining.
+   *
+   * Equivalent to `component.modified()`, but usable inside an entity method
+   * chain (e.g. after `add` or `set`).
+   *
+   * @param c - The component instance whose data changed.
+   * @returns This entity, for chaining.
+   */
+  public modified<C extends typeof Component>(c: InstanceType<C>): Entity {
+    this.world._queueUpdatedComponent(c);
+    return this;
+  }
+
+  /**
    * Add a component of type `Class` to this entity and return the instance.
    *
    * If the component is already present the existing instance is returned and
@@ -126,7 +141,7 @@ export class Entity {
     this.componentBitmask.add(type);
     this.world._notifyComponentAdded(this, c);
     if (markAsModified) {
-      this.world._queueUpdatedComponent(c);
+      this.modified(c);
     }
 
     return c;
@@ -160,28 +175,27 @@ export class Entity {
   }
 
   /**
-   * Add a component of type `Class` (if not already present) and assign the
-   * provided properties onto the instance, then return it.
+   * Add a component of type `Class` (if not already present), assign the
+   * provided properties onto the instance, and return the entity for chaining.
    *
    * @param Class - The component class to instantiate.
-   * @param props - Optional properties to assign onto the component instance.
-   * @returns The new (or existing) component instance with the given properties applied.
+   * @param props - Properties to assign onto the component instance.
+   * @returns This entity, for chaining.
    */
-  public set<C extends typeof Component>(
-    Class: C,
-    props: Partial<InstanceType<C>>
-  ): InstanceType<C>;
+  public set<C extends typeof Component>(Class: C, props: Partial<InstanceType<C>>): Entity;
   /**
-   * Add a component by its numeric type id and assign the provided properties.
+   * Add a component by its numeric type id, assign the provided properties,
+   * and return the entity for chaining.
    *
    * @param type - Numeric component type id.
-   * @param props - Optional properties to assign onto the component instance.
+   * @param props - Properties to assign onto the component instance.
    */
-  public set(type: number, props: Partial<Component>): Component;
-  public set(typeOrClass: number | typeof Component, props: Partial<Component>): Component {
+  public set(type: number, props: Partial<Component>): Entity;
+  public set(typeOrClass: number | typeof Component, props: Partial<Component>): Entity {
     const c = this._add(typeOrClass as any, false);
-    this.world._queueUpdatedComponent(c);
-    return Object.assign(c, props);
+    this.modified(c);
+    Object.assign(c, props);
+    return this;
   }
 
   /**

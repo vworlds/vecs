@@ -39,31 +39,32 @@ describe("Entity — components", () => {
     expect(pos).toBeInstanceOf(Position);
   });
 
-  it("set returns a typed instance with the given properties applied", () => {
+  it("set returns the entity for chaining", () => {
     const w = new World();
     w.registerComponent(Position);
     const e = w.createEntity();
-    const pos = e.set(Position, { x: 10, y: 20 });
+    expect(e.set(Position, { x: 10, y: 20 })).toBe(e);
+    const pos = e.get(Position)!;
     expect(pos).toBeInstanceOf(Position);
     expect(pos.x).toBe(10);
     expect(pos.y).toBe(20);
   });
 
-  it("set is idempotent — returns the existing instance with updated properties", () => {
+  it("set is idempotent — same instance is kept with updated properties", () => {
     const w = new World();
     w.registerComponent(Position);
     const e = w.createEntity();
-    const a = e.set(Position, { x: 1 });
-    const b = e.set(Position, { x: 99 });
+    const a = e.set(Position, { x: 1 }).get(Position);
+    const b = e.set(Position, { x: 99 }).get(Position);
     expect(a).toBe(b);
-    expect(a.x).toBe(99);
+    expect(a!.x).toBe(99);
   });
 
   it("set only assigns present properties — absent keys leave defaults intact", () => {
     const w = new World();
     w.registerComponent(Position);
     const e = w.createEntity();
-    const pos = e.set(Position, { x: 5 });
+    const pos = e.set(Position, { x: 5 }).get(Position)!;
     expect(pos.x).toBe(5);
     expect(pos.y).toBe(0); // default unchanged
   });
@@ -72,7 +73,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.registerComponent(Position, 7);
     const e = w.createEntity();
-    const pos = e.set(7, {});
+    const pos = e.set(7, {}).get(7);
     expect(pos).toBeInstanceOf(Position);
   });
 

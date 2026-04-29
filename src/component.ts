@@ -160,7 +160,7 @@ export class Component {
    * fields to ensure systems react to the new values.
    */
   public modified() {
-    this.entity.world._queueUpdatedComponent(this);
+    this.entity.modified(this);
   }
 
   /** Returns the component's registered name, e.g. `"Position"`. */

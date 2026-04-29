@@ -57,6 +57,56 @@ describe("Component", () => {
   });
 });
 
+describe("Entity.modified", () => {
+  it("returns the entity for chaining", () => {
+    const w = new World();
+    w.registerComponent(Health);
+    const e = w.createEntity();
+    const h = e.add(Health).get(Health)!;
+    expect(e.modified(h)).toBe(e);
+  });
+
+  it("queues an onSet hook delivery", () => {
+    const env = makeWorldWithFlushPhase();
+    env.w.registerComponent(Health);
+    const onSet = vi.fn();
+    env.w.hook(Health).onSet(onSet);
+    env.start();
+    const e = env.w.createEntity();
+    const h = e.add(Health, false).get(Health)!;
+    e.modified(h);
+    env.tick();
+    expect(onSet).toHaveBeenCalledWith(h);
+  });
+
+  it("is coalesced — onSet fires once even if called multiple times", () => {
+    const env = makeWorldWithFlushPhase();
+    env.w.registerComponent(Health);
+    const onSet = vi.fn();
+    env.w.hook(Health).onSet(onSet);
+    env.start();
+    const e = env.w.createEntity();
+    const h = e.add(Health, false).get(Health)!;
+    e.modified(h);
+    e.modified(h);
+    e.modified(h);
+    env.tick();
+    expect(onSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("can be chained after add", () => {
+    const env = makeWorldWithFlushPhase();
+    env.w.registerComponent(Health);
+    const onSet = vi.fn();
+    env.w.hook(Health).onSet(onSet);
+    env.start();
+    const e = env.w.createEntity();
+    e.add(Health, false).modified(e.get(Health)!);
+    env.tick();
+    expect(onSet).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("Hook", () => {
   it("onAdd fires when a component is first attached", () => {
     const env = makeWorldWithFlushPhase();

@@ -117,11 +117,9 @@ world.start(); // freeze registration, sort systems into phases
 const bullet = world.createEntity();
 bullet.set(Position, { x: 0, y: 0 });
 
-const vel = bullet.set(Velocity, { vx: 5, vy: 0 });
-vel.modified(); // first update: notify Move system
+const vel = bullet.set(Velocity, { vx: 5, vy: 0 }).get(Velocity)!;
 
-const hp = bullet.set(Health, { hp: 3 });
-hp.modified();
+const hp = bullet.set(Health, { hp: 3 }).get(Health)!;
 
 // ─── Game loop ─────────────────────────────────────────────────────────────
 
@@ -335,21 +333,34 @@ Every component instance exposes:
 const e = world.createEntity();
 ```
 
-| Property / Method      | Description                                                                                              |
-| ---------------------- | -------------------------------------------------------------------------------------------------------- |
-| `eid`                  | Unique numeric entity id.                                                                                |
-| `world`                | The `World` that owns this entity.                                                                       |
-| `add(Class)`           | Attach a component and return the entity for chaining. Idempotent.                                       |
-| `set(Class, props)`    | Like `add`, but also assigns the given partial properties onto the instance. Returns the typed instance. |
-| `get(Class)`           | Return the component instance, or `undefined` if not present.                                            |
-| `remove(Class)`        | Detach a component (triggers `onRemove` hooks and `exit` callbacks).                                     |
-| `destroy()`            | Remove all components and unregister the entity. Recurses to children.                                   |
-| `empty`                | `true` when no components are attached.                                                                  |
-| `forEachComponent(cb)` | Iterate over all attached components.                                                                    |
-| `parent`               | Parent entity in the scene hierarchy, or `undefined`.                                                    |
-| `children`             | `Set<Entity>` of direct children (lazy, created on first access).                                        |
-| `events`               | Typed event emitter. Currently emits `"destroy"` before teardown.                                        |
-| `properties`           | `Map<string, any>` free-form bag for module-level bookkeeping.                                           |
+| Property / Method      | Description                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `eid`                  | Unique numeric entity id.                                                                                     |
+| `world`                | The `World` that owns this entity.                                                                            |
+| `add(Class)`           | Attach a component and return the entity for chaining. Idempotent.                                            |
+| `set(Class, props)`    | Like `add`, but also assigns the given partial properties onto the instance. Returns the entity for chaining. |
+| `modified(component)`  | Queue an `onSet` / `update` notification for the component. Returns the entity for chaining.                  |
+| `get(Class)`           | Return the component instance, or `undefined` if not present.                                                 |
+| `remove(Class)`        | Detach a component (triggers `onRemove` hooks and `exit` callbacks).                                          |
+| `destroy()`            | Remove all components and unregister the entity. Recurses to children.                                        |
+| `empty`                | `true` when no components are attached.                                                                       |
+| `forEachComponent(cb)` | Iterate over all attached components.                                                                         |
+| `parent`               | Parent entity in the scene hierarchy, or `undefined`.                                                         |
+| `children`             | `Set<Entity>` of direct children (lazy, created on first access).                                             |
+| `events`               | Typed event emitter. Currently emits `"destroy"` before teardown.                                             |
+| `properties`           | `Map<string, any>` free-form bag for module-level bookkeeping.                                                |
+
+`entity.modified(c)` is equivalent to `c.modified()` but returns the entity, making it usable in a method chain:
+
+```ts
+// Mutate fields then signal the change inline:
+const vel = entity.get(Velocity)!;
+vel.vx += accel;
+entity.modified(vel); // same effect as vel.modified(), returns entity
+
+// Or in a chain — add without initial notification, then notify later:
+entity.add(Position, false).modified(entity.get(Position)!);
+```
 
 #### Parent–child hierarchy
 

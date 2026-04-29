@@ -117,7 +117,7 @@ describe("Filter — forEach with injection", () => {
   it("resolves injected components", () => {
     const { w } = setup();
     const e = w.createEntity();
-    const pos = e.set(Position, { x: 42 });
+    const pos = e.set(Position, { x: 42 }).get(Position)!;
 
     let received: Position | undefined;
     w.filter([Position]).forEach([Position], (_e, [p]) => {
