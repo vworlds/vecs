@@ -222,23 +222,30 @@ export class World {
       });
     }
 
-    this.destroyedEntities.forEach((e) => {
-      e._destroy();
-    });
-    this.destroyedEntities.length = 0;
+    if (this.destroyedEntities.length > 0) {
+      this.destroyedEntities.forEach((e) => {
+        e._destroy();
+      });
+      this.destroyedEntities.length = 0;
+    }
 
-    this.updatedComponents.forEach((c) => {
-      const hook = c.meta._onSetHandler;
-      if (hook) hook(c);
-      c.entity._notifyModified(c);
-      c._dirty = false;
-    });
-    this.archChangeQueue.forEach((e) => {
-      e._updateQueries();
-      e._archetypeChanged = false;
-    });
-    this.archChangeQueue.length = 0;
-    this.updatedComponents.length = 0;
+    if (this.updatedComponents.length > 0) {
+      this.updatedComponents.forEach((c) => {
+        const hook = c.meta._onSetHandler;
+        if (hook) hook(c);
+        c.entity._notifyModified(c);
+        c._dirty = false;
+      });
+      this.updatedComponents.length = 0;
+    }
+
+    if (this.archChangeQueue.length > 0) {
+      this.archChangeQueue.forEach((e) => {
+        e._updateQueries();
+        e._archetypeChanged = false;
+      });
+      this.archChangeQueue.length = 0;
+    }
   }
 
   /** @internal Queues a component for onSet / update delivery. */
@@ -562,6 +569,7 @@ export class World {
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public progress(now: number, delta: number) {
+    this.updateArchetypes();
     this._pipeline.forEach((phase) => {
       this.runPhase(phase, now, delta);
     });
