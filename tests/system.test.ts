@@ -39,10 +39,7 @@ describe("System — enter / exit / update", () => {
   it("enter with injection receives a typed tuple", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
-    w.system("test")
-      .phase(phase)
-      .requires(Position, Velocity)
-      .enter([Position, Velocity], cb);
+    w.system("test").phase(phase).requires(Position, Velocity).enter([Position, Velocity], cb);
     w.start();
     const e = w.createEntity();
     const pos = e.add(Position);
@@ -106,10 +103,7 @@ describe("System — enter / exit / update", () => {
   it("update with injection delivers extra components", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
-    w.system("test")
-      .phase(phase)
-      .requires(Position, Velocity)
-      .update(Velocity, [Position], cb);
+    w.system("test").phase(phase).requires(Position, Velocity).update(Velocity, [Position], cb);
     w.start();
     const e = w.createEntity();
     const pos = e.add(Position);
@@ -183,8 +177,12 @@ describe("System — phases", () => {
     const seen: string[] = [];
     const a = w.addPhase("a");
     const b = w.addPhase("b");
-    w.system("sysA").phase(a).run(() => seen.push("A"));
-    w.system("sysB").phase(b).run(() => seen.push("B"));
+    w.system("sysA")
+      .phase(a)
+      .run(() => seen.push("A"));
+    w.system("sysB")
+      .phase(b)
+      .run(() => seen.push("B"));
     w.start();
     w.runPhase(b, 0, 0);
     w.runPhase(a, 0, 0);
@@ -221,12 +219,9 @@ describe("System — phases", () => {
 
   it("phase rejects a non-Phase object", () => {
     const w = new World();
-    expect(() =>
-      w.system("test").phase({ name: "fake", world: w } as any)
-    ).toThrow();
+    expect(() => w.system("test").phase({ name: "fake", world: w } as any)).toThrow();
   });
 });
-
 
 describe("System — query interaction with update watchlist", () => {
   it("query() overrides any prior implicit watchlist query", () => {
@@ -314,10 +309,7 @@ describe("System — each", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
     // Entity matches via Position only, but each also asks for Velocity:
-    w.system("test")
-      .phase(phase)
-      .requires(Position)
-      .each([Position, Velocity], cb);
+    w.system("test").phase(phase).requires(Position).each([Position, Velocity], cb);
     w.start();
     const e = w.createEntity();
     const pos = e.add(Position);
@@ -363,10 +355,7 @@ describe("System — each", () => {
   it("each with multiple components delivers the resolved tuple", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
-    w.system("test")
-      .phase(phase)
-      .requires(Position, Velocity)
-      .each([Position, Velocity], cb);
+    w.system("test").phase(phase).requires(Position, Velocity).each([Position, Velocity], cb);
     w.start();
     const e = w.createEntity();
     const pos = e.add(Position);
@@ -451,7 +440,8 @@ describe("System — each", () => {
 
   it("each() implies track() — entities is populated without an explicit track call", () => {
     const { w, phase } = setup();
-    const sys = w.system("test")
+    const sys = w
+      .system("test")
       .phase(phase)
       .requires(Position)
       .each([Position], () => {});
@@ -606,8 +596,7 @@ describe("System — sort", () => {
       .requires(Position, Velocity)
       .sort(
         [Position, Velocity],
-        ([posA, velA], [posB, velB]) =>
-          posA.x + velA.vx - (posB.x + velB.vx)
+        ([posA, velA], [posB, velB]) => posA.x + velA.vx - (posB.x + velB.vx)
       );
     w.start();
 

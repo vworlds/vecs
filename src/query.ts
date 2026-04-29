@@ -2,12 +2,7 @@ import { OrderedSet } from "./util/ordered_set.js";
 import { Component } from "./component.js";
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
-import {
-  buildEntityTest,
-  type EntityTestFunc,
-  type QueryDSL,
-  type MaybeRequired,
-} from "./dsl.js";
+import { buildEntityTest, type EntityTestFunc, type QueryDSL, type MaybeRequired } from "./dsl.js";
 
 export type { EntityTestFunc, QueryDSL, MaybeRequired };
 
@@ -19,8 +14,8 @@ type ComponentOrParentType = number | { parent: number };
 type ComponentInstance<T> = T extends { parent: typeof Component }
   ? InstanceType<T["parent"]>
   : T extends typeof Component
-  ? InstanceType<T>
-  : never;
+    ? InstanceType<T>
+    : never;
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
 
@@ -54,7 +49,7 @@ export class Query<R extends (typeof Component)[] = []> {
     public readonly name: string,
     /** The world that owns this query. */
     public readonly world: World,
-    track: boolean = true,
+    track: boolean = true
   ) {
     world._addQuery(this);
     if (track) this.track();
@@ -123,28 +118,18 @@ export class Query<R extends (typeof Component)[] = []> {
    */
   public forEach<J extends (typeof Component)[]>(
     components: readonly [...J],
-    callback: (
-      e: Entity,
-      resolved: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void;
 
   public forEach<J extends (typeof Component)[]>(
-    componentsOrCallback:
-      | readonly [...J]
-      | ((e: Entity) => void),
-    callback?: (
-      e: Entity,
-      resolved: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    componentsOrCallback: readonly [...J] | ((e: Entity) => void),
+    callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void {
     if (typeof componentsOrCallback === "function") {
       this._entities?.forEach(componentsOrCallback);
     } else {
       if (!this._entities || !this.world) return;
-      const types = componentsOrCallback.map((C) =>
-        this.world.getComponentType(C)
-      );
+      const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
       this._entities.forEach((e) => {
         const resolved = types.map((t) => e.get(t));
         callback!(e, resolved as any);
@@ -191,10 +176,7 @@ export class Query<R extends (typeof Component)[] = []> {
    */
   public enter<J extends ComponentOrParent[]>(
     inject: readonly [...J],
-    callback: (
-      e: Entity,
-      injected: { [K in keyof J]: ComponentInstance<J[K]> }
-    ) => void
+    callback: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
   ): this;
 
   /**
@@ -207,10 +189,7 @@ export class Query<R extends (typeof Component)[] = []> {
 
   public enter<J extends ComponentOrParent[]>(
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (
-      e: Entity,
-      injected: { [K in keyof J]: ComponentInstance<J[K]> }
-    ) => void
+    callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
   ): this {
     if (typeof injectOrCallback === "function") {
       this._enterCallback.push(injectOrCallback);
@@ -238,10 +217,7 @@ export class Query<R extends (typeof Component)[] = []> {
    */
   public exit<J extends ComponentOrParent[]>(
     inject: readonly [...J],
-    callback: (
-      e: Entity,
-      injected: { [K in keyof J]: ComponentInstance<J[K]> }
-    ) => void
+    callback: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
   ): this;
 
   /**
@@ -254,10 +230,7 @@ export class Query<R extends (typeof Component)[] = []> {
 
   public exit<J extends ComponentOrParent[]>(
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (
-      e: Entity,
-      injected: { [K in keyof J]: ComponentInstance<J[K]> }
-    ) => void
+    callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
   ): this {
     if (typeof injectOrCallback === "function") {
       this._exitCallback.push(injectOrCallback);
@@ -296,10 +269,7 @@ export class Query<R extends (typeof Component)[] = []> {
   ): this {
     const types = components.map((C) => this.world.getComponentType(C));
     this._entities = new OrderedSet<Entity>((a, b) =>
-      compare(
-        types.map((t) => a.get(t, true)) as any,
-        types.map((t) => b.get(t, true)) as any
-      )
+      compare(types.map((t) => a.get(t, true)) as any, types.map((t) => b.get(t, true)) as any)
     );
     this.backfill();
     return this;
@@ -368,11 +338,7 @@ export class Query<R extends (typeof Component)[] = []> {
     return this as unknown as Query<T>;
   }
 
-  private getComponent(
-    e: Entity,
-    C: ComponentOrParentType,
-    considerDeleted: boolean
-  ) {
+  private getComponent(e: Entity, C: ComponentOrParentType, considerDeleted: boolean) {
     let c: Component | undefined;
     if (typeof C === "number") {
       c = e.get(C, considerDeleted);
@@ -382,11 +348,7 @@ export class Query<R extends (typeof Component)[] = []> {
     return c;
   }
 
-  private getInjected(
-    e: Entity,
-    inject: ComponentOrParentType[],
-    considerDeleted = false
-  ) {
+  private getInjected(e: Entity, inject: ComponentOrParentType[], considerDeleted = false) {
     const injected: Component[] = [];
     inject.forEach((C) => {
       const c = this.getComponent(e, C, considerDeleted);
@@ -404,5 +366,4 @@ export class Query<R extends (typeof Component)[] = []> {
       return { parent: this.world.getComponentType(C.parent) };
     });
   }
-
 }

@@ -1,9 +1,4 @@
-import {
-  Component,
-  ComponentClassOrType,
-  ComponentMeta,
-  Hook,
-} from "./component.js";
+import { Component, ComponentClassOrType, ComponentMeta, Hook } from "./component.js";
 import { Entity } from "./entity.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
@@ -79,10 +74,7 @@ export class World {
    *   bookkeeping (e.g. tracking it in a local set).
    * @returns The existing or newly created entity.
    */
-  public getOrCreateEntity(
-    eid: number,
-    onCreateCallback?: (e: Entity) => void
-  ) {
+  public getOrCreateEntity(eid: number, onCreateCallback?: (e: Entity) => void) {
     let e = this.entities.get(eid);
     if (!e) {
       e = new Entity(this, eid);
@@ -149,8 +141,7 @@ export class World {
     } else {
       meta = this.Type2Meta.get(typeOrClass);
     }
-    if (!meta)
-      throw `unregistered component meta for component type or class '${typeOrClass}'`;
+    if (!meta) throw `unregistered component meta for component type or class '${typeOrClass}'`;
     return meta;
   }
 
@@ -274,14 +265,8 @@ export class World {
    *   disabled.
    */
   public registerComponent(ComponentClass: typeof Component): void;
-  public registerComponent(
-    ComponentClass: typeof Component,
-    type: number
-  ): void;
-  public registerComponent(
-    ComponentClass: typeof Component,
-    componentName?: string
-  ): void;
+  public registerComponent(ComponentClass: typeof Component, type: number): void;
+  public registerComponent(ComponentClass: typeof Component, componentName?: string): void;
   public registerComponent(
     ComponentClass: typeof Component,
     type: number,
@@ -440,10 +425,7 @@ export class World {
     q: QueryDSL,
     _guaranteed: readonly [...T]
   ): Filter<T>;
-  public filter(
-    q: QueryDSL,
-    _guaranteed?: readonly (typeof Component)[]
-  ): Filter<any> {
+  public filter(q: QueryDSL, _guaranteed?: readonly (typeof Component)[]): Filter<any> {
     return new Filter(this, q);
   }
 
@@ -492,11 +474,7 @@ export class World {
     });
 
     this._pipeline.forEach((phase) => {
-      console.log(
-        "Phase %s : %s",
-        phase.name,
-        phase.systems.map((s) => s.name).join(" -> ")
-      );
+      console.log("Phase %s : %s", phase.name, phase.systems.map((s) => s.name).join(" -> "));
     });
   }
 

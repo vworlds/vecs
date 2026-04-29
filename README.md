@@ -12,14 +12,14 @@ yarn add @vworlds/vecs
 
 ## Concepts
 
-| Concept | What it is |
-|---|---|
-| **World** | Central container. Owns all entities, runs all systems and queries. |
-| **Component** | A plain data class. Extend `Component` and attach instances to entities. |
-| **Entity** | An integer id with a set of components. Create via the world. |
-| **Query** | A reactive, always-updated set of entities that match a predicate. |
-| **System** | A `Query` with per-tick runtime logic (phases, `update`, `each`, `run`). |
-| **Filter** | A non-reactive, one-shot scan: walks all world entities on each `forEach` call. |
+| Concept                  | What it is                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------- |
+| **World**                | Central container. Owns all entities, runs all systems and queries.             |
+| **Component**            | A plain data class. Extend `Component` and attach instances to entities.        |
+| **Entity**               | An integer id with a set of components. Create via the world.                   |
+| **Query**                | A reactive, always-updated set of entities that match a predicate.              |
+| **System**               | A `Query` with per-tick runtime logic (phases, `update`, `each`, `run`).        |
+| **Filter**               | A non-reactive, one-shot scan: walks all world entities on each `forEach` call. |
 | **Exclusive components** | A group of components where at most one may be present on any entity at a time. |
 
 ### Lifecycle in brief
@@ -220,10 +220,11 @@ world.start(); // distributes systems to phases, freezes component registration
 A standalone `Query` is a reactive entity set without a phase or per-tick callbacks. Use it when you need the matched set kept up-to-date automatically — for example to enumerate scene nodes or find the nearest enemy.
 
 ```ts
-const enemies = world.query("Enemies")
+const enemies = world
+  .query("Enemies")
   .requires(Enemy, Health)
   .enter((e) => console.log("enemy spawned", e.eid))
-  .exit((e)  => console.log("enemy died",    e.eid));
+  .exit((e) => console.log("enemy died", e.eid));
 
 world.start();
 // enemies.entities is kept up-to-date automatically
@@ -242,20 +243,19 @@ A `Filter` is a non-reactive, one-shot scan. It holds no tracked entity set — 
 world.filter([Position]).forEach((e) => console.log(e.eid));
 
 // With component injection:
-world.filter([Position, Velocity])
-  .forEach([Position, Velocity], (e, [pos, vel]) => {
-    pos.x += vel.vx;
-  });
+world.filter([Position, Velocity]).forEach([Position, Velocity], (e, [pos, vel]) => {
+  pos.x += vel.vx;
+});
 
 // Full DSL, with auto-deduced required components:
-world.filter({ AND: [{ HAS: Position }, { HAS: Velocity }] })
+world
+  .filter({ AND: [{ HAS: Position }, { HAS: Velocity }] })
   .forEach([Position, Velocity], (e, [pos, vel]) => {
     pos.x += vel.vx; // pos and vel are non-null — deduced from AND of HAS
   });
 
 // Manual type hint for queries the extractor can't see through:
-world.filter({ OR: [Position, Velocity] }, [Position])
-  .forEach([Position], (e, [pos]) => pos.x);
+world.filter({ OR: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
 ```
 
 Unlike `Query`, a `Filter` requires no name, no `world.start()`, and no `destroy()` — create it anywhere and discard it freely.
@@ -265,16 +265,16 @@ Unlike `Query`, a `Filter` requires no name, no `world.start()`, and no `destroy
 ```ts
 // Declare phases in the order they should run each frame:
 const preUpdate = world.addPhase("preupdate");
-const update    = world.addPhase("update");
-const send      = world.addPhase("send");
+const update = world.addPhase("update");
+const send = world.addPhase("send");
 
 // Each frame, run all phases in registration order:
 world.progress(Date.now(), deltaMs);
 
 // Or drive individual phases manually:
 world.runPhase(preUpdate, Date.now(), deltaMs);
-world.runPhase(update,    Date.now(), deltaMs);
-world.runPhase(send,      Date.now(), deltaMs);
+world.runPhase(update, Date.now(), deltaMs);
+world.runPhase(send, Date.now(), deltaMs);
 ```
 
 Systems with no explicit phase go into a built-in `"update"` phase.
@@ -284,10 +284,11 @@ Systems with no explicit phase go into a built-in `"update"` phase.
 A hook is a shorthand for reacting to a single component's lifecycle without writing a full system:
 
 ```ts
-world.hook(Sprite)
-  .onAdd((sprite)    => sprite.initialize(scene))
+world
+  .hook(Sprite)
+  .onAdd((sprite) => sprite.initialize(scene))
   .onRemove((sprite) => sprite.destroy())
-  .onSet((sprite)    => sprite.syncToScene());
+  .onSet((sprite) => sprite.syncToScene());
 ```
 
 `onSet` fires whenever `component.modified()` is called.  
@@ -315,12 +316,12 @@ pos.modified(); // tell the world this component changed
 
 Every component instance exposes:
 
-| Property / Method | Description |
-|---|---|
-| `entity` | The `Entity` this component belongs to. |
-| `meta` | `ComponentMeta` — holds the type id, name, and bitset pointer. |
-| `type` | Numeric type id (shorthand for `meta.type`). |
-| `modified()` | Queue an `onSet` / `update` notification. Call after mutating fields. |
+| Property / Method | Description                                                           |
+| ----------------- | --------------------------------------------------------------------- |
+| `entity`          | The `Entity` this component belongs to.                               |
+| `meta`            | `ComponentMeta` — holds the type id, name, and bitset pointer.        |
+| `type`            | Numeric type id (shorthand for `meta.type`).                          |
+| `modified()`      | Queue an `onSet` / `update` notification. Call after mutating fields. |
 
 ---
 
@@ -330,21 +331,21 @@ Every component instance exposes:
 const e = world.createEntity();
 ```
 
-| Property / Method | Description |
-|---|---|
-| `eid` | Unique numeric entity id. |
-| `world` | The `World` that owns this entity. |
-| `add(Class)` | Attach a component; returns the typed instance. Idempotent. |
-| `set(Class, props)` | Like `add`, but also assigns the given partial properties onto the instance. Returns the typed instance. |
-| `get(Class)` | Return the component instance, or `undefined` if not present. |
-| `remove(Class)` | Detach a component (triggers `onRemove` hooks and `exit` callbacks). |
-| `destroy()` | Remove all components and unregister the entity. Recurses to children. |
-| `empty` | `true` when no components are attached. |
-| `forEachComponent(cb)` | Iterate over all attached components. |
-| `parent` | Parent entity in the scene hierarchy, or `undefined`. |
-| `children` | `Set<Entity>` of direct children (lazy, created on first access). |
-| `events` | Typed event emitter. Currently emits `"destroy"` before teardown. |
-| `properties` | `Map<string, any>` free-form bag for module-level bookkeeping. |
+| Property / Method      | Description                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `eid`                  | Unique numeric entity id.                                                                                |
+| `world`                | The `World` that owns this entity.                                                                       |
+| `add(Class)`           | Attach a component; returns the typed instance. Idempotent.                                              |
+| `set(Class, props)`    | Like `add`, but also assigns the given partial properties onto the instance. Returns the typed instance. |
+| `get(Class)`           | Return the component instance, or `undefined` if not present.                                            |
+| `remove(Class)`        | Detach a component (triggers `onRemove` hooks and `exit` callbacks).                                     |
+| `destroy()`            | Remove all components and unregister the entity. Recurses to children.                                   |
+| `empty`                | `true` when no components are attached.                                                                  |
+| `forEachComponent(cb)` | Iterate over all attached components.                                                                    |
+| `parent`               | Parent entity in the scene hierarchy, or `undefined`.                                                    |
+| `children`             | `Set<Entity>` of direct children (lazy, created on first access).                                        |
+| `events`               | Typed event emitter. Currently emits `"destroy"` before teardown.                                        |
+| `properties`           | `Map<string, any>` free-form bag for module-level bookkeeping.                                           |
 
 #### Parent–child hierarchy
 
@@ -385,15 +386,15 @@ Declare which entities the system should track:
 
 **Query operators:**
 
-| Operator | Meaning |
-|---|---|
-| `{ HAS: [A, B] }` | Entity has all of A and B |
+| Operator               | Meaning                                  |
+| ---------------------- | ---------------------------------------- |
+| `{ HAS: [A, B] }`      | Entity has all of A and B                |
 | `{ HAS_ONLY: [A, B] }` | Entity has exactly A and B, nothing else |
-| `{ AND: [q1, q2] }` | Both sub-queries must match |
-| `{ OR: [q1, q2] }` | Either sub-query matches |
-| `{ NOT: q }` | Sub-query must not match |
-| `{ PARENT: q }` | Entity's parent matches q |
-| An array `[A, B]` | Shorthand for `HAS: [A, B]` |
+| `{ AND: [q1, q2] }`    | Both sub-queries must match              |
+| `{ OR: [q1, q2] }`     | Either sub-query matches                 |
+| `{ NOT: q }`           | Sub-query must not match                 |
+| `{ PARENT: q }`        | Entity's parent matches q                |
+| An array `[A, B]`      | Shorthand for `HAS: [A, B]`              |
 
 **Type inference:** `requires()` records the listed classes as a type parameter on the system. Callbacks in `.sort()`, `.each()`, and `.update()` inject then treat those components as non-nullable — no `!` needed. For complex `query()` expressions the type system cannot introspect, pass a second argument as an explicit hint:
 
@@ -485,7 +486,8 @@ Enable sorted entity tracking. Matched entities are stored in an ordered set who
 Components declared via `requires()` are non-null in the compare callback.
 
 ```ts
-world.system("Render")
+world
+  .system("Render")
   .requires(Position, Sprite)
   .sort([Position], ([posA], [posB]) => posA.z - posB.z)
   .each([Position, Sprite], (e, [pos, sprite]) => {
@@ -518,31 +520,36 @@ Called every tick when the system's phase runs, regardless of entity state. Use 
 A standalone query is created via `world.query(name)` and configured through the same fluent builder API as `System` (`requires`, `query`, `enter`, `exit`, `sort`, `track`, `forEach`, `entities`). It has no phase and no per-tick callbacks.
 
 ```ts
-const projectiles = world.query("Projectiles")
+const projectiles = world
+  .query("Projectiles")
   .requires(Position, Velocity)
   .sort([Position], ([a], [b]) => a.z - b.z)
-  .enter([Position], (e, [pos]) => { pos.x = spawnX; });
+  .enter([Position], (e, [pos]) => {
+    pos.x = spawnX;
+  });
 
 world.start();
 
 // Anywhere in game code:
-projectiles.forEach((e) => { /* ... */ });
+projectiles.forEach((e) => {
+  /* ... */
+});
 console.log(projectiles.entities.size, "active projectiles");
 ```
 
-| Method | Description |
-|---|---|
-| `.requires(...components)` | Set the membership predicate and start tracking. |
-| `.query(expr)` | Set the membership predicate using the {@link SystemQuery} DSL. |
-| `.enter(callback)` / `.enter(inject, callback)` | Fires when an entity joins the query. |
-| `.exit(callback)` / `.exit(inject, callback)` | Fires when an entity leaves the query. |
-| `.sort(components, compare)` | Store matched entities in sorted order. |
-| `.track()` | Enable tracking (implied by `sort`; backfills when called after `start`). |
-| `.belongs(e)` | Returns `true` if the entity satisfies the predicate. |
-| `.forEach(callback)` | Iterate all currently tracked entities (entity only). |
-| `.forEach(components, callback)` | Iterate with component injection — same signature as `Filter.forEach`. |
-| `.entities` | `ReadonlySet<Entity>` of all currently tracked entities. |
-| `.destroy()` | Remove the query from the world and all entities. See below. |
+| Method                                          | Description                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------- |
+| `.requires(...components)`                      | Set the membership predicate and start tracking.                          |
+| `.query(expr)`                                  | Set the membership predicate using the {@link SystemQuery} DSL.           |
+| `.enter(callback)` / `.enter(inject, callback)` | Fires when an entity joins the query.                                     |
+| `.exit(callback)` / `.exit(inject, callback)`   | Fires when an entity leaves the query.                                    |
+| `.sort(components, compare)`                    | Store matched entities in sorted order.                                   |
+| `.track()`                                      | Enable tracking (implied by `sort`; backfills when called after `start`). |
+| `.belongs(e)`                                   | Returns `true` if the entity satisfies the predicate.                     |
+| `.forEach(callback)`                            | Iterate all currently tracked entities (entity only).                     |
+| `.forEach(components, callback)`                | Iterate with component injection — same signature as `Filter.forEach`.    |
+| `.entities`                                     | `ReadonlySet<Entity>` of all currently tracked entities.                  |
+| `.destroy()`                                    | Remove the query from the world and all entities. See below.              |
 
 #### `.destroy()`
 
@@ -568,9 +575,9 @@ A `Filter` is created via `world.filter(dsl)` and provides a non-reactive `forEa
 const f = world.filter([Position, Velocity]);
 ```
 
-| Method | Description |
-|---|---|
-| `.forEach(callback)` | Walk all world entities; invoke callback for each matching one. |
+| Method                           | Description                                                                |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| `.forEach(callback)`             | Walk all world entities; invoke callback for each matching one.            |
 | `.forEach(components, callback)` | Same, with component injection and non-null types for required components. |
 
 **Type inference** works the same way as for `requires()` on systems/queries: component classes extractable from the DSL (`HAS`, `HAS_ONLY`, plain arrays, and `AND` of those) are non-nullable in the callback tuple. Pass a `_guaranteed` second argument to `world.filter()` as a manual override when inference can't reach:

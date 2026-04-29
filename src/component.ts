@@ -177,10 +177,7 @@ export class Component {
  *
  * @internal Used internally to build archetype masks for system queries.
  */
-export function calculateComponentBitmask(
-  classes: ComponentClassArray,
-  world: World
-) {
+export function calculateComponentBitmask(classes: ComponentClassArray, world: World) {
   const bitmask = new Bitset();
   classes.forEach((C) => {
     bitmask.add(world.getComponentType(C));

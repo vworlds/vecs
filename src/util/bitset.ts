@@ -29,8 +29,7 @@ export class Bitset {
    */
   equal(other: Bitset) {
     return (
-      this._bits.length === other._bits.length &&
-      this._bits.every((v, i) => other._bits[i] === v)
+      this._bits.length === other._bits.length && this._bits.every((v, i) => other._bits[i] === v)
     );
   }
 
@@ -67,7 +66,7 @@ export class Bitset {
    */
   add(n: number): void {
     const arrayIndex = Math.floor(n / 32);
-    const bitmask = 1 << n % 32;
+    const bitmask = 1 << (n % 32);
     this.addIndexBitmask(arrayIndex, bitmask);
   }
 
@@ -84,10 +83,9 @@ export class Bitset {
     if (current === undefined) {
       return;
     } else {
-      this._bits[arrayIndex] = current & ~(1 << n % 32);
+      this._bits[arrayIndex] = current & ~(1 << (n % 32));
     }
-    while (this._bits.length && this._bits[this._bits.length - 1] === 0)
-      this._bits.pop();
+    while (this._bits.length && this._bits[this._bits.length - 1] === 0) this._bits.pop();
   }
 
   /**
@@ -190,7 +188,7 @@ export class BitPtr {
     public readonly value: number
   ) {
     this.arrayIndex = Math.floor(value / 32);
-    this.bitmask = 1 << value % 32;
+    this.bitmask = 1 << (value % 32);
   }
 
   /** Return `true` if both pointers refer to the same bit position. */

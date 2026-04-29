@@ -43,7 +43,7 @@ export class Entity {
    * with an entity without registering a component.
    */
   public properties = new Map<string, any>();
-  public declare _events: EntityEvents;
+  declare public _events: EntityEvents;
 
   /** Parent entity in the scene hierarchy, or `undefined` if root. */
   public parent: Entity | undefined;
@@ -71,9 +71,7 @@ export class Entity {
     return this._children;
   }
 
-  private getComponentInstance(
-    meta: ComponentMeta,
-  ) {
+  private getComponentInstance(meta: ComponentMeta) {
     const c = new meta.Class(this, meta);
     const hook = meta._onAddHandler;
     if (hook) hook(c);
@@ -94,10 +92,7 @@ export class Entity {
    * @returns The new (or existing) component instance, typed as
    *   `InstanceType<Class>`.
    */
-  public add<C extends typeof Component>(
-    Class: C,
-    markAsModified?: boolean
-  ): InstanceType<C>;
+  public add<C extends typeof Component>(Class: C, markAsModified?: boolean): InstanceType<C>;
   /**
    * Add a component by its numeric type id.
    *
@@ -106,10 +101,7 @@ export class Entity {
    * @param markAsModified - Whether to queue an update notification.
    */
   public add(type: number, markAsModified?: boolean): Component;
-  public add(
-    typeOrClass: number | typeof Component,
-    markAsModified: boolean = true
-  ) {
+  public add(typeOrClass: number | typeof Component, markAsModified: boolean = true) {
     const type = this.world.getComponentType(typeOrClass);
 
     let c = this.components.get(type);
@@ -155,12 +147,9 @@ export class Entity {
    * @param props - Optional properties to assign onto the component instance.
    */
   public set(type: number, props: Partial<Component>): Component;
-  public set(
-    typeOrClass: number | typeof Component,
-    props: Partial<Component>
-  ): Component {
+  public set(typeOrClass: number | typeof Component, props: Partial<Component>): Component {
     const c = this.add(typeOrClass as any, false);
-    this.world._queueUpdatedComponent(c)
+    this.world._queueUpdatedComponent(c);
     return Object.assign(c, props);
   }
 

@@ -22,7 +22,9 @@ function setup() {
   w.registerComponent(Player);
   const phase = w.addPhase("p");
   // dummy system ensures runPhase always flushes archetype changes
-  w.system("__flush__").phase(phase).run(() => {});
+  w.system("__flush__")
+    .phase(phase)
+    .run(() => {});
   return {
     w,
     tick: () => w.runPhase(phase, 0, 0),
@@ -213,7 +215,7 @@ describe("Query — entity tracking via world pipeline", () => {
     const b = w.createEntity();
     b.add(Position);
     tick();
-    const visited: typeof a[] = [];
+    const visited: (typeof a)[] = [];
     q.forEach((e) => visited.push(e));
     expect(visited).toContain(a);
     expect(visited).toContain(b);
@@ -341,7 +343,8 @@ describe("Query — enter/exit callbacks", () => {
 describe("Query — sort", () => {
   it("sort() orders entities by the comparator", () => {
     const { w, tick } = setup();
-    const q = w.query("test")
+    const q = w
+      .query("test")
       .requires(Position)
       .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
@@ -357,7 +360,8 @@ describe("Query — sort", () => {
 
   it("forEach visits entities in sorted order", () => {
     const { w, tick } = setup();
-    const q = w.query("test")
+    const q = w
+      .query("test")
       .requires(Position)
       .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
@@ -368,14 +372,15 @@ describe("Query — sort", () => {
     const e3 = w.createEntity();
     e3.add(Position, false).x = 20;
     tick();
-    const order: typeof e1[] = [];
+    const order: (typeof e1)[] = [];
     q.forEach((e) => order.push(e));
     expect(order).toEqual([e2, e3, e1]);
   });
 
   it("exiting entity is removed from the sorted set", () => {
     const { w, tick } = setup();
-    const q = w.query("test")
+    const q = w
+      .query("test")
       .requires(Position)
       .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();

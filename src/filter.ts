@@ -1,12 +1,7 @@
 import { Component } from "./component.js";
 import type { Entity } from "./entity.js";
 import type { World } from "./world.js";
-import {
-  buildEntityTest,
-  type EntityTestFunc,
-  type MaybeRequired,
-  type QueryDSL,
-} from "./dsl.js";
+import { buildEntityTest, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 
 /**
  * A non-reactive, one-shot entity filter.
@@ -68,29 +63,19 @@ export class Filter<R extends (typeof Component)[] = []> {
    */
   public forEach<J extends (typeof Component)[]>(
     components: readonly [...J],
-    callback: (
-      e: Entity,
-      resolved: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void;
 
   public forEach<J extends (typeof Component)[]>(
-    componentsOrCallback:
-      | readonly [...J]
-      | ((e: Entity) => void),
-    callback?: (
-      e: Entity,
-      resolved: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    componentsOrCallback: readonly [...J] | ((e: Entity) => void),
+    callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void {
     if (typeof componentsOrCallback === "function") {
       this.world._forEachEntity((e) => {
         if (this.belongs(e)) componentsOrCallback(e);
       });
     } else {
-      const types = componentsOrCallback.map((C) =>
-        this.world.getComponentType(C)
-      );
+      const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
       this.world._forEachEntity((e) => {
         if (!this.belongs(e)) return;
         const resolved = types.map((t) => e.get(t));

@@ -162,9 +162,15 @@ describe("World — phases", () => {
     const update = w.addPhase("update");
     const post = w.addPhase("post");
 
-    w.system("s1").phase(pre).run(() => order.push("pre"));
-    w.system("s2").phase(update).run(() => order.push("update"));
-    w.system("s3").phase(post).run(() => order.push("post"));
+    w.system("s1")
+      .phase(pre)
+      .run(() => order.push("pre"));
+    w.system("s2")
+      .phase(update)
+      .run(() => order.push("update"));
+    w.system("s3")
+      .phase(post)
+      .run(() => order.push("post"));
 
     w.start();
     w.progress(0, 16);

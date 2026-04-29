@@ -12,7 +12,6 @@ export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 type ComponentCallback = (c: Component) => void;
 type RunCallback = (now: number, delta: number) => void;
 
-
 /**
  * A reactive processor that operates on a filtered subset of world entities.
  *
@@ -71,8 +70,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public phase(p: string | IPhase) {
     if (typeof p !== "string") {
       if (!(p instanceof Phase)) throw "Invalid Phase object";
-      if (p.world !== this.world)
-        throw "Phase does not belong to this system's world";
+      if (p.world !== this.world) throw "Phase does not belong to this system's world";
     }
     this._phase = p;
     return this;
@@ -179,19 +177,13 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   update<C extends typeof Component, J extends (typeof Component)[]>(
     ComponentClass: C,
     inject: readonly [...J],
-    callback: (
-      c: InstanceType<C>,
-      injected: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    callback: (c: InstanceType<C>, injected: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): this;
 
   update<C extends typeof Component, J extends (typeof Component)[]>(
     ComponentClass: C,
     injectOrCallback: readonly [...J] | ((c: InstanceType<C>) => void),
-    callback?: (
-      c: InstanceType<C>,
-      injected: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    callback?: (c: InstanceType<C>, injected: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): this {
     const type = this.world.getComponentType(ComponentClass);
     if (typeof injectOrCallback === "function") {
@@ -199,9 +191,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
       this.componentUpdateCallbacks.set(type, callback as any);
     } else {
       const inject = injectOrCallback;
-      const injectedComponentTypes = inject.map((C) =>
-        this.world.getComponentType(C)
-      );
+      const injectedComponentTypes = inject.map((C) => this.world.getComponentType(C));
       const cb = (c: Component) => {
         const injected: any[] = [];
         injectedComponentTypes.forEach((InjectedComponentType) => {
@@ -262,10 +252,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    */
   public each<J extends (typeof Component)[]>(
     components: readonly [...J],
-    callback: (
-      e: Entity,
-      resolved: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): this {
     if (this.eachCallback) {
       throw `each already registered for system '${this.name}'`;

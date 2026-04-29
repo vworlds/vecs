@@ -5,11 +5,7 @@
   "postCreateCommand": "yarn install",
   "customizations": {
     "vscode": {
-      "extensions": [
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "anthropic.claude-code"
-      ],
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "anthropic.claude-code"],
       "settings": {
         "claudeCode.allowDangerouslySkipPermissions": true
       }

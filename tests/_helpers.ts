@@ -11,7 +11,9 @@ export function makeWorldWithFlushPhase(name = "p") {
   const w = new World();
   const phase = w.addPhase(name);
   // dummy system on this phase guarantees runPhase(phase) calls updateArchetypes.
-  w.system("__flush__").phase(phase).run(() => {});
+  w.system("__flush__")
+    .phase(phase)
+    .run(() => {});
   return {
     w,
     phase,
