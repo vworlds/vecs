@@ -125,9 +125,7 @@ export type ComponentClassArray = ComponentClassOrType[];
  * }
  *
  * world.registerComponent(Position);
- * const pos = entity.add(Position);
- * pos.x = 100;
- * pos.modified(); // notify watching systems
+ * entity.set(Position, { x: 100 });
  * ```
  *
  * A component instance is always bound to a single entity and is created by

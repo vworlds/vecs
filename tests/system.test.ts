@@ -519,16 +519,13 @@ describe("System — sort", () => {
     w.start();
 
     const e1 = w.createEntity();
-    const p1 = e1.add(Position, false);
-    p1.x = 30;
+    e1.set(Position, { x: 30 });
 
     const e2 = w.createEntity();
-    const p2 = e2.add(Position, false);
-    p2.x = 10;
+    e2.set(Position, { x: 10 });
 
     const e3 = w.createEntity();
-    const p3 = e3.add(Position, false);
-    p3.x = 20;
+    e3.set(Position, { x: 20 });
 
     w.runPhase(phase, 0, 0);
 
@@ -546,16 +543,13 @@ describe("System — sort", () => {
     w.start();
 
     const e1 = w.createEntity();
-    const p1 = e1.add(Position, false);
-    p1.x = 30;
+    e1.set(Position, { x: 30 });
 
     const e2 = w.createEntity();
-    const p2 = e2.add(Position, false);
-    p2.x = 10;
+    e2.set(Position, { x: 10 });
 
     const e3 = w.createEntity();
-    const p3 = e3.add(Position, false);
-    p3.x = 20;
+    e3.set(Position, { x: 20 });
 
     w.runPhase(phase, 0, 0); // enter
     w.runPhase(phase, 0, 0); // each fires
@@ -573,12 +567,10 @@ describe("System — sort", () => {
     w.start();
 
     const e1 = w.createEntity();
-    const p1 = e1.add(Position, false);
-    p1.x = 10;
+    e1.set(Position, { x: 10 });
 
     const e2 = w.createEntity();
-    const p2 = e2.add(Position, false);
-    p2.x = 20;
+    e2.set(Position, { x: 20 });
 
     w.runPhase(phase, 0, 0);
     expect([...sys.entities]).toEqual([e1, e2]);
@@ -601,22 +593,16 @@ describe("System — sort", () => {
     w.start();
 
     const e1 = w.createEntity();
-    const p1 = e1.add(Position, false);
-    const v1 = e1.add(Velocity, false);
-    p1.x = 10;
-    v1.vx = 5; // sum = 15
+    e1.set(Position, { x: 10 });
+    e1.set(Velocity, { vx: 5 }); // sum = 15
 
     const e2 = w.createEntity();
-    const p2 = e2.add(Position, false);
-    const v2 = e2.add(Velocity, false);
-    p2.x = 1;
-    v2.vx = 1; // sum = 2
+    e2.set(Position, { x: 1 });
+    e2.set(Velocity, { vx: 1 }); // sum = 2
 
     const e3 = w.createEntity();
-    const p3 = e3.add(Position, false);
-    const v3 = e3.add(Velocity, false);
-    p3.x = 5;
-    v3.vx = 5; // sum = 10
+    e3.set(Position, { x: 5 });
+    e3.set(Velocity, { vx: 5 }); // sum = 10
 
     w.runPhase(phase, 0, 0);
     expect([...sys.entities]).toEqual([e2, e3, e1]);

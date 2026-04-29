@@ -17,9 +17,7 @@ type EntityEvents = Events<{ destroy(): void }>;
  *
  * ```ts
  * const e = world.createEntity();
- * const pos = e.add(Position);
- * pos.x = 100;
- * pos.modified();
+ * e.set(Position, { x: 100 });
  * ```
  *
  * Entities support a parent–child hierarchy. When a parent is destroyed its

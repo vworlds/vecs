@@ -227,10 +227,8 @@ describe("Query — entity tracking via world pipeline", () => {
     const q = w.query("test").requires(Position, Velocity);
     w.start();
     const e = w.createEntity();
-    const pos = e.add(Position);
-    const vel = e.add(Velocity);
-    pos.x = 3;
-    vel.vx = 4;
+    e.set(Position, { x: 3 });
+    e.set(Velocity, { vx: 4 });
     tick();
     let sum = 0;
     q.forEach([Position, Velocity], (_e, [p, v]) => {
@@ -349,11 +347,11 @@ describe("Query — sort", () => {
       .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
     const e1 = w.createEntity();
-    e1.add(Position, false).x = 30;
+    e1.set(Position, { x: 30 });
     const e2 = w.createEntity();
-    e2.add(Position, false).x = 10;
+    e2.set(Position, { x: 10 });
     const e3 = w.createEntity();
-    e3.add(Position, false).x = 20;
+    e3.set(Position, { x: 20 });
     tick();
     expect([...q.entities]).toEqual([e2, e3, e1]);
   });
@@ -366,11 +364,11 @@ describe("Query — sort", () => {
       .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
     const e1 = w.createEntity();
-    e1.add(Position, false).x = 30;
+    e1.set(Position, { x: 30 });
     const e2 = w.createEntity();
-    e2.add(Position, false).x = 10;
+    e2.set(Position, { x: 10 });
     const e3 = w.createEntity();
-    e3.add(Position, false).x = 20;
+    e3.set(Position, { x: 20 });
     tick();
     const order: (typeof e1)[] = [];
     q.forEach((e) => order.push(e));
@@ -385,9 +383,9 @@ describe("Query — sort", () => {
       .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
     const e1 = w.createEntity();
-    e1.add(Position, false).x = 10;
+    e1.set(Position, { x: 10 });
     const e2 = w.createEntity();
-    e2.add(Position, false).x = 20;
+    e2.set(Position, { x: 20 });
     tick();
     expect([...q.entities]).toEqual([e1, e2]);
     e1.remove(Position);
