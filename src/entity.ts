@@ -11,12 +11,12 @@ type EntityEvents = Events<{ destroy(): void }>;
  * A game object — a unique identifier with an arbitrary set of
  * {@link Component | components} attached to it.
  *
- * You never construct an `Entity` directly. Use {@link World.createEntity} for
- * locally-owned entities or {@link World.getOrCreateEntity} when the id is
- * assigned by an external authority (e.g. the server):
+ * You never construct an `Entity` directly. Use {@link World.entity} to create
+ * one, or {@link World.getOrCreateEntity} when the id is assigned by an
+ * external authority (e.g. the server):
  *
  * ```ts
- * const e = world.createEntity();
+ * const e = world.entity();
  * e.set(Position, { x: 100 });
  * ```
  *

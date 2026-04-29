@@ -14,7 +14,7 @@ describe("Entity — components", () => {
   it("add returns the entity for chaining", () => {
     const w = new World();
     w.registerComponent(Position);
-    const e = w.createEntity();
+    const e = w.entity();
     expect(e.add(Position)).toBe(e);
     const pos = e.get(Position)!;
     expect(pos).toBeInstanceOf(Position);
@@ -25,7 +25,7 @@ describe("Entity — components", () => {
   it("add is idempotent — same instance is returned on repeat", () => {
     const w = new World();
     w.registerComponent(Position);
-    const e = w.createEntity();
+    const e = w.entity();
     const a = e.add(Position).get(Position);
     const b = e.add(Position).get(Position);
     expect(a).toBe(b);
@@ -34,7 +34,7 @@ describe("Entity — components", () => {
   it("add(typeId) works with numeric type ids", () => {
     const w = new World();
     w.registerComponent(Position, 5);
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(5).get(5);
     expect(pos).toBeInstanceOf(Position);
   });
@@ -42,7 +42,7 @@ describe("Entity — components", () => {
   it("set returns the entity for chaining", () => {
     const w = new World();
     w.registerComponent(Position);
-    const e = w.createEntity();
+    const e = w.entity();
     expect(e.set(Position, { x: 10, y: 20 })).toBe(e);
     const pos = e.get(Position)!;
     expect(pos).toBeInstanceOf(Position);
@@ -53,7 +53,7 @@ describe("Entity — components", () => {
   it("set is idempotent — same instance is kept with updated properties", () => {
     const w = new World();
     w.registerComponent(Position);
-    const e = w.createEntity();
+    const e = w.entity();
     const a = e.set(Position, { x: 1 }).get(Position);
     const b = e.set(Position, { x: 99 }).get(Position);
     expect(a).toBe(b);
@@ -63,7 +63,7 @@ describe("Entity — components", () => {
   it("set only assigns present properties — absent keys leave defaults intact", () => {
     const w = new World();
     w.registerComponent(Position);
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.set(Position, { x: 5 }).get(Position)!;
     expect(pos.x).toBe(5);
     expect(pos.y).toBe(0); // default unchanged
@@ -72,7 +72,7 @@ describe("Entity — components", () => {
   it("set(typeId, props) works with numeric type ids", () => {
     const w = new World();
     w.registerComponent(Position, 7);
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.set(7, {}).get(7);
     expect(pos).toBeInstanceOf(Position);
   });
@@ -83,7 +83,7 @@ describe("Entity — components", () => {
     env.start();
     const onSet = vi.fn();
     env.w.hook(Position).onSet(onSet);
-    const e = env.w.createEntity();
+    const e = env.w.entity();
     e.set(Position, { x: 1 });
     env.tick();
     expect(onSet).toHaveBeenCalledTimes(1);
@@ -95,7 +95,7 @@ describe("Entity — components", () => {
     env.start();
     const onSet = vi.fn();
     env.w.hook(Position).onSet(onSet);
-    const e = env.w.createEntity();
+    const e = env.w.entity();
     e.add(Position);
     env.tick(); // flush the initial add notification
     onSet.mockClear();
@@ -107,7 +107,7 @@ describe("Entity — components", () => {
   it("get returns the component or undefined", () => {
     const w = new World();
     w.registerComponent(Position);
-    const e = w.createEntity();
+    const e = w.entity();
     expect(e.get(Position)).toBeUndefined();
     expect(e.add(Position).get(Position)).toBeInstanceOf(Position);
   });
@@ -115,7 +115,7 @@ describe("Entity — components", () => {
   it("remove detaches a component", () => {
     const w = new World();
     w.registerComponent(Position);
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     e.remove(Position);
     expect(e.get(Position)).toBeUndefined();
@@ -124,7 +124,7 @@ describe("Entity — components", () => {
   it("get(Class, true) recovers a component removed in this frame", () => {
     const w = new World();
     w.registerComponent(Position);
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     e.remove(Position);
     expect(e.get(Position)).toBeUndefined();
@@ -135,7 +135,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.registerComponent(Position);
     w.registerComponent(Velocity);
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     e.add(Velocity);
     expect(e.componentBitmask.has(w.getComponentType(Position))).toBe(true);
@@ -147,7 +147,7 @@ describe("Entity — components", () => {
   it("empty reflects whether any components remain", () => {
     const w = new World();
     w.registerComponent(Position);
-    const e = w.createEntity();
+    const e = w.entity();
     expect(e.empty).toBe(true);
     e.add(Position);
     expect(e.empty).toBe(false);
@@ -159,7 +159,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.registerComponent(Position);
     w.registerComponent(Velocity);
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     e.add(Velocity);
     const seen: string[] = [];
@@ -169,7 +169,7 @@ describe("Entity — components", () => {
 
   it("toString returns Entity{eid}", () => {
     const w = new World();
-    const e = w.createEntity();
+    const e = w.entity();
     expect(e.toString()).toBe(`Entity${e.eid}`);
   });
 });
@@ -178,7 +178,7 @@ describe("Entity — lifecycle and hierarchy", () => {
   it("destroy emits the 'destroy' event", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
-    const e = env.w.createEntity();
+    const e = env.w.entity();
     const cb = vi.fn();
     e.events.on("destroy", cb);
     e.destroy();
@@ -189,7 +189,7 @@ describe("Entity — lifecycle and hierarchy", () => {
   it("destroy removes the entity from the world map", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
-    const e = env.w.createEntity();
+    const e = env.w.entity();
     e.destroy();
     expect(env.w.entity(e.eid)).toBeUndefined();
   });
@@ -197,8 +197,8 @@ describe("Entity — lifecycle and hierarchy", () => {
   it("destroy recursively destroys children", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
-    const parent = env.w.createEntity();
-    const child = env.w.createEntity();
+    const parent = env.w.entity();
+    const child = env.w.entity();
     child.parent = parent;
     parent.children.add(child);
 
@@ -214,8 +214,8 @@ describe("Entity — lifecycle and hierarchy", () => {
   it("destroy unlinks from parent and triggers parent's archetype update", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
-    const parent = env.w.createEntity();
-    const child = env.w.createEntity();
+    const parent = env.w.entity();
+    const child = env.w.entity();
     child.parent = parent;
     parent.children.add(child);
 
@@ -228,7 +228,7 @@ describe("Entity — lifecycle and hierarchy", () => {
 
   it("children set is created lazily", () => {
     const w = new World();
-    const e = w.createEntity();
+    const e = w.entity();
     expect(e._children).toBeUndefined();
     const c = e.children;
     expect(c).toBeInstanceOf(Set);
@@ -237,7 +237,7 @@ describe("Entity — lifecycle and hierarchy", () => {
 
   it("properties is a free-form map", () => {
     const w = new World();
-    const e = w.createEntity();
+    const e = w.entity();
     e.properties.set("kind", "bullet");
     expect(e.properties.get("kind")).toBe("bullet");
   });

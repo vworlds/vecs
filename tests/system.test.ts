@@ -30,7 +30,7 @@ describe("System — enter / exit / update", () => {
     const enter = vi.fn();
     w.system("test").phase(phase).requires(Position).enter(enter);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     expect(enter).toHaveBeenCalledWith(e);
@@ -41,7 +41,7 @@ describe("System — enter / exit / update", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position, Velocity).enter([Position, Velocity], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity).get(Velocity)!;
     w.runPhase(phase, 0, 0);
@@ -53,7 +53,7 @@ describe("System — enter / exit / update", () => {
     const exit = vi.fn();
     w.system("test").phase(phase).requires(Position).exit(exit);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     e.remove(Position);
@@ -66,7 +66,7 @@ describe("System — enter / exit / update", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).exit([Position], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0);
     e.remove(Position);
@@ -79,7 +79,7 @@ describe("System — enter / exit / update", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).update(Position, cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position, false).get(Position)!;
     w.runPhase(phase, 0, 0); // entity entered
     cb.mockClear();
@@ -93,7 +93,7 @@ describe("System — enter / exit / update", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).update(Position, cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0); // tick 1 enters the entity & queues pos
     w.runPhase(phase, 0, 0); // tick 2 drains the queue
@@ -105,7 +105,7 @@ describe("System — enter / exit / update", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position, Velocity).update(Velocity, [Position], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity, false).get(Velocity)!;
     w.runPhase(phase, 0, 0);
@@ -120,14 +120,14 @@ describe("System — enter / exit / update", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).update(Position, cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0); // enter
     w.runPhase(phase, 0, 0); // drain
     expect(cb).toHaveBeenCalledWith(pos);
 
     // Entity without Position must not match.
-    const f = w.createEntity();
+    const f = w.entity();
     f.add(Velocity);
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
@@ -162,7 +162,7 @@ describe("System — enter / exit / update", () => {
     const exit = vi.fn();
     w.system("test").phase(phase).requires(Position).exit(exit);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     e.destroy();
@@ -236,7 +236,7 @@ describe("System — query interaction with update watchlist", () => {
       .enter(cb);
     w.start();
 
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position); // would have matched the implicit query
     w.runPhase(phase, 0, 0);
     expect(cb).not.toHaveBeenCalled();
@@ -253,7 +253,7 @@ describe("System — each", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).each([Position], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0); // entry happens after run() in updateArchetypes
     w.runPhase(phase, 0, 0); // first each
@@ -265,7 +265,7 @@ describe("System — each", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).each([Position], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
@@ -279,9 +279,9 @@ describe("System — each", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).each([Position], cb);
     w.start();
-    const a = w.createEntity();
+    const a = w.entity();
     const posA = a.add(Position).get(Position)!;
-    const b = w.createEntity();
+    const b = w.entity();
     const posB = b.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
@@ -295,9 +295,9 @@ describe("System — each", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).each([Position], cb);
     w.start();
-    const a = w.createEntity();
+    const a = w.entity();
     a.add(Position);
-    const b = w.createEntity();
+    const b = w.entity();
     b.add(Velocity);
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
@@ -311,7 +311,7 @@ describe("System — each", () => {
     // Entity matches via Position only, but each also asks for Velocity:
     w.system("test").phase(phase).requires(Position).each([Position, Velocity], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
@@ -323,7 +323,7 @@ describe("System — each", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).each([Position], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
@@ -341,7 +341,7 @@ describe("System — each", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).each([Position], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
@@ -357,7 +357,7 @@ describe("System — each", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position, Velocity).each([Position, Velocity], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity).get(Velocity)!;
     w.runPhase(phase, 0, 0);
@@ -370,7 +370,7 @@ describe("System — each", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).each([Position], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
@@ -382,7 +382,7 @@ describe("System — each", () => {
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).each([], cb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
@@ -406,7 +406,7 @@ describe("System — each", () => {
     const { w, phase } = setup();
     const sys = w.system("test").phase(phase).requires(Position);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     expect(sys.entities.size).toBe(0);
@@ -416,7 +416,7 @@ describe("System — each", () => {
     const { w, phase } = setup();
     const sys = w.system("test").phase(phase).requires(Position).track();
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     expect(sys.entities.size).toBe(1);
@@ -432,7 +432,7 @@ describe("System — each", () => {
     expect(sys.track()).toBe(sys);
     expect(sys.track().track()).toBe(sys);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     expect(sys.entities.size).toBe(1);
@@ -446,7 +446,7 @@ describe("System — each", () => {
       .requires(Position)
       .each([Position], () => {});
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.add(Position);
     w.runPhase(phase, 0, 0);
     expect(sys.entities.has(e)).toBe(true);
@@ -472,7 +472,7 @@ describe("System — each", () => {
       .each([Position], eachCb)
       .update(Position, updateCb);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     const pos = e.add(Position, false).get(Position)!;
     w.runPhase(phase, 0, 0); // entry queues pos for update
     w.runPhase(phase, 0, 0); // both fire
@@ -503,7 +503,7 @@ describe("System — sort", () => {
       .requires(Position)
       .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
-    const e = w.createEntity();
+    const e = w.entity();
     e.set(Position, { x: 5 });
     w.runPhase(phase, 0, 0);
     expect(sys.entities.has(e)).toBe(true);
@@ -518,13 +518,13 @@ describe("System — sort", () => {
       .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
 
-    const e1 = w.createEntity();
+    const e1 = w.entity();
     e1.set(Position, { x: 30 });
 
-    const e2 = w.createEntity();
+    const e2 = w.entity();
     e2.set(Position, { x: 10 });
 
-    const e3 = w.createEntity();
+    const e3 = w.entity();
     e3.set(Position, { x: 20 });
 
     w.runPhase(phase, 0, 0);
@@ -542,13 +542,13 @@ describe("System — sort", () => {
       .each([Position], (_e, [pos]) => visited.push(pos.x));
     w.start();
 
-    const e1 = w.createEntity();
+    const e1 = w.entity();
     e1.set(Position, { x: 30 });
 
-    const e2 = w.createEntity();
+    const e2 = w.entity();
     e2.set(Position, { x: 10 });
 
-    const e3 = w.createEntity();
+    const e3 = w.entity();
     e3.set(Position, { x: 20 });
 
     w.runPhase(phase, 0, 0); // enter
@@ -566,10 +566,10 @@ describe("System — sort", () => {
       .sort([Position], ([a], [b]) => a.x - b.x);
     w.start();
 
-    const e1 = w.createEntity();
+    const e1 = w.entity();
     e1.set(Position, { x: 10 });
 
-    const e2 = w.createEntity();
+    const e2 = w.entity();
     e2.set(Position, { x: 20 });
 
     w.runPhase(phase, 0, 0);
@@ -592,15 +592,15 @@ describe("System — sort", () => {
       );
     w.start();
 
-    const e1 = w.createEntity();
+    const e1 = w.entity();
     e1.set(Position, { x: 10 });
     e1.set(Velocity, { vx: 5 }); // sum = 15
 
-    const e2 = w.createEntity();
+    const e2 = w.entity();
     e2.set(Position, { x: 1 });
     e2.set(Velocity, { vx: 1 }); // sum = 2
 
-    const e3 = w.createEntity();
+    const e3 = w.entity();
     e3.set(Position, { x: 5 });
     e3.set(Velocity, { vx: 5 }); // sum = 10
 
