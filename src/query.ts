@@ -52,7 +52,9 @@ export class Query<R extends (typeof Component)[] = []> {
     track: boolean = true
   ) {
     world._addQuery(this);
-    if (track) this.track();
+    if (track) {
+      this.track();
+    }
   }
 
   /** Returns the query name. */
@@ -76,7 +78,9 @@ export class Query<R extends (typeof Component)[] = []> {
   }
 
   private backfill(): void {
-    if (this._entities === undefined) return;
+    if (this._entities === undefined) {
+      return;
+    }
     this.world._forEachEntity((e) => {
       if (this.belongs(e) && !this._entities!.has(e)) {
         e._addQuery(this);
@@ -128,7 +132,9 @@ export class Query<R extends (typeof Component)[] = []> {
     if (typeof componentsOrCallback === "function") {
       this._entities?.forEach(componentsOrCallback);
     } else {
-      if (!this._entities || !this.world) return;
+      if (!this._entities || !this.world) {
+        return;
+      }
       const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
       this._entities.forEach((e) => {
         const resolved = types.map((t) => e.get(t));
@@ -352,7 +358,9 @@ export class Query<R extends (typeof Component)[] = []> {
     const injected: Component[] = [];
     inject.forEach((C) => {
       const c = this.getComponent(e, C, considerDeleted);
-      if (!c) throw "query does not contain component";
+      if (!c) {
+        throw "query does not contain component";
+      }
       injected.push(c);
     });
     return injected;
@@ -362,7 +370,9 @@ export class Query<R extends (typeof Component)[] = []> {
     inject: readonly [...J]
   ): ComponentOrParentType[] {
     return inject.map((C) => {
-      if (typeof C === "function") return this.world.getComponentType(C);
+      if (typeof C === "function") {
+        return this.world.getComponentType(C);
+      }
       return { parent: this.world.getComponentType(C.parent) };
     });
   }

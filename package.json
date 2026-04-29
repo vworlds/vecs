@@ -11,10 +11,14 @@
     "compile": "tsc --build && cp \"./package.json\" ./dist/",
     "test": "vitest run",
     "test:watch": "vitest",
+    "lint": "eslint src/ tests/",
     "prepare": "husky"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
+    "@typescript-eslint/parser": "^8.59.1",
+    "eslint": "^10.2.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.3",
@@ -31,6 +35,6 @@
     "url": "https://github.com/vworlds/vecs"
   },
   "lint-staged": {
-    "*.ts": "prettier --write"
+    "*.ts": ["prettier --write", "eslint --fix"]
   }
 }

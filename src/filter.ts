@@ -72,12 +72,16 @@ export class Filter<R extends (typeof Component)[] = []> {
   ): void {
     if (typeof componentsOrCallback === "function") {
       this.world._forEachEntity((e) => {
-        if (this.belongs(e)) componentsOrCallback(e);
+        if (this.belongs(e)) {
+          componentsOrCallback(e);
+        }
       });
     } else {
       const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
       this.world._forEachEntity((e) => {
-        if (!this.belongs(e)) return;
+        if (!this.belongs(e)) {
+          return;
+        }
         const resolved = types.map((t) => e.get(t));
         callback!(e, resolved as any);
       });

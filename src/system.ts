@@ -69,8 +69,12 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    */
   public phase(p: string | IPhase) {
     if (typeof p !== "string") {
-      if (!(p instanceof Phase)) throw "Invalid Phase object";
-      if (p.world !== this.world) throw "Phase does not belong to this system's world";
+      if (!(p instanceof Phase)) {
+        throw "Invalid Phase object";
+      }
+      if (p.world !== this.world) {
+        throw "Phase does not belong to this system's world";
+      }
     }
     this._phase = p;
     return this;
@@ -78,7 +82,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
 
   /** @internal Delivers a component-modified notification to this system. */
   public override notifyModified(c: Component) {
-    if (!this.watchlistBitmask.hasBit(c.bitPtr)) return;
+    if (!this.watchlistBitmask.hasBit(c.bitPtr)) {
+      return;
+    }
     this.updateQueue.push(c);
   }
 
@@ -92,14 +98,20 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _exit(e: Entity) {
     super._exit(e);
     this.updateQueue.forEach((c, i) => {
-      if (!c) return;
-      if (c.entity === e) this.updateQueue[i] = undefined;
+      if (!c) {
+        return;
+      }
+      if (c.entity === e) {
+        this.updateQueue[i] = undefined;
+      }
     });
   }
 
   /** @internal Execute one tick: run `run`, fire `each`, then drain the update queue. */
   public _run(now: number, delta: number) {
-    if (this._runCallback) this._runCallback(now, delta);
+    if (this._runCallback) {
+      this._runCallback(now, delta);
+    }
 
     if (this.eachCallback) {
       const cb = this.eachCallback;
@@ -107,7 +119,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
     }
 
     this.updateQueue.forEach((c) => {
-      if (!c) return;
+      if (!c) {
+        return;
+      }
       const callback = this.componentUpdateCallbacks.get(c.type);
       if (callback) {
         callback(c);

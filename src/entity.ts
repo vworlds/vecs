@@ -67,14 +67,18 @@ export class Entity {
    * both will keep the parent–child links consistent.
    */
   public get children(): Set<Entity> {
-    if (!this._children) this._children = new Set<Entity>();
+    if (!this._children) {
+      this._children = new Set<Entity>();
+    }
     return this._children;
   }
 
   private getComponentInstance(meta: ComponentMeta) {
     const c = new meta.Class(this, meta);
     const hook = meta._onAddHandler;
-    if (hook) hook(c);
+    if (hook) {
+      hook(c);
+    }
     return c;
   }
 
@@ -123,7 +127,9 @@ export class Entity {
     this.components.set(type, c);
     this.componentBitmask.add(type);
     this.world._notifyComponentAdded(this, c);
-    if (markAsModified) this.world._queueUpdatedComponent(c);
+    if (markAsModified) {
+      this.world._queueUpdatedComponent(c);
+    }
 
     return c;
   }
@@ -233,7 +239,9 @@ export class Entity {
   public _purgeQuery(q: Query): void {
     this.queries.delete(q);
     const idx = this.newQueries.indexOf(q);
-    if (idx !== -1) this.newQueries.splice(idx, 1);
+    if (idx !== -1) {
+      this.newQueries.splice(idx, 1);
+    }
   }
 
   /** @internal */
@@ -266,7 +274,9 @@ export class Entity {
 
   /** @internal */
   public _destroy() {
-    if (this.destroyed) return;
+    if (this.destroyed) {
+      return;
+    }
     this.destroyed = true;
     this.queries.forEach((q) => {
       q._exit(this);

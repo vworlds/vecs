@@ -79,7 +79,9 @@ export class World {
     if (!e) {
       e = new Entity(this, eid);
       this.entities.set(eid, e);
-      if (onCreateCallback) onCreateCallback(e);
+      if (onCreateCallback) {
+        onCreateCallback(e);
+      }
     }
     return e;
   }
@@ -122,8 +124,9 @@ export class World {
    * @throws If called after registration has been disabled.
    */
   public setEntityIdRange(min: number) {
-    if (this.componentRegistrationDisabled)
+    if (this.componentRegistrationDisabled) {
       throw "setEntityIdRange must be called before component registration is disabled";
+    }
     this.eidCounter = min;
   }
 
@@ -141,7 +144,9 @@ export class World {
     } else {
       meta = this.Type2Meta.get(typeOrClass);
     }
-    if (!meta) throw `unregistered component meta for component type or class '${typeOrClass}'`;
+    if (!meta) {
+      throw `unregistered component meta for component type or class '${typeOrClass}'`;
+    }
     return meta;
   }
 
@@ -169,7 +174,9 @@ export class World {
    * {@link Entity.remove}.
    */
   public archetypeChanged(e: Entity) {
-    if (e._archetypeChanged) return;
+    if (e._archetypeChanged) {
+      return;
+    }
     e._archetypeChanged = true;
     this.archChangeQueue.push(e);
     e.children.forEach((child) => this.archetypeChanged(child));
@@ -183,14 +190,18 @@ export class World {
   /** @internal */
   public _notifyComponentRemoved(e: Entity, c: Component) {
     const hook = c.meta._onRemoveHandler;
-    if (hook) hook(c);
+    if (hook) {
+      hook(c);
+    }
 
     this.archetypeChanged(e);
   }
 
   /** @internal */
   public _notifyEntityDestroyed(e: Entity) {
-    if (!this.entities.delete(e.eid)) return;
+    if (!this.entities.delete(e.eid)) {
+      return;
+    }
     e.forEachComponent((c) => {
       e.remove(c.type);
     });
@@ -223,7 +234,9 @@ export class World {
     if (this.updatedComponents.length > 0) {
       this.updatedComponents.forEach((c) => {
         const hook = c.meta._onSetHandler;
-        if (hook) hook(c);
+        if (hook) {
+          hook(c);
+        }
         c.entity._notifyModified(c);
         c._dirty = false;
       });
@@ -241,7 +254,9 @@ export class World {
 
   /** @internal Queues a component for onSet / update delivery. */
   public _queueUpdatedComponent(c: Component) {
-    if (c._dirty) return;
+    if (c._dirty) {
+      return;
+    }
     c._dirty = true;
     this.updatedComponents.push(c);
   }
@@ -302,7 +317,9 @@ export class World {
 
     let meta = this.Class2Meta.get(ComponentClass);
     if (meta) {
-      if (local) this.localComponentCounter--;
+      if (local) {
+        this.localComponentCounter--;
+      }
       throw `Trying to register ${componentName} with type=${type} which is already registered to ${meta.componentName}`;
     }
     this.registerComponentType(componentName, type);
@@ -341,7 +358,9 @@ export class World {
   /** @internal Called by {@link Query.destroy} to unregister a query and remove it from all entities. */
   public _removeQuery(q: Query): void {
     const idx = this.allQueries.indexOf(q);
-    if (idx !== -1) this.allQueries.splice(idx, 1);
+    if (idx !== -1) {
+      this.allQueries.splice(idx, 1);
+    }
     this.entities.forEach((e) => e._purgeQuery(q));
   }
 
@@ -464,7 +483,9 @@ export class World {
     const defaultPhase = _defaultPhase;
 
     this.allQueries.forEach((q) => {
-      if (!(q instanceof System)) return;
+      if (!(q instanceof System)) {
+        return;
+      }
       let phase = q._phase as Phase | undefined;
       if (typeof phase === "string") {
         phase = this._pipeline.get(phase);

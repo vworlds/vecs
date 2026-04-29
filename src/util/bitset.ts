@@ -85,7 +85,9 @@ export class Bitset {
     } else {
       this._bits[arrayIndex] = current & ~(1 << (n % 32));
     }
-    while (this._bits.length && this._bits[this._bits.length - 1] === 0) this._bits.pop();
+    while (this._bits.length && this._bits[this._bits.length - 1] === 0) {
+      this._bits.pop();
+    }
   }
 
   /**
@@ -102,7 +104,9 @@ export class Bitset {
    */
   has(n: number): boolean {
     const arrayIndex = Math.floor(n / 32);
-    if (arrayIndex >= this._bits.length) return false;
+    if (arrayIndex >= this._bits.length) {
+      return false;
+    }
     const bitIndex = n % 32;
     const bitmask = 1 << bitIndex;
     return this.hasIndexBitmask(arrayIndex, bitmask);
