@@ -35,6 +35,7 @@
     "url": "https://github.com/vworlds/vecs"
   },
   "lint-staged": {
-    "*.ts": ["prettier --write", "eslint --fix"]
+    "*.ts": ["prettier --write", "eslint --fix"],
+    "*.md": "prettier --write"
   }
 }
