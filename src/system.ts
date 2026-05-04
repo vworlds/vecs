@@ -17,7 +17,7 @@ type RunCallback = (now: number, delta: number) => void;
  */
 export type SystemInboxEvent =
   | { kind: "enter"; entity: Entity }
-  | { kind: "exit"; entity: Entity }
+  | { kind: "exit"; entity: Entity; snapshot: Map<number, Component> }
   | { kind: "update"; component: Component };
 
 /**
@@ -108,7 +108,13 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _exit(e: Entity): void {
     this._entities?.delete(e);
     e._removeQueryMembership(this);
-    this.inbox.push({ kind: "exit", entity: e });
+    // Snapshot components now — they are still installed at this call site
+    // (bitmask cleared, but entity.components not yet mutated). The system
+    // will drain this inbox event in the next _run and needs the snapshot for
+    // exit-injection callbacks.
+    const snapshot = new Map<number, Component>();
+    e._forEachInstalledComponent((c) => snapshot.set(c.type, c));
+    this.inbox.push({ kind: "exit", entity: e, snapshot });
   }
 
   /** @internal Routing entry: enqueue an update event if the watchlist matches. */
@@ -135,7 +141,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
             this._enterCallback.forEach((cb) => cb(event.entity));
             break;
           case "exit":
-            this._exitCallback.forEach((cb) => cb(event.entity));
+            this._exitCallback.forEach((cb) => cb(event.entity, event.snapshot));
             break;
           case "update":
             const callback = this.componentUpdateCallbacks.get(event.component.type);

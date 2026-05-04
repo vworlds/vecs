@@ -58,7 +58,7 @@ describe("System — enter / exit / update", () => {
     w.runPhase(phase, 0, 0);
     e.remove(Position);
     w.runPhase(phase, 0, 0);
-    expect(exit).toHaveBeenCalledWith(e);
+    expect(exit.mock.calls[0][0]).toBe(e);
   });
 
   it("exit injection includes recently-removed components", () => {
@@ -167,7 +167,7 @@ describe("System — enter / exit / update", () => {
     w.runPhase(phase, 0, 0);
     e.destroy();
     w.runPhase(phase, 0, 0);
-    expect(exit).toHaveBeenCalledWith(e);
+    expect(exit.mock.calls[0][0]).toBe(e);
   });
 });
 

@@ -121,16 +121,6 @@ describe("Entity — components", () => {
     expect(e.get(Position)).toBeUndefined();
   });
 
-  it("get(Class, true) recovers a component removed in this frame", () => {
-    const w = new World();
-    w.registerComponent(Position);
-    const e = w.entity();
-    const pos = e.add(Position).get(Position)!;
-    e.remove(Position);
-    expect(e.get(Position)).toBeUndefined();
-    expect(e.get(Position, true)).toBe(pos);
-  });
-
   it("componentBitmask reflects added/removed components", () => {
     const w = new World();
     w.registerComponent(Position);

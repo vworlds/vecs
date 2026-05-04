@@ -14,7 +14,7 @@ import {
 
 export type { EntityTestFunc, QueryDSL, MaybeRequired };
 
-type EntityCallback = (e: Entity) => void;
+type EntityCallback = (e: Entity, snapshot?: Map<number, Component>) => void;
 type ComponentCallback = (c: Component) => void;
 
 type ComponentOrParent = typeof Component | { parent: typeof Component };
@@ -274,10 +274,6 @@ export class Query<R extends (typeof Component)[] = []> {
    * (its components no longer satisfy the predicate, or it was destroyed) with
    * injected components.
    *
-   * Components that were just removed are still accessible via `get_deleted`
-   * semantics — the injected tuple includes them even though they are no
-   * longer in the entity's active component set.
-   *
    * @param inject - Component classes to resolve and inject.
    * @param callback - Receives the entity and the resolved component tuple.
    * @returns `this` for chaining.
@@ -303,8 +299,8 @@ export class Query<R extends (typeof Component)[] = []> {
       this._exitCallback.push(injectOrCallback);
     } else {
       const inject = this.mapInjectedClassToTypes(injectOrCallback);
-      this._exitCallback.push((e: Entity) => {
-        callback!(e, this.getInjected(e, inject, true) as any);
+      this._exitCallback.push((e: Entity, snapshot?: Map<number, Component>) => {
+        callback!(e, this.getInjected(e, inject, snapshot) as any);
       });
     }
     return this;
@@ -426,7 +422,7 @@ export class Query<R extends (typeof Component)[] = []> {
   ): this {
     const types = components.map((C) => this.world.getComponentType(C));
     this._entities = new OrderedSet<Entity>((a, b) =>
-      compare(types.map((t) => a.get(t, true)) as any, types.map((t) => b.get(t, true)) as any)
+      compare(types.map((t) => a.get(t)) as any, types.map((t) => b.get(t)) as any)
     );
     this.backfill();
     return this;
@@ -495,20 +491,22 @@ export class Query<R extends (typeof Component)[] = []> {
     return this as unknown as Query<T>;
   }
 
-  private getComponent(e: Entity, C: ComponentOrParentType, considerDeleted: boolean) {
-    let c: Component | undefined;
+  private getComponent(e: Entity, C: ComponentOrParentType, snapshot?: Map<number, Component>) {
     if (typeof C === "number") {
-      c = e.get(C, considerDeleted);
+      return snapshot?.get(C) ?? e.get(C);
     } else {
-      c = e.parent && e.parent.get(C.parent, considerDeleted);
+      return e.parent?.get(C.parent);
     }
-    return c;
   }
 
-  private getInjected(e: Entity, inject: ComponentOrParentType[], considerDeleted = false) {
+  private getInjected(
+    e: Entity,
+    inject: ComponentOrParentType[],
+    snapshot?: Map<number, Component>
+  ) {
     const injected: Component[] = [];
     inject.forEach((C) => {
-      const c = this.getComponent(e, C, considerDeleted);
+      const c = this.getComponent(e, C, snapshot);
       if (!c) {
         throw "query does not contain component";
       }

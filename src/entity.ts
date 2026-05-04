@@ -39,7 +39,6 @@ type EntityEvents = Events<{ destroy(): void }>;
  */
 export class Entity {
   private components = new ArrayMap<Component>(); //maps component types to Components
-  private deletedComponents = new ArrayMap<Component>(); //maps deleted component types to Components
 
   /**
    * Bitmask representing the set of component types currently attached to this
@@ -203,22 +202,11 @@ export class Entity {
    * Retrieve the component of type `Class`, or `undefined` if not present.
    *
    * @param typeOrClass - Component class or numeric type id.
-   * @param get_deleted - If `true`, also search components that were removed
-   *   in the current frame but not yet garbage-collected. Useful inside
-   *   `exit` callbacks to read final component values.
    * @returns The component instance or `undefined`.
    */
-  public get<C extends typeof Component>(
-    typeOrClass: number | C,
-    get_deleted: boolean = false
-  ): InstanceType<C> | undefined {
+  public get<C extends typeof Component>(typeOrClass: number | C): InstanceType<C> | undefined {
     const type = this.world.getComponentType(typeOrClass);
-
-    const c = this.components.get(type);
-    if (!c && get_deleted) {
-      return this.deletedComponents.get(type) as InstanceType<C> | undefined;
-    }
-    return c as InstanceType<C> | undefined;
+    return this.components.get(type) as InstanceType<C> | undefined;
   }
 
   /**
@@ -277,11 +265,9 @@ export class Entity {
     this.componentBitmask.add(type);
   }
 
-  /** @internal Uninstall a component, moving it to deletedComponents (called from World.executeRemove). */
-  public _uninstallComponent(type: number, c: Component): void {
+  /** @internal Remove a component from the installed map. Bitmask must already be cleared. */
+  public _removeInstalledComponent(type: number): void {
     this.components.delete(type);
-    this.deletedComponents.set(type, c);
-    this.componentBitmask.delete(type);
   }
 
   /** @internal Iterate over every currently-installed component. */
@@ -321,16 +307,6 @@ export class Entity {
       });
       this._children.clear();
     }
-  }
-
-  /** @internal Clear all deleted components. Called by World at the end of each runPhase. */
-  public clearDeletedComponents(): void {
-    this.deletedComponents.clear();
-  }
-
-  /** @internal Forget any deleted instance for the given type id. Called when a fresh component of that type is installed. */
-  public _clearDeletedComponent(type: number): void {
-    this.deletedComponents.delete(type);
   }
 
   /**

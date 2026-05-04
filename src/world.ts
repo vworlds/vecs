@@ -88,8 +88,6 @@ export class World {
   private deferredDepth = 0;
   /** @internal True while `processCommandQueue` is iterating, to avoid re-entrant drains. */
   private draining = false;
-  /** @internal Entities that had components removed this frame; cleared at end of runPhase. */
-  private entitiesWithDeletedComponents = new Set<Entity>();
 
   /** @internal */
   public _pipeline = new Map<string, Phase>();
@@ -325,7 +323,6 @@ export class World {
       Object.assign(c, props);
     }
     entity._installComponent(type, c);
-    entity._clearDeletedComponent(type);
 
     if (meta._onAddHandler) {
       meta._onAddHandler(c);
@@ -406,10 +403,12 @@ export class World {
       return;
     }
 
-    entity._uninstallComponent(type, c);
+    // Clear the bitmask first so q.belongs() returns false during exit routing,
+    // but leave the component in entity.components so exit callbacks and the
+    // sort comparator can still read it via entity.get(C).
+    entity.componentBitmask.delete(type);
 
-    // Route an exit event to every query/system that no longer matches.
-    // Note the queries that will need _exit to avoid mutation issues.
+    // Route exits while the component is still accessible.
     const toExit: Query[] = [];
     entity._forEachQuery((q) => {
       if (!q.belongs(entity)) {
@@ -418,16 +417,14 @@ export class World {
     });
     toExit.forEach((q) => q._exit(entity));
 
-    // onRemove hook fires after exit events.
+    // Remove from components after exits have fired.
+    entity._removeInstalledComponent(type);
+
+    // onRemove hook fires last.
     const meta = c.meta;
     if (meta._onRemoveHandler) {
       meta._onRemoveHandler(c);
     }
-
-    // Deleted components persist until the end of runPhase so that system
-    // exit-injection callbacks (which fire in the next _run) can still read
-    // them via entity.get(C, true).
-    this.entitiesWithDeletedComponents.add(entity);
   }
 
   private executeDestroy(entity: Entity): void {
@@ -776,9 +773,6 @@ export class World {
       // System._run wraps in begin/end which drains on return; nothing more
       // to do here.
     });
-    // Clear deleted components now that all system inboxes have been drained.
-    this.entitiesWithDeletedComponents.forEach((e) => e.clearDeletedComponents());
-    this.entitiesWithDeletedComponents.clear();
   }
 
   /**
