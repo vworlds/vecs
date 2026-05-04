@@ -17,7 +17,7 @@ type RunCallback = (now: number, delta: number) => void;
  */
 export type SystemInboxEvent =
   | { kind: "enter"; entity: Entity }
-  | { kind: "exit"; entity: Entity; snapshot: Map<number, Component> }
+  | { kind: "exit"; entity: Entity; snapshot: Map<number, Component> | undefined }
   | { kind: "update"; component: Component };
 
 /**
@@ -111,11 +111,19 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
     this._entities?.delete(e);
     e._removeQueryMembership(this);
     if (this._exitCallback !== undefined) {
-      // Snapshot components now — still installed at this call site (bitmask
-      // already cleared). The snapshot is needed for exit-injection callbacks
-      // which fire in the next _run.
-      const snapshot = new Map<number, Component>();
-      e._forEachInstalledComponent((c) => snapshot.set(c.type, c));
+      // Only snapshot the types the callback injects, and only direct (non-parent)
+      // ones — resolved at registration time. Parent refs are read from e.parent
+      // at callback time. Undefined when the callback takes no injection.
+      let snapshot: Map<number, Component> | undefined;
+      if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
+        snapshot = new Map<number, Component>();
+        for (const type of this._exitSnapshotTypes) {
+          const c = e._getInstalledComponent(type);
+          if (c) {
+            snapshot.set(type, c);
+          }
+        }
+      }
       this.inbox.push({ kind: "exit", entity: e, snapshot });
     }
   }

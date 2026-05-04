@@ -50,6 +50,8 @@ export class Query<R extends (typeof Component)[] = []> {
   protected _entities: Set<Entity> | undefined;
   protected _enterCallback: EntityCallback | undefined = undefined;
   protected _exitCallback: EntityCallback | undefined = undefined;
+  /** @internal Direct component type ids that the exit callback injects; undefined when no injection. */
+  protected _exitSnapshotTypes: number[] | undefined = undefined;
   protected _belongs: EntityTestFunc = (_e: Entity) => false;
   protected hasQuery = false;
 
@@ -297,10 +299,14 @@ export class Query<R extends (typeof Component)[] = []> {
   ): this {
     if (typeof injectOrCallback === "function") {
       this._exitCallback = injectOrCallback;
+      this._exitSnapshotTypes = undefined;
     } else {
       const inject = this.mapInjectedClassToTypes(injectOrCallback);
-      this._exitCallback = (e: Entity, snapshot?: Map<number, Component>) => {
-        callback!(e, this.getInjected(e, inject, snapshot) as any);
+      // Only direct (non-parent) types need snapshotting; parent refs are read
+      // from e.parent at callback time, which is still alive.
+      this._exitSnapshotTypes = inject.filter((t): t is number => typeof t === "number");
+      this._exitCallback = (e: Entity, exitSnapshot?: Map<number, Component>) => {
+        callback!(e, this.getInjected(e, inject, exitSnapshot) as any);
       };
     }
     return this;
@@ -491,9 +497,9 @@ export class Query<R extends (typeof Component)[] = []> {
     return this as unknown as Query<T>;
   }
 
-  private getComponent(e: Entity, C: ComponentOrParentType, snapshot?: Map<number, Component>) {
+  private getComponent(e: Entity, C: ComponentOrParentType, exitSnapshot?: Map<number, Component>) {
     if (typeof C === "number") {
-      return snapshot?.get(C) ?? e.get(C);
+      return exitSnapshot?.get(C) ?? e.get(C);
     } else {
       return e.parent?.get(C.parent);
     }
@@ -502,11 +508,11 @@ export class Query<R extends (typeof Component)[] = []> {
   private getInjected(
     e: Entity,
     inject: ComponentOrParentType[],
-    snapshot?: Map<number, Component>
+    exitSnapshot?: Map<number, Component>
   ) {
     const injected: Component[] = [];
     inject.forEach((C) => {
-      const c = this.getComponent(e, C, snapshot);
+      const c = this.getComponent(e, C, exitSnapshot);
       if (!c) {
         throw "query does not contain component";
       }
