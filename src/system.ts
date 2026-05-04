@@ -94,7 +94,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _enter(e: Entity): void {
     this._entities?.add(e);
     e._addQueryMembership(this);
-    if (this._enterCallback.length > 0) {
+    if (this._enterCallback !== undefined) {
       this.inbox.push({ kind: "enter", entity: e });
     }
     // Bridge: surface watched components on entry through `notifyModified`,
@@ -110,7 +110,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _exit(e: Entity): void {
     this._entities?.delete(e);
     e._removeQueryMembership(this);
-    if (this._exitCallback.length > 0) {
+    if (this._exitCallback !== undefined) {
       // Snapshot components now — still installed at this call site (bitmask
       // already cleared). The snapshot is needed for exit-injection callbacks
       // which fire in the next _run.
@@ -141,10 +141,10 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
         const event = this.inbox[i];
         switch (event.kind) {
           case "enter":
-            this._enterCallback.forEach((cb) => cb(event.entity));
+            this._enterCallback!(event.entity);
             break;
           case "exit":
-            this._exitCallback.forEach((cb) => cb(event.entity, event.snapshot));
+            this._exitCallback!(event.entity, event.snapshot);
             break;
           case "update":
             const callback = this.componentUpdateCallbacks.get(event.component.type);

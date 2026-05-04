@@ -48,8 +48,8 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  */
 export class Query<R extends (typeof Component)[] = []> {
   protected _entities: Set<Entity> | undefined;
-  protected _enterCallback: EntityCallback[] = [];
-  protected _exitCallback: EntityCallback[] = [];
+  protected _enterCallback: EntityCallback | undefined = undefined;
+  protected _exitCallback: EntityCallback | undefined = undefined;
   protected _belongs: EntityTestFunc = (_e: Entity) => false;
   protected hasQuery = false;
 
@@ -202,7 +202,7 @@ export class Query<R extends (typeof Component)[] = []> {
   public _enter(e: Entity): void {
     this._entities?.add(e);
     e._addQueryMembership(this);
-    this._enterCallback.forEach((cb) => cb(e));
+    this._enterCallback?.(e);
     // Bridge: surface the entity's already-attached watched components as
     // update events so `update` handlers fire once on entry without the user
     // having to call `modified()` explicitly.
@@ -219,7 +219,7 @@ export class Query<R extends (typeof Component)[] = []> {
    * to also push an inbox event.
    */
   public _exit(e: Entity): void {
-    this._exitCallback.forEach((cb) => cb(e));
+    this._exitCallback?.(e);
     this._entities?.delete(e);
     e._removeQueryMembership(this);
   }
@@ -259,12 +259,12 @@ export class Query<R extends (typeof Component)[] = []> {
     callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
   ): this {
     if (typeof injectOrCallback === "function") {
-      this._enterCallback.push(injectOrCallback);
+      this._enterCallback = injectOrCallback;
     } else {
       const inject = this.mapInjectedClassToTypes(injectOrCallback);
-      this._enterCallback.push((e: Entity) => {
+      this._enterCallback = (e: Entity) => {
         callback!(e, this.getInjected(e, inject) as any);
-      });
+      };
     }
     return this;
   }
@@ -296,12 +296,12 @@ export class Query<R extends (typeof Component)[] = []> {
     callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
   ): this {
     if (typeof injectOrCallback === "function") {
-      this._exitCallback.push(injectOrCallback);
+      this._exitCallback = injectOrCallback;
     } else {
       const inject = this.mapInjectedClassToTypes(injectOrCallback);
-      this._exitCallback.push((e: Entity, snapshot?: Map<number, Component>) => {
+      this._exitCallback = (e: Entity, snapshot?: Map<number, Component>) => {
         callback!(e, this.getInjected(e, inject, snapshot) as any);
-      });
+      };
     }
     return this;
   }
