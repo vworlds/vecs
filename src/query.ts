@@ -98,7 +98,7 @@ export class Query<R extends (typeof Component)[] = []> {
     this.world.beginDeferred();
     try {
       this.world._forEachEntity((e) => {
-        if (this.belongs(e) && !e._hasQuery(this)) {
+        if (this.belongs(e) && !e.isInQuery(this)) {
           this._enter(e);
         }
       });

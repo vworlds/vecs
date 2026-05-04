@@ -298,9 +298,20 @@ export class World {
     }
   }
 
+  private _updateEntityQueries(entity: Entity) {
+    this.allQueries.forEach((q) => {
+      const belongs = q.belongs(entity);
+      const isInQuery = entity.isInQuery(q);
+
+      if (belongs !== isInQuery) {
+        belongs ? q._enter(entity) : q._exit(entity);
+      }
+    });
+  }
+
   /**
    * Internal helper: create + install a component on an entity, fire onAdd,
-   * and route enter events. Used by both `executeAdd` and `executeSet`'s
+   * and route enter events. Used by `executeSet`'s
    * create-if-missing path. Caller is responsible for applying any props
    * before installation if the props should be visible to query predicates
    * (e.g. ordered-set comparators).
@@ -328,18 +339,7 @@ export class World {
       meta._onAddHandler(c);
     }
 
-    const allQueriesSnapshot = [...this.allQueries];
-    allQueriesSnapshot.forEach((q) => {
-      if (!q.world) {
-        return;
-      }
-      if (entity._hasQuery(q)) {
-        return;
-      }
-      if (q.belongs(entity)) {
-        q._enter(entity);
-      }
-    });
+    this._updateEntityQueries(entity);
 
     return c;
   }
@@ -402,21 +402,12 @@ export class World {
     if (!c) {
       return;
     }
-
     // Clear the bitmask first so q.belongs() returns false during exit routing,
     // but leave the component in entity.components so exit callbacks and the
     // sort comparator can still read it via entity.get(C).
     entity.componentBitmask.delete(type);
 
-    // Route exits while the component is still accessible.
-    const toExit: Query[] = [];
-    entity._forEachQuery((q) => {
-      if (!q.belongs(entity)) {
-        toExit.push(q);
-      }
-    });
-    toExit.forEach((q) => q._exit(entity));
-
+    this._updateEntityQueries(entity);
     // Remove from components after exits have fired.
     entity._removeInstalledComponent(type);
 

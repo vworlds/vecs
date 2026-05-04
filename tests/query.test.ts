@@ -471,3 +471,91 @@ describe("Query — destroy", () => {
     expect(enter).toHaveBeenCalledTimes(1); // only the first entity, before destroy
   });
 });
+
+describe("Query — NOT predicate routing", () => {
+  it("removing a component causes enter on a NOT query", () => {
+    const { w, tick } = setup();
+    const enter = vi.fn();
+    // Matches entities that have Position but NOT Velocity.
+    w.query("test")
+      .query({ AND: [Position, { NOT: Velocity }] })
+      .enter(enter);
+    w.start();
+    const e = w.entity();
+    // Add Velocity first so the entity never transiently matches while being set up.
+    e.add(Velocity); // no Position yet — doesn't match
+    e.add(Position); // has both — still doesn't match (has Velocity)
+    tick();
+    expect(enter).not.toHaveBeenCalled();
+    e.remove(Velocity);
+    tick(); // removing Velocity makes it match → enter fires
+    expect(enter).toHaveBeenCalledWith(e);
+  });
+
+  it("adding a component causes exit on a NOT query", () => {
+    const { w, tick } = setup();
+    const exit = vi.fn();
+    w.query("test")
+      .query({ AND: [Position, { NOT: Velocity }] })
+      .exit(exit);
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    tick(); // entity matches (no Velocity)
+    e.add(Velocity);
+    tick(); // adding Velocity breaks the NOT predicate → exit fires
+    expect(exit).toHaveBeenCalledWith(e);
+  });
+
+  it("cycling NOT query fires enter → exit → enter in order", () => {
+    const { w, tick } = setup();
+    const events: string[] = [];
+    w.query("test")
+      .query({ AND: [Position, { NOT: Velocity }] })
+      .enter(() => events.push("enter"))
+      .exit(() => events.push("exit"));
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    tick(); // enter (no Velocity)
+    e.add(Velocity);
+    tick(); // exit (Velocity added)
+    e.remove(Velocity);
+    tick(); // enter again (Velocity removed)
+    expect(events).toEqual(["enter", "exit", "enter"]);
+  });
+
+  it("plain NOT query: entity enters when the excluded component is removed", () => {
+    const { w, tick } = setup();
+    const enter = vi.fn();
+    w.query("test").query({ NOT: Velocity }).enter(enter);
+    w.start();
+    const e = w.entity();
+    e.add(Velocity);
+    tick();
+    expect(enter).not.toHaveBeenCalled();
+    e.remove(Velocity);
+    tick();
+    expect(enter).toHaveBeenCalledWith(e);
+  });
+
+  it("system receives enter inbox event when NOT-excluded component is removed", () => {
+    const { w } = setup();
+    const enter = vi.fn();
+    const phase = w.addPhase("p2");
+    w.system("test")
+      .phase(phase)
+      .query({ AND: [Position, { NOT: Velocity }] })
+      .enter(enter);
+    w.start();
+    const e = w.entity();
+    // Add Velocity first so Position's arrival doesn't transiently match.
+    e.add(Velocity); // no Position — doesn't match
+    e.add(Position); // has both — still doesn't match (has Velocity)
+    w.runPhase(phase, 0, 0);
+    expect(enter).not.toHaveBeenCalled();
+    e.remove(Velocity); // now matches → enter queued on system inbox
+    w.runPhase(phase, 0, 0);
+    expect(enter.mock.calls[0][0]).toBe(e);
+  });
+});

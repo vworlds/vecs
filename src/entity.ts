@@ -224,8 +224,7 @@ export class Entity {
     return this._events;
   }
 
-  /** @internal */
-  public _hasQuery(q: Query) {
+  public isInQuery(q: Query) {
     return this.queries.has(q);
   }
 
