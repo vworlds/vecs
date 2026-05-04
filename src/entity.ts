@@ -1,4 +1,4 @@
-import { Component, ComponentMeta } from "./component.js";
+import { Component } from "./component.js";
 import type { World } from "./world.js";
 import { ArrayMap } from "./util/array_map.js";
 import { type Query } from "./query.js";
@@ -22,6 +22,20 @@ type EntityEvents = Events<{ destroy(): void }>;
  *
  * Entities support a parent–child hierarchy. When a parent is destroyed its
  * children are destroyed recursively. The `children` set is created lazily.
+ *
+ * ## Deferred semantics
+ *
+ * Inside a system body or `forEach` iteration the world is in **deferred
+ * mode**: `add` / `set` / `remove` / `destroy` only enqueue commands; the
+ * data layer (`components` map, `componentBitmask`) is not mutated until the
+ * world processes the queue. Concretely, inside deferred mode:
+ *
+ * - `entity.get(C)` returns `undefined` after `entity.add(C)` (no instance yet).
+ * - `entity.get(C)` returns the previous value after `entity.set(C, props)`.
+ * - `entity.get(C)` still returns the component after `entity.remove(C)`.
+ *
+ * Outside deferred mode (top-level user code) the same calls execute inline —
+ * mutations are visible immediately.
  */
 export class Entity {
   private components = new ArrayMap<Component>(); //maps component types to Components
@@ -34,7 +48,6 @@ export class Entity {
    */
   public readonly componentBitmask = new Bitset();
   private readonly queries = new Set<Query>();
-  private readonly newQueries: Query[] = [];
 
   /**
    * A free-form property bag that modules can use to associate arbitrary data
@@ -47,8 +60,8 @@ export class Entity {
   public parent: Entity | undefined;
   /** @internal */
   public _children: Set<Entity> | undefined;
-  public _archetypeChanged: boolean = false;
-  private destroyed = false;
+  /** @internal True once the world has fully processed this entity's destruction. */
+  public _destroyed: boolean = false;
 
   constructor(
     /** The {@link World} that owns this entity. */
@@ -71,15 +84,6 @@ export class Entity {
     return this._children;
   }
 
-  private getComponentInstance(meta: ComponentMeta) {
-    const c = new meta.Class(this, meta);
-    const hook = meta._onAddHandler;
-    if (hook) {
-      hook(c);
-    }
-    return c;
-  }
-
   /**
    * Queue an `onSet` / `update` notification for the given component and
    * return the entity for chaining.
@@ -91,23 +95,38 @@ export class Entity {
    * @returns This entity, for chaining.
    */
   public modified<C extends typeof Component>(c: InstanceType<C>): Entity {
-    this.world._queueUpdatedComponent(c);
+    if (c._dirty) {
+      return this;
+    }
+    c._dirty = true;
+    this.world.dispatch({
+      kind: "Set",
+      entity: this,
+      type: c.type,
+      props: undefined,
+      createIfMissing: false,
+    });
     return this;
   }
 
   /**
    * Add a component of type `Class` to this entity and return the instance.
    *
-   * If the component is already present the existing instance is returned and
-   * no callback is fired. Pass `markAsModified = false` to suppress the
-   * initial `onSet` / `update` notification (useful when bulk-loading
-   * network snapshots before systems are running).
+   * In deferred mode the component is created when the world processes the
+   * resulting `Add` command — until then `get(Class)` returns `undefined`.
+   * Outside deferred mode the add executes inline and the new component is
+   * immediately visible.
+   *
+   * If the component is already present the call is a no-op (idempotent).
+   * Pass `markAsModified = false` to suppress the initial `onSet` / `update`
+   * notification (useful when bulk-loading network snapshots before systems
+   * are running).
    *
    * @param Class - The component class to instantiate.
    * @param markAsModified - Whether to immediately queue an `update`
    *   notification. Defaults to `true`.
-   * @returns The new (or existing) component instance, typed as
-   *   `InstanceType<Class>`.
+   * @returns The new (or existing) component instance — only meaningful
+   *   outside deferred mode.
    */
   public _add<C extends typeof Component>(Class: C, markAsModified?: boolean): InstanceType<C>;
   /**
@@ -120,31 +139,26 @@ export class Entity {
   public _add(type: number, markAsModified?: boolean): Component;
   public _add(typeOrClass: number | typeof Component, markAsModified: boolean = true) {
     const type = this.world.getComponentType(typeOrClass);
-
-    let c = this.components.get(type);
-    if (c) {
-      return c;
-    }
-
-    const meta = this.world.getComponentMeta(typeOrClass);
-    if (meta.exclusive) {
-      for (const exclusiveType of meta.exclusive) {
-        if (this.components.has(exclusiveType)) {
-          this.remove(exclusiveType);
-        }
-      }
-    }
-
-    c = this.getComponentInstance(meta);
-
-    this.components.set(type, c);
-    this.componentBitmask.add(type);
-    this.world._notifyComponentAdded(this, c);
     if (markAsModified) {
-      this.modified(c);
+      // Single Set command: creates if missing AND fires onSet (bridge fires
+      // the system's `update` event for the new component as part of enter
+      // routing — no separate Add+Set pair needed).
+      this.world.dispatch({
+        kind: "Set",
+        entity: this,
+        type,
+        props: undefined,
+        createIfMissing: true,
+      });
+    } else {
+      // Add only — create the component (firing onAdd + enter routing) but
+      // do not fire onSet.
+      this.world.dispatch({ kind: "Add", entity: this, type });
     }
-
-    return c;
+    // In non-deferred mode the dispatch executed inline; return the live
+    // instance. In deferred mode the instance does not yet exist — callers
+    // that need synchronous access must not be inside deferred mode.
+    return this.components.get(type) as any;
   }
 
   /**
@@ -178,6 +192,9 @@ export class Entity {
    * Add a component of type `Class` (if not already present), assign the
    * provided properties onto the instance, and return the entity for chaining.
    *
+   * In deferred mode the props are not applied until the world processes the
+   * resulting `Set` command.
+   *
    * @param Class - The component class to instantiate.
    * @param props - Properties to assign onto the component instance.
    * @returns This entity, for chaining.
@@ -192,18 +209,23 @@ export class Entity {
    */
   public set(type: number, props: Partial<Component>): Entity;
   public set(typeOrClass: number | typeof Component, props: Partial<Component>): Entity {
-    const c = this._add(typeOrClass as any, false);
-    this.modified(c);
-    Object.assign(c, props);
+    const type = this.world.getComponentType(typeOrClass);
+    this.world.dispatch({
+      kind: "Set",
+      entity: this,
+      type,
+      props,
+      createIfMissing: true,
+    });
     return this;
   }
 
   /**
    * Remove the component of the given class from this entity.
    *
-   * The `onRemove` hook and any `exit` callbacks on matching systems are
-   * called when archetype changes are flushed at the end of the next system
-   * run. Does nothing if the component is not present.
+   * In deferred mode the removal is queued — `get(Class)` continues to return
+   * the component until the queue is processed. Once processed, queries fire
+   * exit callbacks first, then the `onRemove` hook fires.
    *
    * @param Class - The component class to remove.
    */
@@ -216,13 +238,7 @@ export class Entity {
   public remove(type: number): void;
   public remove(typeOrClass: number | typeof Component): void {
     const type = this.world.getComponentType(typeOrClass);
-    const c = this.components.get(type);
-    if (c) {
-      this.components.delete(type);
-      this.deletedComponents.set(type, c);
-      this.componentBitmask.delete(type);
-      this.world._notifyComponentRemoved(this, c);
-    }
+    this.world.dispatch({ kind: "Remove", entity: this, type });
   }
 
   /** @internal Called by queries to deliver update notifications. */
@@ -277,33 +293,59 @@ export class Entity {
   /** @internal Removes a query from this entity's tracking sets without firing any callbacks. */
   public _purgeQuery(q: Query): void {
     this.queries.delete(q);
-    const idx = this.newQueries.indexOf(q);
-    if (idx !== -1) {
-      this.newQueries.splice(idx, 1);
-    }
   }
 
-  /** @internal */
-  public _addQuery(q: Query) {
-    if (!this.queries.has(q)) {
-      this.newQueries.push(q);
-      q._enter(this);
-    }
+  /** @internal Add a query to the entity's tracked-query set. Called by Query._enter. */
+  public _addQueryMembership(q: Query) {
+    this.queries.add(q);
   }
 
-  /** @internal */
-  public _removeQuery(q: Query) {
-    if (this.queries.delete(q)) {
-      q._exit(this);
-    }
+  /** @internal Remove a query from the entity's tracked-query set. Called by Query._exit. */
+  public _removeQueryMembership(q: Query) {
+    this.queries.delete(q);
   }
 
-  /** @internal */
-  public _updateQueries() {
-    this.newQueries.forEach((q) => {
-      this.queries.add(q);
-    });
-    this.newQueries.length = 0;
+  /** @internal Iterate over every query this entity is currently tracked by. */
+  public _forEachQuery(callback: (q: Query) => void): void {
+    this.queries.forEach(callback);
+  }
+
+  /** @internal True if a component of the given type id is currently installed. */
+  public _hasComponentType(type: number): boolean {
+    return this.components.has(type);
+  }
+
+  /** @internal Look up a currently-installed component instance by type id. */
+  public _getInstalledComponent(type: number): Component | undefined {
+    return this.components.get(type);
+  }
+
+  /** @internal Install a freshly created component (called from World.executeAdd). */
+  public _installComponent(type: number, c: Component): void {
+    this.components.set(type, c);
+    this.componentBitmask.add(type);
+  }
+
+  /** @internal Uninstall a component, moving it to deletedComponents (called from World.executeRemove). */
+  public _uninstallComponent(type: number, c: Component): void {
+    this.components.delete(type);
+    this.deletedComponents.set(type, c);
+    this.componentBitmask.delete(type);
+  }
+
+  /** @internal Move a component to deletedComponents without touching the bitmask (used by Destroy). */
+  public _moveComponentToDeleted(type: number, c: Component): void {
+    this.components.delete(type);
+    this.deletedComponents.set(type, c);
+    this.componentBitmask.delete(type);
+  }
+
+  /** @internal Iterate over every currently-installed component. */
+  public _forEachInstalledComponent(callback: (c: Component) => void): void {
+    // Snapshot to a list so callbacks can mutate `components` safely.
+    const snapshot: Component[] = [];
+    this.components.forEach((c) => snapshot.push(c));
+    snapshot.forEach(callback);
   }
 
   /** `true` when the entity has no components attached. */
@@ -311,46 +353,40 @@ export class Entity {
     return this.components.size == 0;
   }
 
-  /** @internal */
-  public _destroy() {
-    if (this.destroyed) {
-      return;
-    }
-    this.destroyed = true;
-    this.queries.forEach((q) => {
-      q._exit(this);
-    });
-    this.queries.clear();
-
-    if (this._events) {
-      this._events.emit("destroy");
-      this._events.removeAllListeners("destroy");
-    }
-  }
-
   /**
    * Destroy this entity and recursively destroy all of its children.
    *
-   * All components are removed (triggering `onRemove` hooks and `exit`
-   * callbacks), the entity is unregistered from the world, and the `"destroy"`
-   * event is emitted. The entity must not be used after calling this method.
+   * In deferred mode this only enqueues a `Destroy` command — the entity
+   * remains in the world map and queries still see it as a member until the
+   * queue is processed. Outside deferred mode the destruction completes
+   * inline.
+   *
+   * All components have their `onRemove` hooks fired, the entity is
+   * unregistered from the world, and the `"destroy"` event is emitted. The
+   * entity must not be used after the destroy completes.
    */
   public destroy() {
-    this.world._notifyEntityDestroyed(this);
-    this.children.forEach((child) => {
-      child.destroy();
-    });
-    this.children.clear();
-    if (this.parent) {
-      this.parent.children.delete(this);
-      this.world.archetypeChanged(this.parent);
-      this.parent = undefined;
+    // Recurse into children first at queue time so the parent's Destroy
+    // command is followed by each child's Destroy command, giving the spec'd
+    // top-down processing order ("parent already gone before children's
+    // exit/onRemove fire").
+    this.world.dispatch({ kind: "Destroy", entity: this });
+    if (this._children) {
+      this._children.forEach((child) => {
+        child.destroy();
+      });
+      this._children.clear();
     }
   }
 
-  /** @internal */
+  /** @internal Clear the deletedComponents map. Called by World after a drain. */
   public clearDeletedComponents() {
     this.deletedComponents.clear();
+  }
+
+  /** @internal Forget any deleted instance for the given type id. Called when a fresh component of that type is installed. */
+  public _clearDeletedComponent(type: number): void {
+    this.deletedComponents.delete(type);
   }
 
   /**

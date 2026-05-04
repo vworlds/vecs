@@ -10,6 +10,36 @@ import { IPhase, Phase } from "./phase.js";
 const LOCAL_COMPONENT_MIN = 256;
 
 /**
+ * Command kinds emitted by {@link Entity} and routed by {@link World}.
+ *
+ * Commands are produced by `entity.add` / `entity.set` / `entity.remove` /
+ * `entity.destroy` (and `Component.modified`). In deferred mode they are
+ * pushed onto the world's command queue and processed at well-defined
+ * boundaries (after each system run, on `flush()`, on the next `runPhase`,
+ * etc.). Outside deferred mode they execute inline.
+ *
+ * @internal
+ */
+export type Command =
+  | { kind: "CreateEntity"; entity: Entity }
+  | { kind: "Add"; entity: Entity; type: number }
+  | {
+      kind: "Set";
+      entity: Entity;
+      type: number;
+      props: Partial<Component> | undefined;
+      /**
+       * When `true` (from `entity.set()` and `entity.add(C, true)`), the
+       * component is created if missing — the Set command stands alone.
+       * When `false` (from `c.modified()`), a missing component is a no-op
+       * (the user is firing onSet on a stale reference).
+       */
+      createIfMissing: boolean;
+    }
+  | { kind: "Remove"; entity: Entity; type: number }
+  | { kind: "Destroy"; entity: Entity };
+
+/**
  * The central ECS container.
  *
  * A `World` owns all entities, components, systems, queries, and the update
@@ -42,15 +72,20 @@ const LOCAL_COMPONENT_MIN = 256;
 export class World {
   private entities = new Map<number, Entity>(); // maps entity Id to Entity
   private componentNameTypeMap = new Map<string, number>();
-  private archChangeQueue: Entity[] = [];
-  private destroyedEntities: Entity[] = [];
   private allQueries: Query[] = [];
 
   private Class2Meta = new Map<typeof Component, ComponentMeta>();
   private Type2Meta = new ArrayMap<ComponentMeta>();
-  private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   private componentRegistrationDisabled = false;
+
+  /** @internal Single ordered command queue used in deferred mode. */
+  private commandQueue: Command[] = [];
+  /** @internal Nested `beginDeferred` / `endDeferred` count. */
+  private deferredDepth = 0;
+  /** @internal True while `processCommandQueue` is iterating, to avoid re-entrant drains. */
+  private draining = false;
+
   /** @internal */
   public _pipeline = new Map<string, Phase>();
   private eidCounter = 0;
@@ -106,7 +141,7 @@ export class World {
     if (id === undefined) {
       const eid = this.eidCounter++;
       const e = new Entity(this, eid);
-      this.entities.set(eid, e);
+      this.dispatch({ kind: "CreateEntity", entity: e });
       return e;
     }
     return this.entities.get(id);
@@ -165,101 +200,278 @@ export class World {
   }
 
   /**
-   * Mark an entity's archetype as changed, queuing it for re-evaluation
-   * against all system queries at the end of the current system run.
+   * Enter deferred mode. Mutations made until the matching {@link endDeferred}
+   * are queued instead of executing inline.
    *
-   * Also recursively marks all children as changed so that `{ PARENT: ... }`
-   * queries are re-evaluated.
+   * Nested begin/end pairs are allowed; only the outermost `endDeferred`
+   * triggers a drain.
    *
-   * @internal Called automatically by {@link Entity.add} and
-   * {@link Entity.remove}.
+   * @internal Used by `System._run`, `Query.forEach`, and `Filter.forEach` to
+   * isolate iteration from in-flight mutations.
    */
-  public archetypeChanged(e: Entity) {
-    if (e._archetypeChanged) {
+  public beginDeferred(): void {
+    this.deferredDepth++;
+  }
+
+  /**
+   * Leave deferred mode. When the depth returns to zero, the world processes
+   * the command queue (firing hooks and routing enter / exit / update events).
+   *
+   * @internal Pair with {@link beginDeferred}.
+   */
+  public endDeferred(): void {
+    this.deferredDepth--;
+    if (this.deferredDepth === 0) {
+      this.processCommandQueue();
+    }
+  }
+
+  /**
+   * Drain any pending commands queued at the top level (depth 0).
+   *
+   * Useful between phases or after batch-loading network snapshots, to make
+   * accumulated mutations visible (fire hooks, route enter/exit/update) before
+   * the next read or system run.
+   */
+  public flush(): void {
+    if (this.deferredDepth === 0) {
+      this.processCommandQueue();
+    }
+  }
+
+  /**
+   * @internal Submit a command. In deferred mode it is appended to the
+   * command queue; otherwise it is executed inline.
+   */
+  public dispatch(cmd: Command): void {
+    if (this.deferredDepth > 0 || this.draining) {
+      this.commandQueue.push(cmd);
+    } else {
+      this.executeCommand(cmd);
+    }
+  }
+
+  /**
+   * @internal Walk the command queue in insertion order, executing each
+   * command. Callbacks may push more commands, which are processed in the
+   * same pass via index iteration.
+   */
+  private processCommandQueue(): void {
+    if (this.draining) {
       return;
     }
-    e._archetypeChanged = true;
-    this.archChangeQueue.push(e);
-    e.children.forEach((child) => this.archetypeChanged(child));
+    if (this.commandQueue.length === 0) {
+      return;
+    }
+    this.draining = true;
+    try {
+      for (let i = 0; i < this.commandQueue.length; i++) {
+        this.executeCommand(this.commandQueue[i]);
+      }
+      this.commandQueue.length = 0;
+    } finally {
+      this.draining = false;
+    }
   }
 
-  /** @internal */
-  public _notifyComponentAdded(e: Entity, c: Component) {
-    this.archetypeChanged(e);
+  /**
+   * @internal Run a single command's side effects: data-layer mutation, hook
+   * firing, and routing to all registered queries / systems.
+   */
+  private executeCommand(cmd: Command): void {
+    switch (cmd.kind) {
+      case "CreateEntity":
+        this.entities.set(cmd.entity.eid, cmd.entity);
+        return;
+      case "Add":
+        this.executeAdd(cmd.entity, cmd.type);
+        return;
+      case "Set":
+        this.executeSet(cmd.entity, cmd.type, cmd.props, cmd.createIfMissing);
+        return;
+      case "Remove":
+        this.executeRemove(cmd.entity, cmd.type);
+        return;
+      case "Destroy":
+        this.executeDestroy(cmd.entity);
+        return;
+    }
   }
 
-  /** @internal */
-  public _notifyComponentRemoved(e: Entity, c: Component) {
-    const hook = c.meta._onRemoveHandler;
-    if (hook) {
-      hook(c);
+  /**
+   * Internal helper: create + install a component on an entity, fire onAdd,
+   * and route enter events. Used by both `executeAdd` and `executeSet`'s
+   * create-if-missing path. Caller is responsible for applying any props
+   * before installation if the props should be visible to query predicates
+   * (e.g. ordered-set comparators).
+   */
+  private installComponent(entity: Entity, type: number, props: Partial<Component> | undefined) {
+    const meta = this.getComponentMeta(type);
+
+    // Exclusive components: synchronously remove any conflicting type so that
+    // onRemove(displaced) fires before onAdd(new).
+    if (meta.exclusive) {
+      for (const exclusiveType of meta.exclusive) {
+        if (entity._hasComponentType(exclusiveType)) {
+          this.executeRemove(entity, exclusiveType);
+        }
+      }
     }
 
-    this.archetypeChanged(e);
+    const c = new meta.Class(entity, meta);
+    if (props !== undefined) {
+      Object.assign(c, props);
+    }
+    entity._installComponent(type, c);
+    entity._clearDeletedComponent(type);
+
+    if (meta._onAddHandler) {
+      meta._onAddHandler(c);
+    }
+
+    const allQueriesSnapshot = [...this.allQueries];
+    allQueriesSnapshot.forEach((q) => {
+      if (!q.world) {
+        return;
+      }
+      if (entity._hasQuery(q)) {
+        return;
+      }
+      if (q.belongs(entity)) {
+        q._enter(entity);
+      }
+    });
+
+    return c;
+  }
+
+  private executeAdd(entity: Entity, type: number): void {
+    if (entity._destroyed) {
+      return;
+    }
+    if (entity._hasComponentType(type)) {
+      return;
+    }
+    this.installComponent(entity, type, undefined);
+  }
+
+  private executeSet(
+    entity: Entity,
+    type: number,
+    props: Partial<Component> | undefined,
+    createIfMissing: boolean
+  ): void {
+    if (entity._destroyed) {
+      return;
+    }
+    let c = entity._getInstalledComponent(type);
+    let justCreated = false;
+
+    if (!c) {
+      if (!createIfMissing) {
+        // c.modified() on a stale reference — the component is gone.
+        return;
+      }
+      c = this.installComponent(entity, type, props);
+      justCreated = true;
+    } else if (props !== undefined) {
+      Object.assign(c, props);
+    }
+
+    const meta = c.meta;
+    if (meta._onSetHandler) {
+      meta._onSetHandler(c);
+    }
+    c._dirty = false;
+
+    // Route an update event to every query/system the entity is currently
+    // in. Skip when the component was just created — the bridge in
+    // `Query._enter` (and `System._enter`'s override) already routed update
+    // events for every component on the entity that the query watches,
+    // including this one.
+    if (!justCreated) {
+      entity._forEachQuery((q) => {
+        q.notifyModified(c!);
+      });
+    }
+  }
+
+  private executeRemove(entity: Entity, type: number): void {
+    if (entity._destroyed) {
+      return;
+    }
+    const c = entity._getInstalledComponent(type);
+    if (!c) {
+      return;
+    }
+
+    entity._uninstallComponent(type, c);
+
+    // Route an exit event to every query/system that no longer matches.
+    // Snapshot the queries up-front because _exit mutates entity.queries.
+    const snapshot: Query[] = [];
+    entity._forEachQuery((q) => snapshot.push(q));
+    snapshot.forEach((q) => {
+      if (!q.world) {
+        return;
+      }
+      if (!q.belongs(entity)) {
+        q._exit(entity);
+      }
+    });
+
+    // onRemove hook fires after exit events.
+    const meta = c.meta;
+    if (meta._onRemoveHandler) {
+      meta._onRemoveHandler(c);
+    }
+  }
+
+  private executeDestroy(entity: Entity): void {
+    if (entity._destroyed) {
+      return;
+    }
+
+    // 1. Fire exit on every query the entity belongs to.
+    const queries: Query[] = [];
+    entity._forEachQuery((q) => queries.push(q));
+    queries.forEach((q) => {
+      if (q.world) {
+        q._exit(entity);
+      }
+    });
+
+    // 2. Fire onRemove on every still-attached component.
+    entity._forEachInstalledComponent((c) => {
+      const meta = c.meta;
+      if (meta._onRemoveHandler) {
+        meta._onRemoveHandler(c);
+      }
+      entity._moveComponentToDeleted(c.type, c);
+    });
+
+    // 3. Emit the destroy event.
+    if (entity._events) {
+      entity._events.emit("destroy");
+      entity._events.removeAllListeners("destroy");
+    }
+
+    // 4. Mark the entity destroyed and unhook from world / parent.
+    entity._destroyed = true;
+    this.entities.delete(entity.eid);
+
+    if (entity.parent) {
+      entity.parent.children.delete(entity);
+      // The parent may match `{ PARENT: ... }` queries that depend on this
+      // child's archetype — but since we don't change parent's bitmask here,
+      // there's no archetype change to dispatch. Existing code didn't either.
+      entity.parent = undefined;
+    }
   }
 
   /** @internal */
   public _notifyEntityDestroyed(e: Entity) {
-    if (!this.entities.delete(e.eid)) {
-      return;
-    }
-    e.forEachComponent((c) => {
-      e.remove(c.type);
-    });
-    this.destroyedEntities.push(e);
-  }
-
-  private updateArchetypes() {
-    if (this.archChangeQueue.length > 0) {
-      this.allQueries.forEach((q) => {
-        this.archChangeQueue.forEach((e) => {
-          if (q.belongs(e)) {
-            e._addQuery(q);
-          } else {
-            e._removeQuery(q);
-          }
-        });
-      });
-      this.archChangeQueue.forEach((e) => {
-        e.clearDeletedComponents();
-      });
-    }
-
-    if (this.destroyedEntities.length > 0) {
-      this.destroyedEntities.forEach((e) => {
-        e._destroy();
-      });
-      this.destroyedEntities.length = 0;
-    }
-
-    if (this.updatedComponents.length > 0) {
-      this.updatedComponents.forEach((c) => {
-        const hook = c.meta._onSetHandler;
-        if (hook) {
-          hook(c);
-        }
-        c.entity._notifyModified(c);
-        c._dirty = false;
-      });
-      this.updatedComponents.length = 0;
-    }
-
-    if (this.archChangeQueue.length > 0) {
-      this.archChangeQueue.forEach((e) => {
-        e._updateQueries();
-        e._archetypeChanged = false;
-      });
-      this.archChangeQueue.length = 0;
-    }
-  }
-
-  /** @internal Queues a component for onSet / update delivery. */
-  public _queueUpdatedComponent(c: Component) {
-    if (c._dirty) {
-      return;
-    }
-    c._dirty = true;
-    this.updatedComponents.push(c);
+    this.dispatch({ kind: "Destroy", entity: e });
   }
 
   /**
@@ -545,18 +757,22 @@ export class World {
   /**
    * Execute all systems in the given phase for one tick.
    *
-   * After each system runs, pending archetype changes (entity add/remove
-   * component events) are flushed so that `enter` / `exit` callbacks are
-   * delivered before the next system in the same phase executes.
+   * Pending top-level mutations are drained at the start of the phase so the
+   * first system observes a consistent world. Each system's body runs in a
+   * deferred scope; mutations made by callbacks are appended to the world
+   * queue and processed by the world after the system returns, before the
+   * next system runs.
    *
    * @param phase - The {@link IPhase} to run (returned by {@link addPhase}).
    * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public runPhase(phase: IPhase, now: number, delta: number) {
+    this.flush();
     (phase as Phase).systems.forEach((s) => {
       s._run(now, delta);
-      this.updateArchetypes();
+      // System._run wraps in begin/end which drains on return; nothing more
+      // to do here.
     });
   }
 
@@ -569,7 +785,7 @@ export class World {
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public progress(now: number, delta: number) {
-    this.updateArchetypes();
+    this.flush();
     this._pipeline.forEach((phase) => {
       this.runPhase(phase, now, delta);
     });
@@ -606,6 +822,6 @@ export class World {
     this.entities.forEach((e) => {
       e.destroy();
     });
-    this.entities.clear();
+    this.flush();
   }
 }

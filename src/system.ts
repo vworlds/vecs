@@ -1,16 +1,24 @@
-import { ArrayMap } from "./util/array_map.js";
-import { Bitset } from "./util/bitset.js";
 import { Component } from "./component.js";
 import { Query } from "./query.js";
-import { HAS, type QueryDSL, type MaybeRequired } from "./dsl.js";
+import { type QueryDSL, type MaybeRequired } from "./dsl.js";
 import type { Entity } from "./entity.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world.js";
 
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
-type ComponentCallback = (c: Component) => void;
 type RunCallback = (now: number, delta: number) => void;
+
+/**
+ * One ordered event in a system's inbox. Routed by the world during command
+ * queue processing; replayed during the system's next `_run`.
+ *
+ * @internal
+ */
+export type SystemInboxEvent =
+  | { kind: "enter"; entity: Entity }
+  | { kind: "exit"; entity: Entity }
+  | { kind: "update"; component: Component };
 
 /**
  * A reactive processor that operates on a filtered subset of world entities.
@@ -30,6 +38,11 @@ type RunCallback = (now: number, delta: number) => void;
  * once all systems are registered; after that, drive the loop with
  * {@link World.runPhase}.
  *
+ * Internally each system holds a single ordered **inbox** of routed events
+ * (`enter`, `exit`, `update`). The world appends to it during command-queue
+ * routing; the system replays the inbox at the top of every `_run` so
+ * callbacks observe events in arrival order.
+ *
  * ### Component injection and type inference
  *
  * `enter`, `exit`, `update`, `each`, and `sort` all accept an array of
@@ -43,14 +56,11 @@ type RunCallback = (now: number, delta: number) => void;
  * non-nullable; any component not in `R` remains `Type | undefined`.
  */
 export class System<R extends (typeof Component)[] = []> extends Query<R> {
-  protected componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
   protected eachCallback: ((e: Entity) => void) | undefined;
   private _runCallback: RunCallback | undefined;
-  private readonly updateQueue: (Component | undefined)[] = [];
+  private readonly inbox: SystemInboxEvent[] = [];
   /** @internal */
   public _phase: string | Phase | undefined;
-
-  protected watchlistBitmask: Bitset = new Bitset();
 
   constructor(name: string, world: World) {
     super(name, world, false);
@@ -80,54 +90,74 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
     return this;
   }
 
-  /** @internal Delivers a component-modified notification to this system. */
-  public override notifyModified(c: Component) {
+  /** @internal Routing entry: register membership and enqueue an enter event. */
+  public override _enter(e: Entity): void {
+    this._entities?.add(e);
+    e._addQueryMembership(this);
+    this.inbox.push({ kind: "enter", entity: e });
+    // Bridge: surface watched components on entry through `notifyModified`,
+    // which on System pushes inbox `update` events.
+    e.forEachComponent((c) => {
+      if (this.watchlistBitmask.hasBit(c.bitPtr)) {
+        this.notifyModified(c);
+      }
+    });
+  }
+
+  /** @internal Routing entry: deregister membership and enqueue an exit event. */
+  public override _exit(e: Entity): void {
+    this._entities?.delete(e);
+    e._removeQueryMembership(this);
+    this.inbox.push({ kind: "exit", entity: e });
+  }
+
+  /** @internal Routing entry: enqueue an update event if the watchlist matches. */
+  public override notifyModified(c: Component): void {
     if (!this.watchlistBitmask.hasBit(c.bitPtr)) {
       return;
     }
-    this.updateQueue.push(c);
+    this.inbox.push({ kind: "update", component: c });
   }
 
-  /** @internal Fires enter callbacks, adds entity to tracked set, queues component updates. */
-  public override _enter(e: Entity) {
-    super._enter(e);
-    e.forEachComponent((c) => this.notifyModified(c));
-  }
-
-  /** @internal Fires exit callbacks, removes entity from tracked set, drains update queue. */
-  public override _exit(e: Entity) {
-    super._exit(e);
-    this.updateQueue.forEach((c, i) => {
-      if (!c) {
-        return;
-      }
-      if (c.entity === e) {
-        this.updateQueue[i] = undefined;
-      }
-    });
-  }
-
-  /** @internal Execute one tick: run `run`, fire `each`, then drain the update queue. */
+  /**
+   * @internal Execute one tick: drain the inbox in arrival order, then run
+   * `runCallback` and `eachCallback`. The whole body runs in a deferred
+   * scope; any mutations made by callbacks land in the world queue and are
+   * processed by the world after `_run` returns.
+   */
   public _run(now: number, delta: number) {
-    if (this._runCallback) {
-      this._runCallback(now, delta);
-    }
-
-    if (this.eachCallback) {
-      const cb = this.eachCallback;
-      this.forEach((e) => cb(e));
-    }
-
-    this.updateQueue.forEach((c) => {
-      if (!c) {
-        return;
+    this.world.beginDeferred();
+    try {
+      for (let i = 0; i < this.inbox.length; i++) {
+        const event = this.inbox[i];
+        switch (event.kind) {
+          case "enter":
+            this._enterCallback.forEach((cb) => cb(event.entity));
+            break;
+          case "exit":
+            this._exitCallback.forEach((cb) => cb(event.entity));
+            break;
+          case "update":
+            const callback = this.componentUpdateCallbacks.get(event.component.type);
+            if (callback) {
+              callback(event.component);
+            }
+            break;
+        }
       }
-      const callback = this.componentUpdateCallbacks.get(c.type);
-      if (callback) {
-        callback(c);
+      this.inbox.length = 0;
+
+      if (this._runCallback) {
+        this._runCallback(now, delta);
       }
-    });
-    this.updateQueue.length = 0;
+
+      if (this.eachCallback) {
+        const cb = this.eachCallback;
+        this.forEach((e) => cb(e));
+      }
+    } finally {
+      this.world.endDeferred();
+    }
   }
 
   /**
@@ -143,90 +173,6 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    */
   public run(callback: RunCallback): this {
     this._runCallback = callback;
-    return this;
-  }
-
-  /**
-   * Register a callback that fires when a component of type `ComponentClass`
-   * is modified on any entity in this system.
-   *
-   * The system will automatically begin tracking entities that have this
-   * component type (equivalent to adding it to a `requires` / `HAS` query)
-   * unless a custom {@link query} was already set.
-   *
-   * @param ComponentClass - The component class to watch.
-   * @param callback - Receives the modified component instance.
-   * @returns `this` for chaining.
-   *
-   * @example
-   * ```ts
-   * world.system("RenderPosition")
-   *   .update(Position, (pos) => {
-   *     sprite.setPosition(pos.x, pos.y);
-   *   });
-   * ```
-   */
-  public update<C extends typeof Component>(
-    ComponentClass: C,
-    callback: (c: InstanceType<C>) => void
-  ): this;
-
-  /**
-   * Register a callback that fires when `ComponentClass` is modified, with
-   * additional components injected from the same entity.
-   *
-   * @param ComponentClass - The component class to watch.
-   * @param inject - Additional component classes to resolve from the entity.
-   * @param callback - Receives the modified component and the injected tuple.
-   * @returns `this` for chaining.
-   *
-   * @example
-   * ```ts
-   * world.system("SyncSprite")
-   *   .update(Position, [Sprite], (pos, [sprite]) => {
-   *     sprite.sprite.setPosition(pos.x, pos.y);
-   *   });
-   * ```
-   */
-  update<C extends typeof Component, J extends (typeof Component)[]>(
-    ComponentClass: C,
-    inject: readonly [...J],
-    callback: (c: InstanceType<C>, injected: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
-  ): this;
-
-  update<C extends typeof Component, J extends (typeof Component)[]>(
-    ComponentClass: C,
-    injectOrCallback: readonly [...J] | ((c: InstanceType<C>) => void),
-    callback?: (c: InstanceType<C>, injected: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
-  ): this {
-    const type = this.world.getComponentType(ComponentClass);
-    if (typeof injectOrCallback === "function") {
-      callback = injectOrCallback;
-      this.componentUpdateCallbacks.set(type, callback as any);
-    } else {
-      const inject = injectOrCallback;
-      const injectedComponentTypes = inject.map((C) => this.world.getComponentType(C));
-      const cb = (c: Component) => {
-        const injected: any[] = [];
-        injectedComponentTypes.forEach((InjectedComponentType) => {
-          injected.push(c.entity.get(InjectedComponentType));
-        });
-
-        if (callback) {
-          callback(c as InstanceType<C>, injected as any);
-        }
-      };
-
-      this.componentUpdateCallbacks.set(type, cb);
-    }
-
-    this.watchlistBitmask.add(type);
-
-    if (!this.hasQuery) {
-      const watchlist: number[] = this.watchlistBitmask.indices();
-      this._belongs = HAS(this.world, ...watchlist);
-    }
-
     return this;
   }
 

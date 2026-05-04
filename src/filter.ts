@@ -70,21 +70,26 @@ export class Filter<R extends (typeof Component)[] = []> {
     componentsOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void {
-    if (typeof componentsOrCallback === "function") {
-      this.world._forEachEntity((e) => {
-        if (this.belongs(e)) {
-          componentsOrCallback(e);
-        }
-      });
-    } else {
-      const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
-      this.world._forEachEntity((e) => {
-        if (!this.belongs(e)) {
-          return;
-        }
-        const resolved = types.map((t) => e.get(t));
-        callback!(e, resolved as any);
-      });
+    this.world.beginDeferred();
+    try {
+      if (typeof componentsOrCallback === "function") {
+        this.world._forEachEntity((e) => {
+          if (this.belongs(e)) {
+            componentsOrCallback(e);
+          }
+        });
+      } else {
+        const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
+        this.world._forEachEntity((e) => {
+          if (!this.belongs(e)) {
+            return;
+          }
+          const resolved = types.map((t) => e.get(t));
+          callback!(e, resolved as any);
+        });
+      }
+    } finally {
+      this.world.endDeferred();
     }
   }
 }

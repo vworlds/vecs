@@ -42,18 +42,34 @@ describe("Component", () => {
     expect(onSet).toHaveBeenCalledWith(h);
   });
 
-  it("modified() is coalesced — onSet fires once even if called twice", () => {
+  it("modified() in deferred mode is coalesced — onSet fires once even if called multiple times", () => {
     const env = makeWorldWithFlushPhase();
     env.w.registerComponent(Health);
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
     const h = env.w.entity().add(Health, false).get(Health)!;
+    onSet.mockClear();
+    env.w.beginDeferred();
     h.modified();
     h.modified();
     h.modified();
-    env.tick();
+    env.w.endDeferred();
     expect(onSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("modified() at top level fires onSet immediately on each call", () => {
+    const env = makeWorldWithFlushPhase();
+    env.w.registerComponent(Health);
+    const onSet = vi.fn();
+    env.w.hook(Health).onSet(onSet);
+    env.start();
+    const h = env.w.entity().add(Health, false).get(Health)!;
+    onSet.mockClear();
+    h.modified();
+    h.modified();
+    h.modified();
+    expect(onSet).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -79,7 +95,7 @@ describe("Entity.modified", () => {
     expect(onSet).toHaveBeenCalledWith(h);
   });
 
-  it("is coalesced — onSet fires once even if called multiple times", () => {
+  it("is coalesced in deferred mode — onSet fires once even if called multiple times", () => {
     const env = makeWorldWithFlushPhase();
     env.w.registerComponent(Health);
     const onSet = vi.fn();
@@ -87,10 +103,12 @@ describe("Entity.modified", () => {
     env.start();
     const e = env.w.entity();
     const h = e.add(Health, false).get(Health)!;
+    onSet.mockClear();
+    env.w.beginDeferred();
     e.modified(h);
     e.modified(h);
     e.modified(h);
-    env.tick();
+    env.w.endDeferred();
     expect(onSet).toHaveBeenCalledTimes(1);
   });
 
