@@ -94,7 +94,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _enter(e: Entity): void {
     this._entities?.add(e);
     e._addQueryMembership(this);
-    this.inbox.push({ kind: "enter", entity: e });
+    if (this._enterCallback.length > 0) {
+      this.inbox.push({ kind: "enter", entity: e });
+    }
     // Bridge: surface watched components on entry through `notifyModified`,
     // which on System pushes inbox `update` events.
     e.forEachComponent((c) => {
@@ -108,13 +110,14 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _exit(e: Entity): void {
     this._entities?.delete(e);
     e._removeQueryMembership(this);
-    // Snapshot components now — they are still installed at this call site
-    // (bitmask cleared, but entity.components not yet mutated). The system
-    // will drain this inbox event in the next _run and needs the snapshot for
-    // exit-injection callbacks.
-    const snapshot = new Map<number, Component>();
-    e._forEachInstalledComponent((c) => snapshot.set(c.type, c));
-    this.inbox.push({ kind: "exit", entity: e, snapshot });
+    if (this._exitCallback.length > 0) {
+      // Snapshot components now — still installed at this call site (bitmask
+      // already cleared). The snapshot is needed for exit-injection callbacks
+      // which fire in the next _run.
+      const snapshot = new Map<number, Component>();
+      e._forEachInstalledComponent((c) => snapshot.set(c.type, c));
+      this.inbox.push({ kind: "exit", entity: e, snapshot });
+    }
   }
 
   /** @internal Routing entry: enqueue an update event if the watchlist matches. */
