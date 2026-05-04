@@ -36,7 +36,7 @@ describe("Component", () => {
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const h = env.w.entity().add(Health, false).get(Health)!;
+    const h = env.w.entity().add(Health).get(Health)!;
     h.modified();
     env.tick();
     expect(onSet).toHaveBeenCalledWith(h);
@@ -48,7 +48,7 @@ describe("Component", () => {
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const h = env.w.entity().add(Health, false).get(Health)!;
+    const h = env.w.entity().add(Health).get(Health)!;
     onSet.mockClear();
     env.w.beginDeferred();
     h.modified();
@@ -64,7 +64,7 @@ describe("Component", () => {
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const h = env.w.entity().add(Health, false).get(Health)!;
+    const h = env.w.entity().add(Health).get(Health)!;
     onSet.mockClear();
     h.modified();
     h.modified();
@@ -89,7 +89,7 @@ describe("Entity.modified", () => {
     env.w.hook(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
-    const h = e.add(Health, false).get(Health)!;
+    const h = e.add(Health).get(Health)!;
     e.modified(h);
     env.tick();
     expect(onSet).toHaveBeenCalledWith(h);
@@ -102,7 +102,7 @@ describe("Entity.modified", () => {
     env.w.hook(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
-    const h = e.add(Health, false).get(Health)!;
+    const h = e.add(Health).get(Health)!;
     onSet.mockClear();
     env.w.beginDeferred();
     e.modified(h);
@@ -119,7 +119,7 @@ describe("Entity.modified", () => {
     env.w.hook(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
-    e.add(Health, false).modified(e.get(Health)!);
+    e.add(Health).modified(e.get(Health)!);
     env.tick();
     expect(onSet).toHaveBeenCalledTimes(1);
   });
@@ -134,6 +134,28 @@ describe("Hook", () => {
     env.start();
     const h = env.w.entity().add(Health).get(Health)!;
     expect(onAdd).toHaveBeenCalledWith(h);
+  });
+
+  it("onSet fires when a component value is set", () => {
+    const env = makeWorldWithFlushPhase();
+    env.w.registerComponent(Health);
+
+    const set_values: number[] = [];
+    const onSet = vi.fn((c) => set_values.push(c.hp));
+
+    const onAdd = vi.fn();
+    env.w.hook(Health).onSet(onSet).onAdd(onAdd);
+    env.start();
+    const e = env.w.entity();
+    const h = e.set(Health, { hp: 99 }).get(Health)!;
+
+    e.set(Health, { hp: 200 });
+
+    expect(onAdd).toHaveBeenCalledWith(h);
+    expect(onAdd).toHaveBeenCalledOnce();
+    expect(onSet).toHaveBeenCalledWith(h);
+    expect(onSet).toHaveBeenCalledTimes(2);
+    expect(set_values).toEqual([99, 200]);
   });
 
   it("onRemove fires when a component is removed", () => {

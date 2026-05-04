@@ -159,7 +159,7 @@ describe("Deferred mode — Query dispatches enter/exit/update immediately", () 
     w.query("q").update(Position, update);
     w.start();
     const e = w.entity();
-    const pos = e.add(Position, false).get(Position)!;
+    const pos = e.add(Position).get(Position)!;
     update.mockClear();
     pos.modified();
     expect(update).toHaveBeenCalledWith(pos);

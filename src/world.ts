@@ -22,17 +22,20 @@ const LOCAL_COMPONENT_MIN = 256;
  */
 export type Command =
   | { kind: "CreateEntity"; entity: Entity }
-  | { kind: "Add"; entity: Entity; type: number }
   | {
       kind: "Set";
       entity: Entity;
       type: number;
+      /**
+       * Properties to assign to the component. `undefined` means the call
+       * was either `entity.add(C)` (no data to set) or `c.modified()` (data
+       * already mutated externally).
+       */
       props: Partial<Component> | undefined;
       /**
-       * When `true` (from `entity.set()` and `entity.add(C, true)`), the
-       * component is created if missing — the Set command stands alone.
-       * When `false` (from `c.modified()`), a missing component is a no-op
-       * (the user is firing onSet on a stale reference).
+       * `true` for `entity.add(C)` and `entity.set(C, props)` — create the
+       * component if it is missing. `false` for `c.modified()` — a missing
+       * component means the reference is stale; the command becomes a no-op.
        */
       createIfMissing: boolean;
     }
@@ -85,6 +88,8 @@ export class World {
   private deferredDepth = 0;
   /** @internal True while `processCommandQueue` is iterating, to avoid re-entrant drains. */
   private draining = false;
+  /** @internal Entities that had components removed this frame; cleared at end of runPhase. */
+  private entitiesWithDeletedComponents = new Set<Entity>();
 
   /** @internal */
   public _pipeline = new Map<string, Phase>();
@@ -283,9 +288,6 @@ export class World {
       case "CreateEntity":
         this.entities.set(cmd.entity.eid, cmd.entity);
         return;
-      case "Add":
-        this.executeAdd(cmd.entity, cmd.type);
-        return;
       case "Set":
         this.executeSet(cmd.entity, cmd.type, cmd.props, cmd.createIfMissing);
         return;
@@ -345,16 +347,6 @@ export class World {
     return c;
   }
 
-  private executeAdd(entity: Entity, type: number): void {
-    if (entity._destroyed) {
-      return;
-    }
-    if (entity._hasComponentType(type)) {
-      return;
-    }
-    this.installComponent(entity, type, undefined);
-  }
-
   private executeSet(
     entity: Entity,
     type: number,
@@ -376,6 +368,15 @@ export class World {
       justCreated = true;
     } else if (props !== undefined) {
       Object.assign(c, props);
+    }
+
+    // Decide whether onSet should fire:
+    //   - props defined            → entity.set: yes
+    //   - !createIfMissing         → c.modified: yes
+    //   - props undefined && create → entity.add: no (pure ensure-exists)
+    const fireOnSet = props !== undefined || !createIfMissing;
+    if (!fireOnSet) {
+      return;
     }
 
     const meta = c.meta;
@@ -408,23 +409,25 @@ export class World {
     entity._uninstallComponent(type, c);
 
     // Route an exit event to every query/system that no longer matches.
-    // Snapshot the queries up-front because _exit mutates entity.queries.
-    const snapshot: Query[] = [];
-    entity._forEachQuery((q) => snapshot.push(q));
-    snapshot.forEach((q) => {
-      if (!q.world) {
-        return;
-      }
+    // Note the queries that will need _exit to avoid mutation issues.
+    const toExit: Query[] = [];
+    entity._forEachQuery((q) => {
       if (!q.belongs(entity)) {
-        q._exit(entity);
+        toExit.push(q);
       }
     });
+    toExit.forEach((q) => q._exit(entity));
 
     // onRemove hook fires after exit events.
     const meta = c.meta;
     if (meta._onRemoveHandler) {
       meta._onRemoveHandler(c);
     }
+
+    // Deleted components persist until the end of runPhase so that system
+    // exit-injection callbacks (which fire in the next _run) can still read
+    // them via entity.get(C, true).
+    this.entitiesWithDeletedComponents.add(entity);
   }
 
   private executeDestroy(entity: Entity): void {
@@ -447,7 +450,6 @@ export class World {
       if (meta._onRemoveHandler) {
         meta._onRemoveHandler(c);
       }
-      entity._moveComponentToDeleted(c.type, c);
     });
 
     // 3. Emit the destroy event.
@@ -774,6 +776,9 @@ export class World {
       // System._run wraps in begin/end which drains on return; nothing more
       // to do here.
     });
+    // Clear deleted components now that all system inboxes have been drained.
+    this.entitiesWithDeletedComponents.forEach((e) => e.clearDeletedComponents());
+    this.entitiesWithDeletedComponents.clear();
   }
 
   /**

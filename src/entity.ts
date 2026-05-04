@@ -110,81 +110,32 @@ export class Entity {
   }
 
   /**
-   * Add a component of type `Class` to this entity and return the instance.
+   * Add a component of type `Class` to this entity if it isn't already
+   * present, and return the entity for chaining.
    *
-   * In deferred mode the component is created when the world processes the
-   * resulting `Add` command — until then `get(Class)` returns `undefined`.
-   * Outside deferred mode the add executes inline and the new component is
-   * immediately visible.
-   *
-   * If the component is already present the call is a no-op (idempotent).
-   * Pass `markAsModified = false` to suppress the initial `onSet` / `update`
-   * notification (useful when bulk-loading network snapshots before systems
-   * are running).
+   * Does nothing if the component is already attached. `add` does not fire
+   * `onSet` — use {@link set} when you want to apply data and notify.
    *
    * @param Class - The component class to instantiate.
-   * @param markAsModified - Whether to immediately queue an `update`
-   *   notification. Defaults to `true`.
-   * @returns The new (or existing) component instance — only meaningful
-   *   outside deferred mode.
-   */
-  public _add<C extends typeof Component>(Class: C, markAsModified?: boolean): InstanceType<C>;
-  /**
-   * Add a component by its numeric type id.
-   *
-   * @param type - Numeric component type id (as returned by
-   *   {@link World.getComponentType}).
-   * @param markAsModified - Whether to queue an update notification.
-   */
-  public _add(type: number, markAsModified?: boolean): Component;
-  public _add(typeOrClass: number | typeof Component, markAsModified: boolean = true) {
-    const type = this.world.getComponentType(typeOrClass);
-    if (markAsModified) {
-      // Single Set command: creates if missing AND fires onSet (bridge fires
-      // the system's `update` event for the new component as part of enter
-      // routing — no separate Add+Set pair needed).
-      this.world.dispatch({
-        kind: "Set",
-        entity: this,
-        type,
-        props: undefined,
-        createIfMissing: true,
-      });
-    } else {
-      // Add only — create the component (firing onAdd + enter routing) but
-      // do not fire onSet.
-      this.world.dispatch({ kind: "Add", entity: this, type });
-    }
-    // In non-deferred mode the dispatch executed inline; return the live
-    // instance. In deferred mode the instance does not yet exist — callers
-    // that need synchronous access must not be inside deferred mode.
-    return this.components.get(type) as any;
-  }
-
-  /**
-   * Add a component of type `Class` to this entity and return the entity.
-   *
-   * If the component is already present the existing instance is returned and
-   * no callback is fired. Pass `markAsModified = false` to suppress the
-   * initial `onSet` / `update` notification (useful when bulk-loading
-   * network snapshots before systems are running).
-   *
-   * @param Class - The component class to instantiate.
-   * @param markAsModified - Whether to immediately queue an `update`
-   *   notification. Defaults to `true`.
    * @returns This entity, for chaining.
    */
-  public add<C extends typeof Component>(Class: C, markAsModified?: boolean): Entity;
+  public add<C extends typeof Component>(Class: C): Entity;
   /**
    * Add a component by its numeric type id.
    *
    * @param type - Numeric component type id (as returned by
    *   {@link World.getComponentType}).
-   * @param markAsModified - Whether to queue an update notification.
    */
-  public add(type: number, markAsModified?: boolean): Entity;
-  public add(typeOrClass: number | typeof Component, markAsModified: boolean = true): Entity {
-    this._add(typeOrClass as any, markAsModified);
+  public add(type: number): Entity;
+  public add(typeOrClass: number | typeof Component): Entity {
+    const type = this.world.getComponentType(typeOrClass);
+    this.world.dispatch({
+      kind: "Set",
+      entity: this,
+      type,
+      props: undefined,
+      createIfMissing: true,
+    });
     return this;
   }
 
@@ -333,13 +284,6 @@ export class Entity {
     this.componentBitmask.delete(type);
   }
 
-  /** @internal Move a component to deletedComponents without touching the bitmask (used by Destroy). */
-  public _moveComponentToDeleted(type: number, c: Component): void {
-    this.components.delete(type);
-    this.deletedComponents.set(type, c);
-    this.componentBitmask.delete(type);
-  }
-
   /** @internal Iterate over every currently-installed component. */
   public _forEachInstalledComponent(callback: (c: Component) => void): void {
     // Snapshot to a list so callbacks can mutate `components` safely.
@@ -379,8 +323,8 @@ export class Entity {
     }
   }
 
-  /** @internal Clear the deletedComponents map. Called by World after a drain. */
-  public clearDeletedComponents() {
+  /** @internal Clear all deleted components. Called by World at the end of each runPhase. */
+  public clearDeletedComponents(): void {
     this.deletedComponents.clear();
   }
 

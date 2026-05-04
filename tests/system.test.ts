@@ -80,7 +80,7 @@ describe("System — enter / exit / update", () => {
     w.system("test").phase(phase).requires(Position).update(Position, cb);
     w.start();
     const e = w.entity();
-    const pos = e.add(Position, false).get(Position)!;
+    const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0); // entity entered
     cb.mockClear();
     pos.modified();
@@ -107,7 +107,7 @@ describe("System — enter / exit / update", () => {
     w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
-    const vel = e.add(Velocity, false).get(Velocity)!;
+    const vel = e.add(Velocity).get(Velocity)!;
     w.runPhase(phase, 0, 0);
     cb.mockClear();
     vel.modified();
@@ -476,7 +476,7 @@ describe("System — each", () => {
       .update(Position, updateCb);
     w.start();
     const e = w.entity();
-    const pos = e.add(Position, false).get(Position)!;
+    const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0); // entry queues pos for update
     w.runPhase(phase, 0, 0); // both fire
     expect(eachCb).toHaveBeenCalledWith(e, [pos]);
