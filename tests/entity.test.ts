@@ -189,8 +189,7 @@ describe("Entity — lifecycle and hierarchy", () => {
     env.start();
     const parent = env.w.entity();
     const child = env.w.entity();
-    child.parent = parent;
-    parent.children.add(child);
+    child.setParent(parent);
 
     const childDestroyed = vi.fn();
     child.events.on("destroy", childDestroyed);
@@ -206,8 +205,7 @@ describe("Entity — lifecycle and hierarchy", () => {
     env.start();
     const parent = env.w.entity();
     const child = env.w.entity();
-    child.parent = parent;
-    parent.children.add(child);
+    child.setParent(parent);
 
     child.destroy();
     env.tick();
@@ -216,13 +214,10 @@ describe("Entity — lifecycle and hierarchy", () => {
     expect(env.w.entity(parent.eid)).toBe(parent);
   });
 
-  it("children set is created lazily", () => {
+  it("children returns an empty ReadonlySet before any child is added", () => {
     const w = new World();
     const e = w.entity();
-    expect(e._children).toBeUndefined();
-    const c = e.children;
-    expect(c).toBeInstanceOf(Set);
-    expect(e.children).toBe(c); // memoized
+    expect(e.children.size).toBe(0);
   });
 
   it("properties is a free-form map", () => {
@@ -230,5 +225,68 @@ describe("Entity — lifecycle and hierarchy", () => {
     const e = w.entity();
     e.properties.set("kind", "bullet");
     expect(e.properties.get("kind")).toBe("bullet");
+  });
+});
+
+describe("Entity — setParent / parent hierarchy", () => {
+  it("setParent links parent and child bidirectionally", () => {
+    const w = new World();
+    const parent = w.entity();
+    const child = w.entity();
+    child.setParent(parent);
+    expect(child.parent).toBe(parent);
+    expect(parent.children.has(child)).toBe(true);
+  });
+
+  it("setParent(undefined) unlinks from parent", () => {
+    const w = new World();
+    const parent = w.entity();
+    const child = w.entity();
+    child.setParent(parent);
+    child.setParent(undefined);
+    expect(child.parent).toBeUndefined();
+    expect(parent.children.has(child)).toBe(false);
+  });
+
+  it("setParent moves child from old parent to new parent", () => {
+    const w = new World();
+    const p1 = w.entity();
+    const p2 = w.entity();
+    const child = w.entity();
+    child.setParent(p1);
+    child.setParent(p2);
+    expect(child.parent).toBe(p2);
+    expect(p1.children.has(child)).toBe(false);
+    expect(p2.children.has(child)).toBe(true);
+  });
+
+  it("_setParent throws on direct circular reference", () => {
+    const w = new World();
+    const a = w.entity();
+    expect(() => a.setParent(a)).toThrow();
+  });
+
+  it("_setParent throws on indirect circular reference", () => {
+    const w = new World();
+    const a = w.entity();
+    const b = w.entity();
+    const c = w.entity();
+    b.setParent(a);
+    c.setParent(b);
+    expect(() => a.setParent(c)).toThrow();
+  });
+
+  it("setParent in deferred mode is not visible until queue drains", () => {
+    const env = makeWorldWithFlushPhase();
+    env.start();
+    const parent = env.w.entity();
+    const child = env.w.entity();
+    env.w.beginDeferred();
+    child.setParent(parent);
+    expect(child.parent).toBeUndefined();
+    expect(parent.children.has(child)).toBe(false);
+    env.w.endDeferred();
+    expect(child.parent).toBe(parent);
+    expect(parent.children.has(child)).toBe(true);
   });
 });

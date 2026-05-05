@@ -130,7 +130,7 @@ describe("Query — predicates (belongs)", () => {
     parent.add(Player);
     parent.add(Container);
     const child = w.entity();
-    child.parent = parent;
+    child.setParent(parent);
     child.add(Position);
     expect(q.belongs(child)).toBe(true);
     const orphan = w.entity();

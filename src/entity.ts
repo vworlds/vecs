@@ -55,12 +55,12 @@ export class Entity {
   public properties = new Map<string, any>();
   declare public _events: EntityEvents;
 
-  /** Parent entity in the scene hierarchy, or `undefined` if root. */
-  public parent: Entity | undefined;
-  /** @internal */
-  public _children: Set<Entity> | undefined;
+  private _parent: Entity | undefined;
+  private _children: Set<Entity> | undefined;
   /** @internal True once the world has fully processed this entity's destruction. */
   public _destroyed: boolean = false;
+
+  private static readonly _emptyChildren: ReadonlySet<Entity> = new Set();
 
   constructor(
     /** The {@link World} that owns this entity. */
@@ -69,18 +69,52 @@ export class Entity {
     public readonly eid: number
   ) {}
 
+  /** Parent entity in the scene hierarchy, or `undefined` if this is a root entity. */
+  public get parent(): Entity | undefined {
+    return this._parent;
+  }
+
+  /** Read-only view of direct child entities. */
+  public get children(): ReadonlySet<Entity> {
+    return this._children ?? Entity._emptyChildren;
+  }
+
   /**
-   * The set of direct child entities in the scene hierarchy.
-   *
-   * The set is created lazily on first access. Mutate it only through
-   * {@link Entity.destroy} or by setting {@link Entity.parent} on a child —
-   * both will keep the parent–child links consistent.
+   * Immediately reparent this entity. Maintains the bidirectional link,
+   * removes it from the old parent's children, and adds it to the new
+   * parent's children. Throws if the operation would create a cycle.
    */
-  public get children(): Set<Entity> {
-    if (!this._children) {
-      this._children = new Set<Entity>();
+  public _setParent(newParent: Entity | undefined): void {
+    if (newParent !== undefined) {
+      let ancestor: Entity | undefined = newParent;
+      while (ancestor !== undefined) {
+        if (ancestor === this) {
+          throw new Error(
+            `Circular parent reference: entity ${this.eid} is already an ancestor of entity ${newParent.eid}`
+          );
+        }
+        ancestor = ancestor._parent;
+      }
     }
-    return this._children;
+    if (this._parent) {
+      this._parent._children?.delete(this);
+    }
+    this._parent = newParent;
+    if (newParent) {
+      (newParent._children ??= new Set()).add(this);
+    }
+  }
+
+  /**
+   * Reparent this entity. In deferred mode the change is queued; outside
+   * deferred mode it executes immediately.
+   */
+  public setParent(newParent: Entity | undefined): void {
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: "SetParent", entity: this, parent: newParent });
+    } else {
+      this._setParent(newParent);
+    }
   }
 
   /**
@@ -344,9 +378,9 @@ export class Entity {
     // 4. Mark destroyed and unhook from world / parent.
     this._destroyed = true;
     this.world._unregisterEntity(this);
-    if (this.parent) {
-      this.parent.children.delete(this);
-      this.parent = undefined;
+    if (this._parent) {
+      this._parent._children?.delete(this);
+      this._parent = undefined;
     }
   }
 

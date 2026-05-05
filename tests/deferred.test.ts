@@ -236,8 +236,7 @@ describe("Deferred mode — parent destruction", () => {
     const parent = w.entity();
     parentEid = parent.eid;
     const child = w.entity();
-    child.parent = parent;
-    parent.children.add(child);
+    child.setParent(parent);
     child.add(Position);
     tick(); // settle enter
     parent.destroy();

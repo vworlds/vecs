@@ -31,7 +31,8 @@ export type Command =
     }
   | { kind: "Modified"; entity: Entity; type: number }
   | { kind: "Remove"; entity: Entity; type: number }
-  | { kind: "Destroy"; entity: Entity };
+  | { kind: "Destroy"; entity: Entity }
+  | { kind: "SetParent"; entity: Entity; parent: Entity | undefined };
 
 /**
  * The central ECS container.
@@ -300,6 +301,9 @@ export class World {
         return;
       case "Destroy":
         cmd.entity._destroy();
+        return;
+      case "SetParent":
+        cmd.entity._setParent(cmd.parent);
         return;
     }
   }
