@@ -26,19 +26,10 @@ export type Command =
       kind: "Set";
       entity: Entity;
       type: number;
-      /**
-       * Properties to assign to the component. `undefined` means the call
-       * was either `entity.add(C)` (no data to set) or `c.modified()` (data
-       * already mutated externally).
-       */
+      /** Properties to assign. `undefined` for `entity.add(C)` (ensure-exists, no data). */
       props: Partial<Component> | undefined;
-      /**
-       * `true` for `entity.add(C)` and `entity.set(C, props)` — create the
-       * component if it is missing. `false` for `c.modified()` — a missing
-       * component means the reference is stale; the command becomes a no-op.
-       */
-      createIfMissing: boolean;
     }
+  | { kind: "Modified"; entity: Entity; type: number }
   | { kind: "Remove"; entity: Entity; type: number }
   | { kind: "Destroy"; entity: Entity };
 
@@ -287,7 +278,10 @@ export class World {
         this.entities.set(cmd.entity.eid, cmd.entity);
         return;
       case "Set":
-        this.executeSet(cmd.entity, cmd.type, cmd.props, cmd.createIfMissing);
+        this.executeSet(cmd.entity, cmd.type, cmd.props);
+        return;
+      case "Modified":
+        this.executeModified(cmd.entity, cmd.type);
         return;
       case "Remove":
         this.executeRemove(cmd.entity, cmd.type);
@@ -344,54 +338,50 @@ export class World {
     return c;
   }
 
-  private executeSet(
-    entity: Entity,
-    type: number,
-    props: Partial<Component> | undefined,
-    createIfMissing: boolean
-  ): void {
+  private executeSet(entity: Entity, type: number, props: Partial<Component> | undefined): void {
     if (entity._destroyed) {
       return;
     }
     let c = entity._getInstalledComponent(type);
-    let justCreated = false;
-
     if (!c) {
-      if (!createIfMissing) {
-        // c.modified() on a stale reference — the component is gone.
-        return;
-      }
       c = this.installComponent(entity, type, props);
-      justCreated = true;
+      // installComponent fires onAdd and routes enters (including the bridge).
+      // Also fire onSet when props were supplied (entity.set on a new component).
+      if (props !== undefined) {
+        if (c.meta._onSetHandler) {
+          c.meta._onSetHandler(c);
+        }
+        c._dirty = false;
+      }
     } else if (props !== undefined) {
+      // entity.set on an existing component: apply props, fire onSet, route updates.
       Object.assign(c, props);
-    }
-
-    // Decide whether onSet should fire:
-    //   - props defined            → entity.set: yes
-    //   - !createIfMissing         → c.modified: yes
-    //   - props undefined && create → entity.add: no (pure ensure-exists)
-    const fireOnSet = props !== undefined || !createIfMissing;
-    if (!fireOnSet) {
-      return;
-    }
-
-    const meta = c.meta;
-    if (meta._onSetHandler) {
-      meta._onSetHandler(c);
-    }
-    c._dirty = false;
-
-    // Route an update event to every query/system the entity is currently
-    // in. Skip when the component was just created — the bridge in
-    // `Query._enter` (and `System._enter`'s override) already routed update
-    // events for every component on the entity that the query watches,
-    // including this one.
-    if (!justCreated) {
+      if (c.meta._onSetHandler) {
+        c.meta._onSetHandler(c);
+      }
+      c._dirty = false;
       entity._forEachQuery((q) => {
         q.notifyModified(c!);
       });
     }
+    // entity.add on an existing component → no-op (idempotent ensure-exists).
+  }
+
+  private executeModified(entity: Entity, type: number): void {
+    if (entity._destroyed) {
+      return;
+    }
+    const c = entity._getInstalledComponent(type);
+    if (!c) {
+      return; // stale reference — component was removed
+    }
+    if (c.meta._onSetHandler) {
+      c.meta._onSetHandler(c);
+    }
+    c._dirty = false;
+    entity._forEachQuery((q) => {
+      q.notifyModified(c);
+    });
   }
 
   private executeRemove(entity: Entity, type: number): void {

@@ -98,13 +98,7 @@ export class Entity {
       return this;
     }
     c._dirty = true;
-    this.world.dispatch({
-      kind: "Set",
-      entity: this,
-      type: c.type,
-      props: undefined,
-      createIfMissing: false,
-    });
+    this.world.dispatch({ kind: "Modified", entity: this, type: c.type });
     return this;
   }
 
