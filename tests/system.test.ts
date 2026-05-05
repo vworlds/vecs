@@ -58,7 +58,7 @@ describe("System — enter / exit / update", () => {
     w.runPhase(phase, 0, 0);
     e.remove(Position);
     w.runPhase(phase, 0, 0);
-    expect(exit).toHaveBeenCalledWith(e);
+    expect(exit.mock.calls[0][0]).toBe(e);
   });
 
   it("exit injection includes recently-removed components", () => {
@@ -80,7 +80,7 @@ describe("System — enter / exit / update", () => {
     w.system("test").phase(phase).requires(Position).update(Position, cb);
     w.start();
     const e = w.entity();
-    const pos = e.add(Position, false).get(Position)!;
+    const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0); // entity entered
     cb.mockClear();
     pos.modified();
@@ -107,7 +107,7 @@ describe("System — enter / exit / update", () => {
     w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
-    const vel = e.add(Velocity, false).get(Velocity)!;
+    const vel = e.add(Velocity).get(Velocity)!;
     w.runPhase(phase, 0, 0);
     cb.mockClear();
     vel.modified();
@@ -167,7 +167,7 @@ describe("System — enter / exit / update", () => {
     w.runPhase(phase, 0, 0);
     e.destroy();
     w.runPhase(phase, 0, 0);
-    expect(exit).toHaveBeenCalledWith(e);
+    expect(exit.mock.calls[0][0]).toBe(e);
   });
 });
 
@@ -267,11 +267,14 @@ describe("System — each", () => {
     w.start();
     const e = w.entity();
     e.add(Position);
+    // Top-level mutations execute inline, so the entity is already tracked by
+    // the system before the first runPhase. each fires once per tick from the
+    // first runPhase onward.
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
-    expect(cb).toHaveBeenCalledTimes(3);
+    expect(cb).toHaveBeenCalledTimes(4);
   });
 
   it("each fires for every matching entity in one tick", () => {
@@ -287,7 +290,7 @@ describe("System — each", () => {
     w.runPhase(phase, 0, 0);
     expect(cb).toHaveBeenCalledWith(a, [posA]);
     expect(cb).toHaveBeenCalledWith(b, [posB]);
-    expect(cb).toHaveBeenCalledTimes(2);
+    expect(cb).toHaveBeenCalledTimes(4); // 2 entities × 2 ticks
   });
 
   it("each is not called for entities that don't match the system query", () => {
@@ -301,7 +304,7 @@ describe("System — each", () => {
     b.add(Velocity);
     w.runPhase(phase, 0, 0);
     w.runPhase(phase, 0, 0);
-    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledTimes(2); // only a, twice
     expect(cb).toHaveBeenCalledWith(a, [a.get(Position)]);
   });
 
@@ -473,7 +476,7 @@ describe("System — each", () => {
       .update(Position, updateCb);
     w.start();
     const e = w.entity();
-    const pos = e.add(Position, false).get(Position)!;
+    const pos = e.add(Position).get(Position)!;
     w.runPhase(phase, 0, 0); // entry queues pos for update
     w.runPhase(phase, 0, 0); // both fire
     expect(eachCb).toHaveBeenCalledWith(e, [pos]);
@@ -551,8 +554,9 @@ describe("System — sort", () => {
     const e3 = w.entity();
     e3.set(Position, { x: 20 });
 
-    w.runPhase(phase, 0, 0); // enter
-    w.runPhase(phase, 0, 0); // each fires
+    // Entities are tracked from setup (top-level inline). each fires every
+    // tick the system runs.
+    w.runPhase(phase, 0, 0);
 
     expect(visited).toEqual([10, 20, 30]);
   });
