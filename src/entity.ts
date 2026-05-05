@@ -127,7 +127,6 @@ export class Entity {
       entity: this,
       type,
       props: undefined,
-      createIfMissing: true,
     });
     return this;
   }
@@ -159,7 +158,6 @@ export class Entity {
       entity: this,
       type,
       props,
-      createIfMissing: true,
     });
     return this;
   }

@@ -353,7 +353,7 @@ export class World {
       c.meta._onSetHandler?.(c);
       c._dirty = false;
       if (!isNew) {
-        entity._forEachQuery((q) => q.notifyModified(c));
+        entity._forEachQuery((q) => q.notifyModified(c!));
       }
     }
     // entity.add on an existing component → no-op (idempotent ensure-exists).
