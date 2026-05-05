@@ -73,14 +73,14 @@ export class Filter<R extends (typeof Component)[] = []> {
     this.world.beginDeferred();
     try {
       if (typeof componentsOrCallback === "function") {
-        this.world._forEachEntity((e) => {
+        this.world.entities.forEach((e) => {
           if (this.belongs(e)) {
             componentsOrCallback(e);
           }
         });
       } else {
         const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
-        this.world._forEachEntity((e) => {
+        this.world.entities.forEach((e) => {
           if (!this.belongs(e)) {
             return;
           }

@@ -554,11 +554,6 @@ export class World {
     this._entities.forEach((e) => e._purgeQuery(q));
   }
 
-  /** @internal Iterate over all entities currently in the world. */
-  public _forEachEntity(callback: (e: Entity) => void): void {
-    this._entities.forEach(callback);
-  }
-
   /**
    * Create a new {@link System}, register it, and return it for configuration.
    *
