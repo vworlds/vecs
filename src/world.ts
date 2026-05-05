@@ -6,6 +6,7 @@ import { Filter } from "./filter.js";
 import { type QueryDSL, type ExtractRequired } from "./dsl.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
+import { CommandKind, type Command } from "./command.js";
 
 const LOCAL_COMPONENT_MIN = 256;
 
@@ -40,21 +41,41 @@ const LOCAL_COMPONENT_MIN = 256;
  * ```
  */
 export class World {
-  private entities = new Map<number, Entity>(); // maps entity Id to Entity
+  private _entities = new Map<number, Entity>(); // maps entity Id to Entity
   private componentNameTypeMap = new Map<string, number>();
-  private archChangeQueue: Entity[] = [];
-  private destroyedEntities: Entity[] = [];
-  private allQueries: Query[] = [];
+  private _queries: Query[] = [];
 
   private Class2Meta = new Map<typeof Component, ComponentMeta>();
   private Type2Meta = new ArrayMap<ComponentMeta>();
-  private updatedComponents: Component[] = [];
   private localComponentCounter = LOCAL_COMPONENT_MIN;
   private componentRegistrationDisabled = false;
+
+  /** @internal Single ordered command queue used in deferred mode. */
+  private commandQueue: Command[] = [];
+  /** @internal Nested `beginDefer` / `endDefer` count. */
+  private deferredDepth = 0;
+  /** @internal True while `processCommandQueue` is iterating, to avoid re-entrant drains. */
+  private draining = false;
+
+  /** `true` when the world is in deferred mode — mutations are queued rather than applied immediately. */
+  get deferred(): boolean {
+    return this.deferredDepth > 0 || this.draining;
+  }
+
   /** @internal */
   public _pipeline = new Map<string, Phase>();
   private eidCounter = 0;
   constructor() {}
+
+  /** @readonly */
+  get entities(): Omit<Map<number, Entity>, "set" | "delete" | "clear"> {
+    return this._entities as any;
+  }
+
+  /** @readonly */
+  get queries(): ReadonlyArray<Query> {
+    return this._queries;
+  }
 
   /**
    * Return the entity with id `eid`, creating it if it does not yet exist.
@@ -75,10 +96,10 @@ export class World {
    * @returns The existing or newly created entity.
    */
   public getOrCreateEntity(eid: number, onCreateCallback?: (e: Entity) => void) {
-    let e = this.entities.get(eid);
+    let e = this._entities.get(eid);
     if (!e) {
       e = new Entity(this, eid);
-      this.entities.set(eid, e);
+      this._entities.set(eid, e);
       if (onCreateCallback) {
         onCreateCallback(e);
       }
@@ -106,10 +127,14 @@ export class World {
     if (id === undefined) {
       const eid = this.eidCounter++;
       const e = new Entity(this, eid);
-      this.entities.set(eid, e);
+      if (this.deferred) {
+        this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
+      } else {
+        this._entities.set(eid, e);
+      }
       return e;
     }
-    return this.entities.get(id);
+    return this._entities.get(id);
   }
 
   /**
@@ -165,101 +190,111 @@ export class World {
   }
 
   /**
-   * Mark an entity's archetype as changed, queuing it for re-evaluation
-   * against all system queries at the end of the current system run.
+   * Enter deferred mode. Mutations made until the matching {@link endDefer}
+   * are queued instead of executing inline.
    *
-   * Also recursively marks all children as changed so that `{ PARENT: ... }`
-   * queries are re-evaluated.
+   * Nested begin/end pairs are allowed; only the outermost `endDefer`
+   * triggers a drain.
    *
-   * @internal Called automatically by {@link Entity.add} and
-   * {@link Entity.remove}.
    */
-  public archetypeChanged(e: Entity) {
-    if (e._archetypeChanged) {
+  public beginDefer(): void {
+    this.deferredDepth++;
+  }
+
+  /**
+   * Leave deferred mode. When the depth returns to zero, the world processes
+   * the command queue (firing hooks and routing enter / exit / update events).
+   *
+   */
+  public endDefer(): void {
+    this.deferredDepth--;
+    this.flush();
+  }
+
+  /**
+   *
+   * @param fn callback to invoke in deferred mode.
+   */
+  public defer(fn: () => void): void {
+    this.beginDefer();
+    try {
+      fn();
+    } finally {
+      this.endDefer();
+    }
+  }
+
+  /**
+   * Drain any pending commands queued at the top level (depth 0).
+   *
+   * Useful between phases or after batch-loading network snapshots, to make
+   * accumulated mutations visible (fire hooks, route enter/exit/update) before
+   * the next read or system run.
+   */
+  public flush(): void {
+    if (this.deferredDepth === 0) {
+      this.processCommandQueue();
+    }
+  }
+
+  /** @internal Append a command to the queue. */
+  public _enqueue(cmd: Command): void {
+    this.commandQueue.push(cmd);
+  }
+
+  /**
+   * @internal Walk the command queue in insertion order, executing each
+   * command. Callbacks may push more commands, which are processed in the
+   * same pass via index iteration.
+   */
+  private processCommandQueue(): void {
+    if (this.draining) {
       return;
     }
-    e._archetypeChanged = true;
-    this.archChangeQueue.push(e);
-    e.children.forEach((child) => this.archetypeChanged(child));
-  }
-
-  /** @internal */
-  public _notifyComponentAdded(e: Entity, c: Component) {
-    this.archetypeChanged(e);
-  }
-
-  /** @internal */
-  public _notifyComponentRemoved(e: Entity, c: Component) {
-    const hook = c.meta._onRemoveHandler;
-    if (hook) {
-      hook(c);
-    }
-
-    this.archetypeChanged(e);
-  }
-
-  /** @internal */
-  public _notifyEntityDestroyed(e: Entity) {
-    if (!this.entities.delete(e.eid)) {
+    if (this.commandQueue.length === 0) {
       return;
     }
-    e.forEachComponent((c) => {
-      e.remove(c.type);
-    });
-    this.destroyedEntities.push(e);
-  }
-
-  private updateArchetypes() {
-    if (this.archChangeQueue.length > 0) {
-      this.allQueries.forEach((q) => {
-        this.archChangeQueue.forEach((e) => {
-          if (q.belongs(e)) {
-            e._addQuery(q);
-          } else {
-            e._removeQuery(q);
-          }
-        });
-      });
-      this.archChangeQueue.forEach((e) => {
-        e.clearDeletedComponents();
-      });
-    }
-
-    if (this.destroyedEntities.length > 0) {
-      this.destroyedEntities.forEach((e) => {
-        e._destroy();
-      });
-      this.destroyedEntities.length = 0;
-    }
-
-    if (this.updatedComponents.length > 0) {
-      this.updatedComponents.forEach((c) => {
-        const hook = c.meta._onSetHandler;
-        if (hook) {
-          hook(c);
-        }
-        c.entity._notifyModified(c);
-        c._dirty = false;
-      });
-      this.updatedComponents.length = 0;
-    }
-
-    if (this.archChangeQueue.length > 0) {
-      this.archChangeQueue.forEach((e) => {
-        e._updateQueries();
-        e._archetypeChanged = false;
-      });
-      this.archChangeQueue.length = 0;
+    this.draining = true;
+    try {
+      for (let i = 0; i < this.commandQueue.length; i++) {
+        this.executeCommand(this.commandQueue[i]);
+      }
+      this.commandQueue.length = 0;
+    } finally {
+      this.draining = false;
     }
   }
 
-  /** @internal Queues a component for onSet / update delivery. */
-  public _queueUpdatedComponent(c: Component) {
-    if (c._dirty) {
-      return;
+  /**
+   * @internal Run a single command's side effects: data-layer mutation, hook
+   * firing, and routing to all registered queries / systems.
+   */
+  private executeCommand(cmd: Command): void {
+    switch (cmd.kind) {
+      case CommandKind.CreateEntity:
+        this._entities.set(cmd.entity.eid, cmd.entity);
+        return;
+      case CommandKind.Set:
+        cmd.entity._set(cmd.type, cmd.props);
+        return;
+      case CommandKind.Modified:
+        cmd.entity._modified(cmd.type);
+        return;
+      case CommandKind.Remove:
+        cmd.entity._remove(cmd.type);
+        return;
+      case CommandKind.Destroy:
+        cmd.entity._destroy();
+        return;
+      case CommandKind.SetParent:
+        cmd.entity._setParent(cmd.parent);
+        return;
     }
-    c._dirty = true;
-    this.updatedComponents.push(c);
+  }
+
+  /** @internal Remove an entity from the world's entity map. Called by Entity._destroy. */
+  public _unregisterEntity(entity: Entity): void {
+    this._entities.delete(entity.eid);
   }
 
   /**
@@ -353,21 +388,16 @@ export class World {
 
   /** @internal Called by the {@link Query} constructor to register itself. */
   public _addQuery(q: Query) {
-    this.allQueries.push(q);
+    this._queries.push(q);
   }
 
   /** @internal Called by {@link Query.destroy} to unregister a query and remove it from all entities. */
   public _removeQuery(q: Query): void {
-    const idx = this.allQueries.indexOf(q);
+    const idx = this._queries.indexOf(q);
     if (idx !== -1) {
-      this.allQueries.splice(idx, 1);
+      this._queries.splice(idx, 1);
     }
-    this.entities.forEach((e) => e._purgeQuery(q));
-  }
-
-  /** @internal Iterate over all entities currently in the world. */
-  public _forEachEntity(callback: (e: Entity) => void): void {
-    this.entities.forEach(callback);
+    this._entities.forEach((e) => e._purgeQuery(q));
   }
 
   /**
@@ -483,7 +513,7 @@ export class World {
 
     const defaultPhase = _defaultPhase;
 
-    this.allQueries.forEach((q) => {
+    this._queries.forEach((q) => {
       if (!(q instanceof System)) {
         return;
       }
@@ -545,18 +575,22 @@ export class World {
   /**
    * Execute all systems in the given phase for one tick.
    *
-   * After each system runs, pending archetype changes (entity add/remove
-   * component events) are flushed so that `enter` / `exit` callbacks are
-   * delivered before the next system in the same phase executes.
+   * Pending top-level mutations are drained at the start of the phase so the
+   * first system observes a consistent world. Each system's body runs in a
+   * deferred scope; mutations made by callbacks are appended to the world
+   * queue and processed by the world after the system returns, before the
+   * next system runs.
    *
    * @param phase - The {@link IPhase} to run (returned by {@link addPhase}).
    * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public runPhase(phase: IPhase, now: number, delta: number) {
+    this.flush();
     (phase as Phase).systems.forEach((s) => {
       s._run(now, delta);
-      this.updateArchetypes();
+      // System._run wraps in begin/end which drains on return; nothing more
+      // to do here.
     });
   }
 
@@ -569,7 +603,7 @@ export class World {
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public progress(now: number, delta: number) {
-    this.updateArchetypes();
+    this.flush();
     this._pipeline.forEach((phase) => {
       this.runPhase(phase, now, delta);
     });
@@ -603,9 +637,9 @@ export class World {
    * transitioning between game sessions or resetting to a clean state.
    */
   public clearAllEntities() {
-    this.entities.forEach((e) => {
+    this._entities.forEach((e) => {
       e.destroy();
     });
-    this.entities.clear();
+    this.flush();
   }
 }
