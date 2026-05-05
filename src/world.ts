@@ -150,7 +150,11 @@ export class World {
     if (id === undefined) {
       const eid = this.eidCounter++;
       const e = new Entity(this, eid);
-      this.dispatch({ kind: "CreateEntity", entity: e });
+      if (this.deferred) {
+        this._enqueue({ kind: "CreateEntity", entity: e });
+      } else {
+        this._entities.set(eid, e);
+      }
       return e;
     }
     return this._entities.get(id);
@@ -248,16 +252,9 @@ export class World {
     }
   }
 
-  /**
-   * @internal Submit a command. In deferred mode it is appended to the
-   * command queue; otherwise it is executed inline.
-   */
-  public dispatch(cmd: Command): void {
-    if (this.deferred) {
-      this.commandQueue.push(cmd);
-    } else {
-      this.executeCommand(cmd);
-    }
+  /** @internal Append a command to the queue. */
+  public _enqueue(cmd: Command): void {
+    this.commandQueue.push(cmd);
   }
 
   /**
@@ -310,11 +307,6 @@ export class World {
   /** @internal Remove an entity from the world's entity map. Called by Entity._destroy. */
   public _unregisterEntity(entity: Entity): void {
     this._entities.delete(entity.eid);
-  }
-
-  /** @internal */
-  public _notifyEntityDestroyed(e: Entity) {
-    this.dispatch({ kind: "Destroy", entity: e });
   }
 
   /**

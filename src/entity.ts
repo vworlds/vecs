@@ -98,7 +98,11 @@ export class Entity {
       return this;
     }
     c._dirty = true;
-    this.world.dispatch({ kind: "Modified", entity: this, type: c.type });
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: "Modified", entity: this, type: c.type });
+    } else {
+      this._modified(c.type);
+    }
     return this;
   }
 
@@ -122,12 +126,11 @@ export class Entity {
   public add(type: number): Entity;
   public add(typeOrClass: number | typeof Component): Entity {
     const type = this.world.getComponentType(typeOrClass);
-    this.world.dispatch({
-      kind: "Set",
-      entity: this,
-      type,
-      props: undefined,
-    });
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: "Set", entity: this, type, props: undefined });
+    } else {
+      this._set(type, undefined);
+    }
     return this;
   }
 
@@ -153,12 +156,11 @@ export class Entity {
   public set(type: number, props: Partial<Component>): Entity;
   public set(typeOrClass: number | typeof Component, props: Partial<Component>): Entity {
     const type = this.world.getComponentType(typeOrClass);
-    this.world.dispatch({
-      kind: "Set",
-      entity: this,
-      type,
-      props,
-    });
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: "Set", entity: this, type, props });
+    } else {
+      this._set(type, props);
+    }
     return this;
   }
 
@@ -180,7 +182,11 @@ export class Entity {
   public remove(type: number): void;
   public remove(typeOrClass: number | typeof Component): void {
     const type = this.world.getComponentType(typeOrClass);
-    this.world.dispatch({ kind: "Remove", entity: this, type });
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: "Remove", entity: this, type });
+    } else {
+      this._remove(type);
+    }
   }
 
   /** @internal Look up a currently-installed component instance by type id. */
@@ -352,21 +358,16 @@ export class Entity {
   /**
    * Destroy this entity and recursively destroy all of its children.
    *
-   * In deferred mode this only enqueues a `Destroy` command — the entity
-   * remains in the world map and queries still see it as a member until the
-   * queue is processed. Outside deferred mode the destruction completes
-   * inline.
-   *
    * All components have their `onRemove` hooks fired, the entity is
    * unregistered from the world, and the `"destroy"` event is emitted. The
    * entity must not be used after the destroy completes.
    */
   public destroy() {
-    // Recurse into children first at queue time so the parent's Destroy
-    // command is followed by each child's Destroy command, giving the spec'd
-    // top-down processing order ("parent already gone before children's
-    // exit/onRemove fire").
-    this.world.dispatch({ kind: "Destroy", entity: this });
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: "Destroy", entity: this });
+    } else {
+      this._destroy();
+    }
     if (this._children) {
       this._children.forEach((child) => {
         child.destroy();
