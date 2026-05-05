@@ -1,5 +1,6 @@
 import { Component } from "./component.js";
 import type { World } from "./world.js";
+import { CommandKind } from "./command.js";
 import { ArrayMap } from "./util/array_map.js";
 import { type Query } from "./query.js";
 import { Events } from "./util/events.js";
@@ -111,7 +112,7 @@ export class Entity {
    */
   public setParent(newParent: Entity | undefined): void {
     if (this.world.deferred) {
-      this.world._enqueue({ kind: "SetParent", entity: this, parent: newParent });
+      this.world._enqueue({ kind: CommandKind.SetParent, entity: this, parent: newParent });
     } else {
       this._setParent(newParent);
     }
@@ -133,7 +134,7 @@ export class Entity {
     }
     c._dirty = true;
     if (this.world.deferred) {
-      this.world._enqueue({ kind: "Modified", entity: this, type: c.type });
+      this.world._enqueue({ kind: CommandKind.Modified, entity: this, type: c.type });
     } else {
       this._modified(c.type);
     }
@@ -161,7 +162,7 @@ export class Entity {
   public add(typeOrClass: number | typeof Component): Entity {
     const type = this.world.getComponentType(typeOrClass);
     if (this.world.deferred) {
-      this.world._enqueue({ kind: "Set", entity: this, type, props: undefined });
+      this.world._enqueue({ kind: CommandKind.Set, entity: this, type, props: undefined });
     } else {
       this._set(type, undefined);
     }
@@ -191,7 +192,7 @@ export class Entity {
   public set(typeOrClass: number | typeof Component, props: Partial<Component>): Entity {
     const type = this.world.getComponentType(typeOrClass);
     if (this.world.deferred) {
-      this.world._enqueue({ kind: "Set", entity: this, type, props });
+      this.world._enqueue({ kind: CommandKind.Set, entity: this, type, props });
     } else {
       this._set(type, props);
     }
@@ -217,7 +218,7 @@ export class Entity {
   public remove(typeOrClass: number | typeof Component): void {
     const type = this.world.getComponentType(typeOrClass);
     if (this.world.deferred) {
-      this.world._enqueue({ kind: "Remove", entity: this, type });
+      this.world._enqueue({ kind: CommandKind.Remove, entity: this, type });
     } else {
       this._remove(type);
     }
@@ -398,7 +399,7 @@ export class Entity {
    */
   public destroy() {
     if (this.world.deferred) {
-      this.world._enqueue({ kind: "Destroy", entity: this });
+      this.world._enqueue({ kind: CommandKind.Destroy, entity: this });
     } else {
       this._destroy();
     }

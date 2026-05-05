@@ -9,16 +9,22 @@ export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
 type RunCallback = (now: number, delta: number) => void;
 
+const enum InboxCommand {
+  Enter,
+  Exit,
+  Update,
+}
+
 /**
  * One ordered event in a system's inbox. Routed by the world during command
  * queue processing; replayed during the system's next `_run`.
  *
  * @internal
  */
-export type SystemInboxEvent =
-  | { kind: "enter"; entity: Entity }
-  | { kind: "exit"; entity: Entity; snapshot: Map<number, Component> | undefined }
-  | { kind: "update"; component: Component };
+type SystemInboxEvent =
+  | { kind: InboxCommand.Enter; entity: Entity }
+  | { kind: InboxCommand.Exit; entity: Entity; snapshot: Map<number, Component> | undefined }
+  | { kind: InboxCommand.Update; component: Component };
 
 /**
  * A reactive processor that operates on a filtered subset of world entities.
@@ -95,7 +101,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
     this._entities?.add(e);
     e._addQueryMembership(this);
     if (this._enterCallback !== undefined) {
-      this.inbox.push({ kind: "enter", entity: e });
+      this.inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
     // Bridge: surface watched components on entry through `notifyModified`,
     // which on System pushes inbox `update` events.
@@ -124,7 +130,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
           }
         }
       }
-      this.inbox.push({ kind: "exit", entity: e, snapshot });
+      this.inbox.push({ kind: InboxCommand.Exit, entity: e, snapshot });
     }
   }
 
@@ -133,7 +139,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
     if (!this.watchlistBitmask.hasBit(c.bitPtr)) {
       return;
     }
-    this.inbox.push({ kind: "update", component: c });
+    this.inbox.push({ kind: InboxCommand.Update, component: c });
   }
 
   /**
@@ -148,13 +154,13 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
       for (let i = 0; i < this.inbox.length; i++) {
         const event = this.inbox[i];
         switch (event.kind) {
-          case "enter":
+          case InboxCommand.Enter:
             this._enterCallback!(event.entity);
             break;
-          case "exit":
+          case InboxCommand.Exit:
             this._exitCallback!(event.entity, event.snapshot);
             break;
-          case "update":
+          case InboxCommand.Update:
             const callback = this.componentUpdateCallbacks.get(event.component.type);
             if (callback) {
               callback(event.component);

@@ -6,33 +6,9 @@ import { Filter } from "./filter.js";
 import { type QueryDSL, type ExtractRequired } from "./dsl.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
+import { CommandKind, type Command } from "./command.js";
 
 const LOCAL_COMPONENT_MIN = 256;
-
-/**
- * Command kinds emitted by {@link Entity} and routed by {@link World}.
- *
- * Commands are produced by `entity.add` / `entity.set` / `entity.remove` /
- * `entity.destroy` (and `Component.modified`). In deferred mode they are
- * pushed onto the world's command queue and processed at well-defined
- * boundaries (after each system run, on `flush()`, on the next `runPhase`,
- * etc.). Outside deferred mode they execute inline.
- *
- * @internal
- */
-export type Command =
-  | { kind: "CreateEntity"; entity: Entity }
-  | {
-      kind: "Set";
-      entity: Entity;
-      type: number;
-      /** Properties to assign. `undefined` for `entity.add(C)` (ensure-exists, no data). */
-      props: Partial<Component> | undefined;
-    }
-  | { kind: "Modified"; entity: Entity; type: number }
-  | { kind: "Remove"; entity: Entity; type: number }
-  | { kind: "Destroy"; entity: Entity }
-  | { kind: "SetParent"; entity: Entity; parent: Entity | undefined };
 
 /**
  * The central ECS container.
@@ -152,7 +128,7 @@ export class World {
       const eid = this.eidCounter++;
       const e = new Entity(this, eid);
       if (this.deferred) {
-        this._enqueue({ kind: "CreateEntity", entity: e });
+        this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
       } else {
         this._entities.set(eid, e);
       }
@@ -287,22 +263,22 @@ export class World {
    */
   private executeCommand(cmd: Command): void {
     switch (cmd.kind) {
-      case "CreateEntity":
+      case CommandKind.CreateEntity:
         this._entities.set(cmd.entity.eid, cmd.entity);
         return;
-      case "Set":
+      case CommandKind.Set:
         cmd.entity._set(cmd.type, cmd.props);
         return;
-      case "Modified":
+      case CommandKind.Modified:
         cmd.entity._modified(cmd.type);
         return;
-      case "Remove":
+      case CommandKind.Remove:
         cmd.entity._remove(cmd.type);
         return;
-      case "Destroy":
+      case CommandKind.Destroy:
         cmd.entity._destroy();
         return;
-      case "SetParent":
+      case CommandKind.SetParent:
         cmd.entity._setParent(cmd.parent);
         return;
     }
