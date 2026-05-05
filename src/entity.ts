@@ -189,7 +189,7 @@ export class Entity {
     }
   }
 
-  /** @internal Look up a currently-installed component instance by type id. */
+  /** @internal Look up a component instance by type id. */
   public _get(type: number): Component | undefined {
     return this.components.get(type);
   }
@@ -249,7 +249,7 @@ export class Entity {
     });
   }
 
-  private _installNew(type: number, props: Partial<Component> | undefined): Component {
+  private _new(type: number, props: Partial<Component> | undefined): Component {
     const meta = this.world.getComponentMeta(type);
     if (meta.exclusive) {
       for (const exclusiveType of meta.exclusive) {
@@ -275,7 +275,7 @@ export class Entity {
       return;
     }
     const existing = this.components.get(type);
-    const c = existing ?? this._installNew(type, props);
+    const c = existing ?? this._new(type, props);
     if (props !== undefined) {
       if (existing) {
         Object.assign(c, props);
