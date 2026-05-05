@@ -281,11 +281,11 @@ describe("Entity — setParent / parent hierarchy", () => {
     env.start();
     const parent = env.w.entity();
     const child = env.w.entity();
-    env.w.beginDeferred();
+    env.w.beginDefer();
     child.setParent(parent);
     expect(child.parent).toBeUndefined();
     expect(parent.children.has(child)).toBe(false);
-    env.w.endDeferred();
+    env.w.endDefer();
     expect(child.parent).toBe(parent);
     expect(parent.children.has(child)).toBe(true);
   });

@@ -52,7 +52,7 @@ export class World {
 
   /** @internal Single ordered command queue used in deferred mode. */
   private commandQueue: Command[] = [];
-  /** @internal Nested `beginDeferred` / `endDeferred` count. */
+  /** @internal Nested `beginDefer` / `endDefer` count. */
   private deferredDepth = 0;
   /** @internal True while `processCommandQueue` is iterating, to avoid re-entrant drains. */
   private draining = false;
@@ -190,16 +190,14 @@ export class World {
   }
 
   /**
-   * Enter deferred mode. Mutations made until the matching {@link endDeferred}
+   * Enter deferred mode. Mutations made until the matching {@link endDefer}
    * are queued instead of executing inline.
    *
-   * Nested begin/end pairs are allowed; only the outermost `endDeferred`
+   * Nested begin/end pairs are allowed; only the outermost `endDefer`
    * triggers a drain.
    *
-   * @internal Used by `System._run`, `Query.forEach`, and `Filter.forEach` to
-   * isolate iteration from in-flight mutations.
    */
-  public beginDeferred(): void {
+  public beginDefer(): void {
     this.deferredDepth++;
   }
 
@@ -207,12 +205,22 @@ export class World {
    * Leave deferred mode. When the depth returns to zero, the world processes
    * the command queue (firing hooks and routing enter / exit / update events).
    *
-   * @internal Pair with {@link beginDeferred}.
    */
-  public endDeferred(): void {
+  public endDefer(): void {
     this.deferredDepth--;
-    if (this.deferredDepth === 0) {
-      this.processCommandQueue();
+    this.flush();
+  }
+
+  /**
+   *
+   * @param fn callback to invoke in deferred mode.
+   */
+  public defer(fn: () => void): void {
+    this.beginDefer();
+    try {
+      fn();
+    } finally {
+      this.endDefer();
     }
   }
 

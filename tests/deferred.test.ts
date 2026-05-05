@@ -94,10 +94,10 @@ describe("Deferred mode — entity creation", () => {
   it("world.entity() inside a deferred block does not appear in world.entities until drain", () => {
     const { w } = setup();
     w.start();
-    w.beginDeferred();
+    w.beginDefer();
     const e = w.entity();
     expect(w.entity(e.eid)).toBeUndefined();
-    w.endDeferred();
+    w.endDefer();
     expect(w.entity(e.eid)).toBe(e);
   });
 
@@ -124,10 +124,10 @@ describe("Deferred mode — flush()", () => {
     w.hook(Position).onAdd(onAdd);
     w.start();
     const e = w.entity();
-    w.beginDeferred();
+    w.beginDefer();
     e.add(Position);
     expect(onAdd).not.toHaveBeenCalled();
-    w.endDeferred();
+    w.endDefer();
     expect(onAdd).toHaveBeenCalledTimes(1);
     expect(e.get(Position)).toBeInstanceOf(Position);
   });
@@ -194,10 +194,10 @@ describe("Deferred mode — System inbox ordering", () => {
     w.hook(Position).onRemove(onRemove);
     w.start();
     const e = w.entity();
-    w.beginDeferred();
+    w.beginDefer();
     e.add(Position);
     e.remove(Position);
-    w.endDeferred();
+    w.endDefer();
     expect(onAdd).toHaveBeenCalledTimes(1);
     expect(onRemove).toHaveBeenCalledTimes(1);
     tick();
@@ -242,6 +242,72 @@ describe("Deferred mode — parent destruction", () => {
     parent.destroy();
     tick(); // process Destroy + drain inbox
     expect(observedParentId).toBeUndefined();
+  });
+});
+
+describe("World.defer(fn)", () => {
+  it("mutations inside defer() are queued and applied after the callback returns", () => {
+    const { w } = setup();
+    w.start();
+    const e = w.entity();
+    let visibleDuring: Position | undefined;
+    w.defer(() => {
+      e.add(Position);
+      visibleDuring = e.get(Position);
+    });
+    expect(visibleDuring).toBeUndefined();
+    expect(e.get(Position)).toBeInstanceOf(Position);
+  });
+
+  it("hooks fire after defer() returns, not during the callback", () => {
+    const { w } = setup();
+    const onAdd = vi.fn();
+    w.hook(Position).onAdd(onAdd);
+    w.start();
+    const e = w.entity();
+    w.defer(() => {
+      e.add(Position);
+      expect(onAdd).not.toHaveBeenCalled();
+    });
+    expect(onAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it("error thrown in fn propagates but the queue still drains via finally", () => {
+    const { w } = setup();
+    const onAdd = vi.fn();
+    w.hook(Position).onAdd(onAdd);
+    w.start();
+    const e = w.entity();
+    expect(() =>
+      w.defer(() => {
+        e.add(Position);
+        throw new Error("boom");
+      })
+    ).toThrow("boom");
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(e.get(Position)).toBeInstanceOf(Position);
+  });
+
+  it("nested defer() only drains when the outermost callback exits", () => {
+    const { w } = setup();
+    const onAdd = vi.fn();
+    w.hook(Position).onAdd(onAdd);
+    w.hook(Velocity).onAdd(onAdd);
+    w.start();
+    const e = w.entity();
+    w.defer(() => {
+      e.add(Position);
+      w.defer(() => {
+        e.add(Velocity);
+        expect(e.get(Position)).toBeUndefined();
+        expect(e.get(Velocity)).toBeUndefined();
+      });
+      // inner endDefer ran but outer depth is still 1 — nothing drained yet
+      expect(e.get(Velocity)).toBeUndefined();
+    });
+    expect(e.get(Position)).toBeInstanceOf(Position);
+    expect(e.get(Velocity)).toBeInstanceOf(Velocity);
+    expect(onAdd).toHaveBeenCalledTimes(2);
   });
 });
 

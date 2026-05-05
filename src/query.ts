@@ -97,16 +97,13 @@ export class Query<R extends (typeof Component)[] = []> {
     if (this._entities === undefined) {
       return;
     }
-    this.world.beginDeferred();
-    try {
+    this.world.defer(() => {
       this.world.entities.forEach((e) => {
         if (this.belongs(e) && !e.isInQuery(this)) {
           this._enter(e);
         }
       });
-    } finally {
-      this.world.endDeferred();
-    }
+    });
   }
 
   /**
@@ -154,7 +151,7 @@ export class Query<R extends (typeof Component)[] = []> {
     componentsOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void {
-    this.world.beginDeferred();
+    this.world.beginDefer();
     try {
       if (typeof componentsOrCallback === "function") {
         this._entities?.forEach(componentsOrCallback);
@@ -169,7 +166,7 @@ export class Query<R extends (typeof Component)[] = []> {
         });
       }
     } finally {
-      this.world.endDeferred();
+      this.world.endDefer();
     }
   }
 

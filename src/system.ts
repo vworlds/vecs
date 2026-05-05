@@ -149,8 +149,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * processed by the world after `_run` returns.
    */
   public _run(now: number, delta: number) {
-    this.world.beginDeferred();
-    try {
+    this.world.defer(() => {
       for (let i = 0; i < this.inbox.length; i++) {
         const event = this.inbox[i];
         switch (event.kind) {
@@ -178,9 +177,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
         const cb = this.eachCallback;
         this.forEach((e) => cb(e));
       }
-    } finally {
-      this.world.endDeferred();
-    }
+    });
   }
 
   /**

@@ -50,11 +50,11 @@ describe("Component", () => {
     env.start();
     const h = env.w.entity().add(Health).get(Health)!;
     onSet.mockClear();
-    env.w.beginDeferred();
+    env.w.beginDefer();
     h.modified();
     h.modified();
     h.modified();
-    env.w.endDeferred();
+    env.w.endDefer();
     expect(onSet).toHaveBeenCalledTimes(1);
   });
 
@@ -104,11 +104,11 @@ describe("Entity.modified", () => {
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
     onSet.mockClear();
-    env.w.beginDeferred();
+    env.w.beginDefer();
     e.modified(h);
     e.modified(h);
     e.modified(h);
-    env.w.endDeferred();
+    env.w.endDefer();
     expect(onSet).toHaveBeenCalledTimes(1);
   });
 
