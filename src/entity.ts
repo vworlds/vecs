@@ -263,10 +263,7 @@ export class Entity {
 
   /** @internal Iterate over every currently-installed component. */
   public _forEachInstalledComponent(callback: (c: Component) => void): void {
-    // Snapshot to a list so callbacks can mutate `components` safely.
-    const snapshot: Component[] = [];
-    this.components.forEach((c) => snapshot.push(c));
-    snapshot.forEach(callback);
+    this.components.forEach(callback);
   }
 
   /** `true` when the entity has no components attached. */

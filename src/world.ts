@@ -415,12 +415,7 @@ export class World {
     });
 
     // 2. Fire onRemove on every still-attached component.
-    entity._forEachInstalledComponent((c) => {
-      const meta = c.meta;
-      if (meta._onRemoveHandler) {
-        meta._onRemoveHandler(c);
-      }
-    });
+    entity._forEachInstalledComponent((c) => c.meta._onRemoveHandler?.(c));
 
     // 3. Emit the destroy event.
     if (entity._events) {
