@@ -118,7 +118,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
         snapshot = new Map<number, Component>();
         for (const type of this._exitSnapshotTypes) {
-          const c = e._getInstalledComponent(type);
+          const c = e._get(type);
           if (c) {
             snapshot.set(type, c);
           }

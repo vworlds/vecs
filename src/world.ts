@@ -80,6 +80,11 @@ export class World {
   /** @internal True while `processCommandQueue` is iterating, to avoid re-entrant drains. */
   private draining = false;
 
+  /** `true` when the world is in deferred mode — mutations are queued rather than applied immediately. */
+  get deferred(): boolean {
+    return this.deferredDepth > 0 || this.draining;
+  }
+
   /** @internal */
   public _pipeline = new Map<string, Phase>();
   private eidCounter = 0;
@@ -248,7 +253,7 @@ export class World {
    * command queue; otherwise it is executed inline.
    */
   public dispatch(cmd: Command): void {
-    if (this.deferredDepth > 0 || this.draining) {
+    if (this.deferred) {
       this.commandQueue.push(cmd);
     } else {
       this.executeCommand(cmd);
@@ -288,162 +293,23 @@ export class World {
         this._entities.set(cmd.entity.eid, cmd.entity);
         return;
       case "Set":
-        this.executeSet(cmd.entity, cmd.type, cmd.props);
+        cmd.entity._set(cmd.type, cmd.props);
         return;
       case "Modified":
-        this.executeModified(cmd.entity, cmd.type);
+        cmd.entity._modified(cmd.type);
         return;
       case "Remove":
-        this.executeRemove(cmd.entity, cmd.type);
+        cmd.entity._remove(cmd.type);
         return;
       case "Destroy":
-        this.executeDestroy(cmd.entity);
+        cmd.entity._destroy();
         return;
     }
   }
 
-  private _updateEntityQueries(entity: Entity) {
-    this._queries.forEach((q) => {
-      const belongs = q.belongs(entity);
-      const isInQuery = entity.isInQuery(q);
-
-      if (belongs !== isInQuery) {
-        belongs ? q._enter(entity) : q._exit(entity);
-      }
-    });
-  }
-
-  /**
-   * Internal helper: create + install a component on an entity, fire onAdd,
-   * and route enter events. Used by `executeSet`'s
-   * create-if-missing path. Caller is responsible for applying any props
-   * before installation if the props should be visible to query predicates
-   * (e.g. ordered-set comparators).
-   */
-  private installComponent(entity: Entity, type: number, props: Partial<Component> | undefined) {
-    const meta = this.getComponentMeta(type);
-
-    // Exclusive components: synchronously remove any conflicting type so that
-    // onRemove(displaced) fires before onAdd(new).
-    if (meta.exclusive) {
-      for (const exclusiveType of meta.exclusive) {
-        if (entity._hasComponentType(exclusiveType)) {
-          this.executeRemove(entity, exclusiveType);
-        }
-      }
-    }
-
-    const c = new meta.Class(entity, meta);
-    if (props !== undefined) {
-      Object.assign(c, props);
-    }
-    entity._installComponent(type, c);
-
-    if (meta._onAddHandler) {
-      meta._onAddHandler(c);
-    }
-
-    this._updateEntityQueries(entity);
-
-    return c;
-  }
-
-  private executeSet(entity: Entity, type: number, props: Partial<Component> | undefined): void {
-    if (entity._destroyed) {
-      return;
-    }
-    let c = entity._getInstalledComponent(type);
-    const isNew = c === undefined;
-    c = isNew ? this.installComponent(entity, type, props) : c!;
-
-    if (props !== undefined) {
-      if (!isNew) {
-        Object.assign(c, props);
-      }
-      c.meta._onSetHandler?.(c);
-      c._dirty = false;
-      if (!isNew) {
-        entity._forEachQuery((q) => q.notifyModified(c!));
-      }
-    }
-    // entity.add on an existing component → no-op (idempotent ensure-exists).
-  }
-
-  private executeModified(entity: Entity, type: number): void {
-    if (entity._destroyed) {
-      return;
-    }
-    const c = entity._getInstalledComponent(type);
-    if (!c) {
-      return; // stale reference — component was removed
-    }
-    if (c.meta._onSetHandler) {
-      c.meta._onSetHandler(c);
-    }
-    c._dirty = false;
-    entity._forEachQuery((q) => {
-      q.notifyModified(c);
-    });
-  }
-
-  private executeRemove(entity: Entity, type: number): void {
-    if (entity._destroyed) {
-      return;
-    }
-    const c = entity._getInstalledComponent(type);
-    if (!c) {
-      return;
-    }
-    // Clear the bitmask first so q.belongs() returns false during exit routing,
-    // but leave the component in entity.components so exit callbacks and the
-    // sort comparator can still read it via entity.get(C).
-    entity.componentBitmask.delete(type);
-
-    this._updateEntityQueries(entity);
-    // Remove from components after exits have fired.
-    entity._removeInstalledComponent(type);
-
-    // onRemove hook fires last.
-    const meta = c.meta;
-    if (meta._onRemoveHandler) {
-      meta._onRemoveHandler(c);
-    }
-  }
-
-  private executeDestroy(entity: Entity): void {
-    if (entity._destroyed) {
-      return;
-    }
-
-    // 1. Fire exit on every query the entity belongs to.
-    const queries: Query[] = [];
-    entity._forEachQuery((q) => queries.push(q));
-    queries.forEach((q) => {
-      if (q.world) {
-        q._exit(entity);
-      }
-    });
-
-    // 2. Fire onRemove on every still-attached component.
-    entity._forEachInstalledComponent((c) => c.meta._onRemoveHandler?.(c));
-
-    // 3. Emit the destroy event.
-    if (entity._events) {
-      entity._events.emit("destroy");
-      entity._events.removeAllListeners("destroy");
-    }
-
-    // 4. Mark the entity destroyed and unhook from world / parent.
-    entity._destroyed = true;
+  /** @internal Remove an entity from the world's entity map. Called by Entity._destroy. */
+  public _unregisterEntity(entity: Entity): void {
     this._entities.delete(entity.eid);
-
-    if (entity.parent) {
-      entity.parent.children.delete(entity);
-      // The parent may match `{ PARENT: ... }` queries that depend on this
-      // child's archetype — but since we don't change parent's bitmask here,
-      // there's no archetype change to dispatch. Existing code didn't either.
-      entity.parent = undefined;
-    }
   }
 
   /** @internal */

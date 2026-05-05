@@ -183,11 +183,9 @@ export class Entity {
     this.world.dispatch({ kind: "Remove", entity: this, type });
   }
 
-  /** @internal Called by queries to deliver update notifications. */
-  public _notifyModified(component: Component) {
-    this.queries.forEach((q) => {
-      q.notifyModified(component);
-    });
+  /** @internal Look up a currently-installed component instance by type id. */
+  public _get(type: number): Component | undefined {
+    return this.components.get(type);
   }
 
   /**
@@ -198,7 +196,7 @@ export class Entity {
    */
   public get<C extends typeof Component>(typeOrClass: number | C): InstanceType<C> | undefined {
     const type = this.world.getComponentType(typeOrClass);
-    return this.components.get(type) as InstanceType<C> | undefined;
+    return this._get(type) as InstanceType<C> | undefined;
   }
 
   /**
@@ -235,35 +233,115 @@ export class Entity {
     this.queries.delete(q);
   }
 
-  /** @internal Iterate over every query this entity is currently tracked by. */
-  public _forEachQuery(callback: (q: Query) => void): void {
-    this.queries.forEach(callback);
+  private _updateQueries(): void {
+    this.world.queries.forEach((q) => {
+      const belongs = q.belongs(this);
+      const isIn = this.isInQuery(q);
+      if (belongs !== isIn) {
+        belongs ? q._enter(this) : q._exit(this);
+      }
+    });
   }
 
-  /** @internal True if a component of the given type id is currently installed. */
-  public _hasComponentType(type: number): boolean {
-    return this.components.has(type);
-  }
-
-  /** @internal Look up a currently-installed component instance by type id. */
-  public _getInstalledComponent(type: number): Component | undefined {
-    return this.components.get(type);
-  }
-
-  /** @internal Install a freshly created component (called from World.executeAdd). */
-  public _installComponent(type: number, c: Component): void {
+  private _installNew(type: number, props: Partial<Component> | undefined): Component {
+    const meta = this.world.getComponentMeta(type);
+    if (meta.exclusive) {
+      for (const exclusiveType of meta.exclusive) {
+        if (this.components.has(exclusiveType)) {
+          this._remove(exclusiveType);
+        }
+      }
+    }
+    const c = new meta.Class(this, meta);
+    if (props !== undefined) {
+      Object.assign(c, props);
+    }
     this.components.set(type, c);
     this.componentBitmask.add(type);
+    meta._onAddHandler?.(c);
+    this._updateQueries();
+    return c;
   }
 
-  /** @internal Remove a component from the installed map. Bitmask must already be cleared. */
-  public _removeInstalledComponent(type: number): void {
+  /** @internal Execute a Set command — create if absent, apply props, fire hooks, route events. */
+  public _set(type: number, props: Partial<Component> | undefined): void {
+    if (this._destroyed) {
+      return;
+    }
+    const existing = this.components.get(type);
+    const c = existing ?? this._installNew(type, props);
+    if (props !== undefined) {
+      if (existing) {
+        Object.assign(c, props);
+      }
+      c.meta._onSetHandler?.(c);
+      c._dirty = false;
+      if (existing) {
+        this.queries.forEach((q) => q.notifyModified(c));
+      }
+    }
+  }
+
+  /** @internal Execute a Modified command — fire onSet and route update events. */
+  public _modified(type: number): void {
+    if (this._destroyed) {
+      return;
+    }
+    const c = this.components.get(type);
+    if (!c) {
+      return;
+    }
+    c.meta._onSetHandler?.(c);
+    c._dirty = false;
+    this.queries.forEach((q) => q.notifyModified(c));
+  }
+
+  /** @internal Execute a Remove command — clear bitmask, route exits, remove component, fire onRemove. */
+  public _remove(type: number): void {
+    if (this._destroyed) {
+      return;
+    }
+    const c = this.components.get(type);
+    if (!c) {
+      return;
+    }
+    this.componentBitmask.delete(type);
+    this._updateQueries();
     this.components.delete(type);
+    c.meta._onRemoveHandler?.(c);
   }
 
-  /** @internal Iterate over every currently-installed component. */
-  public _forEachInstalledComponent(callback: (c: Component) => void): void {
-    this.components.forEach(callback);
+  /** @internal Execute a Destroy command — exit queries, fire onRemove, emit event, unregister. */
+  public _destroy(): void {
+    if (this._destroyed) {
+      return;
+    }
+
+    // 1. Fire exit on every query the entity belongs to.
+    const toExit: Query[] = [];
+    this.queries.forEach((q) => {
+      if (q.world) {
+        toExit.push(q);
+      }
+    });
+    toExit.forEach((q) => q._exit(this));
+
+    // 2. Fire onRemove on every still-attached component.
+    this.components.forEach((c) => c.meta._onRemoveHandler?.(c));
+
+    // 3. Emit the destroy event.
+    if (this._events) {
+      this._events.emit("destroy");
+      this._events.removeAllListeners("destroy");
+    }
+
+    // 4. Mark destroyed and unhook from world / parent.
+    this._destroyed = true;
+    this.world._unregisterEntity(this);
+    if (this.parent) {
+      this.parent.children.delete(this);
+      this.parent = undefined;
+    }
   }
 
   /** `true` when the entity has no components attached. */
