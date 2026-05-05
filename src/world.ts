@@ -343,26 +343,18 @@ export class World {
       return;
     }
     let c = entity._getInstalledComponent(type);
-    if (!c) {
-      c = this.installComponent(entity, type, props);
-      // installComponent fires onAdd and routes enters (including the bridge).
-      // Also fire onSet when props were supplied (entity.set on a new component).
-      if (props !== undefined) {
-        if (c.meta._onSetHandler) {
-          c.meta._onSetHandler(c);
-        }
-        c._dirty = false;
+    const isNew = c === undefined;
+    c = isNew ? this.installComponent(entity, type, props) : c!;
+
+    if (props !== undefined) {
+      if (!isNew) {
+        Object.assign(c, props);
       }
-    } else if (props !== undefined) {
-      // entity.set on an existing component: apply props, fire onSet, route updates.
-      Object.assign(c, props);
-      if (c.meta._onSetHandler) {
-        c.meta._onSetHandler(c);
-      }
+      c.meta._onSetHandler?.(c);
       c._dirty = false;
-      entity._forEachQuery((q) => {
-        q.notifyModified(c!);
-      });
+      if (!isNew) {
+        entity._forEachQuery((q) => q.notifyModified(c));
+      }
     }
     // entity.add on an existing component → no-op (idempotent ensure-exists).
   }
