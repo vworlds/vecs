@@ -64,9 +64,9 @@ export type Command =
  * ```
  */
 export class World {
-  private entities = new Map<number, Entity>(); // maps entity Id to Entity
+  private _entities = new Map<number, Entity>(); // maps entity Id to Entity
   private componentNameTypeMap = new Map<string, number>();
-  private allQueries: Query[] = [];
+  private _queries: Query[] = [];
 
   private Class2Meta = new Map<typeof Component, ComponentMeta>();
   private Type2Meta = new ArrayMap<ComponentMeta>();
@@ -84,6 +84,16 @@ export class World {
   public _pipeline = new Map<string, Phase>();
   private eidCounter = 0;
   constructor() {}
+
+  /** @readonly */
+  get entities(): Omit<Map<number, Entity>, "set" | "delete" | "clear"> {
+    return this._entities as any;
+  }
+
+  /** @readonly */
+  get queries(): ReadonlyArray<Query> {
+    return this._queries;
+  }
 
   /**
    * Return the entity with id `eid`, creating it if it does not yet exist.
@@ -104,10 +114,10 @@ export class World {
    * @returns The existing or newly created entity.
    */
   public getOrCreateEntity(eid: number, onCreateCallback?: (e: Entity) => void) {
-    let e = this.entities.get(eid);
+    let e = this._entities.get(eid);
     if (!e) {
       e = new Entity(this, eid);
-      this.entities.set(eid, e);
+      this._entities.set(eid, e);
       if (onCreateCallback) {
         onCreateCallback(e);
       }
@@ -138,7 +148,7 @@ export class World {
       this.dispatch({ kind: "CreateEntity", entity: e });
       return e;
     }
-    return this.entities.get(id);
+    return this._entities.get(id);
   }
 
   /**
@@ -275,7 +285,7 @@ export class World {
   private executeCommand(cmd: Command): void {
     switch (cmd.kind) {
       case "CreateEntity":
-        this.entities.set(cmd.entity.eid, cmd.entity);
+        this._entities.set(cmd.entity.eid, cmd.entity);
         return;
       case "Set":
         this.executeSet(cmd.entity, cmd.type, cmd.props);
@@ -293,7 +303,7 @@ export class World {
   }
 
   private _updateEntityQueries(entity: Entity) {
-    this.allQueries.forEach((q) => {
+    this._queries.forEach((q) => {
       const belongs = q.belongs(entity);
       const isInQuery = entity.isInQuery(q);
 
@@ -425,7 +435,7 @@ export class World {
 
     // 4. Mark the entity destroyed and unhook from world / parent.
     entity._destroyed = true;
-    this.entities.delete(entity.eid);
+    this._entities.delete(entity.eid);
 
     if (entity.parent) {
       entity.parent.children.delete(entity);
@@ -532,21 +542,21 @@ export class World {
 
   /** @internal Called by the {@link Query} constructor to register itself. */
   public _addQuery(q: Query) {
-    this.allQueries.push(q);
+    this._queries.push(q);
   }
 
   /** @internal Called by {@link Query.destroy} to unregister a query and remove it from all entities. */
   public _removeQuery(q: Query): void {
-    const idx = this.allQueries.indexOf(q);
+    const idx = this._queries.indexOf(q);
     if (idx !== -1) {
-      this.allQueries.splice(idx, 1);
+      this._queries.splice(idx, 1);
     }
-    this.entities.forEach((e) => e._purgeQuery(q));
+    this._entities.forEach((e) => e._purgeQuery(q));
   }
 
   /** @internal Iterate over all entities currently in the world. */
   public _forEachEntity(callback: (e: Entity) => void): void {
-    this.entities.forEach(callback);
+    this._entities.forEach(callback);
   }
 
   /**
@@ -662,7 +672,7 @@ export class World {
 
     const defaultPhase = _defaultPhase;
 
-    this.allQueries.forEach((q) => {
+    this._queries.forEach((q) => {
       if (!(q instanceof System)) {
         return;
       }
@@ -786,7 +796,7 @@ export class World {
    * transitioning between game sessions or resetting to a clean state.
    */
   public clearAllEntities() {
-    this.entities.forEach((e) => {
+    this._entities.forEach((e) => {
       e.destroy();
     });
     this.flush();
