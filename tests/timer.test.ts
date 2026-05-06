@@ -178,8 +178,8 @@ describe("Timers and tick sources", () => {
   it("beginFrame without prior endFrame throws", () => {
     const { world } = setup();
 
-    world.beginFrame(0, 0);
-    expect(() => world.beginFrame(0, 0)).toThrow();
+    world.beginFrame(0);
+    expect(() => world.beginFrame(0)).toThrow();
     world.endFrame();
   });
 

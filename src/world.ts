@@ -673,12 +673,10 @@ export class World {
    * Call this before one or more {@link runPhase} calls when manually driving
    * phases. {@link progress} wraps this automatically for the full pipeline.
    *
-   * @param now - Absolute timestamp in milliseconds (reserved for symmetry with phase execution).
    * @param delta - Milliseconds elapsed since the previous frame.
    * @throws When a frame is already open.
    */
-  public beginFrame(now: number, delta: number): void {
-    void now;
+  public beginFrame(delta: number): void {
     if (this._frameInProgress) {
       throw "endFrame() not called before beginFrame()";
     }
@@ -739,7 +737,7 @@ export class World {
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public progress(now: number, delta: number): void {
-    this.beginFrame(now, delta);
+    this.beginFrame(delta);
     try {
       this._pipeline.forEach((phase) => {
         this.runPhase(phase, now, delta);
