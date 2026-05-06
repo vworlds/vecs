@@ -64,5 +64,6 @@ describe("ArrayMap", () => {
     m.clear();
     expect(m.has(1)).toBe(false);
     expect(m.has(2)).toBe(false);
+    expect(m.size).toBe(0);
   });
 });

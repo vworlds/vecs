@@ -81,5 +81,6 @@ export class ArrayMap<T> {
   /** Remove all entries and reset {@link size} to zero. */
   public clear(): void {
     this._backend.length = 0;
+    this._size = 0;
   }
 }
