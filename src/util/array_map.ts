@@ -1,93 +1,85 @@
 /**
- * A `Map<number, T>` backed by a sparse JavaScript array.
+ * A `Map<number, T>` substitute backed by a sparse JavaScript array.
  *
- * For small, dense integer key spaces this is significantly faster than
- * `Map` because array index access avoids the hash-table overhead. Used
- * internally to store per-entity component instances and per-type component
- * metadata.
+ * For small, dense, non-negative integer key spaces, indexing into a regular
+ * array is faster than the hash-table lookups performed by the built-in
+ * `Map`. `ArrayMap` is used inside the ECS to store per-entity component
+ * instances and per-type metadata.
  *
- * Keys must be non-negative integers. Gaps in the key space are represented
- * as `undefined` slots and do not count toward `size`.
+ * Empty slots are represented as `undefined` and do not count toward
+ * {@link size}.
  *
- * @typeParam T - The value type stored in the map.
+ * @internal Used only inside the package.
+ *
+ * @typeParam T - Value type stored in the map.
  */
 export class ArrayMap<T> {
-  private backend: (T | undefined)[];
-  private _size: number;
+  private _backend: (T | undefined)[] = [];
+  private _size: number = 0;
 
-  constructor() {
-    this.backend = [];
-    this._size = 0;
+  /** The number of entries currently in the map. */
+  public get size(): number {
+    return this._size;
   }
 
   /**
-   * Store `value` at `key`, replacing any existing value.
+   * Insert or replace the value at `key`.
    *
    * @param key - Non-negative integer key.
    * @param value - Value to store.
    */
-  set(key: number, value: T): void {
-    if (this.backend[key] === undefined) {
+  public set(key: number, value: T): void {
+    if (this._backend[key] === undefined) {
       this._size++;
     }
-    this.backend[key] = value;
+    this._backend[key] = value;
   }
 
   /**
-   * Return the value stored at `key`, or `undefined` if not present.
+   * Retrieve the value stored at `key`, or `undefined` if no entry exists.
    *
    * @param key - Non-negative integer key.
    */
-  get(key: number): T | undefined {
-    return this.backend[key];
+  public get(key: number): T | undefined {
+    return this._backend[key];
   }
 
   /**
-   * Remove the entry at `key`. Does nothing if `key` is not present.
+   * Return `true` when an entry exists at `key`.
    *
    * @param key - Non-negative integer key.
    */
-  delete(key: number): void {
-    if (this.backend[key] !== undefined) {
-      this.backend[key] = undefined;
+  public has(key: number): boolean {
+    return this._backend[key] !== undefined;
+  }
+
+  /**
+   * Remove the entry at `key`. Does nothing if no entry exists there.
+   *
+   * @param key - Non-negative integer key.
+   */
+  public delete(key: number): void {
+    if (this._backend[key] !== undefined) {
+      this._backend[key] = undefined;
       this._size--;
     }
   }
 
   /**
-   * Return `true` if an entry exists at `key`.
+   * Visit every present entry in ascending key order. Empty slots are skipped.
    *
-   * @param key - Non-negative integer key.
+   * @param callback - Invoked with `(value, key, map)` for each entry.
    */
-  has(key: number): boolean {
-    return this.backend[key] !== undefined;
-  }
-
-  /**
-   * Iterate over all present entries.
-   *
-   * Undefined slots are skipped; the callback is only called for keys that
-   * have an associated value.
-   *
-   * @param callback - Called with `(value, key, map)` for each entry.
-   */
-  forEach(callback: (value: T, key: number, map: ArrayMap<T>) => void): void {
-    this.backend.forEach((value, index) => {
+  public forEach(callback: (value: T, key: number, map: ArrayMap<T>) => void): void {
+    this._backend.forEach((value, index) => {
       if (value !== undefined) {
         callback(value, index, this);
       }
     });
   }
 
-  /**
-   * Remove all entries and reset the size to zero.
-   */
-  clear() {
-    this.backend.length = 0;
-  }
-
-  /** The number of entries currently in the map. */
-  get size(): number {
-    return this._size;
+  /** Remove all entries and reset {@link size} to zero. */
+  public clear(): void {
+    this._backend.length = 0;
   }
 }

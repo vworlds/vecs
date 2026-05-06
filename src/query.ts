@@ -5,8 +5,8 @@ import { Component } from "./component.js";
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
 import {
-  HAS,
-  buildEntityTest,
+  _HAS,
+  _buildEntityTest,
   type EntityTestFunc,
   type QueryDSL,
   type MaybeRequired,
@@ -17,9 +17,13 @@ export type { EntityTestFunc, QueryDSL, MaybeRequired };
 type EntityCallback = (e: Entity, snapshot?: Map<number, Component>) => void;
 type ComponentCallback = (c: Component) => void;
 
+/** Component class, or `{ parent: ComponentClass }` to resolve from the entity's parent. */
 type ComponentOrParent = typeof Component | { parent: typeof Component };
+
+/** Numeric type id, or `{ parent: typeId }` to resolve from the entity's parent. */
 type ComponentOrParentType = number | { parent: number };
 
+/** Resolves the component instance type for one element of a `ComponentOrParent` tuple. */
 type ComponentInstance<T> = T extends { parent: typeof Component }
   ? InstanceType<T["parent"]>
   : T extends typeof Component
@@ -29,41 +33,51 @@ type ComponentInstance<T> = T extends { parent: typeof Component }
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
 
 /**
- * A reactive, always-updated list of entities that match a given query
- * expression.
+ * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
+ * predicate.
  *
- * `Query` tracks every entity whose component set satisfies the predicate set
- * via {@link requires} or {@link query}. Entry, exit, and update callbacks
- * fire automatically when the world's command queue is processed. The tracked
- * set is exposed via {@link entities} and {@link forEach}.
+ * `Query` listens to entity / component mutations through the world's command
+ * queue and tracks which entities currently satisfy its predicate. It fires
+ * `enter`, `exit`, and `update` callbacks as the matched set changes. The
+ * tracked set is exposed via {@link entities} and {@link forEach}.
  *
- * {@link System} extends `Query` and queues callbacks for its next `_run`
- * rather than firing them immediately. Use `Query` directly when you want
- * synchronous reactive callbacks without pipeline integration.
+ * Callbacks fire **synchronously** when the world routes a command — so
+ * mutations made inside one of these callbacks are themselves observed
+ * immediately by other queries / systems.
  *
- * ### Type parameter `R`
- * Tracks which component classes are "required" (declared via {@link requires}
- * or the `_guaranteed` hint of {@link query}). Those components appear as
- * non-nullable in {@link sort}, {@link forEach}, and {@link update} callbacks.
+ * {@link System} extends `Query` and queues callbacks into an inbox replayed
+ * during `_run` instead of firing them immediately. Use `Query` directly when
+ * you want a reactive entity set without pipeline integration.
+ *
+ * @typeParam R - Component classes guaranteed present on every matched entity
+ *   (declared via {@link requires} or the `_guaranteed` hint of {@link query}).
+ *   Components in `R` appear as non-nullable in {@link sort}, {@link forEach},
+ *   and {@link update} callback tuples.
  */
 export class Query<R extends (typeof Component)[] = []> {
+  /** @internal Tracked entity set. Allocated by {@link track} or {@link sort}. */
   protected _entities: Set<Entity> | undefined;
-  protected _enterCallback: EntityCallback | undefined = undefined;
-  protected _exitCallback: EntityCallback | undefined = undefined;
-  /** @internal Direct component type ids that the exit callback injects; undefined when no injection. */
-  protected _exitSnapshotTypes: number[] | undefined = undefined;
+  /** @internal Predicate compiled from the query DSL; defaults to "match nothing". */
   protected _belongs: EntityTestFunc = (_e: Entity) => false;
-  protected hasQuery = false;
+  /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
+  protected _hasQuery: boolean = false;
 
-  /** @internal Per-component-type update callbacks. */
-  protected componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
-  /** @internal Bitmask of component types this query is watching for updates. */
-  protected watchlistBitmask: Bitset = new Bitset();
+  /** @internal `enter` callback (already wraps any injection logic). */
+  protected _enterCallback: EntityCallback | undefined = undefined;
+  /** @internal `exit` callback (already wraps any injection logic). */
+  protected _exitCallback: EntityCallback | undefined = undefined;
+  /** @internal Type ids the exit callback needs snapshotted before component removal. */
+  protected _exitSnapshotTypes: number[] | undefined = undefined;
+
+  /** @internal Per-component-type `update` callbacks. */
+  protected _componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
+  /** @internal Bitmask of component types this query reacts to via `update`. */
+  protected _watchlistBitmask: Bitset = new Bitset();
 
   constructor(
-    /** Unique name for this query, used in logs and debug output. */
+    /** Unique display name; appears in logs and debug output. */
     public readonly name: string,
-    /** The world that owns this query. */
+    /** World that owns this query. */
     public readonly world: World,
     track: boolean = true
   ) {
@@ -71,6 +85,132 @@ export class Query<R extends (typeof Component)[] = []> {
     if (track) {
       this.track();
     }
+  }
+
+  /**
+   * @internal Backfill the tracked set with every existing entity that
+   * satisfies the current predicate. Runs inside a deferred scope so the
+   * caller's reentrant routing remains consistent.
+   */
+  private _backfill(): void {
+    if (this._entities === undefined) {
+      return;
+    }
+    this.world.defer(() => {
+      this.world.entities.forEach((e) => {
+        if (this.belongs(e) && !e._isInQuery(this)) {
+          this._enter(e);
+        }
+      });
+    });
+  }
+
+  /**
+   * @internal Resolve one element of an `inject` tuple to a component
+   * instance, falling back to `exitSnapshot` when the entity is mid-exit.
+   */
+  private _getComponent(
+    e: Entity,
+    C: ComponentOrParentType,
+    exitSnapshot?: Map<number, Component>
+  ): Component | undefined {
+    if (typeof C === "number") {
+      return exitSnapshot?.get(C) ?? e.get(C);
+    } else {
+      return e.parent?.get(C.parent);
+    }
+  }
+
+  /**
+   * @internal Resolve every element of an `inject` tuple, throwing if any
+   * required component is missing on the entity (or its parent).
+   */
+  private _getInjected(
+    e: Entity,
+    inject: ComponentOrParentType[],
+    exitSnapshot?: Map<number, Component>
+  ): Component[] {
+    const injected: Component[] = [];
+    inject.forEach((C) => {
+      const c = this._getComponent(e, C, exitSnapshot);
+      if (!c) {
+        throw "query does not contain component";
+      }
+      injected.push(c);
+    });
+    return injected;
+  }
+
+  /**
+   * @internal Translate a tuple of component classes (or `{ parent: C }`
+   * markers) into the corresponding type ids understood by {@link _getInjected}.
+   */
+  private _mapInjectedClassToTypes<J extends ComponentOrParent[]>(
+    inject: readonly [...J]
+  ): ComponentOrParentType[] {
+    return inject.map((C) => {
+      if (typeof C === "function") {
+        return this.world.getComponentType(C);
+      }
+      return { parent: this.world.getComponentType(C.parent) };
+    });
+  }
+
+  /**
+   * @internal Add `e` to the tracked set, register query membership on the
+   * entity, fire any registered `enter` callback, then bridge the entity's
+   * already-attached watched components through {@link _notifyModified} so
+   * `update` callbacks see them once on entry.
+   *
+   * `System` overrides this to push events into its inbox.
+   */
+  public _enter(e: Entity): void {
+    this._entities?.add(e);
+    e._addQueryMembership(this);
+    this._enterCallback?.(e);
+    e.forEachComponent((c) => {
+      if (this._watchlistBitmask.hasBit(c.bitPtr)) {
+        this._notifyModified(c);
+      }
+    });
+  }
+
+  /**
+   * @internal Remove `e` from the tracked set, deregister query membership,
+   * and fire any registered `exit` callback. `System` overrides this to push
+   * an inbox event.
+   */
+  public _exit(e: Entity): void {
+    this._exitCallback?.(e);
+    this._entities?.delete(e);
+    e._removeQueryMembership(this);
+  }
+
+  /**
+   * @internal Routing entry: when the watchlist matches, invoke the registered
+   * `update` callback for the component type. `System` overrides this to push
+   * an inbox event instead of firing immediately.
+   */
+  public _notifyModified(c: Component): void {
+    if (!this._watchlistBitmask.hasBit(c.bitPtr)) {
+      return;
+    }
+    const callback = this._componentUpdateCallbacks.get(c.type);
+    if (callback) {
+      callback(c);
+    }
+  }
+
+  /**
+   * Read-only view of the entities currently tracked by this query.
+   *
+   * Populated as entities enter and removed as they exit. Empty unless
+   * tracking is enabled — that is the default for standalone queries created
+   * via {@link World.query}, but {@link System} requires an explicit
+   * {@link track}, {@link sort}, or `each` call.
+   */
+  public get entities(): ReadonlySet<Entity> {
+    return this._entities ?? EMPTY_ENTITIES;
   }
 
   /** Returns the query name. */
@@ -82,61 +222,41 @@ export class Query<R extends (typeof Component)[] = []> {
    * Enable entity tracking: matched entities are inserted into {@link entities}
    * as they enter and removed as they exit.
    *
-   * Idempotent. When called after {@link World.start}, immediately backfills all
-   * existing entities that currently satisfy the query predicate.
+   * Idempotent. When called after {@link World.start}, immediately backfills
+   * every existing entity that satisfies the current predicate.
    *
-   * @returns `this` for chaining.
+   * @returns This query, for chaining.
    */
   public track(): this {
     this._entities ??= new Set<Entity>();
-    this.backfill();
+    this._backfill();
     return this;
   }
 
-  private backfill(): void {
-    if (this._entities === undefined) {
-      return;
-    }
-    this.world.defer(() => {
-      this.world.entities.forEach((e) => {
-        if (this.belongs(e) && !e.isInQuery(this)) {
-          this._enter(e);
-        }
-      });
-    });
+  /** Returns `true` when `e` satisfies this query's predicate. */
+  public belongs(e: Entity): boolean {
+    return this._belongs(e);
   }
 
   /**
-   * Read-only view of the entities currently tracked by this query.
-   *
-   * Populated as entities enter (and removed as they exit). Empty unless
-   * tracking is enabled (default for standalone queries; requires an explicit
-   * {@link track} call on {@link System | systems}).
-   */
-  public get entities(): ReadonlySet<Entity> {
-    return this._entities ?? EMPTY_ENTITIES;
-  }
-
-  /**
-   * Iterate over every entity currently tracked by this query.
+   * Iterate every entity currently tracked by this query.
    *
    * Mutations made by `callback` are buffered into the world command queue
-   * (deferred mode) and only become visible after iteration finishes. Nested
-   * iteration inside an already-deferred context (a system, another forEach)
-   * inherits the outer deferred scope and does not drain on exit.
+   * and only become visible after iteration finishes. Nested iteration inside
+   * an already-deferred context (a system, an outer `forEach`) inherits the
+   * outer scope and does not drain on exit.
    *
-   * @param callback - Called once per tracked entity, in insertion order
+   * @param callback - Invoked once per tracked entity, in insertion order
    *   (or sort order when {@link sort} is configured).
    */
   public forEach(callback: (e: Entity) => void): void;
 
   /**
-   * Iterate over every entity currently tracked by this query, with component
-   * injection.
+   * Iterate every tracked entity with component injection.
    *
-   * Components declared via {@link requires} (or the `_guaranteed` hint of
-   * {@link query}) are non-nullable in the resolved tuple; any other requested
-   * component may be `undefined` if the entity lacks it.
+   * Components covered by {@link requires} (or the `_guaranteed` hint of
+   * {@link query}) are non-nullable in the resolved tuple; any other
+   * requested component may be `undefined` if the entity lacks it.
    *
    * @param components - Component classes to resolve from each entity.
    * @param callback - Receives the entity and a tuple of resolved component
@@ -170,67 +290,14 @@ export class Query<R extends (typeof Component)[] = []> {
     }
   }
 
-  /** Returns `true` if the entity satisfies this query's predicate. */
-  public belongs(e: Entity): boolean {
-    return this._belongs(e);
-  }
-
   /**
-   * @internal Called by the world during command-queue routing when a Set
-   * command targets an entity that this query currently tracks. Default:
-   * fires the user-registered `update` callback for the component's type.
-   * `System` overrides this to push into its inbox instead.
-   */
-  public notifyModified(c: Component): void {
-    if (!this.watchlistBitmask.hasBit(c.bitPtr)) {
-      return;
-    }
-    const callback = this.componentUpdateCallbacks.get(c.type);
-    if (callback) {
-      callback(c);
-    }
-  }
-
-  /**
-   * @internal Adds the entity to the tracked set, registers query membership
-   * on the entity, fires registered enter callbacks, then bridges any
-   * already-attached watched components through `notifyModified` so that
-   * `update` callbacks see the entity once on entry. `System` overrides this
-   * to push inbox events (events fire later in `_run`).
-   */
-  public _enter(e: Entity): void {
-    this._entities?.add(e);
-    e._addQueryMembership(this);
-    this._enterCallback?.(e);
-    // Bridge: surface the entity's already-attached watched components as
-    // update events so `update` handlers fire once on entry without the user
-    // having to call `modified()` explicitly.
-    e.forEachComponent((c) => {
-      if (this.watchlistBitmask.hasBit(c.bitPtr)) {
-        this.notifyModified(c);
-      }
-    });
-  }
-
-  /**
-   * @internal Removes the entity from the tracked set, deregisters query
-   * membership, and fires registered exit callbacks. `System` overrides this
-   * to also push an inbox event.
-   */
-  public _exit(e: Entity): void {
-    this._exitCallback?.(e);
-    this._entities?.delete(e);
-    e._removeQueryMembership(this);
-  }
-
-  /**
-   * Register a callback that fires when an entity **enters** this query
-   * (i.e. first satisfies the predicate) with injected components.
+   * Register a callback invoked when an entity **enters** this query (i.e.
+   * first satisfies the predicate), with injected components.
    *
    * @param inject - Ordered list of component classes (or `{ parent: C }`) to
    *   resolve from the entering entity and pass to `callback`.
    * @param callback - Receives the entity and the resolved component tuple.
-   * @returns `this` for chaining.
+   * @returns This query, for chaining.
    *
    * @example
    * ```ts
@@ -246,10 +313,10 @@ export class Query<R extends (typeof Component)[] = []> {
   ): this;
 
   /**
-   * Register a callback that fires when an entity enters this query.
+   * Register an `enter` callback without component injection.
    *
-   * @param callback - Receives only the entity (no injection).
-   * @returns `this` for chaining.
+   * @param callback - Receives only the entering entity.
+   * @returns This query, for chaining.
    */
   public enter(callback: (e: Entity) => void): this;
 
@@ -260,22 +327,25 @@ export class Query<R extends (typeof Component)[] = []> {
     if (typeof injectOrCallback === "function") {
       this._enterCallback = injectOrCallback;
     } else {
-      const inject = this.mapInjectedClassToTypes(injectOrCallback);
+      const inject = this._mapInjectedClassToTypes(injectOrCallback);
       this._enterCallback = (e: Entity) => {
-        callback!(e, this.getInjected(e, inject) as any);
+        callback!(e, this._getInjected(e, inject) as any);
       };
     }
     return this;
   }
 
   /**
-   * Register a callback that fires when an entity **exits** this query
-   * (its components no longer satisfy the predicate, or it was destroyed) with
+   * Register a callback invoked when an entity **exits** this query (its
+   * archetype no longer satisfies the predicate, or it was destroyed), with
    * injected components.
+   *
+   * Components removed in the same frame as the exit are still resolvable
+   * because the runtime snapshots them at routing time.
    *
    * @param inject - Component classes to resolve and inject.
    * @param callback - Receives the entity and the resolved component tuple.
-   * @returns `this` for chaining.
+   * @returns This query, for chaining.
    */
   public exit<J extends ComponentOrParent[]>(
     inject: readonly [...J],
@@ -283,10 +353,10 @@ export class Query<R extends (typeof Component)[] = []> {
   ): this;
 
   /**
-   * Register a callback that fires when an entity exits this query.
+   * Register an `exit` callback without component injection.
    *
-   * @param callback - Receives only the entity.
-   * @returns `this` for chaining.
+   * @param callback - Receives only the exiting entity.
+   * @returns This query, for chaining.
    */
   public exit(callback: (e: Entity) => void): this;
 
@@ -298,40 +368,36 @@ export class Query<R extends (typeof Component)[] = []> {
       this._exitCallback = injectOrCallback;
       this._exitSnapshotTypes = undefined;
     } else {
-      const inject = this.mapInjectedClassToTypes(injectOrCallback);
-      // Only direct (non-parent) types need snapshotting; parent refs are read
-      // from e.parent at callback time, which is still alive.
+      const inject = this._mapInjectedClassToTypes(injectOrCallback);
       this._exitSnapshotTypes = inject.filter((t): t is number => typeof t === "number");
       this._exitCallback = (e: Entity, exitSnapshot?: Map<number, Component>) => {
-        callback!(e, this.getInjected(e, inject, exitSnapshot) as any);
+        callback!(e, this._getInjected(e, inject, exitSnapshot) as any);
       };
     }
     return this;
   }
 
   /**
-   * Register a callback that fires when a component of type `ComponentClass`
-   * is modified on any entity tracked by this query.
+   * Register a callback invoked when a component of `ComponentClass` is
+   * modified on a tracked entity.
    *
-   * On a {@link Query}, callbacks fire **immediately** when the world's
-   * command queue routes the corresponding `Set` command. On a {@link System},
-   * the event is buffered in the system's inbox and the callback fires during
-   * the system's next `_run`.
+   * On a {@link Query} the callback fires **immediately** when the world
+   * routes the corresponding `Set` / `Modified` command. On a {@link System}
+   * the event is buffered in the inbox and the callback fires during the
+   * system's next `_run`.
    *
    * If no other predicate has been set on this query, the watchlist
-   * automatically expands to require `ComponentClass` (equivalent to adding
-   * it to a `requires` / `HAS` query).
+   * automatically expands so `ComponentClass` is implicitly required (the
+   * predicate becomes a `HAS` of every watched type).
    *
-   * @param ComponentClass - The component class to watch.
+   * @param ComponentClass - Component class to watch.
    * @param callback - Receives the modified component instance.
-   * @returns `this` for chaining.
+   * @returns This query, for chaining.
    *
    * @example
    * ```ts
    * world.system("RenderPosition")
-   *   .update(Position, (pos) => {
-   *     sprite.setPosition(pos.x, pos.y);
-   *   });
+   *   .update(Position, (pos) => sprite.setPosition(pos.x, pos.y));
    * ```
    */
   public update<C extends typeof Component>(
@@ -340,21 +406,13 @@ export class Query<R extends (typeof Component)[] = []> {
   ): this;
 
   /**
-   * Register a callback that fires when `ComponentClass` is modified, with
-   * additional components injected from the same entity.
+   * Like {@link update}, but with extra components injected from the same
+   * entity.
    *
-   * @param ComponentClass - The component class to watch.
+   * @param ComponentClass - Component class to watch.
    * @param inject - Additional component classes to resolve from the entity.
    * @param callback - Receives the modified component and the injected tuple.
-   * @returns `this` for chaining.
-   *
-   * @example
-   * ```ts
-   * world.system("SyncSprite")
-   *   .update(Position, [Sprite], (pos, [sprite]) => {
-   *     sprite.sprite.setPosition(pos.x, pos.y);
-   *   });
-   * ```
+   * @returns This query, for chaining.
    */
   public update<C extends typeof Component, J extends (typeof Component)[]>(
     ComponentClass: C,
@@ -370,7 +428,7 @@ export class Query<R extends (typeof Component)[] = []> {
     const type = this.world.getComponentType(ComponentClass);
     if (typeof injectOrCallback === "function") {
       callback = injectOrCallback;
-      this.componentUpdateCallbacks.set(type, callback as any);
+      this._componentUpdateCallbacks.set(type, callback as any);
     } else {
       const inject = injectOrCallback;
       const injectedComponentTypes = inject.map((C) => this.world.getComponentType(C));
@@ -385,29 +443,31 @@ export class Query<R extends (typeof Component)[] = []> {
         }
       };
 
-      this.componentUpdateCallbacks.set(type, cb);
+      this._componentUpdateCallbacks.set(type, cb);
     }
 
-    this.watchlistBitmask.add(type);
+    this._watchlistBitmask.add(type);
 
-    if (!this.hasQuery) {
-      const watchlist: number[] = this.watchlistBitmask.indices();
-      this._belongs = HAS(this.world, ...watchlist);
-      this.backfill();
+    if (!this._hasQuery) {
+      const watchlist: number[] = this._watchlistBitmask.indices();
+      this._belongs = _HAS(this.world, ...watchlist);
+      this._backfill();
     }
 
     return this;
   }
 
   /**
-   * Enable sorted entity tracking: matched entities are stored in insertion
-   * order determined by `compare`, which receives a tuple of resolved
-   * component instances for each pair of entities being ordered.
+   * Switch the tracked set to a sorted ordering: matched entities are stored
+   * in the position determined by `compare`, which receives a tuple of
+   * resolved component instances for each pair being ordered.
+   *
+   * Implies {@link track}.
    *
    * @param components - Component classes to resolve and pass to `compare`.
-   * @param compare - Returns a negative number, zero, or positive number when
-   *   `a` should sort before, equal to, or after `b`.
-   * @returns `this` for chaining.
+   * @param compare - Negative when `a` should sort before `b`, zero for
+   *   equality, positive when `a` should sort after `b`.
+   * @returns This query, for chaining.
    *
    * @example
    * ```ts
@@ -427,22 +487,23 @@ export class Query<R extends (typeof Component)[] = []> {
     this._entities = new OrderedSet<Entity>((a, b) =>
       compare(types.map((t) => a.get(t)) as any, types.map((t) => b.get(t)) as any)
     );
-    this.backfill();
+    this._backfill();
     return this;
   }
 
   /**
-   * Set the entity membership predicate using the {@link QueryDSL} DSL.
+   * Set the entity-membership predicate using a {@link QueryDSL} expression.
    *
-   * Replaces any previous predicate. The optional `guaranteed` tuple is a
-   * pure type-level hint: it tells {@link sort} callbacks which components are
-   * guaranteed present on every matched entity, eliminating `| undefined` from
-   * those positions. It has no effect at runtime.
+   * Replaces any previous predicate. The optional `_guaranteed` tuple is a
+   * pure type-level hint: it tells {@link sort} / {@link forEach} /
+   * {@link update} callbacks which components are guaranteed present on every
+   * matched entity, eliminating `| undefined` from those positions. It has no
+   * effect at runtime.
    *
-   * @param q - A {@link QueryDSL} expression.
+   * @param q - Query expression.
    * @param _guaranteed - Component classes guaranteed present on every matched
    *   entity (type hint only — not validated at runtime).
-   * @returns `this` for chaining.
+   * @returns This query, retyped with the guaranteed tuple as its `R`.
    *
    * @example
    * ```ts
@@ -457,75 +518,41 @@ export class Query<R extends (typeof Component)[] = []> {
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): Query<T> {
-    this._belongs = buildEntityTest(this.world, q);
-    this.hasQuery = true;
-    this.backfill();
+    this._belongs = _buildEntityTest(this.world, q);
+    this._hasQuery = true;
+    this._backfill();
     return this as unknown as Query<T>;
   }
 
   /**
-   * Remove this query from the world and all entities.
+   * Shorthand for `query([...components])`: track entities that have **all**
+   * of the listed component types.
    *
-   * Every entity that currently belongs to this query has the query silently
-   * removed (no exit callbacks are fired). After this call the query is
-   * unregistered from its world and `world` is set to `undefined` by force.
+   * Equivalent to `query({ HAS: components })`. Unlike `query`, the listed
+   * components are also recorded in the type parameter `R`, so {@link sort}
+   * and {@link forEach} callbacks see them as non-nullable.
    *
-   * Calling any method on the query after `destroy()` is **undefined behavior**.
-   */
-  public destroy(): void {
-    this.world._removeQuery(this);
-    this._entities?.clear();
-    (this as any).world = undefined;
-  }
-
-  /**
-   * Shorthand for `query([...components])` — tracks entities that have
-   * **all** of the listed component types.
-   *
-   * Equivalent to `query({ HAS: components })`. Unlike `query`, passing
-   * component classes here also informs the types of {@link sort} callbacks:
-   * listed components will be non-nullable in those tuples.
-   *
-   * @param components - One or more component classes.
-   * @returns `this` for chaining.
+   * @param components - Component classes to require.
+   * @returns This query, retyped with the required tuple as its `R`.
    */
   public requires<T extends (typeof Component)[]>(...components: [...T]): Query<T> {
     this.query(components);
     return this as unknown as Query<T>;
   }
 
-  private getComponent(e: Entity, C: ComponentOrParentType, exitSnapshot?: Map<number, Component>) {
-    if (typeof C === "number") {
-      return exitSnapshot?.get(C) ?? e.get(C);
-    } else {
-      return e.parent?.get(C.parent);
-    }
-  }
-
-  private getInjected(
-    e: Entity,
-    inject: ComponentOrParentType[],
-    exitSnapshot?: Map<number, Component>
-  ) {
-    const injected: Component[] = [];
-    inject.forEach((C) => {
-      const c = this.getComponent(e, C, exitSnapshot);
-      if (!c) {
-        throw "query does not contain component";
-      }
-      injected.push(c);
-    });
-    return injected;
-  }
-
-  private mapInjectedClassToTypes<J extends ComponentOrParent[]>(
-    inject: readonly [...J]
-  ): ComponentOrParentType[] {
-    return inject.map((C) => {
-      if (typeof C === "function") {
-        return this.world.getComponentType(C);
-      }
-      return { parent: this.world.getComponentType(C.parent) };
-    });
+  /**
+   * Permanently remove this query from the world.
+   *
+   * Every entity that currently belongs to this query has the membership
+   * silently purged (no `exit` callbacks fire), the tracked set is cleared,
+   * and the `world` reference is forced to `undefined`. Calling any method on
+   * the query afterwards is **undefined behavior**.
+   *
+   * Not supported on {@link System} — calling it on a system throws.
+   */
+  public destroy(): void {
+    this.world._removeQuery(this);
+    this._entities?.clear();
+    (this as any).world = undefined;
   }
 }

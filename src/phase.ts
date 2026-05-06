@@ -2,33 +2,10 @@ import { type System } from "./system.js";
 import { type World } from "./world.js";
 
 /**
- * A named, ordered bucket of {@link System | systems} within the world's
- * update pipeline.
+ * Public interface for a pipeline phase, returned by {@link World.addPhase}.
  *
- * Created internally by {@link World.addPhase}. The systems in a phase run in
- * the order they were registered. Between each system run the world flushes
- * pending archetype changes, so `enter` / `exit` callbacks are always
- * delivered before the next system executes.
- *
- * @internal The concrete class is not part of the public API. Use
- * {@link IPhase} to refer to phases in user code.
- */
-export class Phase {
-  /** Systems that belong to this phase, in execution order. */
-  public systems: System[] = [];
-
-  constructor(
-    /** Name used to look up the phase in the pipeline. */
-    public readonly name: string,
-    public world: World
-  ) {}
-}
-
-/**
- * Public interface for a pipeline phase returned by {@link World.addPhase}.
- *
- * Pass an `IPhase` to {@link System.phase} to assign a system to that phase,
- * or to {@link World.runPhase} to execute it:
+ * Pass an `IPhase` to {@link System.phase} to assign a system to the phase, or
+ * to {@link World.runPhase} to execute the phase:
  *
  * ```ts
  * const preUpdate = world.addPhase("preupdate");
@@ -42,8 +19,31 @@ export class Phase {
  * ```
  */
 export interface IPhase {
-  /** The name this phase was registered under. */
+  /** Name this phase was registered under. */
   get name(): string;
-  /** The world that owns this phase. */
+  /** World that owns this phase. */
   get world(): World;
+}
+
+/**
+ * Concrete implementation of {@link IPhase}: a named, ordered bucket of
+ * {@link System | systems} within a world's update pipeline.
+ *
+ * Created by {@link World.addPhase}. Systems run in the order they were added
+ * to the phase. Between systems the world drains pending commands so each
+ * system observes a consistent view of the world.
+ *
+ * @internal The class itself is not part of the public API; user code should
+ * refer to phases via {@link IPhase}.
+ */
+export class Phase implements IPhase {
+  /** Systems registered in this phase, in execution order. */
+  public systems: System[] = [];
+
+  constructor(
+    /** Name used to look up the phase in the pipeline. */
+    public readonly name: string,
+    /** World that owns this phase. */
+    public world: World
+  ) {}
 }

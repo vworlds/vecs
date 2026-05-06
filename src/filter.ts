@@ -1,61 +1,65 @@
 import { Component } from "./component.js";
 import type { Entity } from "./entity.js";
 import type { World } from "./world.js";
-import { buildEntityTest, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
+import { _buildEntityTest, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 
 /**
  * A non-reactive, one-shot entity filter.
  *
- * Unlike {@link Query}, a `Filter` holds no tracked entity set and registers
- * nothing with the world. Every {@link forEach} call walks all world entities
- * and invokes the callback for those that match the predicate captured at
- * construction time.
+ * Unlike {@link Query} a `Filter` keeps no tracked entity set and registers
+ * nothing on the world. Each call to {@link forEach} walks all current world
+ * entities and invokes the callback on those that match the predicate captured
+ * at construction time.
  *
- * Create via {@link World.filter}:
+ * Create one through {@link World.filter}:
  *
  * ```ts
  * const f = world.filter([Position, Velocity]);
  *
- * // Entity only:
+ * // Iterate matching entities:
  * f.forEach((e) => console.log(e.eid));
  *
- * // With component injection:
+ * // ...or with component injection:
  * f.forEach([Position, Velocity], (e, [pos, vel]) => {
  *   pos.x += vel.vx;
  * });
  * ```
  *
- * ### Type parameter `R`
- * Tracks which component classes are guaranteed present on every matched
- * entity — inferred automatically from the DSL by {@link World.filter}, or
- * supplied manually via the optional `_guaranteed` argument. Components in `R`
- * appear as non-nullable in `forEach` callback tuples.
+ * `forEach` runs the callback inside a {@link World.defer | deferred scope}, so
+ * mutations made by the callback are batched and become visible after iteration
+ * finishes. Nesting a `forEach` inside an already-deferred block (a system, a
+ * `Query.forEach`, an outer `defer`) inherits the outer scope and does not
+ * drain on exit.
+ *
+ * @typeParam R - Component classes guaranteed present on every matched entity.
+ *   Inferred from the DSL by {@link World.filter} when possible, or supplied
+ *   manually via the `_guaranteed` argument. Components in `R` are non-nullable
+ *   in `forEach` callback tuples.
  */
 export class Filter<R extends (typeof Component)[] = []> {
-  private readonly belongs: EntityTestFunc;
+  private readonly _world: World;
+  private readonly _belongs: EntityTestFunc;
 
-  constructor(
-    private readonly world: World,
-    dsl: QueryDSL
-  ) {
-    this.belongs = buildEntityTest(world, dsl);
+  constructor(world: World, dsl: QueryDSL) {
+    this._world = world;
+    this._belongs = _buildEntityTest(world, dsl);
   }
 
   /**
-   * Iterate all world entities and call `callback` for each one that matches
-   * the DSL this filter was created with.
+   * Walk all current world entities and call `callback` for each one that
+   * satisfies the filter's DSL.
    *
-   * @param callback - Receives only the entity.
+   * @param callback - Receives only the matching entity.
    */
   public forEach(callback: (e: Entity) => void): void;
 
   /**
-   * Iterate all world entities and call `callback` for each one that matches
-   * the DSL, with component injection.
+   * Walk all current world entities, call `callback` for each one that
+   * satisfies the filter's DSL, and inject the requested component instances.
    *
-   * Components declared via {@link World.filter}'s DSL (or `_guaranteed`) are
-   * non-nullable in the resolved tuple; any other requested component may be
-   * `undefined` if the entity lacks it.
+   * Components covered by the filter's DSL or `_guaranteed` hint are
+   * non-nullable in the resolved tuple; any other component class may be
+   * `undefined` if the entity does not have it.
    *
    * @param components - Component classes to resolve from each matching entity.
    * @param callback - Receives the entity and a tuple of resolved component
@@ -70,17 +74,17 @@ export class Filter<R extends (typeof Component)[] = []> {
     componentsOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void {
-    this.world.defer(() => {
+    this._world.defer(() => {
       if (typeof componentsOrCallback === "function") {
-        this.world.entities.forEach((e) => {
-          if (this.belongs(e)) {
+        this._world.entities.forEach((e) => {
+          if (this._belongs(e)) {
             componentsOrCallback(e);
           }
         });
       } else {
-        const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
-        this.world.entities.forEach((e) => {
-          if (!this.belongs(e)) {
+        const types = componentsOrCallback.map((C) => this._world.getComponentType(C));
+        this._world.entities.forEach((e) => {
+          if (!this._belongs(e)) {
             return;
           }
           const resolved = types.map((t) => e.get(t));
