@@ -435,7 +435,7 @@ describe("Query — destroy", () => {
     q.destroy();
     // After destroy the query is no longer in the entity's query set;
     // a component modification should not reach the (dead) query.
-    const notify = vi.spyOn(q, "notifyModified");
+    const notify = vi.spyOn(q, "_notifyModified");
     const pos = e.get(Position)!;
     pos.modified();
     tick();

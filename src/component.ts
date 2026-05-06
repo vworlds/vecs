@@ -3,65 +3,71 @@ import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
 
 /**
- * Lifecycle hook for a component type. Obtained via {@link World.hook}.
+ * Lifecycle hook for a registered component class. Obtained via
+ * {@link World.hook}.
  *
- * Hooks let you react to component lifecycle events without building a full
- * {@link System}. Each call returns the same `Hook` so the methods can be
- * chained:
+ * Hooks are a lightweight alternative to building a {@link System} when all
+ * you need is a callback on add / remove / set for a single component type.
+ * The same `Hook` is returned on every call to `world.hook(C)`, so registration
+ * methods chain:
  *
  * ```ts
  * world.hook(Sprite)
- *   .onAdd(c  => initSprite(c))
+ *   .onAdd(c => initSprite(c))
  *   .onRemove(c => destroySprite(c))
- *   .onSet(c  => syncSprite(c));
+ *   .onSet(c => syncSprite(c));
  * ```
  *
- * Callbacks are invoked synchronously during {@link World.runPhase} when
- * archetype changes are flushed.
+ * Callbacks fire synchronously when the corresponding entity command is
+ * applied: inline outside deferred mode, or while the world drains its command
+ * queue inside a system / `forEach` / `defer` block.
  *
- * @typeParam C - The `Component` subclass this hook is bound to.
+ * @typeParam C - Component subclass this hook is bound to.
  */
 export interface Hook<C extends Component = Component> {
   /**
-   * Register a callback that fires when a component of this type is added to
-   * an entity.
+   * Register a handler invoked when a component of this type is first attached
+   * to an entity (`entity.add(C)` or `entity.set(C, ...)` on an entity that
+   * does not yet have the component).
    *
-   * @param handler - Receives the newly created component instance.
-   * @returns `this` for chaining.
+   * @param handler - Receives the freshly created component instance.
+   * @returns This hook, for chaining.
    */
   onAdd(handler: (c: C) => void): Hook<C>;
 
   /**
-   * Register a callback that fires when a component of this type is removed
-   * from an entity (including when the entity is destroyed).
+   * Register a handler invoked when a component of this type is removed from
+   * an entity (explicit `entity.remove(C)` or implicit removal during
+   * `entity.destroy()`).
    *
-   * @param handler - Receives the component instance being removed.
-   * @returns `this` for chaining.
+   * @param handler - Receives the component instance that was removed.
+   * @returns This hook, for chaining.
    */
   onRemove(handler: (c: C) => void): Hook<C>;
 
   /**
-   * Register a callback that fires when {@link Component.modified} is called
-   * on a component of this type.
+   * Register a handler invoked when a component's data has been marked as
+   * changed (`component.modified()` or `entity.modified(c)`), and when
+   * `entity.set(C, props)` is called on an entity that already has the
+   * component.
    *
-   * @param handler - Receives the component instance that changed.
-   * @returns `this` for chaining.
+   * @param handler - Receives the component instance whose data changed.
+   * @returns This hook, for chaining.
    */
   onSet(handler: (c: C) => void): Hook<C>;
 }
 
 /**
- * Internal bookkeeping record for a registered component class.
+ * Bookkeeping record produced for each component class registered via
+ * {@link World.registerComponent}.
  *
- * Every component class that is passed to {@link World.registerComponent} gets
- * a `ComponentMeta` that maps it to a numeric type id, a string name, and a
- * pre-computed {@link BitPtr} used for fast archetype checks.
- *
- * `ComponentMeta` also implements {@link Hook}, so you can attach lifecycle
- * callbacks directly on the meta object (as `World.hook()` returns it).
+ * Holds the constructor, numeric type id, display name, and pre-computed
+ * {@link BitPtr} used by archetype checks. Implements {@link Hook}, so the
+ * lifecycle handlers attached via `world.hook(C)` are stored directly on the
+ * meta object.
  */
 export class ComponentMeta implements Hook<Component> {
-  /** The component class constructor. */
+  /** The component class constructor this meta represents. */
   public readonly Class: typeof Component;
   /** Numeric type id assigned at registration time. */
   public readonly type: number;
@@ -69,17 +75,20 @@ export class ComponentMeta implements Hook<Component> {
   public readonly componentName: string;
   /** Pre-computed bit-pointer into the entity archetype {@link Bitset}. */
   public readonly bitPtr: BitPtr;
-  /** @internal */
-  public _onAddHandler: ((c: Component) => void) | undefined;
-  /** @internal */
-  public _onRemoveHandler: ((c: Component) => void) | undefined;
-  /** @internal */
-  public _onSetHandler: ((c: Component) => void) | undefined;
+
   /**
-   * Type ids of components that cannot coexist with this one on the same entity.
-   * Set via {@link World.setExclusiveComponents}. `undefined` means no restrictions.
+   * Type ids of components that cannot coexist with this one on the same
+   * entity. Set via {@link World.setExclusiveComponents}; `undefined` means
+   * no restriction.
    */
   public exclusive: number[] | undefined = undefined;
+
+  /** @internal `onAdd` handler, set by {@link onAdd}. */
+  public _onAddHandler: ((c: Component) => void) | undefined;
+  /** @internal `onRemove` handler, set by {@link onRemove}. */
+  public _onRemoveHandler: ((c: Component) => void) | undefined;
+  /** @internal `onSet` handler, set by {@link onSet}. */
+  public _onSetHandler: ((c: Component) => void) | undefined;
 
   constructor(Class: typeof Component, type: number, componentName: string) {
     this.Class = Class;
@@ -110,13 +119,19 @@ export class ComponentMeta implements Hook<Component> {
 /** A component class constructor or its numeric type id. */
 export type ComponentClassOrType = number | typeof Component;
 
-/** An array of component class constructors or type ids. */
+/**
+ * An array of component classes or numeric type ids, used by query helpers.
+ *
+ * @internal
+ */
 export type ComponentClassArray = ComponentClassOrType[];
 
 /**
  * Base class for all ECS components.
  *
- * Extend this class to define data that can be attached to an {@link Entity}:
+ * Subclass `Component` to declare data that can be attached to an
+ * {@link Entity}. Instances are constructed by the world when
+ * {@link Entity.add} or {@link Entity.set} runs — never instantiate manually.
  *
  * ```ts
  * class Position extends Component {
@@ -128,17 +143,17 @@ export type ComponentClassArray = ComponentClassOrType[];
  * entity.set(Position, { x: 100 });
  * ```
  *
- * A component instance is always bound to a single entity and is created by
- * the world when {@link Entity.add} is called.
+ * Each instance is bound to a single entity via {@link entity}; that link is
+ * permanent for the component's lifetime.
  */
 export class Component {
-  /** @internal */
+  /** @internal Set by {@link Entity.modified} to coalesce repeated calls until the world routes the modified command. */
   public _dirty: boolean = false;
 
   constructor(
     /** The entity this component belongs to. */
     public readonly entity: Entity,
-    /** Registration metadata (type id, name, bit-pointer). */
+    /** Registration metadata (type id, display name, bit-pointer). */
     public readonly meta: ComponentMeta
   ) {}
 
@@ -155,27 +170,31 @@ export class Component {
   /**
    * Notify the world that this component's data has changed.
    *
-   * Queues the component for delivery to all {@link System.update} callbacks
-   * that watch this component type. Call this after mutating the component's
-   * fields to ensure systems react to the new values.
+   * Queues a modified event that fires `update` callbacks on every system /
+   * query that watches this component type, plus the component's `onSet`
+   * hook. Repeated calls before the world drains its queue are coalesced
+   * into one delivery.
    */
-  public modified() {
+  public modified(): void {
     this.entity.modified(this);
   }
 
-  /** Returns the component's registered name, e.g. `"Position"`. */
+  /** Returns the component's registered display name (e.g. `"Position"`). */
   public toString(): string {
     return this.meta.componentName;
   }
 }
 
 /**
- * Compute a {@link Bitset} that has a bit set for every component class or
- * type id in `classes`.
+ * Compute a {@link Bitset} with one bit set for every component class or
+ * numeric type id in `classes`.
  *
- * @internal Used internally to build archetype masks for system queries.
+ * @internal Used to build archetype masks for `HAS` / `HAS_ONLY` queries.
+ *
+ * @param classes - Component classes or type ids to include.
+ * @param world - World used to resolve classes to type ids.
  */
-export function calculateComponentBitmask(classes: ComponentClassArray, world: World) {
+export function _calculateComponentBitmask(classes: ComponentClassArray, world: World): Bitset {
   const bitmask = new Bitset();
   classes.forEach((C) => {
     bitmask.add(world.getComponentType(C));

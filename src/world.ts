@@ -8,21 +8,27 @@ import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
 
+/**
+ * Numeric type ids below this value are reserved for components whose id was
+ * pre-registered via {@link World.registerComponentType} (typically server
+ * assigned). Auto-assigned ids start here.
+ */
 const LOCAL_COMPONENT_MIN = 256;
 
 /**
- * The central ECS container.
+ * The central ECS container. One world per game session.
  *
- * A `World` owns all entities, components, systems, queries, and the update
- * pipeline. Typical lifecycle:
+ * A `World` owns every entity, every registered component class, every
+ * registered query / system, and the update pipeline. The typical lifecycle:
  *
- * 1. **Register components** — call {@link registerComponent} (and optionally
- *    {@link registerComponentType}) for every component class.
- * 2. **Register systems and queries** — call {@link system} and {@link query}
- *    to create and configure them.
+ * 1. **Register components** — {@link registerComponent} (and optionally
+ *    {@link registerComponentType}) for every component class you plan to use.
+ * 2. **Build the pipeline** — {@link addPhase} for every named phase, then
+ *    {@link system} / {@link query} for each processor.
  * 3. **Start** — call {@link start} to freeze component registration and
  *    distribute systems into their phases.
- * 4. **Run loop** — call {@link runPhase} once per frame for each phase.
+ * 4. **Run loop** — call {@link runPhase} per phase or {@link progress} for
+ *    every phase, once per frame.
  *
  * ```ts
  * const world = new World();
@@ -32,244 +38,85 @@ const LOCAL_COMPONENT_MIN = 256;
  *
  * world.system("Move")
  *   .requires(Position, Velocity)
- *   .update(Position, (pos) => { pos.x += vel.x; });
+ *   .each([Position, Velocity], (e, [pos, vel]) => {
+ *     pos.x += vel.vx;
+ *   });
  *
  * world.start();
  *
  * // game loop:
- * world.runPhase(updatePhase, Date.now(), 16);
+ * world.progress(now, delta);
  * ```
+ *
+ * ## Deferred mode
+ *
+ * The world can be in **deferred mode**, in which case entity mutations
+ * (`add` / `set` / `remove` / `destroy` / `setParent` / `modified`) are
+ * queued instead of applied inline. Systems run inside an automatically
+ * deferred scope; user code can wrap arbitrary blocks with
+ * {@link beginDefer} / {@link endDefer} or {@link defer}. {@link flush}
+ * drains the queue at top level.
  */
 export class World {
-  private _entities = new Map<number, Entity>(); // maps entity Id to Entity
-  private componentNameTypeMap = new Map<string, number>();
+  /** @internal Entity id → entity. Owns every live entity. */
+  private _entities = new Map<number, Entity>();
+  /** @internal All registered queries, including systems (which extend `Query`). */
   private _queries: Query[] = [];
 
-  private Class2Meta = new Map<typeof Component, ComponentMeta>();
-  private Type2Meta = new ArrayMap<ComponentMeta>();
-  private localComponentCounter = LOCAL_COMPONENT_MIN;
-  private componentRegistrationDisabled = false;
+  /** @internal Component class → meta record. */
+  private _Class2Meta = new Map<typeof Component, ComponentMeta>();
+  /** @internal Component type id → meta record. */
+  private _Type2Meta = new ArrayMap<ComponentMeta>();
+  /** @internal Pre-registered name → type id mappings (server-assigned ids). */
+  private _componentNameTypeMap = new Map<string, number>();
+  /** @internal Counter used to auto-assign type ids for "local" components (≥ 256). */
+  private _localComponentCounter = LOCAL_COMPONENT_MIN;
+  /** @internal `true` once {@link start} (or {@link disableComponentRegistration}) has been called. */
+  private _componentRegistrationDisabled = false;
+
+  /** @internal Auto-incrementing entity id counter, seeded by {@link setEntityIdRange}. */
+  private _eidCounter = 0;
 
   /** @internal Single ordered command queue used in deferred mode. */
-  private commandQueue: Command[] = [];
-  /** @internal Nested `beginDefer` / `endDefer` count. */
-  private deferredDepth = 0;
-  /** @internal True while `processCommandQueue` is iterating, to avoid re-entrant drains. */
-  private draining = false;
+  private _commandQueue: Command[] = [];
+  /** @internal Nested {@link beginDefer} / {@link endDefer} count. */
+  private _deferredDepth = 0;
+  /** @internal `true` while {@link _processCommandQueue} is iterating, to avoid re-entrant drains. */
+  private _draining = false;
 
-  /** `true` when the world is in deferred mode — mutations are queued rather than applied immediately. */
-  get deferred(): boolean {
-    return this.deferredDepth > 0 || this.draining;
-  }
-
-  /** @internal */
+  /** @internal Phase name → phase. Insertion-ordered, matches pipeline execution order. */
   public _pipeline = new Map<string, Phase>();
-  private eidCounter = 0;
+
   constructor() {}
 
-  /** @readonly */
-  get entities(): Omit<Map<number, Entity>, "set" | "delete" | "clear"> {
-    return this._entities as any;
-  }
-
-  /** @readonly */
-  get queries(): ReadonlyArray<Query> {
-    return this._queries;
-  }
-
   /**
-   * Return the entity with id `eid`, creating it if it does not yet exist.
-   *
-   * Used by networking code to materialise server-assigned entities:
-   *
-   * ```ts
-   * const e = world.getOrCreateEntity(snapshot.eid, (e) => {
-   *   networkEntities.add(e);
-   * });
-   * e.add(snapshot.type, false);
-   * ```
-   *
-   * @param eid - The entity id to look up or create.
-   * @param onCreateCallback - Optional callback invoked only when a **new**
-   *   entity is created, before it is returned. Use this to initialise
-   *   bookkeeping (e.g. tracking it in a local set).
-   * @returns The existing or newly created entity.
+   * @internal Drain the top-level command queue: walk it in arrival order,
+   * executing each command. Callbacks may push more commands; they are picked
+   * up by index iteration in the same pass.
    */
-  public getOrCreateEntity(eid: number, onCreateCallback?: (e: Entity) => void) {
-    let e = this._entities.get(eid);
-    if (!e) {
-      e = new Entity(this, eid);
-      this._entities.set(eid, e);
-      if (onCreateCallback) {
-        onCreateCallback(e);
-      }
-    }
-    return e;
-  }
-
-  /**
-   * Create a new entity with an auto-assigned id and register it in the world.
-   *
-   * The id counter starts at 0 (or at the value set by
-   * {@link setEntityIdRange}) and increments by one for each call.
-   */
-  public entity(): Entity;
-
-  /**
-   * Look up an entity by id.
-   *
-   * @param id - Numeric entity id.
-   * @returns The entity, or `undefined` if no entity with that id exists.
-   */
-  public entity(id: number): Entity | undefined;
-
-  public entity(id?: number): Entity | undefined {
-    if (id === undefined) {
-      const eid = this.eidCounter++;
-      const e = new Entity(this, eid);
-      if (this.deferred) {
-        this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
-      } else {
-        this._entities.set(eid, e);
-      }
-      return e;
-    }
-    return this._entities.get(id);
-  }
-
-  /**
-   * Set the starting value for the auto-incrementing entity id counter.
-   *
-   * Must be called **before** {@link start} (or
-   * {@link disableComponentRegistration}). Useful when the world runs alongside
-   * a server that owns a different id range — for example, locally-created
-   * client entities can start at a high offset to avoid collisions with
-   * server-assigned ids.
-   *
-   * @param min - The first id that will be assigned by {@link entity}.
-   * @throws If called after registration has been disabled.
-   */
-  public setEntityIdRange(min: number) {
-    if (this.componentRegistrationDisabled) {
-      throw "setEntityIdRange must be called before component registration is disabled";
-    }
-    this.eidCounter = min;
-  }
-
-  /**
-   * Retrieve the {@link ComponentMeta} record for a registered component.
-   *
-   * @param typeOrClass - A component class constructor or a numeric type id.
-   * @returns The corresponding `ComponentMeta`.
-   * @throws If no component with that class or type id has been registered.
-   */
-  public getComponentMeta(typeOrClass: ComponentClassOrType) {
-    let meta: ComponentMeta | undefined;
-    if (typeof typeOrClass === "function") {
-      meta = this.Class2Meta.get(typeOrClass);
-    } else {
-      meta = this.Type2Meta.get(typeOrClass);
-    }
-    if (!meta) {
-      throw `unregistered component meta for component type or class '${typeOrClass}'`;
-    }
-    return meta;
-  }
-
-  /**
-   * Resolve a component class or type id to its numeric type id.
-   *
-   * @param typeOrClass - A component class constructor or a numeric type id.
-   * @returns The numeric type id.
-   */
-  public getComponentType(typeOrClass: ComponentClassOrType) {
-    if (typeof typeOrClass === "function") {
-      return this.getComponentMeta(typeOrClass).type;
-    }
-    return typeOrClass;
-  }
-
-  /**
-   * Enter deferred mode. Mutations made until the matching {@link endDefer}
-   * are queued instead of executing inline.
-   *
-   * Nested begin/end pairs are allowed; only the outermost `endDefer`
-   * triggers a drain.
-   *
-   */
-  public beginDefer(): void {
-    this.deferredDepth++;
-  }
-
-  /**
-   * Leave deferred mode. When the depth returns to zero, the world processes
-   * the command queue (firing hooks and routing enter / exit / update events).
-   *
-   */
-  public endDefer(): void {
-    this.deferredDepth--;
-    this.flush();
-  }
-
-  /**
-   *
-   * @param fn callback to invoke in deferred mode.
-   */
-  public defer(fn: () => void): void {
-    this.beginDefer();
-    try {
-      fn();
-    } finally {
-      this.endDefer();
-    }
-  }
-
-  /**
-   * Drain any pending commands queued at the top level (depth 0).
-   *
-   * Useful between phases or after batch-loading network snapshots, to make
-   * accumulated mutations visible (fire hooks, route enter/exit/update) before
-   * the next read or system run.
-   */
-  public flush(): void {
-    if (this.deferredDepth === 0) {
-      this.processCommandQueue();
-    }
-  }
-
-  /** @internal Append a command to the queue. */
-  public _enqueue(cmd: Command): void {
-    this.commandQueue.push(cmd);
-  }
-
-  /**
-   * @internal Walk the command queue in insertion order, executing each
-   * command. Callbacks may push more commands, which are processed in the
-   * same pass via index iteration.
-   */
-  private processCommandQueue(): void {
-    if (this.draining) {
+  private _processCommandQueue(): void {
+    if (this._draining) {
       return;
     }
-    if (this.commandQueue.length === 0) {
+    if (this._commandQueue.length === 0) {
       return;
     }
-    this.draining = true;
+    this._draining = true;
     try {
-      for (let i = 0; i < this.commandQueue.length; i++) {
-        this.executeCommand(this.commandQueue[i]);
+      for (let i = 0; i < this._commandQueue.length; i++) {
+        this._executeCommand(this._commandQueue[i]);
       }
-      this.commandQueue.length = 0;
+      this._commandQueue.length = 0;
     } finally {
-      this.draining = false;
+      this._draining = false;
     }
   }
 
   /**
-   * @internal Run a single command's side effects: data-layer mutation, hook
-   * firing, and routing to all registered queries / systems.
+   * @internal Run one command's side effects: data-layer mutation, hook
+   * firing, and routing to every registered query / system.
    */
-  private executeCommand(cmd: Command): void {
+  private _executeCommand(cmd: Command): void {
     switch (cmd.kind) {
       case CommandKind.CreateEntity:
         this._entities.set(cmd.entity.eid, cmd.entity);
@@ -292,219 +139,12 @@ export class World {
     }
   }
 
-  /** @internal Remove an entity from the world's entity map. Called by Entity._destroy. */
-  public _unregisterEntity(entity: Entity): void {
-    this._entities.delete(entity.eid);
-  }
-
   /**
-   * Register a component class with the world.
-   *
-   * Must be called before any entity can use the component. Registration is
-   * disabled once {@link start} is called.
-   *
-   * **Overloads:**
-   * - `registerComponent(Class)` — type id auto-assigned from the name map, or
-   *   from a local counter (≥ 256) if the name is not yet mapped.
-   * - `registerComponent(Class, type)` — explicit numeric type id.
-   * - `registerComponent(Class, componentName)` — auto-assigned id, custom
-   *   display name (useful when the class name differs from the network name).
-   * - `registerComponent(Class, type, componentName)` — explicit id + name.
-   *
-   * @param ComponentClass - The component class to register.
-   * @throws If the class has already been registered, or if registration is
-   *   disabled.
+   * @internal Distribute every registered system into its phase's `systems`
+   * list. Called by {@link start}; idempotent so it can be re-run if the
+   * pipeline is rebuilt.
    */
-  public registerComponent(ComponentClass: typeof Component): void;
-  public registerComponent(ComponentClass: typeof Component, type: number): void;
-  public registerComponent(ComponentClass: typeof Component, componentName?: string): void;
-  public registerComponent(
-    ComponentClass: typeof Component,
-    type: number,
-    componentName: string
-  ): void;
-  public registerComponent(
-    ComponentClass: typeof Component,
-    typeOrComponentName?: number | string,
-    componentName?: string
-  ): void {
-    if (this.componentRegistrationDisabled) {
-      throw "World component registartion is disabled";
-    }
-    let type: number | undefined = undefined;
-
-    // Determine if the second argument is type or componentName based on its type
-    if (typeof typeOrComponentName === "number") {
-      type = typeOrComponentName;
-    } else if (typeof typeOrComponentName === "string") {
-      componentName = typeOrComponentName;
-    }
-
-    componentName = componentName || ComponentClass.name;
-    let local = false;
-    if (type === undefined) {
-      // attempt to get type id from name->type map
-      type = this.componentNameTypeMap.get(componentName);
-      if (type === undefined) {
-        type = this.localComponentCounter++;
-        local = true;
-      }
-    }
-
-    let meta = this.Class2Meta.get(ComponentClass);
-    if (meta) {
-      if (local) {
-        this.localComponentCounter--;
-      }
-      throw `Trying to register ${componentName} with type=${type} which is already registered to ${meta.componentName}`;
-    }
-    this.registerComponentType(componentName, type);
-    meta = new ComponentMeta(ComponentClass, type, componentName);
-    this.Class2Meta.set(ComponentClass, meta);
-    this.Type2Meta.set(type, meta);
-    console.log(
-      "Registered component %s with type=%d as %s component",
-      componentName,
-      type,
-      local ? "local" : "networked"
-    );
-  }
-
-  /**
-   * Pre-register a component name → type id mapping without associating a
-   * class.
-   *
-   * Useful when network messages refer to components by type id and the
-   * corresponding class may be registered later. Call this before
-   * {@link registerComponent} to ensure the class picks up the server-assigned
-   * id rather than a locally generated one.
-   *
-   * @param componentName - The string name used in network payloads.
-   * @param type - The numeric type id assigned by the server.
-   */
-  public registerComponentType(componentName: string, type: number) {
-    this.componentNameTypeMap.set(componentName, type);
-  }
-
-  /** @internal Called by the {@link Query} constructor to register itself. */
-  public _addQuery(q: Query) {
-    this._queries.push(q);
-  }
-
-  /** @internal Called by {@link Query.destroy} to unregister a query and remove it from all entities. */
-  public _removeQuery(q: Query): void {
-    const idx = this._queries.indexOf(q);
-    if (idx !== -1) {
-      this._queries.splice(idx, 1);
-    }
-    this._entities.forEach((e) => e._purgeQuery(q));
-  }
-
-  /**
-   * Create a new {@link System}, register it, and return it for configuration.
-   *
-   * ```ts
-   * world.system("Render")
-   *   .phase("update")
-   *   .requires(Position, Sprite)
-   *   .enter([Sprite], (e, [sprite]) => sprite.initialize(scene))
-   *   .update(Position, (pos) => { ... });
-   * ```
-   *
-   * @param name - A unique display name for the system.
-   * @returns The new `System` instance.
-   */
-  public system(name: string) {
-    return new System(name, this);
-  }
-
-  /**
-   * Create a standalone {@link Query}, register it, and return it for
-   * configuration.
-   *
-   * Unlike a {@link System}, a standalone query has no phase and no per-tick
-   * callbacks — it is a reactive, always-updated entity set that can be read
-   * at any time after {@link start}. Standalone queries can also be created
-   * after {@link start}; existing matched entities are backfilled immediately.
-   *
-   * ```ts
-   * const enemies = world.query("Enemies")
-   *   .requires(Enemy, Health)
-   *   .enter((e) => console.log("enemy spawned", e.eid));
-   *
-   * world.start();
-   * // enemies.entities is kept up-to-date automatically
-   * ```
-   *
-   * @param name - A unique display name for the query.
-   * @returns The new `Query` instance.
-   */
-  public query(name: string) {
-    return new Query(name, this);
-  }
-
-  /**
-   * Create a non-reactive {@link Filter} that matches entities satisfying `q`.
-   *
-   * Unlike {@link query}, the returned filter holds no tracked entity set and
-   * registers nothing with the world. Each call to {@link Filter.forEach} walks
-   * all current world entities and invokes the callback for matching ones.
-   *
-   * Component classes guaranteed present on every matched entity are inferred
-   * automatically from the DSL where possible (plain arrays, `HAS`, `HAS_ONLY`,
-   * and `AND` of those forms). For cases the type extractor cannot see through
-   * (`OR`, `NOT`, `PARENT`, custom `EntityTestFunc`), pass a `_guaranteed`
-   * tuple as a type-level override:
-   *
-   * ```ts
-   * // Auto-deduced — pos and vel are non-nullable
-   * world.filter([Position, Velocity])
-   *   .forEach([Position, Velocity], (e, [pos, vel]) => { ... });
-   *
-   * // Manual override for an opaque query
-   * world.filter(myTestFunc, [Position])
-   *   .forEach([Position], (e, [pos]) => pos.x);
-   * ```
-   *
-   * @param q - A {@link QueryDSL} expression.
-   * @param _guaranteed - Optional type hint declaring which components are
-   *   guaranteed present (not validated at runtime).
-   */
-  public filter<Q extends QueryDSL>(q: Q): Filter<ExtractRequired<Q>>;
-  public filter<T extends (typeof Component)[]>(
-    q: QueryDSL,
-    _guaranteed: readonly [...T]
-  ): Filter<T>;
-  public filter(q: QueryDSL, _guaranteed?: readonly (typeof Component)[]): Filter<any> {
-    return new Filter(this, q);
-  }
-
-  /**
-   * Prevent any further calls to {@link registerComponent}.
-   *
-   * Called automatically by {@link start}. Can be called early if you want to
-   * lock component registration before systems are fully configured.
-   */
-  public disableComponentRegistration() {
-    this.componentRegistrationDisabled = true;
-  }
-
-  /**
-   * Freeze component registration and prepare the world for running.
-   *
-   * Distributes all systems registered so far into their pipeline phases
-   * (defaulting to `"update"`) and logs the phase → system order to the
-   * console. Systems and queries can still be created after this call —
-   * standalone queries will immediately backfill existing matched entities.
-   *
-   * Call this once before the first {@link runPhase} call.
-   */
-  public start() {
-    this.componentRegistrationDisabled = true;
-    this.reindexSystems();
-  }
-
-  private reindexSystems() {
+  private _reindexSystems(): void {
     let _defaultPhase = this._pipeline.get("update");
     if (!_defaultPhase) {
       _defaultPhase = new Phase("update", this);
@@ -530,98 +170,261 @@ export class World {
     });
   }
 
+  /** @internal Append a command to the deferred-mode queue. */
+  public _enqueue(cmd: Command): void {
+    this._commandQueue.push(cmd);
+  }
+
+  /** @internal Register a freshly created {@link Query} (called from its constructor). */
+  public _addQuery(q: Query): void {
+    this._queries.push(q);
+  }
+
+  /**
+   * @internal Unregister a query and purge its membership from every entity.
+   * Called by {@link Query.destroy}.
+   */
+  public _removeQuery(q: Query): void {
+    const idx = this._queries.indexOf(q);
+    if (idx !== -1) {
+      this._queries.splice(idx, 1);
+    }
+    this._entities.forEach((e) => e._purgeQuery(q));
+  }
+
+  /** @internal Remove an entity from the world's entity map (called by `Entity._destroy`). */
+  public _unregisterEntity(entity: Entity): void {
+    this._entities.delete(entity.eid);
+  }
+
+  /** Read-only view of the live entities, keyed by entity id. */
+  public get entities(): Omit<Map<number, Entity>, "set" | "delete" | "clear"> {
+    return this._entities as any;
+  }
+
+  /** Read-only view of every registered query (includes systems). */
+  public get queries(): ReadonlyArray<Query> {
+    return this._queries;
+  }
+
+  /**
+   * `true` while the world is in deferred mode — entity mutations are queued
+   * rather than applied inline. Equivalent to "the queue depth is non-zero or
+   * the world is currently draining".
+   */
+  public get deferred(): boolean {
+    return this._deferredDepth > 0 || this._draining;
+  }
+
+  /**
+   * Enter deferred mode. Mutations made until the matching {@link endDefer}
+   * are queued instead of executing inline.
+   *
+   * Nested `beginDefer` / `endDefer` pairs are allowed; only the outermost
+   * `endDefer` triggers a queue drain.
+   */
+  public beginDefer(): void {
+    this._deferredDepth++;
+  }
+
+  /**
+   * Leave deferred mode. When the depth returns to zero the world drains the
+   * command queue (firing hooks and routing enter / exit / update events).
+   */
+  public endDefer(): void {
+    this._deferredDepth--;
+    this.flush();
+  }
+
+  /**
+   * Run `fn` inside a deferred scope. Equivalent to
+   * `beginDefer(); try { fn(); } finally { endDefer(); }`.
+   *
+   * @param fn - Callback executed in deferred mode.
+   */
+  public defer(fn: () => void): void {
+    this.beginDefer();
+    try {
+      fn();
+    } finally {
+      this.endDefer();
+    }
+  }
+
+  /**
+   * Drain any commands queued at the top level (depth 0).
+   *
+   * Call between phases or after batch-loading network snapshots to surface
+   * accumulated mutations (firing hooks and routing enter / exit / update)
+   * before the next read or system run.
+   */
+  public flush(): void {
+    if (this._deferredDepth === 0) {
+      this._processCommandQueue();
+    }
+  }
+
+  /**
+   * Pre-register a `componentName → typeId` mapping without binding a class.
+   *
+   * Useful when network messages refer to components by type id and the
+   * corresponding class may be registered later. Call this **before**
+   * {@link registerComponent} so the class picks up the server-assigned id
+   * rather than a locally generated one.
+   *
+   * @param componentName - String name used in network payloads.
+   * @param type - Numeric type id assigned by the server.
+   */
+  public registerComponentType(componentName: string, type: number): void {
+    this._componentNameTypeMap.set(componentName, type);
+  }
+
+  /**
+   * Register a component class with the world.
+   *
+   * Must be called before any entity uses the component. Registration is
+   * disabled once {@link start} (or {@link disableComponentRegistration}) is
+   * called.
+   *
+   * **Overloads:**
+   * - `registerComponent(Class)` — type id auto-assigned from the
+   *   {@link registerComponentType} map, falling back to a local counter
+   *   (≥ 256) if the name is not yet mapped.
+   * - `registerComponent(Class, type)` — explicit numeric type id.
+   * - `registerComponent(Class, componentName)` — auto-assigned id, custom
+   *   display name (useful when the class name differs from the network name).
+   * - `registerComponent(Class, type, componentName)` — explicit id + name.
+   *
+   * @param ComponentClass - Component class to register.
+   * @throws When the class has already been registered or registration is
+   *   disabled.
+   */
+  public registerComponent(ComponentClass: typeof Component): void;
+  public registerComponent(ComponentClass: typeof Component, type: number): void;
+  public registerComponent(ComponentClass: typeof Component, componentName?: string): void;
+  public registerComponent(
+    ComponentClass: typeof Component,
+    type: number,
+    componentName: string
+  ): void;
+  public registerComponent(
+    ComponentClass: typeof Component,
+    typeOrComponentName?: number | string,
+    componentName?: string
+  ): void {
+    if (this._componentRegistrationDisabled) {
+      throw "World component registartion is disabled";
+    }
+    let type: number | undefined = undefined;
+
+    if (typeof typeOrComponentName === "number") {
+      type = typeOrComponentName;
+    } else if (typeof typeOrComponentName === "string") {
+      componentName = typeOrComponentName;
+    }
+
+    componentName = componentName || ComponentClass.name;
+    let local = false;
+    if (type === undefined) {
+      type = this._componentNameTypeMap.get(componentName);
+      if (type === undefined) {
+        type = this._localComponentCounter++;
+        local = true;
+      }
+    }
+
+    let meta = this._Class2Meta.get(ComponentClass);
+    if (meta) {
+      if (local) {
+        this._localComponentCounter--;
+      }
+      throw `Trying to register ${componentName} with type=${type} which is already registered to ${meta.componentName}`;
+    }
+    this.registerComponentType(componentName, type);
+    meta = new ComponentMeta(ComponentClass, type, componentName);
+    this._Class2Meta.set(ComponentClass, meta);
+    this._Type2Meta.set(type, meta);
+    console.log(
+      "Registered component %s with type=%d as %s component",
+      componentName,
+      type,
+      local ? "local" : "networked"
+    );
+  }
+
+  /**
+   * Look up the {@link ComponentMeta} for a registered component.
+   *
+   * @param typeOrClass - Component class or numeric type id.
+   * @returns The corresponding meta record.
+   * @throws When no component with that class or type id has been registered.
+   */
+  public getComponentMeta(typeOrClass: ComponentClassOrType): ComponentMeta {
+    let meta: ComponentMeta | undefined;
+    if (typeof typeOrClass === "function") {
+      meta = this._Class2Meta.get(typeOrClass);
+    } else {
+      meta = this._Type2Meta.get(typeOrClass);
+    }
+    if (!meta) {
+      throw `unregistered component meta for component type or class '${typeOrClass}'`;
+    }
+    return meta;
+  }
+
+  /**
+   * Resolve a component class or type id to its numeric type id.
+   *
+   * @param typeOrClass - Component class or numeric type id.
+   * @returns The numeric type id.
+   */
+  public getComponentType(typeOrClass: ComponentClassOrType): number {
+    if (typeof typeOrClass === "function") {
+      return this.getComponentMeta(typeOrClass).type;
+    }
+    return typeOrClass;
+  }
+
   /**
    * Return the {@link Hook} for a component class.
    *
    * Hooks let you react to component lifecycle events (add / remove / set)
-   * without building a full {@link System}. The hook is backed by the
-   * component's {@link ComponentMeta} and the same object is returned on every
-   * call.
+   * without building a full {@link System}. The same hook is returned on every
+   * call — handlers stack on the underlying meta record.
    *
    * ```ts
    * world.hook(Sprite)
-   *   .onAdd(c  => c.initialize(scene))
+   *   .onAdd(c => c.initialize(scene))
    *   .onRemove(c => c.destroy());
    * ```
    *
-   * @param C - The component class.
-   * @returns The `Hook` for that component type.
+   * @param C - Component class.
+   * @returns The hook bound to that component type.
    */
   public hook<T extends typeof Component>(C: T): Hook<InstanceType<T>> {
     return this.getComponentMeta(C) as any;
   }
 
   /**
-   * Add a named phase to the update pipeline and return it.
-   *
-   * Phases are executed in insertion order when you call {@link runPhase} for
-   * each one. Systems are assigned to a phase via {@link System.phase}.
-   *
-   * ```ts
-   * const preUpdate = world.addPhase("preupdate");
-   * const update    = world.addPhase("update");
-   * const send      = world.addPhase("send");
-   * ```
-   *
-   * @param name - Unique phase name. Systems can reference it by this string.
-   * @returns The new {@link IPhase}.
-   */
-  public addPhase(name: string): IPhase {
-    const phase = new Phase(name, this);
-    this._pipeline.set(name, phase);
-    return phase;
-  }
-
-  /**
-   * Execute all systems in the given phase for one tick.
-   *
-   * Pending top-level mutations are drained at the start of the phase so the
-   * first system observes a consistent world. Each system's body runs in a
-   * deferred scope; mutations made by callbacks are appended to the world
-   * queue and processed by the world after the system returns, before the
-   * next system runs.
-   *
-   * @param phase - The {@link IPhase} to run (returned by {@link addPhase}).
-   * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
-   * @param delta - Milliseconds elapsed since the previous tick.
-   */
-  public runPhase(phase: IPhase, now: number, delta: number) {
-    this.flush();
-    (phase as Phase).systems.forEach((s) => {
-      s._run(now, delta);
-      // System._run wraps in begin/end which drains on return; nothing more
-      // to do here.
-    });
-  }
-
-  /**
-   * Run every phase in the pipeline in insertion order (the order phases were
-   * registered via {@link addPhase}). Equivalent to calling
-   * {@link runPhase} for each phase manually.
-   *
-   * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
-   * @param delta - Milliseconds elapsed since the previous tick.
-   */
-  public progress(now: number, delta: number) {
-    this.flush();
-    this._pipeline.forEach((phase) => {
-      this.runPhase(phase, now, delta);
-    });
-  }
-
-  /**
    * Declare a group of mutually exclusive components.
    *
-   * After this call, adding any component in the group to an entity that
-   * already has another component from the same group will remove the other component
+   * Adding any component in the group to an entity that already has another
+   * member of the group automatically removes the previous member. Members
+   * not in the group are unaffected.
    *
    * ```ts
    * world.setExclusiveComponents(Walking, Running, Idle);
-   * // entity.add(Running) throws if entity already has Walking or Idle
+   * entity.add(Walking);
+   * entity.add(Running);            // Walking is removed automatically
    * ```
    *
+   * Each call defines one independent group. A component may belong to at
+   * most one group at a time; calling {@link setExclusiveComponents} with the
+   * same class again overwrites its group. Safe to call before or after
+   * {@link start}.
+   *
    * @param components - Two or more component classes that cannot coexist.
-   * @throws If any class has not been registered.
+   * @throws When any class has not been registered.
    */
   public setExclusiveComponents(...components: (typeof Component)[]): void {
     const types = components.map((C) => this.getComponentType(C));
@@ -631,15 +434,256 @@ export class World {
   }
 
   /**
+   * Set the starting value of the auto-incrementing entity id counter.
+   *
+   * Must be called **before** {@link start} (or
+   * {@link disableComponentRegistration}). Useful when the world runs
+   * alongside a server that owns a different id range — locally created
+   * client entities can start at a high offset to avoid collisions with
+   * server-assigned ids.
+   *
+   * @param min - First id assigned by {@link entity}.
+   * @throws When called after registration has been disabled.
+   */
+  public setEntityIdRange(min: number): void {
+    if (this._componentRegistrationDisabled) {
+      throw "setEntityIdRange must be called before component registration is disabled";
+    }
+    this._eidCounter = min;
+  }
+
+  /**
+   * Return the entity with id `eid`, creating it if it does not yet exist.
+   *
+   * Used by networking code to materialise server-assigned entities:
+   *
+   * ```ts
+   * const e = world.getOrCreateEntity(snapshot.eid, (e) => {
+   *   networkEntities.add(e);
+   * });
+   * e.add(snapshot.type);
+   * ```
+   *
+   * @param eid - Entity id to look up or create.
+   * @param onCreateCallback - Optional callback invoked only when a new
+   *   entity is created, before it is returned. Use it to initialise
+   *   bookkeeping (e.g. tracking it in a local set).
+   * @returns The existing or newly created entity.
+   */
+  public getOrCreateEntity(eid: number, onCreateCallback?: (e: Entity) => void): Entity {
+    let e = this._entities.get(eid);
+    if (!e) {
+      e = new Entity(this, eid);
+      this._entities.set(eid, e);
+      if (onCreateCallback) {
+        onCreateCallback(e);
+      }
+    }
+    return e;
+  }
+
+  /**
+   * Create a new entity with an auto-assigned id.
+   *
+   * The id counter starts at `0` (or at the value set by
+   * {@link setEntityIdRange}) and increments by one for each call. In
+   * deferred mode the new entity is queued onto the command queue and is not
+   * visible in {@link entities} until the queue drains.
+   */
+  public entity(): Entity;
+
+  /**
+   * Look up an existing entity by id.
+   *
+   * @param id - Numeric entity id.
+   * @returns The entity, or `undefined` when no entity with that id exists.
+   */
+  public entity(id: number): Entity | undefined;
+
+  public entity(id?: number): Entity | undefined {
+    if (id === undefined) {
+      const eid = this._eidCounter++;
+      const e = new Entity(this, eid);
+      if (this.deferred) {
+        this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
+      } else {
+        this._entities.set(eid, e);
+      }
+      return e;
+    }
+    return this._entities.get(id);
+  }
+
+  /**
    * Destroy every entity currently tracked by the world.
    *
    * Triggers all `onRemove` hooks and `exit` callbacks. Useful when
    * transitioning between game sessions or resetting to a clean state.
    */
-  public clearAllEntities() {
+  public clearAllEntities(): void {
     this._entities.forEach((e) => {
       e.destroy();
     });
     this.flush();
+  }
+
+  /**
+   * Create, register, and return a new {@link System}, ready for fluent
+   * configuration.
+   *
+   * ```ts
+   * world.system("Render")
+   *   .phase("update")
+   *   .requires(Position, Sprite)
+   *   .enter([Sprite], (e, [sprite]) => sprite.initialize(scene))
+   *   .each([Position, Sprite], (e, [pos, sprite]) => sprite.draw(pos.x, pos.y));
+   * ```
+   *
+   * @param name - Unique display name for the system.
+   * @returns The new system.
+   */
+  public system(name: string): System {
+    return new System(name, this);
+  }
+
+  /**
+   * Create, register, and return a standalone {@link Query}, ready for fluent
+   * configuration.
+   *
+   * Unlike a {@link System}, a standalone query has no phase and no per-tick
+   * callbacks — it is a reactive entity set that can be read at any time. It
+   * can also be created **after** {@link start}; existing matched entities
+   * are backfilled immediately.
+   *
+   * ```ts
+   * const enemies = world.query("Enemies")
+   *   .requires(Enemy, Health)
+   *   .enter((e) => console.log("enemy spawned", e.eid));
+   *
+   * world.start();
+   * // enemies.entities is kept up-to-date automatically
+   * ```
+   *
+   * @param name - Unique display name for the query.
+   * @returns The new query.
+   */
+  public query(name: string): Query {
+    return new Query(name, this);
+  }
+
+  /**
+   * Create a non-reactive {@link Filter} that matches entities satisfying `q`.
+   *
+   * Unlike {@link query}, the returned filter holds no tracked entity set and
+   * registers nothing on the world. Each call to {@link Filter.forEach} walks
+   * all current world entities and invokes the callback on the matches.
+   *
+   * The component classes guaranteed present on every matched entity are
+   * inferred from the DSL where possible (plain arrays, `HAS`, `HAS_ONLY`,
+   * and `AND` of those forms). For shapes the inferer cannot see through
+   * (`OR`, `NOT`, `PARENT`, custom `EntityTestFunc`) supply a `_guaranteed`
+   * tuple as a type-level override:
+   *
+   * ```ts
+   * // Auto-deduced: pos and vel are non-nullable.
+   * world.filter([Position, Velocity])
+   *   .forEach([Position, Velocity], (e, [pos, vel]) => { ... });
+   *
+   * // Manual override for an opaque query.
+   * world.filter(myTestFunc, [Position])
+   *   .forEach([Position], (e, [pos]) => pos.x);
+   * ```
+   *
+   * @param q - Query expression.
+   * @param _guaranteed - Optional type hint declaring which components are
+   *   guaranteed present (not validated at runtime).
+   */
+  public filter<Q extends QueryDSL>(q: Q): Filter<ExtractRequired<Q>>;
+  public filter<T extends (typeof Component)[]>(
+    q: QueryDSL,
+    _guaranteed: readonly [...T]
+  ): Filter<T>;
+  public filter(q: QueryDSL, _guaranteed?: readonly (typeof Component)[]): Filter<any> {
+    return new Filter(this, q);
+  }
+
+  /**
+   * Add a named phase to the update pipeline.
+   *
+   * Phases are executed in insertion order when {@link runPhase} or
+   * {@link progress} is called. Systems join a phase via {@link System.phase}.
+   *
+   * ```ts
+   * const preUpdate = world.addPhase("preupdate");
+   * const update    = world.addPhase("update");
+   * const send      = world.addPhase("send");
+   * ```
+   *
+   * @param name - Unique phase name. Systems can reference it by this string.
+   * @returns The new phase.
+   */
+  public addPhase(name: string): IPhase {
+    const phase = new Phase(name, this);
+    this._pipeline.set(name, phase);
+    return phase;
+  }
+
+  /**
+   * Prevent any further calls to {@link registerComponent}.
+   *
+   * Called automatically by {@link start}. Call directly if you want to lock
+   * registration before the rest of the systems are wired up.
+   */
+  public disableComponentRegistration(): void {
+    this._componentRegistrationDisabled = true;
+  }
+
+  /**
+   * Freeze component registration and prepare the world for running.
+   *
+   * Distributes every system registered so far into its phase (defaulting to
+   * `"update"`) and logs the phase → system order to the console. Systems
+   * and queries can still be created after this call — standalone queries
+   * backfill existing matched entities immediately.
+   *
+   * Call once before the first {@link runPhase} / {@link progress}.
+   */
+  public start(): void {
+    this._componentRegistrationDisabled = true;
+    this._reindexSystems();
+  }
+
+  /**
+   * Execute every system in `phase` for one tick.
+   *
+   * Pending top-level mutations are drained before the first system runs so
+   * each system observes a consistent world. Each system body executes in a
+   * deferred scope; mutations made by callbacks land in the world queue and
+   * are processed before the next system runs.
+   *
+   * @param phase - Phase reference returned from {@link addPhase}.
+   * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
+   * @param delta - Milliseconds elapsed since the previous tick.
+   */
+  public runPhase(phase: IPhase, now: number, delta: number): void {
+    this.flush();
+    (phase as Phase).systems.forEach((s) => {
+      s._run(now, delta);
+    });
+  }
+
+  /**
+   * Run every phase in the pipeline in registration order.
+   *
+   * Equivalent to calling {@link runPhase} for each phase manually.
+   *
+   * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
+   * @param delta - Milliseconds elapsed since the previous tick.
+   */
+  public progress(now: number, delta: number): void {
+    this.flush();
+    this._pipeline.forEach((phase) => {
+      this.runPhase(phase, now, delta);
+    });
   }
 }
