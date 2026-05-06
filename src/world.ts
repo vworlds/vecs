@@ -7,7 +7,7 @@ import { type QueryDSL, type ExtractRequired } from "./dsl.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
-import { Timer, TickSource } from "./timer.js";
+import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
 
 /**
  * Numeric type ids below this value are reserved for components whose id was
@@ -88,15 +88,15 @@ export class World {
   /** @internal Phase name → phase. Insertion-ordered, matches pipeline execution order. */
   public _pipeline = new Map<string, Phase>();
   /** @internal World-owned tick sources evaluated once per frame. */
-  private _tickSources: Set<TickSource> = new Set();
+  private _tickSources: Set<ITickSource> = new Set();
   /** @internal Monotonic frame id used to memoize tick-source evaluation. */
   public _frameCounter = 0;
   /** @internal True while the world is driving one logical frame. */
   private _frameInProgress = false;
-  /** @internal Counter used to name timers created without an explicit name. */
-  private _timerCounter = 0;
 
-  constructor() {}
+  constructor() {
+    this._tickSources.add(ALWAYS_TICK_SOURCE);
+  }
 
   /**
    * @internal Drain the top-level command queue: walk it in arrival order,
@@ -190,7 +190,7 @@ export class World {
   }
 
   /** @internal Register a tick source with this world. */
-  public _registerTickSource(t: TickSource): void {
+  public _registerTickSource(t: ITickSource): void {
     this._tickSources.add(t);
   }
 
@@ -561,26 +561,6 @@ export class World {
   }
 
   /**
-   * Create, register, and return a timer source.
-   *
-   * Timers are standalone clocks with no phase, no query, and no callbacks of
-   * their own. Use them to drive one or more systems at a shared cadence, or
-   * to build nested clocks with {@link Timer.rate}. If no name is supplied the
-   * world assigns a generated display name.
-   *
-   * ```ts
-   * const second = world.timer("second").interval(1);
-   * world.system("Logger").tickSource(second).run(logStats);
-   * ```
-   *
-   * @param name - Optional display name for debugging.
-   * @returns The new timer.
-   */
-  public timer(name?: string): Timer {
-    return new Timer(name ?? `Timer#${this._timerCounter++}`, this);
-  }
-
-  /**
    * Create, register, and return a standalone {@link Query}, ready for fluent
    * configuration.
    *
@@ -688,66 +668,84 @@ export class World {
   }
 
   /**
-   * Execute every system in `phase` for one tick.
+   * Open a new frame and evaluate every registered tick source once.
+   *
+   * Call this before one or more {@link runPhase} calls when manually driving
+   * phases. {@link progress} wraps this automatically for the full pipeline.
+   *
+   * @param now - Absolute timestamp in milliseconds (reserved for symmetry with phase execution).
+   * @param delta - Milliseconds elapsed since the previous frame.
+   * @throws When a frame is already open.
+   */
+  public beginFrame(now: number, delta: number): void {
+    void now;
+    if (this._frameInProgress) {
+      throw "endFrame() not called before beginFrame()";
+    }
+    this._frameInProgress = true;
+    this._frameCounter++;
+    this.flush();
+    this._tickSources.forEach((t) => t._evalTick(delta, this._frameCounter));
+  }
+
+  /**
+   * Close the current frame.
+   *
+   * @throws When no frame is currently open.
+   */
+  public endFrame(): void {
+    if (!this._frameInProgress) {
+      throw "beginFrame() not called before endFrame()";
+    }
+    this._frameInProgress = false;
+  }
+
+  /**
+   * Execute every system in `phase` within the current frame.
    *
    * Pending top-level mutations are drained before the first system runs so
    * each system observes a consistent world. Each system body executes in a
    * deferred scope; mutations made by callbacks land in the world queue and
    * are processed before the next system runs.
    *
-   * When `runPhase` starts a new frame, it evaluates every registered tick
-   * source before systems run. Re-entrant `runPhase` calls made from a system
-   * body reuse the outer frame, so tick-source memoization and `_frameCounter`
-   * remain stable.
+   * `runPhase` is safe to call re-entrantly from a system body: it reuses the
+   * frame opened by {@link beginFrame} and does not advance `_frameCounter` or
+   * re-evaluate tick sources.
    *
    * @param phase - Phase reference returned from {@link addPhase}.
    * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
    * @param delta - Milliseconds elapsed since the previous tick.
+   * @throws When called outside an open frame.
    */
   public runPhase(phase: IPhase, now: number, delta: number): void {
-    const ownsFrame = !this._frameInProgress;
-    if (ownsFrame) {
-      this._frameInProgress = true;
-      this._frameCounter++;
-      this._tickSources.forEach((t) => t._evalTick(delta, this._frameCounter));
+    if (!this._frameInProgress) {
+      throw "runPhase() called outside a frame — call beginFrame() first";
     }
-    try {
-      this.flush();
-      (phase as Phase).systems.forEach((s) => {
-        s._run(now, delta);
-      });
-    } finally {
-      if (ownsFrame) {
-        this._frameInProgress = false;
-      }
-    }
+    this.flush();
+    (phase as Phase).systems.forEach((s) => {
+      s._run(now, delta);
+    });
   }
 
   /**
    * Run every phase in the pipeline in registration order.
    *
-   * Equivalent to calling {@link runPhase} for each phase manually, but all
-   * registered tick sources are evaluated once up front for the whole frame.
-   * Calling `progress` while another `progress` call is already running throws;
-   * use re-entrant {@link runPhase} for nested phase execution.
+   * Equivalent to `beginFrame(now, delta)`, calling {@link runPhase} for each
+   * phase, then {@link endFrame}. All registered tick sources are evaluated
+   * once up front for the whole frame, and the frame is closed in a `finally`
+   * block if a system throws.
    *
    * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public progress(now: number, delta: number): void {
-    if (this._frameInProgress) {
-      throw "progress() cannot be called while a world frame is already in progress";
-    }
-    this._frameInProgress = true;
-    this._frameCounter++;
-    this.flush();
-    this._tickSources.forEach((t) => t._evalTick(delta, this._frameCounter));
+    this.beginFrame(now, delta);
     try {
       this._pipeline.forEach((phase) => {
         this.runPhase(phase, now, delta);
       });
     } finally {
-      this._frameInProgress = false;
+      this.endFrame();
     }
   }
 }

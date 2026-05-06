@@ -217,9 +217,14 @@ const send = world.addPhase("send");
 world.progress(now, delta);
 
 // ...or run individual phases manually:
-world.runPhase(preUpdate, now, delta);
-world.runPhase(update, now, delta);
-world.runPhase(send, now, delta);
+world.beginFrame(now, delta);
+try {
+  world.runPhase(preUpdate, now, delta);
+  world.runPhase(update, now, delta);
+  world.runPhase(send, now, delta);
+} finally {
+  world.endFrame();
+}
 ```
 
 Systems with no explicit phase are placed in the built-in `"update"` phase.
@@ -242,6 +247,8 @@ world
 Systems can opt into a slower cadence instead of running on every phase tick. `interval()` takes seconds; throttled `run()` callbacks receive the accumulated milliseconds since the previous fire as `delta`.
 
 ```ts
+import { IntervalTickSource, RateTickSource } from "@vworlds/vecs";
+
 world
   .system("Move")
   .interval(1.0)
@@ -256,7 +263,7 @@ world
     // every 2nd frame
   });
 
-const second = world.timer().interval(1.0);
+const second = new IntervalTickSource(1.0);
 
 world
   .system("Move")
@@ -268,7 +275,7 @@ world
 second.stop();
 second.start();
 
-const minute = world.timer().rate(60, second);
+const minute = new RateTickSource(60, second);
 const hour = world
   .system("Hour")
   .tickSource(minute)
@@ -294,7 +301,7 @@ const eachMinute = world
   });
 ```
 
-Timers and systems can both be used as tick sources. Disabling a source system suppresses its callbacks, but its clock still drives downstream consumers.
+Tick source objects and systems can both be used as sources. Disabling a source system suppresses its callbacks, but its clock still drives downstream consumers.
 
 #### Queries
 
