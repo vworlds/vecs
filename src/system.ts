@@ -91,7 +91,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
     if (this._enterCallback !== undefined) {
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
-    e.forEachComponent((c) => {
+    e.components.forEach((c) => {
       if (this._watchlistBitmask.hasBit(c.bitPtr)) {
         this._notifyModified(c);
       }

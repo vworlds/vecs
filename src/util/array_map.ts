@@ -83,3 +83,11 @@ export class ArrayMap<T> {
     this._backend.length = 0;
   }
 }
+
+/**
+ * Read-only view of an {@link ArrayMap}: the mutating methods `set`, `delete`,
+ * and `clear` are omitted.
+ *
+ * @typeParam T - Value type stored in the map.
+ */
+export type ReadonlyArrayMap<T> = Omit<ArrayMap<T>, "set" | "delete" | "clear">;

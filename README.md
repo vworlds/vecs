@@ -336,7 +336,7 @@ Created via `world.entity()` (auto-assigned id) or `world.getOrCreateEntity(id, 
 | `get(Class)`           | Return the component instance, or `undefined`.                                         |
 | `remove(Class)`        | Detach a component (fires `onRemove` and `exit`).                                      |
 | `destroy()`            | Remove all components, unregister from the world, recurse into children.               |
-| `forEachComponent(cb)` | Visit every attached component.                                                        |
+| `components`           | `ReadonlyArrayMap<Component>` — read-only view of attached components keyed by type id. Supports `forEach`, `get`, `has`, and `size`. |
 | `empty`                | `true` when no components are attached.                                                |
 | `parent`               | Parent entity, or `undefined` for a root entity.                                       |
 | `children`             | `ReadonlySet<Entity>` of direct children (lazy).                                       |
