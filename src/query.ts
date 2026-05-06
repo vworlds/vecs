@@ -449,6 +449,9 @@ export class Query<R extends (typeof Component)[] = []> {
     this._watchlistBitmask.add(type);
 
     if (!this._hasQuery) {
+      // Update-only queries derive membership from the watched component set.
+      // Install that predicate before backfill so the default match-nothing
+      // predicate is never used for update-watchlist expansion.
       const watchlist: number[] = this._watchlistBitmask.indices();
       this._belongs = _HAS(this.world, ...watchlist);
       this._backfill();
