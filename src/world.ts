@@ -7,6 +7,7 @@ import { type QueryDSL, type ExtractRequired } from "./dsl.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
+import { Timer, TickSource } from "./timer.js";
 
 /**
  * Numeric type ids below this value are reserved for components whose id was
@@ -86,6 +87,12 @@ export class World {
 
   /** @internal Phase name → phase. Insertion-ordered, matches pipeline execution order. */
   public _pipeline = new Map<string, Phase>();
+  /** @internal World-owned tick sources evaluated once per frame. */
+  private _tickSources: Set<TickSource> = new Set();
+  /** @internal Monotonic frame id used to memoize tick-source evaluation. */
+  public _frameCounter = 0;
+  /** @internal True while progress() is driving all phases for one frame. */
+  private _frameInProgress = false;
 
   constructor() {}
 
@@ -178,6 +185,11 @@ export class World {
   /** @internal Register a freshly created {@link Query} (called from its constructor). */
   public _addQuery(q: Query): void {
     this._queries.push(q);
+  }
+
+  /** @internal Register a tick source with this world. */
+  public _registerTickSource(t: TickSource): void {
+    this._tickSources.add(t);
   }
 
   /**
@@ -546,6 +558,11 @@ export class World {
     return new System(name, this);
   }
 
+  /** Create a named timer source that can drive systems or other timers. */
+  public timer(name = "Timer"): Timer {
+    return new Timer(name, this);
+  }
+
   /**
    * Create, register, and return a standalone {@link Query}, ready for fluent
    * configuration.
@@ -666,6 +683,10 @@ export class World {
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public runPhase(phase: IPhase, now: number, delta: number): void {
+    if (!this._frameInProgress) {
+      this._frameCounter++;
+      this._tickSources.forEach((t) => t._evalTick(now, delta, this._frameCounter));
+    }
     this.flush();
     (phase as Phase).systems.forEach((s) => {
       s._run(now, delta);
@@ -681,9 +702,16 @@ export class World {
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public progress(now: number, delta: number): void {
+    this._frameInProgress = true;
+    this._frameCounter++;
     this.flush();
-    this._pipeline.forEach((phase) => {
-      this.runPhase(phase, now, delta);
-    });
+    this._tickSources.forEach((t) => t._evalTick(now, delta, this._frameCounter));
+    try {
+      this._pipeline.forEach((phase) => {
+        this.runPhase(phase, now, delta);
+      });
+    } finally {
+      this._frameInProgress = false;
+    }
   }
 }

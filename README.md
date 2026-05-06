@@ -237,6 +237,49 @@ world
   .exit(...);
 ```
 
+#### Timers and rate filters
+
+Systems can opt into a slower cadence instead of running on every phase tick. `interval()` takes seconds; throttled `run()` callbacks receive the accumulated milliseconds since the previous fire as `delta`.
+
+```ts
+world
+  .system("Move")
+  .interval(1.0)
+  .each([Position], (e, [pos]) => {
+    // 1 Hz
+  });
+
+world
+  .system("Move")
+  .rate(2)
+  .each([Position], (e, [pos]) => {
+    // every 2nd frame
+  });
+
+const second = world.timer().interval(1.0);
+
+world
+  .system("Move")
+  .tickSource(second)
+  .each([Position], (e, [pos]) => {
+    // driven by a shared timer
+  });
+
+second.stop();
+second.start();
+
+const minute = world.timer().rate(60, second);
+const hour = world
+  .system("Hour")
+  .tickSource(minute)
+  .rate(60)
+  .run((now, delta) => {
+    console.log("hour tick", now, delta);
+  });
+```
+
+Timers and systems can both be used as tick sources. Disabling a source system suppresses its callbacks, but its clock still drives downstream consumers.
+
 #### Queries
 
 ```ts

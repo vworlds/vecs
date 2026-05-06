@@ -4,10 +4,12 @@ import { type QueryDSL, type MaybeRequired } from "./dsl.js";
 import type { Entity } from "./entity.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world.js";
+import { TickSource } from "./timer.js";
 
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
 type RunCallback = (now: number, delta: number) => void;
+type TickSourceInput = TickSource | System<any>;
 
 /** Discriminator for {@link _SystemInboxEvent}. */
 const enum InboxCommand {
@@ -77,6 +79,8 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
 
   /** @internal Whether this system processes events and runs callbacks. */
   private _enabled = true;
+  /** @internal Optional cadence gate for this system. */
+  private _tickSource: TickSource | undefined;
 
   constructor(name: string, world: World) {
     super(name, world, false);
@@ -153,6 +157,13 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
     if (!this._enabled) {
       return;
     }
+    let tickDelta = delta;
+    if (this._tickSource) {
+      if (!this._tickSource._evalTick(now, delta, this.world._frameCounter)) {
+        return;
+      }
+      tickDelta = this._tickSource._lastFireDelta;
+    }
     this.world.defer(() => {
       for (let i = 0; i < this._inbox.length; i++) {
         const event = this._inbox[i];
@@ -174,7 +185,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
       this._inbox.length = 0;
 
       if (this._runCallback) {
-        this._runCallback(now, delta);
+        this._runCallback(now, tickDelta);
       }
 
       if (this._eachCallback) {
@@ -182,6 +193,55 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
         this.forEach((e) => cb(e));
       }
     });
+  }
+
+  public interval(seconds: number): this {
+    this._ensureTickSource().interval(seconds);
+    return this;
+  }
+
+  public rate(n: number): this;
+  public rate(n: number, source: TickSourceInput): this;
+  public rate(n: number, source?: TickSourceInput): this {
+    const tickSource = source ? this._resolveTickSource(source) : undefined;
+    if (tickSource) {
+      this._ensureTickSource().rate(n, tickSource);
+    } else {
+      this._ensureTickSource().rate(n);
+    }
+    return this;
+  }
+
+  public tickSource(source: TickSourceInput): this {
+    this._ensureTickSource().tickSource(this._resolveTickSource(source));
+    return this;
+  }
+
+  public start(): this {
+    this._ensureTickSource().start();
+    return this;
+  }
+
+  public stop(): this {
+    this._ensureTickSource().stop();
+    return this;
+  }
+
+  /** @internal Resolve or create this system's clock for downstream consumers. */
+  public _asTickSource(): TickSource {
+    return this._ensureTickSource();
+  }
+
+  private _ensureTickSource(): TickSource {
+    if (!this._tickSource) {
+      this._tickSource = new TickSource();
+      this.world._registerTickSource(this._tickSource);
+    }
+    return this._tickSource;
+  }
+
+  private _resolveTickSource(source: TickSourceInput): TickSource {
+    return source instanceof TickSource ? source : source._asTickSource();
   }
 
   /**
