@@ -168,7 +168,7 @@ export class Query<R extends (typeof Component)[] = []> {
     this._entities?.add(e);
     e._addQueryMembership(this);
     this._enterCallback?.(e);
-    e.forEachComponent((c) => {
+    e.components.forEach((c) => {
       if (this._watchlistBitmask.hasBit(c.bitPtr)) {
         this._notifyModified(c);
       }

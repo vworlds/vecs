@@ -1,7 +1,7 @@
 import { Component } from "./component.js";
 import type { World } from "./world.js";
 import { CommandKind } from "./command.js";
-import { ArrayMap } from "./util/array_map.js";
+import { ArrayMap, ReadonlyArrayMap } from "./util/array_map.js";
 import { type Query } from "./query.js";
 import { Events } from "./util/events.js";
 import { Bitset } from "./util/bitset.js";
@@ -313,6 +313,22 @@ export class Entity {
   }
 
   /**
+   * Read-only view of all components currently attached to this entity, keyed
+   * by numeric component type id.
+   *
+   * The mutating methods (`set`, `delete`, `clear`) are not exposed. Use
+   * `entity.add`, `entity.set`, and `entity.remove` to change the component
+   * set.
+   *
+   * ```ts
+   * entity.components.forEach((c) => console.log(c.constructor.name));
+   * ```
+   */
+  public get components(): ReadonlyArrayMap<Component> {
+    return this._components;
+  }
+
+  /**
    * Reparent this entity. In deferred mode the change is queued; outside
    * deferred mode it executes inline.
    *
@@ -448,16 +464,6 @@ export class Entity {
   public get<C extends typeof Component>(typeOrClass: number | C): InstanceType<C> | undefined {
     const type = this.world.getComponentType(typeOrClass);
     return this._get(type) as InstanceType<C> | undefined;
-  }
-
-  /**
-   * Visit every component currently attached to this entity.
-   *
-   * @param callback - Invoked once per attached component, in registration
-   *   order. No iteration order guarantee beyond that.
-   */
-  public forEachComponent(callback: (c: Component) => void): void {
-    this._components.forEach(callback);
   }
 
   /**

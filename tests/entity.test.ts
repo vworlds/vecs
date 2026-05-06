@@ -145,7 +145,7 @@ describe("Entity — components", () => {
     expect(e.empty).toBe(true);
   });
 
-  it("forEachComponent visits every attached component", () => {
+  it("components visits every attached component", () => {
     const w = new World();
     w.registerComponent(Position);
     w.registerComponent(Velocity);
@@ -153,7 +153,7 @@ describe("Entity — components", () => {
     e.add(Position);
     e.add(Velocity);
     const seen: string[] = [];
-    e.forEachComponent((c) => seen.push(c.toString()));
+    e.components.forEach((c) => seen.push(c.toString()));
     expect(seen.sort()).toEqual(["Position", "Velocity"]);
   });
 
