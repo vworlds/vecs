@@ -22,7 +22,7 @@ function setup() {
     w,
     phase,
     tick(now = 0, delta = 0) {
-      w.runPhase(phase, now, delta);
+      w.progress(now, delta);
     },
   };
 }

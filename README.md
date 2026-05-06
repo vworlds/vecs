@@ -217,9 +217,14 @@ const send = world.addPhase("send");
 world.progress(now, delta);
 
 // ...or run individual phases manually:
-world.runPhase(preUpdate, now, delta);
-world.runPhase(update, now, delta);
-world.runPhase(send, now, delta);
+world.beginFrame(now, delta);
+try {
+  world.runPhase(preUpdate, now, delta);
+  world.runPhase(update, now, delta);
+  world.runPhase(send, now, delta);
+} finally {
+  world.endFrame();
+}
 ```
 
 Systems with no explicit phase are placed in the built-in `"update"` phase.
@@ -236,6 +241,67 @@ world
   .each(...)
   .exit(...);
 ```
+
+#### Timers and rate filters
+
+Systems can opt into a slower cadence instead of running on every phase tick. `interval()` takes seconds; throttled `run()` callbacks receive the accumulated milliseconds since the previous fire as `delta`.
+
+```ts
+import { IntervalTickSource, RateTickSource } from "@vworlds/vecs";
+
+world
+  .system("Move")
+  .interval(1.0)
+  .each([Position], (e, [pos]) => {
+    // 1 Hz
+  });
+
+world
+  .system("Move")
+  .rate(2)
+  .each([Position], (e, [pos]) => {
+    // every 2nd frame
+  });
+
+const second = new IntervalTickSource(1.0);
+
+world
+  .system("Move")
+  .tickSource(second)
+  .each([Position], (e, [pos]) => {
+    // driven by a shared timer
+  });
+
+second.stop();
+second.start();
+
+const minute = new RateTickSource(60, second);
+const hour = world
+  .system("Hour")
+  .tickSource(minute)
+  .rate(60)
+  .run((now, delta) => {
+    console.log("hour tick", now, delta);
+  });
+
+// Systems can also be tick sources for each other.
+const eachSecond = world
+  .system("EachSecond")
+  .interval(1)
+  .run(() => {
+    // ...
+  });
+
+const eachMinute = world
+  .system("EachMinute")
+  .tickSource(eachSecond)
+  .rate(60)
+  .run(() => {
+    // ...
+  });
+```
+
+Tick source objects and systems can both be used as sources. Disabling a source system suppresses its callbacks, but its clock still drives downstream consumers.
 
 #### Queries
 

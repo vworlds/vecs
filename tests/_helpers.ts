@@ -18,7 +18,12 @@ export function makeWorldWithFlushPhase(name = "p") {
     w,
     phase,
     tick(now = 0, delta = 0) {
-      w.runPhase(phase, now, delta);
+      w.beginFrame(delta);
+      try {
+        w.runPhase(phase, now, delta);
+      } finally {
+        w.endFrame();
+      }
     },
     start() {
       w.start();

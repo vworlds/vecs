@@ -14,8 +14,13 @@ import { type World } from "./world.js";
  * world.system("NetworkUpdate").phase(preUpdate).run(tick);
  *
  * // each frame:
- * world.runPhase(preUpdate, now, delta);
- * world.runPhase(send,      now, delta);
+ * world.beginFrame(now, delta);
+ * try {
+ *   world.runPhase(preUpdate, now, delta);
+ *   world.runPhase(send,      now, delta);
+ * } finally {
+ *   world.endFrame();
+ * }
  * ```
  */
 export interface IPhase {

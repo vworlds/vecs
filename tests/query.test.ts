@@ -27,7 +27,7 @@ function setup() {
     .run(() => {});
   return {
     w,
-    tick: () => w.runPhase(phase, 0, 0),
+    tick: () => w.progress(0, 0),
   };
 }
 
@@ -589,10 +589,10 @@ describe("Query — NOT predicate routing", () => {
     // Add Velocity first so Position's arrival doesn't transiently match.
     e.add(Velocity); // no Position — doesn't match
     e.add(Position); // has both — still doesn't match (has Velocity)
-    w.runPhase(phase, 0, 0);
+    w.progress(0, 0);
     expect(enter).not.toHaveBeenCalled();
     e.remove(Velocity); // now matches → enter queued on system inbox
-    w.runPhase(phase, 0, 0);
+    w.progress(0, 0);
     expect(enter.mock.calls[0][0]).toBe(e);
   });
 });
