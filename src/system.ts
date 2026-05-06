@@ -91,7 +91,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _enter(e: Entity): void {
     this._entities?.add(e);
     e._addQueryMembership(this);
-    if (!this._enabled) {return;}
+    if (!this._enabled) {
+      return;
+    }
     if (this._enterCallback !== undefined) {
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
@@ -111,7 +113,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _exit(e: Entity): void {
     this._entities?.delete(e);
     e._removeQueryMembership(this);
-    if (!this._enabled) {return;}
+    if (!this._enabled) {
+      return;
+    }
     if (this._exitCallback !== undefined) {
       let snapshot: Map<number, Component> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
@@ -146,7 +150,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * callbacks land in the world queue and are processed when `_run` returns.
    */
   public _run(now: number, delta: number): void {
-    if (!this._enabled) {return;}
+    if (!this._enabled) {
+      return;
+    }
     this.world.defer(() => {
       for (let i = 0; i < this._inbox.length; i++) {
         const event = this._inbox[i];
