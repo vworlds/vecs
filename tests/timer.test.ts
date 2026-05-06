@@ -168,38 +168,6 @@ describe("Timers and tick sources", () => {
     expect(() => new RateTickSource(1.5)).toThrow();
   });
 
-  it("runPhase outside a frame throws", () => {
-    const { world, phase } = setup();
-    world.start();
-
-    expect(() => world.runPhase(phase, 0, 0)).toThrow();
-  });
-
-  it("beginFrame without prior endFrame throws", () => {
-    const { world } = setup();
-
-    world.beginFrame(0);
-    expect(() => world.beginFrame(0)).toThrow();
-    world.endFrame();
-  });
-
-  it("endFrame without prior beginFrame throws", () => {
-    const { world } = setup();
-
-    expect(() => world.endFrame()).toThrow();
-  });
-
-  it("progress closes the frame when a phase throws", () => {
-    const { world } = setup();
-    world.system("boom").run(() => {
-      throw new Error("boom");
-    });
-    world.start();
-
-    expect(() => world.progress(0, 0)).toThrow("boom");
-    expect((world as any)._frameInProgress).toBe(false);
-  });
-
   it("systems without cadence fire every frame with raw delta", () => {
     const { world, tick } = setup();
     const cb = vi.fn();

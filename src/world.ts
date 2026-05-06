@@ -728,7 +728,7 @@ export class World {
   /**
    * Run every phase in the pipeline in registration order.
    *
-   * Equivalent to `beginFrame(now, delta)`, calling {@link runPhase} for each
+   * Equivalent to `beginFrame(delta)`, calling {@link runPhase} for each
    * phase, then {@link endFrame}. All registered tick sources are evaluated
    * once up front for the whole frame, and the frame is closed in a `finally`
    * block if a system throws.
