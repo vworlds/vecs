@@ -1,5 +1,11 @@
 import { type World } from "./world.js";
 
+export type TickSourceInput = TickSource | { _asTickSource(): TickSource };
+
+export function resolveTickSource(source: TickSourceInput): TickSource {
+  return source instanceof TickSource ? source : source._asTickSource();
+}
+
 /**
  * Shared cadence source for timers and systems.
  *
@@ -30,21 +36,23 @@ export class TickSource {
   }
 
   public rate(n: number): this;
-  public rate(n: number, source: TickSource): this;
-  public rate(n: number, source?: TickSource): this {
+  public rate(n: number, source: TickSourceInput): this;
+  public rate(n: number, source?: TickSourceInput): this {
     this._validateRate(n);
     if (source) {
-      this._assertNoCycle(source);
-      this._source = source;
+      const tickSource = resolveTickSource(source);
+      this._assertNoCycle(tickSource);
+      this._source = tickSource;
     }
     this._rate = n;
     this._intervalMs = undefined;
     return this;
   }
 
-  public tickSource(source: TickSource): this {
-    this._assertNoCycle(source);
-    this._source = source;
+  public tickSource(source: TickSourceInput): this {
+    const tickSource = resolveTickSource(source);
+    this._assertNoCycle(tickSource);
+    this._source = tickSource;
     this._intervalMs = undefined;
     this._rate = undefined;
     return this;

@@ -4,12 +4,11 @@ import { type QueryDSL, type MaybeRequired } from "./dsl.js";
 import type { Entity } from "./entity.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world.js";
-import { TickSource } from "./timer.js";
+import { resolveTickSource, TickSource, type TickSourceInput } from "./timer.js";
 
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
 type RunCallback = (now: number, delta: number) => void;
-type TickSourceInput = TickSource | System<any>;
 
 /** Discriminator for {@link _SystemInboxEvent}. */
 const enum InboxCommand {
@@ -203,7 +202,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public rate(n: number): this;
   public rate(n: number, source: TickSourceInput): this;
   public rate(n: number, source?: TickSourceInput): this {
-    const tickSource = source ? this._resolveTickSource(source) : undefined;
+    const tickSource = source ? resolveTickSource(source) : undefined;
     if (tickSource) {
       this._ensureTickSource().rate(n, tickSource);
     } else {
@@ -213,7 +212,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   }
 
   public tickSource(source: TickSourceInput): this {
-    this._ensureTickSource().tickSource(this._resolveTickSource(source));
+    this._ensureTickSource().tickSource(resolveTickSource(source));
     return this;
   }
 
@@ -238,10 +237,6 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
       this.world._registerTickSource(this._tickSource);
     }
     return this._tickSource;
-  }
-
-  private _resolveTickSource(source: TickSourceInput): TickSource {
-    return source instanceof TickSource ? source : source._asTickSource();
   }
 
   /**

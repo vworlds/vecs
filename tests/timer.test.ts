@@ -69,6 +69,22 @@ describe("Timers and tick sources", () => {
     expect(cb).toHaveBeenCalledWith(60000, 60000);
   });
 
+  it("timers can use a system as their source", () => {
+    const { world, phase } = setup();
+    const second = world.system("sec").phase(phase).interval(1);
+    const minute = world.timer("minute").rate(60, second);
+    const cb = vi.fn();
+    world.system("consumer").phase(phase).tickSource(minute).run(cb);
+    world.start();
+
+    for (let i = 1; i <= 60; i++) {
+      world.runPhase(phase, i * 1000, 1000);
+    }
+
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith(60000, 60000);
+  });
+
   it("nested timers can produce an hour tick", () => {
     const { world, phase } = setup();
     const second = world.timer("second").interval(1);
