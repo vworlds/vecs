@@ -83,12 +83,12 @@ export class ComponentMeta implements Hook<Component> {
    */
   public exclusive: number[] | undefined = undefined;
 
-  /** @internal `onAdd` handler, set by {@link onAdd}. */
-  public _onAddHandler: ((c: Component) => void) | undefined;
-  /** @internal `onRemove` handler, set by {@link onRemove}. */
-  public _onRemoveHandler: ((c: Component) => void) | undefined;
-  /** @internal `onSet` handler, set by {@link onSet}. */
-  public _onSetHandler: ((c: Component) => void) | undefined;
+  /** @internal `onAdd` handlers, lazily allocated and prepended by {@link onAdd}. */
+  public _onAddHandlers: ((c: Component) => void)[] | undefined;
+  /** @internal `onRemove` handlers, lazily allocated and prepended by {@link onRemove}. */
+  public _onRemoveHandlers: ((c: Component) => void)[] | undefined;
+  /** @internal `onSet` handlers, lazily allocated and prepended by {@link onSet}. */
+  public _onSetHandlers: ((c: Component) => void)[] | undefined;
 
   constructor(Class: typeof Component, type: number, componentName: string) {
     this.Class = Class;
@@ -99,22 +99,19 @@ export class ComponentMeta implements Hook<Component> {
 
   /** @inheritdoc */
   public onAdd(handler: (c: Component) => void): ComponentMeta {
-    const previous = this._onAddHandler;
-    this._onAddHandler = previous ? (c) => (previous(c), handler(c)) : handler;
+    (this._onAddHandlers ??= []).unshift(handler);
     return this;
   }
 
   /** @inheritdoc */
   public onRemove(handler: (c: Component) => void): ComponentMeta {
-    const previous = this._onRemoveHandler;
-    this._onRemoveHandler = previous ? (c) => (previous(c), handler(c)) : handler;
+    (this._onRemoveHandlers ??= []).unshift(handler);
     return this;
   }
 
   /** @inheritdoc */
   public onSet(handler: (c: Component) => void): ComponentMeta {
-    const previous = this._onSetHandler;
-    this._onSetHandler = previous ? (c) => (previous(c), handler(c)) : handler;
+    (this._onSetHandlers ??= []).unshift(handler);
     return this;
   }
 }

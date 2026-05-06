@@ -114,7 +114,11 @@ export class Entity {
     }
     this._components.set(type, c);
     this.componentBitmask.add(type);
-    meta._onAddHandler?.(c);
+    if (meta._onAddHandlers) {
+      for (let i = meta._onAddHandlers.length - 1; i >= 0; i--) {
+        meta._onAddHandlers[i](c);
+      }
+    }
     this._updateQueries();
     return c;
   }
@@ -178,7 +182,12 @@ export class Entity {
       if (existing) {
         Object.assign(c, props);
       }
-      c.meta._onSetHandler?.(c);
+      const setHandlers = c.meta._onSetHandlers;
+      if (setHandlers) {
+        for (let i = setHandlers.length - 1; i >= 0; i--) {
+          setHandlers[i](c);
+        }
+      }
       c._dirty = false;
       if (existing) {
         this._queries.forEach((q) => q._notifyModified(c));
@@ -198,7 +207,12 @@ export class Entity {
     if (!c) {
       return;
     }
-    c.meta._onSetHandler?.(c);
+    const setHandlers = c.meta._onSetHandlers;
+    if (setHandlers) {
+      for (let i = setHandlers.length - 1; i >= 0; i--) {
+        setHandlers[i](c);
+      }
+    }
     c._dirty = false;
     this._queries.forEach((q) => q._notifyModified(c));
   }
@@ -218,7 +232,12 @@ export class Entity {
     this.componentBitmask.delete(type);
     this._updateQueries();
     this._components.delete(type);
-    c.meta._onRemoveHandler?.(c);
+    const removeHandlers = c.meta._onRemoveHandlers;
+    if (removeHandlers) {
+      for (let i = removeHandlers.length - 1; i >= 0; i--) {
+        removeHandlers[i](c);
+      }
+    }
   }
 
   /**
@@ -239,7 +258,14 @@ export class Entity {
     });
     toExit.forEach((q) => q._exit(this));
 
-    this._components.forEach((c) => c.meta._onRemoveHandler?.(c));
+    this._components.forEach((c) => {
+      const removeHandlers = c.meta._onRemoveHandlers;
+      if (removeHandlers) {
+        for (let i = removeHandlers.length - 1; i >= 0; i--) {
+          removeHandlers[i](c);
+        }
+      }
+    });
 
     if (this._events) {
       this._events.emit("destroy");
