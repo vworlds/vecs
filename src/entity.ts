@@ -143,6 +143,9 @@ export class Entity {
    * routing a queued `SetParent` command.
    */
   public _setParent(newParent: Entity | undefined): void {
+    if (this._destroyed) {
+      return;
+    }
     if (newParent !== undefined) {
       let ancestor: Entity | undefined = newParent;
       while (ancestor !== undefined) {
@@ -230,6 +233,7 @@ export class Entity {
     if (this._destroyed) {
       return;
     }
+    this._destroyed = true;
 
     const toExit: Query[] = [];
     this._queries.forEach((q) => {
@@ -246,7 +250,6 @@ export class Entity {
       this._events.removeAllListeners("destroy");
     }
 
-    this._destroyed = true;
     this.world._unregisterEntity(this);
     if (this._parent) {
       this._parent._children?.delete(this);
