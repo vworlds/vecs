@@ -44,6 +44,6 @@ export class Phase implements IPhase {
     /** Name used to look up the phase in the pipeline. */
     public readonly name: string,
     /** World that owns this phase. */
-    public world: World
+    public readonly world: World
   ) {}
 }

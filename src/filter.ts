@@ -37,11 +37,13 @@ import { _buildEntityTest, type EntityTestFunc, type MaybeRequired, type QueryDS
  *   in `forEach` callback tuples.
  */
 export class Filter<R extends (typeof Component)[] = []> {
-  private readonly _world: World;
   private readonly _belongs: EntityTestFunc;
 
-  constructor(world: World, dsl: QueryDSL) {
-    this._world = world;
+  constructor(
+    /** World this filter reads entities from. */
+    public readonly world: World,
+    dsl: QueryDSL
+  ) {
     this._belongs = _buildEntityTest(world, dsl);
   }
 
@@ -74,16 +76,16 @@ export class Filter<R extends (typeof Component)[] = []> {
     componentsOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void {
-    this._world.defer(() => {
+    this.world.defer(() => {
       if (typeof componentsOrCallback === "function") {
-        this._world.entities.forEach((e) => {
+        this.world.entities.forEach((e) => {
           if (this._belongs(e)) {
             componentsOrCallback(e);
           }
         });
       } else {
-        const types = componentsOrCallback.map((C) => this._world.getComponentType(C));
-        this._world.entities.forEach((e) => {
+        const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
+        this.world.entities.forEach((e) => {
           if (!this._belongs(e)) {
             return;
           }
