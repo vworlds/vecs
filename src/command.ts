@@ -1,6 +1,11 @@
 import type { Component } from "./component.js";
 import type { Entity } from "./entity.js";
 
+/**
+ * Discriminator for the {@link Command} union.
+ *
+ * @internal
+ */
 export const enum CommandKind {
   CreateEntity,
   Set,
@@ -11,13 +16,14 @@ export const enum CommandKind {
 }
 
 /**
- * Command kinds emitted by {@link Entity} and routed by {@link World}.
+ * One queued mutation produced by an {@link Entity} method (`add`, `set`,
+ * `remove`, `destroy`, `setParent`) or by `Component.modified`, and routed by
+ * {@link World} during command-queue processing.
  *
- * Commands are produced by `entity.add` / `entity.set` / `entity.remove` /
- * `entity.destroy` (and `Component.modified`). In deferred mode they are
- * pushed onto the world's command queue and processed at well-defined
- * boundaries (after each system run, on `flush()`, on the next `runPhase`,
- * etc.). Outside deferred mode they execute inline.
+ * In deferred mode the command is appended to `World`'s queue and applied at a
+ * well-defined boundary (after each system run, on `flush()`, on the next
+ * `runPhase`, etc.). Outside deferred mode the corresponding underscore-prefixed
+ * `Entity` method is invoked inline.
  *
  * @internal
  */

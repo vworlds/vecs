@@ -145,7 +145,7 @@ describe("Entity — components", () => {
     expect(e.empty).toBe(true);
   });
 
-  it("forEachComponent visits every attached component", () => {
+  it("components visits every attached component", () => {
     const w = new World();
     w.registerComponent(Position);
     w.registerComponent(Velocity);
@@ -153,7 +153,7 @@ describe("Entity — components", () => {
     e.add(Position);
     e.add(Velocity);
     const seen: string[] = [];
-    e.forEachComponent((c) => seen.push(c.toString()));
+    e.components.forEach((c) => seen.push(c.toString()));
     expect(seen.sort()).toEqual(["Position", "Velocity"]);
   });
 
@@ -212,6 +212,29 @@ describe("Entity — lifecycle and hierarchy", () => {
     expect(parent.children.has(child)).toBe(false);
     expect(child.parent).toBeUndefined();
     expect(env.w.entity(parent.eid)).toBe(parent);
+  });
+
+  it("destroy is re-entrant safe", () => {
+    const env = makeWorldWithFlushPhase();
+    env.start();
+    const e = env.w.entity();
+    const cb = vi.fn(() => e.destroy());
+    e.events.on("destroy", cb);
+    e.destroy();
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("_setParent does not mutate a destroyed entity", () => {
+    const env = makeWorldWithFlushPhase();
+    env.start();
+    const parent = env.w.entity();
+    const child = env.w.entity();
+
+    child.destroy();
+    child._setParent(parent);
+
+    expect(child.parent).toBeUndefined();
+    expect(parent.children.has(child)).toBe(false);
   });
 
   it("children returns an empty ReadonlySet before any child is added", () => {

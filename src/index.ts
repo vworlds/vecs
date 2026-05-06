@@ -1,4 +1,4 @@
-export { type System } from "./system.js";
+export { type System, type SystemQuery } from "./system.js";
 export { Query } from "./query.js";
 export { World } from "./world.js";
 export { Filter } from "./filter.js";

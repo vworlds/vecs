@@ -58,6 +58,34 @@ describe("Query — construction", () => {
     expect(q.name).toBe("enemies");
     expect(q.toString()).toBe("enemies");
   });
+
+  it("matches nothing until requires(), query(), or update() sets a predicate", () => {
+    const { w, tick } = setup();
+    const q = w.query("empty");
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    tick();
+    expect(q.belongs(e)).toBe(false);
+    expect(q.entities.size).toBe(0);
+  });
+});
+
+describe("Query — update watchlist predicate", () => {
+  it("update-only queries backfill existing entities after installing the watchlist predicate", () => {
+    const { w, tick } = setup();
+    w.start();
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    tick();
+
+    const update = vi.fn();
+    const q = w.query("updated").update(Position, update);
+
+    expect(q.belongs(e)).toBe(true);
+    expect(q.entities.has(e)).toBe(true);
+    expect(update).toHaveBeenCalledWith(pos);
+  });
 });
 
 describe("Query — predicates (belongs)", () => {
@@ -435,7 +463,7 @@ describe("Query — destroy", () => {
     q.destroy();
     // After destroy the query is no longer in the entity's query set;
     // a component modification should not reach the (dead) query.
-    const notify = vi.spyOn(q, "notifyModified");
+    const notify = vi.spyOn(q, "_notifyModified");
     const pos = e.get(Position)!;
     pos.modified();
     tick();
@@ -448,6 +476,15 @@ describe("Query — destroy", () => {
     w.start();
     q.destroy();
     expect((q as any).world).toBeUndefined();
+  });
+
+  it("destroy() leaves belongs() as a safe match-nothing predicate", () => {
+    const { w } = setup();
+    const q = w.query("test").requires(Position);
+    const e = w.entity().add(Position);
+    expect(q.belongs(e)).toBe(true);
+    q.destroy();
+    expect(q.belongs(e)).toBe(false);
   });
 
   it("destroy() on a query with no tracking still removes it from the world", () => {

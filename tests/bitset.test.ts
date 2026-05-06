@@ -115,12 +115,12 @@ describe("Bitset", () => {
     expect(new BitPtr(7).equals(new BitPtr(8))).toBe(false);
   });
 
-  it("addIndexBitmask and setIndexBitmask manipulate raw words", () => {
+  it("_addIndexBitmask and _setIndexBitmask manipulate raw words", () => {
     const b = new Bitset();
-    b.addIndexBitmask(0, 0b1010);
+    b._addIndexBitmask(0, 0b1010);
     expect(b.has(1)).toBe(true);
     expect(b.has(3)).toBe(true);
-    b.setIndexBitmask(0, 0b0001);
+    b._setIndexBitmask(0, 0b0001);
     expect(b.has(1)).toBe(false);
     expect(b.has(0)).toBe(true);
   });
