@@ -450,6 +450,15 @@ describe("Query — destroy", () => {
     expect((q as any).world).toBeUndefined();
   });
 
+  it("destroy() leaves belongs() as a safe match-nothing predicate", () => {
+    const { w } = setup();
+    const q = w.query("test").requires(Position);
+    const e = w.entity().add(Position);
+    expect(q.belongs(e)).toBe(true);
+    q.destroy();
+    expect(q.belongs(e)).toBe(false);
+  });
+
   it("destroy() on a query with no tracking still removes it from the world", () => {
     const { w, tick } = setup();
     // Create a system (which is untracked by default) — but we test with a raw query
