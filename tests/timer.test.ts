@@ -95,6 +95,22 @@ describe("Timers and tick sources", () => {
     expect(cb).toHaveBeenCalledWith(60000, 60000);
   });
 
+  it("cadence setters use last-call-wins semantics", () => {
+    const { world, phase } = setup();
+    const cb = vi.fn();
+    const timer = world.timer("mode").interval(1).rate(2);
+    world.system("consumer").phase(phase).tickSource(timer).run(cb);
+    world.start();
+
+    world.runPhase(phase, 500, 500);
+    world.runPhase(phase, 1000, 500);
+    world.runPhase(phase, 1500, 500);
+    world.runPhase(phase, 2000, 500);
+
+    expect(cb).toHaveBeenCalledTimes(2);
+    expect(cb.mock.calls.map((call) => call[0])).toEqual([1000, 2000]);
+  });
+
   it("timers can use a system as their source", () => {
     const { world, phase } = setup();
     const second = world.system("sec").phase(phase).interval(1);
@@ -322,6 +338,20 @@ describe("Timers and tick sources", () => {
     expect(world._frameCounter).toBe(1);
     expect(timer.evalCount).toBe(1);
     expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  it("progress throws when called while a frame is already in progress", () => {
+    const { world, phase } = setup();
+    world
+      .system("outer")
+      .phase(phase)
+      .run(() => {
+        world.progress(1000, 1000);
+      });
+    world.start();
+
+    expect(() => world.progress(1000, 1000)).toThrow();
+    expect(world._frameCounter).toBe(1);
   });
 
   it("huge deltas fire at most once per frame", () => {

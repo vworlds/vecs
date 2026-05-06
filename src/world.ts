@@ -695,6 +695,11 @@ export class World {
    * deferred scope; mutations made by callbacks land in the world queue and
    * are processed before the next system runs.
    *
+   * When `runPhase` starts a new frame, it evaluates every registered tick
+   * source before systems run. Re-entrant `runPhase` calls made from a system
+   * body reuse the outer frame, so tick-source memoization and `_frameCounter`
+   * remain stable.
+   *
    * @param phase - Phase reference returned from {@link addPhase}.
    * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
    * @param delta - Milliseconds elapsed since the previous tick.
@@ -721,12 +726,18 @@ export class World {
   /**
    * Run every phase in the pipeline in registration order.
    *
-   * Equivalent to calling {@link runPhase} for each phase manually.
+   * Equivalent to calling {@link runPhase} for each phase manually, but all
+   * registered tick sources are evaluated once up front for the whole frame.
+   * Calling `progress` while another `progress` call is already running throws;
+   * use re-entrant {@link runPhase} for nested phase execution.
    *
    * @param now - Absolute timestamp in milliseconds (e.g. `Date.now()`).
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public progress(now: number, delta: number): void {
+    if (this._frameInProgress) {
+      throw "progress() cannot be called while a world frame is already in progress";
+    }
     this._frameInProgress = true;
     this._frameCounter++;
     this.flush();
