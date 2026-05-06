@@ -158,7 +158,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
     }
     let tickDelta = delta;
     if (this._tickSource) {
-      if (!this._tickSource._evalTick(now, delta, this.world._frameCounter)) {
+      if (!this._tickSource._evalTick(delta, this.world._frameCounter)) {
         return;
       }
       tickDelta = this._tickSource._lastFireDelta;

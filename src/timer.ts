@@ -154,8 +154,7 @@ export class TickSource {
   }
 
   /** @internal Evaluate this source once per frame. */
-  public _evalTick(now: number, deltaMs: number, frameId: number): boolean {
-    void now;
+  public _evalTick(deltaMs: number, frameId: number): boolean {
     if (this._lastEvaluatedFrame === frameId) {
       return this._didTick;
     }
@@ -166,7 +165,7 @@ export class TickSource {
       return false;
     }
 
-    const upstreamFired = this._source ? this._source._evalTick(now, deltaMs, frameId) : true;
+    const upstreamFired = this._source ? this._source._evalTick(deltaMs, frameId) : true;
     const upstreamDelta = this._source ? this._source._lastFireDelta : deltaMs;
     if (upstreamFired) {
       this._timeSinceLastTick += upstreamDelta;

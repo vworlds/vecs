@@ -704,7 +704,7 @@ export class World {
     if (ownsFrame) {
       this._frameInProgress = true;
       this._frameCounter++;
-      this._tickSources.forEach((t) => t._evalTick(now, delta, this._frameCounter));
+      this._tickSources.forEach((t) => t._evalTick(delta, this._frameCounter));
     }
     try {
       this.flush();
@@ -730,7 +730,7 @@ export class World {
     this._frameInProgress = true;
     this._frameCounter++;
     this.flush();
-    this._tickSources.forEach((t) => t._evalTick(now, delta, this._frameCounter));
+    this._tickSources.forEach((t) => t._evalTick(delta, this._frameCounter));
     try {
       this._pipeline.forEach((phase) => {
         this.runPhase(phase, now, delta);

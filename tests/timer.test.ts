@@ -8,12 +8,12 @@ class CountingTimer extends Timer {
   private readonly _seenFrames = new Set<number>();
 
   /** @internal */
-  public override _evalTick(now: number, delta: number, frameId: number): boolean {
+  public override _evalTick(delta: number, frameId: number): boolean {
     if (!this._seenFrames.has(frameId)) {
       this._seenFrames.add(frameId);
       this.evalCount++;
     }
-    return super._evalTick(now, delta, frameId);
+    return super._evalTick(delta, frameId);
   }
 }
 
