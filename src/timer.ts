@@ -1,9 +1,13 @@
+import { type World } from "./world.js";
+
 /** A clock that the world evaluates once per frame. */
 export interface ITickSource {
   /** True when this source fired during the current frame. */
   readonly didTick: boolean;
   /** Milliseconds accumulated into the most recent fire. */
   readonly lastFireDelta: number;
+  /** @internal Register this source and any upstream sources with a world. */
+  _register(world: World): void;
   /** @internal Evaluate this source for the given frame. */
   _evalTick(deltaMs: number, frameId: number): boolean;
 }
@@ -43,6 +47,11 @@ abstract class BaseTickSource implements ITickSource {
 
   /** @internal Evaluate this source once for `frameId`. */
   public abstract _evalTick(deltaMs: number, frameId: number): boolean;
+
+  /** @internal Register this source with `world`. */
+  public _register(world: World): void {
+    world._registerTickSource(this);
+  }
 }
 
 /** Fires every `intervalSeconds` of accumulated wall-clock time. */
@@ -148,6 +157,12 @@ export class RateTickSource extends BaseTickSource {
     this._didTick = fired;
     return fired;
   }
+
+  /** @internal */
+  public override _register(world: World): void {
+    super._register(world);
+    this._source?._register(world);
+  }
 }
 
 /** @internal Singleton source used by systems with no explicit cadence. */
@@ -167,6 +182,9 @@ class _AlwaysTickSource implements ITickSource {
     this._lastDelta = deltaMs;
     return true;
   }
+
+  /** @internal */
+  public _register(_world: World): void {}
 }
 
 /** @internal Shared default clock for unconfigured systems. */

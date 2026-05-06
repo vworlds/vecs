@@ -211,6 +211,12 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> implem
     return this._tickSource._evalTick(delta, frameId);
   }
 
+  /** @internal Register this system source and its current cadence source. */
+  public _register(world: World): void {
+    world._registerTickSource(this);
+    this._tickSource._register(world);
+  }
+
   /**
    * Run this system at a fixed interval, expressed in seconds.
    *
@@ -288,17 +294,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> implem
 
   private _setTickSource(source: ITickSource): void {
     this._tickSource = source;
-    this._registerChain(source);
-  }
-
-  private _registerChain(source: ITickSource): void {
-    if (source === ALWAYS_TICK_SOURCE) {
-      return;
-    }
-    this.world._registerTickSource(source);
-    if (source instanceof RateTickSource && source._source) {
-      this._registerChain(source._source);
-    }
+    source._register(this.world);
   }
 
   /**
