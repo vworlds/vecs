@@ -99,19 +99,22 @@ export class ComponentMeta implements Hook<Component> {
 
   /** @inheritdoc */
   public onAdd(handler: (c: Component) => void): ComponentMeta {
-    this._onAddHandler = handler;
+    const previous = this._onAddHandler;
+    this._onAddHandler = previous ? (c) => (previous(c), handler(c)) : handler;
     return this;
   }
 
   /** @inheritdoc */
   public onRemove(handler: (c: Component) => void): ComponentMeta {
-    this._onRemoveHandler = handler;
+    const previous = this._onRemoveHandler;
+    this._onRemoveHandler = previous ? (c) => (previous(c), handler(c)) : handler;
     return this;
   }
 
   /** @inheritdoc */
   public onSet(handler: (c: Component) => void): ComponentMeta {
-    this._onSetHandler = handler;
+    const previous = this._onSetHandler;
+    this._onSetHandler = previous ? (c) => (previous(c), handler(c)) : handler;
     return this;
   }
 }
