@@ -1,7 +1,21 @@
 import { describe, it, expect, vi } from "vitest";
-import { Component, World } from "../src/index.js";
+import { Component, Timer, World } from "../src/index.js";
 
 class Position extends Component {}
+
+class CountingTimer extends Timer {
+  public evalCount = 0;
+  private readonly _seenFrames = new Set<number>();
+
+  /** @internal */
+  public override _evalTick(now: number, delta: number, frameId: number): boolean {
+    if (!this._seenFrames.has(frameId)) {
+      this._seenFrames.add(frameId);
+      this.evalCount++;
+    }
+    return super._evalTick(now, delta, frameId);
+  }
+}
 
 function setup() {
   const world = new World();
@@ -237,5 +251,101 @@ describe("Timers and tick sources", () => {
     world.runPhase(phase, 1000, 1000);
 
     expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("evaluates a shared timer once per progress call across phases", () => {
+    const world = new World();
+    const a = world.addPhase("a");
+    const b = world.addPhase("b");
+    const timer = new CountingTimer("counting", world).interval(1);
+    world
+      .system("a")
+      .phase(a)
+      .tickSource(timer)
+      .run(() => {});
+    world
+      .system("b")
+      .phase(b)
+      .tickSource(timer)
+      .run(() => {});
+    world.start();
+
+    world.progress(1000, 1000);
+
+    expect(timer.evalCount).toBe(1);
+  });
+
+  it("memoizes a shared timer across multiple consumers", () => {
+    const { world, phase } = setup();
+    const timer = new CountingTimer("counting", world).interval(1);
+    world
+      .system("a")
+      .phase(phase)
+      .tickSource(timer)
+      .run(() => {});
+    world
+      .system("b")
+      .phase(phase)
+      .tickSource(timer)
+      .run(() => {});
+    world
+      .system("c")
+      .phase(phase)
+      .tickSource(timer)
+      .run(() => {});
+    world.start();
+
+    world.runPhase(phase, 1000, 1000);
+
+    expect(timer.evalCount).toBe(1);
+  });
+
+  it("runPhase re-entry does not advance the outer frame", () => {
+    const { world, phase } = setup();
+    const timer = new CountingTimer("counting", world).interval(1);
+    const inner = vi.fn();
+    let reentered = false;
+    world
+      .system("outer")
+      .phase(phase)
+      .run(() => {
+        if (!reentered) {
+          reentered = true;
+          world.runPhase(phase, 1000, 1000);
+        }
+      });
+    world.system("inner").phase(phase).tickSource(timer).run(inner);
+    world.start();
+
+    world.runPhase(phase, 1000, 1000);
+
+    expect(world._frameCounter).toBe(1);
+    expect(timer.evalCount).toBe(1);
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  it("huge deltas fire at most once per frame", () => {
+    const { world, phase } = setup();
+    const cb = vi.fn();
+    world.system("slow").phase(phase).interval(1).run(cb);
+    world.start();
+
+    world.runPhase(phase, 5000, 5000);
+    world.runPhase(phase, 5000, 0);
+
+    expect(cb).toHaveBeenCalledTimes(2);
+    expect(cb.mock.calls.map((call) => call[1])).toEqual([5000, 0]);
+  });
+
+  it("throttling preserves the now argument", () => {
+    const { world, phase } = setup();
+    const cb = vi.fn();
+    world.system("slow").phase(phase).interval(1).run(cb);
+    world.start();
+
+    world.runPhase(phase, 250, 250);
+    world.runPhase(phase, 12345, 750);
+
+    expect(cb.mock.calls[0][0]).toBe(12345);
   });
 });

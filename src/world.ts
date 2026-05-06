@@ -91,7 +91,7 @@ export class World {
   private _tickSources: Set<TickSource> = new Set();
   /** @internal Monotonic frame id used to memoize tick-source evaluation. */
   public _frameCounter = 0;
-  /** @internal True while progress() is driving all phases for one frame. */
+  /** @internal True while the world is driving one logical frame. */
   private _frameInProgress = false;
   /** @internal Counter used to name timers created without an explicit name. */
   private _timerCounter = 0;
@@ -700,14 +700,22 @@ export class World {
    * @param delta - Milliseconds elapsed since the previous tick.
    */
   public runPhase(phase: IPhase, now: number, delta: number): void {
-    if (!this._frameInProgress) {
+    const ownsFrame = !this._frameInProgress;
+    if (ownsFrame) {
+      this._frameInProgress = true;
       this._frameCounter++;
       this._tickSources.forEach((t) => t._evalTick(now, delta, this._frameCounter));
     }
-    this.flush();
-    (phase as Phase).systems.forEach((s) => {
-      s._run(now, delta);
-    });
+    try {
+      this.flush();
+      (phase as Phase).systems.forEach((s) => {
+        s._run(now, delta);
+      });
+    } finally {
+      if (ownsFrame) {
+        this._frameInProgress = false;
+      }
+    }
   }
 
   /**
