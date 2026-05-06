@@ -58,6 +58,34 @@ describe("Query — construction", () => {
     expect(q.name).toBe("enemies");
     expect(q.toString()).toBe("enemies");
   });
+
+  it("matches nothing until requires(), query(), or update() sets a predicate", () => {
+    const { w, tick } = setup();
+    const q = w.query("empty");
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    tick();
+    expect(q.belongs(e)).toBe(false);
+    expect(q.entities.size).toBe(0);
+  });
+});
+
+describe("Query — update watchlist predicate", () => {
+  it("update-only queries backfill existing entities after installing the watchlist predicate", () => {
+    const { w, tick } = setup();
+    w.start();
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    tick();
+
+    const update = vi.fn();
+    const q = w.query("updated").update(Position, update);
+
+    expect(q.belongs(e)).toBe(true);
+    expect(q.entities.has(e)).toBe(true);
+    expect(update).toHaveBeenCalledWith(pos);
+  });
 });
 
 describe("Query — predicates (belongs)", () => {
