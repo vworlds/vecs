@@ -75,6 +75,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   /** @internal Phase reference / name; resolved by `World.start`. */
   public _phase: string | Phase | undefined;
 
+  /** @internal Whether this system processes events and runs callbacks. */
+  private _enabled = true;
+
   constructor(name: string, world: World) {
     super(name, world, false);
   }
@@ -88,6 +91,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _enter(e: Entity): void {
     this._entities?.add(e);
     e._addQueryMembership(this);
+    if (!this._enabled) {
+      return;
+    }
     if (this._enterCallback !== undefined) {
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
@@ -107,6 +113,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _exit(e: Entity): void {
     this._entities?.delete(e);
     e._removeQueryMembership(this);
+    if (!this._enabled) {
+      return;
+    }
     if (this._exitCallback !== undefined) {
       let snapshot: Map<number, Component> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
@@ -127,7 +136,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * component matches the watchlist.
    */
   public override _notifyModified(c: Component): void {
-    if (!this._watchlistBitmask.hasBit(c.bitPtr)) {
+    if (!this._enabled || !this._watchlistBitmask.hasBit(c.bitPtr)) {
       return;
     }
     this._inbox.push({ kind: InboxCommand.Update, component: c });
@@ -141,6 +150,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * callbacks land in the world queue and are processed when `_run` returns.
    */
   public _run(now: number, delta: number): void {
+    if (!this._enabled) {
+      return;
+    }
     this.world.defer(() => {
       for (let i = 0; i < this._inbox.length; i++) {
         const event = this._inbox[i];
@@ -298,6 +310,52 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override requires<T extends (typeof Component)[]>(...components: [...T]): System<T> {
     super.requires(...components);
     return this as unknown as System<T>;
+  }
+
+  /**
+   * Disable this system.
+   *
+   * While disabled the system is effectively invisible: the inbox is cleared
+   * immediately, any new `enter`, `exit`, or `update` events are silently
+   * dropped, and {@link _run} returns without executing any callbacks. Entity
+   * membership in the underlying query is still maintained so the tracked set
+   * remains consistent and the system resumes correctly when
+   * {@link enable} is called.
+   *
+   * Calling `disable` on an already-disabled system is a no-op.
+   *
+   * @returns This system, for chaining.
+   *
+   * @example
+   * ```ts
+   * const sys = world.system("AI").requires(Enemy).run(runAI);
+   * // Pause AI processing during a cutscene:
+   * sys.disable();
+   * // Resume:
+   * sys.enable();
+   * ```
+   */
+  public disable(): this {
+    this._enabled = false;
+    this._inbox.length = 0;
+    return this;
+  }
+
+  /**
+   * Enable this system after a previous {@link disable} call.
+   *
+   * Once re-enabled the system resumes its normal tick behaviour: enter, exit,
+   * and update events are queued, and {@link _run} processes the inbox and fires
+   * all registered callbacks. Events that occurred while the system was disabled
+   * are not replayed.
+   *
+   * Calling `enable` on an already-enabled system is a no-op.
+   *
+   * @returns This system, for chaining.
+   */
+  public enable(): this {
+    this._enabled = true;
+    return this;
   }
 
   /**

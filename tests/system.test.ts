@@ -621,3 +621,190 @@ describe("System — destroy", () => {
     expect(() => sys.destroy()).toThrow();
   });
 });
+
+describe("System — enable / disable", () => {
+  it("disable() stops run callback from firing", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const sys = w.system("test").phase(phase).run(cb);
+    w.start();
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalledTimes(1);
+    sys.disable();
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("enable() resumes the run callback", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const sys = w.system("test").phase(phase).run(cb);
+    w.start();
+    sys.disable();
+    w.runPhase(phase, 0, 0);
+    expect(cb).not.toHaveBeenCalled();
+    sys.enable();
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("disable() stops each callback from firing", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const sys = w.system("test").phase(phase).requires(Position).each([Position], cb);
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalled();
+    cb.mockClear();
+    sys.disable();
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("disable() stops enter callback from firing", () => {
+    const { w, phase } = setup();
+    const enter = vi.fn();
+    const sys = w.system("test").phase(phase).requires(Position).enter(enter);
+    w.start();
+    sys.disable();
+    const e = w.entity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    expect(enter).not.toHaveBeenCalled();
+  });
+
+  it("disable() stops exit callback from firing", () => {
+    const { w, phase } = setup();
+    const exit = vi.fn();
+    const sys = w.system("test").phase(phase).requires(Position).exit(exit);
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    sys.disable();
+    e.remove(Position);
+    w.runPhase(phase, 0, 0);
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("disable() stops update callback from firing", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const sys = w.system("test").phase(phase).requires(Position).update(Position, cb);
+    w.start();
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    w.runPhase(phase, 0, 0);
+    w.runPhase(phase, 0, 0); // drain initial update
+    cb.mockClear();
+    sys.disable();
+    pos.modified();
+    w.runPhase(phase, 0, 0);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("disable() clears any pending inbox events", () => {
+    const { w, phase } = setup();
+    const enter = vi.fn();
+    const sys = w.system("test").phase(phase).requires(Position).enter(enter);
+    w.start();
+    const e = w.entity();
+    e.add(Position); // queues enter event before runPhase
+    sys.disable(); // should clear the inbox
+    w.runPhase(phase, 0, 0);
+    expect(enter).not.toHaveBeenCalled();
+  });
+
+  it("entity membership is maintained while disabled", () => {
+    const { w, phase } = setup();
+    const sys = w.system("test").phase(phase).requires(Position).track();
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    expect(sys.entities.has(e)).toBe(true);
+    sys.disable();
+    const f = w.entity();
+    f.add(Position);
+    w.runPhase(phase, 0, 0);
+    expect(sys.entities.has(e)).toBe(true);
+    expect(sys.entities.has(f)).toBe(true);
+  });
+
+  it("entity exits are reflected in the tracked set while disabled", () => {
+    const { w, phase } = setup();
+    const sys = w.system("test").phase(phase).requires(Position).track();
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    sys.disable();
+    e.remove(Position);
+    w.runPhase(phase, 0, 0);
+    expect(sys.entities.has(e)).toBe(false);
+  });
+
+  it("enable() and disable() return this for chaining", () => {
+    const { w } = setup();
+    const sys = w.system("test");
+    expect(sys.disable()).toBe(sys);
+    expect(sys.enable()).toBe(sys);
+  });
+
+  it("disable() is idempotent", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const sys = w.system("test").phase(phase).run(cb);
+    w.start();
+    sys.disable();
+    sys.disable();
+    w.runPhase(phase, 0, 0);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("enable() is idempotent", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const sys = w.system("test").phase(phase).run(cb);
+    w.start();
+    sys.enable();
+    sys.enable();
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("each resumes firing after re-enable", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const sys = w.system("test").phase(phase).requires(Position).each([Position], cb);
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    sys.disable();
+    w.runPhase(phase, 0, 0);
+    cb.mockClear();
+    sys.enable();
+    w.runPhase(phase, 0, 0);
+    expect(cb).toHaveBeenCalledWith(e, [e.get(Position)]);
+  });
+
+  it("events while disabled are not replayed on re-enable", () => {
+    const { w, phase } = setup();
+    const enter = vi.fn();
+    const sys = w.system("test").phase(phase).requires(Position).enter(enter);
+    w.start();
+    sys.disable();
+    const e = w.entity();
+    e.add(Position);
+    w.runPhase(phase, 0, 0);
+    sys.enable();
+    w.runPhase(phase, 0, 0);
+    expect(enter).not.toHaveBeenCalled();
+  });
+});

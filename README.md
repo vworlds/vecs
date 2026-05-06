@@ -489,6 +489,22 @@ Fires every tick when the system's phase runs, regardless of entity state. Use f
 });
 ```
 
+#### `.disable()` / `.enable()`
+
+Pause and resume a system at runtime. While disabled the system is effectively invisible: the inbox is cleared immediately, any new `enter`, `exit`, or `update` events are silently dropped, `run` and `each` callbacks do not fire, and the system skips its `_run` entirely. Entity membership in the underlying query is still maintained, so the tracked set remains correct and the system resumes cleanly when re-enabled. Events that occurred while the system was disabled are **not** replayed.
+
+```ts
+const ai = world.system("AI").requires(Enemy).run(tickAI);
+
+// Pause AI processing during a cutscene:
+ai.disable();
+
+// Resume normal processing:
+ai.enable();
+```
+
+Both methods return `this` for chaining and are idempotent (calling `disable()` on an already-disabled system, or `enable()` on an already-enabled system, is a no-op).
+
 #### `.destroy()`
 
 **Not supported on `System`** — calling it throws. Systems live for the duration of the world. Use a standalone `Query` for temporary reactive sets.
