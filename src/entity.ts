@@ -115,9 +115,7 @@ export class Entity {
     this._components.set(type, c);
     this.componentBitmask.add(type);
     if (meta._onAddHandlers) {
-      for (let i = meta._onAddHandlers.length - 1; i >= 0; i--) {
-        meta._onAddHandlers[i](c);
-      }
+      meta._onAddHandlers.forEach((handler) => handler(c));
     }
     this._updateQueries();
     return c;
@@ -184,9 +182,7 @@ export class Entity {
       }
       const setHandlers = c.meta._onSetHandlers;
       if (setHandlers) {
-        for (let i = setHandlers.length - 1; i >= 0; i--) {
-          setHandlers[i](c);
-        }
+        setHandlers.forEach((handler) => handler(c));
       }
       c._dirty = false;
       if (existing) {
@@ -209,9 +205,7 @@ export class Entity {
     }
     const setHandlers = c.meta._onSetHandlers;
     if (setHandlers) {
-      for (let i = setHandlers.length - 1; i >= 0; i--) {
-        setHandlers[i](c);
-      }
+      setHandlers.forEach((handler) => handler(c));
     }
     c._dirty = false;
     this._queries.forEach((q) => q._notifyModified(c));
@@ -234,9 +228,7 @@ export class Entity {
     this._components.delete(type);
     const removeHandlers = c.meta._onRemoveHandlers;
     if (removeHandlers) {
-      for (let i = removeHandlers.length - 1; i >= 0; i--) {
-        removeHandlers[i](c);
-      }
+      removeHandlers.forEach((handler) => handler(c));
     }
   }
 
@@ -261,9 +253,7 @@ export class Entity {
     this._components.forEach((c) => {
       const removeHandlers = c.meta._onRemoveHandlers;
       if (removeHandlers) {
-        for (let i = removeHandlers.length - 1; i >= 0; i--) {
-          removeHandlers[i](c);
-        }
+        removeHandlers.forEach((handler) => handler(c));
       }
     });
 

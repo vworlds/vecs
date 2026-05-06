@@ -208,6 +208,6 @@ describe("Hook", () => {
     e.set(Health, {});
     e.remove(Health);
 
-    expect(calls).toEqual(["add 1", "add 2", "set 1", "set 2", "remove 1", "remove 2"]);
+    expect(calls).toEqual(["add 2", "add 1", "set 2", "set 1", "remove 2", "remove 1"]);
   });
 });
