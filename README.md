@@ -276,6 +276,22 @@ const hour = world
   .run((now, delta) => {
     console.log("hour tick", now, delta);
   });
+
+// Systems can also be tick sources for each other.
+const eachSecond = world
+  .system("EachSecond")
+  .interval(1)
+  .run(() => {
+    // ...
+  });
+
+const eachMinute = world
+  .system("EachMinute")
+  .tickSource(eachSecond)
+  .rate(60)
+  .run(() => {
+    // ...
+  });
 ```
 
 Timers and systems can both be used as tick sources. Disabling a source system suppresses its callbacks, but its clock still drives downstream consumers.
