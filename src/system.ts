@@ -194,11 +194,53 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
     });
   }
 
+  /**
+   * Run this system at a fixed interval, expressed in seconds.
+   *
+   * This is seconds, unlike `World.progress` and `runPhase`, which receive
+   * millisecond deltas. Calling `interval` clears any configured rate and
+   * upstream source; the last cadence setter wins. When this system has an
+   * active tick source, the `delta` passed to {@link run} is the accumulated
+   * milliseconds since the previous fire, not the per-frame delta.
+   *
+   * @param seconds - Positive interval duration in seconds.
+   * @returns This system, for chaining.
+   * @throws When `seconds` is less than or equal to zero.
+   *
+   * @example
+   * ```ts
+   * world.system("AI")
+   *   .interval(0.5)
+   *   .run((now, delta) => tickAI(delta));
+   * ```
+   */
   public interval(seconds: number): this {
     this._ensureTickSource().interval(seconds);
     return this;
   }
 
+  /**
+   * Run this system every `n` ticks from the world or an upstream source.
+   *
+   * Without a `source`, this counts world frames. With a `source`, it counts
+   * ticks from that timer or system. Calling `rate` clears any fixed interval.
+   * When called without `source`, it keeps no upstream source; when called with
+   * `source`, that source drives the counter. The `delta` passed to {@link run}
+   * is the accumulated milliseconds since this system last fired.
+   *
+   * @param n - Positive integer tick divisor.
+   * @param source - Optional timer or system source to divide.
+   * @returns This system, for chaining.
+   * @throws When `n` is not a positive integer, or when `source` would create
+   *   a cyclic tick-source graph.
+   *
+   * @example
+   * ```ts
+   * world.system("SendSnapshots")
+   *   .rate(2)
+   *   .run(flushNetwork);
+   * ```
+   */
   public rate(n: number): this;
   public rate(n: number, source: TickSourceInput): this;
   public rate(n: number, source?: TickSourceInput): this {
@@ -211,16 +253,65 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
     return this;
   }
 
+  /**
+   * Run this system only when another timer or system ticks.
+   *
+   * Calling `tickSource` clears any fixed interval or rate; the last cadence
+   * setter wins. Use `.tickSource(source).rate(n)` or `.rate(n, source)` when
+   * this system should divide an upstream source. The `delta` passed to
+   * {@link run} is the accumulated milliseconds since this system last fired.
+   *
+   * @param source - Timer or system source to mirror.
+   * @returns This system, for chaining.
+   * @throws When `source` would create a cyclic tick-source graph.
+   *
+   * @example
+   * ```ts
+   * const second = world.timer("second").interval(1);
+   * world.system("Logger").tickSource(second).run(logStats);
+   * ```
+   */
   public tickSource(source: TickSourceInput): this {
     this._ensureTickSource().tickSource(resolveTickSource(source));
     return this;
   }
 
+  /**
+   * Resume this system's tick-source clock after {@link stop}.
+   *
+   * This affects only cadence. It is independent from {@link enable}; a
+   * disabled system used as a source still ticks downstream consumers, while a
+   * stopped system source does not. Accumulators and counters resume from their
+   * frozen values without catch-up ticks.
+   *
+   * @returns This system, for chaining.
+   *
+   * @example
+   * ```ts
+   * const ai = world.system("AI").interval(1).run(tickAI);
+   * ai.stop();
+   * ai.start();
+   * ```
+   */
   public start(): this {
     this._ensureTickSource().start();
     return this;
   }
 
+  /**
+   * Pause this system's tick-source clock.
+   *
+   * This affects only cadence. It is independent from {@link disable}, which
+   * suppresses callbacks and clears inbox events. While stopped, accumulators
+   * and counters are frozen; {@link start} resumes without catch-up ticks.
+   *
+   * @returns This system, for chaining.
+   *
+   * @example
+   * ```ts
+   * world.system("SlowSim").interval(1).stop();
+   * ```
+   */
   public stop(): this {
     this._ensureTickSource().stop();
     return this;
@@ -272,7 +363,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * network flushing, global timers, etc.
    *
    * @param callback - Receives `now` (absolute timestamp in ms) and `delta`
-   *   (ms since the previous tick).
+   *   (ms since the previous tick). If the system has an active interval,
+   *   rate, or tick source, `delta` is the accumulated milliseconds since this
+   *   system last fired.
    * @returns This system, for chaining.
    */
   public run(callback: RunCallback): this {
@@ -376,6 +469,10 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * membership in the underlying query is still maintained so the tracked set
    * remains consistent and the system resumes correctly when
    * {@link enable} is called.
+   *
+   * Disabling is independent from {@link stop}: `disable` suppresses callbacks,
+   * but a disabled system used as a tick source still drives downstream
+   * consumers. Use `stop` to halt the clock itself.
    *
    * Calling `disable` on an already-disabled system is a no-op.
    *

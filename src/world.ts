@@ -558,7 +558,22 @@ export class World {
     return new System(name, this);
   }
 
-  /** Create a named timer source that can drive systems or other timers. */
+  /**
+   * Create, register, and return a timer source.
+   *
+   * Timers are standalone clocks with no phase, no query, and no callbacks of
+   * their own. Use them to drive one or more systems at a shared cadence, or
+   * to build nested clocks with {@link Timer.rate}. If no name is supplied the
+   * world assigns a generated display name.
+   *
+   * ```ts
+   * const second = world.timer("second").interval(1);
+   * world.system("Logger").tickSource(second).run(logStats);
+   * ```
+   *
+   * @param name - Optional display name for debugging.
+   * @returns The new timer.
+   */
   public timer(name = "Timer"): Timer {
     return new Timer(name, this);
   }

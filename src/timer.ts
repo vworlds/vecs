@@ -1,7 +1,9 @@
 import { type World } from "./world.js";
 
+/** A timer or system-like object that can provide a {@link TickSource}. */
 export type TickSourceInput = TickSource | { _asTickSource(): TickSource };
 
+/** @internal Normalize a timer or system into its underlying tick source. */
 export function resolveTickSource(source: TickSourceInput): TickSource {
   return source instanceof TickSource ? source : source._asTickSource();
 }
@@ -25,6 +27,26 @@ export class TickSource {
   private _timeSinceLastTick = 0;
   private _lastEvaluatedFrame = -1;
 
+  /**
+   * Fire at a fixed interval, expressed in seconds.
+   *
+   * This is intentionally seconds, unlike `World.progress` and `runPhase`,
+   * which receive millisecond deltas. Calling `interval` clears any configured
+   * rate and upstream source; the last cadence setter wins.
+   *
+   * Large frame deltas produce at most one tick. Residual time is carried by
+   * subtracting the interval instead of zeroing the accumulator, preserving
+   * long-term cadence without replaying missed ticks.
+   *
+   * @param seconds - Positive interval duration in seconds.
+   * @returns This tick source, for chaining.
+   * @throws When `seconds` is less than or equal to zero.
+   *
+   * @example
+   * ```ts
+   * const second = world.timer("second").interval(1.0);
+   * ```
+   */
   public interval(seconds: number): this {
     if (seconds <= 0) {
       throw "interval seconds must be greater than 0";
@@ -35,6 +57,24 @@ export class TickSource {
     return this;
   }
 
+  /**
+   * Fire every `n` ticks from this source's upstream clock.
+   *
+   * Without a `source`, this counts world frames. With a `source`, it counts
+   * ticks from that timer or system. Calling `rate` clears any fixed interval.
+   * When called without `source`, it also clears the upstream source; when
+   * called with `source`, that source becomes the upstream clock.
+   *
+   * @param n - Positive integer tick divisor.
+   * @returns This tick source, for chaining.
+   * @throws When `n` is not a positive integer, or when `source` would create
+   *   a cyclic tick-source graph.
+   *
+   * @example
+   * ```ts
+   * const minute = world.timer("minute").rate(60, second);
+   * ```
+   */
   public rate(n: number): this;
   public rate(n: number, source: TickSourceInput): this;
   public rate(n: number, source?: TickSourceInput): this {
@@ -49,6 +89,23 @@ export class TickSource {
     return this;
   }
 
+  /**
+   * Mirror another timer or system tick source.
+   *
+   * Calling `tickSource` clears any fixed interval or rate; the last cadence
+   * setter wins. Use `rate(n, source)` when this source should divide another
+   * source rather than mirror it directly.
+   *
+   * @param source - Timer or system-like source to mirror.
+   * @returns This tick source, for chaining.
+   * @throws When `source` would create a cyclic tick-source graph.
+   *
+   * @example
+   * ```ts
+   * const shared = world.timer("network").interval(0.25);
+   * world.timer("snapshot").tickSource(shared);
+   * ```
+   */
   public tickSource(source: TickSourceInput): this {
     const tickSource = resolveTickSource(source);
     this._assertNoCycle(tickSource);
@@ -58,11 +115,39 @@ export class TickSource {
     return this;
   }
 
+  /**
+   * Resume this source after {@link stop}.
+   *
+   * Accumulators and counters resume from their frozen values; elapsed wall
+   * time while stopped does not create a catch-up burst.
+   *
+   * @returns This tick source, for chaining.
+   *
+   * @example
+   * ```ts
+   * timer.stop();
+   * timer.start();
+   * ```
+   */
   public start(): this {
     this._running = true;
     return this;
   }
 
+  /**
+   * Pause this source's clock.
+   *
+   * While stopped, the accumulator and rate counter are frozen. Resuming with
+   * {@link start} continues from the frozen state without catch-up ticks.
+   *
+   * @returns This tick source, for chaining.
+   *
+   * @example
+   * ```ts
+   * const timer = world.timer().interval(1);
+   * timer.stop();
+   * ```
+   */
   public stop(): this {
     this._running = false;
     return this;
@@ -133,10 +218,25 @@ export class TickSource {
   }
 }
 
-/** A named world-owned tick source. */
+/**
+ * A named world-owned tick source.
+ *
+ * Timers have no phase and no entity query. They live for the world's lifetime
+ * and can drive systems or other timers through {@link tickSource} and
+ * {@link rate}.
+ */
 export class Timer extends TickSource {
   public readonly name: string;
 
+  /**
+   * Create a timer and register it with a world.
+   *
+   * Prefer {@link World.timer} in user code so unnamed timers receive a useful
+   * generated name.
+   *
+   * @param name - Display name for debugging.
+   * @param world - World that owns and evaluates this timer.
+   */
   public constructor(name: string, world: World) {
     super();
     this.name = name;
