@@ -191,4 +191,23 @@ describe("Hook", () => {
     const result = w.hook(Health).onAdd(a).onRemove(b).onSet(c);
     expect(result).toBe(w.hook(Health));
   });
+
+  it("repeated hook registrations stack in registration order", () => {
+    const w = new World();
+    w.registerComponent(Health);
+    const calls: string[] = [];
+    w.hook(Health)
+      .onAdd(() => calls.push("add 1"))
+      .onAdd(() => calls.push("add 2"))
+      .onSet(() => calls.push("set 1"))
+      .onSet(() => calls.push("set 2"))
+      .onRemove(() => calls.push("remove 1"))
+      .onRemove(() => calls.push("remove 2"));
+
+    const e = w.entity();
+    e.set(Health, {});
+    e.remove(Health);
+
+    expect(calls).toEqual(["add 2", "add 1", "set 2", "set 1", "remove 2", "remove 1"]);
+  });
 });
