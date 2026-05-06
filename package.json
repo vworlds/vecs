@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs",
-  "version": "1.0.5",
+  "version": "1.0.10",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -37,7 +37,10 @@
     "url": "https://github.com/vworlds/vecs"
   },
   "lint-staged": {
-    "*.ts": ["prettier --write", "eslint --fix"],
+    "*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ],
     "*.md": "prettier --write"
   }
 }

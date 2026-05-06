@@ -1,11 +1,17 @@
 {
   "name": "vecs",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "remoteUser": "node",
   "postCreateCommand": "yarn install",
   "customizations": {
     "vscode": {
-      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "anthropic.claude-code"],
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "anthropic.claude-code"
+      ],
       "settings": {
         "claudeCode.allowDangerouslySkipPermissions": true
       }
@@ -13,6 +19,7 @@
   },
   "mounts": [
     // Claude Code auth — mounts ~/.claude from the host so login carries over seamlessly
-    "source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind,consistency=cached"
+    "source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude.json,target=/home/node/.claude.json,type=bind,consistency=cached"
   ]
 }
