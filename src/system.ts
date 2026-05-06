@@ -4,6 +4,12 @@ import { type QueryDSL, type MaybeRequired } from "./dsl.js";
 import type { Entity } from "./entity.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world.js";
+import {
+  ALWAYS_TICK_SOURCE,
+  IntervalTickSource,
+  type ITickSource,
+  RateTickSource,
+} from "./timer.js";
 
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
@@ -64,7 +70,7 @@ type _SystemInboxEvent =
  *
  * @typeParam R - Component classes guaranteed present on every matched entity.
  */
-export class System<R extends (typeof Component)[] = []> extends Query<R> {
+export class System<R extends (typeof Component)[] = []> extends Query<R> implements ITickSource {
   /** @internal Single inbox replayed in arrival order on every `_run`. */
   private readonly _inbox: _SystemInboxEvent[] = [];
   /** @internal Callback registered via {@link run}, fired every tick. */
@@ -74,6 +80,11 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
 
   /** @internal Phase reference / name; resolved by `World.start`. */
   public _phase: string | Phase | undefined;
+
+  /** @internal Whether this system processes events and runs callbacks. */
+  private _enabled = true;
+  /** @internal Cadence source for this system. Defaults to every frame. */
+  private _tickSource: ITickSource = ALWAYS_TICK_SOURCE;
 
   constructor(name: string, world: World) {
     super(name, world, false);
@@ -88,6 +99,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _enter(e: Entity): void {
     this._entities?.add(e);
     e._addQueryMembership(this);
+    if (!this._enabled) {
+      return;
+    }
     if (this._enterCallback !== undefined) {
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
@@ -107,6 +121,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override _exit(e: Entity): void {
     this._entities?.delete(e);
     e._removeQueryMembership(this);
+    if (!this._enabled) {
+      return;
+    }
     if (this._exitCallback !== undefined) {
       let snapshot: Map<number, Component> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
@@ -127,7 +144,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * component matches the watchlist.
    */
   public override _notifyModified(c: Component): void {
-    if (!this._watchlistBitmask.hasBit(c.bitPtr)) {
+    if (!this._enabled || !this._watchlistBitmask.hasBit(c.bitPtr)) {
       return;
     }
     this._inbox.push({ kind: InboxCommand.Update, component: c });
@@ -141,6 +158,13 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * callbacks land in the world queue and are processed when `_run` returns.
    */
   public _run(now: number, delta: number): void {
+    if (!this._enabled) {
+      return;
+    }
+    if (!this._tickSource.didTick) {
+      return;
+    }
+    const tickDelta = this._tickSource.lastFireDelta;
     this.world.defer(() => {
       for (let i = 0; i < this._inbox.length; i++) {
         const event = this._inbox[i];
@@ -162,7 +186,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
       this._inbox.length = 0;
 
       if (this._runCallback) {
-        this._runCallback(now, delta);
+        this._runCallback(now, tickDelta);
       }
 
       if (this._eachCallback) {
@@ -170,6 +194,107 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
         this.forEach((e) => cb(e));
       }
     });
+  }
+
+  /** True when this system's cadence source fired during the current frame. */
+  public get didTick(): boolean {
+    return this._tickSource.didTick;
+  }
+
+  /** Milliseconds accumulated into this system's most recent fire. */
+  public get lastFireDelta(): number {
+    return this._tickSource.lastFireDelta;
+  }
+
+  /** @internal Evaluate this system's cadence source for a frame. */
+  public _evalTick(delta: number, frameId: number): boolean {
+    return this._tickSource._evalTick(delta, frameId);
+  }
+
+  /** @internal Register this system source and its current cadence source. */
+  public _register(world: World): void {
+    world._registerTickSource(this);
+    this._tickSource._register(world);
+  }
+
+  /**
+   * Run this system at a fixed interval, expressed in seconds.
+   *
+   * This is seconds, unlike `World.beginFrame`, `World.progress`, and
+   * `runPhase`, which receive millisecond deltas. Calling `interval` replaces
+   * the current cadence source with an {@link IntervalTickSource}. When this
+   * system has a cadence source, the `delta` passed to {@link run} is the
+   * accumulated milliseconds since the previous fire, not the per-frame delta.
+   *
+   * @param seconds - Positive interval duration in seconds.
+   * @returns This system, for chaining.
+   * @throws When `seconds` is less than or equal to zero.
+   *
+   * @example
+   * ```ts
+   * world.system("AI")
+   *   .interval(0.5)
+   *   .run((now, delta) => tickAI(delta));
+   * ```
+   */
+  public interval(seconds: number): this {
+    this._setTickSource(new IntervalTickSource(seconds));
+    return this;
+  }
+
+  /**
+   * Run this system every `n` ticks from the world or an upstream source.
+   *
+   * Without a `source`, this composes with the current cadence source. For an
+   * unconfigured system, that means every `n` frames. With a `source`, it
+   * replaces the current cadence with a {@link RateTickSource} over that source.
+   * The `delta` passed to {@link run} is the accumulated milliseconds since
+   * this system last fired.
+   *
+   * @param n - Positive integer tick divisor.
+   * @param source - Optional upstream source to divide.
+   * @returns This system, for chaining.
+   * @throws When `n` is not a positive integer.
+   *
+   * @example
+   * ```ts
+   * world.system("SendSnapshots")
+   *   .rate(2)
+   *   .run(flushNetwork);
+   * ```
+   */
+  public rate(n: number): this;
+  public rate(n: number, source: ITickSource): this;
+  public rate(n: number, source?: ITickSource): this {
+    this._setTickSource(new RateTickSource(n, source ?? this._tickSource));
+    return this;
+  }
+
+  /**
+   * Run this system only when another timer or system ticks.
+   *
+   * Calling `tickSource` mirrors `source` directly; no wrapper source is
+   * created. Use `.tickSource(source).rate(n)` or `.rate(n, source)` when this
+   * system should divide an upstream source. The `delta` passed to {@link run}
+   * is the accumulated milliseconds since this system last fired.
+   *
+   * @param source - Tick source or system source to mirror.
+   * @returns This system, for chaining.
+   *
+   * @example
+   * ```ts
+   * const second = new IntervalTickSource(1);
+   * world.system("Logger").tickSource(second).run(logStats);
+   * ```
+   */
+  public tickSource(source: ITickSource): this {
+    this._setTickSource(source);
+    return this;
+  }
+
+  private _setTickSource(source: ITickSource): void {
+    this._tickSource = source;
+    source._register(this.world);
   }
 
   /**
@@ -205,7 +330,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
    * network flushing, global timers, etc.
    *
    * @param callback - Receives `now` (absolute timestamp in ms) and `delta`
-   *   (ms since the previous tick).
+   *   (ms since the previous tick). If the system has an active interval,
+   *   rate, or tick source, `delta` is the accumulated milliseconds since this
+   *   system last fired.
    * @returns This system, for chaining.
    */
   public run(callback: RunCallback): this {
@@ -298,6 +425,57 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> {
   public override requires<T extends (typeof Component)[]>(...components: [...T]): System<T> {
     super.requires(...components);
     return this as unknown as System<T>;
+  }
+
+  /**
+   * Disable this system.
+   *
+   * While disabled the system is effectively invisible: the inbox is cleared
+   * immediately, any new `enter`, `exit`, or `update` events are silently
+   * dropped, and {@link _run} returns without executing any callbacks. Entity
+   * membership in the underlying query is still maintained so the tracked set
+   * remains consistent and the system resumes correctly when
+   * {@link enable} is called.
+   *
+   * Disabling is independent from tick-source cadence: `disable` suppresses
+   * callbacks, but a disabled system used as a tick source still drives
+   * downstream consumers. Use `stop()` on an external `IntervalTickSource` or
+   * `RateTickSource` reference to halt that clock itself.
+   *
+   * Calling `disable` on an already-disabled system is a no-op.
+   *
+   * @returns This system, for chaining.
+   *
+   * @example
+   * ```ts
+   * const sys = world.system("AI").requires(Enemy).run(runAI);
+   * // Pause AI processing during a cutscene:
+   * sys.disable();
+   * // Resume:
+   * sys.enable();
+   * ```
+   */
+  public disable(): this {
+    this._enabled = false;
+    this._inbox.length = 0;
+    return this;
+  }
+
+  /**
+   * Enable this system after a previous {@link disable} call.
+   *
+   * Once re-enabled the system resumes its normal tick behaviour: enter, exit,
+   * and update events are queued, and {@link _run} processes the inbox and fires
+   * all registered callbacks. Events that occurred while the system was disabled
+   * are not replayed.
+   *
+   * Calling `enable` on an already-enabled system is a no-op.
+   *
+   * @returns This system, for chaining.
+   */
+  public enable(): this {
+    this._enabled = true;
+    return this;
   }
 
   /**

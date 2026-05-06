@@ -1,2 +1,3 @@
 npx tsc --noEmit
 npx lint-staged
+yarn format:check

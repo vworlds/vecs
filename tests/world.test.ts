@@ -177,4 +177,37 @@ describe("World — phases", () => {
 
     expect(order).toEqual(["pre", "update", "post"]);
   });
+
+  it("runPhase outside a frame throws", () => {
+    const w = new World();
+    const phase = w.addPhase("update");
+    w.start();
+
+    expect(() => w.runPhase(phase, 0, 0)).toThrow();
+  });
+
+  it("beginFrame without prior endFrame throws", () => {
+    const w = new World();
+
+    w.beginFrame(0);
+    expect(() => w.beginFrame(0)).toThrow();
+    w.endFrame();
+  });
+
+  it("endFrame without prior beginFrame throws", () => {
+    const w = new World();
+
+    expect(() => w.endFrame()).toThrow();
+  });
+
+  it("progress closes the frame when a phase throws", () => {
+    const w = new World();
+    w.system("boom").run(() => {
+      throw new Error("boom");
+    });
+    w.start();
+
+    expect(() => w.progress(0, 0)).toThrow("boom");
+    expect((w as any)._frameInProgress).toBe(false);
+  });
 });
