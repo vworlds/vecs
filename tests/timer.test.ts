@@ -53,6 +53,18 @@ describe("Timers and tick sources", () => {
     expect(cb).toHaveBeenCalledWith(1000, 1000);
   });
 
+  it("unnamed timers receive unique generated names", () => {
+    const { world } = setup();
+    const first = world.timer();
+    const second = world.timer();
+    const named = world.timer("custom");
+
+    expect(first.name).toBe("Timer#0");
+    expect(second.name).toBe("Timer#1");
+    expect(named.name).toBe("custom");
+    expect(named.toString()).toBe("custom");
+  });
+
   it("timer.rate can derive from another timer", () => {
     const { world, phase } = setup();
     const second = world.timer("second").interval(1);

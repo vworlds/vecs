@@ -93,6 +93,8 @@ export class World {
   public _frameCounter = 0;
   /** @internal True while progress() is driving all phases for one frame. */
   private _frameInProgress = false;
+  /** @internal Counter used to name timers created without an explicit name. */
+  private _timerCounter = 0;
 
   constructor() {}
 
@@ -574,8 +576,8 @@ export class World {
    * @param name - Optional display name for debugging.
    * @returns The new timer.
    */
-  public timer(name = "Timer"): Timer {
-    return new Timer(name, this);
+  public timer(name?: string): Timer {
+    return new Timer(name ?? `Timer#${this._timerCounter++}`, this);
   }
 
   /**

@@ -242,4 +242,9 @@ export class Timer extends TickSource {
     this.name = name;
     world._registerTickSource(this);
   }
+
+  /** Return the timer display name. */
+  public override toString(): string {
+    return this.name;
+  }
 }
