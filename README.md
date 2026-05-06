@@ -324,25 +324,25 @@ entity.set(Position, { x: 100 });
 
 Created via `world.entity()` (auto-assigned id) or `world.getOrCreateEntity(id, ...)` (caller-supplied id).
 
-| Property / Method      | Description                                                                            |
-| ---------------------- | -------------------------------------------------------------------------------------- |
-| `eid`                  | Unique numeric entity id.                                                              |
-| `world`                | The `World` that owns this entity.                                                     |
-| `componentBitmask`     | `Bitset` of component type ids attached to this entity. Used by archetype matching.    |
-| `properties`           | `Map<string, any>` free-form bag for module-level bookkeeping.                         |
-| `add(Class)`           | Attach a component (idempotent). Returns the entity for chaining.                      |
-| `set(Class, props)`    | Attach a component and assign `props`; fires `onSet`. Returns the entity for chaining. |
-| `modified(component)`  | Queue an `onSet` / `update` notification. Returns the entity for chaining.             |
-| `get(Class)`           | Return the component instance, or `undefined`.                                         |
-| `remove(Class)`        | Detach a component (fires `onRemove` and `exit`).                                      |
-| `destroy()`            | Remove all components, unregister from the world, recurse into children.               |
-| `components`           | `ReadonlyArrayMap<Component>` — read-only view of attached components keyed by type id. Supports `forEach`, `get`, `has`, and `size`. |
-| `empty`                | `true` when no components are attached.                                                |
-| `parent`               | Parent entity, or `undefined` for a root entity.                                       |
-| `children`             | `ReadonlySet<Entity>` of direct children (lazy).                                       |
-| `setParent(p)`         | Reparent the entity. `undefined` makes it a root entity. Throws on cycles.             |
-| `events`               | Typed event emitter. Currently emits `"destroy"` just before teardown.                 |
-| `toString()`           | Returns `"EntityN"`.                                                                   |
+| Property / Method     | Description                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `eid`                 | Unique numeric entity id.                                                                                                             |
+| `world`               | The `World` that owns this entity.                                                                                                    |
+| `componentBitmask`    | `Bitset` of component type ids attached to this entity. Used by archetype matching.                                                   |
+| `properties`          | `Map<string, any>` free-form bag for module-level bookkeeping.                                                                        |
+| `add(Class)`          | Attach a component (idempotent). Returns the entity for chaining.                                                                     |
+| `set(Class, props)`   | Attach a component and assign `props`; fires `onSet`. Returns the entity for chaining.                                                |
+| `modified(component)` | Queue an `onSet` / `update` notification. Returns the entity for chaining.                                                            |
+| `get(Class)`          | Return the component instance, or `undefined`.                                                                                        |
+| `remove(Class)`       | Detach a component (fires `onRemove` and `exit`).                                                                                     |
+| `destroy()`           | Remove all components, unregister from the world, recurse into children.                                                              |
+| `components`          | `ReadonlyArrayMap<Component>` — read-only view of attached components keyed by type id. Supports `forEach`, `get`, `has`, and `size`. |
+| `empty`               | `true` when no components are attached.                                                                                               |
+| `parent`              | Parent entity, or `undefined` for a root entity.                                                                                      |
+| `children`            | `ReadonlySet<Entity>` of direct children (lazy).                                                                                      |
+| `setParent(p)`        | Reparent the entity. `undefined` makes it a root entity. Throws on cycles.                                                            |
+| `events`              | Typed event emitter. Currently emits `"destroy"` just before teardown.                                                                |
+| `toString()`          | Returns `"EntityN"`.                                                                                                                  |
 
 `entity.modified(c)` is equivalent to `c.modified()` but returns the entity so it can chain:
 
