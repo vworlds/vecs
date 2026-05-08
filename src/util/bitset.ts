@@ -28,8 +28,8 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public add(n: number): void {
-    const arrayIndex = Math.floor(n / 32);
-    const bitmask = 1 << (n % 32);
+    const arrayIndex = n >>> 5;
+    const bitmask = 1 << (n & 31);
     this._addIndexBitmask(arrayIndex, bitmask);
   }
 
@@ -50,12 +50,12 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public delete(n: number): void {
-    const arrayIndex = Math.floor(n / 32);
+    const arrayIndex = n >>> 5;
     const current = this._bits[arrayIndex];
     if (current === undefined) {
       return;
     } else {
-      this._bits[arrayIndex] = current & ~(1 << (n % 32));
+      this._bits[arrayIndex] = current & ~(1 << (n & 31));
     }
     while (this._bits.length && this._bits[this._bits.length - 1] === 0) {
       this._bits.pop();
@@ -68,12 +68,11 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public has(n: number): boolean {
-    const arrayIndex = Math.floor(n / 32);
+    const arrayIndex = n >>> 5;
     if (arrayIndex >= this._bits.length) {
       return false;
     }
-    const bitIndex = n % 32;
-    const bitmask = 1 << bitIndex;
+    const bitmask = 1 << (n & 31);
     return this._hasIndexBitmask(arrayIndex, bitmask);
   }
 
@@ -107,11 +106,15 @@ export class Bitset {
    * @param other - Bitset whose set bits must all appear in this bitset.
    */
   public hasBitset(other: Bitset): boolean {
-    if (this._bits.length < other._bits.length) {
+    const thisBits = this._bits;
+    const otherBits = other._bits;
+    const otherLen = otherBits.length;
+    if (thisBits.length < otherLen) {
       return false;
     }
-    for (let i = 0; i < other._bits.length; i++) {
-      if ((this._bits[i] & other._bits[i]) !== (other._bits[i] || 0)) {
+    for (let i = 0; i < otherLen; i++) {
+      const otherWord = otherBits[i];
+      if ((thisBits[i] & otherWord) !== otherWord) {
         return false;
       }
     }
@@ -124,14 +127,19 @@ export class Bitset {
    * @param callback - Invoked once per set bit.
    */
   public forEach(callback: (n: number) => void): void {
-    this._bits.forEach((b, j) => {
+    const bits = this._bits;
+    for (let j = 0, len = bits.length; j < len; j++) {
+      let b = bits[j];
+      if (b === 0) {
+        continue;
+      }
+
       for (let i = 0; i < 32; i++) {
-        if ((b & 1) !== 0) {
+        if ((b & (1 << i)) !== 0) {
           callback(i + j * 32);
         }
-        b >>= 1;
       }
-    });
+    }
   }
 
   /**
