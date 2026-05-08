@@ -20,7 +20,16 @@
  */
 export class Bitset {
   /** @internal Underlying word storage; exposed for tests. */
-  public _bits: number[] = [];
+  public _bits: Uint32Array = new Uint32Array(0);
+
+  private _ensureCapacity(arrayIndex: number): void {
+    if (arrayIndex < this._bits.length) {
+      return;
+    }
+    const bits = new Uint32Array(arrayIndex + 1);
+    bits.set(this._bits);
+    this._bits = bits;
+  }
 
   /**
    * Set bit `n`.
@@ -30,7 +39,8 @@ export class Bitset {
   public add(n: number): void {
     const arrayIndex = n >>> 5;
     const bitmask = 1 << (n & 31);
-    this._addIndexBitmask(arrayIndex, bitmask);
+    this._ensureCapacity(arrayIndex);
+    this._bits[arrayIndex] |= bitmask;
   }
 
   /**
@@ -40,7 +50,8 @@ export class Bitset {
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public addBit(bptr: BitPtr): void {
-    this._addIndexBitmask(bptr.arrayIndex, bptr.bitmask);
+    this._ensureCapacity(bptr.arrayIndex);
+    this._bits[bptr.arrayIndex] |= bptr.bitmask;
   }
 
   /**
@@ -74,8 +85,12 @@ export class Bitset {
    * Trim trailing zero words to recover memory.
    */
   public compact(): void {
-    while (this._bits.length > 0 && this._bits[this._bits.length - 1] === 0) {
-      this._bits.pop();
+    let length = this._bits.length;
+    while (length > 0 && this._bits[length - 1] === 0) {
+      length--;
+    }
+    if (length !== this._bits.length) {
+      this._bits = this._bits.slice(0, length);
     }
   }
 
@@ -218,9 +233,7 @@ export class Bitset {
    * for single bits.
    */
   public _addIndexBitmask(arrayIndex: number, bitmask: number): void {
-    while (this._bits.length <= arrayIndex) {
-      this._bits.push(0);
-    }
+    this._ensureCapacity(arrayIndex);
     this._bits[arrayIndex] |= bitmask;
   }
 
@@ -230,9 +243,7 @@ export class Bitset {
    * @internal Used by network deserialization to write a whole word at once.
    */
   public _setIndexBitmask(arrayIndex: number, bitmask: number): void {
-    while (this._bits.length <= arrayIndex) {
-      this._bits.push(0);
-    }
+    this._ensureCapacity(arrayIndex);
     this._bits[arrayIndex] = bitmask;
   }
 
