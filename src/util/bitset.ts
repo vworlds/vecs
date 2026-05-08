@@ -20,15 +20,17 @@
  */
 export class Bitset {
   /** @internal Underlying word storage; exposed for tests. */
-  public _bits: Uint32Array = new Uint32Array(0);
+  public _bits: number[] = [];
 
-  private _ensureCapacity(arrayIndex: number): void {
-    if (arrayIndex < this._bits.length) {
+  private _bytes: Uint8Array = new Uint8Array(0);
+
+  private _ensureByteCapacity(n: number): void {
+    if (n < this._bytes.length) {
       return;
     }
-    const bits = new Uint32Array(arrayIndex + 1);
-    bits.set(this._bits);
-    this._bits = bits;
+    const bytes = new Uint8Array(n + 1);
+    bytes.set(this._bytes);
+    this._bytes = bytes;
   }
 
   /**
@@ -39,8 +41,9 @@ export class Bitset {
   public add(n: number): void {
     const arrayIndex = n >>> 5;
     const bitmask = 1 << (n & 31);
-    this._ensureCapacity(arrayIndex);
-    this._bits[arrayIndex] |= bitmask;
+    this._ensureByteCapacity(n);
+    this._bytes[n] = 1;
+    this._addIndexBitmask(arrayIndex, bitmask);
   }
 
   /**
@@ -50,8 +53,9 @@ export class Bitset {
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public addBit(bptr: BitPtr): void {
-    this._ensureCapacity(bptr.arrayIndex);
-    this._bits[bptr.arrayIndex] |= bptr.bitmask;
+    this._ensureByteCapacity(bptr.value);
+    this._bytes[bptr.value] = 1;
+    this._addIndexBitmask(bptr.arrayIndex, bptr.bitmask);
   }
 
   /**
@@ -64,6 +68,9 @@ export class Bitset {
   public deleteBit(bptr: BitPtr): void {
     if (bptr.arrayIndex >= this._bits.length) {
       return;
+    }
+    if (bptr.value < this._bytes.length) {
+      this._bytes[bptr.value] = 0;
     }
     this._bits[bptr.arrayIndex] &= ~bptr.bitmask;
   }
@@ -78,6 +85,9 @@ export class Bitset {
     if (arrayIndex >= this._bits.length) {
       return;
     }
+    if (n < this._bytes.length) {
+      this._bytes[n] = 0;
+    }
     this._bits[arrayIndex] &= ~(1 << (n & 31));
   }
 
@@ -85,12 +95,15 @@ export class Bitset {
    * Trim trailing zero words to recover memory.
    */
   public compact(): void {
-    let length = this._bits.length;
-    while (length > 0 && this._bits[length - 1] === 0) {
+    while (this._bits.length > 0 && this._bits[this._bits.length - 1] === 0) {
+      this._bits.pop();
+    }
+    let length = this._bytes.length;
+    while (length > 0 && this._bytes[length - 1] === 0) {
       length--;
     }
-    if (length !== this._bits.length) {
-      this._bits = this._bits.slice(0, length);
+    if (length !== this._bytes.length) {
+      this._bytes = this._bytes.slice(0, length);
     }
   }
 
@@ -100,12 +113,7 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public has(n: number): boolean {
-    const arrayIndex = n >>> 5;
-    if (arrayIndex >= this._bits.length) {
-      return false;
-    }
-    const bitmask = 1 << (n & 31);
-    return this._hasIndexBitmask(arrayIndex, bitmask);
+    return this._bytes[n] === 1;
   }
 
   /**
@@ -114,7 +122,7 @@ export class Bitset {
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public hasBit(bptr: BitPtr): boolean {
-    return this._hasIndexBitmask(bptr.arrayIndex, bptr.bitmask);
+    return this._bytes[bptr.value] === 1;
   }
 
   /**
@@ -233,8 +241,18 @@ export class Bitset {
    * for single bits.
    */
   public _addIndexBitmask(arrayIndex: number, bitmask: number): void {
-    this._ensureCapacity(arrayIndex);
+    while (this._bits.length <= arrayIndex) {
+      this._bits.push(0);
+    }
     this._bits[arrayIndex] |= bitmask;
+    let word = bitmask;
+    while (word !== 0) {
+      const lsb = word & -word;
+      const n = (arrayIndex << 5) + (31 - Math.clz32(lsb >>> 0));
+      this._ensureByteCapacity(n);
+      this._bytes[n] = 1;
+      word &= word - 1;
+    }
   }
 
   /**
@@ -243,8 +261,15 @@ export class Bitset {
    * @internal Used by network deserialization to write a whole word at once.
    */
   public _setIndexBitmask(arrayIndex: number, bitmask: number): void {
-    this._ensureCapacity(arrayIndex);
+    while (this._bits.length <= arrayIndex) {
+      this._bits.push(0);
+    }
     this._bits[arrayIndex] = bitmask;
+    for (let i = 0; i < 32; i++) {
+      const n = (arrayIndex << 5) + i;
+      this._ensureByteCapacity(n);
+      this._bytes[n] = (bitmask & (1 << i)) !== 0 ? 1 : 0;
+    }
   }
 
   /**
