@@ -44,20 +44,23 @@ export class Bitset {
   }
 
   /**
-   * Clear bit `n`. Trailing zero words are trimmed so the internal storage
-   * stays compact.
+   * Clear bit `n`.
    *
    * @param n - Non-negative integer bit index.
    */
   public delete(n: number): void {
     const arrayIndex = n >>> 5;
-    const current = this._bits[arrayIndex];
-    if (current === undefined) {
+    if (arrayIndex >= this._bits.length) {
       return;
-    } else {
-      this._bits[arrayIndex] = current & ~(1 << (n & 31));
     }
-    while (this._bits.length && this._bits[this._bits.length - 1] === 0) {
+    this._bits[arrayIndex] &= ~(1 << (n & 31));
+  }
+
+  /**
+   * Trim trailing zero words to recover memory.
+   */
+  public compact(): void {
+    while (this._bits.length > 0 && this._bits[this._bits.length - 1] === 0) {
       this._bits.pop();
     }
   }
@@ -91,9 +94,17 @@ export class Bitset {
    * @param other - Bitset to compare against.
    */
   public equal(other: Bitset): boolean {
-    return (
-      this._bits.length === other._bits.length && this._bits.every((v, i) => other._bits[i] === v)
-    );
+    const thisBits = this._bits;
+    const otherBits = other._bits;
+    if (thisBits.length !== otherBits.length) {
+      return false;
+    }
+    for (let i = 0; i < thisBits.length; i++) {
+      if (thisBits[i] !== otherBits[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -109,12 +120,15 @@ export class Bitset {
     const thisBits = this._bits;
     const otherBits = other._bits;
     const otherLen = otherBits.length;
-    if (thisBits.length < otherLen) {
+    const thisLen = thisBits.length;
+
+    if (thisLen < otherLen) {
       return false;
     }
+
     for (let i = 0; i < otherLen; i++) {
       const otherWord = otherBits[i];
-      if ((thisBits[i] & otherWord) !== otherWord) {
+      if (otherWord !== 0 && (thisBits[i] & otherWord) !== otherWord) {
         return false;
       }
     }
@@ -129,15 +143,11 @@ export class Bitset {
   public forEach(callback: (n: number) => void): void {
     const bits = this._bits;
     for (let j = 0, len = bits.length; j < len; j++) {
-      let b = bits[j];
-      if (b === 0) {
-        continue;
-      }
-
-      for (let i = 0; i < 32; i++) {
-        if ((b & (1 << i)) !== 0) {
-          callback(i + j * 32);
-        }
+      let w = bits[j];
+      while (w !== 0) {
+        const lsb = w & -w;
+        callback((j << 5) + (31 - Math.clz32(lsb >>> 0)));
+        w &= w - 1;
       }
     }
   }
@@ -158,6 +168,9 @@ export class Bitset {
    * for single bits.
    */
   public _addIndexBitmask(arrayIndex: number, bitmask: number): void {
+    while (this._bits.length <= arrayIndex) {
+      this._bits.push(0);
+    }
     this._bits[arrayIndex] |= bitmask;
   }
 
@@ -167,6 +180,9 @@ export class Bitset {
    * @internal Used by network deserialization to write a whole word at once.
    */
   public _setIndexBitmask(arrayIndex: number, bitmask: number): void {
+    while (this._bits.length <= arrayIndex) {
+      this._bits.push(0);
+    }
     this._bits[arrayIndex] = bitmask;
   }
 
