@@ -113,7 +113,7 @@ export class Entity {
       Object.assign(c, props);
     }
     this._components.set(type, c);
-    this.componentBitmask.add(type);
+    this.componentBitmask.addBit(meta.bitPtr);
     if (meta._onAddHandlers) {
       meta._onAddHandlers.forEach((handler) => handler(c));
     }
@@ -226,7 +226,7 @@ export class Entity {
     if (!c) {
       return;
     }
-    this.componentBitmask.delete(type);
+    this.componentBitmask.deleteBit(c.meta.bitPtr);
     this._updateQueries();
     this._components.delete(type);
     const removeHandlers = c.meta._onRemoveHandlers;

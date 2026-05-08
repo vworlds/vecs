@@ -112,6 +112,9 @@ describe("Bitset", () => {
     b.addBit(ptr);
     expect(b.hasBit(ptr)).toBe(true);
     expect(b.has(45)).toBe(true);
+    b.deleteBit(ptr);
+    expect(b.hasBit(ptr)).toBe(false);
+    expect(b.has(45)).toBe(false);
   });
 
   it("BitPtr.equals identifies same bit position", () => {
