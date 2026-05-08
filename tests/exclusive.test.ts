@@ -22,19 +22,17 @@ describe("exclusive components", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running, Idle);
 
-    const walkingType = w.getComponentType(Walking);
-    const runningType = w.getComponentType(Running);
-    const idleType = w.getComponentType(Idle);
-
     const walkingMeta = w.getComponentMeta(Walking);
-    expect(walkingMeta.exclusive).not.toContain(walkingType);
-    expect(walkingMeta.exclusive).toContain(runningType);
-    expect(walkingMeta.exclusive).toContain(idleType);
-
     const runningMeta = w.getComponentMeta(Running);
-    expect(runningMeta.exclusive).toContain(walkingType);
-    expect(runningMeta.exclusive).not.toContain(runningType);
-    expect(runningMeta.exclusive).toContain(idleType);
+    const idleMeta = w.getComponentMeta(Idle);
+
+    expect(walkingMeta._exclusive).not.toContain(walkingMeta);
+    expect(walkingMeta._exclusive).toContain(runningMeta);
+    expect(walkingMeta._exclusive).toContain(idleMeta);
+
+    expect(runningMeta._exclusive).toContain(walkingMeta);
+    expect(runningMeta._exclusive).not.toContain(runningMeta);
+    expect(runningMeta._exclusive).toContain(idleMeta);
   });
 
   it("adding the first component in an exclusive group attaches it normally", () => {

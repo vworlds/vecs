@@ -1,4 +1,9 @@
-import { type Component, type ComponentClass, type ComponentClassOrType } from "./component.js";
+import {
+  type Component,
+  type ComponentClass,
+  type ComponentClassOrType,
+  type ComponentMeta,
+} from "./component.js";
 import type { World } from "./world.js";
 import { CommandKind } from "./command.js";
 import { ArrayMap, ReadonlyArrayMap } from "./util/array_map.js";
@@ -101,12 +106,11 @@ export class Entity {
    * If the component type belongs to an exclusivity group, any conflicting
    * component already on this entity is removed first.
    */
-  private _new(type: number, props: Partial<Component> | undefined): Component {
-    const meta = this.world.getComponentMeta(type);
-    if (meta.exclusive) {
-      for (const exclusiveType of meta.exclusive) {
-        if (this._components.has(exclusiveType)) {
-          this._remove(exclusiveType);
+  private _new(meta: ComponentMeta, props: Partial<Component> | undefined): Component {
+    if (meta._exclusive) {
+      for (const exclusiveMeta of meta._exclusive) {
+        if (this._components.has(exclusiveMeta.type)) {
+          this._remove(exclusiveMeta);
         }
       }
     }
@@ -114,8 +118,8 @@ export class Entity {
     if (props !== undefined) {
       Object.assign(c, props);
     }
-    this._components.set(type, c);
-    this.componentBitmask.add(type);
+    this._components.set(meta.type, c);
+    this.componentBitmask.add(meta.type);
     if (meta._onAddHandlers) {
       meta._onAddHandlers.forEach((handler) => handler(this, c));
     }
@@ -175,22 +179,21 @@ export class Entity {
    * `props` if provided, fire `onSet`, and route modified events to every
    * query that watches the component type.
    */
-  public _set(type: number, props: Partial<Component> | undefined): void {
+  public _set(meta: ComponentMeta, props: Partial<Component> | undefined): void {
     if (this._destroyed) {
       return;
     }
-    const existing = this._components.get(type);
-    const c = existing ?? this._new(type, props);
+    const existing = this._components.get(meta.type);
+    const c = existing ?? this._new(meta, props);
     if (props !== undefined) {
       if (existing) {
         Object.assign(c, props);
       }
-      const meta = this.world.getComponentMeta(type);
       const setHandlers = meta._onSetHandlers;
       if (setHandlers) {
         setHandlers.forEach((handler) => handler(this, c));
       }
-      this._dirtyComponentBitmask.delete(type);
+      this._dirtyComponentBitmask.delete(meta.type);
       if (existing) {
         this._queries.forEach((q) => q._notifyModified(this, meta, c));
       }
@@ -201,20 +204,19 @@ export class Entity {
    * @internal Apply a `Modified` command: fire `onSet` and route modified
    * events to every query that watches the component type.
    */
-  public _modified(type: number): void {
+  public _modified(meta: ComponentMeta): void {
     if (this._destroyed) {
       return;
     }
-    const c = this._components.get(type);
+    const c = this._components.get(meta.type);
     if (!c) {
       return;
     }
-    const meta = this.world.getComponentMeta(type);
     const setHandlers = meta._onSetHandlers;
     if (setHandlers) {
       setHandlers.forEach((handler) => handler(this, c));
     }
-    this._dirtyComponentBitmask.delete(type);
+    this._dirtyComponentBitmask.delete(meta.type);
     this._queries.forEach((q) => q._notifyModified(this, meta, c));
   }
 
@@ -222,19 +224,18 @@ export class Entity {
    * @internal Apply a `Remove` command: clear the type bit, route exits,
    * detach the component, and fire `onRemove`.
    */
-  public _remove(type: number): void {
+  public _remove(meta: ComponentMeta): void {
     if (this._destroyed) {
       return;
     }
-    const c = this._components.get(type);
+    const c = this._components.get(meta.type);
     if (!c) {
       return;
     }
-    const meta = this.world.getComponentMeta(type);
-    this._dirtyComponentBitmask.delete(type);
-    this.componentBitmask.delete(type);
+    this._dirtyComponentBitmask.delete(meta.type);
+    this.componentBitmask.delete(meta.type);
     this._updateQueries();
-    this._components.delete(type);
+    this._components.delete(meta.type);
     const removeHandlers = meta._onRemoveHandlers;
     if (removeHandlers) {
       removeHandlers.forEach((handler) => handler(this, c));
@@ -383,9 +384,9 @@ export class Entity {
     }
     this._dirtyComponentBitmask.add(meta.type);
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Modified, entity: this, type: meta.type });
+      this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
     } else {
-      this._modified(meta.type);
+      this._modified(meta);
     }
     return this;
   }
@@ -410,11 +411,11 @@ export class Entity {
   public add(type: number): Entity;
 
   public add(typeOrClass: ComponentClassOrType): Entity {
-    const type = this.world.getComponentType(typeOrClass);
+    const meta = this.world.getComponentMeta(typeOrClass);
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Set, entity: this, type, props: undefined });
+      this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props: undefined });
     } else {
-      this._set(type, undefined);
+      this._set(meta, undefined);
     }
     return this;
   }
@@ -443,11 +444,11 @@ export class Entity {
   public set(type: number, props: Partial<Component>): Entity;
 
   public set(typeOrClass: ComponentClassOrType, props: Partial<Component>): Entity {
-    const type = this.world.getComponentType(typeOrClass);
+    const meta = this.world.getComponentMeta(typeOrClass);
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Set, entity: this, type, props });
+      this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props });
     } else {
-      this._set(type, props);
+      this._set(meta, props);
     }
     return this;
   }
@@ -471,11 +472,11 @@ export class Entity {
   public remove(type: number): void;
 
   public remove(typeOrClass: ComponentClassOrType): void {
-    const type = this.world.getComponentType(typeOrClass);
+    const meta = this.world.getComponentMeta(typeOrClass);
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Remove, entity: this, type });
+      this.world._enqueue({ kind: CommandKind.Remove, entity: this, meta });
     } else {
-      this._remove(type);
+      this._remove(meta);
     }
   }
 

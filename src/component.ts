@@ -86,11 +86,11 @@ export class ComponentMeta implements Hook<Component> {
   public readonly bitPtr: BitPtr;
 
   /**
-   * Type ids of components that cannot coexist with this one on the same
-   * entity. Set via {@link World.setExclusiveComponents}; `undefined` means
-   * no restriction.
+   * @internal Peer metas of components that cannot coexist with this one on
+   * the same entity. Set via {@link World.setExclusiveComponents}; `undefined`
+   * means no restriction.
    */
-  public exclusive: number[] | undefined = undefined;
+  public _exclusive: ComponentMeta[] | undefined = undefined;
 
   /** @internal `onAdd` handlers, lazily allocated and prepended by {@link onAdd}. */
   public _onAddHandlers: ((entity: Entity, c: Component) => void)[] | undefined;

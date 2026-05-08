@@ -136,13 +136,13 @@ export class World {
         this._entities.set(cmd.entity.eid, cmd.entity);
         return;
       case CommandKind.Set:
-        cmd.entity._set(cmd.type, cmd.props);
+        cmd.entity._set(cmd.meta, cmd.props);
         return;
       case CommandKind.Modified:
-        cmd.entity._modified(cmd.type);
+        cmd.entity._modified(cmd.meta);
         return;
       case CommandKind.Remove:
-        cmd.entity._remove(cmd.type);
+        cmd.entity._remove(cmd.meta);
         return;
       case CommandKind.Destroy:
         cmd.entity._destroy();
@@ -454,9 +454,9 @@ export class World {
    * @throws When any class has not been registered.
    */
   public setExclusiveComponents(...components: ComponentClass[]): void {
-    const types = components.map((C) => this.getComponentType(C));
-    for (let i = 0; i < components.length; i++) {
-      this.getComponentMeta(components[i]).exclusive = types.filter((_, j) => j !== i);
+    const metas = components.map((C) => this.getComponentMeta(C));
+    for (let i = 0; i < metas.length; i++) {
+      metas[i]._exclusive = metas.filter((_, j) => j !== i);
     }
   }
 
