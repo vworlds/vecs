@@ -5,6 +5,7 @@ const runBench = process.env.RUN_BITSET_BENCH === "1" ? it : it.skip;
 
 const COMPONENTS = 256;
 const OPS = 5_000_000;
+const FOREACH_OPS = 200_000;
 const ROUNDS = 7;
 
 type BenchResult = {
@@ -31,7 +32,7 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
-function bench(name: string, callback: () => number): BenchResult {
+function bench(name: string, operations: number, callback: () => number): BenchResult {
   const durations: number[] = [];
   let checksum = 0;
 
@@ -48,7 +49,7 @@ function bench(name: string, callback: () => number): BenchResult {
   return {
     name,
     medianMs,
-    opsPerSec: Math.round((OPS / medianMs) * 1000),
+    opsPerSec: Math.round((operations / medianMs) * 1000),
     checksum,
   };
 }
@@ -57,7 +58,7 @@ describe("Bitset benchmark", () => {
   runBench("measures ECS hot paths", () => {
     const ptrs = Array.from({ length: COMPONENTS }, (_, i) => new BitPtr(i));
     const results = [
-      bench("has", () => {
+      bench("has", OPS, () => {
         const bitset = makeBitset();
         let found = 0;
         for (let i = 0; i < OPS; i++) {
@@ -67,7 +68,7 @@ describe("Bitset benchmark", () => {
         }
         return found;
       }),
-      bench("hasBit", () => {
+      bench("hasBit", OPS, () => {
         const bitset = makeBitset();
         let found = 0;
         for (let i = 0; i < OPS; i++) {
@@ -77,7 +78,7 @@ describe("Bitset benchmark", () => {
         }
         return found;
       }),
-      bench("add/delete", () => {
+      bench("add/delete", OPS, () => {
         const bitset = makeBitset();
         let found = 0;
         for (let i = 0; i < OPS; i++) {
@@ -90,7 +91,7 @@ describe("Bitset benchmark", () => {
         }
         return found;
       }),
-      bench("addBit/deleteBit", () => {
+      bench("addBit/deleteBit", OPS, () => {
         const bitset = makeBitset();
         let found = 0;
         for (let i = 0; i < OPS; i++) {
@@ -103,7 +104,7 @@ describe("Bitset benchmark", () => {
         }
         return found;
       }),
-      bench("hasBitset", () => {
+      bench("hasBitset", OPS, () => {
         const bitset = makeBitset();
         const required = new Bitset();
         required.add(1);
@@ -118,6 +119,29 @@ describe("Bitset benchmark", () => {
         }
         return found;
       }),
+      bench("forEach dense", FOREACH_OPS, () => {
+        const bitset = makeBitset();
+        let total = 0;
+        for (let i = 0; i < FOREACH_OPS; i++) {
+          bitset.forEach((n) => {
+            total += n;
+          });
+        }
+        return total;
+      }),
+      bench("forEach sparse", FOREACH_OPS, () => {
+        const bitset = new Bitset();
+        for (let i = 0; i < COMPONENTS; i += 32) {
+          bitset.add(i);
+        }
+        let total = 0;
+        for (let i = 0; i < FOREACH_OPS; i++) {
+          bitset.forEach((n) => {
+            total += n;
+          });
+        }
+        return total;
+      }),
     ];
 
     console.info("\nBitset benchmark results");
@@ -127,6 +151,6 @@ describe("Bitset benchmark", () => {
       );
     }
 
-    expect(results.every((result) => result.checksum === OPS)).toBe(true);
+    expect(results.every((result) => result.checksum !== 0)).toBe(true);
   });
 });
