@@ -17,7 +17,7 @@ export const enum CommandKind {
 
 /**
  * One queued mutation produced by an {@link Entity} method (`add`, `set`,
- * `remove`, `destroy`, `setParent`) or by `Component.modified`, and routed by
+ * `remove`, `destroy`, `setParent`) or by `Entity.modified`, and routed by
  * {@link World} during command-queue processing.
  *
  * In deferred mode the command is appended to `World`'s queue and applied at a

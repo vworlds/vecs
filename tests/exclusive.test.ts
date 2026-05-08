@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { World, Component } from "../src/index.js";
+import { World } from "../src/index.js";
 
-class Walking extends Component {}
-class Running extends Component {}
-class Idle extends Component {}
-class Jumping extends Component {}
-class Health extends Component {}
+class Walking {}
+class Running {}
+class Idle {}
+class Jumping {}
+class Health {}
 
 function makeWorld() {
   const w = new World();
@@ -110,7 +110,7 @@ describe("exclusive components", () => {
 
   it("unregistered component throws from setExclusiveComponents", () => {
     const w = new World();
-    class Unknown extends Component {}
+    class Unknown {}
     expect(() => w.setExclusiveComponents(Unknown)).toThrow();
   });
 });

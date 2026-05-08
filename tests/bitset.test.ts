@@ -61,6 +61,15 @@ describe("Bitset", () => {
     expect(b.has(50)).toBe(false);
   });
 
+  it("clear removes all bits", () => {
+    const b = new Bitset();
+    b.add(1);
+    b.add(64);
+    b.clear();
+    expect(b.indices()).toEqual([]);
+    expect(b._bits.length).toBe(0);
+  });
+
   it("equal compares bit-by-bit", () => {
     const a = new Bitset();
     const b = new Bitset();

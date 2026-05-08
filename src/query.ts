@@ -1,7 +1,7 @@
 import { OrderedSet } from "./util/ordered_set.js";
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
-import { Component } from "./component.js";
+import { type Component, type ComponentClass, type ComponentMeta } from "./component.js";
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
 import {
@@ -15,18 +15,18 @@ import {
 export type { EntityTestFunc, QueryDSL, MaybeRequired };
 
 type EntityCallback = (e: Entity, snapshot?: Map<number, Component>) => void;
-type ComponentCallback = (c: Component) => void;
+type ComponentCallback = (e: Entity, c: Component) => void;
 
 /** Component class, or `{ parent: ComponentClass }` to resolve from the entity's parent. */
-type ComponentOrParent = typeof Component | { parent: typeof Component };
+type ComponentOrParent = ComponentClass | { parent: ComponentClass };
 
 /** Numeric type id, or `{ parent: typeId }` to resolve from the entity's parent. */
 type ComponentOrParentType = number | { parent: number };
 
 /** Resolves the component instance type for one element of a `ComponentOrParent` tuple. */
-type ComponentInstance<T> = T extends { parent: typeof Component }
+type ComponentInstance<T> = T extends { parent: ComponentClass }
   ? InstanceType<T["parent"]>
-  : T extends typeof Component
+  : T extends ComponentClass
     ? InstanceType<T>
     : never;
 
@@ -54,7 +54,7 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  *   Components in `R` appear as non-nullable in {@link sort}, {@link forEach},
  *   and {@link update} callback tuples.
  */
-export class Query<R extends (typeof Component)[] = []> {
+export class Query<R extends ComponentClass[] = []> {
   /** @internal Tracked entity set. Allocated by {@link track} or {@link sort}. */
   protected _entities: Set<Entity> | undefined;
   /** @internal Predicate compiled from the query DSL; defaults to "match nothing". */
@@ -168,9 +168,10 @@ export class Query<R extends (typeof Component)[] = []> {
     this._entities?.add(e);
     e._addQueryMembership(this);
     this._enterCallback?.(e);
-    e.components.forEach((c) => {
-      if (this._watchlistBitmask.hasBit(c.bitPtr)) {
-        this._notifyModified(c);
+    e.components.forEach((c, type) => {
+      const meta = this.world.getComponentMeta(type);
+      if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
+        this._notifyModified(e, meta, c);
       }
     });
   }
@@ -191,13 +192,13 @@ export class Query<R extends (typeof Component)[] = []> {
    * `update` callback for the component type. `System` overrides this to push
    * an inbox event instead of firing immediately.
    */
-  public _notifyModified(c: Component): void {
-    if (!this._watchlistBitmask.hasBit(c.bitPtr)) {
+  public _notifyModified(e: Entity, meta: ComponentMeta, c: Component): void {
+    if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }
-    const callback = this._componentUpdateCallbacks.get(c.type);
+    const callback = this._componentUpdateCallbacks.get(meta.type);
     if (callback) {
-      callback(c);
+      callback(e, c);
     }
   }
 
@@ -262,12 +263,12 @@ export class Query<R extends (typeof Component)[] = []> {
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<J extends (typeof Component)[]>(
+  public forEach<J extends ComponentClass[]>(
     components: readonly [...J],
     callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void;
 
-  public forEach<J extends (typeof Component)[]>(
+  public forEach<J extends ComponentClass[]>(
     componentsOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void {
@@ -391,18 +392,18 @@ export class Query<R extends (typeof Component)[] = []> {
    * predicate becomes a `HAS` of every watched type).
    *
    * @param ComponentClass - Component class to watch.
-   * @param callback - Receives the modified component instance.
+   * @param callback - Receives the entity and modified component instance.
    * @returns This query, for chaining.
    *
    * @example
    * ```ts
    * world.system("RenderPosition")
-   *   .update(Position, (pos) => sprite.setPosition(pos.x, pos.y));
+   *   .update(Position, (e, pos) => sprite.setPosition(pos.x, pos.y));
    * ```
    */
-  public update<C extends typeof Component>(
+  public update<C extends ComponentClass>(
     ComponentClass: C,
-    callback: (c: InstanceType<C>) => void
+    callback: (e: Entity, c: InstanceType<C>) => void
   ): this;
 
   /**
@@ -411,19 +412,27 @@ export class Query<R extends (typeof Component)[] = []> {
    *
    * @param ComponentClass - Component class to watch.
    * @param inject - Additional component classes to resolve from the entity.
-   * @param callback - Receives the modified component and the injected tuple.
+   * @param callback - Receives the entity, modified component, and injected tuple.
    * @returns This query, for chaining.
    */
-  public update<C extends typeof Component, J extends (typeof Component)[]>(
+  public update<C extends ComponentClass, J extends ComponentClass[]>(
     ComponentClass: C,
     inject: readonly [...J],
-    callback: (c: InstanceType<C>, injected: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
+    callback: (
+      e: Entity,
+      c: InstanceType<C>,
+      injected: { [K in keyof J]: MaybeRequired<J[K], R> }
+    ) => void
   ): this;
 
-  public update<C extends typeof Component, J extends (typeof Component)[]>(
+  public update<C extends ComponentClass, J extends ComponentClass[]>(
     ComponentClass: C,
-    injectOrCallback: readonly [...J] | ((c: InstanceType<C>) => void),
-    callback?: (c: InstanceType<C>, injected: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
+    injectOrCallback: readonly [...J] | ((e: Entity, c: InstanceType<C>) => void),
+    callback?: (
+      e: Entity,
+      c: InstanceType<C>,
+      injected: { [K in keyof J]: MaybeRequired<J[K], R> }
+    ) => void
   ): this {
     const type = this.world.getComponentType(ComponentClass);
     if (typeof injectOrCallback === "function") {
@@ -432,14 +441,14 @@ export class Query<R extends (typeof Component)[] = []> {
     } else {
       const inject = injectOrCallback;
       const injectedComponentTypes = inject.map((C) => this.world.getComponentType(C));
-      const cb = (c: Component) => {
+      const cb = (e: Entity, c: Component) => {
         const injected: any[] = [];
         injectedComponentTypes.forEach((InjectedComponentType) => {
-          injected.push(c.entity.get(InjectedComponentType));
+          injected.push(e.get(InjectedComponentType));
         });
 
         if (callback) {
-          callback(c as InstanceType<C>, injected as any);
+          callback(e, c as InstanceType<C>, injected as any);
         }
       };
 
@@ -462,33 +471,35 @@ export class Query<R extends (typeof Component)[] = []> {
 
   /**
    * Switch the tracked set to a sorted ordering: matched entities are stored
-   * in the position determined by `compare`, which receives a tuple of
-   * resolved component instances for each pair being ordered.
+   * in the position determined by `compare`, which receives each entity and a
+   * tuple of resolved component instances for each pair being ordered.
    *
    * Implies {@link track}.
    *
    * @param components - Component classes to resolve and pass to `compare`.
-   * @param compare - Negative when `a` should sort before `b`, zero for
-   *   equality, positive when `a` should sort after `b`.
+   * @param compare - Negative when `entityA` should sort before `entityB`, zero
+   *   for equality, positive when `entityA` should sort after `entityB`.
    * @returns This query, for chaining.
    *
    * @example
    * ```ts
    * world.system("Render")
    *   .requires(Position, Sprite)
-   *   .sort([Position], ([posA], [posB]) => posA.z - posB.z);
+   *   .sort([Position], (_entityA, [posA], _entityB, [posB]) => posA.z - posB.z);
    * ```
    */
-  public sort<J extends (typeof Component)[]>(
+  public sort<J extends ComponentClass[]>(
     components: readonly [...J],
     compare: (
+      entityA: Entity,
       a: { [K in keyof J]: MaybeRequired<J[K], R> },
+      entityB: Entity,
       b: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => number
   ): this {
     const types = components.map((C) => this.world.getComponentType(C));
     this._entities = new OrderedSet<Entity>((a, b) =>
-      compare(types.map((t) => a.get(t)) as any, types.map((t) => b.get(t)) as any)
+      compare(a, types.map((t) => a.get(t)) as any, b, types.map((t) => b.get(t)) as any)
     );
     this._backfill();
     return this;
@@ -517,7 +528,7 @@ export class Query<R extends (typeof Component)[] = []> {
    *   });
    * ```
    */
-  public query<T extends (typeof Component)[] = []>(
+  public query<T extends ComponentClass[] = []>(
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): Query<T> {
@@ -538,7 +549,7 @@ export class Query<R extends (typeof Component)[] = []> {
    * @param components - Component classes to require.
    * @returns This query, retyped with the required tuple as its `R`.
    */
-  public requires<T extends (typeof Component)[]>(...components: [...T]): Query<T> {
+  public requires<T extends ComponentClass[]>(...components: [...T]): Query<T> {
     this.query(components);
     return this as unknown as Query<T>;
   }

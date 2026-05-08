@@ -1,4 +1,4 @@
-import { Component, ComponentClassOrType, ComponentMeta, Hook } from "./component.js";
+import { type ComponentClass, ComponentClassOrType, ComponentMeta, Hook } from "./component.js";
 import { Entity } from "./entity.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
@@ -34,6 +34,9 @@ const LOCAL_COMPONENT_MIN = 256;
  * ```ts
  * const world = new World();
  *
+ * class Position { x = 0; y = 0; }
+ * class Velocity { vx = 0; vy = 0; }
+ *
  * world.registerComponent(Position);
  * world.registerComponent(Velocity);
  *
@@ -41,6 +44,7 @@ const LOCAL_COMPONENT_MIN = 256;
  *   .requires(Position, Velocity)
  *   .each([Position, Velocity], (e, [pos, vel]) => {
  *     pos.x += vel.vx;
+ *     e.modified(Position);
  *   });
  *
  * world.start();
@@ -64,8 +68,6 @@ export class World {
   /** @internal All registered queries, including systems (which extend `Query`). */
   private _queries: Query[] = [];
 
-  /** @internal Component class → meta record. */
-  private _Class2Meta = new Map<typeof Component, ComponentMeta>();
   /** @internal Component type id → meta record. */
   private _Type2Meta = new ArrayMap<ComponentMeta>();
   /** @internal Pre-registered name → type id mappings (server-assigned ids). */
@@ -93,6 +95,9 @@ export class World {
   public _frameCounter = 0;
   /** @internal True while the world is driving one logical frame. */
   private _frameInProgress = false;
+
+  /** Hidden property key used to store this world's meta on component classes. */
+  public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
 
   constructor() {
     this._tickSources.add(ALWAYS_TICK_SOURCE);
@@ -296,9 +301,9 @@ export class World {
   /**
    * Register a component class with the world.
    *
-   * Must be called before any entity uses the component. Registration is
-   * disabled once {@link start} (or {@link disableComponentRegistration}) is
-   * called.
+   * Must be called before any entity uses the component. Components are plain
+   * classes constructed with no arguments. Registration is disabled once
+   * {@link start} (or {@link disableComponentRegistration}) is called.
    *
    * **Overloads:**
    * - `registerComponent(Class)` — type id auto-assigned from the
@@ -310,22 +315,23 @@ export class World {
    * - `registerComponent(Class, type, componentName)` — explicit id + name.
    *
    * @param ComponentClass - Component class to register.
-   * @throws When the class has already been registered or registration is
-   *   disabled.
+   * @returns The world-specific metadata record for the component class.
+   * @throws When the class has already been registered in this world or
+   *   registration is disabled.
    */
-  public registerComponent(ComponentClass: typeof Component): void;
-  public registerComponent(ComponentClass: typeof Component, type: number): void;
-  public registerComponent(ComponentClass: typeof Component, componentName?: string): void;
+  public registerComponent(ComponentClass: ComponentClass): ComponentMeta;
+  public registerComponent(ComponentClass: ComponentClass, type: number): ComponentMeta;
+  public registerComponent(ComponentClass: ComponentClass, componentName?: string): ComponentMeta;
   public registerComponent(
-    ComponentClass: typeof Component,
+    ComponentClass: ComponentClass,
     type: number,
     componentName: string
-  ): void;
+  ): ComponentMeta;
   public registerComponent(
-    ComponentClass: typeof Component,
+    ComponentClass: ComponentClass,
     typeOrComponentName?: number | string,
     componentName?: string
-  ): void {
+  ): ComponentMeta {
     if (this._componentRegistrationDisabled) {
       throw "World component registartion is disabled";
     }
@@ -347,7 +353,7 @@ export class World {
       }
     }
 
-    let meta = this._Class2Meta.get(ComponentClass);
+    let meta = this._tryGetComponentMeta(ComponentClass);
     if (meta) {
       if (local) {
         this._localComponentCounter--;
@@ -356,7 +362,10 @@ export class World {
     }
     this.registerComponentType(componentName, type);
     meta = new ComponentMeta(ComponentClass, type, componentName);
-    this._Class2Meta.set(ComponentClass, meta);
+    Object.defineProperty(ComponentClass, this.worldKey, {
+      value: meta,
+      enumerable: false,
+    });
     this._Type2Meta.set(type, meta);
     console.log(
       "Registered component %s with type=%d as %s component",
@@ -364,6 +373,15 @@ export class World {
       type,
       local ? "local" : "networked"
     );
+    return meta;
+  }
+
+  /** @internal Return registered metadata for this world without throwing. */
+  public _tryGetComponentMeta(typeOrClass: ComponentClassOrType): ComponentMeta | undefined {
+    if (typeof typeOrClass === "function") {
+      return (typeOrClass as any)[this.worldKey] as ComponentMeta | undefined;
+    }
+    return this._Type2Meta.get(typeOrClass);
   }
 
   /**
@@ -374,12 +392,7 @@ export class World {
    * @throws When no component with that class or type id has been registered.
    */
   public getComponentMeta(typeOrClass: ComponentClassOrType): ComponentMeta {
-    let meta: ComponentMeta | undefined;
-    if (typeof typeOrClass === "function") {
-      meta = this._Class2Meta.get(typeOrClass);
-    } else {
-      meta = this._Type2Meta.get(typeOrClass);
-    }
+    const meta = this._tryGetComponentMeta(typeOrClass);
     if (!meta) {
       throw `unregistered component meta for component type or class '${typeOrClass}'`;
     }
@@ -408,14 +421,14 @@ export class World {
    *
    * ```ts
    * world.hook(Sprite)
-   *   .onAdd(c => c.initialize(scene))
-   *   .onRemove(c => c.destroy());
+   *   .onAdd((entity, c) => c.initialize(scene, entity))
+   *   .onRemove((entity, c) => c.destroy(scene, entity));
    * ```
    *
    * @param C - Component class.
    * @returns The hook bound to that component type.
    */
-  public hook<T extends typeof Component>(C: T): Hook<InstanceType<T>> {
+  public hook<T extends ComponentClass>(C: T): Hook<InstanceType<T>> {
     return this.getComponentMeta(C) as any;
   }
 
@@ -440,7 +453,7 @@ export class World {
    * @param components - Two or more component classes that cannot coexist.
    * @throws When any class has not been registered.
    */
-  public setExclusiveComponents(...components: (typeof Component)[]): void {
+  public setExclusiveComponents(...components: ComponentClass[]): void {
     const types = components.map((C) => this.getComponentType(C));
     for (let i = 0; i < components.length; i++) {
       this.getComponentMeta(components[i]).exclusive = types.filter((_, j) => j !== i);
@@ -613,11 +626,8 @@ export class World {
    *   guaranteed present (not validated at runtime).
    */
   public filter<Q extends QueryDSL>(q: Q): Filter<ExtractRequired<Q>>;
-  public filter<T extends (typeof Component)[]>(
-    q: QueryDSL,
-    _guaranteed: readonly [...T]
-  ): Filter<T>;
-  public filter(q: QueryDSL, _guaranteed?: readonly (typeof Component)[]): Filter<any> {
+  public filter<T extends ComponentClass[]>(q: QueryDSL, _guaranteed: readonly [...T]): Filter<T>;
+  public filter(q: QueryDSL, _guaranteed?: readonly ComponentClass[]): Filter<any> {
     return new Filter(this, q);
   }
 

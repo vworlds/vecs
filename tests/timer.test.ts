@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { Component, IntervalTickSource, RateTickSource, World } from "../src/index.js";
+import { IntervalTickSource, RateTickSource, World } from "../src/index.js";
 
-class Position extends Component {}
+class Position {}
 
 class CountingIntervalTickSource extends IntervalTickSource {
   public evalCount = 0;

@@ -1,17 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
-import { World, Component } from "../src/index.js";
+import { World } from "../src/index.js";
 
-class Position extends Component {
+class Position {
   x = 0;
   y = 0;
 }
-class Velocity extends Component {
+class Velocity {
   vx = 0;
   vy = 0;
 }
-class Sprite extends Component {}
-class Container extends Component {}
-class Player extends Component {}
+class Sprite {}
+class Container {}
+class Player {}
 
 function setup() {
   const w = new World();
@@ -84,7 +84,7 @@ describe("Query — update watchlist predicate", () => {
 
     expect(q.belongs(e)).toBe(true);
     expect(q.entities.has(e)).toBe(true);
-    expect(update).toHaveBeenCalledWith(pos);
+    expect(update).toHaveBeenCalledWith(e, pos);
   });
 });
 
@@ -372,7 +372,7 @@ describe("Query — sort", () => {
     const q = w
       .query("test")
       .requires(Position)
-      .sort([Position], ([a], [b]) => a.x - b.x);
+      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
     const e1 = w.entity();
     e1.set(Position, { x: 30 });
@@ -389,7 +389,7 @@ describe("Query — sort", () => {
     const q = w
       .query("test")
       .requires(Position)
-      .sort([Position], ([a], [b]) => a.x - b.x);
+      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
     const e1 = w.entity();
     e1.set(Position, { x: 30 });
@@ -408,7 +408,7 @@ describe("Query — sort", () => {
     const q = w
       .query("test")
       .requires(Position)
-      .sort([Position], ([a], [b]) => a.x - b.x);
+      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
     const e1 = w.entity();
     e1.set(Position, { x: 10 });
@@ -424,7 +424,7 @@ describe("Query — sort", () => {
   it("sort() returns the query for chaining", () => {
     const { w } = setup();
     const q = w.query("test").requires(Position);
-    expect(q.sort([Position], ([a], [b]) => a.x - b.x)).toBe(q);
+    expect(q.sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x)).toBe(q);
   });
 });
 
@@ -464,8 +464,7 @@ describe("Query — destroy", () => {
     // After destroy the query is no longer in the entity's query set;
     // a component modification should not reach the (dead) query.
     const notify = vi.spyOn(q, "_notifyModified");
-    const pos = e.get(Position)!;
-    pos.modified();
+    e.modified(Position);
     tick();
     expect(notify).not.toHaveBeenCalled();
   });

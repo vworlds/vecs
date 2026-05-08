@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { World, Component } from "../src/index.js";
+import { World } from "../src/index.js";
 import { makeWorldWithFlushPhase } from "./_helpers.js";
 
-class Position extends Component {
+class Position {
   x = 0;
   y = 0;
 }
-class Velocity extends Component {
+class Velocity {
   vx = 0;
 }
 
@@ -18,7 +18,6 @@ describe("Entity — components", () => {
     expect(e.add(Position)).toBe(e);
     const pos = e.get(Position)!;
     expect(pos).toBeInstanceOf(Position);
-    expect(pos.entity).toBe(e);
     expect(pos.x).toBe(0);
   });
 
@@ -153,7 +152,7 @@ describe("Entity — components", () => {
     e.add(Position);
     e.add(Velocity);
     const seen: string[] = [];
-    e.components.forEach((c) => seen.push(c.toString()));
+    e.components.forEach((c) => seen.push(c.constructor.name));
     expect(seen.sort()).toEqual(["Position", "Velocity"]);
   });
 

@@ -1,4 +1,4 @@
-import { Component } from "./component.js";
+import { type Component, type ComponentClass, type ComponentMeta } from "./component.js";
 import { Query } from "./query.js";
 import { type QueryDSL, type MaybeRequired } from "./dsl.js";
 import type { Entity } from "./entity.js";
@@ -31,7 +31,7 @@ const enum InboxCommand {
 type _SystemInboxEvent =
   | { kind: InboxCommand.Enter; entity: Entity }
   | { kind: InboxCommand.Exit; entity: Entity; snapshot: Map<number, Component> | undefined }
-  | { kind: InboxCommand.Update; component: Component };
+  | { kind: InboxCommand.Update; entity: Entity; meta: ComponentMeta; component: Component };
 
 /**
  * A reactive processor running over a filtered subset of world entities.
@@ -43,7 +43,7 @@ type _SystemInboxEvent =
  *   .requires(Position, Velocity)       // track entities with both components
  *   .phase("update")
  *   .enter([Position], (e, [pos]) => { pos.x = 0; })
- *   .update(Position, (pos) => { pos.x += pos.vx; })
+ *   .update(Position, (e, pos) => { pos.x += pos.vx; })
  *   .exit((e) => { console.log("entity left", e.eid); });
  * ```
  *
@@ -70,7 +70,7 @@ type _SystemInboxEvent =
  *
  * @typeParam R - Component classes guaranteed present on every matched entity.
  */
-export class System<R extends (typeof Component)[] = []> extends Query<R> implements ITickSource {
+export class System<R extends ComponentClass[] = []> extends Query<R> implements ITickSource {
   /** @internal Single inbox replayed in arrival order on every `_run`. */
   private readonly _inbox: _SystemInboxEvent[] = [];
   /** @internal Callback registered via {@link run}, fired every tick. */
@@ -105,9 +105,10 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> implem
     if (this._enterCallback !== undefined) {
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
-    e.components.forEach((c) => {
-      if (this._watchlistBitmask.hasBit(c.bitPtr)) {
-        this._notifyModified(c);
+    e.components.forEach((c, type) => {
+      const meta = this.world.getComponentMeta(type);
+      if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
+        this._notifyModified(e, meta, c);
       }
     });
   }
@@ -143,11 +144,11 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> implem
    * @internal Routing entry: push an inbox `update` event when the modified
    * component matches the watchlist.
    */
-  public override _notifyModified(c: Component): void {
-    if (!this._enabled || !this._watchlistBitmask.hasBit(c.bitPtr)) {
+  public override _notifyModified(e: Entity, meta: ComponentMeta, c: Component): void {
+    if (!this._enabled || !this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }
-    this._inbox.push({ kind: InboxCommand.Update, component: c });
+    this._inbox.push({ kind: InboxCommand.Update, entity: e, meta, component: c });
   }
 
   /**
@@ -176,9 +177,9 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> implem
             this._exitCallback!(event.entity, event.snapshot);
             break;
           case InboxCommand.Update:
-            const callback = this._componentUpdateCallbacks.get(event.component.type);
+            const callback = this._componentUpdateCallbacks.get(event.meta.type);
             if (callback) {
-              callback(event.component);
+              callback(event.entity, event.component);
             }
             break;
         }
@@ -344,7 +345,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> implem
    * Register a callback fired **every tick** for **every tracked entity**,
    * unconditionally, with the listed components resolved from each entity.
    *
-   * Unlike {@link update} (which only fires when `component.modified()` is
+   * Unlike {@link update} (which only fires when `entity.modified(C)` is
    * called), `each` fires every tick the system runs, once per tracked entity.
    * Components declared via {@link requires} are non-nullable in the resolved
    * tuple; any other component class may be `undefined` if the entity lacks it.
@@ -372,7 +373,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> implem
    *   });
    * ```
    */
-  public each<J extends (typeof Component)[]>(
+  public each<J extends ComponentClass[]>(
     components: readonly [...J],
     callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): this {
@@ -403,7 +404,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> implem
    *   entity (type hint only — not validated at runtime).
    * @returns This system, retyped with the guaranteed tuple as its `R`.
    */
-  public override query<T extends (typeof Component)[] = []>(
+  public override query<T extends ComponentClass[] = []>(
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): System<T> {
@@ -422,7 +423,7 @@ export class System<R extends (typeof Component)[] = []> extends Query<R> implem
    * @param components - Component classes to require.
    * @returns This system, retyped with the required tuple as its `R`.
    */
-  public override requires<T extends (typeof Component)[]>(...components: [...T]): System<T> {
+  public override requires<T extends ComponentClass[]>(...components: [...T]): System<T> {
     super.requires(...components);
     return this as unknown as System<T>;
   }
