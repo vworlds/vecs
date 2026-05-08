@@ -1,17 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
-import { World, Component } from "../src/index.js";
+import { World } from "../src/index.js";
 
-class Position extends Component {
+class Position {
   x = 0;
   y = 0;
 }
-class Velocity extends Component {
+class Velocity {
   vx = 0;
   vy = 0;
 }
-class Sprite extends Component {}
-class Container extends Component {}
-class Player extends Component {}
+class Sprite {}
+class Container {}
+class Player {}
 
 function setup() {
   const w = new World();
@@ -74,7 +74,7 @@ describe("System — enter / exit / update", () => {
     expect(cb).toHaveBeenCalledWith(e, [pos]);
   });
 
-  it("update fires on component.modified()", () => {
+  it("update fires on entity.modified(C)", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
     w.system("test").phase(phase).requires(Position).update(Position, cb);
@@ -83,9 +83,9 @@ describe("System — enter / exit / update", () => {
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // entity entered
     cb.mockClear();
-    pos.modified();
+    e.modified(Position);
     w.progress(0, 0);
-    expect(cb).toHaveBeenCalledWith(pos);
+    expect(cb).toHaveBeenCalledWith(e, pos);
   });
 
   it("enter delivers an initial update for components already on the entity", () => {
@@ -97,7 +97,7 @@ describe("System — enter / exit / update", () => {
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // tick 1 enters the entity & queues pos
     w.progress(0, 0); // tick 2 drains the queue
-    expect(cb).toHaveBeenCalledWith(pos);
+    expect(cb).toHaveBeenCalledWith(e, pos);
   });
 
   it("update with injection delivers extra components", () => {
@@ -110,9 +110,9 @@ describe("System — enter / exit / update", () => {
     const vel = e.add(Velocity).get(Velocity)!;
     w.progress(0, 0);
     cb.mockClear();
-    vel.modified();
+    e.modified(Velocity);
     w.progress(0, 0);
-    expect(cb).toHaveBeenCalledWith(vel, [pos]);
+    expect(cb).toHaveBeenCalledWith(e, vel, [pos]);
   });
 
   it("update without an explicit query implicitly requires its component", () => {
@@ -124,7 +124,7 @@ describe("System — enter / exit / update", () => {
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // enter
     w.progress(0, 0); // drain
-    expect(cb).toHaveBeenCalledWith(pos);
+    expect(cb).toHaveBeenCalledWith(e, pos);
 
     // Entity without Position must not match.
     const f = w.entity();
@@ -495,7 +495,7 @@ describe("System — each", () => {
     w.progress(0, 0); // entry queues pos for update
     w.progress(0, 0); // both fire
     expect(eachCb).toHaveBeenCalledWith(e, [pos]);
-    expect(updateCb).toHaveBeenCalledWith(pos);
+    expect(updateCb).toHaveBeenCalledWith(e, pos);
     eachCb.mockClear();
     updateCb.mockClear();
 
@@ -510,7 +510,7 @@ describe("System — sort", () => {
   it("sort() returns this for chaining", () => {
     const { w } = setup();
     const sys = w.system("test").requires(Position);
-    expect(sys.sort([Position], ([a], [b]) => a.x - b.x)).toBe(sys);
+    expect(sys.sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x)).toBe(sys);
   });
 
   it("sort() implies track()", () => {
@@ -519,7 +519,7 @@ describe("System — sort", () => {
       .system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], ([a], [b]) => a.x - b.x);
+      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
     const e = w.entity();
     e.set(Position, { x: 5 });
@@ -533,7 +533,7 @@ describe("System — sort", () => {
       .system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], ([a], [b]) => a.x - b.x);
+      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
 
     const e1 = w.entity();
@@ -556,7 +556,7 @@ describe("System — sort", () => {
     w.system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], ([a], [b]) => a.x - b.x)
+      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x)
       .each([Position], (_e, [pos]) => visited.push(pos.x));
     w.start();
 
@@ -582,7 +582,7 @@ describe("System — sort", () => {
       .system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], ([a], [b]) => a.x - b.x);
+      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
 
     const e1 = w.entity();
@@ -607,7 +607,7 @@ describe("System — sort", () => {
       .requires(Position, Velocity)
       .sort(
         [Position, Velocity],
-        ([posA, velA], [posB, velB]) => posA.x + velA.vx - (posB.x + velB.vx)
+        (_eA, [posA, velA], _eB, [posB, velB]) => posA.x + velA.vx - (posB.x + velB.vx)
       );
     w.start();
 
@@ -713,12 +713,12 @@ describe("System — enable / disable", () => {
     const sys = w.system("test").phase(phase).requires(Position).update(Position, cb);
     w.start();
     const e = w.entity();
-    const pos = e.add(Position).get(Position)!;
+    e.add(Position);
     w.progress(0, 0);
     w.progress(0, 0); // drain initial update
     cb.mockClear();
     sys.disable();
-    pos.modified();
+    e.modified(Position);
     w.progress(0, 0);
     expect(cb).not.toHaveBeenCalled();
   });

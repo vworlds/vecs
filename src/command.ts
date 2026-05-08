@@ -1,4 +1,4 @@
-import type { Component } from "./component.js";
+import type { Component, ComponentMeta } from "./component.js";
 import type { Entity } from "./entity.js";
 
 /**
@@ -17,7 +17,7 @@ export const enum CommandKind {
 
 /**
  * One queued mutation produced by an {@link Entity} method (`add`, `set`,
- * `remove`, `destroy`, `setParent`) or by `Component.modified`, and routed by
+ * `remove`, `destroy`, `setParent`) or by `Entity.modified`, and routed by
  * {@link World} during command-queue processing.
  *
  * In deferred mode the command is appended to `World`'s queue and applied at a
@@ -32,11 +32,11 @@ export type Command =
   | {
       kind: CommandKind.Set;
       entity: Entity;
-      type: number;
+      meta: ComponentMeta;
       /** Properties to assign. `undefined` for `entity.add(C)` (ensure-exists, no data). */
       props: Partial<Component> | undefined;
     }
-  | { kind: CommandKind.Modified; entity: Entity; type: number }
-  | { kind: CommandKind.Remove; entity: Entity; type: number }
+  | { kind: CommandKind.Modified; entity: Entity; meta: ComponentMeta }
+  | { kind: CommandKind.Remove; entity: Entity; meta: ComponentMeta }
   | { kind: CommandKind.Destroy; entity: Entity }
   | { kind: CommandKind.SetParent; entity: Entity; parent: Entity | undefined };

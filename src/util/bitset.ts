@@ -10,7 +10,7 @@
  * compact bit-flag fields:
  *
  * ```ts
- * class Tags extends Component {
+ * class Tags {
  *   tags = new Bitset();
  * }
  *
@@ -76,6 +76,11 @@ export class Bitset {
     while (this._bits.length && this._bits[this._bits.length - 1] === 0) {
       this._bits.pop();
     }
+  }
+
+  /** Remove every set bit. */
+  public clear(): void {
+    this._bits.length = 0;
   }
 
   /**

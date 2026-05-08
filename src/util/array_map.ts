@@ -29,10 +29,11 @@ export class ArrayMap<T> {
    * @param value - Value to store.
    */
   public set(key: number, value: T): void {
-    if (this._backend[key] === undefined) {
+    const backend = this._backend;
+    if (backend[key] === undefined) {
       this._size++;
     }
-    this._backend[key] = value;
+    backend[key] = value;
   }
 
   /**
@@ -59,8 +60,9 @@ export class ArrayMap<T> {
    * @param key - Non-negative integer key.
    */
   public delete(key: number): void {
-    if (this._backend[key] !== undefined) {
-      this._backend[key] = undefined;
+    const backend = this._backend;
+    if (backend[key] !== undefined) {
+      backend[key] = undefined;
       this._size--;
     }
   }
@@ -71,11 +73,13 @@ export class ArrayMap<T> {
    * @param callback - Invoked with `(value, key, map)` for each entry.
    */
   public forEach(callback: (value: T, key: number, map: ArrayMap<T>) => void): void {
-    this._backend.forEach((value, index) => {
+    const backend = this._backend;
+    for (let i = 0; i < backend.length; i++) {
+      const value = backend[i];
       if (value !== undefined) {
-        callback(value, index, this);
+        callback(value, i, this);
       }
-    });
+    }
   }
 
   /** Remove all entries and reset {@link size} to zero. */

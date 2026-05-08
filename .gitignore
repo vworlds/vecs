@@ -4,4 +4,3 @@ yarn-error.log
 dist/tsconfig.tsbuildinfo
 .vscode/
 .claude/
-.opencode/ralph-loop.local.md

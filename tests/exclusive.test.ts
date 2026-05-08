@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { World, Component } from "../src/index.js";
+import { World } from "../src/index.js";
 
-class Walking extends Component {}
-class Running extends Component {}
-class Idle extends Component {}
-class Jumping extends Component {}
-class Health extends Component {}
+class Walking {}
+class Running {}
+class Idle {}
+class Jumping {}
+class Health {}
 
 function makeWorld() {
   const w = new World();
@@ -22,19 +22,17 @@ describe("exclusive components", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running, Idle);
 
-    const walkingType = w.getComponentType(Walking);
-    const runningType = w.getComponentType(Running);
-    const idleType = w.getComponentType(Idle);
-
     const walkingMeta = w.getComponentMeta(Walking);
-    expect(walkingMeta.exclusive).not.toContain(walkingType);
-    expect(walkingMeta.exclusive).toContain(runningType);
-    expect(walkingMeta.exclusive).toContain(idleType);
-
     const runningMeta = w.getComponentMeta(Running);
-    expect(runningMeta.exclusive).toContain(walkingType);
-    expect(runningMeta.exclusive).not.toContain(runningType);
-    expect(runningMeta.exclusive).toContain(idleType);
+    const idleMeta = w.getComponentMeta(Idle);
+
+    expect(walkingMeta._exclusive).not.toContain(walkingMeta);
+    expect(walkingMeta._exclusive).toContain(runningMeta);
+    expect(walkingMeta._exclusive).toContain(idleMeta);
+
+    expect(runningMeta._exclusive).toContain(walkingMeta);
+    expect(runningMeta._exclusive).not.toContain(runningMeta);
+    expect(runningMeta._exclusive).toContain(idleMeta);
   });
 
   it("adding the first component in an exclusive group attaches it normally", () => {
@@ -110,7 +108,7 @@ describe("exclusive components", () => {
 
   it("unregistered component throws from setExclusiveComponents", () => {
     const w = new World();
-    class Unknown extends Component {}
+    class Unknown {}
     expect(() => w.setExclusiveComponents(Unknown)).toThrow();
   });
 });

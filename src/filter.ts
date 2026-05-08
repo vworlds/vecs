@@ -1,4 +1,4 @@
-import { Component } from "./component.js";
+import { type ComponentClass } from "./component.js";
 import type { Entity } from "./entity.js";
 import type { World } from "./world.js";
 import { _buildEntityTest, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
@@ -36,7 +36,7 @@ import { _buildEntityTest, type EntityTestFunc, type MaybeRequired, type QueryDS
  *   manually via the `_guaranteed` argument. Components in `R` are non-nullable
  *   in `forEach` callback tuples.
  */
-export class Filter<R extends (typeof Component)[] = []> {
+export class Filter<R extends ComponentClass[] = []> {
   private readonly _belongs: EntityTestFunc;
 
   constructor(
@@ -67,12 +67,12 @@ export class Filter<R extends (typeof Component)[] = []> {
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<J extends (typeof Component)[]>(
+  public forEach<J extends ComponentClass[]>(
     components: readonly [...J],
     callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void;
 
-  public forEach<J extends (typeof Component)[]>(
+  public forEach<J extends ComponentClass[]>(
     componentsOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void {
