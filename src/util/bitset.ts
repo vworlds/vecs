@@ -28,9 +28,7 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public add(n: number): void {
-    const arrayIndex = Math.floor(n / 32);
-    const bitmask = 1 << (n % 32);
-    this._addIndexBitmask(arrayIndex, bitmask);
+    this._bits[n >>> 5] |= 1 << n;
   }
 
   /**
@@ -40,28 +38,44 @@ export class Bitset {
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public addBit(bptr: BitPtr): void {
-    this._addIndexBitmask(bptr.arrayIndex, bptr.bitmask);
-  }
-
-  /**
-   * Clear bit `n`. Trailing zero words are trimmed so the internal storage
-   * stays compact.
-   *
-   * @param n - Non-negative integer bit index.
-   */
-  public delete(n: number): void {
-    this._deleteIndexBitmask(Math.floor(n / 32), 1 << (n % 32));
+    this._bits[bptr.arrayIndex] |= bptr.bitmask;
   }
 
   /**
    * Clear the bit described by `bptr` (fast path using a pre-computed
-   * {@link BitPtr}). Trailing zero words are trimmed so the internal storage
-   * stays compact.
+   * {@link BitPtr}). Storage is not compacted automatically; call
+   * {@link compact} to trim trailing zero words when needed.
    *
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public deleteBit(bptr: BitPtr): void {
-    this._deleteIndexBitmask(bptr.arrayIndex, bptr.bitmask);
+    const current = this._bits[bptr.arrayIndex];
+    if (current) {
+      this._bits[bptr.arrayIndex] = current & ~bptr.bitmask;
+    }
+  }
+
+  /**
+   * Clear bit `n`. Storage is not compacted automatically; call
+   * {@link compact} to trim trailing zero words when needed.
+   *
+   * @param n - Non-negative integer bit index.
+   */
+  public delete(n: number): void {
+    const arrayIndex = n >>> 5;
+    const current = this._bits[arrayIndex];
+    if (current) {
+      this._bits[arrayIndex] = current & ~(1 << n);
+    }
+  }
+
+  /**
+   * Trim trailing zero words from the backing storage.
+   */
+  public compact(): void {
+    while (this._bits.length && this._bits[this._bits.length - 1] === 0) {
+      this._bits.pop();
+    }
   }
 
   /** Remove every set bit. */
@@ -75,13 +89,7 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public has(n: number): boolean {
-    const arrayIndex = Math.floor(n / 32);
-    if (arrayIndex >= this._bits.length) {
-      return false;
-    }
-    const bitIndex = n % 32;
-    const bitmask = 1 << bitIndex;
-    return this._hasIndexBitmask(arrayIndex, bitmask);
+    return (this._bits[n >>> 5] & (1 << n)) !== 0;
   }
 
   /**
@@ -90,7 +98,7 @@ export class Bitset {
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public hasBit(bptr: BitPtr): boolean {
-    return this._hasIndexBitmask(bptr.arrayIndex, bptr.bitmask);
+    return (this._bits[bptr.arrayIndex] & bptr.bitmask) !== 0;
   }
 
   /**
@@ -99,9 +107,13 @@ export class Bitset {
    * @param other - Bitset to compare against.
    */
   public equal(other: Bitset): boolean {
-    return (
-      this._bits.length === other._bits.length && this._bits.every((v, i) => other._bits[i] === v)
-    );
+    const maxLength = Math.max(this._bits.length, other._bits.length);
+    for (let i = 0; i < maxLength; i++) {
+      if ((this._bits[i] || 0) !== (other._bits[i] || 0)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -114,11 +126,11 @@ export class Bitset {
    * @param other - Bitset whose set bits must all appear in this bitset.
    */
   public hasBitset(other: Bitset): boolean {
-    if (this._bits.length < other._bits.length) {
-      return false;
-    }
-    for (let i = 0; i < other._bits.length; i++) {
-      if ((this._bits[i] & other._bits[i]) !== (other._bits[i] || 0)) {
+    const bits = this._bits;
+    const otherBits = other._bits;
+    for (let i = 0; i < otherBits.length; i++) {
+      const otherWord = otherBits[i] | 0;
+      if ((bits[i] & otherWord) !== otherWord) {
         return false;
       }
     }
@@ -148,24 +160,6 @@ export class Bitset {
     const idx: number[] = [];
     this.forEach((i) => idx.push(i));
     return idx;
-  }
-
-  /**
-   * AND NOT `bitmask` into the word at position `arrayIndex`, then trim
-   * trailing zero words.
-   *
-   * @internal Low-level bulk operation; prefer {@link delete} or {@link deleteBit}
-   * for single bits.
-   */
-  public _deleteIndexBitmask(arrayIndex: number, bitmask: number): void {
-    const current = this._bits[arrayIndex];
-    if (current === undefined) {
-      return;
-    }
-    this._bits[arrayIndex] = current & ~bitmask;
-    while (this._bits.length && this._bits[this._bits.length - 1] === 0) {
-      this._bits.pop();
-    }
   }
 
   /**
@@ -219,8 +213,8 @@ export class BitPtr {
     /** The raw bit index this pointer refers to. */
     public readonly value: number
   ) {
-    this.arrayIndex = Math.floor(value / 32);
-    this.bitmask = 1 << (value % 32);
+    this.arrayIndex = value >>> 5;
+    this.bitmask = 1 << value;
   }
 
   /**
@@ -229,6 +223,6 @@ export class BitPtr {
    * @param other - Pointer to compare against.
    */
   public equals(other: BitPtr): boolean {
-    return this.arrayIndex == other.arrayIndex && this.bitmask == other.bitmask;
+    return this.arrayIndex === other.arrayIndex && this.bitmask === other.bitmask;
   }
 }
