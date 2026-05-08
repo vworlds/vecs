@@ -26,18 +26,20 @@ type EntityEvents = Events<{ destroy(): void }>;
  * e.set(Position, { x: 100 });
  * ```
  *
- * Entities support a parent–child hierarchy. `parent` and `children` form a
+ * Entities support a parent-child hierarchy. `parent` and `children` form a
  * bidirectional link maintained by {@link setParent}; the children set is
  * created lazily. Destroying a parent recursively destroys its children.
  *
  * ## Deferred semantics
  *
  * Inside a system body or `forEach` iteration the world is in **deferred
- * mode**: `add` / `set` / `modified` / `remove` / `destroy` / `setParent` only
- * enqueue commands. The data layer (the components map and `componentBitmask`)
- * is mutated when the world drains its queue. Concretely, while deferred:
+ * mode**: `add` / `attach` / `set` / `modified` / `remove` / `destroy` /
+ * `setParent` only enqueue commands. The data layer (the components map and
+ * `componentBitmask`) is mutated when the world drains its queue. Concretely,
+ * while deferred:
  *
  * - `entity.get(C)` returns `undefined` after `entity.add(C)` (no instance yet).
+ * - `entity.get(C)` returns `undefined` after `entity.attach(instance)` if C was absent.
  * - `entity.get(C)` returns the previous value after `entity.set(C, props)`.
  * - `entity.get(C)` still returns the component after `entity.remove(C)`.
  *
@@ -100,6 +102,21 @@ export class Entity {
   }
 
   /**
+   * Remove any currently-attached components that conflict the defined
+   * exclusivity group before adding or attaching the replacement component.
+   */
+  private _removeExclusiveComponents(meta: ComponentMeta): void {
+    if (!meta._exclusive) {
+      return;
+    }
+    for (const exclusiveMeta of meta._exclusive) {
+      if (this._components.has(exclusiveMeta.type)) {
+        this._remove(exclusiveMeta);
+      }
+    }
+  }
+
+  /**
    * Construct a fresh component of `type`, apply `props`, store it on this
    * entity, fire the `onAdd` hook, and route query updates.
    *
@@ -107,13 +124,7 @@ export class Entity {
    * component already on this entity is removed first.
    */
   private _new(meta: ComponentMeta, props: Partial<Component> | undefined): Component {
-    if (meta._exclusive) {
-      for (const exclusiveMeta of meta._exclusive) {
-        if (this._components.has(exclusiveMeta.type)) {
-          this._remove(exclusiveMeta);
-        }
-      }
-    }
+    this._removeExclusiveComponents(meta);
     const c = new meta.Class();
     if (props !== undefined) {
       Object.assign(c, props);
@@ -137,7 +148,7 @@ export class Entity {
   /**
    * @internal Look up a component instance by numeric type id.
    *
-   * Faster than {@link get} because no class → type id resolution is needed.
+   * Faster than {@link get} because no class to type id resolution is needed.
    */
   public _get(type: number): Component | undefined {
     return this._components.get(type);
@@ -197,6 +208,33 @@ export class Entity {
       if (existing) {
         this._queries.forEach((q) => q._notifyModified(this, meta, c));
       }
+    }
+  }
+
+  /**
+   * @internal Apply an `Attach` command: store the provided component instance,
+   * replacing any previous instance for this type. Events are fired as if the
+   * caller had performed a `set` operation.
+   */
+  public _attach(meta: ComponentMeta, component: Component): void {
+    if (this._destroyed) {
+      return;
+    }
+    const existing = this._components.get(meta.type);
+    this._removeExclusiveComponents(meta);
+    this._components.set(meta.type, component);
+    this.componentBitmask.addBit(meta.bitPtr);
+    if (existing === undefined && meta._onAddHandlers) {
+      meta._onAddHandlers.forEach((handler) => handler(this, component));
+    }
+    this._updateQueries();
+    const setHandlers = meta._onSetHandlers;
+    if (setHandlers) {
+      setHandlers.forEach((handler) => handler(this, component));
+    }
+    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    if (existing !== undefined) {
+      this._queries.forEach((q) => q._notifyModified(this, meta, component));
     }
   }
 
@@ -342,8 +380,8 @@ export class Entity {
    * by numeric component type id.
    *
    * The mutating methods (`set`, `delete`, `clear`) are not exposed. Use
-   * `entity.add`, `entity.set`, and `entity.remove` to change the component
-   * set.
+   * `entity.add`, `entity.attach`, `entity.set`, and `entity.remove` to change
+   * the component set.
    *
    * ```ts
    * entity.components.forEach((c) => console.log(c.constructor.name));
@@ -394,7 +432,7 @@ export class Entity {
   /**
    * Attach a component to this entity if it is not already present.
    *
-   * Idempotent. Does not fire `onSet` — use {@link set} when you want to apply
+   * Idempotent. Does not fire `onSet` -- use {@link set} when you want to apply
    * data and notify watchers.
    *
    * @param Class - Component class to instantiate.
@@ -449,6 +487,28 @@ export class Entity {
       this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props });
     } else {
       this._set(meta, props);
+    }
+    return this;
+  }
+
+  /**
+   * Attach an existing component instance to this entity and store that exact
+   * object. If a component of the same registered class already exists, it is
+   * replaced rather than assigned into.
+   *
+   * `attach` uses the instance constructor to resolve component metadata, so
+   * the constructor must already be registered in this world. The operation
+   * fires hooks and query updates like a `set` operation.
+   *
+   * @param component - Existing component instance to store on the entity.
+   * @returns This entity, for chaining.
+   */
+  public attach(component: Component): Entity {
+    const meta = this.world.getComponentMeta(component.constructor as ComponentClass);
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component });
+    } else {
+      this._attach(meta, component);
     }
     return this;
   }

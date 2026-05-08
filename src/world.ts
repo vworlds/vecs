@@ -56,7 +56,7 @@ const LOCAL_COMPONENT_MIN = 256;
  * ## Deferred mode
  *
  * The world can be in **deferred mode**, in which case entity mutations
- * (`add` / `set` / `remove` / `destroy` / `setParent` / `modified`) are
+ * (`add` / `attach` / `set` / `remove` / `destroy` / `setParent` / `modified`) are
  * queued instead of applied inline. Systems run inside an automatically
  * deferred scope; user code can wrap arbitrary blocks with
  * {@link beginDefer} / {@link endDefer} or {@link defer}. {@link flush}
@@ -149,6 +149,9 @@ export class World {
         return;
       case CommandKind.SetParent:
         cmd.entity._setParent(cmd.parent);
+        return;
+      case CommandKind.Attach:
+        cmd.entity._attach(cmd.meta, cmd.component);
         return;
     }
   }

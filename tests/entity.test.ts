@@ -76,6 +76,99 @@ describe("Entity — components", () => {
     expect(pos).toBeInstanceOf(Position);
   });
 
+  it("attach stores the exact passed instance", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const e = w.entity();
+    const pos = new Position();
+    e.attach(pos);
+    expect(e.get(Position)).toBe(pos);
+  });
+
+  it("attach returns the entity for chaining", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const e = w.entity();
+    const pos = new Position();
+    expect(e.attach(pos)).toBe(e);
+  });
+
+  it("attach throws for an unregistered component constructor", () => {
+    const w = new World();
+    const e = w.entity();
+    const pos = new Position();
+    expect(() => e.attach(pos)).toThrow(/unregistered component meta/);
+  });
+
+  it("attach replaces an existing stored instance without assigning into the old object", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const e = w.entity();
+    const pos1 = new Position();
+    const pos2 = new Position();
+    e.attach(pos1);
+    e.attach(pos2);
+    expect(e.get(Position)).toBe(pos2);
+    expect(e.get(Position)).not.toBe(pos1);
+  });
+
+  it("attach triggers onAdd and onSet hooks", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const onAdd = vi.fn();
+    const onSet = vi.fn();
+    w.hook(Position).onAdd(onAdd).onSet(onSet);
+    const e = w.entity();
+    const pos = new Position();
+    e.attach(pos);
+    expect(onAdd).toHaveBeenCalledWith(e, pos);
+    expect(onSet).toHaveBeenCalledWith(e, pos);
+  });
+
+  it("attach triggers onSet but not onAdd when replacing", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const onAdd = vi.fn();
+    const onSet = vi.fn();
+    w.hook(Position).onAdd(onAdd).onSet(onSet);
+    const e = w.entity();
+    const pos1 = new Position();
+    const pos2 = new Position();
+    e.attach(pos1);
+    onAdd.mockClear();
+    onSet.mockClear();
+    e.attach(pos2);
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(onSet).toHaveBeenCalledWith(e, pos2);
+  });
+
+  it("attach handles exclusive components", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    w.registerComponent(Velocity);
+    w.setExclusiveComponents(Position, Velocity);
+    const e = w.entity();
+    const pos = new Position();
+    const vel = new Velocity();
+    e.attach(pos);
+    e.attach(vel);
+    expect(e.get(Position)).toBeUndefined();
+    expect(e.get(Velocity)).toBe(vel);
+  });
+
+  it("attach works in deferred mode", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    w.start();
+    const e = w.entity();
+    const pos = new Position();
+    w.beginDefer();
+    e.attach(pos);
+    expect(e.get(Position)).toBeUndefined();
+    w.endDefer();
+    expect(e.get(Position)).toBe(pos);
+  });
+
   it("set marks a new component as modified", () => {
     const env = makeWorldWithFlushPhase();
     env.w.registerComponent(Position);

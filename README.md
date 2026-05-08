@@ -120,11 +120,12 @@ for (let tick = 0; tick < 5; tick++) {
 
 ## Deferred mode
 
-Inside a system body, a `Query.forEach`, or any `world.defer(...)` block, the world is in **deferred mode**: entity mutations (`add` / `set` / `remove` / `destroy` / `setParent` / `modified`) are queued instead of applied inline. The queue drains on the boundary that opened the deferred scope.
+Inside a system body, a `Query.forEach`, or any `world.defer(...)` block, the world is in **deferred mode**: entity mutations (`add` / `attach` / `set` / `remove` / `destroy` / `setParent` / `modified`) are queued instead of applied inline. The queue drains on the boundary that opened the deferred scope.
 
 Concretely, while deferred:
 
 - `entity.get(C)` returns `undefined` after `entity.add(C)` (no instance has been created yet).
+- `entity.get(C)` returns `undefined` after `entity.attach(instance)` if C was absent.
 - `entity.get(C)` returns the **previous** value after `entity.set(C, props)`.
 - `entity.get(C)` still returns the component after `entity.remove(C)`.
 
@@ -213,7 +214,7 @@ world
   .onSet((entity, sprite) => sprite.syncToScene(entity));
 ```
 
-`onAdd` fires when the component is first attached. `onRemove` fires when it is removed (or the entity is destroyed). `onSet` fires whenever `entity.modified(C)` is called, and when `entity.set(C, props)` is applied to an entity that already has the component. Hook callbacks receive the owning entity because component instances do not carry entity references.
+`onAdd` fires when the component is first attached. `onRemove` fires when it is removed (or the entity is destroyed). `onSet` fires whenever `entity.modified(C)` is called, when `entity.set(C, props)` applies data, and when `entity.attach(instance)` stores an existing instance. Hook callbacks receive the owning entity because component instances do not carry entity references.
 
 #### Phases
 
@@ -384,15 +385,20 @@ entity.modified(Position); // tell the world this component changed
 
 // Equivalent — set assigns props and fires onSet automatically:
 entity.set(Position, { x: 100 });
+
+// Store an existing instance directly:
+const shared = new Position();
+entity.attach(shared);
+entity.get(Position) === shared; // true
 ```
 
-| Rule                      | Description                                                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Plain class               | Components should be ordinary classes with field initializers and methods as needed.                          |
-| No-arg construction       | vecs calls `new ComponentClass()`, so constructors should be omitted or take no parameters.                   |
-| Explicit registration     | Call `world.registerComponent(C)` before using the class as a component.                                      |
-| Shared instances possible | A component instance does not know which entity owns it; code should use the entity passed by vecs callbacks. |
-| Manual dirty marking      | After mutating fields directly, call `entity.modified(C)` to notify hooks, queries, and systems.              |
+| Rule                      | Description                                                                                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Plain class               | Components should be ordinary classes with field initializers and methods as needed.                           |
+| No-arg construction       | vecs calls `new ComponentClass()`, so constructors should be omitted or take no parameters.                    |
+| Explicit registration     | Call `world.registerComponent(C)` before using the class as a component.                                       |
+| Shared instances possible | `entity.attach(instance)` stores the exact passed object; code should use the entity passed by vecs callbacks. |
+| Manual dirty marking      | After mutating fields directly, call `entity.modified(C)` to notify hooks, queries, and systems.               |
 
 Use `world.getComponentMeta(C)` or `world.getComponentType(C)` when you need metadata such as the numeric type id or component name. Metadata is world-specific.
 
@@ -409,6 +415,7 @@ Created via `world.entity()` (auto-assigned id) or `world.getOrCreateEntity(id, 
 | `componentBitmask`  | `Bitset` of component type ids attached to this entity. Used by archetype matching.                                                   |
 | `properties`        | `Map<string, any>` free-form bag for module-level bookkeeping.                                                                        |
 | `add(Class)`        | Attach a component (idempotent). Returns the entity for chaining.                                                                     |
+| `attach(instance)`  | Attach an existing registered component instance directly; replaces any previous instance for that component class and fires `onSet`. |
 | `set(Class, props)` | Attach a component and assign `props`; fires `onSet`. Returns the entity for chaining.                                                |
 | `modified(Class)`   | Queue an `onSet` / `update` notification for a component class or numeric type id. Returns the entity for chaining.                   |
 | `get(Class)`        | Return the component instance, or `undefined`.                                                                                        |
@@ -429,6 +436,8 @@ const vel = entity.get(Velocity)!;
 vel.vx += accel;
 entity.modified(Velocity); // chainable
 ```
+
+Use `entity.attach(instance)` when component ownership is intentionally shared with caller code or another object graph. The instance constructor must be registered in the entity's world; unregistered instances throw. If the component belongs to an exclusive component group, conflicting components are removed before the instance is stored.
 
 #### Parent / child hierarchy
 
