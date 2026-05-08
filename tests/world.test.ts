@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { World, Component } from "../src/index.js";
+import { World } from "../src/index.js";
 
-class A extends Component {}
-class B extends Component {}
+class A {}
+class B {}
 
 describe("World — entity management", () => {
   it("entity() assigns sequential ids starting at 0", () => {
@@ -105,6 +105,25 @@ describe("World — component registration", () => {
     expect(w.getComponentType(A)).toBe(10);
   });
 
+  it("stores component metadata on a hidden world-specific class key", () => {
+    const w = new World();
+    const meta = w.registerComponent(A);
+    expect(w.getComponentMeta(A)).toBe(meta);
+    expect(Object.keys(A)).not.toContain(w.worldKey);
+  });
+
+  it("allows the same component class to be registered independently in multiple worlds", () => {
+    const w1 = new World();
+    const w2 = new World();
+
+    w1.registerComponent(A, 10);
+    w2.registerComponent(A, 20);
+
+    expect(w1.getComponentType(A)).toBe(10);
+    expect(w2.getComponentType(A)).toBe(20);
+    expect(w1.worldKey).not.toBe(w2.worldKey);
+  });
+
   it("throws when a class is registered twice", () => {
     const w = new World();
     w.registerComponent(A);
@@ -135,6 +154,22 @@ describe("World — component registration", () => {
     const w = new World();
     expect(() => w.getComponentMeta(A)).toThrow();
     expect(() => w.getComponentMeta(123)).toThrow();
+  });
+
+  it("component APIs throw for unregistered component classes", () => {
+    const w = new World();
+    const e = w.entity();
+    expect(() => e.add(A)).toThrow();
+    expect(() => e.set(A, {})).toThrow();
+    expect(() => e.modified(A)).toThrow();
+    expect(() => w.system("test").requires(A)).toThrow();
+  });
+
+  it("class-valued QueryDSL without registered metadata throws when evaluated", () => {
+    const w = new World();
+    const q = w.query("test").query(A);
+    const e = w.entity();
+    expect(() => q.belongs(e)).toThrow();
   });
 });
 

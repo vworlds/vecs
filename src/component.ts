@@ -2,6 +2,15 @@ import { BitPtr, Bitset } from "./util/bitset.js";
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
 
+/** A component instance. Components are plain objects created with a no-arg constructor. */
+export type Component = object;
+
+/** A component class constructor. */
+export type ComponentClass<T extends Component = Component> = new () => T;
+
+/** A component class constructor or its numeric type id. */
+export type ComponentClassOrType = number | ComponentClass;
+
 /**
  * Lifecycle hook for a registered component class. Obtained via
  * {@link World.hook}.
@@ -13,16 +22,16 @@ import { type World } from "./world.js";
  *
  * ```ts
  * world.hook(Sprite)
- *   .onAdd(c => initSprite(c))
- *   .onRemove(c => destroySprite(c))
- *   .onSet(c => syncSprite(c));
+ *   .onAdd((e, c) => initSprite(e, c))
+ *   .onRemove((e, c) => destroySprite(e, c))
+ *   .onSet((e, c) => syncSprite(e, c));
  * ```
  *
  * Callbacks fire synchronously when the corresponding entity command is
  * applied: inline outside deferred mode, or while the world drains its command
  * queue inside a system / `forEach` / `defer` block.
  *
- * @typeParam C - Component subclass this hook is bound to.
+ * @typeParam C - Component class this hook is bound to.
  */
 export interface Hook<C extends Component = Component> {
   /**
@@ -30,31 +39,31 @@ export interface Hook<C extends Component = Component> {
    * to an entity (`entity.add(C)` or `entity.set(C, ...)` on an entity that
    * does not yet have the component).
    *
-   * @param handler - Receives the freshly created component instance.
+   * @param handler - Receives the entity and freshly created component instance.
    * @returns This hook, for chaining.
    */
-  onAdd(handler: (c: C) => void): Hook<C>;
+  onAdd(handler: (entity: Entity, c: C) => void): Hook<C>;
 
   /**
    * Register a handler invoked when a component of this type is removed from
    * an entity (explicit `entity.remove(C)` or implicit removal during
    * `entity.destroy()`).
    *
-   * @param handler - Receives the component instance that was removed.
+   * @param handler - Receives the entity and component instance that was removed.
    * @returns This hook, for chaining.
    */
-  onRemove(handler: (c: C) => void): Hook<C>;
+  onRemove(handler: (entity: Entity, c: C) => void): Hook<C>;
 
   /**
    * Register a handler invoked when a component's data has been marked as
-   * changed (`component.modified()` or `entity.modified(c)`), and when
+   * changed (`entity.modified(C)`), and when
    * `entity.set(C, props)` is called on an entity that already has the
    * component.
    *
-   * @param handler - Receives the component instance whose data changed.
+   * @param handler - Receives the entity and component instance whose data changed.
    * @returns This hook, for chaining.
    */
-  onSet(handler: (c: C) => void): Hook<C>;
+  onSet(handler: (entity: Entity, c: C) => void): Hook<C>;
 }
 
 /**
@@ -68,7 +77,7 @@ export interface Hook<C extends Component = Component> {
  */
 export class ComponentMeta implements Hook<Component> {
   /** The component class constructor this meta represents. */
-  public readonly Class: typeof Component;
+  public readonly Class: ComponentClass;
   /** Numeric type id assigned at registration time. */
   public readonly type: number;
   /** Human-readable name used in logs and serialization lookups. */
@@ -77,20 +86,20 @@ export class ComponentMeta implements Hook<Component> {
   public readonly bitPtr: BitPtr;
 
   /**
-   * Type ids of components that cannot coexist with this one on the same
-   * entity. Set via {@link World.setExclusiveComponents}; `undefined` means
-   * no restriction.
+   * @internal Peer metas of components that cannot coexist with this one on
+   * the same entity. Set via {@link World.setExclusiveComponents}; `undefined`
+   * means no restriction.
    */
-  public exclusive: number[] | undefined = undefined;
+  public _exclusive: ComponentMeta[] | undefined = undefined;
 
   /** @internal `onAdd` handlers, lazily allocated and prepended by {@link onAdd}. */
-  public _onAddHandlers: ((c: Component) => void)[] | undefined;
+  public _onAddHandlers: ((entity: Entity, c: Component) => void)[] | undefined;
   /** @internal `onRemove` handlers, lazily allocated and prepended by {@link onRemove}. */
-  public _onRemoveHandlers: ((c: Component) => void)[] | undefined;
+  public _onRemoveHandlers: ((entity: Entity, c: Component) => void)[] | undefined;
   /** @internal `onSet` handlers, lazily allocated and prepended by {@link onSet}. */
-  public _onSetHandlers: ((c: Component) => void)[] | undefined;
+  public _onSetHandlers: ((entity: Entity, c: Component) => void)[] | undefined;
 
-  constructor(Class: typeof Component, type: number, componentName: string) {
+  constructor(Class: ComponentClass, type: number, componentName: string) {
     this.Class = Class;
     this.type = type;
     this.componentName = componentName;
@@ -98,26 +107,23 @@ export class ComponentMeta implements Hook<Component> {
   }
 
   /** @inheritdoc */
-  public onAdd(handler: (c: Component) => void): ComponentMeta {
+  public onAdd(handler: (entity: Entity, c: Component) => void): ComponentMeta {
     (this._onAddHandlers ??= []).unshift(handler);
     return this;
   }
 
   /** @inheritdoc */
-  public onRemove(handler: (c: Component) => void): ComponentMeta {
+  public onRemove(handler: (entity: Entity, c: Component) => void): ComponentMeta {
     (this._onRemoveHandlers ??= []).unshift(handler);
     return this;
   }
 
   /** @inheritdoc */
-  public onSet(handler: (c: Component) => void): ComponentMeta {
+  public onSet(handler: (entity: Entity, c: Component) => void): ComponentMeta {
     (this._onSetHandlers ??= []).unshift(handler);
     return this;
   }
 }
-
-/** A component class constructor or its numeric type id. */
-export type ComponentClassOrType = number | typeof Component;
 
 /**
  * An array of component classes or numeric type ids, used by query helpers.
@@ -125,65 +131,6 @@ export type ComponentClassOrType = number | typeof Component;
  * @internal
  */
 export type ComponentClassArray = ComponentClassOrType[];
-
-/**
- * Base class for all ECS components.
- *
- * Subclass `Component` to declare data that can be attached to an
- * {@link Entity}. Instances are constructed by the world when
- * {@link Entity.add} or {@link Entity.set} runs — never instantiate manually.
- *
- * ```ts
- * class Position extends Component {
- *   x = 0;
- *   y = 0;
- * }
- *
- * world.registerComponent(Position);
- * entity.set(Position, { x: 100 });
- * ```
- *
- * Each instance is bound to a single entity via {@link entity}; that link is
- * permanent for the component's lifetime.
- */
-export class Component {
-  /** @internal Set by {@link Entity.modified} to coalesce repeated calls until the world routes the modified command. */
-  public _dirty: boolean = false;
-
-  constructor(
-    /** The entity this component belongs to. */
-    public readonly entity: Entity,
-    /** Registration metadata (type id, display name, bit-pointer). */
-    public readonly meta: ComponentMeta
-  ) {}
-
-  /** Numeric type id — shorthand for `this.meta.type`. */
-  public get type(): number {
-    return this.meta.type;
-  }
-
-  /** Pre-computed bit-pointer — shorthand for `this.meta.bitPtr`. */
-  public get bitPtr(): BitPtr {
-    return this.meta.bitPtr;
-  }
-
-  /**
-   * Notify the world that this component's data has changed.
-   *
-   * Queues a modified event that fires `update` callbacks on every system /
-   * query that watches this component type, plus the component's `onSet`
-   * hook. Repeated calls before the world drains its queue are coalesced
-   * into one delivery.
-   */
-  public modified(): void {
-    this.entity.modified(this);
-  }
-
-  /** Returns the component's registered display name (e.g. `"Position"`). */
-  public toString(): string {
-    return this.meta.componentName;
-  }
-}
 
 /**
  * Compute a {@link Bitset} with one bit set for every component class or

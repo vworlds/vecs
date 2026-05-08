@@ -1,5 +1,5 @@
 import {
-  Component,
+  type ComponentClass,
   ComponentClassArray,
   ComponentClassOrType,
   _calculateComponentBitmask,
@@ -34,9 +34,13 @@ export type EntityTestFunc = (e: Entity) => boolean;
  * ```
  *
  * Short forms recognized by `query` / `filter`:
- * - A single class or numeric type id is shorthand for `{ HAS: [C] }`.
+ * - A registered component class or numeric type id is shorthand for `{ HAS: [C] }`.
  * - An array `[A, B]` is shorthand for `{ HAS: [A, B] }`.
  * - An {@link EntityTestFunc} is invoked directly for fully custom logic.
+ *
+ * Function values are treated as component classes only when the world already
+ * has registered metadata for that class. Register component classes before
+ * using them in query DSL expressions.
  */
 export type QueryDSL =
   | ComponentClassArray
@@ -59,7 +63,7 @@ export type QueryDSL =
  * @typeParam C - Component class being injected.
  * @typeParam R - Tuple of component classes guaranteed present.
  */
-export type MaybeRequired<C, R extends (typeof Component)[]> = C extends typeof Component
+export type MaybeRequired<C, R extends ComponentClass[]> = C extends ComponentClass
   ? C extends R[number]
     ? InstanceType<C>
     : InstanceType<C> | undefined
@@ -70,7 +74,7 @@ export type MaybeRequired<C, R extends (typeof Component)[]> = C extends typeof 
  * every entity matched by a {@link QueryDSL} expression.
  *
  * Rules:
- * - Plain class `C` → `[C]`
+ * - Plain component class `C` → `[C]`
  * - Plain array `[A, B]` → `[A, B]`
  * - `{ HAS: ... }` / `{ HAS_ONLY: ... }` → recurse into the payload
  * - `{ AND: [q1, q2, ...] }` → concatenate each branch's extraction
@@ -79,9 +83,9 @@ export type MaybeRequired<C, R extends (typeof Component)[]> = C extends typeof 
  *
  * @typeParam Q - Query expression to analyse.
  */
-export type ExtractRequired<Q> = Q extends typeof Component
+export type ExtractRequired<Q> = Q extends ComponentClass
   ? [Q]
-  : Q extends readonly (typeof Component)[]
+  : Q extends readonly ComponentClass[]
     ? Q
     : Q extends { HAS: infer H }
       ? ExtractRequired<H>
@@ -148,12 +152,16 @@ function _PARENT(func: EntityTestFunc): EntityTestFunc {
  * @internal Used by `Query`, `System`, and `Filter` to translate user-supplied
  * DSL expressions into the predicate stored on `Query._belongs`.
  *
- * @param world - World used to resolve component classes to type ids.
+ * @param world - World used to resolve registered component classes to type ids.
  * @param q - Query expression.
  */
 export function _buildEntityTest(world: World, q: QueryDSL): EntityTestFunc {
-  if (typeof q === "number" || (typeof q === "function" && q.prototype instanceof Component)) {
-    return _HAS(world, q as typeof Component);
+  if (typeof q === "number") {
+    return _HAS(world, q);
+  }
+
+  if (typeof q === "function" && world._tryGetComponentMeta(q as ComponentClass)) {
+    return _HAS(world, q as ComponentClass);
   } else if (typeof q === "function") {
     return q as EntityTestFunc;
   }

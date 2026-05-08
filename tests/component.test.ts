@@ -1,74 +1,60 @@
 import { describe, it, expect, vi } from "vitest";
-import { World, Component } from "../src/index.js";
+import { World } from "../src/index.js";
 import { makeWorldWithFlushPhase } from "./_helpers.js";
 
-class Health extends Component {
+class Health {
   hp = 10;
 }
 
-describe("Component", () => {
-  it("type is shorthand for meta.type", () => {
+describe("ComponentMeta", () => {
+  it("stores the component name", () => {
     const w = new World();
-    w.registerComponent(Health, 42);
-    const e = w.entity();
+    const meta = w.registerComponent(Health, "HP");
+    expect(meta.componentName).toBe("HP");
+  });
+
+  it("entity.modified(C) queues an onSet hook delivery", () => {
+    const env = makeWorldWithFlushPhase();
+    env.w.registerComponent(Health);
+    const onSet = vi.fn();
+    env.w.hook(Health).onSet(onSet);
+    env.start();
+    const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
-    expect(h.type).toBe(42);
-    expect(h.type).toBe(h.meta.type);
-  });
-
-  it("bitPtr is shorthand for meta.bitPtr", () => {
-    const w = new World();
-    w.registerComponent(Health);
-    const h = w.entity().add(Health).get(Health)!;
-    expect(h.bitPtr).toBe(h.meta.bitPtr);
-  });
-
-  it("toString returns the component name", () => {
-    const w = new World();
-    w.registerComponent(Health, "HP");
-    const h = w.entity().add(Health).get(Health)!;
-    expect(h.toString()).toBe("HP");
-  });
-
-  it("modified() queues an onSet hook delivery", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
-    const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
-    env.start();
-    const h = env.w.entity().add(Health).get(Health)!;
-    h.modified();
+    e.modified(Health);
     env.tick();
-    expect(onSet).toHaveBeenCalledWith(h);
+    expect(onSet).toHaveBeenCalledWith(e, h);
   });
 
-  it("modified() in deferred mode is coalesced — onSet fires once even if called multiple times", () => {
+  it("entity.modified(C) in deferred mode is coalesced — onSet fires once even if called multiple times", () => {
     const env = makeWorldWithFlushPhase();
     env.w.registerComponent(Health);
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const h = env.w.entity().add(Health).get(Health)!;
+    const e = env.w.entity();
+    e.add(Health);
     onSet.mockClear();
     env.w.beginDefer();
-    h.modified();
-    h.modified();
-    h.modified();
+    e.modified(Health);
+    e.modified(Health);
+    e.modified(Health);
     env.w.endDefer();
     expect(onSet).toHaveBeenCalledTimes(1);
   });
 
-  it("modified() at top level fires onSet immediately on each call", () => {
+  it("entity.modified(C) at top level fires onSet immediately on each call", () => {
     const env = makeWorldWithFlushPhase();
     env.w.registerComponent(Health);
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
-    const h = env.w.entity().add(Health).get(Health)!;
+    const e = env.w.entity();
+    e.add(Health);
     onSet.mockClear();
-    h.modified();
-    h.modified();
-    h.modified();
+    e.modified(Health);
+    e.modified(Health);
+    e.modified(Health);
     expect(onSet).toHaveBeenCalledTimes(3);
   });
 });
@@ -78,8 +64,8 @@ describe("Entity.modified", () => {
     const w = new World();
     w.registerComponent(Health);
     const e = w.entity();
-    const h = e.add(Health).get(Health)!;
-    expect(e.modified(h)).toBe(e);
+    e.add(Health);
+    expect(e.modified(Health)).toBe(e);
   });
 
   it("queues an onSet hook delivery", () => {
@@ -90,9 +76,9 @@ describe("Entity.modified", () => {
     env.start();
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
-    e.modified(h);
+    e.modified(Health);
     env.tick();
-    expect(onSet).toHaveBeenCalledWith(h);
+    expect(onSet).toHaveBeenCalledWith(e, h);
   });
 
   it("is coalesced in deferred mode — onSet fires once even if called multiple times", () => {
@@ -102,12 +88,12 @@ describe("Entity.modified", () => {
     env.w.hook(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
-    const h = e.add(Health).get(Health)!;
+    e.add(Health);
     onSet.mockClear();
     env.w.beginDefer();
-    e.modified(h);
-    e.modified(h);
-    e.modified(h);
+    e.modified(Health);
+    e.modified(Health);
+    e.modified(Health);
     env.w.endDefer();
     expect(onSet).toHaveBeenCalledTimes(1);
   });
@@ -119,7 +105,7 @@ describe("Entity.modified", () => {
     env.w.hook(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
-    e.add(Health).modified(e.get(Health)!);
+    e.add(Health).modified(Health);
     env.tick();
     expect(onSet).toHaveBeenCalledTimes(1);
   });
@@ -132,8 +118,9 @@ describe("Hook", () => {
     const onAdd = vi.fn();
     env.w.hook(Health).onAdd(onAdd);
     env.start();
-    const h = env.w.entity().add(Health).get(Health)!;
-    expect(onAdd).toHaveBeenCalledWith(h);
+    const e = env.w.entity();
+    const h = e.add(Health).get(Health)!;
+    expect(onAdd).toHaveBeenCalledWith(e, h);
   });
 
   it("onSet fires when a component value is set", () => {
@@ -141,7 +128,7 @@ describe("Hook", () => {
     env.w.registerComponent(Health);
 
     const set_values: number[] = [];
-    const onSet = vi.fn((c) => set_values.push(c.hp));
+    const onSet = vi.fn((_e, c) => set_values.push(c.hp));
 
     const onAdd = vi.fn();
     env.w.hook(Health).onSet(onSet).onAdd(onAdd);
@@ -151,9 +138,9 @@ describe("Hook", () => {
 
     e.set(Health, { hp: 200 });
 
-    expect(onAdd).toHaveBeenCalledWith(h);
+    expect(onAdd).toHaveBeenCalledWith(e, h);
     expect(onAdd).toHaveBeenCalledOnce();
-    expect(onSet).toHaveBeenCalledWith(h);
+    expect(onSet).toHaveBeenCalledWith(e, h);
     expect(onSet).toHaveBeenCalledTimes(2);
     expect(set_values).toEqual([99, 200]);
   });
@@ -167,7 +154,7 @@ describe("Hook", () => {
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
     e.remove(Health);
-    expect(onRemove).toHaveBeenCalledWith(h);
+    expect(onRemove).toHaveBeenCalledWith(e, h);
   });
 
   it("onRemove fires when the entity is destroyed", () => {

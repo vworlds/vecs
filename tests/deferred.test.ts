@@ -1,15 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
-import { World, Component } from "../src/index.js";
+import { World } from "../src/index.js";
 
-class Position extends Component {
+class Position {
   x = 0;
   y = 0;
 }
-class Velocity extends Component {
+class Velocity {
   vx = 0;
 }
-class Walking extends Component {}
-class Running extends Component {}
+class Walking {}
+class Running {}
 
 function setup() {
   const w = new World();
@@ -161,8 +161,8 @@ describe("Deferred mode — Query dispatches enter/exit/update immediately", () 
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     update.mockClear();
-    pos.modified();
-    expect(update).toHaveBeenCalledWith(pos);
+    e.modified(Position);
+    expect(update).toHaveBeenCalledWith(e, pos);
   });
 });
 

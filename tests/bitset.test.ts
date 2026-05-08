@@ -41,17 +41,21 @@ describe("Bitset", () => {
     expect(b.has(0)).toBe(true);
   });
 
-  it("delete trims trailing zero words", () => {
+  it("compact trims trailing zero words", () => {
     const b = new Bitset();
     b.add(0);
     b.add(32);
     b.add(64);
     expect(b._bits.length).toBe(3);
     b.delete(64);
+    expect(b._bits.length).toBe(3); // Should not shrink yet
+    b.compact();
     expect(b._bits.length).toBe(2);
     b.delete(32);
+    b.compact();
     expect(b._bits.length).toBe(1);
     b.delete(0);
+    b.compact();
     expect(b._bits.length).toBe(0);
   });
 
@@ -59,6 +63,15 @@ describe("Bitset", () => {
     const b = new Bitset();
     b.delete(50); // never been added — array is empty
     expect(b.has(50)).toBe(false);
+  });
+
+  it("clear removes all bits", () => {
+    const b = new Bitset();
+    b.add(1);
+    b.add(64);
+    b.clear();
+    expect(b.indices()).toEqual([]);
+    expect(b._bits.length).toBe(0);
   });
 
   it("equal compares bit-by-bit", () => {
@@ -108,6 +121,9 @@ describe("Bitset", () => {
     b.addBit(ptr);
     expect(b.hasBit(ptr)).toBe(true);
     expect(b.has(45)).toBe(true);
+    b.deleteBit(ptr);
+    expect(b.hasBit(ptr)).toBe(false);
+    expect(b.has(45)).toBe(false);
   });
 
   it("BitPtr.equals identifies same bit position", () => {

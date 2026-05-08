@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { World, Component } from "../src/index.js";
+import { World } from "../src/index.js";
 
-class Position extends Component {
+class Position {
   x = 0;
   y = 0;
 }
-class Velocity extends Component {
+class Velocity {
   vx = 0;
   vy = 0;
 }
-class Sprite extends Component {}
+class Sprite {}
 
 function setup() {
   const w = new World();
