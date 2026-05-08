@@ -119,7 +119,7 @@ export class Entity {
       Object.assign(c, props);
     }
     this._components.set(meta.type, c);
-    this.componentBitmask.add(meta.type);
+    this.componentBitmask.addBit(meta.bitPtr);
     if (meta._onAddHandlers) {
       meta._onAddHandlers.forEach((handler) => handler(this, c));
     }
@@ -193,7 +193,7 @@ export class Entity {
       if (setHandlers) {
         setHandlers.forEach((handler) => handler(this, c));
       }
-      this._dirtyComponentBitmask.delete(meta.type);
+      this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
       if (existing) {
         this._queries.forEach((q) => q._notifyModified(this, meta, c));
       }
@@ -216,7 +216,7 @@ export class Entity {
     if (setHandlers) {
       setHandlers.forEach((handler) => handler(this, c));
     }
-    this._dirtyComponentBitmask.delete(meta.type);
+    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this._queries.forEach((q) => q._notifyModified(this, meta, c));
   }
 
@@ -232,8 +232,8 @@ export class Entity {
     if (!c) {
       return;
     }
-    this._dirtyComponentBitmask.delete(meta.type);
-    this.componentBitmask.delete(meta.type);
+    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    this.componentBitmask.deleteBit(meta.bitPtr);
     this._updateQueries();
     this._components.delete(meta.type);
     const removeHandlers = meta._onRemoveHandlers;
@@ -382,7 +382,7 @@ export class Entity {
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return this;
     }
-    this._dirtyComponentBitmask.add(meta.type);
+    this._dirtyComponentBitmask.addBit(meta.bitPtr);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
     } else {

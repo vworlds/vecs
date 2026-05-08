@@ -50,16 +50,18 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public delete(n: number): void {
-    const arrayIndex = Math.floor(n / 32);
-    const current = this._bits[arrayIndex];
-    if (current === undefined) {
-      return;
-    } else {
-      this._bits[arrayIndex] = current & ~(1 << (n % 32));
-    }
-    while (this._bits.length && this._bits[this._bits.length - 1] === 0) {
-      this._bits.pop();
-    }
+    this._deleteIndexBitmask(Math.floor(n / 32), 1 << (n % 32));
+  }
+
+  /**
+   * Clear the bit described by `bptr` (fast path using a pre-computed
+   * {@link BitPtr}). Trailing zero words are trimmed so the internal storage
+   * stays compact.
+   *
+   * @param bptr - Pre-computed pointer to a bit position.
+   */
+  public deleteBit(bptr: BitPtr): void {
+    this._deleteIndexBitmask(bptr.arrayIndex, bptr.bitmask);
   }
 
   /** Remove every set bit. */
@@ -146,6 +148,24 @@ export class Bitset {
     const idx: number[] = [];
     this.forEach((i) => idx.push(i));
     return idx;
+  }
+
+  /**
+   * AND NOT `bitmask` into the word at position `arrayIndex`, then trim
+   * trailing zero words.
+   *
+   * @internal Low-level bulk operation; prefer {@link delete} or {@link deleteBit}
+   * for single bits.
+   */
+  public _deleteIndexBitmask(arrayIndex: number, bitmask: number): void {
+    const current = this._bits[arrayIndex];
+    if (current === undefined) {
+      return;
+    }
+    this._bits[arrayIndex] = current & ~bitmask;
+    while (this._bits.length && this._bits[this._bits.length - 1] === 0) {
+      this._bits.pop();
+    }
   }
 
   /**
