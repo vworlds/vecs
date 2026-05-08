@@ -88,21 +88,7 @@ export class Entity {
   ) {}
 
   /**
-   * Re-evaluate every world query for this entity, firing `_enter` / `_exit`
-   * routing whenever membership flipped.
-   */
-  private _updateQueries(): void {
-    this.world.queries.forEach((q) => {
-      const belongs = q.belongs(this);
-      const isIn = this._isInQuery(q);
-      if (belongs !== isIn) {
-        belongs ? q._enter(this) : q._exit(this);
-      }
-    });
-  }
-
-  /**
-   * Remove any currently-attached components that conflict the defined
+   * Remove any currently-attached components that conflict with `meta`'s
    * exclusivity group before adding or attaching the replacement component.
    */
   private _removeExclusiveComponents(meta: ComponentMeta): void {
@@ -114,6 +100,20 @@ export class Entity {
         this._remove(exclusiveMeta);
       }
     }
+  }
+
+  /**
+   * Re-evaluate every world query for this entity, firing `_enter` / `_exit`
+   * routing whenever membership flipped.
+   */
+  private _updateQueries(): void {
+    this.world.queries.forEach((q) => {
+      const belongs = q.belongs(this);
+      const isIn = this._queries.has(q);
+      if (belongs !== isIn) {
+        belongs ? q._enter(this) : q._exit(this);
+      }
+    });
   }
 
   /**
@@ -139,76 +139,11 @@ export class Entity {
   }
 
   /**
-   * @internal Return `true` when this entity is currently tracked by `q`.
+   * @internal Record that this entity is now tracked by `q`. Called by
+   * `Query._enter`.
    */
-  public _isInQuery(q: Query): boolean {
-    return this._queries.has(q);
-  }
-
-  /**
-   * @internal Look up a component instance by numeric type id.
-   *
-   * Faster than {@link get} because no class to type id resolution is needed.
-   */
-  public _get(type: number): Component | undefined {
-    return this._components.get(type);
-  }
-
-  /**
-   * @internal Reparent this entity in place, maintaining the bidirectional
-   * link. Throws if `newParent` is a descendant of this entity.
-   *
-   * Called by the world either inline (outside deferred mode) or while
-   * routing a queued `SetParent` command.
-   */
-  public _setParent(newParent: Entity | undefined): void {
-    if (this._destroyed) {
-      return;
-    }
-    if (newParent !== undefined) {
-      let ancestor: Entity | undefined = newParent;
-      while (ancestor !== undefined) {
-        if (ancestor === this) {
-          throw new Error(
-            `Circular parent reference: entity ${this.eid} is already an ancestor of entity ${newParent.eid}`
-          );
-        }
-        ancestor = ancestor._parent;
-      }
-    }
-    if (this._parent) {
-      this._parent._children?.delete(this);
-    }
-    this._parent = newParent;
-    if (newParent) {
-      (newParent._children ??= new Set()).add(this);
-    }
-  }
-
-  /**
-   * @internal Apply a `Set` command: create the component if missing, assign
-   * `props` if provided, fire `onSet`, and route modified events to every
-   * query that watches the component type.
-   */
-  public _set(meta: ComponentMeta, props: Partial<Component> | undefined): void {
-    if (this._destroyed) {
-      return;
-    }
-    const existing = this._components.get(meta.type);
-    const c = existing ?? this._new(meta, props);
-    if (props !== undefined) {
-      if (existing) {
-        Object.assign(c, props);
-      }
-      const setHandlers = meta._onSetHandlers;
-      if (setHandlers) {
-        setHandlers.forEach((handler) => handler(this, c));
-      }
-      this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
-      if (existing) {
-        this._queries.forEach((q) => q._notifyModified(this, meta, c));
-      }
-    }
+  public _addQueryMembership(q: Query): void {
+    this._queries.add(q);
   }
 
   /**
@@ -235,48 +170,6 @@ export class Entity {
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (existing !== undefined) {
       this._queries.forEach((q) => q._notifyModified(this, meta, component));
-    }
-  }
-
-  /**
-   * @internal Apply a `Modified` command: fire `onSet` and route modified
-   * events to every query that watches the component type.
-   */
-  public _modified(meta: ComponentMeta): void {
-    if (this._destroyed) {
-      return;
-    }
-    const c = this._components.get(meta.type);
-    if (!c) {
-      return;
-    }
-    const setHandlers = meta._onSetHandlers;
-    if (setHandlers) {
-      setHandlers.forEach((handler) => handler(this, c));
-    }
-    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
-    this._queries.forEach((q) => q._notifyModified(this, meta, c));
-  }
-
-  /**
-   * @internal Apply a `Remove` command: clear the type bit, route exits,
-   * detach the component, and fire `onRemove`.
-   */
-  public _remove(meta: ComponentMeta): void {
-    if (this._destroyed) {
-      return;
-    }
-    const c = this._components.get(meta.type);
-    if (!c) {
-      return;
-    }
-    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
-    this.componentBitmask.deleteBit(meta.bitPtr);
-    this._updateQueries();
-    this._components.delete(meta.type);
-    const removeHandlers = meta._onRemoveHandlers;
-    if (removeHandlers) {
-      removeHandlers.forEach((handler) => handler(this, c));
     }
   }
 
@@ -321,6 +214,42 @@ export class Entity {
   }
 
   /**
+   * @internal Look up a component instance by numeric type id.
+   *
+   * Faster than {@link get} because no class to type id resolution is needed.
+   */
+  public _get(type: number): Component | undefined {
+    return this._components.get(type);
+  }
+
+  /**
+   * @internal Return `true` when this entity is currently tracked by `q`.
+   */
+  public _isInQuery(q: Query): boolean {
+    return this._queries.has(q);
+  }
+
+  /**
+   * @internal Apply a `Modified` command: fire `onSet` and route modified
+   * events to every query that watches the component type.
+   */
+  public _modified(meta: ComponentMeta): void {
+    if (this._destroyed) {
+      return;
+    }
+    const c = this._components.get(meta.type);
+    if (!c) {
+      return;
+    }
+    const setHandlers = meta._onSetHandlers;
+    if (setHandlers) {
+      setHandlers.forEach((handler) => handler(this, c));
+    }
+    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    this._queries.forEach((q) => q._notifyModified(this, meta, c));
+  }
+
+  /**
    * @internal Forget query `q` without firing exit callbacks. Called by
    * {@link World} when a {@link Query.destroy} sweeps every entity.
    */
@@ -329,11 +258,25 @@ export class Entity {
   }
 
   /**
-   * @internal Record that this entity is now tracked by `q`. Called by
-   * `Query._enter`.
+   * @internal Apply a `Remove` command: clear the type bit, route exits,
+   * detach the component, and fire `onRemove`.
    */
-  public _addQueryMembership(q: Query): void {
-    this._queries.add(q);
+  public _remove(meta: ComponentMeta): void {
+    if (this._destroyed) {
+      return;
+    }
+    const c = this._components.get(meta.type);
+    if (!c) {
+      return;
+    }
+    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    this.componentBitmask.deleteBit(meta.bitPtr);
+    this._updateQueries();
+    this._components.delete(meta.type);
+    const removeHandlers = meta._onRemoveHandlers;
+    if (removeHandlers) {
+      removeHandlers.forEach((handler) => handler(this, c));
+    }
   }
 
   /**
@@ -344,9 +287,61 @@ export class Entity {
     this._queries.delete(q);
   }
 
-  /** Parent entity in the scene hierarchy, or `undefined` for a root entity. */
-  public get parent(): Entity | undefined {
-    return this._parent;
+  /**
+   * @internal Apply a `Set` command: create the component if missing, assign
+   * `props` if provided, fire `onSet`, and route modified events to every
+   * query that watches the component type.
+   */
+  public _set(meta: ComponentMeta, props: Partial<Component> | undefined): void {
+    if (this._destroyed) {
+      return;
+    }
+    const existing = this._components.get(meta.type);
+    const c = existing ?? this._new(meta, props);
+    if (props !== undefined) {
+      if (existing) {
+        Object.assign(c, props);
+      }
+      const setHandlers = meta._onSetHandlers;
+      if (setHandlers) {
+        setHandlers.forEach((handler) => handler(this, c));
+      }
+      this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+      if (existing) {
+        this._queries.forEach((q) => q._notifyModified(this, meta, c));
+      }
+    }
+  }
+
+  /**
+   * @internal Reparent this entity in place, maintaining the bidirectional
+   * link. Throws if `newParent` is a descendant of this entity.
+   *
+   * Called by the world either inline (outside deferred mode) or while
+   * routing a queued `SetParent` command.
+   */
+  public _setParent(newParent: Entity | undefined): void {
+    if (this._destroyed) {
+      return;
+    }
+    if (newParent !== undefined) {
+      let ancestor: Entity | undefined = newParent;
+      while (ancestor !== undefined) {
+        if (ancestor === this) {
+          throw new Error(
+            `Circular parent reference: entity ${this.eid} is already an ancestor of entity ${newParent.eid}`
+          );
+        }
+        ancestor = ancestor._parent;
+      }
+    }
+    if (this._parent) {
+      this._parent._children?.delete(this);
+    }
+    this._parent = newParent;
+    if (newParent) {
+      (newParent._children ??= new Set()).add(this);
+    }
   }
 
   /**
@@ -355,24 +350,6 @@ export class Entity {
    */
   public get children(): ReadonlySet<Entity> {
     return this._children ?? Entity._emptyChildren;
-  }
-
-  /**
-   * Typed event emitter for entity-level lifecycle events. Currently only the
-   * `"destroy"` event is emitted, just before the entity is fully torn down.
-   *
-   * The emitter is created lazily on first access.
-   */
-  public get events(): EntityEvents {
-    if (!this._events) {
-      this._events = new Events();
-    }
-    return this._events;
-  }
-
-  /** `true` when no components are currently attached to this entity. */
-  public get empty(): boolean {
-    return this._components.size == 0;
   }
 
   /**
@@ -391,42 +368,27 @@ export class Entity {
     return this._components;
   }
 
-  /**
-   * Reparent this entity. In deferred mode the change is queued; outside
-   * deferred mode it executes inline.
-   *
-   * @param newParent - New parent, or `undefined` to make this a root entity.
-   */
-  public setParent(newParent: Entity | undefined): void {
-    if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.SetParent, entity: this, parent: newParent });
-    } else {
-      this._setParent(newParent);
-    }
+  /** `true` when no components are currently attached to this entity. */
+  public get empty(): boolean {
+    return this._components.size == 0;
   }
 
   /**
-   * Mark a component type as having changed, queueing the corresponding `onSet` / `update`
-   * notifications.
+   * Typed event emitter for entity-level lifecycle events. Currently only the
+   * `"destroy"` event is emitted, just before the entity is fully torn down.
    *
-   * Repeated calls before the world routes the modified command are coalesced via
-   * the entity's dirty component bitset.
-   *
-   * @param typeOrClass - Component class or numeric type id whose data changed.
-   * @returns This entity, for chaining.
+   * The emitter is created lazily on first access.
    */
-  public modified(typeOrClass: ComponentClassOrType): Entity {
-    const meta = this.world.getComponentMeta(typeOrClass);
-    if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
-      return this;
+  public get events(): EntityEvents {
+    if (!this._events) {
+      this._events = new Events();
     }
-    this._dirtyComponentBitmask.addBit(meta.bitPtr);
-    if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
-    } else {
-      this._modified(meta);
-    }
-    return this;
+    return this._events;
+  }
+
+  /** Parent entity in the scene hierarchy, or `undefined` for a root entity. */
+  public get parent(): Entity | undefined {
+    return this._parent;
   }
 
   /**
@@ -456,6 +418,125 @@ export class Entity {
       this._set(meta, undefined);
     }
     return this;
+  }
+
+  /**
+   * Attach an existing component instance to this entity and store that exact
+   * object. If a component of the same registered class already exists, it is
+   * replaced rather than assigned into.
+   *
+   * `attach` uses the instance constructor to resolve component metadata, so
+   * the constructor must already be registered in this world. The operation
+   * fires hooks and query updates like a `set` operation.
+   *
+   * @param component - Existing component instance to store on the entity.
+   * @returns This entity, for chaining.
+   */
+  public attach(component: Component): Entity {
+    const meta = this.world.getComponentMeta(component.constructor as ComponentClass);
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component });
+    } else {
+      this._attach(meta, component);
+    }
+    return this;
+  }
+
+  /**
+   * Destroy this entity and recursively destroy its children.
+   *
+   * Each component fires its `onRemove` hook, the `"destroy"` event is emitted
+   * just before teardown, and the entity is unregistered from the world.
+   * After destruction the entity must not be used.
+   */
+  public destroy(): void {
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: CommandKind.Destroy, entity: this });
+    } else {
+      this._destroy();
+    }
+    if (this._children) {
+      this._children.forEach((child) => {
+        child.destroy();
+      });
+      this._children.clear();
+    }
+  }
+
+  /**
+   * Look up a component on this entity.
+   *
+   * @param typeOrClass - Component class or numeric type id.
+   * @returns The component instance, or `undefined` when it is not attached.
+   */
+  public get<C extends ComponentClass>(typeOrClass: number | C): InstanceType<C> | undefined {
+    const type = this.world.getComponentType(typeOrClass);
+    return this._get(type) as InstanceType<C> | undefined;
+  }
+
+  /**
+   * Mark a component type as having changed, queueing the corresponding `onSet` / `update`
+   * notifications.
+   *
+   * Repeated calls before the world routes the modified command are coalesced via
+   * the entity's dirty component bitset.
+   *
+   * @param typeOrClass - Component class or numeric type id whose data changed.
+   * @returns This entity, for chaining.
+   */
+  public modified(typeOrClass: ComponentClassOrType): Entity {
+    const meta = this.world.getComponentMeta(typeOrClass);
+    if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
+      return this;
+    }
+    this._dirtyComponentBitmask.addBit(meta.bitPtr);
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
+    } else {
+      this._modified(meta);
+    }
+    return this;
+  }
+
+  /**
+   * Detach a component from this entity.
+   *
+   * In deferred mode the removal is queued; `get(C)` continues to return the
+   * component until the queue drains. When applied, queries fire `exit`
+   * callbacks first and the `onRemove` hook fires last.
+   *
+   * @param Class - Component class to detach.
+   */
+  public remove<C extends ComponentClass>(Class: C): void;
+
+  /**
+   * Detach a component by numeric type id.
+   *
+   * @param type - Numeric component type id.
+   */
+  public remove(type: number): void;
+
+  public remove(typeOrClass: ComponentClassOrType): void {
+    const meta = this.world.getComponentMeta(typeOrClass);
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: CommandKind.Remove, entity: this, meta });
+    } else {
+      this._remove(meta);
+    }
+  }
+
+  /**
+   * Reparent this entity. In deferred mode the change is queued; outside
+   * deferred mode it executes inline.
+   *
+   * @param newParent - New parent, or `undefined` to make this a root entity.
+   */
+  public setParent(newParent: Entity | undefined): void {
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: CommandKind.SetParent, entity: this, parent: newParent });
+    } else {
+      this._setParent(newParent);
+    }
   }
 
   /**
@@ -489,87 +570,6 @@ export class Entity {
       this._set(meta, props);
     }
     return this;
-  }
-
-  /**
-   * Attach an existing component instance to this entity and store that exact
-   * object. If a component of the same registered class already exists, it is
-   * replaced rather than assigned into.
-   *
-   * `attach` uses the instance constructor to resolve component metadata, so
-   * the constructor must already be registered in this world. The operation
-   * fires hooks and query updates like a `set` operation.
-   *
-   * @param component - Existing component instance to store on the entity.
-   * @returns This entity, for chaining.
-   */
-  public attach(component: Component): Entity {
-    const meta = this.world.getComponentMeta(component.constructor as ComponentClass);
-    if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component });
-    } else {
-      this._attach(meta, component);
-    }
-    return this;
-  }
-
-  /**
-   * Detach a component from this entity.
-   *
-   * In deferred mode the removal is queued; `get(C)` continues to return the
-   * component until the queue drains. When applied, queries fire `exit`
-   * callbacks first and the `onRemove` hook fires last.
-   *
-   * @param Class - Component class to detach.
-   */
-  public remove<C extends ComponentClass>(Class: C): void;
-
-  /**
-   * Detach a component by numeric type id.
-   *
-   * @param type - Numeric component type id.
-   */
-  public remove(type: number): void;
-
-  public remove(typeOrClass: ComponentClassOrType): void {
-    const meta = this.world.getComponentMeta(typeOrClass);
-    if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Remove, entity: this, meta });
-    } else {
-      this._remove(meta);
-    }
-  }
-
-  /**
-   * Look up a component on this entity.
-   *
-   * @param typeOrClass - Component class or numeric type id.
-   * @returns The component instance, or `undefined` when it is not attached.
-   */
-  public get<C extends ComponentClass>(typeOrClass: number | C): InstanceType<C> | undefined {
-    const type = this.world.getComponentType(typeOrClass);
-    return this._get(type) as InstanceType<C> | undefined;
-  }
-
-  /**
-   * Destroy this entity and recursively destroy its children.
-   *
-   * Each component fires its `onRemove` hook, the `"destroy"` event is emitted
-   * just before teardown, and the entity is unregistered from the world.
-   * After destruction the entity must not be used.
-   */
-  public destroy(): void {
-    if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Destroy, entity: this });
-    } else {
-      this._destroy();
-    }
-    if (this._children) {
-      this._children.forEach((child) => {
-        child.destroy();
-      });
-      this._children.clear();
-    }
   }
 
   /** Returns `"EntityN"` where N is the entity id. */
