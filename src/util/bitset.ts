@@ -44,8 +44,8 @@ export class Bitset {
   }
 
   /**
-   * Clear bit `n`. Trailing zero words are trimmed so the internal storage
-   * stays compact.
+   * Clear bit `n`. Storage is not compacted automatically; call
+   * {@link compact} to trim trailing zero words when needed.
    *
    * @param n - Non-negative integer bit index.
    */
@@ -54,9 +54,14 @@ export class Bitset {
     const current = this._bits[arrayIndex];
     if (current === undefined) {
       return;
-    } else {
-      this._bits[arrayIndex] = current & ~(1 << (n % 32));
     }
+    this._bits[arrayIndex] = current & ~(1 << (n % 32));
+  }
+
+  /**
+   * Trim trailing zero words from the backing storage.
+   */
+  public compact(): void {
     while (this._bits.length && this._bits[this._bits.length - 1] === 0) {
       this._bits.pop();
     }
@@ -92,9 +97,13 @@ export class Bitset {
    * @param other - Bitset to compare against.
    */
   public equal(other: Bitset): boolean {
-    return (
-      this._bits.length === other._bits.length && this._bits.every((v, i) => other._bits[i] === v)
-    );
+    const maxLength = Math.max(this._bits.length, other._bits.length);
+    for (let i = 0; i < maxLength; i++) {
+      if ((this._bits[i] || 0) !== (other._bits[i] || 0)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -107,9 +116,6 @@ export class Bitset {
    * @param other - Bitset whose set bits must all appear in this bitset.
    */
   public hasBitset(other: Bitset): boolean {
-    if (this._bits.length < other._bits.length) {
-      return false;
-    }
     for (let i = 0; i < other._bits.length; i++) {
       if ((this._bits[i] & other._bits[i]) !== (other._bits[i] || 0)) {
         return false;
