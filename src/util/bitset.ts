@@ -1,13 +1,3 @@
-const BYTE_BITS = Array.from({ length: 256 }, (_, byte) => {
-  const bits: number[] = [];
-  for (let i = 0; i < 8; i++) {
-    if ((byte & (1 << i)) !== 0) {
-      bits.push(i);
-    }
-  }
-  return bits;
-});
-
 /**
  * A compact, growable set of non-negative integers backed by an array of
  * 32-bit words.
@@ -148,20 +138,14 @@ export class Bitset {
    * @param callback - Invoked once per set bit.
    */
   public forEach(callback: (n: number) => void): void {
-    const bits = this._bits;
-    for (let j = 0, len = bits.length; j < len; j++) {
-      const word = bits[j] | 0;
-      if (word === 0) {
-        continue;
-      }
-      const base = j << 5;
-      for (let byteIndex = 0; byteIndex < 4; byteIndex++) {
-        const byteBits = BYTE_BITS[(word >>> (byteIndex << 3)) & 0xff];
-        for (let i = 0; i < byteBits.length; i++) {
-          callback(base + (byteIndex << 3) + byteBits[i]);
+    this._bits.forEach((b, j) => {
+      for (let i = 0; i < 32; i++) {
+        if ((b & 1) !== 0) {
+          callback(i + j * 32);
         }
+        b >>= 1;
       }
-    }
+    });
   }
 
   /**
