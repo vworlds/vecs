@@ -22,28 +22,13 @@ export class Bitset {
   /** @internal Underlying word storage; exposed for tests. */
   public _bits: number[] = [];
 
-  private _bytes: Uint8Array = new Uint8Array(0);
-
-  private _ensureByteCapacity(n: number): void {
-    if (n < this._bytes.length) {
-      return;
-    }
-    const bytes = new Uint8Array(n + 1);
-    bytes.set(this._bytes);
-    this._bytes = bytes;
-  }
-
   /**
    * Set bit `n`.
    *
    * @param n - Non-negative integer bit index.
    */
   public add(n: number): void {
-    const arrayIndex = n >>> 5;
-    const bitmask = 1 << (n & 31);
-    this._ensureByteCapacity(n);
-    this._bytes[n] = 1;
-    this._addIndexBitmask(arrayIndex, bitmask);
+    this._bits[n >>> 5] |= 1 << n;
   }
 
   /**
@@ -53,9 +38,7 @@ export class Bitset {
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public addBit(bptr: BitPtr): void {
-    this._ensureByteCapacity(bptr.value);
-    this._bytes[bptr.value] = 1;
-    this._addIndexBitmask(bptr.arrayIndex, bptr.bitmask);
+    this._bits[bptr.arrayIndex] |= bptr.bitmask;
   }
 
   /**
@@ -66,44 +49,32 @@ export class Bitset {
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public deleteBit(bptr: BitPtr): void {
-    if (bptr.arrayIndex >= this._bits.length) {
-      return;
+    const current = this._bits[bptr.arrayIndex];
+    if (current) {
+      this._bits[bptr.arrayIndex] = current & ~bptr.bitmask;
     }
-    if (bptr.value < this._bytes.length) {
-      this._bytes[bptr.value] = 0;
-    }
-    this._bits[bptr.arrayIndex] &= ~bptr.bitmask;
   }
 
   /**
-   * Clear bit `n`.
+   * Clear bit `n`. Storage is not compacted automatically; call
+   * {@link compact} to trim trailing zero words when needed.
    *
    * @param n - Non-negative integer bit index.
    */
   public delete(n: number): void {
     const arrayIndex = n >>> 5;
-    if (arrayIndex >= this._bits.length) {
-      return;
+    const current = this._bits[arrayIndex];
+    if (current) {
+      this._bits[arrayIndex] = current & ~(1 << n);
     }
-    if (n < this._bytes.length) {
-      this._bytes[n] = 0;
-    }
-    this._bits[arrayIndex] &= ~(1 << (n & 31));
   }
 
   /**
-   * Trim trailing zero words to recover memory.
+   * Trim trailing zero words from the backing storage.
    */
   public compact(): void {
-    while (this._bits.length > 0 && this._bits[this._bits.length - 1] === 0) {
+    while (this._bits.length && this._bits[this._bits.length - 1] === 0) {
       this._bits.pop();
-    }
-    let length = this._bytes.length;
-    while (length > 0 && this._bytes[length - 1] === 0) {
-      length--;
-    }
-    if (length !== this._bytes.length) {
-      this._bytes = this._bytes.slice(0, length);
     }
   }
 
@@ -113,7 +84,7 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public has(n: number): boolean {
-    return this._bytes[n] === 1;
+    return (this._bits[n >>> 5] & (1 << n)) !== 0;
   }
 
   /**
@@ -122,7 +93,7 @@ export class Bitset {
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public hasBit(bptr: BitPtr): boolean {
-    return this._bytes[bptr.value] === 1;
+    return (this._bits[bptr.arrayIndex] & bptr.bitmask) !== 0;
   }
 
   /**
@@ -131,13 +102,9 @@ export class Bitset {
    * @param other - Bitset to compare against.
    */
   public equal(other: Bitset): boolean {
-    const thisBits = this._bits;
-    const otherBits = other._bits;
-    if (thisBits.length !== otherBits.length) {
-      return false;
-    }
-    for (let i = 0; i < thisBits.length; i++) {
-      if (thisBits[i] !== otherBits[i]) {
+    const maxLength = Math.max(this._bits.length, other._bits.length);
+    for (let i = 0; i < maxLength; i++) {
+      if ((this._bits[i] || 0) !== (other._bits[i] || 0)) {
         return false;
       }
     }
@@ -157,50 +124,45 @@ export class Bitset {
     const thisBits = this._bits;
     const otherBits = other._bits;
     const otherLen = otherBits.length;
-    const thisLen = thisBits.length;
-
-    if (thisLen < otherLen) {
-      return false;
-    }
 
     let i = 0;
     for (; i + 7 < otherLen; i += 8) {
-      const w0 = otherBits[i];
+      const w0 = otherBits[i] | 0;
       if (w0 !== 0 && (thisBits[i] & w0) !== w0) {
         return false;
       }
-      const w1 = otherBits[i + 1];
+      const w1 = otherBits[i + 1] | 0;
       if (w1 !== 0 && (thisBits[i + 1] & w1) !== w1) {
         return false;
       }
-      const w2 = otherBits[i + 2];
+      const w2 = otherBits[i + 2] | 0;
       if (w2 !== 0 && (thisBits[i + 2] & w2) !== w2) {
         return false;
       }
-      const w3 = otherBits[i + 3];
+      const w3 = otherBits[i + 3] | 0;
       if (w3 !== 0 && (thisBits[i + 3] & w3) !== w3) {
         return false;
       }
-      const w4 = otherBits[i + 4];
+      const w4 = otherBits[i + 4] | 0;
       if (w4 !== 0 && (thisBits[i + 4] & w4) !== w4) {
         return false;
       }
-      const w5 = otherBits[i + 5];
+      const w5 = otherBits[i + 5] | 0;
       if (w5 !== 0 && (thisBits[i + 5] & w5) !== w5) {
         return false;
       }
-      const w6 = otherBits[i + 6];
+      const w6 = otherBits[i + 6] | 0;
       if (w6 !== 0 && (thisBits[i + 6] & w6) !== w6) {
         return false;
       }
-      const w7 = otherBits[i + 7];
+      const w7 = otherBits[i + 7] | 0;
       if (w7 !== 0 && (thisBits[i + 7] & w7) !== w7) {
         return false;
       }
     }
 
     for (; i < otherLen; i++) {
-      const otherWord = otherBits[i];
+      const otherWord = otherBits[i] | 0;
       if (otherWord !== 0 && (thisBits[i] & otherWord) !== otherWord) {
         return false;
       }
@@ -216,11 +178,11 @@ export class Bitset {
   public forEach(callback: (n: number) => void): void {
     const bits = this._bits;
     for (let j = 0, len = bits.length; j < len; j++) {
-      let w = bits[j];
-      while (w !== 0) {
-        const lsb = w & -w;
-        callback((j << 5) + (31 - Math.clz32(lsb >>> 0)));
-        w &= w - 1;
+      let word = bits[j] | 0;
+      while (word !== 0) {
+        const bit = word & -word;
+        callback((j << 5) + (31 - Math.clz32(bit >>> 0)));
+        word &= word - 1;
       }
     }
   }
@@ -241,18 +203,7 @@ export class Bitset {
    * for single bits.
    */
   public _addIndexBitmask(arrayIndex: number, bitmask: number): void {
-    while (this._bits.length <= arrayIndex) {
-      this._bits.push(0);
-    }
     this._bits[arrayIndex] |= bitmask;
-    let word = bitmask;
-    while (word !== 0) {
-      const lsb = word & -word;
-      const n = (arrayIndex << 5) + (31 - Math.clz32(lsb >>> 0));
-      this._ensureByteCapacity(n);
-      this._bytes[n] = 1;
-      word &= word - 1;
-    }
   }
 
   /**
@@ -261,15 +212,7 @@ export class Bitset {
    * @internal Used by network deserialization to write a whole word at once.
    */
   public _setIndexBitmask(arrayIndex: number, bitmask: number): void {
-    while (this._bits.length <= arrayIndex) {
-      this._bits.push(0);
-    }
     this._bits[arrayIndex] = bitmask;
-    for (let i = 0; i < 32; i++) {
-      const n = (arrayIndex << 5) + i;
-      this._ensureByteCapacity(n);
-      this._bytes[n] = (bitmask & (1 << i)) !== 0 ? 1 : 0;
-    }
   }
 
   /**
@@ -304,8 +247,8 @@ export class BitPtr {
     /** The raw bit index this pointer refers to. */
     public readonly value: number
   ) {
-    this.arrayIndex = Math.floor(value / 32);
-    this.bitmask = 1 << (value % 32);
+    this.arrayIndex = value >>> 5;
+    this.bitmask = 1 << value;
   }
 
   /**
@@ -314,6 +257,6 @@ export class BitPtr {
    * @param other - Pointer to compare against.
    */
   public equals(other: BitPtr): boolean {
-    return this.arrayIndex == other.arrayIndex && this.bitmask == other.bitmask;
+    return this.arrayIndex === other.arrayIndex && this.bitmask === other.bitmask;
   }
 }
