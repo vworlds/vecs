@@ -87,19 +87,14 @@ export class Entity {
     public readonly eid: number
   ) {}
 
-  /**
-   * Remove any currently-attached components that conflict with `meta`'s
-   * exclusivity group before adding or attaching the replacement component.
-   */
-  private _removeExclusiveComponents(meta: ComponentMeta): void {
-    if (!meta._exclusive) {
-      return;
-    }
-    for (const exclusiveMeta of meta._exclusive) {
-      if (this._components.has(exclusiveMeta.type)) {
-        this._remove(exclusiveMeta);
-      }
-    }
+  /** Fire every `onAdd` hook registered for `meta`. */
+  private _runOnAddHandlers(meta: ComponentMeta, component: Component): void {
+    meta._onAddHandlers?.forEach((handler) => handler(this, component));
+  }
+
+  /** Fire every `onSet` hook registered for `meta`. */
+  private _runOnSetHandlers(meta: ComponentMeta, component: Component): void {
+    meta._onSetHandlers?.forEach((handler) => handler(this, component));
   }
 
   /**
@@ -116,6 +111,32 @@ export class Entity {
     });
   }
 
+  /** Store a component instance and perform the shared add-side bookkeeping. */
+  private _storeComponent(meta: ComponentMeta, component: Component, isAdd: boolean): void {
+    if (meta._exclusive) {
+      for (const exclusiveMeta of meta._exclusive) {
+        if (this._components.has(exclusiveMeta.type)) {
+          this._remove(exclusiveMeta);
+        }
+      }
+    }
+    this._components.set(meta.type, component);
+    this.componentBitmask.addBit(meta.bitPtr);
+    if (isAdd) {
+      this._runOnAddHandlers(meta, component);
+    }
+    this._updateQueries();
+  }
+
+  /** Perform the shared set-side hook and query update routing. */
+  private _notifyComponentSet(meta: ComponentMeta, component: Component, isUpdate: boolean): void {
+    this._runOnSetHandlers(meta, component);
+    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    if (isUpdate) {
+      this._queries.forEach((q) => q._notifyModified(this, meta, component));
+    }
+  }
+
   /**
    * Construct a fresh component of `type`, apply `props`, store it on this
    * entity, fire the `onAdd` hook, and route query updates.
@@ -124,17 +145,11 @@ export class Entity {
    * component already on this entity is removed first.
    */
   private _new(meta: ComponentMeta, props: Partial<Component> | undefined): Component {
-    this._removeExclusiveComponents(meta);
     const c = new meta.Class();
     if (props !== undefined) {
       Object.assign(c, props);
     }
-    this._components.set(meta.type, c);
-    this.componentBitmask.addBit(meta.bitPtr);
-    if (meta._onAddHandlers) {
-      meta._onAddHandlers.forEach((handler) => handler(this, c));
-    }
-    this._updateQueries();
+    this._storeComponent(meta, c, true);
     return c;
   }
 
@@ -156,21 +171,8 @@ export class Entity {
       return;
     }
     const existing = this._components.get(meta.type);
-    this._removeExclusiveComponents(meta);
-    this._components.set(meta.type, component);
-    this.componentBitmask.addBit(meta.bitPtr);
-    if (existing === undefined && meta._onAddHandlers) {
-      meta._onAddHandlers.forEach((handler) => handler(this, component));
-    }
-    this._updateQueries();
-    const setHandlers = meta._onSetHandlers;
-    if (setHandlers) {
-      setHandlers.forEach((handler) => handler(this, component));
-    }
-    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
-    if (existing !== undefined) {
-      this._queries.forEach((q) => q._notifyModified(this, meta, component));
-    }
+    this._storeComponent(meta, component, existing === undefined);
+    this._notifyComponentSet(meta, component, existing !== undefined);
   }
 
   /**
@@ -241,12 +243,7 @@ export class Entity {
     if (!c) {
       return;
     }
-    const setHandlers = meta._onSetHandlers;
-    if (setHandlers) {
-      setHandlers.forEach((handler) => handler(this, c));
-    }
-    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
-    this._queries.forEach((q) => q._notifyModified(this, meta, c));
+    this._notifyComponentSet(meta, c, true);
   }
 
   /**
@@ -302,14 +299,7 @@ export class Entity {
       if (existing) {
         Object.assign(c, props);
       }
-      const setHandlers = meta._onSetHandlers;
-      if (setHandlers) {
-        setHandlers.forEach((handler) => handler(this, c));
-      }
-      this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
-      if (existing) {
-        this._queries.forEach((q) => q._notifyModified(this, meta, c));
-      }
+      this._notifyComponentSet(meta, c, existing !== undefined);
     }
   }
 
