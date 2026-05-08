@@ -121,49 +121,11 @@ export class Bitset {
    * @param other - Bitset whose set bits must all appear in this bitset.
    */
   public hasBitset(other: Bitset): boolean {
-    const thisBits = this._bits;
+    const bits = this._bits;
     const otherBits = other._bits;
-    const otherLen = otherBits.length;
-
-    let i = 0;
-    for (; i + 7 < otherLen; i += 8) {
-      const w0 = otherBits[i] | 0;
-      if (w0 !== 0 && (thisBits[i] & w0) !== w0) {
-        return false;
-      }
-      const w1 = otherBits[i + 1] | 0;
-      if (w1 !== 0 && (thisBits[i + 1] & w1) !== w1) {
-        return false;
-      }
-      const w2 = otherBits[i + 2] | 0;
-      if (w2 !== 0 && (thisBits[i + 2] & w2) !== w2) {
-        return false;
-      }
-      const w3 = otherBits[i + 3] | 0;
-      if (w3 !== 0 && (thisBits[i + 3] & w3) !== w3) {
-        return false;
-      }
-      const w4 = otherBits[i + 4] | 0;
-      if (w4 !== 0 && (thisBits[i + 4] & w4) !== w4) {
-        return false;
-      }
-      const w5 = otherBits[i + 5] | 0;
-      if (w5 !== 0 && (thisBits[i + 5] & w5) !== w5) {
-        return false;
-      }
-      const w6 = otherBits[i + 6] | 0;
-      if (w6 !== 0 && (thisBits[i + 6] & w6) !== w6) {
-        return false;
-      }
-      const w7 = otherBits[i + 7] | 0;
-      if (w7 !== 0 && (thisBits[i + 7] & w7) !== w7) {
-        return false;
-      }
-    }
-
-    for (; i < otherLen; i++) {
+    for (let i = 0; i < otherBits.length; i++) {
       const otherWord = otherBits[i] | 0;
-      if (otherWord !== 0 && (thisBits[i] & otherWord) !== otherWord) {
+      if ((bits[i] & otherWord) !== otherWord) {
         return false;
       }
     }
