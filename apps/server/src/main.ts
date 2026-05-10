@@ -34,6 +34,17 @@ world.registerComponent(Position, POSITION_TYPE);
 world.registerComponent(Velocity);
 
 const app = express();
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
 const vecsServer = new VecsServer();
 const mainWorld: VecsServerWorld = vecsServer.registerWorld("main", world);
 mainWorld.registerComponent(Position);
