@@ -1,0 +1,22 @@
+{
+  "name": "@vworlds/vecs-demo-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" --no-error-on-unmatched-pattern",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@vworlds/vecs": "1.0.13",
+    "@vworlds/vecs-client": "0.0.0",
+    "@vworlds/vecs-wire": "0.0.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.21"
+  },
+  "license": "UNLICENSED"
+}

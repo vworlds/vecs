@@ -9,7 +9,8 @@
     "node": ">=24"
   },
   "workspaces": [
-    "lib/*"
+    "lib/*",
+    "apps/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
