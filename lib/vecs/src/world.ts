@@ -14,7 +14,7 @@ import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
  * pre-registered via {@link World.registerComponentType} (typically server
  * assigned). Auto-assigned ids start here.
  */
-const LOCAL_COMPONENT_MIN = 256;
+export const LOCAL_COMPONENT_MIN = 256;
 
 /**
  * The central ECS container. One world per game session.
@@ -79,6 +79,8 @@ export class World {
 
   /** @internal Auto-incrementing entity id counter, seeded by {@link setEntityIdRange}. */
   private _eidCounter = 0;
+  /** @internal First id reserved for locally-created entities. */
+  private _localEntityIdStart = 0;
 
   /** @internal Single ordered command queue used in deferred mode. */
   private _commandQueue: Command[] = [];
@@ -479,7 +481,13 @@ export class World {
     if (this._componentRegistrationDisabled) {
       throw "setEntityIdRange must be called before component registration is disabled";
     }
+    this._localEntityIdStart = min;
     this._eidCounter = min;
+  }
+
+  /** First entity id reserved for locally-created entities. */
+  public get localEntityIdStart(): number {
+    return this._localEntityIdStart;
   }
 
   /**
