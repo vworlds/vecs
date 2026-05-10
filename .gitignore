@@ -1,6 +1,9 @@
 dist/
 node_modules/
-yarn-error.log
 dist/tsconfig.tsbuildinfo
 .vscode/
 .claude/
+.DS_Store
+*.log
+coverage/
+*.tsbuildinfo

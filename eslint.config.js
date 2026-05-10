@@ -4,7 +4,7 @@ import internalUnderscore from "./eslint-rules/internal-underscore.js";
 
 export default [
   {
-    files: ["src/**/*.ts", "tests/**/*.ts"],
+    files: ["lib/*/src/**/*.ts", "lib/*/tests/**/*.ts"],
     languageOptions: {
       parser: tsParser,
     },

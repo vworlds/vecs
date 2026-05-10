@@ -1,0 +1,33 @@
+{
+  "name": "@vworlds/vecs",
+  "version": "1.0.13",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "clean": "rimraf dist",
+    "prepack": "npm run build",
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -p tsconfig.build.json && cp \"./package.json\" ./dist/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
+    "typecheck": "tsc --noEmit",
+    "format:check": "prettier --check \"**/*.{ts,md}\""
+  },
+  "dependencies": {
+    "eventemitter3": "^4.0.7"
+  },
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vworlds/vecs"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.md": "prettier --write"
+  }
+}

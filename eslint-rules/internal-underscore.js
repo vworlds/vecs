@@ -11,8 +11,7 @@ const rule = {
     },
     schema: [],
     messages: {
-      requireUnderscore:
-        "Class member '{{name}}' is {{reason}} and must be prefixed with '_'.",
+      requireUnderscore: "Class member '{{name}}' is {{reason}} and must be prefixed with '_'.",
       forbidUnderscore:
         "Class member '{{name}}' has '_' prefix but is neither private nor @internal.",
     },
@@ -39,11 +38,7 @@ const rule = {
 
       if ((isPrivate || isInternal) && !hasUnderscore) {
         const reason =
-          isPrivate && isInternal
-            ? "private and @internal"
-            : isPrivate
-              ? "private"
-              : "@internal";
+          isPrivate && isInternal ? "private and @internal" : isPrivate ? "private" : "@internal";
         context.report({ node: nameNode, messageId: "requireUnderscore", data: { name, reason } });
       } else if (hasUnderscore && !isPrivate && !isInternal) {
         context.report({ node: nameNode, messageId: "forbidUnderscore", data: { name } });
