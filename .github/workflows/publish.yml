@@ -18,6 +18,7 @@ jobs:
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
+          cache: npm
 
       - name: Configure git
         run: |
@@ -25,22 +26,28 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npm ci
 
       - name: Run tests
-        run: yarn test
+        run: npm run test
 
       - name: Bump patch version
         run: |
-          npm version patch --message "chore: bump version to %s [skip ci]"
+          npm version patch --workspace @vworlds/vecs --no-git-tag-version
+
+      - name: Update package lock
+        run: npm install --package-lock-only --ignore-scripts
 
       - name: Push version bump
-        run: git push
+        run: |
+          git add lib/vecs/package.json package-lock.json
+          git commit -m "chore: bump vecs package [skip ci]"
+          git push
 
       - name: Build
-        run: yarn build
+        run: npm run build
 
       - name: Publish
-        run: npm publish --access public
+        run: npm publish ./lib/vecs --access public
         env:
           NODE_AUTH_TOKEN: ""
