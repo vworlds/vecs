@@ -4,6 +4,8 @@ export interface IDecodable<T> {
   wireDecode(decoder: Decoder): T;
 }
 
+export type DecodableType<T> = IDecodable<T> | (new () => T);
+
 const maxSafeBigInt = BigInt(Number.MAX_SAFE_INTEGER);
 const minSafeBigInt = BigInt(Number.MIN_SAFE_INTEGER);
 
@@ -206,7 +208,11 @@ export class Decoder {
     }
   }
 
-  read<T>(C: IDecodable<T>): T {
-    return C.wireDecode(this);
+  read<T>(C: DecodableType<T>): T {
+    const decodable = C as IDecodable<T>;
+    if (typeof decodable.wireDecode !== "function") {
+      throw new TypeError("vecs-wire/decoder read requires a wireDecode method");
+    }
+    return decodable.wireDecode(this);
   }
 }

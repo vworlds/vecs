@@ -240,7 +240,11 @@ export class Encoder {
     }
   }
 
-  write(value: IEncodable): void {
-    value.wireEncode(this);
+  write(value: IEncodable | object): void {
+    const encodable = value as IEncodable;
+    if (typeof encodable.wireEncode !== "function") {
+      throw new TypeError("vecs-wire/encoder write requires a wireEncode method");
+    }
+    encodable.wireEncode(this);
   }
 }
