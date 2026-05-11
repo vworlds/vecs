@@ -14,4 +14,10 @@ export {
   SessionRPC,
   type RPCHandler,
 } from "./rpc.js";
-export type { VecsSocket, VecsSocketListener } from "./transport.js";
+export type {
+  ConnectionError,
+  VecsSocket,
+  VecsSocketEvents,
+  VecsSocketListener,
+  VecsSocketListenerEvents,
+} from "./transport.js";
