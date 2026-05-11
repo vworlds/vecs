@@ -12,7 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@vworlds/vecs-wire": "0.0.0"
+    "@vworlds/vecs-wire": "*"
   },
   "license": "UNLICENSED"
 }
