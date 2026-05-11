@@ -15,7 +15,7 @@
     "@vworlds/vecs": "*",
     "@vworlds/vecs-protocol": "*",
     "@vworlds/vecs-wire": "*",
-    "@vworlds/dgram-client": "^1.0.4"
+    "@vworlds/dgram-client": "^1.0.7"
   },
   "license": "UNLICENSED"
 }
