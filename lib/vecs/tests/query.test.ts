@@ -42,6 +42,21 @@ describe("Query — construction", () => {
     expect(q.entities.has(e)).toBe(true);
   });
 
+  it("counts tracked entities", () => {
+    const { w, tick } = setup();
+    const q = w.query("test").requires(Position);
+    w.start();
+
+    const position = w.entity().add(Position);
+    w.entity().add(Velocity);
+    tick();
+    expect(q.count()).toBe(1);
+
+    position.remove(Position);
+    tick();
+    expect(q.count()).toBe(0);
+  });
+
   it("can be created after start() and immediately backfills existing entities", () => {
     const { w, tick } = setup();
     w.start();

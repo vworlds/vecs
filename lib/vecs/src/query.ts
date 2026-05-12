@@ -217,6 +217,16 @@ export class Query<R extends ComponentClass[] = []> {
     return this._entities ?? EMPTY_ENTITIES;
   }
 
+  /**
+   * Return the number of entities currently tracked by this query.
+   *
+   * Equivalent to `query.entities.size`, but avoids exposing the tracked set
+   * when callers only need a count. Returns `0` when tracking is not enabled.
+   */
+  public count(): number {
+    return this._entities?.size ?? 0;
+  }
+
   /** Returns the query name. */
   public toString(): string {
     return this.name;
