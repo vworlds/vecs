@@ -1,16 +1,19 @@
 import {
   Client2Server,
-  ComponentSnapshot,
+  RPC,
   Server2Client,
   SessionRPC,
+  StateDiff,
   encodeMessage,
   type RPCHandler,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
-import { type ComponentClass, type IPhase, type World } from "@vworlds/vecs";
+import { LOCAL_COMPONENT_MIN, type ComponentClass, type IPhase, type World } from "@vworlds/vecs";
 import { Decoder } from "@vworlds/vecs-wire";
+import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
+import type { Entity } from "@vworlds/vecs";
 
-const LOCAL_COMPONENT_MIN = 256;
+export { ComponentSnapshot, Diff, Interpolator } from "./interpolator.js";
 
 interface RegisteredComponent {
   Class: ComponentClass;
@@ -20,11 +23,15 @@ interface RegisteredComponent {
 export interface VecsClientOptions {
   world: World;
   socket?: VecsSocket;
+  encodeBufferSize?: number;
+  localEntityIdStart?: number;
+  interpolatorBucketLength?: number;
+  serverTickIntervalMs?: number;
+}
+
+export interface InstallSystemsOptions {
   applyPhase?: string | IPhase;
   sendPhase?: string | IPhase;
-  encodeBufferSize?: number;
-  sendEveryFrame?: boolean;
-  localEntityIdStart?: number;
 }
 
 export interface DgramConnectOptions extends Omit<VecsClientOptions, "socket"> {
@@ -41,26 +48,25 @@ export class VecsClient {
   private readonly _socket: VecsSocket | undefined;
   private readonly _rpc = new SessionRPC();
   private readonly _components = new Map<number, RegisteredComponent>();
-  private readonly _diffQueue: Server2Client[] = [];
+  private readonly _rpcInbox: RPC[] = [];
+  private readonly _interpolator: Interpolator;
   private readonly _encodeBufferSize: number;
   private readonly _localEntityIdStart: number;
-  private _highestReceivedFrame = 0;
   private _input: unknown;
   private _systemsInstalled = false;
-
-  public readonly applyPhase: string | IPhase;
-  public readonly sendPhase: string | IPhase;
 
   public constructor(options: VecsClientOptions) {
     this._world = options.world;
     this._socket = options.socket;
-    this.applyPhase = options.applyPhase ?? "update";
-    this.sendPhase = options.sendPhase ?? "update";
     this._encodeBufferSize = options.encodeBufferSize ?? 64 * 1024;
     this._localEntityIdStart =
       options.localEntityIdStart ??
       (this._world as World & { localEntityIdStart?: number }).localEntityIdStart ??
       Number.MAX_SAFE_INTEGER;
+    this._interpolator = new Interpolator(
+      options.interpolatorBucketLength ?? 3,
+      options.serverTickIntervalMs ?? 1000 / 30
+    );
 
     if (this._socket) {
       this.attachSocket(this._socket);
@@ -93,18 +99,20 @@ export class VecsClient {
     this._components.set(meta.type, { Class, type: meta.type });
   }
 
-  public installSystems(): void {
+  public installSystems(options: InstallSystemsOptions = {}): void {
     if (this._systemsInstalled) {
       return;
     }
     this._systemsInstalled = true;
+    const applyPhase = options.applyPhase ?? "update";
+    const sendPhase = options.sendPhase ?? "update";
     this._world
       .system("VecsClient:Apply")
-      .phase(this.applyPhase)
-      .run(() => this.apply());
+      .phase(applyPhase)
+      .run((now) => this.apply(now));
     this._world
       .system("VecsClient:Send")
-      .phase(this.sendPhase)
+      .phase(sendPhase)
       .run(() => this.send());
   }
 
@@ -120,15 +128,17 @@ export class VecsClient {
     this._rpc.listen(rpcId, handler);
   }
 
-  public apply(): void {
-    const messages = this._diffQueue.splice(0);
-    messages.forEach((message) => {
-      message.rpc.length && this._rpc.process(message.rpc);
-      if (!message.diff) {
-        return;
-      }
-      message.diff.snapshots.forEach((bytes) => this._applySnapshot(bytes));
-      message.diff.removed.forEach((removed) => this._removeComponent(removed.eid, removed.type));
+  public apply(now: number): void {
+    if (this._rpcInbox.length > 0) {
+      const incoming = this._rpcInbox.splice(0);
+      this._rpc.process(incoming);
+    }
+    const diff = this._interpolator.pull(now);
+    diff.snapshots.forEach((snapshot) => this._applySnapshot(snapshot));
+    (diff.removed as number[] | undefined)?.forEach((key) => {
+      const eid = key >>> 8;
+      const type = key & 0xff;
+      this._removeComponent(eid, type);
     });
   }
 
@@ -137,9 +147,10 @@ export class VecsClient {
       return;
     }
     const rpc = this._rpc.getOutgoing();
+    const ackFrame = this._interpolator.version < 0 ? 0 : this._interpolator.version;
     this._socket.send(
       encodeMessage(
-        new Client2Server({ ackFrame: this._highestReceivedFrame, input: this._input, rpc }),
+        new Client2Server({ ackFrame, input: this._input, rpc }),
         this._encodeBufferSize
       )
     );
@@ -151,19 +162,24 @@ export class VecsClient {
 
   private _receive(data: Uint8Array): void {
     const message = new Decoder(data).read(Server2Client);
-    if (message.diff) {
-      this._highestReceivedFrame = Math.max(this._highestReceivedFrame, message.diff.toFrame);
+    if (message.rpc.length > 0) {
+      this._rpcInbox.push(...message.rpc);
     }
-    this._diffQueue.push(message);
+    if (message.diff) {
+      this._pushDiff(message.diff);
+    }
   }
 
-  private _applySnapshot(bytes: Uint8Array): void {
-    const snapshot = new Decoder(bytes).read(ComponentSnapshot);
+  private _pushDiff(sd: StateDiff): void {
+    const diff = diffFromStateDiff(sd);
+    this._interpolator.push(diff);
+  }
+
+  private _applySnapshot(snapshot: ComponentSnapshot): void {
     const registered = this._components.get(snapshot.type);
     if (!registered) {
       return;
     }
-
     const component = new Decoder(snapshot.payload).read(registered.Class);
     const entity = this._world.getOrCreateEntity(snapshot.eid);
     entity.attach(component as object);
@@ -188,9 +204,9 @@ export function worldPath(basePath = "/rtc/v1/world", worldName: string): string
   return `${basePath.replace(/\/$/, "")}/${encodeURIComponent(worldName)}`;
 }
 
-function hasSyncedComponents(entity: { components: any }): boolean {
+function hasSyncedComponents(entity: Entity): boolean {
   let hasSynced = false;
-  entity.components.forEach((_component: object, type: number) => {
+  entity.components.forEach((_component, type) => {
     if (type < LOCAL_COMPONENT_MIN) {
       hasSynced = true;
     }

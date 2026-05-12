@@ -58,34 +58,35 @@ function encodeComponent(component: object): Uint8Array {
   return encoder.getBuffer();
 }
 
+function makeSnapshotBytes(eid: number, type: number, payload: Uint8Array): Uint8Array {
+  return encodeMessage(new ComponentSnapshot({ eid, type, payload }));
+}
+
+function posSnapshot(eid: number, x: number, y: number): Uint8Array {
+  const p = new Position();
+  p.x = x;
+  p.y = y;
+  return makeSnapshotBytes(eid, 1, encodeComponent(p));
+}
+
 describe("VecsClient", () => {
   it("applies server snapshots into the client world", () => {
     const world = new World();
     world.setEntityIdRange(1000);
     world.registerComponent(Position, 1);
     const socket = new MemorySocket("server");
-    const client = new VecsClient({ world, socket });
+    const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
     client.registerComponent(Position);
 
-    const position = new Position();
-    position.x = 4;
-    position.y = 8;
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
-            toFrame: 1,
-            snapshots: [
-              encodeMessage(
-                new ComponentSnapshot({ eid: 7, type: 1, payload: encodeComponent(position) })
-              ),
-            ],
-          }),
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(7, 4, 8)] }),
         })
       )
     );
 
-    client.apply();
+    client.apply(0);
 
     expect(world.entity(7)?.get(Position)).toMatchObject({ x: 4, y: 8 });
   });
@@ -98,29 +99,132 @@ describe("VecsClient", () => {
     const entity = world.getOrCreateEntity(7);
     entity.set(Position, { x: 1, y: 2 }).add(LocalEffect);
     const socket = new MemorySocket("server");
-    const client = new VecsClient({ world, socket });
+    const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
     client.registerComponent(Position);
 
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ toFrame: 2, removed: [new RemovedComponent({ eid: 7, type: 1 })] }),
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 2,
+            removed: [new RemovedComponent({ eid: 7, type: 1 })],
+          }),
         })
       )
     );
-    client.apply();
+    client.apply(0);
 
     expect(world.entity(7)).toBeUndefined();
   });
 
-  it("sends ack frames even without input", () => {
+  it("acks the highest accepted server frame", () => {
     const world = new World();
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket });
 
-    socket.receive(encodeMessage(new Server2Client({ diff: new StateDiff({ toFrame: 9 }) })));
+    socket.receive(
+      encodeMessage(new Server2Client({ diff: new StateDiff({ fromFrame: 0, toFrame: 9 }) }))
+    );
     client.send();
 
     expect(new Decoder(socket.sent[0]).read(Client2Server).ackFrame).toBe(9);
+  });
+
+  it("applies out-of-order diffs in server frame order", () => {
+    const world = new World();
+    world.setEntityIdRange(1000);
+    world.registerComponent(Position, 1);
+    const socket = new MemorySocket("server");
+    const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
+    client.registerComponent(Position);
+
+    // First diff arrives first, but s3 arrives before s2.
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(7, 1, 1)] }),
+        })
+      )
+    );
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 3, snapshots: [posSnapshot(7, 3, 3)] }),
+        })
+      )
+    );
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 2, snapshots: [posSnapshot(7, 2, 2)] }),
+        })
+      )
+    );
+
+    client.apply(0);
+    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 1, y: 1 });
+
+    client.apply(10);
+    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 2, y: 2 });
+
+    client.apply(20);
+    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 3, y: 3 });
+  });
+
+  it("drops diffs whose frames have already left the bucket window", () => {
+    const world = new World();
+    world.setEntityIdRange(1000);
+    world.registerComponent(Position, 1);
+    const socket = new MemorySocket("server");
+    const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
+    client.registerComponent(Position);
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 5, snapshots: [posSnapshot(7, 50, 50)] }),
+        })
+      )
+    );
+    // s1 is older than what the bucket can hold relative to frame 5; must be dropped.
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(7, 1, 1)] }),
+        })
+      )
+    );
+
+    client.apply(0);
+    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 50, y: 50 });
+  });
+
+  it("merges retransmitted diffs without applying them twice", () => {
+    const world = new World();
+    world.setEntityIdRange(1000);
+    world.registerComponent(Position, 1);
+    const socket = new MemorySocket("server");
+    const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
+    client.registerComponent(Position);
+
+    const diffBytes = encodeMessage(
+      new Server2Client({
+        diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(7, 7, 7)] }),
+      })
+    );
+
+    socket.receive(diffBytes);
+    // identical retransmit
+    socket.receive(diffBytes);
+
+    client.apply(0);
+    // additional pulls should not move the world to anything else
+    client.apply(10);
+    client.apply(20);
+
+    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 7, y: 7 });
+    client.send();
+    expect(new Decoder(socket.sent[0]).read(Client2Server).ackFrame).toBe(1);
   });
 });

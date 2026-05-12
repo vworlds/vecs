@@ -50,7 +50,7 @@ const vecsServer = new VecsServer();
 const mainWorld: VecsServerWorld = vecsServer.registerWorld("main", world);
 mainWorld.registerComponent(Position);
 
-for (let i = 0; i < 12; i++) {
+for (let i = 0; i < 5; i++) {
   world
     .entity()
     .add(Networked)
