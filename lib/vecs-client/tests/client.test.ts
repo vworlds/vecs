@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type VecsSocket } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { World, cid_pack } from "@vworlds/vecs";
+import { ALL_COMPONENTS, World, cid_pack, cid_unpack } from "@vworlds/vecs";
 import { Client2Server, ComponentSnapshot, Server2Client, StateDiff } from "@vworlds/vecs-protocol";
 import { VecsClient } from "../src/index.js";
 
@@ -90,7 +90,7 @@ describe("VecsClient", () => {
     expect(world.entity(7)?.get(Position)).toMatchObject({ x: 4, y: 8 });
   });
 
-  it("destroys server entities after their last synchronized component is removed", () => {
+  it("keeps server entities after their last synchronized component is removed", () => {
     const world = new World();
     world.setEntityIdRange(1000);
     world.registerComponent(Position, 1);
@@ -108,6 +108,38 @@ describe("VecsClient", () => {
             fromFrame: 0,
             toFrame: 2,
             removed: [cid_pack(7, 1)],
+          }),
+        })
+      )
+    );
+    client.apply(0);
+
+    expect(world.entity(7)).toBe(entity);
+    expect(entity.get(Position)).toBeUndefined();
+    expect(entity.get(LocalEffect)).toBeDefined();
+  });
+
+  it("destroys server entities when the destruction component is removed", () => {
+    const world = new World();
+    world.setEntityIdRange(1000);
+    world.registerComponent(Position, 1);
+    world.registerComponent(LocalEffect);
+    const entity = world.getOrCreateEntity(7);
+    entity.set(Position, { x: 1, y: 2 }).add(LocalEffect);
+    const socket = new MemorySocket("server");
+    const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
+    client.registerComponent(Position);
+    const destroyedCid = cid_pack(7, ALL_COMPONENTS);
+
+    expect(cid_unpack(destroyedCid)).toEqual([7, ALL_COMPONENTS]);
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 2,
+            removed: [destroyedCid],
           }),
         })
       )

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { World, cid_pack } from "@vworlds/vecs";
+import { ALL_COMPONENTS, World, cid_pack } from "@vworlds/vecs";
 import { Client2Server, ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
 import { NetworkClient, NetworkInput, Networked, VecsServer } from "../src/index.js";
 
@@ -130,6 +130,56 @@ describe("VecsServer", () => {
     const message = new Decoder(last).read(Server2Client);
     expect(message.diff!.removed).toEqual([cid_pack(entity.eid, 1)]);
     expect(message.diff!.snapshots).toEqual([]);
+  });
+
+  it("sends entity destruction when a networked entity is destroyed", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    const server = new VecsServer("main", world);
+    const socket = new MemorySocket("client-1");
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems();
+    listener.connect(socket);
+
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
+    world.start();
+    world.progress(0, 16);
+    const removalStart = socket.sent.length;
+
+    entity.destroy();
+    world.progress(16, 16);
+
+    const last = socket.sent[socket.sent.length - 1];
+    expect(socket.sent.length).toBeGreaterThan(removalStart);
+    const message = new Decoder(last).read(Server2Client);
+    expect(message.diff!.removed).toContain(cid_pack(entity.eid, ALL_COMPONENTS));
+  });
+
+  it("sends entity destruction when Networked exits", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    const server = new VecsServer("main", world);
+    const socket = new MemorySocket("client-1");
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems();
+    listener.connect(socket);
+
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
+    world.start();
+    world.progress(0, 16);
+    const removalStart = socket.sent.length;
+
+    entity.remove(Networked);
+    world.progress(16, 16);
+
+    const last = socket.sent[socket.sent.length - 1];
+    expect(socket.sent.length).toBeGreaterThan(removalStart);
+    const message = new Decoder(last).read(Server2Client);
+    expect(message.diff!.removed).toContain(cid_pack(entity.eid, ALL_COMPONENTS));
   });
 
   it("sends current networked state only to the late-joining client", () => {

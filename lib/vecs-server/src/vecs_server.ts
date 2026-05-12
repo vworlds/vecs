@@ -12,6 +12,7 @@ import {
   type Component,
   type ComponentClass,
   type Entity,
+  ALL_COMPONENTS,
   type IPhase,
   type System,
   type World,
@@ -99,6 +100,10 @@ export class VecsServer {
     this._systemsInstalled = true;
     const collectPhase = options.collectPhase ?? "update";
     const sendPhase = options.sendPhase ?? "update";
+
+    this.world.getComponentMeta(Networked).onRemove((entity) => {
+      this._record(entity, ALL_COMPONENTS, undefined);
+    });
 
     this._components.forEach((registered) => {
       const system = this.world

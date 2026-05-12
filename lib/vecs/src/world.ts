@@ -8,7 +8,7 @@ import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
-import { getLocalComponentMin } from "./cid.js";
+import { ALL_COMPONENTS, getLocalComponentMin } from "./cid.js";
 
 /**
  * The central ECS container. One world per game session.
@@ -342,6 +342,11 @@ export class World {
    * @param type - Numeric type id assigned by the server.
    */
   public registerComponentType(componentName: string, type: number): void {
+    if (type === ALL_COMPONENTS) {
+      throw new Error(
+        `Component type ${type} is reserved for server-authoritative entity destruction`
+      );
+    }
     this._componentNameTypeMap.set(componentName, type);
   }
 

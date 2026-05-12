@@ -4,7 +4,10 @@ export type CID = number;
 /** Component type ids below this value are reserved for externally assigned ids. */
 export let LOCAL_COMPONENT_MIN = 256;
 
-let componentTypeMask = LOCAL_COMPONENT_MIN - 1;
+/** Reserved component type id with all component-type bits set. */
+export let ALL_COMPONENTS = LOCAL_COMPONENT_MIN - 1;
+
+let componentTypeMask = ALL_COMPONENTS;
 let componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
 
 function validateLocalComponentMin(value: number): void {
@@ -29,9 +32,10 @@ export function getLocalComponentMin(): number {
 /** Configure the local component type range before constructing any worlds. */
 export function setLocalComponentMin(value: number): void {
   LOCAL_COMPONENT_MIN = value;
+  ALL_COMPONENTS = LOCAL_COMPONENT_MIN - 1;
   if (isAlignedLocalComponentMin(value)) {
     getLocalComponentMin();
-    componentTypeMask = LOCAL_COMPONENT_MIN - 1;
+    componentTypeMask = ALL_COMPONENTS;
     componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
   }
 }
