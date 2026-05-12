@@ -1,26 +1,46 @@
 import { VecsClient } from "@vworlds/vecs-client";
 import { World } from "@vworlds/vecs";
-import { Decoder, Encoder } from "@vworlds/vecs-wire";
+import { type as wireType } from "@vworlds/vecs-wire";
 
 const POSITION_TYPE = 1;
+const PLAYER_TYPE = 2;
+const BALL_TYPE = 3;
 const LOCAL_ENTITY_START = 100_000;
+const PLAYER_SIZE = 28;
 
 class Position {
+  @wireType("u16")
   public x = 0;
+
+  @wireType("u16")
   public y = 0;
-
-  public wireEncode(encoder: Encoder): void {
-    encoder.write_f32(this.x);
-    encoder.write_f32(this.y);
-  }
-
-  public static wireDecode(decoder: Decoder): Position {
-    const position = new Position();
-    position.x = decoder.read_f32();
-    position.y = decoder.read_f32();
-    return position;
-  }
 }
+
+class Player {
+  @wireType("u32")
+  public score = 0;
+}
+
+class Ball {
+  @wireType("u8")
+  public radius = 12;
+}
+
+const keys = new Set<string>();
+
+window.addEventListener("keydown", (event) => {
+  if (isArrowKey(event.key)) {
+    event.preventDefault();
+    keys.add(event.key);
+  }
+});
+
+window.addEventListener("keyup", (event) => {
+  if (isArrowKey(event.key)) {
+    event.preventDefault();
+    keys.delete(event.key);
+  }
+});
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 if (!canvas) {
@@ -37,6 +57,8 @@ const context = ctx;
 const world = new World();
 world.setEntityIdRange(LOCAL_ENTITY_START);
 world.registerComponent(Position, POSITION_TYPE);
+world.registerComponent(Player, PLAYER_TYPE);
+world.registerComponent(Ball, BALL_TYPE);
 
 async function main(): Promise<void> {
   const client = await VecsClient.connectDgram({
@@ -46,19 +68,35 @@ async function main(): Promise<void> {
     worldName: "main",
   });
   client.registerComponent(Position);
+  client.registerComponent(Player);
+  client.registerComponent(Ball);
   client.installSystems();
 
   world
-    .system("RenderNetworkedDots")
-    .requires(Position)
-    .each([Position], (_entity, [position]) => {
+    .system("RenderBalls")
+    .requires(Position, Ball)
+    .each([Position, Ball], (_entity, [position, ball]) => {
       context.beginPath();
-      context.arc(position.x, position.y, 12, 0, Math.PI * 2);
+      context.arc(position.x, position.y, ball.radius, 0, Math.PI * 2);
       context.fillStyle = "#7dd3fc";
       context.fill();
       context.strokeStyle = "#0f172a";
       context.lineWidth = 3;
       context.stroke();
+    });
+
+  world
+    .system("RenderPlayers")
+    .requires(Position, Player)
+    .each([Position, Player], (_entity, [position, player]) => {
+      context.fillStyle = "#facc15";
+      context.fillRect(position.x, position.y, PLAYER_SIZE, PLAYER_SIZE);
+      context.strokeStyle = "#422006";
+      context.lineWidth = 3;
+      context.strokeRect(position.x, position.y, PLAYER_SIZE, PLAYER_SIZE);
+      context.fillStyle = "#fefce8";
+      context.font = "14px sans-serif";
+      context.fillText(String(player.score), position.x + 8, position.y - 8);
     });
 
   world.start();
@@ -72,9 +110,14 @@ async function main(): Promise<void> {
     context.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
     context.fillStyle = "#e2e8f0";
     context.font = "16px sans-serif";
-    context.fillText("vecs-client: server-authoritative dots", 20, 30);
+    context.fillText("vecs-client: arrow keys move your square, eat balls to score", 20, 30);
 
-    client.setInput({ mouseX: 0, mouseY: 0, now: Math.round(now) });
+    client.setInput({
+      left: keys.has("ArrowLeft"),
+      right: keys.has("ArrowRight"),
+      up: keys.has("ArrowUp"),
+      down: keys.has("ArrowDown"),
+    });
     world.progress(now, delta);
     requestAnimationFrame(frame);
   }
@@ -89,3 +132,7 @@ main().catch((err: unknown) => {
   context.font = "16px sans-serif";
   context.fillText(err instanceof Error ? err.message : String(err), 20, 30);
 });
+
+function isArrowKey(key: string): boolean {
+  return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
+}
