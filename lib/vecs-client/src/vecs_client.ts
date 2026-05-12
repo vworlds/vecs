@@ -8,9 +8,8 @@ import {
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
 import {
-  LOCAL_COMPONENT_MIN,
-  componentIdEid,
-  componentIdType,
+  cid_unpack,
+  getLocalComponentMin,
   type ComponentClass,
   type Entity,
   type IPhase,
@@ -141,8 +140,7 @@ export class VecsClient {
     const diff = this._interpolator.pull(now);
     diff.snapshots.forEach((snapshot) => this._applySnapshot(snapshot));
     (diff.removed as number[] | undefined)?.forEach((key) => {
-      const eid = componentIdEid(key);
-      const type = componentIdType(key);
+      const [eid, type] = cid_unpack(key);
       this._removeComponent(eid, type);
     });
   }
@@ -205,7 +203,7 @@ export class VecsClient {
 function hasSyncedComponents(entity: Entity): boolean {
   let hasSynced = false;
   entity.components.forEach((_component, type) => {
-    if (type < LOCAL_COMPONENT_MIN) {
+    if (type < getLocalComponentMin()) {
       hasSynced = true;
     }
   });

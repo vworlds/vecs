@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { World, componentId } from "@vworlds/vecs";
+import { World, cid_pack } from "@vworlds/vecs";
 import { Client2Server, ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
 import { NetworkClient, NetworkInput, Networked, VecsServerWorld } from "../src/index.js";
 
@@ -101,7 +101,7 @@ describe("VecsServerWorld", () => {
     const snapshot = new Decoder(message.diff!.snapshots[0]).read(ComponentSnapshot);
     const position = new Decoder(snapshot.payload).read(Position);
 
-    expect(snapshot.cid).toBe(componentId(entity.eid, 1));
+    expect(snapshot.cid).toBe(cid_pack(entity.eid, 1));
     expect(position).toMatchObject({ x: 10, y: 20 });
     expect(message.diff!.removed).toEqual([]);
   });
@@ -128,7 +128,7 @@ describe("VecsServerWorld", () => {
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
     const message = new Decoder(last).read(Server2Client);
-    expect(message.diff!.removed).toEqual([{ cid: componentId(entity.eid, 1) }]);
+    expect(message.diff!.removed).toEqual([cid_pack(entity.eid, 1)]);
     expect(message.diff!.snapshots).toEqual([]);
   });
 
@@ -245,7 +245,7 @@ describe("VecsServerWorld", () => {
     expect(after.length).toBe(1);
     const message = new Decoder(after[0]).read(Server2Client);
     expect(message.diff!.snapshots).toEqual([]);
-    expect(message.diff!.removed).toEqual([{ cid: componentId(entity.eid, 1) }]);
+    expect(message.diff!.removed).toEqual([cid_pack(entity.eid, 1)]);
   });
 
   it("collapses remove-then-readd within a frame into a single snapshot", () => {
@@ -274,7 +274,7 @@ describe("VecsServerWorld", () => {
     expect(lastDiff?.removed ?? []).toEqual([]);
     expect(lastDiff?.snapshots.length).toBe(1);
     const snap = new Decoder(lastDiff!.snapshots[0]).read(ComponentSnapshot);
-    expect(snap.cid).toBe(componentId(entity.eid, 1));
+    expect(snap.cid).toBe(cid_pack(entity.eid, 1));
     const pos = new Decoder(snap.payload).read(Position);
     expect(pos).toMatchObject({ x: 7, y: 7 });
   });

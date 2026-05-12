@@ -1,5 +1,5 @@
 import { ComponentSnapshot as WireComponentSnapshot, StateDiff } from "@vworlds/vecs-protocol";
-import { componentId, componentIdEid, componentIdType } from "@vworlds/vecs";
+import { type CID, cid_unpack } from "@vworlds/vecs";
 import { Decoder } from "@vworlds/vecs-wire";
 
 const MAX_LENGTH = 3;
@@ -8,15 +8,14 @@ export class ComponentSnapshot {
   public readonly eid: number;
   public readonly type: number;
   public readonly payload: Uint8Array;
-  public readonly cid: number;
-  public readonly id: number;
+  public readonly cid: CID;
 
-  public constructor(eid: number, type: number, payload: Uint8Array) {
+  public constructor(cid: CID, payload: Uint8Array) {
+    const [eid, type] = cid_unpack(cid);
     this.eid = eid;
     this.type = type;
     this.payload = payload;
-    this.cid = componentId(eid, type);
-    this.id = this.cid;
+    this.cid = cid;
   }
 }
 
@@ -35,7 +34,7 @@ export class Diff {
       return this._smap;
     }
     return (this._smap = new Map<number, ComponentSnapshot>(
-      (this.snapshots || []).map((s) => [s.id, s])
+      (this.snapshots || []).map((s) => [s.cid, s])
     ));
   }
 
@@ -53,9 +52,9 @@ export function diffFromStateDiff(sd: StateDiff): Diff {
   const d = new Diff(sd.fromFrame, sd.toFrame);
   d.snapshots = sd.snapshots.map((bytes) => {
     const wire = new Decoder(bytes).read(WireComponentSnapshot);
-    return new ComponentSnapshot(componentIdEid(wire.cid), componentIdType(wire.cid), wire.payload);
+    return new ComponentSnapshot(wire.cid, wire.payload);
   });
-  d.removed = sd.removed.map((r) => r.cid);
+  d.removed = sd.removed;
   return d;
 }
 
@@ -91,7 +90,7 @@ export class Interpolator {
   private _updateState(sd: Diff): void {
     // apply diff to current state
     sd.snapshots?.forEach((s) => {
-      this._state.set(s.id, s);
+      this._state.set(s.cid, s);
     });
     (sd.removed as number[] | undefined)?.forEach((r) => {
       this._state.delete(r);
@@ -276,8 +275,8 @@ export function merge(a: Diff | undefined, b: Diff | undefined, check = true): D
   const as = new Map(a.smap);
   const bs = b.smap;
   bs.forEach((s) => {
-    as.set(s.id, s);
-    removed.delete(s.id); // undelete re-added entities
+    as.set(s.cid, s);
+    removed.delete(s.cid); // undelete re-added entities
   });
   removed.forEach((r) => as.delete(r));
 

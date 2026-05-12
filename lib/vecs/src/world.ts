@@ -8,58 +8,7 @@ import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
-
-/**
- * Numeric type ids below this value are reserved for components whose id was
- * pre-registered via {@link World.registerComponentType} (typically server
- * assigned). Auto-assigned ids start here.
- */
-export let LOCAL_COMPONENT_MIN = 256;
-
-let componentTypeMask = LOCAL_COMPONENT_MIN - 1;
-let componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
-
-function validateLocalComponentMin(value: number): void {
-  if (!isAlignedLocalComponentMin(value)) {
-    throw new Error("LOCAL_COMPONENT_MIN must be a power-of-two safe integer >= 2");
-  }
-  if (Math.log2(value) > 31) {
-    throw new Error("LOCAL_COMPONENT_MIN must reserve fewer than 32 component type bits");
-  }
-}
-
-function isAlignedLocalComponentMin(value: number): boolean {
-  return Number.isSafeInteger(value) && value >= 2 && (value & (value - 1)) === 0;
-}
-
-function refreshComponentIdPacking(): void {
-  validateLocalComponentMin(LOCAL_COMPONENT_MIN);
-  componentTypeMask = LOCAL_COMPONENT_MIN - 1;
-  componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
-}
-
-/** Configure the local component type range before constructing any worlds. */
-export function setLocalComponentMin(value: number): void {
-  LOCAL_COMPONENT_MIN = value;
-  if (isAlignedLocalComponentMin(value)) {
-    refreshComponentIdPacking();
-  }
-}
-
-/** Pack an entity id and component type id into a uint32 component id. */
-export function componentId(eid: number, type: number): number {
-  return ((eid << componentTypeShift) | (type & componentTypeMask)) >>> 0;
-}
-
-/** Unpack the entity id from a uint32 component id. */
-export function componentIdEid(cid: number): number {
-  return cid >>> componentTypeShift;
-}
-
-/** Unpack the component type id from a uint32 component id. */
-export function componentIdType(cid: number): number {
-  return cid & componentTypeMask;
-}
+import { getLocalComponentMin } from "./cid.js";
 
 /**
  * The central ECS container. One world per game session.
@@ -147,8 +96,7 @@ export class World {
   public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
 
   constructor() {
-    refreshComponentIdPacking();
-    this._localComponentCounter = LOCAL_COMPONENT_MIN;
+    this._localComponentCounter = getLocalComponentMin();
     this._tickSources.add(ALWAYS_TICK_SOURCE);
   }
 
@@ -543,10 +491,11 @@ export class World {
    * Used by networking code to materialise server-assigned entities:
    *
    * ```ts
-   * const e = world.getOrCreateEntity(componentIdEid(snapshot.cid), (e) => {
+   * const [eid, type] = cid_unpack(snapshot.cid);
+   * const e = world.getOrCreateEntity(eid, (e) => {
    *   networkEntities.add(e);
    * });
-   * e.add(componentIdType(snapshot.cid));
+   * e.add(type);
    * ```
    *
    * @param eid - Entity id to look up or create.

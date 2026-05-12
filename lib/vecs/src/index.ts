@@ -9,8 +9,9 @@ export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js
 export { Bitset } from "./util/bitset.js";
 export {
   LOCAL_COMPONENT_MIN,
-  componentId,
-  componentIdEid,
-  componentIdType,
+  cid_pack,
+  cid_unpack,
+  getLocalComponentMin,
   setLocalComponentMin,
-} from "./world.js";
+  type CID,
+} from "./cid.js";

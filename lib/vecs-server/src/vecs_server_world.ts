@@ -1,7 +1,6 @@
 import {
   Client2Server,
   ComponentSnapshot,
-  RemovedComponent,
   Server2Client,
   SessionRPC,
   StateDiff,
@@ -16,7 +15,7 @@ import {
   type IPhase,
   type System,
   type World,
-  componentId,
+  cid_pack,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import { NetworkClient, NetworkInput, Networked } from "./networked.js";
@@ -135,13 +134,13 @@ export class VecsServerWorld {
 
     const toFrame = ++this._frame;
     const snapshots: Uint8Array[] = [];
-    const removed: RemovedComponent[] = [];
+    const removed: number[] = [];
 
     this._updates.forEach((u) => {
       if (u.component) {
         snapshots.push(this._encodeSnapshot(u.entity.eid, u.type, u.component));
       } else {
-        removed.push(new RemovedComponent({ cid: componentId(u.entity.eid, u.type) }));
+        removed.push(cid_pack(u.entity.eid, u.type));
       }
     });
 
@@ -204,7 +203,7 @@ export class VecsServerWorld {
   }
 
   private _record(entity: Entity, type: number, component: Component | undefined): void {
-    this._updates.set(componentId(entity.eid, type), { entity, type, component });
+    this._updates.set(cid_pack(entity.eid, type), { entity, type, component });
   }
 
   private _sendFullSnapshot(session: ServerClientSession): void {
@@ -229,7 +228,7 @@ export class VecsServerWorld {
     const payloadEncoder = new Encoder(this._encodeBuffer);
     payloadEncoder.write(component);
     const payload = payloadEncoder.getBuffer().slice();
-    return this._encode(new ComponentSnapshot({ cid: componentId(eid, type), payload }));
+    return this._encode(new ComponentSnapshot({ cid: cid_pack(eid, type), payload }));
   }
 
   private _encode(value: IEncodable): Uint8Array {

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { componentId } from "@vworlds/vecs";
+import { cid_pack } from "@vworlds/vecs";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Diff, Interpolator, merge } from "../src/interpolator.js";
 
@@ -7,11 +7,11 @@ const PositionType = 5;
 const ColorType = 6;
 
 function CID(eid: number, type: number): number {
-  return componentId(eid, type);
+  return cid_pack(eid, type);
 }
 
 function sortSnapshots(snapshots: ComponentSnapshot[]): ComponentSnapshot[] {
-  return [...snapshots].sort((a, b) => a.id - b.id);
+  return [...snapshots].sort((a, b) => a.cid - b.cid);
 }
 
 function encodePos(x: number, y: number): Uint8Array {
@@ -28,11 +28,11 @@ function encodeColor(color: string): Uint8Array {
 }
 
 function makePosComponent(eid: number, x: number, y: number): ComponentSnapshot {
-  return new ComponentSnapshot(eid, PositionType, encodePos(x, y));
+  return new ComponentSnapshot(CID(eid, PositionType), encodePos(x, y));
 }
 
 function makeColorComponent(eid: number, color: string): ComponentSnapshot {
-  return new ComponentSnapshot(eid, ColorType, encodeColor(color));
+  return new ComponentSnapshot(CID(eid, ColorType), encodeColor(color));
 }
 
 // test snapshot generator: returns Position + Color components for one entity

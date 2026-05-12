@@ -2,9 +2,8 @@ import { afterEach, describe, it, expect } from "vitest";
 import {
   LOCAL_COMPONENT_MIN,
   World,
-  componentId,
-  componentIdEid,
-  componentIdType,
+  cid_pack,
+  cid_unpack,
   setLocalComponentMin,
 } from "../src/index.js";
 
@@ -112,11 +111,10 @@ describe("World — component registration", () => {
     setLocalComponentMin(1024);
     new World();
 
-    const cid = componentId(7, 513);
+    const cid = cid_pack(7, 513);
 
     expect(cid).toBe((7 << 10) | 513);
-    expect(componentIdEid(cid)).toBe(7);
-    expect(componentIdType(cid)).toBe(513);
+    expect(cid_unpack(cid)).toEqual([7, 513]);
   });
 
   it("accepts an explicit numeric type id", () => {
