@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type VecsSocket } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { World } from "@vworlds/vecs";
+import { World, componentId } from "@vworlds/vecs";
 import {
   Client2Server,
   ComponentSnapshot,
@@ -64,7 +64,7 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 }
 
 function makeSnapshotBytes(eid: number, type: number, payload: Uint8Array): Uint8Array {
-  return encodeMessage(new ComponentSnapshot({ eid, type, payload }));
+  return encodeMessage(new ComponentSnapshot({ cid: componentId(eid, type), payload }));
 }
 
 function posSnapshot(eid: number, x: number, y: number): Uint8Array {
@@ -113,7 +113,7 @@ describe("VecsClient", () => {
           diff: new StateDiff({
             fromFrame: 0,
             toFrame: 2,
-            removed: [new RemovedComponent({ eid: 7, type: 1 })],
+            removed: [new RemovedComponent({ cid: componentId(7, 1) })],
           }),
         })
       )

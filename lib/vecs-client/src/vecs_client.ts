@@ -9,6 +9,8 @@ import {
 } from "@vworlds/vecs-protocol";
 import {
   LOCAL_COMPONENT_MIN,
+  componentIdEid,
+  componentIdType,
   type ComponentClass,
   type Entity,
   type IPhase,
@@ -139,8 +141,8 @@ export class VecsClient {
     const diff = this._interpolator.pull(now);
     diff.snapshots.forEach((snapshot) => this._applySnapshot(snapshot));
     (diff.removed as number[] | undefined)?.forEach((key) => {
-      const eid = key >>> 8;
-      const type = key & 0xff;
+      const eid = componentIdEid(key);
+      const type = componentIdType(key);
       this._removeComponent(eid, type);
     });
   }

@@ -1,4 +1,5 @@
 import { ComponentSnapshot as WireComponentSnapshot, StateDiff } from "@vworlds/vecs-protocol";
+import { componentId, componentIdEid, componentIdType } from "@vworlds/vecs";
 import { Decoder } from "@vworlds/vecs-wire";
 
 const MAX_LENGTH = 3;
@@ -7,13 +8,15 @@ export class ComponentSnapshot {
   public readonly eid: number;
   public readonly type: number;
   public readonly payload: Uint8Array;
+  public readonly cid: number;
   public readonly id: number;
 
   public constructor(eid: number, type: number, payload: Uint8Array) {
     this.eid = eid;
     this.type = type;
     this.payload = payload;
-    this.id = (eid << 8) | (type & 0xff);
+    this.cid = componentId(eid, type);
+    this.id = this.cid;
   }
 }
 
@@ -50,14 +53,10 @@ export function diffFromStateDiff(sd: StateDiff): Diff {
   const d = new Diff(sd.fromFrame, sd.toFrame);
   d.snapshots = sd.snapshots.map((bytes) => {
     const wire = new Decoder(bytes).read(WireComponentSnapshot);
-    return new ComponentSnapshot(wire.eid, wire.type, wire.payload);
+    return new ComponentSnapshot(componentIdEid(wire.cid), componentIdType(wire.cid), wire.payload);
   });
-  d.removed = sd.removed.map((r) => snapshotKey(r.eid, r.type));
+  d.removed = sd.removed.map((r) => r.cid);
   return d;
-}
-
-function snapshotKey(eid: number, type: number): number {
-  return (eid << 8) | (type & 0xff);
 }
 
 export class Interpolator {

@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { componentId } from "@vworlds/vecs";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Diff, Interpolator, merge } from "../src/interpolator.js";
 
@@ -6,7 +7,7 @@ const PositionType = 5;
 const ColorType = 6;
 
 function CID(eid: number, type: number): number {
-  return (eid << 8) | (type & 0xff);
+  return componentId(eid, type);
 }
 
 function sortSnapshots(snapshots: ComponentSnapshot[]): ComponentSnapshot[] {
