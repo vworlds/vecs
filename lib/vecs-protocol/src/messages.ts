@@ -5,29 +5,8 @@ const FIELD_DIFF = 1;
 const FIELD_RPC = 2;
 const FIELD_INPUT = 3;
 
-export class RemovedComponent implements IEncodable {
-  public eid = 0;
-  public type = 0;
-
-  public constructor(values?: Partial<RemovedComponent>) {
-    if (values) {
-      Object.assign(this, values);
-    }
-  }
-
-  public wireEncode(encoder: Encoder): void {
-    encoder.write_u32(this.eid);
-    encoder.write_u32(this.type);
-  }
-
-  public static wireDecode(decoder: Decoder): RemovedComponent {
-    return new RemovedComponent({ eid: decoder.read_u32(), type: decoder.read_u32() });
-  }
-}
-
 export class ComponentSnapshot implements IEncodable {
-  public eid = 0;
-  public type = 0;
+  public cid = 0;
   public payload = new Uint8Array();
 
   public constructor(values?: Partial<ComponentSnapshot>) {
@@ -37,15 +16,13 @@ export class ComponentSnapshot implements IEncodable {
   }
 
   public wireEncode(encoder: Encoder): void {
-    encoder.write_u32(this.eid);
-    encoder.write_u32(this.type);
+    encoder.write_u32(this.cid);
     encoder.write_buffer(this.payload);
   }
 
   public static wireDecode(decoder: Decoder): ComponentSnapshot {
     return new ComponentSnapshot({
-      eid: decoder.read_u32(),
-      type: decoder.read_u32(),
+      cid: decoder.read_u32(),
       payload: decoder.read_bytes(),
     });
   }
@@ -55,7 +32,7 @@ export class StateDiff implements IEncodable {
   public toFrame = 0;
   public fromFrame = 0;
   public snapshots: Uint8Array[] = [];
-  public removed: RemovedComponent[] = [];
+  public removed: number[] = [];
 
   public constructor(values?: Partial<StateDiff>) {
     if (values) {
@@ -69,7 +46,7 @@ export class StateDiff implements IEncodable {
     encoder.write_u32(this.snapshots.length);
     this.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot));
     encoder.write_u32(this.removed.length);
-    this.removed.forEach((removed) => encoder.write(removed));
+    this.removed.forEach((cid) => encoder.write_u32(cid));
   }
 
   public static wireDecode(decoder: Decoder): StateDiff {
@@ -80,7 +57,7 @@ export class StateDiff implements IEncodable {
     }
     const removedCount = decoder.read_u32();
     for (let i = 0; i < removedCount; i++) {
-      diff.removed.push(decoder.read(RemovedComponent));
+      diff.removed.push(decoder.read_u32());
     }
     return diff;
   }

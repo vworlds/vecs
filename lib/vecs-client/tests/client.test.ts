@@ -1,14 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { type VecsSocket } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { World } from "@vworlds/vecs";
-import {
-  Client2Server,
-  ComponentSnapshot,
-  RemovedComponent,
-  Server2Client,
-  StateDiff,
-} from "@vworlds/vecs-protocol";
+import { World, cid_pack } from "@vworlds/vecs";
+import { Client2Server, ComponentSnapshot, Server2Client, StateDiff } from "@vworlds/vecs-protocol";
 import { VecsClient } from "../src/index.js";
 
 class Position {
@@ -64,7 +58,7 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 }
 
 function makeSnapshotBytes(eid: number, type: number, payload: Uint8Array): Uint8Array {
-  return encodeMessage(new ComponentSnapshot({ eid, type, payload }));
+  return encodeMessage(new ComponentSnapshot({ cid: cid_pack(eid, type), payload }));
 }
 
 function posSnapshot(eid: number, x: number, y: number): Uint8Array {
@@ -113,7 +107,7 @@ describe("VecsClient", () => {
           diff: new StateDiff({
             fromFrame: 0,
             toFrame: 2,
-            removed: [new RemovedComponent({ eid: 7, type: 1 })],
+            removed: [cid_pack(7, 1)],
           }),
         })
       )

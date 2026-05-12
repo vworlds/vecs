@@ -1,8 +1,18 @@
-import { describe, it, expect } from "vitest";
-import { World } from "../src/index.js";
+import { afterEach, describe, it, expect } from "vitest";
+import {
+  LOCAL_COMPONENT_MIN,
+  World,
+  cid_pack,
+  cid_unpack,
+  setLocalComponentMin,
+} from "../src/index.js";
 
 class A {}
 class B {}
+
+afterEach(() => {
+  setLocalComponentMin(256);
+});
 
 describe("World — entity management", () => {
   it("entity() assigns sequential ids starting at 0", () => {
@@ -77,6 +87,34 @@ describe("World — component registration", () => {
     expect(w.getComponentType(A)).toBe(256);
     w.registerComponent(B);
     expect(w.getComponentType(B)).toBe(257);
+  });
+
+  it("auto-assigns local type ids from configured LOCAL_COMPONENT_MIN", () => {
+    setLocalComponentMin(1024);
+    const w = new World();
+
+    w.registerComponent(A);
+    w.registerComponent(B);
+
+    expect(LOCAL_COMPONENT_MIN).toBe(1024);
+    expect(w.getComponentType(A)).toBe(1024);
+    expect(w.getComponentType(B)).toBe(1025);
+  });
+
+  it("requires LOCAL_COMPONENT_MIN to align to cid packing", () => {
+    setLocalComponentMin(300);
+
+    expect(() => new World()).toThrow("LOCAL_COMPONENT_MIN");
+  });
+
+  it("packs and unpacks component ids with the configured type bitmask", () => {
+    setLocalComponentMin(1024);
+    new World();
+
+    const cid = cid_pack(7, 513);
+
+    expect(cid).toBe((7 << 10) | 513);
+    expect(cid_unpack(cid)).toEqual([7, 513]);
   });
 
   it("accepts an explicit numeric type id", () => {

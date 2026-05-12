@@ -8,13 +8,7 @@ import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
-
-/**
- * Numeric type ids below this value are reserved for components whose id was
- * pre-registered via {@link World.registerComponentType} (typically server
- * assigned). Auto-assigned ids start here.
- */
-export const LOCAL_COMPONENT_MIN = 256;
+import { getLocalComponentMin } from "./cid.js";
 
 /**
  * The central ECS container. One world per game session.
@@ -72,8 +66,8 @@ export class World {
   private _Type2Meta = new ArrayMap<ComponentMeta>();
   /** @internal Pre-registered name → type id mappings (server-assigned ids). */
   private _componentNameTypeMap = new Map<string, number>();
-  /** @internal Counter used to auto-assign type ids for "local" components (≥ 256). */
-  private _localComponentCounter = LOCAL_COMPONENT_MIN;
+  /** @internal Counter used to auto-assign local component type ids. */
+  private _localComponentCounter: number;
   /** @internal `true` once {@link start} (or {@link disableComponentRegistration}) has been called. */
   private _componentRegistrationDisabled = false;
 
@@ -102,6 +96,7 @@ export class World {
   public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
 
   constructor() {
+    this._localComponentCounter = getLocalComponentMin();
     this._tickSources.add(ALWAYS_TICK_SOURCE);
   }
 
@@ -496,10 +491,11 @@ export class World {
    * Used by networking code to materialise server-assigned entities:
    *
    * ```ts
-   * const e = world.getOrCreateEntity(snapshot.eid, (e) => {
+   * const [eid, type] = cid_unpack(snapshot.cid);
+   * const e = world.getOrCreateEntity(eid, (e) => {
    *   networkEntities.add(e);
    * });
-   * e.add(snapshot.type);
+   * e.add(type);
    * ```
    *
    * @param eid - Entity id to look up or create.
