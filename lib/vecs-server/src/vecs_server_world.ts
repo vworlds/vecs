@@ -1,7 +1,6 @@
 import {
   Client2Server,
   ComponentSnapshot,
-  RemovedComponent,
   Server2Client,
   SessionRPC,
   StateDiff,
@@ -16,6 +15,7 @@ import {
   type IPhase,
   type System,
   type World,
+  cid_pack,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import { NetworkClient, NetworkInput, Networked } from "./networked.js";
@@ -59,7 +59,7 @@ export class VecsServerWorld {
   private readonly _components: RegisteredComponent[] = [];
   private readonly _sessions = new Map<string, ServerClientSession>();
   private readonly _rpcHandlers = new Map<number, RPCHandler>();
-  private readonly _updates = new Map<string, Update>();
+  private readonly _updates = new Map<number, Update>();
   private readonly _syncSystems: SyncSystem[] = [];
   private readonly _encodeBuffer: Uint8Array;
   private _frame = 0;
@@ -134,13 +134,13 @@ export class VecsServerWorld {
 
     const toFrame = ++this._frame;
     const snapshots: Uint8Array[] = [];
-    const removed: RemovedComponent[] = [];
+    const removed: number[] = [];
 
     this._updates.forEach((u) => {
       if (u.component) {
         snapshots.push(this._encodeSnapshot(u.entity.eid, u.type, u.component));
       } else {
-        removed.push(new RemovedComponent({ eid: u.entity.eid, type: u.type }));
+        removed.push(cid_pack(u.entity.eid, u.type));
       }
     });
 
@@ -203,7 +203,7 @@ export class VecsServerWorld {
   }
 
   private _record(entity: Entity, type: number, component: Component | undefined): void {
-    this._updates.set(componentKey(entity.eid, type), { entity, type, component });
+    this._updates.set(cid_pack(entity.eid, type), { entity, type, component });
   }
 
   private _sendFullSnapshot(session: ServerClientSession): void {
@@ -228,7 +228,7 @@ export class VecsServerWorld {
     const payloadEncoder = new Encoder(this._encodeBuffer);
     payloadEncoder.write(component);
     const payload = payloadEncoder.getBuffer().slice();
-    return this._encode(new ComponentSnapshot({ eid, type, payload }));
+    return this._encode(new ComponentSnapshot({ cid: cid_pack(eid, type), payload }));
   }
 
   private _encode(value: IEncodable): Uint8Array {
@@ -236,10 +236,6 @@ export class VecsServerWorld {
     encoder.write(value);
     return encoder.getBuffer().slice();
   }
-}
-
-function componentKey(eid: number, type: number): string {
-  return `${eid}:${type}`;
 }
 
 function ensureRegistered(world: World, Class: ComponentClass): void {
