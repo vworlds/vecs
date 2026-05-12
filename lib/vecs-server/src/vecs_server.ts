@@ -12,6 +12,7 @@ import {
   type Component,
   type ComponentClass,
   type Entity,
+  ENTITY_DESTROY_COMPONENT_TYPE,
   type IPhase,
   type System,
   type World,
@@ -99,6 +100,15 @@ export class VecsServer {
     this._systemsInstalled = true;
     const collectPhase = options.collectPhase ?? "update";
     const sendPhase = options.sendPhase ?? "update";
+
+    this.world
+      .system(`VecsServer:${this.name}:Destroy`)
+      .phase(collectPhase)
+      .requires(Networked)
+      .track()
+      .exit((entity) => {
+        this._record(entity, ENTITY_DESTROY_COMPONENT_TYPE, undefined);
+      });
 
     this._components.forEach((registered) => {
       const system = this.world

@@ -1,5 +1,6 @@
 import { afterEach, describe, it, expect } from "vitest";
 import {
+  ENTITY_DESTROY_COMPONENT_TYPE,
   LOCAL_COMPONENT_MIN,
   World,
   cid_pack,
@@ -121,6 +122,17 @@ describe("World — component registration", () => {
     const w = new World();
     w.registerComponent(A, 5);
     expect(w.getComponentType(A)).toBe(5);
+  });
+
+  it("rejects the reserved entity destruction component type", () => {
+    const w = new World();
+
+    expect(() => w.registerComponent(A, ENTITY_DESTROY_COMPONENT_TYPE)).toThrow(
+      "reserved for server-authoritative entity destruction"
+    );
+    expect(() => w.registerComponentType("A", ENTITY_DESTROY_COMPONENT_TYPE)).toThrow(
+      "reserved for server-authoritative entity destruction"
+    );
   });
 
   it("accepts a custom display name", () => {

@@ -4,7 +4,10 @@ export type CID = number;
 /** Component type ids below this value are reserved for externally assigned ids. */
 export let LOCAL_COMPONENT_MIN = 256;
 
-let componentTypeMask = LOCAL_COMPONENT_MIN - 1;
+/** Reserved component type id that encodes server-authoritative entity destruction. */
+export let ENTITY_DESTROY_COMPONENT_TYPE = LOCAL_COMPONENT_MIN - 1;
+
+let componentTypeMask = ENTITY_DESTROY_COMPONENT_TYPE;
 let componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
 
 function validateLocalComponentMin(value: number): void {
@@ -29,9 +32,10 @@ export function getLocalComponentMin(): number {
 /** Configure the local component type range before constructing any worlds. */
 export function setLocalComponentMin(value: number): void {
   LOCAL_COMPONENT_MIN = value;
+  ENTITY_DESTROY_COMPONENT_TYPE = LOCAL_COMPONENT_MIN - 1;
   if (isAlignedLocalComponentMin(value)) {
     getLocalComponentMin();
-    componentTypeMask = LOCAL_COMPONENT_MIN - 1;
+    componentTypeMask = ENTITY_DESTROY_COMPONENT_TYPE;
     componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
   }
 }

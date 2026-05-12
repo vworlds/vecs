@@ -8,10 +8,9 @@ import {
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
 import {
+  ENTITY_DESTROY_COMPONENT_TYPE,
   cid_unpack,
-  getLocalComponentMin,
   type ComponentClass,
-  type Entity,
   type IPhase,
   type World,
 } from "@vworlds/vecs";
@@ -55,7 +54,6 @@ export class VecsClient {
   private readonly _rpcInbox: RPC[] = [];
   private readonly _interpolator: Interpolator;
   private readonly _encodeBuffer: Uint8Array;
-  private readonly _localEntityIdStart: number;
   private _input: unknown;
   private _systemsInstalled = false;
 
@@ -63,10 +61,6 @@ export class VecsClient {
     this._world = options.world;
     this._socket = options.socket;
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
-    this._localEntityIdStart =
-      options.localEntityIdStart ??
-      (this._world as World & { localEntityIdStart?: number }).localEntityIdStart ??
-      Number.MAX_SAFE_INTEGER;
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30
@@ -190,22 +184,12 @@ export class VecsClient {
     if (!entity) {
       return;
     }
+    if (type === ENTITY_DESTROY_COMPONENT_TYPE) {
+      entity.destroy();
+      return;
+    }
     if (this._components.has(type) && entity.get(type)) {
       entity.remove(type);
     }
-    this._world.flush();
-    if (eid < this._localEntityIdStart && !hasSyncedComponents(entity)) {
-      entity.destroy();
-    }
   }
-}
-
-function hasSyncedComponents(entity: Entity): boolean {
-  let hasSynced = false;
-  entity.components.forEach((_component, type) => {
-    if (type < getLocalComponentMin()) {
-      hasSynced = true;
-    }
-  });
-  return hasSynced;
 }
