@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { ENTITY_DESTROY_COMPONENT_TYPE, World, cid_pack } from "@vworlds/vecs";
+import { ALL_COMPONENTS, World, cid_pack } from "@vworlds/vecs";
 import { Client2Server, ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
 import { NetworkClient, NetworkInput, Networked, VecsServer } from "../src/index.js";
 
@@ -154,7 +154,7 @@ describe("VecsServer", () => {
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
     const message = new Decoder(last).read(Server2Client);
-    expect(message.diff!.removed).toContain(cid_pack(entity.eid, ENTITY_DESTROY_COMPONENT_TYPE));
+    expect(message.diff!.removed).toContain(cid_pack(entity.eid, ALL_COMPONENTS));
   });
 
   it("sends entity destruction when Networked exits", () => {
@@ -179,7 +179,7 @@ describe("VecsServer", () => {
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
     const message = new Decoder(last).read(Server2Client);
-    expect(message.diff!.removed).toContain(cid_pack(entity.eid, ENTITY_DESTROY_COMPONENT_TYPE));
+    expect(message.diff!.removed).toContain(cid_pack(entity.eid, ALL_COMPONENTS));
   });
 
   it("sends current networked state only to the late-joining client", () => {

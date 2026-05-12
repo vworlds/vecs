@@ -8,7 +8,7 @@ export { type IPhase } from "./phase.js";
 export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";
 export { Bitset } from "./util/bitset.js";
 export {
-  ENTITY_DESTROY_COMPONENT_TYPE,
+  ALL_COMPONENTS,
   LOCAL_COMPONENT_MIN,
   cid_pack,
   cid_unpack,

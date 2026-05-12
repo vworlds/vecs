@@ -8,7 +8,7 @@ import {
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
 import {
-  ENTITY_DESTROY_COMPONENT_TYPE,
+  ALL_COMPONENTS,
   cid_unpack,
   type ComponentClass,
   type IPhase,
@@ -184,7 +184,7 @@ export class VecsClient {
     if (!entity) {
       return;
     }
-    if (type === ENTITY_DESTROY_COMPONENT_TYPE) {
+    if (type === ALL_COMPONENTS) {
       entity.destroy();
       return;
     }
