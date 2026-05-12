@@ -98,11 +98,11 @@ export class Entity {
   }
 
   /**
-   * Re-evaluate every world query for this entity, firing `_enter` / `_exit`
-   * routing whenever membership flipped.
+   * Re-evaluate queries that can be affected by `meta` for this entity,
+   * firing `_enter` / `_exit` routing whenever membership flipped.
    */
-  private _updateQueries(): void {
-    this.world.queries.forEach((q) => {
+  private _updateQueries(meta: ComponentMeta): void {
+    this.world._forEachQueryForComponent(meta.type, (q) => {
       const belongs = q.belongs(this);
       const isIn = this._queries.has(q);
       if (belongs !== isIn) {
@@ -125,7 +125,7 @@ export class Entity {
     if (isAdd) {
       this._runOnAddHandlers(meta, component);
     }
-    this._updateQueries();
+    this._updateQueries(meta);
   }
 
   /** Perform the shared set-side hook and query update routing. */
@@ -268,7 +268,7 @@ export class Entity {
     }
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this._updateQueries();
+    this._updateQueries(meta);
     this._components.delete(meta.type);
     const removeHandlers = meta._onRemoveHandlers;
     if (removeHandlers) {

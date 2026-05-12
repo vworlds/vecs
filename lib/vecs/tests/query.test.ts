@@ -88,6 +88,53 @@ describe("Query — update watchlist predicate", () => {
   });
 });
 
+describe("Query — component routing index", () => {
+  it("does not reevaluate simple queries when unrelated components change", () => {
+    const { w, tick } = setup();
+    const q = w.query("velocity").requires(Velocity);
+    const belongs = vi.spyOn(q, "belongs");
+    w.start();
+
+    const e = w.entity();
+    e.add(Position);
+    tick();
+
+    expect(belongs).not.toHaveBeenCalled();
+  });
+
+  it("reindexes a query when its predicate is replaced", () => {
+    const { w, tick } = setup();
+    const q = w.query("test").requires(Position);
+    q.query(Velocity);
+    const belongs = vi.spyOn(q, "belongs");
+    w.start();
+
+    const positionOnly = w.entity();
+    positionOnly.add(Position);
+    tick();
+    expect(belongs).not.toHaveBeenCalled();
+
+    const velocityOnly = w.entity();
+    velocityOnly.add(Velocity);
+    tick();
+    expect(belongs).toHaveBeenCalledWith(velocityOnly);
+  });
+
+  it("destroy removes a query from the routing index", () => {
+    const { w, tick } = setup();
+    const q = w.query("test").requires(Position);
+    w.start();
+    q.destroy();
+    const belongs = vi.spyOn(q, "belongs");
+
+    const e = w.entity();
+    e.add(Position);
+    tick();
+
+    expect(belongs).not.toHaveBeenCalled();
+  });
+});
+
 describe("Query — predicates (belongs)", () => {
   it("requires / HAS matches entities with all listed components", () => {
     const { w } = setup();

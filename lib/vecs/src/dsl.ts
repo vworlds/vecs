@@ -200,3 +200,45 @@ export function _buildEntityTest(world: World, q: QueryDSL): EntityTestFunc {
 
   throw "Unrecognized query term";
 }
+
+/**
+ * Return the component type ids that can affect a query's membership, or
+ * `undefined` when the expression is too broad to index safely.
+ *
+ * @internal Used by the world query index to route archetype changes only to
+ * queries that may be invalidated by the changed component. Keep this
+ * conservative: unsupported expressions fall back to full-scan routing.
+ */
+export function _extractQueryDependencies(world: World, q: QueryDSL): number[] | undefined {
+  if (typeof q === "number") {
+    return [q];
+  }
+
+  if (typeof q === "function" && world._tryGetComponentMeta(q as ComponentClass)) {
+    return [world.getComponentType(q as ComponentClass)];
+  } else if (typeof q === "function") {
+    return undefined;
+  }
+
+  if (q instanceof Array) {
+    return q.map((C) => world.getComponentType(C));
+  }
+
+  if ("HAS" in q) {
+    return _extractQueryDependencies(world, q.HAS);
+  }
+
+  if ("AND" in q) {
+    const dependencies: number[] = [];
+    for (const sq of q.AND) {
+      const childDependencies = _extractQueryDependencies(world, sq);
+      if (childDependencies === undefined) {
+        return undefined;
+      }
+      dependencies.push(...childDependencies);
+    }
+    return dependencies;
+  }
+
+  return undefined;
+}

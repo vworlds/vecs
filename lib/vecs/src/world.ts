@@ -61,6 +61,10 @@ export class World {
   private _entities = new Map<number, Entity>();
   /** @internal All registered queries, including systems (which extend `Query`). */
   private _queries: Query[] = [];
+  /** @internal Component type id -> queries invalidated by that component. */
+  private _queryIndex = new ArrayMap<Set<Query>>();
+  /** @internal Queries whose predicates are too broad for component indexing. */
+  private _unindexedQueries = new Set<Query>();
 
   /** @internal Component type id → meta record. */
   private _Type2Meta = new ArrayMap<ComponentMeta>();
@@ -194,6 +198,48 @@ export class World {
     this._queries.push(q);
   }
 
+  /** @internal Visit queries whose membership may change when component `type` changes. */
+  public _forEachQueryForComponent(type: number, callback: (q: Query) => void): void {
+    this._queryIndex.get(type)?.forEach(callback);
+    this._unindexedQueries.forEach(callback);
+  }
+
+  /** @internal Register a query in the component index, or fallback routing. */
+  public _indexQuery(q: Query, componentTypes: number[] | undefined): void {
+    this._unindexQuery(q);
+    if (componentTypes === undefined || componentTypes.length === 0) {
+      this._unindexedQueries.add(q);
+      q._queryIndexKeys = undefined;
+      return;
+    }
+
+    const indexedTypes = [...new Set(componentTypes)];
+    indexedTypes.forEach((type) => {
+      let queries = this._queryIndex.get(type);
+      if (!queries) {
+        queries = new Set<Query>();
+        this._queryIndex.set(type, queries);
+      }
+      queries.add(q);
+    });
+    q._queryIndexKeys = indexedTypes;
+  }
+
+  /** @internal Remove a query from every index/fallback bucket. */
+  public _unindexQuery(q: Query): void {
+    if (q._queryIndexKeys !== undefined) {
+      q._queryIndexKeys.forEach((type) => {
+        const queries = this._queryIndex.get(type);
+        queries?.delete(q);
+        if (queries?.size === 0) {
+          this._queryIndex.delete(type);
+        }
+      });
+    }
+    this._unindexedQueries.delete(q);
+    q._queryIndexKeys = undefined;
+  }
+
   /** @internal Register a tick source with this world. */
   public _registerTickSource(t: ITickSource): void {
     this._tickSources.add(t);
@@ -204,6 +250,7 @@ export class World {
    * Called by {@link Query.destroy}.
    */
   public _removeQuery(q: Query): void {
+    this._unindexQuery(q);
     const idx = this._queries.indexOf(q);
     if (idx !== -1) {
       this._queries.splice(idx, 1);

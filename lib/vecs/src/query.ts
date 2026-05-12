@@ -7,6 +7,7 @@ import { type World } from "./world.js";
 import {
   _HAS,
   _buildEntityTest,
+  _extractQueryDependencies,
   type EntityTestFunc,
   type QueryDSL,
   type MaybeRequired,
@@ -61,6 +62,8 @@ export class Query<R extends ComponentClass[] = []> {
   protected _belongs: EntityTestFunc = (_e: Entity) => false;
   /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
   protected _hasQuery: boolean = false;
+  /** @internal Component index buckets this query currently belongs to. */
+  public _queryIndexKeys: number[] | undefined = undefined;
 
   /** @internal `enter` callback (already wraps any injection logic). */
   protected _enterCallback: EntityCallback | undefined = undefined;
@@ -463,6 +466,7 @@ export class Query<R extends ComponentClass[] = []> {
       // predicate is never used for update-watchlist expansion.
       const watchlist: number[] = this._watchlistBitmask.indices();
       this._belongs = _HAS(this.world, ...watchlist);
+      this.world._indexQuery(this, watchlist);
       this._backfill();
     }
 
@@ -533,6 +537,7 @@ export class Query<R extends ComponentClass[] = []> {
     _guaranteed?: readonly [...T]
   ): Query<T> {
     this._belongs = _buildEntityTest(this.world, q);
+    this.world._indexQuery(this, _extractQueryDependencies(this.world, q));
     this._hasQuery = true;
     this._backfill();
     return this as unknown as Query<T>;
