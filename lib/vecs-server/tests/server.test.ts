@@ -3,7 +3,7 @@ import { type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
 import { World, cid_pack } from "@vworlds/vecs";
 import { Client2Server, ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
-import { NetworkClient, NetworkInput, Networked, VecsServerWorld } from "../src/index.js";
+import { NetworkClient, NetworkInput, Networked, VecsServer } from "../src/index.js";
 
 class Position {
   @wireType("i32")
@@ -76,12 +76,12 @@ function decodeFirstSnapshotPayload(bytes: Uint8Array): Position {
   return new Decoder(snapshot.payload).read(Position);
 }
 
-describe("VecsServerWorld", () => {
+describe("VecsServer", () => {
   it("sends full component snapshots for networked component updates", () => {
     const world = new World();
     world.registerComponent(Position, 1);
     world.registerComponent(LocalOnly);
-    const server = new VecsServerWorld("main", world);
+    const server = new VecsServer("main", world);
     const socket = new MemorySocket("client-1");
     server.registerComponent(Position);
     const listener = new MockListener();
@@ -109,7 +109,7 @@ describe("VecsServerWorld", () => {
   it("sends component removals when a synchronized component exits", () => {
     const world = new World();
     world.registerComponent(Position, 1);
-    const server = new VecsServerWorld("main", world);
+    const server = new VecsServer("main", world);
     const socket = new MemorySocket("client-1");
     server.registerComponent(Position);
     const listener = new MockListener();
@@ -135,7 +135,7 @@ describe("VecsServerWorld", () => {
   it("sends current networked state only to the late-joining client", () => {
     const world = new World();
     world.registerComponent(Position, 1);
-    const server = new VecsServerWorld("main", world);
+    const server = new VecsServer("main", world);
     server.registerComponent(Position);
 
     const first = new MemorySocket("client-1");
@@ -164,7 +164,7 @@ describe("VecsServerWorld", () => {
 
   it("creates a NetworkClient entity on connect and destroys it on disconnect", () => {
     const world = new World();
-    const server = new VecsServerWorld("main", world);
+    const server = new VecsServer("main", world);
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems();
@@ -198,7 +198,7 @@ describe("VecsServerWorld", () => {
 
   it("writes incoming input to the connected client's NetworkInput component", () => {
     const world = new World();
-    const server = new VecsServerWorld("main", world);
+    const server = new VecsServer("main", world);
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems();
@@ -224,7 +224,7 @@ describe("VecsServerWorld", () => {
   it("collapses update-then-remove within a frame into a single removal", () => {
     const world = new World();
     world.registerComponent(Position, 1);
-    const server = new VecsServerWorld("main", world);
+    const server = new VecsServer("main", world);
     server.registerComponent(Position);
     const listener = new MockListener();
     server._attach(listener);
@@ -251,7 +251,7 @@ describe("VecsServerWorld", () => {
   it("collapses remove-then-readd within a frame into a single snapshot", () => {
     const world = new World();
     world.registerComponent(Position, 1);
-    const server = new VecsServerWorld("main", world);
+    const server = new VecsServer("main", world);
     server.registerComponent(Position);
     const listener = new MockListener();
     server._attach(listener);
@@ -282,7 +282,7 @@ describe("VecsServerWorld", () => {
   it("uses the buffer ref pattern but produces independent message buffers", () => {
     const world = new World();
     world.registerComponent(Position, 1);
-    const server = new VecsServerWorld("main", world, { encodeBufferSize: 1024 });
+    const server = new VecsServer("main", world, { encodeBufferSize: 1024 });
     server.registerComponent(Position);
     const listener = new MockListener();
     server._attach(listener);
@@ -315,7 +315,7 @@ describe("VecsServerWorld", () => {
 
   it("renames listen to handleRpc and applies registered handlers to new sessions", () => {
     const world = new World();
-    const server = new VecsServerWorld("main", world);
+    const server = new VecsServer("main", world);
     server.handleRpc(42, (_params, req) => {
       expect(req.rpcId).toBe(42);
       return [];

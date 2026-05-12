@@ -1,6 +1,6 @@
 import express from "express";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
-import { Networked, VecsServer, VecsServerWorld } from "@vworlds/vecs-server";
+import { Networked, VecsListener, VecsServer } from "@vworlds/vecs-server";
 import { World } from "@vworlds/vecs";
 
 const POSITION_TYPE = 1;
@@ -46,9 +46,9 @@ app.use((req, res, next) => {
   next();
 });
 
-const vecsServer = new VecsServer();
-const mainWorld: VecsServerWorld = vecsServer.registerWorld("main", world);
-mainWorld.registerComponent(Position);
+const vecsListener = new VecsListener();
+const server: VecsServer = vecsListener.registerWorld("main", world);
+server.registerComponent(Position);
 
 for (let i = 0; i < 5; i++) {
   world
@@ -75,9 +75,9 @@ world
     entity.modified(Position);
   });
 
-mainWorld.installSystems();
+server.installSystems();
 world.start();
-await vecsServer.listen(app, { ordered: false, maxRetransmits: 2 });
+await vecsListener.listen(app, { ordered: false, maxRetransmits: 2 });
 
 app.get("/", (_req, res) => {
   res.type("text/plain").send("vecs demo server running. Start apps/client with Vite.");
