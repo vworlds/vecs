@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Decoder } from "@vworlds/vecs-wire";
+import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import {
   Client2Server,
   ComponentSnapshot,
@@ -7,8 +7,13 @@ import {
   RPC,
   Server2Client,
   StateDiff,
-  encodeMessage,
 } from "../src/index.js";
+
+function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
+  const encoder = new Encoder(new Uint8Array(size));
+  encoder.write(message);
+  return encoder.getBuffer();
+}
 
 describe("protocol messages", () => {
   it("round-trips server diffs with snapshots, removals, and RPC", () => {

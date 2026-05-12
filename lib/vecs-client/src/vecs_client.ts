@@ -4,7 +4,6 @@ import {
   Server2Client,
   SessionRPC,
   StateDiff,
-  encodeMessage,
   type RPCHandler,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
@@ -15,7 +14,7 @@ import {
   type IPhase,
   type World,
 } from "@vworlds/vecs";
-import { Decoder } from "@vworlds/vecs-wire";
+import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
 
@@ -54,7 +53,7 @@ export class VecsClient {
   private readonly _components = new Map<number, RegisteredComponent>();
   private readonly _rpcInbox: RPC[] = [];
   private readonly _interpolator: Interpolator;
-  private readonly _encodeBufferSize: number;
+  private readonly _encodeBuffer: Uint8Array;
   private readonly _localEntityIdStart: number;
   private _input: unknown;
   private _systemsInstalled = false;
@@ -62,7 +61,7 @@ export class VecsClient {
   public constructor(options: VecsClientOptions) {
     this._world = options.world;
     this._socket = options.socket;
-    this._encodeBufferSize = options.encodeBufferSize ?? 64 * 1024;
+    this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
     this._localEntityIdStart =
       options.localEntityIdStart ??
       (this._world as World & { localEntityIdStart?: number }).localEntityIdStart ??
@@ -152,12 +151,9 @@ export class VecsClient {
     }
     const rpc = this._rpc.getOutgoing();
     const ackFrame = this._interpolator.version < 0 ? 0 : this._interpolator.version;
-    this._socket.send(
-      encodeMessage(
-        new Client2Server({ ackFrame, input: this._input, rpc }),
-        this._encodeBufferSize
-      )
-    );
+    const encoder = new Encoder(this._encodeBuffer);
+    encoder.write(new Client2Server({ ackFrame, input: this._input, rpc }));
+    this._socket.send(encoder.getBuffer());
   }
 
   public close(): void {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type VecsSocket } from "@vworlds/vecs-protocol";
-import { Decoder, Encoder, type as wireType } from "@vworlds/vecs-wire";
+import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
 import { World } from "@vworlds/vecs";
 import {
   Client2Server,
@@ -8,7 +8,6 @@ import {
   RemovedComponent,
   Server2Client,
   StateDiff,
-  encodeMessage,
 } from "@vworlds/vecs-protocol";
 import { VecsClient } from "../src/index.js";
 
@@ -55,6 +54,12 @@ class MemorySocket implements VecsSocket {
 function encodeComponent(component: object): Uint8Array {
   const encoder = new Encoder(new Uint8Array(1024));
   encoder.write(component);
+  return encoder.getBuffer();
+}
+
+function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
+  const encoder = new Encoder(new Uint8Array(size));
+  encoder.write(message);
   return encoder.getBuffer();
 }
 

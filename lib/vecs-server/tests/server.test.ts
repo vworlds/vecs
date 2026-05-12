@@ -1,13 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
-import { Decoder, type as wireType } from "@vworlds/vecs-wire";
+import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
 import { World } from "@vworlds/vecs";
-import {
-  Client2Server,
-  ComponentSnapshot,
-  Server2Client,
-  encodeMessage,
-} from "@vworlds/vecs-protocol";
+import { Client2Server, ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
 import { NetworkClient, NetworkInput, Networked, VecsServerWorld } from "../src/index.js";
 
 class Position {
@@ -67,6 +62,12 @@ class MockListener implements VecsSocketListener {
 
 function encodeClient2Server(message: Client2Server): Uint8Array {
   return encodeMessage(message);
+}
+
+function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
+  const encoder = new Encoder(new Uint8Array(size));
+  encoder.write(message);
+  return encoder.getBuffer();
 }
 
 function decodeFirstSnapshotPayload(bytes: Uint8Array): Position {

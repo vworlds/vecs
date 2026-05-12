@@ -177,9 +177,3 @@ export class Client2Server implements IEncodable {
     return message;
   }
 }
-
-export function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
-  const encoder = new Encoder(new Uint8Array(size));
-  encoder.write(message);
-  return encoder.getBuffer();
-}
