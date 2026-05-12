@@ -4,7 +4,6 @@ export {
   RemovedComponent,
   Server2Client,
   StateDiff,
-  encodeMessage,
 } from "./messages.js";
 export {
   FIRST_USER_RPC_ID,
