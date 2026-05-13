@@ -161,6 +161,12 @@ export class Bitset {
         continue;
       }
       const base = j << 5;
+      if (w === -1) {
+        for (let i = 0; i < 32; i++) {
+          callback(base + i);
+        }
+        continue;
+      }
       for (let i = 0; i < 32; i++) {
         if ((w & 1) !== 0) {
           callback(base + i);
