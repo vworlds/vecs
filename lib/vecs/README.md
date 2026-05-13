@@ -322,7 +322,7 @@ const enemies = world
   .enter((e) => console.log("enemy spawned", e.eid));
 
 world.start();
-// enemies.entities is kept up-to-date automatically.
+// enemies.count and query iteration are kept up-to-date automatically.
 
 // Standalone queries can also be created after start(); existing matched
 // entities are backfilled immediately.
@@ -554,7 +554,7 @@ Fires every tick for **every tracked entity**, regardless of whether anything ch
 
 #### `.sort(components, compare)`
 
-Store matched entities in a custom order determined by `compare`. Implies `.track()`. Iterating `system.entities`, `forEach`, and `each` walks entities in sorted order.
+Store matched entities in a custom order determined by `compare`. Implies `.track()`. Iterating the system, `forEach`, and `each` walks entities in sorted order.
 
 ```ts
 world
@@ -566,7 +566,7 @@ world
 
 #### `.track()`
 
-Enable entity tracking without an `each` callback — exposes matched entities via `system.entities`. `each` and `sort` imply `track` automatically. When called after `world.start()`, immediately backfills existing matched entities.
+Enable entity tracking without an `each` callback — exposes matched entities via `system.count`, `system.has(e)`, and direct iteration. `each` and `sort` imply `track` automatically. When called after `world.start()`, immediately backfills existing matched entities.
 
 #### `.run(callback)`
 
@@ -616,7 +616,8 @@ const projectiles = world
 world.start();
 
 projectiles.forEach((e) => { ... });
-console.log(projectiles.entities.size, "active projectiles");
+for (const e of projectiles) { ... }
+console.log(projectiles.count, "active projectiles");
 ```
 
 | Method                                                  | Description                                                                                         |
@@ -629,9 +630,11 @@ console.log(projectiles.entities.size, "active projectiles");
 | `.sort(components, compare)`                            | Store matched entities in sorted order. Comparator receives `(entityA, tupleA, entityB, tupleB)`.   |
 | `.track()`                                              | Enable tracking. Backfills when called after `start()`.                                             |
 | `.belongs(e)`                                           | Returns `true` if the entity satisfies the predicate.                                               |
+| `.count`                                                | Number of currently tracked entities.                                                               |
+| `.has(e)`                                               | Returns `true` if the entity is currently tracked.                                                  |
+| `[Symbol.iterator]()`                                   | Iterate currently tracked entities with `for (const e of query)`.                                   |
 | `.forEach(callback)`                                    | Iterate currently tracked entities.                                                                 |
 | `.forEach(components, callback)`                        | Iterate with component injection.                                                                   |
-| `.entities`                                             | `ReadonlySet<Entity>` of currently tracked entities.                                                |
 | `.destroy()`                                            | Remove the query from the world and from every entity (no exit fires).                              |
 
 #### `.destroy()` semantics
@@ -640,7 +643,7 @@ console.log(projectiles.entities.size, "active projectiles");
 
 ```ts
 const q = world.query("Temporary").requires(Position);
-// ... use q.entities ...
+// ... use q.count, q.has(e), or iterate q ...
 q.destroy();
 ```
 

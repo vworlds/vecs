@@ -352,7 +352,8 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    *
    * `each` does **not** modify the system's query — define membership with
    * {@link requires} or {@link query} as usual. It does, however, implicitly
-   * enable {@link track}, so matched entities are exposed via {@link entities}.
+   * enable {@link track}, so matched entities are exposed via {@link count},
+   * {@link has}, iteration, and {@link forEach}.
    *
    * Only one `each` callback may be registered per system; calling `each` a
    * second time throws.

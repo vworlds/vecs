@@ -39,7 +39,7 @@ describe("Query — construction", () => {
     const e = w.entity();
     e.add(Position);
     tick();
-    expect(q.entities.has(e)).toBe(true);
+    expect(q.has(e)).toBe(true);
   });
 
   it("counts tracked entities", () => {
@@ -50,11 +50,11 @@ describe("Query — construction", () => {
     const position = w.entity().add(Position);
     w.entity().add(Velocity);
     tick();
-    expect(q.count()).toBe(1);
+    expect(q.count).toBe(1);
 
     position.remove(Position);
     tick();
-    expect(q.count()).toBe(0);
+    expect(q.count).toBe(0);
   });
 
   it("can be created after start() and immediately backfills existing entities", () => {
@@ -64,7 +64,7 @@ describe("Query — construction", () => {
     e.add(Position);
     tick(); // flush archetype so e is "settled"
     const q = w.query("late").requires(Position);
-    expect(q.entities.has(e)).toBe(true);
+    expect(q.has(e)).toBe(true);
   });
 
   it("name is accessible on the query", () => {
@@ -82,7 +82,7 @@ describe("Query — construction", () => {
     e.add(Position);
     tick();
     expect(q.belongs(e)).toBe(false);
-    expect(q.entities.size).toBe(0);
+    expect(q.count).toBe(0);
   });
 });
 
@@ -98,7 +98,7 @@ describe("Query — update watchlist predicate", () => {
     const q = w.query("updated").update(Position, update);
 
     expect(q.belongs(e)).toBe(true);
-    expect(q.entities.has(e)).toBe(true);
+    expect(q.has(e)).toBe(true);
     expect(update).toHaveBeenCalledWith(e, pos);
   });
 });
@@ -280,8 +280,8 @@ describe("Query — entity tracking via world pipeline", () => {
     const e = w.entity();
     e.add(Position);
     tick();
-    expect(q.entities.has(e)).toBe(true);
-    expect(q.entities.size).toBe(1);
+    expect(q.has(e)).toBe(true);
+    expect(q.count).toBe(1);
   });
 
   it("entity exits query when it loses a required component", () => {
@@ -293,7 +293,7 @@ describe("Query — entity tracking via world pipeline", () => {
     tick();
     e.remove(Position);
     tick();
-    expect(q.entities.size).toBe(0);
+    expect(q.count).toBe(0);
   });
 
   it("forEach (entity-only) iterates all matched entities", () => {
@@ -310,6 +310,22 @@ describe("Query — entity tracking via world pipeline", () => {
     expect(visited).toContain(a);
     expect(visited).toContain(b);
     expect(visited.length).toBe(2);
+  });
+
+  it("is directly iterable", () => {
+    const { w, tick } = setup();
+    const q = w.query("test").requires(Position);
+    w.start();
+    const a = w.entity();
+    a.add(Position);
+    const b = w.entity();
+    b.add(Position);
+    tick();
+    const visited: (typeof a)[] = [];
+    for (const e of q) {
+      visited.push(e);
+    }
+    expect(visited).toEqual([a, b]);
   });
 
   it("forEach with injection resolves components for each entity", () => {
@@ -341,16 +357,6 @@ describe("Query — entity tracking via world pipeline", () => {
     expect(velSeen).toBeUndefined();
   });
 
-  it("entities is typed as a ReadonlySet", () => {
-    const { w } = setup();
-    const q = w.query("test");
-    const fakeEntity = {} as any;
-    // @ts-expect-error entities is a ReadonlySet — add() is not exposed
-    q.entities.add(fakeEntity);
-    // @ts-expect-error entities is a ReadonlySet — delete() is not exposed
-    q.entities.delete(fakeEntity);
-  });
-
   it("destroyed entity is removed from the query", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);
@@ -358,10 +364,10 @@ describe("Query — entity tracking via world pipeline", () => {
     const e = w.entity();
     e.add(Position);
     tick();
-    expect(q.entities.has(e)).toBe(true);
+    expect(q.has(e)).toBe(true);
     e.destroy();
     tick();
-    expect(q.entities.size).toBe(0);
+    expect(q.count).toBe(0);
   });
 });
 
@@ -443,7 +449,7 @@ describe("Query — sort", () => {
     const e3 = w.entity();
     e3.set(Position, { x: 20 });
     tick();
-    expect([...q.entities]).toEqual([e2, e3, e1]);
+    expect([...q]).toEqual([e2, e3, e1]);
   });
 
   it("forEach visits entities in sorted order", () => {
@@ -477,10 +483,10 @@ describe("Query — sort", () => {
     const e2 = w.entity();
     e2.set(Position, { x: 20 });
     tick();
-    expect([...q.entities]).toEqual([e1, e2]);
+    expect([...q]).toEqual([e1, e2]);
     e1.remove(Position);
     tick();
-    expect([...q.entities]).toEqual([e2]);
+    expect([...q]).toEqual([e2]);
   });
 
   it("sort() returns the query for chaining", () => {
@@ -491,16 +497,16 @@ describe("Query — sort", () => {
 });
 
 describe("Query — destroy", () => {
-  it("destroy() clears the entities set", () => {
+  it("destroy() clears the tracked entities", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);
     w.start();
     const e = w.entity();
     e.add(Position);
     tick();
-    expect(q.entities.size).toBe(1);
+    expect(q.count).toBe(1);
     q.destroy();
-    expect(q.entities.size).toBe(0);
+    expect(q.count).toBe(0);
   });
 
   it("destroy() removes the query from the world — new entities no longer enter it", () => {

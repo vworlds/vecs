@@ -427,7 +427,7 @@ describe("System — each", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.size).toBe(0);
+    expect(sys.count).toBe(0);
   });
 
   it("track() populates entities on enter and clears them on exit", () => {
@@ -437,11 +437,11 @@ describe("System — each", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.size).toBe(1);
-    expect(sys.entities.has(e)).toBe(true);
+    expect(sys.count).toBe(1);
+    expect(sys.has(e)).toBe(true);
     e.remove(Position);
     w.progress(0, 0);
-    expect(sys.entities.size).toBe(0);
+    expect(sys.count).toBe(0);
   });
 
   it("track() returns the system and is idempotent", () => {
@@ -453,10 +453,10 @@ describe("System — each", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.size).toBe(1);
+    expect(sys.count).toBe(1);
   });
 
-  it("each() implies track() — entities is populated without an explicit track call", () => {
+  it("each() implies track() without an explicit track call", () => {
     const { w, phase } = setup();
     const sys = w
       .system("test")
@@ -467,17 +467,7 @@ describe("System — each", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.has(e)).toBe(true);
-  });
-
-  it("system.entities is typed as a ReadonlySet", () => {
-    const { w } = setup();
-    const sys = w.system("test").requires(Position).track();
-    const fakeEntity = {} as any;
-    // @ts-expect-error entities is a ReadonlySet — add() is not exposed
-    sys.entities.add(fakeEntity);
-    // @ts-expect-error entities is a ReadonlySet — delete() is not exposed
-    sys.entities.delete(fakeEntity);
+    expect(sys.has(e)).toBe(true);
   });
 
   it("each and update coexist on the same system", () => {
@@ -524,10 +514,10 @@ describe("System — sort", () => {
     const e = w.entity();
     e.set(Position, { x: 5 });
     w.progress(0, 0);
-    expect(sys.entities.has(e)).toBe(true);
+    expect(sys.has(e)).toBe(true);
   });
 
-  it("entities are iterated in sorted order", () => {
+  it("entities in a sorted system are iterated in sorted order", () => {
     const { w, phase } = setup();
     const sys = w
       .system("test")
@@ -547,7 +537,7 @@ describe("System — sort", () => {
 
     w.progress(0, 0);
 
-    expect([...sys.entities]).toEqual([e2, e3, e1]);
+    expect([...sys]).toEqual([e2, e3, e1]);
   });
 
   it("each() visits entities in sorted order", () => {
@@ -592,11 +582,11 @@ describe("System — sort", () => {
     e2.set(Position, { x: 20 });
 
     w.progress(0, 0);
-    expect([...sys.entities]).toEqual([e1, e2]);
+    expect([...sys]).toEqual([e1, e2]);
 
     e1.remove(Position);
     w.progress(0, 0);
-    expect([...sys.entities]).toEqual([e2]);
+    expect([...sys]).toEqual([e2]);
   });
 
   it("sort with multiple components passes tuples to compare", () => {
@@ -624,7 +614,7 @@ describe("System — sort", () => {
     e3.set(Velocity, { vx: 5 }); // sum = 10
 
     w.progress(0, 0);
-    expect([...sys.entities]).toEqual([e2, e3, e1]);
+    expect([...sys]).toEqual([e2, e3, e1]);
   });
 });
 
@@ -742,13 +732,13 @@ describe("System — enable / disable", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.has(e)).toBe(true);
+    expect(sys.has(e)).toBe(true);
     sys.disable();
     const f = w.entity();
     f.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.has(e)).toBe(true);
-    expect(sys.entities.has(f)).toBe(true);
+    expect(sys.has(e)).toBe(true);
+    expect(sys.has(f)).toBe(true);
   });
 
   it("entity exits are reflected in the tracked set while disabled", () => {
@@ -761,7 +751,7 @@ describe("System — enable / disable", () => {
     sys.disable();
     e.remove(Position);
     w.progress(0, 0);
-    expect(sys.entities.has(e)).toBe(false);
+    expect(sys.has(e)).toBe(false);
   });
 
   it("enable() and disable() return this for chaining", () => {
