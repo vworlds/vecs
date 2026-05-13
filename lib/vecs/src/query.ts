@@ -96,7 +96,7 @@ export class Query<R extends ComponentClass[] = []> {
   }
 
   /** @internal Whether this object has enough configuration to enter the world. */
-  protected _hasBuildableConfiguration(): boolean {
+  protected _isBuildable(): boolean {
     return this._dsl !== undefined;
   }
 
@@ -126,7 +126,7 @@ export class Query<R extends ComponentClass[] = []> {
     if (this._built) {
       return this;
     }
-    if (!this._hasBuildableConfiguration()) {
+    if (!this._isBuildable()) {
       this.destroy();
       return this;
     }
