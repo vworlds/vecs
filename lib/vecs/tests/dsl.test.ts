@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getDSLKey, simplifyQueryDSL } from "../src/dsl.js";
+import { _compile, getDSLKey, simplifyQueryDSL, type QueryDSL } from "../src/dsl.js";
 import { World } from "../src/world.js";
+import { Entity } from "../src/entity.js";
+import { Bitset } from "../src/util/bitset.js";
 
 class Position {
   x = 0;
@@ -166,5 +168,166 @@ describe("Query DSL simplification", () => {
     );
     expect(getDSLKey({ AND: [Position, predicate] }, world)).toBe(680920971);
     expect(getDSLKey({ AND: [Position, otherPredicate] }, world)).toBe(1612059256);
+  });
+});
+
+describe("Query DSL compilation", () => {
+  function wideWorld(): World {
+    // Register many components with explicit type ids so the predicates we
+    // emit reference bits at deterministic positions across several
+    // 32-bit words.
+    const world = new World();
+    for (let i = 0; i < 140; i++) {
+      class C {}
+      Object.defineProperty(C, "name", { value: `C${i}` });
+      world.registerComponent(C, i);
+    }
+    return world;
+  }
+
+  function entityWithComponents(world: World, typeIds: number[]): Entity {
+    const e = world.entity();
+    for (const t of typeIds) {
+      const meta = world.getComponentMeta(t);
+      e.componentBitmask.addBit(meta.bitPtr);
+    }
+    return e;
+  }
+
+  function exhaustiveEntities(world: World, candidateTypes: number[]): Entity[] {
+    // Generate every subset of `candidateTypes` (limited to keep the test
+    // tractable). Each subset becomes a synthetic entity bitset that we
+    // check against the compiled predicate.
+    const entities: Entity[] = [];
+    const count = candidateTypes.length;
+    const total = 1 << count;
+    for (let mask = 0; mask < total; mask++) {
+      const subset: number[] = [];
+      for (let i = 0; i < count; i++) {
+        if ((mask & (1 << i)) !== 0) {
+          subset.push(candidateTypes[i]);
+        }
+      }
+      entities.push(entityWithComponents(world, subset));
+    }
+    return entities;
+  }
+
+  // Run a battery of synthetic entities against `q` and assert that the
+  // compiled predicate agrees with a reference check that performs the
+  // same containment test using `Bitset.hasBitset` directly.
+  function assertCompiledMatches(world: World, q: QueryDSL, candidateTypes: number[]): void {
+    const compiled = _compile(world, q);
+    const reference = referencePredicate(world, q);
+    for (const e of exhaustiveEntities(world, candidateTypes)) {
+      const got = compiled(e);
+      const want = reference(e);
+      if (got !== want) {
+        throw new Error(
+          `compiled=${got} but reference=${want} for entity bits=[${e.componentBitmask
+            .indices()
+            .join(",")}] dsl=${JSON.stringify(q)}`
+        );
+      }
+    }
+  }
+
+  // Build a reference predicate by interpreting the simplified DSL with
+  // `Bitset.hasBitset` so we have an independent oracle for the compiled
+  // form. We do not exercise PARENT / custom-function nodes here; the
+  // compiled form delegates those to the same runtime helpers regardless.
+  function referencePredicate(world: World, q: QueryDSL): (e: Entity) => boolean {
+    const s = simplifyQueryDSL(q, world);
+    return (e: Entity): boolean => evalReference(world, s, e);
+  }
+
+  function evalReference(world: World, q: QueryDSL, e: Entity): boolean {
+    if (typeof q === "number") {
+      return e.componentBitmask.hasBitset(maskOf([q]));
+    }
+    if (typeof q === "function") {
+      const meta = world._tryGetComponentMeta(q as unknown as new (...args: never[]) => object);
+      if (meta) {
+        return e.componentBitmask.hasBitset(maskOf([meta.type]));
+      }
+      throw new Error("reference evaluator does not handle custom predicates");
+    }
+    if (q instanceof Array) {
+      return e.componentBitmask.hasBitset(maskOf(q as number[]));
+    }
+    if ("HAS" in q) {
+      return evalReference(world, q.HAS, e);
+    }
+    if ("HAS_ONLY" in q) {
+      const v = q.HAS_ONLY;
+      return e.componentBitmask.equal(maskOf(v instanceof Array ? (v as number[]) : [v as number]));
+    }
+    if ("AND" in q) {
+      return q.AND.every((sq) => evalReference(world, sq, e));
+    }
+    if ("OR" in q) {
+      return q.OR.some((sq) => evalReference(world, sq, e));
+    }
+    if ("NOT" in q) {
+      return !evalReference(world, q.NOT, e);
+    }
+    if ("PARENT" in q) {
+      return e.parent ? evalReference(world, q.PARENT, e.parent) : false;
+    }
+    throw new Error("unrecognized term in reference evaluator");
+  }
+
+  function maskOf(types: number[]): Bitset {
+    const b = new Bitset();
+    types.forEach((t) => b.add(t));
+    return b;
+  }
+
+  it("matches reference semantics for a single HAS", () => {
+    const world = wideWorld();
+    assertCompiledMatches(world, 0, [0, 1, 2]);
+  });
+
+  it("matches reference semantics for AND of components in the same word", () => {
+    const world = wideWorld();
+    assertCompiledMatches(world, [0, 1, 2], [0, 1, 2, 3]);
+  });
+
+  it("matches reference semantics for AND across multiple words", () => {
+    const world = wideWorld();
+    // 1 sits in word 0, 67 in word 2, 130 in word 4 — explicitly skips
+    // intermediate zero words to exercise the codegen's word-skipping.
+    assertCompiledMatches(world, [1, 67, 130], [1, 65, 67, 130, 131]);
+  });
+
+  it("matches reference semantics for nested AND/OR/NOT", () => {
+    const world = wideWorld();
+    assertCompiledMatches(world, { AND: [0, { OR: [1, 2] }, { NOT: 3 }] }, [0, 1, 2, 3]);
+  });
+
+  it("matches reference semantics for queries with high-bit components", () => {
+    const world = wideWorld();
+    // Bit 31 in word 0 + bit 0 in word 4 — exercises the negative int32
+    // literal emitted by _compileSubsetCheck.
+    assertCompiledMatches(world, [31, 128], [30, 31, 127, 128, 129]);
+  });
+
+  it("matches reference semantics for HAS_ONLY (which is not inlined)", () => {
+    const world = wideWorld();
+    assertCompiledMatches(world, { HAS_ONLY: [0, 1] }, [0, 1, 2]);
+  });
+
+  it("inlines word values into the compiled predicate source", () => {
+    const world = wideWorld();
+    const compiled = _compile(world, [1, 2]);
+    // Two consecutive bits in word 0 -> bitmask 0b110 = 6.
+    expect(compiled.toString()).toContain("&6)===6");
+    expect(compiled.toString()).not.toContain("hasBitset");
+  });
+
+  it("falls back to the closure-call path for HAS_ONLY (equal)", () => {
+    const world = wideWorld();
+    const compiled = _compile(world, { HAS_ONLY: [0, 1] });
+    expect(compiled.toString()).toContain("equal(m0)");
   });
 });

@@ -19,7 +19,11 @@
  * ```
  */
 export class Bitset {
-  /** @internal Underlying word storage; exposed for tests. */
+  /**
+   * @internal Underlying word storage; exposed for tests and read directly
+   * from query predicates emitted by {@link _compileSubsetCheck}. Renaming
+   * this field is a breaking change for compiled query code generation.
+   */
   public _bits: number[] = [];
 
   /**
@@ -28,7 +32,12 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public add(n: number): void {
-    this._bits[n >>> 5] |= 1 << n;
+    const idx = n >>> 5;
+    const bits = this._bits;
+    while (bits.length <= idx) {
+      bits.push(0);
+    }
+    bits[idx] |= 1 << n;
   }
 
   /**
@@ -49,10 +58,7 @@ export class Bitset {
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public deleteBit(bptr: BitPtr): void {
-    const current = this._bits[bptr.arrayIndex];
-    if (current) {
-      this._bits[bptr.arrayIndex] = current & ~bptr.bitmask;
-    }
+    this._bits[bptr.arrayIndex] &= ~bptr.bitmask;
   }
 
   /**
@@ -62,11 +68,7 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public delete(n: number): void {
-    const arrayIndex = n >>> 5;
-    const current = this._bits[arrayIndex];
-    if (current) {
-      this._bits[arrayIndex] = current & ~(1 << n);
-    }
+    this._bits[n >>> 5] &= ~(1 << n);
   }
 
   /**
@@ -128,8 +130,9 @@ export class Bitset {
   public hasBitset(other: Bitset): boolean {
     const bits = this._bits;
     const otherBits = other._bits;
-    for (let i = 0; i < otherBits.length; i++) {
-      const otherWord = otherBits[i] | 0;
+    const len = otherBits.length;
+    for (let i = 0; i < len; i++) {
+      const otherWord = otherBits[i];
       if ((bits[i] & otherWord) !== otherWord) {
         return false;
       }
@@ -143,14 +146,59 @@ export class Bitset {
    * @param callback - Invoked once per set bit.
    */
   public forEach(callback: (n: number) => void): void {
-    this._bits.forEach((b, j) => {
-      for (let i = 0; i < 32; i++) {
-        if ((b & 1) !== 0) {
-          callback(i + j * 32);
-        }
-        b >>= 1;
+    const bits = this._bits;
+    const len = bits.length;
+    for (let j = 0; j < len; j++) {
+      let w = bits[j];
+      if (w === 0) {
+        continue;
       }
-    });
+      const base = j << 5;
+      if (w === -1) {
+        callback(base);
+        callback(base + 1);
+        callback(base + 2);
+        callback(base + 3);
+        callback(base + 4);
+        callback(base + 5);
+        callback(base + 6);
+        callback(base + 7);
+        callback(base + 8);
+        callback(base + 9);
+        callback(base + 10);
+        callback(base + 11);
+        callback(base + 12);
+        callback(base + 13);
+        callback(base + 14);
+        callback(base + 15);
+        callback(base + 16);
+        callback(base + 17);
+        callback(base + 18);
+        callback(base + 19);
+        callback(base + 20);
+        callback(base + 21);
+        callback(base + 22);
+        callback(base + 23);
+        callback(base + 24);
+        callback(base + 25);
+        callback(base + 26);
+        callback(base + 27);
+        callback(base + 28);
+        callback(base + 29);
+        callback(base + 30);
+        callback(base + 31);
+        continue;
+      }
+      for (let i = 0; i < 32; i++) {
+        if ((w & 1) !== 0) {
+          callback(base + i);
+        }
+        w >>>= 1;
+        if (w === 0) {
+          break;
+        }
+      }
+    }
   }
 
   /**
@@ -189,6 +237,53 @@ export class Bitset {
    */
   public _hasIndexBitmask(arrayIndex: number, bitmask: number): boolean {
     return (this._bits[arrayIndex] & bitmask) !== 0;
+  }
+
+  /**
+   * Emit a JavaScript expression that evaluates to `true` when the bitset
+   * addressed by `targetBitsExpr` (a `number[]` of 32-bit words) contains
+   * every bit set in this bitset.
+   *
+   * The expression is intended to be spliced into source generated through
+   * `new Function(...)` so that a `hasBitset` call against this (immutable)
+   * mask is replaced by straight-line bitwise checks with the mask's word
+   * values baked in as numeric literals. Zero words are skipped at code
+   * generation time, so the runtime expression never iterates them.
+   *
+   * Contract:
+   * - Empty mask -> `"true"`.
+   * - One non-zero word -> a single `(target[i]&W)===W` term (no outer
+   *   parens; `===` binds tighter than `&&` / `||`, so embedding in an
+   *   AND / OR chain is precedence-safe).
+   * - Multiple non-zero words -> terms joined by `&&`, no outer parens.
+   * - A word whose value sets bit 31 emits as a negative int32 literal
+   *   (e.g. `-2147483648`); JS bitwise `&` is defined to coerce both
+   *   operands to int32, so the round-trip comparison is correct.
+   * - When `target.length` is smaller than the mask, the missing slots
+   *   read as `undefined`; `undefined & W` coerces to `0`, and
+   *   `0 === W` (W !== 0) is `false`, matching `hasBitset` semantics.
+   *
+   * The mask's `_bits` are read at the time `_compileSubsetCheck` runs,
+   * so a caller that mutates the mask after compilation will not affect
+   * already-emitted strings.
+   *
+   * @internal
+   *
+   * @param targetBitsExpr - JS expression that, when evaluated at runtime,
+   *   yields the target's `_bits` array. Embedded verbatim into the
+   *   emitted code; it must be free of side effects (it is evaluated
+   *   once per non-zero word of this mask).
+   */
+  public _compileSubsetCheck(targetBitsExpr: string): string {
+    const conjuncts: string[] = [];
+    for (let i = 0; i < this._bits.length; i++) {
+      const w = this._bits[i] | 0;
+      if (w === 0) {
+        continue;
+      }
+      conjuncts.push(`(${targetBitsExpr}[${i}]&${w})===${w}`);
+    }
+    return conjuncts.length === 0 ? "true" : conjuncts.join("&&");
   }
 }
 
