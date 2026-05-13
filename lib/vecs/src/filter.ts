@@ -1,7 +1,7 @@
 import { type ComponentClass } from "./component.js";
 import type { Entity } from "./entity.js";
 import type { World } from "./world.js";
-import { _buildEntityTest, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
+import { _compile, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 
 /**
  * A non-reactive, one-shot entity filter.
@@ -44,7 +44,7 @@ export class Filter<R extends ComponentClass[] = []> {
     public readonly world: World,
     dsl: QueryDSL
   ) {
-    this._belongs = _buildEntityTest(world, dsl);
+    this._belongs = _compile(world, dsl);
   }
 
   /**

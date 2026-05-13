@@ -6,6 +6,7 @@ import {
 } from "./component.js";
 import type { Entity } from "./entity.js";
 import type { World } from "./world.js";
+import type { Bitset } from "./util/bitset.js";
 
 /**
  * A predicate that decides whether a given entity belongs to a query.
@@ -143,6 +144,8 @@ function _asShortestComponentRequirement(components: ComponentClassArray): Query
 /**
  * Return the shortest equivalent form of a query DSL expression.
  *
+ * @internal
+ *
  * The simplifier flattens associative operators, removes boolean identities,
  * unwraps singleton operators, and coalesces positive component requirements
  * into the DSL's array shorthand. Bare non-class functions are preserved as
@@ -261,48 +264,79 @@ export function simplifyQueryDSL(q: QueryDSL): QueryDSL {
   return q;
 }
 
-/**
- * Build a predicate that returns `true` when an entity has every component
- * type in `components` set on its archetype.
- *
- * @internal Factory used by {@link _buildEntityTest} and by `Query.update`'s
- * watchlist auto-expansion.
- *
- * @param world - World used to resolve component classes to type ids.
- * @param components - Component classes or numeric type ids to require.
- */
-export function _HAS(world: World, ...components: ComponentClassArray): EntityTestFunc {
-  const testBitmask = _calculateComponentBitmask(components, world);
-  return (e: Entity) => e.componentBitmask.hasBitset(testBitmask);
+type _CompileContext = {
+  masks: Bitset[];
+  funcs: EntityTestFunc[];
+};
+
+function _compileMask(
+  world: World,
+  context: _CompileContext,
+  components: ComponentClassArray,
+  entityRef: string,
+  comparison: "hasBitset" | "equal"
+): string {
+  const maskIndex = context.masks.push(_calculateComponentBitmask(components, world)) - 1;
+  return `${entityRef}.componentBitmask.${comparison}(m${maskIndex})`;
 }
 
-/**
- * Build a predicate that returns `true` only when an entity's archetype is
- * exactly the set in `components` (no other components attached).
- */
-function _HAS_ONLY(world: World, ...components: ComponentClassArray): EntityTestFunc {
-  const testBitmask = _calculateComponentBitmask(components, world);
-  return (e: Entity) => e.componentBitmask.equal(testBitmask);
-}
+function _compileQueryExpression(
+  world: World,
+  q: QueryDSL,
+  context: _CompileContext,
+  entityRef: string
+): string {
+  if (typeof q === "number") {
+    return _compileMask(world, context, [q], entityRef, "hasBitset");
+  }
 
-/** Negate a predicate. */
-function _NOT(func: EntityTestFunc): EntityTestFunc {
-  return (e: Entity) => !func(e);
-}
+  if (typeof q === "function" && world._tryGetComponentMeta(q as ComponentClass)) {
+    return _compileMask(world, context, [q as ComponentClass], entityRef, "hasBitset");
+  } else if (typeof q === "function") {
+    const funcIndex = context.funcs.push(q as EntityTestFunc) - 1;
+    return `f${funcIndex}(${entityRef})`;
+  }
 
-/** Conjunction of multiple predicates. */
-function _AND(...funcs: EntityTestFunc[]): EntityTestFunc {
-  return (e: Entity) => funcs.every((f) => f(e));
-}
+  if (q instanceof Array) {
+    return _compileMask(world, context, q, entityRef, "hasBitset");
+  }
 
-/** Disjunction of multiple predicates. */
-function _OR(...funcs: EntityTestFunc[]): EntityTestFunc {
-  return (e: Entity) => funcs.some((f) => f(e));
-}
+  if ("HAS" in q) {
+    return _compileQueryExpression(world, q.HAS, context, entityRef);
+  }
 
-/** Lift a predicate to apply to the entity's parent (false when no parent). */
-function _PARENT(func: EntityTestFunc): EntityTestFunc {
-  return (e: Entity) => (e.parent && func(e.parent)) || false;
+  if ("HAS_ONLY" in q) {
+    const v = q.HAS_ONLY;
+    return _compileMask(world, context, v instanceof Array ? v : [v], entityRef, "equal");
+  }
+
+  if ("AND" in q) {
+    if (q.AND.length === 0) {
+      return "true";
+    }
+    return q.AND.map((sq) => `(${_compileQueryExpression(world, sq, context, entityRef)})`).join(
+      "&&"
+    );
+  }
+
+  if ("OR" in q) {
+    if (q.OR.length === 0) {
+      return "false";
+    }
+    return q.OR.map((sq) => `(${_compileQueryExpression(world, sq, context, entityRef)})`).join(
+      "||"
+    );
+  }
+
+  if ("NOT" in q) {
+    return `!(${_compileQueryExpression(world, q.NOT, context, entityRef)})`;
+  }
+
+  if ("PARENT" in q) {
+    return `(${entityRef}.parent ? (${_compileQueryExpression(world, q.PARENT, context, `${entityRef}.parent`)}) : false)`;
+  }
+
+  throw "Unrecognized query term";
 }
 
 /**
@@ -314,50 +348,17 @@ function _PARENT(func: EntityTestFunc): EntityTestFunc {
  * @param world - World used to resolve registered component classes to type ids.
  * @param q - Query expression.
  */
-export function _buildEntityTest(world: World, q: QueryDSL): EntityTestFunc {
-  if (typeof q === "number") {
-    return _HAS(world, q);
-  }
-
-  if (typeof q === "function" && world._tryGetComponentMeta(q as ComponentClass)) {
-    return _HAS(world, q as ComponentClass);
-  } else if (typeof q === "function") {
-    return q as EntityTestFunc;
-  }
-
-  if (q instanceof Array) {
-    return _HAS(world, ...q);
-  }
-
-  if ("HAS" in q) {
-    return _buildEntityTest(world, q.HAS);
-  }
-
-  if ("HAS_ONLY" in q) {
-    const v = q.HAS_ONLY;
-    if (v instanceof Array) {
-      return _HAS_ONLY(world, ...v);
-    }
-    return _HAS_ONLY(world, v);
-  }
-
-  if ("AND" in q) {
-    return _AND(...q.AND.map((sq) => _buildEntityTest(world, sq)));
-  }
-
-  if ("OR" in q) {
-    return _OR(...q.OR.map((sq) => _buildEntityTest(world, sq)));
-  }
-
-  if ("NOT" in q) {
-    return _NOT(_buildEntityTest(world, q.NOT));
-  }
-
-  if ("PARENT" in q) {
-    return _PARENT(_buildEntityTest(world, q.PARENT));
-  }
-
-  throw "Unrecognized query term";
+export function _compile(world: World, q: QueryDSL): EntityTestFunc {
+  const context: _CompileContext = { masks: [], funcs: [] };
+  const expression = _compileQueryExpression(world, simplifyQueryDSL(q), context, "e");
+  const maskNames = context.masks.map((_mask, index) => `m${index}`);
+  const funcNames = context.funcs.map((_func, index) => `f${index}`);
+  const factory = new Function(
+    ...maskNames,
+    ...funcNames,
+    `return function entityTest(e) { return ${expression}; };`
+  );
+  return factory(...context.masks, ...context.funcs) as EntityTestFunc;
 }
 
 /**
