@@ -58,10 +58,7 @@ export class Bitset {
    * @param bptr - Pre-computed pointer to a bit position.
    */
   public deleteBit(bptr: BitPtr): void {
-    const current = this._bits[bptr.arrayIndex];
-    if (current) {
-      this._bits[bptr.arrayIndex] = current & ~bptr.bitmask;
-    }
+    this._bits[bptr.arrayIndex] &= ~bptr.bitmask;
   }
 
   /**
@@ -71,11 +68,7 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public delete(n: number): void {
-    const arrayIndex = n >>> 5;
-    const current = this._bits[arrayIndex];
-    if (current) {
-      this._bits[arrayIndex] = current & ~(1 << n);
-    }
+    this._bits[n >>> 5] &= ~(1 << n);
   }
 
   /**
