@@ -139,7 +139,7 @@ world
   .system("SpawnBalls")
   .interval(2)
   .run(() => {
-    if (moveSystem.count() < MAX_BALLS) {
+    if (moveSystem.count < MAX_BALLS) {
       spawnBall();
     }
   });

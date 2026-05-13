@@ -647,7 +647,7 @@ export class World {
    *   .enter((e) => console.log("enemy spawned", e.eid));
    *
    * world.start();
-   * // enemies.entities is kept up-to-date automatically
+   * // enemies.count and query iteration are kept up-to-date automatically
    * ```
    *
    * @param name - Unique display name for the query.

@@ -40,7 +40,8 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  * `Query` listens to entity / component mutations through the world's command
  * queue and tracks which entities currently satisfy its predicate. It fires
  * `enter`, `exit`, and `update` callbacks as the matched set changes. The
- * tracked set is exposed via {@link entities} and {@link forEach}.
+ * tracked set is exposed via {@link count}, {@link has}, iteration, and
+ * {@link forEach}.
  *
  * Callbacks fire **synchronously** when the world routes a command — so
  * mutations made inside one of these callbacks are themselves observed
@@ -206,25 +207,22 @@ export class Query<R extends ComponentClass[] = []> {
   }
 
   /**
-   * Read-only view of the entities currently tracked by this query.
-   *
-   * Populated as entities enter and removed as they exit. Empty unless
-   * tracking is enabled — that is the default for standalone queries created
-   * via {@link World.query}, but {@link System} requires an explicit
-   * {@link track}, {@link sort}, or `each` call.
-   */
-  public get entities(): ReadonlySet<Entity> {
-    return this._entities ?? EMPTY_ENTITIES;
-  }
-
-  /**
    * Return the number of entities currently tracked by this query.
    *
-   * Equivalent to `query.entities.size`, but avoids exposing the tracked set
-   * when callers only need a count. Returns `0` when tracking is not enabled.
+   * Returns `0` when tracking is not enabled.
    */
-  public count(): number {
+  public get count(): number {
     return this._entities?.size ?? 0;
+  }
+
+  /** Returns `true` when `e` is currently tracked by this query. */
+  public has(e: Entity): boolean {
+    return this._entities?.has(e) ?? false;
+  }
+
+  /** Iterate every entity currently tracked by this query. */
+  public [Symbol.iterator](): IterableIterator<Entity> {
+    return (this._entities ?? EMPTY_ENTITIES)[Symbol.iterator]();
   }
 
   /** Returns the query name. */
@@ -233,7 +231,8 @@ export class Query<R extends ComponentClass[] = []> {
   }
 
   /**
-   * Enable entity tracking: matched entities are inserted into {@link entities}
+   * Enable entity tracking: matched entities are included in {@link count},
+   * {@link has}, iteration, and {@link forEach}
    * as they enter and removed as they exit.
    *
    * Idempotent. When called after {@link World.start}, immediately backfills
