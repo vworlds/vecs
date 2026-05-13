@@ -235,6 +235,55 @@ function _sortCommutativeTerms(terms: QueryDSL[]): QueryDSL[] {
   return [...terms].sort((a, b) => _termSortKey(a).localeCompare(_termSortKey(b)));
 }
 
+const _dslFunctionIds = new WeakMap<EntityTestFunc, number>();
+let _nextDSLFunctionId = 1;
+
+function _getDSLFunctionId(func: EntityTestFunc): number {
+  let id = _dslFunctionIds.get(func);
+  if (id === undefined) {
+    id = _nextDSLFunctionId++;
+    _dslFunctionIds.set(func, id);
+  }
+  return id;
+}
+
+function _canonicalDSLKey(q: QueryDSL): unknown {
+  if (typeof q === "number") {
+    return ["HAS", q];
+  }
+  if (typeof q === "function") {
+    return ["FUNC", _getDSLFunctionId(q as EntityTestFunc)];
+  }
+  if (q instanceof Array) {
+    return ["ALL", q];
+  }
+  if ("HAS" in q) {
+    return _canonicalDSLKey(q.HAS);
+  }
+  if ("HAS_ONLY" in q) {
+    return ["ONLY", q.HAS_ONLY instanceof Array ? q.HAS_ONLY : [q.HAS_ONLY]];
+  }
+  if ("AND" in q) {
+    return ["AND", q.AND.map(_canonicalDSLKey)];
+  }
+  if ("OR" in q) {
+    return ["OR", q.OR.map(_canonicalDSLKey)];
+  }
+  if ("NOT" in q) {
+    return ["NOT", _canonicalDSLKey(q.NOT)];
+  }
+  return ["PARENT", _canonicalDSLKey(q.PARENT)];
+}
+
+function _fnv1a32(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
 /**
  * Return the shortest equivalent form of a query DSL expression.
  *
@@ -366,6 +415,17 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
   }
 
   return q;
+}
+
+/**
+ * Return a deterministic FNV-1a hash for a query DSL expression.
+ *
+ * Equivalent expressions hash identically because the DSL is simplified before
+ * hashing. Custom predicate functions are represented by process-local function
+ * identity ids. Like any 32-bit hash, collisions are theoretically possible.
+ */
+export function getDSLKey(q: QueryDSL, world: World): number {
+  return _fnv1a32(JSON.stringify(_canonicalDSLKey(simplifyQueryDSL(q, world))));
 }
 
 type _CompileContext = {

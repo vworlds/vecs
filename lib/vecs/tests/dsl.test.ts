@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { simplifyQueryDSL } from "../src/dsl.js";
+import { getDSLKey, simplifyQueryDSL } from "../src/dsl.js";
 import { World } from "../src/world.js";
 
 class Position {
@@ -125,5 +125,38 @@ describe("Query DSL simplification", () => {
     expect(simplifyQueryDSL({ OR: [Velocity, predicate, Position] }, world)).toEqual({
       OR: [0, 1, predicate],
     });
+  });
+
+  it("returns the same DSL key for equivalent component expressions", () => {
+    const world = registeredWorld();
+
+    expect(getDSLKey([Velocity, Position], world)).toBe(
+      getDSLKey({ AND: [{ HAS: Position }, Velocity] }, world)
+    );
+    expect(getDSLKey({ OR: [Velocity, Position] }, world)).toBe(
+      getDSLKey({ OR: [Position, Velocity] }, world)
+    );
+  });
+
+  it("returns different DSL keys for different expressions", () => {
+    const world = registeredWorld();
+
+    expect(getDSLKey(Position, world)).not.toBe(getDSLKey(Velocity, world));
+    expect(getDSLKey([Position, Velocity], world)).not.toBe(
+      getDSLKey({ OR: [Position, Velocity] }, world)
+    );
+  });
+
+  it("keys custom predicates by function identity", () => {
+    const world = registeredWorld();
+    const predicate = () => true;
+    const otherPredicate = () => true;
+
+    expect(getDSLKey({ AND: [Position, predicate] }, world)).toBe(
+      getDSLKey({ AND: [predicate, Position] }, world)
+    );
+    expect(getDSLKey({ AND: [Position, predicate] }, world)).not.toBe(
+      getDSLKey({ AND: [Position, otherPredicate] }, world)
+    );
   });
 });
