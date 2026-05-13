@@ -144,6 +144,8 @@ function _asShortestComponentRequirement(components: ComponentClassArray): Query
 /**
  * Return the shortest equivalent form of a query DSL expression.
  *
+ * @internal
+ *
  * The simplifier flattens associative operators, removes boolean identities,
  * unwraps singleton operators, and coalesces positive component requirements
  * into the DSL's array shorthand. Bare non-class functions are preserved as
@@ -346,9 +348,9 @@ function _compileQueryExpression(
  * @param world - World used to resolve registered component classes to type ids.
  * @param q - Query expression.
  */
-export function _buildEntityTest(world: World, q: QueryDSL): EntityTestFunc {
+export function _compile(world: World, q: QueryDSL): EntityTestFunc {
   const context: _CompileContext = { masks: [], funcs: [] };
-  const expression = _compileQueryExpression(world, q, context, "e");
+  const expression = _compileQueryExpression(world, simplifyQueryDSL(q), context, "e");
   const maskNames = context.masks.map((_mask, index) => `m${index}`);
   const funcNames = context.funcs.map((_func, index) => `f${index}`);
   const factory = new Function(

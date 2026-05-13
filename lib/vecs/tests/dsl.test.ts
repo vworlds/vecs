@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { simplifyQueryDSL } from "../src/index.js";
+import { simplifyQueryDSL } from "../src/dsl.js";
 
 class Position {
   x = 0;

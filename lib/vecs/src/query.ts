@@ -5,7 +5,7 @@ import { type Component, type ComponentClass, type ComponentMeta } from "./compo
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
 import {
-  _buildEntityTest,
+  _compile,
   _extractQueryDependencies,
   type EntityTestFunc,
   type QueryDSL,
@@ -112,7 +112,7 @@ export class Query<R extends ComponentClass[] = []> {
    * @internal Install a DSL predicate, re-index this query, and backfill tracked entities.
    */
   private _setQuery(q: QueryDSL): void {
-    this._belongs = _buildEntityTest(this.world, q);
+    this._belongs = _compile(this.world, q);
     this.world._indexQuery(this, _extractQueryDependencies(this.world, q));
     this._backfill();
   }
