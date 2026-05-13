@@ -32,7 +32,12 @@ export class Bitset {
    * @param n - Non-negative integer bit index.
    */
   public add(n: number): void {
-    this._bits[n >>> 5] |= 1 << n;
+    const idx = n >>> 5;
+    const bits = this._bits;
+    while (bits.length <= idx) {
+      bits.push(0);
+    }
+    bits[idx] |= 1 << n;
   }
 
   /**
@@ -132,8 +137,9 @@ export class Bitset {
   public hasBitset(other: Bitset): boolean {
     const bits = this._bits;
     const otherBits = other._bits;
-    for (let i = 0; i < otherBits.length; i++) {
-      const otherWord = otherBits[i] | 0;
+    const len = otherBits.length;
+    for (let i = 0; i < len; i++) {
+      const otherWord = otherBits[i];
       if ((bits[i] & otherWord) !== otherWord) {
         return false;
       }
