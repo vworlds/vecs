@@ -102,6 +102,165 @@ type _ExtractAndChain<A extends readonly QueryDSL[]> = A extends readonly [
   ? [...ExtractRequired<First>, ..._ExtractAndChain<Rest>]
   : [];
 
+function _isClassConstructor(value: QueryDSL): value is ComponentClass {
+  return (
+    typeof value === "function" && Function.prototype.toString.call(value).startsWith("class ")
+  );
+}
+
+function _isFalseDSL(q: QueryDSL): boolean {
+  return typeof q === "object" && q !== null && !Array.isArray(q) && "OR" in q && q.OR.length === 0;
+}
+
+function _isTrueDSL(q: QueryDSL): boolean {
+  return q instanceof Array && q.length === 0;
+}
+
+function _falseDSL(): QueryDSL {
+  return { OR: [] };
+}
+
+function _componentRequirements(q: QueryDSL): ComponentClassArray | undefined {
+  if (typeof q === "number") {
+    return [q];
+  }
+
+  if (_isClassConstructor(q)) {
+    return [q];
+  }
+
+  if (q instanceof Array) {
+    return q;
+  }
+
+  return undefined;
+}
+
+function _asShortestComponentRequirement(components: ComponentClassArray): QueryDSL {
+  return components.length === 1 ? components[0] : components;
+}
+
+/**
+ * Return the shortest equivalent form of a query DSL expression.
+ *
+ * The simplifier flattens associative operators, removes boolean identities,
+ * unwraps singleton operators, and coalesces positive component requirements
+ * into the DSL's array shorthand. Bare non-class functions are preserved as
+ * predicates because they cannot be distinguished from component constructors
+ * without a {@link World}.
+ */
+export function simplifyQueryDSL(q: QueryDSL): QueryDSL {
+  if (q instanceof Array) {
+    return q.length === 1 ? q[0] : q;
+  }
+
+  if (typeof q === "number" || typeof q === "function") {
+    return q;
+  }
+
+  if ("HAS" in q) {
+    return simplifyQueryDSL(q.HAS);
+  }
+
+  if ("HAS_ONLY" in q) {
+    const components = q.HAS_ONLY;
+    if (components instanceof Array && components.length === 1) {
+      return { HAS_ONLY: components[0] };
+    }
+    return { HAS_ONLY: components };
+  }
+
+  if ("AND" in q) {
+    const simplifiedTerms: QueryDSL[] = [];
+    for (const term of q.AND.map(simplifyQueryDSL)) {
+      if (_isFalseDSL(term)) {
+        return _falseDSL();
+      }
+      if (_isTrueDSL(term)) {
+        continue;
+      }
+      if (typeof term === "object" && term !== null && !(term instanceof Array) && "AND" in term) {
+        simplifiedTerms.push(...term.AND);
+      } else {
+        simplifiedTerms.push(term);
+      }
+    }
+
+    const componentRequirements: ComponentClassArray = [];
+    const otherTerms: QueryDSL[] = [];
+    for (const term of simplifiedTerms) {
+      const requirements = _componentRequirements(term);
+      if (requirements) {
+        componentRequirements.push(...requirements);
+      } else {
+        otherTerms.push(term);
+      }
+    }
+
+    const terms =
+      componentRequirements.length > 0
+        ? [_asShortestComponentRequirement(componentRequirements), ...otherTerms]
+        : otherTerms;
+
+    if (terms.length === 0) {
+      return [];
+    }
+    if (terms.length === 1) {
+      return terms[0];
+    }
+    return { AND: terms };
+  }
+
+  if ("OR" in q) {
+    const terms: QueryDSL[] = [];
+    for (const term of q.OR.map(simplifyQueryDSL)) {
+      if (_isTrueDSL(term)) {
+        return [];
+      }
+      if (_isFalseDSL(term)) {
+        continue;
+      }
+      if (typeof term === "object" && term !== null && !(term instanceof Array) && "OR" in term) {
+        terms.push(...term.OR);
+      } else {
+        terms.push(term);
+      }
+    }
+
+    if (terms.length === 0) {
+      return _falseDSL();
+    }
+    if (terms.length === 1) {
+      return terms[0];
+    }
+    return { OR: terms };
+  }
+
+  if ("NOT" in q) {
+    const term = simplifyQueryDSL(q.NOT);
+    if (_isTrueDSL(term)) {
+      return _falseDSL();
+    }
+    if (_isFalseDSL(term)) {
+      return [];
+    }
+    if (typeof term === "object" && term !== null && !(term instanceof Array) && "NOT" in term) {
+      return term.NOT;
+    }
+    return { NOT: term };
+  }
+
+  if ("PARENT" in q) {
+    const term = simplifyQueryDSL(q.PARENT);
+    if (_isFalseDSL(term)) {
+      return _falseDSL();
+    }
+    return { PARENT: term };
+  }
+
+  return q;
+}
+
 /**
  * Build a predicate that returns `true` when an entity has every component
  * type in `components` set on its archetype.
