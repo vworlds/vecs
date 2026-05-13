@@ -1,12 +1,7 @@
-import {
-  type ComponentClass,
-  ComponentClassArray,
-  ComponentClassOrType,
-  _calculateComponentBitmask,
-} from "./component.js";
+import { type ComponentClass, ComponentClassArray, ComponentClassOrType } from "./component.js";
 import type { Entity } from "./entity.js";
 import type { World } from "./world.js";
-import type { Bitset } from "./util/bitset.js";
+import { Bitset } from "./util/bitset.js";
 
 /**
  * A predicate that decides whether a given entity belongs to a query.
@@ -141,41 +136,150 @@ function _asShortestComponentRequirement(components: ComponentClassArray): Query
   return components.length === 1 ? components[0] : components;
 }
 
+function _calculateComponentBitmask(types: readonly number[]): Bitset {
+  const bitmask = new Bitset();
+  types.forEach((type) => {
+    bitmask.add(type);
+  });
+  return bitmask;
+}
+
+function _resolveComponentRequirement(
+  component: ComponentClassOrType,
+  world: World
+): ComponentClassOrType {
+  return world.getComponentType(component);
+}
+
+function _resolveBareComponent(component: ComponentClassOrType, world: World): QueryDSL {
+  if (typeof component === "number") {
+    return component;
+  }
+
+  const meta = world._tryGetComponentMeta(component);
+  return meta ? meta.type : component;
+}
+
+function _sortComponentRequirements(components: ComponentClassArray): ComponentClassArray {
+  return [...components].sort((a, b) => {
+    if (typeof a === "number" && typeof b === "number") {
+      return a - b;
+    }
+    if (typeof a === "number") {
+      return -1;
+    }
+    if (typeof b === "number") {
+      return 1;
+    }
+    return 0;
+  });
+}
+
+function _asShortestHasOnlyRequirement(
+  components: ComponentClassArray
+): ComponentClassArray | ComponentClassOrType {
+  return components.length === 1 ? components[0] : components;
+}
+
+function _asCanonicalComponentRequirement(components: ComponentClassArray, world: World): QueryDSL {
+  return _asShortestComponentRequirement(
+    _sortComponentRequirements(
+      components.map((component) => _resolveComponentRequirement(component, world))
+    )
+  );
+}
+
+function _componentSortKey(q: QueryDSL): number | undefined {
+  if (typeof q === "number") {
+    return q;
+  }
+  if (q instanceof Array && q.length > 0 && q.every((term) => typeof term === "number")) {
+    return q[0] as number;
+  }
+  return undefined;
+}
+
+function _termSortKey(q: QueryDSL): string {
+  const componentSortKey = _componentSortKey(q);
+  if (componentSortKey !== undefined) {
+    return `0:${componentSortKey.toString().padStart(12, "0")}`;
+  }
+  if (typeof q === "number") {
+    return `0:${q.toString().padStart(12, "0")}`;
+  }
+  if (q instanceof Array) {
+    return `1:${q.map(_termSortKey).join(",")}`;
+  }
+  if (typeof q === "function") {
+    return "5";
+  }
+  if ("AND" in q) {
+    return `2:${q.AND.map(_termSortKey).join(",")}`;
+  }
+  if ("OR" in q) {
+    return `3:${q.OR.map(_termSortKey).join(",")}`;
+  }
+  if ("NOT" in q) {
+    return `4:${_termSortKey(q.NOT)}`;
+  }
+  if ("PARENT" in q) {
+    return `4:${_termSortKey(q.PARENT)}`;
+  }
+  if ("HAS" in q) {
+    return _termSortKey(q.HAS);
+  }
+  return `4:${q.HAS_ONLY instanceof Array ? q.HAS_ONLY.map(_termSortKey).join(",") : _termSortKey(q.HAS_ONLY)}`;
+}
+
+function _sortCommutativeTerms(terms: QueryDSL[]): QueryDSL[] {
+  return [...terms].sort((a, b) => _termSortKey(a).localeCompare(_termSortKey(b)));
+}
+
 /**
  * Return the shortest equivalent form of a query DSL expression.
  *
  * @internal
  *
- * The simplifier flattens associative operators, removes boolean identities,
- * unwraps singleton operators, and coalesces positive component requirements
- * into the DSL's array shorthand. Bare non-class functions are preserved as
- * predicates because they cannot be distinguished from component constructors
- * without a {@link World}.
+ * The simplifier resolves component classes to numeric type ids, flattens
+ * associative operators, removes boolean identities, unwraps singleton
+ * operators, sorts commutative expressions, and coalesces positive component
+ * requirements into the DSL's array shorthand. Bare non-class functions are
+ * preserved as predicates.
  */
-export function simplifyQueryDSL(q: QueryDSL): QueryDSL {
+export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
   if (q instanceof Array) {
-    return q.length === 1 ? q[0] : q;
+    return _asCanonicalComponentRequirement(q, world);
   }
 
-  if (typeof q === "number" || typeof q === "function") {
+  if (typeof q === "number") {
     return q;
   }
 
+  if (typeof q === "function") {
+    return _resolveBareComponent(q as ComponentClass, world);
+  }
+
   if ("HAS" in q) {
-    return simplifyQueryDSL(q.HAS);
+    return simplifyQueryDSL(q.HAS, world);
   }
 
   if ("HAS_ONLY" in q) {
     const components = q.HAS_ONLY;
-    if (components instanceof Array && components.length === 1) {
-      return { HAS_ONLY: components[0] };
-    }
-    return { HAS_ONLY: components };
+    return {
+      HAS_ONLY:
+        components instanceof Array
+          ? _asShortestHasOnlyRequirement(
+              _sortComponentRequirements(
+                components.map((component) => _resolveComponentRequirement(component, world))
+              )
+            )
+          : _resolveComponentRequirement(components, world),
+    };
   }
 
   if ("AND" in q) {
     const simplifiedTerms: QueryDSL[] = [];
-    for (const term of q.AND.map(simplifyQueryDSL)) {
+    for (const term of q.AND.map((term) => simplifyQueryDSL(term, world))) {
       if (_isFalseDSL(term)) {
         return _falseDSL();
       }
@@ -202,7 +306,7 @@ export function simplifyQueryDSL(q: QueryDSL): QueryDSL {
 
     const terms =
       componentRequirements.length > 0
-        ? [_asShortestComponentRequirement(componentRequirements), ...otherTerms]
+        ? [_asCanonicalComponentRequirement(componentRequirements, world), ...otherTerms]
         : otherTerms;
 
     if (terms.length === 0) {
@@ -211,12 +315,12 @@ export function simplifyQueryDSL(q: QueryDSL): QueryDSL {
     if (terms.length === 1) {
       return terms[0];
     }
-    return { AND: terms };
+    return { AND: _sortCommutativeTerms(terms) };
   }
 
   if ("OR" in q) {
     const terms: QueryDSL[] = [];
-    for (const term of q.OR.map(simplifyQueryDSL)) {
+    for (const term of q.OR.map((term) => simplifyQueryDSL(term, world))) {
       if (_isTrueDSL(term)) {
         return [];
       }
@@ -236,11 +340,11 @@ export function simplifyQueryDSL(q: QueryDSL): QueryDSL {
     if (terms.length === 1) {
       return terms[0];
     }
-    return { OR: terms };
+    return { OR: _sortCommutativeTerms(terms) };
   }
 
   if ("NOT" in q) {
-    const term = simplifyQueryDSL(q.NOT);
+    const term = simplifyQueryDSL(q.NOT, world);
     if (_isTrueDSL(term)) {
       return _falseDSL();
     }
@@ -254,7 +358,7 @@ export function simplifyQueryDSL(q: QueryDSL): QueryDSL {
   }
 
   if ("PARENT" in q) {
-    const term = simplifyQueryDSL(q.PARENT);
+    const term = simplifyQueryDSL(q.PARENT, world);
     if (_isFalseDSL(term)) {
       return _falseDSL();
     }
@@ -270,13 +374,12 @@ type _CompileContext = {
 };
 
 function _compileMask(
-  world: World,
   context: _CompileContext,
-  components: ComponentClassArray,
+  components: number[],
   entityRef: string,
   comparison: "hasBitset" | "equal"
 ): string {
-  const maskIndex = context.masks.push(_calculateComponentBitmask(components, world)) - 1;
+  const maskIndex = context.masks.push(_calculateComponentBitmask(components)) - 1;
   return `${entityRef}.componentBitmask.${comparison}(m${maskIndex})`;
 }
 
@@ -287,18 +390,23 @@ function _compileQueryExpression(
   entityRef: string
 ): string {
   if (typeof q === "number") {
-    return _compileMask(world, context, [q], entityRef, "hasBitset");
+    return _compileMask(context, [q], entityRef, "hasBitset");
   }
 
   if (typeof q === "function" && world._tryGetComponentMeta(q as ComponentClass)) {
-    return _compileMask(world, context, [q as ComponentClass], entityRef, "hasBitset");
+    return _compileMask(
+      context,
+      [world.getComponentType(q as ComponentClass)],
+      entityRef,
+      "hasBitset"
+    );
   } else if (typeof q === "function") {
     const funcIndex = context.funcs.push(q as EntityTestFunc) - 1;
     return `f${funcIndex}(${entityRef})`;
   }
 
   if (q instanceof Array) {
-    return _compileMask(world, context, q, entityRef, "hasBitset");
+    return _compileMask(context, q as number[], entityRef, "hasBitset");
   }
 
   if ("HAS" in q) {
@@ -307,7 +415,12 @@ function _compileQueryExpression(
 
   if ("HAS_ONLY" in q) {
     const v = q.HAS_ONLY;
-    return _compileMask(world, context, v instanceof Array ? v : [v], entityRef, "equal");
+    return _compileMask(
+      context,
+      v instanceof Array ? (v as number[]) : [v as number],
+      entityRef,
+      "equal"
+    );
   }
 
   if ("AND" in q) {
@@ -350,7 +463,7 @@ function _compileQueryExpression(
  */
 export function _compile(world: World, q: QueryDSL): EntityTestFunc {
   const context: _CompileContext = { masks: [], funcs: [] };
-  const expression = _compileQueryExpression(world, simplifyQueryDSL(q), context, "e");
+  const expression = _compileQueryExpression(world, simplifyQueryDSL(q, world), context, "e");
   const maskNames = context.masks.map((_mask, index) => `m${index}`);
   const funcNames = context.funcs.map((_func, index) => `f${index}`);
   const factory = new Function(
@@ -370,6 +483,8 @@ export function _compile(world: World, q: QueryDSL): EntityTestFunc {
  * conservative: unsupported expressions fall back to full-scan routing.
  */
 export function _extractQueryDependencies(world: World, q: QueryDSL): number[] | undefined {
+  q = simplifyQueryDSL(q, world);
+
   if (typeof q === "number") {
     return [q];
   }
@@ -381,7 +496,7 @@ export function _extractQueryDependencies(world: World, q: QueryDSL): number[] |
   }
 
   if (q instanceof Array) {
-    return q.map((C) => world.getComponentType(C));
+    return q as number[];
   }
 
   if ("HAS" in q) {

@@ -1,6 +1,5 @@
-import { BitPtr, Bitset } from "./util/bitset.js";
+import { BitPtr } from "./util/bitset.js";
 import type { Entity } from "./entity.js";
-import { type World } from "./world.js";
 
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type Component = object;
@@ -131,20 +130,3 @@ export class ComponentMeta implements Hook<Component> {
  * @internal
  */
 export type ComponentClassArray = ComponentClassOrType[];
-
-/**
- * Compute a {@link Bitset} with one bit set for every component class or
- * numeric type id in `classes`.
- *
- * @internal Used to build archetype masks for `HAS` / `HAS_ONLY` queries.
- *
- * @param classes - Component classes or type ids to include.
- * @param world - World used to resolve classes to type ids.
- */
-export function _calculateComponentBitmask(classes: ComponentClassArray, world: World): Bitset {
-  const bitmask = new Bitset();
-  classes.forEach((C) => {
-    bitmask.add(world.getComponentType(C));
-  });
-  return bitmask;
-}
