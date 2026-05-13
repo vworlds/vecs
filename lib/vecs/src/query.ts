@@ -4,13 +4,7 @@ import { Bitset } from "./util/bitset.js";
 import { type Component, type ComponentClass, type ComponentMeta } from "./component.js";
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
-import {
-  _compile,
-  _extractQueryDependencies,
-  type EntityTestFunc,
-  type QueryDSL,
-  type MaybeRequired,
-} from "./dsl.js";
+import { _compile, type EntityTestFunc, type QueryDSL, type MaybeRequired } from "./dsl.js";
 
 export type { EntityTestFunc, QueryDSL, MaybeRequired };
 
@@ -61,9 +55,13 @@ export class Query<R extends ComponentClass[] = []> {
   /** @internal Predicate compiled from the query DSL; defaults to "match nothing". */
   protected _belongs: EntityTestFunc = (_e: Entity) => false;
   /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
-  protected _hasQuery: boolean = false;
+  protected _hasExplicitQuery: boolean = false;
   /** @internal Component index buckets this query currently belongs to. */
   public _queryIndexKeys: number[] | undefined = undefined;
+  /** @internal DSL predicate to compile and index when the query is built. */
+  public _dsl: QueryDSL | undefined = undefined;
+  /** @internal `true` once this query has been registered with its world. */
+  public _built = false;
 
   /** @internal `enter` callback (already wraps any injection logic). */
   protected _enterCallback: EntityCallback | undefined = undefined;
@@ -84,10 +82,22 @@ export class Query<R extends ComponentClass[] = []> {
     public readonly world: World,
     track: boolean = true
   ) {
-    world._addQuery(this);
+    world._addUnbuiltQuery(this);
     if (track) {
       this.track();
     }
+  }
+
+  /** @internal Throw when a builder method is called after registration. */
+  protected _assertConfigurable(): void {
+    if (this._built) {
+      throw `query '${this.name}' has already been built`;
+    }
+  }
+
+  /** @internal Whether this object has enough configuration to enter the world. */
+  protected _hasBuildableConfiguration(): boolean {
+    return this._dsl !== undefined;
   }
 
   /**
@@ -109,12 +119,24 @@ export class Query<R extends ComponentClass[] = []> {
   }
 
   /**
-   * @internal Install a DSL predicate, re-index this query, and backfill tracked entities.
+   * @internal Finalise this query's configuration and register it with the world.
+   * Must be the final method in a query builder chain.
    */
-  private _setQuery(q: QueryDSL): void {
-    this._belongs = _compile(this.world, q);
-    this.world._indexQuery(this, _extractQueryDependencies(this.world, q));
+  public _build(): this {
+    if (this._built) {
+      return this;
+    }
+    if (!this._hasBuildableConfiguration()) {
+      this.destroy();
+      return this;
+    }
+    if (this._dsl !== undefined) {
+      this._belongs = _compile(this.world, this._dsl);
+    }
+    this.world._addQuery(this);
+    this._built = true;
     this._backfill();
+    return this;
   }
 
   /**
@@ -249,8 +271,8 @@ export class Query<R extends ComponentClass[] = []> {
    * @returns This query, for chaining.
    */
   public track(): this {
+    this._assertConfigurable();
     this._entities ??= new Set<Entity>();
-    this._backfill();
     return this;
   }
 
@@ -345,6 +367,7 @@ export class Query<R extends ComponentClass[] = []> {
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
   ): this {
+    this._assertConfigurable();
     if (typeof injectOrCallback === "function") {
       this._enterCallback = injectOrCallback;
     } else {
@@ -385,6 +408,7 @@ export class Query<R extends ComponentClass[] = []> {
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
   ): this {
+    this._assertConfigurable();
     if (typeof injectOrCallback === "function") {
       this._exitCallback = injectOrCallback;
       this._exitSnapshotTypes = undefined;
@@ -454,6 +478,7 @@ export class Query<R extends ComponentClass[] = []> {
       injected: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => void
   ): this {
+    this._assertConfigurable();
     const type = this.world.getComponentType(ComponentClass);
     if (typeof injectOrCallback === "function") {
       callback = injectOrCallback;
@@ -477,11 +502,11 @@ export class Query<R extends ComponentClass[] = []> {
 
     this._watchlistBitmask.add(type);
 
-    if (!this._hasQuery) {
+    if (!this._hasExplicitQuery) {
       // Update-only queries derive membership from the watched component set.
       // Install that predicate before backfill so the default match-nothing
       // predicate is never used for update-watchlist expansion.
-      this._setQuery(this._watchlistBitmask.indices());
+      this._dsl = this._watchlistBitmask.indices();
     }
 
     return this;
@@ -515,11 +540,11 @@ export class Query<R extends ComponentClass[] = []> {
       b: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => number
   ): this {
+    this._assertConfigurable();
     const types = components.map((C) => this.world.getComponentType(C));
     this._entities = new OrderedSet<Entity>((a, b) =>
       compare(a, types.map((t) => a.get(t)) as any, b, types.map((t) => b.get(t)) as any)
     );
-    this._backfill();
     return this;
   }
 
@@ -550,8 +575,9 @@ export class Query<R extends ComponentClass[] = []> {
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): Query<T> {
-    this._setQuery(q);
-    this._hasQuery = true;
+    this._assertConfigurable();
+    this._dsl = q;
+    this._hasExplicitQuery = true;
     return this as unknown as Query<T>;
   }
 
