@@ -123,6 +123,13 @@ describe("Query — construction", () => {
     expect(q.belongs(e)).toBe(false);
     expect(q.count).toBe(0);
   });
+
+  it("forgets queries built without a predicate", () => {
+    const { w } = setup();
+    const q = w.query("empty")._build();
+    expect(w.queries).not.toContain(q);
+    expect((q as any).world).toBeUndefined();
+  });
 });
 
 describe("Query — update watchlist predicate", () => {

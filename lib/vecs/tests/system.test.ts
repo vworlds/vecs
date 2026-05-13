@@ -213,6 +213,19 @@ describe("System — phases", () => {
     expect(() => w.system("late")).toThrow("systems cannot be added after world start");
   });
 
+  it("rejects query builds while a frame is in progress", () => {
+    const { w, phase } = setup();
+    w.system("test")
+      .phase(phase)
+      .run(() => {
+        expect(() => w.query("mid-frame").requires(Position)._build()).toThrow(
+          "queries cannot be built while a frame is in progress"
+        );
+      });
+    w.start();
+    w.progress(0, 0);
+  });
+
   it("phase by IPhase reference assigns the system to that phase", () => {
     const w = new World();
     const seen: string[] = [];

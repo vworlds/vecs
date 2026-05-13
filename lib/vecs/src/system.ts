@@ -90,6 +90,11 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
     super(name, world, false);
   }
 
+  /** @internal Systems may be run-only processors without entity membership. */
+  protected override _hasBuildableConfiguration(): boolean {
+    return true;
+  }
+
   /**
    * @internal Routing entry: register query membership for `e`, push an
    * inbox `enter` event when an `enter` callback is registered, and bridge

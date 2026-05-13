@@ -4,13 +4,7 @@ import { Bitset } from "./util/bitset.js";
 import { type Component, type ComponentClass, type ComponentMeta } from "./component.js";
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
-import {
-  _compile,
-  _extractQueryDependencies,
-  type EntityTestFunc,
-  type QueryDSL,
-  type MaybeRequired,
-} from "./dsl.js";
+import { _compile, type EntityTestFunc, type QueryDSL, type MaybeRequired } from "./dsl.js";
 
 export type { EntityTestFunc, QueryDSL, MaybeRequired };
 
@@ -61,11 +55,11 @@ export class Query<R extends ComponentClass[] = []> {
   /** @internal Predicate compiled from the query DSL; defaults to "match nothing". */
   protected _belongs: EntityTestFunc = (_e: Entity) => false;
   /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
-  protected _hasQuery: boolean = false;
+  protected _hasExplicitQuery: boolean = false;
   /** @internal Component index buckets this query currently belongs to. */
   public _queryIndexKeys: number[] | undefined = undefined;
   /** @internal DSL predicate to compile and index when the query is built. */
-  private _dsl: QueryDSL | undefined = undefined;
+  public _dsl: QueryDSL | undefined = undefined;
   /** @internal `true` once this query has been registered with its world. */
   public _built = false;
 
@@ -101,6 +95,11 @@ export class Query<R extends ComponentClass[] = []> {
     }
   }
 
+  /** @internal Whether this object has enough configuration to enter the world. */
+  protected _hasBuildableConfiguration(): boolean {
+    return this._dsl !== undefined;
+  }
+
   /**
    * @internal Backfill the tracked set with every existing entity that
    * satisfies the current predicate. Runs inside a deferred scope so the
@@ -127,13 +126,15 @@ export class Query<R extends ComponentClass[] = []> {
     if (this._built) {
       return this;
     }
-    const shouldIndex = this._dsl !== undefined;
-    const queryIndexKeys = shouldIndex
-      ? _extractQueryDependencies(this.world, this._dsl!)
-      : undefined;
-    this._belongs = this._dsl ? _compile(this.world, this._dsl) : this._belongs;
+    if (!this._hasBuildableConfiguration()) {
+      this.destroy();
+      return this;
+    }
+    if (this._dsl !== undefined) {
+      this._belongs = _compile(this.world, this._dsl);
+    }
+    this.world._addQuery(this);
     this._built = true;
-    this.world._addQuery(this, queryIndexKeys, shouldIndex);
     this._backfill();
     return this;
   }
@@ -501,7 +502,7 @@ export class Query<R extends ComponentClass[] = []> {
 
     this._watchlistBitmask.add(type);
 
-    if (!this._hasQuery) {
+    if (!this._hasExplicitQuery) {
       // Update-only queries derive membership from the watched component set.
       // Install that predicate before backfill so the default match-nothing
       // predicate is never used for update-watchlist expansion.
@@ -576,7 +577,7 @@ export class Query<R extends ComponentClass[] = []> {
   ): Query<T> {
     this._assertConfigurable();
     this._dsl = q;
-    this._hasQuery = true;
+    this._hasExplicitQuery = true;
     return this as unknown as Query<T>;
   }
 
@@ -607,14 +608,6 @@ export class Query<R extends ComponentClass[] = []> {
    * Not supported on {@link System} — calling it on a system throws.
    */
   public destroy(): void {
-    if (!this._built) {
-      this.world._removeUnbuiltQuery(this);
-      this._entities?.clear();
-      this._entities = undefined;
-      this._belongs = (_e: Entity) => false;
-      (this as any).world = undefined;
-      return;
-    }
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;

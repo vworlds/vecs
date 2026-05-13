@@ -3,7 +3,7 @@ import { Entity } from "./entity.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
 import { Filter } from "./filter.js";
-import { type QueryDSL, type ExtractRequired } from "./dsl.js";
+import { _extractQueryDependencies, type QueryDSL, type ExtractRequired } from "./dsl.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
@@ -202,11 +202,14 @@ export class World {
   }
 
   /** @internal Register and index a freshly built {@link Query}. */
-  public _addQuery(q: Query, componentTypes: number[] | undefined, index: boolean): void {
+  public _addQuery(q: Query): void {
+    if (this._frameInProgress) {
+      throw "queries cannot be built while a frame is in progress";
+    }
     this._removeUnbuiltQuery(q);
     this._queries.push(q);
-    if (index) {
-      this._indexQuery(q, componentTypes);
+    if (q._dsl !== undefined) {
+      this._indexQuery(q, _extractQueryDependencies(this, q._dsl));
     }
   }
 
@@ -222,6 +225,9 @@ export class World {
 
   /** @internal Build every query that has not yet entered the world. */
   public _buildPendingQueries(): void {
+    if (this._unbuiltQueries.size === 0) {
+      return;
+    }
     const pending = [...this._unbuiltQueries];
     pending.forEach((q) => q._build());
   }
