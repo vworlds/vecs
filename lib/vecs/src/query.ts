@@ -583,7 +583,6 @@ export class Query<R extends ComponentClass[] = []> {
    */
   public destroy(): void {
     this.world._removeQuery(this);
-    this._entities?.forEach((e) => e._purgeQuery(this));
     this._entities?.clear();
     this._entities = undefined;
     this._belongs = (_e: Entity) => false;
