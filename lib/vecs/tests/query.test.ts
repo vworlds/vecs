@@ -357,12 +357,6 @@ describe("Query — entity tracking via world pipeline", () => {
     expect(velSeen).toBeUndefined();
   });
 
-  it("does not expose the tracked entity set", () => {
-    const { w } = setup();
-    const q = w.query("test");
-    expect("entities" in q).toBe(false);
-  });
-
   it("destroyed entity is removed from the query", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);

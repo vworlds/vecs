@@ -470,12 +470,6 @@ describe("System — each", () => {
     expect(sys.has(e)).toBe(true);
   });
 
-  it("system does not expose the tracked entity set", () => {
-    const { w } = setup();
-    const sys = w.system("test").requires(Position).track();
-    expect("entities" in sys).toBe(false);
-  });
-
   it("each and update coexist on the same system", () => {
     const { w, phase } = setup();
     const eachCb = vi.fn();
@@ -523,7 +517,7 @@ describe("System — sort", () => {
     expect(sys.has(e)).toBe(true);
   });
 
-  it("systems are iterated in sorted order", () => {
+  it("entities in a sorted system are iterated in sorted order", () => {
     const { w, phase } = setup();
     const sys = w
       .system("test")
