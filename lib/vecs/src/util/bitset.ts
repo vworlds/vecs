@@ -147,14 +147,24 @@ export class Bitset {
    * @param callback - Invoked once per set bit.
    */
   public forEach(callback: (n: number) => void): void {
-    this._bits.forEach((b, j) => {
-      for (let i = 0; i < 32; i++) {
-        if ((b & 1) !== 0) {
-          callback(i + j * 32);
-        }
-        b >>= 1;
+    const bits = this._bits;
+    const len = bits.length;
+    for (let j = 0; j < len; j++) {
+      let w = bits[j];
+      if (w === 0) {
+        continue;
       }
-    });
+      const base = j << 5;
+      for (let i = 0; i < 32; i++) {
+        if ((w & 1) !== 0) {
+          callback(base + i);
+        }
+        w >>>= 1;
+        if (w === 0) {
+          break;
+        }
+      }
+    }
   }
 
   /**
