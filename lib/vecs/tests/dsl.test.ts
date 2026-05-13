@@ -136,6 +136,8 @@ describe("Query DSL simplification", () => {
     expect(getDSLKey({ OR: [Velocity, Position] }, world)).toBe(
       getDSLKey({ OR: [Position, Velocity] }, world)
     );
+    expect(getDSLKey([Velocity, Position], world)).toBe(3550358671);
+    expect(getDSLKey({ OR: [Velocity, Position] }, world)).toBe(1134764031);
   });
 
   it("returns different DSL keys for different expressions", () => {
@@ -145,6 +147,10 @@ describe("Query DSL simplification", () => {
     expect(getDSLKey([Position, Velocity], world)).not.toBe(
       getDSLKey({ OR: [Position, Velocity] }, world)
     );
+    expect(getDSLKey(Position, world)).toBe(1827664661);
+    expect(getDSLKey(Velocity, world)).toBe(1760701280);
+    expect(getDSLKey([Position, Velocity], world)).toBe(3550358671);
+    expect(getDSLKey({ OR: [Position, Velocity] }, world)).toBe(1134764031);
   });
 
   it("keys custom predicates by function identity", () => {
@@ -158,5 +164,7 @@ describe("Query DSL simplification", () => {
     expect(getDSLKey({ AND: [Position, predicate] }, world)).not.toBe(
       getDSLKey({ AND: [Position, otherPredicate] }, world)
     );
+    expect(getDSLKey({ AND: [Position, predicate] }, world)).toBe(680920971);
+    expect(getDSLKey({ AND: [Position, otherPredicate] }, world)).toBe(1612059256);
   });
 });
