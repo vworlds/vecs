@@ -162,9 +162,38 @@ export class Bitset {
       }
       const base = j << 5;
       if (w === -1) {
-        for (let i = 0; i < 32; i++) {
-          callback(base + i);
-        }
+        callback(base);
+        callback(base + 1);
+        callback(base + 2);
+        callback(base + 3);
+        callback(base + 4);
+        callback(base + 5);
+        callback(base + 6);
+        callback(base + 7);
+        callback(base + 8);
+        callback(base + 9);
+        callback(base + 10);
+        callback(base + 11);
+        callback(base + 12);
+        callback(base + 13);
+        callback(base + 14);
+        callback(base + 15);
+        callback(base + 16);
+        callback(base + 17);
+        callback(base + 18);
+        callback(base + 19);
+        callback(base + 20);
+        callback(base + 21);
+        callback(base + 22);
+        callback(base + 23);
+        callback(base + 24);
+        callback(base + 25);
+        callback(base + 26);
+        callback(base + 27);
+        callback(base + 28);
+        callback(base + 29);
+        callback(base + 30);
+        callback(base + 31);
         continue;
       }
       for (let i = 0; i < 32; i++) {
