@@ -5,7 +5,6 @@ import { type Component, type ComponentClass, type ComponentMeta } from "./compo
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
 import {
-  _HAS,
   _buildEntityTest,
   _extractQueryDependencies,
   type EntityTestFunc,
@@ -107,6 +106,15 @@ export class Query<R extends ComponentClass[] = []> {
         }
       });
     });
+  }
+
+  /**
+   * @internal Install a DSL predicate, re-index this query, and backfill tracked entities.
+   */
+  private _setQuery(q: QueryDSL): void {
+    this._belongs = _buildEntityTest(this.world, q);
+    this.world._indexQuery(this, _extractQueryDependencies(this.world, q));
+    this._backfill();
   }
 
   /**
@@ -473,10 +481,7 @@ export class Query<R extends ComponentClass[] = []> {
       // Update-only queries derive membership from the watched component set.
       // Install that predicate before backfill so the default match-nothing
       // predicate is never used for update-watchlist expansion.
-      const watchlist: number[] = this._watchlistBitmask.indices();
-      this._belongs = _HAS(this.world, ...watchlist);
-      this.world._indexQuery(this, watchlist);
-      this._backfill();
+      this._setQuery(this._watchlistBitmask.indices());
     }
 
     return this;
@@ -545,10 +550,8 @@ export class Query<R extends ComponentClass[] = []> {
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): Query<T> {
-    this._belongs = _buildEntityTest(this.world, q);
-    this.world._indexQuery(this, _extractQueryDependencies(this.world, q));
+    this._setQuery(q);
     this._hasQuery = true;
-    this._backfill();
     return this as unknown as Query<T>;
   }
 
