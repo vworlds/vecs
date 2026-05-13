@@ -19,7 +19,11 @@
  * ```
  */
 export class Bitset {
-  /** @internal Underlying word storage; exposed for tests. */
+  /**
+   * @internal Underlying word storage; exposed for tests and read directly
+   * from query predicates emitted by {@link _compileSubsetCheck}. Renaming
+   * this field is a breaking change for compiled query code generation.
+   */
   public _bits: number[] = [];
 
   /**
@@ -189,6 +193,53 @@ export class Bitset {
    */
   public _hasIndexBitmask(arrayIndex: number, bitmask: number): boolean {
     return (this._bits[arrayIndex] & bitmask) !== 0;
+  }
+
+  /**
+   * Emit a JavaScript expression that evaluates to `true` when the bitset
+   * addressed by `targetBitsExpr` (a `number[]` of 32-bit words) contains
+   * every bit set in this bitset.
+   *
+   * The expression is intended to be spliced into source generated through
+   * `new Function(...)` so that a `hasBitset` call against this (immutable)
+   * mask is replaced by straight-line bitwise checks with the mask's word
+   * values baked in as numeric literals. Zero words are skipped at code
+   * generation time, so the runtime expression never iterates them.
+   *
+   * Contract:
+   * - Empty mask -> `"true"`.
+   * - One non-zero word -> a single `(target[i]&W)===W` term (no outer
+   *   parens; `===` binds tighter than `&&` / `||`, so embedding in an
+   *   AND / OR chain is precedence-safe).
+   * - Multiple non-zero words -> terms joined by `&&`, no outer parens.
+   * - A word whose value sets bit 31 emits as a negative int32 literal
+   *   (e.g. `-2147483648`); JS bitwise `&` is defined to coerce both
+   *   operands to int32, so the round-trip comparison is correct.
+   * - When `target.length` is smaller than the mask, the missing slots
+   *   read as `undefined`; `undefined & W` coerces to `0`, and
+   *   `0 === W` (W !== 0) is `false`, matching `hasBitset` semantics.
+   *
+   * The mask's `_bits` are read at the time `_compileSubsetCheck` runs,
+   * so a caller that mutates the mask after compilation will not affect
+   * already-emitted strings.
+   *
+   * @internal
+   *
+   * @param targetBitsExpr - JS expression that, when evaluated at runtime,
+   *   yields the target's `_bits` array. Embedded verbatim into the
+   *   emitted code; it must be free of side effects (it is evaluated
+   *   once per non-zero word of this mask).
+   */
+  public _compileSubsetCheck(targetBitsExpr: string): string {
+    const conjuncts: string[] = [];
+    for (let i = 0; i < this._bits.length; i++) {
+      const w = this._bits[i] | 0;
+      if (w === 0) {
+        continue;
+      }
+      conjuncts.push(`(${targetBitsExpr}[${i}]&${w})===${w}`);
+    }
+    return conjuncts.length === 0 ? "true" : conjuncts.join("&&");
   }
 }
 
