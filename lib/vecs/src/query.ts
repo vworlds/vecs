@@ -64,6 +64,10 @@ export class Query<R extends ComponentClass[] = []> {
   protected _hasQuery: boolean = false;
   /** @internal Component index buckets this query currently belongs to. */
   public _queryIndexKeys: number[] | undefined = undefined;
+  /** @internal Component dependencies to index when the query is built. */
+  private _pendingQueryIndexKeys: number[] | undefined = undefined;
+  /** @internal `true` once this query has been registered with its world. */
+  public _built = false;
 
   /** @internal `enter` callback (already wraps any injection logic). */
   protected _enterCallback: EntityCallback | undefined = undefined;
@@ -84,9 +88,16 @@ export class Query<R extends ComponentClass[] = []> {
     public readonly world: World,
     track: boolean = true
   ) {
-    world._addQuery(this);
+    world._addUnbuiltQuery(this);
     if (track) {
       this.track();
+    }
+  }
+
+  /** @internal Throw when a builder method is called after registration. */
+  protected _assertConfigurable(): void {
+    if (this._built) {
+      throw `query '${this.name}' has already been built`;
     }
   }
 
@@ -112,9 +123,25 @@ export class Query<R extends ComponentClass[] = []> {
    * @internal Install a DSL predicate, re-index this query, and backfill tracked entities.
    */
   private _setQuery(q: QueryDSL): void {
+    this._assertConfigurable();
     this._belongs = _compile(this.world, q);
-    this.world._indexQuery(this, _extractQueryDependencies(this.world, q));
+    this._pendingQueryIndexKeys = _extractQueryDependencies(this.world, q);
+  }
+
+  /**
+   * @internal Finalise this query's configuration and register it with the world.
+   * Must be the final method in a query builder chain.
+   */
+  public _build(): this {
+    if (this._built) {
+      return this;
+    }
+    this._built = true;
+    this.world._removeUnbuiltQuery(this);
+    this.world._addQuery(this);
+    this.world._indexQuery(this, this._pendingQueryIndexKeys);
     this._backfill();
+    return this;
   }
 
   /**
@@ -249,8 +276,8 @@ export class Query<R extends ComponentClass[] = []> {
    * @returns This query, for chaining.
    */
   public track(): this {
+    this._assertConfigurable();
     this._entities ??= new Set<Entity>();
-    this._backfill();
     return this;
   }
 
@@ -345,6 +372,7 @@ export class Query<R extends ComponentClass[] = []> {
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
   ): this {
+    this._assertConfigurable();
     if (typeof injectOrCallback === "function") {
       this._enterCallback = injectOrCallback;
     } else {
@@ -385,6 +413,7 @@ export class Query<R extends ComponentClass[] = []> {
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
   ): this {
+    this._assertConfigurable();
     if (typeof injectOrCallback === "function") {
       this._exitCallback = injectOrCallback;
       this._exitSnapshotTypes = undefined;
@@ -454,6 +483,7 @@ export class Query<R extends ComponentClass[] = []> {
       injected: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => void
   ): this {
+    this._assertConfigurable();
     const type = this.world.getComponentType(ComponentClass);
     if (typeof injectOrCallback === "function") {
       callback = injectOrCallback;
@@ -515,11 +545,11 @@ export class Query<R extends ComponentClass[] = []> {
       b: { [K in keyof J]: MaybeRequired<J[K], R> }
     ) => number
   ): this {
+    this._assertConfigurable();
     const types = components.map((C) => this.world.getComponentType(C));
     this._entities = new OrderedSet<Entity>((a, b) =>
       compare(a, types.map((t) => a.get(t)) as any, b, types.map((t) => b.get(t)) as any)
     );
-    this._backfill();
     return this;
   }
 
@@ -582,6 +612,14 @@ export class Query<R extends ComponentClass[] = []> {
    * Not supported on {@link System} — calling it on a system throws.
    */
   public destroy(): void {
+    if (!this._built) {
+      this.world._removeUnbuiltQuery(this);
+      this._entities?.clear();
+      this._entities = undefined;
+      this._belongs = (_e: Entity) => false;
+      (this as any).world = undefined;
+      return;
+    }
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;

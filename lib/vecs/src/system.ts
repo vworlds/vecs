@@ -239,6 +239,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    * ```
    */
   public interval(seconds: number): this {
+    this._assertConfigurable();
     this._setTickSource(new IntervalTickSource(seconds));
     return this;
   }
@@ -267,6 +268,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
   public rate(n: number): this;
   public rate(n: number, source: ITickSource): this;
   public rate(n: number, source?: ITickSource): this {
+    this._assertConfigurable();
     this._setTickSource(new RateTickSource(n, source ?? this._tickSource));
     return this;
   }
@@ -289,6 +291,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    * ```
    */
   public tickSource(source: ITickSource): this {
+    this._assertConfigurable();
     this._setTickSource(source);
     return this;
   }
@@ -311,6 +314,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    *   different world.
    */
   public phase(p: string | IPhase): this {
+    this._assertConfigurable();
     if (typeof p !== "string") {
       if (!(p instanceof Phase)) {
         throw "Invalid Phase object";
@@ -337,6 +341,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    * @returns This system, for chaining.
    */
   public run(callback: RunCallback): this {
+    this._assertConfigurable();
     this._runCallback = callback;
     return this;
   }
@@ -378,6 +383,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
     components: readonly [...J],
     callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): this {
+    this._assertConfigurable();
     if (this._eachCallback) {
       throw `each already registered for system '${this.name}'`;
     }

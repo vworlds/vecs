@@ -61,6 +61,10 @@ export class World {
   private _entities = new Map<number, Entity>();
   /** @internal All registered queries, including systems (which extend `Query`). */
   private _queries: Query[] = [];
+  /** @internal Queries created but not yet built into the world. */
+  private _unbuiltQueries = new Set<Query>();
+  /** @internal True while auto-building pending queries as a batch. */
+  private _buildingPendingQueries = false;
   /** @internal Component type id -> queries invalidated by that component. */
   private _queryIndex = new ArrayMap<Set<Query>>();
   /** @internal Queries whose predicates are too broad for component indexing. */
@@ -74,6 +78,8 @@ export class World {
   private _localComponentCounter: number;
   /** @internal `true` once {@link start} (or {@link disableComponentRegistration}) has been called. */
   private _componentRegistrationDisabled = false;
+  /** @internal `true` once {@link start} has prepared the phase pipeline. */
+  private _started = false;
 
   /** @internal Auto-incrementing entity id counter, seeded by {@link setEntityIdRange}. */
   private _eidCounter = 0;
@@ -171,6 +177,10 @@ export class World {
 
     const defaultPhase = _defaultPhase;
 
+    this._pipeline.forEach((phase) => {
+      phase.systems.length = 0;
+    });
+
     this._queries.forEach((q) => {
       if (!(q instanceof System)) {
         return;
@@ -196,6 +206,34 @@ export class World {
   /** @internal Register a freshly created {@link Query} (called from its constructor). */
   public _addQuery(q: Query): void {
     this._queries.push(q);
+    if (this._started && !this._buildingPendingQueries && q instanceof System) {
+      this._reindexSystems();
+    }
+  }
+
+  /** @internal Track a newly-created query until it is explicitly or automatically built. */
+  public _addUnbuiltQuery(q: Query): void {
+    this._unbuiltQueries.add(q);
+  }
+
+  /** @internal Stop tracking a pending query. */
+  public _removeUnbuiltQuery(q: Query): void {
+    this._unbuiltQueries.delete(q);
+  }
+
+  /** @internal Build every query that has not yet entered the world. */
+  public _buildPendingQueries(): boolean {
+    const pending = [...this._unbuiltQueries];
+    if (pending.length === 0) {
+      return false;
+    }
+    this._buildingPendingQueries = true;
+    try {
+      pending.forEach((q) => q._build());
+    } finally {
+      this._buildingPendingQueries = false;
+    }
+    return true;
   }
 
   /** @internal Visit queries whose membership may change when component `type` changes. */
@@ -250,6 +288,7 @@ export class World {
    * Called by {@link Query.destroy}.
    */
   public _removeQuery(q: Query): void {
+    this._removeUnbuiltQuery(q);
     this._unindexQuery(q);
     const idx = this._queries.indexOf(q);
     if (idx !== -1) {
@@ -732,7 +771,9 @@ export class World {
    * Call once before the first {@link runPhase} / {@link progress}.
    */
   public start(): void {
+    this._buildPendingQueries();
     this._componentRegistrationDisabled = true;
+    this._started = true;
     this._reindexSystems();
   }
 
@@ -748,6 +789,9 @@ export class World {
   public beginFrame(delta: number): void {
     if (this._frameInProgress) {
       throw "endFrame() not called before beginFrame()";
+    }
+    if (this._buildPendingQueries()) {
+      this._reindexSystems();
     }
     this._frameInProgress = true;
     this._frameCounter++;

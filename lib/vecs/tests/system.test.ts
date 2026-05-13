@@ -172,6 +172,61 @@ describe("System — enter / exit / update", () => {
 });
 
 describe("System — phases", () => {
+  it("does not register world.system() until _build()", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .run(() => {});
+    expect(w.queries).not.toContain(sys);
+    sys._build();
+    expect(w.queries).toContain(sys);
+  });
+
+  it("throws when configuring a built system", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .run(() => {})
+      .requires(Position)
+      ._build();
+    expect(() => sys.phase(phase)).toThrow();
+    expect(() => sys.run(() => {})).toThrow();
+    expect(() => sys.each([Position], () => {})).toThrow();
+    expect(() => sys.requires(Velocity)).toThrow();
+  });
+
+  it("auto-builds systems before start() reindexes phases", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const sys = w.system("test").phase(phase).run(cb);
+    w.start();
+    expect(w.queries).toContain(sys);
+    w.progress(0, 0);
+    expect(cb).toHaveBeenCalled();
+  });
+
+  it("auto-builds systems created after start() before the next frame", () => {
+    const { w, phase } = setup();
+    w.start();
+    const cb = vi.fn();
+    const sys = w.system("late").phase(phase).run(cb);
+    expect(w.queries).not.toContain(sys);
+    w.progress(0, 0);
+    expect(w.queries).toContain(sys);
+    expect(cb).toHaveBeenCalled();
+  });
+
+  it("manual _build() after start() immediately reindexes system phases", () => {
+    const { w, phase } = setup();
+    w.start();
+    const cb = vi.fn();
+    w.system("late").phase(phase).run(cb)._build();
+    w.progress(0, 0);
+    expect(cb).toHaveBeenCalled();
+  });
+
   it("phase by IPhase reference assigns the system to that phase", () => {
     const w = new World();
     const seen: string[] = [];
