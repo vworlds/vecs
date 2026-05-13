@@ -439,7 +439,16 @@ function _compileMask(
   entityRef: string,
   comparison: "hasBitset" | "equal"
 ): string {
-  const maskIndex = context.masks.push(_calculateComponentBitmask(components)) - 1;
+  const mask = _calculateComponentBitmask(components);
+  if (comparison === "hasBitset") {
+    // Inline the subset check against the mask's word values so the
+    // generated predicate is straight-line bitwise code with no method
+    // dispatch and no loop over zero words. The mask itself is not
+    // closed over for this term.
+    const inline = mask._compileSubsetCheck(`${entityRef}.componentBitmask._bits`);
+    return inline === "true" ? "true" : `(${inline})`;
+  }
+  const maskIndex = context.masks.push(mask) - 1;
   return `${entityRef}.componentBitmask.${comparison}(m${maskIndex})`;
 }
 
