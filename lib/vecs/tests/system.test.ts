@@ -172,6 +172,60 @@ describe("System — enter / exit / update", () => {
 });
 
 describe("System — phases", () => {
+  it("does not register world.system() until _build()", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .run(() => {});
+    expect(w.queries).not.toContain(sys);
+    sys._build();
+    expect(w.queries).toContain(sys);
+  });
+
+  it("throws when configuring a built system", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .run(() => {})
+      .requires(Position)
+      ._build();
+    expect(() => sys.phase(phase)).toThrow();
+    expect(() => sys.run(() => {})).toThrow();
+    expect(() => sys.each([Position], () => {})).toThrow();
+    expect(() => sys.requires(Velocity)).toThrow();
+  });
+
+  it("auto-builds systems before start() reindexes phases", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const sys = w.system("test").phase(phase).run(cb);
+    w.start();
+    expect(w.queries).toContain(sys);
+    w.progress(0, 0);
+    expect(cb).toHaveBeenCalled();
+  });
+
+  it("rejects systems created after start()", () => {
+    const { w } = setup();
+    w.start();
+    expect(() => w.system("late")).toThrow("systems cannot be added after world start");
+  });
+
+  it("rejects query builds while a frame is in progress", () => {
+    const { w, phase } = setup();
+    w.system("test")
+      .phase(phase)
+      .run(() => {
+        expect(() => w.query("mid-frame").requires(Position)._build()).toThrow(
+          "queries cannot be built while a frame is in progress"
+        );
+      });
+    w.start();
+    w.progress(0, 0);
+  });
+
   it("phase by IPhase reference assigns the system to that phase", () => {
     const w = new World();
     const seen: string[] = [];

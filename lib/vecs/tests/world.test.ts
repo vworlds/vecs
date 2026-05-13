@@ -212,12 +212,13 @@ describe("World — component registration", () => {
     expect(() => e.add(A)).toThrow();
     expect(() => e.set(A, {})).toThrow();
     expect(() => e.modified(A)).toThrow();
-    expect(() => w.system("test").requires(A)).toThrow();
+    expect(() => w.system("test").requires(A)._build()).toThrow();
   });
 
   it("class-valued QueryDSL without registered metadata throws when evaluated", () => {
     const w = new World();
     const q = w.query("test").query(A);
+    q._build();
     const e = w.entity();
     expect(() => q.belongs(e)).toThrow();
   });

@@ -3,7 +3,7 @@ import { Entity } from "./entity.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
 import { Filter } from "./filter.js";
-import { type QueryDSL, type ExtractRequired } from "./dsl.js";
+import { _extractQueryDependencies, type QueryDSL, type ExtractRequired } from "./dsl.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
@@ -61,6 +61,8 @@ export class World {
   private _entities = new Map<number, Entity>();
   /** @internal All registered queries, including systems (which extend `Query`). */
   private _queries: Query[] = [];
+  /** @internal Queries created but not yet built into the world. */
+  private _unbuiltQueries = new Set<Query>();
   /** @internal Component type id -> queries invalidated by that component. */
   private _queryIndex = new ArrayMap<Set<Query>>();
   /** @internal Queries whose predicates are too broad for component indexing. */
@@ -74,6 +76,8 @@ export class World {
   private _localComponentCounter: number;
   /** @internal `true` once {@link start} (or {@link disableComponentRegistration}) has been called. */
   private _componentRegistrationDisabled = false;
+  /** @internal `true` once {@link start} has prepared the phase pipeline. */
+  private _started = false;
 
   /** @internal Auto-incrementing entity id counter, seeded by {@link setEntityIdRange}. */
   private _eidCounter = 0;
@@ -171,6 +175,10 @@ export class World {
 
     const defaultPhase = _defaultPhase;
 
+    this._pipeline.forEach((phase) => {
+      phase.systems.length = 0;
+    });
+
     this._queries.forEach((q) => {
       if (!(q instanceof System)) {
         return;
@@ -193,9 +201,35 @@ export class World {
     this._commandQueue.push(cmd);
   }
 
-  /** @internal Register a freshly created {@link Query} (called from its constructor). */
+  /** @internal Register and index a freshly built {@link Query}. */
   public _addQuery(q: Query): void {
+    if (this._frameInProgress) {
+      throw "queries cannot be built while a frame is in progress";
+    }
+    this._removeUnbuiltQuery(q);
     this._queries.push(q);
+    if (q._dsl !== undefined) {
+      this._indexQuery(q, _extractQueryDependencies(this, q._dsl));
+    }
+  }
+
+  /** @internal Track a newly-created query until it is explicitly or automatically built. */
+  public _addUnbuiltQuery(q: Query): void {
+    this._unbuiltQueries.add(q);
+  }
+
+  /** @internal Stop tracking a pending query. */
+  public _removeUnbuiltQuery(q: Query): void {
+    this._unbuiltQueries.delete(q);
+  }
+
+  /** @internal Build every query that has not yet entered the world. */
+  public _buildPendingQueries(): void {
+    if (this._unbuiltQueries.size === 0) {
+      return;
+    }
+    const pending = [...this._unbuiltQueries];
+    pending.forEach((q) => q._build());
   }
 
   /** @internal Visit queries whose membership may change when component `type` changes. */
@@ -250,6 +284,7 @@ export class World {
    * Called by {@link Query.destroy}.
    */
   public _removeQuery(q: Query): void {
+    this._removeUnbuiltQuery(q);
     this._unindexQuery(q);
     const idx = this._queries.indexOf(q);
     if (idx !== -1) {
@@ -614,8 +649,8 @@ export class World {
   }
 
   /**
-   * Create, register, and return a new {@link System}, ready for fluent
-   * configuration.
+   * Create and return a new {@link System}, ready for fluent configuration.
+   * Systems must be created before {@link start}.
    *
    * ```ts
    * world.system("Render")
@@ -629,17 +664,20 @@ export class World {
    * @returns The new system.
    */
   public system(name: string): System {
+    if (this._started) {
+      throw "systems cannot be added after world start";
+    }
     return new System(name, this);
   }
 
   /**
-   * Create, register, and return a standalone {@link Query}, ready for fluent
-   * configuration.
+   * Create and return a standalone {@link Query}, ready for fluent configuration.
    *
    * Unlike a {@link System}, a standalone query has no phase and no per-tick
    * callbacks — it is a reactive entity set that can be read at any time. It
-   * can also be created **after** {@link start}; existing matched entities
-   * are backfilled immediately.
+   * can also be created **after** {@link start}; call {@link Query._build} to
+   * register and backfill immediately, or let the world build it before the
+   * next frame.
    *
    * ```ts
    * const enemies = world.query("Enemies")
@@ -724,15 +762,17 @@ export class World {
   /**
    * Freeze component registration and prepare the world for running.
    *
-   * Distributes every system registered so far into its phase (defaulting to
-   * `"update"`) and logs the phase → system order to the console. Systems
-   * and queries can still be created after this call — standalone queries
-   * backfill existing matched entities immediately.
+   * Builds pending queries, distributes every system into its phase (defaulting
+   * to `"update"`), and logs the phase → system order to the console. Systems
+   * cannot be created after this call; standalone queries can still be created
+   * and will build before the next frame unless built explicitly.
    *
    * Call once before the first {@link runPhase} / {@link progress}.
    */
   public start(): void {
+    this._buildPendingQueries();
     this._componentRegistrationDisabled = true;
+    this._started = true;
     this._reindexSystems();
   }
 
@@ -749,6 +789,7 @@ export class World {
     if (this._frameInProgress) {
       throw "endFrame() not called before beginFrame()";
     }
+    this._buildPendingQueries();
     this._frameInProgress = true;
     this._frameCounter++;
     this.flush();
