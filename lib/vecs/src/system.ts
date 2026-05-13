@@ -91,7 +91,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
   }
 
   /** @internal Systems may be run-only processors without entity membership. */
-  protected override _hasBuildableConfiguration(): boolean {
+  protected override _isBuildable(): boolean {
     return true;
   }
 
