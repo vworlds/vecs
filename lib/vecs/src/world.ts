@@ -63,8 +63,6 @@ export class World {
   private _queries: Query[] = [];
   /** @internal Queries created but not yet built into the world. */
   private _unbuiltQueries = new Set<Query>();
-  /** @internal True while auto-building pending queries as a batch. */
-  private _buildingPendingQueries = false;
   /** @internal Component type id -> queries invalidated by that component. */
   private _queryIndex = new ArrayMap<Set<Query>>();
   /** @internal Queries whose predicates are too broad for component indexing. */
@@ -203,11 +201,12 @@ export class World {
     this._commandQueue.push(cmd);
   }
 
-  /** @internal Register a freshly created {@link Query} (called from its constructor). */
-  public _addQuery(q: Query): void {
+  /** @internal Register and index a freshly built {@link Query}. */
+  public _addQuery(q: Query, componentTypes: number[] | undefined, index: boolean): void {
+    this._removeUnbuiltQuery(q);
     this._queries.push(q);
-    if (this._started && !this._buildingPendingQueries && q instanceof System) {
-      this._reindexSystems();
+    if (index) {
+      this._indexQuery(q, componentTypes);
     }
   }
 
@@ -222,18 +221,9 @@ export class World {
   }
 
   /** @internal Build every query that has not yet entered the world. */
-  public _buildPendingQueries(): boolean {
+  public _buildPendingQueries(): void {
     const pending = [...this._unbuiltQueries];
-    if (pending.length === 0) {
-      return false;
-    }
-    this._buildingPendingQueries = true;
-    try {
-      pending.forEach((q) => q._build());
-    } finally {
-      this._buildingPendingQueries = false;
-    }
-    return true;
+    pending.forEach((q) => q._build());
   }
 
   /** @internal Visit queries whose membership may change when component `type` changes. */
@@ -653,8 +643,8 @@ export class World {
   }
 
   /**
-   * Create, register, and return a new {@link System}, ready for fluent
-   * configuration.
+   * Create and return a new {@link System}, ready for fluent configuration.
+   * Systems must be created before {@link start}.
    *
    * ```ts
    * world.system("Render")
@@ -668,17 +658,20 @@ export class World {
    * @returns The new system.
    */
   public system(name: string): System {
+    if (this._started) {
+      throw "systems cannot be added after world start";
+    }
     return new System(name, this);
   }
 
   /**
-   * Create, register, and return a standalone {@link Query}, ready for fluent
-   * configuration.
+   * Create and return a standalone {@link Query}, ready for fluent configuration.
    *
    * Unlike a {@link System}, a standalone query has no phase and no per-tick
    * callbacks — it is a reactive entity set that can be read at any time. It
-   * can also be created **after** {@link start}; existing matched entities
-   * are backfilled immediately.
+   * can also be created **after** {@link start}; call {@link Query._build} to
+   * register and backfill immediately, or let the world build it before the
+   * next frame.
    *
    * ```ts
    * const enemies = world.query("Enemies")
@@ -763,10 +756,10 @@ export class World {
   /**
    * Freeze component registration and prepare the world for running.
    *
-   * Distributes every system registered so far into its phase (defaulting to
-   * `"update"`) and logs the phase → system order to the console. Systems
-   * and queries can still be created after this call — standalone queries
-   * backfill existing matched entities immediately.
+   * Builds pending queries, distributes every system into its phase (defaulting
+   * to `"update"`), and logs the phase → system order to the console. Systems
+   * cannot be created after this call; standalone queries can still be created
+   * and will build before the next frame unless built explicitly.
    *
    * Call once before the first {@link runPhase} / {@link progress}.
    */
@@ -790,9 +783,7 @@ export class World {
     if (this._frameInProgress) {
       throw "endFrame() not called before beginFrame()";
     }
-    if (this._buildPendingQueries()) {
-      this._reindexSystems();
-    }
+    this._buildPendingQueries();
     this._frameInProgress = true;
     this._frameCounter++;
     this.flush();

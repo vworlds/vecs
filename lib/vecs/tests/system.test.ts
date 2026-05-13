@@ -207,24 +207,10 @@ describe("System — phases", () => {
     expect(cb).toHaveBeenCalled();
   });
 
-  it("auto-builds systems created after start() before the next frame", () => {
-    const { w, phase } = setup();
+  it("rejects systems created after start()", () => {
+    const { w } = setup();
     w.start();
-    const cb = vi.fn();
-    const sys = w.system("late").phase(phase).run(cb);
-    expect(w.queries).not.toContain(sys);
-    w.progress(0, 0);
-    expect(w.queries).toContain(sys);
-    expect(cb).toHaveBeenCalled();
-  });
-
-  it("manual _build() after start() immediately reindexes system phases", () => {
-    const { w, phase } = setup();
-    w.start();
-    const cb = vi.fn();
-    w.system("late").phase(phase).run(cb)._build();
-    w.progress(0, 0);
-    expect(cb).toHaveBeenCalled();
+    expect(() => w.system("late")).toThrow("systems cannot be added after world start");
   });
 
   it("phase by IPhase reference assigns the system to that phase", () => {

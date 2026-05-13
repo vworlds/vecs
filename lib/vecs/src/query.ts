@@ -64,8 +64,8 @@ export class Query<R extends ComponentClass[] = []> {
   protected _hasQuery: boolean = false;
   /** @internal Component index buckets this query currently belongs to. */
   public _queryIndexKeys: number[] | undefined = undefined;
-  /** @internal Component dependencies to index when the query is built. */
-  private _pendingQueryIndexKeys: number[] | undefined = undefined;
+  /** @internal DSL predicate to compile and index when the query is built. */
+  private _dsl: QueryDSL | undefined = undefined;
   /** @internal `true` once this query has been registered with its world. */
   public _built = false;
 
@@ -120,15 +120,6 @@ export class Query<R extends ComponentClass[] = []> {
   }
 
   /**
-   * @internal Install a DSL predicate, re-index this query, and backfill tracked entities.
-   */
-  private _setQuery(q: QueryDSL): void {
-    this._assertConfigurable();
-    this._belongs = _compile(this.world, q);
-    this._pendingQueryIndexKeys = _extractQueryDependencies(this.world, q);
-  }
-
-  /**
    * @internal Finalise this query's configuration and register it with the world.
    * Must be the final method in a query builder chain.
    */
@@ -136,10 +127,13 @@ export class Query<R extends ComponentClass[] = []> {
     if (this._built) {
       return this;
     }
+    const shouldIndex = this._dsl !== undefined;
+    const queryIndexKeys = shouldIndex
+      ? _extractQueryDependencies(this.world, this._dsl!)
+      : undefined;
+    this._belongs = this._dsl ? _compile(this.world, this._dsl) : this._belongs;
     this._built = true;
-    this.world._removeUnbuiltQuery(this);
-    this.world._addQuery(this);
-    this.world._indexQuery(this, this._pendingQueryIndexKeys);
+    this.world._addQuery(this, queryIndexKeys, shouldIndex);
     this._backfill();
     return this;
   }
@@ -511,7 +505,7 @@ export class Query<R extends ComponentClass[] = []> {
       // Update-only queries derive membership from the watched component set.
       // Install that predicate before backfill so the default match-nothing
       // predicate is never used for update-watchlist expansion.
-      this._setQuery(this._watchlistBitmask.indices());
+      this._dsl = this._watchlistBitmask.indices();
     }
 
     return this;
@@ -580,7 +574,8 @@ export class Query<R extends ComponentClass[] = []> {
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): Query<T> {
-    this._setQuery(q);
+    this._assertConfigurable();
+    this._dsl = q;
     this._hasQuery = true;
     return this as unknown as Query<T>;
   }

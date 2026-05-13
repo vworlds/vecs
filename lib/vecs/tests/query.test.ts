@@ -44,7 +44,7 @@ describe("Query — construction", () => {
 
   it("counts tracked entities", () => {
     const { w, tick } = setup();
-    const q = w.query("test").requires(Position);
+    const q = w.query("test").requires(Position)._build();
     w.start();
 
     const position = w.entity().add(Position);
@@ -213,7 +213,7 @@ describe("Query — component routing index", () => {
 describe("Query — predicates (belongs)", () => {
   it("requires / HAS matches entities with all listed components", () => {
     const { w } = setup();
-    const q = w.query("test").requires(Position, Velocity);
+    const q = w.query("test").requires(Position, Velocity)._build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -225,7 +225,10 @@ describe("Query — predicates (belongs)", () => {
 
   it("HAS_ONLY matches entities with exactly that component set", () => {
     const { w } = setup();
-    const q = w.query("test").query({ HAS_ONLY: [Position] });
+    const q = w
+      .query("test")
+      .query({ HAS_ONLY: [Position] })
+      ._build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -237,7 +240,10 @@ describe("Query — predicates (belongs)", () => {
 
   it("AND requires all sub-predicates to match", () => {
     const { w } = setup();
-    const q = w.query("test").query({ AND: [Position, Velocity] });
+    const q = w
+      .query("test")
+      .query({ AND: [Position, Velocity] })
+      ._build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -249,7 +255,10 @@ describe("Query — predicates (belongs)", () => {
 
   it("OR matches if any branch is satisfied", () => {
     const { w } = setup();
-    const q = w.query("test").query({ OR: [Sprite, Container] });
+    const q = w
+      .query("test")
+      .query({ OR: [Sprite, Container] })
+      ._build();
     const a = w.entity();
     a.add(Sprite);
     const b = w.entity();
@@ -263,7 +272,10 @@ describe("Query — predicates (belongs)", () => {
 
   it("NOT inverts a sub-predicate", () => {
     const { w } = setup();
-    const q = w.query("test").query({ AND: [Position, { NOT: Velocity }] });
+    const q = w
+      .query("test")
+      .query({ AND: [Position, { NOT: Velocity }] })
+      ._build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -275,7 +287,10 @@ describe("Query — predicates (belongs)", () => {
 
   it("PARENT checks the entity's parent", () => {
     const { w } = setup();
-    const q = w.query("test").query({ PARENT: { AND: [Player, Container] } });
+    const q = w
+      .query("test")
+      .query({ PARENT: { AND: [Player, Container] } })
+      ._build();
     const parent = w.entity();
     parent.add(Player);
     parent.add(Container);
@@ -290,7 +305,10 @@ describe("Query — predicates (belongs)", () => {
 
   it("an EntityTestFunc can be passed directly", () => {
     const { w } = setup();
-    const q = w.query("test").query((e) => e.eid === 7);
+    const q = w
+      .query("test")
+      .query((e) => e.eid === 7)
+      ._build();
     const seven = w.getOrCreateEntity(7);
     seven.add(Position);
     const three = w.getOrCreateEntity(3);
@@ -301,7 +319,7 @@ describe("Query — predicates (belongs)", () => {
 
   it("a single class is shorthand for HAS", () => {
     const { w } = setup();
-    const q = w.query("test").query(Position);
+    const q = w.query("test").query(Position)._build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -312,7 +330,7 @@ describe("Query — predicates (belongs)", () => {
 
   it("an array is shorthand for HAS", () => {
     const { w } = setup();
-    const q = w.query("test").query([Position, Velocity]);
+    const q = w.query("test").query([Position, Velocity])._build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -324,7 +342,10 @@ describe("Query — predicates (belongs)", () => {
 
   it("explicit { HAS: ... } is equivalent to requires", () => {
     const { w } = setup();
-    const q = w.query("test").query({ HAS: [Position, Velocity] });
+    const q = w
+      .query("test")
+      .query({ HAS: [Position, Velocity] })
+      ._build();
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
@@ -607,7 +628,7 @@ describe("Query — destroy", () => {
 
   it("destroy() leaves belongs() as a safe match-nothing predicate", () => {
     const { w } = setup();
-    const q = w.query("test").requires(Position);
+    const q = w.query("test").requires(Position)._build();
     const e = w.entity().add(Position);
     expect(q.belongs(e)).toBe(true);
     q.destroy();
