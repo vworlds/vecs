@@ -17,9 +17,11 @@ import {
   type System,
   type World,
   cid_pack,
+  getDSLKey,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import { NetworkClient, NetworkInput, Networked } from "./networked.js";
+import { TrackerCache, View } from "./view.js";
 
 interface RegisteredComponent {
   Class: ComponentClass;
@@ -62,6 +64,7 @@ export class VecsServer {
   private readonly _rpcHandlers = new Map<number, RPCHandler>();
   private readonly _updates = new Map<number, Update>();
   private readonly _syncSystems: SyncSystem[] = [];
+  private readonly _trackerCache: TrackerCache;
   private readonly _encodeBuffer: Uint8Array;
   private _frame = 0;
   private _systemsInstalled = false;
@@ -73,9 +76,11 @@ export class VecsServer {
   ) {
     const encodeBufferSize = options.encodeBufferSize ?? 64 * 1024;
     this._encodeBuffer = new Uint8Array(encodeBufferSize);
+    this._trackerCache = new TrackerCache(world);
     ensureRegistered(world, Networked);
     ensureRegistered(world, NetworkClient);
     ensureRegistered(world, NetworkInput);
+    ensureRegistered(world, View);
   }
 
   public registerComponent<C extends ComponentClass>(Class: C): void {
@@ -104,6 +109,13 @@ export class VecsServer {
     this.world.getComponentMeta(Networked).onRemove((entity) => {
       this._record(entity, ALL_COMPONENTS, undefined);
     });
+
+    this.world
+      .system(`VecsServer:${this.name}:View`)
+      .phase(collectPhase)
+      .requires(View)
+      .update(View, (_entity, view) => this._refreshViewTracker(view))
+      .exit([View], (_entity, [view]) => this._releaseViewTrackers(view));
 
     this._components.forEach((registered) => {
       const system = this.world
@@ -209,6 +221,40 @@ export class VecsServer {
 
   private _record(entity: Entity, type: number, component: Component | undefined): void {
     this._updates.set(cid_pack(entity.eid, type), { entity, type, component });
+  }
+
+  private _refreshViewTracker(view: View): void {
+    if (view.dsl === undefined) {
+      if (view._tracker !== undefined && view._tracker !== view._old_tracker) {
+        this._trackerCache.returnTracker(view._tracker);
+      }
+      view._tracker = undefined;
+      view._tracker_key = undefined;
+      return;
+    }
+
+    const key = getDSLKey(view.dsl, this.world);
+    if (view._tracker_key === key) {
+      return;
+    }
+
+    if (view._tracker !== undefined && view._tracker !== view._old_tracker) {
+      this._trackerCache.returnTracker(view._tracker);
+    }
+    view._tracker = this._trackerCache.getTracker(view.dsl);
+    view._tracker_key = key;
+  }
+
+  private _releaseViewTrackers(view: View): void {
+    if (view._tracker !== undefined && view._tracker !== view._old_tracker) {
+      this._trackerCache.returnTracker(view._tracker);
+    }
+    view._tracker = undefined;
+    view._tracker_key = undefined;
+    if (view._old_tracker !== undefined) {
+      this._trackerCache.returnTracker(view._old_tracker);
+      view._old_tracker = undefined;
+    }
   }
 
   private _sendFullSnapshot(session: ServerClientSession): void {
