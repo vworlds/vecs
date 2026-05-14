@@ -91,14 +91,14 @@ describe("VecsServer", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems();
+    world.start();
     listener.connect(socket);
 
     const entity = world.entity();
     entity.add(Networked).set(Position, { x: 10, y: 20 }).set(LocalOnly, { value: 5 });
-    world.start();
     world.progress(0, 16);
 
-    // sent[0] is the late-join snapshot (no Position yet at connect time).
+    // sent[0] is the join snapshot (no Position yet at connect time).
     // The most recent message contains the diff produced by progress().
     const last = socket.sent[socket.sent.length - 1];
     const message = new Decoder(last).read(Server2Client);
@@ -119,10 +119,10 @@ describe("VecsServer", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems();
+    world.start();
     listener.connect(socket);
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
-    world.start();
     world.progress(0, 16);
     const removalStart = socket.sent.length;
 
@@ -145,10 +145,10 @@ describe("VecsServer", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems();
+    world.start();
     listener.connect(socket);
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
-    world.start();
     world.progress(0, 16);
     const removalStart = socket.sent.length;
 
@@ -170,10 +170,10 @@ describe("VecsServer", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems();
+    world.start();
     listener.connect(socket);
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
-    world.start();
     world.progress(0, 16);
     const removalStart = socket.sent.length;
 
@@ -196,10 +196,10 @@ describe("VecsServer", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems();
+    world.start();
     listener.connect(first);
 
     const entity = world.entity().add(Networked).set(Position, { x: 30, y: 40 });
-    world.start();
     world.progress(0, 16);
     const firstSentBeforeJoin = first.sent.length;
 
@@ -230,7 +230,6 @@ describe("VecsServer", () => {
     world
       .system("track-clients")
       .requires(Networked, NetworkClient)
-      .track()
       .enter([NetworkClient], (e, [client]) => {
         seen.connected.push(e.eid);
         expect(client?.id).toMatch(/client-/);
@@ -283,12 +282,12 @@ describe("VecsServer", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems();
+    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
     const baseline = socket.sent.length;
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
-    world.start();
 
     // Within a single progress step, update then remove Position.
     entity.set(Position, { x: 9, y: 9 });
@@ -310,11 +309,11 @@ describe("VecsServer", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems();
+    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
     const entity = world.entity().add(Networked).set(Position, { x: 5, y: 5 });
-    world.start();
     world.progress(0, 16);
     const initialCount = socket.sent.length;
 
@@ -341,11 +340,11 @@ describe("VecsServer", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems();
+    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
-    world.start();
     world.progress(0, 16);
 
     entity.set(Position, { x: 2, y: 2 });
