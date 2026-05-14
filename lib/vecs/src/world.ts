@@ -99,6 +99,8 @@ export class World {
   public _frameCounter = 0;
   /** @internal True while the world is driving one logical frame. */
   private _frameInProgress = false;
+  /** @internal True while the world is auto-building pending queries. */
+  private _buildingPendingQueries = false;
 
   /** Hidden property key used to store this world's meta on component classes. */
   public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
@@ -203,7 +205,7 @@ export class World {
 
   /** @internal Register and index a freshly built {@link Query}. */
   public _addQuery(q: Query): void {
-    if (this._frameInProgress) {
+    if (this._frameInProgress && !this._buildingPendingQueries) {
       throw "queries cannot be built while a frame is in progress";
     }
     this._removeUnbuiltQuery(q);
@@ -229,7 +231,12 @@ export class World {
       return;
     }
     const pending = [...this._unbuiltQueries];
-    pending.forEach((q) => q._build());
+    this._buildingPendingQueries = true;
+    try {
+      pending.forEach((q) => q._build());
+    } finally {
+      this._buildingPendingQueries = false;
+    }
   }
 
   /** @internal Visit queries whose membership may change when component `type` changes. */
@@ -831,6 +838,7 @@ export class World {
     }
     this.flush();
     (phase as Phase).systems.forEach((s) => {
+      this._buildPendingQueries();
       s._run(now, delta);
     });
   }

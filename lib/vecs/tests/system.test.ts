@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { World, type QueryDSL } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -12,6 +12,7 @@ class Velocity {
 class Sprite {}
 class Container {}
 class Player {}
+class Flag {}
 
 function setup() {
   const w = new World();
@@ -20,6 +21,7 @@ function setup() {
   w.registerComponent(Sprite);
   w.registerComponent(Container);
   w.registerComponent(Player);
+  w.registerComponent(Flag);
   const phase = w.addPhase("p");
   return { w, phase };
 }
@@ -224,6 +226,45 @@ describe("System — phases", () => {
       });
     w.start();
     w.progress(0, 0);
+  });
+
+  it("auto-builds queries created by an earlier system before the next system runs", () => {
+    const { w, phase } = setup();
+    const e = w.entity();
+    e.add(Flag);
+    let dynamicQuery: ReturnType<World["query"]> | undefined;
+
+    w.system("create query")
+      .phase(phase)
+      .run(() => {
+        dynamicQuery = w.query("dynamic").requires(Flag);
+      });
+    w.system("read query")
+      .phase(phase)
+      .run(() => {
+        expect(dynamicQuery?._built).toBe(true);
+        expect(dynamicQuery?.count).toBe(1);
+        expect(dynamicQuery?.has(e)).toBe(true);
+      });
+
+    w.start();
+    w.progress(0, 0);
+  });
+
+  it("propagates pending query build errors before the next system runs", () => {
+    const { w, phase } = setup();
+    const nextSystem = vi.fn();
+
+    w.system("create broken query")
+      .phase(phase)
+      .run(() => {
+        w.query("broken").query({ BROKEN: [] } as unknown as QueryDSL);
+      });
+    w.system("must not run").phase(phase).run(nextSystem);
+
+    w.start();
+    expect(() => w.progress(0, 0)).toThrow("Unrecognized query term");
+    expect(nextSystem).not.toHaveBeenCalled();
   });
 
   it("phase by IPhase reference assigns the system to that phase", () => {
