@@ -226,7 +226,7 @@ export class World {
   }
 
   /** @internal Build every query that has not yet entered the world. */
-  public _buildPendingQueries(): void {
+  private _buildPendingQueries(): void {
     if (this._unbuiltQueries.size === 0) {
       return;
     }
