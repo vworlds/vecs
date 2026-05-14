@@ -319,7 +319,7 @@ describe("Deferred mode — forEach nesting", () => {
     a.add(Position);
     const b = w.entity();
     b.add(Position);
-    const q = w.query("q").requires(Position)._build();
+    const q = w.query("q").requires(Position).build();
     let seen = 0;
     q.forEach((e) => {
       seen++;

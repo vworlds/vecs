@@ -242,9 +242,59 @@ describe("System — phases", () => {
     w.system("read query")
       .phase(phase)
       .run(() => {
-        expect(dynamicQuery?._built).toBe(true);
+        expect(dynamicQuery?.built).toBe(true);
         expect(dynamicQuery?.count).toBe(1);
         expect(dynamicQuery?.has(e)).toBe(true);
+      });
+
+    w.start();
+    w.progress(0, 0);
+  });
+
+  it("build() inside a system defers until before the next system runs", () => {
+    const { w, phase } = setup();
+    const e = w.entity();
+    e.add(Flag);
+    let dynamicQuery: ReturnType<World["query"]> | undefined;
+
+    w.system("create query")
+      .phase(phase)
+      .run(() => {
+        dynamicQuery = w.query("dynamic").requires(Flag).build();
+        expect(dynamicQuery.built).toBe(false);
+      });
+    w.system("read query")
+      .phase(phase)
+      .run(() => {
+        expect(dynamicQuery?.built).toBe(true);
+        expect(dynamicQuery?.count).toBe(1);
+        expect(dynamicQuery?.has(e)).toBe(true);
+      });
+
+    w.start();
+    w.progress(0, 0);
+  });
+
+  it("build() inside a system observes commands queued by that system", () => {
+    const { w, phase } = setup();
+    const e = w.entity();
+    const enter = vi.fn();
+    let dynamicQuery: ReturnType<World["query"]> | undefined;
+
+    w.system("create query and mutation")
+      .phase(phase)
+      .run(() => {
+        dynamicQuery = w.query("dynamic").requires(Flag).enter(enter).build();
+        e.add(Flag);
+        expect(dynamicQuery.built).toBe(false);
+        expect(dynamicQuery.has(e)).toBe(false);
+      });
+    w.system("read query")
+      .phase(phase)
+      .run(() => {
+        expect(dynamicQuery?.built).toBe(true);
+        expect(dynamicQuery?.has(e)).toBe(true);
+        expect(enter).toHaveBeenCalledWith(e);
       });
 
     w.start();

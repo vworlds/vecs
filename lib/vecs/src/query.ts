@@ -61,7 +61,7 @@ export class Query<R extends ComponentClass[] = []> {
   /** @internal DSL predicate to compile and index when the query is built. */
   public _dsl: QueryDSL | undefined = undefined;
   /** @internal `true` once this query has been registered with its world. */
-  public _built = false;
+  private _built = false;
 
   /** @internal `enter` callback (already wraps any injection logic). */
   protected _enterCallback: EntityCallback | undefined = undefined;
@@ -90,7 +90,7 @@ export class Query<R extends ComponentClass[] = []> {
 
   /** @internal Throw when a builder method is called after registration. */
   protected _assertConfigurable(): void {
-    if (this._built) {
+    if (this.built) {
       throw `query '${this.name}' has already been built`;
     }
   }
@@ -118,12 +118,38 @@ export class Query<R extends ComponentClass[] = []> {
     });
   }
 
+  /** `true` once this query has been registered with its world. */
+  public get built(): boolean {
+    return this._built;
+  }
+
+  /**
+   * Finalise this query's configuration and register it with the world.
+   *
+   * Outside deferred mode this builds immediately. Inside deferred mode the
+   * query is left pending and the world builds it at the next top-level
+   * {@link World.flush}, before queued commands are drained.
+   *
+   * @returns This query, for chaining.
+   */
+  public build(): this {
+    if (this.built) {
+      return this;
+    }
+    if (this.world.deferred) {
+      this.world._addUnbuiltQuery(this);
+      return this;
+    }
+    return this._build();
+  }
+
   /**
    * @internal Finalise this query's configuration and register it with the world.
-   * Must be the final method in a query builder chain.
+   * Public callers should use {@link build} so deferred contexts can queue the
+   * build safely.
    */
   public _build(): this {
-    if (this._built) {
+    if (this.built) {
       return this;
     }
     if (!this._isBuildable()) {

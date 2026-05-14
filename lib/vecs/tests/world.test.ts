@@ -218,7 +218,7 @@ describe("World — component registration", () => {
   it("class-valued QueryDSL without registered metadata throws when evaluated", () => {
     const w = new World();
     const q = w.query("test").query(A);
-    q._build();
+    q.build();
     const e = w.entity();
     expect(() => q.belongs(e)).toThrow();
   });

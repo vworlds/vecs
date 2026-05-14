@@ -360,14 +360,16 @@ export class World {
   }
 
   /**
-   * Drain any commands queued at the top level (depth 0).
+   * Build pending queries and drain queued commands at the top level (depth 0).
    *
    * Call between phases or after batch-loading network snapshots to surface
-   * accumulated mutations (firing hooks and routing enter / exit / update)
-   * before the next read or system run.
+   * accumulated query builds and mutations (firing hooks and routing enter /
+   * exit / update) before the next read or system run. Pending queries are
+   * built before queued commands are processed so they can observe the batch.
    */
   public flush(): void {
     if (this._deferredDepth === 0) {
+      this._buildPendingQueries();
       this._processCommandQueue();
     }
   }
@@ -682,9 +684,9 @@ export class World {
    *
    * Unlike a {@link System}, a standalone query has no phase and no per-tick
    * callbacks — it is a reactive entity set that can be read at any time. It
-   * can also be created **after** {@link start}; call {@link Query._build} to
-   * register and backfill immediately, or let the world build it before the
-   * next frame.
+   * can also be created **after** {@link start}; call {@link Query.build} to
+   * register and backfill immediately, or let the world build it at the next
+   * top-level {@link flush}.
    *
    * ```ts
    * const enemies = world.query("Enemies")
@@ -796,7 +798,6 @@ export class World {
     if (this._frameInProgress) {
       throw "endFrame() not called before beginFrame()";
     }
-    this._buildPendingQueries();
     this._frameInProgress = true;
     this._frameCounter++;
     this.flush();
@@ -838,7 +839,6 @@ export class World {
     }
     this.flush();
     (phase as Phase).systems.forEach((s) => {
-      this._buildPendingQueries();
       s._run(now, delta);
     });
   }
