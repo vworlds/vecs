@@ -534,6 +534,75 @@ describe("VecsServer", () => {
     expect(view.tracker.has(localEntity)).toBe(true);
   });
 
+  it("reuses the old tracker without leaking refs when View DSL changes back", () => {
+    const world = new World();
+    world.registerComponent(Position);
+    world.registerComponent(Velocity);
+    const server = new VecsServer("main", world);
+    server.installSystems();
+    world.start();
+
+    const viewer = world.entity().set(View, { dsl: [Position] });
+    const view = viewer.get(View)!;
+    world.progress(0, 16);
+    const original = view.tracker;
+
+    viewer.set(View, { dsl: [Velocity] });
+    world.progress(16, 16);
+    const replacement = view.tracker;
+    expect(replacement).not.toBe(original);
+
+    viewer.set(View, { dsl: [Position] });
+    world.progress(32, 16);
+    expect(view.tracker).toBe(original);
+
+    viewer.remove(View);
+    world.progress(48, 16);
+    const nextPosition = world
+      .entity()
+      .set(View, { dsl: [Position] })
+      .get(View)!;
+    const nextVelocity = world
+      .entity()
+      .set(View, { dsl: [Velocity] })
+      .get(View)!;
+    world.progress(64, 16);
+
+    expect(nextPosition.tracker).not.toBe(original);
+    expect(nextVelocity.tracker).not.toBe(replacement);
+  });
+
+  it("reuses the old tracker without leaking refs after undefined View DSL", () => {
+    const world = new World();
+    world.registerComponent(Position);
+    const server = new VecsServer("main", world);
+    server.installSystems();
+    world.start();
+
+    const viewer = world.entity().set(View, { dsl: [Position] });
+    const view = viewer.get(View)!;
+    world.progress(0, 16);
+    const original = view.tracker;
+
+    viewer.set(View, { dsl: undefined });
+    world.progress(16, 16);
+    expect(() => view.tracker).toThrow("View tracker is undefined");
+
+    viewer.set(View, { dsl: [Position] });
+    world.progress(32, 16);
+    expect(view.tracker).toBe(original);
+
+    viewer.remove(View);
+    world.progress(48, 16);
+    const nextPosition = world
+      .entity()
+      .set(View, { dsl: [Position] })
+      .get(View)!;
+    world.progress(64, 16);
+
+    expect(nextPosition.tracker).not.toBe(original);
+  });
+
   it("does not acquire an active tracker for undefined View DSL", () => {
     const world = new World();
     world.registerComponent(Position);

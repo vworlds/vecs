@@ -22,6 +22,7 @@ export class View {
     this._dsl = value;
     if (this._tracker !== undefined && this._old_tracker === undefined) {
       this._old_tracker = this._tracker;
+      this._old_tracker_key = this._tracker_key;
     }
   }
 
@@ -33,6 +34,52 @@ export class View {
   }
 
   /** @internal */
+  public _refreshTracker(cache: TrackerCache): void {
+    if (this.dsl === undefined) {
+      if (this._tracker !== undefined && this._tracker !== this._old_tracker) {
+        cache.returnTracker(this._tracker);
+      }
+      this._tracker = undefined;
+      this._tracker_key = undefined;
+      return;
+    }
+
+    const key = cache.getKey(this.dsl);
+    if (this._tracker_key === key) {
+      return;
+    }
+
+    if (this._old_tracker !== undefined && this._old_tracker_key === key) {
+      if (this._tracker !== undefined && this._tracker !== this._old_tracker) {
+        cache.returnTracker(this._tracker);
+      }
+      this._tracker = this._old_tracker;
+      this._tracker_key = this._old_tracker_key;
+      return;
+    }
+
+    if (this._tracker !== undefined && this._tracker !== this._old_tracker) {
+      cache.returnTracker(this._tracker);
+    }
+    this._tracker = cache.getTracker(this.dsl);
+    this._tracker_key = key;
+  }
+
+  /** @internal */
+  public _releaseTrackers(cache: TrackerCache): void {
+    if (this._tracker !== undefined && this._tracker !== this._old_tracker) {
+      cache.returnTracker(this._tracker);
+    }
+    this._tracker = undefined;
+    this._tracker_key = undefined;
+    if (this._old_tracker !== undefined) {
+      cache.returnTracker(this._old_tracker);
+      this._old_tracker = undefined;
+      this._old_tracker_key = undefined;
+    }
+  }
+
+  /** @internal */
   public _tracker: IEntityTracker | undefined = undefined;
 
   /** @internal */
@@ -40,6 +87,9 @@ export class View {
 
   /** @internal */
   public _old_tracker: IEntityTracker | undefined = undefined;
+
+  /** @internal */
+  public _old_tracker_key: number | undefined = undefined;
 }
 
 export class EntityTracker extends Query implements IEntityTracker {
@@ -73,8 +123,12 @@ export class TrackerCache {
 
   public constructor(private readonly _world: World) {}
 
+  public getKey(dsl: QueryDSL): number {
+    return getDSLKey(dsl, this._world);
+  }
+
   public getTracker(dsl: QueryDSL): IEntityTracker {
-    const key = getDSLKey(dsl, this._world);
+    const key = this.getKey(dsl);
     let tracker = this._trackers.get(key);
     if (tracker === undefined) {
       tracker = new EntityTracker(this._world, dsl);
