@@ -6,6 +6,13 @@ export interface IEntityTracker {
   readonly count: number;
   addRef(): void;
   release(): number;
+  subscribe(listener: IEntityTrackerListener): void;
+  unsubscribe(listener: IEntityTrackerListener): void;
+}
+
+export interface IEntityTrackerListener {
+  enter(entity: Entity): void;
+  exit(entity: Entity): void;
 }
 
 export class View {
@@ -93,6 +100,8 @@ export class View {
 }
 
 export class EntityTracker extends Query implements IEntityTracker {
+  private readonly _listeners = new Set<IEntityTrackerListener>();
+
   public refCount = 0;
 
   public constructor(
@@ -114,6 +123,31 @@ export class EntityTracker extends Query implements IEntityTracker {
       return 0;
     }
     return this.refCount;
+  }
+
+  public subscribe(listener: IEntityTrackerListener): void {
+    this._listeners.add(listener);
+  }
+
+  public unsubscribe(listener: IEntityTrackerListener): void {
+    this._listeners.delete(listener);
+  }
+
+  /** @internal */
+  public override _enter(e: Entity): void {
+    super._enter(e);
+    this._listeners.forEach((listener) => listener.enter(e));
+  }
+
+  /** @internal */
+  public override _exit(e: Entity): void {
+    super._exit(e);
+    this._listeners.forEach((listener) => listener.exit(e));
+  }
+
+  public override destroy(): void {
+    this._listeners.clear();
+    super.destroy();
   }
 }
 

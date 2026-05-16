@@ -20,7 +20,7 @@ import {
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import { NetworkClient, NetworkInput, Networked } from "./networked.js";
-import { TrackerCache, View } from "./view.js";
+import { type IEntityTracker, type IEntityTrackerListener, TrackerCache, View } from "./view.js";
 
 interface RegisteredComponent {
   Class: ComponentClass;
@@ -35,11 +35,29 @@ interface SyncSystem {
   system: System;
 }
 
-interface ServerClientSession {
-  socket: VecsSocket;
-  rpc: SessionRPC;
-  ackFrame: number;
-  entity: Entity;
+class ServerClientSession implements IEntityTrackerListener {
+  public readonly rpc = new SessionRPC();
+  public ackFrame = 0;
+  public socket!: VecsSocket;
+  public entity!: Entity;
+  private _tracker: IEntityTracker | undefined = undefined;
+
+  public setTracker(tracker: IEntityTracker | undefined): void {
+    if (this._tracker === tracker) {
+      return;
+    }
+    this._tracker?.unsubscribe(this);
+    this._tracker = tracker;
+    tracker?.subscribe(this);
+  }
+
+  public enter(_entity: Entity): void {}
+
+  public exit(_entity: Entity): void {}
+
+  public destroy(): void {
+    this.setTracker(undefined);
+  }
 }
 
 interface Update {
@@ -80,6 +98,7 @@ export class VecsServer {
     ensureRegistered(world, NetworkClient);
     ensureRegistered(world, NetworkInput);
     ensureRegistered(world, View);
+    ensureRegistered(world, ServerClientSession);
   }
 
   public registerComponent<C extends ComponentClass>(Class: C): void {
@@ -108,13 +127,22 @@ export class VecsServer {
     this.world.getComponentMeta(Networked).onRemove((entity) => {
       this._record(entity, ALL_COMPONENTS, undefined);
     });
+    this.world.hook(ServerClientSession).onRemove((_entity, session) => {
+      session.destroy();
+    });
 
     this.world
       .system(`VecsServer:${this.name}:View`)
       .phase(collectPhase)
       .requires(View)
-      .update(View, (_entity, view) => view._refreshTracker(this._trackerCache))
-      .exit([View], (_entity, [view]) => view._releaseTrackers(this._trackerCache));
+      .update(View, (entity, view) => {
+        view._refreshTracker(this._trackerCache);
+        entity.get(ServerClientSession)?.setTracker(view._tracker);
+      })
+      .exit([View], (entity, [view]) => {
+        entity.get(ServerClientSession)?.setTracker(undefined);
+        view._releaseTrackers(this._trackerCache);
+      });
 
     this._components.forEach((registered) => {
       const system = this.world
@@ -179,14 +207,12 @@ export class VecsServer {
 
   private _onNewConnection(socket: VecsSocket): void {
     const entity = this.world.entity().add(Networked).add(NetworkClient);
+    const session = new ServerClientSession();
+    session.socket = socket;
+    session.entity = entity;
+    entity.attach(session);
     entity.set(NetworkClient, { id: socket.id });
     this.world.flush();
-    const session: ServerClientSession = {
-      socket,
-      rpc: new SessionRPC(),
-      ackFrame: 0,
-      entity,
-    };
     this._rpcHandlers.forEach((handler, rpcId) => session.rpc.listen(rpcId, handler));
     this._sessions.set(socket.id, session);
 
@@ -203,8 +229,8 @@ export class VecsServer {
     if (!session) {
       return;
     }
-    session.entity.destroy();
     this._sessions.delete(socketId);
+    session.entity.destroy();
   }
 
   private _receive(session: ServerClientSession, data: Uint8Array): void {

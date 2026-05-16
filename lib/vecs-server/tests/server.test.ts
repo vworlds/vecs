@@ -3,7 +3,15 @@ import { type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
 import { ALL_COMPONENTS, World, cid_pack } from "@vworlds/vecs";
 import { Client2Server, ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
-import { NetworkClient, NetworkInput, Networked, VecsServer, View } from "../src/index.js";
+import {
+  EntityTracker,
+  type IEntityTrackerListener,
+  NetworkClient,
+  NetworkInput,
+  Networked,
+  VecsServer,
+  View,
+} from "../src/index.js";
 
 class Position {
   @wireType("i32")
@@ -385,6 +393,31 @@ describe("VecsServer", () => {
     expect(surface.listen).toBeUndefined();
     expect(surface.addSocket).toBeUndefined();
     expect(surface.getInput).toBeUndefined();
+  });
+
+  it("notifies and unsubscribes EntityTracker listeners", () => {
+    const world = new World();
+    world.registerComponent(Position);
+    const tracker = new EntityTracker(world, [Position]);
+    const events: string[] = [];
+    const listener: IEntityTrackerListener = {
+      enter: (entity) => events.push(`enter:${entity.eid}`),
+      exit: (entity) => events.push(`exit:${entity.eid}`),
+    };
+    tracker.subscribe(listener);
+    world.start();
+
+    const entity = world.entity().add(Position);
+    entity.remove(Position);
+
+    expect(events).toEqual([`enter:${entity.eid}`, `exit:${entity.eid}`]);
+
+    tracker.unsubscribe(listener);
+    const afterUnsubscribe = world.entity().add(Position);
+    afterUnsubscribe.remove(Position);
+
+    expect(events).toEqual([`enter:${entity.eid}`, `exit:${entity.eid}`]);
+    tracker.destroy();
   });
 
   it("acquires a View tracker that tracks matching entities", () => {
