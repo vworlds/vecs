@@ -93,6 +93,7 @@ describe("Decoder", () => {
   it("decodes any values", () => {
     const data = [
       "01",
+      "21",
       "A802",
       "C40000C03F",
       "C8182D4454FB210940",
@@ -106,10 +107,13 @@ describe("Decoder", () => {
       "61",
       "41",
       "5001A802A804A806A808A80AA80CA80EA810A812A814A816A818A81AA81CA81EA820A822",
+      "F864",
+      "78C701",
     ];
 
     const expected = [
       null,
+      undefined,
       1,
       1.5,
       3.141592653589793,
@@ -123,6 +127,8 @@ describe("Decoder", () => {
       [],
       {},
       [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+      100n,
+      -100n,
     ];
 
     data.forEach((hex, i) => {
