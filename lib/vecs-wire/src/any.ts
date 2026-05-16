@@ -4,10 +4,12 @@ import { Encoder } from "./encoder.js";
 export enum AnyType {
   null = 0,
   boolean = 1,
+  undefined = 2,
   object = 3,
   empty_object = 4,
   array = 5,
   empty_array = 6,
+  bigint_integer = 7,
   string = 8,
   empty_string = 9,
   number_integer = 10,
@@ -15,6 +17,7 @@ export enum AnyType {
   number_float = 12,
   binary = 13,
   empty_binary = 14,
+  bigint_unsigned = 15,
 }
 
 export class TagSize {

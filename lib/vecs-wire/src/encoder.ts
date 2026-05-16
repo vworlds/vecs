@@ -171,7 +171,7 @@ export class Encoder {
   write_any(value: unknown): void {
     switch (typeof value) {
       case "undefined":
-        this.write(new TagSize(AnyType.null, 1));
+        this.write(new TagSize(AnyType.undefined, 1));
         break;
       case "boolean":
         this.write(new TagSize(AnyType.boolean, value ? 1 : 2));
@@ -200,10 +200,10 @@ export class Encoder {
         break;
       case "bigint":
         if (value < 0n) {
-          this.write(new TagSize(AnyType.number_integer, 8));
+          this.write(new TagSize(AnyType.bigint_integer, 8));
           this.write_i64(value);
         } else {
-          this.write(new TagSize(AnyType.number_unsigned, 8));
+          this.write(new TagSize(AnyType.bigint_unsigned, 8));
           this.write_u64(value);
         }
         break;

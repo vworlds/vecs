@@ -82,7 +82,7 @@ export class Interpolator {
     private server_tick_interval: number = 1000 / 60 // server tick interval FPS configuration
   ) {
     if (max_length < 2) {
-      throw "minimum interpolation bucket length is 2";
+      throw new Error("minimum interpolation bucket length is 2");
     }
     this.bucket = Array(this.max_length).fill(undefined);
   }
@@ -183,7 +183,7 @@ export class Interpolator {
     // servers should never send a diff we can't handle
     // The below can only happen if the server is ignoring acks:
     if (diff.from > this.version) {
-      throw "protocol error";
+      throw new Error("protocol error");
     }
 
     // Locate the index position for this diff in the bucket based on the
@@ -227,7 +227,7 @@ export class Interpolator {
     // bucket[0] can never be undefined. If so, there is something wrong
     // with the algorithm itself.
     if (this.bucket[0] === undefined) {
-      throw "bucket[0] is undefined";
+      throw new Error("bucket[0] is undefined");
     }
     this._first = this.bucket[0].to;
 
@@ -264,7 +264,7 @@ export function merge(a: Diff | undefined, b: Diff | undefined, check = true): D
     // This is a protocol error.
     // can only happen if server ignored our ACKs and
     // incremented version counter on its own.
-    throw "cannot merge snapshots";
+    throw new Error("cannot merge snapshots");
   }
   const m = new Diff(a.from, b.to, undefined);
 

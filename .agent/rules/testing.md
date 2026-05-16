@@ -9,19 +9,21 @@ npm run typecheck
 
 When fixing a bug, add a regression test that fails before the fix and passes after it. Put the test in the affected workspace's `tests/` directory:
 
-- `lib/dgram-client/tests/` for browser client socket behavior.
-- `lib/dgram-server/tests/` for server sockets, signaling routes, and node-datachannel integration wrappers.
-- `lib/dgram-common/tests/` for shared socket contracts, events, constants, and common types.
+- `lib/vecs/tests/` for ECS internals (world, entity, query, system, dsl, bitset, ordered-set, etc.).
+- `lib/vecs-wire/tests/` for encoder, decoder, and `@type` decorator round-trips.
+- `lib/vecs-protocol/tests/` for `Server2Client` / `Client2Server` / `StateDiff` / `RPC` round-trips.
+- `lib/vecs-server/tests/` for `VecsServer` and `VecsListener` behavior, mocking `VecsSocket` / `VecsSocketListener`.
+- `lib/vecs-client/tests/` for `VecsClient` and `Interpolator` behavior, mocking `VecsSocket`.
 
-When adding a feature, add tests for the public behavior, not implementation trivia. Cover the happy path and the important failure or edge path. For example, a signaling route feature should test success and missing/invalid connection cases; a socket feature should test emitted events and sent payloads.
+When adding a feature, add tests for the public behavior, not implementation trivia. Cover the happy path and the important failure or edge path. For example, a protocol message feature should test encode/decode round-trips and rejection of malformed input; a server feature should test the resulting `Server2Client` payloads emitted to mock sockets.
 
-Tests use Vitest. Prefer small unit tests with explicit mocks over real WebRTC connections unless the task specifically requires integration coverage. Mock browser APIs, `node-datachannel`, Express request/response objects, and timing boundaries directly in the test file.
+Tests use Vitest. Prefer small unit tests with explicit in-memory mocks over real transports. The `VecsSocket` and `VecsSocketListener` interfaces in `@vworlds/vecs-protocol` are small on purpose: tests should provide their own implementations (see `MemorySocket` and `MockListener` in `lib/vecs-server/tests/server.test.ts` and `lib/vecs-client/tests/client.test.ts` for the existing pattern). Mock timing boundaries directly in the test file.
 
 Write assertions that prove what users or callers observe:
 
 - Returned values and thrown errors.
 - Emitted events and event payloads.
-- Calls to public methods such as `send`, `close`, and signaling route handlers.
+- Calls to public methods such as `send`, `close`, and registered RPC handlers.
 - State changes that are part of the public contract.
 
 Avoid weak assertions such as `toBeDefined()` when a concrete value, event, or behavior can be checked.

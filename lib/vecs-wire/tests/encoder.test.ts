@@ -5,6 +5,13 @@ function createEncoder(): Encoder {
   return new Encoder(new Uint8Array(1024));
 }
 
+function roundTripAny(value: unknown): unknown {
+  const encoder = createEncoder();
+  encoder.write_any(value);
+
+  return new Decoder(encoder.getBuffer()).read_any();
+}
+
 describe("Encoder", () => {
   it("encodes and decodes uint32", () => {
     const encoder = createEncoder();
@@ -122,13 +129,22 @@ describe("Encoder", () => {
   });
 
   it("encodes and decodes bigint any values", () => {
-    const values = [9007199254740993n, -9007199254740993n];
+    const values = [100n, -100n, 9007199254740993n, -9007199254740993n];
     const encoder = createEncoder();
     encoder.write_any(values);
 
     const decoder = new Decoder(encoder.getBuffer());
 
     expect(decoder.read_any()).toEqual(values);
+  });
+
+  it("preserves undefined any values", () => {
+    expect(roundTripAny(undefined)).toBeUndefined();
+    expect(roundTripAny([1, undefined, null])).toEqual([1, undefined, null]);
+    expect(roundTripAny({ present: undefined, fallback: null })).toEqual({
+      present: undefined,
+      fallback: null,
+    });
   });
 });
 
