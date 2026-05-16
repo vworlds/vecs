@@ -42,6 +42,31 @@ export function setLocalComponentMin(value: number): void {
 
 /** Pack an entity id and component type id into a uint32 component id. */
 export function cid_pack(eid: number, type: number): CID {
+  const maxEid = (1 << (32 - componentTypeShift)) - 1;
+  const maxType = componentTypeMask;
+
+  if (eid < 0) {
+    throw new Error(`cid_pack: entity id must be non-negative, got ${eid}`);
+  }
+
+  if (eid > maxEid) {
+    throw new Error(
+      `cid_pack: entity id ${eid} exceeds maximum ${maxEid} for LOCAL_COMPONENT_MIN=${LOCAL_COMPONENT_MIN}. ` +
+        `Increase LOCAL_COMPONENT_MIN or use a smaller entity id.`
+    );
+  }
+
+  if (type < 0) {
+    throw new Error(`cid_pack: type id must be non-negative, got ${type}`);
+  }
+
+  if (type > maxType) {
+    throw new Error(
+      `cid_pack: type id ${type} exceeds maximum component type ${maxType}. ` +
+        `Ensure type id is less than LOCAL_COMPONENT_MIN=${LOCAL_COMPONENT_MIN}.`
+    );
+  }
+
   return ((eid << componentTypeShift) | (type & componentTypeMask)) >>> 0;
 }
 
