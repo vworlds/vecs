@@ -163,6 +163,8 @@ export class Decoder {
     switch (ts.tag) {
       case AnyType.null:
         return null;
+      case AnyType.undefined:
+        return undefined;
       case AnyType.boolean:
         return ts.size === 1;
       case AnyType.empty_object:
@@ -199,6 +201,10 @@ export class Decoder {
       }
       case AnyType.number_float:
         return ts.size === 4 ? this.read_f32() : this.read_f64();
+      case AnyType.bigint_integer:
+        return this.read_i64();
+      case AnyType.bigint_unsigned:
+        return this.read_u64();
       case AnyType.empty_binary:
         return this.read_buffer_raw(0);
       case AnyType.binary:
