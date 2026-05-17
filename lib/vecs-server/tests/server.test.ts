@@ -458,6 +458,26 @@ describe("VecsServer", () => {
     expect(first.tracker).toBe(second.tracker);
   });
 
+  it("does not preserve an old tracker when View DSL changes to an equivalent query", () => {
+    const world = new World();
+    world.registerComponent(Position);
+    const server = new VecsServer("main", world);
+    server.installSystems();
+    world.start();
+
+    const viewer = world.entity().set(View, { dsl: [Position] });
+    const view = viewer.get(View)!;
+    world.progress(0, 16);
+    const original = view.tracker;
+
+    viewer.set(View, { dsl: { HAS: Position } });
+    world.progress(16, 16);
+
+    expect(view.tracker).toBe(original);
+    expect(view._old_tracker).toBeUndefined();
+    expect(view._old_tracker_key).toBeUndefined();
+  });
+
   it("moves the previous tracker to old tracker and installs a new tracker on View set", () => {
     const world = new World();
     world.registerComponent(Position);

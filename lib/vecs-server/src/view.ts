@@ -53,6 +53,10 @@ export class View {
 
     const key = cache.getKey(this.dsl);
     if (this._tracker_key === key) {
+      if (this._old_tracker === this._tracker) {
+        this._old_tracker = undefined;
+        this._old_tracker_key = undefined;
+      }
       return;
     }
 
