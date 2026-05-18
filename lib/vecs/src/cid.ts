@@ -9,6 +9,8 @@ export let ALL_COMPONENTS = LOCAL_COMPONENT_MIN - 1;
 
 let componentTypeMask = ALL_COMPONENTS;
 let componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
+let MAX_ENTITY_ID = 2 ** (32 - componentTypeShift) - 1;
+let MAX_COMPONENT_TYPE = componentTypeMask;
 
 function validateLocalComponentMin(value: number): void {
   if (!isAlignedLocalComponentMin(value)) {
@@ -37,11 +39,35 @@ export function setLocalComponentMin(value: number): void {
     getLocalComponentMin();
     componentTypeMask = ALL_COMPONENTS;
     componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
+    MAX_ENTITY_ID = 2 ** (32 - componentTypeShift) - 1;
+    MAX_COMPONENT_TYPE = componentTypeMask;
   }
 }
 
 /** Pack an entity id and component type id into a uint32 component id. */
 export function cid_pack(eid: number, type: number): CID {
+  if (eid < 0) {
+    throw new Error(`cid_pack: entity id must be non-negative, got ${eid}`);
+  }
+
+  if (eid > MAX_ENTITY_ID) {
+    throw new Error(
+      `cid_pack: entity id ${eid} exceeds maximum ${MAX_ENTITY_ID} for LOCAL_COMPONENT_MIN=${LOCAL_COMPONENT_MIN}. ` +
+        `Increase LOCAL_COMPONENT_MIN or use a smaller entity id.`
+    );
+  }
+
+  if (type < 0) {
+    throw new Error(`cid_pack: type id must be non-negative, got ${type}`);
+  }
+
+  if (type > MAX_COMPONENT_TYPE) {
+    throw new Error(
+      `cid_pack: type id ${type} exceeds maximum component type ${MAX_COMPONENT_TYPE}. ` +
+        `Ensure type id is less than LOCAL_COMPONENT_MIN=${LOCAL_COMPONENT_MIN}.`
+    );
+  }
+
   return ((eid << componentTypeShift) | (type & componentTypeMask)) >>> 0;
 }
 
