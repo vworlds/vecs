@@ -20,7 +20,7 @@ import {
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import { NetworkClient, NetworkInput, Networked } from "./networked.js";
-import { type IEntityTracker, type IEntityTrackerListener, TrackerCache, View } from "./view.js";
+import { TrackerCache, View } from "./view.js";
 
 interface RegisteredComponent {
   Class: ComponentClass;
@@ -35,29 +35,13 @@ interface SyncSystem {
   system: System;
 }
 
-class ServerClientSession implements IEntityTrackerListener {
+class ServerClientSession {
   public readonly rpc = new SessionRPC();
   public ackFrame = 0;
   public socket!: VecsSocket;
   public entity!: Entity;
-  private _tracker: IEntityTracker | undefined = undefined;
 
-  public setTracker(tracker: IEntityTracker | undefined): void {
-    if (this._tracker === tracker) {
-      return;
-    }
-    this._tracker?.unsubscribe(this);
-    this._tracker = tracker;
-    tracker?.subscribe(this);
-  }
-
-  public enter(_entity: Entity): void {}
-
-  public exit(_entity: Entity): void {}
-
-  public destroy(): void {
-    this.setTracker(undefined);
-  }
+  public destroy(): void {}
 }
 
 interface Update {
@@ -71,8 +55,8 @@ export interface VecsServerOptions {
 }
 
 export interface InstallSystemsOptions {
-  collectPhase?: string | IPhase;
-  sendPhase?: string | IPhase;
+  collectPhase: string | IPhase;
+  sendPhase: string | IPhase;
 }
 
 export class VecsServer {
@@ -116,13 +100,12 @@ export class VecsServer {
     this._sessions.forEach((session) => session.rpc.listen(rpcId, handler));
   }
 
-  public installSystems(options: InstallSystemsOptions = {}): void {
+  public installSystems(options: InstallSystemsOptions): void {
     if (this._systemsInstalled) {
       return;
     }
     this._systemsInstalled = true;
-    const collectPhase = options.collectPhase ?? "update";
-    const sendPhase = options.sendPhase ?? "update";
+    const { collectPhase, sendPhase } = options;
 
     this.world.getComponentMeta(Networked).onRemove((entity) => {
       this._record(entity, ALL_COMPONENTS, undefined);
@@ -134,13 +117,11 @@ export class VecsServer {
     this.world
       .system(`VecsServer:${this.name}:View`)
       .phase(collectPhase)
-      .requires(View)
-      .update(View, (entity, view) => {
+      .requires(View, ServerClientSession)
+      .update(View, [ServerClientSession], (_entity, view, [_session]) => {
         view._refreshTracker(this._trackerCache);
-        entity.get(ServerClientSession)?.setTracker(view._tracker);
       })
-      .exit([View], (entity, [view]) => {
-        entity.get(ServerClientSession)?.setTracker(undefined);
+      .exit([View, ServerClientSession], (_entity, [view, _session]) => {
         view._releaseTrackers(this._trackerCache);
       });
 
@@ -177,18 +158,39 @@ export class VecsServer {
     }
 
     const toFrame = ++this._frame;
-    const snapshots: Uint8Array[] = [];
-    const removed: number[] = [];
-
-    this._updates.forEach((u) => {
-      if (u.component) {
-        snapshots.push(this._encodeSnapshot(u.entity.eid, u.type, u.component));
-      } else {
-        removed.push(cid_pack(u.entity.eid, u.type));
-      }
-    });
 
     this._sessions.forEach((session) => {
+      const view = session.entity.get(View)!;
+      view._reconcileVisibility();
+      view._releaseOldTracker(this._trackerCache);
+
+      const snapshots: Uint8Array[] = [];
+      const removed: number[] = [];
+
+      view._exitedView.forEach((entity) => {
+        removed.push(cid_pack(entity.eid, ALL_COMPONENTS));
+      });
+      view._enteredView.forEach((entity) => {
+        this._pushEntitySnapshots(entity, snapshots);
+      });
+
+      this._updates.forEach((u) => {
+        if (view._enteredView.has(u.entity) || view._exitedView.has(u.entity)) {
+          return;
+        }
+        if (!view.canSee(u.entity)) {
+          return;
+        }
+        if (u.component) {
+          snapshots.push(this._encodeSnapshot(u.entity.eid, u.type, u.component));
+        } else {
+          removed.push(cid_pack(u.entity.eid, u.type));
+        }
+      });
+
+      view._enteredView.clear();
+      view._exitedView.clear();
+
       const rpc = session.rpc.getOutgoing();
       if (snapshots.length === 0 && removed.length === 0 && rpc.length === 0) {
         return;
@@ -206,19 +208,14 @@ export class VecsServer {
   }
 
   private _onNewConnection(socket: VecsSocket): void {
-    const entity = this.world.entity().add(Networked).add(NetworkClient);
+    const entity = this.world.entity().add(Networked).add(NetworkClient).add(View);
     const session = new ServerClientSession();
     session.socket = socket;
     session.entity = entity;
     entity.attach(session);
     entity.set(NetworkClient, { id: socket.id });
-    this.world.flush();
     this._rpcHandlers.forEach((handler, rpcId) => session.rpc.listen(rpcId, handler));
     this._sessions.set(socket.id, session);
-
-    if (this._systemsInstalled) {
-      this._sendFullSnapshot(session);
-    }
 
     socket.on("receive", (data) => this._receive(session, data));
     socket.on("disconnect", () => this._onDisconnect(socket.id));
@@ -248,22 +245,14 @@ export class VecsServer {
     this._updates.set(cid_pack(entity.eid, type), { entity, type, component });
   }
 
-  private _sendFullSnapshot(session: ServerClientSession): void {
-    const toFrame = ++this._frame;
-    const snapshots: Uint8Array[] = [];
-
-    this._syncSystems.forEach((sync) => {
-      sync.system.forEach([sync.Class], (entity, [component]) => {
-        if (!component) {
-          return;
-        }
-        snapshots.push(this._encodeSnapshot(entity.eid, sync.type, component));
-      });
+  private _pushEntitySnapshots(entity: Entity, snapshots: Uint8Array[]): void {
+    this._components.forEach((registered) => {
+      const component = entity.get(registered.type);
+      if (!component) {
+        return;
+      }
+      snapshots.push(this._encodeSnapshot(entity.eid, registered.type, component));
     });
-
-    const rpc = session.rpc.getOutgoing();
-    const diff = new StateDiff({ fromFrame: 0, toFrame, snapshots, removed: [] });
-    session.socket.send(this._encode(new Server2Client({ diff, rpc })));
   }
 
   private _encodeSnapshot(eid: number, type: number, component: Component): Uint8Array {

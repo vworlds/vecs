@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { ALL_COMPONENTS, World, cid_pack } from "@vworlds/vecs";
+import { ALL_COMPONENTS, type Entity, World, cid_pack } from "@vworlds/vecs";
 import { Client2Server, ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
 import {
   EntityTracker,
@@ -88,17 +88,61 @@ function decodeFirstSnapshotPayload(bytes: Uint8Array): Position {
   return new Decoder(snapshot.payload).read(Position);
 }
 
+function decodeLastMessage(socket: MemorySocket): Server2Client {
+  return new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+}
+
+interface TestSession {
+  entity: Entity;
+}
+
+function getSession(server: VecsServer, socketId: string): TestSession {
+  const sessions = (server as unknown as { _sessions: Map<string, TestSession> })._sessions;
+  const session = sessions.get(socketId);
+  if (!session) {
+    throw new Error(`session ${socketId} not found`);
+  }
+  return session;
+}
+
+function getSessionView(server: VecsServer, socketId: string): View {
+  const view = getSession(server, socketId).entity.get(View);
+  if (!view) {
+    throw new Error(`session ${socketId} has no View`);
+  }
+  return view;
+}
+
+function connectSession(
+  server: VecsServer,
+  listener: MockListener,
+  socketId = "client-1"
+): { session: TestSession; socket: MemorySocket; view: View } {
+  const socket = new MemorySocket(socketId);
+  listener.connect(socket);
+  return { socket, session: getSession(server, socketId), view: getSessionView(server, socketId) };
+}
+
+function allowAllClientViews(world: World): void {
+  world.hook(NetworkClient).onSet((entity) => {
+    entity.set(View, { dsl: true });
+  });
+}
+
+const SERVER_PHASES = { collectPhase: "update", sendPhase: "update" } as const;
+
 describe("VecsServer", () => {
   it("sends full component snapshots for networked component updates", () => {
     const world = new World();
     world.registerComponent(Position, 1);
     world.registerComponent(LocalOnly);
     const server = new VecsServer("main", world);
+    allowAllClientViews(world);
     const socket = new MemorySocket("client-1");
     server.registerComponent(Position);
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     world.start();
     listener.connect(socket);
 
@@ -122,11 +166,12 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position, 1);
     const server = new VecsServer("main", world);
+    allowAllClientViews(world);
     const socket = new MemorySocket("client-1");
     server.registerComponent(Position);
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     world.start();
     listener.connect(socket);
 
@@ -148,11 +193,12 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position, 1);
     const server = new VecsServer("main", world);
+    allowAllClientViews(world);
     const socket = new MemorySocket("client-1");
     server.registerComponent(Position);
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     world.start();
     listener.connect(socket);
 
@@ -173,11 +219,12 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position, 1);
     const server = new VecsServer("main", world);
+    allowAllClientViews(world);
     const socket = new MemorySocket("client-1");
     server.registerComponent(Position);
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     world.start();
     listener.connect(socket);
 
@@ -198,12 +245,13 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position, 1);
     const server = new VecsServer("main", world);
+    allowAllClientViews(world);
     server.registerComponent(Position);
 
     const first = new MemorySocket("client-1");
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     world.start();
     listener.connect(first);
 
@@ -213,6 +261,9 @@ describe("VecsServer", () => {
 
     const late = new MemorySocket("client-2");
     listener.connect(late);
+
+    expect(late.sent.length).toBe(0);
+    world.progress(16, 16);
 
     expect(late.sent.length).toBe(1);
     const position = decodeFirstSnapshotPayload(late.sent[0]);
@@ -229,7 +280,7 @@ describe("VecsServer", () => {
     const server = new VecsServer("main", world);
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
 
     const seen: { connected: number[]; disconnected: number[] } = {
       connected: [],
@@ -257,12 +308,30 @@ describe("VecsServer", () => {
     expect(seen.disconnected).toEqual(seen.connected);
   });
 
+  it("adds a default View to connected clients", () => {
+    const world = new World();
+    const server = new VecsServer("main", world);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    const view = getSessionView(server, "client-1");
+
+    expect(view.dsl).toBe(false);
+    world.progress(0, 16);
+    expect(view.tracker.count).toBe(0);
+    expect(view._visible).toEqual(new Set());
+  });
+
   it("writes incoming input to the connected client's NetworkInput component", () => {
     const world = new World();
     const server = new VecsServer("main", world);
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     let observed: unknown = null;
     world
       .system("read-input")
@@ -286,21 +355,23 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position, 1);
     const server = new VecsServer("main", world);
+    allowAllClientViews(world);
     server.registerComponent(Position);
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
-    const baseline = socket.sent.length;
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
+    world.progress(0, 16);
+    const baseline = socket.sent.length;
 
     // Within a single progress step, update then remove Position.
     entity.set(Position, { x: 9, y: 9 });
     entity.remove(Position);
-    world.progress(0, 16);
+    world.progress(16, 16);
 
     const after = socket.sent.slice(baseline);
     expect(after.length).toBe(1);
@@ -313,10 +384,11 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position, 1);
     const server = new VecsServer("main", world);
+    allowAllClientViews(world);
     server.registerComponent(Position);
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
@@ -344,10 +416,11 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position, 1);
     const server = new VecsServer("main", world, { encodeBufferSize: 1024 });
+    allowAllClientViews(world);
     server.registerComponent(Position);
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
@@ -384,7 +457,7 @@ describe("VecsServer", () => {
     // handler registration must be retroactive to sessions opened later
     const listener = new MockListener();
     server._attach(listener);
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
@@ -424,16 +497,20 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position);
     const server = new VecsServer("main", world);
-    server.installSystems();
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
     world.start();
 
-    const matching = world.entity().add(Position);
-    const other = world.entity();
-    const viewer = world.entity().set(View, { dsl: [Position] });
-    const view = viewer.get(View)!;
+    const matching = world.entity().add(Networked).add(Position);
+    const nonNetworked = world.entity().add(Position);
+    const other = world.entity().add(Networked);
+    const { session, view } = connectSession(server, listener);
+    session.entity.set(View, { dsl: [Position] });
     world.progress(0, 16);
 
     expect(view.tracker.has(matching)).toBe(true);
+    expect(view.tracker.has(nonNetworked)).toBe(false);
     expect(view.tracker.has(other)).toBe(false);
     expect(view.tracker.count).toBe(1);
   });
@@ -442,17 +519,15 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position);
     const server = new VecsServer("main", world);
-    server.installSystems();
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
     world.start();
 
-    const first = world
-      .entity()
-      .set(View, { dsl: [Position] })
-      .get(View)!;
-    const second = world
-      .entity()
-      .set(View, { dsl: { HAS: Position } })
-      .get(View)!;
+    const { session: firstSession, view: first } = connectSession(server, listener, "client-1");
+    const { session: secondSession, view: second } = connectSession(server, listener, "client-2");
+    firstSession.entity.set(View, { dsl: [Position] });
+    secondSession.entity.set(View, { dsl: { HAS: Position } });
     world.progress(0, 16);
 
     expect(first.tracker).toBe(second.tracker);
@@ -462,15 +537,17 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position);
     const server = new VecsServer("main", world);
-    server.installSystems();
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
     world.start();
 
-    const viewer = world.entity().set(View, { dsl: [Position] });
-    const view = viewer.get(View)!;
+    const { session, view } = connectSession(server, listener);
+    session.entity.set(View, { dsl: [Position] });
     world.progress(0, 16);
     const original = view.tracker;
 
-    viewer.set(View, { dsl: { HAS: Position } });
+    session.entity.set(View, { dsl: { HAS: Position } });
     world.progress(16, 16);
 
     expect(view.tracker).toBe(original);
@@ -483,20 +560,24 @@ describe("VecsServer", () => {
     world.registerComponent(Position);
     world.registerComponent(Velocity);
     const server = new VecsServer("main", world);
-    server.installSystems();
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
     world.start();
 
-    const positionEntity = world.entity().add(Position);
-    const velocityEntity = world.entity().add(Velocity);
-    const viewer = world.entity().set(View, { dsl: [Position] });
-    const view = viewer.get(View)!;
+    const positionEntity = world.entity().add(Networked).add(Position);
+    const velocityEntity = world.entity().add(Networked).add(Velocity);
+    const { session, view } = connectSession(server, listener);
+    session.entity.set(View, { dsl: [Position] });
     world.progress(0, 16);
     const original = view.tracker;
 
-    viewer.set(View, { dsl: [Velocity] });
+    session.entity.set(View, { dsl: [Velocity] });
+    expect(view._old_tracker).toBe(original);
+
     world.progress(16, 16);
 
-    expect(view._old_tracker).toBe(original);
+    expect(view._old_tracker).toBeUndefined();
     expect(view.tracker).not.toBe(original);
     expect(view.tracker.has(velocityEntity)).toBe(true);
     expect(view.tracker.has(positionEntity)).toBe(false);
@@ -506,6 +587,8 @@ describe("VecsServer", () => {
     const world = new World();
     world.registerComponent(Position);
     const server = new VecsServer("main", world);
+    const listener = new MockListener();
+    server._attach(listener);
     let target: ReturnType<World["entity"]>;
     let viewer: ReturnType<World["entity"]>;
     let observed = false;
@@ -513,13 +596,13 @@ describe("VecsServer", () => {
     world.system("set-view").run(() => {
       viewer!.set(View, { dsl: [Position] });
     });
-    server.installSystems();
+    server.installSystems(SERVER_PHASES);
     world.system("read-view").run(() => {
       observed = viewer!.get(View)?.tracker.has(target!) === true;
     });
     world.start();
-    target = world.entity().add(Position);
-    viewer = world.entity().add(View);
+    target = world.entity().add(Networked).add(Position);
+    viewer = connectSession(server, listener).session.entity;
     world.progress(0, 16);
 
     expect(observed).toBe(true);
@@ -530,27 +613,33 @@ describe("VecsServer", () => {
     world.registerComponent(Position);
     world.registerComponent(Velocity);
     const server = new VecsServer("main", world);
-    server.installSystems();
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
     world.start();
 
-    const viewer = world.entity().set(View, { dsl: [Position] });
-    const view = viewer.get(View)!;
+    const { session, socket, view } = connectSession(server, listener);
+    session.entity.set(View, { dsl: [Position] });
     world.progress(0, 16);
     const original = view.tracker;
-    viewer.set(View, { dsl: [Velocity] });
+    session.entity.set(View, { dsl: [Velocity] });
     world.progress(16, 16);
     const replacement = view.tracker;
 
-    viewer.remove(View);
+    socket.close();
     world.progress(32, 16);
-    const nextPosition = world
-      .entity()
-      .set(View, { dsl: [Position] })
-      .get(View)!;
-    const nextVelocity = world
-      .entity()
-      .set(View, { dsl: [Velocity] })
-      .get(View)!;
+    const { session: positionSession, view: nextPosition } = connectSession(
+      server,
+      listener,
+      "client-2"
+    );
+    const { session: velocitySession, view: nextVelocity } = connectSession(
+      server,
+      listener,
+      "client-3"
+    );
+    positionSession.entity.set(View, { dsl: [Position] });
+    velocitySession.entity.set(View, { dsl: [Velocity] });
     world.progress(48, 16);
 
     expect(nextPosition.tracker).not.toBe(original);
@@ -563,24 +652,28 @@ describe("VecsServer", () => {
     world.registerComponent(Velocity);
     world.registerComponent(LocalOnly);
     const server = new VecsServer("main", world);
-    server.installSystems();
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
     world.start();
 
-    const positionEntity = world.entity().add(Position);
-    const velocityEntity = world.entity().add(Velocity);
-    const localEntity = world.entity().add(LocalOnly);
-    const viewer = world.entity().set(View, { dsl: [Position] });
-    const view = viewer.get(View)!;
+    const positionEntity = world.entity().add(Networked).add(Position);
+    const velocityEntity = world.entity().add(Networked).add(Velocity);
+    const localEntity = world.entity().add(Networked).add(LocalOnly);
+    const { session, view } = connectSession(server, listener);
+    session.entity.set(View, { dsl: [Position] });
     world.progress(0, 16);
     const original = view.tracker;
 
     world.defer(() => {
-      viewer.set(View, { dsl: [Velocity] });
-      viewer.set(View, { dsl: [LocalOnly] });
+      session.entity.set(View, { dsl: [Velocity] });
+      session.entity.set(View, { dsl: [LocalOnly] });
     });
+    expect(view._old_tracker).toBe(original);
+
     world.progress(16, 16);
 
-    expect(view._old_tracker).toBe(original);
+    expect(view._old_tracker).toBeUndefined();
     expect(view.tracker).not.toBe(original);
     expect(view.tracker.has(positionEntity)).toBe(false);
     expect(view.tracker.has(velocityEntity)).toBe(false);
@@ -592,91 +685,248 @@ describe("VecsServer", () => {
     world.registerComponent(Position);
     world.registerComponent(Velocity);
     const server = new VecsServer("main", world);
-    server.installSystems();
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
     world.start();
 
-    const viewer = world.entity().set(View, { dsl: [Position] });
-    const view = viewer.get(View)!;
+    const { session, socket, view } = connectSession(server, listener);
+    session.entity.set(View, { dsl: [Position] });
     world.progress(0, 16);
     const original = view.tracker;
 
-    viewer.set(View, { dsl: [Velocity] });
+    world.defer(() => {
+      session.entity.set(View, { dsl: [Velocity] });
+      session.entity.set(View, { dsl: [Position] });
+    });
     world.progress(16, 16);
-    const replacement = view.tracker;
-    expect(replacement).not.toBe(original);
-
-    viewer.set(View, { dsl: [Position] });
-    world.progress(32, 16);
     expect(view.tracker).toBe(original);
 
-    viewer.remove(View);
+    socket.close();
+    world.progress(32, 16);
+    const { session: positionSession, view: nextPosition } = connectSession(
+      server,
+      listener,
+      "client-2"
+    );
+    const { session: velocitySession, view: nextVelocity } = connectSession(
+      server,
+      listener,
+      "client-3"
+    );
+    positionSession.entity.set(View, { dsl: [Position] });
+    velocitySession.entity.set(View, { dsl: [Velocity] });
     world.progress(48, 16);
-    const nextPosition = world
-      .entity()
-      .set(View, { dsl: [Position] })
-      .get(View)!;
-    const nextVelocity = world
-      .entity()
-      .set(View, { dsl: [Velocity] })
-      .get(View)!;
-    world.progress(64, 16);
 
     expect(nextPosition.tracker).not.toBe(original);
-    expect(nextVelocity.tracker).not.toBe(replacement);
+    expect(nextVelocity.tracker).toBeDefined();
   });
 
-  it("reuses the old tracker without leaking refs after undefined View DSL", () => {
+  it("reuses the old tracker without leaking refs after false View DSL", () => {
     const world = new World();
     world.registerComponent(Position);
     const server = new VecsServer("main", world);
-    server.installSystems();
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
     world.start();
 
-    const viewer = world.entity().set(View, { dsl: [Position] });
-    const view = viewer.get(View)!;
+    const { session, socket, view } = connectSession(server, listener);
+    session.entity.set(View, { dsl: [Position] });
     world.progress(0, 16);
     const original = view.tracker;
 
-    viewer.set(View, { dsl: undefined });
+    world.defer(() => {
+      session.entity.set(View, { dsl: false });
+      session.entity.set(View, { dsl: [Position] });
+    });
     world.progress(16, 16);
-    expect(() => view.tracker).toThrow("View tracker is undefined");
-
-    viewer.set(View, { dsl: [Position] });
-    world.progress(32, 16);
     expect(view.tracker).toBe(original);
 
-    viewer.remove(View);
+    socket.close();
+    world.progress(32, 16);
+    const { session: positionSession, view: nextPosition } = connectSession(
+      server,
+      listener,
+      "client-2"
+    );
+    positionSession.entity.set(View, { dsl: [Position] });
     world.progress(48, 16);
-    const nextPosition = world
-      .entity()
-      .set(View, { dsl: [Position] })
-      .get(View)!;
-    world.progress(64, 16);
 
     expect(nextPosition.tracker).not.toBe(original);
   });
 
-  it("does not acquire an active tracker for undefined View DSL", () => {
+  it("does not process non-session Views", () => {
     const world = new World();
     world.registerComponent(Position);
     const server = new VecsServer("main", world);
-    server.installSystems();
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
     world.start();
 
-    const empty = world.entity().set(View, { dsl: undefined }).get(View)!;
+    const empty = world.entity().set(View, { dsl: false }).get(View)!;
     world.progress(0, 16);
     expect(() => empty.tracker).toThrow("View tracker is undefined");
 
-    const viewer = world.entity().set(View, { dsl: [Position] });
-    const view = viewer.get(View)!;
+    const { session, view } = connectSession(server, listener);
+    session.entity.set(View, { dsl: [Position] });
     world.progress(16, 16);
     const original = view.tracker;
 
-    viewer.set(View, { dsl: undefined });
+    session.entity.set(View, { dsl: false });
+    expect(view._old_tracker).toBe(original);
+
     world.progress(32, 16);
 
-    expect(view.dsl).toBeUndefined();
-    expect(() => view.tracker).toThrow("View tracker is undefined");
-    expect(view._old_tracker).toBe(original);
+    expect(view.dsl).toBe(false);
+    expect(view.tracker.has(session.entity)).toBe(false);
+    expect(view.tracker.count).toBe(0);
+    expect(view._old_tracker).toBeUndefined();
+  });
+
+  it("queues removals when a client View narrows visibility", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    world.registerComponent(LocalOnly);
+    const server = new VecsServer("main", world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+
+    const visible = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).add(LocalOnly);
+    const hidden = world.entity().add(Networked).set(Position, { x: 2, y: 2 });
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+    const view = getSessionView(server, "client-1");
+
+    expect(view._visible).toEqual(new Set());
+    session.entity.set(View, { dsl: true });
+    world.progress(0, 16);
+    expect(view._visible).toEqual(new Set([visible, hidden, session.entity]));
+    expect(view._enteredView).toEqual(new Set());
+    expect(view._exitedView).toEqual(new Set());
+    const baseline = socket.sent.length;
+
+    session.entity.set(View, { dsl: [LocalOnly] });
+    world.progress(16, 16);
+
+    expect(view._visible).toEqual(new Set([visible]));
+    expect(view._enteredView).toEqual(new Set());
+    expect(view._exitedView).toEqual(new Set());
+    expect(socket.sent.length).toBeGreaterThan(baseline);
+    const message = decodeLastMessage(socket);
+    expect(message.diff!.removed).toEqual([
+      cid_pack(hidden.eid, ALL_COMPONENTS),
+      cid_pack(session.entity.eid, ALL_COMPONENTS),
+    ]);
+    expect(view.canSee(visible)).toBe(true);
+    expect(view.canSee(hidden)).toBe(false);
+  });
+
+  it("queues entries and exits when a client View switches trackers", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    world.registerComponent(LocalOnly);
+    world.registerComponent(Velocity);
+    const server = new VecsServer("main", world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+
+    const local = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).add(LocalOnly);
+    const moving = world.entity().add(Networked).set(Position, { x: 2, y: 2 }).add(Velocity);
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+    const view = getSessionView(server, "client-1");
+
+    session.entity.set(View, { dsl: [LocalOnly] });
+    world.progress(0, 16);
+    const baseline = socket.sent.length;
+
+    session.entity.set(View, { dsl: [Velocity] });
+    world.progress(16, 16);
+
+    expect(view._visible).toEqual(new Set([moving]));
+    expect(view._enteredView).toEqual(new Set());
+    expect(view._exitedView).toEqual(new Set());
+    expect(socket.sent.length).toBeGreaterThan(baseline);
+    const message = decodeLastMessage(socket);
+    expect(message.diff!.removed).toEqual([cid_pack(local.eid, ALL_COMPONENTS)]);
+    expect(message.diff!.snapshots).toHaveLength(1);
+  });
+
+  it("queues all networked entities when a client View changes to true", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    world.registerComponent(LocalOnly);
+    const server = new VecsServer("main", world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+
+    const local = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).add(LocalOnly);
+    const hidden = world.entity().add(Networked).set(Position, { x: 2, y: 2 });
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+    const view = getSessionView(server, "client-1");
+
+    session.entity.set(View, { dsl: [LocalOnly] });
+    world.progress(0, 16);
+    const baseline = socket.sent.length;
+
+    session.entity.set(View, { dsl: true });
+    world.progress(16, 16);
+
+    expect(view._visible).toEqual(new Set([local, hidden, session.entity]));
+    expect(view._enteredView).toEqual(new Set());
+    expect(view._exitedView).toEqual(new Set());
+    expect(view._old_tracker).toBeUndefined();
+    expect(socket.sent.length).toBeGreaterThan(baseline);
+    const message = decodeLastMessage(socket);
+    expect(message.diff!.snapshots).toHaveLength(1);
+  });
+
+  it("queues tracker listener entries and exits for active client Views", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    world.registerComponent(LocalOnly);
+    const server = new VecsServer("main", world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+    const view = getSessionView(server, "client-1");
+    session.entity.set(View, { dsl: [LocalOnly] });
+    world.progress(0, 16);
+    expect(view._enteredView).toEqual(new Set());
+    expect(view._exitedView).toEqual(new Set());
+
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).add(LocalOnly);
+
+    expect(view._visible).toEqual(new Set([entity]));
+    expect(view._enteredView).toEqual(new Set([entity]));
+    expect(view._exitedView).toEqual(new Set());
+
+    view._enteredView.clear();
+    entity.remove(LocalOnly);
+
+    expect(view._visible).toEqual(new Set());
+    expect(view._enteredView).toEqual(new Set());
+    expect(view._exitedView).toEqual(new Set([entity]));
   });
 });

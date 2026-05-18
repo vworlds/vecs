@@ -144,7 +144,9 @@ world
     }
   });
 
-server.installSystems();
+world.addPhase("collect");
+world.addPhase("send");
+server.installSystems({ collectPhase: "collect", sendPhase: "send" });
 world.start();
 await vecsListener.listen(app, { ordered: false, maxRetransmits: 2 });
 

@@ -1,4 +1,5 @@
 import { type Entity, getDSLKey, Query, type QueryDSL, type World } from "@vworlds/vecs";
+import { Networked } from "./networked.js";
 
 export interface IEntityTracker {
   forEach(callbackfn: (value: Entity) => void): void;
@@ -15,14 +16,14 @@ export interface IEntityTrackerListener {
   exit(entity: Entity): void;
 }
 
-export class View {
-  private _dsl: QueryDSL | undefined = undefined;
+export class View implements IEntityTrackerListener {
+  private _dsl: QueryDSL = false;
 
-  public get dsl(): QueryDSL | undefined {
+  public get dsl(): QueryDSL {
     return this._dsl;
   }
 
-  public set dsl(value: QueryDSL | undefined) {
+  public set dsl(value: QueryDSL) {
     if (this._dsl === value) {
       return;
     }
@@ -40,17 +41,30 @@ export class View {
     return this._tracker;
   }
 
-  /** @internal */
-  public _refreshTracker(cache: TrackerCache): void {
-    if (this.dsl === undefined) {
-      if (this._tracker !== undefined && this._tracker !== this._old_tracker) {
-        cache.returnTracker(this._tracker);
-      }
-      this._tracker = undefined;
-      this._tracker_key = undefined;
+  public canSee(entity: Entity): boolean {
+    return this.tracker.has(entity);
+  }
+
+  public enter(entity: Entity): void {
+    if (this._visible.has(entity)) {
       return;
     }
+    this._visible.add(entity);
+    this._exitedView.delete(entity);
+    this._enteredView.add(entity);
+  }
 
+  public exit(entity: Entity): void {
+    if (!this._visible.delete(entity)) {
+      return;
+    }
+    if (!this._enteredView.delete(entity)) {
+      this._exitedView.add(entity);
+    }
+  }
+
+  /** @internal */
+  public _refreshTracker(cache: TrackerCache): void {
     const key = cache.getKey(this.dsl);
     if (this._tracker_key === key) {
       if (this._old_tracker === this._tracker) {
@@ -61,34 +75,86 @@ export class View {
     }
 
     if (this._old_tracker !== undefined && this._old_tracker_key === key) {
-      if (this._tracker !== undefined && this._tracker !== this._old_tracker) {
-        cache.returnTracker(this._tracker);
-      }
-      this._tracker = this._old_tracker;
+      const currentTracker = this._tracker;
+      this._setTracker(this._old_tracker);
       this._tracker_key = this._old_tracker_key;
+      if (currentTracker !== undefined && currentTracker !== this._old_tracker) {
+        cache.returnTracker(currentTracker);
+      }
       return;
     }
 
-    if (this._tracker !== undefined && this._tracker !== this._old_tracker) {
-      cache.returnTracker(this._tracker);
-    }
-    this._tracker = cache.getTracker(this.dsl);
+    const currentTracker = this._tracker;
+    this._setTracker(cache.getTracker(this.dsl));
     this._tracker_key = key;
+    if (currentTracker !== undefined && currentTracker !== this._old_tracker) {
+      cache.returnTracker(currentTracker);
+    }
+  }
+
+  /** @internal */
+  public _reconcileVisibility(): void {
+    if (!this._needsVisibilityReconcile) {
+      return;
+    }
+    this._needsVisibilityReconcile = false;
+
+    const exits: Entity[] = [];
+    this._visible.forEach((entity) => {
+      if (!this.tracker.has(entity)) {
+        exits.push(entity);
+      }
+    });
+    exits.forEach((entity) => this.exit(entity));
+    this.tracker.forEach((entity) => this.enter(entity));
+  }
+
+  /** @internal */
+  public _releaseOldTracker(cache: TrackerCache): void {
+    if (this._old_tracker !== undefined && this._old_tracker !== this._tracker) {
+      cache.returnTracker(this._old_tracker);
+    }
+    this._old_tracker = undefined;
+    this._old_tracker_key = undefined;
   }
 
   /** @internal */
   public _releaseTrackers(cache: TrackerCache): void {
-    if (this._tracker !== undefined && this._tracker !== this._old_tracker) {
-      cache.returnTracker(this._tracker);
+    const tracker = this._tracker;
+    tracker?.unsubscribe(this);
+    if (tracker !== undefined && tracker !== this._old_tracker) {
+      cache.returnTracker(tracker);
     }
     this._tracker = undefined;
     this._tracker_key = undefined;
-    if (this._old_tracker !== undefined) {
-      cache.returnTracker(this._old_tracker);
-      this._old_tracker = undefined;
-      this._old_tracker_key = undefined;
-    }
+    this._releaseOldTracker(cache);
+    this._needsVisibilityReconcile = false;
+    this._visible.clear();
+    this._enteredView.clear();
+    this._exitedView.clear();
   }
+
+  private _setTracker(tracker: IEntityTracker | undefined): void {
+    if (this._tracker === tracker) {
+      return;
+    }
+    this._tracker?.unsubscribe(this);
+    this._tracker = tracker;
+    tracker?.subscribe(this);
+    this._needsVisibilityReconcile = true;
+  }
+
+  /** @internal */
+  public readonly _visible = new Set<Entity>();
+
+  /** @internal */
+  public readonly _enteredView = new Set<Entity>();
+
+  /** @internal */
+  public readonly _exitedView = new Set<Entity>();
+
+  /** @internal */
+  public _needsVisibilityReconcile = false;
 
   /** @internal */
   public _tracker: IEntityTracker | undefined = undefined;
@@ -162,14 +228,14 @@ export class TrackerCache {
   public constructor(private readonly _world: World) {}
 
   public getKey(dsl: QueryDSL): number {
-    return getDSLKey(dsl, this._world);
+    return getDSLKey(this._trackedDSL(dsl), this._world);
   }
 
   public getTracker(dsl: QueryDSL): IEntityTracker {
     const key = this.getKey(dsl);
     let tracker = this._trackers.get(key);
     if (tracker === undefined) {
-      tracker = new EntityTracker(this._world, dsl);
+      tracker = new EntityTracker(this._world, this._trackedDSL(dsl));
       this._trackers.set(key, tracker);
       this._trackerKeys.set(tracker, key);
     }
@@ -184,5 +250,9 @@ export class TrackerCache {
       this._trackers.delete(key);
       this._trackerKeys.delete(tracker);
     }
+  }
+
+  private _trackedDSL(dsl: QueryDSL): QueryDSL {
+    return { AND: [dsl, Networked] };
   }
 }
