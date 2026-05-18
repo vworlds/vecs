@@ -98,4 +98,16 @@ describe("cid_pack", () => {
     expect(type).toBe(1023);
     expect(() => cid_pack(maxEid + 1, 0)).toThrow(/exceeds maximum/);
   });
+
+  it("works with minimum LOCAL_COMPONENT_MIN = 2", () => {
+    setLocalComponentMin(2);
+    const componentTypeShift = 1;
+    const maxEid = 2 ** (32 - componentTypeShift) - 1;
+
+    const cid = cid_pack(maxEid, 1);
+    const [eid, type] = cid_unpack(cid);
+    expect(eid).toBe(maxEid);
+    expect(type).toBe(1);
+    expect(() => cid_pack(maxEid + 1, 0)).toThrow(/exceeds maximum/);
+  });
 });
