@@ -204,6 +204,43 @@ describe("Entity — components", () => {
     expect(e.add(Position).get(Position)).toBeInstanceOf(Position);
   });
 
+  it("getMut returns the component or undefined", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const e = w.entity();
+    expect(e.getMut(Position)).toBeUndefined();
+    expect(e.add(Position).getMut(Position)).toBeInstanceOf(Position);
+  });
+
+  it("getMut marks an existing component as modified", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const onSet = vi.fn();
+    w.hook(Position).onSet(onSet);
+    const e = w.entity();
+    const pos = e.add(Position).getMut(Position)!;
+    expect(pos).toBe(e.get(Position));
+    expect(onSet).toHaveBeenCalledWith(e, pos);
+  });
+
+  it("getMut does not mark a missing component as modified", () => {
+    const w = new World();
+    w.registerComponent(Position);
+    const onSet = vi.fn();
+    w.hook(Position).onSet(onSet);
+    const e = w.entity();
+    expect(e.getMut(Position)).toBeUndefined();
+    expect(onSet).not.toHaveBeenCalled();
+  });
+
+  it("getMut(typeId) works with numeric type ids", () => {
+    const w = new World();
+    w.registerComponent(Position, 8);
+    const e = w.entity();
+    const pos = e.add(8).getMut(8);
+    expect(pos).toBeInstanceOf(Position);
+  });
+
   it("remove detaches a component", () => {
     const w = new World();
     w.registerComponent(Position);
