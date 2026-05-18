@@ -124,10 +124,10 @@ Inside a system body, a `Query.forEach`, or any `world.defer(...)` block, the wo
 
 Concretely, while deferred:
 
-- `entity.get(C)` returns `undefined` after `entity.add(C)` (no instance has been created yet).
-- `entity.get(C)` returns `undefined` after `entity.attach(instance)` if C was absent.
-- `entity.get(C)` returns the **previous** value after `entity.set(C, props)`.
-- `entity.get(C)` still returns the component after `entity.remove(C)`.
+- `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.add(C)` (no instance has been created yet).
+- `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.attach(instance)` if C was absent.
+- `entity.get(C)` / `entity.getMut(C)` returns the **previous** value after `entity.set(C, props)`.
+- `entity.get(C)` / `entity.getMut(C)` still returns the component after `entity.remove(C)`.
 
 Outside any deferred scope (top-level user code) the same calls execute inline and effects are visible immediately. `world.flush()` drains any pending top-level commands; `world.defer(fn)` is sugar for `beginDefer / fn / endDefer`.
 
@@ -379,9 +379,9 @@ class Position {
 world.registerComponent(Position);
 
 entity.add(Position);
-const pos = entity.get(Position)!;
+const pos = entity.getMut(Position)!;
 pos.x = 100;
-entity.modified(Position); // tell the world this component changed
+// getMut marks Position changed before returning the mutable instance.
 
 // Equivalent — set assigns props and fires onSet automatically:
 entity.set(Position, { x: 100 });
@@ -418,7 +418,8 @@ Created via `world.entity()` (auto-assigned id) or `world.getOrCreateEntity(id, 
 | `attach(instance)`  | Attach an existing registered component instance directly; replaces any previous instance for that component class and fires `onSet`. |
 | `set(Class, props)` | Attach a component and assign `props`; fires `onSet`. Returns the entity for chaining.                                                |
 | `modified(Class)`   | Queue an `onSet` / `update` notification for a component class or numeric type id. Returns the entity for chaining.                   |
-| `get(Class)`        | Return the component instance, or `undefined`.                                                                                        |
+| `get(Class)`        | Return the component as a readonly-typed value, or `undefined`.                                                                       |
+| `getMut(Class)`     | Mark the component modified and return the mutable instance, or `undefined`.                                                          |
 | `remove(Class)`     | Detach a component (fires `onRemove` and `exit`).                                                                                     |
 | `destroy()`         | Remove all components, unregister from the world, recurse into children.                                                              |
 | `components`        | `ReadonlyArrayMap<Component>` — read-only view of attached components keyed by type id. Supports `forEach`, `get`, `has`, and `size`. |
@@ -429,12 +430,11 @@ Created via `world.entity()` (auto-assigned id) or `world.getOrCreateEntity(id, 
 | `events`            | Typed event emitter. Currently emits `"destroy"` just before teardown.                                                                |
 | `toString()`        | Returns `"EntityN"`.                                                                                                                  |
 
-Call `entity.modified(C)` after mutating a component directly. Repeated calls for the same component type are coalesced while the world is deferred:
+Use `entity.getMut(C)` when you need to mutate a component directly. It calls `entity.modified(C)` before returning the mutable instance. Repeated modified notifications for the same component type are coalesced while the world is deferred:
 
 ```ts
-const vel = entity.get(Velocity)!;
+const vel = entity.getMut(Velocity)!;
 vel.vx += accel;
-entity.modified(Velocity); // chainable
 ```
 
 Use `entity.attach(instance)` when component ownership is intentionally shared with caller code or another object graph. The instance constructor must be registered in the entity's world; unregistered instances throw. If the component belongs to an exclusive component group, conflicting components are removed before the instance is stored.

@@ -38,10 +38,10 @@ type EntityEvents = Events<{ destroy(): void }>;
  * `componentBitmask`) is mutated when the world drains its queue. Concretely,
  * while deferred:
  *
- * - `entity.get(C)` returns `undefined` after `entity.add(C)` (no instance yet).
- * - `entity.get(C)` returns `undefined` after `entity.attach(instance)` if C was absent.
- * - `entity.get(C)` returns the previous value after `entity.set(C, props)`.
- * - `entity.get(C)` still returns the component after `entity.remove(C)`.
+ * - `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.add(C)` (no instance yet).
+ * - `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.attach(instance)` if C was absent.
+ * - `entity.get(C)` / `entity.getMut(C)` returns the previous value after `entity.set(C, props)`.
+ * - `entity.get(C)` / `entity.getMut(C)` still returns the component after `entity.remove(C)`.
  *
  * Outside deferred mode the same calls execute inline and mutations are
  * visible immediately.
@@ -454,14 +454,42 @@ export class Entity {
   }
 
   /**
-   * Look up a component on this entity.
+   * Look up a component on this entity as a readonly value.
    *
    * @param typeOrClass - Component class or numeric type id.
    * @returns The component instance, or `undefined` when it is not attached.
    */
-  public get<C extends ComponentClass>(typeOrClass: number | C): InstanceType<C> | undefined {
+  public get<C extends ComponentClass>(Class: C): Readonly<InstanceType<C>> | undefined;
+
+  /** Look up a component by numeric type id as a readonly value. */
+  public get(type: number): Readonly<Component> | undefined;
+
+  public get(typeOrClass: ComponentClassOrType): Readonly<Component> | undefined {
     const type = this.world.getComponentType(typeOrClass);
-    return this._get(type) as InstanceType<C> | undefined;
+    return this._get(type);
+  }
+
+  /**
+   * Look up a component on this entity for mutation.
+   *
+   * When the component is present, this marks the component modified before
+   * returning the mutable instance.
+   *
+   * @param typeOrClass - Component class or numeric type id.
+   * @returns The component instance, or `undefined` when it is not attached.
+   */
+  public getMut<C extends ComponentClass>(Class: C): InstanceType<C> | undefined;
+
+  /** Look up a component by numeric type id for mutation. */
+  public getMut(type: number): Component | undefined;
+
+  public getMut(typeOrClass: ComponentClassOrType): Component | undefined {
+    const type = this.world.getComponentType(typeOrClass);
+    const component = this._get(type);
+    if (component) {
+      this.modified(typeOrClass);
+    }
+    return component;
   }
 
   /**
