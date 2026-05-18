@@ -30,8 +30,10 @@ export type EntityTestFunc = (e: Entity) => boolean;
  * ```
  *
  * Short forms recognized by `query` / `filter`:
+ * - `true` matches all entities; `false` matches no entities.
  * - A registered component class or numeric type id is shorthand for `{ HAS: [C] }`.
  * - An array `[A, B]` is shorthand for `{ HAS: [A, B] }`.
+ * - An empty array `[]` is shorthand for `true`.
  * - An {@link EntityTestFunc} is invoked directly for fully custom logic.
  *
  * Function values are treated as component classes only when the world already
@@ -39,6 +41,8 @@ export type EntityTestFunc = (e: Entity) => boolean;
  * using them in query DSL expressions.
  */
 export type QueryDSL =
+  | true
+  | false
   | ComponentClassArray
   | ComponentClassOrType
   | EntityTestFunc
@@ -72,6 +76,7 @@ export type MaybeRequired<C, R extends ComponentClass[]> = C extends ComponentCl
  * Rules:
  * - Plain component class `C` → `[C]`
  * - Plain array `[A, B]` → `[A, B]`
+ * - `true` / `false` / `[]` → `[]` (no guarantee)
  * - `{ HAS: ... }` / `{ HAS_ONLY: ... }` → recurse into the payload
  * - `{ AND: [q1, q2, ...] }` → concatenate each branch's extraction
  * - `{ OR: ... }` / `{ NOT: ... }` / `{ PARENT: ... }` → `[]` (no guarantee)
@@ -104,18 +109,6 @@ function _isClassConstructor(value: QueryDSL): value is ComponentClass {
   );
 }
 
-function _isFalseDSL(q: QueryDSL): boolean {
-  return typeof q === "object" && q !== null && !Array.isArray(q) && "OR" in q && q.OR.length === 0;
-}
-
-function _isTrueDSL(q: QueryDSL): boolean {
-  return q instanceof Array && q.length === 0;
-}
-
-function _falseDSL(): QueryDSL {
-  return { OR: [] };
-}
-
 function _componentRequirements(q: QueryDSL): ComponentClassArray | undefined {
   if (typeof q === "number") {
     return [q];
@@ -133,6 +126,9 @@ function _componentRequirements(q: QueryDSL): ComponentClassArray | undefined {
 }
 
 function _asShortestComponentRequirement(components: ComponentClassArray): QueryDSL {
+  if (components.length === 0) {
+    return true;
+  }
   return components.length === 1 ? components[0] : components;
 }
 
@@ -200,6 +196,9 @@ function _componentSortKey(q: QueryDSL): number | undefined {
 }
 
 function _termSortKey(q: QueryDSL): string {
+  if (typeof q === "boolean") {
+    return q ? "0:true" : "0:false";
+  }
   const componentSortKey = _componentSortKey(q);
   if (componentSortKey !== undefined) {
     return `0:${componentSortKey.toString().padStart(12, "0")}`;
@@ -248,6 +247,9 @@ function _getDSLFunctionId(func: EntityTestFunc): number {
 }
 
 function _canonicalDSLKey(q: QueryDSL): unknown {
+  if (typeof q === "boolean") {
+    return ["BOOL", q];
+  }
   if (typeof q === "number") {
     return ["HAS", q];
   }
@@ -296,6 +298,10 @@ function _fnv1a32(input: string): number {
  * preserved as predicates.
  */
 export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
+  if (typeof q === "boolean") {
+    return q;
+  }
+
   if (q instanceof Array) {
     return _asCanonicalComponentRequirement(q, world);
   }
@@ -329,10 +335,10 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
   if ("AND" in q) {
     const simplifiedTerms: QueryDSL[] = [];
     for (const term of q.AND.map((term) => simplifyQueryDSL(term, world))) {
-      if (_isFalseDSL(term)) {
-        return _falseDSL();
+      if (term === false) {
+        return false;
       }
-      if (_isTrueDSL(term)) {
+      if (term === true) {
         continue;
       }
       if (typeof term === "object" && term !== null && !(term instanceof Array) && "AND" in term) {
@@ -359,7 +365,7 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
         : otherTerms;
 
     if (terms.length === 0) {
-      return [];
+      return true;
     }
     if (terms.length === 1) {
       return terms[0];
@@ -370,10 +376,10 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
   if ("OR" in q) {
     const terms: QueryDSL[] = [];
     for (const term of q.OR.map((term) => simplifyQueryDSL(term, world))) {
-      if (_isTrueDSL(term)) {
-        return [];
+      if (term === true) {
+        return true;
       }
-      if (_isFalseDSL(term)) {
+      if (term === false) {
         continue;
       }
       if (typeof term === "object" && term !== null && !(term instanceof Array) && "OR" in term) {
@@ -384,7 +390,7 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
     }
 
     if (terms.length === 0) {
-      return _falseDSL();
+      return false;
     }
     if (terms.length === 1) {
       return terms[0];
@@ -394,11 +400,8 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
 
   if ("NOT" in q) {
     const term = simplifyQueryDSL(q.NOT, world);
-    if (_isTrueDSL(term)) {
-      return _falseDSL();
-    }
-    if (_isFalseDSL(term)) {
-      return [];
+    if (typeof term === "boolean") {
+      return !term;
     }
     if (typeof term === "object" && term !== null && !(term instanceof Array) && "NOT" in term) {
       return term.NOT;
@@ -408,8 +411,8 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
 
   if ("PARENT" in q) {
     const term = simplifyQueryDSL(q.PARENT, world);
-    if (_isFalseDSL(term)) {
-      return _falseDSL();
+    if (term === false) {
+      return false;
     }
     return { PARENT: term };
   }
@@ -458,6 +461,10 @@ function _compileQueryExpression(
   context: _CompileContext,
   entityRef: string
 ): string {
+  if (typeof q === "boolean") {
+    return q ? "true" : "false";
+  }
+
   if (typeof q === "number") {
     return _compileMask(context, [q], entityRef, "hasBitset");
   }
@@ -553,6 +560,10 @@ export function _compile(world: World, q: QueryDSL): EntityTestFunc {
  */
 export function _extractQueryDependencies(world: World, q: QueryDSL): number[] | undefined {
   q = simplifyQueryDSL(q, world);
+
+  if (typeof q === "boolean") {
+    return [];
+  }
 
   if (typeof q === "number") {
     return [q];

@@ -85,10 +85,17 @@ describe("Query DSL simplification", () => {
   it("removes identity terms and preserves absorbing terms", () => {
     const world = registeredWorld();
 
+    expect(simplifyQueryDSL([], world)).toBe(true);
+    expect(simplifyQueryDSL({ AND: [] }, world)).toBe(true);
+    expect(simplifyQueryDSL({ OR: [] }, world)).toBe(false);
     expect(simplifyQueryDSL({ AND: [[], Position] }, world)).toBe(0);
     expect(simplifyQueryDSL({ OR: [{ OR: [] }, Position] }, world)).toBe(0);
-    expect(simplifyQueryDSL({ AND: [{ OR: [] }, Position] }, world)).toEqual({ OR: [] });
-    expect(simplifyQueryDSL({ OR: [[], Position] }, world)).toEqual([]);
+    expect(simplifyQueryDSL({ AND: [{ OR: [] }, Position] }, world)).toBe(false);
+    expect(simplifyQueryDSL({ OR: [[], Position] }, world)).toBe(true);
+    expect(simplifyQueryDSL({ AND: [Position, true] }, world)).toBe(0);
+    expect(simplifyQueryDSL({ AND: [Position, false] }, world)).toBe(false);
+    expect(simplifyQueryDSL({ OR: [Position, true] }, world)).toBe(true);
+    expect(simplifyQueryDSL({ OR: [Position, false] }, world)).toBe(0);
   });
 
   it("sorts numeric component requirements", () => {
@@ -242,6 +249,9 @@ describe("Query DSL compilation", () => {
   }
 
   function evalReference(world: World, q: QueryDSL, e: Entity): boolean {
+    if (typeof q === "boolean") {
+      return q;
+    }
     if (typeof q === "number") {
       return e.componentBitmask.hasBitset(maskOf([q]));
     }
@@ -286,6 +296,15 @@ describe("Query DSL compilation", () => {
   it("matches reference semantics for a single HAS", () => {
     const world = wideWorld();
     assertCompiledMatches(world, 0, [0, 1, 2]);
+  });
+
+  it("matches reference semantics for boolean literals", () => {
+    const world = wideWorld();
+
+    assertCompiledMatches(world, true, [0, 1, 2]);
+    assertCompiledMatches(world, false, [0, 1, 2]);
+    assertCompiledMatches(world, [], [0, 1, 2]);
+    assertCompiledMatches(world, { OR: [] }, [0, 1, 2]);
   });
 
   it("matches reference semantics for AND of components in the same word", () => {
