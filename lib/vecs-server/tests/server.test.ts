@@ -105,7 +105,7 @@ function getSession(server: VecsServer, socketId: string): TestSession {
   return session;
 }
 
-function getSessionView(server: VecsServer, socketId: string): View {
+function getSessionView(server: VecsServer, socketId: string): Readonly<View> {
   const view = getSession(server, socketId).entity.get(View);
   if (!view) {
     throw new Error(`session ${socketId} has no View`);
@@ -117,7 +117,7 @@ function connectSession(
   server: VecsServer,
   listener: MockListener,
   socketId = "client-1"
-): { session: TestSession; socket: MemorySocket; view: View } {
+): { session: TestSession; socket: MemorySocket; view: Readonly<View> } {
   const socket = new MemorySocket(socketId);
   listener.connect(socket);
   return { socket, session: getSession(server, socketId), view: getSessionView(server, socketId) };
