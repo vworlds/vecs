@@ -447,6 +447,33 @@ describe("VecsServer", () => {
     expect(p2).toMatchObject({ x: 2, y: 2 });
   });
 
+  it("invalidates cached snapshots before sending synchronized component updates", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    const server = new VecsServer("main", world);
+    allowAllClientViews(world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+    const first = new MemorySocket("client-1");
+    listener.connect(first);
+
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
+    world.progress(0, 16);
+
+    const late = new MemorySocket("client-2");
+    listener.connect(late);
+    entity.set(Position, { x: 3, y: 4 });
+    world.progress(16, 16);
+
+    const firstPosition = decodeFirstSnapshotPayload(first.sent[first.sent.length - 1]);
+    const latePosition = decodeFirstSnapshotPayload(late.sent[late.sent.length - 1]);
+    expect(firstPosition).toMatchObject({ x: 3, y: 4 });
+    expect(latePosition).toMatchObject({ x: 3, y: 4 });
+  });
+
   it("renames listen to handleRpc and applies registered handlers to new sessions", () => {
     const world = new World();
     const server = new VecsServer("main", world);

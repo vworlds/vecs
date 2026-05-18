@@ -65,6 +65,7 @@ export class VecsServer {
   private readonly _rpcHandlers = new Map<number, RPCHandler>();
   private readonly _updates = new Map<number, Update>();
   private readonly _syncSystems: SyncSystem[] = [];
+  private readonly _snapshotCache = new Map<number, Uint8Array>();
   private readonly _trackerCache: TrackerCache;
   private readonly _encodeBuffer: Uint8Array;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
@@ -133,12 +134,14 @@ export class VecsServer {
         .phase(collectPhase)
         .requires(Networked, registered.Class)
         .update(registered.Class, (entity, component) => {
+          this._snapshotCache.delete(cid_pack(entity.eid, registered.type));
           this._record(entity, registered.type, component);
         })
-        .track()
         .exit((entity) => {
+          this._snapshotCache.delete(cid_pack(entity.eid, registered.type));
           this._record(entity, registered.type, undefined);
-        });
+        })
+        .track();
       this._syncSystems.push({
         type: registered.type,
         name: registered.name,
@@ -254,10 +257,18 @@ export class VecsServer {
   }
 
   private _encodeSnapshot(eid: number, type: number, component: Component): Uint8Array {
+    const cid = cid_pack(eid, type);
+    const cached = this._snapshotCache.get(cid);
+    if (cached) {
+      return cached;
+    }
+
     const payloadEncoder = new Encoder(this._encodeBuffer);
     payloadEncoder.write(component);
     const payload = payloadEncoder.getBuffer().slice();
-    return this._encode(new ComponentSnapshot({ cid: cid_pack(eid, type), payload }));
+    const snapshot = this._encode(new ComponentSnapshot({ cid, payload }));
+    this._snapshotCache.set(cid, snapshot);
+    return snapshot;
   }
 
   private _encode(value: IEncodable): Uint8Array {
