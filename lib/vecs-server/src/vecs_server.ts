@@ -163,7 +163,7 @@ export class VecsServer {
       return;
     }
 
-    const toFrame = ++this._frame;
+    const toFrame = this._frame++;
 
     this._clients.forEach([View, ServerClientSession], (e, [view, session]) => {
       view._reconcileVisibility();
