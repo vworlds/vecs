@@ -176,10 +176,7 @@ export class VecsServer {
       });
 
       this._updates.forEach((u) => {
-        if (view._enteredView.has(u.entity) || view._exitedView.has(u.entity)) {
-          return;
-        }
-        if (!view.canSee(u.entity)) {
+        if (view._enteredView.has(u.entity) || !view.canSee(u.entity)) {
           return;
         }
         if (u.component) {

@@ -827,6 +827,37 @@ describe("VecsServer", () => {
     expect(view.canSee(hidden)).toBe(false);
   });
 
+  it("does not send component updates for entities exiting visibility", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    world.registerComponent(LocalOnly);
+    world.registerComponent(Velocity);
+    const server = new VecsServer("main", world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).add(LocalOnly);
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+
+    session.entity.set(View, { dsl: [LocalOnly] });
+    world.progress(0, 16);
+    const baseline = socket.sent.length;
+
+    entity.set(Position, { x: 9, y: 9 });
+    session.entity.set(View, { dsl: [Velocity] });
+    world.progress(16, 16);
+
+    expect(socket.sent.length).toBeGreaterThan(baseline);
+    const message = decodeLastMessage(socket);
+    expect(message.diff!.removed).toEqual([cid_pack(entity.eid, ALL_COMPONENTS)]);
+    expect(message.diff!.snapshots).toEqual([]);
+  });
+
   it("queues entries and exits when a client View switches trackers", () => {
     const world = new World();
     world.registerComponent(Position, 1);
