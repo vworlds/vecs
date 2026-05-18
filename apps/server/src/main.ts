@@ -149,6 +149,7 @@ world
     }
   });
 
+world.addPhase("update");
 world.addPhase("collect");
 world.addPhase("send");
 server.installSystems({ collectPhase: "collect", sendPhase: "send" });
