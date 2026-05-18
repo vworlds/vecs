@@ -50,8 +50,8 @@ export class Diff {
 
 export function diffFromStateDiff(sd: StateDiff): Diff {
   const d = new Diff(sd.fromFrame, sd.toFrame);
-  d.snapshots = sd.snapshots.map((bytes) => {
-    const wire = new Decoder(bytes).read(WireComponentSnapshot);
+  d.snapshots = sd.snapshots.map((snapshot) => {
+    const wire = new Decoder(snapshot.bytes).read(WireComponentSnapshot);
     return new ComponentSnapshot(wire.cid, wire.payload);
   });
   d.removed = sd.removed;

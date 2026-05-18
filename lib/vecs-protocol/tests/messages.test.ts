@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
-import { Client2Server, ComponentSnapshot, RPC, Server2Client, StateDiff } from "../src/index.js";
+import {
+  Client2Server,
+  ComponentSnapshot,
+  EncodedSnapshot,
+  RPC,
+  Server2Client,
+  StateDiff,
+} from "../src/index.js";
 
 function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
   const encoder = new Encoder(new Uint8Array(size));
@@ -19,7 +26,7 @@ describe("protocol messages", () => {
       diff: new StateDiff({
         fromFrame: 5,
         toFrame: 6,
-        snapshots: [snapshotBytes],
+        snapshots: [new EncodedSnapshot(snapshotBytes, snapshotCid + 1)],
         removed: [removedCid],
       }),
       rpc: [new RPC({ rpcId: 0, callId: 9, params: ["ok"] })],
@@ -30,7 +37,8 @@ describe("protocol messages", () => {
     expect(decoded.diff?.fromFrame).toBe(5);
     expect(decoded.diff?.toFrame).toBe(6);
     expect(decoded.diff?.removed).toEqual([removedCid]);
-    expect(new Decoder(decoded.diff!.snapshots[0]).read(ComponentSnapshot)).toEqual(
+    expect(decoded.diff!.snapshots[0].cid).toBe(0);
+    expect(new Decoder(decoded.diff!.snapshots[0].bytes).read(ComponentSnapshot)).toEqual(
       new ComponentSnapshot({ cid: snapshotCid, payload: Uint8Array.from([1, 2, 3]) })
     );
     expect(decoded.rpc[0].params).toEqual(["ok"]);

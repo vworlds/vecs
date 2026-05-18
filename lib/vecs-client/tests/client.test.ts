@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { type VecsSocket } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
 import { ALL_COMPONENTS, World, cid_pack, cid_unpack } from "@vworlds/vecs";
-import { Client2Server, ComponentSnapshot, Server2Client, StateDiff } from "@vworlds/vecs-protocol";
+import {
+  Client2Server,
+  ComponentSnapshot,
+  EncodedSnapshot,
+  Server2Client,
+  StateDiff,
+} from "@vworlds/vecs-protocol";
 import { VecsClient } from "../src/index.js";
 
 class Position {
@@ -57,15 +63,16 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
   return encoder.getBuffer();
 }
 
-function makeSnapshotBytes(eid: number, type: number, payload: Uint8Array): Uint8Array {
-  return encodeMessage(new ComponentSnapshot({ cid: cid_pack(eid, type), payload }));
+function makeSnapshot(eid: number, type: number, payload: Uint8Array): EncodedSnapshot {
+  const cid = cid_pack(eid, type);
+  return new EncodedSnapshot(encodeMessage(new ComponentSnapshot({ cid, payload })), cid);
 }
 
-function posSnapshot(eid: number, x: number, y: number): Uint8Array {
+function posSnapshot(eid: number, x: number, y: number): EncodedSnapshot {
   const p = new Position();
   p.x = x;
   p.y = y;
-  return makeSnapshotBytes(eid, 1, encodeComponent(p));
+  return makeSnapshot(eid, 1, encodeComponent(p));
 }
 
 describe("VecsClient", () => {

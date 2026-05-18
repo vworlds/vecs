@@ -28,10 +28,17 @@ export class ComponentSnapshot implements IEncodable {
   }
 }
 
+export class EncodedSnapshot {
+  public constructor(
+    public bytes: Uint8Array,
+    public cid = 0
+  ) {}
+}
+
 export class StateDiff implements IEncodable {
   public toFrame = 0;
   public fromFrame = 0;
-  public snapshots: Uint8Array[] = [];
+  public snapshots: EncodedSnapshot[] = [];
   public removed: number[] = [];
 
   public constructor(values?: Partial<StateDiff>) {
@@ -44,7 +51,7 @@ export class StateDiff implements IEncodable {
     encoder.write_u32(this.toFrame);
     encoder.write_u32(this.fromFrame);
     encoder.write_u32(this.snapshots.length);
-    this.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot));
+    this.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
     encoder.write_u32(this.removed.length);
     this.removed.forEach((cid) => encoder.write_u32(cid));
   }
@@ -53,7 +60,7 @@ export class StateDiff implements IEncodable {
     const diff = new StateDiff({ toFrame: decoder.read_u32(), fromFrame: decoder.read_u32() });
     const snapshotCount = decoder.read_u32();
     for (let i = 0; i < snapshotCount; i++) {
-      diff.snapshots.push(decoder.read_bytes());
+      diff.snapshots.push(new EncodedSnapshot(decoder.read_bytes()));
     }
     const removedCount = decoder.read_u32();
     for (let i = 0; i < removedCount; i++) {

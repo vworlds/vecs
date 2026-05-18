@@ -84,7 +84,7 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 
 function decodeFirstSnapshotPayload(bytes: Uint8Array): Position {
   const message = new Decoder(bytes).read(Server2Client);
-  const snapshot = new Decoder(message.diff!.snapshots[0]).read(ComponentSnapshot);
+  const snapshot = new Decoder(message.diff!.snapshots[0].bytes).read(ComponentSnapshot);
   return new Decoder(snapshot.payload).read(Position);
 }
 
@@ -154,7 +154,7 @@ describe("VecsServer", () => {
     // The most recent message contains the diff produced by progress().
     const last = socket.sent[socket.sent.length - 1];
     const message = new Decoder(last).read(Server2Client);
-    const snapshot = new Decoder(message.diff!.snapshots[0]).read(ComponentSnapshot);
+    const snapshot = new Decoder(message.diff!.snapshots[0].bytes).read(ComponentSnapshot);
     const position = new Decoder(snapshot.payload).read(Position);
 
     expect(snapshot.cid).toBe(cid_pack(entity.eid, 1));
@@ -406,7 +406,7 @@ describe("VecsServer", () => {
     const lastDiff = new Decoder(after[after.length - 1]).read(Server2Client).diff;
     expect(lastDiff?.removed ?? []).toEqual([]);
     expect(lastDiff?.snapshots.length).toBe(1);
-    const snap = new Decoder(lastDiff!.snapshots[0]).read(ComponentSnapshot);
+    const snap = new Decoder(lastDiff!.snapshots[0].bytes).read(ComponentSnapshot);
     expect(snap.cid).toBe(cid_pack(entity.eid, 1));
     const pos = new Decoder(snap.payload).read(Position);
     expect(pos).toMatchObject({ x: 7, y: 7 });
@@ -437,12 +437,12 @@ describe("VecsServer", () => {
     expect(socket.sent.length).toBeGreaterThanOrEqual(2);
     const m1 = new Decoder(socket.sent[socket.sent.length - 2]).read(Server2Client);
     const m2 = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
-    const p1 = new Decoder(new Decoder(m1.diff!.snapshots[0]).read(ComponentSnapshot).payload).read(
-      Position
-    );
-    const p2 = new Decoder(new Decoder(m2.diff!.snapshots[0]).read(ComponentSnapshot).payload).read(
-      Position
-    );
+    const p1 = new Decoder(
+      new Decoder(m1.diff!.snapshots[0].bytes).read(ComponentSnapshot).payload
+    ).read(Position);
+    const p2 = new Decoder(
+      new Decoder(m2.diff!.snapshots[0].bytes).read(ComponentSnapshot).payload
+    ).read(Position);
     expect(p1).toMatchObject({ x: 1, y: 1 });
     expect(p2).toMatchObject({ x: 2, y: 2 });
   });

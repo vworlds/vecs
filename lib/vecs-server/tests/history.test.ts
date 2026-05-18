@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { StateDiff } from "@vworlds/vecs-protocol";
+import { EncodedSnapshot, StateDiff } from "@vworlds/vecs-protocol";
 import { HISTORY_LENGTH, History } from "../src/history.js";
 
 function diff(toFrame: number): StateDiff {
   return new StateDiff({
     fromFrame: toFrame - 1,
     toFrame,
-    snapshots: [new Uint8Array([toFrame])],
+    snapshots: [new EncodedSnapshot(new Uint8Array([toFrame]), toFrame)],
     removed: [toFrame],
   });
 }

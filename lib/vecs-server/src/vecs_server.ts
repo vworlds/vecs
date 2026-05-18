@@ -1,6 +1,7 @@
 import {
   Client2Server,
   ComponentSnapshot,
+  EncodedSnapshot,
   Server2Client,
   SessionRPC,
   StateDiff,
@@ -65,7 +66,7 @@ export class VecsServer {
   private readonly _rpcHandlers = new Map<number, RPCHandler>();
   private readonly _updates = new Map<number, Update>();
   private readonly _syncSystems: SyncSystem[] = [];
-  private readonly _snapshotCache = new Map<number, Uint8Array>();
+  private readonly _snapshotCache = new Map<number, EncodedSnapshot>();
   private readonly _trackerCache: TrackerCache;
   private readonly _encodeBuffer: Uint8Array;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
@@ -168,7 +169,7 @@ export class VecsServer {
       view._reconcileVisibility();
       view._releaseOldTracker(this._trackerCache);
 
-      const snapshots: Uint8Array[] = [];
+      const snapshots: EncodedSnapshot[] = [];
       const removed: number[] = [];
 
       view._exitedView.forEach((entity) => {
@@ -246,7 +247,7 @@ export class VecsServer {
     this._updates.set(cid_pack(entity.eid, type), { entity, type, component });
   }
 
-  private _pushEntitySnapshots(entity: Entity, snapshots: Uint8Array[]): void {
+  private _pushEntitySnapshots(entity: Entity, snapshots: EncodedSnapshot[]): void {
     this._components.forEach((registered) => {
       const component = entity.get(registered.type);
       if (!component) {
@@ -256,7 +257,7 @@ export class VecsServer {
     });
   }
 
-  private _encodeSnapshot(eid: number, type: number, component: Component): Uint8Array {
+  private _encodeSnapshot(eid: number, type: number, component: Component): EncodedSnapshot {
     const cid = cid_pack(eid, type);
     const cached = this._snapshotCache.get(cid);
     if (cached) {
@@ -266,7 +267,10 @@ export class VecsServer {
     const payloadEncoder = new Encoder(this._encodeBuffer);
     payloadEncoder.write(component);
     const payload = payloadEncoder.getBuffer().slice();
-    const snapshot = this._encode(new ComponentSnapshot({ cid, payload }));
+    const snapshot = new EncodedSnapshot(
+      this._encode(new ComponentSnapshot({ cid, payload })),
+      cid
+    );
     this._snapshotCache.set(cid, snapshot);
     return snapshot;
   }

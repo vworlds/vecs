@@ -1,4 +1,10 @@
-export { Client2Server, ComponentSnapshot, Server2Client, StateDiff } from "./messages.js";
+export {
+  Client2Server,
+  ComponentSnapshot,
+  EncodedSnapshot,
+  Server2Client,
+  StateDiff,
+} from "./messages.js";
 export {
   FIRST_USER_RPC_ID,
   RPC,
