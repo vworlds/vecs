@@ -5,6 +5,9 @@ import {
   Server2Client,
   SessionRPC,
   StateDiff,
+  ALL_COMPONENTS,
+  cid_pack,
+  type RemovedComponent,
   type RPCHandler,
   type VecsSocket,
   type VecsSocketListener,
@@ -13,11 +16,9 @@ import {
   type Component,
   type ComponentClass,
   type Entity,
-  ALL_COMPONENTS,
   type IPhase,
   type System,
   type World,
-  cid_pack,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import { NetworkClient, NetworkInput, Networked } from "./networked.js";
@@ -53,6 +54,8 @@ interface Update {
 
 export interface VecsServerOptions {
   encodeBufferSize?: number;
+  entityIdStart?: number;
+  componentTypeStart?: number;
 }
 
 export interface InstallSystemsOptions {
@@ -81,15 +84,18 @@ export class VecsServer {
     const encodeBufferSize = options.encodeBufferSize ?? 64 * 1024;
     this._encodeBuffer = new Uint8Array(encodeBufferSize);
     this._trackerCache = new TrackerCache(world);
+    this.world.setEntityIdRange(options.entityIdStart ?? 1);
     ensureRegistered(world, Networked);
     ensureRegistered(world, NetworkClient);
     ensureRegistered(world, NetworkInput);
     ensureRegistered(world, View);
     ensureRegistered(world, ServerClientSession);
+    this.world.setComponentTypeRange(options.componentTypeStart ?? 1);
   }
 
   public registerComponent<C extends ComponentClass>(Class: C): void {
     const meta = this.world.getComponentMeta(Class);
+    cid_pack(0, meta.type);
     this._components.push({ Class, type: meta.type, name: meta.componentName });
   }
 
@@ -170,10 +176,10 @@ export class VecsServer {
       view._releaseOldTracker(this._trackerCache);
 
       const snapshots: EncodedSnapshot[] = [];
-      const removed: number[] = [];
+      const removed: RemovedComponent[] = [];
 
       view._exitedView.forEach((entity) => {
-        removed.push(cid_pack(entity.eid, ALL_COMPONENTS));
+        removed.push([entity.eid, ALL_COMPONENTS]);
       });
       view._enteredView.forEach((entity) => {
         this._pushEntitySnapshots(entity, snapshots);
@@ -186,7 +192,7 @@ export class VecsServer {
         if (u.component) {
           snapshots.push(this._encodeSnapshot(u.entity.eid, u.type, u.component));
         } else {
-          removed.push(cid_pack(u.entity.eid, u.type));
+          removed.push([u.entity.eid, u.type]);
         }
       });
 

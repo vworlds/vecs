@@ -66,6 +66,7 @@ async function main(): Promise<void> {
     host: location.hostname,
     port: 3000,
     worldName: "main",
+    localEntityIdStart: LOCAL_ENTITY_START,
   });
   client.registerComponent(Position);
   client.registerComponent(Player);

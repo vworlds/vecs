@@ -18,7 +18,6 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 describe("protocol messages", () => {
   it("round-trips server diffs with snapshots, removals, and RPC", () => {
     const snapshotCid = (12 << 8) | 3;
-    const removedCid = (12 << 8) | 4;
     const snapshotBytes = encodeMessage(
       new ComponentSnapshot({ cid: snapshotCid, payload: Uint8Array.from([1, 2, 3]) })
     );
@@ -27,7 +26,7 @@ describe("protocol messages", () => {
         fromFrame: 5,
         toFrame: 6,
         snapshots: [new EncodedSnapshot(snapshotBytes, snapshotCid + 1)],
-        removed: [removedCid],
+        removed: [[12, 4]],
       }),
       rpc: [new RPC({ rpcId: 0, callId: 9, params: ["ok"] })],
     });
@@ -36,7 +35,7 @@ describe("protocol messages", () => {
 
     expect(decoded.diff?.fromFrame).toBe(5);
     expect(decoded.diff?.toFrame).toBe(6);
-    expect(decoded.diff?.removed).toEqual([removedCid]);
+    expect(decoded.diff?.removed).toEqual([[12, 4]]);
     expect(decoded.diff!.snapshots[0].cid).toBe(0);
     expect(new Decoder(decoded.diff!.snapshots[0].bytes).read(ComponentSnapshot)).toEqual(
       new ComponentSnapshot({ cid: snapshotCid, payload: Uint8Array.from([1, 2, 3]) })

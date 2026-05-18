@@ -1,11 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import {
-  cid_pack,
-  cid_unpack,
-  LOCAL_COMPONENT_MIN,
-  setLocalComponentMin,
-  ALL_COMPONENTS,
-} from "../src/cid.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import { ALL_COMPONENTS, cid_pack, cid_unpack, setLocalComponentMin } from "../src/cid.js";
 
 describe("cid_pack", () => {
   beforeEach(() => {

@@ -1,4 +1,5 @@
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
+import { cid_pack, cid_unpack } from "./cid.js";
 import { RPC } from "./rpc.js";
 
 const FIELD_DIFF = 1;
@@ -35,11 +36,13 @@ export class EncodedSnapshot {
   ) {}
 }
 
+export type RemovedComponent = [eid: number, type: number];
+
 export class StateDiff implements IEncodable {
   public toFrame = 0;
   public fromFrame = 0;
   public snapshots: EncodedSnapshot[] = [];
-  public removed: number[] = [];
+  public removed: RemovedComponent[] = [];
 
   public constructor(values?: Partial<StateDiff>) {
     if (values) {
@@ -53,7 +56,7 @@ export class StateDiff implements IEncodable {
     encoder.write_u32(this.snapshots.length);
     this.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
     encoder.write_u32(this.removed.length);
-    this.removed.forEach((cid) => encoder.write_u32(cid));
+    this.removed.forEach(([eid, type]) => encoder.write_u32(cid_pack(eid, type)));
   }
 
   public static wireDecode(decoder: Decoder): StateDiff {
@@ -64,7 +67,7 @@ export class StateDiff implements IEncodable {
     }
     const removedCount = decoder.read_u32();
     for (let i = 0; i < removedCount; i++) {
-      diff.removed.push(decoder.read_u32());
+      diff.removed.push(cid_unpack(decoder.read_u32()));
     }
     return diff;
   }

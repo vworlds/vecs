@@ -7,7 +7,7 @@ function diff(toFrame: number): StateDiff {
     fromFrame: toFrame - 1,
     toFrame,
     snapshots: [new EncodedSnapshot(new Uint8Array([toFrame]), toFrame)],
-    removed: [toFrame],
+    removed: [[toFrame, 1]],
   });
 }
 

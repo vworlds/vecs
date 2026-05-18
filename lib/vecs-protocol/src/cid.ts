@@ -1,13 +1,13 @@
 /** A component id packs an entity id and component type id into a uint32. */
 export type CID = number;
 
-/** Component type ids below this value are reserved for externally assigned ids. */
+/** Component type ids below this value can fit into packed wire component ids. */
 export let LOCAL_COMPONENT_MIN = 256;
 
-/** Reserved component type id with all component-type bits set. */
-export let ALL_COMPONENTS = LOCAL_COMPONENT_MIN - 1;
+/** Protocol removal marker for all components on an entity. */
+export const ALL_COMPONENTS = 0;
 
-let componentTypeMask = ALL_COMPONENTS;
+let componentTypeMask = LOCAL_COMPONENT_MIN - 1;
 let componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
 let MAX_ENTITY_ID = 2 ** (32 - componentTypeShift) - 1;
 let MAX_COMPONENT_TYPE = componentTypeMask;
@@ -31,13 +31,12 @@ export function getLocalComponentMin(): number {
   return LOCAL_COMPONENT_MIN;
 }
 
-/** Configure the local component type range before constructing any worlds. */
+/** Configure the local component type range before constructing networked worlds. */
 export function setLocalComponentMin(value: number): void {
   LOCAL_COMPONENT_MIN = value;
-  ALL_COMPONENTS = LOCAL_COMPONENT_MIN - 1;
   if (isAlignedLocalComponentMin(value)) {
     getLocalComponentMin();
-    componentTypeMask = ALL_COMPONENTS;
+    componentTypeMask = LOCAL_COMPONENT_MIN - 1;
     componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
     MAX_ENTITY_ID = 2 ** (32 - componentTypeShift) - 1;
     MAX_COMPONENT_TYPE = componentTypeMask;

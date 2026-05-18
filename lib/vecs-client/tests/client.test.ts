@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { type VecsSocket } from "@vworlds/vecs-protocol";
+import { ALL_COMPONENTS, cid_pack, type VecsSocket } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { ALL_COMPONENTS, World, cid_pack, cid_unpack } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import {
   Client2Server,
   ComponentSnapshot,
@@ -114,7 +114,7 @@ describe("VecsClient", () => {
           diff: new StateDiff({
             fromFrame: 0,
             toFrame: 2,
-            removed: [cid_pack(7, 1)],
+            removed: [[7, 1]],
           }),
         })
       )
@@ -136,17 +136,13 @@ describe("VecsClient", () => {
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
     client.registerComponent(Position);
-    const destroyedCid = cid_pack(7, ALL_COMPONENTS);
-
-    expect(cid_unpack(destroyedCid)).toEqual([7, ALL_COMPONENTS]);
-
     socket.receive(
       encodeMessage(
         new Server2Client({
           diff: new StateDiff({
             fromFrame: 0,
             toFrame: 2,
-            removed: [destroyedCid],
+            removed: [[7, ALL_COMPONENTS]],
           }),
         })
       )

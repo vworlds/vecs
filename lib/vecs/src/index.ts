@@ -8,12 +8,3 @@ export { type IPhase } from "./phase.js";
 export { getDSLKey, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";
 export { Bitset } from "./util/bitset.js";
-export {
-  ALL_COMPONENTS,
-  LOCAL_COMPONENT_MIN,
-  cid_pack,
-  cid_unpack,
-  getLocalComponentMin,
-  setLocalComponentMin,
-  type CID,
-} from "./cid.js";

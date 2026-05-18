@@ -1,19 +1,8 @@
-import { afterEach, describe, it, expect } from "vitest";
-import {
-  ALL_COMPONENTS,
-  LOCAL_COMPONENT_MIN,
-  World,
-  cid_pack,
-  cid_unpack,
-  setLocalComponentMin,
-} from "../src/index.js";
+import { describe, it, expect } from "vitest";
+import { World } from "../src/index.js";
 
 class A {}
 class B {}
-
-afterEach(() => {
-  setLocalComponentMin(256);
-});
 
 describe("World — entity management", () => {
   it("entity() assigns sequential ids starting at 0", () => {
@@ -90,32 +79,38 @@ describe("World — component registration", () => {
     expect(w.getComponentType(B)).toBe(257);
   });
 
-  it("auto-assigns local type ids from configured LOCAL_COMPONENT_MIN", () => {
-    setLocalComponentMin(1024);
+  it("setComponentTypeRange shifts the auto-incrementing component type counter", () => {
     const w = new World();
+    w.setComponentTypeRange(1);
 
     w.registerComponent(A);
     w.registerComponent(B);
 
-    expect(LOCAL_COMPONENT_MIN).toBe(1024);
-    expect(w.getComponentType(A)).toBe(1024);
-    expect(w.getComponentType(B)).toBe(1025);
+    expect(w.getComponentType(A)).toBe(1);
+    expect(w.getComponentType(B)).toBe(2);
   });
 
-  it("requires LOCAL_COMPONENT_MIN to align to cid packing", () => {
-    setLocalComponentMin(300);
+  it("setComponentTypeRange skips already registered component types", () => {
+    const w = new World();
+    w.registerComponent(A, 1);
+    w.setComponentTypeRange(1);
 
-    expect(() => new World()).toThrow("LOCAL_COMPONENT_MIN");
+    w.registerComponent(B);
+
+    expect(w.getComponentType(B)).toBe(2);
   });
 
-  it("packs and unpacks component ids with the configured type bitmask", () => {
-    setLocalComponentMin(1024);
-    new World();
+  it("setComponentTypeRange after start() throws", () => {
+    const w = new World();
+    w.start();
 
-    const cid = cid_pack(7, 513);
+    expect(() => w.setComponentTypeRange(1)).toThrow();
+  });
 
-    expect(cid).toBe((7 << 10) | 513);
-    expect(cid_unpack(cid)).toEqual([7, 513]);
+  it("setComponentTypeRange rejects the universal marker type", () => {
+    const w = new World();
+
+    expect(() => w.setComponentTypeRange(0)).toThrow("reserved type 0");
   });
 
   it("accepts an explicit numeric type id", () => {
@@ -124,15 +119,11 @@ describe("World — component registration", () => {
     expect(w.getComponentType(A)).toBe(5);
   });
 
-  it("rejects the reserved entity destruction component type", () => {
+  it("rejects component type 0", () => {
     const w = new World();
 
-    expect(() => w.registerComponent(A, ALL_COMPONENTS)).toThrow(
-      "reserved for server-authoritative entity destruction"
-    );
-    expect(() => w.registerComponentType("A", ALL_COMPONENTS)).toThrow(
-      "reserved for server-authoritative entity destruction"
-    );
+    expect(() => w.registerComponent(A, 0)).toThrow("Component type 0 is reserved");
+    expect(() => w.registerComponentType("A", 0)).toThrow("Component type 0 is reserved");
   });
 
   it("accepts a custom display name", () => {

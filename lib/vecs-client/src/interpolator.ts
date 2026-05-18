@@ -1,5 +1,10 @@
-import { ComponentSnapshot as WireComponentSnapshot, StateDiff } from "@vworlds/vecs-protocol";
-import { type CID, cid_unpack } from "@vworlds/vecs";
+import {
+  ComponentSnapshot as WireComponentSnapshot,
+  StateDiff,
+  cid_pack,
+  cid_unpack,
+  type CID,
+} from "@vworlds/vecs-protocol";
 import { Decoder } from "@vworlds/vecs-wire";
 
 const MAX_LENGTH = 3;
@@ -54,7 +59,7 @@ export function diffFromStateDiff(sd: StateDiff): Diff {
     const wire = new Decoder(snapshot.bytes).read(WireComponentSnapshot);
     return new ComponentSnapshot(wire.cid, wire.payload);
   });
-  d.removed = sd.removed;
+  d.removed = sd.removed.map(([eid, type]) => cid_pack(eid, type));
   return d;
 }
 

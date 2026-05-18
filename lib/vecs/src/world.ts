@@ -8,7 +8,9 @@ import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
-import { ALL_COMPONENTS, getLocalComponentMin } from "./cid.js";
+
+const DEFAULT_COMPONENT_TYPE_START = 256;
+const RESERVED_COMPONENT_TYPE = 0;
 
 /**
  * The central ECS container. One world per game session.
@@ -106,8 +108,30 @@ export class World {
   public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
 
   constructor() {
-    this._localComponentCounter = getLocalComponentMin();
+    this._localComponentCounter = DEFAULT_COMPONENT_TYPE_START;
     this._tickSources.add(ALWAYS_TICK_SOURCE);
+  }
+
+  private _nextComponentType(): number {
+    let type = this._localComponentCounter;
+    while (
+      type === RESERVED_COMPONENT_TYPE ||
+      this._Type2Meta.get(type) ||
+      this._isMappedComponentType(type)
+    ) {
+      type++;
+    }
+    this._localComponentCounter = type + 1;
+    return type;
+  }
+
+  private _isMappedComponentType(type: number): boolean {
+    for (const mappedType of this._componentNameTypeMap.values()) {
+      if (mappedType === type) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -386,10 +410,8 @@ export class World {
    * @param type - Numeric type id assigned by the server.
    */
   public registerComponentType(componentName: string, type: number): void {
-    if (type === ALL_COMPONENTS) {
-      throw new Error(
-        `Component type ${type} is reserved for server-authoritative entity destruction`
-      );
+    if (type === RESERVED_COMPONENT_TYPE) {
+      throw new Error(`Component type ${type} is reserved`);
     }
     this._componentNameTypeMap.set(componentName, type);
   }
@@ -444,7 +466,7 @@ export class World {
     if (type === undefined) {
       type = this._componentNameTypeMap.get(componentName);
       if (type === undefined) {
-        type = this._localComponentCounter++;
+        type = this._nextComponentType();
         local = true;
       }
     }
@@ -576,6 +598,28 @@ export class World {
     this._eidCounter = min;
   }
 
+  /**
+   * Set the starting value of the auto-incrementing component type id counter.
+   *
+   * Must be called before component registration is disabled. This is useful
+   * when a host protocol reserves a compact component type range and wants
+   * user-registered components to start within that range.
+   *
+   * @param min - First type id considered by automatic component registration.
+   * @throws When called after registration is disabled or with the reserved type 0.
+   */
+  public setComponentTypeRange(min: number): void {
+    if (this._componentRegistrationDisabled) {
+      throw "setComponentTypeRange must be called before component registration is disabled";
+    }
+    if (!Number.isSafeInteger(min) || min <= RESERVED_COMPONENT_TYPE) {
+      throw new Error(
+        `Component type range must start above reserved type ${RESERVED_COMPONENT_TYPE}`
+      );
+    }
+    this._localComponentCounter = min;
+  }
+
   /** First entity id reserved for locally-created entities. */
   public get localEntityIdStart(): number {
     return this._localEntityIdStart;
@@ -587,7 +631,7 @@ export class World {
    * Used by networking code to materialise server-assigned entities:
    *
    * ```ts
-   * const [eid, type] = cid_unpack(snapshot.cid);
+   * const [eid, type] = unpackSnapshotId(snapshot.cid);
    * const e = world.getOrCreateEntity(eid, (e) => {
    *   networkEntities.add(e);
    * });

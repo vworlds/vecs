@@ -1,9 +1,19 @@
 export {
+  ALL_COMPONENTS,
+  LOCAL_COMPONENT_MIN,
+  cid_pack,
+  cid_unpack,
+  getLocalComponentMin,
+  setLocalComponentMin,
+  type CID,
+} from "./cid.js";
+export {
   Client2Server,
   ComponentSnapshot,
   EncodedSnapshot,
   Server2Client,
   StateDiff,
+  type RemovedComponent,
 } from "./messages.js";
 export {
   FIRST_USER_RPC_ID,

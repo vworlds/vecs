@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { cid_pack } from "@vworlds/vecs";
+import { cid_pack } from "@vworlds/vecs-protocol";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Diff, Interpolator, merge } from "../src/interpolator.js";
 

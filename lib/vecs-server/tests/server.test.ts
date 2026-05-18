@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
+import {
+  ALL_COMPONENTS,
+  cid_pack,
+  type VecsSocket,
+  type VecsSocketListener,
+} from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { ALL_COMPONENTS, type Entity, World, cid_pack } from "@vworlds/vecs";
+import { type Entity, World } from "@vworlds/vecs";
 import { Client2Server, ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
 import {
   EntityTracker,
@@ -185,7 +190,7 @@ describe("VecsServer", () => {
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
     const message = new Decoder(last).read(Server2Client);
-    expect(message.diff!.removed).toEqual([cid_pack(entity.eid, 1)]);
+    expect(message.diff!.removed).toEqual([[entity.eid, 1]]);
     expect(message.diff!.snapshots).toEqual([]);
   });
 
@@ -212,7 +217,7 @@ describe("VecsServer", () => {
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
     const message = new Decoder(last).read(Server2Client);
-    expect(message.diff!.removed).toContain(cid_pack(entity.eid, ALL_COMPONENTS));
+    expect(message.diff!.removed).toContainEqual([entity.eid, ALL_COMPONENTS]);
   });
 
   it("sends entity destruction when Networked exits", () => {
@@ -238,7 +243,7 @@ describe("VecsServer", () => {
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
     const message = new Decoder(last).read(Server2Client);
-    expect(message.diff!.removed).toContain(cid_pack(entity.eid, ALL_COMPONENTS));
+    expect(message.diff!.removed).toContainEqual([entity.eid, ALL_COMPONENTS]);
   });
 
   it("sends current networked state only to the late-joining client", () => {
@@ -377,7 +382,7 @@ describe("VecsServer", () => {
     expect(after.length).toBe(1);
     const message = new Decoder(after[0]).read(Server2Client);
     expect(message.diff!.snapshots).toEqual([]);
-    expect(message.diff!.removed).toEqual([cid_pack(entity.eid, 1)]);
+    expect(message.diff!.removed).toEqual([[entity.eid, 1]]);
   });
 
   it("collapses remove-then-readd within a frame into a single snapshot", () => {
@@ -847,8 +852,8 @@ describe("VecsServer", () => {
     expect(socket.sent.length).toBeGreaterThan(baseline);
     const message = decodeLastMessage(socket);
     expect(message.diff!.removed).toEqual([
-      cid_pack(hidden.eid, ALL_COMPONENTS),
-      cid_pack(session.entity.eid, ALL_COMPONENTS),
+      [hidden.eid, ALL_COMPONENTS],
+      [session.entity.eid, ALL_COMPONENTS],
     ]);
     expect(view.canSee(visible)).toBe(true);
     expect(view.canSee(hidden)).toBe(false);
@@ -881,7 +886,7 @@ describe("VecsServer", () => {
 
     expect(socket.sent.length).toBeGreaterThan(baseline);
     const message = decodeLastMessage(socket);
-    expect(message.diff!.removed).toEqual([cid_pack(entity.eid, ALL_COMPONENTS)]);
+    expect(message.diff!.removed).toEqual([[entity.eid, ALL_COMPONENTS]]);
     expect(message.diff!.snapshots).toEqual([]);
   });
 
@@ -916,7 +921,7 @@ describe("VecsServer", () => {
     expect(view._exitedView).toEqual(new Set());
     expect(socket.sent.length).toBeGreaterThan(baseline);
     const message = decodeLastMessage(socket);
-    expect(message.diff!.removed).toEqual([cid_pack(local.eid, ALL_COMPONENTS)]);
+    expect(message.diff!.removed).toEqual([[local.eid, ALL_COMPONENTS]]);
     expect(message.diff!.snapshots).toHaveLength(1);
   });
 

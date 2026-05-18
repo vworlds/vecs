@@ -4,16 +4,13 @@ import {
   Server2Client,
   SessionRPC,
   StateDiff,
+  ALL_COMPONENTS,
+  cid_pack,
+  cid_unpack,
   type RPCHandler,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
-import {
-  ALL_COMPONENTS,
-  cid_unpack,
-  type ComponentClass,
-  type IPhase,
-  type World,
-} from "@vworlds/vecs";
+import { type ComponentClass, type IPhase, type World } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
@@ -28,6 +25,7 @@ export interface VecsClientOptions {
   socket?: VecsSocket;
   encodeBufferSize?: number;
   localEntityIdStart?: number;
+  componentTypeStart?: number;
   interpolatorBucketLength?: number;
   serverTickIntervalMs?: number;
 }
@@ -61,6 +59,8 @@ export class VecsClient {
     this._world = options.world;
     this._socket = options.socket;
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
+    this._world.setEntityIdRange(options.localEntityIdStart ?? 0x10000);
+    this._world.setComponentTypeRange(options.componentTypeStart ?? 1);
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30
@@ -94,6 +94,7 @@ export class VecsClient {
 
   public registerComponent<C extends ComponentClass>(Class: C): void {
     const meta = this._world.getComponentMeta(Class);
+    cid_pack(0, meta.type);
     this._components.set(meta.type, { Class, type: meta.type });
   }
 
