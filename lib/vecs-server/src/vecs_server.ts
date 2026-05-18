@@ -67,6 +67,7 @@ export class VecsServer {
   private readonly _syncSystems: SyncSystem[] = [];
   private readonly _trackerCache: TrackerCache;
   private readonly _encodeBuffer: Uint8Array;
+  private _clients!: System<[typeof View, typeof ServerClientSession]>;
   private _frame = 0;
   private _systemsInstalled = false;
 
@@ -114,7 +115,7 @@ export class VecsServer {
       session.destroy();
     });
 
-    this.world
+    this._clients = this.world
       .system(`VecsServer:${this.name}:View`)
       .phase(collectPhase)
       .requires(View, ServerClientSession)
@@ -123,7 +124,8 @@ export class VecsServer {
       })
       .exit([View, ServerClientSession], (_entity, [view, _session]) => {
         view._releaseTrackers(this._trackerCache);
-      });
+      })
+      .track();
 
     this._components.forEach((registered) => {
       const system = this.world
@@ -159,8 +161,7 @@ export class VecsServer {
 
     const toFrame = ++this._frame;
 
-    this._sessions.forEach((session) => {
-      const view = session.entity.get(View)!;
+    this._clients.forEach([View, ServerClientSession], (e, [view, session]) => {
       view._reconcileVisibility();
       view._releaseOldTracker(this._trackerCache);
 

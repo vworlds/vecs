@@ -6,6 +6,7 @@ import {
   Networked,
   VecsListener,
   VecsServer,
+  View,
 } from "@vworlds/vecs-server";
 import { World } from "@vworlds/vecs";
 
@@ -76,6 +77,10 @@ const server: VecsServer = vecsListener.registerWorld("main", world);
 server.registerComponent(Position);
 server.registerComponent(Player);
 server.registerComponent(Ball);
+
+world.hook(NetworkClient).onSet((entity) => {
+  entity.set(View, { dsl: true });
+});
 
 for (let i = 0; i < 5; i++) {
   spawnBall(110 + i * 95, 120 + (i % 3) * 90);
