@@ -65,7 +65,7 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 
 function makeSnapshot(eid: number, type: number, payload: Uint8Array): EncodedSnapshot {
   const cid = cid_pack(eid, type);
-  return new EncodedSnapshot(encodeMessage(new ComponentSnapshot({ cid, payload })), cid);
+  return new EncodedSnapshot(encodeMessage(new ComponentSnapshot({ cid, payload })), eid, type);
 }
 
 function posSnapshot(eid: number, x: number, y: number): EncodedSnapshot {

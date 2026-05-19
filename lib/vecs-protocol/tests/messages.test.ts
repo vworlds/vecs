@@ -25,7 +25,7 @@ describe("protocol messages", () => {
       diff: new StateDiff({
         fromFrame: 5,
         toFrame: 6,
-        snapshots: [new EncodedSnapshot(snapshotBytes, snapshotCid + 1)],
+        snapshots: [new EncodedSnapshot(snapshotBytes, 12, 3)],
         removed: [[12, 4]],
       }),
       rpc: [new RPC({ rpcId: 0, callId: 9, params: ["ok"] })],
@@ -36,7 +36,8 @@ describe("protocol messages", () => {
     expect(decoded.diff?.fromFrame).toBe(5);
     expect(decoded.diff?.toFrame).toBe(6);
     expect(decoded.diff?.removed).toEqual([[12, 4]]);
-    expect(decoded.diff!.snapshots[0].cid).toBe(0);
+    expect(decoded.diff!.snapshots[0].eid).toBe(0);
+    expect(decoded.diff!.snapshots[0].type).toBe(0);
     expect(new Decoder(decoded.diff!.snapshots[0].bytes).read(ComponentSnapshot)).toEqual(
       new ComponentSnapshot({ cid: snapshotCid, payload: Uint8Array.from([1, 2, 3]) })
     );

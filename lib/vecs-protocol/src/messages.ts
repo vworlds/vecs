@@ -32,7 +32,8 @@ export class ComponentSnapshot implements IEncodable {
 export class EncodedSnapshot {
   public constructor(
     public bytes: Uint8Array,
-    public cid = 0
+    public eid = 0,
+    public type = 0
   ) {}
 }
 

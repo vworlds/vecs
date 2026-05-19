@@ -631,11 +631,10 @@ export class World {
    * Used by networking code to materialise server-assigned entities:
    *
    * ```ts
-   * const [eid, type] = unpackSnapshotId(snapshot.cid);
-   * const e = world.getOrCreateEntity(eid, (e) => {
+   * const e = world.getOrCreateEntity(snapshot.eid, (e) => {
    *   networkEntities.add(e);
    * });
-   * e.add(type);
+   * e.add(snapshot.type);
    * ```
    *
    * @param eid - Entity id to look up or create.

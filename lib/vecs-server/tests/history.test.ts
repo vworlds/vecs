@@ -3,10 +3,12 @@ import { EncodedSnapshot, StateDiff } from "@vworlds/vecs-protocol";
 import { HISTORY_LENGTH, History } from "../src/history.js";
 
 function diff(toFrame: number): StateDiff {
+  const snapshotBytes = new Uint8Array([toFrame]);
+
   return new StateDiff({
     fromFrame: toFrame - 1,
     toFrame,
-    snapshots: [new EncodedSnapshot(new Uint8Array([toFrame]), toFrame)],
+    snapshots: [new EncodedSnapshot(snapshotBytes, 123, 1)],
     removed: [[toFrame, 1]],
   });
 }
