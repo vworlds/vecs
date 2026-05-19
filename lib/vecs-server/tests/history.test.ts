@@ -53,6 +53,28 @@ describe("History", () => {
     expect(() => history.get(-HISTORY_LENGTH)).toThrow("outside history window");
   });
 
+  it("starts from a provided last frame for late sessions", () => {
+    const history = new History(HISTORY_LENGTH, 9);
+    const frame10 = diff(10);
+
+    expect(history.lastFrame).toBe(9);
+    expect(history.oldestFrame).toBe(5);
+    for (let frame = 5; frame <= 9; frame++) {
+      expect(history.get(frame)).toMatchObject({
+        fromFrame: frame - 1,
+        toFrame: frame,
+        snapshots: [],
+        removed: [],
+      });
+    }
+
+    history.push(frame10);
+
+    expect(history.lastFrame).toBe(10);
+    expect(history.get(10)).toBe(frame10);
+    expect(() => history.push(diff(12))).toThrow("Expected frame 11, got 12");
+  });
+
   it("keeps only the latest frames in the circular buffer", () => {
     const history = new History();
     const frames: StateDiff[] = [];

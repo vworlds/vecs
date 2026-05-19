@@ -17,6 +17,7 @@ import {
   VecsServer,
   View,
 } from "../src/index.js";
+import { HISTORY_LENGTH } from "../src/history.js";
 
 class Position {
   @wireType("i32")
@@ -38,6 +39,7 @@ type SocketHandler = (arg?: unknown) => void;
 
 class MemorySocket implements VecsSocket {
   public readonly sent: Uint8Array[] = [];
+  public closed = false;
   private readonly _handlers = new Map<string, SocketHandler[]>();
 
   public constructor(public readonly id: string) {}
@@ -58,6 +60,7 @@ class MemorySocket implements VecsSocket {
   }
 
   public close(): void {
+    this.closed = true;
     this._handlers.get("disconnect")?.forEach((handler) => handler());
   }
 }
@@ -262,6 +265,7 @@ describe("VecsServer", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 30, y: 40 });
     world.progress(0, 16);
+    first.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
     const firstSentBeforeJoin = first.sent.length;
 
     const late = new MemorySocket("client-2");
@@ -271,6 +275,9 @@ describe("VecsServer", () => {
     world.progress(16, 16);
 
     expect(late.sent.length).toBe(1);
+    const message = decodeLastMessage(late);
+    expect(message.diff?.fromFrame).toBe(0);
+    expect(message.diff?.toFrame).toBe(1);
     const position = decodeFirstSnapshotPayload(late.sent[0]);
     expect(position).toMatchObject({ x: 30, y: 40 });
     // existing client must not have received anything as a side-effect of the join
@@ -278,6 +285,132 @@ describe("VecsServer", () => {
 
     // hide eid reference for type-narrowing in subsequent assertions
     expect(entity.eid).toBeGreaterThan(0);
+  });
+
+  it("sends merged updates to clients that have not acked", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    const server = new VecsServer("main", world);
+    allowAllClientViews(world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
+    world.progress(0, 16);
+    entity.set(Position, { x: 2, y: 2 });
+    world.progress(16, 16);
+
+    const message = decodeLastMessage(socket);
+    const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
+    expect(message.diff?.fromFrame).toBe(0);
+    expect(message.diff?.toFrame).toBe(1);
+    expect(message.diff?.snapshots).toHaveLength(1);
+    expect(position).toMatchObject({ x: 2, y: 2 });
+    expect(entity.eid).toBeGreaterThan(0);
+  });
+
+  it("sends only changes after an acknowledged frame", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    const server = new VecsServer("main", world);
+    allowAllClientViews(world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+
+    const entity = world.entity().add(Networked).set(Position, { x: 3, y: 3 });
+    world.progress(0, 16);
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    entity.set(Position, { x: 4, y: 4 });
+    world.progress(16, 16);
+
+    const message = decodeLastMessage(socket);
+    const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
+    expect(message.diff?.fromFrame).toBe(0);
+    expect(message.diff?.toFrame).toBe(1);
+    expect(message.diff?.snapshots).toHaveLength(1);
+    expect(position).toMatchObject({ x: 4, y: 4 });
+    expect(entity.eid).toBeGreaterThan(0);
+  });
+
+  it("retains empty frames while pulling merged updates", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    const server = new VecsServer("main", world);
+    allowAllClientViews(world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+
+    const entity = world.entity().add(Networked).set(Position, { x: 5, y: 5 });
+    world.progress(0, 16);
+    world.progress(16, 16);
+    entity.set(Position, { x: 6, y: 6 });
+    world.progress(32, 16);
+
+    const message = decodeLastMessage(socket);
+    const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
+    expect(message.diff?.fromFrame).toBe(0);
+    expect(message.diff?.toFrame).toBe(2);
+    expect(position).toMatchObject({ x: 6, y: 6 });
+  });
+
+  it("disconnects clients that lag outside the history window", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    const server = new VecsServer("main", world);
+    allowAllClientViews(world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+
+    world.entity().add(Networked).set(Position, { x: 7, y: 7 });
+    for (let i = 0; i <= HISTORY_LENGTH; i++) {
+      world.progress(i * 16, 16);
+    }
+
+    expect(socket.closed).toBe(true);
+  });
+
+  it("ignores default ack before the first frame is sent", () => {
+    const world = new World();
+    world.registerComponent(Position, 1);
+    const server = new VecsServer("main", world);
+    allowAllClientViews(world);
+    server.registerComponent(Position);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    world.entity().add(Networked).set(Position, { x: 8, y: 8 });
+    world.progress(0, 16);
+
+    const message = decodeLastMessage(socket);
+    const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
+    expect(message.diff?.fromFrame).toBe(0);
+    expect(message.diff?.toFrame).toBe(0);
+    expect(position).toMatchObject({ x: 8, y: 8 });
   });
 
   it("creates a NetworkClient entity on connect and destroys it on disconnect", () => {
@@ -945,6 +1078,7 @@ describe("VecsServer", () => {
 
     session.entity.set(View, { dsl: [LocalOnly] });
     world.progress(0, 16);
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
     const baseline = socket.sent.length;
 
     session.entity.set(View, { dsl: true });

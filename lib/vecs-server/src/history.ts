@@ -16,13 +16,17 @@ type EntityHistory = ArrayMap<Slot> | RemovedMarker;
 
 export class History {
   private readonly _buffer: StateDiff[];
-  private _lastFrame = -1;
+  private _lastFrame: number;
 
-  public constructor(private readonly _length = HISTORY_LENGTH) {
+  public constructor(
+    private readonly _length = HISTORY_LENGTH,
+    lastFrame = -1
+  ) {
+    this._lastFrame = lastFrame;
     this._buffer = new Array<StateDiff>(_length);
 
     for (let i = 0; i < _length; i++) {
-      const toFrame = -1 - i;
+      const toFrame = lastFrame - i;
       this._buffer[this._index(toFrame)] = emptyDiff(toFrame);
     }
   }

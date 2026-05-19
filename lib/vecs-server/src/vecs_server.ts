@@ -21,6 +21,7 @@ import {
   type World,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
+import { HISTORY_LENGTH, History } from "./history.js";
 import { NetworkClient, NetworkInput, Networked } from "./networked.js";
 import { TrackerCache, View } from "./view.js";
 
@@ -38,10 +39,19 @@ interface SyncSystem {
 }
 
 class ServerClientSession {
+  public readonly baseFrame: number;
+  public readonly history: History;
   public readonly rpc = new SessionRPC();
-  public ackFrame = 0;
+  public ackFrame: number;
+  public needsFullSnapshot = true;
   public socket!: VecsSocket;
   public entity!: Entity;
+
+  public constructor(lastFrame = -1) {
+    this.baseFrame = lastFrame;
+    this.ackFrame = lastFrame;
+    this.history = new History(HISTORY_LENGTH, lastFrame);
+  }
 
   public destroy(): void {}
 }
@@ -170,6 +180,7 @@ export class VecsServer {
     }
 
     const toFrame = this._frame++;
+    const staleSessions: ServerClientSession[] = [];
 
     this._clients.forEach([View, ServerClientSession], (e, [view, session]) => {
       view._reconcileVisibility();
@@ -199,25 +210,44 @@ export class VecsServer {
       view._enteredView.clear();
       view._exitedView.clear();
 
-      const rpc = session.rpc.getOutgoing();
-      if (snapshots.length === 0 && removed.length === 0 && rpc.length === 0) {
-        return;
-      }
-      const diff = new StateDiff({
-        fromFrame: session.ackFrame,
+      const latest = new StateDiff({
+        fromFrame: toFrame - 1,
         toFrame,
         snapshots,
         removed,
       });
+      session.history.push(latest);
+
+      if (session.ackFrame < session.history.oldestFrame - 1) {
+        staleSessions.push(session);
+        return;
+      }
+
+      const rpc = session.rpc.getOutgoing();
+      let diff = session.history.pull(session.ackFrame, toFrame);
+      if (session.needsFullSnapshot && diff.fromFrame !== 0) {
+        diff = new StateDiff({
+          fromFrame: 0,
+          toFrame: diff.toFrame,
+          snapshots: diff.snapshots,
+          removed: diff.removed,
+        });
+      }
+
+      if (diff.snapshots.length === 0 && diff.removed.length === 0 && rpc.length === 0) {
+        return;
+      }
       session.socket.send(this._encode(new Server2Client({ diff, rpc })));
     });
+
+    staleSessions.forEach((session) => session.socket.close());
 
     this._updates.clear();
   }
 
   private _onNewConnection(socket: VecsSocket): void {
     const entity = this.world.entity().add(Networked).add(NetworkClient).add(View);
-    const session = new ServerClientSession();
+    const session = new ServerClientSession(this._frame - 1);
     session.socket = socket;
     session.entity = entity;
     entity.attach(session);
@@ -240,7 +270,12 @@ export class VecsServer {
 
   private _receive(session: ServerClientSession, data: Uint8Array): void {
     const message = new Decoder(data).read(Client2Server);
-    session.ackFrame = Math.max(session.ackFrame, message.ackFrame);
+    if (message.ackFrame <= session.history.lastFrame) {
+      session.ackFrame = Math.max(session.ackFrame, message.ackFrame);
+      if (session.ackFrame > session.baseFrame) {
+        session.needsFullSnapshot = false;
+      }
+    }
     if (message.input !== undefined) {
       session.entity.set(NetworkInput, { input: message.input });
     }
