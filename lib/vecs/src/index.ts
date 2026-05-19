@@ -7,4 +7,5 @@ export { type Entity } from "./entity.js";
 export { type IPhase } from "./phase.js";
 export { getDSLKey, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";
+export { ArrayMap } from "./util/array_map.js";
 export { Bitset } from "./util/bitset.js";
