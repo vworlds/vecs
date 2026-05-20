@@ -14,6 +14,7 @@ import { type ComponentClass, type IPhase, type World } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
+import { Component } from "node_modules/@vworlds/vecs/dist/component.js";
 
 interface RegisteredComponent {
   Class: ComponentClass;
@@ -170,12 +171,19 @@ export class VecsClient {
     this._interpolator.push(diff);
   }
 
-  private _applySnapshot(snapshot: ComponentSnapshot): void {
+  public decodeComponentSnapshot(snapshot: ComponentSnapshot): Component {
+    if (snapshot.component !== undefined) {
+      return snapshot.component;
+    }
     const registered = this._components.get(snapshot.type);
     if (!registered) {
-      return;
+      throw new Error(`Received snapshot for unregistered component type ${snapshot.type}`);
     }
-    const component = new Decoder(snapshot.payload).read(registered.Class);
+    return (snapshot.component = new Decoder(snapshot.payload).read(registered.Class) as Component);
+  }
+
+  private _applySnapshot(snapshot: ComponentSnapshot): void {
+    const component = this.decodeComponentSnapshot(snapshot);
     const entity = this._world.getOrCreateEntity(snapshot.eid);
     entity.attach(component as object);
   }

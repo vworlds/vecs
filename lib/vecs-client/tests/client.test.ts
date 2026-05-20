@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_COMPONENTS, cid_pack, type VecsSocket } from "@vworlds/vecs-protocol";
+import { ALL_COMPONENTS, type VecsSocket } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
 import { World } from "@vworlds/vecs";
 import {
@@ -64,8 +64,11 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 }
 
 function makeSnapshot(eid: number, type: number, payload: Uint8Array): EncodedSnapshot {
-  const cid = cid_pack(eid, type);
-  return new EncodedSnapshot(encodeMessage(new ComponentSnapshot({ cid, payload })), eid, type);
+  return new EncodedSnapshot(
+    encodeMessage(new ComponentSnapshot({ eid, type, payload })),
+    eid,
+    type
+  );
 }
 
 function posSnapshot(eid: number, x: number, y: number): EncodedSnapshot {

@@ -7,7 +7,8 @@ const FIELD_RPC = 2;
 const FIELD_INPUT = 3;
 
 export class ComponentSnapshot implements IEncodable {
-  public cid = 0;
+  public eid = 0;
+  public type = 0;
   public payload = new Uint8Array();
 
   public constructor(values?: Partial<ComponentSnapshot>) {
@@ -17,13 +18,15 @@ export class ComponentSnapshot implements IEncodable {
   }
 
   public wireEncode(encoder: Encoder): void {
-    encoder.write_u32(this.cid);
+    encoder.write_u32(cid_pack(this.eid, this.type));
     encoder.write_buffer(this.payload);
   }
 
   public static wireDecode(decoder: Decoder): ComponentSnapshot {
+    const [eid, type] = cid_unpack(decoder.read_u32());
     return new ComponentSnapshot({
-      cid: decoder.read_u32(),
+      eid,
+      type,
       payload: decoder.read_bytes(),
     });
   }
@@ -31,7 +34,7 @@ export class ComponentSnapshot implements IEncodable {
 
 export class EncodedSnapshot {
   public constructor(
-    public bytes: Uint8Array,
+    public bytes: Uint8Array, // contains an already-encoded ComponentSnapshot
     public eid = 0,
     public type = 0
   ) {}

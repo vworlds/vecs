@@ -309,7 +309,7 @@ export class VecsServer {
     payloadEncoder.write(component);
     const payload = payloadEncoder.getBuffer().slice();
     const snapshot = new EncodedSnapshot(
-      this._encode(new ComponentSnapshot({ cid, payload })),
+      this._encode(new ComponentSnapshot({ eid, type, payload })),
       eid,
       type
     );

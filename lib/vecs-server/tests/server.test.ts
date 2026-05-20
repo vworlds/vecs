@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  ALL_COMPONENTS,
-  cid_pack,
-  type VecsSocket,
-  type VecsSocketListener,
-} from "@vworlds/vecs-protocol";
+import { ALL_COMPONENTS, type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
 import { type Entity, World } from "@vworlds/vecs";
 import { Client2Server, ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
@@ -165,7 +160,7 @@ describe("VecsServer", () => {
     const snapshot = new Decoder(message.diff!.snapshots[0].bytes).read(ComponentSnapshot);
     const position = new Decoder(snapshot.payload).read(Position);
 
-    expect(snapshot.cid).toBe(cid_pack(entity.eid, 1));
+    expect(snapshot).toMatchObject({ eid: entity.eid, type: 1 });
     expect(position).toMatchObject({ x: 10, y: 20 });
     expect(message.diff!.removed).toEqual([]);
   });
@@ -545,7 +540,7 @@ describe("VecsServer", () => {
     expect(lastDiff?.removed ?? []).toEqual([]);
     expect(lastDiff?.snapshots.length).toBe(1);
     const snap = new Decoder(lastDiff!.snapshots[0].bytes).read(ComponentSnapshot);
-    expect(snap.cid).toBe(cid_pack(entity.eid, 1));
+    expect(snap).toMatchObject({ eid: entity.eid, type: 1 });
     const pos = new Decoder(snap.payload).read(Position);
     expect(pos).toMatchObject({ x: 7, y: 7 });
   });

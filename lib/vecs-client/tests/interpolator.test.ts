@@ -28,11 +28,11 @@ function encodeColor(color: string): Uint8Array {
 }
 
 function makePosComponent(eid: number, x: number, y: number): ComponentSnapshot {
-  return new ComponentSnapshot(CID(eid, PositionType), encodePos(x, y));
+  return new ComponentSnapshot(eid, PositionType, encodePos(x, y));
 }
 
 function makeColorComponent(eid: number, color: string): ComponentSnapshot {
-  return new ComponentSnapshot(CID(eid, ColorType), encodeColor(color));
+  return new ComponentSnapshot(eid, ColorType, encodeColor(color));
 }
 
 // test snapshot generator: returns Position + Color components for one entity

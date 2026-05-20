@@ -2,10 +2,11 @@ import {
   ComponentSnapshot as WireComponentSnapshot,
   StateDiff,
   cid_pack,
-  cid_unpack,
   type CID,
 } from "@vworlds/vecs-protocol";
 import { Decoder } from "@vworlds/vecs-wire";
+import { VecsClient } from "./vecs_client.js";
+import { Component } from "@vworlds/vecs";
 
 const MAX_LENGTH = 3;
 
@@ -14,13 +15,13 @@ export class ComponentSnapshot {
   public readonly type: number;
   public readonly payload: Uint8Array;
   public readonly cid: CID;
+  public component: Component | undefined;
 
-  public constructor(cid: CID, payload: Uint8Array) {
-    const [eid, type] = cid_unpack(cid);
+  public constructor(eid: number, type: number, payload: Uint8Array) {
     this.eid = eid;
     this.type = type;
     this.payload = payload;
-    this.cid = cid;
+    this.cid = cid_pack(eid, type);
   }
 }
 
@@ -57,7 +58,7 @@ export function diffFromStateDiff(sd: StateDiff): Diff {
   const d = new Diff(sd.fromFrame, sd.toFrame);
   d.snapshots = sd.snapshots.map((snapshot) => {
     const wire = new Decoder(snapshot.bytes).read(WireComponentSnapshot);
-    return new ComponentSnapshot(wire.cid, wire.payload);
+    return new ComponentSnapshot(wire.eid, wire.type, wire.payload);
   });
   d.removed = sd.removed.map(([eid, type]) => cid_pack(eid, type));
   return d;
