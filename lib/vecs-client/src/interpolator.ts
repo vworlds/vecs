@@ -1,23 +1,32 @@
 import {
+  ALL_COMPONENTS,
   ComponentSnapshot as WireComponentSnapshot,
   StateDiff,
   cid_pack,
+  cid_unpack,
   type CID,
 } from "@vworlds/vecs-protocol";
 import { Decoder } from "@vworlds/vecs-wire";
-import { VecsClient } from "./vecs_client.js";
-import { Component } from "@vworlds/vecs";
+import { type Component } from "@vworlds/vecs";
 
 const MAX_LENGTH = 3;
+const POSITION_COMPONENT_TYPE = 1;
+
+export interface IPosition {
+  readonly x: number;
+  readonly y: number;
+}
+
+type DecodeComponentSnapshot = (snapshot: ComponentSnapshot) => Component;
+type PositionComponent = Component & IPosition;
 
 export class ComponentSnapshot {
   public readonly eid: number;
   public readonly type: number;
-  public readonly payload: Uint8Array;
+  public payload: Uint8Array | Component;
   public readonly cid: CID;
-  public component: Component | undefined;
 
-  public constructor(eid: number, type: number, payload: Uint8Array) {
+  public constructor(eid: number, type: number, payload: Uint8Array | Component) {
     this.eid = eid;
     this.type = type;
     this.payload = payload;
@@ -83,9 +92,14 @@ export class Interpolator {
   // tServ tracks the server time approximately
   private _tServ = -1;
 
+  // lastTime contains the timestamp for the last pull() call and is used as
+  // the moving interpolation baseline when pull() is called before tServ.
+  private _lastTime = -1;
+
   public constructor(
     private max_length: number = MAX_LENGTH, // max bucket length
-    private server_tick_interval: number = 1000 / 60 // server tick interval FPS configuration
+    private server_tick_interval: number = 1000 / 60, // server tick interval FPS configuration
+    private readonly _decodeComponentSnapshot?: DecodeComponentSnapshot
   ) {
     if (max_length < 2) {
       throw new Error("minimum interpolation bucket length is 2");
@@ -99,6 +113,15 @@ export class Interpolator {
       this._state.set(s.cid, s);
     });
     (sd.removed as number[] | undefined)?.forEach((r) => {
+      const [eid, type] = cid_unpack(r);
+      if (type === ALL_COMPONENTS) {
+        this._state.forEach((_, cid) => {
+          if (cid_unpack(cid)[0] === eid) {
+            this._state.delete(cid);
+          }
+        });
+        return;
+      }
       this._state.delete(r);
     });
     this._stateVersion = sd.to;
@@ -124,11 +147,15 @@ export class Interpolator {
       // to replenish, by delaying the server time.
       this._tServ = now + this.server_tick_interval * this.bucket.length;
       this._first = undefined;
+      this._lastTime = now;
       return sd; // return empty diff
     }
     if (this._tServ === -1) {
       this._tServ = now;
     }
+
+    // lerpStart is the timestamp of the currently visualized state.
+    let lerpStart = this._lastTime;
 
     // The following loop will incorporate (merge) into the
     // proposed diff (sd) as many snapshots from the bucket
@@ -143,6 +170,7 @@ export class Interpolator {
     ) {
       // take snapshot on bucket[0] and merge it on to the result:
       sd = merge(sd, this.bucket[0], false);
+      lerpStart = this._tServ;
       this._pop(); //remove bucket[0] and shift contents to the left
     }
 
@@ -158,12 +186,12 @@ export class Interpolator {
       this._pop();
       tsDelta += this.server_tick_interval;
     }
-    // At this point, if something is in the bucket,
-    // bucket[0] contains the next target. With lerp disabled, we do not
-    // mix any of its components into the current diff yet — they will
-    // arrive whole on a future pull when tServ has advanced past it.
+    // At this point, if something is in the bucket, bucket[0] contains the
+    // next target. Position snapshots are blended into the returned diff so
+    // callers can render fake frames between server ticks.
     const target = this.bucket[0];
     if (target) {
+      this._interpolatePositions(sd, target, lerpStart, this._tServ, now);
       this._first = target.to;
     } else {
       this._first = undefined;
@@ -172,6 +200,7 @@ export class Interpolator {
     // incorporate this diff into our visualization of the state prior
     // to handing this diff out to the scene:
     this._updateState(sd);
+    this._lastTime = now;
     return sd;
   }
 
@@ -242,6 +271,71 @@ export class Interpolator {
       this.version = diff.to;
     }
   }
+
+  private _decodePositionSnapshot(snapshot: ComponentSnapshot): PositionComponent {
+    if (!(snapshot.payload instanceof Uint8Array)) {
+      if (!isPosition(snapshot.payload)) {
+        throw new Error(`Component type ${POSITION_COMPONENT_TYPE} must satisfy IPosition`);
+      }
+      return snapshot.payload;
+    }
+    if (!this._decodeComponentSnapshot) {
+      throw new Error("Position interpolation requires a component snapshot decoder");
+    }
+    const component = this._decodeComponentSnapshot(snapshot);
+    if (!isPosition(component)) {
+      throw new Error(`Component type ${POSITION_COMPONENT_TYPE} must satisfy IPosition`);
+    }
+    return component;
+  }
+
+  private _interpolatePositions(
+    sd: Diff,
+    target: Diff,
+    start: number,
+    end: number,
+    now: number
+  ): void {
+    target.snapshots.forEach((targetSnapshot) => {
+      if (targetSnapshot.type !== POSITION_COMPONENT_TYPE) {
+        return;
+      }
+      const sourceSnapshot = sd.smap.get(targetSnapshot.cid) ?? this._state.get(targetSnapshot.cid);
+      if (!sourceSnapshot) {
+        return;
+      }
+      const sourcePosition = this._decodePositionSnapshot(sourceSnapshot);
+      const targetPosition = this._decodePositionSnapshot(targetSnapshot);
+      const position = lerp(sourcePosition, targetPosition, start, end, now);
+      sd.smap.set(
+        targetSnapshot.cid,
+        new ComponentSnapshot(targetSnapshot.eid, POSITION_COMPONENT_TYPE, position)
+      );
+    });
+    sd.updateSnapshotsFromMap();
+  }
+}
+
+function isPosition(component: Component): component is PositionComponent {
+  const candidate = component as Partial<IPosition>;
+  return typeof candidate.x === "number" && typeof candidate.y === "number";
+}
+
+function lerp(
+  a: PositionComponent,
+  b: PositionComponent,
+  start: number,
+  end: number,
+  t: number
+): Component {
+  if (end === start) {
+    return b;
+  }
+  const d = end - start;
+  const position = new (b.constructor as new () => Component & { x: number; y: number })();
+  position.x = a.x + ((b.x - a.x) / d) * (t - start);
+  position.y = a.y + ((b.y - a.y) / d) * (t - start);
+  return position;
 }
 
 // helper function to add items to a set

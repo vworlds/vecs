@@ -3,8 +3,13 @@ import { cid_pack } from "@vworlds/vecs-protocol";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Diff, Interpolator, merge } from "../src/interpolator.js";
 
-const PositionType = 5;
+const PositionType = 1;
 const ColorType = 6;
+
+class Position {
+  public x = 0;
+  public y = 0;
+}
 
 function CID(eid: number, type: number): number {
   return cid_pack(eid, type);
@@ -57,6 +62,9 @@ function Color(sd: Diff, id: number): string | undefined {
   if (!s) {
     return undefined;
   }
+  if (!(s.payload instanceof Uint8Array)) {
+    throw new Error("Color payload must be encoded bytes");
+  }
   return new Decoder(s.payload).read_string();
 }
 
@@ -65,8 +73,28 @@ function Pos(sd: Diff, id: number): { x: number; y: number } | undefined {
   if (!s) {
     return undefined;
   }
+  if (!(s.payload instanceof Uint8Array)) {
+    const p = s.payload as Position;
+    return { x: p.x, y: p.y };
+  }
   const d = new Decoder(s.payload);
   return { x: d.read_i32(), y: d.read_i32() };
+}
+
+function decodePosition(snapshot: ComponentSnapshot): Position {
+  if (!(snapshot.payload instanceof Uint8Array)) {
+    return snapshot.payload as Position;
+  }
+  const d = new Decoder(snapshot.payload);
+  const position = new Position();
+  position.x = d.read_i32();
+  position.y = d.read_i32();
+  snapshot.payload = position;
+  return position;
+}
+
+function newInterpolator(maxLength: number, serverTickInterval: number): Interpolator {
+  return new Interpolator(maxLength, serverTickInterval, decodePosition);
 }
 
 const A = 1;
@@ -76,7 +104,7 @@ const D = 4;
 
 test("reorder", () => {
   const MAX_LENGTH = 4;
-  let ip = new Interpolator(MAX_LENGTH, 10);
+  let ip = newInterpolator(MAX_LENGTH, 10);
   const s0 = SD({ from: 0, to: 0, snapshots: snap({ id: A, xy: 0, color: "red" }) });
   const s1 = SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) });
   const s2 = SD({ from: 0, to: 2, snapshots: snap({ id: A, xy: 2, color: "red" }) });
@@ -95,7 +123,7 @@ test("reorder", () => {
 
   // Try again, but this case s2 arrives first. When the bucket is empty,
   // the first diff received is taken as starting point
-  ip = new Interpolator(MAX_LENGTH, 10);
+  ip = newInterpolator(MAX_LENGTH, 10);
   ip.push(s2); // taken as starting reference and placed in bucket[0]
   ip.push(s0); // will be discarded as too old
   ip.push(s3); // will be placed in bucket[1]
@@ -129,12 +157,9 @@ test("reorder", () => {
   expect(ip.version).toBe(18);
 });
 
-test("pull steps through buffered frames in server-time order", () => {
-  // With lerp disabled, every pull either advances tServ past zero or more
-  // bucket entries (consuming and merging them into the returned diff) or
-  // returns an empty no-op diff while we wait for tServ to catch up.
+test("pull steps through buffered frames with interpolated position frames", () => {
   const MAX_LENGTH = 4;
-  const ip = new Interpolator(MAX_LENGTH, 10);
+  const ip = newInterpolator(MAX_LENGTH, 10);
 
   const A1 = snap({ id: A, xy: 0, color: "red" });
   const B1 = snap({ id: B, xy: 5, color: "blue" });
@@ -163,16 +188,16 @@ test("pull steps through buffered frames in server-time order", () => {
   expect(Pos(sd100, A)).toEqual({ x: 0, y: 0 });
   expect(Pos(sd100, B)).toEqual({ x: 5, y: 5 });
 
-  now += 5; // 105: not enough server-time has elapsed, expect empty diff
+  now += 5; // 105: not enough server-time has elapsed, expect an interpolated frame
   const sd105 = ip.pull(now);
-  expect(sd105.snapshots).toEqual([]);
+  expect(Pos(sd105, A)).toEqual({ x: 0.5, y: 0.5 });
   expect(sd105.removed ?? []).toEqual([]);
   expect(sd105.from).toBe(1);
   expect(sd105.to).toBe(1);
 
-  now += 10; // 115: tServ advances past s2; merge s2 into the returned diff.
+  now += 10; // 115: tServ advances past s2 and starts interpolating toward s4.
   const sd115 = ip.pull(now);
-  expect(Pos(sd115, A)).toEqual({ x: 1, y: 1 });
+  expect(Pos(sd115, A)).toEqual({ x: 1.5, y: 1.5 });
   expect(Color(sd115, A)).toBe("black");
   expect(Pos(sd115, C)).toEqual({ x: 4, y: 4 });
   expect(sd115.from).toBe(1);
@@ -180,7 +205,8 @@ test("pull steps through buffered frames in server-time order", () => {
 
   now += 10; // 125: still waiting for s3 (missing) / s4 server slot
   const sd125 = ip.pull(now);
-  expect(sd125.snapshots).toEqual([]);
+  expect(Pos(sd125, A)).toEqual({ x: 2.5, y: 2.5 });
+  expect(Pos(sd125, B)).toEqual({ x: 8.75, y: 8.75 });
   expect(sd125.from).toBe(2);
   expect(sd125.to).toBe(2);
 
@@ -203,7 +229,7 @@ test("merge-add", () => {
   // test merging two diffs that refer to different entities; the resulting
   // merge contains both entities
   const MAX_LENGTH = 2;
-  const ip = new Interpolator(MAX_LENGTH, 10);
+  const ip = newInterpolator(MAX_LENGTH, 10);
 
   const A1 = snap({ id: A, xy: 0, color: "red" });
   const B2 = snap({ id: B, xy: 5, color: "blue" });
@@ -234,7 +260,7 @@ test("merge-replace", () => {
   // test merging when the newer diff has a more updated version of the same
   // entity. The newer diff must prevail.
   const MAX_LENGTH = 2;
-  const ip = new Interpolator(MAX_LENGTH, 10);
+  const ip = newInterpolator(MAX_LENGTH, 10);
 
   const A1 = snap({ id: A, xy: 0, color: "red" });
   const A2 = snap({ id: A, xy: 5, color: "blue" });
@@ -281,7 +307,7 @@ test("merge-remove", () => {
   // created before. Must cancel previous snapshots of that component and keep
   // a removed entry so the client state catches up.
   const MAX_LENGTH = 2;
-  const ip = new Interpolator(MAX_LENGTH, 10);
+  const ip = newInterpolator(MAX_LENGTH, 10);
 
   const { sd1, sd2, sd3 } = createMergeRemoveDiffs();
 
@@ -307,7 +333,7 @@ test("merge-remove-readd", () => {
   // created before, then that component reappears. Must cancel the intermediate
   // "removed" entry.
   const MAX_LENGTH = 2;
-  const ip = new Interpolator(MAX_LENGTH, 10);
+  const ip = newInterpolator(MAX_LENGTH, 10);
   const A4 = snap({ id: A, xy: 0, color: "orange" });
 
   const { C3, sd1, sd2, sd3 } = createMergeRemoveDiffs();
@@ -331,4 +357,34 @@ test("merge-remove-readd", () => {
   });
 
   expect(ip.pull(120)).toMatchObject(sd5);
+});
+
+test("interpolated snapshots carry Position instances as payload", () => {
+  const ip = newInterpolator(3, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
+  const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 10, 20)] });
+
+  ip.push(s1);
+  ip.push(s2);
+
+  ip.pull(100);
+  const sd105 = ip.pull(105);
+  const snapshot = sd105.smap.get(CID(A, PositionType));
+
+  expect(snapshot?.payload).toBeInstanceOf(Position);
+  expect(Pos(sd105, A)).toEqual({ x: 5, y: 10 });
+});
+
+test("does not interpolate entities that only exist in a future frame", () => {
+  const ip = newInterpolator(3, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
+  const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(B, 10, 20)] });
+
+  ip.push(s1);
+  ip.push(s2);
+
+  ip.pull(100);
+  const sd105 = ip.pull(105);
+
+  expect(Pos(sd105, B)).toBeUndefined();
 });

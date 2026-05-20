@@ -209,6 +209,35 @@ describe("VecsClient", () => {
     expect(world.entity(7)?.get(Position)).toMatchObject({ x: 3, y: 3 });
   });
 
+  it("applies interpolated position frames between server ticks", () => {
+    const world = new World();
+    world.setEntityIdRange(1000);
+    world.registerComponent(Position, 1);
+    const socket = new MemorySocket("server");
+    const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
+    client.registerComponent(Position);
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(7, 0, 0)] }),
+        })
+      )
+    );
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 1, toFrame: 2, snapshots: [posSnapshot(7, 10, 20)] }),
+        })
+      )
+    );
+
+    client.apply(100);
+    client.apply(105);
+
+    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 5, y: 10 });
+  });
+
   it("drops diffs whose frames have already left the bucket window", () => {
     const world = new World();
     world.setEntityIdRange(1000);
