@@ -128,6 +128,10 @@ export class VecsClient {
     this._rpc.listen(rpcId, handler);
   }
 
+  public onDisconnect(handler: () => void): void {
+    this._socket?.on("disconnect", handler);
+  }
+
   public apply(now: number): void {
     if (this._rpcInbox.length > 0) {
       const incoming = this._rpcInbox.splice(0);

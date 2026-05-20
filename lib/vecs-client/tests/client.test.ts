@@ -168,6 +168,20 @@ describe("VecsClient", () => {
     expect(new Decoder(socket.sent[0]).read(Client2Server).ackFrame).toBe(9);
   });
 
+  it("notifies when the socket disconnects", () => {
+    const world = new World();
+    const socket = new MemorySocket("server");
+    const client = new VecsClient({ world, socket });
+    let disconnected = false;
+
+    client.onDisconnect(() => {
+      disconnected = true;
+    });
+    socket.close();
+
+    expect(disconnected).toBe(true);
+  });
+
   it("applies out-of-order diffs in server frame order", () => {
     const world = new World();
     world.setEntityIdRange(1000);
