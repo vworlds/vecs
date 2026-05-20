@@ -23,7 +23,6 @@ const BALL_RADIUS = 12;
 const TICK_RATE = 30;
 const DT = 1 / TICK_RATE;
 const DT_MS = 1000 / TICK_RATE;
-const WAKE_EARLY_MS = 5;
 let playerSpawnIndex = 0;
 
 interface PlayerInput {
@@ -185,12 +184,7 @@ function loop(): void {
     accumulator -= DT_MS;
   }
 
-  const delay = DT_MS - accumulator - WAKE_EARLY_MS;
-  if (delay > 0) {
-    setTimeout(loop, delay);
-    return;
-  }
-  setImmediate(loop);
+  setTimeout(loop, Math.max(0, DT_MS - accumulator));
 }
 
 loop();
