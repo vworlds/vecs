@@ -63,14 +63,8 @@ class Ball {
 }
 
 class Color {
-  @wireType("u8")
-  public r = 255;
-
-  @wireType("u8")
-  public g = 255;
-
-  @wireType("u8")
-  public b = 255;
+  @wireType("u32")
+  public value = 0xffffff;
 }
 
 const gridCellComponents: ComponentClass[] = Array.from(
@@ -268,10 +262,11 @@ function spawnBall(x = randomInt(40, WIDTH - 40), y = randomInt(90, HEIGHT - 40)
 }
 
 function randomColor(): Partial<Color> {
+  const r = randomInt(80, 255);
+  const g = randomInt(80, 255);
+  const b = randomInt(80, 255);
   return {
-    r: randomInt(80, 255),
-    g: randomInt(80, 255),
-    b: randomInt(80, 255),
+    value: (r << 16) | (g << 8) | b,
   };
 }
 

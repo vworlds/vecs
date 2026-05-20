@@ -38,14 +38,8 @@ class Ball {
 }
 
 class Color {
-  @wireType("u8")
-  public r = 255;
-
-  @wireType("u8")
-  public g = 255;
-
-  @wireType("u8")
-  public b = 255;
+  @wireType("u32")
+  public value = 0xffffff;
 }
 
 const keys = new Set<string>();
@@ -140,7 +134,7 @@ function installRenderSystems(world: World): void {
     .each([Position, Ball, Color], (_entity, [position, ball, color]) => {
       context.beginPath();
       context.arc(position.x, position.y, ball.radius, 0, Math.PI * 2);
-      context.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+      context.fillStyle = `#${color.value.toString(16).padStart(6, "0")}`;
       context.fill();
       context.strokeStyle = "#0f172a";
       context.lineWidth = 3;
