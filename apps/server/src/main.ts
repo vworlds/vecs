@@ -8,14 +8,21 @@ import {
   VecsServer,
   View,
 } from "@vworlds/vecs-server";
-import { World } from "@vworlds/vecs";
+import { type ComponentClass, World } from "@vworlds/vecs";
 
 const POSITION_TYPE = 1;
 const PLAYER_TYPE = 2;
 const BALL_TYPE = 3;
+const COLOR_TYPE = 4;
 const PORT = Number(process.env.PORT ?? 3000);
 const WIDTH = 960;
 const HEIGHT = 540;
+const GAME_TOP = 60;
+const GRID_COLUMNS = 3;
+const GRID_ROWS = 3;
+const GRID_CELL_COUNT = GRID_COLUMNS * GRID_ROWS;
+const GRID_CELL_WIDTH = WIDTH / GRID_COLUMNS;
+const GRID_CELL_HEIGHT = (HEIGHT - GAME_TOP) / GRID_ROWS;
 const PLAYER_SIZE = 28;
 const PLAYER_STEP = 7;
 const MAX_BALLS = 12;
@@ -55,12 +62,33 @@ class Ball {
   public radius = BALL_RADIUS;
 }
 
+class Color {
+  @wireType("u8")
+  public r = 255;
+
+  @wireType("u8")
+  public g = 255;
+
+  @wireType("u8")
+  public b = 255;
+}
+
+const gridCellComponents: ComponentClass[] = Array.from(
+  { length: GRID_CELL_COUNT },
+  () => class GridCell {}
+);
+
 const world = new World();
 world.registerComponent(Networked);
 world.registerComponent(Position, POSITION_TYPE);
 world.registerComponent(Player, PLAYER_TYPE);
 world.registerComponent(Ball, BALL_TYPE);
+world.registerComponent(Color, COLOR_TYPE);
 world.registerComponent(Velocity);
+gridCellComponents.forEach((GridCell, index) => {
+  world.registerComponent(GridCell, getGridCellComponentName(index));
+});
+world.setExclusiveComponents(...gridCellComponents);
 
 const app = express();
 app.use(express.json());
@@ -80,9 +108,10 @@ const server: VecsServer = vecsListener.registerWorld("main", world);
 server.registerComponent(Position);
 server.registerComponent(Player);
 server.registerComponent(Ball);
+server.registerComponent(Color);
 
 world.hook(NetworkClient).onSet((entity) => {
-  entity.set(View, { dsl: true });
+  entity.set(View, { dsl: false });
 });
 
 for (let i = 0; i < 5; i++) {
@@ -100,9 +129,9 @@ const moveSystem = world
       velocity.x *= -1;
       position.x = clamp(position.x, ball.radius, WIDTH - ball.radius);
     }
-    if (position.y < 60 + ball.radius || position.y > HEIGHT - ball.radius) {
+    if (position.y < GAME_TOP + ball.radius || position.y > HEIGHT - ball.radius) {
       velocity.y *= -1;
-      position.y = clamp(position.y, 60 + ball.radius, HEIGHT - ball.radius);
+      position.y = clamp(position.y, GAME_TOP + ball.radius, HEIGHT - ball.radius);
     }
 
     entity.modified(Position);
@@ -129,7 +158,7 @@ world
     const y = (input.down ? 1 : 0) - (input.up ? 1 : 0);
 
     position.x = clamp(position.x + x * PLAYER_STEP, 0, WIDTH - PLAYER_SIZE);
-    position.y = clamp(position.y + y * PLAYER_STEP, 60, HEIGHT - PLAYER_SIZE);
+    position.y = clamp(position.y + y * PLAYER_STEP, GAME_TOP, HEIGHT - PLAYER_SIZE);
     entity.modified(Position);
 
     moveSystem.forEach([Position, Ball], (ballEntity, [ballPosition, ball]) => {
@@ -149,6 +178,38 @@ world
   .run(() => {
     if (moveSystem.count < MAX_BALLS) {
       spawnBall();
+    }
+  });
+
+world
+  .system("AssignGridCells")
+  .requires(Networked, Position)
+  .enter([Position], (entity, [position]) => {
+    const GridCell = getGridCellComponent(position);
+    if (entity.get(GridCell) === undefined) {
+      entity.add(GridCell);
+    }
+  })
+  .update(Position, (entity, position) => {
+    const GridCell = getGridCellComponent(position);
+    if (entity.get(GridCell) === undefined) {
+      entity.add(GridCell);
+    }
+  });
+
+world
+  .system("UpdatePlayerViews")
+  .requires(Networked, NetworkClient, Position, View)
+  .enter([Position, View], (entity, [position, view]) => {
+    const GridCell = getGridCellComponent(position);
+    if (view.dsl !== GridCell) {
+      entity.set(View, { dsl: GridCell });
+    }
+  })
+  .update(Position, [View], (entity, position, [view]) => {
+    const GridCell = getGridCellComponent(position);
+    if (view.dsl !== GridCell) {
+      entity.set(View, { dsl: GridCell });
     }
   });
 
@@ -198,11 +259,44 @@ function spawnBall(x = randomInt(40, WIDTH - 40), y = randomInt(90, HEIGHT - 40)
     .entity()
     .add(Networked)
     .add(Ball)
+    .set(Color, randomColor())
     .set(Position, { x, y })
     .set(Velocity, {
       x: randomSignedInt(2, 5),
       y: randomSignedInt(2, 4),
     });
+}
+
+function randomColor(): Partial<Color> {
+  return {
+    r: randomInt(80, 255),
+    g: randomInt(80, 255),
+    b: randomInt(80, 255),
+  };
+}
+
+function getGridCellComponent(position: Position): ComponentClass {
+  return gridCellComponents[getGridCellIndex(position)];
+}
+
+function getGridCellIndex(position: Position): number {
+  const column = clampGridIndex(
+    Math.floor(clamp(position.x, 0, WIDTH - 1) / GRID_CELL_WIDTH),
+    GRID_COLUMNS
+  );
+  const row = clampGridIndex(
+    Math.floor((clamp(position.y, GAME_TOP, HEIGHT - 1) - GAME_TOP) / GRID_CELL_HEIGHT),
+    GRID_ROWS
+  );
+  return row * GRID_COLUMNS + column;
+}
+
+function getGridCellComponentName(index: number): string {
+  return `GridCell${index + 1}`;
+}
+
+function clampGridIndex(value: number, size: number): number {
+  return Math.min(Math.max(value, 0), size - 1);
 }
 
 function normalizeInput(input: unknown): PlayerInput {

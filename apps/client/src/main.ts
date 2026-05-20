@@ -5,10 +5,14 @@ import { type as wireType } from "@vworlds/vecs-wire";
 const POSITION_TYPE = 1;
 const PLAYER_TYPE = 2;
 const BALL_TYPE = 3;
+const COLOR_TYPE = 4;
 const LOCAL_ENTITY_START = 100_000;
 const PLAYER_SIZE = 28;
 const RECONNECT_DELAY_MS = 1_000;
 const SERVER_PORT = 3000;
+const GAME_TOP = 60;
+const GRID_COLUMNS = 3;
+const GRID_ROWS = 3;
 
 interface Session {
   client: VecsClient;
@@ -31,6 +35,17 @@ class Player {
 class Ball {
   @wireType("u8")
   public radius = 12;
+}
+
+class Color {
+  @wireType("u8")
+  public r = 255;
+
+  @wireType("u8")
+  public g = 255;
+
+  @wireType("u8")
+  public b = 255;
 }
 
 const keys = new Set<string>();
@@ -97,6 +112,7 @@ async function createSession(): Promise<Session> {
   world.registerComponent(Position, POSITION_TYPE);
   world.registerComponent(Player, PLAYER_TYPE);
   world.registerComponent(Ball, BALL_TYPE);
+  world.registerComponent(Color, COLOR_TYPE);
 
   const client = await VecsClient.connectDgram({
     world,
@@ -108,6 +124,7 @@ async function createSession(): Promise<Session> {
   client.registerComponent(Position);
   client.registerComponent(Player);
   client.registerComponent(Ball);
+  client.registerComponent(Color);
   client.installSystems();
 
   installRenderSystems(world);
@@ -119,11 +136,11 @@ async function createSession(): Promise<Session> {
 function installRenderSystems(world: World): void {
   world
     .system("RenderBalls")
-    .requires(Position, Ball)
-    .each([Position, Ball], (_entity, [position, ball]) => {
+    .requires(Position, Ball, Color)
+    .each([Position, Ball, Color], (_entity, [position, ball, color]) => {
       context.beginPath();
       context.arc(position.x, position.y, ball.radius, 0, Math.PI * 2);
-      context.fillStyle = "#7dd3fc";
+      context.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
       context.fill();
       context.strokeStyle = "#0f172a";
       context.lineWidth = 3;
@@ -175,6 +192,7 @@ function frame(now: number): void {
 
   context.fillStyle = "#020617";
   context.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+  drawGrid();
   context.fillStyle = "#e2e8f0";
   context.font = "16px sans-serif";
   context.fillText("vecs-client: arrow keys move your square, eat balls to score", 20, 30);
@@ -193,6 +211,26 @@ function frame(now: number): void {
   }
 
   requestAnimationFrame(frame);
+}
+
+function drawGrid(): void {
+  const cellWidth = gameCanvas.width / GRID_COLUMNS;
+  const cellHeight = (gameCanvas.height - GAME_TOP) / GRID_ROWS;
+
+  context.strokeStyle = "#334155";
+  context.lineWidth = 1;
+  context.beginPath();
+  for (let column = 1; column < GRID_COLUMNS; column++) {
+    const x = column * cellWidth;
+    context.moveTo(x, GAME_TOP);
+    context.lineTo(x, gameCanvas.height);
+  }
+  for (let row = 0; row <= GRID_ROWS; row++) {
+    const y = GAME_TOP + row * cellHeight;
+    context.moveTo(0, y);
+    context.lineTo(gameCanvas.width, y);
+  }
+  context.stroke();
 }
 
 function isArrowKey(key: string): boolean {
