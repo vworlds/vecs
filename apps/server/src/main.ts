@@ -20,6 +20,10 @@ const PLAYER_SIZE = 28;
 const PLAYER_STEP = 7;
 const MAX_BALLS = 12;
 const BALL_RADIUS = 12;
+const TICK_RATE = 30;
+const DT = 1 / TICK_RATE;
+const DT_MS = 1000 / TICK_RATE;
+const WAKE_EARLY_MS = 5;
 let playerSpawnIndex = 0;
 
 interface PlayerInput {
@@ -164,12 +168,36 @@ app.listen(PORT, () => {
   console.log(`vecs demo server listening on http://localhost:${PORT}`);
 });
 
-let last = Date.now();
-setInterval(() => {
-  const now = Date.now();
-  world.progress(now, now - last);
-  last = now;
-}, 1000 / 30);
+let previous = performance.now();
+let accumulator = 0;
+let tick = 0;
+
+function loop(): void {
+  const now = performance.now();
+  let frameTime = now - previous;
+  previous = now;
+
+  frameTime = Math.min(frameTime, 250);
+  accumulator += frameTime;
+
+  while (accumulator >= DT_MS) {
+    simulate(DT, tick++);
+    accumulator -= DT_MS;
+  }
+
+  const delay = DT_MS - accumulator - WAKE_EARLY_MS;
+  if (delay > 0) {
+    setTimeout(loop, delay);
+    return;
+  }
+  setImmediate(loop);
+}
+
+loop();
+
+function simulate(dt: number, tick: number): void {
+  world.progress((tick + 1) * DT_MS, dt * 1000);
+}
 
 function spawnBall(x = randomInt(40, WIDTH - 40), y = randomInt(90, HEIGHT - 40)): void {
   world
