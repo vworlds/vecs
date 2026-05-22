@@ -597,3 +597,33 @@ export function _extractQueryDependencies(world: World, q: QueryDSL): number[] |
 
   return undefined;
 }
+
+/**
+ * Return true when a query DSL expression depends on an entity's parent link.
+ *
+ * @internal Used by the world to route reparent operations to exactly the
+ * queries whose membership can change when `Entity.parent` changes.
+ */
+export function _hasParentClause(q: QueryDSL): boolean {
+  if (typeof q === "boolean" || typeof q === "number" || typeof q === "function") {
+    return false;
+  }
+
+  if (q instanceof Array) {
+    return false;
+  }
+
+  if ("AND" in q) {
+    return q.AND.some(_hasParentClause);
+  }
+
+  if ("OR" in q) {
+    return q.OR.some(_hasParentClause);
+  }
+
+  if ("NOT" in q) {
+    return _hasParentClause(q.NOT);
+  }
+
+  return "PARENT" in q;
+}

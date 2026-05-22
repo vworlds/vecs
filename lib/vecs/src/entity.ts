@@ -335,6 +335,22 @@ export class Entity {
   }
 
   /**
+   * @internal Re-evaluate queries that depend on the entity's parent link.
+   */
+  public _updateQueriesForReparent(): void {
+    if (this._destroyed) {
+      return;
+    }
+    this.world._forEachQueryForParent((q) => {
+      const belongs = q.belongs(this);
+      const isIn = this._queries.has(q);
+      if (belongs !== isIn) {
+        belongs ? q._enter(this) : q._exit(this);
+      }
+    });
+  }
+
+  /**
    * Read-only view of direct child entities. The backing set is created lazily
    * on the first child link; before that this getter returns a shared empty set.
    */
@@ -554,6 +570,7 @@ export class Entity {
       this.world._enqueue({ kind: CommandKind.SetParent, entity: this, parent: newParent });
     } else {
       this._setParent(newParent);
+      this._updateQueriesForReparent();
     }
   }
 

@@ -3,7 +3,12 @@ import { Entity } from "./entity.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
 import { Filter } from "./filter.js";
-import { _extractQueryDependencies, type QueryDSL, type ExtractRequired } from "./dsl.js";
+import {
+  _extractQueryDependencies,
+  _hasParentClause,
+  type QueryDSL,
+  type ExtractRequired,
+} from "./dsl.js";
 import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
@@ -69,6 +74,8 @@ export class World {
   private _queryIndex = new ArrayMap<Set<Query>>();
   /** @internal Queries whose predicates are too broad for component indexing. */
   private _unindexedQueries = new Set<Query>();
+  /** @internal Queries whose DSL contains any PARENT clause. */
+  private _parentDependentQueries = new Set<Query>();
 
   /** @internal Component type id → meta record. */
   private _Type2Meta = new ArrayMap<ComponentMeta>();
@@ -180,6 +187,7 @@ export class World {
         return;
       case CommandKind.SetParent:
         cmd.entity._setParent(cmd.parent);
+        cmd.entity._updateQueriesForReparent();
         return;
       case CommandKind.Attach:
         cmd.entity._attach(cmd.meta, cmd.component);
@@ -236,6 +244,9 @@ export class World {
     this._queries.push(q);
     if (q._dsl !== undefined) {
       this._indexQuery(q, _extractQueryDependencies(this, q._dsl));
+      if (_hasParentClause(q._dsl)) {
+        this._parentDependentQueries.add(q);
+      }
     }
   }
 
@@ -267,6 +278,11 @@ export class World {
   public _forEachQueryForComponent(type: number, callback: (q: Query) => void): void {
     this._queryIndex.get(type)?.forEach(callback);
     this._unindexedQueries.forEach(callback);
+  }
+
+  /** @internal Visit queries whose membership may change when an entity is reparented. */
+  public _forEachQueryForParent(callback: (q: Query) => void): void {
+    this._parentDependentQueries.forEach(callback);
   }
 
   /** @internal Register a query in the component index, or fallback routing. */
@@ -302,6 +318,7 @@ export class World {
       });
     }
     this._unindexedQueries.delete(q);
+    this._parentDependentQueries.delete(q);
     q._queryIndexKeys = undefined;
   }
 
