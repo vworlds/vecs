@@ -615,7 +615,6 @@ Examples:
 - Dynamic body with no non-sensor shape with non-zero density.
 - Chain with fewer than four points.
 - Invalid polygon.
-- Body missing `Position`.
 - Shape-local components placed on a body entity.
 
 See [Debug Validation](./debug-validation.md).

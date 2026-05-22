@@ -148,14 +148,9 @@ world
   .system("ApplyPlayerInput")
   .phase(input)
   .requires(PlayerInput, Body)
-  .update(PlayerInput, [Impulse], (entity, input, [impulse]) => {
-    if (!impulse) {
-      entity.set(Impulse, { x: 0, y: 0 });
-      return;
-    }
-
+  .update(PlayerInput, (entity, input) => {
     if (input.jumpPressed) {
-      entity.set(Impulse, { x: impulse.x, y: 8 });
+      entity.set(Impulse, { x: 0, y: 8 });
     }
   });
 

@@ -323,15 +323,10 @@ Correct:
 player.set(Impulse, { x: 0, y: 8 });
 ```
 
-Also correct when adding to an existing pending value:
+To add another kick before the physics step, set only the additional delta. Do not include the current public impulse fields, because each `set(Impulse, ...)` queues the full value.
 
 ```ts
-const current = player.get(Impulse);
-
-player.set(Impulse, {
-  x: (current?.x ?? 0) + 2,
-  y: current?.y ?? 0,
-});
+player.set(Impulse, { x: 2, y: 0 });
 ```
 
 Avoid direct mutation unless you also mark the component modified.
@@ -340,6 +335,8 @@ Avoid direct mutation unless you also mark the component modified.
 const impulse = player.get(Impulse) as Impulse | undefined;
 
 if (impulse) {
+  // This queues a single upward kick. It does not add to prior public fields.
+  impulse.x = 0;
   impulse.y = 8;
   player.modified(Impulse);
 }

@@ -46,7 +46,7 @@ export class Body {
 | --- | --- | --- |
 | `BodyType.Static` | Ground, walls, level geometry | Does not move under simulation. Collides with dynamic bodies. |
 | `BodyType.Kinematic` | Moving platforms, scripted objects | Moves according to velocity or kinematic targets. Does not respond to forces. |
-| `BodyType.Dynamic` | Players, crates, projectiles, debris | Fully simulated. Responds to gravity, forces, impulses, contacts, and joints. |
+| `BodyType.Dynamic` | Players, crates, projectiles, debris | Fully simulated. Responds to gravity, forces, impulses, and contacts. |
 
 Choose the type at creation whenever possible. Changing body type later is supported, but it is more expensive than creating the body with the correct type.
 

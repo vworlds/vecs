@@ -101,7 +101,6 @@ shape.setParent(bodyWithoutBodyComponent);
 | Code | Meaning | Fix |
 | --- | --- | --- |
 | `shape-without-parent-body` | A geometry entity is not an immediate child of a `Body` entity. | Set the shape entity's parent to the body entity. |
-| `body-without-position` | An entity has `Body` but no `Position`. | Add `Position`, or accept that the body starts at the origin if supported. |
 | `dynamic-body-without-density` | A dynamic body has no non-sensor shape with non-zero density. | Add a shape with `Material.density > 0`. |
 | `chain-too-few-points` | `Chain.points` has fewer than four points. | Provide at least four points. |
 | `polygon-invalid` | `Polygon.vertices` cannot form a valid convex polygon. | Use a valid convex polygon with sensible winding and non-overlapping points. |
@@ -276,7 +275,7 @@ This lets gameplay code build entities incrementally without needing every inter
 ```ts
 const body = world.entity();
 
-// Temporarily incomplete. Ignored by physics until Body and Position exist.
+// Valid: Body opts into physics. Missing Position means origin.
 body.set(Position, { x: 0, y: 0 });
 body.set(Body, { type: BodyType.Dynamic });
 ```
@@ -291,7 +290,7 @@ Check these first:
 
 - The shape entity is an immediate child of an entity with `Body`.
 - The shape entity has exactly one geometry component such as `Box` or `Circle`.
-- The body entity has `Position`.
+- If the body appears at the origin unexpectedly, add or check `Position`.
 - The body is enabled.
 - The shape is not marked with `Sensor` if you expect collision response.
 - `CollisionFilter.categoryBits` and `CollisionFilter.maskBits` allow the two shapes to collide.

@@ -527,6 +527,8 @@ export class AngularImpulse {
 }
 ```
 
+Physics reacts to each `AngularImpulse` update. Multiple updates before the physics step accumulate internally. After applying the kick, physics silently sets `value` back to `0` without calling `modified(AngularImpulse)`.
+
 See [Forces And Impulses](./forces-and-impulses.md).
 
 ## Kinematic Target Components
@@ -643,7 +645,7 @@ Use `ShapePosition` and `ShapeRotation` on shape entities. Use `Position` and `R
 
 ### Impulse Cleanup Is Silent
 
-After physics applies an `Impulse`, it zeroes the component fields without emitting another `Impulse` update. This avoids infinite command loops and archetype churn.
+After physics applies an `Impulse` or `AngularImpulse`, it zeroes the public fields without emitting another component update. This avoids infinite command loops and archetype churn.
 
 ### Event Components Are Opt-In
 

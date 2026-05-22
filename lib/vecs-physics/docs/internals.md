@@ -314,7 +314,6 @@ Debug mode can inspect common mistakes and warn once per entity/issue code.
 Examples:
 
 - Shape entity has no immediate parent body.
-- Body entity has no `Position`.
 - Dynamic body has no non-sensor shape with non-zero density.
 - `Chain` has fewer than four points.
 - `Polygon` is invalid.
