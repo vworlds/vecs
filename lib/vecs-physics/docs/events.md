@@ -9,10 +9,7 @@ Events are opt-in. Add an event component to a shape entity when you want that s
 Events belong to shape entities, not body entities.
 
 ```ts
-const player = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const player = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
 const playerShape = world
   .entity()
@@ -24,13 +21,11 @@ const playerShape = world
 If `playerShape` touches another shape, `vecs-physics` updates its `ContactEvents` component and marks it modified. Vecs systems can listen with `.update(ContactEvents, ...)`.
 
 ```ts
-world
-  .system("LogContacts")
-  .update(ContactEvents, (shapeEntity, events) => {
-    for (const event of events.begin) {
-      console.log("started touching", event.other.eid);
-    }
-  });
+world.system("LogContacts").update(ContactEvents, (shapeEntity, events) => {
+  for (const event of events.begin) {
+    console.log("started touching", event.other.eid);
+  }
+});
 ```
 
 ## Event Components
@@ -70,24 +65,15 @@ export type ContactEvent = {
 Minimal example:
 
 ```ts
-const crate = world
-  .entity()
-  .set(Position, { x: 0, y: 3 })
-  .set(Body, { type: BodyType.Dynamic });
+const crate = world.entity().set(Position, { x: 0, y: 3 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(crate)
-  .set(Box, { hx: 0.5, hy: 0.5 })
-  .add(ContactEvents);
+world.entity().setParent(crate).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
 
-world
-  .system("CrateContacts")
-  .update(ContactEvents, (shape, events) => {
-    for (const event of events.begin) {
-      console.log(`shape ${shape.eid} touched shape ${event.other.eid}`);
-    }
-  });
+world.system("CrateContacts").update(ContactEvents, (shape, events) => {
+  for (const event of events.begin) {
+    console.log(`shape ${shape.eid} touched shape ${event.other.eid}`);
+  }
+});
 ```
 
 If both shapes have `ContactEvents`, both receive their own event. If only one shape has `ContactEvents`, only that shape receives the event.
@@ -108,10 +94,7 @@ Example: trigger a checkpoint when the player enters a zone.
 class Checkpoint {}
 class Player {}
 
-const checkpoint = world
-  .entity()
-  .set(Position, { x: 10, y: 0 })
-  .add(Body);
+const checkpoint = world.entity().set(Position, { x: 10, y: 0 }).add(Body);
 
 world
   .entity()
@@ -161,12 +144,12 @@ export type HitEvent = {
 
 Fields:
 
-| Field | Meaning |
-| --- | --- |
-| `other` | Other shape entity involved in the hit. |
-| `x`, `y` | Impact point in world coordinates. |
-| `normalX`, `normalY` | Contact normal. |
-| `speed` | Approach speed, in meters per second. |
+| Field                | Meaning                                 |
+| -------------------- | --------------------------------------- |
+| `other`              | Other shape entity involved in the hit. |
+| `x`, `y`             | Impact point in world coordinates.      |
+| `normalX`, `normalY` | Contact normal.                         |
+| `speed`              | Approach speed, in meters per second.   |
 
 Example: damage a body when it hits something hard.
 

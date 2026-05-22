@@ -8,12 +8,12 @@ Use forces and torques for effects that persist over time. Use impulses and angu
 
 `vecs-physics` exposes four movement intent components:
 
-| Component | Meaning | Duration |
-| --- | --- | --- |
-| `Force` | Push or pull along x/y. | Applies every physics step while present. |
-| `Torque` | Rotational force. | Applies every physics step while present. |
-| `Impulse` | Instant linear kick. | Applies once per update. |
-| `AngularImpulse` | Instant rotational kick. | Applies once per update. |
+| Component        | Meaning                  | Duration                                  |
+| ---------------- | ------------------------ | ----------------------------------------- |
+| `Force`          | Push or pull along x/y.  | Applies every physics step while present. |
+| `Torque`         | Rotational force.        | Applies every physics step while present. |
+| `Impulse`        | Instant linear kick.     | Applies once per update.                  |
+| `AngularImpulse` | Instant rotational kick. | Applies once per update.                  |
 
 Each component can be added directly to the entity with `Body`, or to an immediate child of that body entity.
 
@@ -22,10 +22,7 @@ player.set(Force, { x: 10, y: 0 });
 ```
 
 ```ts
-world
-  .entity()
-  .setParent(player)
-  .set(Force, { x: 10, y: 0 });
+world.entity().setParent(player).set(Force, { x: 10, y: 0 });
 ```
 
 Physics resolves the target body using only the current entity and its immediate parent. It does not search grandparents or deeper ancestors.
@@ -60,12 +57,12 @@ export class AngularImpulse {
 
 Units follow Box2D conventions:
 
-| Field | Unit |
-| --- | --- |
-| `Force.x`, `Force.y` | Newtons |
-| `Torque.value` | Newton-meters |
-| `Impulse.x`, `Impulse.y` | Newton-seconds |
-| `AngularImpulse.value` | Angular impulse |
+| Field                    | Unit            |
+| ------------------------ | --------------- |
+| `Force.x`, `Force.y`     | Newtons         |
+| `Torque.value`           | Newton-meters   |
+| `Impulse.x`, `Impulse.y` | Newton-seconds  |
+| `AngularImpulse.value`   | Angular impulse |
 
 See [Bodies](./bodies.md) for body setup and [Coordinate System And Units](./index.md#coordinate-system-and-units) for unit conventions.
 
@@ -96,10 +93,7 @@ This applies a one-shot upward kick.
 ```ts
 import { Body, BodyType, Impulse, Position } from "@vworlds/vecs-physics";
 
-const player = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const player = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
 player.set(Impulse, { x: 0, y: 8 });
 ```
@@ -119,15 +113,9 @@ player.set(Force, { x: 0, y: 20 });
 For advanced cases, put each force or impulse source on its own child entity.
 
 ```ts
-const leftTractorBeam = world
-  .entity()
-  .setParent(player)
-  .set(Force, { x: -15, y: 5 });
+const leftTractorBeam = world.entity().setParent(player).set(Force, { x: -15, y: 5 });
 
-const rightTractorBeam = world
-  .entity()
-  .setParent(player)
-  .set(Force, { x: 10, y: 12 });
+const rightTractorBeam = world.entity().setParent(player).set(Force, { x: 10, y: 12 });
 ```
 
 This is useful when multiple independent systems contribute forces to the same body. For example, a ship might have thrust, gravity, wind, and two tractor beams all active at the same time.
@@ -166,10 +154,7 @@ player.set(Force, { x: 1, y: 0 });
 This also applies:
 
 ```ts
-world
-  .entity()
-  .setParent(player)
-  .set(Force, { x: 1, y: 0 });
+world.entity().setParent(player).set(Force, { x: 1, y: 0 });
 ```
 
 This does not apply, because the force entity is a grandchild of the body entity:
@@ -177,10 +162,7 @@ This does not apply, because the force entity is a grandchild of the body entity
 ```ts
 const source = world.entity().setParent(player);
 
-world
-  .entity()
-  .setParent(source)
-  .set(Force, { x: 1, y: 0 });
+world.entity().setParent(source).set(Force, { x: 1, y: 0 });
 ```
 
 In normal mode, invalid force sources are ignored. In debug mode, `vecs-physics` can warn once per invalid entity. See [Debug Validation](./debug-validation.md).
@@ -225,10 +207,7 @@ ship.set(Torque, { value: 12 });
 Or attach it as a child source.
 
 ```ts
-world
-  .entity()
-  .setParent(ship)
-  .set(Torque, { value: -8 });
+world.entity().setParent(ship).set(Torque, { value: -8 });
 ```
 
 Remove the component to stop applying torque.
@@ -294,10 +273,7 @@ After physics applies the pending angular impulse, it silently resets `value` to
 Like forces, impulses can live on child entities.
 
 ```ts
-world
-  .entity()
-  .setParent(player)
-  .set(Impulse, { x: 0, y: 6 });
+world.entity().setParent(player).set(Impulse, { x: 0, y: 6 });
 ```
 
 This can be useful when a gameplay system wants to own the source of the impulse separately from the body.
@@ -305,10 +281,7 @@ This can be useful when a gameplay system wants to own the source of the impulse
 For example, a temporary explosion entity can be parented to the body for one frame, set an impulse, and then be destroyed later by gameplay code.
 
 ```ts
-const explosionKick = world
-  .entity()
-  .setParent(enemy)
-  .set(Impulse, { x: 12, y: 4 });
+const explosionKick = world.entity().setParent(enemy).set(Impulse, { x: 12, y: 4 });
 ```
 
 Physics consumes the impulse and resets it to zero. Gameplay code decides whether the child entity should stay or be destroyed.
@@ -369,15 +342,9 @@ function stopThrust(ship: Entity): void {
 ### Multiple Tractor Beams
 
 ```ts
-const beamA = world
-  .entity()
-  .setParent(player)
-  .set(Force, { x: -20, y: 5 });
+const beamA = world.entity().setParent(player).set(Force, { x: -20, y: 5 });
 
-const beamB = world
-  .entity()
-  .setParent(player)
-  .set(Force, { x: 15, y: 10 });
+const beamB = world.entity().setParent(player).set(Force, { x: 15, y: 10 });
 ```
 
 Remove one beam without affecting the other.
@@ -389,7 +356,12 @@ beamA.destroy();
 ### Explosion Kick
 
 ```ts
-function applyExplosionKick(body: Entity, directionX: number, directionY: number, strength: number): void {
+function applyExplosionKick(
+  body: Entity,
+  directionX: number,
+  directionY: number,
+  strength: number
+): void {
   body.set(Impulse, {
     x: directionX * strength,
     y: directionY * strength,

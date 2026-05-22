@@ -11,15 +11,9 @@ For full usage examples, see [Getting Started](./getting-started.md), [Bodies](.
 Add a component to opt into a behavior. Remove it to opt out. Missing optional components use useful physics defaults.
 
 ```ts
-const body = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 The body entity owns body-level state. Shape entities are immediate children of body entities.
@@ -29,27 +23,21 @@ The body entity owns body-level state. Shape entities are immediate children of 
 This is the smallest dynamic body with one box shape.
 
 ```ts
-const box = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const box = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(box)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(box).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 The child shape uses default material and collision filtering:
 
-| Missing component | Default behavior |
-| --- | --- |
-| `Material` | Density `1`, friction `0.6`, restitution `0`. |
+| Missing component | Default behavior                                       |
+| ----------------- | ------------------------------------------------------ |
+| `Material`        | Density `1`, friction `0.6`, restitution `0`.          |
 | `CollisionFilter` | Category `1`, collides with all categories, group `0`. |
-| `ShapePosition` | Local `{ x: 0, y: 0 }`. |
-| `ShapeRotation` | Local angle `0`. |
-| `Sensor` | Solid shape, not a sensor. |
-| Event components | No events are recorded for that shape. |
+| `ShapePosition`   | Local `{ x: 0, y: 0 }`.                                |
+| `ShapeRotation`   | Local angle `0`.                                       |
+| `Sensor`          | Solid shape, not a sensor.                             |
+| Event components  | No events are recorded for that shape.                 |
 
 ## Body Components
 
@@ -249,11 +237,7 @@ export class ShapePosition {
 ```
 
 ```ts
-world
-  .entity()
-  .setParent(body)
-  .set(ShapePosition, { x: 0, y: -0.5 })
-  .set(Box, { hx: 0.5, hy: 1 });
+world.entity().setParent(body).set(ShapePosition, { x: 0, y: -0.5 }).set(Box, { hx: 0.5, hy: 1 });
 ```
 
 Missing `ShapePosition` means local offset `{ x: 0, y: 0 }`.
@@ -277,14 +261,7 @@ Every shape entity should have exactly one geometry component.
 `installPhysics` marks these components as mutually exclusive:
 
 ```ts
-world.setExclusiveComponents(
-  Box,
-  Circle,
-  Capsule,
-  Segment,
-  Polygon,
-  Chain,
-);
+world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);
 ```
 
 Adding one geometry component removes any previous geometry component from that entity.
@@ -446,12 +423,7 @@ export class Sensor {}
 Sensors do not create collision response. Add event components if you want overlap events.
 
 ```ts
-world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 2, hy: 1 })
-  .add(Sensor)
-  .add(SensorEvents);
+world.entity().setParent(body).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
 ```
 
 Missing `Sensor` means the shape is solid.
@@ -481,10 +453,7 @@ player.set(Force, { x: 1, y: 2 });
 Child force source:
 
 ```ts
-world
-  .entity()
-  .setParent(player)
-  .set(Force, { x: 10, y: 22 });
+world.entity().setParent(player).set(Force, { x: 10, y: 22 });
 ```
 
 ### `Torque`

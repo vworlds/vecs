@@ -58,11 +58,11 @@ Use the default setup when you do not need special ordering around physics.
 
 By default, `installPhysics` creates and uses three phases:
 
-| Phase | Purpose |
-| --- | --- |
-| `physics-pre` | Read ECS changes and prepare the physics world. |
-| `physics-step` | Step the simulation. |
-| `physics-post` | Write results and events back to ECS. |
+| Phase          | Purpose                                         |
+| -------------- | ----------------------------------------------- |
+| `physics-pre`  | Read ECS changes and prepare the physics world. |
+| `physics-step` | Step the simulation.                            |
+| `physics-post` | Write results and events back to ECS.           |
 
 Conceptually, the default frame looks like this:
 

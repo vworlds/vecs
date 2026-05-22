@@ -67,10 +67,7 @@ const platform = world
   .set(Body, { type: BodyType.Kinematic })
   .set(KinematicTargetPosition, { x: 5, y: 2 });
 
-world
-  .entity()
-  .setParent(platform)
-  .set(Box, { hx: 2, hy: 0.25 });
+world.entity().setParent(platform).set(Box, { hx: 2, hy: 0.25 });
 
 world.start();
 
@@ -104,7 +101,7 @@ world
         target.y = position.y;
         entity.modified(KinematicTargetPosition);
       }
-    },
+    }
   );
 ```
 
@@ -144,20 +141,20 @@ Physics attempts to converge both the position and the rotation. Each target use
 
 ### `KinematicTargetPosition`
 
-| Property | Default | Description |
-| --- | ---: | --- |
-| `x` | `0` | Target world x position in meters. |
-| `y` | `0` | Target world y position in meters. |
+| Property    | Default | Description                                            |
+| ----------- | ------: | ------------------------------------------------------ |
+| `x`         |     `0` | Target world x position in meters.                     |
+| `y`         |     `0` | Target world y position in meters.                     |
 | `tolerance` | `0.001` | Distance threshold for considering the target reached. |
-| `wake` | `true` | Whether to wake the body while applying target motion. |
+| `wake`      |  `true` | Whether to wake the body while applying target motion. |
 
 ### `KinematicTargetRotation`
 
-| Property | Default | Description |
-| --- | ---: | --- |
-| `angle` | `0` | Target world angle in radians. |
-| `tolerance` | `0.001` | Angular threshold for considering the target reached. |
-| `wake` | `true` | Whether to wake the body while applying target motion. |
+| Property    | Default | Description                                            |
+| ----------- | ------: | ------------------------------------------------------ |
+| `angle`     |     `0` | Target world angle in radians.                         |
+| `tolerance` | `0.001` | Angular threshold for considering the target reached.  |
+| `wake`      |  `true` | Whether to wake the body while applying target motion. |
 
 ## Direct Teleporting
 

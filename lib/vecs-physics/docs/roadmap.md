@@ -10,34 +10,27 @@ The initial version is designed to make normal rigid-body gameplay work with a n
 
 Included areas:
 
-| Area | Status | Notes |
-| --- | --- | --- |
-| Bodies | Included | `Body`, `Position`, `Rotation`, velocities, and optional body tunables. |
-| Shapes | Included | Child shape entities with exclusive geometry components. |
-| Materials | Included | Box2D-compatible defaults for density, friction, and restitution. |
-| Collision filters | Included | Category bits, mask bits, and group index. |
-| Sensors | Included | `Sensor` component on shape entities. |
-| Forces | Included | Persistent `Force` and `Torque` components. |
-| Impulses | Included | Reactive one-shot `Impulse` and `AngularImpulse` components. |
-| Kinematic targets | Included | Target position and rotation components for kinematic bodies. |
-| Contact events | Included | Shape-local `ContactEvents` component. |
-| Sensor events | Included | Shape-local `SensorEvents` component. |
-| Hit events | Included | Shape-local `HitEvents` component. |
-| Debug validation | Included | Optional deduplicated warnings for invalid ECS structures. |
+| Area              | Status   | Notes                                                                   |
+| ----------------- | -------- | ----------------------------------------------------------------------- |
+| Bodies            | Included | `Body`, `Position`, `Rotation`, velocities, and optional body tunables. |
+| Shapes            | Included | Child shape entities with exclusive geometry components.                |
+| Materials         | Included | Box2D-compatible defaults for density, friction, and restitution.       |
+| Collision filters | Included | Category bits, mask bits, and group index.                              |
+| Sensors           | Included | `Sensor` component on shape entities.                                   |
+| Forces            | Included | Persistent `Force` and `Torque` components.                             |
+| Impulses          | Included | Reactive one-shot `Impulse` and `AngularImpulse` components.            |
+| Kinematic targets | Included | Target position and rotation components for kinematic bodies.           |
+| Contact events    | Included | Shape-local `ContactEvents` component.                                  |
+| Sensor events     | Included | Shape-local `SensorEvents` component.                                   |
+| Hit events        | Included | Shape-local `HitEvents` component.                                      |
+| Debug validation  | Included | Optional deduplicated warnings for invalid ECS structures.              |
 
 The goal for v1 is that this kind of game object should be straightforward:
 
 ```ts
-const player = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const player = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(player)
-  .set(Box, { hx: 0.5, hy: 1 })
-  .add(ContactEvents);
+world.entity().setParent(player).set(Box, { hx: 0.5, hy: 1 }).add(ContactEvents);
 
 player.set(Impulse, { x: 0, y: 8 });
 ```

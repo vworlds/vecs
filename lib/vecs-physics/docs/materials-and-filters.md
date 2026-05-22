@@ -20,10 +20,7 @@ world
 If either component is missing, `vecs-physics` uses Box2D-compatible defaults. A bare shape is still physical, has mass, has friction, and collides with everything.
 
 ```ts
-world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 That shape uses:
@@ -50,32 +47,25 @@ export class Material {
 }
 ```
 
-| Property | Default | Description |
-| --- | ---: | --- |
-| `density` | `1` | Shape density in kilograms per square meter. Dynamic body mass is computed from shape density and geometry. |
-| `friction` | `0.6` | Coulomb friction coefficient. Higher values resist sliding. |
-| `restitution` | `0` | Bounciness. `0` means no bounce. Higher values preserve more collision energy. |
-| `rollingResistance` | `0` | Resistance to rolling motion. Usually left at `0` unless modelling wheels or round objects. |
-| `tangentSpeed` | `0` | Surface tangent speed, useful for conveyor belts. |
-| `userMaterialId` | `0n` | Application-defined material id. Used by custom material logic when supported. |
+| Property            | Default | Description                                                                                                 |
+| ------------------- | ------: | ----------------------------------------------------------------------------------------------------------- |
+| `density`           |     `1` | Shape density in kilograms per square meter. Dynamic body mass is computed from shape density and geometry. |
+| `friction`          |   `0.6` | Coulomb friction coefficient. Higher values resist sliding.                                                 |
+| `restitution`       |     `0` | Bounciness. `0` means no bounce. Higher values preserve more collision energy.                              |
+| `rollingResistance` |     `0` | Resistance to rolling motion. Usually left at `0` unless modelling wheels or round objects.                 |
+| `tangentSpeed`      |     `0` | Surface tangent speed, useful for conveyor belts.                                                           |
+| `userMaterialId`    |    `0n` | Application-defined material id. Used by custom material logic when supported.                              |
 
 ### Minimal Material Example
 
 ```ts
-const ball = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const ball = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(ball)
-  .set(Circle, { radius: 0.5 })
-  .set(Material, {
-    density: 1,
-    friction: 0.2,
-    restitution: 0.8,
-  });
+world.entity().setParent(ball).set(Circle, { radius: 0.5 }).set(Material, {
+  density: 1,
+  friction: 0.2,
+  restitution: 0.8,
+});
 ```
 
 This creates a light, slippery, bouncy circle.
@@ -85,19 +75,12 @@ This creates a light, slippery, bouncy circle.
 Static bodies do not need density for movement, but shape material still matters for contacts with dynamic bodies.
 
 ```ts
-const ground = world
-  .entity()
-  .set(Position, { x: 0, y: -1 })
-  .add(Body);
+const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
-world
-  .entity()
-  .setParent(ground)
-  .set(Box, { hx: 25, hy: 1 })
-  .set(Material, {
-    friction: 0.9,
-    restitution: 0,
-  });
+world.entity().setParent(ground).set(Box, { hx: 25, hy: 1 }).set(Material, {
+  friction: 0.9,
+  restitution: 0,
+});
 ```
 
 This ground is high-friction and non-bouncy.
@@ -107,14 +90,10 @@ This ground is high-friction and non-bouncy.
 `tangentSpeed` can model a moving surface such as a conveyor belt.
 
 ```ts
-world
-  .entity()
-  .setParent(conveyorBody)
-  .set(Box, { hx: 4, hy: 0.25 })
-  .set(Material, {
-    friction: 0.8,
-    tangentSpeed: 2,
-  });
+world.entity().setParent(conveyorBody).set(Box, { hx: 4, hy: 0.25 }).set(Material, {
+  friction: 0.8,
+  tangentSpeed: 2,
+});
 ```
 
 The exact direction depends on the shape/contact orientation. Use debug drawing or a small test scene when tuning conveyor behavior.
@@ -131,18 +110,17 @@ export class CollisionFilter {
 }
 ```
 
-| Property | Default | Description |
-| --- | ---: | --- |
-| `categoryBits` | `1n` | What this shape is. Usually one bit, such as player, enemy, terrain, or trigger. |
-| `maskBits` | `0xffff_ffff_ffff_ffffn` | What this shape accepts collisions with. Default accepts all categories. |
-| `groupIndex` | `0` | Optional override. Matching positive groups always collide. Matching negative groups never collide. `0` means no group override. |
+| Property       |                  Default | Description                                                                                                                      |
+| -------------- | -----------------------: | -------------------------------------------------------------------------------------------------------------------------------- |
+| `categoryBits` |                     `1n` | What this shape is. Usually one bit, such as player, enemy, terrain, or trigger.                                                 |
+| `maskBits`     | `0xffff_ffff_ffff_ffffn` | What this shape accepts collisions with. Default accepts all categories.                                                         |
+| `groupIndex`   |                      `0` | Optional override. Matching positive groups always collide. Matching negative groups never collide. `0` means no group override. |
 
 Two shapes can collide when both masks accept the other shape's category.
 
 ```ts
 const canCollide =
-  (shapeA.categoryBits & shapeB.maskBits) !== 0n &&
-  (shapeB.categoryBits & shapeA.maskBits) !== 0n;
+  (shapeA.categoryBits & shapeB.maskBits) !== 0n && (shapeB.categoryBits & shapeA.maskBits) !== 0n;
 ```
 
 If two shapes have the same non-zero `groupIndex`, group filtering overrides category/mask filtering:
@@ -172,10 +150,7 @@ world
   .set(Box, { hx: 0.5, hy: 1 })
   .set(CollisionFilter, {
     categoryBits: CollisionCategory.Player,
-    maskBits:
-      CollisionCategory.Terrain |
-      CollisionCategory.Enemy |
-      CollisionCategory.Pickup,
+    maskBits: CollisionCategory.Terrain | CollisionCategory.Enemy | CollisionCategory.Pickup,
   });
 ```
 
@@ -214,15 +189,11 @@ Use a negative group index to prevent shapes in the same group from colliding wi
 ```ts
 const playerSelfCollisionGroup = -1;
 
-world
-  .entity()
-  .setParent(player)
-  .set(Box, { hx: 0.5, hy: 1 })
-  .set(CollisionFilter, {
-    categoryBits: CollisionCategory.Player,
-    maskBits: 0xffff_ffff_ffff_ffffn,
-    groupIndex: playerSelfCollisionGroup,
-  });
+world.entity().setParent(player).set(Box, { hx: 0.5, hy: 1 }).set(CollisionFilter, {
+  categoryBits: CollisionCategory.Player,
+  maskBits: 0xffff_ffff_ffff_ffffn,
+  groupIndex: playerSelfCollisionGroup,
+});
 
 world
   .entity()
@@ -275,10 +246,7 @@ if (filter) {
 You do not need to add `Material` or `CollisionFilter` for normal collisions.
 
 ```ts
-world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 This is equivalent to:
@@ -329,13 +297,10 @@ Collision requires both shapes to accept each other. If players should collide w
 `Sensor` disables collision response, but filters still decide which overlaps are considered.
 
 ```ts
-trigger
-  .add(Sensor)
-  .add(SensorEvents)
-  .set(CollisionFilter, {
-    categoryBits: CollisionCategory.Pickup,
-    maskBits: CollisionCategory.Player,
-  });
+trigger.add(Sensor).add(SensorEvents).set(CollisionFilter, {
+  categoryBits: CollisionCategory.Pickup,
+  maskBits: CollisionCategory.Player,
+});
 ```
 
 ### Changing filters every frame

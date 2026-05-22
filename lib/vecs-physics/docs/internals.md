@@ -19,15 +19,15 @@ entity.set(Body, { type: BodyType.Dynamic });
 
 The internal engine still has concepts equivalent to Box2D's:
 
-| Public Vecs concept | Internal physics concept |
-| --- | --- |
-| Entity with `Body` | Physics body |
-| Child entity with `Box`, `Circle`, etc. | Physics shape |
-| `Position` and `Rotation` | Body transform |
-| `Material` | Shape density and surface material |
-| `CollisionFilter` | Shape filter |
-| `Force`, `Torque`, `Impulse` | Body force and impulse inputs |
-| `ContactEvents`, `SensorEvents`, `HitEvents` | Post-step event buffers |
+| Public Vecs concept                          | Internal physics concept           |
+| -------------------------------------------- | ---------------------------------- |
+| Entity with `Body`                           | Physics body                       |
+| Child entity with `Box`, `Circle`, etc.      | Physics shape                      |
+| `Position` and `Rotation`                    | Body transform                     |
+| `Material`                                   | Shape density and surface material |
+| `CollisionFilter`                            | Shape filter                       |
+| `Force`, `Torque`, `Impulse`                 | Body force and impulse inputs      |
+| `ContactEvents`, `SensorEvents`, `HitEvents` | Post-step event buffers            |
 
 Application code should not depend on internal body ids, shape ids, contact ids, arrays, solver data, or broad-phase proxies.
 
@@ -56,19 +56,13 @@ The important public guarantee is this: Vecs components are the source of user i
 A body is created from an entity with `Body`.
 
 ```ts
-const player = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const player = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 ```
 
 A shape is created from an immediate child entity with one geometry component.
 
 ```ts
-world
-  .entity()
-  .setParent(player)
-  .set(Box, { hx: 0.5, hy: 1 });
+world.entity().setParent(player).set(Box, { hx: 0.5, hy: 1 });
 ```
 
 The internal engine tracks mappings similar to:
@@ -89,10 +83,7 @@ Box2D bodies can have multiple shapes. Shapes are local to their body and do not
 Vecs represents this naturally with child entities:
 
 ```ts
-const body = world
-  .entity()
-  .set(Position, { x: 0, y: 0 })
-  .set(Body, { type: BodyType.Dynamic });
+const body = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
 
 world.entity().setParent(body).set(Box, { hx: 0.5, hy: 1 });
 world.entity().setParent(body).set(Circle, { radius: 0.25 }).set(ShapePosition, { x: 0, y: 1 });
@@ -259,10 +250,7 @@ player.set(Force, { x: 1, y: 2 });
 Child force entities allow multiple independent sources:
 
 ```ts
-world
-  .entity()
-  .setParent(player)
-  .set(Force, { x: 10, y: 0 });
+world.entity().setParent(player).set(Force, { x: 10, y: 0 });
 ```
 
 The target body resolution is intentionally shallow:

@@ -7,10 +7,7 @@ Bodies are the physics objects that move, collide, sleep, receive forces, and ow
 An entity participates in physics when it has a `Body` component.
 
 ```ts
-const entity = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const entity = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 ```
 
 Missing `Body` means the entity is ignored by physics.
@@ -42,11 +39,11 @@ export class Body {
 
 ## Body Types
 
-| Type | Use For | Simulation Behavior |
-| --- | --- | --- |
-| `BodyType.Static` | Ground, walls, level geometry | Does not move under simulation. Collides with dynamic bodies. |
-| `BodyType.Kinematic` | Moving platforms, scripted objects | Moves according to velocity or kinematic targets. Does not respond to forces. |
-| `BodyType.Dynamic` | Players, crates, projectiles, debris | Fully simulated. Responds to gravity, forces, impulses, and contacts. |
+| Type                 | Use For                              | Simulation Behavior                                                           |
+| -------------------- | ------------------------------------ | ----------------------------------------------------------------------------- |
+| `BodyType.Static`    | Ground, walls, level geometry        | Does not move under simulation. Collides with dynamic bodies.                 |
+| `BodyType.Kinematic` | Moving platforms, scripted objects   | Moves according to velocity or kinematic targets. Does not respond to forces. |
+| `BodyType.Dynamic`   | Players, crates, projectiles, debris | Fully simulated. Responds to gravity, forces, impulses, and contacts.         |
 
 Choose the type at creation whenever possible. Changing body type later is supported, but it is more expensive than creating the body with the correct type.
 
@@ -55,15 +52,9 @@ Choose the type at creation whenever possible. Changing body type later is suppo
 ### Static Ground
 
 ```ts
-const ground = world
-  .entity()
-  .set(Position, { x: 0, y: -1 })
-  .add(Body);
+const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
-world
-  .entity()
-  .setParent(ground)
-  .set(Box, { hx: 25, hy: 1 });
+world.entity().setParent(ground).set(Box, { hx: 25, hy: 1 });
 ```
 
 `add(Body)` creates a static body because `Body.type` defaults to `BodyType.Static`.
@@ -71,15 +62,9 @@ world
 ### Dynamic Box
 
 ```ts
-const crate = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const crate = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(crate)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(crate).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 The `Box` is a child entity. Bodies do not define their own collision geometry directly. See [Shapes](./shapes.md).
@@ -104,10 +89,7 @@ export class Rotation {
 `Rotation` is optional. Missing `Rotation` means angle `0`.
 
 ```ts
-world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 ```
 
 This creates a dynamic body at `(0, 4)` with rotation `0`.
@@ -183,10 +165,7 @@ const platform = world
   .set(Body, { type: BodyType.Kinematic })
   .set(LinearVelocity, { x: 2, y: 0 });
 
-world
-  .entity()
-  .setParent(platform)
-  .set(Box, { hx: 2, hy: 0.25 });
+world.entity().setParent(platform).set(Box, { hx: 2, hy: 0.25 });
 ```
 
 Kinematic bodies do not respond to forces or impulses. Use velocity or kinematic target components instead.
@@ -230,11 +209,11 @@ balloon.set(GravityScale, { value: -0.25 });
 
 Useful values:
 
-| Value | Effect |
-| ---: | --- |
-| `1` | Normal gravity. |
-| `0` | No gravity. |
-| `2` | Twice normal gravity. |
+|    Value | Effect                                |
+| -------: | ------------------------------------- |
+|      `1` | Normal gravity.                       |
+|      `0` | No gravity.                           |
+|      `2` | Twice normal gravity.                 |
 | Negative | Gravity pulls the opposite direction. |
 
 ### MotionLocks
@@ -313,14 +292,14 @@ wheel.set(Body, {
 
 Physics body lifecycle follows ECS structure.
 
-| ECS Change | Physics Behavior |
-| --- | --- |
-| Add `Body` | Create a physics body. |
-| Remove `Body` | Destroy the physics body and its internal shapes. |
-| Destroy body entity | Destroy the physics body and its internal shapes. |
-| Modify `Body` | Update body type, enabled state, and flags. |
-| Modify `Position` or `Rotation` | Teleport or move the body. |
-| Modify velocity components | Apply the new velocity. |
+| ECS Change                      | Physics Behavior                                  |
+| ------------------------------- | ------------------------------------------------- |
+| Add `Body`                      | Create a physics body.                            |
+| Remove `Body`                   | Destroy the physics body and its internal shapes. |
+| Destroy body entity             | Destroy the physics body and its internal shapes. |
+| Modify `Body`                   | Update body type, enabled state, and flags.       |
+| Modify `Position` or `Rotation` | Teleport or move the body.                        |
+| Modify velocity components      | Apply the new velocity.                           |
 
 Shapes are created from immediate child entities with geometry components. See [Shapes](./shapes.md).
 
@@ -343,15 +322,9 @@ Use a child entity for the shape.
 
 ```ts
 // Correct
-const body = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 ### Expecting A Body Without `Body` To Simulate
@@ -366,10 +339,7 @@ world.entity().set(Position, { x: 0, y: 4 });
 Add `Body` to opt in.
 
 ```ts
-world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 ```
 
 ### Forgetting `modified` After Direct Mutation
@@ -404,9 +374,7 @@ player.set(Position, { x: 10, y: 5 });
 Dynamic bodies respond to forces and contacts. Moving platforms are usually kinematic.
 
 ```ts
-platform
-  .set(Body, { type: BodyType.Kinematic })
-  .set(LinearVelocity, { x: 1, y: 0 });
+platform.set(Body, { type: BodyType.Kinematic }).set(LinearVelocity, { x: 1, y: 0 });
 ```
 
 ## Related Pages

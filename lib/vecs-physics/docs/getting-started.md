@@ -20,15 +20,9 @@ A physics object is usually two entities:
 - One or more child shape entities with geometry such as `Box`, `Circle`, or `Polygon`.
 
 ```ts
-const body = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 The body entity controls simulation behavior. The child entity defines the collision shape. Multiple child shapes create a compound body.
@@ -49,25 +43,13 @@ installPhysics(world, {
   subSteps: 4,
 });
 
-const ground = world
-  .entity()
-  .set(Position, { x: 0, y: -1 })
-  .add(Body);
+const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
-world
-  .entity()
-  .setParent(ground)
-  .set(Box, { hx: 25, hy: 1 });
+world.entity().setParent(ground).set(Box, { hx: 25, hy: 1 });
 
-const box = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const box = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(box)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(box).set(Box, { hx: 0.5, hy: 0.5 });
 
 world.start();
 
@@ -117,15 +99,9 @@ Add multiple child shape entities to one body entity.
 ```ts
 import { ShapePosition } from "@vworlds/vecs-physics";
 
-const ship = world
-  .entity()
-  .set(Position, { x: 0, y: 5 })
-  .set(Body, { type: BodyType.Dynamic });
+const ship = world.entity().set(Position, { x: 0, y: 5 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(ship)
-  .set(Box, { hx: 1, hy: 0.25 });
+world.entity().setParent(ship).set(Box, { hx: 1, hy: 0.25 });
 
 world
   .entity()
@@ -143,11 +119,7 @@ Events are opt-in. Add `ContactEvents` to a shape entity if you want that shape 
 ```ts
 import { ContactEvents } from "@vworlds/vecs-physics";
 
-const playerShape = world
-  .entity()
-  .setParent(box)
-  .set(Box, { hx: 0.5, hy: 0.5 })
-  .add(ContactEvents);
+const playerShape = world.entity().setParent(box).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
 
 world
   .system("LogContacts")
@@ -174,10 +146,7 @@ box.set(Force, { x: 10, y: 0 });
 You can also place a force on an immediate child of a body entity. This is useful when multiple independent effects act on the same body.
 
 ```ts
-const tractorBeam = world
-  .entity()
-  .setParent(box)
-  .set(Force, { x: 25, y: 0 });
+const tractorBeam = world.entity().setParent(box).set(Force, { x: 25, y: 0 });
 
 // Later:
 tractorBeam.remove(Force);
@@ -222,12 +191,12 @@ installPhysics(world, {
 
 Common options:
 
-| Option | Default | Description |
-| --- | ---: | --- |
-| `gravity` | `{ x: 0, y: -10 }` | World gravity in meters per second squared. |
-| `fixedTimeStep` | `1 / 60` | Physics step size in seconds. Vecs `delta` is expected to be fixed. |
-| `subSteps` | `4` | Solver substeps per physics step. More substeps improve stability and cost more CPU. |
-| `debug` | `false` | Enables deduplicated warnings for invalid ECS structures. |
+| Option          |            Default | Description                                                                          |
+| --------------- | -----------------: | ------------------------------------------------------------------------------------ |
+| `gravity`       | `{ x: 0, y: -10 }` | World gravity in meters per second squared.                                          |
+| `fixedTimeStep` |           `1 / 60` | Physics step size in seconds. Vecs `delta` is expected to be fixed.                  |
+| `subSteps`      |                `4` | Solver substeps per physics step. More substeps improve stability and cost more CPU. |
+| `debug`         |            `false` | Enables deduplicated warnings for invalid ECS structures.                            |
 
 Advanced callers can pass phase names or phase objects to place physics systems inside an existing Vecs pipeline. See [Systems And Phases](./systems-and-phases.md).
 

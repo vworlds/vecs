@@ -73,20 +73,11 @@ installPhysics(world, {
   subSteps: 4,
 });
 
-const ground = world
-  .entity()
-  .set(Position, { x: 0, y: -1 })
-  .add(Body);
+const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
-world
-  .entity()
-  .setParent(ground)
-  .set(Box, { hx: 25, hy: 1 });
+world.entity().setParent(ground).set(Box, { hx: 25, hy: 1 });
 
-const player = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const player = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
 world
   .entity()
@@ -144,10 +135,7 @@ Rendering code should convert meters to pixels or scene units. `vecs-physics` do
 An entity participates in physics when it has a `Body` component.
 
 ```ts
-const body = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 ```
 
 Missing `Body` means the entity is ignored by physics.
@@ -207,15 +195,9 @@ For static and kinematic bodies, user modifications to `Position` and `Rotation`
 Shapes are represented as child entities of a body entity.
 
 ```ts
-const body = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-const shape = world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 0.5, hy: 1 });
+const shape = world.entity().setParent(body).set(Box, { hx: 0.5, hy: 1 });
 ```
 
 A shape entity must be an immediate child of an entity with `Body`. `vecs-physics` does not recursively search ancestors.
@@ -300,14 +282,7 @@ export class Chain {
 Geometry components are mutually exclusive.
 
 ```ts
-world.setExclusiveComponents(
-  Box,
-  Circle,
-  Capsule,
-  Segment,
-  Polygon,
-  Chain,
-);
+world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);
 ```
 
 Adding one geometry component removes the previous one from the same entity.
@@ -331,14 +306,14 @@ export class Material {
 
 Default material behavior:
 
-| Property | Default | Meaning |
-| --- | ---: | --- |
-| `density` | `1` | Shape contributes mass. |
-| `friction` | `0.6` | Dry surface friction. |
-| `restitution` | `0` | No bounce. |
-| `rollingResistance` | `0` | No rolling resistance. |
-| `tangentSpeed` | `0` | No conveyor-belt tangent speed. |
-| `userMaterialId` | `0n` | No application material id. |
+| Property            | Default | Meaning                         |
+| ------------------- | ------: | ------------------------------- |
+| `density`           |     `1` | Shape contributes mass.         |
+| `friction`          |   `0.6` | Dry surface friction.           |
+| `restitution`       |     `0` | No bounce.                      |
+| `rollingResistance` |     `0` | No rolling resistance.          |
+| `tangentSpeed`      |     `0` | No conveyor-belt tangent speed. |
+| `userMaterialId`    |    `0n` | No application material id.     |
 
 Changing `Material` on a live shape updates the physical shape. Density changes update body mass.
 
@@ -373,12 +348,7 @@ export class Sensor {}
 Add `Sensor` to a shape entity to make that shape report overlaps without collision response.
 
 ```ts
-world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 2, hy: 1 })
-  .add(Sensor)
-  .add(SensorEvents);
+world.entity().setParent(body).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
 ```
 
 Missing `Sensor` means the shape is solid.
@@ -427,10 +397,7 @@ player.set(Force, { x: 1, y: 2 });
 Advanced API: add `Force` to an immediate child of the body entity.
 
 ```ts
-const tractorBeam = world
-  .entity()
-  .setParent(player)
-  .set(Force, { x: 10, y: 22 });
+const tractorBeam = world.entity().setParent(player).set(Force, { x: 10, y: 22 });
 ```
 
 This lets multiple independent force sources act on one body. A spaceship can be pulled by two tractor beams while also receiving another child force from a planet's gravity field.
@@ -476,10 +443,7 @@ player.set(Impulse, { x: 1, y: 2 });
 Advanced API:
 
 ```ts
-world
-  .entity()
-  .setParent(player)
-  .set(Impulse, { x: 5, y: 0 });
+world.entity().setParent(player).set(Impulse, { x: 5, y: 0 });
 ```
 
 Impulse targeting follows the same immediate entity-or-parent rule as `Force`.
@@ -539,11 +503,7 @@ export type ContactEvent = {
 Add `ContactEvents` to a shape entity to receive contact begin/end events involving that shape. If both shapes have `ContactEvents`, both receive events. If only one shape has `ContactEvents`, only that shape receives events.
 
 ```ts
-world
-  .entity()
-  .setParent(player)
-  .set(Box, { hx: 0.5, hy: 0.5 })
-  .add(ContactEvents);
+world.entity().setParent(player).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
 ```
 
 Systems can react normally with Vecs update handlers.
@@ -582,16 +542,16 @@ See [Events](./events.md).
 
 Physics objects are created and destroyed from ECS structure.
 
-| ECS change | Physics behavior |
-| --- | --- |
-| Add `Body` | Create a physics body. |
-| Remove `Body` | Destroy the physics body and its internal shapes. |
-| Destroy body entity | Destroy the physics body and its internal shapes. |
-| Add valid child geometry | Create a shape on the parent body. |
-| Remove geometry component | Destroy the shape. |
-| Change geometry | Update or recreate the shape. |
-| Reparent shape entity | Destroy/recreate shape if parent body changes. |
-| Set `Body.enabled = false` | Disable the body in the simulation. |
+| ECS change                 | Physics behavior                                  |
+| -------------------------- | ------------------------------------------------- |
+| Add `Body`                 | Create a physics body.                            |
+| Remove `Body`              | Destroy the physics body and its internal shapes. |
+| Destroy body entity        | Destroy the physics body and its internal shapes. |
+| Add valid child geometry   | Create a shape on the parent body.                |
+| Remove geometry component  | Destroy the shape.                                |
+| Change geometry            | Update or recreate the shape.                     |
+| Reparent shape entity      | Destroy/recreate shape if parent body changes.    |
+| Set `Body.enabled = false` | Disable the body in the simulation.               |
 
 Normal mode ignores invalid structures efficiently. Debug mode warns about them.
 

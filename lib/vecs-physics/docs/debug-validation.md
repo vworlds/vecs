@@ -98,14 +98,14 @@ shape.setParent(bodyWithoutBodyComponent);
 
 ## Common Warnings
 
-| Code | Meaning | Fix |
-| --- | --- | --- |
-| `shape-without-parent-body` | A geometry entity is not an immediate child of a `Body` entity. | Set the shape entity's parent to the body entity. |
-| `dynamic-body-without-density` | A dynamic body has no non-sensor shape with non-zero density. | Add a shape with `Material.density > 0`. |
-| `chain-too-few-points` | `Chain.points` has fewer than four points. | Provide at least four points. |
-| `polygon-invalid` | `Polygon.vertices` cannot form a valid convex polygon. | Use a valid convex polygon with sensible winding and non-overlapping points. |
-| `shape-position-on-body` | `ShapePosition` appears on a body entity. | Move `ShapePosition` to a child shape entity. |
-| `position-on-shape-entity` | A shape entity uses body `Position` instead of `ShapePosition`. | Use `ShapePosition` for shape-local offsets. |
+| Code                           | Meaning                                                         | Fix                                                                          |
+| ------------------------------ | --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `shape-without-parent-body`    | A geometry entity is not an immediate child of a `Body` entity. | Set the shape entity's parent to the body entity.                            |
+| `dynamic-body-without-density` | A dynamic body has no non-sensor shape with non-zero density.   | Add a shape with `Material.density > 0`.                                     |
+| `chain-too-few-points`         | `Chain.points` has fewer than four points.                      | Provide at least four points.                                                |
+| `polygon-invalid`              | `Polygon.vertices` cannot form a valid convex polygon.          | Use a valid convex polygon with sensible winding and non-overlapping points. |
+| `shape-position-on-body`       | `ShapePosition` appears on a body entity.                       | Move `ShapePosition` to a child shape entity.                                |
+| `position-on-shape-entity`     | A shape entity uses body `Position` instead of `ShapePosition`. | Use `ShapePosition` for shape-local offsets.                                 |
 
 ## Valid Body And Shape Structure
 
@@ -114,15 +114,9 @@ The most common validation issue is putting shape components on the wrong entity
 Correct structure:
 
 ```ts
-const body = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 Incorrect structure:
@@ -146,31 +140,19 @@ Shape entities and force source entities use the immediate parent only.
 This works:
 
 ```ts
-const player = world
-  .entity()
-  .set(Position, { x: 0, y: 0 })
-  .set(Body, { type: BodyType.Dynamic });
+const player = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(player)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(player).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 This is ignored by physics:
 
 ```ts
-const player = world
-  .entity()
-  .set(Position, { x: 0, y: 0 })
-  .set(Body, { type: BodyType.Dynamic });
+const player = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
 
 const container = world.entity().setParent(player);
 
-world
-  .entity()
-  .setParent(container)
-  .set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().setParent(container).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 To fix it, make the shape an immediate child of `player`, or add `Body` to `container` if it should be its own physics body.
@@ -182,26 +164,15 @@ Dynamic bodies need mass. Mass normally comes from non-sensor shapes with non-ze
 This can be invalid:
 
 ```ts
-const body = world
-  .entity()
-  .set(Position, { x: 0, y: 4 })
-  .set(Body, { type: BodyType.Dynamic });
+const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 0.5, hy: 0.5 })
-  .set(Material, { density: 0 });
+world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 }).set(Material, { density: 0 });
 ```
 
 Use a positive density for ordinary dynamic bodies.
 
 ```ts
-world
-  .entity()
-  .setParent(body)
-  .set(Box, { hx: 0.5, hy: 0.5 })
-  .set(Material, { density: 1 });
+world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 }).set(Material, { density: 1 });
 ```
 
 Missing `Material` is fine. It uses the default density `1`.
