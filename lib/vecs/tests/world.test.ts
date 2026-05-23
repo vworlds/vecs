@@ -209,9 +209,12 @@ describe("World — component registration", () => {
   it("class-valued QueryDSL without registered metadata throws when evaluated", () => {
     const w = new World();
     const q = w.query("test").query(A);
-    q.build();
-    const e = w.entity();
-    expect(() => q.belongs(e)).toThrow();
+    // World is always present in _entities, so q.build() backfills it and
+    // triggers the throw there instead of at a later q.belongs() call.
+    expect(() => {
+      q.build();
+      q.belongs(w.entity());
+    }).toThrow();
   });
 });
 

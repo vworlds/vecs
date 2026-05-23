@@ -194,8 +194,10 @@ describe("Query — component routing index", () => {
   it("does not reevaluate simple queries when unrelated components change", () => {
     const { w, tick } = setup();
     const q = w.query("velocity").requires(Velocity);
-    const belongs = vi.spyOn(q, "belongs");
     w.start();
+    // Spy is set after start so the query backfill (which evaluates the World
+    // entity) does not pollute the call count.
+    const belongs = vi.spyOn(q, "belongs");
 
     const e = w.entity();
     e.add(Position);
@@ -208,8 +210,10 @@ describe("Query — component routing index", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);
     q.query(Velocity);
-    const belongs = vi.spyOn(q, "belongs");
     w.start();
+    // Spy is set after start so the query backfill (which evaluates the World
+    // entity) does not pollute the call count.
+    const belongs = vi.spyOn(q, "belongs");
 
     const positionOnly = w.entity();
     positionOnly.add(Position);
@@ -742,6 +746,9 @@ describe("Query — NOT predicate routing", () => {
     const enter = vi.fn();
     w.query("test").query({ NOT: Velocity }).enter(enter);
     w.start();
+    // World itself has no Velocity, so it legitimately enters the NOT-Velocity
+    // query during backfill. Clear the mock so we only assert on later mutations.
+    enter.mockClear();
     const e = w.entity();
     e.add(Velocity);
     tick();

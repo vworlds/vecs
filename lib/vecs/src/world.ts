@@ -58,11 +58,11 @@ const RESERVED_COMPONENT_TYPE = 0;
  * {@link beginDefer} / {@link endDefer} or {@link defer}. {@link flush}
  * drains the queue at top level.
  */
-export class World {
+export class World extends Entity {
   /** @internal Entity id → entity. Owns every live entity. */
   private _entities = new Map<number, Entity>();
   /** @internal All registered queries, including systems (which extend `Query`). */
-  private _queries: Query[] = [];
+  private _allQueries: Query[] = [];
   /** @internal Queries created but not yet built into the world. */
   private _unbuiltQueries = new Set<Query>();
   /** @internal Component type id -> queries invalidated by that component. */
@@ -108,8 +108,15 @@ export class World {
   public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
 
   constructor() {
+    super(undefined as unknown as World, Number.MAX_SAFE_INTEGER);
+    (this as unknown as { world: World }).world = this;
     this._localComponentCounter = DEFAULT_COMPONENT_TYPE_START;
     this._tickSources.add(ALWAYS_TICK_SOURCE);
+    this._entities.set(this.eid, this);
+  }
+
+  public override destroy(): never {
+    throw new Error("World cannot be destroyed");
   }
 
   private _nextComponentType(): number {
@@ -205,7 +212,7 @@ export class World {
       phase.systems.length = 0;
     });
 
-    this._queries.forEach((q) => {
+    this._allQueries.forEach((q) => {
       if (!(q instanceof System)) {
         return;
       }
@@ -233,7 +240,7 @@ export class World {
       throw "queries cannot be built while a frame is in progress";
     }
     this._removeUnbuiltQuery(q);
-    this._queries.push(q);
+    this._allQueries.push(q);
     if (q._dsl !== undefined) {
       this._indexQuery(q, _extractQueryDependencies(this, q._dsl));
     }
@@ -317,9 +324,9 @@ export class World {
   public _removeQuery(q: Query): void {
     this._removeUnbuiltQuery(q);
     this._unindexQuery(q);
-    const idx = this._queries.indexOf(q);
+    const idx = this._allQueries.indexOf(q);
     if (idx !== -1) {
-      this._queries.splice(idx, 1);
+      this._allQueries.splice(idx, 1);
     }
     this._entities.forEach((e) => e._purgeQuery(q));
   }
@@ -336,7 +343,7 @@ export class World {
 
   /** Read-only view of every registered query (includes systems). */
   public get queries(): ReadonlyArray<Query> {
-    return this._queries;
+    return this._allQueries;
   }
 
   /**
@@ -695,9 +702,17 @@ export class World {
    */
   public clearAllEntities(): void {
     this._entities.forEach((e) => {
+      if (e === this) {
+        return;
+      }
       e.destroy();
     });
     this.flush();
+    const ownedTypes: number[] = [];
+    this.components.forEach((_, type) => ownedTypes.push(type));
+    for (const type of ownedTypes) {
+      this.remove(type);
+    }
   }
 
   /**
