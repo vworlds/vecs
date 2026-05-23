@@ -10,7 +10,12 @@ import {
   type RPCHandler,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
-import { type Component, type ComponentClass, type IPhase, type World } from "@vworlds/vecs";
+import {
+  type ComponentInstance,
+  type ComponentClass,
+  type IPhase,
+  type World,
+} from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
@@ -175,7 +180,7 @@ export class VecsClient {
     this._interpolator.push(diff);
   }
 
-  public decodeComponentSnapshot(snapshot: ComponentSnapshot): Component {
+  public decodeComponentSnapshot(snapshot: ComponentSnapshot): ComponentInstance {
     if (!(snapshot.payload instanceof Uint8Array)) {
       return snapshot.payload;
     }
@@ -183,7 +188,9 @@ export class VecsClient {
     if (!registered) {
       throw new Error(`Received snapshot for unregistered component type ${snapshot.type}`);
     }
-    return (snapshot.payload = new Decoder(snapshot.payload).read(registered.Class) as Component);
+    return (snapshot.payload = new Decoder(snapshot.payload).read(
+      registered.Class
+    ) as ComponentInstance);
   }
 
   private _applySnapshot(snapshot: ComponentSnapshot): void {

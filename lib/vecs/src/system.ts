@@ -1,4 +1,4 @@
-import { type Component, type ComponentClass, type ComponentMeta } from "./component.js";
+import { type ComponentInstance, type ComponentClass, type ComponentMeta } from "./component.js";
 import { Query } from "./query.js";
 import { type QueryDSL, type MaybeRequired } from "./dsl.js";
 import type { Entity } from "./entity.js";
@@ -30,8 +30,17 @@ const enum InboxCommand {
  */
 type _SystemInboxEvent =
   | { kind: InboxCommand.Enter; entity: Entity }
-  | { kind: InboxCommand.Exit; entity: Entity; snapshot: Map<number, Component> | undefined }
-  | { kind: InboxCommand.Update; entity: Entity; meta: ComponentMeta; component: Component };
+  | {
+      kind: InboxCommand.Exit;
+      entity: Entity;
+      snapshot: Map<number, ComponentInstance> | undefined;
+    }
+  | {
+      kind: InboxCommand.Update;
+      entity: Entity;
+      meta: ComponentMeta;
+      component: ComponentInstance;
+    };
 
 /**
  * A reactive processor running over a filtered subset of world entities.
@@ -131,9 +140,9 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
       return;
     }
     if (this._exitCallback !== undefined) {
-      let snapshot: Map<number, Component> | undefined;
+      let snapshot: Map<number, ComponentInstance> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
-        snapshot = new Map<number, Component>();
+        snapshot = new Map<number, ComponentInstance>();
         for (const type of this._exitSnapshotTypes) {
           const c = e._get(type);
           if (c) {
@@ -149,7 +158,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    * @internal Routing entry: push an inbox `update` event when the modified
    * component matches the watchlist.
    */
-  public override _notifyModified(e: Entity, meta: ComponentMeta, c: Component): void {
+  public override _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
     if (!this._enabled || !this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }

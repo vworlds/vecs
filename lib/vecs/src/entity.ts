@@ -1,5 +1,5 @@
 import {
-  type Component,
+  type ComponentInstance,
   type ComponentClass,
   type ComponentClassOrType,
   type ComponentMeta,
@@ -15,7 +15,7 @@ type EntityEvents = Events<{ destroy(): void }>;
 
 /**
  * A game object: a unique numeric id with an arbitrary set of
- * {@link Component | components} attached.
+ * {@link ComponentInstance | components} attached.
  *
  * Never instantiate `Entity` directly. Use {@link World.entity} for an
  * auto-assigned id, or {@link World.getOrCreateEntity} when the id comes from
@@ -48,7 +48,7 @@ type EntityEvents = Events<{ destroy(): void }>;
  */
 export class Entity {
   /** @internal Maps numeric component type id to component instance. */
-  private _components = new ArrayMap<Component>();
+  private _components = new ArrayMap<ComponentInstance>();
   /** @internal Component types with pending modified delivery. */
   private readonly _dirtyComponentBitmask = new Bitset();
   /** @internal Set of queries this entity currently belongs to. */
@@ -88,12 +88,12 @@ export class Entity {
   ) {}
 
   /** Fire every `onAdd` hook registered for `meta`. */
-  private _runOnAddHandlers(meta: ComponentMeta, component: Component): void {
+  private _runOnAddHandlers(meta: ComponentMeta, component: ComponentInstance): void {
     meta._onAddHandlers?.forEach((handler) => handler(this, component));
   }
 
   /** Fire every `onSet` hook registered for `meta`. */
-  private _runOnSetHandlers(meta: ComponentMeta, component: Component): void {
+  private _runOnSetHandlers(meta: ComponentMeta, component: ComponentInstance): void {
     meta._onSetHandlers?.forEach((handler) => handler(this, component));
   }
 
@@ -112,7 +112,7 @@ export class Entity {
   }
 
   /** Store a component instance and perform the shared add-side bookkeeping. */
-  private _storeComponent(meta: ComponentMeta, component: Component, isAdd: boolean): void {
+  private _storeComponent(meta: ComponentMeta, component: ComponentInstance, isAdd: boolean): void {
     if (meta._exclusive) {
       for (const exclusiveMeta of meta._exclusive) {
         if (this._components.has(exclusiveMeta.type)) {
@@ -129,7 +129,11 @@ export class Entity {
   }
 
   /** Perform the shared set-side hook and query update routing. */
-  private _notifyComponentSet(meta: ComponentMeta, component: Component, isUpdate: boolean): void {
+  private _notifyComponentSet(
+    meta: ComponentMeta,
+    component: ComponentInstance,
+    isUpdate: boolean
+  ): void {
     this._runOnSetHandlers(meta, component);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (isUpdate) {
@@ -144,7 +148,10 @@ export class Entity {
    * If the component type belongs to an exclusivity group, any conflicting
    * component already on this entity is removed first.
    */
-  private _new(meta: ComponentMeta, props: Partial<Component> | undefined): Component {
+  private _new(
+    meta: ComponentMeta,
+    props: Partial<ComponentInstance> | undefined
+  ): ComponentInstance {
     const c = new meta.Class();
     if (props !== undefined) {
       Object.assign(c, props);
@@ -166,7 +173,7 @@ export class Entity {
    * replacing any previous instance for this type. Events are fired as if the
    * caller had performed a `set` operation.
    */
-  public _attach(meta: ComponentMeta, component: Component): void {
+  public _attach(meta: ComponentMeta, component: ComponentInstance): void {
     if (this._destroyed) {
       return;
     }
@@ -220,7 +227,7 @@ export class Entity {
    *
    * Faster than {@link get} because no class to type id resolution is needed.
    */
-  public _get(type: number): Component | undefined {
+  public _get(type: number): ComponentInstance | undefined {
     return this._components.get(type);
   }
 
@@ -289,7 +296,7 @@ export class Entity {
    * `props` if provided, fire `onSet`, and route modified events to every
    * query that watches the component type.
    */
-  public _set(meta: ComponentMeta, props: Partial<Component> | undefined): void {
+  public _set(meta: ComponentMeta, props: Partial<ComponentInstance> | undefined): void {
     if (this._destroyed) {
       return;
     }
@@ -354,7 +361,7 @@ export class Entity {
    * entity.components.forEach((c) => console.log(c.constructor.name));
    * ```
    */
-  public get components(): ReadonlyArrayMap<Component> {
+  public get components(): ReadonlyArrayMap<ComponentInstance> {
     return this._components;
   }
 
@@ -422,7 +429,7 @@ export class Entity {
    * @param component - Existing component instance to store on the entity.
    * @returns This entity, for chaining.
    */
-  public attach(component: Component): Entity {
+  public attach(component: ComponentInstance): Entity {
     const meta = this.world.getComponentMeta(component.constructor as ComponentClass);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component });
@@ -462,9 +469,9 @@ export class Entity {
   public get<C extends ComponentClass>(Class: C): Readonly<InstanceType<C>> | undefined;
 
   /** Look up a component by numeric type id as a readonly value. */
-  public get(type: number): Readonly<Component> | undefined;
+  public get(type: number): Readonly<ComponentInstance> | undefined;
 
-  public get(typeOrClass: ComponentClassOrType): Readonly<Component> | undefined {
+  public get(typeOrClass: ComponentClassOrType): Readonly<ComponentInstance> | undefined {
     const type = this.world.getComponentType(typeOrClass);
     return this._get(type);
   }
@@ -481,9 +488,9 @@ export class Entity {
   public getMut<C extends ComponentClass>(Class: C): InstanceType<C> | undefined;
 
   /** Look up a component by numeric type id for mutation. */
-  public getMut(type: number): Component | undefined;
+  public getMut(type: number): ComponentInstance | undefined;
 
-  public getMut(typeOrClass: ComponentClassOrType): Component | undefined {
+  public getMut(typeOrClass: ComponentClassOrType): ComponentInstance | undefined {
     const type = this.world.getComponentType(typeOrClass);
     const component = this._get(type);
     if (component) {
@@ -578,9 +585,9 @@ export class Entity {
    * @param props - Properties to assign onto the component instance.
    * @returns This entity, for chaining.
    */
-  public set(type: number, props: Partial<Component>): Entity;
+  public set(type: number, props: Partial<ComponentInstance>): Entity;
 
-  public set(typeOrClass: ComponentClassOrType, props: Partial<Component>): Entity {
+  public set(typeOrClass: ComponentClassOrType, props: Partial<ComponentInstance>): Entity {
     const meta = this.world.getComponentMeta(typeOrClass);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props });

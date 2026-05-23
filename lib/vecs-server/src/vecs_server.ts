@@ -13,7 +13,7 @@ import {
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
 import {
-  type Component,
+  type ComponentInstance,
   type ComponentClass,
   type Entity,
   type IPhase,
@@ -59,7 +59,7 @@ class ServerClientSession {
 interface Update {
   entity: Entity;
   type: number;
-  component: Component | undefined; // undefined => removal
+  component: ComponentInstance | undefined; // undefined => removal
 }
 
 export interface VecsServerOptions {
@@ -284,7 +284,7 @@ export class VecsServer {
     }
   }
 
-  private _record(entity: Entity, type: number, component: Component | undefined): void {
+  private _record(entity: Entity, type: number, component: ComponentInstance | undefined): void {
     this._updates.set(cid_pack(entity.eid, type), { entity, type, component });
   }
 
@@ -298,7 +298,11 @@ export class VecsServer {
     });
   }
 
-  private _encodeSnapshot(eid: number, type: number, component: Component): EncodedSnapshot {
+  private _encodeSnapshot(
+    eid: number,
+    type: number,
+    component: ComponentInstance
+  ): EncodedSnapshot {
     const cid = cid_pack(eid, type);
     const cached = this._snapshotCache.get(cid);
     if (cached) {

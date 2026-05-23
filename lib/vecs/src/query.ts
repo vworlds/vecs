@@ -1,15 +1,15 @@
 import { OrderedSet } from "./util/ordered_set.js";
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
-import { type Component, type ComponentClass, type ComponentMeta } from "./component.js";
+import { type ComponentInstance, type ComponentClass, type ComponentMeta } from "./component.js";
 import type { Entity } from "./entity.js";
 import { type World } from "./world.js";
 import { _compile, type EntityTestFunc, type QueryDSL, type MaybeRequired } from "./dsl.js";
 
 export type { EntityTestFunc, QueryDSL, MaybeRequired };
 
-type EntityCallback = (e: Entity, snapshot?: Map<number, Component>) => void;
-type ComponentCallback = (e: Entity, c: Component) => void;
+type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => void;
+type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
 /** Component class, or `{ parent: ComponentClass }` to resolve from the entity's parent. */
 type ComponentOrParent = ComponentClass | { parent: ComponentClass };
@@ -18,7 +18,7 @@ type ComponentOrParent = ComponentClass | { parent: ComponentClass };
 type ComponentOrParentType = number | { parent: number };
 
 /** Resolves the component instance type for one element of a `ComponentOrParent` tuple. */
-type ComponentInstance<T> = T extends { parent: ComponentClass }
+type ResolvedComponentInstance<T> = T extends { parent: ComponentClass }
   ? InstanceType<T["parent"]>
   : T extends ComponentClass
     ? InstanceType<T>
@@ -172,8 +172,8 @@ export class Query<R extends ComponentClass[] = []> {
   private _getComponent(
     e: Entity,
     C: ComponentOrParentType,
-    exitSnapshot?: Map<number, Component>
-  ): Component | undefined {
+    exitSnapshot?: Map<number, ComponentInstance>
+  ): ComponentInstance | undefined {
     if (typeof C === "number") {
       return exitSnapshot?.get(C) ?? e.get(C);
     } else {
@@ -188,9 +188,9 @@ export class Query<R extends ComponentClass[] = []> {
   private _getInjected(
     e: Entity,
     inject: ComponentOrParentType[],
-    exitSnapshot?: Map<number, Component>
-  ): Component[] {
-    const injected: Component[] = [];
+    exitSnapshot?: Map<number, ComponentInstance>
+  ): ComponentInstance[] {
+    const injected: ComponentInstance[] = [];
     inject.forEach((C) => {
       const c = this._getComponent(e, C, exitSnapshot);
       if (!c) {
@@ -252,7 +252,7 @@ export class Query<R extends ComponentClass[] = []> {
    * `update` callback for the component type. `System` overrides this to push
    * an inbox event instead of firing immediately.
    */
-  public _notifyModified(e: Entity, meta: ComponentMeta, c: Component): void {
+  public _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
     if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }
@@ -378,7 +378,7 @@ export class Query<R extends ComponentClass[] = []> {
    */
   public enter<J extends ComponentOrParent[]>(
     inject: readonly [...J],
-    callback: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
+    callback: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
   ): this;
 
   /**
@@ -391,7 +391,7 @@ export class Query<R extends ComponentClass[] = []> {
 
   public enter<J extends ComponentOrParent[]>(
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
+    callback?: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
   ): this {
     this._assertConfigurable();
     if (typeof injectOrCallback === "function") {
@@ -419,7 +419,7 @@ export class Query<R extends ComponentClass[] = []> {
    */
   public exit<J extends ComponentOrParent[]>(
     inject: readonly [...J],
-    callback: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
+    callback: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
   ): this;
 
   /**
@@ -432,7 +432,7 @@ export class Query<R extends ComponentClass[] = []> {
 
   public exit<J extends ComponentOrParent[]>(
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
+    callback?: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
   ): this {
     this._assertConfigurable();
     if (typeof injectOrCallback === "function") {
@@ -441,7 +441,7 @@ export class Query<R extends ComponentClass[] = []> {
     } else {
       const inject = this._mapInjectedClassToTypes(injectOrCallback);
       this._exitSnapshotTypes = inject.filter((t): t is number => typeof t === "number");
-      this._exitCallback = (e: Entity, exitSnapshot?: Map<number, Component>) => {
+      this._exitCallback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
         callback!(e, this._getInjected(e, inject, exitSnapshot) as any);
       };
     }
@@ -512,7 +512,7 @@ export class Query<R extends ComponentClass[] = []> {
     } else {
       const inject = injectOrCallback;
       const injectedComponentTypes = inject.map((C) => this.world.getComponentType(C));
-      const cb = (e: Entity, c: Component) => {
+      const cb = (e: Entity, c: ComponentInstance) => {
         const injected: any[] = [];
         injectedComponentTypes.forEach((InjectedComponentType) => {
           injected.push(e.get(InjectedComponentType));

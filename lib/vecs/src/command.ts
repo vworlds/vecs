@@ -1,4 +1,4 @@
-import type { Component, ComponentMeta } from "./component.js";
+import type { ComponentInstance, ComponentMeta } from "./component.js";
 import type { Entity } from "./entity.js";
 
 /**
@@ -35,14 +35,14 @@ export type Command =
       entity: Entity;
       meta: ComponentMeta;
       /** Properties to assign. `undefined` for `entity.add(C)` (ensure-exists, no data). */
-      props: Partial<Component> | undefined;
+      props: Partial<ComponentInstance> | undefined;
     }
   | {
       kind: CommandKind.Attach;
       entity: Entity;
       meta: ComponentMeta;
       /** Existing component instance to store directly on the entity. */
-      component: Component;
+      component: ComponentInstance;
     }
   | { kind: CommandKind.Modified; entity: Entity; meta: ComponentMeta }
   | { kind: CommandKind.Remove; entity: Entity; meta: ComponentMeta }

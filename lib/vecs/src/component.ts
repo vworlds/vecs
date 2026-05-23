@@ -2,10 +2,10 @@ import { BitPtr } from "./util/bitset.js";
 import type { Entity } from "./entity.js";
 
 /** A component instance. Components are plain objects created with a no-arg constructor. */
-export type Component = object;
+export type ComponentInstance = object;
 
 /** A component class constructor. */
-export type ComponentClass<T extends Component = Component> = new () => T;
+export type ComponentClass<T extends ComponentInstance = ComponentInstance> = new () => T;
 
 /** A component class constructor or its numeric type id. */
 export type ComponentClassOrType = number | ComponentClass;
@@ -32,7 +32,7 @@ export type ComponentClassOrType = number | ComponentClass;
  *
  * @typeParam C - Component class this hook is bound to.
  */
-export interface Hook<C extends Component = Component> {
+export interface Hook<C extends ComponentInstance = ComponentInstance> {
   /**
    * Register a handler invoked when a component of this type is first attached
    * to an entity (`entity.add(C)` or `entity.set(C, ...)` on an entity that
@@ -74,7 +74,7 @@ export interface Hook<C extends Component = Component> {
  * lifecycle handlers attached via `world.hook(C)` are stored directly on the
  * meta object.
  */
-export class ComponentMeta implements Hook<Component> {
+export class ComponentMeta implements Hook<ComponentInstance> {
   /** The component class constructor this meta represents. */
   public readonly Class: ComponentClass;
   /** Numeric type id assigned at registration time. */
@@ -92,11 +92,11 @@ export class ComponentMeta implements Hook<Component> {
   public _exclusive: ComponentMeta[] | undefined = undefined;
 
   /** @internal `onAdd` handlers, lazily allocated and prepended by {@link onAdd}. */
-  public _onAddHandlers: ((entity: Entity, c: Component) => void)[] | undefined;
+  public _onAddHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
   /** @internal `onRemove` handlers, lazily allocated and prepended by {@link onRemove}. */
-  public _onRemoveHandlers: ((entity: Entity, c: Component) => void)[] | undefined;
+  public _onRemoveHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
   /** @internal `onSet` handlers, lazily allocated and prepended by {@link onSet}. */
-  public _onSetHandlers: ((entity: Entity, c: Component) => void)[] | undefined;
+  public _onSetHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
 
   constructor(Class: ComponentClass, type: number, componentName: string) {
     this.Class = Class;
@@ -106,19 +106,19 @@ export class ComponentMeta implements Hook<Component> {
   }
 
   /** @inheritdoc */
-  public onAdd(handler: (entity: Entity, c: Component) => void): ComponentMeta {
+  public onAdd(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
     (this._onAddHandlers ??= []).unshift(handler);
     return this;
   }
 
   /** @inheritdoc */
-  public onRemove(handler: (entity: Entity, c: Component) => void): ComponentMeta {
+  public onRemove(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
     (this._onRemoveHandlers ??= []).unshift(handler);
     return this;
   }
 
   /** @inheritdoc */
-  public onSet(handler: (entity: Entity, c: Component) => void): ComponentMeta {
+  public onSet(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
     (this._onSetHandlers ??= []).unshift(handler);
     return this;
   }
