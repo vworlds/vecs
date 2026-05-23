@@ -16,12 +16,12 @@ class Flag {}
 
 function setup() {
   const w = new World();
-  w.registerComponent(Position);
-  w.registerComponent(Velocity);
-  w.registerComponent(Sprite);
-  w.registerComponent(Container);
-  w.registerComponent(Player);
-  w.registerComponent(Flag);
+  w.component(Position);
+  w.component(Velocity);
+  w.component(Sprite);
+  w.component(Container);
+  w.component(Player);
+  w.component(Flag);
   const phase = w.addPhase("p");
   return { w, phase };
 }

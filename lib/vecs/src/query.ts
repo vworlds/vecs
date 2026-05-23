@@ -14,7 +14,7 @@ type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 /** Component class, or `{ parent: ComponentClass }` to resolve from the entity's parent. */
 type ComponentOrParent = ComponentClass | { parent: ComponentClass };
 
-/** Numeric type id, or `{ parent: typeId }` to resolve from the entity's parent. */
+/** Component eid, or `{ parent: eid }` to resolve from the entity's parent. */
 type ComponentOrParentType = number | { parent: number };
 
 /** Resolves the component instance type for one element of a `ComponentOrParent` tuple. */
@@ -67,12 +67,12 @@ export class Query<R extends ComponentClass[] = []> {
   protected _enterCallback: EntityCallback | undefined = undefined;
   /** @internal `exit` callback (already wraps any injection logic). */
   protected _exitCallback: EntityCallback | undefined = undefined;
-  /** @internal Type ids the exit callback needs snapshotted before component removal. */
+  /** @internal Component eids the exit callback needs snapshotted before component removal. */
   protected _exitSnapshotTypes: number[] | undefined = undefined;
 
-  /** @internal Per-component-type `update` callbacks. */
+  /** @internal Per-component-eid `update` callbacks. */
   protected _componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
-  /** @internal Bitmask of component types this query reacts to via `update`. */
+  /** @internal Bitmask of component eids this query reacts to via `update`. */
   protected _watchlistBitmask: Bitset = new Bitset();
 
   constructor(
@@ -203,16 +203,16 @@ export class Query<R extends ComponentClass[] = []> {
 
   /**
    * @internal Translate a tuple of component classes (or `{ parent: C }`
-   * markers) into the corresponding type ids understood by {@link _getInjected}.
+   * markers) into the corresponding eids understood by {@link _getInjected}.
    */
   private _mapInjectedClassToTypes<J extends ComponentOrParent[]>(
     inject: readonly [...J]
   ): ComponentOrParentType[] {
     return inject.map((C) => {
       if (typeof C === "function") {
-        return this.world.getComponentType(C);
+        return this.world.getComponentEid(C);
       }
-      return { parent: this.world.getComponentType(C.parent) };
+      return { parent: this.world.getComponentEid(C.parent) };
     });
   }
 
@@ -228,8 +228,8 @@ export class Query<R extends ComponentClass[] = []> {
     this._entities?.add(e);
     e._addQueryMembership(this);
     this._enterCallback?.(e);
-    e.components.forEach((c, type) => {
-      const meta = this.world.getComponentMeta(type);
+    e.components.forEach((c, eid) => {
+      const meta = this.world.getComponentMeta(eid);
       if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
         this._notifyModified(e, meta, c);
       }
@@ -256,7 +256,7 @@ export class Query<R extends ComponentClass[] = []> {
     if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }
-    const callback = this._componentUpdateCallbacks.get(meta.type);
+    const callback = this._componentUpdateCallbacks.get(meta.eid);
     if (callback) {
       callback(e, c);
     }
@@ -348,9 +348,9 @@ export class Query<R extends ComponentClass[] = []> {
         if (!this._entities || !this.world) {
           return;
         }
-        const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
+        const eids = componentsOrCallback.map((C) => this.world.getComponentEid(C));
         this._entities.forEach((e) => {
-          const resolved = types.map((t) => e.get(t));
+          const resolved = eids.map((componentEid) => e.get(componentEid));
           callback!(e, resolved as any);
         });
       }
@@ -505,17 +505,17 @@ export class Query<R extends ComponentClass[] = []> {
     ) => void
   ): this {
     this._assertConfigurable();
-    const type = this.world.getComponentType(ComponentClass);
+    const componentEid = this.world.getComponentEid(ComponentClass);
     if (typeof injectOrCallback === "function") {
       callback = injectOrCallback;
-      this._componentUpdateCallbacks.set(type, callback as any);
+      this._componentUpdateCallbacks.set(componentEid, callback as any);
     } else {
       const inject = injectOrCallback;
-      const injectedComponentTypes = inject.map((C) => this.world.getComponentType(C));
+      const injectedComponentEids = inject.map((C) => this.world.getComponentEid(C));
       const cb = (e: Entity, c: ComponentInstance) => {
         const injected: any[] = [];
-        injectedComponentTypes.forEach((InjectedComponentType) => {
-          injected.push(e.get(InjectedComponentType));
+        injectedComponentEids.forEach((injectedComponentEid) => {
+          injected.push(e.get(injectedComponentEid));
         });
 
         if (callback) {
@@ -523,10 +523,10 @@ export class Query<R extends ComponentClass[] = []> {
         }
       };
 
-      this._componentUpdateCallbacks.set(type, cb);
+      this._componentUpdateCallbacks.set(componentEid, cb);
     }
 
-    this._watchlistBitmask.add(type);
+    this._watchlistBitmask.add(componentEid);
 
     if (!this._hasExplicitQuery) {
       // Update-only queries derive membership from the watched component set.
@@ -567,9 +567,9 @@ export class Query<R extends ComponentClass[] = []> {
     ) => number
   ): this {
     this._assertConfigurable();
-    const types = components.map((C) => this.world.getComponentType(C));
+    const eids = components.map((C) => this.world.getComponentEid(C));
     this._entities = new OrderedSet<Entity>((a, b) =>
-      compare(a, types.map((t) => a.get(t)) as any, b, types.map((t) => b.get(t)) as any)
+      compare(a, eids.map((eid) => a.get(eid)) as any, b, eids.map((eid) => b.get(eid)) as any)
     );
     return this;
   }

@@ -119,8 +119,8 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
     if (this._enterCallback !== undefined) {
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
-    e.components.forEach((c, type) => {
-      const meta = this.world.getComponentMeta(type);
+    e.components.forEach((c, eid) => {
+      const meta = this.world.getComponentMeta(eid);
       if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
         this._notifyModified(e, meta, c);
       }
@@ -143,10 +143,10 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
       let snapshot: Map<number, ComponentInstance> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
         snapshot = new Map<number, ComponentInstance>();
-        for (const type of this._exitSnapshotTypes) {
-          const c = e._get(type);
+        for (const eid of this._exitSnapshotTypes) {
+          const c = e._get(eid);
           if (c) {
-            snapshot.set(type, c);
+            snapshot.set(eid, c);
           }
         }
       }
@@ -191,7 +191,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
             this._exitCallback!(event.entity, event.snapshot);
             break;
           case InboxCommand.Update:
-            const callback = this._componentUpdateCallbacks.get(event.meta.type);
+            const callback = this._componentUpdateCallbacks.get(event.meta.eid);
             if (callback) {
               callback(event.entity, event.component);
             }
@@ -402,9 +402,9 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
       throw `each already registered for system '${this.name}'`;
     }
     this.track();
-    const types = components.map((C) => this.world.getComponentType(C));
+    const eids = components.map((C) => this.world.getComponentEid(C));
     this._eachCallback = (e: Entity) => {
-      const resolved = types.map((t) => e.get(t));
+      const resolved = eids.map((eid) => e.get(eid));
       callback(e, resolved as any);
     };
     return this;

@@ -28,14 +28,6 @@ import { TrackerCache, View } from "./view.js";
 interface RegisteredComponent {
   Class: ComponentClass;
   type: number;
-  name: string;
-}
-
-interface SyncSystem {
-  type: number;
-  name: string;
-  Class: ComponentClass;
-  system: System;
 }
 
 class ServerClientSession {
@@ -65,7 +57,6 @@ interface Update {
 export interface VecsServerOptions {
   encodeBufferSize?: number;
   entityIdStart?: number;
-  componentTypeStart?: number;
 }
 
 export interface InstallSystemsOptions {
@@ -78,7 +69,6 @@ export class VecsServer {
   private readonly _sessions = new Map<string, ServerClientSession>();
   private readonly _rpcHandlers = new Map<number, RPCHandler>();
   private readonly _updates = new Map<number, Update>();
-  private readonly _syncSystems: SyncSystem[] = [];
   private readonly _snapshotCache = new Map<number, EncodedSnapshot>();
   private readonly _trackerCache: TrackerCache;
   private readonly _encodeBuffer: Uint8Array;
@@ -94,19 +84,28 @@ export class VecsServer {
     const encodeBufferSize = options.encodeBufferSize ?? 64 * 1024;
     this._encodeBuffer = new Uint8Array(encodeBufferSize);
     this._trackerCache = new TrackerCache(world);
-    this.world.setEntityIdRange(options.entityIdStart ?? 1);
+    const entityIdStart = options.entityIdStart ?? 1000;
+    if (!this.world.poolsLocked) {
+      this.world.configurePools([
+        { name: "network", min: 1, max: 255 },
+        { name: "component", min: 256, max: entityIdStart - 1 },
+        { name: "entity", min: entityIdStart },
+      ]);
+    }
     ensureRegistered(world, Networked);
     ensureRegistered(world, NetworkClient);
     ensureRegistered(world, NetworkInput);
     ensureRegistered(world, View);
     ensureRegistered(world, ServerClientSession);
-    this.world.setComponentTypeRange(options.componentTypeStart ?? 1);
   }
 
-  public registerComponent<C extends ComponentClass>(Class: C): void {
+  public registerComponent<C extends ComponentClass>(Class: C, eid?: number): void {
+    if (!this.world._tryGetComponentMeta(Class)) {
+      this.world.component(Class, eid);
+    }
     const meta = this.world.getComponentMeta(Class);
-    cid_pack(0, meta.type);
-    this._components.push({ Class, type: meta.type, name: meta.componentName });
+    cid_pack(0, meta.eid);
+    this._components.push({ Class, type: meta.eid });
   }
 
   /** @internal */
@@ -146,8 +145,8 @@ export class VecsServer {
       .track();
 
     this._components.forEach((registered) => {
-      const system = this.world
-        .system(`VecsServer:${this.name}:${registered.name}`)
+      this.world
+        .system(`VecsServer:${this.name}:${registered.Class.name}`)
         .phase(collectPhase)
         .requires(Networked, registered.Class)
         .update(registered.Class, (entity, component) => {
@@ -159,12 +158,6 @@ export class VecsServer {
           this._record(entity, registered.type, undefined);
         })
         .track();
-      this._syncSystems.push({
-        type: registered.type,
-        name: registered.name,
-        Class: registered.Class,
-        system,
-      });
     });
 
     this.world
@@ -330,6 +323,6 @@ export class VecsServer {
 
 function ensureRegistered(world: World, Class: ComponentClass): void {
   if (!world._tryGetComponentMeta(Class)) {
-    world.registerComponent(Class);
+    world.component(Class);
   }
 }

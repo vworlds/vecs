@@ -1,5 +1,5 @@
-import { type ComponentClass, ComponentClassArray, ComponentClassOrType } from "./component.js";
-import type { Entity } from "./entity.js";
+import { type ComponentClass, type ComponentRef, type ComponentRefArray } from "./component.js";
+import { Entity } from "./entity.js";
 import type { World } from "./world.js";
 import { Bitset } from "./util/bitset.js";
 
@@ -43,11 +43,11 @@ export type EntityTestFunc = (e: Entity) => boolean;
 export type QueryDSL =
   | true
   | false
-  | ComponentClassArray
-  | ComponentClassOrType
+  | ComponentRefArray
+  | ComponentRef
   | EntityTestFunc
-  | { HAS: ComponentClassArray | ComponentClassOrType }
-  | { HAS_ONLY: ComponentClassArray | ComponentClassOrType }
+  | { HAS: ComponentRefArray | ComponentRef }
+  | { HAS_ONLY: ComponentRefArray | ComponentRef }
   | { AND: readonly QueryDSL[] }
   | { OR: readonly QueryDSL[] }
   | { NOT: QueryDSL }
@@ -109,8 +109,8 @@ function _isClassConstructor(value: QueryDSL): value is ComponentClass {
   );
 }
 
-function _componentRequirements(q: QueryDSL): ComponentClassArray | undefined {
-  if (typeof q === "number") {
+function _componentRequirements(q: QueryDSL): ComponentRefArray | undefined {
+  if (typeof q === "number" || q instanceof Entity) {
     return [q];
   }
 
@@ -125,7 +125,7 @@ function _componentRequirements(q: QueryDSL): ComponentClassArray | undefined {
   return undefined;
 }
 
-function _asShortestComponentRequirement(components: ComponentClassArray): QueryDSL {
+function _asShortestComponentRequirement(components: ComponentRefArray): QueryDSL {
   if (components.length === 0) {
     return true;
   }
@@ -140,31 +140,33 @@ function _calculateComponentBitmask(types: readonly number[]): Bitset {
   return bitmask;
 }
 
-function _resolveComponentRequirement(
-  component: ComponentClassOrType,
-  world: World
-): ComponentClassOrType {
-  return world.getComponentType(component);
+function _resolveComponentRequirement(component: ComponentRef, world: World): number {
+  return world.getComponentEid(component);
 }
 
-function _resolveBareComponent(component: ComponentClassOrType, world: World): QueryDSL {
+function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL {
   if (typeof component === "number") {
     return component;
   }
+  if (component instanceof Entity) {
+    return component.eid;
+  }
 
   const meta = world._tryGetComponentMeta(component);
-  return meta ? meta.type : component;
+  return meta ? meta.eid : component;
 }
 
-function _sortComponentRequirements(components: ComponentClassArray): ComponentClassArray {
+function _sortComponentRequirements(components: ComponentRefArray): ComponentRefArray {
   return [...components].sort((a, b) => {
-    if (typeof a === "number" && typeof b === "number") {
-      return a - b;
+    const aEid = typeof a === "number" ? a : a instanceof Entity ? a.eid : undefined;
+    const bEid = typeof b === "number" ? b : b instanceof Entity ? b.eid : undefined;
+    if (aEid !== undefined && bEid !== undefined) {
+      return aEid - bEid;
     }
-    if (typeof a === "number") {
+    if (aEid !== undefined) {
       return -1;
     }
-    if (typeof b === "number") {
+    if (bEid !== undefined) {
       return 1;
     }
     return 0;
@@ -172,12 +174,12 @@ function _sortComponentRequirements(components: ComponentClassArray): ComponentC
 }
 
 function _asShortestHasOnlyRequirement(
-  components: ComponentClassArray
-): ComponentClassArray | ComponentClassOrType {
+  components: ComponentRefArray
+): ComponentRefArray | ComponentRef {
   return components.length === 1 ? components[0] : components;
 }
 
-function _asCanonicalComponentRequirement(components: ComponentClassArray, world: World): QueryDSL {
+function _asCanonicalComponentRequirement(components: ComponentRefArray, world: World): QueryDSL {
   return _asShortestComponentRequirement(
     _sortComponentRequirements(
       components.map((component) => _resolveComponentRequirement(component, world))
@@ -188,6 +190,9 @@ function _asCanonicalComponentRequirement(components: ComponentClassArray, world
 function _componentSortKey(q: QueryDSL): number | undefined {
   if (typeof q === "number") {
     return q;
+  }
+  if (q instanceof Entity) {
+    return q.eid;
   }
   if (q instanceof Array && q.length > 0 && q.every((term) => typeof term === "number")) {
     return q[0] as number;
@@ -208,6 +213,9 @@ function _termSortKey(q: QueryDSL): string {
   }
   if (q instanceof Array) {
     return `1:${q.map(_termSortKey).join(",")}`;
+  }
+  if (q instanceof Entity) {
+    return `0:${q.eid.toString().padStart(12, "0")}`;
   }
   if (typeof q === "function") {
     return "5";
@@ -252,6 +260,9 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
   }
   if (typeof q === "number") {
     return ["HAS", q];
+  }
+  if (q instanceof Entity) {
+    return ["HAS", q.eid];
   }
   if (typeof q === "function") {
     return ["FUNC", _getDSLFunctionId(q as EntityTestFunc)];
@@ -310,6 +321,10 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
     return q;
   }
 
+  if (q instanceof Entity) {
+    return q.eid;
+  }
+
   if (typeof q === "function") {
     return _resolveBareComponent(q as ComponentClass, world);
   }
@@ -348,7 +363,7 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
       }
     }
 
-    const componentRequirements: ComponentClassArray = [];
+    const componentRequirements: ComponentRefArray = [];
     const otherTerms: QueryDSL[] = [];
     for (const term of simplifiedTerms) {
       const requirements = _componentRequirements(term);
@@ -472,7 +487,7 @@ function _compileQueryExpression(
   if (typeof q === "function" && world._tryGetComponentMeta(q as ComponentClass)) {
     return _compileMask(
       context,
-      [world.getComponentType(q as ComponentClass)],
+      [world.getComponentEid(q as ComponentClass)],
       entityRef,
       "hasBitset"
     );
@@ -482,7 +497,12 @@ function _compileQueryExpression(
   }
 
   if (q instanceof Array) {
-    return _compileMask(context, q as number[], entityRef, "hasBitset");
+    return _compileMask(
+      context,
+      q.map((component) => world.getComponentEid(component)),
+      entityRef,
+      "hasBitset"
+    );
   }
 
   if ("HAS" in q) {
@@ -493,7 +513,9 @@ function _compileQueryExpression(
     const v = q.HAS_ONLY;
     return _compileMask(
       context,
-      v instanceof Array ? (v as number[]) : [v as number],
+      v instanceof Array
+        ? v.map((component) => world.getComponentEid(component))
+        : [world.getComponentEid(v)],
       entityRef,
       "equal"
     );
@@ -570,13 +592,13 @@ export function _extractQueryDependencies(world: World, q: QueryDSL): number[] |
   }
 
   if (typeof q === "function" && world._tryGetComponentMeta(q as ComponentClass)) {
-    return [world.getComponentType(q as ComponentClass)];
+    return [world.getComponentEid(q as ComponentClass)];
   } else if (typeof q === "function") {
     return undefined;
   }
 
   if (q instanceof Array) {
-    return q as number[];
+    return q.map((component) => world.getComponentEid(component));
   }
 
   if ("HAS" in q) {

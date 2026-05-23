@@ -81,8 +81,11 @@ function posSnapshot(eid: number, x: number, y: number): EncodedSnapshot {
 describe("VecsClient", () => {
   it("applies server snapshots into the client world", () => {
     const world = new World();
-    world.setEntityIdRange(1000);
-    world.registerComponent(Position, 1);
+    world.configurePools([
+      { name: "component", min: 1, max: 999 },
+      { name: "entity", min: 1000 },
+    ]);
+    world.component(Position, 1);
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
     client.registerComponent(Position);
@@ -102,9 +105,12 @@ describe("VecsClient", () => {
 
   it("keeps server entities after their last synchronized component is removed", () => {
     const world = new World();
-    world.setEntityIdRange(1000);
-    world.registerComponent(Position, 1);
-    world.registerComponent(LocalEffect);
+    world.configurePools([
+      { name: "component", min: 1, max: 999 },
+      { name: "entity", min: 1000 },
+    ]);
+    world.component(Position, 1);
+    world.component(LocalEffect);
     const entity = world.getOrCreateEntity(7);
     entity.set(Position, { x: 1, y: 2 }).add(LocalEffect);
     const socket = new MemorySocket("server");
@@ -131,9 +137,12 @@ describe("VecsClient", () => {
 
   it("destroys server entities when the destruction component is removed", () => {
     const world = new World();
-    world.setEntityIdRange(1000);
-    world.registerComponent(Position, 1);
-    world.registerComponent(LocalEffect);
+    world.configurePools([
+      { name: "component", min: 1, max: 999 },
+      { name: "entity", min: 1000 },
+    ]);
+    world.component(Position, 1);
+    world.component(LocalEffect);
     const entity = world.getOrCreateEntity(7);
     entity.set(Position, { x: 1, y: 2 }).add(LocalEffect);
     const socket = new MemorySocket("server");
@@ -184,8 +193,11 @@ describe("VecsClient", () => {
 
   it("applies out-of-order diffs in server frame order", () => {
     const world = new World();
-    world.setEntityIdRange(1000);
-    world.registerComponent(Position, 1);
+    world.configurePools([
+      { name: "component", min: 1, max: 999 },
+      { name: "entity", min: 1000 },
+    ]);
+    world.component(Position, 1);
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
     client.registerComponent(Position);
@@ -225,8 +237,11 @@ describe("VecsClient", () => {
 
   it("applies interpolated position frames between server ticks", () => {
     const world = new World();
-    world.setEntityIdRange(1000);
-    world.registerComponent(Position, 1);
+    world.configurePools([
+      { name: "component", min: 1, max: 999 },
+      { name: "entity", min: 1000 },
+    ]);
+    world.component(Position, 1);
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
     client.registerComponent(Position);
@@ -254,8 +269,11 @@ describe("VecsClient", () => {
 
   it("drops diffs whose frames have already left the bucket window", () => {
     const world = new World();
-    world.setEntityIdRange(1000);
-    world.registerComponent(Position, 1);
+    world.configurePools([
+      { name: "component", min: 1, max: 999 },
+      { name: "entity", min: 1000 },
+    ]);
+    world.component(Position, 1);
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
     client.registerComponent(Position);
@@ -282,8 +300,11 @@ describe("VecsClient", () => {
 
   it("merges retransmitted diffs without applying them twice", () => {
     const world = new World();
-    world.setEntityIdRange(1000);
-    world.registerComponent(Position, 1);
+    world.configurePools([
+      { name: "component", min: 1, max: 999 },
+      { name: "entity", min: 1000 },
+    ]);
+    world.component(Position, 1);
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
     client.registerComponent(Position);

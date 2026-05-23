@@ -15,11 +15,11 @@ class Player {}
 
 function setup() {
   const w = new World();
-  w.registerComponent(Position);
-  w.registerComponent(Velocity);
-  w.registerComponent(Sprite);
-  w.registerComponent(Container);
-  w.registerComponent(Player);
+  w.component(Position);
+  w.component(Velocity);
+  w.component(Sprite);
+  w.component(Container);
+  w.component(Player);
   const phase = w.addPhase("p");
   // dummy system ensures runPhase always flushes archetype changes
   w.system("__flush__")
@@ -196,6 +196,7 @@ describe("Query — component routing index", () => {
     const q = w.query("velocity").requires(Velocity);
     const belongs = vi.spyOn(q, "belongs");
     w.start();
+    belongs.mockClear();
 
     const e = w.entity();
     e.add(Position);
@@ -204,12 +205,25 @@ describe("Query — component routing index", () => {
     expect(belongs).not.toHaveBeenCalled();
   });
 
+  it("matches entity refs used as typeless component keys", () => {
+    const { w, tick } = setup();
+    const key = w.entity();
+    const q = w.query("tagged").query(key).build();
+    const e = w.entity();
+
+    e.add(key);
+    tick();
+
+    expect(q.has(e)).toBe(true);
+  });
+
   it("reindexes a query when its predicate is replaced", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);
     q.query(Velocity);
     const belongs = vi.spyOn(q, "belongs");
     w.start();
+    belongs.mockClear();
 
     const positionOnly = w.entity();
     positionOnly.add(Position);
@@ -742,6 +756,7 @@ describe("Query — NOT predicate routing", () => {
     const enter = vi.fn();
     w.query("test").query({ NOT: Velocity }).enter(enter);
     w.start();
+    enter.mockClear();
     const e = w.entity();
     e.add(Velocity);
     tick();

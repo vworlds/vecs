@@ -102,12 +102,6 @@ async function connect(): Promise<void> {
 
 async function createSession(): Promise<Session> {
   const world = new World();
-  world.setEntityIdRange(LOCAL_ENTITY_START);
-  world.registerComponent(Position, POSITION_TYPE);
-  world.registerComponent(Player, PLAYER_TYPE);
-  world.registerComponent(Ball, BALL_TYPE);
-  world.registerComponent(Color, COLOR_TYPE);
-
   const client = await VecsClient.connectDgram({
     world,
     host: location.hostname,
@@ -115,10 +109,10 @@ async function createSession(): Promise<Session> {
     worldName: "main",
     localEntityIdStart: LOCAL_ENTITY_START,
   });
-  client.registerComponent(Position);
-  client.registerComponent(Player);
-  client.registerComponent(Ball);
-  client.registerComponent(Color);
+  client.registerComponent(Position, POSITION_TYPE);
+  client.registerComponent(Player, PLAYER_TYPE);
+  client.registerComponent(Ball, BALL_TYPE);
+  client.registerComponent(Color, COLOR_TYPE);
   client.installSystems();
 
   installRenderSystems(world);

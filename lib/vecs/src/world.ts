@@ -1,4 +1,10 @@
-import { type ComponentClass, ComponentClassOrType, ComponentMeta, Hook } from "./component.js";
+import {
+  Component,
+  type ComponentClass,
+  type ComponentRef,
+  ComponentMeta,
+  Hook,
+} from "./component.js";
 import { Entity } from "./entity.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
@@ -8,9 +14,13 @@ import { ArrayMap } from "./util/array_map.js";
 import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
+import { IdPool, type IdPoolConfig, validateIdPoolConfigs } from "./util/id_pool.js";
 
-const DEFAULT_COMPONENT_TYPE_START = 256;
-const RESERVED_COMPONENT_TYPE = 0;
+const DEFAULT_POOLS: IdPoolConfig[] = [
+  { name: "component", min: 1, max: 999 },
+  { name: "entity", min: 1000 },
+];
+const RESERVED_EID = 0;
 
 /**
  * The central ECS container. One world per game session.
@@ -18,8 +28,8 @@ const RESERVED_COMPONENT_TYPE = 0;
  * A `World` owns every entity, every registered component class, every
  * registered query / system, and the update pipeline. The typical lifecycle:
  *
- * 1. **Register components** — {@link registerComponent} (and optionally
- *    {@link registerComponentType}) for every component class you plan to use.
+ * 1. **Register components** — call {@link component} for every component
+ *    class you plan to use.
  * 2. **Build the pipeline** — {@link addPhase} for every named phase, then
  *    {@link system} / {@link query} for each processor.
  * 3. **Start** — call {@link start} to freeze component registration and
@@ -33,8 +43,8 @@ const RESERVED_COMPONENT_TYPE = 0;
  * class Position { x = 0; y = 0; }
  * class Velocity { vx = 0; vy = 0; }
  *
- * world.registerComponent(Position);
- * world.registerComponent(Velocity);
+ * world.component(Position);
+ * world.component(Velocity);
  *
  * world.system("Move")
  *   .requires(Position, Velocity)
@@ -65,26 +75,21 @@ export class World {
   private _queries: Query[] = [];
   /** @internal Queries created but not yet built into the world. */
   private _unbuiltQueries = new Set<Query>();
-  /** @internal Component type id -> queries invalidated by that component. */
+  /** @internal Component eid -> queries invalidated by that component. */
   private _queryIndex = new ArrayMap<Set<Query>>();
   /** @internal Queries whose predicates are too broad for component indexing. */
   private _unindexedQueries = new Set<Query>();
 
-  /** @internal Component type id → meta record. */
-  private _Type2Meta = new ArrayMap<ComponentMeta>();
-  /** @internal Pre-registered name → type id mappings (server-assigned ids). */
-  private _componentNameTypeMap = new Map<string, number>();
-  /** @internal Counter used to auto-assign local component type ids. */
-  private _localComponentCounter: number;
+  /** @internal Component eid → meta record. */
+  private _eid2Meta = new ArrayMap<ComponentMeta>();
   /** @internal `true` once {@link start} (or {@link disableComponentRegistration}) has been called. */
   private _componentRegistrationDisabled = false;
   /** @internal `true` once {@link start} has prepared the phase pipeline. */
   private _started = false;
 
-  /** @internal Auto-incrementing entity id counter, seeded by {@link setEntityIdRange}. */
-  private _eidCounter = 0;
-  /** @internal First id reserved for locally-created entities. */
-  private _localEntityIdStart = 0;
+  private _poolConfigs: IdPoolConfig[] = DEFAULT_POOLS.map((pool) => ({ ...pool }));
+  private _pools = this._poolConfigs.map((pool) => new IdPool(pool.name, pool.min, pool.max));
+  private _poolsLocked = false;
 
   /** @internal Single ordered command queue used in deferred mode. */
   private _commandQueue: Command[] = [];
@@ -108,30 +113,7 @@ export class World {
   public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
 
   constructor() {
-    this._localComponentCounter = DEFAULT_COMPONENT_TYPE_START;
     this._tickSources.add(ALWAYS_TICK_SOURCE);
-  }
-
-  private _nextComponentType(): number {
-    let type = this._localComponentCounter;
-    while (
-      type === RESERVED_COMPONENT_TYPE ||
-      this._Type2Meta.get(type) ||
-      this._isMappedComponentType(type)
-    ) {
-      type++;
-    }
-    this._localComponentCounter = type + 1;
-    return type;
-  }
-
-  private _isMappedComponentType(type: number): boolean {
-    for (const mappedType of this._componentNameTypeMap.values()) {
-      if (mappedType === type) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**
@@ -263,41 +245,41 @@ export class World {
     }
   }
 
-  /** @internal Visit queries whose membership may change when component `type` changes. */
-  public _forEachQueryForComponent(type: number, callback: (q: Query) => void): void {
-    this._queryIndex.get(type)?.forEach(callback);
+  /** @internal Visit queries whose membership may change when component `eid` changes. */
+  public _forEachQueryForComponent(eid: number, callback: (q: Query) => void): void {
+    this._queryIndex.get(eid)?.forEach(callback);
     this._unindexedQueries.forEach(callback);
   }
 
   /** @internal Register a query in the component index, or fallback routing. */
-  public _indexQuery(q: Query, componentTypes: number[] | undefined): void {
+  public _indexQuery(q: Query, componentEids: number[] | undefined): void {
     this._unindexQuery(q);
-    if (componentTypes === undefined || componentTypes.length === 0) {
+    if (componentEids === undefined || componentEids.length === 0) {
       this._unindexedQueries.add(q);
       q._queryIndexKeys = undefined;
       return;
     }
 
-    const indexedTypes = [...new Set(componentTypes)];
-    indexedTypes.forEach((type) => {
-      let queries = this._queryIndex.get(type);
+    const indexedEids = [...new Set(componentEids)];
+    indexedEids.forEach((eid) => {
+      let queries = this._queryIndex.get(eid);
       if (!queries) {
         queries = new Set<Query>();
-        this._queryIndex.set(type, queries);
+        this._queryIndex.set(eid, queries);
       }
       queries.add(q);
     });
-    q._queryIndexKeys = indexedTypes;
+    q._queryIndexKeys = indexedEids;
   }
 
   /** @internal Remove a query from every index/fallback bucket. */
   public _unindexQuery(q: Query): void {
     if (q._queryIndexKeys !== undefined) {
-      q._queryIndexKeys.forEach((type) => {
-        const queries = this._queryIndex.get(type);
+      q._queryIndexKeys.forEach((eid) => {
+        const queries = this._queryIndex.get(eid);
         queries?.delete(q);
         if (queries?.size === 0) {
-          this._queryIndex.delete(type);
+          this._queryIndex.delete(eid);
         }
       });
     }
@@ -327,6 +309,14 @@ export class World {
   /** @internal Remove an entity from the world's entity map (called by `Entity._destroy`). */
   public _unregisterEntity(entity: Entity): void {
     this._entities.delete(entity.eid);
+    const meta = this._eid2Meta.get(entity.eid);
+    if (meta && meta.usageCount === 0) {
+      this._eid2Meta.delete(entity.eid);
+      if (meta.Class !== Object) {
+        delete (meta.Class as any)[this.worldKey];
+      }
+    }
+    this._poolFor(entity.eid).free(entity.eid);
   }
 
   /** Read-only view of the live entities, keyed by entity id. */
@@ -337,6 +327,14 @@ export class World {
   /** Read-only view of every registered query (includes systems). */
   public get queries(): ReadonlyArray<Query> {
     return this._queries;
+  }
+
+  public get pools(): ReadonlyArray<IdPoolConfig> {
+    return this._poolConfigs;
+  }
+
+  public get poolsLocked(): boolean {
+    return this._poolsLocked;
   }
 
   /**
@@ -398,136 +396,107 @@ export class World {
     }
   }
 
-  /**
-   * Pre-register a `componentName → typeId` mapping without binding a class.
-   *
-   * Useful when network messages refer to components by type id and the
-   * corresponding class may be registered later. Call this **before**
-   * {@link registerComponent} so the class picks up the server-assigned id
-   * rather than a locally generated one.
-   *
-   * @param componentName - String name used in network payloads.
-   * @param type - Numeric type id assigned by the server.
-   */
-  public registerComponentType(componentName: string, type: number): void {
-    if (type === RESERVED_COMPONENT_TYPE) {
-      throw new Error(`Component type ${type} is reserved`);
+  /** Configure the complete positive eid pool partition before any ids are used. */
+  public configurePools(configs: IdPoolConfig[]): void {
+    if (this._poolsLocked) {
+      throw new Error("Id pools cannot be configured after id allocation or reservation");
     }
-    this._componentNameTypeMap.set(componentName, type);
+    validateIdPoolConfigs(configs);
+    this._poolConfigs = configs.map((pool) => ({ ...pool }));
+    this._pools = this._poolConfigs.map((pool) => new IdPool(pool.name, pool.min, pool.max));
   }
 
-  /**
-   * Register a component class with the world.
-   *
-   * Must be called before any entity uses the component. Components are plain
-   * classes constructed with no arguments. Registration is disabled once
-   * {@link start} (or {@link disableComponentRegistration}) is called.
-   *
-   * **Overloads:**
-   * - `registerComponent(Class)` — type id auto-assigned from the
-   *   {@link registerComponentType} map, falling back to a local counter
-   *   (≥ 256) if the name is not yet mapped.
-   * - `registerComponent(Class, type)` — explicit numeric type id.
-   * - `registerComponent(Class, componentName)` — auto-assigned id, custom
-   *   display name (useful when the class name differs from the network name).
-   * - `registerComponent(Class, type, componentName)` — explicit id + name.
-   *
-   * @param ComponentClass - Component class to register.
-   * @returns The world-specific metadata record for the component class.
-   * @throws When the class has already been registered in this world or
-   *   registration is disabled.
-   */
-  public registerComponent(ComponentClass: ComponentClass): ComponentMeta;
-  public registerComponent(ComponentClass: ComponentClass, type: number): ComponentMeta;
-  public registerComponent(ComponentClass: ComponentClass, componentName?: string): ComponentMeta;
-  public registerComponent(
-    ComponentClass: ComponentClass,
-    type: number,
-    componentName: string
-  ): ComponentMeta;
-  public registerComponent(
-    ComponentClass: ComponentClass,
-    typeOrComponentName?: number | string,
-    componentName?: string
-  ): ComponentMeta {
+  public component(ComponentClass: ComponentClass, eid?: number): Component {
     if (this._componentRegistrationDisabled) {
-      throw "World component registartion is disabled";
+      throw "World component registration is disabled";
     }
-    let type: number | undefined = undefined;
-
-    if (typeof typeOrComponentName === "number") {
-      type = typeOrComponentName;
-    } else if (typeof typeOrComponentName === "string") {
-      componentName = typeOrComponentName;
+    if (eid === RESERVED_EID) {
+      throw new Error(`Component eid ${eid} is reserved`);
     }
 
-    componentName = componentName || ComponentClass.name;
-    let local = false;
-    if (type === undefined) {
-      type = this._componentNameTypeMap.get(componentName);
-      if (type === undefined) {
-        type = this._nextComponentType();
-        local = true;
+    const existingClassMeta = this._tryGetComponentMeta(ComponentClass);
+    if (existingClassMeta) {
+      if (eid === undefined || eid === existingClassMeta.eid) {
+        return this._entities.get(existingClassMeta.eid) as Component;
       }
+      throw new Error(
+        `Component class ${ComponentClass.name} is already registered with eid ${existingClassMeta.eid}`
+      );
     }
 
-    let meta = this._tryGetComponentMeta(ComponentClass);
-    if (meta) {
-      if (local) {
-        this._localComponentCounter--;
+    if (eid === undefined) {
+      eid = this._allocFromPool("component");
+    } else {
+      const existingMeta = this._eid2Meta.get(eid);
+      if (existingMeta) {
+        if (existingMeta.Class === ComponentClass) {
+          return this._entities.get(eid) as Component;
+        }
+        throw new Error(`Component eid ${eid} is already registered`);
       }
-      throw `Trying to register ${componentName} with type=${type} which is already registered to ${meta.componentName}`;
+      if (this._entities.has(eid)) {
+        throw new Error(`Entity id ${eid} is already taken`);
+      }
+      this._reserveEid(eid);
     }
-    this.registerComponentType(componentName, type);
-    meta = new ComponentMeta(ComponentClass, type, componentName);
+
+    const component = new Component(this, eid);
+    this._entities.set(eid, component);
+    const meta = new ComponentMeta(ComponentClass, eid);
     Object.defineProperty(ComponentClass, this.worldKey, {
       value: meta,
+      configurable: true,
       enumerable: false,
     });
-    this._Type2Meta.set(type, meta);
-    console.log(
-      "Registered component %s with type=%d as %s component",
-      componentName,
-      type,
-      local ? "local" : "networked"
-    );
-    return meta;
+    this._eid2Meta.set(eid, meta);
+    return component;
   }
 
   /** @internal Return registered metadata for this world without throwing. */
-  public _tryGetComponentMeta(typeOrClass: ComponentClassOrType): ComponentMeta | undefined {
-    if (typeof typeOrClass === "function") {
-      return (typeOrClass as any)[this.worldKey] as ComponentMeta | undefined;
+  public _tryGetComponentMeta(ref: ComponentRef): ComponentMeta | undefined {
+    if (typeof ref === "function") {
+      return (ref as any)[this.worldKey] as ComponentMeta | undefined;
     }
-    return this._Type2Meta.get(typeOrClass);
+    return this._eid2Meta.get(typeof ref === "number" ? ref : ref.eid);
   }
 
   /**
    * Look up the {@link ComponentMeta} for a registered component.
    *
-   * @param typeOrClass - Component class or numeric type id.
+   * @param ref - Component class, component eid, or entity component key.
    * @returns The corresponding meta record.
    * @throws When no component with that class or type id has been registered.
    */
-  public getComponentMeta(typeOrClass: ComponentClassOrType): ComponentMeta {
-    const meta = this._tryGetComponentMeta(typeOrClass);
-    if (!meta) {
-      throw `unregistered component meta for component type or class '${typeOrClass}'`;
+  public getComponentMeta(ref: ComponentRef): ComponentMeta {
+    const meta = this._tryGetComponentMeta(ref);
+    if (meta) {
+      return meta;
     }
-    return meta;
+
+    if (typeof ref === "function") {
+      throw `unregistered component meta for component class '${ref.name}'`;
+    }
+
+    const eid = typeof ref === "number" ? ref : ref.eid;
+    if (eid === RESERVED_EID) {
+      throw new Error(`Component eid ${eid} is reserved`);
+    }
+    const lazyMeta = new ComponentMeta(Object, eid);
+    this._eid2Meta.set(eid, lazyMeta);
+    return lazyMeta;
   }
 
   /**
-   * Resolve a component class or type id to its numeric type id.
+   * Resolve a component class, eid, or entity ref to its component eid.
    *
    * @param typeOrClass - Component class or numeric type id.
    * @returns The numeric type id.
    */
-  public getComponentType(typeOrClass: ComponentClassOrType): number {
-    if (typeof typeOrClass === "function") {
-      return this.getComponentMeta(typeOrClass).type;
+  public getComponentEid(ref: ComponentRef): number {
+    if (typeof ref === "function") {
+      return this.getComponentMeta(ref).eid;
     }
-    return typeOrClass;
+    return typeof ref === "number" ? ref : ref.eid;
   }
 
   /**
@@ -590,41 +559,6 @@ export class World {
    * @param min - First id assigned by {@link entity}.
    * @throws When called after registration has been disabled.
    */
-  public setEntityIdRange(min: number): void {
-    if (this._componentRegistrationDisabled) {
-      throw "setEntityIdRange must be called before component registration is disabled";
-    }
-    this._localEntityIdStart = min;
-    this._eidCounter = min;
-  }
-
-  /**
-   * Set the starting value of the auto-incrementing component type id counter.
-   *
-   * Must be called before component registration is disabled. This is useful
-   * when a host protocol reserves a compact component type range and wants
-   * user-registered components to start within that range.
-   *
-   * @param min - First type id considered by automatic component registration.
-   * @throws When called after registration is disabled or with the reserved type 0.
-   */
-  public setComponentTypeRange(min: number): void {
-    if (this._componentRegistrationDisabled) {
-      throw "setComponentTypeRange must be called before component registration is disabled";
-    }
-    if (!Number.isSafeInteger(min) || min <= RESERVED_COMPONENT_TYPE) {
-      throw new Error(
-        `Component type range must start above reserved type ${RESERVED_COMPONENT_TYPE}`
-      );
-    }
-    this._localComponentCounter = min;
-  }
-
-  /** First entity id reserved for locally-created entities. */
-  public get localEntityIdStart(): number {
-    return this._localEntityIdStart;
-  }
-
   /**
    * Return the entity with id `eid`, creating it if it does not yet exist.
    *
@@ -644,8 +578,12 @@ export class World {
    * @returns The existing or newly created entity.
    */
   public getOrCreateEntity(eid: number, onCreateCallback?: (e: Entity) => void): Entity {
+    if (eid === RESERVED_EID) {
+      throw new Error(`Entity eid ${eid} is reserved`);
+    }
     let e = this._entities.get(eid);
     if (!e) {
+      this._reserveEid(eid);
       e = new Entity(this, eid);
       this._entities.set(eid, e);
       if (onCreateCallback) {
@@ -658,10 +596,9 @@ export class World {
   /**
    * Create a new entity with an auto-assigned id.
    *
-   * The id counter starts at `0` (or at the value set by
-   * {@link setEntityIdRange}) and increments by one for each call. In
-   * deferred mode the new entity is queued onto the command queue and is not
-   * visible in {@link entities} until the queue drains.
+   * The default entity pool starts at eid `1000`. In deferred mode the new
+   * entity is queued onto the command queue and is not visible in
+   * {@link entities} until the queue drains.
    */
   public entity(): Entity;
 
@@ -675,7 +612,7 @@ export class World {
 
   public entity(id?: number): Entity | undefined {
     if (id === undefined) {
-      const eid = this._eidCounter++;
+      const eid = this._allocFromPool("entity");
       const e = new Entity(this, eid);
       if (this.deferred) {
         this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
@@ -687,6 +624,31 @@ export class World {
     return this._entities.get(id);
   }
 
+  private _allocFromPool(name: string): number {
+    this._poolsLocked = true;
+    const pool = this._pools.find((candidate) => candidate.name === name);
+    if (!pool) {
+      throw new Error(`Unknown id pool '${name}'`);
+    }
+    return pool.alloc();
+  }
+
+  private _poolFor(eid: number): IdPool {
+    if (eid === RESERVED_EID) {
+      throw new Error(`Eid ${eid} is reserved`);
+    }
+    const pool = this._pools.find((candidate) => candidate.owns(eid));
+    if (!pool) {
+      throw new Error(`No id pool owns eid ${eid}`);
+    }
+    return pool;
+  }
+
+  private _reserveEid(eid: number): void {
+    this._poolsLocked = true;
+    this._poolFor(eid).reserve(eid);
+  }
+
   /**
    * Destroy every entity currently tracked by the world.
    *
@@ -694,9 +656,22 @@ export class World {
    * transitioning between game sessions or resetting to a clean state.
    */
   public clearAllEntities(): void {
-    this._entities.forEach((e) => {
-      e.destroy();
-    });
+    const pending = new Set(this._entities.values());
+    while (pending.size > 0) {
+      let destroyed = 0;
+      for (const entity of [...pending]) {
+        const meta = this._tryGetComponentMeta(entity.eid);
+        if (meta && meta.usageCount > 0) {
+          continue;
+        }
+        entity.destroy();
+        pending.delete(entity);
+        destroyed++;
+      }
+      if (destroyed === 0) {
+        throw new Error("Cannot clear entities because component eids are still in use");
+      }
+    }
     this.flush();
   }
 
@@ -802,7 +777,7 @@ export class World {
   }
 
   /**
-   * Prevent any further calls to {@link registerComponent}.
+   * Prevent any further calls to {@link component}.
    *
    * Called automatically by {@link start}. Call directly if you want to lock
    * registration before the rest of the systems are wired up.

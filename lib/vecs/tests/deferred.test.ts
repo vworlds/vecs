@@ -13,10 +13,10 @@ class Running {}
 
 function setup() {
   const w = new World();
-  w.registerComponent(Position);
-  w.registerComponent(Velocity);
-  w.registerComponent(Walking);
-  w.registerComponent(Running);
+  w.component(Position);
+  w.component(Velocity);
+  w.component(Walking);
+  w.component(Running);
   const phase = w.addPhase("p");
   return {
     w,

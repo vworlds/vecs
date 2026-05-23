@@ -1,5 +1,5 @@
 import { BitPtr } from "./util/bitset.js";
-import type { Entity } from "./entity.js";
+import { Entity } from "./entity.js";
 
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
@@ -7,8 +7,11 @@ export type ComponentInstance = object;
 /** A component class constructor. */
 export type ComponentClass<T extends ComponentInstance = ComponentInstance> = new () => T;
 
-/** A component class constructor or its numeric type id. */
-export type ComponentClassOrType = number | ComponentClass;
+/** A component class constructor, component eid, or entity component key. */
+export type ComponentRef = number | ComponentClass | Entity;
+
+/** A component entity created by {@link World.component}. */
+export class Component extends Entity {}
 
 /**
  * Lifecycle hook for a registered component class. Obtained via
@@ -66,10 +69,9 @@ export interface Hook<C extends ComponentInstance = ComponentInstance> {
 }
 
 /**
- * Bookkeeping record produced for each component class registered via
- * {@link World.registerComponent}.
+ * Bookkeeping record produced for each component eid.
  *
- * Holds the constructor, numeric type id, display name, and pre-computed
+ * Holds the constructor, component eid, and pre-computed
  * {@link BitPtr} used by archetype checks. Implements {@link Hook}, so the
  * lifecycle handlers attached via `world.hook(C)` are stored directly on the
  * meta object.
@@ -77,10 +79,8 @@ export interface Hook<C extends ComponentInstance = ComponentInstance> {
 export class ComponentMeta implements Hook<ComponentInstance> {
   /** The component class constructor this meta represents. */
   public readonly Class: ComponentClass;
-  /** Numeric type id assigned at registration time. */
-  public readonly type: number;
-  /** Human-readable name used in logs and serialization lookups. */
-  public readonly componentName: string;
+  /** Component entity id assigned at registration time. */
+  public readonly eid: number;
   /** Pre-computed bit-pointer into the entity archetype {@link Bitset}. */
   public readonly bitPtr: BitPtr;
 
@@ -98,11 +98,29 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** @internal `onSet` handlers, lazily allocated and prepended by {@link onSet}. */
   public _onSetHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
 
-  constructor(Class: ComponentClass, type: number, componentName: string) {
+  private _usageCount = 0;
+
+  constructor(Class: ComponentClass, eid: number) {
     this.Class = Class;
-    this.type = type;
-    this.componentName = componentName;
-    this.bitPtr = new BitPtr(type);
+    this.eid = eid;
+    this.bitPtr = new BitPtr(eid);
+  }
+
+  /** Number of entities currently carrying this component eid. */
+  public get usageCount(): number {
+    return this._usageCount;
+  }
+
+  /** @internal */
+  public _incrementUsage(): void {
+    this._usageCount++;
+  }
+
+  /** @internal */
+  public _decrementUsage(): void {
+    if (this._usageCount > 0) {
+      this._usageCount--;
+    }
   }
 
   /** @inheritdoc */
@@ -129,4 +147,4 @@ export class ComponentMeta implements Hook<ComponentInstance> {
  *
  * @internal
  */
-export type ComponentClassArray = ComponentClassOrType[];
+export type ComponentRefArray = ComponentRef[];

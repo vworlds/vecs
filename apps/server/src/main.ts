@@ -73,17 +73,6 @@ const gridCellComponents: ComponentClass[] = Array.from(
 );
 
 const world = new World();
-world.registerComponent(Networked);
-world.registerComponent(Position, POSITION_TYPE);
-world.registerComponent(Player, PLAYER_TYPE);
-world.registerComponent(Ball, BALL_TYPE);
-world.registerComponent(Color, COLOR_TYPE);
-world.registerComponent(Velocity);
-gridCellComponents.forEach((GridCell, index) => {
-  world.registerComponent(GridCell, getGridCellComponentName(index));
-});
-world.setExclusiveComponents(...gridCellComponents);
-
 const app = express();
 app.use(express.json());
 app.use((req, res, next) => {
@@ -99,10 +88,15 @@ app.use((req, res, next) => {
 
 const vecsListener = new VecsListener();
 const server: VecsServer = vecsListener.registerWorld("main", world);
-server.registerComponent(Position);
-server.registerComponent(Player);
-server.registerComponent(Ball);
-server.registerComponent(Color);
+server.registerComponent(Position, POSITION_TYPE);
+server.registerComponent(Player, PLAYER_TYPE);
+server.registerComponent(Ball, BALL_TYPE);
+server.registerComponent(Color, COLOR_TYPE);
+world.component(Velocity);
+gridCellComponents.forEach((GridCell) => {
+  world.component(GridCell);
+});
+world.setExclusiveComponents(...gridCellComponents);
 
 world.hook(NetworkClient).onSet((entity) => {
   entity.set(View, { dsl: false });
@@ -284,10 +278,6 @@ function getGridCellIndex(position: Position): number {
     GRID_ROWS
   );
   return row * GRID_COLUMNS + column;
-}
-
-function getGridCellComponentName(index: number): string {
-  return `GridCell${index + 1}`;
 }
 
 function clampGridIndex(value: number, size: number): number {

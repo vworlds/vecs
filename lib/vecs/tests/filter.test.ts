@@ -13,9 +13,9 @@ class Sprite {}
 
 function setup() {
   const w = new World();
-  w.registerComponent(Position);
-  w.registerComponent(Velocity);
-  w.registerComponent(Sprite);
+  w.component(Position);
+  w.component(Velocity);
+  w.component(Sprite);
   return { w };
 }
 

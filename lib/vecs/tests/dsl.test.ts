@@ -21,11 +21,11 @@ class Player {}
 describe("Query DSL simplification", () => {
   function registeredWorld(): World {
     const world = new World();
-    world.registerComponent(Position, 1);
-    world.registerComponent(Velocity, 2);
-    world.registerComponent(Sprite, 3);
-    world.registerComponent(Container, 4);
-    world.registerComponent(Player, 5);
+    world.component(Position, 1);
+    world.component(Velocity, 2);
+    world.component(Sprite, 3);
+    world.component(Container, 4);
+    world.component(Player, 5);
     return world;
   }
 
@@ -187,7 +187,7 @@ describe("Query DSL compilation", () => {
     for (let i = 0; i < 140; i++) {
       class C {}
       Object.defineProperty(C, "name", { value: `C${i}` });
-      world.registerComponent(C, i + 1);
+      world.component(C, i + 1);
     }
     return world;
   }
@@ -258,7 +258,7 @@ describe("Query DSL compilation", () => {
     if (typeof q === "function") {
       const meta = world._tryGetComponentMeta(q as unknown as new (...args: never[]) => object);
       if (meta) {
-        return e.componentBitmask.hasBitset(maskOf([meta.type]));
+        return e.componentBitmask.hasBitset(maskOf([meta.eid]));
       }
       throw new Error("reference evaluator does not handle custom predicates");
     }

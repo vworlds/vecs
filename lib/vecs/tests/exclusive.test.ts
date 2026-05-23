@@ -9,11 +9,11 @@ class Health {}
 
 function makeWorld() {
   const w = new World();
-  w.registerComponent(Walking);
-  w.registerComponent(Running);
-  w.registerComponent(Idle);
-  w.registerComponent(Jumping);
-  w.registerComponent(Health);
+  w.component(Walking);
+  w.component(Running);
+  w.component(Idle);
+  w.component(Jumping);
+  w.component(Health);
   return w;
 }
 

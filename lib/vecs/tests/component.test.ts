@@ -7,15 +7,15 @@ class Health {
 }
 
 describe("ComponentMeta", () => {
-  it("stores the component name", () => {
+  it("stores the component eid", () => {
     const w = new World();
-    const meta = w.registerComponent(Health, "HP");
-    expect(meta.componentName).toBe("HP");
+    const component = w.component(Health);
+    expect(w.getComponentMeta(Health).eid).toBe(component.eid);
   });
 
   it("entity.modified(C) queues an onSet hook delivery", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
@@ -28,7 +28,7 @@ describe("ComponentMeta", () => {
 
   it("entity.modified(C) in deferred mode is coalesced — onSet fires once even if called multiple times", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
@@ -45,7 +45,7 @@ describe("ComponentMeta", () => {
 
   it("entity.modified(C) at top level fires onSet immediately on each call", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
@@ -62,7 +62,7 @@ describe("ComponentMeta", () => {
 describe("Entity.modified", () => {
   it("returns the entity for chaining", () => {
     const w = new World();
-    w.registerComponent(Health);
+    w.component(Health);
     const e = w.entity();
     e.add(Health);
     expect(e.modified(Health)).toBe(e);
@@ -70,7 +70,7 @@ describe("Entity.modified", () => {
 
   it("queues an onSet hook delivery", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
@@ -83,7 +83,7 @@ describe("Entity.modified", () => {
 
   it("is coalesced in deferred mode — onSet fires once even if called multiple times", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
@@ -100,7 +100,7 @@ describe("Entity.modified", () => {
 
   it("can be chained after add", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
     env.w.hook(Health).onSet(onSet);
     env.start();
@@ -114,7 +114,7 @@ describe("Entity.modified", () => {
 describe("Hook", () => {
   it("onAdd fires when a component is first attached", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onAdd = vi.fn();
     env.w.hook(Health).onAdd(onAdd);
     env.start();
@@ -125,7 +125,7 @@ describe("Hook", () => {
 
   it("onSet fires when a component value is set", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
 
     const set_values: number[] = [];
     const onSet = vi.fn((_e, c) => set_values.push(c.hp));
@@ -147,7 +147,7 @@ describe("Hook", () => {
 
   it("onRemove fires when a component is removed", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onRemove = vi.fn();
     env.w.hook(Health).onRemove(onRemove);
     env.start();
@@ -159,7 +159,7 @@ describe("Hook", () => {
 
   it("onRemove fires when the entity is destroyed", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onRemove = vi.fn();
     env.w.hook(Health).onRemove(onRemove);
     env.start();
@@ -171,7 +171,7 @@ describe("Hook", () => {
 
   it("hooks are chainable on the same Hook object", () => {
     const w = new World();
-    w.registerComponent(Health);
+    w.component(Health);
     const a = vi.fn();
     const b = vi.fn();
     const c = vi.fn();
@@ -181,7 +181,7 @@ describe("Hook", () => {
 
   it("repeated hook registrations stack in registration order", () => {
     const w = new World();
-    w.registerComponent(Health);
+    w.component(Health);
     const calls: string[] = [];
     w.hook(Health)
       .onAdd(() => calls.push("add 1"))

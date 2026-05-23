@@ -1,7 +1,7 @@
 import {
   type ComponentInstance,
   type ComponentClass,
-  type ComponentClassOrType,
+  type ComponentRef,
   type ComponentMeta,
 } from "./component.js";
 import type { World } from "./world.js";
@@ -47,9 +47,9 @@ type EntityEvents = Events<{ destroy(): void }>;
  * visible immediately.
  */
 export class Entity {
-  /** @internal Maps numeric component type id to component instance. */
+  /** @internal Maps component eid to component instance. */
   private _components = new ArrayMap<ComponentInstance>();
-  /** @internal Component types with pending modified delivery. */
+  /** @internal Component eids with pending modified delivery. */
   private readonly _dirtyComponentBitmask = new Bitset();
   /** @internal Set of queries this entity currently belongs to. */
   private readonly _queries = new Set<Query>();
@@ -102,7 +102,7 @@ export class Entity {
    * firing `_enter` / `_exit` routing whenever membership flipped.
    */
   private _updateQueries(meta: ComponentMeta): void {
-    this.world._forEachQueryForComponent(meta.type, (q) => {
+    this.world._forEachQueryForComponent(meta.eid, (q) => {
       const belongs = q.belongs(this);
       const isIn = this._queries.has(q);
       if (belongs !== isIn) {
@@ -115,14 +115,18 @@ export class Entity {
   private _storeComponent(meta: ComponentMeta, component: ComponentInstance, isAdd: boolean): void {
     if (meta._exclusive) {
       for (const exclusiveMeta of meta._exclusive) {
-        if (this._components.has(exclusiveMeta.type)) {
+        if (this._components.has(exclusiveMeta.eid)) {
           this._remove(exclusiveMeta);
         }
       }
     }
-    this._components.set(meta.type, component);
+    const existing = this._components.has(meta.eid);
+    this._components.set(meta.eid, component);
     this.componentBitmask.addBit(meta.bitPtr);
-    if (isAdd) {
+    if (!existing) {
+      meta._incrementUsage();
+    }
+    if (isAdd && !existing) {
       this._runOnAddHandlers(meta, component);
     }
     this._updateQueries(meta);
@@ -177,7 +181,7 @@ export class Entity {
     if (this._destroyed) {
       return;
     }
-    const existing = this._components.get(meta.type);
+    const existing = this._components.get(meta.eid);
     this._storeComponent(meta, component, existing === undefined);
     this._notifyComponentSet(meta, component, existing !== undefined);
   }
@@ -191,6 +195,10 @@ export class Entity {
     if (this._destroyed) {
       return;
     }
+    const ownMeta = this.world._tryGetComponentMeta(this.eid);
+    if (ownMeta && ownMeta.usageCount > 0) {
+      throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
+    }
     this._destroyed = true;
 
     const toExit: Query[] = [];
@@ -201,8 +209,9 @@ export class Entity {
     });
     toExit.forEach((q) => q._exit(this));
 
-    this._components.forEach((c, type) => {
-      const meta = this.world.getComponentMeta(type);
+    this._components.forEach((c, eid) => {
+      const meta = this.world.getComponentMeta(eid);
+      meta._decrementUsage();
       const removeHandlers = meta._onRemoveHandlers;
       if (removeHandlers) {
         removeHandlers.forEach((handler) => handler(this, c));
@@ -223,12 +232,12 @@ export class Entity {
   }
 
   /**
-   * @internal Look up a component instance by numeric type id.
+   * @internal Look up a component instance by component eid.
    *
    * Faster than {@link get} because no class to type id resolution is needed.
    */
-  public _get(type: number): ComponentInstance | undefined {
-    return this._components.get(type);
+  public _get(eid: number): ComponentInstance | undefined {
+    return this._components.get(eid);
   }
 
   /**
@@ -246,7 +255,7 @@ export class Entity {
     if (this._destroyed) {
       return;
     }
-    const c = this._components.get(meta.type);
+    const c = this._components.get(meta.eid);
     if (!c) {
       return;
     }
@@ -269,14 +278,15 @@ export class Entity {
     if (this._destroyed) {
       return;
     }
-    const c = this._components.get(meta.type);
+    const c = this._components.get(meta.eid);
     if (!c) {
       return;
     }
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
     this._updateQueries(meta);
-    this._components.delete(meta.type);
+    this._components.delete(meta.eid);
+    meta._decrementUsage();
     const removeHandlers = meta._onRemoveHandlers;
     if (removeHandlers) {
       removeHandlers.forEach((handler) => handler(this, c));
@@ -300,7 +310,7 @@ export class Entity {
     if (this._destroyed) {
       return;
     }
-    const existing = this._components.get(meta.type);
+    const existing = this._components.get(meta.eid);
     const c = existing ?? this._new(meta, props);
     if (props !== undefined) {
       if (existing) {
@@ -405,10 +415,12 @@ export class Entity {
    * @param type - Numeric component type id.
    * @returns This entity, for chaining.
    */
-  public add(type: number): Entity;
+  public add(eid: number): Entity;
 
-  public add(typeOrClass: ComponentClassOrType): Entity {
-    const meta = this.world.getComponentMeta(typeOrClass);
+  public add(entity: Entity): Entity;
+
+  public add(ref: ComponentRef): Entity {
+    const meta = this.world.getComponentMeta(ref);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props: undefined });
     } else {
@@ -469,11 +481,13 @@ export class Entity {
   public get<C extends ComponentClass>(Class: C): Readonly<InstanceType<C>> | undefined;
 
   /** Look up a component by numeric type id as a readonly value. */
-  public get(type: number): Readonly<ComponentInstance> | undefined;
+  public get(eid: number): Readonly<ComponentInstance> | undefined;
 
-  public get(typeOrClass: ComponentClassOrType): Readonly<ComponentInstance> | undefined {
-    const type = this.world.getComponentType(typeOrClass);
-    return this._get(type);
+  public get(entity: Entity): Readonly<ComponentInstance> | undefined;
+
+  public get(ref: ComponentRef): Readonly<ComponentInstance> | undefined {
+    const eid = this.world.getComponentEid(ref);
+    return this._get(eid);
   }
 
   /**
@@ -488,13 +502,15 @@ export class Entity {
   public getMut<C extends ComponentClass>(Class: C): InstanceType<C> | undefined;
 
   /** Look up a component by numeric type id for mutation. */
-  public getMut(type: number): ComponentInstance | undefined;
+  public getMut(eid: number): ComponentInstance | undefined;
 
-  public getMut(typeOrClass: ComponentClassOrType): ComponentInstance | undefined {
-    const type = this.world.getComponentType(typeOrClass);
-    const component = this._get(type);
+  public getMut(entity: Entity): ComponentInstance | undefined;
+
+  public getMut(ref: ComponentRef): ComponentInstance | undefined {
+    const eid = this.world.getComponentEid(ref);
+    const component = this._get(eid);
     if (component) {
-      this.modified(typeOrClass);
+      this.modified(ref);
     }
     return component;
   }
@@ -509,8 +525,8 @@ export class Entity {
    * @param typeOrClass - Component class or numeric type id whose data changed.
    * @returns This entity, for chaining.
    */
-  public modified(typeOrClass: ComponentClassOrType): Entity {
-    const meta = this.world.getComponentMeta(typeOrClass);
+  public modified(ref: ComponentRef): Entity {
+    const meta = this.world.getComponentMeta(ref);
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return this;
     }
@@ -539,10 +555,12 @@ export class Entity {
    *
    * @param type - Numeric component type id.
    */
-  public remove(type: number): void;
+  public remove(eid: number): void;
 
-  public remove(typeOrClass: ComponentClassOrType): void {
-    const meta = this.world.getComponentMeta(typeOrClass);
+  public remove(entity: Entity): void;
+
+  public remove(ref: ComponentRef): void {
+    const meta = this.world.getComponentMeta(ref);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Remove, entity: this, meta });
     } else {
@@ -585,10 +603,12 @@ export class Entity {
    * @param props - Properties to assign onto the component instance.
    * @returns This entity, for chaining.
    */
-  public set(type: number, props: Partial<ComponentInstance>): Entity;
+  public set(eid: number, props: Partial<ComponentInstance>): Entity;
 
-  public set(typeOrClass: ComponentClassOrType, props: Partial<ComponentInstance>): Entity {
-    const meta = this.world.getComponentMeta(typeOrClass);
+  public set(entity: Entity, props: Partial<ComponentInstance>): Entity;
+
+  public set(ref: ComponentRef, props: Partial<ComponentInstance>): Entity {
+    const meta = this.world.getComponentMeta(ref);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props });
     } else {

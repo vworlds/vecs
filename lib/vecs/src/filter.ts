@@ -84,12 +84,12 @@ export class Filter<R extends ComponentClass[] = []> {
           }
         });
       } else {
-        const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
+        const eids = componentsOrCallback.map((C) => this.world.getComponentEid(C));
         this.world.entities.forEach((e) => {
           if (!this._belongs(e)) {
             return;
           }
-          const resolved = types.map((t) => e.get(t));
+          const resolved = eids.map((eid) => e.get(eid));
           callback!(e, resolved as any);
         });
       }

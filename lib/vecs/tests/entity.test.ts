@@ -13,7 +13,7 @@ class Velocity {
 describe("Entity — components", () => {
   it("add returns the entity for chaining", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     expect(e.add(Position)).toBe(e);
     const pos = e.get(Position)!;
@@ -23,7 +23,7 @@ describe("Entity — components", () => {
 
   it("add is idempotent — same instance is returned on repeat", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const a = e.add(Position).get(Position);
     const b = e.add(Position).get(Position);
@@ -32,7 +32,7 @@ describe("Entity — components", () => {
 
   it("add(typeId) works with numeric type ids", () => {
     const w = new World();
-    w.registerComponent(Position, 5);
+    w.component(Position, 5);
     const e = w.entity();
     const pos = e.add(5).get(5);
     expect(pos).toBeInstanceOf(Position);
@@ -40,7 +40,7 @@ describe("Entity — components", () => {
 
   it("set returns the entity for chaining", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     expect(e.set(Position, { x: 10, y: 20 })).toBe(e);
     const pos = e.get(Position)!;
@@ -51,7 +51,7 @@ describe("Entity — components", () => {
 
   it("set is idempotent — same instance is kept with updated properties", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const a = e.set(Position, { x: 1 }).get(Position);
     const b = e.set(Position, { x: 99 }).get(Position);
@@ -61,7 +61,7 @@ describe("Entity — components", () => {
 
   it("set only assigns present properties — absent keys leave defaults intact", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const pos = e.set(Position, { x: 5 }).get(Position)!;
     expect(pos.x).toBe(5);
@@ -70,15 +70,44 @@ describe("Entity — components", () => {
 
   it("set(typeId, props) works with numeric type ids", () => {
     const w = new World();
-    w.registerComponent(Position, 7);
+    w.component(Position, 7);
     const e = w.entity();
     const pos = e.set(7, {}).get(7);
     expect(pos).toBeInstanceOf(Position);
   });
 
+  it("set/get/getMut/remove work with entity component refs", () => {
+    const w = new World();
+    const key = w.entity();
+    const e = w.entity();
+
+    e.set(key, { enabled: true });
+
+    expect(e.get(key)).toMatchObject({ enabled: true });
+    expect(e.getMut(key)).toMatchObject({ enabled: true });
+    e.remove(key);
+    expect(e.get(key)).toBeUndefined();
+  });
+
+  it("tracks usage count for entity component refs", () => {
+    const w = new World();
+    const key = w.entity();
+    const e = w.entity();
+    const meta = w.getComponentMeta(key);
+
+    e.add(key);
+    e.set(key, { enabled: true });
+    expect(meta.usageCount).toBe(1);
+    expect(() => key.destroy()).toThrow();
+
+    e.remove(key);
+    expect(meta.usageCount).toBe(0);
+    expect(() => key.destroy()).not.toThrow();
+  });
+
   it("attach stores the exact passed instance", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const pos = new Position();
     e.attach(pos);
@@ -87,7 +116,7 @@ describe("Entity — components", () => {
 
   it("attach returns the entity for chaining", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const pos = new Position();
     expect(e.attach(pos)).toBe(e);
@@ -102,7 +131,7 @@ describe("Entity — components", () => {
 
   it("attach replaces an existing stored instance without assigning into the old object", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const pos1 = new Position();
     const pos2 = new Position();
@@ -114,7 +143,7 @@ describe("Entity — components", () => {
 
   it("attach triggers onAdd and onSet hooks", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const onAdd = vi.fn();
     const onSet = vi.fn();
     w.hook(Position).onAdd(onAdd).onSet(onSet);
@@ -127,7 +156,7 @@ describe("Entity — components", () => {
 
   it("attach triggers onSet but not onAdd when replacing", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const onAdd = vi.fn();
     const onSet = vi.fn();
     w.hook(Position).onAdd(onAdd).onSet(onSet);
@@ -144,8 +173,8 @@ describe("Entity — components", () => {
 
   it("attach handles exclusive components", () => {
     const w = new World();
-    w.registerComponent(Position);
-    w.registerComponent(Velocity);
+    w.component(Position);
+    w.component(Velocity);
     w.setExclusiveComponents(Position, Velocity);
     const e = w.entity();
     const pos = new Position();
@@ -158,7 +187,7 @@ describe("Entity — components", () => {
 
   it("attach works in deferred mode", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     w.start();
     const e = w.entity();
     const pos = new Position();
@@ -171,7 +200,7 @@ describe("Entity — components", () => {
 
   it("set marks a new component as modified", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Position);
+    env.w.component(Position);
     env.start();
     const onSet = vi.fn();
     env.w.hook(Position).onSet(onSet);
@@ -183,7 +212,7 @@ describe("Entity — components", () => {
 
   it("set marks an already-present component as modified", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Position);
+    env.w.component(Position);
     env.start();
     const onSet = vi.fn();
     env.w.hook(Position).onSet(onSet);
@@ -198,7 +227,7 @@ describe("Entity — components", () => {
 
   it("get returns the component or undefined", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     expect(e.get(Position)).toBeUndefined();
     expect(e.add(Position).get(Position)).toBeInstanceOf(Position);
@@ -206,7 +235,7 @@ describe("Entity — components", () => {
 
   it("getMut returns the component or undefined", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     expect(e.getMut(Position)).toBeUndefined();
     expect(e.add(Position).getMut(Position)).toBeInstanceOf(Position);
@@ -214,7 +243,7 @@ describe("Entity — components", () => {
 
   it("getMut marks an existing component as modified", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const onSet = vi.fn();
     w.hook(Position).onSet(onSet);
     const e = w.entity();
@@ -225,7 +254,7 @@ describe("Entity — components", () => {
 
   it("getMut does not mark a missing component as modified", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const onSet = vi.fn();
     w.hook(Position).onSet(onSet);
     const e = w.entity();
@@ -235,7 +264,7 @@ describe("Entity — components", () => {
 
   it("getMut(typeId) works with numeric type ids", () => {
     const w = new World();
-    w.registerComponent(Position, 8);
+    w.component(Position, 8);
     const e = w.entity();
     const pos = e.add(8).getMut(8);
     expect(pos).toBeInstanceOf(Position);
@@ -243,7 +272,7 @@ describe("Entity — components", () => {
 
   it("remove detaches a component", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     e.add(Position);
     e.remove(Position);
@@ -252,20 +281,20 @@ describe("Entity — components", () => {
 
   it("componentBitmask reflects added/removed components", () => {
     const w = new World();
-    w.registerComponent(Position);
-    w.registerComponent(Velocity);
+    w.component(Position);
+    w.component(Velocity);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
-    expect(e.componentBitmask.has(w.getComponentType(Position))).toBe(true);
-    expect(e.componentBitmask.has(w.getComponentType(Velocity))).toBe(true);
+    expect(e.componentBitmask.has(w.getComponentEid(Position))).toBe(true);
+    expect(e.componentBitmask.has(w.getComponentEid(Velocity))).toBe(true);
     e.remove(Position);
-    expect(e.componentBitmask.has(w.getComponentType(Position))).toBe(false);
+    expect(e.componentBitmask.has(w.getComponentEid(Position))).toBe(false);
   });
 
   it("empty reflects whether any components remain", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     expect(e.empty).toBe(true);
     e.add(Position);
@@ -276,8 +305,8 @@ describe("Entity — components", () => {
 
   it("components visits every attached component", () => {
     const w = new World();
-    w.registerComponent(Position);
-    w.registerComponent(Velocity);
+    w.component(Position);
+    w.component(Velocity);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
