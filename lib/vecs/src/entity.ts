@@ -407,7 +407,7 @@ export class Entity {
    * @param Class - Component class to instantiate.
    * @returns This entity, for chaining.
    */
-  public add<C extends ComponentClass>(Class: C): Entity;
+  public add<C extends ComponentClass>(Class: C): this;
 
   /**
    * Attach a component by numeric type id.
@@ -415,11 +415,11 @@ export class Entity {
    * @param type - Numeric component type id.
    * @returns This entity, for chaining.
    */
-  public add(eid: number): Entity;
+  public add(eid: number): this;
 
-  public add(entity: Entity): Entity;
+  public add(entity: Entity): this;
 
-  public add(ref: ComponentRef): Entity {
+  public add(ref: ComponentRef): this {
     const meta = this.world.getComponentMeta(ref);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props: undefined });
@@ -441,7 +441,7 @@ export class Entity {
    * @param component - Existing component instance to store on the entity.
    * @returns This entity, for chaining.
    */
-  public attach(component: ComponentInstance): Entity {
+  public attach(component: ComponentInstance): this {
     const meta = this.world.getComponentMeta(component.constructor as ComponentClass);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component });
@@ -525,7 +525,7 @@ export class Entity {
    * @param typeOrClass - Component class or numeric type id whose data changed.
    * @returns This entity, for chaining.
    */
-  public modified(ref: ComponentRef): Entity {
+  public modified(ref: ComponentRef): this {
     const meta = this.world.getComponentMeta(ref);
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return this;
@@ -594,7 +594,7 @@ export class Entity {
    * @param props - Properties to assign onto the component instance.
    * @returns This entity, for chaining.
    */
-  public set<C extends ComponentClass>(Class: C, props: Partial<InstanceType<C>>): Entity;
+  public set<C extends ComponentClass>(Class: C, props: Partial<InstanceType<C>>): this;
 
   /**
    * Attach a component by numeric type id and copy `props` onto it.
@@ -603,11 +603,11 @@ export class Entity {
    * @param props - Properties to assign onto the component instance.
    * @returns This entity, for chaining.
    */
-  public set(eid: number, props: Partial<ComponentInstance>): Entity;
+  public set(eid: number, props: Partial<ComponentInstance>): this;
 
-  public set(entity: Entity, props: Partial<ComponentInstance>): Entity;
+  public set(entity: Entity, props: Partial<ComponentInstance>): this;
 
-  public set(ref: ComponentRef, props: Partial<ComponentInstance>): Entity {
+  public set(ref: ComponentRef, props: Partial<ComponentInstance>): this {
     const meta = this.world.getComponentMeta(ref);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props });

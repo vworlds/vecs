@@ -89,6 +89,8 @@ export class World {
 
   private _poolConfigs: IdPoolConfig[] = DEFAULT_POOLS.map((pool) => ({ ...pool }));
   private _pools = this._poolConfigs.map((pool) => new IdPool(pool.name, pool.min, pool.max));
+  private _componentPool!: IdPool;
+  private _entityPool!: IdPool;
   private _poolsLocked = false;
 
   /** @internal Single ordered command queue used in deferred mode. */
@@ -113,7 +115,13 @@ export class World {
   public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
 
   constructor() {
+    this._cacheNamedPools();
     this._tickSources.add(ALWAYS_TICK_SOURCE);
+  }
+
+  private _cacheNamedPools(): void {
+    this._componentPool = this._poolByName("component");
+    this._entityPool = this._poolByName("entity");
   }
 
   /**
@@ -404,6 +412,7 @@ export class World {
     validateIdPoolConfigs(configs);
     this._poolConfigs = configs.map((pool) => ({ ...pool }));
     this._pools = this._poolConfigs.map((pool) => new IdPool(pool.name, pool.min, pool.max));
+    this._cacheNamedPools();
   }
 
   public component(ComponentClass: ComponentClass, eid?: number): Component {
@@ -425,7 +434,8 @@ export class World {
     }
 
     if (eid === undefined) {
-      eid = this._allocFromPool("component");
+      this._poolsLocked = true;
+      eid = this._componentPool.alloc();
     } else {
       const existingMeta = this._eid2Meta.get(eid);
       if (existingMeta) {
@@ -612,7 +622,8 @@ export class World {
 
   public entity(id?: number): Entity | undefined {
     if (id === undefined) {
-      const eid = this._allocFromPool("entity");
+      this._poolsLocked = true;
+      const eid = this._entityPool.alloc();
       const e = new Entity(this, eid);
       if (this.deferred) {
         this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
@@ -624,13 +635,12 @@ export class World {
     return this._entities.get(id);
   }
 
-  private _allocFromPool(name: string): number {
-    this._poolsLocked = true;
+  private _poolByName(name: string): IdPool {
     const pool = this._pools.find((candidate) => candidate.name === name);
     if (!pool) {
       throw new Error(`Unknown id pool '${name}'`);
     }
-    return pool.alloc();
+    return pool;
   }
 
   private _poolFor(eid: number): IdPool {
