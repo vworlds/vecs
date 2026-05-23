@@ -103,6 +103,8 @@ export class World {
   private _frameInProgress = false;
   /** @internal True while the world is auto-building pending queries. */
   private _buildingPendingQueries = false;
+  /** @internal System currently executing its `_run` body; `undefined` outside any system run. */
+  public _currentSystem: System | undefined = undefined;
 
   /** Hidden property key used to store this world's meta on component classes. */
   public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
@@ -167,10 +169,10 @@ export class World {
         this._entities.set(cmd.entity.eid, cmd.entity);
         return;
       case CommandKind.Set:
-        cmd.entity._set(cmd.meta, cmd.props);
+        cmd.entity._set(cmd.meta, cmd.props, cmd.origin);
         return;
       case CommandKind.Modified:
-        cmd.entity._modified(cmd.meta);
+        cmd.entity._modified(cmd.meta, cmd.origin);
         return;
       case CommandKind.Remove:
         cmd.entity._remove(cmd.meta);
@@ -182,7 +184,7 @@ export class World {
         cmd.entity._setParent(cmd.parent);
         return;
       case CommandKind.Attach:
-        cmd.entity._attach(cmd.meta, cmd.component);
+        cmd.entity._attach(cmd.meta, cmd.component, cmd.origin);
         return;
     }
   }

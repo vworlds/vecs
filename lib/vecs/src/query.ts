@@ -217,6 +217,18 @@ export class Query<R extends ComponentClass[] = []> {
   }
 
   /**
+   * @internal Like `_enter` but suppressed: adds the entity to the tracked set
+   * and registers query membership without firing the `enter` callback or
+   * bridging watched components. Called instead of `_enter` when the mutation
+   * that caused the entity to match originated from this same query (self-echo
+   * suppression).
+   */
+  public _silentEnter(e: Entity): void {
+    (this._entities ??= new Set<Entity>()).add(e);
+    e._addQueryMembership(this);
+  }
+
+  /**
    * @internal Add `e` to the tracked set, register query membership on the
    * entity, fire any registered `enter` callback, then bridge the entity's
    * already-attached watched components through {@link _notifyModified} so

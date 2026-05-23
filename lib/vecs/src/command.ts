@@ -1,5 +1,6 @@
 import type { Component, ComponentMeta } from "./component.js";
 import type { Entity } from "./entity.js";
+import type { Query } from "./query.js";
 
 /**
  * Discriminator for the {@link Command} union.
@@ -36,6 +37,8 @@ export type Command =
       meta: ComponentMeta;
       /** Properties to assign. `undefined` for `entity.add(C)` (ensure-exists, no data). */
       props: Partial<Component> | undefined;
+      /** System that enqueued this command; `undefined` outside any system run. */
+      origin: Query | undefined;
     }
   | {
       kind: CommandKind.Attach;
@@ -43,8 +46,10 @@ export type Command =
       meta: ComponentMeta;
       /** Existing component instance to store directly on the entity. */
       component: Component;
+      /** System that enqueued this command; `undefined` outside any system run. */
+      origin: Query | undefined;
     }
-  | { kind: CommandKind.Modified; entity: Entity; meta: ComponentMeta }
+  | { kind: CommandKind.Modified; entity: Entity; meta: ComponentMeta; origin: Query | undefined }
   | { kind: CommandKind.Remove; entity: Entity; meta: ComponentMeta }
   | { kind: CommandKind.Destroy; entity: Entity }
   | { kind: CommandKind.SetParent; entity: Entity; parent: Entity | undefined };

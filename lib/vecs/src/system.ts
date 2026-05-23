@@ -162,6 +162,9 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    *
    * The whole body executes inside a `World.defer` scope; mutations made by
    * callbacks land in the world queue and are processed when `_run` returns.
+   * After the initial drain, any inbox events pushed by the command flush
+   * (e.g. an exit triggered by `e.remove` inside an update callback) are
+   * processed in additional deferred passes until the inbox is empty.
    */
   public _run(now: number, delta: number): void {
     if (!this._enabled) {
@@ -171,35 +174,35 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
       return;
     }
     const tickDelta = this._tickSource.lastFireDelta;
-    this.world.defer(() => {
-      for (let i = 0; i < this._inbox.length; i++) {
-        const event = this._inbox[i];
-        switch (event.kind) {
-          case InboxCommand.Enter:
-            this._enterCallback!(event.entity);
-            break;
-          case InboxCommand.Exit:
-            this._exitCallback!(event.entity, event.snapshot);
-            break;
-          case InboxCommand.Update:
-            const callback = this._componentUpdateCallbacks.get(event.meta.type);
-            if (callback) {
-              callback(event.entity, event.component);
-            }
-            break;
+    const prevSystem = this.world._currentSystem;
+    this.world._currentSystem = this;
+    try {
+      this.world.defer(() => {
+        for (let i = 0; i < this._inbox.length; i++) {
+          this._dispatchInboxEvent(this._inbox[i]);
         }
-      }
-      this._inbox.length = 0;
+        this._inbox.length = 0;
 
-      if (this._runCallback) {
-        this._runCallback(now, tickDelta);
-      }
+        if (this._runCallback) {
+          this._runCallback(now, tickDelta);
+        }
 
-      if (this._eachCallback) {
-        const cb = this._eachCallback;
-        this.forEach((e) => cb(e));
+        if (this._eachCallback) {
+          const cb = this._eachCallback;
+          this.forEach((e) => cb(e));
+        }
+      });
+      while (this._inbox.length > 0) {
+        this.world.defer(() => {
+          for (let i = 0; i < this._inbox.length; i++) {
+            this._dispatchInboxEvent(this._inbox[i]);
+          }
+          this._inbox.length = 0;
+        });
       }
-    });
+    } finally {
+      this.world._currentSystem = prevSystem;
+    }
   }
 
   /** True when this system's cadence source fired during the current frame. */
@@ -299,6 +302,24 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
     this._assertConfigurable();
     this._setTickSource(source);
     return this;
+  }
+
+  private _dispatchInboxEvent(event: _SystemInboxEvent): void {
+    switch (event.kind) {
+      case InboxCommand.Enter:
+        this._enterCallback!(event.entity);
+        break;
+      case InboxCommand.Exit:
+        this._exitCallback!(event.entity, event.snapshot);
+        break;
+      case InboxCommand.Update: {
+        const callback = this._componentUpdateCallbacks.get(event.meta.type);
+        if (callback) {
+          callback(event.entity, event.component);
+        }
+        break;
+      }
+    }
   }
 
   private _setTickSource(source: ITickSource): void {

@@ -100,19 +100,30 @@ export class Entity {
   /**
    * Re-evaluate queries that can be affected by `meta` for this entity,
    * firing `_enter` / `_exit` routing whenever membership flipped.
+   * When `origin` is set, a newly-matched `origin` query receives
+   * `_silentEnter` instead of `_enter` (self-echo suppression).
    */
-  private _updateQueries(meta: ComponentMeta): void {
+  private _updateQueries(meta: ComponentMeta, origin?: Query): void {
     this.world._forEachQueryForComponent(meta.type, (q) => {
       const belongs = q.belongs(this);
       const isIn = this._queries.has(q);
       if (belongs !== isIn) {
-        belongs ? q._enter(this) : q._exit(this);
+        if (belongs) {
+          q === origin ? q._silentEnter(this) : q._enter(this);
+        } else {
+          q._exit(this);
+        }
       }
     });
   }
 
   /** Store a component instance and perform the shared add-side bookkeeping. */
-  private _storeComponent(meta: ComponentMeta, component: Component, isAdd: boolean): void {
+  private _storeComponent(
+    meta: ComponentMeta,
+    component: Component,
+    isAdd: boolean,
+    origin?: Query
+  ): void {
     if (meta._exclusive) {
       for (const exclusiveMeta of meta._exclusive) {
         if (this._components.has(exclusiveMeta.type)) {
@@ -125,15 +136,27 @@ export class Entity {
     if (isAdd) {
       this._runOnAddHandlers(meta, component);
     }
-    this._updateQueries(meta);
+    this._updateQueries(meta, origin);
   }
 
-  /** Perform the shared set-side hook and query update routing. */
-  private _notifyComponentSet(meta: ComponentMeta, component: Component, isUpdate: boolean): void {
+  /**
+   * Perform the shared set-side hook and query update routing.
+   * When `origin` is set, that query is skipped for update notifications
+   * (self-echo suppression).
+   */
+  private _notifyComponentSet(
+    meta: ComponentMeta,
+    component: Component,
+    isUpdate: boolean,
+    origin?: Query
+  ): void {
     this._runOnSetHandlers(meta, component);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (isUpdate) {
-      this._queries.forEach((q) => q._notifyModified(this, meta, component));
+      this._queries.forEach((q) => {
+        if (q === origin) return;
+        q._notifyModified(this, meta, component);
+      });
     }
   }
 
@@ -144,12 +167,16 @@ export class Entity {
    * If the component type belongs to an exclusivity group, any conflicting
    * component already on this entity is removed first.
    */
-  private _new(meta: ComponentMeta, props: Partial<Component> | undefined): Component {
+  private _new(
+    meta: ComponentMeta,
+    props: Partial<Component> | undefined,
+    origin?: Query
+  ): Component {
     const c = new meta.Class();
     if (props !== undefined) {
       Object.assign(c, props);
     }
-    this._storeComponent(meta, c, true);
+    this._storeComponent(meta, c, true, origin);
     return c;
   }
 
@@ -166,13 +193,13 @@ export class Entity {
    * replacing any previous instance for this type. Events are fired as if the
    * caller had performed a `set` operation.
    */
-  public _attach(meta: ComponentMeta, component: Component): void {
+  public _attach(meta: ComponentMeta, component: Component, origin?: Query): void {
     if (this._destroyed) {
       return;
     }
     const existing = this._components.get(meta.type);
-    this._storeComponent(meta, component, existing === undefined);
-    this._notifyComponentSet(meta, component, existing !== undefined);
+    this._storeComponent(meta, component, existing === undefined, origin);
+    this._notifyComponentSet(meta, component, existing !== undefined, origin);
   }
 
   /**
@@ -235,7 +262,7 @@ export class Entity {
    * @internal Apply a `Modified` command: fire `onSet` and route modified
    * events to every query that watches the component type.
    */
-  public _modified(meta: ComponentMeta): void {
+  public _modified(meta: ComponentMeta, origin?: Query): void {
     if (this._destroyed) {
       return;
     }
@@ -243,7 +270,7 @@ export class Entity {
     if (!c) {
       return;
     }
-    this._notifyComponentSet(meta, c, true);
+    this._notifyComponentSet(meta, c, true, origin);
   }
 
   /**
@@ -289,17 +316,17 @@ export class Entity {
    * `props` if provided, fire `onSet`, and route modified events to every
    * query that watches the component type.
    */
-  public _set(meta: ComponentMeta, props: Partial<Component> | undefined): void {
+  public _set(meta: ComponentMeta, props: Partial<Component> | undefined, origin?: Query): void {
     if (this._destroyed) {
       return;
     }
     const existing = this._components.get(meta.type);
-    const c = existing ?? this._new(meta, props);
+    const c = existing ?? this._new(meta, props, origin);
     if (props !== undefined) {
       if (existing) {
         Object.assign(c, props);
       }
-      this._notifyComponentSet(meta, c, existing !== undefined);
+      this._notifyComponentSet(meta, c, existing !== undefined, origin);
     }
   }
 
@@ -402,10 +429,11 @@ export class Entity {
 
   public add(typeOrClass: ComponentClassOrType): Entity {
     const meta = this.world.getComponentMeta(typeOrClass);
+    const origin = this.world._currentSystem;
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props: undefined });
+      this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props: undefined, origin });
     } else {
-      this._set(meta, undefined);
+      this._set(meta, undefined, origin);
     }
     return this;
   }
@@ -424,10 +452,11 @@ export class Entity {
    */
   public attach(component: Component): Entity {
     const meta = this.world.getComponentMeta(component.constructor as ComponentClass);
+    const origin = this.world._currentSystem;
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component });
+      this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component, origin });
     } else {
-      this._attach(meta, component);
+      this._attach(meta, component, origin);
     }
     return this;
   }
@@ -508,10 +537,11 @@ export class Entity {
       return this;
     }
     this._dirtyComponentBitmask.addBit(meta.bitPtr);
+    const origin = this.world._currentSystem;
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
+      this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta, origin });
     } else {
-      this._modified(meta);
+      this._modified(meta, origin);
     }
     return this;
   }
@@ -582,10 +612,11 @@ export class Entity {
 
   public set(typeOrClass: ComponentClassOrType, props: Partial<Component>): Entity {
     const meta = this.world.getComponentMeta(typeOrClass);
+    const origin = this.world._currentSystem;
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props });
+      this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props, origin });
     } else {
-      this._set(meta, props);
+      this._set(meta, props, origin);
     }
     return this;
   }
