@@ -84,3 +84,24 @@ this; for the current ECS scale, the flat bitmap (v2) wins.
 | alloc-freeEveryOther-alloc-5k | 0.18 | 0.41 | 0.37 |
 | steady-churn-2k-10kops        | 1.37 | 1.35 | 1.46 |
 | reserve-sparse-then-alloc-5k  | 0.97 | 1.00 | 1.19 |
+
+## Variant 4: v2 with proactive cursor bump in alloc
+
+Reverts the L2 layer; reinstates v2's flat bitmap but also bumps the
+`_minFreeWord` cursor to `word + 1` when alloc fills the last 0 bit of
+the current word (`nw === -1`). On the next alloc the walk over full
+words starts past the just-filled one, which trims work from the random
+churn path that always re-arrives at the same low cursor.
+
+Modest, mostly within-noise improvements over v2 (~3-10%). Reserve-sparse
+is the same.
+
+| scenario                      | run1 | run2 | run3 |
+| ----------------------------- | ---- | ---- | ---- |
+| seq-alloc-5k                  | 0.15 | 0.15 | 0.15 |
+| alloc-freeAll-allocAgain-5k   | 0.35 | 0.43 | 0.38 |
+| alloc-freeHighTail-alloc-10k  | 0.42 | 0.42 | 0.45 |
+| alloc-freeRandomHalf-alloc-5k | 0.63 | 0.63 | 0.78 |
+| alloc-freeEveryOther-alloc-5k | 0.34 | 0.30 | 0.36 |
+| steady-churn-2k-10kops        | 1.40 | 1.36 | 1.35 |
+| reserve-sparse-then-alloc-5k  | 1.27 | 1.16 | 0.89 |
