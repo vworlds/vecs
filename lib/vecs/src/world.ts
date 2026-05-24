@@ -5,7 +5,7 @@ import {
   ComponentMeta,
   Hook,
 } from "./component.js";
-import { Entity } from "./entity.js";
+import { Entity, type EntityClass } from "./entity.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
 import { Filter } from "./filter.js";
@@ -15,12 +15,14 @@ import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
 import { IdPool, type IdPoolConfig, validateIdPoolConfigs } from "./util/id_pool.js";
+import { Module } from "./module.js";
 
 const DEFAULT_POOLS: IdPoolConfig[] = [
   { name: "component", min: 1, max: 999 },
   { name: "entity", min: 1000 },
 ];
 const RESERVED_EID = 0;
+const BUILTIN_COMPONENTS: ComponentClass[] = [];
 
 /**
  * The central ECS container. One world per game session.
@@ -415,7 +417,34 @@ export class World {
     this._cacheNamedPools();
   }
 
+  public module<T extends Module>(ModuleClass: EntityClass<T>): T {
+    let isNew = true;
+    const ComponentClass = ModuleClass as unknown as ComponentClass;
+    if (this._tryGetComponentMeta(ComponentClass)) {
+      isNew = false;
+    }
+    const mod = this._component<T>(ModuleClass, ComponentClass);
+    if (isNew) {
+      mod.init();
+    }
+    return mod;
+  }
+
   public component(ComponentClass: ComponentClass, eid?: number): Component {
+    if (this._componentRegistrationDisabled) {
+      throw "World component registration is disabled";
+    }
+    while (BUILTIN_COMPONENTS.length > 0) {
+      this._component(Component, BUILTIN_COMPONENTS.shift()!);
+    }
+    return this._component(Component, ComponentClass, eid);
+  }
+
+  private _component<T extends Component>(
+    Constructor: EntityClass<T>,
+    ComponentClass: ComponentClass,
+    eid?: number
+  ): T {
     if (this._componentRegistrationDisabled) {
       throw "World component registration is disabled";
     }
@@ -426,13 +455,12 @@ export class World {
     const existingClassMeta = this._tryGetComponentMeta(ComponentClass);
     if (existingClassMeta) {
       if (eid === undefined || eid === existingClassMeta.eid) {
-        return this._entities.get(existingClassMeta.eid) as Component;
+        return this._entities.get(existingClassMeta.eid) as T;
       }
       throw new Error(
         `Component class ${ComponentClass.name} is already registered with eid ${existingClassMeta.eid}`
       );
     }
-
     if (eid === undefined) {
       this._poolsLocked = true;
       eid = this._componentPool.alloc();
@@ -440,7 +468,7 @@ export class World {
       const existingMeta = this._eid2Meta.get(eid);
       if (existingMeta) {
         if (existingMeta.Class === ComponentClass) {
-          return this._entities.get(eid) as Component;
+          return this._entities.get(eid) as T;
         }
         throw new Error(`Component eid ${eid} is already registered`);
       }
@@ -449,8 +477,7 @@ export class World {
       }
       this._reserveEid(eid);
     }
-
-    const component = new Component(this, eid);
+    const component = new Constructor(this, eid);
     this._entities.set(eid, component);
     const meta = new ComponentMeta(ComponentClass, eid);
     Object.defineProperty(ComponentClass, this.worldKey, {
@@ -622,17 +649,21 @@ export class World {
 
   public entity(id?: number): Entity | undefined {
     if (id === undefined) {
-      this._poolsLocked = true;
-      const eid = this._entityPool.alloc();
-      const e = new Entity(this, eid);
-      if (this.deferred) {
-        this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
-      } else {
-        this._entities.set(eid, e);
-      }
-      return e;
+      return this._entity(Entity);
     }
     return this._entities.get(id);
+  }
+
+  private _entity<T extends Entity>(Constructor: EntityClass<T>): T {
+    this._poolsLocked = true;
+    const eid = this._entityPool.alloc();
+    const e = new Constructor(this, eid);
+    if (this.deferred) {
+      this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
+    } else {
+      this._entities.set(eid, e);
+    }
+    return e;
   }
 
   private _poolByName(name: string): IdPool {

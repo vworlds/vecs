@@ -13,6 +13,8 @@ import { Bitset } from "./util/bitset.js";
 
 type EntityEvents = Events<{ destroy(): void }>;
 
+export type EntityClass<T extends Entity = Entity> = new (world: World, eid: number) => T;
+
 /**
  * A game object: a unique numeric id with an arbitrary set of
  * {@link ComponentInstance | components} attached.

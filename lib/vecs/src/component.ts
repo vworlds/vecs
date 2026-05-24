@@ -1,5 +1,5 @@
 import { BitPtr } from "./util/bitset.js";
-import { Entity } from "./entity.js";
+import { Entity, type EntityClass } from "./entity.js";
 
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
@@ -8,7 +8,7 @@ export type ComponentInstance = object;
 export type ComponentClass<T extends ComponentInstance = ComponentInstance> = new () => T;
 
 /** A component class constructor, component eid, or entity component key. */
-export type ComponentRef = number | ComponentClass | Entity;
+export type ComponentRef = number | ComponentClass | EntityClass | Entity;
 
 /** A component entity created by {@link World.component}. */
 export class Component extends Entity {}
