@@ -2,6 +2,7 @@ import { World, type ComponentClass, type IdPoolConfig, type WorldOptions } from
 import { cid_pack, setLocalComponentMin } from "./cid.js";
 
 const DEFAULT_ENTITY_ID_START = 1000;
+const MODULE_ID_RANGE_SIZE = 100;
 let configuredLocalComponentMin: number | undefined;
 
 export interface RegisteredNetworkComponent {
@@ -67,10 +68,15 @@ function buildNetworkIdPools(
   if (entityIdStart <= localComponentMin) {
     throw new Error("entityIdStart must leave room for local component ids");
   }
+  const moduleIdStart = entityIdStart - MODULE_ID_RANGE_SIZE;
+  if (moduleIdStart <= localComponentMin) {
+    throw new Error("entityIdStart must leave room for local component and module ids");
+  }
 
   const pools: IdPoolConfig[] = [
     { name: "network", min: 1, max: localComponentMin - 1 },
-    { name: "component", min: localComponentMin, max: entityIdStart - 1 },
+    { name: "component", min: localComponentMin, max: moduleIdStart - 1 },
+    { name: "module", min: moduleIdStart, max: entityIdStart - 1 },
   ];
 
   if (options.localEntityIdStart === undefined) {

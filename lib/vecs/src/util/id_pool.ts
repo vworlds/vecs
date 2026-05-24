@@ -186,7 +186,7 @@ export function validateIdPoolConfigs(configs: readonly IdPoolConfig[]): void {
   if (openEndedCount !== 1) {
     throw new Error("Exactly one id pool must be open-ended");
   }
-  if (!names.has("component") || !names.has("entity")) {
-    throw new Error("Id pools must include 'component' and 'entity'");
+  if (!names.has("component") || !names.has("module") || !names.has("entity")) {
+    throw new Error("Id pools must include 'component', 'module', and 'entity'");
   }
 }

@@ -1,23 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { Component, Identity, IdentityModule, World } from "../src/index.js";
+import { Component, Identity, IdentityModule, Module, World } from "../src/index.js";
 
 class A {}
 class B {}
 
 describe("World - id pools", () => {
-  it("uses default component and entity pools", () => {
+  it("uses default component, module, and entity pools", () => {
     const w = new World();
 
-    expect(w.getComponentMeta(IdentityModule).eid).toBe(1);
-    expect(w.getComponentMeta(Identity).eid).toBe(2);
-    expect(w.component(A).eid).toBe(3);
+    expect(w.getComponentMeta(Identity).eid).toBe(1);
+    expect(w.component(A).eid).toBe(2);
+    expect(w.getComponentMeta(IdentityModule).eid).toBe(900);
     expect(w.entity().eid).toBe(1000);
   });
 
-  it("rejects eid 0 for explicit component and entity creation", () => {
+  it("rejects eid 0 for explicit component, module, and entity creation", () => {
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
     const w = new World();
 
     expect(() => w.component(A, 0)).toThrow();
+    expect(() => w.module(TestModule, 0)).toThrow();
     expect(() => w.getOrCreateEntity(0)).toThrow();
   });
 
@@ -25,14 +30,15 @@ describe("World - id pools", () => {
     const w = new World({
       idPools: [
         { name: "network", min: 1, max: 255 },
-        { name: "component", min: 256, max: 999 },
+        { name: "component", min: 256, max: 899 },
+        { name: "module", min: 900, max: 999 },
         { name: "entity", min: 1000 },
       ],
     });
 
-    expect(w.getComponentMeta(IdentityModule).eid).toBe(256);
-    expect(w.getComponentMeta(Identity).eid).toBe(257);
-    expect(w.component(A).eid).toBe(258);
+    expect(w.getComponentMeta(Identity).eid).toBe(256);
+    expect(w.component(A).eid).toBe(257);
+    expect(w.getComponentMeta(IdentityModule).eid).toBe(900);
     expect(w.entity().eid).toBe(1000);
   });
 
@@ -42,7 +48,8 @@ describe("World - id pools", () => {
         new World({
           idPools: [
             { name: "component", min: 1, max: 10 },
-            { name: "entity", min: 12 },
+            { name: "module", min: 11, max: 20 },
+            { name: "entity", min: 22 },
           ],
         })
     ).toThrow();
@@ -52,7 +59,8 @@ describe("World - id pools", () => {
           idPools: [
             { name: "component", min: 1, max: 10 },
             { name: "component", min: 11, max: 20 },
-            { name: "entity", min: 21 },
+            { name: "module", min: 21, max: 30 },
+            { name: "entity", min: 31 },
           ],
         })
     ).toThrow();
@@ -62,7 +70,8 @@ describe("World - id pools", () => {
         new World({
           idPools: [
             { name: "component", min: 1, max: 10 },
-            { name: "entity", min: 11, max: 20 },
+            { name: "module", min: 11, max: 20 },
+            { name: "entity", min: 21, max: 30 },
           ],
         })
     ).toThrow();
@@ -71,12 +80,14 @@ describe("World - id pools", () => {
   it("bakes pool configuration into the constructor", () => {
     const w = new World({
       idPools: [
-        { name: "component", min: 1, max: 9 },
+        { name: "component", min: 1, max: 8 },
+        { name: "module", min: 9, max: 9 },
         { name: "entity", min: 10 },
       ],
     });
 
-    expect(w.component(A).eid).toBe(3);
+    expect(w.component(A).eid).toBe(2);
+    expect(w.getComponentMeta(IdentityModule).eid).toBe(9);
     expect(w.entity().eid).toBe(10);
     expect("configurePools" in w).toBe(false);
   });

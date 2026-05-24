@@ -30,10 +30,58 @@ describe("World.module", () => {
 
     expect(mod).toBeInstanceOf(TestModule);
     expect(mod.world).toBe(world);
-    expect(mod.eid).toBe(3);
+    expect(mod.eid).toBe(901);
     expect(world.entity(mod.eid)).toBe(mod);
     expect(world.getComponentMeta(TestModule).eid).toBe(mod.eid);
     expect(mod.initCalls).toBe(1);
+  });
+
+  it("accepts an explicit module eid", () => {
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
+    const world = new World();
+    const mod = world.module(TestModule, 950);
+
+    expect(mod.eid).toBe(950);
+    expect(world.entity(950)).toBe(mod);
+  });
+
+  it("is idempotent for the same module class and same eid", () => {
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
+    const world = new World();
+    const mod = world.module(TestModule, 950);
+
+    expect(world.module(TestModule, 950)).toBe(mod);
+  });
+
+  it("throws for a taken module eid with a different class", () => {
+    class FirstModule extends Module {
+      public init(): void {}
+    }
+    class SecondModule extends Module {
+      public init(): void {}
+    }
+
+    const world = new World();
+    world.module(FirstModule, 950);
+
+    expect(() => world.module(SecondModule, 950)).toThrow();
+  });
+
+  it("throws for the same module class at a different eid", () => {
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
+    const world = new World();
+    world.module(TestModule, 950);
+
+    expect(() => world.module(TestModule, 951)).toThrow();
   });
 
   it("returns the same module and does not run init twice", () => {

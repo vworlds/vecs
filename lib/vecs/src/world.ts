@@ -19,7 +19,8 @@ import { Module } from "./module.js";
 import { IdentityModule } from "./modules/identity.js";
 
 export const DEFAULT_POOLS: readonly IdPoolConfig[] = [
-  { name: "component", min: 1, max: 999 },
+  { name: "component", min: 1, max: 899 },
+  { name: "module", min: 900, max: 999 },
   { name: "entity", min: 1000 },
 ];
 const RESERVED_EID = 0;
@@ -97,6 +98,7 @@ export class World {
   private readonly _poolConfigs: IdPoolConfig[];
   private readonly _pools: IdPool[];
   private _componentPool!: IdPool;
+  private _modulePool!: IdPool;
   private _entityPool!: IdPool;
 
   /** @internal Single ordered command queue used in deferred mode. */
@@ -132,6 +134,7 @@ export class World {
 
   private _cacheNamedPools(): void {
     this._componentPool = this._poolByName("component");
+    this._modulePool = this._poolByName("module");
     this._entityPool = this._poolByName("entity");
   }
 
@@ -411,13 +414,13 @@ export class World {
     }
   }
 
-  public module<T extends Module>(ModuleClass: EntityClass<T>): T {
+  public module<T extends Module>(ModuleClass: EntityClass<T>, eid?: number): T {
     let isNew = true;
     const ComponentClass = ModuleClass as unknown as ComponentClass;
     if (this._tryGetComponentMeta(ComponentClass)) {
       isNew = false;
     }
-    const mod = this._component<T>(ModuleClass, ComponentClass);
+    const mod = this._component<T>(ModuleClass, ComponentClass, eid, this._modulePool);
     if (isNew) {
       mod.init();
     }
@@ -434,7 +437,8 @@ export class World {
   private _component<T extends Component>(
     Constructor: EntityClass<T>,
     ComponentClass: ComponentClass,
-    eid?: number
+    eid?: number,
+    pool: IdPool = this._componentPool
   ): T {
     if (this._componentRegistrationDisabled) {
       throw "World component registration is disabled";
@@ -453,7 +457,7 @@ export class World {
       );
     }
     if (eid === undefined) {
-      eid = this._componentPool.alloc();
+      eid = pool.alloc();
     } else {
       const existingMeta = this._eid2Meta.get(eid);
       if (existingMeta) {

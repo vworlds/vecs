@@ -23,6 +23,7 @@ describe("NetworkWorld", () => {
     });
 
     expect(world.component(LocalOnly).eid).toBe(2);
+    expect(world.pools).toContainEqual({ name: "module", min: 900, max: 999 });
     expect(world.getOrCreateEntity(1000).eid).toBe(1000);
     expect(world.entity().eid).toBe(100_000);
   });
