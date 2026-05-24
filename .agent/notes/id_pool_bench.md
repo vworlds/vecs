@@ -61,3 +61,26 @@ skip the bitmap walk entirely when there are no holes (pure fresh-id path).
 | alloc-freeEveryOther-alloc-5k | 0.34 | 0.32 | 0.36 |
 | steady-churn-2k-10kops        | 1.40 | 1.36 | 1.40 |
 | reserve-sparse-then-alloc-5k  | 1.30 | 1.10 | 0.89 |
+
+## Variant 3: 2-level (L1 + L2) hierarchical bitmap
+
+Adds an L2 summary word per 32 L1 words tracking "this L1 word has a free
+slot". The goal was to make the alloc word-walk O(1) instead of O(walks)
+on workloads where the cursor `_minFreeWord` is pulled to word 0 by a
+random low free (e.g. steady-churn).
+
+Hypothesis did not pan out at the benchmark sizes (5k ids → 2-5 L2 words):
+the L2 bookkeeping on every alloc/free roughly cancels the savings on the
+L1 walk, while adding cost on the simple seq-alloc path. Results are at
+parity or slightly worse than v2. Larger pools (≥ 32k ids) would shift
+this; for the current ECS scale, the flat bitmap (v2) wins.
+
+| scenario                      | run1 | run2 | run3 |
+| ----------------------------- | ---- | ---- | ---- |
+| seq-alloc-5k                  | 0.18 | 0.48 | 0.28 |
+| alloc-freeAll-allocAgain-5k   | 0.48 | 0.57 | 0.53 |
+| alloc-freeHighTail-alloc-10k  | 0.47 | 0.51 | 0.47 |
+| alloc-freeRandomHalf-alloc-5k | 0.76 | 0.80 | 0.77 |
+| alloc-freeEveryOther-alloc-5k | 0.18 | 0.41 | 0.37 |
+| steady-churn-2k-10kops        | 1.37 | 1.35 | 1.46 |
+| reserve-sparse-then-alloc-5k  | 0.97 | 1.00 | 1.19 |

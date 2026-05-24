@@ -5,18 +5,18 @@ export interface IdPoolConfig {
 }
 
 export class IdPool {
-  // Occupancy bitmap: bit `(id - min)` is 1 iff `id` is currently reserved.
-  // Stored as a growable plain-number array (V8 keeps these as SMIs / packed
-  // double-tagged words, which gives the fastest random-access read/write).
+  // L1 occupancy bitmap: bit `(id - min)` is 1 iff `id` is currently reserved.
   private _bits: number[] = [];
-  // Number of reserved ids strictly below `_next`. When zero, alloc can skip
-  // the bitmap scan entirely and just hand out the next never-used id.
+  // L2 summary bitmap: bit `w` in word `w >> 5` is 1 iff `_bits[w]` has at
+  // least one 0 bit (i.e. that L1 word still has a free slot). This lets
+  // alloc find the lowest free word in O(1) per L2 word instead of walking
+  // every full word.
+  private _l2: number[] = [];
+  // Number of reserved ids strictly below `_next`. When zero, alloc skips
+  // the bitmap and hands out the next never-used id directly.
   private _freeBelowNext = 0;
-  // Word cursor: the lowest word index in `_bits` that *might* contain a 0
-  // bit below `_next`. Pure hint - alloc walks forward from here.
-  private _minFreeWord = 0;
   // The smallest id never yet handed out by alloc (high-water mark). All ids
-  // in `[min, _next)` are either reserved or recorded in the bitmap as 0.
+  // in `[min, _next)` are either reserved (1 in `_bits`) or free (0).
   private _next: number;
 
   public constructor(
@@ -29,15 +29,20 @@ export class IdPool {
 
   public alloc(): number {
     if (this._freeBelowNext > 0) {
+      const l2 = this._l2;
+      let l2idx = 0;
+      while (l2[l2idx] === 0) {
+        l2idx++;
+      }
+      const word = l2idx * 32 + ctz32(l2[l2idx]);
       const bits = this._bits;
-      let word = this._minFreeWord;
-      while (bits[word] === -1) {
-        word++;
-      } // -1 == 0xFFFFFFFF when signed
-      this._minFreeWord = word;
       const w = bits[word];
       const bit = ctz32(~w);
-      bits[word] = w | (1 << bit);
+      const nw = w | (1 << bit);
+      bits[word] = nw;
+      if (nw === -1) {
+        l2[l2idx] = l2[l2idx] & ~(1 << word);
+      }
       this._freeBelowNext--;
       return this.min + word * 32 + bit;
     }
@@ -50,7 +55,12 @@ export class IdPool {
       this._growBits(word + 1);
       const cur = this._bits[word];
       if ((cur & mask) === 0) {
-        this._bits[word] = cur | mask;
+        const nw = cur | mask;
+        this._bits[word] = nw;
+        if (nw === -1) {
+          const l2idx = word >>> 5;
+          this._l2[l2idx] = this._l2[l2idx] & ~(1 << word);
+        }
         this._next = id + 1;
         return id;
       }
@@ -73,12 +83,15 @@ export class IdPool {
     if ((cur & mask) === 0) {
       return;
     }
-    this._bits[word] = cur & ~mask;
+    const nw = cur & ~mask;
+    this._bits[word] = nw;
+    if (cur === -1) {
+      // Word just stopped being full; flip its L2 bit on.
+      const l2idx = word >>> 5;
+      this._l2[l2idx] = this._l2[l2idx] | (1 << word);
+    }
     if (id < this._next) {
       this._freeBelowNext++;
-      if (word < this._minFreeWord) {
-        this._minFreeWord = word;
-      }
     }
   }
 
@@ -98,7 +111,12 @@ export class IdPool {
     if ((cur & mask) !== 0) {
       throw new Error(`Id ${id} is already reserved`);
     }
-    this._bits[word] = cur | mask;
+    const nw = cur | mask;
+    this._bits[word] = nw;
+    if (nw === -1) {
+      const l2idx = word >>> 5;
+      this._l2[l2idx] = this._l2[l2idx] & ~(1 << word);
+    }
     if (id < this._next) {
       this._freeBelowNext--;
     }
@@ -106,16 +124,23 @@ export class IdPool {
 
   private _growBits(length: number): void {
     const bits = this._bits;
+    const l2 = this._l2;
     while (bits.length < length) {
+      const word = bits.length;
       bits.push(0);
+      const l2idx = word >>> 5;
+      while (l2.length <= l2idx) {
+        l2.push(0);
+      }
+      // New word has all-zero bits → mark "has-free" in L2.
+      l2[l2idx] = l2[l2idx] | (1 << word);
     }
   }
 }
 
 function ctz32(x: number): number {
   // For x with at least one set bit, returns the index of the lowest set bit.
-  // Math.clz32(x & -x) is 31 - ctz, so subtract from 31. The IdPool callers
-  // guarantee at least one set bit (the inverted occupancy word).
+  // The IdPool callers guarantee the input has at least one set bit.
   return 31 - Math.clz32(x & -x);
 }
 
