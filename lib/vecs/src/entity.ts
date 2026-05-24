@@ -198,7 +198,7 @@ export class Entity {
       return;
     }
     const ownMeta = this.world._tryGetComponentMeta(this.eid);
-    if (ownMeta && ownMeta.usageCount > 0) {
+    if (ownMeta && ownMeta.usageCount > (this._components.has(ownMeta.eid) ? 1 : 0)) {
       throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
     }
     this._destroyed = true;

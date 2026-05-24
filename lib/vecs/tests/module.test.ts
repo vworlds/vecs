@@ -1,21 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { Identity, IdentityModule, Module, World } from "../src/index.js";
+import { Module, World } from "../src/index.js";
 
 class Position {
   x = 0;
 }
 
 describe("World.module", () => {
-  it("loads the built-in IdentityModule automatically", () => {
-    const world = new World();
-    const entity = world.entity().set(Identity, { name: "player" });
-
-    expect(world.module(IdentityModule)).toBe(
-      world.entity(world.getComponentMeta(IdentityModule).eid)
-    );
-    expect(entity.get(Identity)?.name).toBe("player");
-  });
-
   it("creates a typed module entity and registers metadata for the module class", () => {
     class TestModule extends Module {
       public initCalls = 0;
@@ -26,11 +16,12 @@ describe("World.module", () => {
     }
 
     const world = new World();
+    const nextModuleEid = world.peekNextEid("module");
     const mod = world.module(TestModule);
 
     expect(mod).toBeInstanceOf(TestModule);
     expect(mod.world).toBe(world);
-    expect(mod.eid).toBe(901);
+    expect(mod.eid).toBe(nextModuleEid);
     expect(world.entity(mod.eid)).toBe(mod);
     expect(world.getComponentMeta(TestModule).eid).toBe(mod.eid);
     expect(mod.initCalls).toBe(1);

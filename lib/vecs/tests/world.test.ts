@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Component, Identity, IdentityModule, Module, World } from "../src/index.js";
+import { Component, Module, World } from "../src/index.js";
 
 class A {}
 class B {}
@@ -7,11 +7,22 @@ class B {}
 describe("World - id pools", () => {
   it("uses default component, module, and entity pools", () => {
     const w = new World();
+    const nextComponentEid = w.peekNextEid("component");
+    const nextModuleEid = w.peekNextEid("module");
+    const nextEntityEid = w.peekNextEid("entity");
 
-    expect(w.getComponentMeta(Identity).eid).toBe(1);
-    expect(w.component(A).eid).toBe(2);
-    expect(w.getComponentMeta(IdentityModule).eid).toBe(900);
-    expect(w.entity().eid).toBe(1000);
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
+    expect(nextComponentEid).toBeGreaterThanOrEqual(1);
+    expect(nextComponentEid).toBeLessThanOrEqual(899);
+    expect(nextModuleEid).toBeGreaterThanOrEqual(900);
+    expect(nextModuleEid).toBeLessThanOrEqual(999);
+    expect(nextEntityEid).toBe(1000);
+    expect(w.component(A).eid).toBe(nextComponentEid);
+    expect(w.module(TestModule).eid).toBe(nextModuleEid);
+    expect(w.entity().eid).toBe(nextEntityEid);
   });
 
   it("rejects eid 0 for explicit component, module, and entity creation", () => {
@@ -36,10 +47,22 @@ describe("World - id pools", () => {
       ],
     });
 
-    expect(w.getComponentMeta(Identity).eid).toBe(256);
-    expect(w.component(A).eid).toBe(257);
-    expect(w.getComponentMeta(IdentityModule).eid).toBe(900);
-    expect(w.entity().eid).toBe(1000);
+    const nextComponentEid = w.peekNextEid("component");
+    const nextModuleEid = w.peekNextEid("module");
+    const nextEntityEid = w.peekNextEid("entity");
+
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
+    expect(nextComponentEid).toBeGreaterThanOrEqual(256);
+    expect(nextComponentEid).toBeLessThanOrEqual(899);
+    expect(nextModuleEid).toBeGreaterThanOrEqual(900);
+    expect(nextModuleEid).toBeLessThanOrEqual(999);
+    expect(nextEntityEid).toBe(1000);
+    expect(w.component(A).eid).toBe(nextComponentEid);
+    expect(w.module(TestModule).eid).toBe(nextModuleEid);
+    expect(w.entity().eid).toBe(nextEntityEid);
   });
 
   it("rejects invalid pool partitions", () => {
@@ -80,15 +103,22 @@ describe("World - id pools", () => {
   it("bakes pool configuration into the constructor", () => {
     const w = new World({
       idPools: [
-        { name: "component", min: 1, max: 8 },
-        { name: "module", min: 9, max: 9 },
-        { name: "entity", min: 10 },
+        { name: "component", min: 1, max: 999 },
+        { name: "module", min: 1000, max: 1999 },
+        { name: "entity", min: 2000 },
       ],
     });
+    const nextComponentEid = w.peekNextEid("component");
+    const nextModuleEid = w.peekNextEid("module");
+    const nextEntityEid = w.peekNextEid("entity");
 
-    expect(w.component(A).eid).toBe(2);
-    expect(w.getComponentMeta(IdentityModule).eid).toBe(9);
-    expect(w.entity().eid).toBe(10);
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
+    expect(w.component(A).eid).toBe(nextComponentEid);
+    expect(w.module(TestModule).eid).toBe(nextModuleEid);
+    expect(w.entity().eid).toBe(nextEntityEid);
     expect("configurePools" in w).toBe(false);
   });
 

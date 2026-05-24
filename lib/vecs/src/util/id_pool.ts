@@ -109,6 +109,33 @@ export class IdPool {
     return id >= this.min && (this.max === undefined || id <= this.max);
   }
 
+  public peek(): number {
+    if (this._lowest !== -1) {
+      return this._lowest;
+    }
+    if (this._freeBelowNext > 0) {
+      const bits = this._bits;
+      let word = this._minFreeWord;
+      while (bits[word] === -1) {
+        word++;
+      }
+      return this.min + word * 32 + ctz32(~bits[word]);
+    }
+
+    const max = this.max;
+    let id = this._next;
+    while (max === undefined || id <= max) {
+      const offset = id - this.min;
+      const word = offset >>> 5;
+      const mask = 1 << offset;
+      if (word >= this._bits.length || (this._bits[word] & mask) === 0) {
+        return id;
+      }
+      id++;
+    }
+    throw new Error(`Id pool '${this.name}' is exhausted`);
+  }
+
   public reserve(id: number): void {
     if (!this.owns(id)) {
       throw new Error(`Id ${id} does not belong to pool '${this.name}'`);

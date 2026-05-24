@@ -86,6 +86,29 @@ describe("IdPool", () => {
     expect(pool.owns(1_000_000)).toBe(true);
   });
 
+  it("peeks the next id without reserving it", () => {
+    const pool = new IdPool("p", 1, undefined);
+
+    expect(pool.peek()).toBe(1);
+    expect(pool.peek()).toBe(1);
+    expect(pool.alloc()).toBe(1);
+    expect(pool.peek()).toBe(2);
+  });
+
+  it("peeks the lowest freed id", () => {
+    const pool = new IdPool("p", 1, undefined);
+    const a = pool.alloc();
+    const b = pool.alloc();
+    pool.alloc();
+
+    pool.free(b);
+    pool.free(a);
+
+    expect(pool.peek()).toBe(a);
+    expect(pool.alloc()).toBe(a);
+    expect(pool.peek()).toBe(b);
+  });
+
   it("free + reserve same id round-trip works", () => {
     const pool = new IdPool("p", 1, undefined);
     const id = pool.alloc();

@@ -17,6 +17,7 @@ import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
 import { IdPool, type IdPoolConfig, validateIdPoolConfigs } from "./util/id_pool.js";
 import { Module } from "./module.js";
 import { IdentityModule } from "./modules/identity.js";
+import { SingletonModule } from "./modules/singleton.js";
 
 export const DEFAULT_POOLS: readonly IdPoolConfig[] = [
   { name: "component", min: 1, max: 899 },
@@ -24,7 +25,7 @@ export const DEFAULT_POOLS: readonly IdPoolConfig[] = [
   { name: "entity", min: 1000 },
 ];
 const RESERVED_EID = 0;
-const BUILTIN_MODULES: EntityClass<Module>[] = [IdentityModule];
+const BUILTIN_MODULES: EntityClass<Module>[] = [IdentityModule, SingletonModule];
 
 export interface WorldOptions {
   idPools?: readonly IdPoolConfig[];
@@ -353,6 +354,11 @@ export class World {
 
   public get pools(): ReadonlyArray<IdPoolConfig> {
     return this._poolConfigs.map((pool) => ({ ...pool }));
+  }
+
+  /** Return the id that the named pool will allocate next without reserving it. */
+  public peekNextEid(poolName: string): number {
+    return this._poolByName(poolName).peek();
   }
 
   /**
@@ -694,7 +700,7 @@ export class World {
       let destroyed = 0;
       for (const entity of [...pending]) {
         const meta = this._tryGetComponentMeta(entity.eid);
-        if (meta && meta.usageCount > 0) {
+        if (meta && meta.usageCount > (entity._get(meta.eid) ? 1 : 0)) {
           continue;
         }
         entity.destroy();
