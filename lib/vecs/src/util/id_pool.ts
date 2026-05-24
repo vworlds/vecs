@@ -12,6 +12,10 @@ export class IdPool {
   // Number of reserved ids strictly below `_next`. When zero, alloc can skip
   // the bitmap scan entirely and just hand out the next never-used id.
   private _freeBelowNext = 0;
+  // Cached "lowest free id below `_next`", or -1 when not known. The
+  // free/alloc/free/alloc churn pattern hits this on every call and lets
+  // alloc skip the bitmap word walk.
+  private _lowest = -1;
   // Word cursor: the lowest word index in `_bits` that *might* contain a 0
   // bit below `_next`. Pure hint - alloc walks forward from here. Bumped
   // up when alloc fills a word to all-ones and pulled back down by free.
@@ -29,6 +33,15 @@ export class IdPool {
   }
 
   public alloc(): number {
+    const cached = this._lowest;
+    if (cached !== -1) {
+      this._lowest = -1;
+      const offset = cached - this.min;
+      const word = offset >>> 5;
+      this._bits[word] = this._bits[word] | (1 << offset);
+      this._freeBelowNext--;
+      return cached;
+    }
     if (this._freeBelowNext > 0) {
       const bits = this._bits;
       let word = this._minFreeWord;
@@ -39,8 +52,6 @@ export class IdPool {
       const bit = ctz32(~w);
       const nw = w | (1 << bit);
       bits[word] = nw;
-      // Advance the cursor past words we've just filled so the next alloc
-      // doesn't re-walk them.
       this._minFreeWord = nw === -1 ? word + 1 : word;
       this._freeBelowNext--;
       return this.min + word * 32 + bit;
@@ -83,6 +94,14 @@ export class IdPool {
       if (word < this._minFreeWord) {
         this._minFreeWord = word;
       }
+      // Cache slot: track the lowest free id we've seen. If a lower id was
+      // already cached, push it back into the "anonymous" bitmap pool and
+      // promote `id`. Otherwise, if no lower-than-id is cached, take the
+      // slot.
+      const lowest = this._lowest;
+      if (lowest === -1 || id < lowest) {
+        this._lowest = id;
+      }
     }
   }
 
@@ -105,6 +124,9 @@ export class IdPool {
     this._bits[word] = cur | mask;
     if (id < this._next) {
       this._freeBelowNext--;
+    }
+    if (this._lowest === id) {
+      this._lowest = -1;
     }
   }
 

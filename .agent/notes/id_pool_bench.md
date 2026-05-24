@@ -105,3 +105,27 @@ is the same.
 | alloc-freeEveryOther-alloc-5k | 0.34 | 0.30 | 0.36 |
 | steady-churn-2k-10kops        | 1.40 | 1.36 | 1.35 |
 | reserve-sparse-then-alloc-5k  | 1.27 | 1.16 | 0.89 |
+
+## Variant 5: v4 + single-slot "lowest free" cache
+
+Adds a `_lowest` slot that free() updates only when the freed id is the
+smallest free seen so far (or the first one freed). alloc() consumes the
+slot before touching the bitmap. Targets the free → alloc churn pattern
+(the steady-state ECS workload), where the just-freed id is also the
+lowest free, so alloc skips the bitmap walk entirely.
+
+Five-run set (medians per round): steady-churn 1.07-1.18 ms vs v4's 1.36
+
+- a consistent ~15-20% drop. Other scenarios are within noise of v4.
+  free-high-tail is bimodal (some runs cache-hit, some don't); a few
+  slow runs land near v4's median, others land below.
+
+| scenario                      | run1 | run2 | run3 | run4 | run5 |
+| ----------------------------- | ---- | ---- | ---- | ---- | ---- |
+| seq-alloc-5k                  | 0.16 | 0.15 | 0.17 | 0.15 | 0.16 |
+| alloc-freeAll-allocAgain-5k   | 0.41 | 0.41 | 0.40 | 0.40 | 0.37 |
+| alloc-freeHighTail-alloc-10k  | 0.46 | 0.45 | 0.41 | 1.38 | 1.40 |
+| alloc-freeRandomHalf-alloc-5k | 0.81 | 0.64 | 0.66 | 0.72 | 0.67 |
+| alloc-freeEveryOther-alloc-5k | 0.37 | 0.36 | 0.31 | 0.37 | 0.34 |
+| steady-churn-2k-10kops        | 1.08 | 1.17 | 1.07 | 1.14 | 1.13 |
+| reserve-sparse-then-alloc-5k  | 1.08 | 1.29 | 1.16 | 0.98 | 1.12 |
