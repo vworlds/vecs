@@ -1,12 +1,11 @@
 import express from "express";
-import { NetworkWorld } from "@vworlds/vecs-protocol";
 import { type as wireType } from "@vworlds/vecs-wire";
 import {
   NetworkClient,
   NetworkInput,
   Networked,
+  ServerWorld,
   VecsListener,
-  VecsServer,
   View,
 } from "@vworlds/vecs-server";
 import { type ComponentClass } from "@vworlds/vecs";
@@ -69,7 +68,7 @@ const gridCellComponents: ComponentClass[] = Array.from(
   () => class GridCell {}
 );
 
-const world = new NetworkWorld({ networkComponents: [Position, Player, Ball, Color] });
+const world = new ServerWorld({ name: "main", networkComponents: [Position, Player, Ball, Color] });
 const app = express();
 app.use(express.json());
 app.use((req, res, next) => {
@@ -84,7 +83,7 @@ app.use((req, res, next) => {
 });
 
 const vecsListener = new VecsListener();
-const server: VecsServer = vecsListener.registerWorld("main", world);
+const server = vecsListener.registerWorld(world);
 world.component(Velocity);
 gridCellComponents.forEach((GridCell) => {
   world.component(GridCell);

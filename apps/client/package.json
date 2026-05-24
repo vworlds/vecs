@@ -11,9 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@vworlds/vecs": "*",
     "@vworlds/vecs-client": "*",
-    "@vworlds/vecs-protocol": "*",
     "@vworlds/vecs-wire": "*"
   },
   "devDependencies": {

@@ -1,5 +1,5 @@
 import { World, type ComponentClass, type IdPoolConfig, type WorldOptions } from "@vworlds/vecs";
-import { setLocalComponentMin } from "./cid.js";
+import { cid_pack, setLocalComponentMin } from "./cid.js";
 
 const DEFAULT_ENTITY_ID_START = 1000;
 let configuredLocalComponentMin: number | undefined;
@@ -18,6 +18,7 @@ export interface NetworkWorldOptions extends Omit<WorldOptions, "idPools"> {
 export class NetworkWorld extends World {
   public readonly localComponentMin: number;
   public readonly networkComponents: readonly RegisteredNetworkComponent[];
+  private readonly _networkComponentsByType = new Map<number, RegisteredNetworkComponent>();
 
   public constructor(options: NetworkWorldOptions = {}) {
     const networkComponents = options.networkComponents ?? [];
@@ -30,9 +31,16 @@ export class NetworkWorld extends World {
     this.localComponentMin = localComponentMin;
     this.networkComponents = networkComponents.map((Class, index) => {
       const type = index + 1;
+      cid_pack(0, type);
       this.component(Class, type);
-      return { Class, type };
+      const registered = { Class, type };
+      this._networkComponentsByType.set(type, registered);
+      return registered;
     });
+  }
+
+  public getNetworkComponent(type: number): RegisteredNetworkComponent | undefined {
+    return this._networkComponentsByType.get(type);
   }
 }
 
