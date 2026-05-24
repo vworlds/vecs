@@ -17,3 +17,30 @@ shows three independent runs to gauge noise.
 | alloc-freeEveryOther-alloc-5k | 174.26 | 175.60 | 179.47 |
 | steady-churn-2k-10kops        | 80.55  | 81.74  | 81.72  |
 | reserve-sparse-then-alloc-5k  | 1.96   | 2.01   | 1.98   |
+
+## Variant 1: Set + min-heap of freed + high-water mark
+
+Algorithm: a binary min-heap holds freed ids; alloc pops the min (lazily
+discarding entries already re-reserved). When the heap is empty, alloc
+hands out the next never-used id (`_next`), skipping any ids that were
+reserved out of band.
+
+| scenario                      | run1 | run2 | run3 |
+| ----------------------------- | ---- | ---- | ---- |
+| seq-alloc-5k                  | 0.37 | 0.36 | 0.40 |
+| alloc-freeAll-allocAgain-5k   | 1.51 | 1.74 | 1.61 |
+| alloc-freeHighTail-alloc-10k  | 1.39 | 1.30 | 1.32 |
+| alloc-freeRandomHalf-alloc-5k | 1.43 | 1.33 | 1.36 |
+| alloc-freeEveryOther-alloc-5k | 0.96 | 1.00 | 0.99 |
+| steady-churn-2k-10kops        | 2.29 | 2.07 | 2.30 |
+| reserve-sparse-then-alloc-5k  | 1.26 | 1.19 | 1.29 |
+
+Speedup over baseline (median of medians):
+
+- seq-alloc: ~300x
+- alloc-freeAll: ~150x
+- alloc-freeHighTail: ~580x
+- alloc-freeRandomHalf: ~130x
+- alloc-freeEveryOther: ~175x
+- steady-churn: ~37x
+- reserve-sparse: ~1.5x
