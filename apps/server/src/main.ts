@@ -1,4 +1,5 @@
 import express from "express";
+import { NetworkWorld } from "@vworlds/vecs-protocol";
 import { type as wireType } from "@vworlds/vecs-wire";
 import {
   NetworkClient,
@@ -8,12 +9,8 @@ import {
   VecsServer,
   View,
 } from "@vworlds/vecs-server";
-import { type ComponentClass, World } from "@vworlds/vecs";
+import { type ComponentClass } from "@vworlds/vecs";
 
-const POSITION_TYPE = 1;
-const PLAYER_TYPE = 2;
-const BALL_TYPE = 3;
-const COLOR_TYPE = 4;
 const PORT = Number(process.env.PORT ?? 3000);
 const WIDTH = 960;
 const HEIGHT = 540;
@@ -72,7 +69,7 @@ const gridCellComponents: ComponentClass[] = Array.from(
   () => class GridCell {}
 );
 
-const world = new World();
+const world = new NetworkWorld({ networkComponents: [Position, Player, Ball, Color] });
 const app = express();
 app.use(express.json());
 app.use((req, res, next) => {
@@ -88,10 +85,6 @@ app.use((req, res, next) => {
 
 const vecsListener = new VecsListener();
 const server: VecsServer = vecsListener.registerWorld("main", world);
-server.registerComponent(Position, POSITION_TYPE);
-server.registerComponent(Player, PLAYER_TYPE);
-server.registerComponent(Ball, BALL_TYPE);
-server.registerComponent(Color, COLOR_TYPE);
 world.component(Velocity);
 gridCellComponents.forEach((GridCell) => {
   world.component(GridCell);

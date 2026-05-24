@@ -17,12 +17,16 @@ import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
 import { IdPool, type IdPoolConfig, validateIdPoolConfigs } from "./util/id_pool.js";
 import { Module } from "./module.js";
 
-const DEFAULT_POOLS: IdPoolConfig[] = [
+export const DEFAULT_POOLS: readonly IdPoolConfig[] = [
   { name: "component", min: 1, max: 999 },
   { name: "entity", min: 1000 },
 ];
 const RESERVED_EID = 0;
 const BUILTIN_COMPONENTS: ComponentClass[] = [];
+
+export interface WorldOptions {
+  idPools?: readonly IdPoolConfig[];
+}
 
 /**
  * The central ECS container. One world per game session.
@@ -89,11 +93,10 @@ export class World {
   /** @internal `true` once {@link start} has prepared the phase pipeline. */
   private _started = false;
 
-  private _poolConfigs: IdPoolConfig[] = DEFAULT_POOLS.map((pool) => ({ ...pool }));
-  private _pools = this._poolConfigs.map((pool) => new IdPool(pool.name, pool.min, pool.max));
+  private readonly _poolConfigs: IdPoolConfig[];
+  private readonly _pools: IdPool[];
   private _componentPool!: IdPool;
   private _entityPool!: IdPool;
-  private _poolsLocked = false;
 
   /** @internal Single ordered command queue used in deferred mode. */
   private _commandQueue: Command[] = [];
@@ -116,7 +119,11 @@ export class World {
   /** Hidden property key used to store this world's meta on component classes. */
   public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
 
-  constructor() {
+  constructor(options: WorldOptions = {}) {
+    const idPools = options.idPools ?? DEFAULT_POOLS;
+    validateIdPoolConfigs(idPools);
+    this._poolConfigs = idPools.map((pool) => ({ ...pool }));
+    this._pools = this._poolConfigs.map((pool) => new IdPool(pool.name, pool.min, pool.max));
     this._cacheNamedPools();
     this._tickSources.add(ALWAYS_TICK_SOURCE);
   }
@@ -340,11 +347,7 @@ export class World {
   }
 
   public get pools(): ReadonlyArray<IdPoolConfig> {
-    return this._poolConfigs;
-  }
-
-  public get poolsLocked(): boolean {
-    return this._poolsLocked;
+    return this._poolConfigs.map((pool) => ({ ...pool }));
   }
 
   /**
@@ -406,17 +409,6 @@ export class World {
     }
   }
 
-  /** Configure the complete positive eid pool partition before any ids are used. */
-  public configurePools(configs: IdPoolConfig[]): void {
-    if (this._poolsLocked) {
-      throw new Error("Id pools cannot be configured after id allocation or reservation");
-    }
-    validateIdPoolConfigs(configs);
-    this._poolConfigs = configs.map((pool) => ({ ...pool }));
-    this._pools = this._poolConfigs.map((pool) => new IdPool(pool.name, pool.min, pool.max));
-    this._cacheNamedPools();
-  }
-
   public module<T extends Module>(ModuleClass: EntityClass<T>): T {
     let isNew = true;
     const ComponentClass = ModuleClass as unknown as ComponentClass;
@@ -462,7 +454,6 @@ export class World {
       );
     }
     if (eid === undefined) {
-      this._poolsLocked = true;
       eid = this._componentPool.alloc();
     } else {
       const existingMeta = this._eid2Meta.get(eid);
@@ -655,7 +646,6 @@ export class World {
   }
 
   private _entity<T extends Entity>(Constructor: EntityClass<T>): T {
-    this._poolsLocked = true;
     const eid = this._entityPool.alloc();
     const e = new Constructor(this, eid);
     if (this.deferred) {
@@ -686,7 +676,6 @@ export class World {
   }
 
   private _reserveEid(eid: number): void {
-    this._poolsLocked = true;
     this._poolFor(eid).reserve(eid);
   }
 

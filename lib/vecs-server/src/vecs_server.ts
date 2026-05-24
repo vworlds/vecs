@@ -7,6 +7,7 @@ import {
   StateDiff,
   ALL_COMPONENTS,
   cid_pack,
+  type NetworkWorld,
   type RemovedComponent,
   type RPCHandler,
   type VecsSocket,
@@ -56,7 +57,6 @@ interface Update {
 
 export interface VecsServerOptions {
   encodeBufferSize?: number;
-  entityIdStart?: number;
 }
 
 export interface InstallSystemsOptions {
@@ -65,7 +65,7 @@ export interface InstallSystemsOptions {
 }
 
 export class VecsServer {
-  private readonly _components: RegisteredComponent[] = [];
+  private readonly _components: RegisteredComponent[];
   private readonly _sessions = new Map<string, ServerClientSession>();
   private readonly _rpcHandlers = new Map<number, RPCHandler>();
   private readonly _updates = new Map<number, Update>();
@@ -78,34 +78,21 @@ export class VecsServer {
 
   public constructor(
     public readonly name: string,
-    public readonly world: World,
+    public readonly world: NetworkWorld,
     options: VecsServerOptions = {}
   ) {
     const encodeBufferSize = options.encodeBufferSize ?? 64 * 1024;
     this._encodeBuffer = new Uint8Array(encodeBufferSize);
     this._trackerCache = new TrackerCache(world);
-    const entityIdStart = options.entityIdStart ?? 1000;
-    if (!this.world.poolsLocked) {
-      this.world.configurePools([
-        { name: "network", min: 1, max: 255 },
-        { name: "component", min: 256, max: entityIdStart - 1 },
-        { name: "entity", min: entityIdStart },
-      ]);
-    }
+    this._components = world.networkComponents.map(({ Class, type }) => {
+      cid_pack(0, type);
+      return { Class, type };
+    });
     ensureRegistered(world, Networked);
     ensureRegistered(world, NetworkClient);
     ensureRegistered(world, NetworkInput);
     ensureRegistered(world, View);
     ensureRegistered(world, ServerClientSession);
-  }
-
-  public registerComponent<C extends ComponentClass>(Class: C, eid?: number): void {
-    if (!this.world._tryGetComponentMeta(Class)) {
-      this.world.component(Class, eid);
-    }
-    const meta = this.world.getComponentMeta(Class);
-    cid_pack(0, meta.eid);
-    this._components.push({ Class, type: meta.eid });
   }
 
   /** @internal */

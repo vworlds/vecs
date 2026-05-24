@@ -7,15 +7,11 @@ import {
   ALL_COMPONENTS,
   cid_pack,
   cid_unpack,
+  type NetworkWorld,
   type RPCHandler,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
-import {
-  type ComponentInstance,
-  type ComponentClass,
-  type IPhase,
-  type World,
-} from "@vworlds/vecs";
+import { type ComponentInstance, type ComponentClass, type IPhase } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
@@ -26,10 +22,9 @@ interface RegisteredComponent {
 }
 
 export interface VecsClientOptions {
-  world: World;
+  world: NetworkWorld;
   socket?: VecsSocket;
   encodeBufferSize?: number;
-  localEntityIdStart?: number;
   interpolatorBucketLength?: number;
   serverTickIntervalMs?: number;
 }
@@ -49,7 +44,7 @@ export interface DgramConnectOptions extends Omit<VecsClientOptions, "socket"> {
 }
 
 export class VecsClient {
-  private readonly _world: World;
+  private readonly _world: NetworkWorld;
   private readonly _socket: VecsSocket | undefined;
   private readonly _rpc = new SessionRPC();
   private readonly _components = new Map<number, RegisteredComponent>();
@@ -63,14 +58,10 @@ export class VecsClient {
     this._world = options.world;
     this._socket = options.socket;
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
-    const localEntityIdStart = options.localEntityIdStart ?? 0x10000;
-    if (!this._world.poolsLocked) {
-      this._world.configurePools([
-        { name: "network", min: 1, max: 255 },
-        { name: "component", min: 256, max: localEntityIdStart - 1 },
-        { name: "entity", min: localEntityIdStart },
-      ]);
-    }
+    this._world.networkComponents.forEach(({ Class, type }) => {
+      cid_pack(0, type);
+      this._components.set(type, { Class, type });
+    });
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,
@@ -101,15 +92,6 @@ export class VecsClient {
 
   public attachSocket(socket: VecsSocket): void {
     socket.on("receive", (data) => this._receive(data));
-  }
-
-  public registerComponent<C extends ComponentClass>(Class: C, eid?: number): void {
-    if (!this._world._tryGetComponentMeta(Class)) {
-      this._world.component(Class, eid);
-    }
-    const meta = this._world.getComponentMeta(Class);
-    cid_pack(0, meta.eid);
-    this._components.set(meta.eid, { Class, type: meta.eid });
   }
 
   public installSystems(options: InstallSystemsOptions = {}): void {

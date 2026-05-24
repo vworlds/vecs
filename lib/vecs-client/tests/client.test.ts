@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { ALL_COMPONENTS, type VecsSocket } from "@vworlds/vecs-protocol";
-import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { World } from "@vworlds/vecs";
 import {
+  ALL_COMPONENTS,
   Client2Server,
   ComponentSnapshot,
   EncodedSnapshot,
+  NetworkWorld,
   Server2Client,
   StateDiff,
+  type VecsSocket,
 } from "@vworlds/vecs-protocol";
+import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
 import { VecsClient } from "../src/index.js";
 
 class Position {
@@ -78,17 +79,15 @@ function posSnapshot(eid: number, x: number, y: number): EncodedSnapshot {
   return makeSnapshot(eid, 1, encodeComponent(p));
 }
 
+function createNetworkWorld(): NetworkWorld {
+  return new NetworkWorld({ networkComponents: [Position] });
+}
+
 describe("VecsClient", () => {
   it("applies server snapshots into the client world", () => {
-    const world = new World();
-    world.configurePools([
-      { name: "component", min: 1, max: 999 },
-      { name: "entity", min: 1000 },
-    ]);
-    world.component(Position, 1);
+    const world = createNetworkWorld();
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
-    client.registerComponent(Position);
 
     socket.receive(
       encodeMessage(
@@ -104,18 +103,12 @@ describe("VecsClient", () => {
   });
 
   it("keeps server entities after their last synchronized component is removed", () => {
-    const world = new World();
-    world.configurePools([
-      { name: "component", min: 1, max: 999 },
-      { name: "entity", min: 1000 },
-    ]);
-    world.component(Position, 1);
+    const world = createNetworkWorld();
     world.component(LocalEffect);
     const entity = world.getOrCreateEntity(7);
     entity.set(Position, { x: 1, y: 2 }).add(LocalEffect);
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
-    client.registerComponent(Position);
 
     socket.receive(
       encodeMessage(
@@ -136,18 +129,12 @@ describe("VecsClient", () => {
   });
 
   it("destroys server entities when the destruction component is removed", () => {
-    const world = new World();
-    world.configurePools([
-      { name: "component", min: 1, max: 999 },
-      { name: "entity", min: 1000 },
-    ]);
-    world.component(Position, 1);
+    const world = createNetworkWorld();
     world.component(LocalEffect);
     const entity = world.getOrCreateEntity(7);
     entity.set(Position, { x: 1, y: 2 }).add(LocalEffect);
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
-    client.registerComponent(Position);
     socket.receive(
       encodeMessage(
         new Server2Client({
@@ -165,7 +152,7 @@ describe("VecsClient", () => {
   });
 
   it("acks the highest accepted server frame", () => {
-    const world = new World();
+    const world = new NetworkWorld();
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket });
 
@@ -178,7 +165,7 @@ describe("VecsClient", () => {
   });
 
   it("notifies when the socket disconnects", () => {
-    const world = new World();
+    const world = new NetworkWorld();
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket });
     let disconnected = false;
@@ -192,15 +179,9 @@ describe("VecsClient", () => {
   });
 
   it("applies out-of-order diffs in server frame order", () => {
-    const world = new World();
-    world.configurePools([
-      { name: "component", min: 1, max: 999 },
-      { name: "entity", min: 1000 },
-    ]);
-    world.component(Position, 1);
+    const world = createNetworkWorld();
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
-    client.registerComponent(Position);
 
     // First diff arrives first, but s3 arrives before s2.
     socket.receive(
@@ -236,15 +217,9 @@ describe("VecsClient", () => {
   });
 
   it("applies interpolated position frames between server ticks", () => {
-    const world = new World();
-    world.configurePools([
-      { name: "component", min: 1, max: 999 },
-      { name: "entity", min: 1000 },
-    ]);
-    world.component(Position, 1);
+    const world = createNetworkWorld();
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
-    client.registerComponent(Position);
 
     socket.receive(
       encodeMessage(
@@ -268,15 +243,9 @@ describe("VecsClient", () => {
   });
 
   it("drops diffs whose frames have already left the bucket window", () => {
-    const world = new World();
-    world.configurePools([
-      { name: "component", min: 1, max: 999 },
-      { name: "entity", min: 1000 },
-    ]);
-    world.component(Position, 1);
+    const world = createNetworkWorld();
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
-    client.registerComponent(Position);
 
     socket.receive(
       encodeMessage(
@@ -299,15 +268,9 @@ describe("VecsClient", () => {
   });
 
   it("merges retransmitted diffs without applying them twice", () => {
-    const world = new World();
-    world.configurePools([
-      { name: "component", min: 1, max: 999 },
-      { name: "entity", min: 1000 },
-    ]);
-    world.component(Position, 1);
+    const world = createNetworkWorld();
     const socket = new MemorySocket("server");
     const client = new VecsClient({ world, socket, serverTickIntervalMs: 10 });
-    client.registerComponent(Position);
 
     const diffBytes = encodeMessage(
       new Server2Client({

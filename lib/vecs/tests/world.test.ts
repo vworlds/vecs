@@ -20,58 +20,61 @@ describe("World - id pools", () => {
   });
 
   it("accepts complete pool partitions", () => {
-    const w = new World();
-    w.configurePools([
-      { name: "network", min: 1, max: 255 },
-      { name: "component", min: 256, max: 999 },
-      { name: "entity", min: 1000 },
-    ]);
+    const w = new World({
+      idPools: [
+        { name: "network", min: 1, max: 255 },
+        { name: "component", min: 256, max: 999 },
+        { name: "entity", min: 1000 },
+      ],
+    });
 
     expect(w.component(A).eid).toBe(256);
     expect(w.entity().eid).toBe(1000);
   });
 
   it("rejects invalid pool partitions", () => {
-    expect(() =>
-      new World().configurePools([
-        { name: "component", min: 1, max: 10 },
-        { name: "entity", min: 12 },
-      ])
+    expect(
+      () =>
+        new World({
+          idPools: [
+            { name: "component", min: 1, max: 10 },
+            { name: "entity", min: 12 },
+          ],
+        })
     ).toThrow();
-    expect(() =>
-      new World().configurePools([
-        { name: "component", min: 1, max: 10 },
-        { name: "component", min: 11, max: 20 },
-        { name: "entity", min: 21 },
-      ])
+    expect(
+      () =>
+        new World({
+          idPools: [
+            { name: "component", min: 1, max: 10 },
+            { name: "component", min: 11, max: 20 },
+            { name: "entity", min: 21 },
+          ],
+        })
     ).toThrow();
-    expect(() => new World().configurePools([{ name: "component", min: 1 }])).toThrow();
-    expect(() =>
-      new World().configurePools([
-        { name: "component", min: 1, max: 10 },
-        { name: "entity", min: 11, max: 20 },
-      ])
+    expect(() => new World({ idPools: [{ name: "component", min: 1 }] })).toThrow();
+    expect(
+      () =>
+        new World({
+          idPools: [
+            { name: "component", min: 1, max: 10 },
+            { name: "entity", min: 11, max: 20 },
+          ],
+        })
     ).toThrow();
   });
 
-  it("locks pool configuration after allocation or reservation", () => {
-    const allocated = new World();
-    allocated.entity();
-    expect(() =>
-      allocated.configurePools([
+  it("bakes pool configuration into the constructor", () => {
+    const w = new World({
+      idPools: [
         { name: "component", min: 1, max: 9 },
         { name: "entity", min: 10 },
-      ])
-    ).toThrow();
+      ],
+    });
 
-    const reserved = new World();
-    reserved.getOrCreateEntity(5000);
-    expect(() =>
-      reserved.configurePools([
-        { name: "component", min: 1, max: 9 },
-        { name: "entity", min: 10 },
-      ])
-    ).toThrow();
+    expect(w.component(A).eid).toBe(1);
+    expect(w.entity().eid).toBe(10);
+    expect("configurePools" in w).toBe(false);
   });
 
   it("returns destroyed ids to their pools and reuses the lowest id", () => {

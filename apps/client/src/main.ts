@@ -1,11 +1,8 @@
 import { VecsClient } from "@vworlds/vecs-client";
-import { World } from "@vworlds/vecs";
+import { type World } from "@vworlds/vecs";
+import { NetworkWorld } from "@vworlds/vecs-protocol";
 import { type as wireType } from "@vworlds/vecs-wire";
 
-const POSITION_TYPE = 1;
-const PLAYER_TYPE = 2;
-const BALL_TYPE = 3;
-const COLOR_TYPE = 4;
 const LOCAL_ENTITY_START = 100_000;
 const PLAYER_SIZE = 28;
 const RECONNECT_DELAY_MS = 1_000;
@@ -101,18 +98,16 @@ async function connect(): Promise<void> {
 }
 
 async function createSession(): Promise<Session> {
-  const world = new World();
+  const world = new NetworkWorld({
+    networkComponents: [Position, Player, Ball, Color],
+    localEntityIdStart: LOCAL_ENTITY_START,
+  });
   const client = await VecsClient.connectDgram({
     world,
     host: location.hostname,
     port: SERVER_PORT,
     worldName: "main",
-    localEntityIdStart: LOCAL_ENTITY_START,
   });
-  client.registerComponent(Position, POSITION_TYPE);
-  client.registerComponent(Player, PLAYER_TYPE);
-  client.registerComponent(Ball, BALL_TYPE);
-  client.registerComponent(Color, COLOR_TYPE);
   client.installSystems();
 
   installRenderSystems(world);

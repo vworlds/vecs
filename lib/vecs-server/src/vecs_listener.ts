@@ -1,5 +1,4 @@
-import { type VecsSocketListener } from "@vworlds/vecs-protocol";
-import { type World } from "@vworlds/vecs";
+import { type NetworkWorld, type VecsSocketListener } from "@vworlds/vecs-protocol";
 import { VecsServer, type VecsServerOptions } from "./vecs_server.js";
 import { worldPath } from "./world_path.js";
 
@@ -12,7 +11,7 @@ export class VecsListener {
 
   public constructor(private readonly _options: VecsListenerOptions = {}) {}
 
-  public registerWorld(name: string, world: World): VecsServer {
+  public registerWorld(name: string, world: NetworkWorld): VecsServer {
     const server = new VecsServer(name, world, this._options);
     this._worlds.set(name, server);
     return server;

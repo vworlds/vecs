@@ -8,6 +8,11 @@ export {
   type CID,
 } from "./cid.js";
 export {
+  NetworkWorld,
+  type NetworkWorldOptions,
+  type RegisteredNetworkComponent,
+} from "./network_world.js";
+export {
   Client2Server,
   ComponentSnapshot,
   EncodedSnapshot,

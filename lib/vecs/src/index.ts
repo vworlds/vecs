@@ -1,6 +1,6 @@
 export { type System, type SystemQuery } from "./system.js";
 export { Query } from "./query.js";
-export { World } from "./world.js";
+export { DEFAULT_POOLS, World, type WorldOptions } from "./world.js";
 export { Filter } from "./filter.js";
 export {
   Component,
@@ -16,3 +16,4 @@ export { getDSLKey, type EntityTestFunc, type MaybeRequired, type QueryDSL } fro
 export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";
 export { ArrayMap } from "./util/array_map.js";
 export { Bitset } from "./util/bitset.js";
+export { type IdPoolConfig } from "./util/id_pool.js";
