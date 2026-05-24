@@ -22,7 +22,7 @@ export const DEFAULT_POOLS: readonly IdPoolConfig[] = [
   { name: "entity", min: 1000 },
 ];
 const RESERVED_EID = 0;
-const BUILTIN_COMPONENTS: ComponentClass[] = [];
+const BUILTIN_MODULES: EntityClass<Module>[] = [];
 
 export interface WorldOptions {
   idPools?: readonly IdPoolConfig[];
@@ -126,6 +126,7 @@ export class World {
     this._pools = this._poolConfigs.map((pool) => new IdPool(pool.name, pool.min, pool.max));
     this._cacheNamedPools();
     this._tickSources.add(ALWAYS_TICK_SOURCE);
+    BUILTIN_MODULES.forEach((mod) => this.module(mod));
   }
 
   private _cacheNamedPools(): void {
@@ -425,9 +426,6 @@ export class World {
   public component(ComponentClass: ComponentClass, eid?: number): Component {
     if (this._componentRegistrationDisabled) {
       throw "World component registration is disabled";
-    }
-    while (BUILTIN_COMPONENTS.length > 0) {
-      this._component(Component, BUILTIN_COMPONENTS.shift()!);
     }
     return this._component(Component, ComponentClass, eid);
   }
