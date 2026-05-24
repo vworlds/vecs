@@ -5,20 +5,71 @@ export interface IdPoolConfig {
 }
 
 export class IdPool {
-  private readonly _reserved = new Set<number>();
+  // Occupancy bitmap: bit `(id - min)` is 1 iff `id` is currently reserved.
+  // Stored as a growable plain-number array (V8 keeps these as SMIs / packed
+  // double-tagged words, which gives the fastest random-access read/write).
+  private _bits: number[] = [];
+  // Number of reserved ids strictly below `_next`. When zero, alloc can skip
+  // the bitmap scan entirely and just hand out the next never-used id.
+  private _freeBelowNext = 0;
+  // Cached "lowest free id below `_next`", or -1 when not known. The
+  // free/alloc/free/alloc churn pattern hits this on every call and lets
+  // alloc skip the bitmap word walk.
+  private _lowest = -1;
+  // Word cursor: the lowest word index in `_bits` that *might* contain a 0
+  // bit below `_next`. Pure hint - alloc walks forward from here. Bumped
+  // up when alloc fills a word to all-ones and pulled back down by free.
+  private _minFreeWord = 0;
+  // The smallest id never yet handed out by alloc (high-water mark). All ids
+  // in `[min, _next)` are either reserved (1 in `_bits`) or free (0).
+  private _next: number;
 
   public constructor(
     public readonly name: string,
     public readonly min: number,
     public readonly max: number | undefined
-  ) {}
+  ) {
+    this._next = min;
+  }
 
   public alloc(): number {
-    for (let id = this.min; this.max === undefined || id <= this.max; id++) {
-      if (!this._reserved.has(id)) {
-        this._reserved.add(id);
+    const cached = this._lowest;
+    if (cached !== -1) {
+      this._lowest = -1;
+      const offset = cached - this.min;
+      const word = offset >>> 5;
+      this._bits[word] = this._bits[word] | (1 << offset);
+      this._freeBelowNext--;
+      return cached;
+    }
+    if (this._freeBelowNext > 0) {
+      const bits = this._bits;
+      let word = this._minFreeWord;
+      while (bits[word] === -1) {
+        word++;
+      }
+      const w = bits[word];
+      const bit = ctz32(~w);
+      const nw = w | (1 << bit);
+      bits[word] = nw;
+      this._minFreeWord = nw === -1 ? word + 1 : word;
+      this._freeBelowNext--;
+      return this.min + word * 32 + bit;
+    }
+    const max = this.max;
+    let id = this._next;
+    while (max === undefined || id <= max) {
+      const offset = id - this.min;
+      const word = offset >>> 5;
+      const mask = 1 << offset;
+      this._growBits(word + 1);
+      const cur = this._bits[word];
+      if ((cur & mask) === 0) {
+        this._bits[word] = cur | mask;
+        this._next = id + 1;
         return id;
       }
+      id++;
     }
     throw new Error(`Id pool '${this.name}' is exhausted`);
   }
@@ -27,7 +78,31 @@ export class IdPool {
     if (!this.owns(id)) {
       throw new Error(`Id ${id} does not belong to pool '${this.name}'`);
     }
-    this._reserved.delete(id);
+    const offset = id - this.min;
+    const word = offset >>> 5;
+    if (word >= this._bits.length) {
+      return;
+    }
+    const mask = 1 << offset;
+    const cur = this._bits[word];
+    if ((cur & mask) === 0) {
+      return;
+    }
+    this._bits[word] = cur & ~mask;
+    if (id < this._next) {
+      this._freeBelowNext++;
+      if (word < this._minFreeWord) {
+        this._minFreeWord = word;
+      }
+      // Cache slot: track the lowest free id we've seen. If a lower id was
+      // already cached, push it back into the "anonymous" bitmap pool and
+      // promote `id`. Otherwise, if no lower-than-id is cached, take the
+      // slot.
+      const lowest = this._lowest;
+      if (lowest === -1 || id < lowest) {
+        this._lowest = id;
+      }
+    }
   }
 
   public owns(id: number): boolean {
@@ -38,11 +113,35 @@ export class IdPool {
     if (!this.owns(id)) {
       throw new Error(`Id ${id} does not belong to pool '${this.name}'`);
     }
-    if (this._reserved.has(id)) {
+    const offset = id - this.min;
+    const word = offset >>> 5;
+    this._growBits(word + 1);
+    const mask = 1 << offset;
+    const cur = this._bits[word];
+    if ((cur & mask) !== 0) {
       throw new Error(`Id ${id} is already reserved`);
     }
-    this._reserved.add(id);
+    this._bits[word] = cur | mask;
+    if (id < this._next) {
+      this._freeBelowNext--;
+    }
+    if (this._lowest === id) {
+      this._lowest = -1;
+    }
   }
+
+  private _growBits(length: number): void {
+    const bits = this._bits;
+    while (bits.length < length) {
+      bits.push(0);
+    }
+  }
+}
+
+function ctz32(x: number): number {
+  // For x with at least one set bit, returns the index of the lowest set bit.
+  // The IdPool callers guarantee the input has at least one set bit.
+  return 31 - Math.clz32(x & -x);
 }
 
 export function validateIdPoolConfigs(configs: readonly IdPoolConfig[]): void {
