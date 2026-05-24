@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Component, World } from "../src/index.js";
+import { Component, Identity, IdentityModule, World } from "../src/index.js";
 
 class A {}
 class B {}
@@ -8,7 +8,9 @@ describe("World - id pools", () => {
   it("uses default component and entity pools", () => {
     const w = new World();
 
-    expect(w.component(A).eid).toBe(1);
+    expect(w.getComponentMeta(IdentityModule).eid).toBe(1);
+    expect(w.getComponentMeta(Identity).eid).toBe(2);
+    expect(w.component(A).eid).toBe(3);
     expect(w.entity().eid).toBe(1000);
   });
 
@@ -28,7 +30,9 @@ describe("World - id pools", () => {
       ],
     });
 
-    expect(w.component(A).eid).toBe(256);
+    expect(w.getComponentMeta(IdentityModule).eid).toBe(256);
+    expect(w.getComponentMeta(Identity).eid).toBe(257);
+    expect(w.component(A).eid).toBe(258);
     expect(w.entity().eid).toBe(1000);
   });
 
@@ -72,7 +76,7 @@ describe("World - id pools", () => {
       ],
     });
 
-    expect(w.component(A).eid).toBe(1);
+    expect(w.component(A).eid).toBe(3);
     expect(w.entity().eid).toBe(10);
     expect("configurePools" in w).toBe(false);
   });

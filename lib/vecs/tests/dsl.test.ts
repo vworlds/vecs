@@ -21,11 +21,11 @@ class Player {}
 describe("Query DSL simplification", () => {
   function registeredWorld(): World {
     const world = new World();
-    world.component(Position, 1);
-    world.component(Velocity, 2);
-    world.component(Sprite, 3);
-    world.component(Container, 4);
-    world.component(Player, 5);
+    world.component(Position, 10);
+    world.component(Velocity, 11);
+    world.component(Sprite, 12);
+    world.component(Container, 13);
+    world.component(Player, 14);
     return world;
   }
 
@@ -39,7 +39,7 @@ describe("Query DSL simplification", () => {
         },
         world
       )
-    ).toEqual([1, 2, 3, 4]);
+    ).toEqual([10, 11, 12, 13]);
   });
 
   it("flattens nested OR expressions without converting them to AND shorthand", () => {
@@ -52,24 +52,24 @@ describe("Query DSL simplification", () => {
         },
         world
       )
-    ).toEqual({ OR: [1, 2, 3] });
+    ).toEqual({ OR: [10, 11, 12] });
   });
 
   it("unwraps singleton operators", () => {
     const world = registeredWorld();
 
-    expect(simplifyQueryDSL({ AND: [{ AND: [Position] }] }, world)).toBe(1);
-    expect(simplifyQueryDSL({ OR: [{ OR: [Velocity] }] }, world)).toBe(2);
+    expect(simplifyQueryDSL({ AND: [{ AND: [Position] }] }, world)).toBe(10);
+    expect(simplifyQueryDSL({ OR: [{ OR: [Velocity] }] }, world)).toBe(11);
   });
 
   it("simplifies children inside NOT and PARENT", () => {
     const world = registeredWorld();
 
     expect(simplifyQueryDSL({ NOT: { AND: [Position, Velocity] } }, world)).toEqual({
-      NOT: [1, 2],
+      NOT: [10, 11],
     });
     expect(simplifyQueryDSL({ PARENT: { AND: [Player, Container] } }, world)).toEqual({
-      PARENT: [4, 5],
+      PARENT: [13, 14],
     });
   });
 
@@ -78,7 +78,7 @@ describe("Query DSL simplification", () => {
     const predicate = () => true;
 
     expect(simplifyQueryDSL({ AND: [Position, predicate] }, world)).toEqual({
-      AND: [1, predicate],
+      AND: [10, predicate],
     });
   });
 
@@ -88,14 +88,14 @@ describe("Query DSL simplification", () => {
     expect(simplifyQueryDSL([], world)).toBe(true);
     expect(simplifyQueryDSL({ AND: [] }, world)).toBe(true);
     expect(simplifyQueryDSL({ OR: [] }, world)).toBe(false);
-    expect(simplifyQueryDSL({ AND: [[], Position] }, world)).toBe(1);
-    expect(simplifyQueryDSL({ OR: [{ OR: [] }, Position] }, world)).toBe(1);
+    expect(simplifyQueryDSL({ AND: [[], Position] }, world)).toBe(10);
+    expect(simplifyQueryDSL({ OR: [{ OR: [] }, Position] }, world)).toBe(10);
     expect(simplifyQueryDSL({ AND: [{ OR: [] }, Position] }, world)).toBe(false);
     expect(simplifyQueryDSL({ OR: [[], Position] }, world)).toBe(true);
-    expect(simplifyQueryDSL({ AND: [Position, true] }, world)).toBe(1);
+    expect(simplifyQueryDSL({ AND: [Position, true] }, world)).toBe(10);
     expect(simplifyQueryDSL({ AND: [Position, false] }, world)).toBe(false);
     expect(simplifyQueryDSL({ OR: [Position, true] }, world)).toBe(true);
-    expect(simplifyQueryDSL({ OR: [Position, false] }, world)).toBe(1);
+    expect(simplifyQueryDSL({ OR: [Position, false] }, world)).toBe(10);
   });
 
   it("sorts numeric component requirements", () => {
@@ -110,20 +110,20 @@ describe("Query DSL simplification", () => {
   it("converts component classes to sorted numeric requirements when world is supplied", () => {
     const world = registeredWorld();
 
-    expect(simplifyQueryDSL([Velocity, Position], world)).toEqual([1, 2]);
-    expect(simplifyQueryDSL({ HAS: [Velocity, Position] }, world)).toEqual([1, 2]);
-    expect(simplifyQueryDSL({ AND: [Velocity, Position] }, world)).toEqual([1, 2]);
+    expect(simplifyQueryDSL([Velocity, Position], world)).toEqual([10, 11]);
+    expect(simplifyQueryDSL({ HAS: [Velocity, Position] }, world)).toEqual([10, 11]);
+    expect(simplifyQueryDSL({ AND: [Velocity, Position] }, world)).toEqual([10, 11]);
     expect(simplifyQueryDSL({ HAS_ONLY: [Velocity, Position] }, world)).toEqual({
-      HAS_ONLY: [1, 2],
+      HAS_ONLY: [10, 11],
     });
   });
 
   it("sorts OR terms after converting component classes to type ids", () => {
     const world = registeredWorld();
 
-    expect(simplifyQueryDSL({ OR: [Velocity, Position] }, world)).toEqual({ OR: [1, 2] });
+    expect(simplifyQueryDSL({ OR: [Velocity, Position] }, world)).toEqual({ OR: [10, 11] });
     expect(simplifyQueryDSL({ OR: [{ OR: [Sprite, Velocity] }, Position] }, world)).toEqual({
-      OR: [1, 2, 3],
+      OR: [10, 11, 12],
     });
   });
 
@@ -132,7 +132,7 @@ describe("Query DSL simplification", () => {
     const predicate = () => true;
 
     expect(simplifyQueryDSL({ OR: [Velocity, predicate, Position] }, world)).toEqual({
-      OR: [1, 2, predicate],
+      OR: [10, 11, predicate],
     });
   });
 
@@ -145,8 +145,8 @@ describe("Query DSL simplification", () => {
     expect(getDSLKey({ OR: [Velocity, Position] }, world)).toBe(
       getDSLKey({ OR: [Position, Velocity] }, world)
     );
-    expect(getDSLKey([Velocity, Position], world)).toBe(995499217);
-    expect(getDSLKey({ OR: [Velocity, Position] }, world)).toBe(1475043041);
+    expect(getDSLKey([Velocity, Position], world)).toBe(191430977);
+    expect(getDSLKey({ OR: [Velocity, Position] }, world)).toBe(590044505);
   });
 
   it("returns different DSL keys for different expressions", () => {
@@ -156,10 +156,10 @@ describe("Query DSL simplification", () => {
     expect(getDSLKey([Position, Velocity], world)).not.toBe(
       getDSLKey({ OR: [Position, Velocity] }, world)
     );
-    expect(getDSLKey(Position, world)).toBe(1760701280);
-    expect(getDSLKey(Velocity, world)).toBe(686492379);
-    expect(getDSLKey([Position, Velocity], world)).toBe(995499217);
-    expect(getDSLKey({ OR: [Position, Velocity] }, world)).toBe(1475043041);
+    expect(getDSLKey(Position, world)).toBe(1990859998);
+    expect(getDSLKey(Velocity, world)).toBe(1923602427);
+    expect(getDSLKey([Position, Velocity], world)).toBe(191430977);
+    expect(getDSLKey({ OR: [Position, Velocity] }, world)).toBe(590044505);
   });
 
   it("keys custom predicates by function identity", () => {
@@ -173,23 +173,14 @@ describe("Query DSL simplification", () => {
     expect(getDSLKey({ AND: [Position, predicate] }, world)).not.toBe(
       getDSLKey({ AND: [Position, otherPredicate] }, world)
     );
-    expect(getDSLKey({ AND: [Position, predicate] }, world)).toBe(3961029264);
-    expect(getDSLKey({ AND: [Position, otherPredicate] }, world)).toBe(2072657699);
+    expect(getDSLKey({ AND: [Position, predicate] }, world)).toBe(563208872);
+    expect(getDSLKey({ AND: [Position, otherPredicate] }, world)).toBe(3001038715);
   });
 });
 
 describe("Query DSL compilation", () => {
   function wideWorld(): World {
-    // Register many components with explicit type ids so the predicates we
-    // emit reference bits at deterministic positions across several
-    // 32-bit words.
-    const world = new World();
-    for (let i = 0; i < 140; i++) {
-      class C {}
-      Object.defineProperty(C, "name", { value: `C${i}` });
-      world.component(C, i + 1);
-    }
-    return world;
+    return new World();
   }
 
   function entityWithComponents(world: World, typeIds: number[]): Entity {

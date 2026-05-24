@@ -11,6 +11,7 @@ export {
 } from "./component.js";
 export { Entity } from "./entity.js";
 export { Module } from "./module.js";
+export { Identity, IdentityModule } from "./modules/identity.js";
 export { type IPhase } from "./phase.js";
 export { getDSLKey, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";

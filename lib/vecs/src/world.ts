@@ -16,13 +16,14 @@ import { CommandKind, type Command } from "./command.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
 import { IdPool, type IdPoolConfig, validateIdPoolConfigs } from "./util/id_pool.js";
 import { Module } from "./module.js";
+import { IdentityModule } from "./modules/identity.js";
 
 export const DEFAULT_POOLS: readonly IdPoolConfig[] = [
   { name: "component", min: 1, max: 999 },
   { name: "entity", min: 1000 },
 ];
 const RESERVED_EID = 0;
-const BUILTIN_MODULES: EntityClass<Module>[] = [];
+const BUILTIN_MODULES: EntityClass<Module>[] = [IdentityModule];
 
 export interface WorldOptions {
   idPools?: readonly IdPoolConfig[];
