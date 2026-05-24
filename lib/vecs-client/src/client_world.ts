@@ -5,24 +5,18 @@ import {
   SessionRPC,
   StateDiff,
   ALL_COMPONENTS,
-  cid_pack,
   cid_unpack,
-  type NetworkWorld,
+  NetworkWorld,
+  type NetworkWorldOptions,
   type RPCHandler,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
-import { type ComponentInstance, type ComponentClass, type IPhase } from "@vworlds/vecs";
+import { type ComponentInstance, type IPhase } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
 
-interface RegisteredComponent {
-  Class: ComponentClass;
-  type: number;
-}
-
-export interface VecsClientOptions {
-  world: NetworkWorld;
+export interface ClientWorldOptions extends NetworkWorldOptions {
   socket?: VecsSocket;
   encodeBufferSize?: number;
   interpolatorBucketLength?: number;
@@ -34,7 +28,7 @@ export interface InstallSystemsOptions {
   sendPhase?: string | IPhase;
 }
 
-export interface DgramConnectOptions extends Omit<VecsClientOptions, "socket"> {
+export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> {
   host: string;
   port: number;
   worldName: string;
@@ -43,37 +37,30 @@ export interface DgramConnectOptions extends Omit<VecsClientOptions, "socket"> {
   rtcConfig?: RTCConfiguration;
 }
 
-export class VecsClient {
-  private readonly _world: NetworkWorld;
-  private readonly _socket: VecsSocket | undefined;
+export class ClientWorld extends NetworkWorld {
+  private _socket: VecsSocket | undefined;
   private readonly _rpc = new SessionRPC();
-  private readonly _components = new Map<number, RegisteredComponent>();
   private readonly _rpcInbox: RPC[] = [];
   private readonly _interpolator: Interpolator;
   private readonly _encodeBuffer: Uint8Array;
   private _input: unknown;
   private _systemsInstalled = false;
 
-  public constructor(options: VecsClientOptions) {
-    this._world = options.world;
-    this._socket = options.socket;
+  public constructor(options: ClientWorldOptions = {}) {
+    super(options);
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
-    this._world.networkComponents.forEach(({ Class, type }) => {
-      cid_pack(0, type);
-      this._components.set(type, { Class, type });
-    });
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,
       (snapshot) => this.decodeComponentSnapshot(snapshot)
     );
 
-    if (this._socket) {
-      this.attachSocket(this._socket);
+    if (options.socket) {
+      this.attachSocket(options.socket);
     }
   }
 
-  public static async connectDgram(options: DgramConnectOptions): Promise<VecsClient> {
+  public static async connectDgram(options: DgramConnectOptions): Promise<ClientWorld> {
     const { ClientSocket } = (await import("@vworlds/dgram-client")) as unknown as {
       ClientSocket: new (
         url: string,
@@ -85,12 +72,13 @@ export class VecsClient {
       `${options.protocol ?? "http"}://${options.host}:${options.port}${basePath}`,
       options.rtcConfig ?? {}
     );
-    const client = new VecsClient({ ...options, socket });
+    const client = new ClientWorld({ ...options, socket });
     await socket.connect();
     return client;
   }
 
   public attachSocket(socket: VecsSocket): void {
+    this._socket = socket;
     socket.on("receive", (data) => this._receive(data));
   }
 
@@ -101,12 +89,10 @@ export class VecsClient {
     this._systemsInstalled = true;
     const applyPhase = options.applyPhase ?? "update";
     const sendPhase = options.sendPhase ?? "update";
-    this._world
-      .system("VecsClient:Apply")
+    this.system("ClientWorld:Apply")
       .phase(applyPhase)
       .run((now) => this.apply(now));
-    this._world
-      .system("VecsClient:Send")
+    this.system("ClientWorld:Send")
       .phase(sendPhase)
       .run(() => this.send());
   }
@@ -174,7 +160,7 @@ export class VecsClient {
     if (!(snapshot.payload instanceof Uint8Array)) {
       return snapshot.payload;
     }
-    const registered = this._components.get(snapshot.type);
+    const registered = this.getNetworkComponent(snapshot.type);
     if (!registered) {
       throw new Error(`Received snapshot for unregistered component type ${snapshot.type}`);
     }
@@ -185,12 +171,12 @@ export class VecsClient {
 
   private _applySnapshot(snapshot: ComponentSnapshot): void {
     const component = this.decodeComponentSnapshot(snapshot);
-    const entity = this._world.getOrCreateEntity(snapshot.eid);
+    const entity = this.getOrCreateEntity(snapshot.eid);
     entity.attach(component as object);
   }
 
   private _removeComponent(eid: number, type: number): void {
-    const entity = this._world.entity(eid);
+    const entity = this.entity(eid);
     if (!entity) {
       return;
     }
@@ -198,7 +184,7 @@ export class VecsClient {
       entity.destroy();
       return;
     }
-    if (this._components.has(type) && entity.get(type)) {
+    if (this.getNetworkComponent(type) && entity.get(type)) {
       entity.remove(type);
     }
   }

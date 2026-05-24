@@ -7,7 +7,8 @@ import {
   StateDiff,
   ALL_COMPONENTS,
   cid_pack,
-  type NetworkWorld,
+  NetworkWorld,
+  type NetworkWorldOptions,
   type RemovedComponent,
   type RPCHandler,
   type VecsSocket,
@@ -19,7 +20,6 @@ import {
   type Entity,
   type IPhase,
   type System,
-  type World,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import { HISTORY_LENGTH, History } from "./history.js";
@@ -55,7 +55,8 @@ interface Update {
   component: ComponentInstance | undefined; // undefined => removal
 }
 
-export interface VecsServerOptions {
+export interface ServerWorldOptions extends NetworkWorldOptions {
+  name?: string;
   encodeBufferSize?: number;
 }
 
@@ -64,8 +65,9 @@ export interface InstallSystemsOptions {
   sendPhase: string | IPhase;
 }
 
-export class VecsServer {
-  private readonly _components: RegisteredComponent[];
+export class ServerWorld extends NetworkWorld {
+  public readonly name: string;
+  private readonly _components: readonly RegisteredComponent[];
   private readonly _sessions = new Map<string, ServerClientSession>();
   private readonly _rpcHandlers = new Map<number, RPCHandler>();
   private readonly _updates = new Map<number, Update>();
@@ -76,23 +78,18 @@ export class VecsServer {
   private _frame = 0;
   private _systemsInstalled = false;
 
-  public constructor(
-    public readonly name: string,
-    public readonly world: NetworkWorld,
-    options: VecsServerOptions = {}
-  ) {
+  public constructor(options: ServerWorldOptions = {}) {
+    super(options);
+    this.name = options.name ?? "main";
     const encodeBufferSize = options.encodeBufferSize ?? 64 * 1024;
     this._encodeBuffer = new Uint8Array(encodeBufferSize);
-    this._trackerCache = new TrackerCache(world);
-    this._components = world.networkComponents.map(({ Class, type }) => {
-      cid_pack(0, type);
-      return { Class, type };
-    });
-    ensureRegistered(world, Networked);
-    ensureRegistered(world, NetworkClient);
-    ensureRegistered(world, NetworkInput);
-    ensureRegistered(world, View);
-    ensureRegistered(world, ServerClientSession);
+    this._trackerCache = new TrackerCache(this);
+    this._components = this.networkComponents;
+    ensureRegistered(this, Networked);
+    ensureRegistered(this, NetworkClient);
+    ensureRegistered(this, NetworkInput);
+    ensureRegistered(this, View);
+    ensureRegistered(this, ServerClientSession);
   }
 
   /** @internal */
@@ -112,15 +109,14 @@ export class VecsServer {
     this._systemsInstalled = true;
     const { collectPhase, sendPhase } = options;
 
-    this.world.getComponentMeta(Networked).onRemove((entity) => {
+    this.getComponentMeta(Networked).onRemove((entity) => {
       this._record(entity, ALL_COMPONENTS, undefined);
     });
-    this.world.hook(ServerClientSession).onRemove((_entity, session) => {
+    this.hook(ServerClientSession).onRemove((_entity, session) => {
       session.destroy();
     });
 
-    this._clients = this.world
-      .system(`VecsServer:${this.name}:View`)
+    this._clients = this.system(`ServerWorld:${this.name}:View`)
       .phase(collectPhase)
       .requires(View, ServerClientSession)
       .update(View, [ServerClientSession], (_entity, view, [_session]) => {
@@ -132,8 +128,7 @@ export class VecsServer {
       .track();
 
     this._components.forEach((registered) => {
-      this.world
-        .system(`VecsServer:${this.name}:${registered.Class.name}`)
+      this.system(`ServerWorld:${this.name}:${registered.Class.name}`)
         .phase(collectPhase)
         .requires(Networked, registered.Class)
         .update(registered.Class, (entity, component) => {
@@ -147,13 +142,12 @@ export class VecsServer {
         .track();
     });
 
-    this.world
-      .system(`VecsServer:${this.name}:Flush`)
+    this.system(`ServerWorld:${this.name}:Send`)
       .phase(sendPhase)
-      .run(() => this.flush());
+      .run(() => this.send());
   }
 
-  public flush(): void {
+  public send(): void {
     if (this._sessions.size === 0) {
       this._updates.clear();
       return;
@@ -226,7 +220,7 @@ export class VecsServer {
   }
 
   private _onNewConnection(socket: VecsSocket): void {
-    const entity = this.world.entity().add(Networked).add(NetworkClient).add(View);
+    const entity = this.entity().add(Networked).add(NetworkClient).add(View);
     const session = new ServerClientSession(this._frame - 1);
     session.socket = socket;
     session.entity = entity;
@@ -308,7 +302,7 @@ export class VecsServer {
   }
 }
 
-function ensureRegistered(world: World, Class: ComponentClass): void {
+function ensureRegistered(world: NetworkWorld, Class: ComponentClass): void {
   if (!world._tryGetComponentMeta(Class)) {
     world.component(Class);
   }

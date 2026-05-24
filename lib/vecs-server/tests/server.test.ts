@@ -3,7 +3,6 @@ import {
   ALL_COMPONENTS,
   Client2Server,
   ComponentSnapshot,
-  NetworkWorld,
   Server2Client,
   type VecsSocket,
   type VecsSocketListener,
@@ -16,7 +15,8 @@ import {
   NetworkClient,
   NetworkInput,
   Networked,
-  VecsServer,
+  ServerWorld,
+  type ServerWorldOptions,
   View,
 } from "../src/index.js";
 import { HISTORY_LENGTH } from "../src/history.js";
@@ -106,7 +106,7 @@ interface TestSession {
   entity: Entity;
 }
 
-function getSession(server: VecsServer, socketId: string): TestSession {
+function getSession(server: ServerWorld, socketId: string): TestSession {
   const sessions = (server as unknown as { _sessions: Map<string, TestSession> })._sessions;
   const session = sessions.get(socketId);
   if (!session) {
@@ -115,7 +115,7 @@ function getSession(server: VecsServer, socketId: string): TestSession {
   return session;
 }
 
-function getSessionView(server: VecsServer, socketId: string): Readonly<View> {
+function getSessionView(server: ServerWorld, socketId: string): Readonly<View> {
   const view = getSession(server, socketId).entity.get(View);
   if (!view) {
     throw new Error(`session ${socketId} has no View`);
@@ -124,7 +124,7 @@ function getSessionView(server: VecsServer, socketId: string): Readonly<View> {
 }
 
 function connectSession(
-  server: VecsServer,
+  server: ServerWorld,
   listener: MockListener,
   socketId = "client-1"
 ): { session: TestSession; socket: MemorySocket; view: Readonly<View> } {
@@ -141,15 +141,15 @@ function allowAllClientViews(world: World): void {
 
 const SERVER_PHASES = { collectPhase: "update", sendPhase: "update" } as const;
 
-function createWorld(): NetworkWorld {
-  return new NetworkWorld({ networkComponents: [Position] });
+function createWorld(options: ServerWorldOptions = {}): ServerWorld {
+  return new ServerWorld({ name: "main", networkComponents: [Position], ...options });
 }
 
-describe("VecsServer", () => {
+describe("ServerWorld", () => {
   it("sends full component snapshots for networked component updates", () => {
     const world = createWorld();
     world.component(LocalOnly);
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const socket = new MemorySocket("client-1");
     const listener = new MockListener();
@@ -176,7 +176,7 @@ describe("VecsServer", () => {
 
   it("sends component removals when a synchronized component exits", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const socket = new MemorySocket("client-1");
     const listener = new MockListener();
@@ -201,7 +201,7 @@ describe("VecsServer", () => {
 
   it("sends entity destruction when a networked entity is destroyed", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const socket = new MemorySocket("client-1");
     const listener = new MockListener();
@@ -225,7 +225,7 @@ describe("VecsServer", () => {
 
   it("sends entity destruction when Networked exits", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const socket = new MemorySocket("client-1");
     const listener = new MockListener();
@@ -249,7 +249,7 @@ describe("VecsServer", () => {
 
   it("sends current networked state only to the late-joining client", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
 
     const first = new MemorySocket("client-1");
@@ -285,7 +285,7 @@ describe("VecsServer", () => {
 
   it("sends merged updates to clients that have not acked", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const listener = new MockListener();
     server._attach(listener);
@@ -310,7 +310,7 @@ describe("VecsServer", () => {
 
   it("sends only changes after an acknowledged frame", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const listener = new MockListener();
     server._attach(listener);
@@ -336,7 +336,7 @@ describe("VecsServer", () => {
 
   it("retains empty frames while pulling merged updates", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const listener = new MockListener();
     server._attach(listener);
@@ -360,7 +360,7 @@ describe("VecsServer", () => {
 
   it("disconnects clients that lag outside the history window", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const listener = new MockListener();
     server._attach(listener);
@@ -379,7 +379,7 @@ describe("VecsServer", () => {
 
   it("ignores default ack before the first frame is sent", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const listener = new MockListener();
     server._attach(listener);
@@ -401,7 +401,7 @@ describe("VecsServer", () => {
 
   it("creates a NetworkClient entity on connect and destroys it on disconnect", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -434,7 +434,7 @@ describe("VecsServer", () => {
 
   it("adds a default View to connected clients", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -452,7 +452,7 @@ describe("VecsServer", () => {
 
   it("writes incoming input to the connected client's NetworkInput component", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -477,7 +477,7 @@ describe("VecsServer", () => {
 
   it("collapses update-then-remove within a frame into a single removal", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const listener = new MockListener();
     server._attach(listener);
@@ -504,7 +504,7 @@ describe("VecsServer", () => {
 
   it("collapses remove-then-readd within a frame into a single snapshot", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const listener = new MockListener();
     server._attach(listener);
@@ -533,8 +533,8 @@ describe("VecsServer", () => {
   });
 
   it("uses the buffer ref pattern but produces independent message buffers", () => {
-    const world = createWorld();
-    const server = new VecsServer("main", world, { encodeBufferSize: 1024 });
+    const world = createWorld({ encodeBufferSize: 1024 });
+    const server = world;
     allowAllClientViews(world);
     const listener = new MockListener();
     server._attach(listener);
@@ -567,7 +567,7 @@ describe("VecsServer", () => {
 
   it("invalidates cached snapshots before sending synchronized component updates", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     allowAllClientViews(world);
     const listener = new MockListener();
     server._attach(listener);
@@ -592,7 +592,7 @@ describe("VecsServer", () => {
 
   it("renames listen to handleRpc and applies registered handlers to new sessions", () => {
     const world = createWorld();
-    const server = new VecsServer("main", world);
+    const server = world;
     server.handleRpc(42, (_params, req) => {
       expect(req.rpcId).toBe(42);
       return [];
@@ -639,7 +639,7 @@ describe("VecsServer", () => {
   it("acquires a View tracker that tracks matching entities", () => {
     const world = createWorld();
     world.component(Position);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -661,7 +661,7 @@ describe("VecsServer", () => {
   it("shares cached trackers for equivalent View DSL", () => {
     const world = createWorld();
     world.component(Position);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -679,7 +679,7 @@ describe("VecsServer", () => {
   it("does not preserve an old tracker when View DSL changes to an equivalent query", () => {
     const world = createWorld();
     world.component(Position);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -702,7 +702,7 @@ describe("VecsServer", () => {
     const world = createWorld();
     world.component(Position);
     world.component(Velocity);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -729,7 +729,7 @@ describe("VecsServer", () => {
   it("builds a View tracker when View is set during a system run", () => {
     const world = createWorld();
     world.component(Position);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     let target: ReturnType<World["entity"]>;
@@ -755,7 +755,7 @@ describe("VecsServer", () => {
     const world = createWorld();
     world.component(Position);
     world.component(Velocity);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -794,7 +794,7 @@ describe("VecsServer", () => {
     world.component(Position);
     world.component(Velocity);
     world.component(LocalOnly);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -827,7 +827,7 @@ describe("VecsServer", () => {
     const world = createWorld();
     world.component(Position);
     world.component(Velocity);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -868,7 +868,7 @@ describe("VecsServer", () => {
   it("reuses the old tracker without leaking refs after false View DSL", () => {
     const world = createWorld();
     world.component(Position);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -902,7 +902,7 @@ describe("VecsServer", () => {
   it("does not process non-session Views", () => {
     const world = createWorld();
     world.component(Position);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -931,7 +931,7 @@ describe("VecsServer", () => {
   it("queues removals when a client View narrows visibility", () => {
     const world = createWorld();
     world.component(LocalOnly);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -972,7 +972,7 @@ describe("VecsServer", () => {
     const world = createWorld();
     world.component(LocalOnly);
     world.component(Velocity);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -1001,7 +1001,7 @@ describe("VecsServer", () => {
     const world = createWorld();
     world.component(LocalOnly);
     world.component(Velocity);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -1033,7 +1033,7 @@ describe("VecsServer", () => {
   it("queues all networked entities when a client View changes to true", () => {
     const world = createWorld();
     world.component(LocalOnly);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
@@ -1066,7 +1066,7 @@ describe("VecsServer", () => {
   it("queues tracker listener entries and exits for active client Views", () => {
     const world = createWorld();
     world.component(LocalOnly);
-    const server = new VecsServer("main", world);
+    const server = world;
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
