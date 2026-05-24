@@ -440,6 +440,14 @@ export class World {
     return this._component(Component, ComponentClass, eid);
   }
 
+  public get<C extends ComponentClass>(Class: C): Readonly<InstanceType<C>> | undefined {
+    return this.component(Class).get(Class);
+  }
+
+  public set<C extends ComponentClass>(Class: C, props: Partial<InstanceType<C>>): Component {
+    return this.component(Class).set(Class, props);
+  }
+
   private _component<T extends Component>(
     Constructor: EntityClass<T>,
     ComponentClass: ComponentClass,

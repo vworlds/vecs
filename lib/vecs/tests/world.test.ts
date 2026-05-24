@@ -3,6 +3,10 @@ import { Component, Module, World } from "../src/index.js";
 
 class A {}
 class B {}
+class Settings {
+  enabled = false;
+  limit = 0;
+}
 
 describe("World - id pools", () => {
   it("uses default component, module, and entity pools", () => {
@@ -232,6 +236,23 @@ describe("World - components", () => {
     expect(() => e.set(A, {})).toThrow();
     expect(() => e.modified(A)).toThrow();
     expect(() => w.system("test").requires(A)._build()).toThrow();
+  });
+
+  it("gets component-owned instances", () => {
+    const w = new World();
+
+    expect(w.get(Settings)).toBeUndefined();
+    expect(w.getComponentMeta(Settings).Class).toBe(Settings);
+  });
+
+  it("sets component-owned instances", () => {
+    const w = new World();
+
+    const component = w.set(Settings, { enabled: true, limit: 3 });
+
+    expect(component).toBe(w.component(Settings));
+    expect(w.get(Settings)).toMatchObject({ enabled: true, limit: 3 });
+    expect(w.component(Settings).get(Settings)).toBe(w.get(Settings));
   });
 });
 

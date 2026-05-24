@@ -31,6 +31,15 @@ describe("SingletonModule", () => {
     expect(world.getComponentMeta(Gravity).usageCount).toBe(1);
   });
 
+  it("allows accessing singleton instances through world.get", () => {
+    const world = new World();
+    world.component(Gravity).add(Singleton);
+    world.component(Gravity).set(Gravity, { y: -1.62 });
+
+    expect(world.get(Gravity)).toBe(world.component(Gravity).get(Gravity));
+    expect(world.get(Gravity)?.y).toBe(-1.62);
+  });
+
   it("throws when adding a second instance", () => {
     const world = new World();
     const gravityComponent = world.component(Gravity);
