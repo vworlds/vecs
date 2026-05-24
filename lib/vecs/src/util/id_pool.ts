@@ -5,8 +5,18 @@ export interface IdPoolConfig {
 }
 
 export class IdPool {
-  private readonly _reserved = new Set<number>();
-  private readonly _freed: number[] = [];
+  // Occupancy bitmap: bit `(id - min)` is 1 iff `id` is currently reserved.
+  // Stored as a growable plain-number array (V8 keeps these as SMIs / packed
+  // double-tagged words, which gives the fastest random-access read/write).
+  private _bits: number[] = [];
+  // Number of reserved ids strictly below `_next`. When zero, alloc can skip
+  // the bitmap scan entirely and just hand out the next never-used id.
+  private _freeBelowNext = 0;
+  // Word cursor: the lowest word index in `_bits` that *might* contain a 0
+  // bit below `_next`. Pure hint - alloc walks forward from here.
+  private _minFreeWord = 0;
+  // The smallest id never yet handed out by alloc (high-water mark). All ids
+  // in `[min, _next)` are either reserved or recorded in the bitmap as 0.
   private _next: number;
 
   public constructor(
@@ -18,20 +28,33 @@ export class IdPool {
   }
 
   public alloc(): number {
-    while (this._freed.length > 0) {
-      const candidate = this._popMin();
-      if (!this._reserved.has(candidate)) {
-        this._reserved.add(candidate);
-        return candidate;
-      }
+    if (this._freeBelowNext > 0) {
+      const bits = this._bits;
+      let word = this._minFreeWord;
+      while (bits[word] === -1) {
+        word++;
+      } // -1 == 0xFFFFFFFF when signed
+      this._minFreeWord = word;
+      const w = bits[word];
+      const bit = ctz32(~w);
+      bits[word] = w | (1 << bit);
+      this._freeBelowNext--;
+      return this.min + word * 32 + bit;
     }
-    while (this.max === undefined || this._next <= this.max) {
-      if (!this._reserved.has(this._next)) {
-        const id = this._next++;
-        this._reserved.add(id);
+    const max = this.max;
+    let id = this._next;
+    while (max === undefined || id <= max) {
+      const offset = id - this.min;
+      const word = offset >>> 5;
+      const mask = 1 << offset;
+      this._growBits(word + 1);
+      const cur = this._bits[word];
+      if ((cur & mask) === 0) {
+        this._bits[word] = cur | mask;
+        this._next = id + 1;
         return id;
       }
-      this._next++;
+      id++;
     }
     throw new Error(`Id pool '${this.name}' is exhausted`);
   }
@@ -40,11 +63,22 @@ export class IdPool {
     if (!this.owns(id)) {
       throw new Error(`Id ${id} does not belong to pool '${this.name}'`);
     }
-    if (!this._reserved.delete(id)) {
+    const offset = id - this.min;
+    const word = offset >>> 5;
+    if (word >= this._bits.length) {
       return;
     }
+    const mask = 1 << offset;
+    const cur = this._bits[word];
+    if ((cur & mask) === 0) {
+      return;
+    }
+    this._bits[word] = cur & ~mask;
     if (id < this._next) {
-      this._pushFreed(id);
+      this._freeBelowNext++;
+      if (word < this._minFreeWord) {
+        this._minFreeWord = word;
+      }
     }
   }
 
@@ -56,67 +90,33 @@ export class IdPool {
     if (!this.owns(id)) {
       throw new Error(`Id ${id} does not belong to pool '${this.name}'`);
     }
-    if (this._reserved.has(id)) {
+    const offset = id - this.min;
+    const word = offset >>> 5;
+    this._growBits(word + 1);
+    const mask = 1 << offset;
+    const cur = this._bits[word];
+    if ((cur & mask) !== 0) {
       throw new Error(`Id ${id} is already reserved`);
     }
-    this._reserved.add(id);
-  }
-
-  private _popMin(): number {
-    const heap = this._freed;
-    const top = heap[0];
-    const last = heap.pop()!;
-    if (heap.length > 0) {
-      heap[0] = last;
-      this._siftDown(0);
-    }
-    return top;
-  }
-
-  private _pushFreed(id: number): void {
-    const heap = this._freed;
-    heap.push(id);
-    this._siftUp(heap.length - 1);
-  }
-
-  private _siftDown(start: number): void {
-    const heap = this._freed;
-    const n = heap.length;
-    let i = start;
-    while (true) {
-      const left = i * 2 + 1;
-      const right = left + 1;
-      let smallest = i;
-      if (left < n && heap[left] < heap[smallest]) {
-        smallest = left;
-      }
-      if (right < n && heap[right] < heap[smallest]) {
-        smallest = right;
-      }
-      if (smallest === i) {
-        return;
-      }
-      const tmp = heap[i];
-      heap[i] = heap[smallest];
-      heap[smallest] = tmp;
-      i = smallest;
+    this._bits[word] = cur | mask;
+    if (id < this._next) {
+      this._freeBelowNext--;
     }
   }
 
-  private _siftUp(start: number): void {
-    const heap = this._freed;
-    let i = start;
-    while (i > 0) {
-      const parent = (i - 1) >>> 1;
-      if (heap[parent] <= heap[i]) {
-        return;
-      }
-      const tmp = heap[i];
-      heap[i] = heap[parent];
-      heap[parent] = tmp;
-      i = parent;
+  private _growBits(length: number): void {
+    const bits = this._bits;
+    while (bits.length < length) {
+      bits.push(0);
     }
   }
+}
+
+function ctz32(x: number): number {
+  // For x with at least one set bit, returns the index of the lowest set bit.
+  // Math.clz32(x & -x) is 31 - ctz, so subtract from 31. The IdPool callers
+  // guarantee at least one set bit (the inverted occupancy word).
+  return 31 - Math.clz32(x & -x);
 }
 
 export function validateIdPoolConfigs(configs: readonly IdPoolConfig[]): void {

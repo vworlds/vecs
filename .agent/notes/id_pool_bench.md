@@ -44,3 +44,20 @@ Speedup over baseline (median of medians):
 - alloc-freeEveryOther: ~175x
 - steady-churn: ~37x
 - reserve-sparse: ~1.5x
+
+## Variant 2: occupancy bitmap + word cursor + freeBelowNext counter
+
+Drops the Set and the heap. Reserved ids are stored as bits in a growable
+plain-number array; alloc finds the lowest 0 bit at or above a `_minFreeWord`
+cursor using `Math.clz32`-based ctz. A `_freeBelowNext` counter lets alloc
+skip the bitmap walk entirely when there are no holes (pure fresh-id path).
+
+| scenario                      | run1 | run2 | run3 |
+| ----------------------------- | ---- | ---- | ---- |
+| seq-alloc-5k                  | 0.22 | 0.16 | 0.17 |
+| alloc-freeAll-allocAgain-5k   | 0.40 | 0.42 | 0.38 |
+| alloc-freeHighTail-alloc-10k  | 0.50 | 0.41 | 0.43 |
+| alloc-freeRandomHalf-alloc-5k | 0.65 | 0.64 | 0.34 |
+| alloc-freeEveryOther-alloc-5k | 0.34 | 0.32 | 0.36 |
+| steady-churn-2k-10kops        | 1.40 | 1.36 | 1.40 |
+| reserve-sparse-then-alloc-5k  | 1.30 | 1.10 | 0.89 |
