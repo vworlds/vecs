@@ -21,8 +21,10 @@ describe("NetworkWorld", () => {
       entityIdStart: 1000,
       localEntityIdStart: 100_000,
     });
+    const nextLocalComponentEid = world.peekNextEid("component");
 
-    expect(world.component(LocalOnly).eid).toBe(2);
+    expect(nextLocalComponentEid).toBeGreaterThanOrEqual(world.localComponentMin);
+    expect(world.component(LocalOnly).eid).toBe(nextLocalComponentEid);
     expect(world.pools).toContainEqual({ name: "module", min: 900, max: 999 });
     expect(world.getOrCreateEntity(1000).eid).toBe(1000);
     expect(world.entity().eid).toBe(100_000);
