@@ -1,4 +1,4 @@
-import { type ComponentClass } from "../component.js";
+import { type ComponentType } from "../component.js";
 import { type ExtractRequired, _extractQueryDependencies, type QueryDSL } from "../dsl.js";
 import { Filter } from "../filter.js";
 import { Query } from "../query.js";
@@ -102,12 +102,12 @@ export class Queries extends Storage {
 
   /** Create a non-reactive {@link Filter} that matches entities satisfying `q`. */
   public filter<Q extends QueryDSL>(this: World, q: Q): Filter<ExtractRequired<Q>>;
-  public filter<T extends ComponentClass[]>(
+  public filter<T extends ComponentType[]>(
     this: World,
     q: QueryDSL,
     _guaranteed: readonly [...T]
   ): Filter<T>;
-  public filter(this: World, q: QueryDSL, _guaranteed?: readonly ComponentClass[]): Filter<any> {
+  public filter(this: World, q: QueryDSL, _guaranteed?: readonly ComponentType[]): Filter<any> {
     return new Filter(this, q);
   }
 

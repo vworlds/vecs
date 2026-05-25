@@ -1,5 +1,5 @@
 import { Entity } from "./entity/index.js";
-import type { ComponentClass, ComponentInstance } from "./component_meta.js";
+import type { ComponentClass, ComponentInstance, ComponentType } from "./component_meta.js";
 
 export {
   ComponentMeta,
@@ -7,11 +7,12 @@ export {
   type ComponentInstance,
   type ComponentRef,
   type ComponentRefArray,
+  type ComponentType,
   type Hook,
 } from "./component_meta.js";
 
 /** A component entity created by {@link World.component}. */
-export class Component<T extends ComponentClass = ComponentClass> extends Entity {
+export class Component<T extends ComponentType = ComponentType> extends Entity {
   public onAdd(handler: (entity: Entity, c: InstanceType<T>) => void): this {
     this.ownMeta.onAdd(handler as (entity: Entity, c: ComponentInstance) => void);
     return this;

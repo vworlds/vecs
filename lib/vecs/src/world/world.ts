@@ -1,3 +1,5 @@
+import { Query } from "../query.js";
+import { System } from "../system.js";
 import { Pipeline } from "./world.pipeline.js";
 import { type WorldOptions } from "./world.base.js";
 
@@ -28,5 +30,7 @@ import { type WorldOptions } from "./world.base.js";
 export class World extends Pipeline {
   public constructor(options: WorldOptions = {}) {
     super(options);
+    this.component(Query).onRemove((_entity, query) => query.destroy());
+    this.component(System).onRemove((_entity, system) => system.destroy());
   }
 }

@@ -3,6 +3,7 @@ import {
   type ComponentInstance,
   type ComponentClass,
   type ComponentRef,
+  type ComponentType,
 } from "../component_meta.js";
 import type { World } from "../world/index.js";
 import { CommandKind } from "../command.js";
@@ -17,7 +18,7 @@ type EntityEvents = Events<{ destroy(): void }>;
 export type EntityClass<T extends Entity = Entity> = new (
   world: World,
   eid: number,
-  ownComponentClass?: ComponentClass
+  ownComponentClass?: ComponentType
 ) => T;
 
 /**
@@ -95,7 +96,7 @@ export class Entity extends PartialClass {
     public readonly world: World,
     /** Unique numeric entity id assigned at creation. */
     public readonly eid: number,
-    ownComponentClass?: ComponentClass
+    ownComponentClass?: ComponentType
   ) {
     super();
     if (ownComponentClass !== undefined) {
@@ -173,7 +174,7 @@ export class Entity extends PartialClass {
     meta: ComponentMeta,
     props: Partial<ComponentInstance> | undefined
   ): ComponentInstance {
-    const c = new meta.Class();
+    const c = new (meta.Class as ComponentClass)();
     if (props !== undefined) {
       Object.assign(c, props);
     }
@@ -465,19 +466,29 @@ export class Entity extends PartialClass {
    * object. If a component of the same registered class already exists, it is
    * replaced rather than assigned into.
    *
-   * `attach` uses the instance constructor to resolve component metadata, so
-   * the constructor must already be registered in this world. The operation
-   * fires hooks and query updates like a `set` operation.
+   * By default `attach` uses the instance constructor to resolve component
+   * metadata. Pass an explicit class when the instance should be stored under
+   * a base component key. The constructor must already be registered in this
+   * world. The operation fires hooks and query updates like a `set` operation.
    *
    * @param component - Existing component instance to store on the entity.
    * @returns This entity, for chaining.
    */
-  public attach(component: ComponentInstance): this {
-    const meta = this.world.entity(component.constructor as ComponentClass).ownMeta;
+  public attach(component: ComponentInstance): this;
+
+  public attach<C extends ComponentInstance>(Class: ComponentType<C>, component: C): this;
+
+  public attach<C extends ComponentInstance>(
+    classOrComponent: ComponentType<C> | ComponentInstance,
+    component?: C
+  ): this {
+    const ComponentKey = component === undefined ? classOrComponent.constructor : classOrComponent;
+    const instance = component ?? classOrComponent;
+    const meta = this.world.entity(ComponentKey as ComponentRef).ownMeta;
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component });
+      this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component: instance });
     } else {
-      this._attach(meta, component);
+      this._attach(meta, instance);
     }
     return this;
   }
@@ -509,7 +520,7 @@ export class Entity extends PartialClass {
    * @param typeOrClass - Component class or numeric type id.
    * @returns The component instance, or `undefined` when it is not attached.
    */
-  public get<C extends ComponentClass>(Class: C): Readonly<InstanceType<C>> | undefined;
+  public get<C extends ComponentType>(Class: C): Readonly<InstanceType<C>> | undefined;
 
   /** Look up a component by numeric type id as a readonly value. */
   public get(eid: number): Readonly<ComponentInstance> | undefined;
@@ -530,7 +541,7 @@ export class Entity extends PartialClass {
    * @param typeOrClass - Component class or numeric type id.
    * @returns The component instance, or `undefined` when it is not attached.
    */
-  public getMut<C extends ComponentClass>(Class: C): InstanceType<C> | undefined;
+  public getMut<C extends ComponentType>(Class: C): InstanceType<C> | undefined;
 
   /** Look up a component by numeric type id for mutation. */
   public getMut(eid: number): ComponentInstance | undefined;
@@ -579,7 +590,7 @@ export class Entity extends PartialClass {
    *
    * @param Class - Component class to detach.
    */
-  public remove<C extends ComponentClass>(Class: C): void;
+  public remove<C extends ComponentType>(Class: C): void;
 
   /**
    * Detach a component by numeric type id.

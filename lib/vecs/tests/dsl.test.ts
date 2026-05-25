@@ -182,6 +182,9 @@ describe("Query DSL compilation", () => {
   function wideWorld(): World {
     const world = new World();
     for (let i = 3; i <= 200; i++) {
+      if (world.getEntity(i) !== undefined) {
+        continue;
+      }
       class C {}
       Object.defineProperty(C, "name", { value: `C${i}` });
       world.component(C, i);

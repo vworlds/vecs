@@ -1,4 +1,4 @@
-import { type ComponentInstance, type ComponentClass, type ComponentMeta } from "./component.js";
+import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
 import { Query } from "./query.js";
 import { type QueryDSL, type MaybeRequired } from "./dsl.js";
 import type { Entity } from "./entity/index.js";
@@ -79,7 +79,7 @@ type _SystemInboxEvent =
  *
  * @typeParam R - Component classes guaranteed present on every matched entity.
  */
-export class System<R extends ComponentClass[] = []> extends Query<R> implements ITickSource {
+export class System<R extends ComponentType[] = []> extends Query<R> implements ITickSource {
   /** @internal Single inbox replayed in arrival order on every `_run`. */
   private readonly _inbox: _SystemInboxEvent[] = [];
   /** @internal Callback registered via {@link run}, fired every tick. */
@@ -97,6 +97,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
 
   constructor(name: string, world: World) {
     super(name, world, false);
+    this.entity.attach(System, this);
   }
 
   /** @internal Systems may be run-only processors without entity membership. */
@@ -393,7 +394,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    *   });
    * ```
    */
-  public each<J extends ComponentClass[]>(
+  public each<J extends ComponentType[]>(
     components: readonly [...J],
     callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): this {
@@ -425,7 +426,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    *   entity (type hint only — not validated at runtime).
    * @returns This system, retyped with the guaranteed tuple as its `R`.
    */
-  public override query<T extends ComponentClass[] = []>(
+  public override query<T extends ComponentType[] = []>(
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): System<T> {
@@ -444,7 +445,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    * @param components - Component classes to require.
    * @returns This system, retyped with the required tuple as its `R`.
    */
-  public override requires<T extends ComponentClass[]>(...components: [...T]): System<T> {
+  public override requires<T extends ComponentType[]>(...components: [...T]): System<T> {
     super.requires(...components);
     return this as unknown as System<T>;
   }
@@ -500,14 +501,9 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
     return this;
   }
 
-  /**
-   * Not supported on `System`. Throws unconditionally.
-   *
-   * Systems are owned by the world for the duration of the session; if you
-   * need a temporary reactive set use a standalone {@link Query} via
-   * {@link World.query}.
-   */
-  public override destroy(): never {
-    throw `destroy() is not supported on System '${this.name}'`;
+  /** Permanently remove this system from the world. */
+  public override destroy(): void {
+    this.disable();
+    super.destroy();
   }
 }

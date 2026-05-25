@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { Query, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -12,6 +12,7 @@ class Velocity {
 class Sprite {}
 class Container {}
 class Player {}
+class QueryTrait {}
 
 function setup() {
   const w = new World();
@@ -133,6 +134,25 @@ describe("Query — construction", () => {
     expect(q.toString()).toBe("enemies");
   });
 
+  it("stores query instances on backing entities", () => {
+    const { w } = setup();
+    const q = w.query("tracked-query");
+
+    expect(q.entity.name).toBe("tracked-query");
+    expect(q.entity.get(Query)).toBe(q);
+  });
+
+  it("can query query entities by traits", () => {
+    const { w } = setup();
+    w.component(QueryTrait);
+    const tagged = w.query("tagged-query").query(false).build();
+    tagged.entity.add(QueryTrait);
+
+    const q = w.query("query-traits").requires(Query, QueryTrait).build();
+
+    expect(q.has(tagged.entity)).toBe(true);
+  });
+
   it("matches nothing until requires(), query(), or update() sets a predicate", () => {
     const { w, tick } = setup();
     const q = w.query("empty");
@@ -148,7 +168,7 @@ describe("Query — construction", () => {
     const { w } = setup();
     const q = w.query("empty").build();
     expect(w.queries).not.toContain(q);
-    expect((q as any).world).toBeUndefined();
+    expect(q.entity._destroyed).toBe(true);
   });
 });
 
@@ -659,12 +679,14 @@ describe("Query — destroy", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it("destroy() sets world to undefined by force", () => {
+  it("destroy() destroys the backing entity", () => {
     const { w } = setup();
     const q = w.query("test").requires(Position);
+    const entity = q.entity;
     w.start();
     q.destroy();
-    expect((q as any).world).toBeUndefined();
+    expect(entity._destroyed).toBe(true);
+    expect(w.getEntity(entity.eid)).toBeUndefined();
   });
 
   it("destroy() leaves belongs() as a safe match-nothing predicate", () => {

@@ -1,7 +1,7 @@
 import { OrderedSet } from "./util/ordered_set.js";
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
-import { type ComponentInstance, type ComponentClass, type ComponentMeta } from "./component.js";
+import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
 import type { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import { _compile, type EntityTestFunc, type QueryDSL, type MaybeRequired } from "./dsl.js";
@@ -12,15 +12,15 @@ type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => 
 type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
 /** Component class, or `{ parent: ComponentClass }` to resolve from the entity's parent. */
-type ComponentOrParent = ComponentClass | { parent: ComponentClass };
+type ComponentOrParent = ComponentType | { parent: ComponentType };
 
 /** Component eid, or `{ parent: eid }` to resolve from the entity's parent. */
 type ComponentOrParentType = number | { parent: number };
 
 /** Resolves the component instance type for one element of a `ComponentOrParent` tuple. */
-type ResolvedComponentInstance<T> = T extends { parent: ComponentClass }
+type ResolvedComponentInstance<T> = T extends { parent: ComponentType }
   ? InstanceType<T["parent"]>
-  : T extends ComponentClass
+  : T extends ComponentType
     ? InstanceType<T>
     : never;
 
@@ -49,7 +49,7 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  *   Components in `R` appear as non-nullable in {@link sort}, {@link forEach},
  *   and {@link update} callback tuples.
  */
-export class Query<R extends ComponentClass[] = []> {
+export class Query<R extends ComponentType[] = []> {
   /** @internal Tracked entity set. Allocated by {@link track} or {@link sort}. */
   protected _entities: Set<Entity> | undefined;
   /** @internal Predicate compiled from the query DSL; defaults to "match nothing". */
@@ -60,8 +60,12 @@ export class Query<R extends ComponentClass[] = []> {
   public _queryIndexKeys: number[] | undefined = undefined;
   /** @internal DSL predicate to compile and index when the query is built. */
   public _dsl: QueryDSL | undefined = undefined;
+  /** Entity that stores this query as a component and carries query traits. */
+  public readonly entity: Entity;
   /** @internal `true` once this query has been registered with its world. */
   private _built = false;
+  /** @internal Guards destroy hooks against recursive removal. */
+  private _destroyed = false;
 
   /** @internal `enter` callback (already wraps any injection logic). */
   protected _enterCallback: EntityCallback | undefined = undefined;
@@ -75,13 +79,10 @@ export class Query<R extends ComponentClass[] = []> {
   /** @internal Bitmask of component eids this query reacts to via `update`. */
   protected _watchlistBitmask: Bitset = new Bitset();
 
-  constructor(
-    /** Unique display name; appears in logs and debug output. */
-    public readonly name: string,
-    /** World that owns this query. */
-    public readonly world: World,
-    track: boolean = true
-  ) {
+  constructor(name: string, world: World, track: boolean = true) {
+    this.entity = world.entity();
+    this.entity.name = name;
+    this.entity.attach(Query, this);
     world._addUnbuiltQuery(this);
     if (track) {
       this.track();
@@ -121,6 +122,16 @@ export class Query<R extends ComponentClass[] = []> {
   /** `true` once this query has been registered with its world. */
   public get built(): boolean {
     return this._built;
+  }
+
+  /** Unique display name; forwards to the backing entity identity. */
+  public get name(): string | undefined {
+    return this.entity.name;
+  }
+
+  /** World that owns this query; forwards to the backing entity. */
+  public get world(): World {
+    return this.entity.world;
   }
 
   /**
@@ -283,7 +294,7 @@ export class Query<R extends ComponentClass[] = []> {
 
   /** Returns the query name. */
   public toString(): string {
-    return this.name;
+    return this.name ?? "";
   }
 
   /**
@@ -331,12 +342,12 @@ export class Query<R extends ComponentClass[] = []> {
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<J extends ComponentClass[]>(
+  public forEach<J extends ComponentType[]>(
     components: readonly [...J],
     callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void;
 
-  public forEach<J extends ComponentClass[]>(
+  public forEach<J extends ComponentType[]>(
     componentsOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
   ): void {
@@ -471,7 +482,7 @@ export class Query<R extends ComponentClass[] = []> {
    *   .update(Position, (e, pos) => sprite.setPosition(pos.x, pos.y));
    * ```
    */
-  public update<C extends ComponentClass>(
+  public update<C extends ComponentType>(
     ComponentClass: C,
     callback: (e: Entity, c: InstanceType<C>) => void
   ): this;
@@ -485,7 +496,7 @@ export class Query<R extends ComponentClass[] = []> {
    * @param callback - Receives the entity, modified component, and injected tuple.
    * @returns This query, for chaining.
    */
-  public update<C extends ComponentClass, J extends ComponentClass[]>(
+  public update<C extends ComponentType, J extends ComponentType[]>(
     ComponentClass: C,
     inject: readonly [...J],
     callback: (
@@ -495,7 +506,7 @@ export class Query<R extends ComponentClass[] = []> {
     ) => void
   ): this;
 
-  public update<C extends ComponentClass, J extends ComponentClass[]>(
+  public update<C extends ComponentType, J extends ComponentType[]>(
     ComponentClass: C,
     injectOrCallback: readonly [...J] | ((e: Entity, c: InstanceType<C>) => void),
     callback?: (
@@ -557,7 +568,7 @@ export class Query<R extends ComponentClass[] = []> {
    *   .sort([Position], (_entityA, [posA], _entityB, [posB]) => posA.z - posB.z);
    * ```
    */
-  public sort<J extends ComponentClass[]>(
+  public sort<J extends ComponentType[]>(
     components: readonly [...J],
     compare: (
       entityA: Entity,
@@ -597,7 +608,7 @@ export class Query<R extends ComponentClass[] = []> {
    *   });
    * ```
    */
-  public query<T extends ComponentClass[] = []>(
+  public query<T extends ComponentType[] = []>(
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): Query<T> {
@@ -618,7 +629,7 @@ export class Query<R extends ComponentClass[] = []> {
    * @param components - Component classes to require.
    * @returns This query, retyped with the required tuple as its `R`.
    */
-  public requires<T extends ComponentClass[]>(...components: [...T]): Query<T> {
+  public requires<T extends ComponentType[]>(...components: [...T]): Query<T> {
     this.query(components);
     return this as unknown as Query<T>;
   }
@@ -628,16 +639,20 @@ export class Query<R extends ComponentClass[] = []> {
    *
    * Every entity that currently belongs to this query has the membership
    * silently purged (no `exit` callbacks fire), the tracked set is cleared,
-   * and the `world` reference is forced to `undefined`. Calling any method on
-   * the query afterwards is **undefined behavior**.
-   *
-   * Not supported on {@link System} — calling it on a system throws.
+   * and the backing entity is destroyed. Calling any method on the query
+   * afterwards is **undefined behavior**.
    */
   public destroy(): void {
+    if (this._destroyed) {
+      return;
+    }
+    this._destroyed = true;
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;
     this._belongs = (_e: Entity) => false;
-    (this as any).world = undefined;
+    if (!this.entity._destroyed && this.entity.get(Query) === this) {
+      this.entity.destroy();
+    }
   }
 }

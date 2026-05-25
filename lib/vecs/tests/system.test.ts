@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World, type QueryDSL } from "../src/index.js";
+import { Query, System, World, type QueryDSL } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -764,11 +764,32 @@ describe("System — sort", () => {
 });
 
 describe("System — destroy", () => {
-  it("destroy() throws — destroying a system is not supported", () => {
+  it("destroy() removes the system and destroys its backing entity", () => {
     const { w, phase } = setup();
     const sys = w.system("test").phase(phase).requires(Position);
+    const entity = sys.entity;
     w.start();
-    expect(() => sys.destroy()).toThrow();
+    sys.destroy();
+
+    expect(w.queries).not.toContain(sys);
+    expect(entity._destroyed).toBe(true);
+    expect(w.getEntity(entity.eid)).toBeUndefined();
+  });
+
+  it("stores systems as both query and system components", () => {
+    const { w, phase } = setup();
+    const sys = w.system("stored-system").phase(phase);
+
+    expect(sys.entity.get(Query)).toBe(sys);
+    expect(sys.entity.get(System)).toBe(sys);
+  });
+
+  it("can query system entities", () => {
+    const { w, phase } = setup();
+    const sys = w.system("queried-system").phase(phase);
+    const systems = w.query("systems").requires(Query, System).build();
+
+    expect(systems.has(sys.entity)).toBe(true);
   });
 });
 

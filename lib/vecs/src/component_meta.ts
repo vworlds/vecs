@@ -4,11 +4,16 @@ import type { Entity, EntityClass } from "./entity/index.js";
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
 
-/** A component class constructor. */
+/** A component constructor used as a component key. */
+export type ComponentType<T extends ComponentInstance = ComponentInstance> = new (
+  ...args: any[]
+) => T;
+
+/** A component class constructor that can be instantiated by entity.add/set. */
 export type ComponentClass<T extends ComponentInstance = ComponentInstance> = new () => T;
 
 /** A component class constructor, component eid, or entity component key. */
-export type ComponentRef = number | ComponentClass | EntityClass | Entity;
+export type ComponentRef = number | ComponentType | EntityClass | Entity;
 
 /**
  * Lifecycle hook for a registered component class. Exposed by
@@ -74,7 +79,7 @@ export interface Hook<C extends ComponentInstance = ComponentInstance> {
  */
 export class ComponentMeta implements Hook<ComponentInstance> {
   /** The component class constructor this meta represents. */
-  public readonly Class: ComponentClass;
+  public readonly Class: ComponentType;
   /** Component entity id assigned at registration time. */
   public readonly eid: number;
   /** Pre-computed bit-pointer into the entity archetype {@link Bitset}. */
@@ -96,7 +101,7 @@ export class ComponentMeta implements Hook<ComponentInstance> {
 
   private _usageCount = 0;
 
-  constructor(Class: ComponentClass, eid: number) {
+  constructor(Class: ComponentType, eid: number) {
     this.Class = Class;
     this.eid = eid;
     this.bitPtr = new BitPtr(eid);

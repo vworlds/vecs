@@ -1,4 +1,9 @@
-import { type ComponentClass, type ComponentRef, type ComponentRefArray } from "./component.js";
+import {
+  type ComponentClass,
+  type ComponentRef,
+  type ComponentRefArray,
+  type ComponentType,
+} from "./component.js";
 import { Entity } from "./entity/index.js";
 import type { World } from "./world/index.js";
 import { Bitset } from "./util/bitset.js";
@@ -63,7 +68,7 @@ export type QueryDSL =
  * @typeParam C - Component class being injected.
  * @typeParam R - Tuple of component classes guaranteed present.
  */
-export type MaybeRequired<C, R extends ComponentClass[]> = C extends ComponentClass
+export type MaybeRequired<C, R extends ComponentType[]> = C extends ComponentType
   ? C extends R[number]
     ? InstanceType<C>
     : InstanceType<C> | undefined
@@ -84,9 +89,9 @@ export type MaybeRequired<C, R extends ComponentClass[]> = C extends ComponentCl
  *
  * @typeParam Q - Query expression to analyse.
  */
-export type ExtractRequired<Q> = Q extends ComponentClass
+export type ExtractRequired<Q> = Q extends ComponentType
   ? [Q]
-  : Q extends readonly ComponentClass[]
+  : Q extends readonly ComponentType[]
     ? Q
     : Q extends { HAS: infer H }
       ? ExtractRequired<H>

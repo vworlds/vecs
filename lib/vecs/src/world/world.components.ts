@@ -1,4 +1,4 @@
-import { Component, type ComponentClass } from "../component.js";
+import { Component, type ComponentClass, type ComponentType } from "../component.js";
 import { Entity, type EntityClass } from "../entity/index.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";
@@ -10,7 +10,7 @@ export class Components extends Entities {
   /** @internal `true` once {@link start} or {@link disableComponentRegistration} has been called. */
   protected _componentRegistrationDisabled = false;
 
-  public component<T extends ComponentClass>(
+  public component<T extends ComponentType>(
     this: World,
     ComponentClass: T,
     eid?: number
@@ -50,7 +50,7 @@ export class Components extends Entities {
   protected _component<T extends Entity>(
     this: World,
     Constructor: EntityClass<T>,
-    ComponentClass: ComponentClass,
+    ComponentClass: ComponentType,
     eid?: number,
     pool: IdPool = this._componentPool
   ): T {
