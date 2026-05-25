@@ -1,10 +1,4 @@
-import {
-  Component,
-  type ComponentClass,
-  type ComponentRef,
-  type ComponentMeta,
-  Hook,
-} from "./component.js";
+import { Component, type ComponentClass, type ComponentRef, Hook } from "./component.js";
 import { Entity, type EntityClass } from "./entity/index.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
@@ -412,11 +406,8 @@ export class World {
   }
 
   public module<T extends Module>(ModuleClass: EntityClass<T>, eid?: number): T {
-    let isNew = true;
     const ComponentClass = ModuleClass as unknown as ComponentClass;
-    if (this._tryGetComponentEntity(ComponentClass)) {
-      isNew = false;
-    }
+    const isNew = (ComponentClass as any)[this.worldKey] === undefined;
     const mod = this._component<T>(ModuleClass, ComponentClass, eid, this._modulePool);
     if (isNew) {
       mod.init();
@@ -452,7 +443,7 @@ export class World {
       throw new Error(`Component eid ${eid} is reserved`);
     }
 
-    const existingComponent = this._tryGetComponentEntity(ComponentClass) as T | undefined;
+    const existingComponent = (ComponentClass as any)[this.worldKey] as T | undefined;
     if (existingComponent) {
       if (eid === undefined || eid === existingComponent.eid) {
         return existingComponent;
@@ -479,43 +470,6 @@ export class World {
     return component;
   }
 
-  /** @internal Return the component entity registered for this class without throwing. */
-  public _tryGetComponentEntity(Class: ComponentClass): Entity | undefined {
-    return (Class as any)[this.worldKey] as Entity | undefined;
-  }
-
-  /** @internal Resolve a component reference to entity-owned metadata. */
-  public _resolveComponentMeta(ref: ComponentRef): ComponentMeta {
-    if (typeof ref === "function") {
-      const entity = this._tryGetComponentEntity(ref as ComponentClass);
-      if (entity) {
-        return entity.ownMeta;
-      }
-      throw `unregistered component meta for component class '${ref.name}'`;
-    }
-
-    const entity = typeof ref === "number" ? this._entities.get(ref) : ref;
-    if (entity) {
-      return entity.ownMeta;
-    }
-
-    const eid = ref;
-    if (eid === RESERVED_EID) {
-      throw new Error(`Component eid ${eid} is reserved`);
-    }
-    throw new Error(`unregistered component meta for component eid ${eid}`);
-  }
-
-  /**
-   * Resolve a component class, eid, or entity ref to its component eid.
-   *
-   * @param typeOrClass - Component class or numeric type id.
-   * @returns The numeric type id.
-   */
-  public getComponentEid(ref: ComponentRef): number {
-    return this._resolveComponentMeta(ref).eid;
-  }
-
   /**
    * Return the {@link Hook} for a component class.
    *
@@ -533,7 +487,7 @@ export class World {
    * @returns The hook bound to that component type.
    */
   public hook<T extends ComponentClass>(C: T): Hook<InstanceType<T>> {
-    return this._resolveComponentMeta(C) as any;
+    return this.entity(C).ownMeta as any;
   }
 
   /**
@@ -558,7 +512,7 @@ export class World {
    * @throws When any class has not been registered.
    */
   public setExclusiveComponents(...components: ComponentClass[]): void {
-    const metas = components.map((C) => this._resolveComponentMeta(C));
+    const metas = components.map((C) => this.entity(C).ownMeta);
     for (let i = 0; i < metas.length; i++) {
       metas[i]._exclusive = metas.filter((_, j) => j !== i);
     }
@@ -611,6 +565,26 @@ export class World {
   }
 
   /**
+   * Look up an entity by component ref.
+   *
+   * @param ref - Component class, numeric eid, or entity ref.
+   * @returns The entity represented by `ref`, or `undefined` when it is absent.
+   * @throws When `ref` is the reserved eid `0`.
+   */
+  public getEntity(ref: ComponentRef): Entity | undefined {
+    if (typeof ref === "function") {
+      return (ref as any)[this.worldKey] as Entity | undefined;
+    }
+    if (typeof ref === "number") {
+      if (ref === RESERVED_EID) {
+        throw new Error(`Entity eid ${ref} is reserved`);
+      }
+      return this._entities.get(ref);
+    }
+    return ref.world === this && this._entities.get(ref.eid) === ref ? ref : undefined;
+  }
+
+  /**
    * Create a new entity with an auto-assigned id.
    *
    * The default entity pool starts at eid `1000`. In deferred mode the new
@@ -620,18 +594,29 @@ export class World {
   public entity(): Entity;
 
   /**
-   * Look up an existing entity by id.
+   * Look up an existing entity by component ref.
    *
-   * @param id - Numeric entity id.
-   * @returns The entity, or `undefined` when no entity with that id exists.
+   * @param ref - Component class, numeric eid, or entity ref.
+   * @returns The entity represented by `ref`.
+   * @throws When no entity exists for `ref`.
    */
-  public entity(id: number): Entity | undefined;
+  public entity(ref: ComponentRef): Entity;
 
-  public entity(id?: number): Entity | undefined {
-    if (id === undefined) {
+  public entity(ref?: ComponentRef): Entity {
+    if (ref === undefined) {
       return this._entity(Entity);
     }
-    return this._entities.get(id);
+    const entity = this.getEntity(ref);
+    if (entity) {
+      return entity;
+    }
+    if (typeof ref === "function") {
+      throw new Error(`unregistered component entity for component class '${ref.name}'`);
+    }
+    if (typeof ref === "number") {
+      throw new Error(`No entity with eid ${ref}`);
+    }
+    throw new Error(`No entity with eid ${ref.eid}`);
   }
 
   private _entity<T extends Entity>(Constructor: EntityClass<T>): T {

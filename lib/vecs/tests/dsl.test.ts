@@ -253,13 +253,12 @@ describe("Query DSL compilation", () => {
       return e.componentBitmask.hasBitset(maskOf([q]));
     }
     if (typeof q === "function") {
-      const componentEntity = world._tryGetComponentEntity(
-        q as unknown as new (...args: never[]) => object
-      );
-      if (componentEntity) {
+      try {
+        const componentEntity = world.entity(q as unknown as new (...args: never[]) => object);
         return e.componentBitmask.hasBitset(maskOf([componentEntity.eid]));
+      } catch {
+        throw new Error("reference evaluator does not handle custom predicates");
       }
-      throw new Error("reference evaluator does not handle custom predicates");
     }
     if (q instanceof Array) {
       return e.componentBitmask.hasBitset(maskOf(q as number[]));

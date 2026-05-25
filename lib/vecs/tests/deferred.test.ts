@@ -96,7 +96,7 @@ describe("Deferred mode — entity creation", () => {
     w.start();
     w.beginDefer();
     const e = w.entity();
-    expect(w.entity(e.eid)).toBeUndefined();
+    expect(() => w.entity(e.eid)).toThrow();
     w.endDefer();
     expect(w.entity(e.eid)).toBe(e);
   });
@@ -229,7 +229,7 @@ describe("Deferred mode — parent destruction", () => {
       .phase(phase)
       .requires(Position)
       .exit((e) => {
-        observedParentId = w.entity(parentEid)?.eid;
+        observedParentId = w.getEntity(parentEid)?.eid;
         // Parent was destroyed before this child's exit fires (top-down).
       });
     w.start();

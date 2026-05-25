@@ -139,12 +139,40 @@ describe("World - id pools", () => {
 });
 
 describe("World - entity management", () => {
-  it("entity(id) returns the entity or undefined", () => {
+  it("getEntity(id) returns the entity or undefined", () => {
+    const w = new World();
+    const e = w.entity();
+
+    expect(w.getEntity(e.eid)).toBe(e);
+    expect(w.getEntity(999)).toBeUndefined();
+    expect(() => w.getEntity(0)).toThrow(/reserved/);
+  });
+
+  it("entity(id) returns the entity or throws", () => {
     const w = new World();
     const e = w.entity();
 
     expect(w.entity(e.eid)).toBe(e);
-    expect(w.entity(999)).toBeUndefined();
+    expect(() => w.entity(999)).toThrow();
+    expect(() => w.entity(0)).toThrow(/reserved/);
+  });
+
+  it("getEntity(ref) resolves component classes and entity refs", () => {
+    const w = new World();
+    const component = w.component(A);
+    const e = w.entity();
+
+    expect(w.getEntity(A)).toBe(component);
+    expect(w.getEntity(e)).toBe(e);
+  });
+
+  it("entity(ref) resolves component classes and entity refs", () => {
+    const w = new World();
+    const component = w.component(A);
+    const e = w.entity();
+
+    expect(w.entity(A)).toBe(component);
+    expect(w.entity(e)).toBe(e);
   });
 
   it("getOrCreateEntity returns existing entity or creates a new one", () => {
@@ -176,9 +204,9 @@ describe("World - entity management", () => {
 
     w.clearAllEntities();
 
-    expect(w.entity(component.eid)).toBeUndefined();
-    expect(w.entity(e1.eid)).toBeUndefined();
-    expect(w.entity(e2.eid)).toBeUndefined();
+    expect(() => w.entity(component.eid)).toThrow();
+    expect(() => w.entity(e1.eid)).toThrow();
+    expect(() => w.entity(e2.eid)).toThrow();
   });
 });
 
@@ -232,7 +260,7 @@ describe("World - components", () => {
     const w = new World();
     const e = w.entity();
 
-    expect(() => e.add(42)).toThrow(/unregistered component meta/);
+    expect(() => e.add(42)).toThrow(/No entity with eid 42/);
   });
 
   it("component APIs throw for unregistered component classes", () => {

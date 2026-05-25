@@ -84,7 +84,7 @@ export class Filter<R extends ComponentClass[] = []> {
           }
         });
       } else {
-        const eids = componentsOrCallback.map((C) => this.world.getComponentEid(C));
+        const eids = componentsOrCallback.map((C) => this.world.entity(C).eid);
         this.world.entities.forEach((e) => {
           if (!this._belongs(e)) {
             return;

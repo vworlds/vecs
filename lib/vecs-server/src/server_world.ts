@@ -303,7 +303,7 @@ export class ServerWorld extends NetworkWorld {
 }
 
 function ensureRegistered(world: NetworkWorld, Class: ComponentClass): void {
-  if (!world._tryGetComponentEntity(Class)) {
+  if (!world.getEntity(Class)) {
     world.component(Class);
   }
 }

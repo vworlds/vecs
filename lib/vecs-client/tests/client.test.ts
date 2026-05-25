@@ -99,7 +99,7 @@ describe("ClientWorld", () => {
 
     client.apply(0);
 
-    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 4, y: 8 });
+    expect(world.entity(7).get(Position)).toMatchObject({ x: 4, y: 8 });
   });
 
   it("keeps server entities after their last synchronized component is removed", () => {
@@ -150,7 +150,7 @@ describe("ClientWorld", () => {
     );
     client.apply(0);
 
-    expect(world.entity(7)).toBeUndefined();
+    expect(() => world.entity(7)).toThrow();
   });
 
   it("acks the highest accepted server frame", () => {
@@ -210,13 +210,13 @@ describe("ClientWorld", () => {
     );
 
     client.apply(0);
-    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 1, y: 1 });
+    expect(world.entity(7).get(Position)).toMatchObject({ x: 1, y: 1 });
 
     client.apply(10);
-    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 2, y: 2 });
+    expect(world.entity(7).get(Position)).toMatchObject({ x: 2, y: 2 });
 
     client.apply(20);
-    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 3, y: 3 });
+    expect(world.entity(7).get(Position)).toMatchObject({ x: 3, y: 3 });
   });
 
   it("applies interpolated position frames between server ticks", () => {
@@ -243,7 +243,7 @@ describe("ClientWorld", () => {
     client.apply(100);
     client.apply(105);
 
-    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 5, y: 10 });
+    expect(world.entity(7).get(Position)).toMatchObject({ x: 5, y: 10 });
   });
 
   it("drops diffs whose frames have already left the bucket window", () => {
@@ -269,7 +269,7 @@ describe("ClientWorld", () => {
     );
 
     client.apply(0);
-    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 50, y: 50 });
+    expect(world.entity(7).get(Position)).toMatchObject({ x: 50, y: 50 });
   });
 
   it("merges retransmitted diffs without applying them twice", () => {
@@ -293,7 +293,7 @@ describe("ClientWorld", () => {
     client.apply(10);
     client.apply(20);
 
-    expect(world.entity(7)?.get(Position)).toMatchObject({ x: 7, y: 7 });
+    expect(world.entity(7).get(Position)).toMatchObject({ x: 7, y: 7 });
     client.send();
     expect(new Decoder(socket.sent[0]).read(Client2Server).ackFrame).toBe(1);
   });

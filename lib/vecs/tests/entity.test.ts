@@ -125,7 +125,7 @@ describe("Entity — components", () => {
     const w = new World();
     const e = w.entity();
     const pos = new Position();
-    expect(() => e.attach(pos)).toThrow(/unregistered component meta/);
+    expect(() => e.attach(pos)).toThrow(/unregistered component entity/);
   });
 
   it("attach replaces an existing stored instance without assigning into the old object", () => {
@@ -285,10 +285,10 @@ describe("Entity — components", () => {
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
-    expect(e.componentBitmask.has(w.getComponentEid(Position))).toBe(true);
-    expect(e.componentBitmask.has(w.getComponentEid(Velocity))).toBe(true);
+    expect(e.componentBitmask.has(w.entity(Position).eid)).toBe(true);
+    expect(e.componentBitmask.has(w.entity(Velocity).eid)).toBe(true);
     e.remove(Position);
-    expect(e.componentBitmask.has(w.getComponentEid(Position))).toBe(false);
+    expect(e.componentBitmask.has(w.entity(Position).eid)).toBe(false);
   });
 
   it("empty reflects whether any components remain", () => {
@@ -338,7 +338,7 @@ describe("Entity — lifecycle and hierarchy", () => {
     env.start();
     const e = env.w.entity();
     e.destroy();
-    expect(env.w.entity(e.eid)).toBeUndefined();
+    expect(() => env.w.entity(e.eid)).toThrow();
   });
 
   it("destroy recursively destroys children", () => {
@@ -353,8 +353,8 @@ describe("Entity — lifecycle and hierarchy", () => {
     parent.destroy();
     env.tick();
     expect(childDestroyed).toHaveBeenCalled();
-    expect(env.w.entity(child.eid)).toBeUndefined();
-    expect(env.w.entity(parent.eid)).toBeUndefined();
+    expect(() => env.w.entity(child.eid)).toThrow();
+    expect(() => env.w.entity(parent.eid)).toThrow();
   });
 
   it("destroy unlinks from parent and triggers parent's archetype update", () => {

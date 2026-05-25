@@ -120,7 +120,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
     e.components.forEach((c, eid) => {
-      const meta = this.world._resolveComponentMeta(eid);
+      const meta = this.world.entity(eid).ownMeta;
       if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
         this._notifyModified(e, meta, c);
       }
@@ -402,7 +402,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
       throw `each already registered for system '${this.name}'`;
     }
     this.track();
-    const eids = components.map((C) => this.world.getComponentEid(C));
+    const eids = components.map((C) => this.world.entity(C).eid);
     this._eachCallback = (e: Entity) => {
       const resolved = eids.map((eid) => e.get(eid));
       callback(e, resolved as any);

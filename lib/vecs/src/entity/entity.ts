@@ -227,7 +227,7 @@ export class Entity extends PartialClass {
     toExit.forEach((q) => q._exit(this));
 
     this._components.forEach((c, eid) => {
-      const meta = this.world._resolveComponentMeta(eid);
+      const meta = this.world.entity(eid).ownMeta;
       meta._decrementUsage();
       const removeHandlers = meta._onRemoveHandlers;
       if (removeHandlers) {
@@ -451,7 +451,7 @@ export class Entity extends PartialClass {
   public add(entity: Entity): this;
 
   public add(ref: ComponentRef): this {
-    const meta = this.world._resolveComponentMeta(ref);
+    const meta = this.world.entity(ref).ownMeta;
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props: undefined });
     } else {
@@ -473,7 +473,7 @@ export class Entity extends PartialClass {
    * @returns This entity, for chaining.
    */
   public attach(component: ComponentInstance): this {
-    const meta = this.world._resolveComponentMeta(component.constructor as ComponentClass);
+    const meta = this.world.entity(component.constructor as ComponentClass).ownMeta;
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component });
     } else {
@@ -517,7 +517,7 @@ export class Entity extends PartialClass {
   public get(entity: Entity): Readonly<ComponentInstance> | undefined;
 
   public get(ref: ComponentRef): Readonly<ComponentInstance> | undefined {
-    const eid = this.world.getComponentEid(ref);
+    const eid = this.world.entity(ref).eid;
     return this._get(eid);
   }
 
@@ -538,7 +538,7 @@ export class Entity extends PartialClass {
   public getMut(entity: Entity): ComponentInstance | undefined;
 
   public getMut(ref: ComponentRef): ComponentInstance | undefined {
-    const eid = this.world.getComponentEid(ref);
+    const eid = this.world.entity(ref).eid;
     const component = this._get(eid);
     if (component) {
       this.modified(ref);
@@ -557,7 +557,7 @@ export class Entity extends PartialClass {
    * @returns This entity, for chaining.
    */
   public modified(ref: ComponentRef): this {
-    const meta = this.world._resolveComponentMeta(ref);
+    const meta = this.world.entity(ref).ownMeta;
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return this;
     }
@@ -591,7 +591,7 @@ export class Entity extends PartialClass {
   public remove(entity: Entity): void;
 
   public remove(ref: ComponentRef): void {
-    const meta = this.world._resolveComponentMeta(ref);
+    const meta = this.world.entity(ref).ownMeta;
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Remove, entity: this, meta });
     } else {
@@ -639,7 +639,7 @@ export class Entity extends PartialClass {
   public set(entity: Entity, props: Partial<ComponentInstance>): this;
 
   public set(ref: ComponentRef, props: Partial<ComponentInstance>): this {
-    const meta = this.world._resolveComponentMeta(ref);
+    const meta = this.world.entity(ref).ownMeta;
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props });
     } else {

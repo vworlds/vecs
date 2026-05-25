@@ -210,9 +210,9 @@ export class Query<R extends ComponentClass[] = []> {
   ): ComponentOrParentType[] {
     return inject.map((C) => {
       if (typeof C === "function") {
-        return this.world.getComponentEid(C);
+        return this.world.entity(C).eid;
       }
-      return { parent: this.world.getComponentEid(C.parent) };
+      return { parent: this.world.entity(C.parent).eid };
     });
   }
 
@@ -229,7 +229,7 @@ export class Query<R extends ComponentClass[] = []> {
     e._addQueryMembership(this);
     this._enterCallback?.(e);
     e.components.forEach((c, eid) => {
-      const meta = this.world._resolveComponentMeta(eid);
+      const meta = this.world.entity(eid).ownMeta;
       if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
         this._notifyModified(e, meta, c);
       }
@@ -348,7 +348,7 @@ export class Query<R extends ComponentClass[] = []> {
         if (!this._entities || !this.world) {
           return;
         }
-        const eids = componentsOrCallback.map((C) => this.world.getComponentEid(C));
+        const eids = componentsOrCallback.map((C) => this.world.entity(C).eid);
         this._entities.forEach((e) => {
           const resolved = eids.map((componentEid) => e.get(componentEid));
           callback!(e, resolved as any);
@@ -505,13 +505,13 @@ export class Query<R extends ComponentClass[] = []> {
     ) => void
   ): this {
     this._assertConfigurable();
-    const componentEid = this.world.getComponentEid(ComponentClass);
+    const componentEid = this.world.entity(ComponentClass).eid;
     if (typeof injectOrCallback === "function") {
       callback = injectOrCallback;
       this._componentUpdateCallbacks.set(componentEid, callback as any);
     } else {
       const inject = injectOrCallback;
-      const injectedComponentEids = inject.map((C) => this.world.getComponentEid(C));
+      const injectedComponentEids = inject.map((C) => this.world.entity(C).eid);
       const cb = (e: Entity, c: ComponentInstance) => {
         const injected: any[] = [];
         injectedComponentEids.forEach((injectedComponentEid) => {
@@ -567,7 +567,7 @@ export class Query<R extends ComponentClass[] = []> {
     ) => number
   ): this {
     this._assertConfigurable();
-    const eids = components.map((C) => this.world.getComponentEid(C));
+    const eids = components.map((C) => this.world.entity(C).eid);
     this._entities = new OrderedSet<Entity>((a, b) =>
       compare(a, eids.map((eid) => a.get(eid)) as any, b, eids.map((eid) => b.get(eid)) as any)
     );

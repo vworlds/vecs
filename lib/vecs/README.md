@@ -188,8 +188,11 @@ Each call defines one independent group. A component may belong to at most one g
 // New entity with an auto-incrementing id:
 const e = world.entity();
 
-// Look up by id (returns undefined if not found):
+// Look up by id (throws if not found):
 const found = world.entity(42);
+
+// Optional lookup by id or component ref:
+const maybeFound = world.getEntity(42);
 
 // Server-assigned id; creates the entity if it doesn't exist yet:
 const net = world.getOrCreateEntity(serverId, (newEntity) => {

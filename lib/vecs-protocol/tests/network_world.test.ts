@@ -10,7 +10,7 @@ describe("NetworkWorld", () => {
     const world = new NetworkWorld({ networkComponents: [Position] });
 
     expect(world.localComponentMin).toBe(2);
-    expect(world.getComponentEid(Position)).toBe(1);
+    expect(world.entity(Position).eid).toBe(1);
     expect(world.networkComponents).toEqual([{ Class: Position, type: 1 }]);
     expect(cid_pack(42, 1)).toBeGreaterThan(0);
   });

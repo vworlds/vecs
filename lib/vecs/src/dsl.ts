@@ -141,7 +141,7 @@ function _calculateComponentBitmask(types: readonly number[]): Bitset {
 }
 
 function _resolveComponentRequirement(component: ComponentRef, world: World): number {
-  return world.getComponentEid(component);
+  return world.entity(component).eid;
 }
 
 function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL {
@@ -152,8 +152,7 @@ function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL 
     return component.eid;
   }
 
-  const entity = world._tryGetComponentEntity(component as ComponentClass);
-  return entity ? entity.eid : component;
+  return world.getEntity(component as ComponentClass)?.eid ?? component;
 }
 
 function _sortComponentRequirements(components: ComponentRefArray): ComponentRefArray {
@@ -484,14 +483,11 @@ function _compileQueryExpression(
     return _compileMask(context, [q], entityRef, "hasBitset");
   }
 
-  if (typeof q === "function" && world._tryGetComponentEntity(q as ComponentClass)) {
-    return _compileMask(
-      context,
-      [world.getComponentEid(q as ComponentClass)],
-      entityRef,
-      "hasBitset"
-    );
-  } else if (typeof q === "function") {
+  if (typeof q === "function") {
+    const componentEntity = world.getEntity(q as ComponentClass);
+    if (componentEntity) {
+      return _compileMask(context, [componentEntity.eid], entityRef, "hasBitset");
+    }
     const funcIndex = context.funcs.push(q as EntityTestFunc) - 1;
     return `f${funcIndex}(${entityRef})`;
   }
@@ -499,7 +495,7 @@ function _compileQueryExpression(
   if (q instanceof Array) {
     return _compileMask(
       context,
-      q.map((component) => world.getComponentEid(component)),
+      q.map((component) => world.entity(component).eid),
       entityRef,
       "hasBitset"
     );
@@ -514,8 +510,8 @@ function _compileQueryExpression(
     return _compileMask(
       context,
       v instanceof Array
-        ? v.map((component) => world.getComponentEid(component))
-        : [world.getComponentEid(v)],
+        ? v.map((component) => world.entity(component).eid)
+        : [world.entity(v).eid],
       entityRef,
       "equal"
     );
@@ -591,14 +587,13 @@ export function _extractQueryDependencies(world: World, q: QueryDSL): number[] |
     return [q];
   }
 
-  if (typeof q === "function" && world._tryGetComponentEntity(q as ComponentClass)) {
-    return [world.getComponentEid(q as ComponentClass)];
-  } else if (typeof q === "function") {
-    return undefined;
+  if (typeof q === "function") {
+    const componentEntity = world.getEntity(q as ComponentClass);
+    return componentEntity ? [componentEntity.eid] : undefined;
   }
 
   if (q instanceof Array) {
-    return q.map((component) => world.getComponentEid(component));
+    return q.map((component) => world.entity(component).eid);
   }
 
   if ("HAS" in q) {

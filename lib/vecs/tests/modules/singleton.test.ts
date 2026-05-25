@@ -91,6 +91,6 @@ describe("SingletonModule", () => {
 
     world.clearAllEntities();
 
-    expect(world.entity(gravityComponent.eid)).toBeUndefined();
+    expect(() => world.entity(gravityComponent.eid)).toThrow();
   });
 });
