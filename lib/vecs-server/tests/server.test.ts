@@ -134,7 +134,7 @@ function connectSession(
 }
 
 function allowAllClientViews(world: World): void {
-  world.hook(NetworkClient).onSet((entity) => {
+  world.component(NetworkClient).onSet((entity) => {
     entity.set(View, { dsl: true });
   });
 }

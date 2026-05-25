@@ -109,10 +109,10 @@ export class ServerWorld extends NetworkWorld {
     this._systemsInstalled = true;
     const { collectPhase, sendPhase } = options;
 
-    this.hook(Networked).onRemove((entity) => {
+    this.component(Networked).onRemove((entity) => {
       this._record(entity, ALL_COMPONENTS, undefined);
     });
-    this.hook(ServerClientSession).onRemove((_entity, session) => {
+    this.component(ServerClientSession).onRemove((_entity, session) => {
       session.destroy();
     });
 

@@ -95,7 +95,7 @@ world
 // ─── Hooks ─────────────────────────────────────────────────────────────────
 
 world
-  .hook(Health)
+  .component(Health)
   .onAdd((entity, h) => console.log(`entity ${entity.eid} spawned with hp=${h.hp}`))
   .onRemove((entity) => console.log(`entity ${entity.eid} died`));
 
@@ -145,7 +145,7 @@ const world = new World();
 
 #### Component registration
 
-Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `requires`, `query`, `filter`, `hook`, or `setExclusiveComponents`.
+Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `requires`, `query`, `filter`, hook registration, or `setExclusiveComponents`.
 
 ```ts
 class Position {
@@ -211,7 +211,7 @@ world.clearAllEntities();
 
 ```ts
 world
-  .hook(Sprite)
+  .component(Sprite)
   .onAdd((entity, sprite) => sprite.initialize(scene, entity))
   .onRemove((entity, sprite) => sprite.destroy(scene, entity))
   .onSet((entity, sprite) => sprite.syncToScene(entity));

@@ -11,16 +11,15 @@ export type ComponentClass<T extends ComponentInstance = ComponentInstance> = ne
 export type ComponentRef = number | ComponentClass | EntityClass | Entity;
 
 /**
- * Lifecycle hook for a registered component class. Obtained via
- * {@link World.hook}.
+ * Lifecycle hook for a registered component class. Exposed by
+ * {@link World.component}.
  *
  * Hooks are a lightweight alternative to building a {@link System} when all
  * you need is a callback on add / remove / set for a single component type.
- * The same `Hook` is returned on every call to `world.hook(C)`, so registration
- * methods chain:
+ * Component entities expose the same registration methods, so calls chain:
  *
  * ```ts
- * world.hook(Sprite)
+ * world.component(Sprite)
  *   .onAdd((e, c) => initSprite(e, c))
  *   .onRemove((e, c) => destroySprite(e, c))
  *   .onSet((e, c) => syncSprite(e, c));
@@ -70,8 +69,8 @@ export interface Hook<C extends ComponentInstance = ComponentInstance> {
  *
  * Holds the constructor, component eid, and pre-computed
  * {@link BitPtr} used by archetype checks. Implements {@link Hook}, so the
- * lifecycle handlers attached via `world.hook(C)` are stored directly on the
- * meta object.
+ * lifecycle handlers attached via `world.component(C)` are stored directly on
+ * the meta object.
  */
 export class ComponentMeta implements Hook<ComponentInstance> {
   /** The component class constructor this meta represents. */

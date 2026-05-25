@@ -300,11 +300,12 @@ describe("World - phases", () => {
     expect(p.world).toBe(w);
   });
 
-  it("hook returns the same ComponentMeta object", () => {
+  it("component returns the same component entity after registration is disabled", () => {
     const w = new World();
     w.component(A);
+    w.start();
 
-    expect(w.hook(A)).toBe(w.hook(A));
+    expect(w.component(A)).toBe(w.component(A));
   });
 
   it("progress runs all phases in insertion order", () => {

@@ -1,4 +1,4 @@
-import { Component, type ComponentClass, type ComponentRef, Hook } from "./component.js";
+import { Component, type ComponentClass, type ComponentRef } from "./component.js";
 import { Entity, type EntityClass } from "./entity/index.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
@@ -9,7 +9,6 @@ import { IPhase, Phase } from "./phase.js";
 import { CommandKind, type Command } from "./command.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
 import { IdPool, type IdPoolConfig, validateIdPoolConfigs } from "./util/id_pool.js";
-import { Module } from "./module.js";
 import { IdentityModule } from "./entity/index.js";
 import { SingletonModule } from "./modules/singleton.js";
 
@@ -19,7 +18,9 @@ export const DEFAULT_POOLS: readonly IdPoolConfig[] = [
   { name: "entity", min: 1000 },
 ];
 const RESERVED_EID = 0;
-const BUILTIN_MODULES: EntityClass<Module>[] = [IdentityModule, SingletonModule];
+type ModuleEntity = Entity & { init(): void };
+
+const BUILTIN_MODULES: EntityClass<ModuleEntity>[] = [IdentityModule, SingletonModule];
 
 export interface WorldOptions {
   idPools?: readonly IdPoolConfig[];
@@ -405,7 +406,7 @@ export class World {
     }
   }
 
-  public module<T extends Module>(ModuleClass: EntityClass<T>, eid?: number): T {
+  public module<T extends ModuleEntity>(ModuleClass: EntityClass<T>, eid?: number): T {
     const ComponentClass = ModuleClass as unknown as ComponentClass;
     const isNew = (ComponentClass as any)[this.worldKey] === undefined;
     const mod = this._component<T>(ModuleClass, ComponentClass, eid, this._modulePool);
@@ -415,30 +416,24 @@ export class World {
     return mod;
   }
 
-  public component(ComponentClass: ComponentClass, eid?: number): Component {
-    if (this._componentRegistrationDisabled) {
-      throw "World component registration is disabled";
-    }
-    return this._component(Component, ComponentClass, eid);
+  public component<T extends ComponentClass>(ComponentClass: T, eid?: number): Component<T> {
+    return this._component<Component<T>>(Component, ComponentClass, eid);
   }
 
   public get<C extends ComponentClass>(Class: C): Readonly<InstanceType<C>> | undefined {
     return this.component(Class).get(Class);
   }
 
-  public set<C extends ComponentClass>(Class: C, props: Partial<InstanceType<C>>): Component {
+  public set<C extends ComponentClass>(Class: C, props: Partial<InstanceType<C>>): Component<C> {
     return this.component(Class).set(Class, props);
   }
 
-  private _component<T extends Component>(
+  private _component<T extends Entity>(
     Constructor: EntityClass<T>,
     ComponentClass: ComponentClass,
     eid?: number,
     pool: IdPool = this._componentPool
   ): T {
-    if (this._componentRegistrationDisabled) {
-      throw "World component registration is disabled";
-    }
     if (eid === RESERVED_EID) {
       throw new Error(`Component eid ${eid} is reserved`);
     }
@@ -451,6 +446,9 @@ export class World {
       throw new Error(
         `Component class ${ComponentClass.name} is already registered with eid ${existingComponent.eid}`
       );
+    }
+    if (this._componentRegistrationDisabled) {
+      throw "World component registration is disabled";
     }
     if (eid === undefined) {
       eid = pool.alloc();
@@ -468,26 +466,6 @@ export class World {
       enumerable: false,
     });
     return component;
-  }
-
-  /**
-   * Return the {@link Hook} for a component class.
-   *
-   * Hooks let you react to component lifecycle events (add / remove / set)
-   * without building a full {@link System}. The same hook is returned on every
-   * call — handlers stack on the underlying meta record.
-   *
-   * ```ts
-   * world.hook(Sprite)
-   *   .onAdd((entity, c) => c.initialize(scene, entity))
-   *   .onRemove((entity, c) => c.destroy(scene, entity));
-   * ```
-   *
-   * @param C - Component class.
-   * @returns The hook bound to that component type.
-   */
-  public hook<T extends ComponentClass>(C: T): Hook<InstanceType<T>> {
-    return this.entity(C).ownMeta as any;
   }
 
   /**

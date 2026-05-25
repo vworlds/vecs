@@ -17,7 +17,7 @@ describe("ComponentMeta", () => {
     const env = makeWorldWithFlushPhase();
     env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
@@ -30,7 +30,7 @@ describe("ComponentMeta", () => {
     const env = makeWorldWithFlushPhase();
     env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     e.add(Health);
@@ -47,7 +47,7 @@ describe("ComponentMeta", () => {
     const env = makeWorldWithFlushPhase();
     env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     e.add(Health);
@@ -72,7 +72,7 @@ describe("Entity.modified", () => {
     const env = makeWorldWithFlushPhase();
     env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
@@ -85,7 +85,7 @@ describe("Entity.modified", () => {
     const env = makeWorldWithFlushPhase();
     env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     e.add(Health);
@@ -102,7 +102,7 @@ describe("Entity.modified", () => {
     const env = makeWorldWithFlushPhase();
     env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     e.add(Health).modified(Health);
@@ -116,10 +116,23 @@ describe("Hook", () => {
     const env = makeWorldWithFlushPhase();
     env.w.component(Health);
     const onAdd = vi.fn();
-    env.w.hook(Health).onAdd(onAdd);
+    env.w.component(Health).onAdd(onAdd);
     env.start();
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
+    expect(onAdd).toHaveBeenCalledWith(e, h);
+  });
+
+  it("hooks can be registered after world start", () => {
+    const env = makeWorldWithFlushPhase();
+    env.w.component(Health);
+    env.start();
+    const onAdd = vi.fn();
+
+    env.w.component(Health).onAdd(onAdd);
+    const e = env.w.entity();
+    const h = e.add(Health).get(Health)!;
+
     expect(onAdd).toHaveBeenCalledWith(e, h);
   });
 
@@ -131,7 +144,7 @@ describe("Hook", () => {
     const onSet = vi.fn((_e, c) => set_values.push(c.hp));
 
     const onAdd = vi.fn();
-    env.w.hook(Health).onSet(onSet).onAdd(onAdd);
+    env.w.component(Health).onSet(onSet).onAdd(onAdd);
     env.start();
     const e = env.w.entity();
     const h = e.set(Health, { hp: 99 }).get(Health)!;
@@ -149,7 +162,7 @@ describe("Hook", () => {
     const env = makeWorldWithFlushPhase();
     env.w.component(Health);
     const onRemove = vi.fn();
-    env.w.hook(Health).onRemove(onRemove);
+    env.w.component(Health).onRemove(onRemove);
     env.start();
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
@@ -161,7 +174,7 @@ describe("Hook", () => {
     const env = makeWorldWithFlushPhase();
     env.w.component(Health);
     const onRemove = vi.fn();
-    env.w.hook(Health).onRemove(onRemove);
+    env.w.component(Health).onRemove(onRemove);
     env.start();
     const e = env.w.entity();
     e.add(Health);
@@ -175,15 +188,15 @@ describe("Hook", () => {
     const a = vi.fn();
     const b = vi.fn();
     const c = vi.fn();
-    const result = w.hook(Health).onAdd(a).onRemove(b).onSet(c);
-    expect(result).toBe(w.hook(Health));
+    const result = w.component(Health).onAdd(a).onRemove(b).onSet(c);
+    expect(result).toBe(w.component(Health));
   });
 
   it("repeated hook registrations stack in registration order", () => {
     const w = new World();
     w.component(Health);
     const calls: string[] = [];
-    w.hook(Health)
+    w.component(Health)
       .onAdd(() => calls.push("add 1"))
       .onAdd(() => calls.push("add 2"))
       .onSet(() => calls.push("set 1"))

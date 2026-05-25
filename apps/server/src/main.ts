@@ -90,7 +90,7 @@ gridCellComponents.forEach((GridCell) => {
 });
 world.setExclusiveComponents(...gridCellComponents);
 
-world.hook(NetworkClient).onSet((entity) => {
+world.component(NetworkClient).onSet((entity) => {
   entity.set(View, { dsl: false });
 });
 

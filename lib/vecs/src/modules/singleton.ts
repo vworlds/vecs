@@ -7,7 +7,7 @@ export class SingletonModule extends Module {
   public init(): void {
     this.world.component(Singleton);
 
-    this.world.hook(Singleton).onAdd((target: Entity): void => {
+    this.world.component(Singleton).onAdd((target: Entity): void => {
       const targetMeta = target.ownMeta;
       if (targetMeta.usageCount !== 0) {
         throw new Error(

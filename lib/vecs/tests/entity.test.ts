@@ -145,7 +145,7 @@ describe("Entity — components", () => {
     w.component(Position);
     const onAdd = vi.fn();
     const onSet = vi.fn();
-    w.hook(Position).onAdd(onAdd).onSet(onSet);
+    w.component(Position).onAdd(onAdd).onSet(onSet);
     const e = w.entity();
     const pos = new Position();
     e.attach(pos);
@@ -158,7 +158,7 @@ describe("Entity — components", () => {
     w.component(Position);
     const onAdd = vi.fn();
     const onSet = vi.fn();
-    w.hook(Position).onAdd(onAdd).onSet(onSet);
+    w.component(Position).onAdd(onAdd).onSet(onSet);
     const e = w.entity();
     const pos1 = new Position();
     const pos2 = new Position();
@@ -202,7 +202,7 @@ describe("Entity — components", () => {
     env.w.component(Position);
     env.start();
     const onSet = vi.fn();
-    env.w.hook(Position).onSet(onSet);
+    env.w.component(Position).onSet(onSet);
     const e = env.w.entity();
     e.set(Position, { x: 1 });
     env.tick();
@@ -214,7 +214,7 @@ describe("Entity — components", () => {
     env.w.component(Position);
     env.start();
     const onSet = vi.fn();
-    env.w.hook(Position).onSet(onSet);
+    env.w.component(Position).onSet(onSet);
     const e = env.w.entity();
     e.add(Position);
     env.tick(); // flush the initial add notification
@@ -244,7 +244,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.component(Position);
     const onSet = vi.fn();
-    w.hook(Position).onSet(onSet);
+    w.component(Position).onSet(onSet);
     const e = w.entity();
     const pos = e.add(Position).getMut(Position)!;
     expect(pos).toBe(e.get(Position));
@@ -255,7 +255,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.component(Position);
     const onSet = vi.fn();
-    w.hook(Position).onSet(onSet);
+    w.component(Position).onSet(onSet);
     const e = w.entity();
     expect(e.getMut(Position)).toBeUndefined();
     expect(onSet).not.toHaveBeenCalled();

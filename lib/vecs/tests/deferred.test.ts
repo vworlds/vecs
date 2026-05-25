@@ -121,7 +121,7 @@ describe("Deferred mode — flush()", () => {
   it("world.flush() drains queued top-level mutations", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.hook(Position).onAdd(onAdd);
+    w.component(Position).onAdd(onAdd);
     w.start();
     const e = w.entity();
     w.beginDefer();
@@ -190,8 +190,8 @@ describe("Deferred mode — System inbox ordering", () => {
     const { w, tick } = setup();
     const onAdd = vi.fn();
     const onRemove = vi.fn();
-    w.hook(Position).onAdd(onAdd);
-    w.hook(Position).onRemove(onRemove);
+    w.component(Position).onAdd(onAdd);
+    w.component(Position).onRemove(onRemove);
     w.start();
     const e = w.entity();
     w.beginDefer();
@@ -209,8 +209,8 @@ describe("Deferred mode — exclusive replacement", () => {
     const { w } = setup();
     w.setExclusiveComponents(Walking, Running);
     const order: string[] = [];
-    w.hook(Walking).onRemove(() => order.push("onRemove Walking"));
-    w.hook(Running).onAdd(() => order.push("onAdd Running"));
+    w.component(Walking).onRemove(() => order.push("onRemove Walking"));
+    w.component(Running).onAdd(() => order.push("onAdd Running"));
     w.start();
     const e = w.entity();
     e.add(Walking);
@@ -262,7 +262,7 @@ describe("World.defer(fn)", () => {
   it("hooks fire after defer() returns, not during the callback", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.hook(Position).onAdd(onAdd);
+    w.component(Position).onAdd(onAdd);
     w.start();
     const e = w.entity();
     w.defer(() => {
@@ -275,7 +275,7 @@ describe("World.defer(fn)", () => {
   it("error thrown in fn propagates but the queue still drains via finally", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.hook(Position).onAdd(onAdd);
+    w.component(Position).onAdd(onAdd);
     w.start();
     const e = w.entity();
     expect(() =>
@@ -291,8 +291,8 @@ describe("World.defer(fn)", () => {
   it("nested defer() only drains when the outermost callback exits", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.hook(Position).onAdd(onAdd);
-    w.hook(Velocity).onAdd(onAdd);
+    w.component(Position).onAdd(onAdd);
+    w.component(Velocity).onAdd(onAdd);
     w.start();
     const e = w.entity();
     w.defer(() => {
