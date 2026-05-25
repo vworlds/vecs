@@ -62,7 +62,7 @@ function world(): World {
 function entityWith(w: World, types: number[]): Entity {
   const e = w.entity();
   for (const t of types) {
-    e.componentBitmask.addBit(w.getComponentMeta(t).bitPtr);
+    e.componentBitmask.addBit(w.entity(t)!.ownMeta.bitPtr);
   }
   return e;
 }

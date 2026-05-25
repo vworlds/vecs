@@ -189,7 +189,7 @@ describe("World - components", () => {
 
     expect(component).toBeInstanceOf(Component);
     expect(w.entity(component.eid)).toBe(component);
-    expect(w.getComponentMeta(A).eid).toBe(component.eid);
+    expect(component.ownMeta.eid).toBe(component.eid);
   });
 
   it("reserves explicit component eids in any pool", () => {
@@ -220,12 +220,19 @@ describe("World - components", () => {
     expect(() => w.component(A, 6)).toThrow();
   });
 
-  it("lazily creates Object metadata for numeric and entity refs", () => {
+  it("lazily creates Object metadata for entity refs", () => {
     const w = new World();
     const e = w.entity();
 
-    expect(w.getComponentMeta(42).Class).toBe(Object);
-    expect(w.getComponentMeta(e).eid).toBe(e.eid);
+    expect(e.ownMeta.Class).toBe(Object);
+    expect(e.ownMeta.eid).toBe(e.eid);
+  });
+
+  it("throws for missing numeric component refs", () => {
+    const w = new World();
+    const e = w.entity();
+
+    expect(() => e.add(42)).toThrow(/unregistered component meta/);
   });
 
   it("component APIs throw for unregistered component classes", () => {
@@ -242,7 +249,7 @@ describe("World - components", () => {
     const w = new World();
 
     expect(w.get(Settings)).toBeUndefined();
-    expect(w.getComponentMeta(Settings).Class).toBe(Settings);
+    expect(w.component(Settings).ownMeta.Class).toBe(Settings);
   });
 
   it("sets component-owned instances", () => {

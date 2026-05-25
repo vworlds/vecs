@@ -93,15 +93,14 @@ describe("Entity — components", () => {
     const w = new World();
     const key = w.entity();
     const e = w.entity();
-    const meta = w.getComponentMeta(key);
 
     e.add(key);
     e.set(key, { enabled: true });
-    expect(meta.usageCount).toBe(1);
+    expect(key.instanceCount()).toBe(1);
     expect(() => key.destroy()).toThrow();
 
     e.remove(key);
-    expect(meta.usageCount).toBe(0);
+    expect(key.instanceCount()).toBe(0);
     expect(() => key.destroy()).not.toThrow();
   });
 

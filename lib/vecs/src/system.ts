@@ -120,7 +120,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
     e.components.forEach((c, eid) => {
-      const meta = this.world.getComponentMeta(eid);
+      const meta = this.world._resolveComponentMeta(eid);
       if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
         this._notifyModified(e, meta, c);
       }

@@ -400,7 +400,7 @@ entity.get(Position) === shared; // true
 | Shared instances possible | `entity.attach(instance)` stores the exact passed object; code should use the entity passed by vecs callbacks. |
 | Manual dirty marking      | After mutating fields directly, call `entity.modified(C)` to notify hooks, queries, and systems.               |
 
-Use `world.getComponentMeta(C)` or `world.getComponentType(C)` when you need metadata such as the numeric type id or component name. Metadata is world-specific.
+Use `world.component(C).ownMeta` when you need metadata such as the numeric type id or component name. Metadata is world-specific.
 
 ---
 

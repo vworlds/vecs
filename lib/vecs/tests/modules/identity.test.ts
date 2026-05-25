@@ -5,10 +5,9 @@ describe("IdentityModule", () => {
   it("loads automatically", () => {
     const world = new World();
     const entity = world.entity().set(Identity, { name: "player" });
+    const mod = world.module(IdentityModule);
 
-    expect(world.module(IdentityModule)).toBe(
-      world.entity(world.getComponentMeta(IdentityModule).eid)
-    );
+    expect(mod).toBe(world.entity(mod.eid));
     expect(entity.get(Identity)?.name).toBe("player");
   });
 

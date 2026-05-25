@@ -2,7 +2,7 @@ import {
   Component,
   type ComponentClass,
   type ComponentRef,
-  ComponentMeta,
+  type ComponentMeta,
   Hook,
 } from "./component.js";
 import { Entity, type EntityClass } from "./entity/index.js";
@@ -89,8 +89,6 @@ export class World {
   /** @internal Queries whose predicates are too broad for component indexing. */
   private _unindexedQueries = new Set<Query>();
 
-  /** @internal Component eid → meta record. */
-  private _eid2Meta = new ArrayMap<ComponentMeta>();
   /** @internal `true` once {@link start} (or {@link disableComponentRegistration}) has been called. */
   private _componentRegistrationDisabled = false;
   /** @internal `true` once {@link start} has prepared the phase pipeline. */
@@ -332,13 +330,6 @@ export class World {
   /** @internal Remove an entity from the world's entity map (called by `Entity._destroy`). */
   public _unregisterEntity(entity: Entity): void {
     this._entities.delete(entity.eid);
-    const meta = this._eid2Meta.get(entity.eid);
-    if (meta && meta.usageCount === 0) {
-      this._eid2Meta.delete(entity.eid);
-      if (meta.Class !== Object) {
-        delete (meta.Class as any)[this.worldKey];
-      }
-    }
     this._poolFor(entity.eid).free(entity.eid);
   }
 
@@ -423,7 +414,7 @@ export class World {
   public module<T extends Module>(ModuleClass: EntityClass<T>, eid?: number): T {
     let isNew = true;
     const ComponentClass = ModuleClass as unknown as ComponentClass;
-    if (this._tryGetComponentMeta(ComponentClass)) {
+    if (this._tryGetComponentEntity(ComponentClass)) {
       isNew = false;
     }
     const mod = this._component<T>(ModuleClass, ComponentClass, eid, this._modulePool);
@@ -461,74 +452,58 @@ export class World {
       throw new Error(`Component eid ${eid} is reserved`);
     }
 
-    const existingClassMeta = this._tryGetComponentMeta(ComponentClass);
-    if (existingClassMeta) {
-      if (eid === undefined || eid === existingClassMeta.eid) {
-        return this._entities.get(existingClassMeta.eid) as T;
+    const existingComponent = this._tryGetComponentEntity(ComponentClass) as T | undefined;
+    if (existingComponent) {
+      if (eid === undefined || eid === existingComponent.eid) {
+        return existingComponent;
       }
       throw new Error(
-        `Component class ${ComponentClass.name} is already registered with eid ${existingClassMeta.eid}`
+        `Component class ${ComponentClass.name} is already registered with eid ${existingComponent.eid}`
       );
     }
     if (eid === undefined) {
       eid = pool.alloc();
     } else {
-      const existingMeta = this._eid2Meta.get(eid);
-      if (existingMeta) {
-        if (existingMeta.Class === ComponentClass) {
-          return this._entities.get(eid) as T;
-        }
-        throw new Error(`Component eid ${eid} is already registered`);
-      }
       if (this._entities.has(eid)) {
         throw new Error(`Entity id ${eid} is already taken`);
       }
       this._reserveEid(eid);
     }
-    const component = new Constructor(this, eid);
+    const component = new Constructor(this, eid, ComponentClass);
     this._entities.set(eid, component);
-    const meta = new ComponentMeta(ComponentClass, eid);
     Object.defineProperty(ComponentClass, this.worldKey, {
-      value: meta,
+      value: component,
       configurable: true,
       enumerable: false,
     });
-    this._eid2Meta.set(eid, meta);
     return component;
   }
 
-  /** @internal Return registered metadata for this world without throwing. */
-  public _tryGetComponentMeta(ref: ComponentRef): ComponentMeta | undefined {
-    if (typeof ref === "function") {
-      return (ref as any)[this.worldKey] as ComponentMeta | undefined;
-    }
-    return this._eid2Meta.get(typeof ref === "number" ? ref : ref.eid);
+  /** @internal Return the component entity registered for this class without throwing. */
+  public _tryGetComponentEntity(Class: ComponentClass): Entity | undefined {
+    return (Class as any)[this.worldKey] as Entity | undefined;
   }
 
-  /**
-   * Look up the {@link ComponentMeta} for a registered component.
-   *
-   * @param ref - Component class, component eid, or entity component key.
-   * @returns The corresponding meta record.
-   * @throws When no component with that class or type id has been registered.
-   */
-  public getComponentMeta(ref: ComponentRef): ComponentMeta {
-    const meta = this._tryGetComponentMeta(ref);
-    if (meta) {
-      return meta;
-    }
-
+  /** @internal Resolve a component reference to entity-owned metadata. */
+  public _resolveComponentMeta(ref: ComponentRef): ComponentMeta {
     if (typeof ref === "function") {
+      const entity = this._tryGetComponentEntity(ref as ComponentClass);
+      if (entity) {
+        return entity.ownMeta;
+      }
       throw `unregistered component meta for component class '${ref.name}'`;
     }
 
-    const eid = typeof ref === "number" ? ref : ref.eid;
+    const entity = typeof ref === "number" ? this._entities.get(ref) : ref;
+    if (entity) {
+      return entity.ownMeta;
+    }
+
+    const eid = ref;
     if (eid === RESERVED_EID) {
       throw new Error(`Component eid ${eid} is reserved`);
     }
-    const lazyMeta = new ComponentMeta(Object, eid);
-    this._eid2Meta.set(eid, lazyMeta);
-    return lazyMeta;
+    throw new Error(`unregistered component meta for component eid ${eid}`);
   }
 
   /**
@@ -538,10 +513,7 @@ export class World {
    * @returns The numeric type id.
    */
   public getComponentEid(ref: ComponentRef): number {
-    if (typeof ref === "function") {
-      return this.getComponentMeta(ref).eid;
-    }
-    return typeof ref === "number" ? ref : ref.eid;
+    return this._resolveComponentMeta(ref).eid;
   }
 
   /**
@@ -561,7 +533,7 @@ export class World {
    * @returns The hook bound to that component type.
    */
   public hook<T extends ComponentClass>(C: T): Hook<InstanceType<T>> {
-    return this.getComponentMeta(C) as any;
+    return this._resolveComponentMeta(C) as any;
   }
 
   /**
@@ -586,7 +558,7 @@ export class World {
    * @throws When any class has not been registered.
    */
   public setExclusiveComponents(...components: ComponentClass[]): void {
-    const metas = components.map((C) => this.getComponentMeta(C));
+    const metas = components.map((C) => this._resolveComponentMeta(C));
     for (let i = 0; i < metas.length; i++) {
       metas[i]._exclusive = metas.filter((_, j) => j !== i);
     }
@@ -707,8 +679,8 @@ export class World {
     while (pending.size > 0) {
       let destroyed = 0;
       for (const entity of [...pending]) {
-        const meta = this._tryGetComponentMeta(entity.eid);
-        if (meta && meta.usageCount > (entity._get(meta.eid) ? 1 : 0)) {
+        const instanceCount = entity.instanceCount();
+        if (instanceCount > (entity._get(entity.eid) ? 1 : 0)) {
           continue;
         }
         entity.destroy();

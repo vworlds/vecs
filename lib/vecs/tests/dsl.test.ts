@@ -180,13 +180,19 @@ describe("Query DSL simplification", () => {
 
 describe("Query DSL compilation", () => {
   function wideWorld(): World {
-    return new World();
+    const world = new World();
+    for (let i = 3; i <= 200; i++) {
+      class C {}
+      Object.defineProperty(C, "name", { value: `C${i}` });
+      world.component(C, i);
+    }
+    return world;
   }
 
   function entityWithComponents(world: World, typeIds: number[]): Entity {
     const e = world.entity();
     for (const t of typeIds) {
-      const meta = world.getComponentMeta(t);
+      const meta = world.entity(t)!.ownMeta;
       e.componentBitmask.addBit(meta.bitPtr);
     }
     return e;
@@ -247,9 +253,11 @@ describe("Query DSL compilation", () => {
       return e.componentBitmask.hasBitset(maskOf([q]));
     }
     if (typeof q === "function") {
-      const meta = world._tryGetComponentMeta(q as unknown as new (...args: never[]) => object);
-      if (meta) {
-        return e.componentBitmask.hasBitset(maskOf([meta.eid]));
+      const componentEntity = world._tryGetComponentEntity(
+        q as unknown as new (...args: never[]) => object
+      );
+      if (componentEntity) {
+        return e.componentBitmask.hasBitset(maskOf([componentEntity.eid]));
       }
       throw new Error("reference evaluator does not handle custom predicates");
     }

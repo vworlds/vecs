@@ -229,7 +229,7 @@ export class Query<R extends ComponentClass[] = []> {
     e._addQueryMembership(this);
     this._enterCallback?.(e);
     e.components.forEach((c, eid) => {
-      const meta = this.world.getComponentMeta(eid);
+      const meta = this.world._resolveComponentMeta(eid);
       if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
         this._notifyModified(e, meta, c);
       }

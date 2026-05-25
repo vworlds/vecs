@@ -23,7 +23,7 @@ describe("World.module", () => {
     expect(mod.world).toBe(world);
     expect(mod.eid).toBe(nextModuleEid);
     expect(world.entity(mod.eid)).toBe(mod);
-    expect(world.getComponentMeta(TestModule).eid).toBe(mod.eid);
+    expect(mod.ownMeta.eid).toBe(mod.eid);
     expect(mod.initCalls).toBe(1);
   });
 

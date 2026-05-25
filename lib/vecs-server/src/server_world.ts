@@ -109,7 +109,7 @@ export class ServerWorld extends NetworkWorld {
     this._systemsInstalled = true;
     const { collectPhase, sendPhase } = options;
 
-    this.getComponentMeta(Networked).onRemove((entity) => {
+    this.hook(Networked).onRemove((entity) => {
       this._record(entity, ALL_COMPONENTS, undefined);
     });
     this.hook(ServerClientSession).onRemove((_entity, session) => {
@@ -303,7 +303,7 @@ export class ServerWorld extends NetworkWorld {
 }
 
 function ensureRegistered(world: NetworkWorld, Class: ComponentClass): void {
-  if (!world._tryGetComponentMeta(Class)) {
+  if (!world._tryGetComponentEntity(Class)) {
     world.component(Class);
   }
 }

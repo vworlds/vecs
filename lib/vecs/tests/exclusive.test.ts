@@ -22,9 +22,9 @@ describe("exclusive components", () => {
     const w = makeWorld();
     w.setExclusiveComponents(Walking, Running, Idle);
 
-    const walkingMeta = w.getComponentMeta(Walking);
-    const runningMeta = w.getComponentMeta(Running);
-    const idleMeta = w.getComponentMeta(Idle);
+    const walkingMeta = w.component(Walking).ownMeta;
+    const runningMeta = w.component(Running).ownMeta;
+    const idleMeta = w.component(Idle).ownMeta;
 
     expect(walkingMeta._exclusive).not.toContain(walkingMeta);
     expect(walkingMeta._exclusive).toContain(runningMeta);

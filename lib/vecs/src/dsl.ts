@@ -152,8 +152,8 @@ function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL 
     return component.eid;
   }
 
-  const meta = world._tryGetComponentMeta(component);
-  return meta ? meta.eid : component;
+  const entity = world._tryGetComponentEntity(component as ComponentClass);
+  return entity ? entity.eid : component;
 }
 
 function _sortComponentRequirements(components: ComponentRefArray): ComponentRefArray {
@@ -484,7 +484,7 @@ function _compileQueryExpression(
     return _compileMask(context, [q], entityRef, "hasBitset");
   }
 
-  if (typeof q === "function" && world._tryGetComponentMeta(q as ComponentClass)) {
+  if (typeof q === "function" && world._tryGetComponentEntity(q as ComponentClass)) {
     return _compileMask(
       context,
       [world.getComponentEid(q as ComponentClass)],
@@ -591,7 +591,7 @@ export function _extractQueryDependencies(world: World, q: QueryDSL): number[] |
     return [q];
   }
 
-  if (typeof q === "function" && world._tryGetComponentMeta(q as ComponentClass)) {
+  if (typeof q === "function" && world._tryGetComponentEntity(q as ComponentClass)) {
     return [world.getComponentEid(q as ComponentClass)];
   } else if (typeof q === "function") {
     return undefined;

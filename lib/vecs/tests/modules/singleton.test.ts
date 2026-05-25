@@ -12,11 +12,10 @@ class Position {
 describe("SingletonModule", () => {
   it("loads automatically", () => {
     const world = new World();
+    const mod = world.module(SingletonModule);
 
-    expect(world.module(SingletonModule)).toBe(
-      world.entity(world.getComponentMeta(SingletonModule).eid)
-    );
-    expect(world.getComponentMeta(Singleton).Class).toBe(Singleton);
+    expect(mod).toBe(world.entity(mod.eid));
+    expect(world.component(Singleton).ownMeta.Class).toBe(Singleton);
   });
 
   it("creates the singleton instance on the component entity", () => {
@@ -28,7 +27,7 @@ describe("SingletonModule", () => {
     expect(gravityComponent.get(Singleton)).toBeInstanceOf(Singleton);
     expect(gravityComponent.get(Gravity)).toBeInstanceOf(Gravity);
     expect(world.component(Gravity).get(Gravity)).toBe(gravityComponent.get(Gravity));
-    expect(world.getComponentMeta(Gravity).usageCount).toBe(1);
+    expect(gravityComponent.instanceCount()).toBe(1);
   });
 
   it("allows accessing singleton instances through world.get", () => {
@@ -59,7 +58,7 @@ describe("SingletonModule", () => {
 
     expect(() => gravityComponent.add(Singleton)).not.toThrow();
     expect(gravityComponent.get(Gravity)).toBe(gravity);
-    expect(world.getComponentMeta(Gravity).usageCount).toBe(1);
+    expect(gravityComponent.instanceCount()).toBe(1);
   });
 
   it("rejects making a component singleton after another entity already has it", () => {
@@ -82,7 +81,7 @@ describe("SingletonModule", () => {
 
     expect(first.get(Position)).toBeInstanceOf(Position);
     expect(second.get(Position)).toBeInstanceOf(Position);
-    expect(world.getComponentMeta(Position).usageCount).toBe(2);
+    expect(world.component(Position).instanceCount()).toBe(2);
   });
 
   it("allows clearing a singleton component entity", () => {

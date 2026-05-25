@@ -1,9 +1,9 @@
 import {
+  ComponentMeta,
   type ComponentInstance,
   type ComponentClass,
   type ComponentRef,
-  type ComponentMeta,
-} from "../component.js";
+} from "../component_meta.js";
 import type { World } from "../world.js";
 import { CommandKind } from "../command.js";
 import { ArrayMap, ReadonlyArrayMap } from "../util/array_map.js";
@@ -14,7 +14,11 @@ import { PartialClass } from "../util/partial.js";
 
 type EntityEvents = Events<{ destroy(): void }>;
 
-export type EntityClass<T extends Entity = Entity> = new (world: World, eid: number) => T;
+export type EntityClass<T extends Entity = Entity> = new (
+  world: World,
+  eid: number,
+  ownComponentClass?: ComponentClass
+) => T;
 
 /**
  * A game object: a unique numeric id with an arbitrary set of
@@ -50,6 +54,9 @@ export type EntityClass<T extends Entity = Entity> = new (world: World, eid: num
  * visible immediately.
  */
 export class Entity extends PartialClass {
+  /** @internal Metadata for this entity when the entity itself is used as a component key. */
+  protected _ownMeta: ComponentMeta | undefined;
+
   /** @internal Maps component eid to component instance. */
   private _components = new ArrayMap<ComponentInstance>();
   /** @internal Component eids with pending modified delivery. */
@@ -87,9 +94,13 @@ export class Entity extends PartialClass {
     /** World that owns this entity. */
     public readonly world: World,
     /** Unique numeric entity id assigned at creation. */
-    public readonly eid: number
+    public readonly eid: number,
+    ownComponentClass?: ComponentClass
   ) {
     super();
+    if (ownComponentClass !== undefined) {
+      this._ownMeta = new ComponentMeta(ownComponentClass, eid);
+    }
     this.initializePartials();
   }
 
@@ -118,7 +129,7 @@ export class Entity extends PartialClass {
   }
 
   /** Store a component instance and perform the shared add-side bookkeeping. */
-  private _storeComponent(meta: ComponentMeta, component: ComponentInstance, isAdd: boolean): void {
+  private _storeComponent(meta: ComponentMeta, instance: ComponentInstance, isAdd: boolean): void {
     if (meta._exclusive) {
       for (const exclusiveMeta of meta._exclusive) {
         if (this._components.has(exclusiveMeta.eid)) {
@@ -127,13 +138,13 @@ export class Entity extends PartialClass {
       }
     }
     const existing = this._components.has(meta.eid);
-    this._components.set(meta.eid, component);
+    this._components.set(meta.eid, instance);
     this.componentBitmask.addBit(meta.bitPtr);
     if (!existing) {
       meta._incrementUsage();
     }
     if (isAdd && !existing) {
-      this._runOnAddHandlers(meta, component);
+      this._runOnAddHandlers(meta, instance);
     }
     this._updateQueries(meta);
   }
@@ -141,13 +152,13 @@ export class Entity extends PartialClass {
   /** Perform the shared set-side hook and query update routing. */
   private _notifyComponentSet(
     meta: ComponentMeta,
-    component: ComponentInstance,
+    instance: ComponentInstance,
     isUpdate: boolean
   ): void {
-    this._runOnSetHandlers(meta, component);
+    this._runOnSetHandlers(meta, instance);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (isUpdate) {
-      this._queries.forEach((q) => q._notifyModified(this, meta, component));
+      this._queries.forEach((q) => q._notifyModified(this, meta, instance));
     }
   }
 
@@ -201,7 +212,7 @@ export class Entity extends PartialClass {
     if (this._destroyed) {
       return;
     }
-    const ownMeta = this.world._tryGetComponentMeta(this.eid);
+    const ownMeta = this._ownMeta;
     if (ownMeta && ownMeta.usageCount > (this._components.has(ownMeta.eid) ? 1 : 0)) {
       throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
     }
@@ -216,7 +227,7 @@ export class Entity extends PartialClass {
     toExit.forEach((q) => q._exit(this));
 
     this._components.forEach((c, eid) => {
-      const meta = this.world.getComponentMeta(eid);
+      const meta = this.world._resolveComponentMeta(eid);
       meta._decrementUsage();
       const removeHandlers = meta._onRemoveHandlers;
       if (removeHandlers) {
@@ -228,6 +239,10 @@ export class Entity extends PartialClass {
     if (this._events) {
       this._events.emit("destroy");
       this._events.removeAllListeners("destroy");
+    }
+
+    if (ownMeta && ownMeta.usageCount === 0 && ownMeta.Class !== Object) {
+      delete (ownMeta.Class as any)[this.world.worldKey];
     }
 
     this.world._unregisterEntity(this);
@@ -404,6 +419,16 @@ export class Entity extends PartialClass {
     return this._parent;
   }
 
+  /** Metadata for using this entity's eid as a component key. Created lazily for plain entities. */
+  public get ownMeta(): ComponentMeta {
+    return (this._ownMeta ??= new ComponentMeta(Object, this.eid));
+  }
+
+  /** Number of live component instances currently attached for this entity's component key. */
+  public instanceCount(): number {
+    return this._ownMeta?.usageCount ?? 0;
+  }
+
   /**
    * Attach a component to this entity if it is not already present.
    *
@@ -426,7 +451,7 @@ export class Entity extends PartialClass {
   public add(entity: Entity): this;
 
   public add(ref: ComponentRef): this {
-    const meta = this.world.getComponentMeta(ref);
+    const meta = this.world._resolveComponentMeta(ref);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props: undefined });
     } else {
@@ -448,7 +473,7 @@ export class Entity extends PartialClass {
    * @returns This entity, for chaining.
    */
   public attach(component: ComponentInstance): this {
-    const meta = this.world.getComponentMeta(component.constructor as ComponentClass);
+    const meta = this.world._resolveComponentMeta(component.constructor as ComponentClass);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Attach, entity: this, meta, component });
     } else {
@@ -532,7 +557,7 @@ export class Entity extends PartialClass {
    * @returns This entity, for chaining.
    */
   public modified(ref: ComponentRef): this {
-    const meta = this.world.getComponentMeta(ref);
+    const meta = this.world._resolveComponentMeta(ref);
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return this;
     }
@@ -566,7 +591,7 @@ export class Entity extends PartialClass {
   public remove(entity: Entity): void;
 
   public remove(ref: ComponentRef): void {
-    const meta = this.world.getComponentMeta(ref);
+    const meta = this.world._resolveComponentMeta(ref);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Remove, entity: this, meta });
     } else {
@@ -614,7 +639,7 @@ export class Entity extends PartialClass {
   public set(entity: Entity, props: Partial<ComponentInstance>): this;
 
   public set(ref: ComponentRef, props: Partial<ComponentInstance>): this {
-    const meta = this.world.getComponentMeta(ref);
+    const meta = this.world._resolveComponentMeta(ref);
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Set, entity: this, meta, props });
     } else {

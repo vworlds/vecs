@@ -10,7 +10,7 @@ describe("ComponentMeta", () => {
   it("stores the component eid", () => {
     const w = new World();
     const component = w.component(Health);
-    expect(w.getComponentMeta(Health).eid).toBe(component.eid);
+    expect(component.ownMeta.eid).toBe(component.eid);
   });
 
   it("entity.modified(C) queues an onSet hook delivery", () => {
