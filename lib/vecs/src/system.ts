@@ -3,7 +3,7 @@ import { Query } from "./query.js";
 import { type QueryDSL, type MaybeRequired } from "./dsl.js";
 import type { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
-import { type World } from "./world.js";
+import { type World } from "./world/index.js";
 import {
   ALWAYS_TICK_SOURCE,
   IntervalTickSource,

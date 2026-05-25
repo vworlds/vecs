@@ -1,4 +1,4 @@
-import { type World } from "./world.js";
+import { type World } from "./world/index.js";
 
 /** A clock that the world evaluates once per frame. */
 export interface ITickSource {

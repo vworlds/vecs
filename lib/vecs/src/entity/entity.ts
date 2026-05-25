@@ -4,7 +4,7 @@ import {
   type ComponentClass,
   type ComponentRef,
 } from "../component_meta.js";
-import type { World } from "../world.js";
+import type { World } from "../world/index.js";
 import { CommandKind } from "../command.js";
 import { ArrayMap, ReadonlyArrayMap } from "../util/array_map.js";
 import { type Query } from "../query.js";

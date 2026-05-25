@@ -3,7 +3,7 @@ import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
 import { type ComponentInstance, type ComponentClass, type ComponentMeta } from "./component.js";
 import type { Entity } from "./entity/index.js";
-import { type World } from "./world.js";
+import { type World } from "./world/index.js";
 import { _compile, type EntityTestFunc, type QueryDSL, type MaybeRequired } from "./dsl.js";
 
 export type { EntityTestFunc, QueryDSL, MaybeRequired };

@@ -1,6 +1,6 @@
 import { type ComponentClass, type ComponentRef, type ComponentRefArray } from "./component.js";
 import { Entity } from "./entity/index.js";
-import type { World } from "./world.js";
+import type { World } from "./world/index.js";
 import { Bitset } from "./util/bitset.js";
 
 /**

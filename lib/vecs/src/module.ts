@@ -1,5 +1,5 @@
 import { Component } from "./component.js";
-import { type World } from "./world.js";
+import { type World } from "./world/index.js";
 
 export abstract class Module extends Component {
   constructor(world: World, eid: number) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { _compile, type QueryDSL } from "../src/dsl.js";
-import { World } from "../src/world.js";
+import { World } from "../src/index.js";
 import { Entity } from "../src/entity/index.js";
 
 const runBench = process.env.RUN_QUERY_BENCH === "1" ? it : it.skip;
