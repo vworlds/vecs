@@ -9,9 +9,8 @@ export {
   type ComponentMeta,
   type ComponentRef,
 } from "./component.js";
-export { Entity } from "./entity.js";
+export { Entity, type EntityClass, Identity, IdentityModule } from "./entity/index.js";
 export { Module } from "./module.js";
-export { Identity, IdentityModule } from "./modules/identity.js";
 export { Singleton, SingletonModule } from "./modules/singleton.js";
 export { type IPhase } from "./phase.js";
 export { getDSLKey, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";

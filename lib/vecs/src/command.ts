@@ -1,5 +1,5 @@
 import type { ComponentInstance, ComponentMeta } from "./component.js";
-import type { Entity } from "./entity.js";
+import type { Entity } from "./entity/index.js";
 
 /**
  * Discriminator for the {@link Command} union.

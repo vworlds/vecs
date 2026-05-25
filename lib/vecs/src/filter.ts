@@ -1,5 +1,5 @@
 import { type ComponentClass } from "./component.js";
-import type { Entity } from "./entity.js";
+import type { Entity } from "./entity/index.js";
 import type { World } from "./world.js";
 import { _compile, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 

@@ -3,13 +3,13 @@ import {
   type ComponentClass,
   type ComponentRef,
   type ComponentMeta,
-} from "./component.js";
-import type { World } from "./world.js";
-import { CommandKind } from "./command.js";
-import { ArrayMap, ReadonlyArrayMap } from "./util/array_map.js";
-import { type Query } from "./query.js";
-import { Events } from "./util/events.js";
-import { Bitset } from "./util/bitset.js";
+} from "../component.js";
+import type { World } from "../world.js";
+import { CommandKind } from "../command.js";
+import { ArrayMap, ReadonlyArrayMap } from "../util/array_map.js";
+import { type Query } from "../query.js";
+import { Events } from "../util/events.js";
+import { Bitset } from "../util/bitset.js";
 
 type EntityEvents = Events<{ destroy(): void }>;
 

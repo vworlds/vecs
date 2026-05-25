@@ -5,7 +5,7 @@ import {
   ComponentMeta,
   Hook,
 } from "./component.js";
-import { Entity, type EntityClass } from "./entity.js";
+import { Entity, type EntityClass } from "./entity/index.js";
 import { Query } from "./query.js";
 import { System } from "./system.js";
 import { Filter } from "./filter.js";
@@ -16,7 +16,7 @@ import { CommandKind, type Command } from "./command.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "./timer.js";
 import { IdPool, type IdPoolConfig, validateIdPoolConfigs } from "./util/id_pool.js";
 import { Module } from "./module.js";
-import { IdentityModule } from "./modules/identity.js";
+import { IdentityModule } from "./entity/index.js";
 import { SingletonModule } from "./modules/singleton.js";
 
 export const DEFAULT_POOLS: readonly IdPoolConfig[] = [

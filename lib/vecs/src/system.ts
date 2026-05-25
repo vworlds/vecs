@@ -1,7 +1,7 @@
 import { type ComponentInstance, type ComponentClass, type ComponentMeta } from "./component.js";
 import { Query } from "./query.js";
 import { type QueryDSL, type MaybeRequired } from "./dsl.js";
-import type { Entity } from "./entity.js";
+import type { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world.js";
 import {

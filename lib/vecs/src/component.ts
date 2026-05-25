@@ -1,5 +1,5 @@
 import { BitPtr } from "./util/bitset.js";
-import { Entity, type EntityClass } from "./entity.js";
+import { Entity, type EntityClass } from "./entity/index.js";
 
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
