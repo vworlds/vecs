@@ -10,6 +10,7 @@ import { ArrayMap, ReadonlyArrayMap } from "../util/array_map.js";
 import { type Query } from "../query.js";
 import { Events } from "../util/events.js";
 import { Bitset } from "../util/bitset.js";
+import { PartialClass } from "../util/partial.js";
 
 type EntityEvents = Events<{ destroy(): void }>;
 
@@ -48,7 +49,7 @@ export type EntityClass<T extends Entity = Entity> = new (world: World, eid: num
  * Outside deferred mode the same calls execute inline and mutations are
  * visible immediately.
  */
-export class Entity {
+export class Entity extends PartialClass {
   /** @internal Maps component eid to component instance. */
   private _components = new ArrayMap<ComponentInstance>();
   /** @internal Component eids with pending modified delivery. */
@@ -87,7 +88,10 @@ export class Entity {
     public readonly world: World,
     /** Unique numeric entity id assigned at creation. */
     public readonly eid: number
-  ) {}
+  ) {
+    super();
+    this.initializePartials();
+  }
 
   /** Fire every `onAdd` hook registered for `meta`. */
   private _runOnAddHandlers(meta: ComponentMeta, component: ComponentInstance): void {
@@ -620,7 +624,7 @@ export class Entity {
   }
 
   /** Returns `"EntityN"` where N is the entity id. */
-  public toString(): string {
+  public override toString(): string {
     return `Entity${this.eid}`;
   }
 }

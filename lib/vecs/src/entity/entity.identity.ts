@@ -1,3 +1,4 @@
+import { PartialClass } from "../util/partial.js";
 import { Entity } from "./entity.js";
 
 export class Identity {
@@ -10,18 +11,20 @@ export class IdentityModule extends Entity {
   }
 }
 
-declare module "./entity.js" {
-  interface Entity {
-    get name(): string | undefined;
-    set name(n: string);
+interface IdentityMixin extends Pick<Entity, "get" | "set"> {}
+
+class IdentityMixin {
+  public get name(): string | undefined {
+    return this.get(Identity)?.name;
+  }
+
+  public set name(n: string) {
+    this.set(Identity, { name: n });
   }
 }
 
-Object.defineProperty(Entity.prototype, "name", {
-  get(this: Entity): string | undefined {
-    return this.get(Identity)?.name;
-  },
-  set(this: Entity, n: string): void {
-    this.set(Identity, { name: n });
-  },
-});
+declare module "./entity.js" {
+  interface Entity extends IdentityMixin {}
+}
+
+PartialClass.addMixin(Entity, IdentityMixin);
