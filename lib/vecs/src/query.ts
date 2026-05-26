@@ -401,8 +401,15 @@ export class Query<R extends ComponentType[] = []> {
       return;
     }
     if (this._tracked) {
+      // Manual indexed loops: `Array.forEach` carries hole-checking and
+      // this-binding overhead that adds up when a query spans many tables
+      // (one per archetype). Iteration runs inside a deferred scope, so the
+      // lists cannot be structurally mutated mid-walk.
       this._subscribedTables.forEach((table) => {
-        table.entities.forEach(callback);
+        const entities = table.entities;
+        for (let i = 0; i < entities.length; i++) {
+          callback(entities[i]);
+        }
       });
     }
   }
