@@ -518,6 +518,22 @@ describe("Query — relationship tracking", () => {
     expect(bobQuery.has(alice)).toBe(false);
     expect(charlieQuery.has(alice)).toBe(true);
   });
+
+  it("exits REL queries when the relationship component is removed", () => {
+    const { w } = setup();
+    const bob = w.entity();
+    const alice = w.entity().set(FriendOf, { target: bob });
+    const q = w
+      .query("friends-of-bob")
+      .query({ REL: [FriendOf, bob] })
+      .build();
+
+    expect(q.has(alice)).toBe(true);
+
+    alice.remove(FriendOf);
+
+    expect(q.has(alice)).toBe(false);
+  });
 });
 
 describe("Query — entity tracking via world pipeline", () => {

@@ -576,12 +576,13 @@ function _compileQueryExpression(
   if ("REL" in q) {
     const relationshipEid = _resolveRelationshipRequirement(q.REL[0], world);
     const target = world.entity(q.REL[1]);
+    const relationshipMask = _compileMask(context, [relationshipEid], entityRef, "hasBitset");
     const funcIndex =
       context.funcs.push((e: Entity) => {
         const relationship = e._get(relationshipEid) as { target?: Entity } | undefined;
         return !target._destroyed && relationship?.target === target;
       }) - 1;
-    return `f${funcIndex}(${entityRef})`;
+    return `(${relationshipMask})&&(f${funcIndex}(${entityRef}))`;
   }
 
   throw "Unrecognized query term";
