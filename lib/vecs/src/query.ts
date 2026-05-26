@@ -1,4 +1,5 @@
 import { OrderedSet } from "./util/ordered_set.js";
+import { DenseSet } from "./util/dense_set.js";
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
 import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
@@ -309,7 +310,10 @@ export class Query<R extends ComponentType[] = []> {
    */
   public track(): this {
     this._assertConfigurable();
-    this._entities ??= new Set<Entity>();
+    // A DenseSet iterates via a tight array loop instead of a hash-table walk;
+    // query membership order is unspecified (use sort() for ordering), so the
+    // swap-on-delete reordering it does is fine.
+    this._entities ??= new DenseSet<Entity>();
     return this;
   }
 
