@@ -308,8 +308,15 @@ function cases(): BenchCase[] {
       counts: defaultCounts,
       operations: (entities) => entities,
       makeRound: (entities) => {
-        const { w } = createSingleComponentEntities(entities);
+        // Build the query before populating so entities flow in incrementally
+        // and the scramble reorders the query's members — the realistic order
+        // (queries are defined at startup). Building it after population would
+        // let a backfill re-read entities in creation order, undoing the
+        // scramble and measuring cache-friendly creation-order iteration.
+        const w = world();
         const q = w.query("single").requires(PositionComponent).build();
+        const items = createSingleComponents(w, entities);
+        scrambleStorage(w, items);
         return () => iterateOne(q, entities);
       },
     },
@@ -318,8 +325,10 @@ function cases(): BenchCase[] {
       counts: defaultCounts,
       operations: (entities) => entities,
       makeRound: (entities) => {
-        const { w } = createMinimalEntities(entities);
+        const w = world();
         const q = w.query("two").requires(PositionComponent, VelocityComponent).build();
+        const items = createMinimalComponents(w, entities);
+        scrambleStorage(w, items);
         return () => iterateTwo(q, entities);
       },
     },
@@ -328,11 +337,13 @@ function cases(): BenchCase[] {
       counts: defaultCounts,
       operations: (entities) => entities,
       makeRound: (entities) => {
-        const { w } = createMixedComponentEntities(entities);
+        const w = world();
         const q = w
           .query("three")
           .requires(PositionComponent, VelocityComponent, DataComponent)
           .build();
+        const items = createMixedComponents(w, entities);
+        scrambleStorage(w, items);
         return () => iterateThree(q, entities);
       },
     },
@@ -341,7 +352,7 @@ function cases(): BenchCase[] {
       counts: defaultCounts,
       operations: (entities) => entities,
       makeRound: (entities) => {
-        const { w } = createMixedComponentEntities(entities);
+        const w = world();
         let checksum = 0;
         const q = w.query("event-src").requires(PositionComponent, VelocityComponent).build();
         w.query("events")
@@ -354,6 +365,8 @@ function cases(): BenchCase[] {
             }
           )
           .build();
+        const items = createMixedComponents(w, entities);
+        scrambleStorage(w, items);
         return () => {
           checksum = checksumCount(entities);
           q.forEach((e) => {
@@ -370,8 +383,10 @@ function cases(): BenchCase[] {
       counts: smallCounts,
       operations: (entities) => entities,
       makeRound: (entities) => {
-        const { w } = createMixedComponentEntities(entities);
+        const w = world();
         const q = w.query("event-src").requires(PositionComponent, VelocityComponent).build();
+        const items = createMixedComponents(w, entities);
+        scrambleStorage(w, items);
         return () => {
           let checksum = checksumCount(entities);
           q.forEach([PositionComponent, VelocityComponent], (_e, [pos, vel]) => {
@@ -561,13 +576,6 @@ function createEmptyEntities(count: number): { w: World; items: Entity[] } {
   return { w, items };
 }
 
-function createSingleComponentEntities(count: number): { w: World; items: Entity[] } {
-  const w = world();
-  const items = createSingleComponents(w, count);
-  scrambleStorage(w, items);
-  return { w, items };
-}
-
 function createMinimalEntities(count: number): { w: World; items: Entity[] } {
   const w = world();
   const items = createMinimalComponents(w, count);
@@ -578,13 +586,6 @@ function createMinimalEntities(count: number): { w: World; items: Entity[] } {
 function createHalfComponentEntities(count: number): { w: World; items: Entity[] } {
   const w = world();
   const items = createHalfComponents(w, count);
-  scrambleStorage(w, items);
-  return { w, items };
-}
-
-function createMixedComponentEntities(count: number): { w: World; items: Entity[] } {
-  const w = world();
-  const items = createMixedComponents(w, count);
   scrambleStorage(w, items);
   return { w, items };
 }
