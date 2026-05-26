@@ -19,6 +19,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "npm run test --workspaces --if-present",
+    "bench:vecs": "npm run bench:ecs -w @vworlds/vecs",
     "prepare": "husky"
   },
   "devDependencies": {
