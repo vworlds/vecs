@@ -696,6 +696,29 @@ describe("Query — enter/exit callbacks", () => {
     const q = w.query("test");
     expect(q.exit(() => {})).toBe(q);
   });
+
+  it("does not fire enter or exit when entity changes table but still matches", () => {
+    const { w, tick } = setup();
+    const enter = vi.fn();
+    const exit = vi.fn();
+    w.query("test").requires(Position).enter(enter).exit(exit);
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    tick();
+    expect(enter).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledTimes(0);
+
+    e.add(Sprite); // changes table from [Position] → [Position, Sprite]
+    tick();
+    expect(enter).toHaveBeenCalledTimes(1); // no spurious enter
+    expect(exit).toHaveBeenCalledTimes(0); // no spurious exit
+
+    e.remove(Sprite); // changes table back from [Position, Sprite] → [Position]
+    tick();
+    expect(enter).toHaveBeenCalledTimes(1); // no spurious enter
+    expect(exit).toHaveBeenCalledTimes(0); // no spurious exit
+  });
 });
 
 describe("Query — sort", () => {
