@@ -173,6 +173,14 @@ export class Query<R extends ComponentType[] = []> {
   /**
    * @internal Re-evaluate `e`'s membership and route the resulting enter / exit.
    * Idempotent: a no-op when membership has not changed.
+   *
+   * Possible future optimization: a {@link _tablePure} query could skip the
+   * `belongs` re-test entirely and decide enter/exit from table membership
+   * alone (`shouldBelong = this._subscribedTables.has(e._table)`). It is left
+   * as-is on purpose: `belongs` here is a few inlined bitwise checks that only
+   * run on archetype transitions (not during iteration), so the saving is tiny,
+   * while the change would require `_transitionTable` to reassign `_table`
+   * before firing observers plus a second `shouldBelong` code path.
    */
   private _refresh(e: Entity): void {
     const shouldBelong = !e._destroyed && this.belongs(e);
