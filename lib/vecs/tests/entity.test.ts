@@ -84,7 +84,8 @@ describe("Entity — components", () => {
     e.set(key, { enabled: true });
 
     expect(e.get(key)).toMatchObject({ enabled: true });
-    expect(e.getMut(key)).toMatchObject({ enabled: true });
+    const component = e.getMut(key, (value) => Object.assign(value, { enabled: false }));
+    expect(component).toMatchObject({ enabled: false });
     e.remove(key);
     expect(e.get(key)).toBeUndefined();
   });
@@ -232,41 +233,66 @@ describe("Entity — components", () => {
     expect(e.add(Position).get(Position)).toBeInstanceOf(Position);
   });
 
-  it("getMut returns the component or undefined", () => {
+  it("getMut invokes the callback with the component or returns undefined", () => {
     const w = new World();
     w.component(Position);
     const e = w.entity();
-    expect(e.getMut(Position)).toBeUndefined();
-    expect(e.add(Position).getMut(Position)).toBeInstanceOf(Position);
+    const callback = vi.fn();
+    expect(e.getMut(Position, callback)).toBeUndefined();
+    expect(callback).not.toHaveBeenCalled();
+
+    let observed: Position | undefined;
+    const pos = e.add(Position).getMut(Position, (value) => {
+      observed = value;
+      value.x = 3;
+    });
+    expect(pos).toBeInstanceOf(Position);
+    expect(observed).toBe(pos);
+    expect(pos?.x).toBe(3);
   });
 
-  it("getMut marks an existing component as modified", () => {
+  it("getMut with a callback marks an existing component as modified after the callback", () => {
     const w = new World();
     w.component(Position);
     const onSet = vi.fn();
     w.component(Position).onSet(onSet);
     const e = w.entity();
-    const pos = e.add(Position).getMut(Position)!;
+    const pos = e.add(Position).getMut(Position, (value) => {
+      value.x = 3;
+      expect(onSet).not.toHaveBeenCalled();
+    })!;
     expect(pos).toBe(e.get(Position));
+    expect(pos.x).toBe(3);
     expect(onSet).toHaveBeenCalledWith(e, pos);
   });
 
-  it("getMut does not mark a missing component as modified", () => {
+  it("getMut with a callback does not mark a missing component as modified", () => {
     const w = new World();
     w.component(Position);
     const onSet = vi.fn();
     w.component(Position).onSet(onSet);
     const e = w.entity();
-    expect(e.getMut(Position)).toBeUndefined();
+    const callback = vi.fn();
+    expect(e.getMut(Position, callback)).toBeUndefined();
+    expect(callback).not.toHaveBeenCalled();
     expect(onSet).not.toHaveBeenCalled();
+  });
+
+  it("getMut without a callback throws outside deferred mode", () => {
+    const w = new World();
+    w.component(Position);
+    const e = w.entity();
+    e.add(Position);
+    expect(() => e.getMut(Position)).toThrow("deferred mode");
   });
 
   it("getMut(typeId) works with numeric type ids", () => {
     const w = new World();
     w.component(Position, 8);
     const e = w.entity();
-    const pos = e.add(8).getMut(8);
+    const pos = e.add(8).getMut(8, (value) => Object.assign(value, { x: 4 }));
     expect(pos).toBeInstanceOf(Position);
+    expect((pos as Position | undefined)?.x).toBe(4);
   });
 
   it("remove detaches a component", () => {

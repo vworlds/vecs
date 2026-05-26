@@ -536,27 +536,53 @@ export class Entity extends PartialClass {
   }
 
   /**
-   * Look up a component on this entity for mutation.
+   * Look up a component on this entity for mutation in deferred mode.
    *
    * When the component is present, this marks the component modified before
-   * returning the mutable instance.
+   * returning the mutable instance. Outside deferred mode, pass a callback so
+   * the component can be marked modified after the mutation callback returns.
    *
    * @param typeOrClass - Component class or numeric type id.
    * @returns The component instance, or `undefined` when it is not attached.
    */
   public getMut<C extends ComponentType>(Class: C): InstanceType<C> | undefined;
 
+  /** Look up a component, mutate it in `callback`, then mark it modified. */
+  public getMut<C extends ComponentType>(
+    Class: C,
+    callback: (component: InstanceType<C>) => void
+  ): Readonly<InstanceType<C>> | undefined;
+
   /** Look up a component by numeric type id for mutation. */
   public getMut(eid: number): ComponentInstance | undefined;
 
+  /** Look up a component by numeric type id, mutate it in `callback`, then mark it modified. */
+  public getMut(
+    eid: number,
+    callback: (component: ComponentInstance) => void
+  ): Readonly<ComponentInstance> | undefined;
+
   public getMut(entity: Entity): ComponentInstance | undefined;
 
-  public getMut(ref: ComponentRef): ComponentInstance | undefined {
+  public getMut(
+    entity: Entity,
+    callback: (component: ComponentInstance) => void
+  ): Readonly<ComponentInstance> | undefined;
+
+  public getMut(
+    ref: ComponentRef,
+    callback?: (component: ComponentInstance) => void
+  ): ComponentInstance | undefined {
+    if (callback === undefined && !this.world.deferred) {
+      throw new Error("Entity.getMut without a callback is only allowed in deferred mode");
+    }
     const eid = this.world.entity(ref).eid;
     const component = this._get(eid);
-    if (component) {
-      this.modified(ref);
+    if (!component) {
+      return undefined;
     }
+    callback?.(component);
+    this.modified(ref);
     return component;
   }
 
