@@ -930,3 +930,56 @@ describe("Query — NOT predicate routing", () => {
     expect(enter.mock.calls[0][0]).toBe(e);
   });
 });
+
+describe("Query — table-backed iteration", () => {
+  it("a pure query iterates across archetypes without its own entity set", () => {
+    const { w } = setup();
+    const q = w.query("pos").requires(Position).build();
+    // Members spanning three archetypes: {Position}, {Position,Velocity},
+    // {Position,Sprite}. A non-member archetype ({Velocity}) is excluded.
+    const a = w.entity().add(Position);
+    const b = w.entity().add(Position).add(Velocity);
+    const c = w.entity().add(Position).add(Sprite);
+    const other = w.entity().add(Velocity);
+
+    expect(q.count).toBe(3);
+    expect(q.has(a)).toBe(true);
+    expect(q.has(b)).toBe(true);
+    expect(q.has(c)).toBe(true);
+    expect(q.has(other)).toBe(false);
+    expect(new Set([...q])).toEqual(new Set([a, b, c]));
+
+    // Pure tracked queries do not keep their own membership set.
+    expect((q as unknown as { _entities: unknown })._entities).toBeUndefined();
+  });
+
+  it("keeps count and membership current as archetypes change", () => {
+    const { w } = setup();
+    const q = w.query("pos").requires(Position).build();
+    const e = w.entity().add(Position);
+    expect(q.count).toBe(1);
+
+    e.add(Velocity); // moves {Position} -> {Position,Velocity}, still a member
+    expect(q.count).toBe(1);
+    expect(q.has(e)).toBe(true);
+
+    e.remove(Position); // -> {Velocity}, no longer a member
+    expect(q.count).toBe(0);
+    expect(q.has(e)).toBe(false);
+
+    e.destroy();
+    expect(q.count).toBe(0);
+  });
+
+  it("a non-pure query keeps its own entity set", () => {
+    const { w } = setup();
+    const q = w.query("only-position").query({ HAS_ONLY: Position }).build();
+    const exact = w.entity().add(Position);
+    const extra = w.entity().add(Position).add(Velocity);
+
+    expect(q.has(exact)).toBe(true);
+    expect(q.has(extra)).toBe(false);
+    expect(q.count).toBe(1);
+    expect((q as unknown as { _entities: unknown })._entities).toBeDefined();
+  });
+});

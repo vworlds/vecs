@@ -8,6 +8,7 @@ import type { Table } from "./world/table.js";
 import {
   _compile,
   _extractQueryDependencies,
+  _isArchetypePure,
   type EntityTestFunc,
   type QueryDSL,
   type MaybeRequired,
@@ -30,8 +31,6 @@ type ResolvedComponentInstance<T> = T extends { parent: ComponentType }
   : T extends ComponentType
     ? InstanceType<T>
     : never;
-
-const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
 
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
@@ -73,6 +72,15 @@ export class Query<R extends ComponentType[] = []> {
   protected _subscribedTables = new Set<Table>();
   /** @internal Disposers for table / table-created subscriptions, run on destroy. */
   private _disposers: (() => void)[] = [];
+  /** @internal `true` once tracking is requested (Query default, or `track` / `each` / `sort`). */
+  protected _tracked: boolean = false;
+  /**
+   * @internal `true` when membership equals table subscription: the predicate
+   * is a pure positive conjunction with at least one required component, so
+   * iteration walks {@link _subscribedTables} and no {@link _entities} set is
+   * kept. Sorted queries are never table-pure (they need ordering).
+   */
+  protected _tablePure: boolean = false;
   /** @internal DSL predicate to compile and index when the query is built. */
   public _dsl: QueryDSL | undefined = undefined;
   /** Entity that stores this query as a component and carries query traits. */
@@ -230,10 +238,17 @@ export class Query<R extends ComponentType[] = []> {
       const deps = _extractQueryDependencies(this.world, this._dsl);
       if (deps !== undefined) {
         deps.forEach((eid) => this._archetypeDeps.add(eid));
+        this._tablePure = deps.length > 0 && _isArchetypePure(this.world, this._dsl);
       }
     }
     this.world._addQuery(this);
     this._built = true;
+    // A non-pure (or empty-deps) tracked query keeps its own entity set; a
+    // table-pure query iterates its subscribed tables instead. Sorted queries
+    // already hold an OrderedSet allocated by `sort()`.
+    if (this._entities === undefined && this._tracked && !this._tablePure) {
+      this._entities = new Set<Entity>();
+    }
     if (this._dsl !== undefined) {
       this._subscribeToTables();
     }
@@ -338,22 +353,55 @@ export class Query<R extends ComponentType[] = []> {
   }
 
   /**
+   * @internal Yield every currently-tracked entity: from the tracked set when
+   * one is kept, otherwise by walking the subscribed tables (table-pure
+   * queries). Untracked queries yield nothing.
+   */
+  private *_iterateMembers(): IterableIterator<Entity> {
+    if (this._entities !== undefined) {
+      yield* this._entities;
+      return;
+    }
+    if (this._tracked) {
+      for (const table of this._subscribedTables) {
+        yield* table.entities;
+      }
+    }
+  }
+
+  /**
    * Return the number of entities currently tracked by this query.
    *
    * Returns `0` when tracking is not enabled.
    */
   public get count(): number {
-    return this._entities?.size ?? 0;
+    if (this._entities !== undefined) {
+      return this._entities.size;
+    }
+    if (this._tracked) {
+      let total = 0;
+      this._subscribedTables.forEach((table) => {
+        total += table.entities.size;
+      });
+      return total;
+    }
+    return 0;
   }
 
   /** Returns `true` when `e` is currently tracked by this query. */
   public has(e: Entity): boolean {
-    return this._entities?.has(e) ?? false;
+    if (this._entities !== undefined) {
+      return this._entities.has(e);
+    }
+    if (this._tracked) {
+      return this._subscribedTables.has(e._table) && e._table.entities.has(e);
+    }
+    return false;
   }
 
   /** Iterate every entity currently tracked by this query. */
   public [Symbol.iterator](): IterableIterator<Entity> {
-    return (this._entities ?? EMPTY_ENTITIES)[Symbol.iterator]();
+    return this._iterateMembers();
   }
 
   /** Returns the query name. */
@@ -373,7 +421,7 @@ export class Query<R extends ComponentType[] = []> {
    */
   public track(): this {
     this._assertConfigurable();
-    this._entities ??= new Set<Entity>();
+    this._tracked = true;
     return this;
   }
 
@@ -418,16 +466,15 @@ export class Query<R extends ComponentType[] = []> {
     this.world.beginDefer();
     try {
       if (typeof componentsOrCallback === "function") {
-        this._entities?.forEach(componentsOrCallback);
-      } else {
-        if (!this._entities || !this.world) {
-          return;
+        for (const e of this._iterateMembers()) {
+          componentsOrCallback(e);
         }
+      } else {
         const eids = componentsOrCallback.map((C) => this.world.entity(C).eid);
-        this._entities.forEach((e) => {
+        for (const e of this._iterateMembers()) {
           const resolved = eids.map((componentEid) => e.get(componentEid));
           callback!(e, resolved as any);
-        });
+        }
       }
     } finally {
       this.world.endDefer();
@@ -642,6 +689,7 @@ export class Query<R extends ComponentType[] = []> {
     ) => number
   ): this {
     this._assertConfigurable();
+    this._tracked = true;
     const eids = components.map((C) => this.world.entity(C).eid);
     this._entities = new OrderedSet<Entity>((a, b) =>
       compare(a, eids.map((eid) => a.get(eid)) as any, b, eids.map((eid) => b.get(eid)) as any)

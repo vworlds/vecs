@@ -660,3 +660,40 @@ export function _extractQueryDependencies(world: World, q: QueryDSL): number[] |
 
   return undefined;
 }
+
+/**
+ * Return `true` when an entity's membership is fully determined by its
+ * archetype — i.e. the predicate is a pure positive conjunction of component
+ * requirements (a component, a component list, or an `AND` / `HAS` of those).
+ *
+ * @internal When pure, every entity in a table whose archetype satisfies the
+ * query's required components is a member, so a query can iterate tables
+ * directly instead of maintaining its own entity set. Forms with a per-entity
+ * or non-subset residual — `HAS_ONLY`, `NOT`, `OR`, `PARENT`, `REL`, or a
+ * custom predicate — are not pure.
+ */
+export function _isArchetypePure(world: World, q: QueryDSL): boolean {
+  return _isPureTerm(simplifyQueryDSL(q, world));
+}
+
+function _isPureTerm(q: QueryDSL): boolean {
+  if (typeof q === "boolean") {
+    return q;
+  }
+  if (typeof q === "number" || q instanceof Entity) {
+    return true;
+  }
+  if (typeof q === "function") {
+    return false;
+  }
+  if (q instanceof Array) {
+    return true;
+  }
+  if ("HAS" in q) {
+    return _isPureTerm(q.HAS);
+  }
+  if ("AND" in q) {
+    return q.AND.every(_isPureTerm);
+  }
+  return false;
+}
