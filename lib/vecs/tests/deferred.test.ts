@@ -79,6 +79,42 @@ describe("Deferred mode — data-layer visibility", () => {
     expect(observed[0]).toBe(pos);
   });
 
+  it("entity.getMut(C) without a callback is allowed and marks modified inside defer", () => {
+    const { w } = setup();
+    const onSet = vi.fn();
+    w.component(Position).onSet(onSet);
+    w.start();
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    onSet.mockClear();
+
+    let observed: Position | undefined;
+    w.defer(() => {
+      observed = e.getMut(Position);
+      observed!.x = 3;
+      expect(onSet).not.toHaveBeenCalled();
+    });
+
+    expect(observed).toBe(pos);
+    expect(onSet).toHaveBeenCalledWith(e, pos);
+  });
+
+  it("entity.getMut(C) without a callback returns undefined for missing components inside defer", () => {
+    const { w } = setup();
+    const onSet = vi.fn();
+    w.component(Position).onSet(onSet);
+    w.start();
+    const e = w.entity();
+
+    let observed: Position | undefined;
+    w.defer(() => {
+      observed = e.getMut(Position);
+    });
+
+    expect(observed).toBeUndefined();
+    expect(onSet).not.toHaveBeenCalled();
+  });
+
   it("at top level, mutations are immediately visible", () => {
     const { w } = setup();
     w.start();
