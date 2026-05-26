@@ -58,7 +58,7 @@ export class Components extends Entities {
       throw new Error(`Component eid ${eid} is reserved`);
     }
 
-    const existingComponent = (ComponentClass as any)[this.worldKey] as T | undefined;
+    const existingComponent = this._classRegistry.get(ComponentClass) as T | undefined;
     if (existingComponent) {
       if (eid === undefined || eid === existingComponent.eid) {
         return existingComponent;
@@ -81,11 +81,7 @@ export class Components extends Entities {
     const component = new Constructor(this, eid, ComponentClass);
     this._entities.set(eid, component);
     this._placeNewEntity(component);
-    Object.defineProperty(ComponentClass, this.worldKey, {
-      value: component,
-      configurable: true,
-      enumerable: false,
-    });
+    this._classRegistry.set(ComponentClass, component);
     return component;
   }
 }

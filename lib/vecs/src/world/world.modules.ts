@@ -18,7 +18,7 @@ export class Modules extends Components {
 
   public module<T extends ModuleEntity>(this: World, ModuleClass: EntityClass<T>, eid?: number): T {
     const ComponentClass = ModuleClass as unknown as ComponentClass;
-    const isNew = (ComponentClass as any)[this.worldKey] === undefined;
+    const isNew = !this._classRegistry.has(ComponentClass);
     const mod = this._component<T>(ModuleClass, ComponentClass, eid, this._modulePool);
     if (isNew) {
       mod.init();
