@@ -377,6 +377,10 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * Only one `each` callback may be registered per system; calling `each` a
    * second time throws.
    *
+   * The resolved tuple is a single array reused for every entity each tick;
+   * treat it as valid only for the duration of the callback. The component
+   * instances it holds are stable — do not retain the tuple array itself.
+   *
    * @param components - Component classes to resolve from each entity.
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances (`undefined` for any not covered by {@link requires}).
@@ -404,11 +408,14 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this.track();
     const eids = components.map((C) => this.world.entity(C).eid);
     const arity = eids.length;
+    // One tuple reused across every entity every tick; the callback consumes it
+    // synchronously and must not retain it (see doc). Systems never re-enter
+    // their own `each` synchronously (mutations are deferred), so this is safe.
+    const resolved = new Array(arity);
     this._eachCallback = (e: Entity) => {
       // Resolve straight off the entity's component map; `e.get` would round-trip
       // each eid back through `world.entity()` (a Map lookup) only to read the
       // same eid back. `each` runs every tick for every entity, so this is hot.
-      const resolved = new Array(arity);
       for (let k = 0; k < arity; k++) {
         resolved[k] = e._get(eids[k]);
       }
