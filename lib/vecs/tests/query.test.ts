@@ -511,9 +511,9 @@ describe("Query — relationship tracking", () => {
     expect(bobQuery.has(alice)).toBe(true);
     expect(charlieQuery.has(alice)).toBe(false);
 
-    const relationship = alice.getMut(FriendOf)!;
-    relationship.target = charlie;
-    alice.modified(FriendOf);
+    alice.getMut(FriendOf, (relationship) => {
+      relationship.target = charlie;
+    });
 
     expect(bobQuery.has(alice)).toBe(false);
     expect(charlieQuery.has(alice)).toBe(true);
