@@ -56,7 +56,8 @@ export type QueryDSL =
   | { AND: readonly QueryDSL[] }
   | { OR: readonly QueryDSL[] }
   | { NOT: QueryDSL }
-  | { PARENT: QueryDSL };
+  | { PARENT: QueryDSL }
+  | { REL: readonly [ComponentRef, Entity] };
 
 /**
  * Resolve component nullability based on what was declared in `requires` (or
@@ -97,9 +98,13 @@ export type ExtractRequired<Q> = Q extends ComponentType
       ? ExtractRequired<H>
       : Q extends { HAS_ONLY: infer H }
         ? ExtractRequired<H>
-        : Q extends { AND: infer A extends readonly QueryDSL[] }
-          ? _ExtractAndChain<A>
-          : [];
+        : Q extends { REL: readonly [infer C, Entity] }
+          ? C extends ComponentType
+            ? [C]
+            : []
+          : Q extends { AND: infer A extends readonly QueryDSL[] }
+            ? _ExtractAndChain<A>
+            : [];
 
 type _ExtractAndChain<A extends readonly QueryDSL[]> = A extends readonly [
   infer First,
@@ -147,6 +152,14 @@ function _calculateComponentBitmask(types: readonly number[]): Bitset {
 
 function _resolveComponentRequirement(component: ComponentRef, world: World): number {
   return world.entity(component).eid;
+}
+
+function _resolveRelationshipRequirement(component: ComponentRef, world: World): number {
+  const componentEntity = world.entity(component);
+  if (!componentEntity.ownMeta.isRelationship) {
+    throw new Error(`Component ${componentEntity.eid} is not a Relationship`);
+  }
+  return componentEntity.eid;
 }
 
 function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL {
@@ -236,6 +249,10 @@ function _termSortKey(q: QueryDSL): string {
   if ("PARENT" in q) {
     return `4:${_termSortKey(q.PARENT)}`;
   }
+  if ("REL" in q) {
+    const [component, target] = q.REL;
+    return `4:${_termSortKey(component)}:${target.eid}`;
+  }
   if ("HAS" in q) {
     return _termSortKey(q.HAS);
   }
@@ -288,6 +305,10 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
   }
   if ("NOT" in q) {
     return ["NOT", _canonicalDSLKey(q.NOT)];
+  }
+  if ("REL" in q) {
+    const [component, target] = q.REL;
+    return ["REL", component instanceof Entity ? component.eid : component, target.eid];
   }
   return ["PARENT", _canonicalDSLKey(q.PARENT)];
 }
@@ -436,6 +457,10 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
     return { PARENT: term };
   }
 
+  if ("REL" in q) {
+    return { REL: [_resolveRelationshipRequirement(q.REL[0], world), world.entity(q.REL[1])] };
+  }
+
   return q;
 }
 
@@ -548,6 +573,17 @@ function _compileQueryExpression(
     return `(${entityRef}.parent ? (${_compileQueryExpression(world, q.PARENT, context, `${entityRef}.parent`)}) : false)`;
   }
 
+  if ("REL" in q) {
+    const relationshipEid = _resolveRelationshipRequirement(q.REL[0], world);
+    const target = world.entity(q.REL[1]);
+    const funcIndex =
+      context.funcs.push((e: Entity) => {
+        const relationship = e._get(relationshipEid) as { target?: Entity } | undefined;
+        return !target._destroyed && relationship?.target === target;
+      }) - 1;
+    return `f${funcIndex}(${entityRef})`;
+  }
+
   throw "Unrecognized query term";
 }
 
@@ -603,6 +639,10 @@ export function _extractQueryDependencies(world: World, q: QueryDSL): number[] |
 
   if ("HAS" in q) {
     return _extractQueryDependencies(world, q.HAS);
+  }
+
+  if ("REL" in q) {
+    return [_resolveRelationshipRequirement(q.REL[0], world)];
   }
 
   if ("AND" in q) {

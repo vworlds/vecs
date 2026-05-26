@@ -158,6 +158,9 @@ export class Entity extends PartialClass {
   ): void {
     this._runOnSetHandlers(meta, instance);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    if (meta.isRelationship) {
+      this._updateQueries(meta);
+    }
     if (isUpdate) {
       this._queries.forEach((q) => q._notifyModified(this, meta, instance));
     }

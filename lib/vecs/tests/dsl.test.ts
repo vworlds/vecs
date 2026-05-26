@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { _compile, getDSLKey, simplifyQueryDSL, type QueryDSL } from "../src/dsl.js";
-import { World } from "../src/index.js";
+import { Relationship, World } from "../src/index.js";
 import { Entity } from "../src/entity/index.js";
 import { Bitset } from "../src/util/bitset.js";
 
@@ -17,6 +17,7 @@ class Velocity {
 class Sprite {}
 class Container {}
 class Player {}
+class FriendOf extends Relationship {}
 
 describe("Query DSL simplification", () => {
   function registeredWorld(): World {
@@ -26,6 +27,7 @@ describe("Query DSL simplification", () => {
     world.component(Sprite, 12);
     world.component(Container, 13);
     world.component(Player, 14);
+    world.component(FriendOf, 15);
     return world;
   }
 
@@ -116,6 +118,24 @@ describe("Query DSL simplification", () => {
     expect(simplifyQueryDSL({ HAS_ONLY: [Velocity, Position] }, world)).toEqual({
       HAS_ONLY: [10, 11],
     });
+  });
+
+  it("converts relationship classes to numeric REL requirements", () => {
+    const world = registeredWorld();
+    const target = world.entity();
+
+    expect(simplifyQueryDSL({ REL: [FriendOf, target] }, world)).toEqual({
+      REL: [15, target],
+    });
+  });
+
+  it("rejects REL requirements for non-relationship components", () => {
+    const world = registeredWorld();
+    const target = world.entity();
+
+    expect(() => simplifyQueryDSL({ REL: [Position, target] }, world)).toThrow(
+      /not a Relationship/
+    );
   });
 
   it("sorts OR terms after converting component classes to type ids", () => {
@@ -284,6 +304,12 @@ describe("Query DSL compilation", () => {
     }
     if ("PARENT" in q) {
       return e.parent ? evalReference(world, q.PARENT, e.parent) : false;
+    }
+    if ("REL" in q) {
+      const [component, target] = q.REL;
+      return (
+        (e._get(world.entity(component).eid) as { target?: Entity } | undefined)?.target === target
+      );
     }
     throw new Error("unrecognized term in reference evaluator");
   }

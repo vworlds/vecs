@@ -1,5 +1,6 @@
 import { BitPtr } from "./util/bitset.js";
 import type { Entity, EntityClass } from "./entity/index.js";
+import { Relationship } from "./relationship.js";
 
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
@@ -84,6 +85,8 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   public readonly eid: number;
   /** Pre-computed bit-pointer into the entity archetype {@link Bitset}. */
   public readonly bitPtr: BitPtr;
+  /** Whether this component is a relationship pointing at another entity. */
+  public readonly isRelationship: boolean;
 
   /**
    * @internal Peer metas of components that cannot coexist with this one on
@@ -105,6 +108,7 @@ export class ComponentMeta implements Hook<ComponentInstance> {
     this.Class = Class;
     this.eid = eid;
     this.bitPtr = new BitPtr(eid);
+    this.isRelationship = Class.prototype instanceof Relationship;
   }
 
   /** Number of entities currently carrying this component eid. */

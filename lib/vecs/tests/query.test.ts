@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Query, World } from "../src/index.js";
+import { Query, Relationship, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -13,6 +13,7 @@ class Sprite {}
 class Container {}
 class Player {}
 class QueryTrait {}
+class FriendOf extends Relationship {}
 
 function setup() {
   const w = new World();
@@ -21,6 +22,7 @@ function setup() {
   w.component(Sprite);
   w.component(Container);
   w.component(Player);
+  w.component(FriendOf);
   const phase = w.addPhase("p");
   // dummy system ensures runPhase always flushes archetype changes
   w.system("__flush__")
@@ -411,6 +413,110 @@ describe("Query — predicates (belongs)", () => {
     e.add(Position);
     e.add(Velocity);
     expect(q.belongs(e)).toBe(true);
+  });
+
+  it("REL matches entities with a relationship targeting the requested entity", () => {
+    const { w } = setup();
+    const bob = w.entity();
+    const alice = w.entity();
+    const charlie = w.entity();
+    alice.set(FriendOf, { target: bob });
+    charlie.set(FriendOf, { target: alice });
+
+    const q = w
+      .query("friends-of-bob")
+      .query({ REL: [FriendOf, bob] })
+      .build();
+
+    expect(q.belongs(alice)).toBe(true);
+    expect(q.belongs(charlie)).toBe(false);
+  });
+
+  it("REL can be combined with other predicates", () => {
+    const { w } = setup();
+    const bob = w.entity();
+    const tagged = w.entity().add(Position).set(FriendOf, { target: bob });
+    const untagged = w.entity().set(FriendOf, { target: bob });
+
+    const q = w
+      .query("tagged-friends-of-bob")
+      .query({ AND: [Position, { REL: [FriendOf, bob] }] })
+      .build();
+
+    expect(q.belongs(tagged)).toBe(true);
+    expect(q.belongs(untagged)).toBe(false);
+  });
+
+  it("REL rejects components that do not derive from Relationship", () => {
+    const { w } = setup();
+    const target = w.entity();
+
+    expect(() =>
+      w
+        .query("bad-rel")
+        .query({ REL: [Position, target] })
+        .build()
+    ).toThrow(/not a Relationship/);
+  });
+});
+
+describe("Query — relationship tracking", () => {
+  it("tracks entities whose relationship target matches", () => {
+    const { w } = setup();
+    const bob = w.entity();
+    const alice = w.entity();
+    const charlie = w.entity();
+    const q = w
+      .query("friends-of-bob")
+      .query({ REL: [FriendOf, bob] })
+      .build();
+
+    alice.set(FriendOf, { target: bob });
+    charlie.set(FriendOf, { target: alice });
+
+    expect([...q]).toEqual([alice]);
+  });
+
+  it("updates tracked membership when set retargets a relationship", () => {
+    const { w } = setup();
+    const bob = w.entity();
+    const charlie = w.entity();
+    const alice = w.entity().set(FriendOf, { target: bob });
+    const q = w
+      .query("friends-of-bob")
+      .query({ REL: [FriendOf, bob] })
+      .build();
+
+    expect(q.has(alice)).toBe(true);
+
+    alice.set(FriendOf, { target: charlie });
+
+    expect(q.has(alice)).toBe(false);
+  });
+
+  it("updates tracked membership when modified retargets a relationship", () => {
+    const { w } = setup();
+    const bob = w.entity();
+    const charlie = w.entity();
+    const alice = w.entity().set(FriendOf, { target: bob });
+    const bobQuery = w
+      .query("friends-of-bob")
+      .query({ REL: [FriendOf, bob] })
+      .build();
+    const charlieQuery = w
+      .query("friends-of-charlie")
+      .query({ REL: [FriendOf, charlie] })
+      .build();
+
+    expect(bobQuery.has(alice)).toBe(true);
+    expect(charlieQuery.has(alice)).toBe(false);
+
+    const relationship = alice.getMut(FriendOf)!;
+    relationship.target = charlie;
+    alice.modified(FriendOf);
+
+    expect(bobQuery.has(alice)).toBe(false);
+    expect(charlieQuery.has(alice)).toBe(true);
   });
 });
 
