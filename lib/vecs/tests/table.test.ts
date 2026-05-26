@@ -9,7 +9,7 @@ describe("Table - archetype membership", () => {
     const w = new World();
     const e = w.entity();
     expect(e._table).toBe(w._emptyTable);
-    expect(w._emptyTable.entities.has(e)).toBe(true);
+    expect(w._emptyTable.has(e)).toBe(true);
     expect(e._table.archetype.indices()).toEqual([]);
   });
 
@@ -23,8 +23,8 @@ describe("Table - archetype membership", () => {
 
     expect(e._table).not.toBe(w._emptyTable);
     expect(e._table.archetype.has(aEid)).toBe(true);
-    expect(e._table.entities.has(e)).toBe(true);
-    expect(w._emptyTable.entities.has(e)).toBe(false);
+    expect(e._table.has(e)).toBe(true);
+    expect(w._emptyTable.has(e)).toBe(false);
   });
 
   it("returns an entity to its previous table when a component is removed", () => {
@@ -37,8 +37,8 @@ describe("Table - archetype membership", () => {
     e.remove(A);
 
     expect(e._table).toBe(w._emptyTable);
-    expect(tableWithA.entities.has(e)).toBe(false);
-    expect(w._emptyTable.entities.has(e)).toBe(true);
+    expect(tableWithA.has(e)).toBe(false);
+    expect(w._emptyTable.has(e)).toBe(true);
   });
 
   it("shares a single table between entities with the same archetype", () => {
@@ -48,8 +48,8 @@ describe("Table - archetype membership", () => {
     const e2 = w.entity().add(A);
 
     expect(e1._table).toBe(e2._table);
-    expect(e1._table.entities.has(e1)).toBe(true);
-    expect(e1._table.entities.has(e2)).toBe(true);
+    expect(e1._table.has(e1)).toBe(true);
+    expect(e1._table.has(e2)).toBe(true);
   });
 
   it("treats archetypes as order-independent", () => {
@@ -95,7 +95,7 @@ describe("Table - archetype membership", () => {
 
     e.destroy();
 
-    expect(tableWithA.entities.has(e)).toBe(false);
+    expect(tableWithA.has(e)).toBe(false);
   });
 
   it("places deferred-created entities in the empty table on flush", () => {
@@ -104,9 +104,9 @@ describe("Table - archetype membership", () => {
     w.defer(() => {
       e = w.entity();
       // Not yet registered while the create command is queued.
-      expect(w._emptyTable.entities.has(e)).toBe(false);
+      expect(w._emptyTable.has(e)).toBe(false);
     });
     expect(e._table).toBe(w._emptyTable);
-    expect(w._emptyTable.entities.has(e)).toBe(true);
+    expect(w._emptyTable.has(e)).toBe(true);
   });
 });

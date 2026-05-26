@@ -419,7 +419,7 @@ export class Query<R extends ComponentType[] = []> {
     if (this._tracked) {
       let total = 0;
       this._subscribedTables.forEach((table) => {
-        total += table.entities.size;
+        total += table.entities.length;
       });
       return total;
     }
@@ -432,7 +432,7 @@ export class Query<R extends ComponentType[] = []> {
       return this._entities.has(e);
     }
     if (this._tracked) {
-      return this._subscribedTables.has(e._table) && e._table.entities.has(e);
+      return this._subscribedTables.has(e._table) && e._table.has(e);
     }
     return false;
   }

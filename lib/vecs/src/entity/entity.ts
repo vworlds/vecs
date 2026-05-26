@@ -68,6 +68,8 @@ export class Entity extends PartialClass {
 
   /** @internal The archetype table this entity currently belongs to. */
   public _table: Table;
+  /** @internal This entity's slot in `_table`'s dense entity list. */
+  public _row: number = -1;
 
   /** @internal Empty children set used as the default `children` value. */
   private static readonly _emptyChildren: ReadonlySet<Entity> = new Set();

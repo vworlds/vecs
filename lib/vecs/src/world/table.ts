@@ -32,8 +32,14 @@ export class Table {
    * after construction; entities move between tables instead.
    */
   public readonly archetype: Bitset;
-  /** Entities whose component set exactly matches {@link archetype}. */
-  public readonly entities = new Set<Entity>();
+  /**
+   * Entities whose component set exactly matches {@link archetype}, kept in a
+   * dense array. Membership is maintained by swap-remove (see
+   * {@link _removeEntity}), so iteration order is not stable across removals;
+   * callers needing ordering use {@link Query.sort}. Each entity caches its
+   * index here in `entity._row`, making add and remove O(1) without hashing.
+   */
+  public readonly entities: Entity[] = [];
   /** @internal Sorted component eids contained in this archetype. */
   public readonly _componentEids: number[];
 
@@ -56,9 +62,14 @@ export class Table {
     return `Table[${this.key}]`;
   }
 
+  /** `true` when `e` currently belongs to this table. */
+  public has(e: Entity): boolean {
+    return this.entities[e._row] === e;
+  }
+
   /** @internal Record that `e` now belongs to this table and notify observers. */
   public _addEntity(e: Entity): void {
-    this.entities.add(e);
+    e._row = this.entities.push(e) - 1;
     this._notifyMembership(e);
   }
 
@@ -68,13 +79,13 @@ export class Table {
    * pick the entity up on its first archetype change or via backfill.
    */
   public _addInitialEntity(e: Entity): void {
-    this.entities.add(e);
+    e._row = this.entities.push(e) - 1;
   }
 
   /** @internal Notify observers that `e` no longer belongs to this table. */
   public _removeEntity(e: Entity): void {
     this._notifyMembership(e);
-    this.entities.delete(e);
+    this._removeRow(e);
   }
 
   /**
@@ -83,7 +94,29 @@ export class Table {
    * changes in a way that can flip a query predicate without an archetype move.
    */
   public _notifyMembership(e: Entity): void {
-    this._membershipObservers.forEach((observer) => observer(e));
+    const observers = this._membershipObservers;
+    if (observers.size === 0) {
+      return;
+    }
+    observers.forEach((observer) => observer(e));
+  }
+
+  /**
+   * @internal Remove `e` from the dense list by swapping the last entity into
+   * its slot. Idempotent: a no-op when `e` is no longer present (which can
+   * happen if a re-entrant observer already removed it).
+   */
+  private _removeRow(e: Entity): void {
+    const entities = this.entities;
+    const row = e._row;
+    if (entities[row] !== e) {
+      return;
+    }
+    const last = entities.pop()!;
+    if (last !== e) {
+      entities[row] = last;
+      last._row = row;
+    }
   }
 
   /**
