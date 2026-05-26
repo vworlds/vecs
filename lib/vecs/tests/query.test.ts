@@ -696,6 +696,29 @@ describe("Query — enter/exit callbacks", () => {
     const q = w.query("test");
     expect(q.exit(() => {})).toBe(q);
   });
+
+  it("does not fire enter or exit when entity changes table but still matches", () => {
+    const { w, tick } = setup();
+    const enter = vi.fn();
+    const exit = vi.fn();
+    w.query("test").requires(Position).enter(enter).exit(exit);
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    tick();
+    expect(enter).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledTimes(0);
+
+    e.add(Sprite); // changes table from [Position] → [Position, Sprite]
+    tick();
+    expect(enter).toHaveBeenCalledTimes(1); // no spurious enter
+    expect(exit).toHaveBeenCalledTimes(0); // no spurious exit
+
+    e.remove(Sprite); // changes table back from [Position, Sprite] → [Position]
+    tick();
+    expect(enter).toHaveBeenCalledTimes(1); // no spurious enter
+    expect(exit).toHaveBeenCalledTimes(0); // no spurious exit
+  });
 });
 
 describe("Query — sort", () => {
@@ -928,5 +951,93 @@ describe("Query — NOT predicate routing", () => {
     e.remove(Velocity); // now matches → enter queued on system inbox
     w.progress(0, 0);
     expect(enter.mock.calls[0][0]).toBe(e);
+  });
+});
+
+describe("Query — table-backed iteration", () => {
+  it("a pure query iterates across archetypes without its own entity set", () => {
+    const { w } = setup();
+    const q = w.query("pos").requires(Position).build();
+    // Members spanning three archetypes: {Position}, {Position,Velocity},
+    // {Position,Sprite}. A non-member archetype ({Velocity}) is excluded.
+    const a = w.entity().add(Position);
+    const b = w.entity().add(Position).add(Velocity);
+    const c = w.entity().add(Position).add(Sprite);
+    const other = w.entity().add(Velocity);
+
+    expect(q.count).toBe(3);
+    expect(q.has(a)).toBe(true);
+    expect(q.has(b)).toBe(true);
+    expect(q.has(c)).toBe(true);
+    expect(q.has(other)).toBe(false);
+    expect(new Set([...q])).toEqual(new Set([a, b, c]));
+
+    // Pure tracked queries do not keep their own membership set.
+    expect((q as unknown as { _entities: unknown })._entities).toBeUndefined();
+  });
+
+  it("keeps count and membership current as archetypes change", () => {
+    const { w } = setup();
+    const q = w.query("pos").requires(Position).build();
+    const e = w.entity().add(Position);
+    expect(q.count).toBe(1);
+
+    e.add(Velocity); // moves {Position} -> {Position,Velocity}, still a member
+    expect(q.count).toBe(1);
+    expect(q.has(e)).toBe(true);
+
+    e.remove(Position); // -> {Velocity}, no longer a member
+    expect(q.count).toBe(0);
+    expect(q.has(e)).toBe(false);
+
+    e.destroy();
+    expect(q.count).toBe(0);
+  });
+
+  it("HAS_ONLY is table-pure: exact archetype, no entity set", () => {
+    const { w } = setup();
+    const q = w.query("only-position").query({ HAS_ONLY: Position }).build();
+    const exact = w.entity().add(Position);
+    const extra = w.entity().add(Position).add(Velocity);
+
+    expect(q.has(exact)).toBe(true);
+    expect(q.has(extra)).toBe(false);
+    expect(q.count).toBe(1);
+    expect([...q]).toEqual([exact]);
+    // Exact archetype match (a single table) — no per-query entity set kept.
+    expect((q as unknown as { _entities: unknown })._entities).toBeUndefined();
+  });
+
+  it("AND of HAS and NOT is table-pure", () => {
+    const { w } = setup();
+    const q = w
+      .query("pos-not-vel")
+      .query({ AND: [Position, { NOT: Velocity }] })
+      .build();
+    const match = w.entity().add(Position);
+    const excluded = w.entity().add(Position).add(Velocity);
+
+    expect(q.has(match)).toBe(true);
+    expect(q.has(excluded)).toBe(false);
+    expect(q.count).toBe(1);
+    expect((q as unknown as { _entities: unknown })._entities).toBeUndefined();
+  });
+
+  it("a query with a per-entity residual keeps its own entity set", () => {
+    const { w } = setup();
+    // A custom predicate is not archetype-determined, so the query keeps an
+    // entity set and re-tests `belongs` per entity (here, on the add transition
+    // where the component data is already applied).
+    const q = w
+      .query("hot-x")
+      .query((e) => (e.get(Position)?.x ?? 0) > 5)
+      .build();
+    const hot = w.entity().set(Position, { x: 10 });
+    const cold = w.entity().set(Position, { x: 0 });
+
+    expect(q.has(hot)).toBe(true);
+    expect(q.has(cold)).toBe(false);
+    expect(q.count).toBe(1);
+    expect((q as unknown as { _entities: unknown })._entities).toBeDefined();
   });
 });

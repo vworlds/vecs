@@ -4,7 +4,14 @@ import { Bitset } from "./util/bitset.js";
 import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
 import type { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
-import { _compile, type EntityTestFunc, type QueryDSL, type MaybeRequired } from "./dsl.js";
+import type { Table } from "./world/table.js";
+import {
+  _compile,
+  _compileArchetypeMatcher,
+  type EntityTestFunc,
+  type QueryDSL,
+  type MaybeRequired,
+} from "./dsl.js";
 
 export type { EntityTestFunc, QueryDSL, MaybeRequired };
 
@@ -24,7 +31,8 @@ type ResolvedComponentInstance<T> = T extends { parent: ComponentType }
     ? InstanceType<T>
     : never;
 
-const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
+/** The empty archetype, used to test whether a query would match the empty table. */
+const EMPTY_ARCHETYPE = new Bitset();
 
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
@@ -56,8 +64,25 @@ export class Query<R extends ComponentType[] = []> {
   protected _belongs: EntityTestFunc = (_e: Entity) => false;
   /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
-  /** @internal Component index buckets this query currently belongs to. */
-  public _queryIndexKeys: number[] | undefined = undefined;
+  /**
+   * @internal Sound over-approximation of which table archetypes can hold a
+   * member, used to pick subscriptions. Defaults to "matches nothing" until
+   * built. Built from {@link _compileArchetypeMatcher}.
+   */
+  protected _archetypeMatch: (archetype: Bitset) => boolean = () => false;
+  /** @internal Tables this query is currently subscribed to. */
+  protected _subscribedTables = new Set<Table>();
+  /** @internal Disposers for table / table-created subscriptions, run on destroy. */
+  private _disposers: (() => void)[] = [];
+  /** @internal `true` once tracking is requested (Query default, or `track` / `each` / `sort`). */
+  protected _tracked: boolean = false;
+  /**
+   * @internal `true` when membership equals table subscription: the archetype
+   * decides membership exactly and the empty table is excluded, so iteration
+   * walks {@link _subscribedTables} and no {@link _entities} set is kept.
+   * Sorted queries are never table-pure (they need ordering).
+   */
+  protected _tablePure: boolean = false;
   /** @internal DSL predicate to compile and index when the query is built. */
   public _dsl: QueryDSL | undefined = undefined;
   /** Entity that stores this query as a component and carries query traits. */
@@ -102,21 +127,72 @@ export class Query<R extends ComponentType[] = []> {
   }
 
   /**
-   * @internal Backfill the tracked set with every existing entity that
-   * satisfies the current predicate. Runs inside a deferred scope so the
-   * caller's reentrant routing remains consistent.
+   * @internal Subscribe to every existing table whose archetype can hold a
+   * member, and to future tables as they are created. Runs inside a deferred
+   * scope so reentrant enter/exit routing stays consistent.
    */
-  private _backfill(): void {
-    if (this._entities === undefined) {
-      return;
-    }
+  private _subscribeToTables(): void {
     this.world.defer(() => {
-      this.world.entities.forEach((e) => {
-        if (this.belongs(e) && !e._isInQuery(this)) {
-          this._enter(e);
+      this.world._forEachTable((table) => {
+        if (this._archetypeMatches(table)) {
+          this._subscribeToTable(table);
         }
       });
+      this._disposers.push(
+        this.world._observeTableCreated((table) => {
+          if (this._archetypeMatches(table)) {
+            this._subscribeToTable(table);
+          }
+        })
+      );
     });
+  }
+
+  /**
+   * @internal Begin observing `table`'s membership and backfill any entities
+   * already in it that satisfy this query's predicate.
+   */
+  private _subscribeToTable(table: Table): void {
+    if (this._subscribedTables.has(table)) {
+      return;
+    }
+    this._subscribedTables.add(table);
+    this._disposers.push(table._observeMembership((e) => this._refresh(e)));
+    table.entities.forEach((e) => this._refresh(e));
+  }
+
+  /**
+   * @internal `true` when `table`'s archetype can hold a member of this query.
+   * Exact for archetype-only predicates; a sound over-approximation otherwise
+   * (membership is then confirmed per entity via {@link belongs}).
+   */
+  private _archetypeMatches(table: Table): boolean {
+    return this._archetypeMatch(table.archetype);
+  }
+
+  /**
+   * @internal Re-evaluate `e`'s membership and route the resulting enter / exit.
+   * Idempotent: a no-op when membership has not changed.
+   *
+   * Possible future optimization: a {@link _tablePure} query could skip the
+   * `belongs` re-test entirely and decide enter/exit from table membership
+   * alone (`shouldBelong = this._subscribedTables.has(e._table)`). It is left
+   * as-is on purpose: `belongs` here is a few inlined bitwise checks that only
+   * run on archetype transitions (not during iteration), so the saving is tiny,
+   * while the change would require `_transitionTable` to reassign `_table`
+   * before firing observers plus a second `shouldBelong` code path.
+   */
+  private _refresh(e: Entity): void {
+    const shouldBelong = !e._destroyed && this.belongs(e);
+    const isMember = e._isInQuery(this);
+    if (shouldBelong === isMember) {
+      return;
+    }
+    if (shouldBelong) {
+      this._enter(e);
+    } else {
+      this._exit(e);
+    }
   }
 
   /** `true` once this query has been registered with its world. */
@@ -169,10 +245,25 @@ export class Query<R extends ComponentType[] = []> {
     }
     if (this._dsl !== undefined) {
       this._belongs = _compile(this.world, this._dsl);
+      const matcher = _compileArchetypeMatcher(this.world, this._dsl);
+      this._archetypeMatch = matcher.match;
+      // Table-pure: the archetype decides membership exactly and the query
+      // does not match the empty table. Excluding the empty table keeps
+      // table iteration consistent with enter/exit, since freshly created
+      // entities are placed there silently (no enter fires).
+      this._tablePure = matcher.exact && !matcher.match(EMPTY_ARCHETYPE);
     }
     this.world._addQuery(this);
     this._built = true;
-    this._backfill();
+    // A non-pure (or empty-deps) tracked query keeps its own entity set; a
+    // table-pure query iterates its subscribed tables instead. Sorted queries
+    // already hold an OrderedSet allocated by `sort()`.
+    if (this._entities === undefined && this._tracked && !this._tablePure) {
+      this._entities = new Set<Entity>();
+    }
+    if (this._dsl !== undefined) {
+      this._subscribeToTables();
+    }
     return this;
   }
 
@@ -274,22 +365,55 @@ export class Query<R extends ComponentType[] = []> {
   }
 
   /**
+   * @internal Yield every currently-tracked entity: from the tracked set when
+   * one is kept, otherwise by walking the subscribed tables (table-pure
+   * queries). Untracked queries yield nothing.
+   */
+  private *_iterateMembers(): IterableIterator<Entity> {
+    if (this._entities !== undefined) {
+      yield* this._entities;
+      return;
+    }
+    if (this._tracked) {
+      for (const table of this._subscribedTables) {
+        yield* table.entities;
+      }
+    }
+  }
+
+  /**
    * Return the number of entities currently tracked by this query.
    *
    * Returns `0` when tracking is not enabled.
    */
   public get count(): number {
-    return this._entities?.size ?? 0;
+    if (this._entities !== undefined) {
+      return this._entities.size;
+    }
+    if (this._tracked) {
+      let total = 0;
+      this._subscribedTables.forEach((table) => {
+        total += table.entities.size;
+      });
+      return total;
+    }
+    return 0;
   }
 
   /** Returns `true` when `e` is currently tracked by this query. */
   public has(e: Entity): boolean {
-    return this._entities?.has(e) ?? false;
+    if (this._entities !== undefined) {
+      return this._entities.has(e);
+    }
+    if (this._tracked) {
+      return this._subscribedTables.has(e._table) && e._table.entities.has(e);
+    }
+    return false;
   }
 
   /** Iterate every entity currently tracked by this query. */
   public [Symbol.iterator](): IterableIterator<Entity> {
-    return (this._entities ?? EMPTY_ENTITIES)[Symbol.iterator]();
+    return this._iterateMembers();
   }
 
   /** Returns the query name. */
@@ -309,7 +433,7 @@ export class Query<R extends ComponentType[] = []> {
    */
   public track(): this {
     this._assertConfigurable();
-    this._entities ??= new Set<Entity>();
+    this._tracked = true;
     return this;
   }
 
@@ -354,16 +478,15 @@ export class Query<R extends ComponentType[] = []> {
     this.world.beginDefer();
     try {
       if (typeof componentsOrCallback === "function") {
-        this._entities?.forEach(componentsOrCallback);
-      } else {
-        if (!this._entities || !this.world) {
-          return;
+        for (const e of this._iterateMembers()) {
+          componentsOrCallback(e);
         }
+      } else {
         const eids = componentsOrCallback.map((C) => this.world.entity(C).eid);
-        this._entities.forEach((e) => {
+        for (const e of this._iterateMembers()) {
           const resolved = eids.map((componentEid) => e.get(componentEid));
           callback!(e, resolved as any);
-        });
+        }
       }
     } finally {
       this.world.endDefer();
@@ -578,6 +701,7 @@ export class Query<R extends ComponentType[] = []> {
     ) => number
   ): this {
     this._assertConfigurable();
+    this._tracked = true;
     const eids = components.map((C) => this.world.entity(C).eid);
     this._entities = new OrderedSet<Entity>((a, b) =>
       compare(a, eids.map((eid) => a.get(eid)) as any, b, eids.map((eid) => b.get(eid)) as any)
@@ -647,6 +771,9 @@ export class Query<R extends ComponentType[] = []> {
       return;
     }
     this._destroyed = true;
+    this._disposers.forEach((dispose) => dispose());
+    this._disposers.length = 0;
+    this._subscribedTables.clear();
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;

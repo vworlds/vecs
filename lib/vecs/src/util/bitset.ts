@@ -85,6 +85,13 @@ export class Bitset {
     this._bits.length = 0;
   }
 
+  /** Return a new bitset with the same bits set. */
+  public clone(): Bitset {
+    const copy = new Bitset();
+    copy._bits = this._bits.slice();
+    return copy;
+  }
+
   /**
    * Return `true` when bit `n` is set.
    *

@@ -6,6 +6,7 @@ import {
   type ComponentType,
 } from "../component_meta.js";
 import type { World } from "../world/index.js";
+import type { Table } from "../world/table.js";
 import { CommandKind } from "../command.js";
 import { ArrayMap, ReadonlyArrayMap } from "../util/array_map.js";
 import { type Query } from "../query.js";
@@ -65,6 +66,9 @@ export class Entity extends PartialClass {
   /** @internal Set of queries this entity currently belongs to. */
   private readonly _queries = new Set<Query>();
 
+  /** @internal The archetype table this entity currently belongs to. */
+  public _table: Table;
+
   /** @internal Empty children set used as the default `children` value. */
   private static readonly _emptyChildren: ReadonlySet<Entity> = new Set();
 
@@ -99,6 +103,7 @@ export class Entity extends PartialClass {
     ownComponentClass?: ComponentType
   ) {
     super();
+    this._table = world._emptyTable;
     if (ownComponentClass !== undefined) {
       this._ownMeta = new ComponentMeta(ownComponentClass, eid);
     }
@@ -116,17 +121,18 @@ export class Entity extends PartialClass {
   }
 
   /**
-   * Re-evaluate queries that can be affected by `meta` for this entity,
-   * firing `_enter` / `_exit` routing whenever membership flipped.
+   * Move this entity to the archetype table reached by adding (`isAdd`) or
+   * removing `meta`, updating membership of both the old and new table.
    */
-  private _updateQueries(meta: ComponentMeta): void {
-    this.world._forEachQueryForComponent(meta.eid, (q) => {
-      const belongs = q.belongs(this);
-      const isIn = this._queries.has(q);
-      if (belongs !== isIn) {
-        belongs ? q._enter(this) : q._exit(this);
-      }
-    });
+  private _transitionTable(meta: ComponentMeta, isAdd: boolean): void {
+    const oldTable = this._table;
+    const newTable = isAdd ? oldTable._tableAfterAdd(meta) : oldTable._tableAfterRemove(meta);
+    if (newTable === oldTable) {
+      return;
+    }
+    oldTable._removeEntity(this);
+    this._table = newTable;
+    newTable._addEntity(this);
   }
 
   /** Store a component instance and perform the shared add-side bookkeeping. */
@@ -147,7 +153,9 @@ export class Entity extends PartialClass {
     if (isAdd && !existing) {
       this._runOnAddHandlers(meta, instance);
     }
-    this._updateQueries(meta);
+    if (!existing) {
+      this._transitionTable(meta, true);
+    }
   }
 
   /** Perform the shared set-side hook and query update routing. */
@@ -159,7 +167,7 @@ export class Entity extends PartialClass {
     this._runOnSetHandlers(meta, instance);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (meta.isRelationship) {
-      this._updateQueries(meta);
+      this._table._notifyMembership(this);
     }
     if (isUpdate) {
       this._queries.forEach((q) => q._notifyModified(this, meta, instance));
@@ -222,13 +230,9 @@ export class Entity extends PartialClass {
     }
     this._destroyed = true;
 
-    const toExit: Query[] = [];
-    this._queries.forEach((q) => {
-      if (q.world) {
-        toExit.push(q);
-      }
-    });
-    toExit.forEach((q) => q._exit(this));
+    // Leaving the table re-evaluates every subscribed query; because
+    // `_destroyed` is now set, each fires `_exit` for this entity.
+    this._table._removeEntity(this);
 
     this._components.forEach((c, eid) => {
       const meta = this.world.entity(eid).ownMeta;
@@ -309,7 +313,7 @@ export class Entity extends PartialClass {
     }
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this._updateQueries(meta);
+    this._transitionTable(meta, false);
     this._components.delete(meta.eid);
     meta._decrementUsage();
     const removeHandlers = meta._onRemoveHandlers;
