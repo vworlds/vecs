@@ -368,6 +368,10 @@ export class Query<R extends ComponentType[] = []> {
    * @internal Yield every currently-tracked entity: from the tracked set when
    * one is kept, otherwise by walking the subscribed tables (table-pure
    * queries). Untracked queries yield nothing.
+   *
+   * Used only by {@link Symbol.iterator} (the public `for...of` protocol). The
+   * hot {@link forEach} path uses {@link _forEachMember} instead, which avoids
+   * generator overhead.
    */
   private *_iterateMembers(): IterableIterator<Entity> {
     if (this._entities !== undefined) {
@@ -378,6 +382,28 @@ export class Query<R extends ComponentType[] = []> {
       for (const table of this._subscribedTables) {
         yield* table.entities;
       }
+    }
+  }
+
+  /**
+   * @internal Invoke `callback` for every currently-tracked entity, without
+   * allocating an iterator: directly over the tracked set when one is kept,
+   * otherwise over each subscribed table's entity list (table-pure queries).
+   * Untracked queries visit nothing.
+   *
+   * This is the hot iteration path. `Set.forEach` / array iteration is markedly
+   * faster than driving a generator through `for...of`, which is why
+   * {@link forEach} routes here rather than through {@link _iterateMembers}.
+   */
+  private _forEachMember(callback: (e: Entity) => void): void {
+    if (this._entities !== undefined) {
+      this._entities.forEach(callback);
+      return;
+    }
+    if (this._tracked) {
+      this._subscribedTables.forEach((table) => {
+        table.entities.forEach(callback);
+      });
     }
   }
 
@@ -478,15 +504,20 @@ export class Query<R extends ComponentType[] = []> {
     this.world.beginDefer();
     try {
       if (typeof componentsOrCallback === "function") {
-        for (const e of this._iterateMembers()) {
-          componentsOrCallback(e);
-        }
+        this._forEachMember(componentsOrCallback);
       } else {
         const eids = componentsOrCallback.map((C) => this.world.entity(C).eid);
-        for (const e of this._iterateMembers()) {
-          const resolved = eids.map((componentEid) => e.get(componentEid));
+        const arity = eids.length;
+        this._forEachMember((e) => {
+          // Resolve by eid straight off the entity's component map. `e.get`
+          // would re-resolve each eid back through `world.entity()` (a Map
+          // lookup) only to read the same eid back; `_get` skips that.
+          const resolved = new Array(arity);
+          for (let k = 0; k < arity; k++) {
+            resolved[k] = e._get(eids[k]);
+          }
           callback!(e, resolved as any);
-        }
+        });
       }
     } finally {
       this.world.endDefer();
