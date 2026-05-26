@@ -342,6 +342,11 @@ export class Query<R extends ComponentType[] = []> {
    * {@link query}) are non-nullable in the resolved tuple; any other
    * requested component may be `undefined` if the entity lacks it.
    *
+   * The resolved tuple is a single array reused for every entity in the
+   * iteration; treat it as valid only for the duration of the callback. Read
+   * or destructure the components you need (the component instances themselves
+   * are stable) — do not retain the tuple array itself across callbacks.
+   *
    * @param components - Component classes to resolve from each entity.
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
@@ -365,11 +370,14 @@ export class Query<R extends ComponentType[] = []> {
         }
         const eids = componentsOrCallback.map((C) => this.world.entity(C).eid);
         const arity = eids.length;
+        // One tuple reused across the whole iteration: the callback consumes it
+        // synchronously and must not retain it (see doc). A nested forEach gets
+        // its own `resolved`, so reuse here is reentrancy-safe.
+        const resolved = new Array(arity);
         this._entities.forEach((e) => {
           // Resolve straight off the entity's component map. `e.get(eid)` for a
           // numeric eid round-trips through `world.entity(eid)` — a `_entities`
           // Map lookup — only to read the same eid back; `_get` skips that.
-          const resolved = new Array(arity);
           for (let k = 0; k < arity; k++) {
             resolved[k] = e._get(eids[k]);
           }
@@ -535,8 +543,9 @@ export class Query<R extends ComponentType[] = []> {
       const inject = injectOrCallback;
       const injectedComponentEids = inject.map((C) => this.world.entity(C).eid);
       const arity = injectedComponentEids.length;
+      // Reused across invocations; the callback must not retain it (see doc).
+      const injected = new Array(arity);
       const cb = (e: Entity, c: ComponentInstance) => {
-        const injected = new Array(arity);
         for (let k = 0; k < arity; k++) {
           injected[k] = e._get(injectedComponentEids[k]);
         }
