@@ -971,7 +971,7 @@ describe("Query — table-backed iteration", () => {
     expect(q.count).toBe(0);
   });
 
-  it("a non-pure query keeps its own entity set", () => {
+  it("HAS_ONLY is table-pure: exact archetype, no entity set", () => {
     const { w } = setup();
     const q = w.query("only-position").query({ HAS_ONLY: Position }).build();
     const exact = w.entity().add(Position);
@@ -979,6 +979,41 @@ describe("Query — table-backed iteration", () => {
 
     expect(q.has(exact)).toBe(true);
     expect(q.has(extra)).toBe(false);
+    expect(q.count).toBe(1);
+    expect([...q]).toEqual([exact]);
+    // Exact archetype match (a single table) — no per-query entity set kept.
+    expect((q as unknown as { _entities: unknown })._entities).toBeUndefined();
+  });
+
+  it("AND of HAS and NOT is table-pure", () => {
+    const { w } = setup();
+    const q = w
+      .query("pos-not-vel")
+      .query({ AND: [Position, { NOT: Velocity }] })
+      .build();
+    const match = w.entity().add(Position);
+    const excluded = w.entity().add(Position).add(Velocity);
+
+    expect(q.has(match)).toBe(true);
+    expect(q.has(excluded)).toBe(false);
+    expect(q.count).toBe(1);
+    expect((q as unknown as { _entities: unknown })._entities).toBeUndefined();
+  });
+
+  it("a query with a per-entity residual keeps its own entity set", () => {
+    const { w } = setup();
+    // A custom predicate is not archetype-determined, so the query keeps an
+    // entity set and re-tests `belongs` per entity (here, on the add transition
+    // where the component data is already applied).
+    const q = w
+      .query("hot-x")
+      .query((e) => (e.get(Position)?.x ?? 0) > 5)
+      .build();
+    const hot = w.entity().set(Position, { x: 10 });
+    const cold = w.entity().set(Position, { x: 0 });
+
+    expect(q.has(hot)).toBe(true);
+    expect(q.has(cold)).toBe(false);
     expect(q.count).toBe(1);
     expect((q as unknown as { _entities: unknown })._entities).toBeDefined();
   });

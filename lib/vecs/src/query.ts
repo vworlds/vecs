@@ -7,8 +7,7 @@ import { type World } from "./world/index.js";
 import type { Table } from "./world/table.js";
 import {
   _compile,
-  _extractQueryDependencies,
-  _isArchetypePure,
+  _compileArchetypeMatcher,
   type EntityTestFunc,
   type QueryDSL,
   type MaybeRequired,
@@ -31,6 +30,9 @@ type ResolvedComponentInstance<T> = T extends { parent: ComponentType }
   : T extends ComponentType
     ? InstanceType<T>
     : never;
+
+/** The empty archetype, used to test whether a query would match the empty table. */
+const EMPTY_ARCHETYPE = new Bitset();
 
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
@@ -63,11 +65,11 @@ export class Query<R extends ComponentType[] = []> {
   /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
   /**
-   * @internal Component eids a matching entity must all carry (a conservative
-   * archetype filter). Empty means "every table" (a fallback predicate that is
-   * re-tested per entity). Built from {@link _extractQueryDependencies}.
+   * @internal Sound over-approximation of which table archetypes can hold a
+   * member, used to pick subscriptions. Defaults to "matches nothing" until
+   * built. Built from {@link _compileArchetypeMatcher}.
    */
-  protected _archetypeDeps: Bitset = new Bitset();
+  protected _archetypeMatch: (archetype: Bitset) => boolean = () => false;
   /** @internal Tables this query is currently subscribed to. */
   protected _subscribedTables = new Set<Table>();
   /** @internal Disposers for table / table-created subscriptions, run on destroy. */
@@ -75,10 +77,10 @@ export class Query<R extends ComponentType[] = []> {
   /** @internal `true` once tracking is requested (Query default, or `track` / `each` / `sort`). */
   protected _tracked: boolean = false;
   /**
-   * @internal `true` when membership equals table subscription: the predicate
-   * is a pure positive conjunction with at least one required component, so
-   * iteration walks {@link _subscribedTables} and no {@link _entities} set is
-   * kept. Sorted queries are never table-pure (they need ordering).
+   * @internal `true` when membership equals table subscription: the archetype
+   * decides membership exactly and the empty table is excluded, so iteration
+   * walks {@link _subscribedTables} and no {@link _entities} set is kept.
+   * Sorted queries are never table-pure (they need ordering).
    */
   protected _tablePure: boolean = false;
   /** @internal DSL predicate to compile and index when the query is built. */
@@ -160,12 +162,12 @@ export class Query<R extends ComponentType[] = []> {
   }
 
   /**
-   * @internal `true` when `table`'s archetype carries every component this
-   * query conservatively requires. An empty requirement set matches every
-   * table (the query is then re-tested per entity via {@link belongs}).
+   * @internal `true` when `table`'s archetype can hold a member of this query.
+   * Exact for archetype-only predicates; a sound over-approximation otherwise
+   * (membership is then confirmed per entity via {@link belongs}).
    */
   private _archetypeMatches(table: Table): boolean {
-    return table.archetype.hasBitset(this._archetypeDeps);
+    return this._archetypeMatch(table.archetype);
   }
 
   /**
@@ -235,11 +237,13 @@ export class Query<R extends ComponentType[] = []> {
     }
     if (this._dsl !== undefined) {
       this._belongs = _compile(this.world, this._dsl);
-      const deps = _extractQueryDependencies(this.world, this._dsl);
-      if (deps !== undefined) {
-        deps.forEach((eid) => this._archetypeDeps.add(eid));
-        this._tablePure = deps.length > 0 && _isArchetypePure(this.world, this._dsl);
-      }
+      const matcher = _compileArchetypeMatcher(this.world, this._dsl);
+      this._archetypeMatch = matcher.match;
+      // Table-pure: the archetype decides membership exactly and the query
+      // does not match the empty table. Excluding the empty table keeps
+      // table iteration consistent with enter/exit, since freshly created
+      // entities are placed there silently (no enter fires).
+      this._tablePure = matcher.exact && !matcher.match(EMPTY_ARCHETYPE);
     }
     this.world._addQuery(this);
     this._built = true;

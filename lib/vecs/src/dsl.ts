@@ -611,89 +611,97 @@ export function _compile(world: World, q: QueryDSL): EntityTestFunc {
 }
 
 /**
- * Return the component type ids that can affect a query's membership, or
- * `undefined` when the expression is too broad to index safely.
+ * A predicate over a table's archetype bitset, paired with whether it decides
+ * membership *exactly*.
  *
- * @internal Used by the world query index to route archetype changes only to
- * queries that may be invalidated by the changed component. Keep this
- * conservative: unsupported expressions fall back to full-scan routing.
+ * `match` is always a sound over-approximation: it returns `true` for every
+ * archetype that could hold a matching entity, so it is safe to use for
+ * choosing which tables a query subscribes to. `exact` is `true` only when the
+ * archetype alone fully determines membership (no per-entity residual such as
+ * `REL` / `PARENT` / a custom predicate), in which case `match` equals the
+ * compiled `belongs` predicate evaluated against any entity of that archetype.
+ *
+ * @internal
  */
-export function _extractQueryDependencies(world: World, q: QueryDSL): number[] | undefined {
-  q = simplifyQueryDSL(q, world);
+export type ArchetypeMatcher = {
+  match: (archetype: Bitset) => boolean;
+  exact: boolean;
+};
 
+/**
+ * Compile the archetype side of a {@link QueryDSL}: a {@link ArchetypeMatcher}
+ * used to pick the tables a query subscribes to and, when `exact`, to let the
+ * query iterate those tables directly instead of keeping its own entity set.
+ *
+ * @internal Pure archetype operators (`HAS`, `HAS_ONLY`, and `AND` / `OR` /
+ * `NOT` of pure terms) compile to exact bitset checks. Entity-dependent terms
+ * (`REL`, `PARENT`, custom predicates) contribute their soundest archetype
+ * necessary-condition (`REL` requires its relationship component; `PARENT` and
+ * custom predicates impose nothing) and mark the matcher inexact, so the query
+ * keeps an entity set and re-tests `belongs` per entity.
+ */
+export function _compileArchetypeMatcher(world: World, q: QueryDSL): ArchetypeMatcher {
+  return _archetypeMatcher(world, simplifyQueryDSL(q, world));
+}
+
+function _maskFor(world: World, components: ComponentRefArray): Bitset {
+  return _calculateComponentBitmask(components.map((component) => world.entity(component).eid));
+}
+
+function _archetypeMatcher(world: World, q: QueryDSL): ArchetypeMatcher {
   if (typeof q === "boolean") {
-    return [];
+    return { match: () => q, exact: true };
   }
 
-  if (typeof q === "number") {
-    return [q];
+  if (typeof q === "number" || q instanceof Entity) {
+    const mask = _maskFor(world, [q]);
+    return { match: (a) => a.hasBitset(mask), exact: true };
   }
 
   if (typeof q === "function") {
-    const componentEntity = world.getEntity(q as ComponentClass);
-    return componentEntity ? [componentEntity.eid] : undefined;
+    return { match: () => true, exact: false };
   }
 
   if (q instanceof Array) {
-    return q.map((component) => world.entity(component).eid);
+    const mask = _maskFor(world, q);
+    return { match: (a) => a.hasBitset(mask), exact: true };
   }
 
   if ("HAS" in q) {
-    return _extractQueryDependencies(world, q.HAS);
+    return _archetypeMatcher(world, q.HAS);
+  }
+
+  if ("HAS_ONLY" in q) {
+    const components = q.HAS_ONLY instanceof Array ? q.HAS_ONLY : [q.HAS_ONLY];
+    const mask = _maskFor(world, components);
+    return { match: (a) => a.equal(mask), exact: true };
+  }
+
+  if ("AND" in q) {
+    const parts = q.AND.map((sq) => _archetypeMatcher(world, sq));
+    return { match: (a) => parts.every((p) => p.match(a)), exact: parts.every((p) => p.exact) };
+  }
+
+  if ("OR" in q) {
+    const parts = q.OR.map((sq) => _archetypeMatcher(world, sq));
+    return { match: (a) => parts.some((p) => p.match(a)), exact: parts.every((p) => p.exact) };
+  }
+
+  if ("NOT" in q) {
+    const inner = _archetypeMatcher(world, q.NOT);
+    // A negated archetype check is exact; negating an over-approximation is not
+    // sound, so fall back to "matches every table" and re-test per entity.
+    return inner.exact
+      ? { match: (a) => !inner.match(a), exact: true }
+      : { match: () => true, exact: false };
   }
 
   if ("REL" in q) {
-    return [_resolveRelationshipRequirement(q.REL[0], world)];
+    const mask = new Bitset();
+    mask.add(_resolveRelationshipRequirement(q.REL[0], world));
+    return { match: (a) => a.hasBitset(mask), exact: false };
   }
 
-  if ("AND" in q) {
-    const dependencies: number[] = [];
-    for (const sq of q.AND) {
-      const childDependencies = _extractQueryDependencies(world, sq);
-      if (childDependencies === undefined) {
-        return undefined;
-      }
-      dependencies.push(...childDependencies);
-    }
-    return dependencies;
-  }
-
-  return undefined;
-}
-
-/**
- * Return `true` when an entity's membership is fully determined by its
- * archetype — i.e. the predicate is a pure positive conjunction of component
- * requirements (a component, a component list, or an `AND` / `HAS` of those).
- *
- * @internal When pure, every entity in a table whose archetype satisfies the
- * query's required components is a member, so a query can iterate tables
- * directly instead of maintaining its own entity set. Forms with a per-entity
- * or non-subset residual — `HAS_ONLY`, `NOT`, `OR`, `PARENT`, `REL`, or a
- * custom predicate — are not pure.
- */
-export function _isArchetypePure(world: World, q: QueryDSL): boolean {
-  return _isPureTerm(simplifyQueryDSL(q, world));
-}
-
-function _isPureTerm(q: QueryDSL): boolean {
-  if (typeof q === "boolean") {
-    return q;
-  }
-  if (typeof q === "number" || q instanceof Entity) {
-    return true;
-  }
-  if (typeof q === "function") {
-    return false;
-  }
-  if (q instanceof Array) {
-    return true;
-  }
-  if ("HAS" in q) {
-    return _isPureTerm(q.HAS);
-  }
-  if ("AND" in q) {
-    return q.AND.every(_isPureTerm);
-  }
-  return false;
+  // PARENT and any unrecognised term: no archetype constraint on the entity.
+  return { match: () => true, exact: false };
 }
