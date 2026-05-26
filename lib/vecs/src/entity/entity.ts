@@ -246,7 +246,7 @@ export class Entity extends PartialClass {
     }
 
     if (ownMeta && ownMeta.usageCount === 0 && ownMeta.Class !== Object) {
-      delete (ownMeta.Class as any)[this.world.worldKey];
+      this.world._classRegistry.delete(ownMeta.Class);
     }
 
     this.world._unregisterEntity(this);

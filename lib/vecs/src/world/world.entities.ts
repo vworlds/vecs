@@ -31,7 +31,7 @@ export class Entities extends Deferred {
   /** Look up an entity by component ref. */
   public getEntity(this: World, ref: ComponentRef): Entity | undefined {
     if (typeof ref === "function") {
-      return (ref as any)[this.worldKey] as Entity | undefined;
+      return this._classRegistry.get(ref);
     }
     if (typeof ref === "number") {
       if (ref === RESERVED_EID) {
