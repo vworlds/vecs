@@ -404,8 +404,15 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     }
     this.track();
     const eids = components.map((C) => this.world.entity(C).eid);
+    const arity = eids.length;
     this._eachCallback = (e: Entity) => {
-      const resolved = eids.map((eid) => e.get(eid));
+      // Resolve straight off the entity's component map; `e.get` would round-trip
+      // each eid back through `world.entity()` (a Map lookup) only to read the
+      // same eid back. `each` runs every tick for every entity, so this is hot.
+      const resolved = new Array(arity);
+      for (let k = 0; k < arity; k++) {
+        resolved[k] = e._get(eids[k]);
+      }
       callback(e, resolved as any);
     };
     return this;

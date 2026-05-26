@@ -677,11 +677,12 @@ export class Query<R extends ComponentType[] = []> {
     } else {
       const inject = injectOrCallback;
       const injectedComponentEids = inject.map((C) => this.world.entity(C).eid);
+      const arity = injectedComponentEids.length;
       const cb = (e: Entity, c: ComponentInstance) => {
-        const injected: any[] = [];
-        injectedComponentEids.forEach((injectedComponentEid) => {
-          injected.push(e.get(injectedComponentEid));
-        });
+        const injected = new Array(arity);
+        for (let k = 0; k < arity; k++) {
+          injected[k] = e._get(injectedComponentEids[k]);
+        }
 
         if (callback) {
           callback(e, c as InstanceType<C>, injected as any);
