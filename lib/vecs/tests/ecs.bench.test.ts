@@ -468,6 +468,7 @@ function application(complex: boolean): { w: World; positionQuery: Query } {
 function createSystemUpdateEntities(w: World, count: number, mixed: boolean): Entity[] {
   const items = mixed ? createMixedComponents(w, count) : createFullComponents(w, count);
   addHeroMonsterForSystemUpdate(w, items, mixed);
+  scrambleStorage(w, items);
   return items;
 }
 
@@ -555,27 +556,80 @@ function updateApp(app: { w: World; positionQuery: Query }, dt: number): number 
 
 function createEmptyEntities(count: number): { w: World; items: Entity[] } {
   const w = world();
-  return { w, items: createEmptyComponents(w, count) };
+  const items = createEmptyComponents(w, count);
+  scrambleStorage(w, items);
+  return { w, items };
 }
 
 function createSingleComponentEntities(count: number): { w: World; items: Entity[] } {
   const w = world();
-  return { w, items: createSingleComponents(w, count) };
+  const items = createSingleComponents(w, count);
+  scrambleStorage(w, items);
+  return { w, items };
 }
 
 function createMinimalEntities(count: number): { w: World; items: Entity[] } {
   const w = world();
-  return { w, items: createMinimalComponents(w, count) };
+  const items = createMinimalComponents(w, count);
+  scrambleStorage(w, items);
+  return { w, items };
 }
 
 function createHalfComponentEntities(count: number): { w: World; items: Entity[] } {
   const w = world();
-  return { w, items: createHalfComponents(w, count) };
+  const items = createHalfComponents(w, count);
+  scrambleStorage(w, items);
+  return { w, items };
 }
 
 function createMixedComponentEntities(count: number): { w: World; items: Entity[] } {
   const w = world();
-  return { w, items: createMixedComponents(w, count) };
+  const items = createMixedComponents(w, count);
+  scrambleStorage(w, items);
+  return { w, items };
+}
+
+/**
+ * Simulate the storage state of a world that has been mutated for hours of
+ * gameplay rather than freshly populated in a single ordered pass.
+ *
+ * A freshly built world has a convenient property the reference suite leans
+ * on by accident: entities enter every query in creation order, and that order
+ * matches the heap-allocation order of their component instances, so iterating
+ * a query walks those objects near-sequentially. A long-running game never has
+ * that — entities spawn and die, components are added and removed, and the
+ * order a query reports its members in drifts away from any allocation order.
+ *
+ * To model that fairly for every implementation, visit the entities in a
+ * deterministic shuffled order and, for each one, detach and re-attach its
+ * existing component instances. The component objects keep their original heap
+ * positions (re-attach stores the same instance), but every query re-tracks
+ * the entity at a fresh position, so query iteration order no longer matches
+ * allocation order. No component data is lost and the archetype population is
+ * unchanged; only the storage/iteration order is scrambled.
+ */
+function scrambleStorage(_w: World, items: readonly Entity[]): void {
+  const rng = new RandomXoshiro128(0x5c8a3b);
+  const order: number[] = items.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const k = rng.range(0, i);
+    const tmp = order[i];
+    order[i] = order[k];
+    order[k] = tmp;
+  }
+
+  const instances: object[] = [];
+  for (const idx of order) {
+    const e = items[idx];
+    instances.length = 0;
+    e.components.forEach((instance) => instances.push(instance));
+    for (const instance of instances) {
+      e.remove(instance.constructor as never);
+    }
+    for (const instance of instances) {
+      e.attach(instance);
+    }
+  }
 }
 
 function createEntities(
