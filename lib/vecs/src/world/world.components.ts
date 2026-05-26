@@ -80,6 +80,7 @@ export class Components extends Entities {
     }
     const component = new Constructor(this, eid, ComponentClass);
     this._entities.set(eid, component);
+    this._placeNewEntity(component);
     Object.defineProperty(ComponentClass, this.worldKey, {
       value: component,
       configurable: true,

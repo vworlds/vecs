@@ -6,6 +6,7 @@ import {
   type ComponentType,
 } from "../component_meta.js";
 import type { World } from "../world/index.js";
+import type { Table } from "../world/table.js";
 import { CommandKind } from "../command.js";
 import { ArrayMap, ReadonlyArrayMap } from "../util/array_map.js";
 import { type Query } from "../query.js";
@@ -65,6 +66,9 @@ export class Entity extends PartialClass {
   /** @internal Set of queries this entity currently belongs to. */
   private readonly _queries = new Set<Query>();
 
+  /** @internal The archetype table this entity currently belongs to. */
+  public _table: Table;
+
   /** @internal Empty children set used as the default `children` value. */
   private static readonly _emptyChildren: ReadonlySet<Entity> = new Set();
 
@@ -99,6 +103,7 @@ export class Entity extends PartialClass {
     ownComponentClass?: ComponentType
   ) {
     super();
+    this._table = world._emptyTable;
     if (ownComponentClass !== undefined) {
       this._ownMeta = new ComponentMeta(ownComponentClass, eid);
     }
@@ -129,6 +134,21 @@ export class Entity extends PartialClass {
     });
   }
 
+  /**
+   * Move this entity to the archetype table reached by adding (`isAdd`) or
+   * removing `meta`, updating membership of both the old and new table.
+   */
+  private _transitionTable(meta: ComponentMeta, isAdd: boolean): void {
+    const oldTable = this._table;
+    const newTable = isAdd ? oldTable._tableAfterAdd(meta) : oldTable._tableAfterRemove(meta);
+    if (newTable === oldTable) {
+      return;
+    }
+    oldTable._removeEntity(this);
+    this._table = newTable;
+    newTable._addEntity(this);
+  }
+
   /** Store a component instance and perform the shared add-side bookkeeping. */
   private _storeComponent(meta: ComponentMeta, instance: ComponentInstance, isAdd: boolean): void {
     if (meta._exclusive) {
@@ -148,6 +168,9 @@ export class Entity extends PartialClass {
       this._runOnAddHandlers(meta, instance);
     }
     this._updateQueries(meta);
+    if (!existing) {
+      this._transitionTable(meta, true);
+    }
   }
 
   /** Perform the shared set-side hook and query update routing. */
@@ -249,6 +272,7 @@ export class Entity extends PartialClass {
       delete (ownMeta.Class as any)[this.world.worldKey];
     }
 
+    this._table._removeEntity(this);
     this.world._unregisterEntity(this);
     if (this._parent) {
       this._parent._children?.delete(this);
@@ -310,6 +334,7 @@ export class Entity extends PartialClass {
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
     this._updateQueries(meta);
+    this._transitionTable(meta, false);
     this._components.delete(meta.eid);
     meta._decrementUsage();
     const removeHandlers = meta._onRemoveHandlers;

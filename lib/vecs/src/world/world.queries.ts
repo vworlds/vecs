@@ -3,10 +3,10 @@ import { type ExtractRequired, _extractQueryDependencies, type QueryDSL } from "
 import { Filter } from "../filter.js";
 import { Query } from "../query.js";
 import { ArrayMap } from "../util/array_map.js";
-import { Storage } from "./world.storage.js";
+import { Tables } from "./world.tables.js";
 import type { World } from "./world.js";
 
-export class Queries extends Storage {
+export class Queries extends Tables {
   /** @internal All registered queries, including systems (which extend `Query`). */
   protected _queries: Query[] = [];
   /** @internal Queries created but not yet built into the world. */
