@@ -404,8 +404,14 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     }
     this.track();
     const eids = components.map((C) => this.world.entity(C).eid);
+    const arity = eids.length;
     this._eachCallback = (e: Entity) => {
-      const resolved = eids.map((eid) => e.get(eid));
+      // Resolve via `_get` to avoid re-resolving each numeric eid through
+      // `world.entity()` (a `_entities` Map lookup) every tick per entity.
+      const resolved = new Array(arity);
+      for (let k = 0; k < arity; k++) {
+        resolved[k] = e._get(eids[k]);
+      }
       callback(e, resolved as any);
     };
     return this;
