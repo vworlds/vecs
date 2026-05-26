@@ -82,6 +82,19 @@ export class ArrayMap<T> {
     }
   }
 
+  /** Return every present value in ascending key order. */
+  public values(): T[] {
+    const out: T[] = [];
+    const backend = this._backend;
+    for (let i = 0; i < backend.length; i++) {
+      const value = backend[i];
+      if (value !== undefined) {
+        out.push(value);
+      }
+    }
+    return out;
+  }
+
   /** Remove all entries and reset {@link size} to zero. */
   public clear(): void {
     this._backend.length = 0;
