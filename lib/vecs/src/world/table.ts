@@ -41,6 +41,8 @@ export class Table {
   private readonly _addEdges = new ArrayMap<Table>();
   /** @internal Component eid -> table reached by removing that component. */
   private readonly _removeEdges = new ArrayMap<Table>();
+  /** @internal Callbacks notified when an entity joins, leaves, or is re-evaluated here. */
+  private readonly _membershipObservers = new Set<(e: Entity) => void>();
 
   constructor(world: World, key: string, archetype: Bitset, componentEids: number[]) {
     this.world = world;
@@ -54,14 +56,45 @@ export class Table {
     return `Table[${this.key}]`;
   }
 
-  /** @internal Record that `e` now belongs to this table. */
+  /** @internal Record that `e` now belongs to this table and notify observers. */
   public _addEntity(e: Entity): void {
+    this.entities.add(e);
+    this._notifyMembership(e);
+  }
+
+  /**
+   * @internal Record initial membership for a freshly created entity *without*
+   * notifying observers. Entity creation does not route to queries; queries
+   * pick the entity up on its first archetype change or via backfill.
+   */
+  public _addInitialEntity(e: Entity): void {
     this.entities.add(e);
   }
 
-  /** @internal Record that `e` no longer belongs to this table. */
+  /** @internal Notify observers that `e` no longer belongs to this table. */
   public _removeEntity(e: Entity): void {
+    this._notifyMembership(e);
     this.entities.delete(e);
+  }
+
+  /**
+   * @internal Re-run every membership observer for `e` without changing
+   * membership. Used when an entity's data (e.g. a relationship target)
+   * changes in a way that can flip a query predicate without an archetype move.
+   */
+  public _notifyMembership(e: Entity): void {
+    this._membershipObservers.forEach((observer) => observer(e));
+  }
+
+  /**
+   * @internal Register `observer`, invoked whenever an entity joins, leaves, or
+   * is re-evaluated against this table. Returns a disposer that unregisters it.
+   */
+  public _observeMembership(observer: (e: Entity) => void): () => void {
+    this._membershipObservers.add(observer);
+    return () => {
+      this._membershipObservers.delete(observer);
+    };
   }
 
   /**

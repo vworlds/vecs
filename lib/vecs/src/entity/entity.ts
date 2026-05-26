@@ -121,20 +121,6 @@ export class Entity extends PartialClass {
   }
 
   /**
-   * Re-evaluate queries that can be affected by `meta` for this entity,
-   * firing `_enter` / `_exit` routing whenever membership flipped.
-   */
-  private _updateQueries(meta: ComponentMeta): void {
-    this.world._forEachQueryForComponent(meta.eid, (q) => {
-      const belongs = q.belongs(this);
-      const isIn = this._queries.has(q);
-      if (belongs !== isIn) {
-        belongs ? q._enter(this) : q._exit(this);
-      }
-    });
-  }
-
-  /**
    * Move this entity to the archetype table reached by adding (`isAdd`) or
    * removing `meta`, updating membership of both the old and new table.
    */
@@ -167,7 +153,6 @@ export class Entity extends PartialClass {
     if (isAdd && !existing) {
       this._runOnAddHandlers(meta, instance);
     }
-    this._updateQueries(meta);
     if (!existing) {
       this._transitionTable(meta, true);
     }
@@ -182,7 +167,7 @@ export class Entity extends PartialClass {
     this._runOnSetHandlers(meta, instance);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (meta.isRelationship) {
-      this._updateQueries(meta);
+      this._table._notifyMembership(this);
     }
     if (isUpdate) {
       this._queries.forEach((q) => q._notifyModified(this, meta, instance));
@@ -245,13 +230,9 @@ export class Entity extends PartialClass {
     }
     this._destroyed = true;
 
-    const toExit: Query[] = [];
-    this._queries.forEach((q) => {
-      if (q.world) {
-        toExit.push(q);
-      }
-    });
-    toExit.forEach((q) => q._exit(this));
+    // Leaving the table re-evaluates every subscribed query; because
+    // `_destroyed` is now set, each fires `_exit` for this entity.
+    this._table._removeEntity(this);
 
     this._components.forEach((c, eid) => {
       const meta = this.world.entity(eid).ownMeta;
@@ -272,7 +253,6 @@ export class Entity extends PartialClass {
       delete (ownMeta.Class as any)[this.world.worldKey];
     }
 
-    this._table._removeEntity(this);
     this.world._unregisterEntity(this);
     if (this._parent) {
       this._parent._children?.delete(this);
@@ -333,7 +313,6 @@ export class Entity extends PartialClass {
     }
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this._updateQueries(meta);
     this._transitionTable(meta, false);
     this._components.delete(meta.eid);
     meta._decrementUsage();

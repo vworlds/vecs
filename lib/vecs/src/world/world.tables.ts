@@ -19,6 +19,8 @@ export class Tables extends Storage {
   protected _tables = new Map<string, Table>();
   /** @internal Component eid -> tables whose archetype contains that component. */
   protected _tablesByComponent = new ArrayMap<Set<Table>>();
+  /** @internal Callbacks notified when a new table is created. */
+  protected _onTableCreated = new Set<(t: Table) => void>();
   /** @internal The table holding entities with no components attached. */
   public _emptyTable: Table = this._findOrCreateTable(new Bitset());
 
@@ -44,7 +46,13 @@ export class Tables extends Storage {
       }
       tables.add(table);
     });
+    this._onTableCreated.forEach((callback) => callback(table));
     return table;
+  }
+
+  /** @internal Visit every table currently registered with the world. */
+  public _forEachTable(callback: (t: Table) => void): void {
+    this._tables.forEach(callback);
   }
 
   /** @internal Visit every table whose archetype contains component `eid`. */
@@ -52,8 +60,19 @@ export class Tables extends Storage {
     this._tablesByComponent.get(eid)?.forEach(callback);
   }
 
+  /**
+   * @internal Register `callback`, invoked when any new table is created.
+   * Returns a disposer that unregisters it.
+   */
+  public _observeTableCreated(callback: (t: Table) => void): () => void {
+    this._onTableCreated.add(callback);
+    return () => {
+      this._onTableCreated.delete(callback);
+    };
+  }
+
   /** @internal Add a freshly created entity to its initial (empty) table. */
   public _placeNewEntity(e: Entity): void {
-    e._table._addEntity(e);
+    e._table._addInitialEntity(e);
   }
 }

@@ -4,7 +4,14 @@ import { Bitset } from "./util/bitset.js";
 import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
 import type { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
-import { _compile, type EntityTestFunc, type QueryDSL, type MaybeRequired } from "./dsl.js";
+import type { Table } from "./world/table.js";
+import {
+  _compile,
+  _extractQueryDependencies,
+  type EntityTestFunc,
+  type QueryDSL,
+  type MaybeRequired,
+} from "./dsl.js";
 
 export type { EntityTestFunc, QueryDSL, MaybeRequired };
 
@@ -56,8 +63,16 @@ export class Query<R extends ComponentType[] = []> {
   protected _belongs: EntityTestFunc = (_e: Entity) => false;
   /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
-  /** @internal Component index buckets this query currently belongs to. */
-  public _queryIndexKeys: number[] | undefined = undefined;
+  /**
+   * @internal Component eids a matching entity must all carry (a conservative
+   * archetype filter). Empty means "every table" (a fallback predicate that is
+   * re-tested per entity). Built from {@link _extractQueryDependencies}.
+   */
+  protected _archetypeDeps: Bitset = new Bitset();
+  /** @internal Tables this query is currently subscribed to. */
+  protected _subscribedTables = new Set<Table>();
+  /** @internal Disposers for table / table-created subscriptions, run on destroy. */
+  private _disposers: (() => void)[] = [];
   /** @internal DSL predicate to compile and index when the query is built. */
   public _dsl: QueryDSL | undefined = undefined;
   /** Entity that stores this query as a component and carries query traits. */
@@ -102,21 +117,64 @@ export class Query<R extends ComponentType[] = []> {
   }
 
   /**
-   * @internal Backfill the tracked set with every existing entity that
-   * satisfies the current predicate. Runs inside a deferred scope so the
-   * caller's reentrant routing remains consistent.
+   * @internal Subscribe to every existing table whose archetype can hold a
+   * member, and to future tables as they are created. Runs inside a deferred
+   * scope so reentrant enter/exit routing stays consistent.
    */
-  private _backfill(): void {
-    if (this._entities === undefined) {
-      return;
-    }
+  private _subscribeToTables(): void {
     this.world.defer(() => {
-      this.world.entities.forEach((e) => {
-        if (this.belongs(e) && !e._isInQuery(this)) {
-          this._enter(e);
+      this.world._forEachTable((table) => {
+        if (this._archetypeMatches(table)) {
+          this._subscribeToTable(table);
         }
       });
+      this._disposers.push(
+        this.world._observeTableCreated((table) => {
+          if (this._archetypeMatches(table)) {
+            this._subscribeToTable(table);
+          }
+        })
+      );
     });
+  }
+
+  /**
+   * @internal Begin observing `table`'s membership and backfill any entities
+   * already in it that satisfy this query's predicate.
+   */
+  private _subscribeToTable(table: Table): void {
+    if (this._subscribedTables.has(table)) {
+      return;
+    }
+    this._subscribedTables.add(table);
+    this._disposers.push(table._observeMembership((e) => this._refresh(e)));
+    table.entities.forEach((e) => this._refresh(e));
+  }
+
+  /**
+   * @internal `true` when `table`'s archetype carries every component this
+   * query conservatively requires. An empty requirement set matches every
+   * table (the query is then re-tested per entity via {@link belongs}).
+   */
+  private _archetypeMatches(table: Table): boolean {
+    return table.archetype.hasBitset(this._archetypeDeps);
+  }
+
+  /**
+   * @internal Re-evaluate `e`'s membership and route the resulting enter / exit.
+   * Idempotent: a no-op when membership has not changed.
+   */
+  private _refresh(e: Entity): void {
+    const shouldBelong = !e._destroyed && this.belongs(e);
+    const isMember = e._isInQuery(this);
+    if (shouldBelong === isMember) {
+      return;
+    }
+    if (shouldBelong) {
+      this._enter(e);
+    } else {
+      this._exit(e);
+    }
   }
 
   /** `true` once this query has been registered with its world. */
@@ -169,10 +227,16 @@ export class Query<R extends ComponentType[] = []> {
     }
     if (this._dsl !== undefined) {
       this._belongs = _compile(this.world, this._dsl);
+      const deps = _extractQueryDependencies(this.world, this._dsl);
+      if (deps !== undefined) {
+        deps.forEach((eid) => this._archetypeDeps.add(eid));
+      }
     }
     this.world._addQuery(this);
     this._built = true;
-    this._backfill();
+    if (this._dsl !== undefined) {
+      this._subscribeToTables();
+    }
     return this;
   }
 
@@ -647,6 +711,9 @@ export class Query<R extends ComponentType[] = []> {
       return;
     }
     this._destroyed = true;
+    this._disposers.forEach((dispose) => dispose());
+    this._disposers.length = 0;
+    this._subscribedTables.clear();
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;
