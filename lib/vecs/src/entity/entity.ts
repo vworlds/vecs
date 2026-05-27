@@ -536,8 +536,11 @@ export class Entity extends PartialClass {
     if (callback === undefined && !this.world.deferred) {
       throw new Error("Entity.getMut without a callback is only allowed in deferred mode");
     }
-    const eid = this.world.entity(ref).eid;
-    const component = this._get(eid);
+    const meta = this.world.entity(ref).ownMeta;
+    if (meta.isRelationship) {
+      throw new Error("Entity.getMut cannot mutate Relationship components; retarget with set");
+    }
+    const component = this._get(meta.eid);
     if (!component) {
       return undefined;
     }
@@ -658,7 +661,11 @@ export class Entity extends PartialClass {
 
   private _cleanupIncoming(): void {
     this._incoming?.forEach((sources, relEid) => {
-      const policy = this.world.entity(relEid).ownMeta.onDeleteTarget;
+      const relEntity = this.world.getEntity(relEid);
+      if (!relEntity) {
+        return;
+      }
+      const policy = relEntity.ownMeta.onDeleteTarget;
       for (const source of [...sources]) {
         if (policy === CleanupPolicy.Delete) {
           source.destroy();

@@ -474,6 +474,8 @@ Relationship cleanup is controlled by component metadata:
 
 `ChildOf` is registered by every `World` and uses `CleanupPolicy.Delete`. Custom relationships default to `Remove`; set `world.component(MyRelationship).ownMeta.onDeleteTarget = CleanupPolicy.Delete` if target deletion should cascade.
 
+Retarget relationships with `entity.set(RelationshipClass, { target })`. `entity.getMut(RelationshipClass)` throws for relationship components because in-place target mutation would bypass the reverse index used by `children(ref)` and cleanup cascades.
+
 Relationship-aware query operators are temporarily removed while the query DSL is redesigned. Use entity navigation (`parent(ref)` / `children(ref)`) or a custom predicate function for relationship-sensitive scans in this iteration.
 
 ---

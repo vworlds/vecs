@@ -458,6 +458,23 @@ describe("Entity — relationship navigation", () => {
     expect(p2.children(ChildOf).has(child)).toBe(true);
   });
 
+  it("getMut rejects relationship retargets and leaves incoming sets consistent", () => {
+    const w = new World();
+    const p1 = w.entity();
+    const p2 = w.entity();
+    const child = w.entity().set(ChildOf, { target: p1 });
+    const mutate = vi.fn((rel: ChildOf) => {
+      rel.target = p2;
+    });
+
+    expect(() => child.getMut(ChildOf, mutate)).toThrow(/Relationship/);
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(child.parent(ChildOf)).toBe(p1);
+    expect(p1.children(ChildOf).has(child)).toBe(true);
+    expect(p2.children(ChildOf).has(child)).toBe(false);
+  });
+
   it("source destroy cleans the target's incoming set", () => {
     const w = new World();
     const parent = w.entity();
