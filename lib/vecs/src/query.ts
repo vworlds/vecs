@@ -8,6 +8,7 @@ import { type World } from "./world/index.js";
 import {
   _compile,
   collectUpTerms,
+  containsDownTerm,
   type EntityTestFunc,
   type MaybeRequired,
   type QueryDSL,
@@ -22,6 +23,9 @@ import {
   makeInjectedInvoker,
   mapInject,
   wantsIter,
+  type DownInject,
+  type FanInjectElement,
+  type FanInjectTuple,
   type InjectElement,
   type InjectTuple,
   type MaybeResolvedInjectTuple,
@@ -31,6 +35,9 @@ import {
 
 export type {
   EntityTestFunc,
+  DownInject,
+  FanInjectElement,
+  FanInjectTuple,
   InjectElement,
   InjectTuple,
   MaybeRequired,
@@ -195,6 +202,9 @@ export class Query<R extends ComponentType[] = []> {
     }
     this.world._removeUnbuiltQuery(this);
     if (this._dsl !== undefined) {
+      if (this._entities !== undefined && containsDownTerm(this._dsl)) {
+        throw new Error("DOWN is not supported in a tracked query; use world.filter(...)");
+      }
       this._belongs = _compile(this.world, this._dsl);
       this._buildSubqueries();
     }
@@ -356,7 +366,7 @@ export class Query<R extends ComponentType[] = []> {
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<J extends InjectTuple>(
+  public forEach<J extends FanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void;
@@ -365,7 +375,7 @@ export class Query<R extends ComponentType[] = []> {
    * As above, but pass `Entity` first to make the entity-first signature
    * explicit. Identical behavior to the no-marker form.
    */
-  public forEach<J extends InjectTuple>(
+  public forEach<J extends FanInjectTuple>(
     cursor: typeof Entity,
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
@@ -378,7 +388,7 @@ export class Query<R extends ComponentType[] = []> {
    * was read from (the visited entity for direct components, the relationship
    * target for `up`-injected ones).
    */
-  public forEach<J extends InjectTuple>(
+  public forEach<J extends FanInjectTuple>(
     cursor: typeof Iter,
     components: readonly [...J],
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
@@ -396,7 +406,7 @@ export class Query<R extends ComponentType[] = []> {
         return;
       }
       const useIter = wantsIter(arg0);
-      const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+      const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
       const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
         eOrIt: unknown,
         resolved: unknown

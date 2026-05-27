@@ -16,6 +16,11 @@ export class Relationships extends Queries {
     return this._incoming?.get(this.world.entity(ref).eid) ?? Relationships._emptyIncoming;
   }
 
+  /** @internal Return entities targeting this one through resolved relationship eid. */
+  public _childrenByEid(relEid: number): ReadonlySet<Entity> | undefined {
+    return this._incoming?.get(relEid);
+  }
+
   /** @internal */
   protected _addIncoming(target: Entity | undefined, relEid: number): void {
     if (!target || target._destroyed) {

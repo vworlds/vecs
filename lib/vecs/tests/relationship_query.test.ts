@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Relationship, World } from "../src/index.js";
+import { Iter, Relationship, World } from "../src/index.js";
 
 class Body {}
 class Position {
@@ -113,6 +113,59 @@ describe("Relationship queries", () => {
     expect(q.has(candidate)).toBe(false);
   });
 
+  it("filter DOWN matches parents with at least one qualifying child on each scan", () => {
+    const { w } = setup();
+    const parent = w.entity();
+    const otherParent = w.entity();
+    const child = w.entity().set(FriendOf, { target: parent }).add(Position);
+    const otherChild = w.entity().set(FriendOf, { target: otherParent }).add(Velocity);
+
+    const collect = () => {
+      const seen: unknown[] = [];
+      w.filter({ DOWN: [FriendOf, Position] }).forEach((e) => seen.push(e));
+      return seen;
+    };
+
+    expect(collect()).toEqual([parent]);
+    otherChild.add(Position);
+    expect(collect()).toEqual([parent, otherParent]);
+    child.remove(Position);
+    expect(collect()).toEqual([otherParent]);
+  });
+
+  it("rejects DOWN in tracked queries and systems", () => {
+    expect(() => {
+      const { w } = setup();
+      w.query("down")
+        .query({ DOWN: [FriendOf, Position] })
+        .build();
+    }).toThrow("DOWN is not supported in a tracked query; use world.filter(...)");
+
+    expect(() => {
+      const { w } = setup();
+      w.query("nested-down")
+        .query({ UP: [FriendOf, { DOWN: [FriendOf, Position] }] })
+        .build();
+    }).toThrow("DOWN is not supported in a tracked query; use world.filter(...)");
+
+    expect(() => {
+      const { w, phase } = setup();
+      w.system("system-down")
+        .phase(phase)
+        .query({ DOWN: [FriendOf, Position] });
+      w.start();
+    }).toThrow("DOWN is not supported in a tracked query; use world.filter(...)");
+
+    expect(() => {
+      const { w, phase } = setup();
+      w.system("system-each-down")
+        .phase(phase)
+        .query({ DOWN: [FriendOf, Position] })
+        .each([Body], () => {});
+      w.start();
+    }).toThrow("DOWN is not supported in a tracked query; use world.filter(...)");
+  });
+
   it("flattens up injection in query and filter iteration", () => {
     const { w } = setup();
     const target = w.entity().set(Position, { x: 7 });
@@ -133,6 +186,86 @@ describe("Relationship queries", () => {
 
     expect(queryTuples).toEqual([[body, pos, undefined]]);
     expect(filterTuples).toEqual([[body, pos, undefined]]);
+  });
+
+  it("fans out down injection in query and filter iteration", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body);
+    const lonely = w.entity().add(Body);
+    const body = parent.get(Body)!;
+    const childWithPosition = w.entity().set(FriendOf, { target: parent }).set(Position, { x: 7 });
+    const childWithVelocity = w.entity().set(FriendOf, { target: parent }).add(Velocity);
+    const pos = childWithPosition.get(Position)!;
+    const vel = childWithVelocity.get(Velocity)!;
+    const q = w.query("down-inject").requires(Body).build();
+
+    const queryTuples: unknown[][] = [];
+    q.forEach([Body, { down: [FriendOf, [Position, Velocity]] }], (_e, tuple) => {
+      queryTuples.push([...tuple]);
+    });
+
+    const filterTuples: unknown[][] = [];
+    w.filter(Body).forEach([Body, { down: [FriendOf, [Position, Velocity]] }], (_e, tuple) => {
+      filterTuples.push([...tuple]);
+    });
+
+    expect(queryTuples).toEqual([
+      [body, pos, undefined],
+      [body, undefined, vel],
+    ]);
+    expect(filterTuples).toEqual(queryTuples);
+
+    const afterRetarget: unknown[][] = [];
+    childWithVelocity.set(FriendOf, { target: lonely });
+    q.forEach([Body, { down: [FriendOf, [Position, Velocity]] }], (e, tuple) => {
+      afterRetarget.push([e, ...tuple]);
+    });
+
+    expect(afterRetarget).toEqual([
+      [parent, body, pos, undefined],
+      [lonely, lonely.get(Body), undefined, vel],
+    ]);
+  });
+
+  it("sets Iter source to the parent for direct slots and child for down slots", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body);
+    const child = w.entity().set(FriendOf, { target: parent }).add(Position);
+    const q = w.query("down-iter").requires(Body).build();
+    const seen: unknown[][] = [];
+
+    q.forEach(Iter, [Body, { down: [FriendOf, [Position, Velocity]] }], (it, tuple) => {
+      seen.push([it.entity, ...it.src, ...tuple]);
+    });
+
+    expect(seen).toEqual([
+      [parent, parent, child, child, parent.get(Body), child.get(Position), undefined],
+    ]);
+  });
+
+  it("fans out down injection for system each", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    w.system("system-down")
+      .phase(phase)
+      .requires(Body)
+      .each([{ down: [FriendOf, [Position, Velocity]] }], cb);
+    w.start();
+    const parent = w.entity().add(Body);
+    const child = w.entity().set(FriendOf, { target: parent }).add(Position);
+
+    w.progress(0, 0);
+
+    expect(cb).toHaveBeenCalledWith(parent, [child.get(Position), undefined]);
+  });
+
+  it("rejects multiple down injections in one tuple", () => {
+    const { w } = setup();
+    const q = w.query("multi-down").requires(Body).build();
+
+    expect(() => {
+      q.forEach([{ down: [FriendOf, [Position]] }, { down: [FriendOf, [Velocity]] }], () => {});
+    }).toThrow("Only one down injection is supported per tuple");
   });
 
   it("flattens up injection for enter and exit callbacks", () => {

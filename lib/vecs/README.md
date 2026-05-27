@@ -207,7 +207,7 @@ world.setEntityIdRange(0x10000);
 world.clearAllEntities();
 
 // Named entity lookup via Identity.name — creates entity with that name if absent:
-world.entity("player").name === "player";  // true
+world.entity("player").name === "player"; // true
 world.getEntity("player") === entity; // true (returns undefined when absent)
 
 // Named component lookup — set the name first, then resolve by name:

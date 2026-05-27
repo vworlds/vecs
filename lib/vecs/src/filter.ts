@@ -7,8 +7,8 @@ import {
   Iter,
   makeInjectedInvoker,
   wantsIter,
-  type InjectElement,
-  type InjectTuple,
+  type FanInjectElement,
+  type FanInjectTuple,
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
 
@@ -79,7 +79,7 @@ export class Filter<R extends ComponentType[] = []> {
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<J extends InjectTuple>(
+  public forEach<J extends FanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void;
@@ -88,7 +88,7 @@ export class Filter<R extends ComponentType[] = []> {
    * As above, but pass `Entity` first to make the entity-first signature
    * explicit. Identical behavior to the no-marker form.
    */
-  public forEach<J extends InjectTuple>(
+  public forEach<J extends FanInjectTuple>(
     cursor: typeof Entity,
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
@@ -101,7 +101,7 @@ export class Filter<R extends ComponentType[] = []> {
    * was read from (the visited entity for direct components, the relationship
    * target for `up`-injected ones).
    */
-  public forEach<J extends InjectTuple>(
+  public forEach<J extends FanInjectTuple>(
     cursor: typeof Iter,
     components: readonly [...J],
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
@@ -121,7 +121,7 @@ export class Filter<R extends ComponentType[] = []> {
       return;
     }
     const useIter = wantsIter(arg0);
-    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
     const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
       eOrIt: unknown,
       resolved: unknown

@@ -183,6 +183,15 @@ describe("Query DSL simplification", () => {
     expect(simplifyQueryDSL({ UP: [FriendOf, false] }, world)).toBe(false);
   });
 
+  it("simplifies DOWN by resolving the relationship and inner DSL", () => {
+    const world = registeredWorld();
+
+    expect(simplifyQueryDSL({ DOWN: [FriendOf, { AND: [Velocity, Position] }] }, world)).toEqual({
+      DOWN: [14, [10, 11]],
+    });
+    expect(simplifyQueryDSL({ DOWN: [FriendOf, false] }, world)).toBe(false);
+  });
+
   it("returns the same DSL key for equivalent UP expressions", () => {
     const world = registeredWorld();
 
@@ -195,6 +204,14 @@ describe("Query DSL simplification", () => {
     const world = registeredWorld();
 
     expect(() => simplifyQueryDSL({ UP: [Position, true] }, world)).toThrow(
+      "Component Position is not a Relationship"
+    );
+  });
+
+  it("rejects DOWN when the ref is not a relationship", () => {
+    const world = registeredWorld();
+
+    expect(() => simplifyQueryDSL({ DOWN: [Position, true] }, world)).toThrow(
       "Component Position is not a Relationship"
     );
   });
@@ -382,5 +399,20 @@ describe("Query DSL compilation", () => {
 
     expect(compiled(candidate)).toBe(true);
     expect(compiled(unrelated)).toBe(false);
+  });
+
+  it("matches DOWN by testing relationship children existentially", () => {
+    const world = new World();
+    world.component(Position);
+    world.component(FriendOf);
+    const parent = world.entity();
+    const miss = world.entity();
+    world.entity().set(FriendOf, { target: parent }).add(Position);
+    world.entity().set(FriendOf, { target: miss });
+
+    const compiled = _compile(world, { DOWN: [FriendOf, Position] });
+
+    expect(compiled(parent)).toBe(true);
+    expect(compiled(miss)).toBe(false);
   });
 });

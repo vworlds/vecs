@@ -1,6 +1,9 @@
 export { System, type SystemQuery } from "./system.js";
 export {
   Iter,
+  type DownInject,
+  type FanInjectElement,
+  type FanInjectTuple,
   type InjectElement,
   type InjectTuple,
   type MaybeResolvedInjectTuple,

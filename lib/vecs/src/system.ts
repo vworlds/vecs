@@ -4,12 +4,14 @@ import {
   Iter,
   makeInjectedInvoker,
   wantsIter,
+  type FanInjectElement,
+  type FanInjectTuple,
   type InjectElement,
   type InjectTuple,
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
 import { Query, type MaybeRequired } from "./query.js";
-import { type QueryDSL } from "./dsl.js";
+import { containsDownTerm, type QueryDSL } from "./dsl.js";
 import { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world/index.js";
@@ -106,6 +108,14 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   constructor(name: string, world: World) {
     super(name, world, false);
     this.entity.attach(System, this);
+  }
+
+  /** @internal Reject non-reactive DOWN terms before registering this system. */
+  public override _build(): this {
+    if (this._dsl !== undefined && containsDownTerm(this._dsl)) {
+      throw new Error("DOWN is not supported in a tracked query; use world.filter(...)");
+    }
+    return super._build() as this;
   }
 
   /** @internal Systems may be run-only processors without entity membership. */
@@ -409,7 +419,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *   });
    * ```
    */
-  public each<J extends InjectTuple>(
+  public each<J extends FanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
@@ -418,7 +428,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * As above, but pass `Entity` first to make the entity-first signature
    * explicit. Identical behavior to the no-marker form.
    */
-  public each<J extends InjectTuple>(
+  public each<J extends FanInjectTuple>(
     cursor: typeof Entity,
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
@@ -431,7 +441,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * was read from (the visited entity for direct components, the relationship
    * target for `up`-injected ones).
    */
-  public each<J extends InjectTuple>(
+  public each<J extends FanInjectTuple>(
     cursor: typeof Iter,
     components: readonly [...J],
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
@@ -444,7 +454,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     }
     this.track();
     const useIter = wantsIter(arg0);
-    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
     const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
       eOrIt: unknown,
       resolved: unknown

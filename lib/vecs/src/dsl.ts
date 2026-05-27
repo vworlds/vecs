@@ -50,7 +50,8 @@ export type QueryDSL =
   | { AND: readonly QueryDSL[] }
   | { OR: readonly QueryDSL[] }
   | { NOT: QueryDSL }
-  | { UP: readonly [ComponentRef, QueryDSL] };
+  | { UP: readonly [ComponentRef, QueryDSL] }
+  | { DOWN: readonly [ComponentRef, QueryDSL] };
 
 /**
  * Resolve component nullability based on what was declared in `requires` (or
@@ -242,6 +243,10 @@ function _termSortKey(q: QueryDSL): string {
     const rel = q.UP[0] instanceof Entity ? q.UP[0].eid : q.UP[0];
     return `4:UP:${String(rel).padStart(12, "0")}:${_termSortKey(q.UP[1])}`;
   }
+  if ("DOWN" in q) {
+    const rel = q.DOWN[0] instanceof Entity ? q.DOWN[0].eid : q.DOWN[0];
+    return `4:DOWN:${String(rel).padStart(12, "0")}:${_termSortKey(q.DOWN[1])}`;
+  }
   if ("HAS" in q) {
     return _termSortKey(q.HAS);
   }
@@ -297,6 +302,13 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
   }
   if ("UP" in q) {
     return ["UP", q.UP[0] instanceof Entity ? q.UP[0].eid : q.UP[0], _canonicalDSLKey(q.UP[1])];
+  }
+  if ("DOWN" in q) {
+    return [
+      "DOWN",
+      q.DOWN[0] instanceof Entity ? q.DOWN[0].eid : q.DOWN[0],
+      _canonicalDSLKey(q.DOWN[1]),
+    ];
   }
   throw new Error("Unrecognized query term");
 }
@@ -445,7 +457,40 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
     return { UP: [_resolveRelationship(q.UP[0], world), inner] };
   }
 
+  if ("DOWN" in q) {
+    const inner = simplifyQueryDSL(q.DOWN[1], world);
+    if (inner === false) {
+      return false;
+    }
+    return { DOWN: [_resolveRelationship(q.DOWN[0], world), inner] };
+  }
+
   return q;
+}
+
+export function containsDownTerm(q: QueryDSL): boolean {
+  if (typeof q !== "object" || q === null || q instanceof Array || q instanceof Entity) {
+    return false;
+  }
+  if ("DOWN" in q) {
+    return true;
+  }
+  if ("HAS" in q) {
+    return containsDownTerm(q.HAS as QueryDSL);
+  }
+  if ("AND" in q) {
+    return q.AND.some(containsDownTerm);
+  }
+  if ("OR" in q) {
+    return q.OR.some(containsDownTerm);
+  }
+  if ("NOT" in q) {
+    return containsDownTerm(q.NOT);
+  }
+  if ("UP" in q) {
+    return containsDownTerm(q.UP[1]);
+  }
+  return false;
 }
 
 export function collectUpTerms(world: World, q: QueryDSL): UpQueryTerm[] {
@@ -586,6 +631,12 @@ function _compileQueryExpression(
     return `(${relMask})&&((p)=>p!==undefined&&(${inner}))(${entityRef}._get(${relEid})?.target)`;
   }
 
+  if ("DOWN" in q) {
+    const relEid = _resolveRelationship(q.DOWN[0], world);
+    const inner = _compileQueryExpression(world, q.DOWN[1], context, "p");
+    return `((cs)=>{if(cs===undefined)return false;for(const p of cs){if(${inner})return true;}return false;})(${entityRef}._childrenByEid(${relEid}))`;
+  }
+
   throw "Unrecognized query term";
 }
 
@@ -657,6 +708,10 @@ export function _extractQueryDependencies(world: World, q: QueryDSL): number[] |
 
   if ("UP" in q) {
     return [_resolveRelationship(q.UP[0], world)];
+  }
+
+  if ("DOWN" in q) {
+    return [];
   }
 
   return undefined;
