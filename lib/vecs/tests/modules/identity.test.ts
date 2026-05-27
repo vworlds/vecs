@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Identity, IdentityModule, World } from "../../src/index.js";
+import { Entity, Identity, IdentityModule, World } from "../../src/index.js";
 
 describe("IdentityModule", () => {
   it("loads automatically", () => {
@@ -8,6 +8,7 @@ describe("IdentityModule", () => {
     const mod = world.module(IdentityModule);
 
     expect(mod).toBe(world.entity(mod.eid));
+    expect(mod).toBeInstanceOf(Entity);
     expect(entity.get(Identity)?.name).toBe("player");
   });
 

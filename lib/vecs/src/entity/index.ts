@@ -1,2 +1,3 @@
 export { Entity, type EntityClass } from "./entity.js";
-export { Identity, IdentityModule } from "./entity.identity.js";
+export { Identity } from "./entity.identity.js";
+export { IdentityModule } from "./entity.modules.js";
