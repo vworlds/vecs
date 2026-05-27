@@ -513,6 +513,30 @@ world.query("body-friends").query({ AND: [Body, { UP: [FriendOf, [Position, Velo
 
 Tracked queries stay live when either side changes. Adding or removing `FriendOf` on the candidate re-routes the candidate normally; adding or removing `Position` / `Velocity` on the target also refreshes every candidate that points at that target. Nested `UP` works the same way across multiple hops.
 
+Use `DOWN` with `world.filter(...)` when you need the opposite direction: test whether at least one child points at the candidate through a relationship and matches an inner DSL expression. `DOWN` is exact for each filter scan, but it is non-reactive and is rejected by tracked `Query` / `System` membership.
+
+```ts
+world.filter({ AND: [Body, { DOWN: [ChildOf, Position] }] }).forEach((parent) => {
+  // parent has at least one ChildOf child with Position right now.
+});
+```
+
+Component injection supports lowercase `down` in `forEach` and system `each` injection lists. It fans out: the callback fires once for each child pointing at the visited entity through the relationship, and child component slots are nullable.
+
+```ts
+world
+  .query("parents")
+  .requires(Body)
+  .forEach([Body, { down: [ChildOf, [Position]] }], (parent, [body, childPos]) => {
+    // One call per ChildOf child of parent. childPos is undefined when that child lacks Position.
+  });
+```
+
+Two details matter:
+
+- A `down` injection does not call the callback for a matched entity with zero children through that relationship.
+- `down` injection iterates all children through the relationship, independent of any `DOWN` filter used for membership. For example, `world.filter({ DOWN: [ChildOf, Position] }).forEach([{ down: [ChildOf, [Position]] }], ...)` also visits children without `Position`, with `childPos === undefined`.
+
 ---
 
 ### `System`
@@ -541,13 +565,14 @@ Declare which entities the system tracks.
 | `{ OR: [q1, q2] }`     | Either sub-query matches                 |
 | `{ NOT: q }`           | Sub-query must not match                 |
 | `{ UP: [R, q] }`       | Relationship `R` target matches `q`      |
+| `{ DOWN: [R, q] }`     | Filter-only: some `R` child matches `q`  |
 | An array `[A, B]`      | Shorthand for `{ HAS: [A, B] }`          |
 | A single class / id    | Shorthand for `{ HAS: [C] }`             |
 | A predicate function   | Custom membership logic                  |
 
-`UP` uses tuple form only: `{ UP: [RelationshipClass, innerDSL] }`. The first element must be a component that extends `Relationship`; passing a normal component throws. The inner DSL is evaluated against the relationship target, not the candidate entity.
+`UP` and `DOWN` use tuple form only: `{ UP: [RelationshipClass, innerDSL] }` / `{ DOWN: [RelationshipClass, innerDSL] }`. The first element must be a component that extends `Relationship`; passing a normal component throws. `UP` evaluates the inner DSL against the relationship target; `DOWN` evaluates it against each child and matches when at least one child matches. Because `DOWN` is non-reactive, use it with `world.filter(...)`, not tracked queries or systems.
 
-Component injection also supports the lowercase `up` marker in `forEach`, `each`, `enter`, and `exit` injection lists. It follows the relationship target and flattens the requested target components into the callback tuple:
+Component injection also supports lowercase relationship markers. `up` works in `forEach`, `each`, `enter`, and `exit` injection lists. It follows the relationship target and flattens the requested target components into the callback tuple:
 
 ```ts
 world
@@ -561,12 +586,14 @@ world
 
 On `exit`, direct component injection is snapshot-stable when the exiting component was just removed. `up` injection resolves the target live at callback time, so target-side slots can be `undefined` if the exit was caused by the target losing that component.
 
+Lowercase `down` is allowed only in `forEach` and system `each`, where fan-out has a clear meaning. Only one `down` marker is allowed per injection tuple.
+
 #### Iter cursor
 
 Pass `Iter` as the first argument to `each`, `forEach`, `enter`, `exit`, `update`, or `sort` to receive a reusable cursor object instead of the bare entity. The cursor exposes:
 
 - `it.entity` — the visited entity.
-- `it.src` — a same-length array of source entities: the visited entity for a directly-injected component, the relationship target for an `up`-injected one.
+- `it.src` — a same-length array of source entities: the visited entity for a directly-injected component, the relationship target for an `up`-injected one, or the specific child for a `down`-injected one.
 
 ```ts
 system.each(Iter, [Body, { up: [ChildOf, [Position]] }], (it, [body, pos]) => {

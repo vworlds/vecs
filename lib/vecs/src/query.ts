@@ -52,6 +52,8 @@ type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => 
 type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
+export const DOWN_TRACKED_QUERY_ERROR =
+  "DOWN is not supported in a tracked query; use world.filter(...)";
 
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
@@ -203,7 +205,7 @@ export class Query<R extends ComponentType[] = []> {
     this.world._removeUnbuiltQuery(this);
     if (this._dsl !== undefined) {
       if (this._entities !== undefined && containsDownTerm(this._dsl)) {
-        throw new Error("DOWN is not supported in a tracked query; use world.filter(...)");
+        throw new Error(DOWN_TRACKED_QUERY_ERROR);
       }
       this._belongs = _compile(this.world, this._dsl);
       this._buildSubqueries();

@@ -199,8 +199,10 @@ describe("Relationship queries", () => {
     const vel = childWithVelocity.get(Velocity)!;
     const q = w.query("down-inject").requires(Body).build();
 
+    const queryEntities: unknown[] = [];
     const queryTuples: unknown[][] = [];
-    q.forEach([Body, { down: [FriendOf, [Position, Velocity]] }], (_e, tuple) => {
+    q.forEach([Body, { down: [FriendOf, [Position, Velocity]] }], (e, tuple) => {
+      queryEntities.push(e);
       queryTuples.push([...tuple]);
     });
 
@@ -209,6 +211,7 @@ describe("Relationship queries", () => {
       filterTuples.push([...tuple]);
     });
 
+    expect(queryEntities).toEqual([parent, parent]);
     expect(queryTuples).toEqual([
       [body, pos, undefined],
       [body, undefined, vel],
@@ -240,6 +243,27 @@ describe("Relationship queries", () => {
 
     expect(seen).toEqual([
       [parent, parent, child, child, parent.get(Body), child.get(Position), undefined],
+    ]);
+  });
+
+  it("interleaves up and down injection slots with the correct sources", () => {
+    const { w } = setup();
+    const target = w.entity().add(Velocity);
+    const parent = w.entity().add(Body).set(FriendOf, { target });
+    const child = w.entity().set(FriendOf, { target: parent }).add(Position);
+    const q = w.query("up-down-iter").requires(Body).build();
+    const seen: unknown[][] = [];
+
+    q.forEach(
+      Iter,
+      [Body, { up: [FriendOf, [Velocity]] }, { down: [FriendOf, [Position]] }],
+      (it, tuple) => {
+        seen.push([it.entity, ...it.src, ...tuple]);
+      }
+    );
+
+    expect(seen).toEqual([
+      [parent, parent, target, child, parent.get(Body), target.get(Velocity), child.get(Position)],
     ]);
   });
 

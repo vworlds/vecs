@@ -10,7 +10,7 @@ import {
   type InjectTuple,
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
-import { Query, type MaybeRequired } from "./query.js";
+import { DOWN_TRACKED_QUERY_ERROR, Query, type MaybeRequired } from "./query.js";
 import { containsDownTerm, type QueryDSL } from "./dsl.js";
 import { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
@@ -113,7 +113,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   /** @internal Reject non-reactive DOWN terms before registering this system. */
   public override _build(): this {
     if (this._dsl !== undefined && containsDownTerm(this._dsl)) {
-      throw new Error("DOWN is not supported in a tracked query; use world.filter(...)");
+      throw new Error(DOWN_TRACKED_QUERY_ERROR);
     }
     return super._build() as this;
   }
