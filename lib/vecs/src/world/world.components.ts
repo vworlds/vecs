@@ -14,8 +14,24 @@ export class Components extends Entities {
     this: World,
     ComponentClass: T,
     eid?: number
+  ): Component<T>;
+  public component(this: World, name: string): Component;
+  public component<T extends ComponentType>(
+    this: World,
+    ComponentClassOrName: T | string,
+    eid?: number
   ): Component<T> {
-    return this._component<Component<T>>(Component, ComponentClass, eid);
+    if (typeof ComponentClassOrName === "string") {
+      const entity = this.entity(ComponentClassOrName);
+
+      if (!(entity instanceof Component)) {
+        throw new Error(`Entity named '${ComponentClassOrName}' is not a component entity`);
+      }
+
+      return entity as unknown as Component<T>;
+    }
+
+    return this._component<Component<T>>(Component, ComponentClassOrName, eid);
   }
 
   /** Prevent any further calls to {@link component}. */

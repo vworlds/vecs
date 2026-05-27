@@ -1,6 +1,6 @@
 import { CommandKind } from "../command.js";
 import { type ComponentRef } from "../component.js";
-import { Entity, type EntityClass } from "../entity/index.js";
+import { Entity, Identity, type EntityClass } from "../entity/index.js";
 import { Deferred } from "./world.deferred.js";
 import type { World } from "./world.js";
 
@@ -28,8 +28,11 @@ export class Entities extends Deferred {
     return e;
   }
 
-  /** Look up an entity by component ref. */
-  public getEntity(this: World, ref: ComponentRef): Entity | undefined {
+  /** Look up an entity by component ref or identity name. */
+  public getEntity(this: World, ref: ComponentRef | string): Entity | undefined {
+    if (typeof ref === "string") {
+      return this._identityNameIndex.get(ref);
+    }
     if (typeof ref === "function") {
       return this._classRegistry.get(ref);
     }
@@ -44,11 +47,22 @@ export class Entities extends Deferred {
 
   /** Create a new entity with an auto-assigned id. */
   public entity(this: World): Entity;
+  /** Look up an existing entity by identity name, creating it if absent. */
+  public entity(this: World, ref: string): Entity;
   /** Look up an existing entity by component ref. */
   public entity(this: World, ref: ComponentRef): Entity;
-  public entity(this: World, ref?: ComponentRef): Entity {
+  public entity(this: World, ref?: ComponentRef | string): Entity {
     if (ref === undefined) {
       return this._entity(Entity);
+    }
+    if (typeof ref === "string") {
+      let entity = this._identityNameIndex.get(ref);
+      if (entity) {
+        return entity;
+      }
+      entity = this._entity(Entity);
+      entity.set(Identity, { name: ref });
+      return entity;
     }
     const entity = this.getEntity(ref);
     if (entity) {
