@@ -285,12 +285,19 @@ describe("Relationship queries", () => {
     expect(cb).toHaveBeenCalledWith(parent, [child.get(Position), undefined]);
   });
 
-  it("rejects multiple down injections in one tuple", () => {
+  it("rejects multiple down injections for query and filter iteration", () => {
     const { w } = setup();
     const q = w.query("multi-down").requires(Body).build();
 
     expect(() => {
       q.forEach([{ down: [FriendOf, [Position]] }, { down: [FriendOf, [Velocity]] }], () => {});
+    }).toThrow("Only one down injection is supported per tuple");
+
+    expect(() => {
+      w.filter(true).forEach(
+        [{ down: [ChildOf, [Position]] }, { down: [ChildOf, [Velocity]] }] as any,
+        () => {}
+      );
     }).toThrow("Only one down injection is supported per tuple");
   });
 
@@ -485,16 +492,6 @@ describe("Relationship queries", () => {
       count++;
     });
     expect(count).toBe(0);
-  });
-
-  it("two down terms in one tuple throws", () => {
-    const { w } = setup();
-    expect(() => {
-      w.filter(true).forEach(
-        [{ down: [ChildOf, [Position]] }, { down: [ChildOf, [Velocity]] }] as any,
-        () => {}
-      );
-    }).toThrow("Only one down injection is supported per tuple");
   });
 
   it("down injection slots correctly when down is not last (middle)", () => {
