@@ -74,19 +74,6 @@ class SpriteComponent {
 
 class EmptyComponent {}
 
-const COMPONENT_CLASSES = [
-  PositionComponent,
-  VelocityComponent,
-  DataComponent,
-  PlayerComponent,
-  HealthComponent,
-  DamageComponent,
-  SpriteComponent,
-  EmptyComponent,
-];
-
-const worldKeys = new Set<string>();
-
 describe("Vecs ECS benchmark", () => {
   runBench(
     "matches ecs_benchmark category and entity-count matrix",
@@ -409,14 +396,12 @@ function bench(
   let checksum = 0;
 
   makeRound()();
-  cleanupWorldRegistrations();
 
   for (let i = 0; i < ROUNDS; i++) {
     const run = makeRound();
     const start = nowNs();
     checksum ^= run();
     durations.push(Number(nowNs() - start) / 1_000_000);
-    cleanupWorldRegistrations();
   }
 
   const medianMs = median(durations);
@@ -832,7 +817,6 @@ function updateSprite(
 
 function world(): World {
   const w = new World();
-  worldKeys.add(w.worldKey);
   w.component(PositionComponent);
   w.component(VelocityComponent);
   w.component(DataComponent);
@@ -842,15 +826,6 @@ function world(): World {
   w.component(SpriteComponent);
   w.component(EmptyComponent);
   return w;
-}
-
-function cleanupWorldRegistrations(): void {
-  for (const worldKey of worldKeys) {
-    for (const ComponentClass of COMPONENT_CLASSES) {
-      delete (ComponentClass as unknown as Record<string, unknown>)[worldKey];
-    }
-  }
-  worldKeys.clear();
 }
 
 function entityCounts(max: number): number[] {
