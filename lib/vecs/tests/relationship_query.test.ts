@@ -10,6 +10,7 @@ class Velocity {
 }
 class Tag {}
 class FriendOf extends Relationship {}
+class ChildOf extends Relationship {}
 
 function setup() {
   const w = new World();
@@ -18,6 +19,7 @@ function setup() {
   w.component(Velocity);
   w.component(Tag);
   w.component(FriendOf);
+  w.component(ChildOf);
   return { w, phase: w.addPhase("p") };
 }
 
@@ -344,5 +346,207 @@ describe("Relationship queries", () => {
     q.destroy();
     expect(w.queries).toEqual([]);
     expect((q as unknown as { _subqueries: unknown[] })._subqueries).toEqual([]);
+  });
+
+  it("DOWN filter matches parents with a qualifying child", () => {
+    const { w } = setup();
+    const parent = w.entity();
+    const child1 = w.entity().set(ChildOf, { target: parent }).add(Position);
+    const child2 = w.entity().set(ChildOf, { target: parent });
+
+    const seen: unknown[] = [];
+    w.filter({ DOWN: [ChildOf, Position] }).forEach((e) => seen.push(e));
+    expect(seen).toContain(parent);
+
+    child1.remove(Position);
+    const seen2: unknown[] = [];
+    w.filter({ DOWN: [ChildOf, Position] }).forEach((e) => seen2.push(e));
+    expect(seen2).not.toContain(parent);
+
+    child2.add(Position);
+    const seen3: unknown[] = [];
+    w.filter({ DOWN: [ChildOf, Position] }).forEach((e) => seen3.push(e));
+    expect(seen3).toContain(parent);
+  });
+
+  it("DOWN rejected in a tracked query", () => {
+    const { w } = setup();
+    expect(() => {
+      w.query("bad")
+        .query({ DOWN: [ChildOf, Position] })
+        .build();
+    }).toThrow("DOWN is not supported in a tracked query");
+  });
+
+  it("DOWN rejected in a tracked system query", () => {
+    const { w } = setup();
+    expect(() => {
+      w.system("bad-sys")
+        .query({ DOWN: [ChildOf, Position] })
+        .track()
+        .build();
+    }).toThrow("DOWN is not supported in a tracked query");
+  });
+
+  it("DOWN nested inside UP in a tracked query throws", () => {
+    const { w } = setup();
+    expect(() => {
+      w.query("nested-down")
+        .query({ UP: [FriendOf, { DOWN: [ChildOf, Position] }] })
+        .build();
+    }).toThrow("DOWN is not supported in a tracked query");
+  });
+
+  it("down injection fires once per child with each/forEach/Filter.forEach", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body);
+    const child1 = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 1 });
+    const child2 = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 2 });
+    const body = parent.get(Body);
+
+    const q = w.query("inject").requires(Body).build();
+    const queryResults: [number | undefined][] = [];
+    q.forEach([Body, { down: [ChildOf, [Position]] }] as any, (_e: any, tuple: any) => {
+      queryResults.push([tuple[1]?.x]);
+    });
+    expect(queryResults).toEqual([[1], [2]]);
+
+    const filterResults: [number | undefined][] = [];
+    w.filter(Body).forEach(
+      [Body, { down: [ChildOf, [Position]] }] as any,
+      (_e: any, tuple: any) => {
+        filterResults.push([tuple[1]?.x]);
+      }
+    );
+    expect(filterResults).toEqual([[1], [2]]);
+  });
+
+  it("down injection with zero children produces zero callbacks", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body);
+    const cb = vi.fn();
+    w.filter(Body).forEach([Body, { down: [ChildOf, [Position]] }] as any, cb);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("down injection in system each fires per child", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    w.system("sys-down")
+      .phase(phase)
+      .requires(Body)
+      .each([Body, { down: [ChildOf, [Position]] }] as any, cb);
+    w.start();
+    const parent = w.entity().add(Body);
+    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 3 });
+    const pos = child.get(Position);
+
+    w.progress(0, 0);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith(parent, [expect.anything(), pos]);
+  });
+
+  it("down injection with Iter sets entity to parent and src to child", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body);
+    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 5 });
+    const results: { entity: any; src: any }[] = [];
+    w.filter(Body).forEach(
+      Iter,
+      [Body, { down: [ChildOf, [Position]] }] as any,
+      (it: any, _tuple: any) => {
+        results.push({ entity: it.entity, src: [...it.src] });
+      }
+    );
+    expect(results).toHaveLength(1);
+    expect(results[0].entity).toBe(parent);
+    expect(results[0].src[1]).toBe(child);
+  });
+
+  it("down reflects added/removed children across iterations", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body);
+    let count = 0;
+    w.filter(Body).forEach([Body, { down: [ChildOf, [Position]] }] as any, () => {
+      count++;
+    });
+    expect(count).toBe(0);
+
+    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    count = 0;
+    w.filter(Body).forEach([Body, { down: [ChildOf, [Position]] }] as any, () => {
+      count++;
+    });
+    expect(count).toBe(1);
+
+    child.remove(ChildOf);
+    count = 0;
+    w.filter(Body).forEach([Body, { down: [ChildOf, [Position]] }] as any, () => {
+      count++;
+    });
+    expect(count).toBe(0);
+  });
+
+  it("two down terms in one tuple throws", () => {
+    const { w } = setup();
+    expect(() => {
+      w.filter(true).forEach(
+        [{ down: [ChildOf, [Position]] }, { down: [ChildOf, [Velocity]] }] as any,
+        () => {}
+      );
+    }).toThrow("Only one down injection is supported per tuple");
+  });
+
+  it("down injection slots correctly when down is not last (middle)", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body).set(Velocity, { vx: 10 });
+    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    const body = parent.get(Body);
+    const vel = parent.get(Velocity);
+    const pos = child.get(Position);
+
+    const results: unknown[][] = [];
+    w.filter(Body).forEach(
+      [{ down: [ChildOf, [Position]] }, Velocity] as any,
+      (_e: any, tuple: any) => {
+        results.push([...tuple]);
+      }
+    );
+    expect(results).toEqual([[pos, vel]]);
+  });
+
+  it("down injection slots correctly when down is first", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body).set(Velocity, { vx: 10 });
+    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    const body = parent.get(Body);
+    const vel = parent.get(Velocity);
+    const pos = child.get(Position);
+
+    const results: unknown[][] = [];
+    w.filter(Body).forEach(
+      [{ down: [ChildOf, [Position]] }, Body, Velocity] as any,
+      (_e: any, tuple: any) => {
+        results.push([...tuple]);
+      }
+    );
+    expect(results).toEqual([[pos, body, vel]]);
+  });
+
+  it("down injection not-last with Iter sets src correctly", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body).set(Velocity, { vx: 10 });
+    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    const results: { src: any[] }[] = [];
+    w.filter(Body).forEach(
+      Iter,
+      [{ down: [ChildOf, [Position]] }, Velocity] as any,
+      (it: any, _tuple: any) => {
+        results.push({ src: [...it.src] });
+      }
+    );
+    expect(results).toHaveLength(1);
+    expect(results[0].src[0]).toBe(child);
+    expect(results[0].src[1]).toBe(parent);
   });
 });

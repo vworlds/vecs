@@ -113,6 +113,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   /** @internal Reject non-reactive DOWN terms before registering this system. */
   public override _build(): this {
     if (this._dsl !== undefined && containsDownTerm(this._dsl)) {
+      this.destroy();
       throw new Error(DOWN_TRACKED_QUERY_ERROR);
     }
     return super._build() as this;

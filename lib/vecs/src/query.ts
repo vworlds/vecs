@@ -205,6 +205,7 @@ export class Query<R extends ComponentType[] = []> {
     this.world._removeUnbuiltQuery(this);
     if (this._dsl !== undefined) {
       if (this._entities !== undefined && containsDownTerm(this._dsl)) {
+        this.destroy();
         throw new Error(DOWN_TRACKED_QUERY_ERROR);
       }
       this._belongs = _compile(this.world, this._dsl);
