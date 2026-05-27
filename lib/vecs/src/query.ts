@@ -8,7 +8,7 @@ import {
   type ComponentRef,
   type ComponentType,
 } from "./component.js";
-import type { Entity } from "./entity/index.js";
+import { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import {
   _compile,
@@ -103,6 +103,39 @@ export function _getInjected(
   });
 }
 
+/**
+ * Like {@link _getInjected} but also records, per resolved slot, the entity the
+ * component was read from: the visited entity for a directly-injected component,
+ * or the relationship target for an `up`-injected one. Used only by the
+ * {@link Iterator} path so the non-iterator path pays no source-tracking cost.
+ */
+export function _getInjectedWithSrc(
+  e: Entity,
+  inject: readonly ResolvedInjectTerm[],
+  out: (ComponentInstance | undefined)[],
+  src: (Entity | undefined)[]
+): void {
+  let outIndex = 0;
+  inject.forEach((term) => {
+    if (typeof term === "number") {
+      out[outIndex] = e._get(term);
+      src[outIndex] = e;
+      outIndex++;
+      return;
+    }
+    const target = e.componentBitmask.has(term.up[0])
+      ? (e._get(term.up[0]) as { target?: Entity } | undefined)?.target
+      : undefined;
+    term.up[1].forEach((componentEid) => {
+      out[outIndex] = target?.componentBitmask.has(componentEid)
+        ? target._get(componentEid)
+        : undefined;
+      src[outIndex] = target;
+      outIndex++;
+    });
+  });
+}
+
 function _directInjectEids(inject: readonly ResolvedInjectTerm[]): number[] {
   return inject.filter((term): term is number => typeof term === "number");
 }
@@ -113,6 +146,40 @@ export function _injectArity(inject: readonly ResolvedInjectTerm[]): number {
     arity += typeof term === "number" ? 1 : term.up[1].length;
   });
   return arity;
+}
+
+/**
+ * Per-iteration cursor passed to `each` / `forEach` callbacks when the caller
+ * opts in by passing `Iterator` as the first argument:
+ *
+ * ```ts
+ * system.each(Iterator, [Body, { up: [ChildOf, [Position]] }], (it, [body, pos]) => {
+ *   it.entity;  // the visited entity
+ *   it.src[0];  // entity `body` was read from (the visited entity)
+ *   it.src[1];  // entity `pos` was read from (the ChildOf target), or undefined
+ * });
+ * ```
+ *
+ * A single instance is created when the iteration is set up and mutated before
+ * every callback, so it allocates nothing per entity. Read what you need inside
+ * the callback; do not retain the cursor or its {@link src} array across
+ * callbacks.
+ */
+export class Iterator {
+  /** The entity currently being visited. */
+  public entity!: Entity;
+
+  /**
+   * Source entity for each injected component, in the same order as the
+   * resolved tuple: the visited entity for a directly-injected component, or
+   * the relationship target for an `up`-injected one (`undefined` when the
+   * entity has no such relationship or target).
+   */
+  public readonly src: (Entity | undefined)[];
+
+  constructor(arity: number) {
+    this.src = new Array(arity);
+  }
 }
 
 /**
@@ -433,27 +500,65 @@ export class Query<R extends ComponentType[] = []> {
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void;
 
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
   public forEach<J extends InjectTuple>(
-    componentsOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): void {
+    cursor: typeof Entity,
+    components: readonly [...J],
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): void;
+
+  /**
+   * As above, but pass `Iterator` first to receive a reused {@link Iterator}
+   * cursor instead of the bare entity. The cursor exposes the visited entity
+   * (`it.entity`) and, in `it.src`, the source entity each resolved component
+   * was read from (the visited entity for direct components, the relationship
+   * target for `up`-injected ones).
+   */
+  public forEach<J extends InjectTuple>(
+    cursor: typeof Iterator,
+    components: readonly [...J],
+    callback: (it: Iterator, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): void;
+
+  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): void {
     this.world.beginDefer();
     try {
-      if (typeof componentsOrCallback === "function") {
-        this._entities?.forEach(componentsOrCallback);
+      // Bare `forEach(callback)`: a function that is not the Entity/Iterator marker.
+      if (typeof arg0 === "function" && arg0 !== Entity && arg0 !== Iterator) {
+        this._entities?.forEach(arg0 as (e: Entity) => void);
+        return;
+      }
+      if (!this._entities) {
+        return;
+      }
+      const useIterator = arg0 === Iterator;
+      const components = (
+        arg0 === Entity || arg0 === Iterator ? arg1 : arg0
+      ) as readonly InjectElement[];
+      const callback = (arg0 === Entity || arg0 === Iterator ? arg2 : arg1) as (
+        eOrIt: unknown,
+        resolved: unknown
+      ) => void;
+      const inject = _mapInjectedClassToTypes(this.world, components);
+      const arity = _injectArity(inject);
+      // One tuple (and one cursor) reused across the whole iteration: the
+      // callback consumes them synchronously and must not retain them (see doc).
+      // A nested forEach gets its own locals, so reuse here is reentrancy-safe.
+      const resolved = new Array(arity);
+      if (useIterator) {
+        const it = new Iterator(arity);
+        this._entities.forEach((e) => {
+          it.entity = e;
+          _getInjectedWithSrc(e, inject, resolved, it.src);
+          callback(it, resolved);
+        });
       } else {
-        if (!this._entities || !this.world) {
-          return;
-        }
-        const inject = _mapInjectedClassToTypes(this.world, componentsOrCallback);
-        const arity = _injectArity(inject);
-        // One tuple reused across the whole iteration: the callback consumes it
-        // synchronously and must not retain it (see doc). A nested forEach gets
-        // its own `resolved`, so reuse here is reentrancy-safe.
-        const resolved = new Array(arity);
         this._entities.forEach((e) => {
           _getInjected(e, inject, false, resolved);
-          callback!(e, resolved as any);
+          callback(e, resolved);
         });
       }
     } finally {

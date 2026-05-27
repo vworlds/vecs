@@ -1,5 +1,6 @@
 export { System, type SystemQuery } from "./system.js";
 export {
+  Iterator,
   Query,
   type InjectElement,
   type InjectTuple,

@@ -1,14 +1,17 @@
 import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
 import {
   _getInjected,
+  _getInjectedWithSrc,
   _injectArity,
   _mapInjectedClassToTypes,
+  Iterator,
   Query,
+  type InjectElement,
   type InjectTuple,
   type MaybeResolvedInjectTuple,
 } from "./query.js";
 import { type QueryDSL, type MaybeRequired } from "./dsl.js";
-import type { Entity } from "./entity/index.js";
+import { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world/index.js";
 import {
@@ -406,22 +409,65 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public each<J extends InjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): this {
+  ): this;
+
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public each<J extends InjectTuple>(
+    cursor: typeof Entity,
+    components: readonly [...J],
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Iterator` first to receive a reused {@link Iterator}
+   * cursor instead of the bare entity. The cursor exposes the visited entity
+   * (`it.entity`) and, in `it.src`, the source entity each resolved component
+   * was read from (the visited entity for direct components, the relationship
+   * target for `up`-injected ones).
+   */
+  public each<J extends InjectTuple>(
+    cursor: typeof Iterator,
+    components: readonly [...J],
+    callback: (it: Iterator, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+
+  public each(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
     this._assertConfigurable();
     if (this._eachCallback) {
       throw `each already registered for system '${this.name}'`;
     }
     this.track();
+    const useIterator = arg0 === Iterator;
+    const components = (
+      arg0 === Entity || arg0 === Iterator ? arg1 : arg0
+    ) as readonly InjectElement[];
+    const callback = (arg0 === Entity || arg0 === Iterator ? arg2 : arg1) as (
+      eOrIt: unknown,
+      resolved: unknown
+    ) => void;
     const inject = _mapInjectedClassToTypes(this.world, components);
     const arity = _injectArity(inject);
-    // One tuple reused across every entity every tick; the callback consumes it
-    // synchronously and must not retain it (see doc). Systems never re-enter
-    // their own `each` synchronously (mutations are deferred), so this is safe.
+    // One tuple (and one cursor) reused across every entity every tick; the
+    // callback consumes them synchronously and must not retain them (see doc).
+    // Systems never re-enter their own `each` synchronously (mutations are
+    // deferred), so this reuse is safe.
     const resolved = new Array(arity);
-    this._eachCallback = (e: Entity) => {
-      _getInjected(e, inject, false, resolved);
-      callback(e, resolved as any);
-    };
+    if (useIterator) {
+      const it = new Iterator(arity);
+      this._eachCallback = (e: Entity) => {
+        it.entity = e;
+        _getInjectedWithSrc(e, inject, resolved, it.src);
+        callback(it, resolved);
+      };
+    } else {
+      this._eachCallback = (e: Entity) => {
+        _getInjected(e, inject, false, resolved);
+        callback(e, resolved);
+      };
+    }
     return this;
   }
 
