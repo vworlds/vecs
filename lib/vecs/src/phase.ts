@@ -14,7 +14,7 @@ import { type World } from "./world/index.js";
  * world.system("NetworkUpdate").phase(preUpdate).run(tick);
  *
  * // each frame:
- * world.beginFrame(now, delta);
+ * world.beginFrame(delta);
  * try {
  *   world.runPhase(preUpdate, now, delta);
  *   world.runPhase(send,      now, delta);

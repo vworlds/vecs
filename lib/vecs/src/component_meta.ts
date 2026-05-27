@@ -148,7 +148,7 @@ export class ComponentMeta implements Hook<ComponentInstance> {
 }
 
 /**
- * An array of component classes or numeric type ids, used by query helpers.
+ * An array of component classes or numeric component ids, used by query helpers.
  *
  * @internal
  */

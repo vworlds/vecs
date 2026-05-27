@@ -3,7 +3,7 @@
  * 32-bit words.
  *
  * `Bitset` is the data structure the ECS uses to represent entity archetypes
- * (the set of component type ids attached to an entity) and watchlists
+ * (the set of component ids attached to an entity) and watchlists
  * (the set of component types a query reacts to).
  *
  * It is exported in the public API so component data can use it for

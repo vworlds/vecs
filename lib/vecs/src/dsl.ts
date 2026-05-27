@@ -36,7 +36,7 @@ export type EntityTestFunc = (e: Entity) => boolean;
  *
  * Short forms recognized by `query` / `filter`:
  * - `true` matches all entities; `false` matches no entities.
- * - A registered component class or numeric type id is shorthand for `{ HAS: [C] }`.
+ * - A registered component class or numeric component id is shorthand for `{ HAS: [C] }`.
  * - An array `[A, B]` is shorthand for `{ HAS: [A, B] }`.
  * - An empty array `[]` is shorthand for `true`.
  * - An {@link EntityTestFunc} is invoked directly for fully custom logic.
@@ -86,7 +86,7 @@ export type MaybeRequired<C, R extends ComponentType[]> = C extends ComponentTyp
  * - `{ HAS: ... }` / `{ HAS_ONLY: ... }` → recurse into the payload
  * - `{ AND: [q1, q2, ...] }` → concatenate each branch's extraction
  * - `{ OR: ... }` / `{ NOT: ... }` / `{ PARENT: ... }` → `[]` (no guarantee)
- * - `EntityTestFunc` / numeric type id → `[]` (opaque)
+ * - `EntityTestFunc` / numeric component id → `[]` (opaque)
  *
  * @typeParam Q - Query expression to analyse.
  */
@@ -327,7 +327,7 @@ function _fnv1a32(input: string): number {
  *
  * @internal
  *
- * The simplifier resolves component classes to numeric type ids, flattens
+ * The simplifier resolves component classes to numeric component ids, flattens
  * associative operators, removes boolean identities, unwraps singleton
  * operators, sorts commutative expressions, and coalesces positive component
  * requirements into the DSL's array shorthand. Bare non-class functions are
@@ -594,7 +594,7 @@ function _compileQueryExpression(
  * @internal Used by `Query`, `System`, and `Filter` to translate user-supplied
  * DSL expressions into the predicate stored on `Query._belongs`.
  *
- * @param world - World used to resolve registered component classes to type ids.
+ * @param world - World used to resolve registered component classes to component ids.
  * @param q - Query expression.
  */
 export function _compile(world: World, q: QueryDSL): EntityTestFunc {

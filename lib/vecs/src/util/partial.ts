@@ -1,5 +1,3 @@
-// applyPrototype.ts
-
 export type Constructor<T = object> = new (...args: any[]) => T;
 
 const INITIALIZERS = Symbol("partial.initializers");
