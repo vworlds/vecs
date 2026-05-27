@@ -8,9 +8,8 @@ export interface WorldOptions {
 export class Base {
   /**
    * @internal Per-world registry mapping a component class to its
-   * component-entity. A `WeakMap` keeps the lookup off the (global, shared)
-   * class objects, so registering the same class across many worlds never
-   * forces those classes into dictionary mode and slows every property access.
+   * component-entity. The registry is per-world so the lookup stays off the
+   * global component class objects while keeping repeated class lookups fast.
    */
-  public readonly _classRegistry = new WeakMap<object, Entity>();
+  public readonly _classRegistry = new Map<object, Entity>();
 }
