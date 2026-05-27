@@ -63,6 +63,9 @@ export class Filter<R extends ComponentType[] = []> {
    * non-nullable in the resolved tuple; any other component class may be
    * `undefined` if the entity does not have it.
    *
+   * The resolved tuple is reused for every matching entity. Read or
+   * destructure it inside the callback; do not retain the tuple array.
+   *
    * @param components - Component classes to resolve from each matching entity.
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
@@ -85,11 +88,15 @@ export class Filter<R extends ComponentType[] = []> {
         });
       } else {
         const eids = componentsOrCallback.map((C) => this.world.entity(C).eid);
+        const arity = eids.length;
+        const resolved = new Array(arity);
         this.world.entities.forEach((e) => {
           if (!this._belongs(e)) {
             return;
           }
-          const resolved = eids.map((eid) => e.get(eid));
+          for (let k = 0; k < arity; k++) {
+            resolved[k] = e._get(eids[k]);
+          }
           callback!(e, resolved as any);
         });
       }
