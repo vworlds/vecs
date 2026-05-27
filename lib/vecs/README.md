@@ -553,6 +553,25 @@ world
 
 On `exit`, direct component injection is snapshot-stable when the exiting component was just removed. `up` injection resolves the target live at callback time, so target-side slots can be `undefined` if the exit was caused by the target losing that component.
 
+#### Iter cursor
+
+Pass `Iter` as the first argument to `each`, `forEach`, `enter`, `exit`, `update`, or `sort` to receive a reusable cursor object instead of the bare entity. The cursor exposes:
+
+- `it.entity` — the visited entity.
+- `it.src` — a same-length array of source entities: the visited entity for a directly-injected component, the relationship target for an `up`-injected one.
+
+```ts
+system.each(Iter, [Body, { up: [ChildOf, [Position]] }], (it, [body, pos]) => {
+  it.entity; // the visited entity
+  it.src[0]; // entity `body` was read from (the visited entity)
+  it.src[1]; // entity `pos` was read from (the ChildOf target)
+});
+```
+
+When `Iter` is **not** requested, the original code path runs with zero per-entity overhead. Dispatch to the cursor or non-cursor path happens once at setup time — not per entity. A single `Iter` instance is mutated before each callback; read what you need inside the callback but do not retain the cursor or its `src` array across callbacks.
+
+`enter` and `exit` allocate a fresh `Iter` per event (they fire reentrantly during command routing). `each` / `forEach` / `update` / `sort` reuse a single `Iter` instance for the whole pass.
+
 Class-valued query terms are recognized as components by looking up registered metadata for the current world. Register component classes before using them in a `QueryDSL`; an unregistered class is treated like a predicate function and will fail if it cannot be called that way.
 
 **Type inference.** `requires()` records the listed classes as a type parameter `R` on the system. Callbacks in `.sort()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `query()` expressions the type system can't introspect, supply a `_guaranteed` second argument:

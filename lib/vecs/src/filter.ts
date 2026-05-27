@@ -3,15 +3,14 @@ import { Entity } from "./entity/index.js";
 import type { World } from "./world/index.js";
 import { _compile, type EntityTestFunc, type QueryDSL } from "./dsl.js";
 import {
-  _getInjected,
-  _getInjectedWithSrc,
-  _injectArity,
-  _mapInjectedClassToTypes,
-  Iterator,
+  isCursorMarker,
+  Iter,
+  makeInjectedInvoker,
+  wantsIter,
   type InjectElement,
   type InjectTuple,
   type MaybeResolvedInjectTuple,
-} from "./query.js";
+} from "./inject.js";
 
 /**
  * A non-reactive, one-shot entity filter.
@@ -93,21 +92,21 @@ export class Filter<R extends ComponentType[] = []> {
   ): void;
 
   /**
-   * As above, but pass `Iterator` first to receive a reused {@link Iterator}
+   * As above, but pass `Iter` first to receive a reused {@link Iter}
    * cursor instead of the bare entity. The cursor exposes the visited entity
    * (`it.entity`) and, in `it.src`, the source entity each resolved component
    * was read from (the visited entity for direct components, the relationship
    * target for `up`-injected ones).
    */
   public forEach<J extends InjectTuple>(
-    cursor: typeof Iterator,
+    cursor: typeof Iter,
     components: readonly [...J],
-    callback: (it: Iterator, resolved: MaybeResolvedInjectTuple<J, R>) => void
+    callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void;
 
   public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): void {
-    // Bare `forEach(callback)`: a function that is not the Entity/Iterator marker.
-    if (typeof arg0 === "function" && arg0 !== Entity && arg0 !== Iterator) {
+    // Bare `forEach(callback)`: a function that is not a cursor marker.
+    if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
       const callback = arg0 as (e: Entity) => void;
       this.world.defer(() => {
         this.world.entities.forEach((e) => {
@@ -118,33 +117,17 @@ export class Filter<R extends ComponentType[] = []> {
       });
       return;
     }
-    const useIterator = arg0 === Iterator;
-    const components = (
-      arg0 === Entity || arg0 === Iterator ? arg1 : arg0
-    ) as readonly InjectElement[];
-    const callback = (arg0 === Entity || arg0 === Iterator ? arg2 : arg1) as (
+    const useIter = wantsIter(arg0);
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
       eOrIt: unknown,
       resolved: unknown
     ) => void;
     this.world.defer(() => {
-      const inject = _mapInjectedClassToTypes(this.world, components);
-      const arity = _injectArity(inject);
-      // One tuple (and one cursor) reused across the whole pass; the callback
-      // consumes them synchronously and must not retain them. A nested forEach
-      // gets its own locals, so reuse here is reentrancy-safe.
-      const resolved = new Array(arity);
-      const it = useIterator ? new Iterator(arity) : undefined;
+      const invoke = makeInjectedInvoker(this.world, components, useIter, callback);
       this.world.entities.forEach((e) => {
-        if (!this._belongs(e)) {
-          return;
-        }
-        if (it) {
-          it.entity = e;
-          _getInjectedWithSrc(e, inject, resolved, it.src);
-          callback(it, resolved);
-        } else {
-          _getInjected(e, inject, false, resolved);
-          callback(e, resolved);
+        if (this._belongs(e)) {
+          invoke(e);
         }
       });
     });

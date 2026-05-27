@@ -2,185 +2,49 @@ import { OrderedSet } from "./util/ordered_set.js";
 import { DenseSet } from "./util/dense_set.js";
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
-import {
-  type ComponentInstance,
-  type ComponentMeta,
-  type ComponentRef,
-  type ComponentType,
-} from "./component.js";
+import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
 import { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import {
   _compile,
-  _resolveRelationship,
   collectUpTerms,
   type EntityTestFunc,
   type MaybeRequired,
   type QueryDSL,
 } from "./dsl.js";
+import {
+  directInjectEids,
+  getInjected,
+  getInjectedWithSrc,
+  injectArity,
+  isCursorMarker,
+  Iter,
+  makeInjectedInvoker,
+  mapInject,
+  wantsIter,
+  type InjectElement,
+  type InjectTuple,
+  type MaybeResolvedInjectTuple,
+  type RequiredResolvedInjectTuple,
+  type UpInject,
+} from "./inject.js";
 
-export type { EntityTestFunc, QueryDSL, MaybeRequired };
+export type {
+  EntityTestFunc,
+  InjectElement,
+  InjectTuple,
+  MaybeRequired,
+  MaybeResolvedInjectTuple,
+  QueryDSL,
+  RequiredResolvedInjectTuple,
+  UpInject,
+};
+export { Iter };
 
 type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => void;
 type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
-export type UpInject<J extends readonly ComponentType[] = readonly ComponentType[]> = {
-  up: readonly [ComponentRef, readonly [...J]];
-};
-export type InjectElement = ComponentType | UpInject;
-export type InjectTuple = readonly InjectElement[];
-export type ResolvedInjectTerm = number | { up: readonly [number, readonly number[]] };
-
-/** Resolves the component instance type for one injected component class. */
-type ResolvedComponentInstance<T> = T extends ComponentType ? InstanceType<T> : never;
-type OptionalResolvedComponentInstances<J extends readonly ComponentType[]> = {
-  [K in keyof J]: InstanceType<J[K]> | undefined;
-};
-type MaybeResolvedInjectElement<T, R extends ComponentType[]> = T extends ComponentType
-  ? [MaybeRequired<T, R>]
-  : T extends UpInject<infer J>
-    ? OptionalResolvedComponentInstances<J>
-    : [];
-type RequiredResolvedInjectElement<T> = T extends ComponentType
-  ? [ResolvedComponentInstance<T>]
-  : T extends UpInject<infer J>
-    ? OptionalResolvedComponentInstances<J>
-    : [];
-export type MaybeResolvedInjectTuple<
-  J extends InjectTuple,
-  R extends ComponentType[],
-> = J extends readonly [infer First, ...infer Rest extends InjectTuple]
-  ? [...MaybeResolvedInjectElement<First, R>, ...MaybeResolvedInjectTuple<Rest, R>]
-  : [];
-export type RequiredResolvedInjectTuple<J extends InjectTuple> = J extends readonly [
-  infer First,
-  ...infer Rest extends InjectTuple,
-]
-  ? [...RequiredResolvedInjectElement<First>, ...RequiredResolvedInjectTuple<Rest>]
-  : [];
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
-
-function _isUpInject(value: InjectElement): value is UpInject {
-  return typeof value === "object" && value !== null && "up" in value;
-}
-
-export function _mapInjectedClassToTypes(world: World, inject: InjectTuple): ResolvedInjectTerm[] {
-  return inject.map((term) => {
-    if (_isUpInject(term)) {
-      return {
-        up: [_resolveRelationship(term.up[0], world), term.up[1].map((C) => world.entity(C).eid)],
-      };
-    }
-    return world.entity(term).eid;
-  });
-}
-
-export function _getInjected(
-  e: Entity,
-  inject: readonly ResolvedInjectTerm[],
-  requireDirectComponents: boolean,
-  out: (ComponentInstance | undefined)[],
-  exitSnapshot?: Map<number, ComponentInstance>
-): void {
-  let outIndex = 0;
-  inject.forEach((term) => {
-    if (typeof term === "number") {
-      const c = exitSnapshot?.get(term) ?? e._get(term);
-      if (requireDirectComponents && !c) {
-        throw "query does not contain component";
-      }
-      out[outIndex++] = c;
-      return;
-    }
-    const target = e.componentBitmask.has(term.up[0])
-      ? (e._get(term.up[0]) as { target?: Entity } | undefined)?.target
-      : undefined;
-    term.up[1].forEach((componentEid) => {
-      out[outIndex++] = target?.componentBitmask.has(componentEid)
-        ? target._get(componentEid)
-        : undefined;
-    });
-  });
-}
-
-/**
- * Like {@link _getInjected} but also records, per resolved slot, the entity the
- * component was read from: the visited entity for a directly-injected component,
- * or the relationship target for an `up`-injected one. Used only by the
- * {@link Iterator} path so the non-iterator path pays no source-tracking cost.
- */
-export function _getInjectedWithSrc(
-  e: Entity,
-  inject: readonly ResolvedInjectTerm[],
-  out: (ComponentInstance | undefined)[],
-  src: (Entity | undefined)[]
-): void {
-  let outIndex = 0;
-  inject.forEach((term) => {
-    if (typeof term === "number") {
-      out[outIndex] = e._get(term);
-      src[outIndex] = e;
-      outIndex++;
-      return;
-    }
-    const target = e.componentBitmask.has(term.up[0])
-      ? (e._get(term.up[0]) as { target?: Entity } | undefined)?.target
-      : undefined;
-    term.up[1].forEach((componentEid) => {
-      out[outIndex] = target?.componentBitmask.has(componentEid)
-        ? target._get(componentEid)
-        : undefined;
-      src[outIndex] = target;
-      outIndex++;
-    });
-  });
-}
-
-function _directInjectEids(inject: readonly ResolvedInjectTerm[]): number[] {
-  return inject.filter((term): term is number => typeof term === "number");
-}
-
-export function _injectArity(inject: readonly ResolvedInjectTerm[]): number {
-  let arity = 0;
-  inject.forEach((term) => {
-    arity += typeof term === "number" ? 1 : term.up[1].length;
-  });
-  return arity;
-}
-
-/**
- * Per-iteration cursor passed to `each` / `forEach` callbacks when the caller
- * opts in by passing `Iterator` as the first argument:
- *
- * ```ts
- * system.each(Iterator, [Body, { up: [ChildOf, [Position]] }], (it, [body, pos]) => {
- *   it.entity;  // the visited entity
- *   it.src[0];  // entity `body` was read from (the visited entity)
- *   it.src[1];  // entity `pos` was read from (the ChildOf target), or undefined
- * });
- * ```
- *
- * A single instance is created when the iteration is set up and mutated before
- * every callback, so it allocates nothing per entity. Read what you need inside
- * the callback; do not retain the cursor or its {@link src} array across
- * callbacks.
- */
-export class Iterator {
-  /** The entity currently being visited. */
-  public entity!: Entity;
-
-  /**
-   * Source entity for each injected component, in the same order as the
-   * resolved tuple: the visited entity for a directly-injected component, or
-   * the relationship target for an `up`-injected one (`undefined` when the
-   * entity has no such relationship or target).
-   */
-  public readonly src: (Entity | undefined)[];
-
-  constructor(arity: number) {
-    this.src = new Array(arity);
-  }
-}
 
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
@@ -454,9 +318,6 @@ export class Query<R extends ComponentType[] = []> {
    */
   public track(): this {
     this._assertConfigurable();
-    // A DenseSet iterates via a tight array loop instead of a hash-table walk;
-    // query membership order is unspecified (use sort() for ordering), so the
-    // swap-on-delete reordering it does is fine.
     this._entities ??= new DenseSet<Entity>();
     return this;
   }
@@ -511,56 +372,37 @@ export class Query<R extends ComponentType[] = []> {
   ): void;
 
   /**
-   * As above, but pass `Iterator` first to receive a reused {@link Iterator}
+   * As above, but pass `Iter` first to receive a reused {@link Iter}
    * cursor instead of the bare entity. The cursor exposes the visited entity
    * (`it.entity`) and, in `it.src`, the source entity each resolved component
    * was read from (the visited entity for direct components, the relationship
    * target for `up`-injected ones).
    */
   public forEach<J extends InjectTuple>(
-    cursor: typeof Iterator,
+    cursor: typeof Iter,
     components: readonly [...J],
-    callback: (it: Iterator, resolved: MaybeResolvedInjectTuple<J, R>) => void
+    callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void;
 
   public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): void {
     this.world.beginDefer();
     try {
-      // Bare `forEach(callback)`: a function that is not the Entity/Iterator marker.
-      if (typeof arg0 === "function" && arg0 !== Entity && arg0 !== Iterator) {
+      // Bare `forEach(callback)`: a function that is not a cursor marker.
+      if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
         this._entities?.forEach(arg0 as (e: Entity) => void);
         return;
       }
       if (!this._entities) {
         return;
       }
-      const useIterator = arg0 === Iterator;
-      const components = (
-        arg0 === Entity || arg0 === Iterator ? arg1 : arg0
-      ) as readonly InjectElement[];
-      const callback = (arg0 === Entity || arg0 === Iterator ? arg2 : arg1) as (
+      const useIter = wantsIter(arg0);
+      const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+      const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
         eOrIt: unknown,
         resolved: unknown
       ) => void;
-      const inject = _mapInjectedClassToTypes(this.world, components);
-      const arity = _injectArity(inject);
-      // One tuple (and one cursor) reused across the whole iteration: the
-      // callback consumes them synchronously and must not retain them (see doc).
-      // A nested forEach gets its own locals, so reuse here is reentrancy-safe.
-      const resolved = new Array(arity);
-      if (useIterator) {
-        const it = new Iterator(arity);
-        this._entities.forEach((e) => {
-          it.entity = e;
-          _getInjectedWithSrc(e, inject, resolved, it.src);
-          callback(it, resolved);
-        });
-      } else {
-        this._entities.forEach((e) => {
-          _getInjected(e, inject, false, resolved);
-          callback(e, resolved);
-        });
-      }
+      const invoke = makeInjectedInvoker(this.world, components, useIter, callback);
+      this._entities.forEach(invoke);
     } finally {
       this.world.endDefer();
     }
@@ -589,6 +431,27 @@ export class Query<R extends ComponentType[] = []> {
   ): this;
 
   /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public enter<J extends InjectTuple>(
+    cursor: typeof Entity,
+    inject: readonly [...J],
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Iter` first to receive an {@link Iter} cursor instead
+   * of the bare entity. A fresh cursor is allocated per `enter` event so
+   * reentrant callbacks do not corrupt each other.
+   */
+  public enter<J extends InjectTuple>(
+    cursor: typeof Iter,
+    inject: readonly [...J],
+    callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+
+  /**
    * Register an `enter` callback without component injection.
    *
    * @param callback - Receives only the entering entity.
@@ -597,19 +460,34 @@ export class Query<R extends ComponentType[] = []> {
   public enter(callback: (e: Entity) => void): this;
 
   public enter<J extends InjectTuple>(
-    injectOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+    arg0: InjectTuple | ((e: Entity) => void) | typeof Entity | typeof Iter,
+    arg1?: InjectTuple | Function,
+    arg2?: Function
   ): this {
     this._assertConfigurable();
-    if (typeof injectOrCallback === "function") {
-      this._enterCallback = injectOrCallback;
-    } else {
-      const inject = _mapInjectedClassToTypes(this.world, injectOrCallback);
-      const arity = _injectArity(inject);
+    // Bare `enter(callback)`
+    if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
+      this._enterCallback = arg0 as (e: Entity) => void;
+      return this;
+    }
+    const useIter = wantsIter(arg0);
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (eOrIt: unknown, injected: unknown) => void;
+    const inject = mapInject(this.world, components);
+    const arity = injectArity(inject);
+    if (useIter) {
       this._enterCallback = (e: Entity) => {
         const injected = new Array(arity);
-        _getInjected(e, inject, true, injected);
-        callback!(e, injected as any);
+        const it = new Iter(arity);
+        it.entity = e;
+        getInjectedWithSrc(e, inject, injected, it.src, true);
+        cb(it, injected as any);
+      };
+    } else {
+      this._enterCallback = (e: Entity) => {
+        const injected = new Array(arity);
+        getInjected(e, inject, true, injected);
+        cb(e, injected as any);
       };
     }
     return this;
@@ -633,6 +511,27 @@ export class Query<R extends ComponentType[] = []> {
   ): this;
 
   /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public exit<J extends InjectTuple>(
+    cursor: typeof Entity,
+    inject: readonly [...J],
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Iter` first to receive an {@link Iter} cursor instead
+   * of the bare entity. A fresh cursor is allocated per `exit` event so
+   * reentrant callbacks do not corrupt each other.
+   */
+  public exit<J extends InjectTuple>(
+    cursor: typeof Iter,
+    inject: readonly [...J],
+    callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+
+  /**
    * Register an `exit` callback without component injection.
    *
    * @param callback - Receives only the exiting entity.
@@ -641,21 +540,36 @@ export class Query<R extends ComponentType[] = []> {
   public exit(callback: (e: Entity) => void): this;
 
   public exit<J extends InjectTuple>(
-    injectOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+    arg0: readonly [...J] | ((e: Entity) => void) | typeof Entity | typeof Iter,
+    arg1?: readonly [...J] | ((...args: any[]) => void),
+    arg2?: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    if (typeof injectOrCallback === "function") {
-      this._exitCallback = injectOrCallback;
+    // Bare `exit(callback)`
+    if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
+      this._exitCallback = arg0 as (e: Entity) => void;
       this._exitSnapshotTypes = undefined;
-    } else {
-      const inject = _mapInjectedClassToTypes(this.world, injectOrCallback);
-      this._exitSnapshotTypes = _directInjectEids(inject);
-      const arity = _injectArity(inject);
+      return this;
+    }
+    const useIter = wantsIter(arg0);
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (eOrIt: unknown, injected: unknown) => void;
+    const inject = mapInject(this.world, components);
+    this._exitSnapshotTypes = directInjectEids(inject);
+    const arity = injectArity(inject);
+    if (useIter) {
       this._exitCallback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
         const injected = new Array(arity);
-        _getInjected(e, inject, true, injected, exitSnapshot);
-        callback!(e, injected as any);
+        const it = new Iter(arity);
+        it.entity = e;
+        getInjectedWithSrc(e, inject, injected, it.src, true, exitSnapshot);
+        cb(it, injected as any);
+      };
+    } else {
+      this._exitCallback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
+        const injected = new Array(arity);
+        getInjected(e, inject, true, injected, exitSnapshot);
+        cb(e, injected as any);
       };
     }
     return this;
@@ -698,58 +612,92 @@ export class Query<R extends ComponentType[] = []> {
    * @param callback - Receives the entity, modified component, and injected tuple.
    * @returns This query, for chaining.
    */
-  public update<C extends ComponentType, J extends ComponentType[]>(
+  public update<C extends ComponentType, J extends InjectTuple>(
     ComponentClass: C,
     inject: readonly [...J],
-    callback: (
-      e: Entity,
-      c: InstanceType<C>,
-      injected: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
 
-  public update<C extends ComponentType, J extends ComponentType[]>(
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public update<C extends ComponentType, J extends InjectTuple>(
+    cursor: typeof Entity,
     ComponentClass: C,
-    injectOrCallback: readonly [...J] | ((e: Entity, c: InstanceType<C>) => void),
-    callback?: (
-      e: Entity,
-      c: InstanceType<C>,
-      injected: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    inject: readonly [...J],
+    callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Entity` and omit the injection tuple for the
+   * no-injection form. Identical behavior to the no-marker form.
+   */
+  public update<C extends ComponentType>(
+    cursor: typeof Entity,
+    ComponentClass: C,
+    callback: (e: Entity, c: InstanceType<C>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Iter` first to receive a reused {@link Iter} cursor
+   * instead of the bare entity. The cursor exposes the visited entity
+   * (`it.entity`) and, in `it.src`, the source entity each resolved component
+   * was read from.
+   */
+  public update<C extends ComponentType, J extends InjectTuple>(
+    cursor: typeof Iter,
+    ComponentClass: C,
+    inject: readonly [...J],
+    callback: (it: Iter, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+
+  public update<C extends ComponentType>(
+    arg0: C | typeof Entity | typeof Iter,
+    arg1: C | readonly InjectElement[] | ((...args: any[]) => void),
+    arg2?: readonly InjectElement[] | ((...args: any[]) => void),
+    arg3?: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const componentEid = this.world.entity(ComponentClass).eid;
-    if (typeof injectOrCallback === "function") {
-      callback = injectOrCallback;
-      this._componentUpdateCallbacks.set(componentEid, callback as any);
-    } else {
-      const inject = injectOrCallback;
-      const injectedComponentEids = inject.map((C) => this.world.entity(C).eid);
-      const arity = injectedComponentEids.length;
-      // Reused across invocations; the callback must not retain it (see doc).
-      const injected = new Array(arity);
-      const cb = (e: Entity, c: ComponentInstance) => {
-        for (let k = 0; k < arity; k++) {
-          injected[k] = e._get(injectedComponentEids[k]);
-        }
-
-        if (callback) {
-          callback(e, c as InstanceType<C>, injected as any);
-        }
-      };
-
-      this._componentUpdateCallbacks.set(componentEid, cb);
+    const useIter = wantsIter(arg0);
+    if (isCursorMarker(arg0)) {
+      arg0 = arg1 as C;
+      arg1 = arg2 as readonly InjectElement[];
+      arg2 = arg3 as (...args: any[]) => void;
     }
-
+    const ComponentClass = arg0 as C;
+    const componentEid = this.world.entity(ComponentClass).eid;
+    if (typeof arg1 === "function") {
+      const callback = arg1 as (...args: any[]) => void;
+      this._componentUpdateCallbacks.set(componentEid, callback);
+    } else {
+      const components = arg1 as readonly InjectElement[];
+      const callback = arg2 as (...args: any[]) => void;
+      const inject = mapInject(this.world, components);
+      const arity = injectArity(inject);
+      // One tuple (and one cursor) reused across invocations; the callback
+      // consumes them synchronously and must not retain them (see doc).
+      const injected = new Array(arity);
+      if (useIter) {
+        const it = new Iter(arity);
+        const cb = (e: Entity, c: ComponentInstance) => {
+          it.entity = e;
+          getInjectedWithSrc(e, inject, injected, it.src);
+          callback(it, c as InstanceType<C>, injected as any);
+        };
+        this._componentUpdateCallbacks.set(componentEid, cb);
+      } else {
+        const cb = (e: Entity, c: ComponentInstance) => {
+          getInjected(e, inject, false, injected);
+          callback(e, c as InstanceType<C>, injected as any);
+        };
+        this._componentUpdateCallbacks.set(componentEid, cb);
+      }
+    }
     this._watchlistBitmask.add(componentEid);
-
     if (!this._hasExplicitQuery) {
-      // Update-only queries derive membership from the watched component set.
-      // Install that predicate before backfill so the default match-nothing
-      // predicate is never used for update-watchlist expansion.
       this._dsl = this._watchlistBitmask.indices();
     }
-
     return this;
   }
 
@@ -772,20 +720,73 @@ export class Query<R extends ComponentType[] = []> {
    *   .sort([Position], (_entityA, [posA], _entityB, [posB]) => posA.z - posB.z);
    * ```
    */
-  public sort<J extends ComponentType[]>(
+  public sort<J extends InjectTuple>(
     components: readonly [...J],
     compare: (
       entityA: Entity,
-      a: { [K in keyof J]: MaybeRequired<J[K], R> },
+      a: MaybeResolvedInjectTuple<J, R>,
       entityB: Entity,
-      b: { [K in keyof J]: MaybeRequired<J[K], R> }
+      b: MaybeResolvedInjectTuple<J, R>
     ) => number
+  ): this;
+
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public sort<J extends InjectTuple>(
+    cursor: typeof Entity,
+    components: readonly [...J],
+    compare: (
+      entityA: Entity,
+      a: MaybeResolvedInjectTuple<J, R>,
+      entityB: Entity,
+      b: MaybeResolvedInjectTuple<J, R>
+    ) => number
+  ): this;
+
+  /**
+   * As above, but pass `Iter` first. The comparator receives two reused
+   * {@link Iter} cursors with `.entity` and `.src` populated per side.
+   */
+  public sort<J extends InjectTuple>(
+    cursor: typeof Iter,
+    components: readonly [...J],
+    compare: (a: Iter, b: Iter) => number
+  ): this;
+
+  public sort(
+    arg0: readonly InjectElement[] | typeof Entity | typeof Iter,
+    arg1?: readonly InjectElement[] | Function,
+    arg2?: Function
   ): this {
     this._assertConfigurable();
-    const eids = components.map((C) => this.world.entity(C).eid);
-    this._entities = new OrderedSet<Entity>((a, b) =>
-      compare(a, eids.map((eid) => a.get(eid)) as any, b, eids.map((eid) => b.get(eid)) as any)
-    );
+    const useIter = wantsIter(arg0);
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (...args: unknown[]) => number;
+    const inject = mapInject(this.world, components);
+    const arity = injectArity(inject);
+    if (useIter) {
+      const itA = new Iter(arity);
+      const itB = new Iter(arity);
+      const resolvedA = new Array(arity);
+      const resolvedB = new Array(arity);
+      this._entities = new OrderedSet<Entity>((a, b) => {
+        itA.entity = a;
+        itB.entity = b;
+        getInjectedWithSrc(a, inject, resolvedA, itA.src);
+        getInjectedWithSrc(b, inject, resolvedB, itB.src);
+        return cb(itA, itB);
+      });
+    } else {
+      const resolvedA = new Array(arity);
+      const resolvedB = new Array(arity);
+      this._entities = new OrderedSet<Entity>((a, b) => {
+        getInjected(a, inject, false, resolvedA);
+        getInjected(b, inject, false, resolvedB);
+        return cb(a, resolvedA, b, resolvedB);
+      });
+    }
     return this;
   }
 
