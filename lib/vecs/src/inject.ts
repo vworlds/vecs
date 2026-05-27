@@ -122,7 +122,9 @@ export function getInjected(
           ? target._get(componentEid)
           : undefined;
       });
+      return;
     }
+    throw new Error("getInjected: unexpected down term — use makeInjectedInvoker for fan-out");
   });
 }
 
@@ -157,7 +159,11 @@ export function getInjectedWithSrc(
         src[outIndex] = target;
         outIndex++;
       });
+      return;
     }
+    throw new Error(
+      "getInjectedWithSrc: unexpected down term — use makeInjectedInvoker for fan-out"
+    );
   });
 }
 
@@ -243,47 +249,104 @@ export function makeInjectedInvoker(
   }
 
   const [downRelEid, downCompEids] = downTerm.down;
-  const downFirstSlot = injectArity(inject.slice(0, inject.indexOf(downTerm)));
+  const downIdx = inject.indexOf(downTerm);
   const downSlotCount = downCompEids.length;
 
-  const nonDownTerms = inject.filter((t) => !(typeof t !== "number" && "down" in t));
-  const nonDownArity = injectArity(nonDownTerms);
+  // Precompute the starting slot index for each inject term so non-down terms
+  // resolve at their correct interleaved positions regardless of where `down`
+  // appears in the tuple.
+  const slotStarts: number[] = [];
+  let nextSlot = 0;
+  for (let i = 0; i < inject.length; i++) {
+    slotStarts[i] = nextSlot;
+    const t = inject[i];
+    if (typeof t === "number") {
+      nextSlot += 1;
+    } else if ("up" in t) {
+      nextSlot += t.up[1].length;
+    } else {
+      nextSlot += t.down[1].length;
+    }
+  }
 
   const resolved = new Array(arity);
 
   if (useIter) {
     const it = new Iter(arity);
     return (e: Entity) => {
-      getInjectedWithSrc(e, nonDownTerms, resolved, it.src);
+      it.entity = e;
+      for (let i = 0; i < inject.length; i++) {
+        if (i === downIdx) {
+          continue;
+        }
+        _resolveTermAt(e, inject[i], slotStarts[i], resolved, it.src);
+      }
       const children = e._childrenByEid(downRelEid);
       if (!children || children.size === 0) {
         return;
       }
+      const downStart = slotStarts[downIdx];
       for (const child of children) {
         for (let i = 0; i < downSlotCount; i++) {
-          const compEid = downCompEids[i];
-          const outIdx = downFirstSlot + i;
-          resolved[outIdx] = child.componentBitmask.has(compEid) ? child._get(compEid) : undefined;
+          const outIdx = downStart + i;
+          resolved[outIdx] = child.componentBitmask.has(downCompEids[i])
+            ? child._get(downCompEids[i])
+            : undefined;
           it.src[outIdx] = child;
         }
-        it.entity = e;
         callback(it, resolved);
       }
     };
   }
   return (e: Entity) => {
-    getInjected(e, nonDownTerms, false, resolved);
+    for (let i = 0; i < inject.length; i++) {
+      if (i === downIdx) {
+        continue;
+      }
+      _resolveTermAt(e, inject[i], slotStarts[i], resolved);
+    }
     const children = e._childrenByEid(downRelEid);
     if (!children || children.size === 0) {
       return;
     }
+    const downStart = slotStarts[downIdx];
     for (const child of children) {
       for (let i = 0; i < downSlotCount; i++) {
-        const compEid = downCompEids[i];
-        const outIdx = downFirstSlot + i;
-        resolved[outIdx] = child.componentBitmask.has(compEid) ? child._get(compEid) : undefined;
+        const outIdx = downStart + i;
+        resolved[outIdx] = child.componentBitmask.has(downCompEids[i])
+          ? child._get(downCompEids[i])
+          : undefined;
       }
       callback(e, resolved);
     }
   };
+}
+
+function _resolveTermAt(
+  e: Entity,
+  term: ResolvedInjectTerm,
+  outIdx: number,
+  resolved: (ComponentInstance | undefined)[],
+  src?: (Entity | undefined)[]
+): void {
+  if (typeof term === "number") {
+    resolved[outIdx] = e._get(term);
+    if (src) {
+      src[outIdx] = e;
+    }
+    return;
+  }
+  if ("down" in term) {
+    return;
+  }
+  const relEid = term.up[0];
+  const target = e.componentBitmask.has(relEid)
+    ? (e._get(relEid) as { target?: Entity } | undefined)?.target
+    : undefined;
+  term.up[1].forEach((compEid, i) => {
+    resolved[outIdx + i] = target?.componentBitmask.has(compEid) ? target._get(compEid) : undefined;
+    if (src) {
+      src[outIdx + i] = target;
+    }
+  });
 }

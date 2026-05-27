@@ -339,4 +339,57 @@ describe("Relationship queries", () => {
       );
     }).toThrow("At most one `down` injection term is allowed per tuple");
   });
+
+  it("down injection slots correctly when down is not last (middle)", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body).set(Velocity, { vx: 10 });
+    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    const body = parent.get(Body);
+    const vel = parent.get(Velocity);
+    const pos = child.get(Position);
+
+    const results: unknown[][] = [];
+    w.filter(Body).forEach(
+      [{ down: [ChildOf, [Position]] }, Velocity] as any,
+      (_e: any, tuple: any) => {
+        results.push([...tuple]);
+      }
+    );
+    expect(results).toEqual([[pos, vel]]);
+  });
+
+  it("down injection slots correctly when down is first", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body).set(Velocity, { vx: 10 });
+    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    const body = parent.get(Body);
+    const vel = parent.get(Velocity);
+    const pos = child.get(Position);
+
+    const results: unknown[][] = [];
+    w.filter(Body).forEach(
+      [{ down: [ChildOf, [Position]] }, Body, Velocity] as any,
+      (_e: any, tuple: any) => {
+        results.push([...tuple]);
+      }
+    );
+    expect(results).toEqual([[pos, body, vel]]);
+  });
+
+  it("down injection not-last with Iter sets src correctly", () => {
+    const { w } = setup();
+    const parent = w.entity().add(Body).set(Velocity, { vx: 10 });
+    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    const results: { src: any[] }[] = [];
+    w.filter(Body).forEach(
+      Iter,
+      [{ down: [ChildOf, [Position]] }, Velocity] as any,
+      (it: any, _tuple: any) => {
+        results.push({ src: [...it.src] });
+      }
+    );
+    expect(results).toHaveLength(1);
+    expect(results[0].src[0]).toBe(child);
+    expect(results[0].src[1]).toBe(parent);
+  });
 });
