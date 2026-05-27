@@ -215,8 +215,14 @@ export class Entity extends PartialClass {
       return;
     }
     const ownMeta = this._ownMeta;
-    if (ownMeta && ownMeta.usageCount > (this._components.has(ownMeta.eid) ? 1 : 0)) {
-      throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
+    if (ownMeta) {
+      const selfCarry = this._components.has(ownMeta.eid) ? 1 : 0;
+      if (ownMeta.usageCount > selfCarry) {
+        if (ownMeta.onDelete === CleanupPolicy.Throw) {
+          return;
+        }
+        this._applyOnDelete(ownMeta, selfCarry);
+      }
     }
     this._destroyed = true;
 
@@ -465,6 +471,14 @@ export class Entity extends PartialClass {
    * After destruction the entity must not be used.
    */
   public destroy(): void {
+    const ownMeta = this._ownMeta;
+    if (
+      ownMeta &&
+      ownMeta.onDelete === CleanupPolicy.Throw &&
+      ownMeta.usageCount > (this._components.has(ownMeta.eid) ? 1 : 0)
+    ) {
+      throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
+    }
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Destroy, entity: this });
     } else {
@@ -659,6 +673,26 @@ export class Entity extends PartialClass {
     sources.add(this);
   }
 
+  private _applyOnDelete(ownMeta: ComponentMeta, selfCarry: number): void {
+    const ceid = ownMeta.eid;
+    const carriers: Entity[] = [];
+    let remaining = ownMeta.usageCount - selfCarry;
+    this.world.entities.forEach((e) => {
+      if (remaining > 0 && e !== this && e._get(ceid) !== undefined) {
+        carriers.push(e);
+        remaining--;
+      }
+    });
+    const shouldDelete = ownMeta.onDelete === CleanupPolicy.Delete;
+    for (const carrier of carriers) {
+      if (shouldDelete) {
+        carrier._destroy();
+      } else {
+        carrier._remove(ownMeta);
+      }
+    }
+  }
+
   private _cleanupIncoming(): void {
     this._incoming?.forEach((sources, relEid) => {
       const relEntity = this.world.getEntity(relEid);
@@ -668,6 +702,8 @@ export class Entity extends PartialClass {
       const policy = relEntity.ownMeta.onDeleteTarget;
       for (const source of [...sources]) {
         if (policy === CleanupPolicy.Delete) {
+          // If source is also an in-use component entity with onDelete Throw,
+          // this exotic cascade can still throw; revisit with the relationship rework.
           source.destroy();
         } else {
           source.remove(relEid);

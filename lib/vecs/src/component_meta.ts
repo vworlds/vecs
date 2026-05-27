@@ -3,6 +3,7 @@ import type { Entity, EntityClass } from "./entity/index.js";
 import { Relationship } from "./relationship.js";
 
 export enum CleanupPolicy {
+  Throw = "throw",
   Remove = "remove",
   Delete = "delete",
 }
@@ -94,7 +95,7 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   public readonly isRelationship: boolean;
 
   /** Applied to entities carrying this component when this component entity is deleted. */
-  public onDelete = CleanupPolicy.Remove;
+  public onDelete = CleanupPolicy.Throw;
   /** Applied to entities targeting a deleted entity through this relationship. */
   public onDeleteTarget = CleanupPolicy.Remove;
 

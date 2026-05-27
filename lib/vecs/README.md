@@ -207,6 +207,25 @@ world.setEntityIdRange(0x10000);
 world.clearAllEntities();
 ```
 
+#### Component entity deletion cleanup
+
+Every component key is backed by a component entity. Destroying that component entity is controlled by `world.component(C).ownMeta.onDelete`:
+
+| Policy                 | Meaning                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| `CleanupPolicy.Throw`  | Default. Destroying the component entity while other entities carry it throws and changes nothing. |
+| `CleanupPolicy.Remove` | Remove the component from every carrier, then destroy the component entity.                        |
+| `CleanupPolicy.Delete` | Destroy every carrier, then destroy the component entity.                                          |
+
+```ts
+import { CleanupPolicy } from "@vworlds/vecs";
+
+world.component(Temporary).ownMeta.onDelete = CleanupPolicy.Remove;
+world.component(Temporary).destroy(); // strips Temporary from all carriers
+```
+
+The `Throw` default also applies to plain entities used as component keys (`entity.add(key)`). It preserves consistency: a failed destroy leaves the component entity, its carriers, and the usage count untouched.
+
 #### Hooks
 
 ```ts
@@ -444,7 +463,7 @@ Use `entity.attach(instance)` when component ownership is intentionally shared w
 #### Relationships and parent / child hierarchy
 
 ```ts
-import { ChildOf, Relationship } from "@vworlds/vecs";
+import { ChildOf, CleanupPolicy, Relationship } from "@vworlds/vecs";
 
 child.set(ChildOf, { target: parent });
 child.parent(ChildOf) === parent; // true
@@ -465,7 +484,7 @@ item.parent(EquippedBy); // player
 player.children(EquippedBy).has(item); // true
 ```
 
-Relationship cleanup is controlled by component metadata:
+Relationship target cleanup is controlled by `ownMeta.onDeleteTarget`:
 
 | Policy                 | Meaning                                                                                      |
 | ---------------------- | -------------------------------------------------------------------------------------------- |
@@ -473,6 +492,8 @@ Relationship cleanup is controlled by component metadata:
 | `CleanupPolicy.Delete` | When a target is destroyed, destroy each source entity that targets it through the relation. |
 
 `ChildOf` is registered by every `World` and uses `CleanupPolicy.Delete`. Custom relationships default to `Remove`; set `world.component(MyRelationship).ownMeta.onDeleteTarget = CleanupPolicy.Delete` if target deletion should cascade.
+
+`onDeleteTarget` is independent from `onDelete`: `onDeleteTarget` runs when a relationship target is destroyed, while `onDelete` runs when the relationship component entity itself is destroyed.
 
 Retarget relationships with `entity.set(RelationshipClass, { target })`. `entity.getMut(RelationshipClass)` throws for relationship components because in-place target mutation would bypass the reverse index used by `children(ref)` and cleanup cascades.
 

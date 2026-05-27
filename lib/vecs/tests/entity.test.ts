@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ChildOf, Relationship, World } from "../src/index.js";
+import { ChildOf, CleanupPolicy, Relationship, World } from "../src/index.js";
 import { makeWorldWithFlushPhase } from "./_helpers.js";
 
 class Position {
@@ -423,6 +423,65 @@ describe("Entity — lifecycle and relationships", () => {
     const e = w.entity();
     e.properties.set("kind", "bullet");
     expect(e.properties.get("kind")).toBe("bullet");
+  });
+});
+
+describe("Entity — component entity onDelete", () => {
+  it("removes the component from carriers when onDelete is Remove", () => {
+    const w = new World();
+    const componentEntity = w.component(Position);
+    componentEntity.ownMeta.onDelete = CleanupPolicy.Remove;
+    const a = w.entity().add(Position);
+    const b = w.entity().add(Position);
+
+    componentEntity.destroy();
+
+    expect(a._destroyed).toBe(false);
+    expect(b._destroyed).toBe(false);
+    expect(a._get(componentEntity.eid)).toBeUndefined();
+    expect(b._get(componentEntity.eid)).toBeUndefined();
+    expect(componentEntity.instanceCount()).toBe(0);
+    expect(componentEntity._destroyed).toBe(true);
+  });
+
+  it("destroys carriers when onDelete is Delete", () => {
+    const w = new World();
+    const componentEntity = w.component(Position);
+    componentEntity.ownMeta.onDelete = CleanupPolicy.Delete;
+    const a = w.entity().add(Position);
+    const b = w.entity().add(Position);
+
+    componentEntity.destroy();
+
+    expect(() => w.entity(a.eid)).toThrow();
+    expect(() => w.entity(b.eid)).toThrow();
+    expect(() => w.entity(componentEntity.eid)).toThrow();
+    expect(componentEntity._destroyed).toBe(true);
+  });
+
+  it("throws by default and leaves the component entity and carriers untouched", () => {
+    const w = new World();
+    const componentEntity = w.component(Position);
+    const carrier = w.entity().add(Position);
+    const component = carrier.get(Position);
+
+    expect(() => componentEntity.destroy()).toThrow(/component eid is still in use/);
+
+    expect(componentEntity._destroyed).toBe(false);
+    expect(w.entity(componentEntity.eid)).toBe(componentEntity);
+    expect(carrier._destroyed).toBe(false);
+    expect(carrier.get(Position)).toBe(component);
+    expect(componentEntity.instanceCount()).toBe(1);
+  });
+
+  it("allows a default component key to destroy itself when it has no other carriers", () => {
+    const w = new World();
+    const key = w.entity();
+    key.add(key);
+
+    expect(() => key.destroy()).not.toThrow();
+    expect(key._destroyed).toBe(true);
+    expect(key.instanceCount()).toBe(0);
   });
 });
 

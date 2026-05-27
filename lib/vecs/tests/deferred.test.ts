@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ChildOf, World } from "../src/index.js";
+import { ChildOf, CleanupPolicy, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -10,6 +10,8 @@ class Velocity {
 }
 class Walking {}
 class Running {}
+class DeferredRemove {}
+class DeferredDelete {}
 
 function setup() {
   const w = new World();
@@ -344,6 +346,47 @@ describe("World.defer(fn)", () => {
     expect(e.get(Position)).toBeInstanceOf(Position);
     expect(e.get(Velocity)).toBeInstanceOf(Velocity);
     expect(onAdd).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies component entity onDelete cleanup while keeping the queue draining", () => {
+    {
+      const w = new World();
+      const componentEntity = w.component(DeferredRemove);
+      componentEntity.ownMeta.onDelete = CleanupPolicy.Remove;
+      w.component(Velocity);
+      w.start();
+      const carrier = w.entity().add(DeferredRemove);
+      const sentinel = w.entity();
+
+      w.defer(() => {
+        componentEntity.destroy();
+        sentinel.add(Velocity);
+      });
+
+      expect(carrier._destroyed).toBe(false);
+      expect(carrier._get(componentEntity.eid)).toBeUndefined();
+      expect(sentinel.get(Velocity)).toBeInstanceOf(Velocity);
+      expect(componentEntity._destroyed).toBe(true);
+    }
+
+    {
+      const w = new World();
+      const componentEntity = w.component(DeferredDelete);
+      componentEntity.ownMeta.onDelete = CleanupPolicy.Delete;
+      w.component(Velocity);
+      w.start();
+      const carrier = w.entity().add(DeferredDelete);
+      const sentinel = w.entity();
+
+      w.defer(() => {
+        componentEntity.destroy();
+        sentinel.add(Velocity);
+      });
+
+      expect(() => w.entity(carrier.eid)).toThrow();
+      expect(sentinel.get(Velocity)).toBeInstanceOf(Velocity);
+      expect(componentEntity._destroyed).toBe(true);
+    }
   });
 });
 
