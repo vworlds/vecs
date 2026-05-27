@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { _compile, getDSLKey, simplifyQueryDSL, type QueryDSL } from "../src/dsl.js";
-import { World } from "../src/index.js";
+import { Relationship, World } from "../src/index.js";
 import { Entity } from "../src/entity/index.js";
 import { Bitset } from "../src/util/bitset.js";
 
@@ -16,6 +16,7 @@ class Velocity {
 
 class Sprite {}
 class Container {}
+class FriendOf extends Relationship {}
 
 describe("Query DSL simplification", () => {
   function registeredWorld(): World {
@@ -24,6 +25,7 @@ describe("Query DSL simplification", () => {
     world.component(Velocity, 11);
     world.component(Sprite, 12);
     world.component(Container, 13);
+    world.component(FriendOf, 14);
     return world;
   }
 
@@ -170,6 +172,31 @@ describe("Query DSL simplification", () => {
     );
     expect(getDSLKey({ AND: [Position, predicate] }, world)).toBe(563208872);
     expect(getDSLKey({ AND: [Position, otherPredicate] }, world)).toBe(3001038715);
+  });
+
+  it("simplifies UP by resolving the relationship and inner DSL", () => {
+    const world = registeredWorld();
+
+    expect(simplifyQueryDSL({ UP: [FriendOf, { AND: [Velocity, Position] }] }, world)).toEqual({
+      UP: [14, [10, 11]],
+    });
+    expect(simplifyQueryDSL({ UP: [FriendOf, false] }, world)).toBe(false);
+  });
+
+  it("returns the same DSL key for equivalent UP expressions", () => {
+    const world = registeredWorld();
+
+    expect(getDSLKey({ UP: [FriendOf, { AND: [Velocity, Position] }] }, world)).toBe(
+      getDSLKey({ UP: [14, [Position, Velocity]] }, world)
+    );
+  });
+
+  it("rejects UP when the ref is not a relationship", () => {
+    const world = registeredWorld();
+
+    expect(() => simplifyQueryDSL({ UP: [Position, true] }, world)).toThrow(
+      "Component Position is not a Relationship"
+    );
   });
 });
 
@@ -341,5 +368,19 @@ describe("Query DSL compilation", () => {
     const world = wideWorld();
     const compiled = _compile(world, { HAS_ONLY: [1, 2] });
     expect(compiled.toString()).toContain("equal(m0)");
+  });
+
+  it("matches UP by testing the relationship target", () => {
+    const world = new World();
+    world.component(Position);
+    world.component(FriendOf);
+    const target = world.entity().add(Position);
+    const candidate = world.entity().set(FriendOf, { target });
+    const unrelated = world.entity();
+
+    const compiled = _compile(world, { UP: [FriendOf, Position] });
+
+    expect(compiled(candidate)).toBe(true);
+    expect(compiled(unrelated)).toBe(false);
   });
 });

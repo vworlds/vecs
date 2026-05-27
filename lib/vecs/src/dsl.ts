@@ -49,7 +49,8 @@ export type QueryDSL =
   | { HAS_ONLY: ComponentRefArray | ComponentRef }
   | { AND: readonly QueryDSL[] }
   | { OR: readonly QueryDSL[] }
-  | { NOT: QueryDSL };
+  | { NOT: QueryDSL }
+  | { UP: readonly [ComponentRef, QueryDSL] };
 
 /**
  * Resolve component nullability based on what was declared in `requires` (or
@@ -93,6 +94,8 @@ export type ExtractRequired<Q> = Q extends ComponentType
         : Q extends { AND: infer A extends readonly QueryDSL[] }
           ? _ExtractAndChain<A>
           : [];
+
+export type UpQueryTerm = { relEid: number; inner: QueryDSL };
 
 type _ExtractAndChain<A extends readonly QueryDSL[]> = A extends readonly [
   infer First,
@@ -140,6 +143,15 @@ function _calculateComponentBitmask(types: readonly number[]): Bitset {
 
 function _resolveComponentRequirement(component: ComponentRef, world: World): number {
   return world.entity(component).eid;
+}
+
+export function _resolveRelationship(ref: ComponentRef, world: World): number {
+  const entity = world.entity(ref);
+  const meta = entity.ownMeta;
+  if (!meta.isRelationship) {
+    throw new Error(`Component ${meta.Class.name} is not a Relationship`);
+  }
+  return entity.eid;
 }
 
 function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL {
@@ -226,6 +238,10 @@ function _termSortKey(q: QueryDSL): string {
   if ("NOT" in q) {
     return `4:${_termSortKey(q.NOT)}`;
   }
+  if ("UP" in q) {
+    const rel = q.UP[0] instanceof Entity ? q.UP[0].eid : q.UP[0];
+    return `4:UP:${String(rel).padStart(12, "0")}:${_termSortKey(q.UP[1])}`;
+  }
   if ("HAS" in q) {
     return _termSortKey(q.HAS);
   }
@@ -278,6 +294,9 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
   }
   if ("NOT" in q) {
     return ["NOT", _canonicalDSLKey(q.NOT)];
+  }
+  if ("UP" in q) {
+    return ["UP", q.UP[0] instanceof Entity ? q.UP[0].eid : q.UP[0], _canonicalDSLKey(q.UP[1])];
   }
   throw new Error("Unrecognized query term");
 }
@@ -418,7 +437,41 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
     return { NOT: term };
   }
 
+  if ("UP" in q) {
+    const inner = simplifyQueryDSL(q.UP[1], world);
+    if (inner === false) {
+      return false;
+    }
+    return { UP: [_resolveRelationship(q.UP[0], world), inner] };
+  }
+
   return q;
+}
+
+export function collectUpTerms(world: World, q: QueryDSL): UpQueryTerm[] {
+  return _collectUpTerms(simplifyQueryDSL(q, world));
+}
+
+function _collectUpTerms(q: QueryDSL): UpQueryTerm[] {
+  if (typeof q !== "object" || q === null || q instanceof Array || q instanceof Entity) {
+    return [];
+  }
+  if ("UP" in q) {
+    return [{ relEid: q.UP[0] as number, inner: q.UP[1] }];
+  }
+  if ("HAS" in q) {
+    return _collectUpTerms(q.HAS);
+  }
+  if ("AND" in q) {
+    return q.AND.flatMap(_collectUpTerms);
+  }
+  if ("OR" in q) {
+    return q.OR.flatMap(_collectUpTerms);
+  }
+  if ("NOT" in q) {
+    return _collectUpTerms(q.NOT);
+  }
+  return [];
 }
 
 /**
@@ -526,6 +579,13 @@ function _compileQueryExpression(
     return `!(${_compileQueryExpression(world, q.NOT, context, entityRef)})`;
   }
 
+  if ("UP" in q) {
+    const relEid = _resolveRelationship(q.UP[0], world);
+    const relMask = _compileMask(context, [relEid], entityRef, "hasBitset");
+    const inner = _compileQueryExpression(world, q.UP[1], context, "p");
+    return `(${relMask})&&((p)=>p!==undefined&&(${inner}))(${entityRef}._get(${relEid})?.target)`;
+  }
+
   throw "Unrecognized query term";
 }
 
@@ -593,6 +653,10 @@ export function _extractQueryDependencies(world: World, q: QueryDSL): number[] |
       dependencies.push(...childDependencies);
     }
     return dependencies;
+  }
+
+  if ("UP" in q) {
+    return [_resolveRelationship(q.UP[0], world)];
   }
 
   return undefined;

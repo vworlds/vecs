@@ -497,7 +497,13 @@ Relationship target cleanup is controlled by `ownMeta.onDeleteTarget`:
 
 Retarget relationships with `entity.set(RelationshipClass, { target })`. `entity.getMut(RelationshipClass)` throws for relationship components because in-place target mutation would bypass the reverse index used by `children(ref)` and cleanup cascades.
 
-Relationship-aware query operators are temporarily removed while the query DSL is redesigned. Use entity navigation (`parent(ref)` / `children(ref)`) or a custom predicate function for relationship-sensitive scans in this iteration.
+Relationship queries use the `UP` operator to follow a relationship from the candidate entity to its target and test that target with another DSL expression:
+
+```ts
+world.query("body-friends").query({ AND: [Body, { UP: [FriendOf, [Position, Velocity]] }] });
+```
+
+Tracked queries stay live when either side changes. Adding or removing `FriendOf` on the candidate re-routes the candidate normally; adding or removing `Position` / `Velocity` on the target also refreshes every candidate that points at that target. Nested `UP` works the same way across multiple hops.
 
 ---
 
@@ -514,6 +520,7 @@ Declare which entities the system tracks.
 .query({ HAS: [Position, Velocity] })                            // explicit
 .query({ AND: [Position, { OR: [Sprite, Container] }] })         // compound
 .query({ NOT: Invisible })
+.query({ UP: [FriendOf, Position] })                             // relationship target has Position
 ```
 
 **Query operators:**
@@ -525,11 +532,26 @@ Declare which entities the system tracks.
 | `{ AND: [q1, q2] }`    | Both sub-queries must match              |
 | `{ OR: [q1, q2] }`     | Either sub-query matches                 |
 | `{ NOT: q }`           | Sub-query must not match                 |
+| `{ UP: [R, q] }`       | Relationship `R` target matches `q`      |
 | An array `[A, B]`      | Shorthand for `{ HAS: [A, B] }`          |
 | A single class / id    | Shorthand for `{ HAS: [C] }`             |
 | A predicate function   | Custom membership logic                  |
 
-Relationship-aware query operators are temporarily unavailable. Parent/child relationships are represented by `ChildOf`, but queries no longer support `PARENT`, `REL`, or `{ parent: C }` injection.
+`UP` uses tuple form only: `{ UP: [RelationshipClass, innerDSL] }`. The first element must be a component that extends `Relationship`; passing a normal component throws. The inner DSL is evaluated against the relationship target, not the candidate entity.
+
+Component injection also supports the lowercase `up` marker in `forEach`, `each`, `enter`, and `exit` injection lists. It follows the relationship target and flattens the requested target components into the callback tuple:
+
+```ts
+world
+  .query("friends")
+  .query({ UP: [FriendOf, Position] })
+  .forEach([Body, { up: [FriendOf, [Position, Velocity]] }], (e, [body, pos, vel]) => {
+    // body is from e; pos and vel are from e.parent(FriendOf)
+    // target-side injected components are undefined if the target is absent or lacks them.
+  });
+```
+
+On `exit`, direct component injection is snapshot-stable when the exiting component was just removed. `up` injection resolves the target live at callback time, so target-side slots can be `undefined` if the exit was caused by the target losing that component.
 
 Class-valued query terms are recognized as components by looking up registered metadata for the current world. Register component classes before using them in a `QueryDSL`; an unregistered class is treated like a predicate function and will fail if it cannot be called that way.
 
@@ -564,7 +586,7 @@ Fires once when an entity first matches the system.
 
 #### `.exit(callback)` / `.exit(inject, callback)`
 
-Fires when an entity leaves the system (component removed or entity destroyed). Components removed in the same frame are still resolvable in `inject`.
+Fires when an entity leaves the system (component removed or entity destroyed). Direct components removed in the same frame are still resolvable in `inject`; `up` injection resolves relationship targets live.
 
 ```ts
 .exit([Sprite], (e, [sprite]) => sprite.destroy());

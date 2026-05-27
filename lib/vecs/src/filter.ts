@@ -1,7 +1,14 @@
 import { type ComponentType } from "./component.js";
 import type { Entity } from "./entity/index.js";
 import type { World } from "./world/index.js";
-import { _compile, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
+import { _compile, type EntityTestFunc, type QueryDSL } from "./dsl.js";
+import {
+  _getInjected,
+  _injectArity,
+  _mapInjectedClassToTypes,
+  type InjectTuple,
+  type MaybeResolvedInjectTuple,
+} from "./query.js";
 
 /**
  * A non-reactive, one-shot entity filter.
@@ -67,14 +74,14 @@ export class Filter<R extends ComponentType[] = []> {
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<J extends ComponentType[]>(
+  public forEach<J extends InjectTuple>(
     components: readonly [...J],
-    callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void;
 
-  public forEach<J extends ComponentType[]>(
+  public forEach<J extends InjectTuple>(
     componentsOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
+    callback?: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void {
     this.world.defer(() => {
       if (typeof componentsOrCallback === "function") {
@@ -84,12 +91,14 @@ export class Filter<R extends ComponentType[] = []> {
           }
         });
       } else {
-        const eids = componentsOrCallback.map((C) => this.world.entity(C).eid);
+        const inject = _mapInjectedClassToTypes(this.world, componentsOrCallback);
+        const arity = _injectArity(inject);
         this.world.entities.forEach((e) => {
           if (!this._belongs(e)) {
             return;
           }
-          const resolved = eids.map((eid) => e.get(eid));
+          const resolved = new Array(arity);
+          _getInjected(e, inject, false, resolved);
           callback!(e, resolved as any);
         });
       }

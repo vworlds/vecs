@@ -2,20 +2,118 @@ import { OrderedSet } from "./util/ordered_set.js";
 import { DenseSet } from "./util/dense_set.js";
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
-import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
+import {
+  type ComponentInstance,
+  type ComponentMeta,
+  type ComponentRef,
+  type ComponentType,
+} from "./component.js";
 import type { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
-import { _compile, type EntityTestFunc, type QueryDSL, type MaybeRequired } from "./dsl.js";
+import {
+  _compile,
+  _resolveRelationship,
+  collectUpTerms,
+  type EntityTestFunc,
+  type MaybeRequired,
+  type QueryDSL,
+} from "./dsl.js";
 
 export type { EntityTestFunc, QueryDSL, MaybeRequired };
 
 type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => void;
 type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
+export type UpInject<J extends readonly ComponentType[] = readonly ComponentType[]> = {
+  up: readonly [ComponentRef, readonly [...J]];
+};
+export type InjectElement = ComponentType | UpInject;
+export type InjectTuple = readonly InjectElement[];
+export type ResolvedInjectTerm = number | { up: readonly [number, readonly number[]] };
 
 /** Resolves the component instance type for one injected component class. */
 type ResolvedComponentInstance<T> = T extends ComponentType ? InstanceType<T> : never;
+type OptionalResolvedComponentInstances<J extends readonly ComponentType[]> = {
+  [K in keyof J]: InstanceType<J[K]> | undefined;
+};
+type MaybeResolvedInjectElement<T, R extends ComponentType[]> = T extends ComponentType
+  ? [MaybeRequired<T, R>]
+  : T extends UpInject<infer J>
+    ? OptionalResolvedComponentInstances<J>
+    : [];
+type RequiredResolvedInjectElement<T> = T extends ComponentType
+  ? [ResolvedComponentInstance<T>]
+  : T extends UpInject<infer J>
+    ? OptionalResolvedComponentInstances<J>
+    : [];
+export type MaybeResolvedInjectTuple<
+  J extends InjectTuple,
+  R extends ComponentType[],
+> = J extends readonly [infer First, ...infer Rest extends InjectTuple]
+  ? [...MaybeResolvedInjectElement<First, R>, ...MaybeResolvedInjectTuple<Rest, R>]
+  : [];
+export type RequiredResolvedInjectTuple<J extends InjectTuple> = J extends readonly [
+  infer First,
+  ...infer Rest extends InjectTuple,
+]
+  ? [...RequiredResolvedInjectElement<First>, ...RequiredResolvedInjectTuple<Rest>]
+  : [];
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
+
+function _isUpInject(value: InjectElement): value is UpInject {
+  return typeof value === "object" && value !== null && "up" in value;
+}
+
+export function _mapInjectedClassToTypes(world: World, inject: InjectTuple): ResolvedInjectTerm[] {
+  return inject.map((term) => {
+    if (_isUpInject(term)) {
+      return {
+        up: [_resolveRelationship(term.up[0], world), term.up[1].map((C) => world.entity(C).eid)],
+      };
+    }
+    return world.entity(term).eid;
+  });
+}
+
+export function _getInjected(
+  e: Entity,
+  inject: readonly ResolvedInjectTerm[],
+  requireDirectComponents: boolean,
+  out: (ComponentInstance | undefined)[],
+  exitSnapshot?: Map<number, ComponentInstance>
+): void {
+  let outIndex = 0;
+  inject.forEach((term) => {
+    if (typeof term === "number") {
+      const c = exitSnapshot?.get(term) ?? e._get(term);
+      if (requireDirectComponents && !c) {
+        throw "query does not contain component";
+      }
+      out[outIndex++] = c;
+      return;
+    }
+    const target = e.componentBitmask.has(term.up[0])
+      ? (e._get(term.up[0]) as { target?: Entity } | undefined)?.target
+      : undefined;
+    term.up[1].forEach((componentEid) => {
+      out[outIndex++] = target?.componentBitmask.has(componentEid)
+        ? target._get(componentEid)
+        : undefined;
+    });
+  });
+}
+
+function _directInjectEids(inject: readonly ResolvedInjectTerm[]): number[] {
+  return inject.filter((term): term is number => typeof term === "number");
+}
+
+export function _injectArity(inject: readonly ResolvedInjectTerm[]): number {
+  let arity = 0;
+  inject.forEach((term) => {
+    arity += typeof term === "number" ? 1 : term.up[1].length;
+  });
+  return arity;
+}
 
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
@@ -51,12 +149,16 @@ export class Query<R extends ComponentType[] = []> {
   public _queryIndexKeys: number[] | undefined = undefined;
   /** @internal DSL predicate to compile and index when the query is built. */
   public _dsl: QueryDSL | undefined = undefined;
+  /** @internal Internal relationship subqueries are hidden from public listings. */
+  public _internal = false;
   /** Entity that stores this query as a component and carries query traits. */
   public readonly entity: Entity;
   /** @internal `true` once this query has been registered with its world. */
   private _built = false;
   /** @internal Guards destroy hooks against recursive removal. */
   private _destroyed = false;
+  /** @internal Tracked subqueries that keep relationship-target changes live. */
+  private _subqueries: Query[] = [];
 
   /** @internal `enter` callback (already wraps any injection logic). */
   protected _enterCallback: EntityCallback | undefined = undefined;
@@ -64,6 +166,8 @@ export class Query<R extends ComponentType[] = []> {
   protected _exitCallback: EntityCallback | undefined = undefined;
   /** @internal Component eids the exit callback needs snapshotted before component removal. */
   protected _exitSnapshotTypes: number[] | undefined = undefined;
+  /** @internal Hook fired when plain Query membership changes. */
+  protected _onMembershipChange: ((e: Entity) => void) | undefined;
 
   /** @internal Per-component-eid `update` callbacks. */
   protected _componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
@@ -158,8 +262,10 @@ export class Query<R extends ComponentType[] = []> {
       this.destroy();
       return this;
     }
+    this.world._removeUnbuiltQuery(this);
     if (this._dsl !== undefined) {
       this._belongs = _compile(this.world, this._dsl);
+      this._buildSubqueries();
     }
     this.world._addQuery(this);
     this._built = true;
@@ -168,43 +274,21 @@ export class Query<R extends ComponentType[] = []> {
   }
 
   /**
-   * @internal Resolve one element of an `inject` tuple to a component
-   * instance, falling back to `exitSnapshot` when the entity is mid-exit.
+   * @internal Build internal tracked subqueries for relationship-target terms.
    */
-  private _getComponent(
-    e: Entity,
-    C: number,
-    exitSnapshot?: Map<number, ComponentInstance>
-  ): ComponentInstance | undefined {
-    return exitSnapshot?.get(C) ?? e.get(C);
-  }
-
-  /**
-   * @internal Resolve every element of an `inject` tuple, throwing if any
-   * required component is missing on the entity.
-   */
-  private _getInjected(
-    e: Entity,
-    inject: number[],
-    exitSnapshot?: Map<number, ComponentInstance>
-  ): ComponentInstance[] {
-    const injected: ComponentInstance[] = [];
-    inject.forEach((C) => {
-      const c = this._getComponent(e, C, exitSnapshot);
-      if (!c) {
-        throw "query does not contain component";
-      }
-      injected.push(c);
+  private _buildSubqueries(): void {
+    if (this._dsl === undefined) {
+      return;
+    }
+    collectUpTerms(this.world, this._dsl).forEach(({ relEid, inner }, index) => {
+      const q = this.world.query(`${this.name ?? "query"}·up${index}(${relEid})`).query(inner);
+      q._internal = true;
+      q._onMembershipChange = (target: Entity) => {
+        target.children(relEid).forEach((source) => this._refresh(source));
+      };
+      q._build();
+      this._subqueries.push(q);
     });
-    return injected;
-  }
-
-  /**
-   * @internal Translate a tuple of component classes into the corresponding
-   * eids understood by {@link _getInjected}.
-   */
-  private _mapInjectedClassToTypes<J extends ComponentType[]>(inject: readonly [...J]): number[] {
-    return inject.map((C) => this.world.entity(C).eid);
   }
 
   /**
@@ -225,6 +309,7 @@ export class Query<R extends ComponentType[] = []> {
         this._notifyModified(e, meta, c);
       }
     });
+    this._onMembershipChange?.(e);
   }
 
   /**
@@ -236,6 +321,19 @@ export class Query<R extends ComponentType[] = []> {
     this._exitCallback?.(e);
     this._entities?.delete(e);
     e._removeQueryMembership(this);
+    this._onMembershipChange?.(e);
+  }
+
+  /** @internal Re-evaluate one entity after a relationship target changed. */
+  public _refresh(e: Entity): void {
+    if (!this._built || this._destroyed) {
+      return;
+    }
+    const belongs = this.belongs(e);
+    const isIn = e._isInQuery(this);
+    if (belongs !== isIn) {
+      belongs ? this._enter(e) : this._exit(e);
+    }
   }
 
   /**
@@ -330,14 +428,14 @@ export class Query<R extends ComponentType[] = []> {
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<J extends ComponentType[]>(
+  public forEach<J extends InjectTuple>(
     components: readonly [...J],
-    callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void;
 
-  public forEach<J extends ComponentType[]>(
+  public forEach<J extends InjectTuple>(
     componentsOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
+    callback?: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void {
     this.world.beginDefer();
     try {
@@ -347,19 +445,14 @@ export class Query<R extends ComponentType[] = []> {
         if (!this._entities || !this.world) {
           return;
         }
-        const eids = componentsOrCallback.map((C) => this.world.entity(C).eid);
-        const arity = eids.length;
+        const inject = _mapInjectedClassToTypes(this.world, componentsOrCallback);
+        const arity = _injectArity(inject);
         // One tuple reused across the whole iteration: the callback consumes it
         // synchronously and must not retain it (see doc). A nested forEach gets
         // its own `resolved`, so reuse here is reentrancy-safe.
         const resolved = new Array(arity);
         this._entities.forEach((e) => {
-          // Resolve straight off the entity's component map. `e.get(eid)` for a
-          // numeric eid round-trips through `world.entity(eid)` — a `_entities`
-          // Map lookup — only to read the same eid back; `_get` skips that.
-          for (let k = 0; k < arity; k++) {
-            resolved[k] = e._get(eids[k]);
-          }
+          _getInjected(e, inject, false, resolved);
           callback!(e, resolved as any);
         });
       }
@@ -385,9 +478,9 @@ export class Query<R extends ComponentType[] = []> {
    * });
    * ```
    */
-  public enter<J extends ComponentType[]>(
+  public enter<J extends InjectTuple>(
     inject: readonly [...J],
-    callback: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
 
   /**
@@ -398,17 +491,20 @@ export class Query<R extends ComponentType[] = []> {
    */
   public enter(callback: (e: Entity) => void): this;
 
-  public enter<J extends ComponentType[]>(
+  public enter<J extends InjectTuple>(
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
+    callback?: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this {
     this._assertConfigurable();
     if (typeof injectOrCallback === "function") {
       this._enterCallback = injectOrCallback;
     } else {
-      const inject = this._mapInjectedClassToTypes(injectOrCallback);
+      const inject = _mapInjectedClassToTypes(this.world, injectOrCallback);
+      const arity = _injectArity(inject);
       this._enterCallback = (e: Entity) => {
-        callback!(e, this._getInjected(e, inject) as any);
+        const injected = new Array(arity);
+        _getInjected(e, inject, true, injected);
+        callback!(e, injected as any);
       };
     }
     return this;
@@ -426,9 +522,9 @@ export class Query<R extends ComponentType[] = []> {
    * @param callback - Receives the entity and the resolved component tuple.
    * @returns This query, for chaining.
    */
-  public exit<J extends ComponentType[]>(
+  public exit<J extends InjectTuple>(
     inject: readonly [...J],
-    callback: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
 
   /**
@@ -439,19 +535,22 @@ export class Query<R extends ComponentType[] = []> {
    */
   public exit(callback: (e: Entity) => void): this;
 
-  public exit<J extends ComponentType[]>(
+  public exit<J extends InjectTuple>(
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
+    callback?: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this {
     this._assertConfigurable();
     if (typeof injectOrCallback === "function") {
       this._exitCallback = injectOrCallback;
       this._exitSnapshotTypes = undefined;
     } else {
-      const inject = this._mapInjectedClassToTypes(injectOrCallback);
-      this._exitSnapshotTypes = inject;
+      const inject = _mapInjectedClassToTypes(this.world, injectOrCallback);
+      this._exitSnapshotTypes = _directInjectEids(inject);
+      const arity = _injectArity(inject);
       this._exitCallback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
-        callback!(e, this._getInjected(e, inject, exitSnapshot) as any);
+        const injected = new Array(arity);
+        _getInjected(e, inject, true, injected, exitSnapshot);
+        callback!(e, injected as any);
       };
     }
     return this;
@@ -647,6 +746,8 @@ export class Query<R extends ComponentType[] = []> {
       return;
     }
     this._destroyed = true;
+    this._subqueries.forEach((q) => q.destroy());
+    this._subqueries = [];
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;

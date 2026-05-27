@@ -215,16 +215,25 @@ export class Entity extends PartialClass {
       return;
     }
     const ownMeta = this._ownMeta;
+    // Mark destroyed up front so a carrier cleanup that re-enters this entity's
+    // `_destroy` (possible with exotic relationship topologies under Delete)
+    // hits the guard above instead of tearing down twice.
+    this._destroyed = true;
     if (ownMeta) {
       const selfCarry = this._components.has(ownMeta.eid) ? 1 : 0;
       if (ownMeta.usageCount > selfCarry) {
         if (ownMeta.onDelete === CleanupPolicy.Throw) {
+          // The public `destroy()` already throws when an in-use component is
+          // destroyed; reaching here means usage grew between that check and
+          // this deferred apply. Abort instead of throwing so a mid-drain
+          // `_processCommandQueue` is not left half-applied, and revive the
+          // entity since nothing has been torn down yet.
+          this._destroyed = false;
           return;
         }
         this._applyOnDelete(ownMeta, selfCarry);
       }
     }
-    this._destroyed = true;
 
     const toExit: Query[] = [];
     this._queries.forEach((q) => {
@@ -351,7 +360,11 @@ export class Entity extends PartialClass {
       if (existing) {
         Object.assign(c, props);
       }
-      this._updateIncoming(meta, oldTarget, (c as Relationship).target);
+      const newTarget = (c as Relationship).target;
+      this._updateIncoming(meta, oldTarget, newTarget);
+      if (meta.isRelationship && oldTarget !== newTarget && existing !== undefined) {
+        this._updateQueries(meta);
+      }
       this._notifyComponentSet(meta, c, existing !== undefined);
     }
   }
@@ -673,6 +686,15 @@ export class Entity extends PartialClass {
     sources.add(this);
   }
 
+  // Collect carriers first, then act: the scan must not mutate `world.entities`
+  // while iterating, and `_destroy` idempotency makes overlapping Delete
+  // cascades safe. Carriers are cleaned via the internal `_remove`/`_destroy`
+  // (not the deferred-aware public methods) so `usageCount` drops synchronously
+  // and the `usageCount === 0` classRegistry cleanup in `_destroy` stays correct.
+  // Edge: if a Delete carrier is itself an in-use component key with
+  // `onDelete = Throw`, its `_destroy` safe-aborts and it survives still holding
+  // this now-destroyed component eid. This is the same exotic policy-interaction
+  // class flagged in `_cleanupIncoming`; left for the relationship/query rework.
   private _applyOnDelete(ownMeta: ComponentMeta, selfCarry: number): void {
     const ceid = ownMeta.eid;
     const carriers: Entity[] = [];

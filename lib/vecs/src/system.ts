@@ -1,5 +1,12 @@
 import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
-import { Query } from "./query.js";
+import {
+  _getInjected,
+  _injectArity,
+  _mapInjectedClassToTypes,
+  Query,
+  type InjectTuple,
+  type MaybeResolvedInjectTuple,
+} from "./query.js";
 import { type QueryDSL, type MaybeRequired } from "./dsl.js";
 import type { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
@@ -396,27 +403,23 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *   });
    * ```
    */
-  public each<J extends ComponentType[]>(
+  public each<J extends InjectTuple>(
     components: readonly [...J],
-    callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this {
     this._assertConfigurable();
     if (this._eachCallback) {
       throw `each already registered for system '${this.name}'`;
     }
     this.track();
-    const eids = components.map((C) => this.world.entity(C).eid);
-    const arity = eids.length;
+    const inject = _mapInjectedClassToTypes(this.world, components);
+    const arity = _injectArity(inject);
     // One tuple reused across every entity every tick; the callback consumes it
     // synchronously and must not retain it (see doc). Systems never re-enter
     // their own `each` synchronously (mutations are deferred), so this is safe.
     const resolved = new Array(arity);
     this._eachCallback = (e: Entity) => {
-      // Resolve via `_get` to avoid re-resolving each numeric eid through
-      // `world.entity()` (a `_entities` Map lookup) every tick per entity.
-      for (let k = 0; k < arity; k++) {
-        resolved[k] = e._get(eids[k]);
-      }
+      _getInjected(e, inject, false, resolved);
       callback(e, resolved as any);
     };
     return this;

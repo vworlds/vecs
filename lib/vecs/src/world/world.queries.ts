@@ -19,10 +19,15 @@ export class Queries extends Storage {
   protected _frameInProgress = false;
   /** @internal True while the world is auto-building pending queries. */
   protected _buildingPendingQueries = false;
+  /** @internal Number of registered internal subqueries hidden from the public getter. */
+  protected _internalQueryCount = 0;
 
   /** Read-only view of every registered query (includes systems). */
   public get queries(): ReadonlyArray<Query> {
-    return this._queries;
+    if (this._internalQueryCount === 0) {
+      return this._queries;
+    }
+    return this._queries.filter((q) => !q._internal);
   }
 
   /** @internal Register and index a freshly built {@link Query}. */
@@ -32,6 +37,9 @@ export class Queries extends Storage {
     }
     this._removeUnbuiltQuery(q);
     this._queries.push(q);
+    if (q._internal) {
+      this._internalQueryCount++;
+    }
     if (q._dsl !== undefined) {
       this._indexQuery(q, _extractQueryDependencies(this, q._dsl));
     }
@@ -76,6 +84,9 @@ export class Queries extends Storage {
     const idx = this._queries.indexOf(q);
     if (idx !== -1) {
       this._queries.splice(idx, 1);
+      if (q._internal) {
+        this._internalQueryCount--;
+      }
     }
     this._entities.forEach((e) => e._purgeQuery(q));
   }
