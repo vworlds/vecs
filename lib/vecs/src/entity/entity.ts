@@ -160,6 +160,19 @@ export class Entity extends PartialClass {
     }
   }
 
+  private _markModified(meta: ComponentMeta): this {
+    if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
+      return this;
+    }
+    this._dirtyComponentBitmask.addBit(meta.bitPtr);
+    if (this.world.deferred) {
+      this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
+    } else {
+      this._modified(meta);
+    }
+    return this;
+  }
+
   /**
    * Construct a fresh component of `type`, apply `props`, store it on this
    * entity, fire the `onAdd` hook, and route query updates.
@@ -572,7 +585,7 @@ export class Entity extends PartialClass {
       return undefined;
     }
     callback?.(component);
-    this.modified(ref);
+    this._markModified(meta);
     return component;
   }
 
@@ -588,16 +601,7 @@ export class Entity extends PartialClass {
    */
   public modified(ref: ComponentRef): this {
     const meta = this.world.entity(ref).ownMeta;
-    if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
-      return this;
-    }
-    this._dirtyComponentBitmask.addBit(meta.bitPtr);
-    if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
-    } else {
-      this._modified(meta);
-    }
-    return this;
+    return this._markModified(meta);
   }
 
   /**
