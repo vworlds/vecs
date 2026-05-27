@@ -27,7 +27,7 @@ yarn add @vworlds/vecs
 ### Lifecycle in brief
 
 ```
-registerComponent() × N  →  addPhase() / system() / query() × N  →  start()  →  progress() every frame
+component() × N  →  addPhase() / system() / query() × N  →  start()  →  progress() every frame
 ```
 
 Components must be registered before they are used as component classes. After `start()`, component registration is disabled. Systems and queries can still be created — standalone queries backfill existing matched entities immediately.
@@ -59,9 +59,9 @@ class Health {
 
 const world = new World();
 
-world.registerComponent(Position);
-world.registerComponent(Velocity);
-world.registerComponent(Health);
+world.component(Position);
+world.component(Velocity);
+world.component(Health);
 
 // ─── Phases ────────────────────────────────────────────────────────────────
 
@@ -153,22 +153,16 @@ class Position {
   y = 0;
 }
 
-// Auto-assigned type id (≥ 256 for "local" components):
-const positionMeta = world.registerComponent(Position);
+// Auto-assigned id from the component pool (1–899 by default):
+const position = world.component(Position);
 
-// Explicit numeric type id (e.g. server-assigned):
-world.registerComponent(Position, 1);
-
-// Explicit display name (e.g. when the class name differs from the network name):
-world.registerComponent(Position, "pos");
-
-// Pre-register a name → id mapping before the class is available:
-world.registerComponentType("Position", 1);
+// Explicit id (e.g. server-assigned):
+world.component(Position, 1);
 ```
 
-`registerComponent` returns the `ComponentMeta` for the class. Internally, vecs stores that metadata on the component class under a hidden world-specific key, so the same class can be registered independently in multiple worlds. Numeric type lookup still goes through the world's type table.
+`component` returns the `Component` entity that represents the class: its `eid` is the component's numeric id and its `ownMeta` exposes the `ComponentMeta`. Internally each world keeps a private `WeakMap` from component class to its component entity, so the same class can be registered independently in multiple worlds without mutating the shared class object. Numeric id lookup goes through the world's entity table.
 
-After `world.start()` (or `world.disableComponentRegistration()`) any further call to `registerComponent` throws. There is no automatic component registration; using an unregistered component class as a component is an error.
+Registering a new component class after `world.start()` (or `world.disableComponentRegistration()`) throws; looking up an already-registered class with `world.component(C)` still returns its existing entity. There is no automatic component registration; using an unregistered component class as a component is an error.
 
 #### Exclusive component groups
 
@@ -379,12 +373,19 @@ class Position {
   y = 0;
 }
 
-world.registerComponent(Position);
+world.component(Position);
 
 entity.add(Position);
-const pos = entity.getMut(Position)!;
-pos.x = 100;
-// getMut marks Position changed before returning the mutable instance.
+
+// Outside deferred mode, mutate through the callback form; getMut marks
+// Position changed after the callback returns:
+entity.getMut(Position, (pos) => {
+  pos.x = 100;
+});
+
+// Inside deferred mode (a system, forEach, or defer block) the no-callback
+// form is allowed and marks Position changed before returning the instance:
+entity.getMut(Position)!.x = 100;
 
 // Equivalent — set assigns props and fires onSet automatically:
 entity.set(Position, { x: 100 });
@@ -399,11 +400,11 @@ entity.get(Position) === shared; // true
 | ------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Plain class               | Components should be ordinary classes with field initializers and methods as needed.                           |
 | No-arg construction       | vecs calls `new ComponentClass()`, so constructors should be omitted or take no parameters.                    |
-| Explicit registration     | Call `world.registerComponent(C)` before using the class as a component.                                       |
+| Explicit registration     | Call `world.component(C)` before using the class as a component.                                               |
 | Shared instances possible | `entity.attach(instance)` stores the exact passed object; code should use the entity passed by vecs callbacks. |
 | Manual dirty marking      | After mutating fields directly, call `entity.modified(C)` to notify hooks, queries, and systems.               |
 
-Use `world.component(C).ownMeta` when you need metadata such as the numeric type id or component name. Metadata is world-specific.
+Use `world.component(C).ownMeta` when you need metadata such as the numeric component id or component name. Metadata is world-specific.
 
 ---
 
@@ -411,27 +412,27 @@ Use `world.component(C).ownMeta` when you need metadata such as the numeric type
 
 Created via `world.entity()` (auto-assigned id) or `world.getOrCreateEntity(id, ...)` (caller-supplied id).
 
-| Property / Method   | Description                                                                                                                                   |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `eid`               | Unique numeric entity id.                                                                                                                     |
-| `world`             | The `World` that owns this entity.                                                                                                            |
-| `componentBitmask`  | `Bitset` of component type ids attached to this entity. Used by archetype matching.                                                           |
-| `properties`        | `Map<string, any>` free-form bag for module-level bookkeeping.                                                                                |
-| `add(Class)`        | Attach a component (idempotent). Returns the entity for chaining.                                                                             |
-| `attach(instance)`  | Attach an existing registered component instance directly; replaces any previous instance for that component class and fires `onSet`.         |
-| `set(Class, props)` | Attach a component and assign `props`; fires `onSet`. Returns the entity for chaining.                                                        |
-| `modified(Class)`   | Queue an `onSet` / `update` notification for a component class or numeric type id. Returns the entity for chaining.                           |
-| `get(Class)`        | Return the component as a readonly-typed value, or `undefined`.                                                                               |
-| `getMut(Class)`     | Mark the component modified and return the mutable instance, or `undefined`.                                                                  |
-| `remove(Class)`     | Detach a component (fires `onRemove` and `exit`).                                                                                             |
-| `destroy()`         | Remove all components, unregister from the world, recurse into children.                                                                      |
-| `components`        | `ReadonlyArrayMap<ComponentInstance>` — read-only view of attached components keyed by type id. Supports `forEach`, `get`, `has`, and `size`. |
-| `empty`             | `true` when no components are attached.                                                                                                       |
-| `parent`            | Parent entity, or `undefined` for a root entity.                                                                                              |
-| `children`          | `ReadonlySet<Entity>` of direct children (lazy).                                                                                              |
-| `setParent(p)`      | Reparent the entity. `undefined` makes it a root entity. Throws on cycles.                                                                    |
-| `events`            | Typed event emitter. Currently emits `"destroy"` just before teardown.                                                                        |
-| `toString()`        | Returns `"EntityN"`.                                                                                                                          |
+| Property / Method    | Description                                                                                                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `eid`                | Unique numeric entity id.                                                                                                                                                                  |
+| `world`              | The `World` that owns this entity.                                                                                                                                                         |
+| `componentBitmask`   | `Bitset` of component ids attached to this entity. Used by archetype matching.                                                                                                             |
+| `properties`         | `Map<string, any>` free-form bag for module-level bookkeeping.                                                                                                                             |
+| `add(Class)`         | Attach a component (idempotent). Returns the entity for chaining.                                                                                                                          |
+| `attach(instance)`   | Attach an existing registered component instance directly; replaces any previous instance for that component class and fires `onSet`.                                                      |
+| `set(Class, props)`  | Attach a component and assign `props`; fires `onSet`. Returns the entity for chaining.                                                                                                     |
+| `modified(Class)`    | Queue an `onSet` / `update` notification for a component class or component id. Returns the entity for chaining.                                                                           |
+| `get(Class)`         | Return the component as a readonly-typed value, or `undefined`.                                                                                                                            |
+| `getMut(Class, cb?)` | Mark the component modified and return the mutable instance, or `undefined`. The no-callback form is allowed only in deferred mode; outside it, pass a callback that mutates the instance. |
+| `remove(Class)`      | Detach a component (fires `onRemove` and `exit`).                                                                                                                                          |
+| `destroy()`          | Remove all components, unregister from the world, recurse into children.                                                                                                                   |
+| `components`         | `ReadonlyArrayMap<ComponentInstance>` — read-only view of attached components keyed by component id. Supports `forEach`, `get`, `has`, and `size`.                                         |
+| `empty`              | `true` when no components are attached.                                                                                                                                                    |
+| `parent`             | Parent entity, or `undefined` for a root entity.                                                                                                                                           |
+| `children`           | `ReadonlySet<Entity>` of direct children (lazy).                                                                                                                                           |
+| `setParent(p)`       | Reparent the entity. `undefined` makes it a root entity. Throws on cycles.                                                                                                                 |
+| `events`             | Typed event emitter. Currently emits `"destroy"` just before teardown.                                                                                                                     |
+| `toString()`         | Returns `"EntityN"`.                                                                                                                                                                       |
 
 Use `entity.getMut(C)` when you need to mutate a component directly. It calls `entity.modified(C)` before returning the mutable instance. Repeated modified notifications for the same component type are coalesced while the world is deferred:
 
@@ -474,17 +475,20 @@ Declare which entities the system tracks.
 
 **Query operators:**
 
-| Operator               | Meaning                                  |
-| ---------------------- | ---------------------------------------- |
-| `{ HAS: [A, B] }`      | Entity has all of A and B                |
-| `{ HAS_ONLY: [A, B] }` | Entity has exactly A and B, nothing else |
-| `{ AND: [q1, q2] }`    | Both sub-queries must match              |
-| `{ OR: [q1, q2] }`     | Either sub-query matches                 |
-| `{ NOT: q }`           | Sub-query must not match                 |
-| `{ PARENT: q }`        | Entity's parent matches q                |
-| An array `[A, B]`      | Shorthand for `{ HAS: [A, B] }`          |
-| A single class / id    | Shorthand for `{ HAS: [C] }`             |
-| A predicate function   | Custom membership logic                  |
+| Operator               | Meaning                                          |
+| ---------------------- | ------------------------------------------------ |
+| `{ HAS: [A, B] }`      | Entity has all of A and B                        |
+| `{ HAS_ONLY: [A, B] }` | Entity has exactly A and B, nothing else         |
+| `{ AND: [q1, q2] }`    | Both sub-queries must match                      |
+| `{ OR: [q1, q2] }`     | Either sub-query matches                         |
+| `{ NOT: q }`           | Sub-query must not match                         |
+| `{ PARENT: q }`        | Entity's parent matches q                        |
+| `{ REL: [R, target] }` | Entity has relationship `R` pointing at `target` |
+| An array `[A, B]`      | Shorthand for `{ HAS: [A, B] }`                  |
+| A single class / id    | Shorthand for `{ HAS: [C] }`                     |
+| A predicate function   | Custom membership logic                          |
+
+The `REL` operator matches entities that carry a relationship component pointing at a specific target entity. The first tuple element must be a class extending `Relationship`; it throws at build time otherwise. Membership is re-evaluated automatically when the relationship is retargeted via `set` or `modified`. See [`Relationship`](#relationship).
 
 Class-valued query terms are recognized as components by looking up registered metadata for the current world. Register component classes before using them in a `QueryDSL`; an unregistered class is treated like a predicate function and will fail if it cannot be called that way.
 
@@ -599,7 +603,7 @@ Both methods return `this` for chaining and are idempotent (calling `disable()` 
 
 #### `.destroy()`
 
-**Not supported on `System`** — calling it throws. Systems live for the duration of the world. Use a standalone `Query` for temporary reactive sets.
+Permanently remove the system from the world: it is disabled, unregistered from its phase and the query index, and its backing entity is destroyed. Systems normally live for the duration of the world — prefer a standalone `Query` for temporary reactive sets — but `destroy()` is available when a system must be torn down early. Calling any method on the system afterwards is **undefined behavior**.
 
 ---
 
@@ -683,6 +687,40 @@ A `Filter` holds no tracked set, makes no registration calls, and needs no `dest
 
 ---
 
+### `Relationship`
+
+A relationship is a component that points at another entity. Extend the
+`Relationship` base class — it provides a single `target: Entity` field — and
+register the subclass like any other component.
+
+```ts
+import { Relationship } from "@vworlds/vecs";
+
+class FriendOf extends Relationship {}
+
+world.component(FriendOf);
+
+const alice = world.entity();
+const bob = world.entity();
+
+alice.set(FriendOf, { target: bob });
+```
+
+Use the `REL` query operator to track entities by relationship target:
+
+```ts
+world
+  .query("FriendsOfBob")
+  .query({ REL: [FriendOf, bob] })
+  .enter((e) => console.log(`${e.eid} is a friend of bob`));
+```
+
+Retargeting a relationship with `entity.set(R, { target })` or
+`entity.modified(R)` re-evaluates `REL` query membership automatically, so a
+query stops tracking an entity once its relationship points elsewhere.
+
+---
+
 ### `Bitset`
 
 A compact, growable set of non-negative integers backed by 32-bit words. Used internally for entity archetypes and watchlists, and exposed in the public API so component data can use it for bit-flag fields.
@@ -690,11 +728,10 @@ A compact, growable set of non-negative integers backed by 32-bit words. Used in
 | Method             | Description                                                              |
 | ------------------ | ------------------------------------------------------------------------ |
 | `add(n)`           | Set bit `n`.                                                             |
-| `addBit(bptr)`     | Set the bit at a pre-computed `BitPtr`.                                  |
-| `delete(n)`        | Clear bit `n`. Trims trailing zero words.                                |
+| `delete(n)`        | Clear bit `n`. Storage is not compacted automatically.                   |
+| `compact()`        | Trim trailing zero words from the backing storage.                       |
 | `clear()`          | Remove every set bit.                                                    |
 | `has(n)`           | Returns `true` if bit `n` is set.                                        |
-| `hasBit(bptr)`     | Fast check via a pre-computed `BitPtr`.                                  |
 | `equal(other)`     | Returns `true` when both bitsets have the same bits set.                 |
 | `hasBitset(other)` | Returns `true` when every bit set in `other` is also set in this bitset. |
 | `forEach(cb)`      | Visit each set bit index in ascending order.                             |

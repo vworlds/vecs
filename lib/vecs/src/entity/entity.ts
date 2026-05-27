@@ -80,8 +80,8 @@ export class Entity extends PartialClass {
   private _children: Set<Entity> | undefined;
 
   /**
-   * Bitmask of component type ids currently attached to this entity. Used by
-   * the world for fast archetype matching against query predicates.
+   * Bitmask of component ids currently attached to this entity. Used by the
+   * world for fast archetype matching against query predicates.
    */
   public readonly componentBitmask = new Bitset();
 
@@ -451,9 +451,9 @@ export class Entity extends PartialClass {
   public add<C extends ComponentClass>(Class: C): this;
 
   /**
-   * Attach a component by numeric type id.
+   * Attach a component by component id.
    *
-   * @param type - Numeric component type id.
+   * @param eid - Component entity id.
    * @returns This entity, for chaining.
    */
   public add(eid: number): this;
@@ -526,12 +526,12 @@ export class Entity extends PartialClass {
   /**
    * Look up a component on this entity as a readonly value.
    *
-   * @param typeOrClass - Component class or numeric type id.
+   * @param Class - Component class to look up.
    * @returns The component instance, or `undefined` when it is not attached.
    */
   public get<C extends ComponentType>(Class: C): Readonly<InstanceType<C>> | undefined;
 
-  /** Look up a component by numeric type id as a readonly value. */
+  /** Look up a component by component id as a readonly value. */
   public get(eid: number): Readonly<ComponentInstance> | undefined;
 
   public get(entity: Entity): Readonly<ComponentInstance> | undefined;
@@ -548,7 +548,7 @@ export class Entity extends PartialClass {
    * returning the mutable instance. Outside deferred mode, pass a callback so
    * the component can be marked modified after the mutation callback returns.
    *
-   * @param typeOrClass - Component class or numeric type id.
+   * @param Class - Component class to look up.
    * @returns The component instance, or `undefined` when it is not attached.
    */
   public getMut<C extends ComponentType>(Class: C): InstanceType<C> | undefined;
@@ -559,10 +559,10 @@ export class Entity extends PartialClass {
     callback: (component: InstanceType<C>) => void
   ): Readonly<InstanceType<C>> | undefined;
 
-  /** Look up a component by numeric type id for mutation. */
+  /** Look up a component by component id for mutation. */
   public getMut(eid: number): ComponentInstance | undefined;
 
-  /** Look up a component by numeric type id, mutate it in `callback`, then mark it modified. */
+  /** Look up a component by component id, mutate it in `callback`, then mark it modified. */
   public getMut(
     eid: number,
     callback: (component: ComponentInstance) => void
@@ -599,7 +599,7 @@ export class Entity extends PartialClass {
    * Repeated calls before the world routes the modified command are coalesced via
    * the entity's dirty component bitset.
    *
-   * @param typeOrClass - Component class or numeric type id whose data changed.
+   * @param ref - Component class, component id, or component entity whose data changed.
    * @returns This entity, for chaining.
    */
   public modified(ref: ComponentRef): this {
@@ -628,9 +628,9 @@ export class Entity extends PartialClass {
   public remove<C extends ComponentType>(Class: C): void;
 
   /**
-   * Detach a component by numeric type id.
+   * Detach a component by component id.
    *
-   * @param type - Numeric component type id.
+   * @param eid - Component entity id.
    */
   public remove(eid: number): void;
 
@@ -674,9 +674,9 @@ export class Entity extends PartialClass {
   public set<C extends ComponentClass>(Class: C, props: Partial<InstanceType<C>>): this;
 
   /**
-   * Attach a component by numeric type id and copy `props` onto it.
+   * Attach a component by component id and copy `props` onto it.
    *
-   * @param type - Numeric component type id.
+   * @param eid - Component entity id.
    * @param props - Properties to assign onto the component instance.
    * @returns This entity, for chaining.
    */
