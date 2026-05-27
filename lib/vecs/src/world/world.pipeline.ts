@@ -114,9 +114,5 @@ export class Pipeline extends Modules {
       phase = phase || defaultPhase;
       phase.systems.push(q);
     });
-
-    this._pipeline.forEach((phase) => {
-      console.log("Phase %s : %s", phase.name, phase.systems.map((s) => s.name).join(" -> "));
-    });
   }
 }
