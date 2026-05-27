@@ -570,7 +570,7 @@ system.each(Iter, [Body, { up: [ChildOf, [Position]] }], (it, [body, pos]) => {
 
 When `Iter` is **not** requested, the original code path runs with zero per-entity overhead. Dispatch to the cursor or non-cursor path happens once at setup time — not per entity. A single `Iter` instance is mutated before each callback; read what you need inside the callback but do not retain the cursor or its `src` array across callbacks.
 
-`enter` and `exit` allocate a fresh `Iter` per event (they fire reentrantly during command routing). `each` / `forEach` / `update` reuse a single `Iter` instance for the whole pass; `sort` reuses two (one per side of the comparison).
+`enter` and `exit` allocate a fresh `Iter` per event (they fire reentrantly during command routing). `each` / `forEach` / `update` reuse a single `Iter` instance for the whole pass; `sort` reuses two (one per side of the comparison). Because a plain `Query.update` callback fires synchronously during command routing, a nested mutation triggered from inside it can re-enter `update` and overwrite that reused cursor and tuple mid-callback — snapshot any `it`, `it.src`, or tuple values you need before triggering further mutations.
 
 Class-valued query terms are recognized as components by looking up registered metadata for the current world. Register component classes before using them in a `QueryDSL`; an unregistered class is treated like a predicate function and will fail if it cannot be called that way.
 
