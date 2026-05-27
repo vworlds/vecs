@@ -247,7 +247,7 @@ export class Components extends Relationships {
       return undefined;
     }
     callback?.(component);
-    this.modified(ref);
+    this._markModified(meta);
     return component;
   }
 
@@ -263,6 +263,11 @@ export class Components extends Relationships {
    */
   public modified(ref: ComponentRef): this {
     const meta = this.world.entity(ref).ownMeta;
+    return this._markModified(meta);
+  }
+
+  /** @internal Mark a component changed, coalescing duplicate pending notifications. */
+  protected _markModified(meta: ComponentMeta): this {
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return this;
     }
