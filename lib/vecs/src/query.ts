@@ -747,12 +747,18 @@ export class Query<R extends ComponentType[] = []> {
 
   /**
    * As above, but pass `Iter` first. The comparator receives two reused
-   * {@link Iter} cursors with `.entity` and `.src` populated per side.
+   * {@link Iter} cursors with `.entity` and `.src` populated per side, plus
+   * the resolved component tuples.
    */
   public sort<J extends InjectTuple>(
     cursor: typeof Iter,
     components: readonly [...J],
-    compare: (a: Iter, b: Iter) => number
+    compare: (
+      a: Iter,
+      aResolved: MaybeResolvedInjectTuple<J, R>,
+      b: Iter,
+      bResolved: MaybeResolvedInjectTuple<J, R>
+    ) => number
   ): this;
 
   public sort(
@@ -776,7 +782,7 @@ export class Query<R extends ComponentType[] = []> {
         itB.entity = b;
         getInjectedWithSrc(a, inject, resolvedA, itA.src);
         getInjectedWithSrc(b, inject, resolvedB, itB.src);
-        return cb(itA, itB);
+        return cb(itA, resolvedA, itB, resolvedB);
       });
     } else {
       const resolvedA = new Array(arity);

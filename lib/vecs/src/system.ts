@@ -1,5 +1,6 @@
 import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
 import {
+  isCursorMarker,
   Iter,
   makeInjectedInvoker,
   wantsIter,
@@ -117,6 +118,10 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * inbox `enter` event when an `enter` callback is registered, and bridge
    * watched components through {@link _notifyModified} to surface them as
    * inbox `update` events on entry.
+   *
+   * Does **not** call `_onMembershipChange` — subqueries are always plain
+   * `Query` instances, never `System, so the base `Query._enter` handles
+   * that path.
    */
   public override _enter(e: Entity): void {
     this._entities?.add(e);
@@ -439,8 +444,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     }
     this.track();
     const useIter = wantsIter(arg0);
-    const components = (arg0 === Entity || arg0 === Iter ? arg1 : arg0) as readonly InjectElement[];
-    const callback = (arg0 === Entity || arg0 === Iter ? arg2 : arg1) as (
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
       eOrIt: unknown,
       resolved: unknown
     ) => void;

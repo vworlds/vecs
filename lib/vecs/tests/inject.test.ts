@@ -106,6 +106,24 @@ describe("Iter cursor", () => {
       w.progress(0, 0);
       expect(srcs).toEqual([[target, target]]);
     });
+
+    it("src is undefined when the entity lacks the relationship entirely", () => {
+      const w = new World();
+      class Tag2 {}
+      w.component(Tag2);
+      w.component(Position);
+      w.component(FriendOf);
+      const phase = w.addPhase("tick");
+      const src = vi.fn();
+      w.system("sys")
+        .phase(phase)
+        .requires(Tag2)
+        .each(Iter, [{ up: [FriendOf, [Position]] }], (it) => src(it.src[0]));
+      w.start();
+      w.entity().add(Tag2);
+      w.progress(0, 0);
+      expect(src).toHaveBeenCalledWith(undefined);
+    });
   });
 
   describe("Query.forEach", () => {
@@ -298,26 +316,19 @@ describe("Iter cursor", () => {
   });
 
   describe("Query.sort", () => {
-    it("Iter cursor in sort comparator", () => {
+    it("Iter cursor in sort comparator passes resolved tuples", () => {
       const w = new World();
       w.component(Position);
-      const compares: [Iter, Iter][] = [];
       w.entity().add(Position).set(Position, { x: 2 });
       w.entity().add(Position).set(Position, { x: 1 });
-      w.query("q")
+      const q = w
+        .query("q")
         .requires(Position)
-        .sort(Iter, [Position], (a, b) => {
-          compares.push([a, b]);
-          return 0;
-        })
+        .sort(Iter, [Position], (_a, [posA], _b, [posB]) => posA.x - posB.x)
         .build();
-      expect(compares.length).toBeGreaterThan(0);
-      for (const [a, b] of compares) {
-        expect(a.entity).toBeDefined();
-        expect(b.entity).toBeDefined();
-        expect(a.src[0]).toBe(a.entity);
-        expect(b.src[0]).toBe(b.entity);
-      }
+      const order = [...q];
+      expect(order[0].get(Position)!.x).toBe(1);
+      expect(order[1].get(Position)!.x).toBe(2);
     });
   });
 
@@ -390,28 +401,21 @@ describe("Iter cursor", () => {
   });
 
   describe("System.sort", () => {
-    it("Iter cursor in system sort comparator", () => {
+    it("Iter cursor in system sort comparator passes resolved tuples", () => {
       const w = new World();
       w.component(Position);
       const phase = w.addPhase("tick");
-      const compares: [Iter, Iter][] = [];
       w.entity().add(Position).set(Position, { x: 2 });
       w.entity().add(Position).set(Position, { x: 1 });
-      w.system("sys")
+      const sys = w
+        .system("sys")
         .phase(phase)
         .requires(Position)
-        .sort(Iter, [Position], (a, b) => {
-          compares.push([a, b]);
-          return 0;
-        });
+        .sort(Iter, [Position], (_a, [posA], _b, [posB]) => posA.x - posB.x);
       w.start();
-      expect(compares.length).toBeGreaterThan(0);
-      for (const [a, b] of compares) {
-        expect(a.entity).toBeDefined();
-        expect(b.entity).toBeDefined();
-        expect(a.src[0]).toBe(a.entity);
-        expect(b.src[0]).toBe(b.entity);
-      }
+      const order = [...sys];
+      expect(order[0].get(Position)!.x).toBe(1);
+      expect(order[1].get(Position)!.x).toBe(2);
     });
   });
 
