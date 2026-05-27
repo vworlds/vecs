@@ -6,11 +6,9 @@ import {
   wantsIter,
   type FanInjectElement,
   type FanInjectTuple,
-  type InjectElement,
-  type InjectTuple,
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
-import { DOWN_TRACKED_QUERY_ERROR, Query, type MaybeRequired } from "./query.js";
+import { SOURCE_TRACKED_QUERY_ERROR, Query, type MaybeRequired } from "./query.js";
 import { containsDownTerm, type QueryDSL } from "./dsl.js";
 import { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
@@ -110,11 +108,11 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this.entity.attach(System, this);
   }
 
-  /** @internal Reject non-reactive DOWN terms before registering this system. */
+  /** @internal Reject non-reactive source/children terms before registering this system. */
   public override _build(): this {
     if (this._dsl !== undefined && containsDownTerm(this._dsl)) {
       this.destroy();
-      throw new Error(DOWN_TRACKED_QUERY_ERROR);
+      throw new Error(SOURCE_TRACKED_QUERY_ERROR);
     }
     return super._build() as this;
   }
@@ -491,7 +489,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * Shorthand for `query([...components])` — tracks entities that have **all**
    * of the listed component types.
    *
-   * Equivalent to `query({ HAS: components })`. The listed components are also
+   * Equivalent to `query(components)`. The listed components are also
    * recorded in the type parameter `R`, so {@link sort}, {@link each}, and
    * {@link update} callbacks treat them as non-nullable.
    *

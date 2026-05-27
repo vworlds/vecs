@@ -670,7 +670,7 @@ describe("ServerWorld", () => {
     const { session: firstSession, view: first } = connectSession(server, listener, "client-1");
     const { session: secondSession, view: second } = connectSession(server, listener, "client-2");
     firstSession.entity.set(View, { dsl: [Position] });
-    secondSession.entity.set(View, { dsl: { HAS: Position } });
+    secondSession.entity.set(View, { dsl: Position });
     world.progress(0, 16);
 
     expect(first.tracker).toBe(second.tracker);
@@ -690,7 +690,7 @@ describe("ServerWorld", () => {
     world.progress(0, 16);
     const original = view.tracker;
 
-    session.entity.set(View, { dsl: { HAS: Position } });
+    session.entity.set(View, { dsl: Position });
     world.progress(16, 16);
 
     expect(view.tracker).toBe(original);

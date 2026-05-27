@@ -7,7 +7,7 @@ import { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import {
   _compile,
-  collectUpTerms,
+  collectTargetTerms,
   containsDownTerm,
   type EntityTestFunc,
   type MaybeRequired,
@@ -52,8 +52,8 @@ type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => 
 type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
-export const DOWN_TRACKED_QUERY_ERROR =
-  "DOWN is not supported in a tracked query; use world.filter(...)";
+export const SOURCE_TRACKED_QUERY_ERROR =
+  "source/children is not supported in a tracked query; use world.filter(...)";
 
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
@@ -206,7 +206,7 @@ export class Query<R extends ComponentType[] = []> {
     if (this._dsl !== undefined) {
       if (this._entities !== undefined && containsDownTerm(this._dsl)) {
         this.destroy();
-        throw new Error(DOWN_TRACKED_QUERY_ERROR);
+        throw new Error(SOURCE_TRACKED_QUERY_ERROR);
       }
       this._belongs = _compile(this.world, this._dsl);
       this._buildSubqueries();
@@ -224,8 +224,8 @@ export class Query<R extends ComponentType[] = []> {
     if (this._dsl === undefined) {
       return;
     }
-    collectUpTerms(this.world, this._dsl).forEach(({ relEid, inner }, index) => {
-      const q = this.world.query(`${this.name ?? "query"}·up${index}(${relEid})`).query(inner);
+    collectTargetTerms(this.world, this._dsl).forEach(({ relEid, inner }, index) => {
+      const q = this.world.query(`${this.name ?? "query"}·target${index}(${relEid})`).query(inner);
       q._internal = true;
       q._onMembershipChange = (target: Entity) => {
         target.children(relEid).forEach((source) => this._refresh(source));
@@ -598,8 +598,7 @@ export class Query<R extends ComponentType[] = []> {
    * system's next `_run`.
    *
    * If no other predicate has been set on this query, the watchlist
-   * automatically expands so `ComponentClass` is implicitly required (the
-   * predicate becomes a `HAS` of every watched type).
+   * automatically expands so `ComponentClass` is implicitly required.
    *
    * @param ComponentClass - Component class to watch.
    * @param callback - Receives the entity and modified component instance.
@@ -826,7 +825,7 @@ export class Query<R extends ComponentType[] = []> {
    * @example
    * ```ts
    * world.system("Move")
-   *   .query({ AND: [{ HAS: Position }, { HAS: Velocity }] }, [Position, Velocity])
+   *   .query({ all: [Position, Velocity] }, [Position, Velocity])
    *   .each([Position, Velocity], (e, [pos, vel]) => {
    *     pos.x += vel.vx;  // no ! needed
    *   });
@@ -846,7 +845,7 @@ export class Query<R extends ComponentType[] = []> {
    * Shorthand for `query([...components])`: track entities that have **all**
    * of the listed component types.
    *
-   * Equivalent to `query({ HAS: components })`. Unlike `query`, the listed
+   * Equivalent to `query(components)`. Unlike `query`, the listed
    * components are also recorded in the type parameter `R`, so {@link sort}
    * and {@link forEach} callbacks see them as non-nullable.
    *

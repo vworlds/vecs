@@ -270,7 +270,7 @@ describe("Query — component routing index", () => {
 });
 
 describe("Query — predicates (belongs)", () => {
-  it("requires / HAS matches entities with all listed components", () => {
+  it("requires matches entities with all listed components", () => {
     const { w } = setup();
     const q = w.query("test").requires(Position, Velocity).build();
     const a = w.entity();
@@ -282,11 +282,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(true);
   });
 
-  it("HAS_ONLY matches entities with exactly that component set", () => {
+  it("only matches entities with exactly that component set", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ HAS_ONLY: [Position] })
+      .query({ only: [Position] })
       .build();
     const a = w.entity();
     a.add(Position);
@@ -297,11 +297,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(false);
   });
 
-  it("AND requires all sub-predicates to match", () => {
+  it("all requires all sub-predicates to match", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ AND: [Position, Velocity] })
+      .query({ all: [Position, Velocity] })
       .build();
     const a = w.entity();
     a.add(Position);
@@ -312,11 +312,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(true);
   });
 
-  it("OR matches if any branch is satisfied", () => {
+  it("any matches if any branch is satisfied", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ OR: [Sprite, Container] })
+      .query({ any: [Sprite, Container] })
       .build();
     const a = w.entity();
     a.add(Sprite);
@@ -329,11 +329,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(c)).toBe(false);
   });
 
-  it("NOT inverts a sub-predicate", () => {
+  it("not inverts a sub-predicate", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .build();
     const a = w.entity();
     a.add(Position);
@@ -344,11 +344,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(false);
   });
 
-  it("an EntityTestFunc can be passed directly", () => {
+  it("an EntityTestFunc can be passed with test", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query((e) => e.eid === 7)
+      .query({ test: (e) => e.eid === 7 })
       .build();
     const seven = w.getOrCreateEntity(7);
     seven.add(Position);
@@ -358,7 +358,7 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(three)).toBe(false);
   });
 
-  it("a single class is shorthand for HAS", () => {
+  it("a single class matches entities with that component", () => {
     const { w } = setup();
     const q = w.query("test").query(Position).build();
     const a = w.entity();
@@ -369,7 +369,7 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(false);
   });
 
-  it("an array is shorthand for HAS", () => {
+  it("an array matches entities with all listed components", () => {
     const { w } = setup();
     const q = w.query("test").query([Position, Velocity]).build();
     const a = w.entity();
@@ -381,11 +381,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(true);
   });
 
-  it("explicit { HAS: ... } is equivalent to requires", () => {
+  it("all is equivalent to requires", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ HAS: [Position, Velocity] })
+      .query({ all: [Position, Velocity] })
       .build();
     const e = w.entity();
     e.add(Position);
@@ -700,13 +700,13 @@ describe("Query — destroy", () => {
   });
 });
 
-describe("Query — NOT predicate routing", () => {
-  it("removing a component causes enter on a NOT query", () => {
+describe("Query — not predicate routing", () => {
+  it("removing a component causes enter on a not query", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
-    // Matches entities that have Position but NOT Velocity.
+    // Matches entities that have Position but not Velocity.
     w.query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .enter(enter);
     w.start();
     const e = w.entity();
@@ -720,26 +720,26 @@ describe("Query — NOT predicate routing", () => {
     expect(enter).toHaveBeenCalledWith(e);
   });
 
-  it("adding a component causes exit on a NOT query", () => {
+  it("adding a component causes exit on a not query", () => {
     const { w, tick } = setup();
     const exit = vi.fn();
     w.query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .exit(exit);
     w.start();
     const e = w.entity();
     e.add(Position);
     tick(); // entity matches (no Velocity)
     e.add(Velocity);
-    tick(); // adding Velocity breaks the NOT predicate → exit fires
+    tick(); // adding Velocity breaks the not predicate → exit fires
     expect(exit).toHaveBeenCalledWith(e);
   });
 
-  it("cycling NOT query fires enter → exit → enter in order", () => {
+  it("cycling not query fires enter → exit → enter in order", () => {
     const { w, tick } = setup();
     const events: string[] = [];
     w.query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .enter(() => events.push("enter"))
       .exit(() => events.push("exit"));
     w.start();
@@ -753,10 +753,10 @@ describe("Query — NOT predicate routing", () => {
     expect(events).toEqual(["enter", "exit", "enter"]);
   });
 
-  it("plain NOT query: entity enters when the excluded component is removed", () => {
+  it("plain not query: entity enters when the excluded component is removed", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
-    w.query("test").query({ NOT: Velocity }).enter(enter);
+    w.query("test").query({ not: Velocity }).enter(enter);
     w.start();
     enter.mockClear();
     const e = w.entity();
@@ -768,13 +768,13 @@ describe("Query — NOT predicate routing", () => {
     expect(enter).toHaveBeenCalledWith(e);
   });
 
-  it("system receives enter inbox event when NOT-excluded component is removed", () => {
+  it("system receives enter inbox event when not-excluded component is removed", () => {
     const { w } = setup();
     const enter = vi.fn();
     const phase = w.addPhase("p2");
     w.system("test")
       .phase(phase)
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .enter(enter);
     w.start();
     const e = w.entity();

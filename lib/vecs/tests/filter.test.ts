@@ -55,18 +55,18 @@ describe("Filter — entity-only forEach", () => {
     expect(after).not.toContain(e);
   });
 
-  it("works with EntityTestFunc DSL", () => {
+  it("works with test DSL", () => {
     const { w } = setup();
     const e = w.entity();
     e.add(Position);
 
     const seen: unknown[] = [];
-    w.filter((ent) => ent.get(Position) !== undefined).forEach((ent) => seen.push(ent));
+    w.filter({ test: (ent) => ent.get(Position) !== undefined }).forEach((ent) => seen.push(ent));
 
     expect(seen).toContain(e);
   });
 
-  it("AND DSL matches only entities with all required components", () => {
+  it("all DSL matches only entities with all required components", () => {
     const { w } = setup();
     const ePos = w.entity();
     ePos.add(Position);
@@ -75,13 +75,13 @@ describe("Filter — entity-only forEach", () => {
     eBoth.add(Velocity);
 
     const seen: unknown[] = [];
-    w.filter({ AND: [{ HAS: Position }, { HAS: Velocity }] }).forEach((e) => seen.push(e));
+    w.filter({ all: [Position, Velocity] }).forEach((e) => seen.push(e));
 
     expect(seen).toContain(eBoth);
     expect(seen).not.toContain(ePos);
   });
 
-  it("OR DSL matches entities with any component", () => {
+  it("any DSL matches entities with any component", () => {
     const { w } = setup();
     const ePos = w.entity();
     ePos.add(Position);
@@ -91,14 +91,14 @@ describe("Filter — entity-only forEach", () => {
     eSprite.add(Sprite);
 
     const seen: unknown[] = [];
-    w.filter({ OR: [Position, Velocity] }).forEach((e) => seen.push(e));
+    w.filter({ any: [Position, Velocity] }).forEach((e) => seen.push(e));
 
     expect(seen).toContain(ePos);
     expect(seen).toContain(eVel);
     expect(seen).not.toContain(eSprite);
   });
 
-  it("NOT DSL excludes matching entities", () => {
+  it("not DSL excludes matching entities", () => {
     const { w } = setup();
     const ePos = w.entity();
     ePos.add(Position);
@@ -106,7 +106,7 @@ describe("Filter — entity-only forEach", () => {
     eVel.add(Velocity);
 
     const seen: unknown[] = [];
-    w.filter({ NOT: Position }).forEach((e) => seen.push(e));
+    w.filter({ not: Position }).forEach((e) => seen.push(e));
 
     expect(seen).not.toContain(ePos);
     expect(seen).toContain(eVel);
@@ -145,7 +145,7 @@ describe("Filter — forEach with injection", () => {
     e.set(Position, { x: 7 });
 
     let result = 0;
-    w.filter({ OR: [Position, Velocity] }, [Position]).forEach([Position], (_e, [p]) => {
+    w.filter({ any: [Position, Velocity] }, [Position]).forEach([Position], (_e, [p]) => {
       result += p.x; // p is Position (not Position | undefined)
     });
 
@@ -167,30 +167,27 @@ describe("Filter — type deduction (compile-time)", () => {
     expect(sum).toBe(3);
   });
 
-  it("HAS DSL deduces required components", () => {
+  it("component array DSL deduces required components", () => {
     const { w } = setup();
     w.entity().set(Position, { x: 5 });
 
     let sum = 0;
-    w.filter({ HAS: [Position] }).forEach([Position], (_e, [p]) => {
+    w.filter([Position]).forEach([Position], (_e, [p]) => {
       sum += p.x; // p is Position, not Position | undefined
     });
     expect(sum).toBe(5);
   });
 
-  it("AND of HAS deduces all required components", () => {
+  it("all deduces all required components", () => {
     const { w } = setup();
     const e = w.entity();
     e.set(Position, { x: 3 });
     e.set(Velocity, { vx: 4 });
 
     let sum = 0;
-    w.filter({ AND: [{ HAS: Position }, { HAS: Velocity }] }).forEach(
-      [Position, Velocity],
-      (_e, [p, v]) => {
-        sum += p.x + v.vx; // both non-null
-      }
-    );
+    w.filter({ all: [Position, Velocity] }).forEach([Position, Velocity], (_e, [p, v]) => {
+      sum += p.x + v.vx; // both non-null
+    });
     expect(sum).toBe(7);
   });
 });

@@ -370,14 +370,12 @@ world.filter([Position, Velocity]).forEach([Position, Velocity], (e, [pos, vel])
 });
 
 // Full DSL, with auto-deduced required components:
-world
-  .filter({ AND: [{ HAS: Position }, { HAS: Velocity }] })
-  .forEach([Position, Velocity], (e, [pos, vel]) => {
-    pos.x += vel.vx;
-  });
+world.filter({ all: [Position, Velocity] }).forEach([Position, Velocity], (e, [pos, vel]) => {
+  pos.x += vel.vx;
+});
 
 // Manual hint for queries the type extractor can't see through:
-world.filter({ OR: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
+world.filter({ any: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
 ```
 
 A `Filter` requires no name, no `world.start()`, and no `destroy()` — create it anywhere and discard freely.
@@ -505,18 +503,19 @@ Relationship target cleanup is controlled by `ownMeta.onDeleteTarget`:
 
 Retarget relationships with `entity.set(RelationshipClass, { target })`. `entity.getMut(RelationshipClass)` throws for relationship components because in-place target mutation would bypass the reverse index used by `children(ref)` and cleanup cascades.
 
-Relationship queries use the `UP` operator to follow a relationship from the candidate entity to its target and test that target with another DSL expression:
+Relationship queries use `target` to follow a relationship from the candidate entity to its target and test that target with another DSL expression. Use `parent` for the built-in `ChildOf` hierarchy:
 
 ```ts
-world.query("body-friends").query({ AND: [Body, { UP: [FriendOf, [Position, Velocity]] }] });
+world.query("body-friends").query({ all: [Body, { target: [FriendOf, [Position, Velocity]] }] });
+world.query("positioned-children").query({ all: [Position, { parent: Body }] });
 ```
 
-Tracked queries stay live when either side changes. Adding or removing `FriendOf` on the candidate re-routes the candidate normally; adding or removing `Position` / `Velocity` on the target also refreshes every candidate that points at that target. Nested `UP` works the same way across multiple hops.
+Tracked queries stay live when either side changes. Adding or removing `FriendOf` on the candidate re-routes the candidate normally; adding or removing `Position` / `Velocity` on the target also refreshes every candidate that points at that target. Nested `target` works the same way across multiple hops.
 
-Use `DOWN` with `world.filter(...)` when you need the opposite direction: test whether at least one child points at the candidate through a relationship and matches an inner DSL expression. `DOWN` is exact for each filter scan, but it is non-reactive and is rejected by tracked `Query` / `System` membership.
+Use `source` with `world.filter(...)` when you need the opposite direction: test whether at least one child points at the candidate through a relationship and matches an inner DSL expression. Use `children` for the built-in `ChildOf` hierarchy. `source` and `children` are exact for each filter scan, but they are non-reactive and rejected by tracked `Query` / `System` membership.
 
 ```ts
-world.filter({ AND: [Body, { DOWN: [ChildOf, Position] }] }).forEach((parent) => {
+world.filter({ all: [Body, { children: Position }] }).forEach((parent) => {
   // parent has at least one ChildOf child with Position right now.
 });
 ```
@@ -535,7 +534,7 @@ world
 Two details matter:
 
 - A `down` injection does not call the callback for a matched entity with zero children through that relationship.
-- `down` injection iterates all children through the relationship, independent of any `DOWN` filter used for membership. For example, `world.filter({ DOWN: [ChildOf, Position] }).forEach([{ down: [ChildOf, [Position]] }], ...)` also visits children without `Position`, with `childPos === undefined`.
+- `down` injection iterates all children through the relationship, independent of any `children` / `source` filter used for membership. For example, `world.filter({ children: Position }).forEach([{ down: [ChildOf, [Position]] }], ...)` also visits children without `Position`, with `childPos === undefined`.
 
 ---
 
@@ -548,36 +547,38 @@ Systems are created via `world.system(name)` and configured through a fluent bui
 Declare which entities the system tracks.
 
 ```ts
-.requires(Position, Velocity)                                    // shorthand for HAS
-.query({ HAS: [Position, Velocity] })                            // explicit
-.query({ AND: [Position, { OR: [Sprite, Container] }] })         // compound
-.query({ NOT: Invisible })
-.query({ UP: [FriendOf, Position] })                             // relationship target has Position
+.requires(Position, Velocity)                                      // shorthand for [Position, Velocity]
+.query([Position, Velocity])                                       // explicit component list
+.query({ all: [Position, { any: [Sprite, Container] }] })          // compound
+.query({ not: Invisible })
+.query({ target: [FriendOf, Position] })                           // relationship target has Position
+.query({ parent: Body })                                           // ChildOf target has Body
 ```
 
 **Query operators:**
 
-| Operator               | Meaning                                  |
-| ---------------------- | ---------------------------------------- |
-| `{ HAS: [A, B] }`      | Entity has all of A and B                |
-| `{ HAS_ONLY: [A, B] }` | Entity has exactly A and B, nothing else |
-| `{ AND: [q1, q2] }`    | Both sub-queries must match              |
-| `{ OR: [q1, q2] }`     | Either sub-query matches                 |
-| `{ NOT: q }`           | Sub-query must not match                 |
-| `{ UP: [R, q] }`       | Relationship `R` target matches `q`      |
-| `{ DOWN: [R, q] }`     | Filter-only: some `R` child matches `q`  |
-| An array `[A, B]`      | Shorthand for `{ HAS: [A, B] }`          |
-| A single class / id    | Shorthand for `{ HAS: [C] }`             |
-| A predicate function   | Custom membership logic                  |
+| Operator             | Meaning                                                |
+| -------------------- | ------------------------------------------------------ |
+| A single class / id  | Entity has that component                              |
+| An array `[A, B]`    | Entity has all of A and B                              |
+| `{ only: [A, B] }`   | Entity has exactly A and B, nothing else               |
+| `{ all: [q1, q2] }`  | Both sub-queries must match                            |
+| `{ any: [q1, q2] }`  | Either sub-query matches                               |
+| `{ not: q }`         | Sub-query must not match                               |
+| `{ target: [R, q] }` | Relationship `R` target matches `q`                    |
+| `{ source: [R, q] }` | Filter-only: some `R` source/child matches `q`         |
+| `{ parent: q }`      | Built-in `ChildOf` target matches `q`                  |
+| `{ children: q }`    | Filter-only: some built-in `ChildOf` child matches `q` |
+| `{ test: fn }`       | Custom membership logic                                |
 
-`UP` and `DOWN` use tuple form only: `{ UP: [RelationshipClass, innerDSL] }` / `{ DOWN: [RelationshipClass, innerDSL] }`. The first element must be a component that extends `Relationship`; passing a normal component throws. `UP` evaluates the inner DSL against the relationship target; `DOWN` evaluates it against each child and matches when at least one child matches. Because `DOWN` is non-reactive, use it with `world.filter(...)`, not tracked queries or systems.
+`target` and `source` use tuple form only: `{ target: [RelationshipClass, innerDSL] }` / `{ source: [RelationshipClass, innerDSL] }`. The first element must be a component that extends `Relationship`; passing a normal component throws. `target` evaluates the inner DSL against the relationship target; `source` evaluates it against each child/source and matches when at least one child/source matches. Because `source` and `children` are non-reactive, use them with `world.filter(...)`, not tracked queries or systems.
 
 Component injection also supports lowercase relationship markers. `up` works in `forEach`, `each`, `enter`, and `exit` injection lists. It follows the relationship target and flattens the requested target components into the callback tuple:
 
 ```ts
 world
   .query("friends")
-  .query({ UP: [FriendOf, Position] })
+  .query({ target: [FriendOf, Position] })
   .forEach([Body, { up: [FriendOf, [Position, Velocity]] }], (e, [body, pos, vel]) => {
     // body is from e; pos and vel are from e.parent(FriendOf)
     // target-side injected components are undefined if the target is absent or lacks them.
@@ -607,12 +608,12 @@ When `Iter` is **not** requested, the original code path runs with zero per-enti
 
 `enter` and `exit` allocate a fresh `Iter` per event (they fire reentrantly during command routing). `each` / `forEach` / `update` reuse a single `Iter` instance for the whole pass; `sort` reuses two (one per side of the comparison). Because a plain `Query.update` callback fires synchronously during command routing, a nested mutation triggered from inside it can re-enter `update` and overwrite that reused cursor and tuple mid-callback — snapshot any `it`, `it.src`, or tuple values you need before triggering further mutations.
 
-Class-valued query terms are recognized as components by looking up registered metadata for the current world. Register component classes before using them in a `QueryDSL`; an unregistered class is treated like a predicate function and will fail if it cannot be called that way.
+Class-valued query terms are components. Register component classes before using them in a `QueryDSL`; an unregistered class throws. Use `{ test: fn }` for arbitrary predicate functions.
 
 **Type inference.** `requires()` records the listed classes as a type parameter `R` on the system. Callbacks in `.sort()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `query()` expressions the type system can't introspect, supply a `_guaranteed` second argument:
 
 ```ts
-.query({ AND: [{ HAS: Position }, { HAS: Velocity }] }, [Position, Velocity])
+.query({ all: [Position, Velocity] }, [Position, Velocity])
 .each([Position, Velocity], (e, [pos, vel]) => {
   pos.x += vel.vx; // pos and vel are non-null
 });
@@ -658,7 +659,7 @@ Fires when `entity.modified(ComponentClass)` is called for the watched component
 });
 ```
 
-If `query()` has not been called, `update` automatically expands the implicit `HAS` predicate to require the watched component.
+If `query()` has not been called, `update` automatically expands the implicit component predicate to require the watched component.
 
 #### `.each(components, callback)`
 
@@ -741,7 +742,7 @@ console.log(projectiles.count, "active projectiles");
 
 | Method                                                  | Description                                                                                         |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `.requires(...components)`                              | Set the membership predicate to `HAS(...components)` and start tracking.                            |
+| `.requires(...components)`                              | Set the membership predicate to require all listed components and start tracking.                   |
 | `.query(expr, _guaranteed?)`                            | Set the membership predicate using a `QueryDSL` expression.                                         |
 | `.enter(callback)` / `.enter(inject, callback)`         | Fires when an entity joins the query.                                                               |
 | `.exit(callback)` / `.exit(inject, callback)`           | Fires when an entity leaves the query.                                                              |
@@ -785,14 +786,14 @@ const f = world.filter([Position, Velocity]);
 
 `forEach` runs inside a deferred scope, so mutations made by the callback are batched and become visible after iteration finishes.
 
-**Type inference.** Component classes the type system can extract from the DSL (`HAS`, `HAS_ONLY`, plain arrays, `AND` of those) are non-nullable in the callback tuple. For the rest, supply a `_guaranteed` second argument to `world.filter()`:
+**Type inference.** Component classes the type system can extract from the DSL (plain component classes, plain arrays, `only`, and `all` of those) are non-nullable in the callback tuple. For the rest, supply a `_guaranteed` second argument to `world.filter()`:
 
 ```ts
 // Auto-deduced — both non-null:
 world.filter([Position, Velocity]).forEach([Position, Velocity], (e, [pos, vel]) => { ... });
 
-// Manual hint for OR / NOT / custom function:
-world.filter({ OR: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
+// Manual hint for any / not / test:
+world.filter({ any: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
 ```
 
 A `Filter` holds no tracked set, makes no registration calls, and needs no `destroy()`.

@@ -18,7 +18,7 @@ export class Relationships extends Queries {
 
   /**
    * @internal Fast child set lookup by relationship eid — skips ref -> eid
-   * resolution. Used by the `DOWN` predicate and fan-out invoker.
+   * resolution. Used by the `source` predicate and fan-out invoker.
    */
   public _childrenByEid(relEid: number): ReadonlySet<Entity> | undefined {
     return this._incoming?.get(relEid);

@@ -76,7 +76,7 @@ describe("Iter cursor", () => {
       const srcs: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .query({ UP: [FriendOf, Position] })
+        .query({ target: [FriendOf, Position] })
         .each(Iter, [{ up: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
         });
@@ -96,7 +96,7 @@ describe("Iter cursor", () => {
       const srcs: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .query({ UP: [FriendOf, Position] })
+        .query({ target: [FriendOf, Position] })
         .each(Iter, [{ up: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
         });
@@ -516,7 +516,7 @@ describe("Iter cursor", () => {
       w.entity().add(Position);
       w.entity().set(FriendOf, { target });
       const seen: unknown[] = [];
-      w.filter({ UP: [FriendOf, Position] }).forEach(
+      w.filter({ target: [FriendOf, Position] }).forEach(
         Iter,
         [{ up: [FriendOf, [Position, Tag]] }],
         (it, [pos, tag]) => {
@@ -539,7 +539,7 @@ describe("Iter cursor", () => {
       const entered: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .query({ UP: [FriendOf, Position] })
+        .query({ target: [FriendOf, Position] })
         .enter(Iter, [{ up: [FriendOf, [Position]] }], (it, [pos]) => {
           entered.push({ entity: it.entity, src: it.src[0], pos });
         });
@@ -560,7 +560,7 @@ describe("Iter cursor", () => {
       const exited: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .query({ UP: [FriendOf, Position] })
+        .query({ target: [FriendOf, Position] })
         .exit(Iter, [{ up: [FriendOf, [Position]] }], (it, [pos]) => {
           exited.push({ entity: it.entity, src: it.src[0], pos });
         });
@@ -586,7 +586,7 @@ describe("Iter cursor", () => {
       const srcs: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .query({ UP: [ChildOf, Position] })
+        .query({ target: [ChildOf, Position] })
         .each(Iter, [{ up: [ChildOf, [Position]] }], (it) => {
           srcs.push(it.src[0]);
         });

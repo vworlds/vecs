@@ -31,14 +31,14 @@ describe("Relationship queries", () => {
     const miss = w.entity().set(FriendOf, { target: w.entity() });
     const q = w
       .query("friends")
-      .query({ UP: [FriendOf, Position] })
+      .query({ target: [FriendOf, Position] })
       .build();
 
     expect(q.belongs(candidate)).toBe(true);
     expect(q.belongs(miss)).toBe(false);
 
     const seen: unknown[] = [];
-    w.filter({ UP: [FriendOf, Position] }).forEach((e) => seen.push(e));
+    w.filter({ target: [FriendOf, Position] }).forEach((e) => seen.push(e));
     expect(seen).toContain(candidate);
     expect(seen).not.toContain(miss);
   });
@@ -49,7 +49,7 @@ describe("Relationship queries", () => {
     const candidate = w.entity().set(FriendOf, { target });
     const q = w
       .query("friends")
-      .query({ UP: [FriendOf, Position] })
+      .query({ target: [FriendOf, Position] })
       .build();
 
     expect(q.has(candidate)).toBe(false);
@@ -66,7 +66,7 @@ describe("Relationship queries", () => {
     const candidate = w.entity().set(FriendOf, { target: first });
     const q = w
       .query("friends")
-      .query({ UP: [FriendOf, Position] })
+      .query({ target: [FriendOf, Position] })
       .build();
 
     expect(q.has(candidate)).toBe(true);
@@ -82,14 +82,14 @@ describe("Relationship queries", () => {
     expect(q.has(candidate)).toBe(false);
   });
 
-  it("nested UP propagates changes through chained subqueries", () => {
+  it("nested target propagates changes through chained subqueries", () => {
     const { w } = setup();
     const grandparent = w.entity();
     const parent = w.entity().set(FriendOf, { target: grandparent });
     const child = w.entity().set(FriendOf, { target: parent });
     const q = w
       .query("nested")
-      .query({ UP: [FriendOf, { UP: [FriendOf, Tag] }] })
+      .query({ target: [FriendOf, { target: [FriendOf, Tag] }] })
       .build();
 
     expect(q.has(child)).toBe(false);
@@ -99,13 +99,13 @@ describe("Relationship queries", () => {
     expect(q.has(child)).toBe(false);
   });
 
-  it("combines UP with candidate-side component routing", () => {
+  it("combines target with candidate-side component routing", () => {
     const { w } = setup();
     const target = w.entity().add(Position);
     const candidate = w.entity().set(FriendOf, { target });
     const q = w
       .query("body-friends")
-      .query({ AND: [Body, { UP: [FriendOf, Position] }] })
+      .query({ all: [Body, { target: [FriendOf, Position] }] })
       .build();
 
     expect(q.has(candidate)).toBe(false);
@@ -115,7 +115,7 @@ describe("Relationship queries", () => {
     expect(q.has(candidate)).toBe(false);
   });
 
-  it("filter DOWN matches parents with at least one qualifying child on each scan", () => {
+  it("filter source matches parents with at least one qualifying child on each scan", () => {
     const { w } = setup();
     const parent = w.entity();
     const otherParent = w.entity();
@@ -124,7 +124,7 @@ describe("Relationship queries", () => {
 
     const collect = () => {
       const seen: unknown[] = [];
-      w.filter({ DOWN: [FriendOf, Position] }).forEach((e) => seen.push(e));
+      w.filter({ source: [FriendOf, Position] }).forEach((e) => seen.push(e));
       return seen;
     };
 
@@ -135,37 +135,37 @@ describe("Relationship queries", () => {
     expect(collect()).toEqual([otherParent]);
   });
 
-  it("rejects DOWN in tracked queries and systems", () => {
+  it("rejects source in tracked queries and systems", () => {
     expect(() => {
       const { w } = setup();
       w.query("down")
-        .query({ DOWN: [FriendOf, Position] })
+        .query({ source: [FriendOf, Position] })
         .build();
-    }).toThrow("DOWN is not supported in a tracked query; use world.filter(...)");
+    }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
     expect(() => {
       const { w } = setup();
       w.query("nested-down")
-        .query({ UP: [FriendOf, { DOWN: [FriendOf, Position] }] })
+        .query({ target: [FriendOf, { source: [FriendOf, Position] }] })
         .build();
-    }).toThrow("DOWN is not supported in a tracked query; use world.filter(...)");
+    }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
     expect(() => {
       const { w, phase } = setup();
       w.system("system-down")
         .phase(phase)
-        .query({ DOWN: [FriendOf, Position] });
+        .query({ source: [FriendOf, Position] });
       w.start();
-    }).toThrow("DOWN is not supported in a tracked query; use world.filter(...)");
+    }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
     expect(() => {
       const { w, phase } = setup();
       w.system("system-each-down")
         .phase(phase)
-        .query({ DOWN: [FriendOf, Position] })
+        .query({ source: [FriendOf, Position] })
         .each([Body], () => {});
       w.start();
-    }).toThrow("DOWN is not supported in a tracked query; use world.filter(...)");
+    }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
   });
 
   it("flattens up injection in query and filter iteration", () => {
@@ -308,7 +308,7 @@ describe("Relationship queries", () => {
     const enter = vi.fn();
     const exit = vi.fn();
     w.query("events")
-      .query({ UP: [FriendOf, Position] })
+      .query({ target: [FriendOf, Position] })
       .enter([{ up: [FriendOf, [Position]] }], enter)
       .exit([{ up: [FriendOf, [Position]] }], exit)
       .build();
@@ -324,7 +324,7 @@ describe("Relationship queries", () => {
     const cb = vi.fn();
     w.system("system-up")
       .phase(phase)
-      .query({ UP: [FriendOf, Position] })
+      .query({ target: [FriendOf, Position] })
       .each([{ up: [FriendOf, [Position, Velocity]] }], cb);
     w.start();
     const target = w.entity().set(Position, { x: 3 });
@@ -346,7 +346,7 @@ describe("Relationship queries", () => {
 
     const q = w
       .query("outer")
-      .query({ UP: [FriendOf, Position] })
+      .query({ target: [FriendOf, Position] })
       .build();
 
     expect(w.queries).toEqual([q]);
@@ -355,53 +355,53 @@ describe("Relationship queries", () => {
     expect((q as unknown as { _subqueries: unknown[] })._subqueries).toEqual([]);
   });
 
-  it("DOWN filter matches parents with a qualifying child", () => {
+  it("source filter matches parents with a qualifying child", () => {
     const { w } = setup();
     const parent = w.entity();
     const child1 = w.entity().set(ChildOf, { target: parent }).add(Position);
     const child2 = w.entity().set(ChildOf, { target: parent });
 
     const seen: unknown[] = [];
-    w.filter({ DOWN: [ChildOf, Position] }).forEach((e) => seen.push(e));
+    w.filter({ source: [ChildOf, Position] }).forEach((e) => seen.push(e));
     expect(seen).toContain(parent);
 
     child1.remove(Position);
     const seen2: unknown[] = [];
-    w.filter({ DOWN: [ChildOf, Position] }).forEach((e) => seen2.push(e));
+    w.filter({ source: [ChildOf, Position] }).forEach((e) => seen2.push(e));
     expect(seen2).not.toContain(parent);
 
     child2.add(Position);
     const seen3: unknown[] = [];
-    w.filter({ DOWN: [ChildOf, Position] }).forEach((e) => seen3.push(e));
+    w.filter({ source: [ChildOf, Position] }).forEach((e) => seen3.push(e));
     expect(seen3).toContain(parent);
   });
 
-  it("DOWN rejected in a tracked query", () => {
+  it("source rejected in a tracked query", () => {
     const { w } = setup();
     expect(() => {
       w.query("bad")
-        .query({ DOWN: [ChildOf, Position] })
+        .query({ source: [ChildOf, Position] })
         .build();
-    }).toThrow("DOWN is not supported in a tracked query");
+    }).toThrow("source/children is not supported in a tracked query");
   });
 
-  it("DOWN rejected in a tracked system query", () => {
+  it("source rejected in a tracked system query", () => {
     const { w } = setup();
     expect(() => {
       w.system("bad-sys")
-        .query({ DOWN: [ChildOf, Position] })
+        .query({ source: [ChildOf, Position] })
         .track()
         .build();
-    }).toThrow("DOWN is not supported in a tracked query");
+    }).toThrow("source/children is not supported in a tracked query");
   });
 
-  it("DOWN nested inside UP in a tracked query throws", () => {
+  it("source nested inside target in a tracked query throws", () => {
     const { w } = setup();
     expect(() => {
       w.query("nested-down")
-        .query({ UP: [FriendOf, { DOWN: [ChildOf, Position] }] })
+        .query({ target: [FriendOf, { source: [ChildOf, Position] }] })
         .build();
-    }).toThrow("DOWN is not supported in a tracked query");
+    }).toThrow("source/children is not supported in a tracked query");
   });
 
   it("down injection fires once per child with each/forEach/Filter.forEach", () => {

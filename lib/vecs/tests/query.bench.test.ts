@@ -90,9 +90,9 @@ describe("Query predicate benchmark", () => {
       runScenario("belongs.has-single", 1, entityTypes),
       runScenario("belongs.has-3-same-word", [1, 2, 3], entityTypes),
       runScenario("belongs.has-3-spread", [1, 67, 130], entityTypes),
-      runScenario("belongs.and-or-mix", { AND: [1, { OR: [2, 3] }] }, entityTypes),
-      runScenario("belongs.not", { NOT: 99 }, entityTypes),
-      runScenario("belongs.deep-and", { AND: [1, 31, 33, 67, 130, 131] }, entityTypes),
+      runScenario("belongs.all-any-mix", { all: [1, { any: [2, 3] }] }, entityTypes),
+      runScenario("belongs.not", { not: 99 }, entityTypes),
+      runScenario("belongs.deep-all", { all: [1, 31, 33, 67, 130, 131] }, entityTypes),
     ];
 
     console.info("\nQuery predicate benchmark results");
