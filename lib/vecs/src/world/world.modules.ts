@@ -1,5 +1,6 @@
 import { type ComponentClass } from "../component.js";
-import { Entity, type EntityClass, IdentityModule } from "../entity/index.js";
+import { Entity, type EntityClass } from "../entity/index.js";
+import { IdentityModule } from "../modules/identity.js";
 import { SingletonModule } from "../modules/singleton.js";
 import { Components } from "./world.components.js";
 import type { WorldOptions } from "./world.base.js";

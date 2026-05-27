@@ -6,15 +6,22 @@ export interface WorldOptions {
 }
 
 export class Base {
-  /** Hidden property key used to store this world's meta on component classes. */
-  public readonly worldKey = `__vecs_world_${Math.random().toString(36).slice(2)}`;
-
   /**
    * @internal Per-world registry mapping a component class to its
-   * component-entity. Replaces stashing the entity on the class under
-   * {@link worldKey}: a `WeakMap` keeps the lookup off the (global, shared)
-   * class objects, so registering the same class across many worlds never
-   * forces those classes into dictionary mode and slows every property access.
+   * component-entity. The registry is per-world so the lookup stays off the
+   * global component class objects while keeping repeated class lookups fast.
    */
-  public readonly _classRegistry = new WeakMap<object, Entity>();
+  public readonly _classRegistry = new Map<object, Entity>();
+
+  /**
+   * @internal Name -> entity index populated by {@link IdentityModule} hooks.
+   * Duplicate names are last-writer-wins.
+   */
+  public readonly _identityNameIndex = new Map<string, Entity>();
+
+  /**
+   * @internal Tracks the last indexed name per entity so that renames,
+   * removals, and destroy cleanup can delete stale entries safely.
+   */
+  public readonly _identityIndexedNames = new WeakMap<Entity, string>();
 }

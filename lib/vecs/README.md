@@ -205,6 +205,14 @@ world.setEntityIdRange(0x10000);
 
 // Destroy everything (e.g. on level reset):
 world.clearAllEntities();
+
+// Named entity lookup via Identity.name — creates entity with that name if absent:
+world.entity("player").name === "player";  // true
+world.getEntity("player") === entity; // true (returns undefined when absent)
+
+// Named component lookup — set the name first, then resolve by name:
+world.component(Position).name = "Position";
+world.component("Position"); // resolves the same component entity
 ```
 
 #### Component entity deletion cleanup

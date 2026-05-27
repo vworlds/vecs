@@ -72,6 +72,9 @@ export class Filter<R extends ComponentType[] = []> {
    * non-nullable in the resolved tuple; any other component class may be
    * `undefined` if the entity does not have it.
    *
+   * The resolved tuple is reused for every matching entity. Read or
+   * destructure it inside the callback; do not retain the tuple array.
+   *
    * @param components - Component classes to resolve from each matching entity.
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
