@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { _compile, getDSLKey, simplifyQueryDSL, type QueryDSL } from "../src/dsl.js";
+import {
+  _compile,
+  containsDownTerm,
+  getDSLKey,
+  simplifyQueryDSL,
+  type QueryDSL,
+} from "../src/dsl.js";
 import { Relationship, World } from "../src/index.js";
 import { Entity } from "../src/entity/index.js";
 import { Bitset } from "../src/util/bitset.js";
@@ -198,6 +204,33 @@ describe("Query DSL simplification", () => {
       "Component Position is not a Relationship"
     );
   });
+
+  it("simplifies DOWN by resolving the relationship and inner DSL", () => {
+    const world = registeredWorld();
+
+    expect(simplifyQueryDSL({ DOWN: [FriendOf, { AND: [Velocity, Position] }] }, world)).toEqual({
+      DOWN: [14, [10, 11]],
+    });
+    expect(simplifyQueryDSL({ DOWN: [FriendOf, false] }, world)).toBe(false);
+  });
+
+  it("rejects DOWN when the ref is not a relationship", () => {
+    const world = registeredWorld();
+
+    expect(() => simplifyQueryDSL({ DOWN: [Position, true] }, world)).toThrow(
+      "Component Position is not a Relationship"
+    );
+  });
+
+  it("containsDownTerm detects DOWN at top level and nested in UP", () => {
+    expect(containsDownTerm({ DOWN: [FriendOf, true] } as QueryDSL)).toBe(true);
+    expect(containsDownTerm({ AND: [{ DOWN: [FriendOf, true] }, true] } as QueryDSL)).toBe(true);
+    expect(containsDownTerm({ OR: [false, { DOWN: [FriendOf, false] }] } as QueryDSL)).toBe(true);
+    expect(containsDownTerm({ NOT: { DOWN: [FriendOf, true] } } as QueryDSL)).toBe(true);
+    expect(containsDownTerm({ UP: [FriendOf, { DOWN: [FriendOf, true] }] } as QueryDSL)).toBe(true);
+    expect(containsDownTerm({ AND: [{ UP: [FriendOf, Position] }] } as QueryDSL)).toBe(false);
+    expect(containsDownTerm(false as QueryDSL)).toBe(false);
+  });
 });
 
 describe("Query DSL compilation", () => {
@@ -382,5 +415,26 @@ describe("Query DSL compilation", () => {
 
     expect(compiled(candidate)).toBe(true);
     expect(compiled(unrelated)).toBe(false);
+  });
+
+  it("matches DOWN by testing children", () => {
+    const world = new World();
+    world.component(Position);
+    world.component(FriendOf);
+    const parent = world.entity();
+    const child1 = world.entity().set(FriendOf, { target: parent }).add(Position);
+    const child2 = world.entity().set(FriendOf, { target: parent });
+    const orphan = world.entity();
+
+    const compiled = _compile(world, { DOWN: [FriendOf, Position] });
+
+    expect(compiled(parent)).toBe(true);
+    expect(compiled(orphan)).toBe(false);
+
+    child1.remove(Position);
+    expect(compiled(parent)).toBe(false);
+
+    child2.add(Position);
+    expect(compiled(parent)).toBe(true);
   });
 });

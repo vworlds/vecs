@@ -4,9 +4,9 @@ import {
   Iter,
   makeInjectedInvoker,
   wantsIter,
-  type InjectElement,
-  type InjectTuple,
-  type MaybeResolvedInjectTuple,
+  type FanInjectElement,
+  type FanInjectTuple,
+  type MaybeResolvedFanInjectTuple,
 } from "./inject.js";
 import { Query, type MaybeRequired } from "./query.js";
 import { type QueryDSL } from "./dsl.js";
@@ -409,19 +409,19 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *   });
    * ```
    */
-  public each<J extends InjectTuple>(
+  public each<J extends FanInjectTuple>(
     components: readonly [...J],
-    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
+    callback: (e: Entity, resolved: MaybeResolvedFanInjectTuple<J, R>) => void
   ): this;
 
   /**
    * As above, but pass `Entity` first to make the entity-first signature
    * explicit. Identical behavior to the no-marker form.
    */
-  public each<J extends InjectTuple>(
+  public each<J extends FanInjectTuple>(
     cursor: typeof Entity,
     components: readonly [...J],
-    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
+    callback: (e: Entity, resolved: MaybeResolvedFanInjectTuple<J, R>) => void
   ): this;
 
   /**
@@ -429,12 +429,12 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * cursor instead of the bare entity. The cursor exposes the visited entity
    * (`it.entity`) and, in `it.src`, the source entity each resolved component
    * was read from (the visited entity for direct components, the relationship
-   * target for `up`-injected ones).
+   * target for `up`-injected ones, or the child for `down`-injected ones).
    */
-  public each<J extends InjectTuple>(
+  public each<J extends FanInjectTuple>(
     cursor: typeof Iter,
     components: readonly [...J],
-    callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
+    callback: (it: Iter, resolved: MaybeResolvedFanInjectTuple<J, R>) => void
   ): this;
 
   public each(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
@@ -444,7 +444,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     }
     this.track();
     const useIter = wantsIter(arg0);
-    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
     const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
       eOrIt: unknown,
       resolved: unknown
