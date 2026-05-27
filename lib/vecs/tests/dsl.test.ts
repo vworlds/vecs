@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { _compile, getDSLKey, simplifyQueryDSL, type QueryDSL } from "../src/dsl.js";
-import { Relationship, World } from "../src/index.js";
+import { World } from "../src/index.js";
 import { Entity } from "../src/entity/index.js";
 import { Bitset } from "../src/util/bitset.js";
 
@@ -16,8 +16,6 @@ class Velocity {
 
 class Sprite {}
 class Container {}
-class Player {}
-class FriendOf extends Relationship {}
 
 describe("Query DSL simplification", () => {
   function registeredWorld(): World {
@@ -26,8 +24,6 @@ describe("Query DSL simplification", () => {
     world.component(Velocity, 11);
     world.component(Sprite, 12);
     world.component(Container, 13);
-    world.component(Player, 14);
-    world.component(FriendOf, 15);
     return world;
   }
 
@@ -64,14 +60,11 @@ describe("Query DSL simplification", () => {
     expect(simplifyQueryDSL({ OR: [{ OR: [Velocity] }] }, world)).toBe(11);
   });
 
-  it("simplifies children inside NOT and PARENT", () => {
+  it("simplifies children inside NOT", () => {
     const world = registeredWorld();
 
     expect(simplifyQueryDSL({ NOT: { AND: [Position, Velocity] } }, world)).toEqual({
       NOT: [10, 11],
-    });
-    expect(simplifyQueryDSL({ PARENT: { AND: [Player, Container] } }, world)).toEqual({
-      PARENT: [13, 14],
     });
   });
 
@@ -118,24 +111,6 @@ describe("Query DSL simplification", () => {
     expect(simplifyQueryDSL({ HAS_ONLY: [Velocity, Position] }, world)).toEqual({
       HAS_ONLY: [10, 11],
     });
-  });
-
-  it("converts relationship classes to numeric REL requirements", () => {
-    const world = registeredWorld();
-    const target = world.entity();
-
-    expect(simplifyQueryDSL({ REL: [FriendOf, target] }, world)).toEqual({
-      REL: [15, target],
-    });
-  });
-
-  it("rejects REL requirements for non-relationship components", () => {
-    const world = registeredWorld();
-    const target = world.entity();
-
-    expect(() => simplifyQueryDSL({ REL: [Position, target] }, world)).toThrow(
-      /not a Relationship/
-    );
   });
 
   it("sorts OR terms after converting component classes to type ids", () => {
@@ -261,7 +236,7 @@ describe("Query DSL compilation", () => {
 
   // Build a reference predicate by interpreting the simplified DSL with
   // `Bitset.hasBitset` so we have an independent oracle for the compiled
-  // form. We do not exercise PARENT / custom-function nodes here; the
+  // form. We do not exercise custom-function nodes here; the
   // compiled form delegates those to the same runtime helpers regardless.
   function referencePredicate(world: World, q: QueryDSL): (e: Entity) => boolean {
     const s = simplifyQueryDSL(q, world);
@@ -301,15 +276,6 @@ describe("Query DSL compilation", () => {
     }
     if ("NOT" in q) {
       return !evalReference(world, q.NOT, e);
-    }
-    if ("PARENT" in q) {
-      return e.parent ? evalReference(world, q.PARENT, e.parent) : false;
-    }
-    if ("REL" in q) {
-      const [component, target] = q.REL;
-      return (
-        (e._get(world.entity(component).eid) as { target?: Entity } | undefined)?.target === target
-      );
     }
     throw new Error("unrecognized term in reference evaluator");
   }

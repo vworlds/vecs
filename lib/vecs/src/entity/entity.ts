@@ -1,4 +1,5 @@
 import {
+  CleanupPolicy,
   ComponentMeta,
   type ComponentInstance,
   type ComponentClass,
@@ -9,8 +10,10 @@ import type { World } from "../world/index.js";
 import { CommandKind } from "../command.js";
 import { ArrayMap, ReadonlyArrayMap } from "../util/array_map.js";
 import { type Query } from "../query.js";
+import { Relationship } from "../relationship.js";
 import { Events } from "../util/events.js";
 import { Bitset } from "../util/bitset.js";
+import { DenseSet } from "../util/dense_set.js";
 import { PartialClass } from "../util/partial.js";
 
 type EntityEvents = Events<{ destroy(): void }>;
@@ -34,15 +37,11 @@ export type EntityClass<T extends Entity = Entity> = new (
  * e.set(Position, { x: 100 });
  * ```
  *
- * Entities support a parent-child hierarchy. `parent` and `children` form a
- * bidirectional link maintained by {@link setParent}; the children set is
- * created lazily. Destroying a parent recursively destroys its children.
- *
  * ## Deferred semantics
  *
  * Inside a system body or `forEach` iteration the world is in **deferred
- * mode**: `add` / `attach` / `set` / `modified` / `remove` / `destroy` /
- * `setParent` only enqueue commands. The data layer (the components map and
+ * mode**: `add` / `attach` / `set` / `modified` / `remove` / `destroy` only
+ * enqueue commands. The data layer (the components map and
  * `componentBitmask`) is mutated when the world drains its queue. Concretely,
  * while deferred:
  *
@@ -65,13 +64,11 @@ export class Entity extends PartialClass {
   /** @internal Set of queries this entity currently belongs to. */
   private readonly _queries = new Set<Query>();
 
-  /** @internal Empty children set used as the default `children` value. */
-  private static readonly _emptyChildren: ReadonlySet<Entity> = new Set();
+  /** @internal Empty incoming set used when no entities target this one. */
+  private static readonly _emptyIncoming: ReadonlySet<Entity> = new Set();
 
-  /** @internal Parent reference; `undefined` for root entities. */
-  private _parent: Entity | undefined;
-  /** @internal Children set, allocated lazily on first child link. */
-  private _children: Set<Entity> | undefined;
+  /** @internal Relationship eid -> source entities targeting this entity. */
+  private _incoming: ArrayMap<DenseSet<Entity>> | undefined;
 
   /**
    * Bitmask of component type ids currently attached to this entity. Used by
@@ -158,9 +155,6 @@ export class Entity extends PartialClass {
   ): void {
     this._runOnSetHandlers(meta, instance);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
-    if (meta.isRelationship) {
-      this._updateQueries(meta);
-    }
     if (isUpdate) {
       this._queries.forEach((q) => q._notifyModified(this, meta, instance));
     }
@@ -203,14 +197,18 @@ export class Entity extends PartialClass {
       return;
     }
     const existing = this._components.get(meta.eid);
+    const oldTarget = meta.isRelationship
+      ? (existing as Relationship | undefined)?.target
+      : undefined;
     this._storeComponent(meta, component, existing === undefined);
+    this._updateIncoming(meta, oldTarget, (component as Relationship).target);
     this._notifyComponentSet(meta, component, existing !== undefined);
   }
 
   /**
    * @internal Apply a `Destroy` command: fire `_exit` on every query, then
-   * `onRemove` on every component, emit the `destroy` event, and unlink from
-   * the world and any parent.
+   * `onRemove` on every component, emit the `destroy` event, unregister from
+   * the world, and apply incoming relationship cleanup policies.
    */
   public _destroy(): void {
     if (this._destroyed) {
@@ -232,6 +230,9 @@ export class Entity extends PartialClass {
 
     this._components.forEach((c, eid) => {
       const meta = this.world.entity(eid).ownMeta;
+      if (meta.isRelationship) {
+        this._removeIncoming((c as Relationship).target, eid);
+      }
       meta._decrementUsage();
       const removeHandlers = meta._onRemoveHandlers;
       if (removeHandlers) {
@@ -250,10 +251,7 @@ export class Entity extends PartialClass {
     }
 
     this.world._unregisterEntity(this);
-    if (this._parent) {
-      this._parent._children?.delete(this);
-      this._parent = undefined;
-    }
+    this._cleanupIncoming();
   }
 
   /**
@@ -307,6 +305,9 @@ export class Entity extends PartialClass {
     if (!c) {
       return;
     }
+    if (meta.isRelationship) {
+      this._removeIncoming((c as Relationship).target, meta.eid);
+    }
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
     this._updateQueries(meta);
@@ -336,52 +337,17 @@ export class Entity extends PartialClass {
       return;
     }
     const existing = this._components.get(meta.eid);
+    const oldTarget = meta.isRelationship
+      ? (existing as Relationship | undefined)?.target
+      : undefined;
     const c = existing ?? this._new(meta, props);
     if (props !== undefined) {
       if (existing) {
         Object.assign(c, props);
       }
+      this._updateIncoming(meta, oldTarget, (c as Relationship).target);
       this._notifyComponentSet(meta, c, existing !== undefined);
     }
-  }
-
-  /**
-   * @internal Reparent this entity in place, maintaining the bidirectional
-   * link. Throws if `newParent` is a descendant of this entity.
-   *
-   * Called by the world either inline (outside deferred mode) or while
-   * routing a queued `SetParent` command.
-   */
-  public _setParent(newParent: Entity | undefined): void {
-    if (this._destroyed) {
-      return;
-    }
-    if (newParent !== undefined) {
-      let ancestor: Entity | undefined = newParent;
-      while (ancestor !== undefined) {
-        if (ancestor === this) {
-          throw new Error(
-            `Circular parent reference: entity ${this.eid} is already an ancestor of entity ${newParent.eid}`
-          );
-        }
-        ancestor = ancestor._parent;
-      }
-    }
-    if (this._parent) {
-      this._parent._children?.delete(this);
-    }
-    this._parent = newParent;
-    if (newParent) {
-      (newParent._children ??= new Set()).add(this);
-    }
-  }
-
-  /**
-   * Read-only view of direct child entities. The backing set is created lazily
-   * on the first child link; before that this getter returns a shared empty set.
-   */
-  public get children(): ReadonlySet<Entity> {
-    return this._children ?? Entity._emptyChildren;
   }
 
   /**
@@ -416,11 +382,6 @@ export class Entity extends PartialClass {
       this._events = new Events();
     }
     return this._events;
-  }
-
-  /** Parent entity in the scene hierarchy, or `undefined` for a root entity. */
-  public get parent(): Entity | undefined {
-    return this._parent;
   }
 
   /** Metadata for using this entity's eid as a component key. Created lazily for plain entities. */
@@ -497,7 +458,7 @@ export class Entity extends PartialClass {
   }
 
   /**
-   * Destroy this entity and recursively destroy its children.
+   * Destroy this entity.
    *
    * Each component fires its `onRemove` hook, the `"destroy"` event is emitted
    * just before teardown, and the entity is unregistered from the world.
@@ -509,12 +470,11 @@ export class Entity extends PartialClass {
     } else {
       this._destroy();
     }
-    if (this._children) {
-      this._children.forEach((child) => {
-        child.destroy();
-      });
-      this._children.clear();
-    }
+  }
+
+  /** Return this entity's target through relationship `ref`, if present. */
+  public parent(ref: ComponentRef): Entity | undefined {
+    return (this._components.get(this.world.entity(ref).eid) as Relationship | undefined)?.target;
   }
 
   /**
@@ -639,18 +599,9 @@ export class Entity extends PartialClass {
     }
   }
 
-  /**
-   * Reparent this entity. In deferred mode the change is queued; outside
-   * deferred mode it executes inline.
-   *
-   * @param newParent - New parent, or `undefined` to make this a root entity.
-   */
-  public setParent(newParent: Entity | undefined): void {
-    if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.SetParent, entity: this, parent: newParent });
-    } else {
-      this._setParent(newParent);
-    }
+  /** Return entities targeting this one through relationship `ref`. */
+  public children(ref: ComponentRef): ReadonlySet<Entity> {
+    return this._incoming?.get(this.world.entity(ref).eid) ?? Entity._emptyIncoming;
   }
 
   /**
@@ -691,5 +642,54 @@ export class Entity extends PartialClass {
   /** Returns `"EntityN"` where N is the entity id. */
   public override toString(): string {
     return `Entity${this.eid}`;
+  }
+
+  private _addIncoming(target: Entity | undefined, relEid: number): void {
+    if (!target || target._destroyed) {
+      return;
+    }
+    let sources = target._incoming?.get(relEid);
+    if (!sources) {
+      sources = new DenseSet<Entity>();
+      (target._incoming ??= new ArrayMap()).set(relEid, sources);
+    }
+    sources.add(this);
+  }
+
+  private _cleanupIncoming(): void {
+    this._incoming?.forEach((sources, relEid) => {
+      const policy = this.world.entity(relEid).ownMeta.onDeleteTarget;
+      for (const source of [...sources]) {
+        if (policy === CleanupPolicy.Delete) {
+          source.destroy();
+        } else {
+          source.remove(relEid);
+        }
+      }
+    });
+    this._incoming = undefined;
+  }
+
+  private _removeIncoming(target: Entity | undefined, relEid: number): void {
+    const sources = target?._incoming?.get(relEid);
+    if (!sources) {
+      return;
+    }
+    sources.delete(this);
+    if (sources.size === 0) {
+      target!._incoming!.delete(relEid);
+    }
+  }
+
+  private _updateIncoming(
+    meta: ComponentMeta,
+    oldTarget: Entity | undefined,
+    newTarget: Entity | undefined
+  ): void {
+    if (!meta.isRelationship || oldTarget === newTarget) {
+      return;
+    }
+    this._removeIncoming(oldTarget, meta.eid);
+    this._addIncoming(newTarget, meta.eid);
   }
 }

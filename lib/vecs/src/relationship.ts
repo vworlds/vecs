@@ -4,3 +4,6 @@ import type { Entity } from "./entity/index.js";
 export abstract class Relationship {
   public target!: Entity;
 }
+
+/** Built-in parent-child relationship. */
+export class ChildOf extends Relationship {}

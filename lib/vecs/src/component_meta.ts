@@ -2,6 +2,11 @@ import { BitPtr } from "./util/bitset.js";
 import type { Entity, EntityClass } from "./entity/index.js";
 import { Relationship } from "./relationship.js";
 
+export enum CleanupPolicy {
+  Remove = "remove",
+  Delete = "delete",
+}
+
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
 
@@ -87,6 +92,11 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   public readonly bitPtr: BitPtr;
   /** Whether this component is a relationship pointing at another entity. */
   public readonly isRelationship: boolean;
+
+  /** Applied to entities carrying this component when this component entity is deleted. */
+  public onDelete = CleanupPolicy.Remove;
+  /** Applied to entities targeting a deleted entity through this relationship. */
+  public onDeleteTarget = CleanupPolicy.Remove;
 
   /**
    * @internal Peer metas of components that cannot coexist with this one on

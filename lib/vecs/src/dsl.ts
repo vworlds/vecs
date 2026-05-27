@@ -28,12 +28,6 @@ export type EntityTestFunc = (e: Entity) => boolean;
  *   AND: [Position, { OR: [Sprite, Container] }],
  * });
  *
- * // Parent has Player AND Container:
- * world.system("attach").query({
- *   PARENT: { AND: [Player, Container] },
- * });
- * ```
- *
  * Short forms recognized by `query` / `filter`:
  * - `true` matches all entities; `false` matches no entities.
  * - A registered component class or numeric type id is shorthand for `{ HAS: [C] }`.
@@ -55,9 +49,7 @@ export type QueryDSL =
   | { HAS_ONLY: ComponentRefArray | ComponentRef }
   | { AND: readonly QueryDSL[] }
   | { OR: readonly QueryDSL[] }
-  | { NOT: QueryDSL }
-  | { PARENT: QueryDSL }
-  | { REL: readonly [ComponentRef, Entity] };
+  | { NOT: QueryDSL };
 
 /**
  * Resolve component nullability based on what was declared in `requires` (or
@@ -85,7 +77,7 @@ export type MaybeRequired<C, R extends ComponentType[]> = C extends ComponentTyp
  * - `true` / `false` / `[]` → `[]` (no guarantee)
  * - `{ HAS: ... }` / `{ HAS_ONLY: ... }` → recurse into the payload
  * - `{ AND: [q1, q2, ...] }` → concatenate each branch's extraction
- * - `{ OR: ... }` / `{ NOT: ... }` / `{ PARENT: ... }` → `[]` (no guarantee)
+ * - `{ OR: ... }` / `{ NOT: ... }` → `[]` (no guarantee)
  * - `EntityTestFunc` / numeric type id → `[]` (opaque)
  *
  * @typeParam Q - Query expression to analyse.
@@ -98,13 +90,9 @@ export type ExtractRequired<Q> = Q extends ComponentType
       ? ExtractRequired<H>
       : Q extends { HAS_ONLY: infer H }
         ? ExtractRequired<H>
-        : Q extends { REL: readonly [infer C, Entity] }
-          ? C extends ComponentType
-            ? [C]
-            : []
-          : Q extends { AND: infer A extends readonly QueryDSL[] }
-            ? _ExtractAndChain<A>
-            : [];
+        : Q extends { AND: infer A extends readonly QueryDSL[] }
+          ? _ExtractAndChain<A>
+          : [];
 
 type _ExtractAndChain<A extends readonly QueryDSL[]> = A extends readonly [
   infer First,
@@ -152,14 +140,6 @@ function _calculateComponentBitmask(types: readonly number[]): Bitset {
 
 function _resolveComponentRequirement(component: ComponentRef, world: World): number {
   return world.entity(component).eid;
-}
-
-function _resolveRelationshipRequirement(component: ComponentRef, world: World): number {
-  const componentEntity = world.entity(component);
-  if (!componentEntity.ownMeta.isRelationship) {
-    throw new Error(`Component ${componentEntity.eid} is not a Relationship`);
-  }
-  return componentEntity.eid;
 }
 
 function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL {
@@ -246,13 +226,6 @@ function _termSortKey(q: QueryDSL): string {
   if ("NOT" in q) {
     return `4:${_termSortKey(q.NOT)}`;
   }
-  if ("PARENT" in q) {
-    return `4:${_termSortKey(q.PARENT)}`;
-  }
-  if ("REL" in q) {
-    const [component, target] = q.REL;
-    return `4:${_termSortKey(component)}:${target.eid}`;
-  }
   if ("HAS" in q) {
     return _termSortKey(q.HAS);
   }
@@ -306,11 +279,7 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
   if ("NOT" in q) {
     return ["NOT", _canonicalDSLKey(q.NOT)];
   }
-  if ("REL" in q) {
-    const [component, target] = q.REL;
-    return ["REL", component instanceof Entity ? component.eid : component, target.eid];
-  }
-  return ["PARENT", _canonicalDSLKey(q.PARENT)];
+  throw new Error("Unrecognized query term");
 }
 
 function _fnv1a32(input: string): number {
@@ -449,18 +418,6 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
     return { NOT: term };
   }
 
-  if ("PARENT" in q) {
-    const term = simplifyQueryDSL(q.PARENT, world);
-    if (term === false) {
-      return false;
-    }
-    return { PARENT: term };
-  }
-
-  if ("REL" in q) {
-    return { REL: [_resolveRelationshipRequirement(q.REL[0], world), world.entity(q.REL[1])] };
-  }
-
   return q;
 }
 
@@ -569,22 +526,6 @@ function _compileQueryExpression(
     return `!(${_compileQueryExpression(world, q.NOT, context, entityRef)})`;
   }
 
-  if ("PARENT" in q) {
-    return `(${entityRef}.parent ? (${_compileQueryExpression(world, q.PARENT, context, `${entityRef}.parent`)}) : false)`;
-  }
-
-  if ("REL" in q) {
-    const relationshipEid = _resolveRelationshipRequirement(q.REL[0], world);
-    const target = world.entity(q.REL[1]);
-    const relationshipMask = _compileMask(context, [relationshipEid], entityRef, "hasBitset");
-    const funcIndex =
-      context.funcs.push((e: Entity) => {
-        const relationship = e._get(relationshipEid) as { target?: Entity } | undefined;
-        return !target._destroyed && relationship?.target === target;
-      }) - 1;
-    return `(${relationshipMask})&&(f${funcIndex}(${entityRef}))`;
-  }
-
   throw "Unrecognized query term";
 }
 
@@ -640,10 +581,6 @@ export function _extractQueryDependencies(world: World, q: QueryDSL): number[] |
 
   if ("HAS" in q) {
     return _extractQueryDependencies(world, q.HAS);
-  }
-
-  if ("REL" in q) {
-    return [_resolveRelationshipRequirement(q.REL[0], world)];
   }
 
   if ("AND" in q) {

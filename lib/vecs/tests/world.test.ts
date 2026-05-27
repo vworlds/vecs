@@ -229,23 +229,23 @@ describe("World - components", () => {
 
   it("is idempotent for the same class and same eid", () => {
     const w = new World();
-    const component = w.component(A, 5);
+    const component = w.component(A, 50);
 
-    expect(w.component(A, 5)).toBe(component);
+    expect(w.component(A, 50)).toBe(component);
   });
 
   it("throws for a taken eid with a different class", () => {
     const w = new World();
-    w.component(A, 5);
+    w.component(A, 50);
 
-    expect(() => w.component(B, 5)).toThrow();
+    expect(() => w.component(B, 50)).toThrow();
   });
 
   it("throws for the same class at a different eid", () => {
     const w = new World();
-    w.component(A, 5);
+    w.component(A, 50);
 
-    expect(() => w.component(A, 6)).toThrow();
+    expect(() => w.component(A, 51)).toThrow();
   });
 
   it("lazily creates Object metadata for entity refs", () => {

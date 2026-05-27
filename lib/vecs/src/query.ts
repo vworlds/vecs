@@ -12,18 +12,8 @@ export type { EntityTestFunc, QueryDSL, MaybeRequired };
 type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => void;
 type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
-/** Component class, or `{ parent: ComponentClass }` to resolve from the entity's parent. */
-type ComponentOrParent = ComponentType | { parent: ComponentType };
-
-/** Component eid, or `{ parent: eid }` to resolve from the entity's parent. */
-type ComponentOrParentType = number | { parent: number };
-
-/** Resolves the component instance type for one element of a `ComponentOrParent` tuple. */
-type ResolvedComponentInstance<T> = T extends { parent: ComponentType }
-  ? InstanceType<T["parent"]>
-  : T extends ComponentType
-    ? InstanceType<T>
-    : never;
+/** Resolves the component instance type for one injected component class. */
+type ResolvedComponentInstance<T> = T extends ComponentType ? InstanceType<T> : never;
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
 
@@ -183,23 +173,19 @@ export class Query<R extends ComponentType[] = []> {
    */
   private _getComponent(
     e: Entity,
-    C: ComponentOrParentType,
+    C: number,
     exitSnapshot?: Map<number, ComponentInstance>
   ): ComponentInstance | undefined {
-    if (typeof C === "number") {
-      return exitSnapshot?.get(C) ?? e.get(C);
-    } else {
-      return e.parent?.get(C.parent);
-    }
+    return exitSnapshot?.get(C) ?? e.get(C);
   }
 
   /**
    * @internal Resolve every element of an `inject` tuple, throwing if any
-   * required component is missing on the entity (or its parent).
+   * required component is missing on the entity.
    */
   private _getInjected(
     e: Entity,
-    inject: ComponentOrParentType[],
+    inject: number[],
     exitSnapshot?: Map<number, ComponentInstance>
   ): ComponentInstance[] {
     const injected: ComponentInstance[] = [];
@@ -214,18 +200,11 @@ export class Query<R extends ComponentType[] = []> {
   }
 
   /**
-   * @internal Translate a tuple of component classes (or `{ parent: C }`
-   * markers) into the corresponding eids understood by {@link _getInjected}.
+   * @internal Translate a tuple of component classes into the corresponding
+   * eids understood by {@link _getInjected}.
    */
-  private _mapInjectedClassToTypes<J extends ComponentOrParent[]>(
-    inject: readonly [...J]
-  ): ComponentOrParentType[] {
-    return inject.map((C) => {
-      if (typeof C === "function") {
-        return this.world.entity(C).eid;
-      }
-      return { parent: this.world.entity(C.parent).eid };
-    });
+  private _mapInjectedClassToTypes<J extends ComponentType[]>(inject: readonly [...J]): number[] {
+    return inject.map((C) => this.world.entity(C).eid);
   }
 
   /**
@@ -393,8 +372,8 @@ export class Query<R extends ComponentType[] = []> {
    * Register a callback invoked when an entity **enters** this query (i.e.
    * first satisfies the predicate), with injected components.
    *
-   * @param inject - Ordered list of component classes (or `{ parent: C }`) to
-   *   resolve from the entering entity and pass to `callback`.
+   * @param inject - Ordered list of component classes to resolve from the
+   *   entering entity and pass to `callback`.
    * @param callback - Receives the entity and the resolved component tuple.
    * @returns This query, for chaining.
    *
@@ -406,7 +385,7 @@ export class Query<R extends ComponentType[] = []> {
    * });
    * ```
    */
-  public enter<J extends ComponentOrParent[]>(
+  public enter<J extends ComponentType[]>(
     inject: readonly [...J],
     callback: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
   ): this;
@@ -419,7 +398,7 @@ export class Query<R extends ComponentType[] = []> {
    */
   public enter(callback: (e: Entity) => void): this;
 
-  public enter<J extends ComponentOrParent[]>(
+  public enter<J extends ComponentType[]>(
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
   ): this {
@@ -447,7 +426,7 @@ export class Query<R extends ComponentType[] = []> {
    * @param callback - Receives the entity and the resolved component tuple.
    * @returns This query, for chaining.
    */
-  public exit<J extends ComponentOrParent[]>(
+  public exit<J extends ComponentType[]>(
     inject: readonly [...J],
     callback: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
   ): this;
@@ -460,7 +439,7 @@ export class Query<R extends ComponentType[] = []> {
    */
   public exit(callback: (e: Entity) => void): this;
 
-  public exit<J extends ComponentOrParent[]>(
+  public exit<J extends ComponentType[]>(
     injectOrCallback: readonly [...J] | ((e: Entity) => void),
     callback?: (e: Entity, injected: { [K in keyof J]: ResolvedComponentInstance<J[K]> }) => void
   ): this {
@@ -470,7 +449,7 @@ export class Query<R extends ComponentType[] = []> {
       this._exitSnapshotTypes = undefined;
     } else {
       const inject = this._mapInjectedClassToTypes(injectOrCallback);
-      this._exitSnapshotTypes = inject.filter((t): t is number => typeof t === "number");
+      this._exitSnapshotTypes = inject;
       this._exitCallback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
         callback!(e, this._getInjected(e, inject, exitSnapshot) as any);
       };

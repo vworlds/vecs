@@ -2,6 +2,7 @@ import { Entity } from "./entity/index.js";
 import type { ComponentClass, ComponentInstance, ComponentType } from "./component_meta.js";
 
 export {
+  CleanupPolicy,
   ComponentMeta,
   type ComponentClass,
   type ComponentInstance,

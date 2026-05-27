@@ -2,8 +2,9 @@ export { System, type SystemQuery } from "./system.js";
 export { Query } from "./query.js";
 export { DEFAULT_POOLS, World, type WorldOptions } from "./world/index.js";
 export { Filter } from "./filter.js";
-export { Relationship } from "./relationship.js";
+export { ChildOf, Relationship } from "./relationship.js";
 export {
+  CleanupPolicy,
   Component,
   type ComponentInstance,
   type ComponentClass,

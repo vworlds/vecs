@@ -66,9 +66,6 @@ export class Deferred extends Queries {
       case CommandKind.Destroy:
         cmd.entity._destroy();
         return;
-      case CommandKind.SetParent:
-        cmd.entity._setParent(cmd.parent);
-        return;
       case CommandKind.Attach:
         cmd.entity._attach(cmd.meta, cmd.component);
         return;

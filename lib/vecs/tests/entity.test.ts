@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { ChildOf, Relationship, World } from "../src/index.js";
 import { makeWorldWithFlushPhase } from "./_helpers.js";
 
 class Position {
@@ -9,6 +9,7 @@ class Position {
 class Velocity {
   vx = 0;
 }
+class FriendOf extends Relationship {}
 
 describe("Entity — components", () => {
   it("add returns the entity for chaining", () => {
@@ -32,9 +33,9 @@ describe("Entity — components", () => {
 
   it("add(typeId) works with numeric type ids", () => {
     const w = new World();
-    w.component(Position, 5);
+    w.component(Position, 50);
     const e = w.entity();
-    const pos = e.add(5).get(5);
+    const pos = e.add(50).get(50);
     expect(pos).toBeInstanceOf(Position);
   });
 
@@ -347,7 +348,7 @@ describe("Entity — components", () => {
   });
 });
 
-describe("Entity — lifecycle and hierarchy", () => {
+describe("Entity — lifecycle and relationships", () => {
   it("destroy emits the 'destroy' event", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
@@ -367,34 +368,38 @@ describe("Entity — lifecycle and hierarchy", () => {
     expect(() => env.w.entity(e.eid)).toThrow();
   });
 
-  it("destroy recursively destroys children", () => {
+  it("destroy cascades through ChildOf relationships", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
     const parent = env.w.entity();
     const child = env.w.entity();
-    child.setParent(parent);
+    const grandchild = env.w.entity();
+    child.set(ChildOf, { target: parent });
+    grandchild.set(ChildOf, { target: child });
 
     const childDestroyed = vi.fn();
     child.events.on("destroy", childDestroyed);
     parent.destroy();
     env.tick();
     expect(childDestroyed).toHaveBeenCalled();
+    expect(() => env.w.entity(grandchild.eid)).toThrow();
     expect(() => env.w.entity(child.eid)).toThrow();
     expect(() => env.w.entity(parent.eid)).toThrow();
   });
 
-  it("destroy unlinks from parent and triggers parent's archetype update", () => {
+  it("default relationship cleanup removes the component when the target is destroyed", () => {
     const env = makeWorldWithFlushPhase();
+    env.w.component(FriendOf);
     env.start();
-    const parent = env.w.entity();
-    const child = env.w.entity();
-    child.setParent(parent);
+    const target = env.w.entity();
+    const source = env.w.entity().set(FriendOf, { target });
 
-    child.destroy();
+    target.destroy();
     env.tick();
-    expect(parent.children.has(child)).toBe(false);
-    expect(child.parent).toBeUndefined();
-    expect(env.w.entity(parent.eid)).toBe(parent);
+
+    expect(source._destroyed).toBe(false);
+    expect(source.get(FriendOf)).toBeUndefined();
+    expect(() => env.w.entity(target.eid)).toThrow();
   });
 
   it("destroy is re-entrant safe", () => {
@@ -407,23 +412,10 @@ describe("Entity — lifecycle and hierarchy", () => {
     expect(cb).toHaveBeenCalledTimes(1);
   });
 
-  it("_setParent does not mutate a destroyed entity", () => {
-    const env = makeWorldWithFlushPhase();
-    env.start();
-    const parent = env.w.entity();
-    const child = env.w.entity();
-
-    child.destroy();
-    child._setParent(parent);
-
-    expect(child.parent).toBeUndefined();
-    expect(parent.children.has(child)).toBe(false);
-  });
-
-  it("children returns an empty ReadonlySet before any child is added", () => {
+  it("children(ref) returns an empty ReadonlySet before any child is added", () => {
     const w = new World();
     const e = w.entity();
-    expect(e.children.size).toBe(0);
+    expect(e.children(ChildOf).size).toBe(0);
   });
 
   it("properties is a free-form map", () => {
@@ -434,65 +426,57 @@ describe("Entity — lifecycle and hierarchy", () => {
   });
 });
 
-describe("Entity — setParent / parent hierarchy", () => {
-  it("setParent links parent and child bidirectionally", () => {
+describe("Entity — relationship navigation", () => {
+  it("ChildOf links parent and child bidirectionally", () => {
     const w = new World();
     const parent = w.entity();
     const child = w.entity();
-    child.setParent(parent);
-    expect(child.parent).toBe(parent);
-    expect(parent.children.has(child)).toBe(true);
+    child.set(ChildOf, { target: parent });
+    expect(child.parent(ChildOf)).toBe(parent);
+    expect(parent.children(ChildOf).has(child)).toBe(true);
   });
 
-  it("setParent(undefined) unlinks from parent", () => {
+  it("remove(ChildOf) unlinks from parent", () => {
     const w = new World();
     const parent = w.entity();
     const child = w.entity();
-    child.setParent(parent);
-    child.setParent(undefined);
-    expect(child.parent).toBeUndefined();
-    expect(parent.children.has(child)).toBe(false);
+    child.set(ChildOf, { target: parent });
+    child.remove(ChildOf);
+    expect(child.parent(ChildOf)).toBeUndefined();
+    expect(parent.children(ChildOf).has(child)).toBe(false);
   });
 
-  it("setParent moves child from old parent to new parent", () => {
+  it("set(ChildOf) moves child from old parent to new parent", () => {
     const w = new World();
     const p1 = w.entity();
     const p2 = w.entity();
     const child = w.entity();
-    child.setParent(p1);
-    child.setParent(p2);
-    expect(child.parent).toBe(p2);
-    expect(p1.children.has(child)).toBe(false);
-    expect(p2.children.has(child)).toBe(true);
+    child.set(ChildOf, { target: p1 });
+    child.set(ChildOf, { target: p2 });
+    expect(child.parent(ChildOf)).toBe(p2);
+    expect(p1.children(ChildOf).has(child)).toBe(false);
+    expect(p2.children(ChildOf).has(child)).toBe(true);
   });
 
-  it("_setParent throws on direct circular reference", () => {
+  it("source destroy cleans the target's incoming set", () => {
     const w = new World();
-    const a = w.entity();
-    expect(() => a.setParent(a)).toThrow();
+    const parent = w.entity();
+    const child = w.entity().set(ChildOf, { target: parent });
+    child.destroy();
+    expect(parent.children(ChildOf).has(child)).toBe(false);
   });
 
-  it("_setParent throws on indirect circular reference", () => {
-    const w = new World();
-    const a = w.entity();
-    const b = w.entity();
-    const c = w.entity();
-    b.setParent(a);
-    c.setParent(b);
-    expect(() => a.setParent(c)).toThrow();
-  });
-
-  it("setParent in deferred mode is not visible until queue drains", () => {
+  it("set(ChildOf) in deferred mode is not visible until queue drains", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
     const parent = env.w.entity();
     const child = env.w.entity();
     env.w.beginDefer();
-    child.setParent(parent);
-    expect(child.parent).toBeUndefined();
-    expect(parent.children.has(child)).toBe(false);
+    child.set(ChildOf, { target: parent });
+    expect(child.parent(ChildOf)).toBeUndefined();
+    expect(parent.children(ChildOf).has(child)).toBe(false);
     env.w.endDefer();
-    expect(child.parent).toBe(parent);
-    expect(parent.children.has(child)).toBe(true);
+    expect(child.parent(ChildOf)).toBe(parent);
+    expect(parent.children(ChildOf).has(child)).toBe(true);
   });
 });

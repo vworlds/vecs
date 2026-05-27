@@ -120,7 +120,7 @@ for (let tick = 0; tick < 5; tick++) {
 
 ## Deferred mode
 
-Inside a system body, a `Query.forEach`, or any `world.defer(...)` block, the world is in **deferred mode**: entity mutations (`add` / `attach` / `set` / `remove` / `destroy` / `setParent` / `modified`) are queued instead of applied inline. The queue drains on the boundary that opened the deferred scope.
+Inside a system body, a `Query.forEach`, or any `world.defer(...)` block, the world is in **deferred mode**: entity mutations (`add` / `attach` / `set` / `remove` / `destroy` / `modified`) are queued instead of applied inline. The queue drains on the boundary that opened the deferred scope.
 
 Concretely, while deferred:
 
@@ -424,12 +424,11 @@ Created via `world.entity()` (auto-assigned id) or `world.getOrCreateEntity(id, 
 | `get(Class)`        | Return the component as a readonly-typed value, or `undefined`.                                                                               |
 | `getMut(Class)`     | Mark the component modified and return the mutable instance, or `undefined`.                                                                  |
 | `remove(Class)`     | Detach a component (fires `onRemove` and `exit`).                                                                                             |
-| `destroy()`         | Remove all components, unregister from the world, recurse into children.                                                                      |
+| `destroy()`         | Remove all components, unregister from the world, then applies incoming relationship cleanup policies.                                        |
 | `components`        | `ReadonlyArrayMap<ComponentInstance>` — read-only view of attached components keyed by type id. Supports `forEach`, `get`, `has`, and `size`. |
 | `empty`             | `true` when no components are attached.                                                                                                       |
-| `parent`            | Parent entity, or `undefined` for a root entity.                                                                                              |
-| `children`          | `ReadonlySet<Entity>` of direct children (lazy).                                                                                              |
-| `setParent(p)`      | Reparent the entity. `undefined` makes it a root entity. Throws on cycles.                                                                    |
+| `parent(ref)`       | Target entity for relationship component `ref`, or `undefined`.                                                                               |
+| `children(ref)`     | `ReadonlySet<Entity>` of entities targeting this one through relationship component `ref`.                                                    |
 | `events`            | Typed event emitter. Currently emits `"destroy"` just before teardown.                                                                        |
 | `toString()`        | Returns `"EntityN"`.                                                                                                                          |
 
@@ -442,17 +441,40 @@ vel.vx += accel;
 
 Use `entity.attach(instance)` when component ownership is intentionally shared with caller code or another object graph. The instance constructor must be registered in the entity's world; unregistered instances throw. If the component belongs to an exclusive component group, conflicting components are removed before the instance is stored.
 
-#### Parent / child hierarchy
+#### Relationships and parent / child hierarchy
 
 ```ts
-child.setParent(parent);
-parent.children.has(child); // true
+import { ChildOf, Relationship } from "@vworlds/vecs";
 
-// Destroying a parent recursively destroys all children:
+child.set(ChildOf, { target: parent });
+child.parent(ChildOf) === parent; // true
+parent.children(ChildOf).has(child); // true
+
+// ChildOf is configured with CleanupPolicy.Delete, so destroying a parent
+// recursively destroys children that target it through ChildOf:
 parent.destroy();
 ```
 
-`setParent` throws if the new parent is a descendant of the entity. Archetype queries that use `{ PARENT: ... }` are re-evaluated automatically when a parent's component set changes.
+Any component that extends `Relationship` can point at another entity through its `target` field. The source entity stores the relationship component; the target entity can enumerate sources with `children(ref)`.
+
+```ts
+class EquippedBy extends Relationship {}
+
+item.set(EquippedBy, { target: player });
+item.parent(EquippedBy); // player
+player.children(EquippedBy).has(item); // true
+```
+
+Relationship cleanup is controlled by component metadata:
+
+| Policy                 | Meaning                                                                                      |
+| ---------------------- | -------------------------------------------------------------------------------------------- |
+| `CleanupPolicy.Remove` | Default. When a target is destroyed, remove the relationship component from each source.     |
+| `CleanupPolicy.Delete` | When a target is destroyed, destroy each source entity that targets it through the relation. |
+
+`ChildOf` is registered by every `World` and uses `CleanupPolicy.Delete`. Custom relationships default to `Remove`; set `world.component(MyRelationship).ownMeta.onDeleteTarget = CleanupPolicy.Delete` if target deletion should cascade.
+
+Relationship-aware query operators are temporarily removed while the query DSL is redesigned. Use entity navigation (`parent(ref)` / `children(ref)`) or a custom predicate function for relationship-sensitive scans in this iteration.
 
 ---
 
@@ -467,7 +489,6 @@ Declare which entities the system tracks.
 ```ts
 .requires(Position, Velocity)                                    // shorthand for HAS
 .query({ HAS: [Position, Velocity] })                            // explicit
-.query({ PARENT: { AND: [Player, Container] } })                 // parent-aware
 .query({ AND: [Position, { OR: [Sprite, Container] }] })         // compound
 .query({ NOT: Invisible })
 ```
@@ -481,10 +502,11 @@ Declare which entities the system tracks.
 | `{ AND: [q1, q2] }`    | Both sub-queries must match              |
 | `{ OR: [q1, q2] }`     | Either sub-query matches                 |
 | `{ NOT: q }`           | Sub-query must not match                 |
-| `{ PARENT: q }`        | Entity's parent matches q                |
 | An array `[A, B]`      | Shorthand for `{ HAS: [A, B] }`          |
 | A single class / id    | Shorthand for `{ HAS: [C] }`             |
 | A predicate function   | Custom membership logic                  |
+
+Relationship-aware query operators are temporarily unavailable. Parent/child relationships are represented by `ChildOf`, but queries no longer support `PARENT`, `REL`, or `{ parent: C }` injection.
 
 Class-valued query terms are recognized as components by looking up registered metadata for the current world. Register component classes before using them in a `QueryDSL`; an unregistered class is treated like a predicate function and will fail if it cannot be called that way.
 
@@ -515,11 +537,6 @@ Fires once when an entity first matches the system.
 .enter([Position, Sprite], (e, [pos, sprite]) => {
   sprite.setPosition(pos.x, pos.y);
 })
-
-// Resolve from the entity's parent:
-.enter([{ parent: Container }], (e, [container]) => {
-  container.add(e.get(Sprite)!.gameObject);
-});
 ```
 
 #### `.exit(callback)` / `.exit(inject, callback)`
@@ -675,7 +692,7 @@ const f = world.filter([Position, Velocity]);
 // Auto-deduced — both non-null:
 world.filter([Position, Velocity]).forEach([Position, Velocity], (e, [pos, vel]) => { ... });
 
-// Manual hint for OR / NOT / PARENT / custom function:
+// Manual hint for OR / NOT / custom function:
 world.filter({ OR: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
 ```
 

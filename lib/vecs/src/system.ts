@@ -69,8 +69,7 @@ type _SystemInboxEvent =
  *
  * `enter`, `exit`, `update`, `each`, and `sort` accept an array of component
  * classes resolved from the entity and passed as a typed tuple to the
- * callback. Use `{ parent: SomeComponent }` to resolve from the entity's
- * parent instead of the entity itself.
+ * callback.
  *
  * Components declared via {@link requires} (or the `_guaranteed` argument of
  * {@link query}) are tracked as the type parameter `R`. Inside `sort`,

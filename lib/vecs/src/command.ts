@@ -12,13 +12,12 @@ export const enum CommandKind {
   Modified,
   Remove,
   Destroy,
-  SetParent,
   Attach,
 }
 
 /**
  * One queued mutation produced by an {@link Entity} method (`add`, `attach`,
- * `set`, `remove`, `destroy`, `setParent`) or by `Entity.modified`, and routed by
+ * `set`, `remove`, `destroy`) or by `Entity.modified`, and routed by
  * {@link World} during command-queue processing.
  *
  * In deferred mode the command is appended to `World`'s queue and applied at a
@@ -46,5 +45,4 @@ export type Command =
     }
   | { kind: CommandKind.Modified; entity: Entity; meta: ComponentMeta }
   | { kind: CommandKind.Remove; entity: Entity; meta: ComponentMeta }
-  | { kind: CommandKind.Destroy; entity: Entity }
-  | { kind: CommandKind.SetParent; entity: Entity; parent: Entity | undefined };
+  | { kind: CommandKind.Destroy; entity: Entity };

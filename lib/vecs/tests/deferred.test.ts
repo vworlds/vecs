@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { ChildOf, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -272,7 +272,7 @@ describe("Deferred mode — parent destruction", () => {
     const parent = w.entity();
     parentEid = parent.eid;
     const child = w.entity();
-    child.setParent(parent);
+    child.set(ChildOf, { target: parent });
     child.add(Position);
     tick(); // settle enter
     parent.destroy();
