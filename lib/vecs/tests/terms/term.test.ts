@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Relationship, World } from "../../src/index.js";
+import { describe, it, expect, vi } from "vitest";
+import { Relationship, World, TermEventKind } from "../../src/index.js";
+import type { Entity, Term, TermConsumer } from "../../src/index.js";
 
 class Position {
   x = 0;
@@ -38,6 +39,24 @@ function setupWithFlush() {
   return { w, tick: () => w.progress(0, 0) };
 }
 
+/**
+ * Subscribe to a term's single ordered event stream and expose enter/exit spies.
+ * The consumer receives discrete `(kind, entity)` params — no per-event object —
+ * matching the canonical `TermConsumer` protocol. Returns the `unsubscribe` fn
+ * so lifetime tests can drop the consumer.
+ */
+function listen(term: Term) {
+  const enter = vi.fn<[Entity], void>();
+  const exit = vi.fn<[Entity], void>();
+  const consumer: TermConsumer = {
+    onTermEvent(kind: TermEventKind, entity: Entity) {
+      (kind === TermEventKind.Enter ? enter : exit)(entity);
+    },
+  };
+  const unsubscribe = term.subscribe(consumer);
+  return { enter, exit, consumer, unsubscribe };
+}
+
 // ---------------------------------------------------------------------------
 // Phase 1: Term base + leaves + recursive propagation
 // ---------------------------------------------------------------------------
@@ -73,22 +92,18 @@ describe("Term — WorldTerm (all live entities)", () => {
     expect(term.count).toBe(1);
   });
 
-  it("propagates enter to consumers when an entity is created", () => {
+  it("emits an enter event when an entity is created", () => {
     const w = setup();
-    const consumer = vi.fn();
     const term = w.getTerm(true);
-    term.onEnter(consumer);
+    const { enter } = listen(term);
     const e = w.entity();
-    expect(consumer).toHaveBeenCalledWith(e);
+    expect(enter).toHaveBeenCalledWith(e);
   });
 
-  it("propagates exit to consumers when an entity is destroyed", () => {
+  it("emits an exit event when an entity is destroyed", () => {
     const w = setup();
-    const enter = vi.fn();
-    const exit = vi.fn();
     const term = w.getTerm(true);
-    term.onEnter(enter);
-    term.onExit(exit);
+    const { enter, exit } = listen(term);
     const e = w.entity();
     enter.mockClear();
     expect(exit).not.toHaveBeenCalled();
@@ -96,10 +111,10 @@ describe("Term — WorldTerm (all live entities)", () => {
     expect(exit).toHaveBeenCalledWith(e);
   });
 
-  it("is a world-owned leaf — persists after all consumers release it", () => {
+  it("is a world-owned leaf — persists after consumers unsubscribe", () => {
     const w = setup();
     const term = w.getTerm(true);
-    term.release();
+    listen(term).unsubscribe();
     expect(w.getTerm(true)).toBe(term);
   });
 });
@@ -120,22 +135,20 @@ describe("Term — ComponentTerm (entities with a component)", () => {
     expect(term.has(e)).toBe(false);
   });
 
-  it("adds entity on add(Component)", () => {
+  it("emits enter on add(Component)", () => {
     const w = setup();
-    const enter = vi.fn();
     const term = w.getTerm(Position);
-    term.onEnter(enter);
+    const { enter } = listen(term);
     const e = w.entity();
     e.add(Position);
     expect(term.has(e)).toBe(true);
     expect(enter).toHaveBeenCalledWith(e);
   });
 
-  it("removes entity on remove(Component)", () => {
+  it("emits exit on remove(Component)", () => {
     const w = setup();
-    const exit = vi.fn();
     const term = w.getTerm(Position);
-    term.onExit(exit);
+    const { exit } = listen(term);
     const e = w.entity();
     e.add(Position);
     e.remove(Position);
@@ -143,11 +156,10 @@ describe("Term — ComponentTerm (entities with a component)", () => {
     expect(exit).toHaveBeenCalledWith(e);
   });
 
-  it("removes entity on destroy()", () => {
+  it("emits exit on destroy()", () => {
     const w = setup();
-    const exit = vi.fn();
     const term = w.getTerm(Position);
-    term.onExit(exit);
+    const { exit } = listen(term);
     const e = w.entity();
     e.add(Position);
     e.destroy();
@@ -157,29 +169,12 @@ describe("Term — ComponentTerm (entities with a component)", () => {
 
   it("sharing: same component resolves to same term", () => {
     const w = setup();
-    const t1 = w.getTerm(Position);
-    const t2 = w.getTerm(Position);
-    expect(t1).toBe(t2);
+    expect(w.getTerm(Position)).toBe(w.getTerm(Position));
   });
 
   it("different components resolve to different terms", () => {
     const w = setup();
-    const t1 = w.getTerm(Position);
-    const t2 = w.getTerm(Velocity);
-    expect(t1).not.toBe(t2);
-  });
-
-  it("exit snapshot captures component data before physical removal", () => {
-    const w = setup();
-    const exit = vi.fn();
-    const term = w.getTerm(Position);
-    term.onExit(exit);
-    const e = w.entity();
-    const pos = e.add(Position).get(Position)!;
-    e.remove(Position);
-    expect(exit).toHaveBeenCalledWith(e, expect.any(Map));
-    const snapshot = exit.mock.calls[0][1] as Map<number, unknown>;
-    expect(snapshot.get(w.entity(Position).eid)).toBe(pos);
+    expect(w.getTerm(Position)).not.toBe(w.getTerm(Velocity));
   });
 
   it("tracks count accurately", () => {
@@ -196,10 +191,10 @@ describe("Term — ComponentTerm (entities with a component)", () => {
     expect(term.count).toBe(1);
   });
 
-  it("is a world-owned leaf — persists after consumer release", () => {
+  it("is a world-owned leaf — persists after consumers unsubscribe", () => {
     const w = setup();
     const term = w.getTerm(Position);
-    term.release();
+    listen(term).unsubscribe();
     expect(w.getTerm(Position)).toBe(term);
   });
 });
@@ -214,22 +209,21 @@ describe("Term — EmptyTerm", () => {
     expect(term.count).toBe(0);
   });
 
-  it("never fires consumer callbacks", () => {
+  it("never emits events", () => {
     const w = setup();
-    const enter = vi.fn();
     const term = w.getTerm(false);
-    term.onEnter(enter);
+    const { enter, exit } = listen(term);
     w.entity().add(Position);
     expect(enter).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
   });
 });
 
 describe("Term — propagation through composites", () => {
   it("adding a component propagates through AllTerm", () => {
     const w = setup();
-    const enter = vi.fn();
     const term = w.getTerm({ all: [Position, Velocity] });
-    term.onEnter(enter);
+    const { enter } = listen(term);
     const e = w.entity();
     e.add(Position);
     expect(enter).not.toHaveBeenCalled();
@@ -239,9 +233,8 @@ describe("Term — propagation through composites", () => {
 
   it("removing a component propagates through NotTerm", () => {
     const w = setup();
-    const enter = vi.fn();
     const term = w.getTerm({ not: Velocity });
-    term.onEnter(enter);
+    const { enter } = listen(term);
     const e = w.entity();
     e.add(Velocity);
     enter.mockClear();
@@ -249,27 +242,27 @@ describe("Term — propagation through composites", () => {
     expect(enter).toHaveBeenCalledWith(e);
   });
 
-  it("composite enter and exit fire correctly for all([P, not(V)])", () => {
+  it("composite enter and exit fire in order for all([P, not(V)])", () => {
     const w = setup();
-    const events: string[] = [];
     const term = w.getTerm({ all: [Position, { not: Velocity }] });
-    term.onEnter(() => events.push("enter"));
-    term.onExit(() => events.push("exit"));
+    const { enter, exit } = listen(term);
 
     const e = w.entity();
     e.add(Position);
-    expect(events).toEqual(["enter"]);
+    expect(enter).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledTimes(0);
     e.add(Velocity);
-    expect(events).toEqual(["enter", "exit"]);
+    expect(enter).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledTimes(1);
     e.remove(Velocity);
-    expect(events).toEqual(["enter", "exit", "enter"]);
+    expect(enter).toHaveBeenCalledTimes(2);
+    expect(exit).toHaveBeenCalledTimes(1);
   });
 
   it("destroy propagates exit through composite terms", () => {
     const w = setup();
-    const exit = vi.fn();
     const term = w.getTerm({ all: [Position, Velocity] });
-    term.onExit(exit);
+    const { exit } = listen(term);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
@@ -279,13 +272,10 @@ describe("Term — propagation through composites", () => {
 
   it("nested all/any/not propagates membership changes correctly", () => {
     const w = setup();
-    const enter = vi.fn();
-    const exit = vi.fn();
     const term = w.getTerm({
       all: [Position, { any: [Velocity, Sprite] }, { not: Container }],
     });
-    term.onEnter(enter);
-    term.onExit(exit);
+    const { enter, exit } = listen(term);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
@@ -302,11 +292,8 @@ describe("Term — propagation through composites", () => {
 
   it("re-enter after exit fires exactly one enter", () => {
     const w = setup();
-    const enter = vi.fn();
-    const exit = vi.fn();
     const term = w.getTerm({ all: [Position, Velocity] });
-    term.onEnter(enter);
-    term.onExit(exit);
+    const { enter, exit } = listen(term);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
@@ -325,35 +312,27 @@ describe("Term — propagation through composites", () => {
 // ---------------------------------------------------------------------------
 
 describe("Term — canonical-key deduplication via getTerm", () => {
-  it("getTerm returns identical term for equivalent DSL Position === [Position]", () => {
+  it("Position === [Position]", () => {
     const w = setup();
-    const t1 = w.getTerm(Position);
-    const t2 = w.getTerm([Position]);
-    expect(t1).toBe(t2);
+    expect(w.getTerm(Position)).toBe(w.getTerm([Position]));
   });
 
-  it("getTerm returns identical term for all([A, B]) vs [A, B]", () => {
+  it("all([A, B]) === [A, B]", () => {
     const w = setup();
-    const t1 = w.getTerm([Position, Velocity]);
-    const t2 = w.getTerm({ all: [Position, Velocity] });
-    expect(t1).toBe(t2);
+    expect(w.getTerm([Position, Velocity])).toBe(w.getTerm({ all: [Position, Velocity] }));
   });
 
-  it("getTerm returns identical term for any([A, B]) vs any([B, A])", () => {
+  it("any([A, B]) === any([B, A])", () => {
     const w = setup();
-    const t1 = w.getTerm({ any: [Position, Velocity] });
-    const t2 = w.getTerm({ any: [Velocity, Position] });
-    expect(t1).toBe(t2);
+    expect(w.getTerm({ any: [Position, Velocity] })).toBe(w.getTerm({ any: [Velocity, Position] }));
   });
 
-  it("getTerm returns identical term for repeated not(A)", () => {
+  it("repeated not(A) dedups", () => {
     const w = setup();
-    const t1 = w.getTerm({ not: Position });
-    const t2 = w.getTerm({ not: Position });
-    expect(t1).toBe(t2);
+    expect(w.getTerm({ not: Position })).toBe(w.getTerm({ not: Position }));
   });
 
-  it("shared subexpressions reuse the same term node", () => {
+  it("shared subexpressions reuse the same child term node", () => {
     const w = setup();
     const posTerm = w.getTerm(Position);
     const allTerm = w.getTerm({ all: [Position, Velocity] });
@@ -363,9 +342,7 @@ describe("Term — canonical-key deduplication via getTerm", () => {
   it("cross-query sharing: two queries with same DSL share the root term", () => {
     const w = setup();
     const dsl = { all: [Position, Velocity] };
-    const t1 = w.getTerm(dsl);
-    const t2 = w.getTerm(dsl);
-    expect(t1).toBe(t2);
+    expect(w.getTerm(dsl)).toBe(w.getTerm(dsl));
   });
 });
 
@@ -382,9 +359,8 @@ describe("Term — AllTerm", () => {
 
   it("exits when entity loses any required component", () => {
     const w = setup();
-    const exit = vi.fn();
     const term = w.getTerm({ all: [Position, Velocity] });
-    term.onExit(exit);
+    const { exit } = listen(term);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
@@ -425,9 +401,8 @@ describe("Term — AnyTerm", () => {
 
   it("does not re-enter when entity gains additional matching component", () => {
     const w = setup();
-    const enter = vi.fn();
     const term = w.getTerm({ any: [Position, Velocity] });
-    term.onEnter(enter);
+    const { enter } = listen(term);
     const e = w.entity();
     e.add(Position);
     expect(enter).toHaveBeenCalledTimes(1);
@@ -437,9 +412,8 @@ describe("Term — AnyTerm", () => {
 
   it("exits only when entity loses all matching components", () => {
     const w = setup();
-    const exit = vi.fn();
     const term = w.getTerm({ any: [Position, Velocity] });
-    term.onExit(exit);
+    const { exit } = listen(term);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
@@ -451,15 +425,18 @@ describe("Term — AnyTerm", () => {
     expect(exit).toHaveBeenCalledWith(e);
   });
 
-  it("is unindexed (requires WorldTerm)", () => {
+  it("is driven by its component leaves alone (no lifecycle dependency)", () => {
     const w = setup();
-    const term = w.getTerm({ any: [Position, Velocity] });
-    expect(term.isUnindexed()).toBe(true);
+    const any = w.getTerm({ any: [Position, Velocity] });
+    const { enter } = listen(any);
+    // A bare entity (lifecycle-only event) must not enter an any-of-components term.
+    w.entity();
+    expect(enter).not.toHaveBeenCalled();
   });
 });
 
 describe("Term — NotTerm", () => {
-  it("contains entities in WorldTerm that are NOT in the child term", () => {
+  it("contains live entities that are NOT in the child term", () => {
     const w = setup();
     const term = w.getTerm({ not: Position });
     const e1 = w.entity();
@@ -471,9 +448,8 @@ describe("Term — NotTerm", () => {
 
   it("exits when entity gains the excluded component", () => {
     const w = setup();
-    const exit = vi.fn();
     const term = w.getTerm({ not: Position });
-    term.onExit(exit);
+    const { exit } = listen(term);
     const e = w.entity();
     e.add(Position);
     expect(exit).toHaveBeenCalledWith(e);
@@ -481,11 +457,8 @@ describe("Term — NotTerm", () => {
 
   it("re-enters when entity loses the excluded component", () => {
     const w = setup();
-    const enter = vi.fn();
-    const exit = vi.fn();
     const term = w.getTerm({ not: Position });
-    term.onEnter(enter);
-    term.onExit(exit);
+    const { enter, exit } = listen(term);
     const e = w.entity();
     enter.mockClear();
     e.add(Position);
@@ -495,25 +468,17 @@ describe("Term — NotTerm", () => {
     expect(enter).toHaveBeenCalledWith(e);
   });
 
-  it("plain not query: entity enters when the excluded component is removed", () => {
-    const w = setup();
-    const enter = vi.fn();
-    w.getTerm({ not: Velocity }).onEnter(enter);
-    const e = w.entity();
-    e.add(Velocity);
-    enter.mockClear();
-    e.remove(Velocity);
-    expect(enter).toHaveBeenCalledWith(e);
-  });
-
-  it("is unindexed (requires WorldTerm)", () => {
+  it("reacts to entity lifecycle (depends on WorldTerm)", () => {
     const w = setup();
     const term = w.getTerm({ not: Position });
-    expect(term.isUnindexed()).toBe(true);
+    const { enter } = listen(term);
+    // A freshly created entity with no components belongs to not(Position).
+    const e = w.entity();
+    expect(enter).toHaveBeenCalledWith(e);
   });
 });
 
-describe("Term — OnlyTerm", () => {
+describe("Term — OnlyTerm (exact component set)", () => {
   it("matches entities with exactly that component set", () => {
     const w = setup();
     const term = w.getTerm({ only: [Position] });
@@ -528,9 +493,8 @@ describe("Term — OnlyTerm", () => {
 
   it("enters when entity gains exactly the required components", () => {
     const w = setup();
-    const enter = vi.fn();
     const term = w.getTerm({ only: [Position] });
-    term.onEnter(enter);
+    const { enter } = listen(term);
     const e = w.entity();
     e.add(Position);
     expect(enter).toHaveBeenCalledWith(e);
@@ -538,44 +502,54 @@ describe("Term — OnlyTerm", () => {
 
   it("exits when entity gains an extra component", () => {
     const w = setup();
-    const exit = vi.fn();
     const term = w.getTerm({ only: [Position] });
-    term.onExit(exit);
+    const { exit } = listen(term);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
     expect(exit).toHaveBeenCalledWith(e);
   });
-
-  it("is unindexed (exact set cannot be routed by single component)", () => {
-    const w = setup();
-    const term = w.getTerm({ only: [Position] });
-    expect(term.isUnindexed()).toBe(true);
-  });
 });
 
-describe("Term — PredicateTerm (test)", () => {
-  it("matches entities where the predicate returns true", () => {
+describe("Term — PredicateTerm (test + watch)", () => {
+  it("matches entities for which the predicate holds, re-evaluating on watched component changes", () => {
     const w = setup();
-    const predicate = (e: any) => e.eid === 7;
-    const term = w.getTerm({ test: predicate });
-    const e = w.getOrCreateEntity(7);
+    const predicate = (e: Entity) => e.get(Position) !== undefined && e.get(Velocity) !== undefined;
+    const term = w.getTerm({ test: predicate, watch: [Position, Velocity] });
+    const e = w.entity();
     e.add(Position);
+    expect(term.has(e)).toBe(false);
+    e.add(Velocity);
     expect(term.has(e)).toBe(true);
-    const other = w.entity();
-    other.add(Position);
-    expect(term.has(other)).toBe(false);
+    e.remove(Velocity);
+    expect(term.has(e)).toBe(false);
   });
 
-  it("is unindexed (predicates cannot be statically routed)", () => {
+  it("ignores component changes outside the watchlist (watchlist gates re-evaluation)", () => {
     const w = setup();
-    const term = w.getTerm({ test: () => true });
-    expect(term.isUnindexed()).toBe(true);
+    // The predicate depends on Velocity, but the watchlist deliberately omits it.
+    const term = w.getTerm({
+      test: (e: Entity) => e.get(Velocity) !== undefined,
+      watch: [Position],
+    });
+    const e = w.entity();
+    e.add(Position); // watched: re-evaluate -> Velocity absent -> not a member
+    expect(term.has(e)).toBe(false);
+    e.add(Velocity); // unwatched: no re-evaluation -> membership stays stale
+    expect(term.has(e)).toBe(false);
+  });
+
+  it("re-evaluates newly created entities via WorldTerm lifecycle", () => {
+    const w = setup();
+    const term = w.getTerm({ test: () => true, watch: [] });
+    const { enter } = listen(term);
+    const e = w.entity();
+    expect(enter).toHaveBeenCalledWith(e);
   });
 });
 
 describe("Term — MergedPredicateTerm (diamond breaking)", () => {
-  it("all(A, not(A)) collapses to a MergedPredicateTerm", () => {
+  it("all(A, not(A)) collapses to a merged term", () => {
     const w = setup();
     const term = w.getTerm({ all: [Position, { not: Position }] });
     expect(term.kind).toBe("merged");
@@ -590,7 +564,7 @@ describe("Term — MergedPredicateTerm (diamond breaking)", () => {
     expect(term.count).toBe(0);
   });
 
-  it("any(Position, all(Position, Velocity)) collapses to MergedPredicateTerm", () => {
+  it("any(Position, all(Position, Velocity)) collapses to a merged term", () => {
     const w = setup();
     const term = w.getTerm({ any: [Position, { all: [Position, Velocity] }] });
     expect(term.kind).toBe("merged");
@@ -598,11 +572,8 @@ describe("Term — MergedPredicateTerm (diamond breaking)", () => {
 
   it("merged term emits exactly one enter/exit per real transition (no spurious pairs)", () => {
     const w = setup();
-    const enter = vi.fn();
-    const exit = vi.fn();
     const term = w.getTerm({ any: [Position, { all: [Position, Velocity] }] });
-    term.onEnter(enter);
-    term.onExit(exit);
+    const { enter, exit } = listen(term);
 
     const e = w.entity();
     e.add(Position);
@@ -621,15 +592,10 @@ describe("Term — MergedPredicateTerm (diamond breaking)", () => {
     expect(exit).toHaveBeenCalledTimes(1);
   });
 
-  it("any(not(A), A) collapses to MergedPredicateTerm", () => {
+  it("any(not(A), A) collapses to a merged term and is always true (tautology)", () => {
     const w = setup();
     const term = w.getTerm({ any: [{ not: Position }, Position] });
     expect(term.kind).toBe("merged");
-  });
-
-  it("any(not(A), A) is always true (tautology)", () => {
-    const w = setup();
-    const term = w.getTerm({ any: [{ not: Position }, Position] });
     const e = w.entity();
     expect(term.has(e)).toBe(true);
     e.add(Position);
@@ -701,7 +667,7 @@ describe("Term — integration with existing Query public API", () => {
   it("System receives enter events via term propagation", () => {
     const { w, tick } = setupWithFlush();
     const enter = vi.fn();
-    const phase = w.addPhase("p");
+    const phase = w.addPhase("sys");
     w.system("test").phase(phase).requires(Position).enter(enter);
     w.start();
 
@@ -748,34 +714,33 @@ describe("Term — integration with existing Query public API", () => {
 });
 
 describe("Term — entity no longer carries full query membership set", () => {
-  it("entity._queries does not grow with every matching query (slim update set only)", () => {
+  it("entity._queries holds only the slim update set, not every matching query", () => {
     const w = setup();
-    const q1 = w.query("q1").requires(Position).build();
-    const q2 = w.query("q2").requires(Position).build();
-    const q3 = w.query("q3").requires(Position).build();
+    w.query("q1").requires(Position).build();
+    w.query("q2").requires(Position).build();
+    w.query("q3").requires(Position).build();
     const e = w.entity();
     e.add(Position);
-    expect(e._queries.size).toBeLessThan(3);
+    // No update callbacks registered, so the slim per-entity set is empty.
+    expect((e as any)._queries.size).toBe(0);
   });
 });
 
-describe("Term — structural routing eliminates unindexed bucket for component-indexed terms", () => {
-  it("a Position change does not cause a Velocity-only term to re-evaluate", () => {
+describe("Term — structural routing only touches dependent terms", () => {
+  it("a Position change does not emit events on a Velocity-only term", () => {
     const w = setup();
     const velTerm = w.getTerm(Velocity);
-    const belongsSpy = vi.spyOn(velTerm, "belongs");
+    const { enter, exit } = listen(velTerm);
     const e = w.entity();
     e.add(Position);
-    expect(belongsSpy).not.toHaveBeenCalled();
+    expect(enter).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
   });
 
-  it("an unrelated component change does not trigger NotTerm(V) recheck", () => {
+  it("an unrelated component change does not flip all([P, not(V)])", () => {
     const w = setup();
     const term = w.getTerm({ all: [Position, { not: Velocity }] });
-    const enter = vi.fn();
-    const exit = vi.fn();
-    term.onEnter(enter);
-    term.onExit(exit);
+    const { enter, exit } = listen(term);
     const e = w.entity();
     e.add(Position);
     enter.mockClear();
@@ -825,9 +790,8 @@ describe("Term — update channel bypasses the tree", () => {
 
   it("update callback does not trigger enter/exit propagation", () => {
     const { w, tick } = setupWithFlush();
-    const enter = vi.fn();
     const term = w.getTerm(Position);
-    term.onEnter(enter);
+    const { enter } = listen(term);
     enter.mockClear();
 
     const updateCb = vi.fn();
@@ -838,10 +802,35 @@ describe("Term — update channel bypasses the tree", () => {
     const pos = e.add(Position).get(Position)!;
     tick();
     updateCb.mockClear();
+    enter.mockClear();
     e.modified(Position);
     tick();
     expect(updateCb).toHaveBeenCalledWith(e, pos);
     expect(enter).not.toHaveBeenCalled();
+  });
+
+  // Ported from query-A-kimi: a belongs() re-evaluation triggered by an
+  // unrelated component must not leak into the targeted update channel.
+  it("a tree re-evaluation from an unrelated component does not reach update(C)", () => {
+    const { w, tick } = setupWithFlush();
+    class Unrelated {}
+    w.component(Unrelated);
+    const cb = vi.fn();
+    w.query("not-vel")
+      .query({ all: [Position, { not: Velocity }] })
+      .update(Position, cb)
+      .build();
+    w.start();
+
+    const e = w.entity();
+    e.add(Position);
+    tick();
+    cb.mockClear();
+
+    e.add(Unrelated);
+    e.modified(Unrelated);
+    tick();
+    expect(cb).not.toHaveBeenCalled();
   });
 });
 
@@ -925,11 +914,8 @@ describe("Term — TargetTerm", () => {
 
   it("target term enters/exits reactively", () => {
     const w = setup();
-    const enter = vi.fn();
-    const exit = vi.fn();
     const term = w.getTerm({ target: [FriendOf, Position] });
-    term.onEnter(enter);
-    term.onExit(exit);
+    const { enter, exit } = listen(term);
 
     const target = w.entity().add(Position);
     const candidate = w.entity().set(FriendOf, { target });
@@ -952,54 +938,55 @@ describe("Term — TargetTerm", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 5: Ref-counted lifetime
+// Phase 5: Consumer-count lifetime
 // ---------------------------------------------------------------------------
 
-describe("Term — ref-counted lifetime", () => {
-  it("composite term is destroyed when all consumers release it", () => {
+describe("Term — consumer-count lifetime", () => {
+  it("a composite term is destroyed when its last consumer unsubscribes", () => {
     const w = setup();
     const term = w.getTerm({ all: [Position, Velocity] });
-    const key = term.key;
-    term.release();
-    const term2 = w.getTerm({ all: [Position, Velocity] });
-    expect(term2).not.toBe(term);
+    const { unsubscribe } = listen(term);
+    unsubscribe();
+    expect(w.getTerm({ all: [Position, Velocity] })).not.toBe(term);
   });
 
-  it("world-owned leaf terms persist even after all consumers release them", () => {
+  it("world-owned leaves persist after their last consumer unsubscribes", () => {
     const w = setup();
-    const posTerm = w.getTerm(Position);
-    const key = posTerm.key;
-    posTerm.release();
-    expect(w.getTerm(key)).toBe(posTerm);
-    expect(w.getTerm(Position)).toBe(posTerm);
+    const pos = w.getTerm(Position);
+    listen(pos).unsubscribe();
+    expect(w.getTerm(Position)).toBe(pos);
   });
 
-  it("releasing a composite term cascades release to child terms no longer referenced", () => {
+  it("destroying a composite cascades unsubscription to unreferenced children", () => {
     const w = setup();
-    const allTerm = w.getTerm({ all: [Position, Velocity] });
-    const posTerm = w.getTerm(Position);
-    const velTerm = w.getTerm(Velocity);
-    allTerm.release();
-    expect(w.getTerm(Position)).toBe(posTerm);
-    expect(w.getTerm(Velocity)).toBe(velTerm);
+    const inner = w.getTerm({ any: [Velocity, Sprite] });
+    const innerHandle = listen(inner);
+    const outer = w.getTerm({ all: [Position, { any: [Velocity, Sprite] }] });
+    const outerHandle = listen(outer);
+
+    innerHandle.unsubscribe(); // drop our direct handle on the inner composite
+    outerHandle.unsubscribe(); // drop outer -> inner now has no consumers
+
+    // World-owned leaf survives; the unreferenced inner composite is rebuilt fresh.
+    expect(w.getTerm(Position)).toBe(w.getTerm(Position));
+    expect(w.getTerm({ any: [Velocity, Sprite] })).not.toBe(inner);
   });
 
-  it("retain() prevents destruction by a single release()", () => {
+  it("a second consumer keeps a composite alive after the first unsubscribes", () => {
     const w = setup();
     const term = w.getTerm({ all: [Position, Velocity] });
-    term.retain();
-    term.release();
-    const term2 = w.getTerm({ all: [Position, Velocity] });
-    expect(term2).toBe(term);
-    term.release();
+    const a = listen(term);
+    const b = listen(term);
+    a.unsubscribe();
+    expect(w.getTerm({ all: [Position, Velocity] })).toBe(term);
+    b.unsubscribe();
   });
 
   it("destroyed composite term stops receiving propagation", () => {
     const w = setup();
-    const enter = vi.fn();
     const term = w.getTerm({ all: [Position, Velocity] });
-    term.onEnter(enter);
-    term.release();
+    const { enter, unsubscribe } = listen(term);
+    unsubscribe();
 
     const e = w.entity();
     e.add(Position);
@@ -1007,14 +994,13 @@ describe("Term — ref-counted lifetime", () => {
     expect(enter).not.toHaveBeenCalled();
   });
 
-  it("Query retains its root term; releasing the query releases the term", () => {
+  it("a Query retains its composite root; destroying the Query frees it", () => {
     const w = setup();
-    const q = w.query("test").requires(Position).build();
-    const rootTerm = q.rootTerm;
-    expect(rootTerm).toBeDefined();
+    const q = w.query("test").requires(Position, Velocity).build();
+    const root = q.rootTerm!;
+    expect(root).toBeDefined();
     q.destroy();
-    const freshTerm = w.getTerm(Position);
-    expect(freshTerm).toBeDefined();
+    expect(w.getTerm({ all: [Position, Velocity] })).not.toBe(root);
   });
 });
 
@@ -1048,60 +1034,57 @@ describe("Term — targeted-update regression", () => {
     tick();
     expect(velOnlyUpdate).toHaveBeenCalledWith(e, e.get(Velocity));
   });
-
-  it("update event does not traverse the term tree", () => {
-    const w = setup();
-    const posEnter = vi.fn();
-    const posTerm = w.getTerm(Position);
-    posTerm.onEnter(posEnter);
-    posEnter.mockClear();
-
-    const updateCb = vi.fn();
-    w.query("test").requires(Position).update(Position, updateCb).build();
-    w.start();
-
-    const e = w.entity();
-    e.add(Position);
-    w.progress(0, 0);
-    updateCb.mockClear();
-
-    e.modified(Position);
-    w.progress(0, 0);
-    expect(updateCb).toHaveBeenCalled();
-    expect(posEnter).not.toHaveBeenCalled();
-  });
 });
 
 // ---------------------------------------------------------------------------
-// Exit snapshots
+// Exit snapshots — captured at the query/system layer (positional tuple),
+// not on the term event stream.
 // ---------------------------------------------------------------------------
 
-describe("Term — exit snapshots preserve component data", () => {
-  it("exit callback receives snapshot with removed component data", () => {
-    const w = setup();
+describe("Term — exit snapshots are a query/system-layer concern", () => {
+  it("Query exit callback receives removed component data as a positional tuple", () => {
+    const { w, tick } = setupWithFlush();
     const exit = vi.fn();
-    const term = w.getTerm(Position);
-    term.onExit(exit);
+    w.query("test").requires(Position).exit([Position], exit).build();
+    w.start();
+
     const e = w.entity();
-    const pos = e.add(Position).get(Position)!;
+    const pos = e.set(Position, { x: 42 }).get(Position)!;
+    tick();
     e.remove(Position);
-    expect(exit).toHaveBeenCalledWith(e, expect.any(Map));
-    const snapshot = exit.mock.calls[0][1] as Map<number, unknown>;
-    expect(snapshot.get(w.entity(Position).eid)).toBe(pos);
+    tick();
+    expect(exit).toHaveBeenCalledWith(e, [pos]);
   });
 
-  it("exit snapshot on destroy captures all components", () => {
-    const w = setup();
+  it("Query exit on destroy captures the snapshot before storage deletion", () => {
+    const { w, tick } = setupWithFlush();
     const exit = vi.fn();
-    const term = w.getTerm({ all: [Position, Velocity] });
-    term.onExit(exit);
+    w.query("test").requires(Position, Velocity).exit([Position, Velocity], exit).build();
+    w.start();
+
     const e = w.entity();
-    const pos = e.add(Position).get(Position)!;
-    const vel = e.add(Velocity).get(Velocity)!;
+    const pos = e.set(Position, { x: 1 }).get(Position)!;
+    const vel = e.set(Velocity, { vx: 2 }).get(Velocity)!;
+    tick();
     e.destroy();
-    expect(exit).toHaveBeenCalledWith(e, expect.any(Map));
-    const snapshot = exit.mock.calls[0][1] as Map<number, unknown>;
-    expect(snapshot.get(w.entity(Position).eid)).toBe(pos);
-    expect(snapshot.get(w.entity(Velocity).eid)).toBe(vel);
+    tick();
+    expect(exit).toHaveBeenCalledWith(e, [pos, vel]);
+  });
+
+  // Ported from query-A-kimi: the System inbox is the path that genuinely needs
+  // a captured snapshot, since exits are replayed after storage is deleted.
+  it("System exit callback receives removed component data via the inbox", () => {
+    const { w } = setupWithFlush();
+    const phase = w.addPhase("exitsys");
+    const exit = vi.fn();
+    w.system("exitsys-test").phase(phase).requires(Position).exit([Position], exit);
+    w.start();
+
+    const e = w.entity();
+    const pos = e.set(Position, { x: 7 }).get(Position)!;
+    w.progress(0, 0); // enter
+    e.remove(Position);
+    w.progress(0, 0); // exit replayed from inbox after storage deletion
+    expect(exit).toHaveBeenCalledWith(e, [pos]);
   });
 });
