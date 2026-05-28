@@ -10,8 +10,14 @@ export const enum TermEventKind {
 }
 
 export interface TermConsumer {
-  onTermEvent(kind: TermEventKind, entity: Entity, term?: Term): void;
-  onTermRefresh?(entity: Entity, term: Term): void;
+  /** Ordered membership stream. Only real enter/exit flips are emitted here. */
+  onTermEvent(kind: TermEventKind, entity: Entity): void;
+  /**
+   * @internal Non-membership invalidation for shape/data re-evaluation.
+   * Component update callbacks still use the entity slim update set; refreshes
+   * only let predicate/shape terms pull-recompute after watched data changes.
+   */
+  onTermRefresh?(entity: Entity): void;
 }
 
 export type TermKind =
@@ -64,7 +70,7 @@ export abstract class Term implements TermConsumer {
     this._sync(entity);
   }
 
-  public onTermRefresh(entity: Entity, _term: Term): void {
+  public onTermRefresh(entity: Entity): void {
     this._sync(entity);
   }
 
@@ -118,7 +124,7 @@ export abstract class Term implements TermConsumer {
 
   /** @internal */
   protected _emitRefresh(entity: Entity): void {
-    this._consumers.forEach((consumer) => consumer.onTermRefresh?.(entity, this));
+    this._consumers.forEach((consumer) => consumer.onTermRefresh?.(entity));
   }
 
   /** @internal */
@@ -134,8 +140,23 @@ export abstract class Term implements TermConsumer {
   protected _setChildren(children: readonly Term[]): void {
     this._children.push(...children);
     children.forEach((child) => {
-      this._childUnsubscribes.push(child.subscribe(this));
+      this._childUnsubscribes.push(
+        child.subscribe({
+          onTermEvent: (kind, entity) => this._onChildEvent(kind, entity, child),
+          onTermRefresh: (entity) => this._onChildRefresh(entity, child),
+        })
+      );
     });
+  }
+
+  /** @internal */
+  protected _onChildEvent(kind: TermEventKind, entity: Entity, _child: Term): void {
+    this.onTermEvent(kind, entity);
+  }
+
+  /** @internal */
+  protected _onChildRefresh(entity: Entity, _child: Term): void {
+    this.onTermRefresh(entity);
   }
 
   /** @internal */
@@ -151,7 +172,7 @@ export abstract class Term implements TermConsumer {
   }
 
   private _emit(kind: TermEventKind, entity: Entity): void {
-    this._consumers.forEach((consumer) => consumer.onTermEvent(kind, entity, this));
+    this._consumers.forEach((consumer) => consumer.onTermEvent(kind, entity));
   }
 }
 
@@ -272,7 +293,7 @@ export class NotTerm extends Term {
     this._initializeFromWorld();
   }
 
-  public override onTermRefresh(_entity: Entity, _term: Term): void {
+  public override onTermRefresh(_entity: Entity): void {
     // Shape/data refreshes do not affect a pure negation unless the child emits
     // a real membership event, or the world emits a lifecycle event.
   }
@@ -297,8 +318,8 @@ export class OnlyTerm extends Term {
     this._initializeFromWorld();
   }
 
-  public override onTermRefresh(entity: Entity, term: Term): void {
-    if (term.kind === "world") {
+  protected override _onChildRefresh(entity: Entity, child: Term): void {
+    if (child.kind === "world") {
       this._sync(entity);
     }
   }
@@ -327,8 +348,8 @@ export class PredicateTerm extends Term {
     this._initializeFromWorld();
   }
 
-  public override onTermRefresh(entity: Entity, term: Term): void {
-    if (term.kind === "component") {
+  protected override _onChildRefresh(entity: Entity, child: Term): void {
+    if (child.kind === "component") {
       this._sync(entity);
     }
   }
@@ -359,8 +380,8 @@ export class MergedPredicateTerm extends Term {
     this._initializeFromWorld();
   }
 
-  public override onTermRefresh(entity: Entity, term: Term): void {
-    if (term.kind === "component" || (this._usesWorldRefresh && term.kind === "world")) {
+  protected override _onChildRefresh(entity: Entity, child: Term): void {
+    if (child.kind === "component" || (this._usesWorldRefresh && child.kind === "world")) {
       this._sync(entity);
     }
   }
@@ -385,16 +406,16 @@ export class TargetTerm extends Term {
     this._initializeFromWorld();
   }
 
-  public override onTermEvent(_kind: TermEventKind, entity: Entity, term?: Term): void {
-    if (term === this._children[0]) {
+  protected override _onChildEvent(_kind: TermEventKind, entity: Entity, child: Term): void {
+    if (child === this._children[0]) {
       this._sync(entity);
       return;
     }
     entity.children(this._relationshipEid).forEach((source) => this._sync(source));
   }
 
-  public override onTermRefresh(entity: Entity, term: Term): void {
-    if (term === this._children[0]) {
+  protected override _onChildRefresh(entity: Entity, child: Term): void {
+    if (child === this._children[0]) {
       this._sync(entity);
       return;
     }
