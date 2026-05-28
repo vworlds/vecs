@@ -344,6 +344,7 @@ export class OnlyTerm extends Term {
     this._sync(entity);
   }
 
+  /** @internal */
   protected override _onChildRefresh(entity: Entity, child: Term): void {
     if (child.kind === "world") {
       this._sync(entity);
@@ -374,6 +375,7 @@ export class PredicateTerm extends Term {
     this._initializeFromWorld();
   }
 
+  /** @internal */
   protected override _onChildRefresh(entity: Entity, child: Term): void {
     if (child.kind === "component") {
       this._sync(entity);
@@ -413,6 +415,7 @@ export class MergedPredicateTerm extends Term {
     this._sync(entity);
   }
 
+  /** @internal */
   protected override _onChildRefresh(entity: Entity, child: Term): void {
     if (child.kind === "component" || (this._usesWorldRefresh && child.kind === "world")) {
       this._sync(entity);
@@ -439,6 +442,7 @@ export class TargetTerm extends Term {
     this._initializeFromWorld();
   }
 
+  /** @internal */
   protected override _onChildEvent(_kind: TermEventKind, entity: Entity, child: Term): void {
     if (child === this._children[0]) {
       this._sync(entity);
@@ -447,6 +451,7 @@ export class TargetTerm extends Term {
     entity.children(this._relationshipEid).forEach((source) => this._sync(source));
   }
 
+  /** @internal */
   protected override _onChildRefresh(entity: Entity, child: Term): void {
     if (child === this._children[0]) {
       this._sync(entity);
