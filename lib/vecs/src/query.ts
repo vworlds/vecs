@@ -4,12 +4,7 @@ import { Bitset } from "./util/bitset.js";
 import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
 import { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
-import {
-  containsDownTerm,
-  type EntityTestFunc,
-  type MaybeRequired,
-  type QueryDSL,
-} from "./dsl.js";
+import { containsDownTerm, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 import {
   directInjectEids,
   getInjected,

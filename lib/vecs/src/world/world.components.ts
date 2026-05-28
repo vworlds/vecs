@@ -84,7 +84,10 @@ export class Components extends Entities {
         `Component class ${ComponentClass.name} is already registered with eid ${existingComponent.eid}`
       );
     }
-    if (Constructor === (Component as unknown as EntityClass<T>) && _isChildOfAlias(ComponentClass)) {
+    if (
+      Constructor === (Component as unknown as EntityClass<T>) &&
+      _isChildOfAlias(ComponentClass)
+    ) {
       const childOf = this._classRegistry.get(ChildOf) as T | undefined;
       if (childOf) {
         this._classRegistry.set(ComponentClass, childOf);
