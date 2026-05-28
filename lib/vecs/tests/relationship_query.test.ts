@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Iter, Relationship, World } from "../src/index.js";
+import { ChildOf, Iter, Relationship, World } from "../src/index.js";
 
 class Body {}
 class Position {
@@ -10,7 +10,6 @@ class Velocity {
 }
 class Tag {}
 class FriendOf extends Relationship {}
-class ChildOf extends Relationship {}
 
 function setup() {
   const w = new World();

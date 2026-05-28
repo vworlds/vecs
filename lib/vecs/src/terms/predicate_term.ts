@@ -121,7 +121,7 @@ export class PredicateTerm extends Term {
     return new PredicateTerm(world, key, "merged", predicate, worldTerm, watchedTerms, info.containsOnly, onDestroy);
   }
 
-  /** @internal Direct shape-channel invalidation from `WorldTerm.subscribeShape`. */
+  /** Direct shape-channel invalidation from `WorldTerm.subscribeShape`. */
   public override onTermRefresh(entity: Entity): void {
     this._sync(entity);
   }
