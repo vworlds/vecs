@@ -1,0 +1,12 @@
+export { Term, TermEventKind, type TermConsumer, type TermKind } from "./term.js";
+export { WorldTerm } from "./world_term.js";
+export { ComponentTerm } from "./component_term.js";
+export { EmptyTerm } from "./empty_term.js";
+export { AllTerm } from "./all_term.js";
+export { AnyTerm } from "./any_term.js";
+export { NotTerm } from "./not_term.js";
+export { OnlyTerm } from "./only_term.js";
+export { PredicateTerm } from "./predicate_term.js";
+export { MergedPredicateTerm } from "./merged_predicate_term.js";
+export { TargetTerm } from "./target_term.js";
+export { getTerm, getCachedTerm, notifyComponentAdded, notifyComponentChanged, notifyComponentRemoved, notifyEntityCreated, notifyEntityDestroyed } from "./build.js";

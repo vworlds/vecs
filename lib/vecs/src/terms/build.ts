@@ -8,39 +8,37 @@ import {
 } from "../dsl.js";
 import type { World } from "../world/index.js";
 import type { Entity } from "../entity/index.js";
-import {
-  AllTerm,
-  AnyTerm,
-  ComponentTerm,
-  EmptyTerm,
-  MergedPredicateTerm,
-  NotTerm,
-  OnlyTerm,
-  PredicateTerm,
-  TargetTerm,
-  Term,
-  WorldTerm,
-} from "./term.js";
+import { AllTerm } from "./all_term.js";
+import { AnyTerm } from "./any_term.js";
+import { ComponentTerm } from "./component_term.js";
+import { EmptyTerm } from "./empty_term.js";
+import { MergedPredicateTerm, type MergedInfo } from "./merged_predicate_term.js";
+import { NotTerm } from "./not_term.js";
+import { OnlyTerm } from "./only_term.js";
+import { normalizeWatch, PredicateTerm } from "./predicate_term.js";
+import { TargetTerm } from "./target_term.js";
+import { Term } from "./term.js";
+import { WorldTerm } from "./world_term.js";
 
 const WORLD_LEAF = "W";
 
-type BuildInfo = {
-  leafKeys: Set<string>;
-  componentEids: Set<number>;
-  containsLifecycleTerm: boolean;
-  containsOnly: boolean;
-  containsTarget: boolean;
-};
-
-type BuiltTerm = BuildInfo & {
-  term: Term;
-};
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export function getTerm(world: World, dsl: QueryDSL): Term {
   if (containsDownTerm(dsl)) {
     throw new Error("source/children terms are filter-only; use world.filter(...)");
   }
-  return buildTerm(world, simplifyQueryDSL(dsl, world)).term;
+  const simplified = simplifyQueryDSL(dsl, world);
+  const key = getDSLCacheKey(simplified, world);
+  const cached = world._termCache.get(key);
+  if (cached) {
+    return cached;
+  }
+  const term = _dispatch(world, simplified, key);
+  world._termCache.set(key, term);
+  return term;
 }
 
 export function getCachedTerm(world: World, dsl: QueryDSL): Term | undefined {
@@ -69,175 +67,55 @@ export function notifyEntityDestroyed(world: World, entity: Entity): void {
   world._worldTerm?.entityDestroyed(entity);
 }
 
-function buildTerm(world: World, dsl: QueryDSL): BuiltTerm {
-  const key = getDSLCacheKey(dsl, world);
-  const cached = world._termCache.get(key);
-  if (cached) {
-    return { term: cached, ...analyzeDSL(dsl) };
-  }
+// ---------------------------------------------------------------------------
+// Central dispatch — the only place that maps DSL shape → class
+// ---------------------------------------------------------------------------
 
-  const built = buildUncachedTerm(world, dsl, key);
-  world._termCache.set(key, built.term);
-  return built;
-}
+function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
+  const onDestroy = (term: Term) => destroyTerm(world, term);
 
-function buildUncachedTerm(world: World, dsl: QueryDSL, key: string): BuiltTerm {
   if (dsl === true) {
-    return withInfo(getWorldTerm(world, key), worldInfo());
+    return getWorldTerm(world, key);
   }
   if (dsl === false) {
-    return withInfo(getEmptyTerm(world, key), emptyInfo());
+    return getEmptyTerm(world, key);
   }
   if (typeof dsl === "number") {
-    return withInfo(getComponentTerm(world, dsl, key), componentInfo(dsl));
+    return getComponentTerm(world, dsl, key);
   }
   if (dsl instanceof Array) {
-    return buildAllTerm(world, dsl, key);
+    return AllTerm.build(world, dsl, key, dsl as ComponentRefArray, getTerm, _allAnyPrecheck, onDestroy);
   }
   if ("all" in dsl) {
-    return buildAllTerm(world, dsl.all, key, dsl);
+    return AllTerm.build(world, dsl.all, key, dsl, getTerm, _allAnyPrecheck, onDestroy);
   }
   if ("any" in dsl) {
-    return buildAnyTerm(world, dsl.any, key, dsl);
+    return AnyTerm.build(world, dsl.any, key, dsl, getTerm, _allAnyPrecheck, onDestroy);
   }
   if ("not" in dsl) {
-    const worldTerm = buildTerm(world, true);
-    const child = buildTerm(world, dsl.not);
-    const info = mergeInfo(worldTerm, child, { containsLifecycleTerm: true });
-    const term = new NotTerm(world, key, worldTerm.term, child.term, (term) =>
-      destroyTerm(world, term)
-    );
-    return withInfo(term, info);
+    return NotTerm.build(world, dsl.not, key, getTerm, onDestroy);
   }
   if ("only" in dsl) {
-    return buildOnlyTerm(world, dsl.only instanceof Array ? dsl.only : [dsl.only], key);
+    const components = dsl.only instanceof Array ? dsl.only : [dsl.only];
+    return OnlyTerm.build(world, components as number[], key, getTerm, onDestroy);
   }
   if ("test" in dsl) {
-    return buildPredicateTerm(world, dsl, key);
+    return PredicateTerm.build(world, dsl as { test: EntityTestFunc; watch?: unknown }, key, getTerm, onDestroy);
   }
   if ("target" in dsl) {
-    return buildTargetTerm(world, dsl.target[0] as number, dsl.target[1], key);
+    return TargetTerm.build(world, dsl.target[0] as number, dsl.target[1], key, getTerm, onDestroy);
   }
   throw new Error("Unrecognized query term");
 }
 
-function buildAllTerm(
-  world: World,
-  terms: readonly QueryDSL[],
-  key: string,
-  originalDSL: QueryDSL = terms as ComponentRefArray
-): BuiltTerm {
-  const childInfos = terms.map(analyzeDSL);
-  if (hasDiamond(childInfos) && !childInfos.some((child) => child.containsTarget)) {
-    return buildMergedTerm(world, originalDSL, key, childInfos);
-  }
-  const children = terms.map((term) => buildTerm(world, term));
-  const term = new AllTerm(
-    world,
-    key,
-    children.map((child) => child.term),
-    (term) => destroyTerm(world, term)
-  );
-  return withInfo(term, mergeInfo(...children));
-}
-
-function buildAnyTerm(
-  world: World,
-  terms: readonly QueryDSL[],
-  key: string,
-  originalDSL: QueryDSL
-): BuiltTerm {
-  const childInfos = terms.map(analyzeDSL);
-  if (hasDiamond(childInfos) && !childInfos.some((child) => child.containsTarget)) {
-    return buildMergedTerm(world, originalDSL, key, childInfos);
-  }
-  const children = terms.map((term) => buildTerm(world, term));
-  const term = new AnyTerm(
-    world,
-    key,
-    children.map((child) => child.term),
-    (term) => destroyTerm(world, term)
-  );
-  return withInfo(term, mergeInfo(...children));
-}
-
-function buildOnlyTerm(world: World, components: readonly QueryDSL[], key: string): BuiltTerm {
-  const componentEids = components.map((component) => component as number);
-  const all = buildAllTerm(world, componentEids, getDSLCacheKey(componentEids, world));
-  const worldTerm = buildTerm(world, true);
-  const info = mergeInfo(all, worldTerm, { containsLifecycleTerm: true, containsOnly: true });
-  const term = new OnlyTerm(world, key, all.term, worldTerm.term, componentEids, (term) =>
-    destroyTerm(world, term)
-  );
-  return withInfo(term, info);
-}
-
-function buildPredicateTerm(
-  world: World,
-  dsl: { test: EntityTestFunc; watch?: unknown },
-  key: string
-): BuiltTerm {
-  const watch = normalizeWatch(dsl.watch);
-  const worldTerm = buildTerm(world, true);
-  const watchedTerms = watch.map((eid) => buildTerm(world, eid));
-  const info = mergeInfo(worldTerm, ...watchedTerms, { containsLifecycleTerm: true });
-  const term = new PredicateTerm(
-    world,
-    key,
-    worldTerm.term,
-    watchedTerms.map((watched) => watched.term),
-    dsl.test,
-    (term) => destroyTerm(world, term)
-  );
-  return withInfo(term, info);
-}
-
-function buildTargetTerm(
-  world: World,
-  relationshipEid: number,
-  innerDSL: QueryDSL,
-  key: string
-): BuiltTerm {
-  const relationshipTerm = buildTerm(world, relationshipEid);
-  const innerTerm = buildTerm(world, innerDSL);
-  const info = mergeInfo(relationshipTerm, innerTerm, { containsTarget: true });
-  const term = new TargetTerm(
-    world,
-    key,
-    relationshipEid,
-    relationshipTerm.term,
-    innerTerm.term,
-    (term) => destroyTerm(world, term)
-  );
-  return withInfo(term, info);
-}
-
-function buildMergedTerm(
-  world: World,
-  dsl: QueryDSL,
-  key: string,
-  children: readonly BuildInfo[]
-): BuiltTerm {
-  const info = mergeInfo(...children);
-  const watchedTerms = [...info.componentEids].map((eid) => buildTerm(world, eid).term);
-  const worldTerm = info.containsLifecycleTerm ? buildTerm(world, true).term : undefined;
-  const term = new MergedPredicateTerm(
-    world,
-    key,
-    dsl,
-    worldTerm,
-    watchedTerms,
-    // Shape refresh is only needed for collapsed subtrees containing `only(...)`.
-    info.containsOnly,
-    (term) => destroyTerm(world, term)
-  );
-  return withInfo(term, info);
-}
+// ---------------------------------------------------------------------------
+// World-singleton leaf getters
+// ---------------------------------------------------------------------------
 
 function getComponentTerm(world: World, eid: number, key: string): ComponentTerm {
   let term = world._componentTerms.get(eid);
   if (!term) {
-    term = new ComponentTerm(world, key, eid, (term) => destroyTerm(world, term));
+    term = new ComponentTerm(world, key, eid, (t) => destroyTerm(world, t));
     world._componentTerms.set(eid, term);
   }
   return term;
@@ -245,14 +123,14 @@ function getComponentTerm(world: World, eid: number, key: string): ComponentTerm
 
 function getEmptyTerm(world: World, key: string): EmptyTerm {
   if (!world._emptyTerm) {
-    world._emptyTerm = new EmptyTerm(world, key, (term) => destroyTerm(world, term));
+    world._emptyTerm = new EmptyTerm(world, key, (t) => destroyTerm(world, t));
   }
   return world._emptyTerm;
 }
 
 function getWorldTerm(world: World, key: string): WorldTerm {
   if (!world._worldTerm) {
-    world._worldTerm = new WorldTerm(world, key, (term) => destroyTerm(world, term));
+    world._worldTerm = new WorldTerm(world, key, (t) => destroyTerm(world, t));
   }
   return world._worldTerm;
 }
@@ -261,72 +139,120 @@ function destroyTerm(world: World, term: Term): void {
   world._termCache.delete(term.key);
 }
 
-function analyzeDSL(dsl: QueryDSL): BuildInfo {
+// ---------------------------------------------------------------------------
+// Diamond pre-check — DSL-level analysis to avoid building then destroying
+// ---------------------------------------------------------------------------
+
+type DslAnalysis = {
+  leafKeys: Set<string>;
+  componentEids: Set<number>;
+  dependsOnWorld: boolean;
+  containsOnly: boolean;
+  containsTarget: boolean;
+};
+
+function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
   if (dsl === true) {
-    return worldInfo();
+    return {
+      leafKeys: new Set([WORLD_LEAF]),
+      componentEids: new Set(),
+      dependsOnWorld: true,
+      containsOnly: false,
+      containsTarget: false,
+    };
   }
   if (dsl === false) {
-    return emptyInfo();
+    return { leafKeys: new Set(), componentEids: new Set(), dependsOnWorld: false, containsOnly: false, containsTarget: false };
   }
   if (typeof dsl === "number") {
-    return componentInfo(dsl);
+    return {
+      leafKeys: new Set([`C:${dsl}`]),
+      componentEids: new Set([dsl]),
+      dependsOnWorld: false,
+      containsOnly: false,
+      containsTarget: false,
+    };
   }
   if (dsl instanceof Array) {
-    return mergeInfo(...dsl.map(analyzeDSL));
+    return _mergeAnalyses(dsl.map(_analyzeDSL));
   }
   if ("all" in dsl) {
-    return mergeInfo(...dsl.all.map(analyzeDSL));
+    return _mergeAnalyses(dsl.all.map(_analyzeDSL));
   }
   if ("any" in dsl) {
-    return mergeInfo(...dsl.any.map(analyzeDSL));
+    return _mergeAnalyses(dsl.any.map(_analyzeDSL));
   }
   if ("not" in dsl) {
-    return mergeInfo(worldInfo(), analyzeDSL(dsl.not), { containsLifecycleTerm: true });
+    return _mergeAnalyses([
+      { leafKeys: new Set([WORLD_LEAF]), componentEids: new Set(), dependsOnWorld: true, containsOnly: false, containsTarget: false },
+      _analyzeDSL(dsl.not),
+    ]);
   }
   if ("only" in dsl) {
     const components = dsl.only instanceof Array ? dsl.only : [dsl.only];
-    return mergeInfo(...components.map((component) => componentInfo(component as number)), {
-      containsLifecycleTerm: true,
-      containsOnly: true,
-    });
+    const childAnalyses = (components as number[]).map((eid) => ({
+      leafKeys: new Set([`C:${eid}`]) as Set<string>,
+      componentEids: new Set([eid]),
+      dependsOnWorld: false as boolean,
+      containsOnly: false as boolean,
+      containsTarget: false as boolean,
+    }));
+    return _mergeAnalyses([
+      ...childAnalyses,
+      { leafKeys: new Set([WORLD_LEAF]), componentEids: new Set(), dependsOnWorld: true, containsOnly: true, containsTarget: false },
+    ]);
   }
   if ("test" in dsl) {
-    return mergeInfo(worldInfo(), ...normalizeWatch(dsl.watch).map(componentInfo), {
-      containsLifecycleTerm: true,
-    });
+    const watch = normalizeWatch(dsl.watch);
+    return _mergeAnalyses([
+      { leafKeys: new Set([WORLD_LEAF]), componentEids: new Set(), dependsOnWorld: true, containsOnly: false, containsTarget: false },
+      ...watch.map((eid) => ({
+        leafKeys: new Set([`C:${eid}`]) as Set<string>,
+        componentEids: new Set([eid]),
+        dependsOnWorld: false as boolean,
+        containsOnly: false as boolean,
+        containsTarget: false as boolean,
+      })),
+    ]);
   }
   if ("target" in dsl) {
-    return mergeInfo(componentInfo(dsl.target[0] as number), analyzeDSL(dsl.target[1]), {
-      containsTarget: true,
-    });
+    const relEid = dsl.target[0] as number;
+    return _mergeAnalyses([
+      {
+        leafKeys: new Set([`C:${relEid}`]) as Set<string>,
+        componentEids: new Set([relEid]),
+        dependsOnWorld: false,
+        containsOnly: false,
+        containsTarget: true,
+      },
+      { ..._analyzeDSL(dsl.target[1]), containsTarget: true },
+    ]);
   }
-  return emptyInfo();
+  return { leafKeys: new Set(), componentEids: new Set(), dependsOnWorld: false, containsOnly: false, containsTarget: false };
 }
 
-function componentInfo(eid: number): BuildInfo {
-  return {
-    leafKeys: new Set([`C:${eid}`]),
-    componentEids: new Set([eid]),
-    containsLifecycleTerm: false,
-    containsOnly: false,
-    containsTarget: false,
-  };
-}
-
-function emptyInfo(): BuildInfo {
-  return {
+function _mergeAnalyses(analyses: DslAnalysis[]): DslAnalysis {
+  const merged: DslAnalysis = {
     leafKeys: new Set(),
     componentEids: new Set(),
-    containsLifecycleTerm: false,
+    dependsOnWorld: false,
     containsOnly: false,
     containsTarget: false,
   };
+  for (const a of analyses) {
+    a.leafKeys.forEach((k) => merged.leafKeys.add(k));
+    a.componentEids.forEach((eid) => merged.componentEids.add(eid));
+    merged.dependsOnWorld ||= a.dependsOnWorld;
+    merged.containsOnly ||= a.containsOnly;
+    merged.containsTarget ||= a.containsTarget;
+  }
+  return merged;
 }
 
-function hasDiamond(children: readonly BuildInfo[]): boolean {
+function _hasDiamond(analyses: DslAnalysis[]): boolean {
   const seen = new Set<string>();
-  for (const child of children) {
-    for (const leaf of child.leafKeys) {
+  for (const a of analyses) {
+    for (const leaf of a.leafKeys) {
       if (seen.has(leaf)) {
         return true;
       }
@@ -336,35 +262,20 @@ function hasDiamond(children: readonly BuildInfo[]): boolean {
   return false;
 }
 
-function mergeInfo(...infos: (BuildInfo | Partial<BuildInfo>)[]): BuildInfo {
-  const merged = emptyInfo();
-  for (const info of infos) {
-    info.leafKeys?.forEach((leaf) => merged.leafKeys.add(leaf));
-    info.componentEids?.forEach((eid) => merged.componentEids.add(eid));
-    merged.containsLifecycleTerm ||= info.containsLifecycleTerm ?? false;
-    merged.containsOnly ||= info.containsOnly ?? false;
-    merged.containsTarget ||= info.containsTarget ?? false;
-  }
-  return merged;
-}
-
-function normalizeWatch(watch: unknown): number[] {
-  if (watch === undefined) {
-    return [];
-  }
-  return [...new Set((watch instanceof Array ? watch : [watch]) as number[])].sort((a, b) => a - b);
-}
-
-function withInfo(term: Term, info: BuildInfo): BuiltTerm {
-  return { term, ...info };
-}
-
-function worldInfo(): BuildInfo {
+function _allAnyPrecheck(
+  terms: readonly QueryDSL[]
+): { hasDiamond: boolean; containsTarget: boolean; info: MergedInfo } {
+  const analyses = terms.map(_analyzeDSL);
+  const diamond = _hasDiamond(analyses);
+  const containsTarget = analyses.some((a) => a.containsTarget);
+  const merged = _mergeAnalyses(analyses);
   return {
-    leafKeys: new Set([WORLD_LEAF]),
-    componentEids: new Set(),
-    containsLifecycleTerm: true,
-    containsOnly: false,
-    containsTarget: false,
+    hasDiamond: diamond,
+    containsTarget,
+    info: {
+      componentEids: merged.componentEids,
+      dependsOnWorld: merged.dependsOnWorld,
+      containsOnly: merged.containsOnly,
+    },
   };
 }

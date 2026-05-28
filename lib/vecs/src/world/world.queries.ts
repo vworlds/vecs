@@ -12,7 +12,7 @@ import {
   notifyEntityDestroyed,
 } from "../terms/build.js";
 import type { Entity } from "../entity/index.js";
-import { ComponentTerm, EmptyTerm, Term, WorldTerm } from "../terms/term.js";
+import { ComponentTerm, EmptyTerm, Term, WorldTerm } from "../terms/index.js";
 import { Storage } from "./world.storage.js";
 import type { World } from "./world.js";
 
