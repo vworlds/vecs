@@ -48,15 +48,19 @@ import {
  */
 export class Filter<R extends ComponentType[] = []> {
   private readonly _belongs: EntityTestFunc;
-  public readonly rootTerm: Term | undefined;
+  private readonly _dsl: QueryDSL;
 
   constructor(
     /** World this filter reads entities from. */
     public readonly world: World,
     dsl: QueryDSL
   ) {
-    this.rootTerm = world._getCachedTerm(dsl);
-    this._belongs = this.rootTerm ? (entity) => this.rootTerm!.has(entity) : _compile(world, dsl);
+    this._dsl = dsl;
+    this._belongs = _compile(world, dsl);
+  }
+
+  public get rootTerm(): Term | undefined {
+    return this.world._getCachedTerm(this._dsl);
   }
 
   /**
@@ -132,8 +136,9 @@ export class Filter<R extends ComponentType[] = []> {
   }
 
   private _forEachMatch(callback: (e: Entity) => void): void {
-    if (this.rootTerm) {
-      for (const entity of this.rootTerm) {
+    const rootTerm = this.rootTerm;
+    if (rootTerm) {
+      for (const entity of rootTerm) {
         callback(entity);
       }
       return;

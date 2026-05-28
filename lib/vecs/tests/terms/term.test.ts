@@ -711,6 +711,28 @@ describe("Term — integration with existing Query public API", () => {
     expect(f.rootTerm).toBe(term);
   });
 
+  it("Filter picks up a term cached after construction", () => {
+    const w = setup();
+    const f = w.filter(Position);
+    expect(f.rootTerm).toBeUndefined();
+    const q = w.query("test").requires(Position).build();
+    expect(f.rootTerm).toBe(q.rootTerm);
+  });
+
+  it("Filter falls back to scanning after a cached composite term is destroyed", () => {
+    const w = setup();
+    const e = w.entity().add(Position).add(Velocity);
+    const q = w.query("test").requires(Position, Velocity).build();
+    const f = w.filter([Position, Velocity]);
+    expect(f.rootTerm).toBe(q.rootTerm);
+
+    q.destroy();
+    expect(f.rootTerm).toBeUndefined();
+    const seen: Entity[] = [];
+    f.forEach((ent) => seen.push(ent));
+    expect(seen).toEqual([e]);
+  });
+
   it("Filter falls back to compile-and-scan when no term is cached", () => {
     const w = setup();
     const f = w.filter(Position);
