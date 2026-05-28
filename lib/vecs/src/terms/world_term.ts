@@ -4,10 +4,12 @@ import type { World } from "../world/index.js";
 import { Term, type TermConsumer } from "./term.js";
 
 /**
- * World-pinned leaf term that matches every live non-component entity.
+ * World-pinned leaf term that matches every live entity.
  *
  * `WorldTerm` is the "universe" node: it holds all entities that are not
- * destroyed and are not `Component` instances. Every other term that needs
+ * destroyed. Component-definition entities are first-class members too (they
+ * are ordinary entities), so world-rooted queries can enumerate them — this is
+ * what makes schema reflection possible. Every other term that needs
  * world-lifecycle awareness (e.g. `NotTerm`, `PredicateTerm`) subscribes to
  * this leaf via the standard membership channel so they see entity creation
  * and destruction.
@@ -38,8 +40,8 @@ export class WorldTerm extends Term {
   /**
    * Called by `build.ts` when a new entity is created.
    *
-   * Adds the entity if it matches (i.e. it is not a `Component` instance),
-   * which propagates an enter event to all consumers.
+   * Adds the entity if it matches (i.e. it is live), which propagates an enter
+   * event to all consumers.
    */
   public entityCreated(entity: Entity): void {
     if (this._matches(entity)) {
@@ -64,9 +66,9 @@ export class WorldTerm extends Term {
    * `OnlyTerm` can re-evaluate whether the entity's component set still
    * satisfies their exact-match predicate.
    *
-   * Only fires for entities already in this term's set (i.e. live,
-   * non-component entities) — there is no point notifying about shape changes
-   * on entities that the world term itself does not track.
+   * Only fires for entities already in this term's set (i.e. live entities) —
+   * there is no point notifying about shape changes on entities that the world
+   * term itself does not track.
    */
   public entityShapeChanged(entity: Entity): void {
     if (this.has(entity)) {
@@ -101,6 +103,6 @@ export class WorldTerm extends Term {
 
   /** @internal */
   protected _matches(entity: Entity): boolean {
-    return !entity._destroyed && !(entity instanceof Component);
+    return !entity._destroyed;
   }
 }

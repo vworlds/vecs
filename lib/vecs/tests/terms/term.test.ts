@@ -82,13 +82,28 @@ describe("Term — WorldTerm (all live entities)", () => {
   it("tracks entity count", () => {
     const w = setup();
     const term = w.getTerm(true);
-    expect(term.count).toBe(0);
+    // Component-definition entities are first-class members of the world, so
+    // measure deltas against whatever baseline `setup()` registered.
+    const base = term.count;
     const e1 = w.entity();
-    expect(term.count).toBe(1);
+    expect(term.count).toBe(base + 1);
     const e2 = w.entity();
-    expect(term.count).toBe(2);
+    expect(term.count).toBe(base + 2);
     e1.destroy();
-    expect(term.count).toBe(1);
+    expect(term.count).toBe(base + 1);
+  });
+
+  it("includes component-definition entities, including late registration (reflection)", () => {
+    const w = new World();
+    w.component(Position);
+    const term = w.getTerm(true);
+    // A component registered before the query exists is found by the initial scan.
+    expect(term.has(w.component(Position))).toBe(true);
+    // A component registered while the query is live enters reactively.
+    const before = term.count;
+    w.component(Velocity);
+    expect(term.count).toBe(before + 1);
+    expect(term.has(w.component(Velocity))).toBe(true);
   });
 
   it("emits an enter event when an entity is created", () => {

@@ -97,6 +97,10 @@ export class Components extends Entities {
     const component = new Constructor(this, eid, ComponentClass);
     this._entities.set(eid, component);
     this._classRegistry.set(ComponentClass, component);
+    // Component-definition entities are first-class entities: notify so any
+    // live world-rooted query/term picks them up reactively (reflection),
+    // exactly like an ordinary `world.entity()`.
+    this._notifyEntityCreated(component as unknown as Entity);
     return component;
   }
 }
