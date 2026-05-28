@@ -28,6 +28,7 @@ export { IdentityModule } from "./modules/identity.js";
 export { Singleton, SingletonModule } from "./modules/singleton.js";
 export { type IPhase } from "./phase.js";
 export { getDSLKey } from "./dsl.js";
+export { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
 export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";
 export { ArrayMap } from "./util/array_map.js";
 export { Bitset } from "./util/bitset.js";

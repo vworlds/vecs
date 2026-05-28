@@ -1,8 +1,18 @@
 import { type ComponentType } from "../component.js";
-import { type ExtractRequired, _extractQueryDependencies, type QueryDSL } from "../dsl.js";
+import { type ExtractRequired, type QueryDSL } from "../dsl.js";
 import { Filter } from "../filter.js";
 import { Query } from "../query.js";
-import { ArrayMap } from "../util/array_map.js";
+import {
+  getCachedTerm,
+  getTerm,
+  notifyComponentAdded,
+  notifyComponentChanged,
+  notifyComponentRemoved,
+  notifyEntityCreated,
+  notifyEntityDestroyed,
+} from "../terms/build.js";
+import type { Entity } from "../entity/index.js";
+import { ComponentTerm, EmptyTerm, Term, WorldTerm } from "../terms/term.js";
 import { Storage } from "./world.storage.js";
 import type { World } from "./world.js";
 
@@ -11,10 +21,14 @@ export class Queries extends Storage {
   protected _queries: Query[] = [];
   /** @internal Queries created but not yet built into the world. */
   protected _unbuiltQueries = new Set<Query>();
-  /** @internal Component eid -> queries invalidated by that component. */
-  protected _queryIndex = new ArrayMap<Set<Query>>();
-  /** @internal Queries whose predicates are too broad for component indexing. */
-  protected _unindexedQueries = new Set<Query>();
+  /** @internal Canonical DSL key -> live term. */
+  public readonly _termCache = new Map<string, Term>();
+  /** @internal Component eid -> pinned component leaf term. */
+  public readonly _componentTerms = new Map<number, ComponentTerm>();
+  /** @internal Pinned false term. */
+  public _emptyTerm: EmptyTerm | undefined;
+  /** @internal Pinned world term. */
+  public _worldTerm: WorldTerm | undefined;
   /** @internal True while the world is driving one logical frame. */
   protected _frameInProgress = false;
   /** @internal True while the world is auto-building pending queries. */
@@ -40,9 +54,6 @@ export class Queries extends Storage {
     if (q._internal) {
       this._internalQueryCount++;
     }
-    if (q._dsl !== undefined) {
-      this._indexQuery(q, _extractQueryDependencies(this, q._dsl));
-    }
   }
 
   /** @internal Track a newly-created query until it is explicitly or automatically built. */
@@ -50,37 +61,9 @@ export class Queries extends Storage {
     this._unbuiltQueries.add(q);
   }
 
-  /** @internal Visit queries whose membership may change when component `eid` changes. */
-  public _forEachQueryForComponent(eid: number, callback: (q: Query) => void): void {
-    this._queryIndex.get(eid)?.forEach(callback);
-    this._unindexedQueries.forEach(callback);
-  }
-
-  /** @internal Register a query in the component index, or fallback routing. */
-  public _indexQuery(q: Query, componentEids: number[] | undefined): void {
-    this._unindexQuery(q);
-    if (componentEids === undefined || componentEids.length === 0) {
-      this._unindexedQueries.add(q);
-      q._queryIndexKeys = undefined;
-      return;
-    }
-
-    const indexedEids = [...new Set(componentEids)];
-    indexedEids.forEach((eid) => {
-      let queries = this._queryIndex.get(eid);
-      if (!queries) {
-        queries = new Set<Query>();
-        this._queryIndex.set(eid, queries);
-      }
-      queries.add(q);
-    });
-    q._queryIndexKeys = indexedEids;
-  }
-
   /** @internal Unregister a query and purge its membership from every entity. */
   public _removeQuery(q: Query): void {
     this._removeUnbuiltQuery(q);
-    this._unindexQuery(q);
     const idx = this._queries.indexOf(q);
     if (idx !== -1) {
       this._queries.splice(idx, 1);
@@ -88,27 +71,13 @@ export class Queries extends Storage {
         this._internalQueryCount--;
       }
     }
+    q._unsubscribeRootTerm();
     this._entities.forEach((e) => e._purgeQuery(q));
   }
 
   /** @internal Stop tracking a pending query. */
   public _removeUnbuiltQuery(q: Query): void {
     this._unbuiltQueries.delete(q);
-  }
-
-  /** @internal Remove a query from every index/fallback bucket. */
-  public _unindexQuery(q: Query): void {
-    if (q._queryIndexKeys !== undefined) {
-      q._queryIndexKeys.forEach((eid) => {
-        const queries = this._queryIndex.get(eid);
-        queries?.delete(q);
-        if (queries?.size === 0) {
-          this._queryIndex.delete(eid);
-        }
-      });
-    }
-    this._unindexedQueries.delete(q);
-    q._queryIndexKeys = undefined;
   }
 
   /** Create a non-reactive {@link Filter} that matches entities satisfying `q`. */
@@ -125,6 +94,41 @@ export class Queries extends Storage {
   /** Create and return a standalone {@link Query}, ready for fluent configuration. */
   public query(this: World, name: string): Query {
     return new Query(name, this);
+  }
+
+  /** Return the shared materialized term for a reactive query DSL expression. */
+  public getTerm(this: World, q: QueryDSL): Term {
+    return getTerm(this, q);
+  }
+
+  /** @internal Return a cached term without creating one. */
+  public _getCachedTerm(this: World, q: QueryDSL): Term | undefined {
+    return getCachedTerm(this, q);
+  }
+
+  /** @internal Drive the component leaf for a newly attached component. */
+  public _notifyComponentAdded(eid: number, entity: Entity): void {
+    notifyComponentAdded(this as unknown as World, eid, entity);
+  }
+
+  /** @internal Drive predicate/target refresh for changed component data. */
+  public _notifyComponentChanged(eid: number, entity: Entity): void {
+    notifyComponentChanged(this as unknown as World, eid, entity);
+  }
+
+  /** @internal Drive the component leaf for a detached component. */
+  public _notifyComponentRemoved(eid: number, entity: Entity): void {
+    notifyComponentRemoved(this as unknown as World, eid, entity);
+  }
+
+  /** @internal Drive the world leaf for a created entity. */
+  public _notifyEntityCreated(entity: Entity): void {
+    notifyEntityCreated(this as unknown as World, entity);
+  }
+
+  /** @internal Drive the world/component leaves for a destroyed entity. */
+  public _notifyEntityDestroyed(entity: Entity): void {
+    notifyEntityDestroyed(this as unknown as World, entity);
   }
 
   /** @internal Build every query that has not yet entered the world. */

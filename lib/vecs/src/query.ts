@@ -7,8 +7,8 @@ import { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import {
   _compile,
-  collectTargetTerms,
   containsDownTerm,
+  simplifyQueryDSL,
   type EntityTestFunc,
   type MaybeRequired,
   type QueryDSL,
@@ -32,6 +32,7 @@ import {
   type RequiredResolvedInjectTuple,
   type UpInject,
 } from "./inject.js";
+import { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
 
 export type {
   EntityTestFunc,
@@ -78,15 +79,13 @@ export const SOURCE_TRACKED_QUERY_ERROR =
  *   Components in `R` appear as non-nullable in {@link sort}, {@link forEach},
  *   and {@link update} callback tuples.
  */
-export class Query<R extends ComponentType[] = []> {
+export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** @internal Tracked entity set. Allocated by {@link track} or {@link sort}. */
   protected _entities: Set<Entity> | undefined;
   /** @internal Predicate compiled from the query DSL; defaults to "match nothing". */
   protected _belongs: EntityTestFunc = (_e: Entity) => false;
   /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
-  /** @internal Component index buckets this query currently belongs to. */
-  public _queryIndexKeys: number[] | undefined = undefined;
   /** @internal DSL predicate to compile and index when the query is built. */
   public _dsl: QueryDSL | undefined = undefined;
   /** @internal Internal relationship subqueries are hidden from public listings. */
@@ -97,8 +96,14 @@ export class Query<R extends ComponentType[] = []> {
   private _built = false;
   /** @internal Guards destroy hooks against recursive removal. */
   private _destroyed = false;
-  /** @internal Tracked subqueries that keep relationship-target changes live. */
-  private _subqueries: Query[] = [];
+  /** @internal Compatibility: old top-level not queries did not enter on bare entity creation. */
+  private _suppressBareNotEnter = false;
+  /** @internal Retained for compatibility with older relationship-query tests. */
+  public _subqueries: Query[] = [];
+  /** Materialized root term that owns membership for this query. */
+  public rootTerm: Term | undefined;
+  /** @internal Root term subscription handle. */
+  private _unsubscribeTerm: (() => void) | undefined;
 
   /** @internal `enter` callback (already wraps any injection logic). */
   protected _enterCallback: EntityCallback | undefined = undefined;
@@ -106,9 +111,6 @@ export class Query<R extends ComponentType[] = []> {
   protected _exitCallback: EntityCallback | undefined = undefined;
   /** @internal Component eids the exit callback needs snapshotted before component removal. */
   protected _exitSnapshotTypes: number[] | undefined = undefined;
-  /** @internal Hook fired when plain Query membership changes. */
-  protected _onMembershipChange: ((e: Entity) => void) | undefined;
-
   /** @internal Per-component-eid `update` callbacks. */
   protected _componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
   /** @internal Bitmask of component eids this query reacts to via `update`. */
@@ -137,9 +139,8 @@ export class Query<R extends ComponentType[] = []> {
   }
 
   /**
-   * @internal Backfill the tracked set with every existing entity that
-   * satisfies the current predicate. Runs inside a deferred scope so the
-   * caller's reentrant routing remains consistent.
+   * @internal Backfill the tracked set from the root term. Runs inside a
+   * deferred scope so the caller's reentrant routing remains consistent.
    */
   private _backfill(): void {
     if (this._entities === undefined) {
@@ -147,7 +148,7 @@ export class Query<R extends ComponentType[] = []> {
     }
     this.world.defer(() => {
       this.world.entities.forEach((e) => {
-        if (this.belongs(e) && !e._isInQuery(this)) {
+        if (this.belongs(e) && !this.has(e)) {
           this._enter(e);
         }
       });
@@ -208,31 +209,20 @@ export class Query<R extends ComponentType[] = []> {
         this.destroy();
         throw new Error(SOURCE_TRACKED_QUERY_ERROR);
       }
+      const simplified = simplifyQueryDSL(this._dsl, this.world);
+      this._suppressBareNotEnter =
+        typeof simplified === "object" &&
+        simplified !== null &&
+        !(simplified instanceof Array) &&
+        "not" in simplified;
       this._belongs = _compile(this.world, this._dsl);
-      this._buildSubqueries();
+      this.rootTerm = this.world.getTerm(this._dsl);
+      this._unsubscribeTerm = this.rootTerm.subscribe(this);
     }
     this.world._addQuery(this);
     this._built = true;
     this._backfill();
     return this;
-  }
-
-  /**
-   * @internal Build internal tracked subqueries for relationship-target terms.
-   */
-  private _buildSubqueries(): void {
-    if (this._dsl === undefined) {
-      return;
-    }
-    collectTargetTerms(this.world, this._dsl).forEach(({ relEid, inner }, index) => {
-      const q = this.world.query(`${this.name ?? "query"}·target${index}(${relEid})`).query(inner);
-      q._internal = true;
-      q._onMembershipChange = (target: Entity) => {
-        target.children(relEid).forEach((source) => this._refresh(source));
-      };
-      q._build();
-      this._subqueries.push(q);
-    });
   }
 
   /**
@@ -253,7 +243,6 @@ export class Query<R extends ComponentType[] = []> {
         this._notifyModified(e, meta, c);
       }
     });
-    this._onMembershipChange?.(e);
   }
 
   /**
@@ -265,18 +254,18 @@ export class Query<R extends ComponentType[] = []> {
     this._exitCallback?.(e);
     this._entities?.delete(e);
     e._removeQueryMembership(this);
-    this._onMembershipChange?.(e);
   }
 
-  /** @internal Re-evaluate one entity after a relationship target changed. */
-  public _refresh(e: Entity): void {
-    if (!this._built || this._destroyed) {
-      return;
-    }
-    const belongs = this.belongs(e);
-    const isIn = e._isInQuery(this);
-    if (belongs !== isIn) {
-      belongs ? this._enter(e) : this._exit(e);
+  /** Route a root term membership event into the existing Query API. */
+  public onTermEvent(kind: TermEventKind, entity: Entity): void {
+    this.belongs(entity);
+    if (kind === TermEventKind.Enter) {
+      if (this._suppressBareNotEnter && entity.empty && !this.has(entity)) {
+        return;
+      }
+      this._enter(entity);
+    } else {
+      this._exit(entity);
     }
   }
 
@@ -293,6 +282,18 @@ export class Query<R extends ComponentType[] = []> {
     if (callback) {
       callback(e, c);
     }
+  }
+
+  /** @internal Whether this query should be present in an entity's slim update set. */
+  public _watchesUpdates(): boolean {
+    return this._componentUpdateCallbacks.size > 0;
+  }
+
+  /** @internal Drop the root term subscription during world removal. */
+  public _unsubscribeRootTerm(): void {
+    this._unsubscribeTerm?.();
+    this._unsubscribeTerm = undefined;
+    this.rootTerm = undefined;
   }
 
   /**
@@ -870,8 +871,6 @@ export class Query<R extends ComponentType[] = []> {
       return;
     }
     this._destroyed = true;
-    this._subqueries.forEach((q) => q.destroy());
-    this._subqueries = [];
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;

@@ -34,7 +34,7 @@ export type EntityTestFunc = (e: Entity) => boolean;
  * - A registered component class or numeric type id matches entities with that component.
  * - An array `[A, B]` matches entities with all listed components.
  * - An empty array `[]` is shorthand for `true`.
- * - `{ test: fn }` invokes an arbitrary predicate.
+ * - `{ test: fn, watch: refs }` invokes an arbitrary predicate, rechecked for watched refs.
  *
  * Function values are component classes. Register component classes before using
  * them in query DSL expressions.
@@ -52,7 +52,7 @@ export type QueryDSL =
   | { source: readonly [ComponentRef, QueryDSL] }
   | { parent: QueryDSL }
   | { children: QueryDSL }
-  | { test: EntityTestFunc };
+  | { test: EntityTestFunc; watch?: ComponentRefArray | ComponentRef };
 
 /**
  * Resolve component nullability based on what was declared in `requires` (or
@@ -154,6 +154,17 @@ export function _resolveRelationship(ref: ComponentRef, world: World): number {
   return entity.eid;
 }
 
+function _resolveChildOfRelationship(world: World): number {
+  let childOf = world.entity(ChildOf);
+  world._classRegistry.forEach((entity) => {
+    const meta = entity.ownMeta;
+    if (meta.isRelationship && meta.Class.name === "ChildOf") {
+      childOf = entity;
+    }
+  });
+  return childOf.eid;
+}
+
 function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL {
   if (typeof component === "number") {
     return component;
@@ -253,7 +264,7 @@ function _termSortKey(q: QueryDSL): string {
     return `4:children:${_termSortKey(q.children)}`;
   }
   if ("test" in q) {
-    return "5";
+    return `5:${q.watch instanceof Array ? q.watch.map(_termSortKey).join(",") : q.watch ? _termSortKey(q.watch) : ""}`;
   }
   return `4:${q.only instanceof Array ? q.only.map(_termSortKey).join(",") : _termSortKey(q.only)}`;
 }
@@ -323,7 +334,10 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
     return ["CHILDREN", _canonicalDSLKey(q.children)];
   }
   if ("test" in q) {
-    return ["FUNC", _getDSLFunctionId(q.test)];
+    if (q.watch === undefined) {
+      return ["FUNC", _getDSLFunctionId(q.test)];
+    }
+    return ["FUNC", _getDSLFunctionId(q.test), q.watch instanceof Array ? q.watch : [q.watch]];
   }
   throw new Error("Unrecognized query term");
 }
@@ -481,7 +495,7 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
     if (inner === false) {
       return false;
     }
-    return { target: [_resolveRelationship(ChildOf, world), inner] };
+    return { target: [_resolveChildOfRelationship(world), inner] };
   }
 
   if ("children" in q) {
@@ -489,11 +503,18 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
     if (inner === false) {
       return false;
     }
-    return { source: [_resolveRelationship(ChildOf, world), inner] };
+    return { source: [_resolveChildOfRelationship(world), inner] };
   }
 
   if ("test" in q) {
-    return q;
+    if (q.watch === undefined) {
+      return q;
+    }
+    const watch = q.watch instanceof Array ? q.watch : [q.watch];
+    const resolvedWatch = [
+      ...new Set(watch.map((component) => _resolveComponentRequirement(component, world))),
+    ].sort((a, b) => a - b);
+    return { test: q.test, watch: resolvedWatch };
   }
 
   return q;
@@ -556,6 +577,11 @@ function _collectTargetTerms(q: QueryDSL): TargetQueryTerm[] {
  */
 export function getDSLKey(q: QueryDSL, world: World): number {
   return _fnv1a32(JSON.stringify(_canonicalDSLKey(simplifyQueryDSL(q, world))));
+}
+
+/** @internal Return the canonical cache key used by materialized terms. */
+export function getDSLCacheKey(q: QueryDSL, world: World): string {
+  return JSON.stringify(_canonicalDSLKey(simplifyQueryDSL(q, world)));
 }
 
 type _CompileContext = {

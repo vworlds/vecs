@@ -70,8 +70,9 @@ export class Components extends Relationships {
     }
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this._updateQueries(meta);
+    this.world._notifyComponentRemoved(meta.eid, this as unknown as Entity);
     this._components.delete(meta.eid);
+    this.world._notifyComponentChanged(meta.eid, this as unknown as Entity);
     meta._decrementUsage();
     const removeHandlers = meta._onRemoveHandlers;
     if (removeHandlers) {
@@ -99,9 +100,6 @@ export class Components extends Relationships {
       }
       const newTarget = (c as Relationship).target;
       this._updateIncoming(meta, oldTarget, newTarget);
-      if (meta.isRelationship && oldTarget !== newTarget && existing !== undefined) {
-        this._updateQueries(meta);
-      }
       this._notifyComponentSet(meta, c, existing !== undefined);
     }
   }
@@ -379,6 +377,7 @@ export class Components extends Relationships {
     meta._onSetHandlers?.forEach((handler) => handler(this as unknown as Entity, instance));
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (isUpdate) {
+      this.world._notifyComponentChanged(meta.eid, this as unknown as Entity);
       this._queries.forEach((q) => q._notifyModified(this as unknown as Entity, meta, instance));
     }
   }
@@ -405,6 +404,8 @@ export class Components extends Relationships {
     if (isAdd && !existing) {
       meta._onAddHandlers?.forEach((handler) => handler(this as unknown as Entity, instance));
     }
-    this._updateQueries(meta);
+    if (!existing) {
+      this.world._notifyComponentAdded(meta.eid, this as unknown as Entity);
+    }
   }
 }

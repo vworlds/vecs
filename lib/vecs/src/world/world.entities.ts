@@ -21,6 +21,7 @@ export class Entities extends Deferred {
       this._reserveEid(eid);
       e = new Entity(this, eid);
       this._entities.set(eid, e);
+      this._notifyEntityCreated(e);
       if (onCreateCallback) {
         onCreateCallback(e);
       }
@@ -106,6 +107,7 @@ export class Entities extends Deferred {
       this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
     } else {
       this._entities.set(eid, e);
+      this._notifyEntityCreated(e);
     }
     return e;
   }

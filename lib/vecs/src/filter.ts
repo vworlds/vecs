@@ -2,6 +2,7 @@ import { type ComponentType } from "./component.js";
 import { Entity } from "./entity/index.js";
 import type { World } from "./world/index.js";
 import { _compile, type EntityTestFunc, type QueryDSL } from "./dsl.js";
+import type { Term } from "./terms/term.js";
 import {
   isCursorMarker,
   Iter,
@@ -47,13 +48,15 @@ import {
  */
 export class Filter<R extends ComponentType[] = []> {
   private readonly _belongs: EntityTestFunc;
+  public readonly rootTerm: Term | undefined;
 
   constructor(
     /** World this filter reads entities from. */
     public readonly world: World,
     dsl: QueryDSL
   ) {
-    this._belongs = _compile(world, dsl);
+    this.rootTerm = world._getCachedTerm(dsl);
+    this._belongs = this.rootTerm ? (entity) => this.rootTerm!.has(entity) : _compile(world, dsl);
   }
 
   /**
@@ -112,11 +115,7 @@ export class Filter<R extends ComponentType[] = []> {
     if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
       const callback = arg0 as (e: Entity) => void;
       this.world.defer(() => {
-        this.world.entities.forEach((e) => {
-          if (this._belongs(e)) {
-            callback(e);
-          }
-        });
+        this._forEachMatch(callback);
       });
       return;
     }
@@ -128,11 +127,21 @@ export class Filter<R extends ComponentType[] = []> {
     ) => void;
     this.world.defer(() => {
       const invoke = makeInjectedInvoker(this.world, components, useIter, callback);
-      this.world.entities.forEach((e) => {
-        if (this._belongs(e)) {
-          invoke(e);
-        }
-      });
+      this._forEachMatch(invoke);
+    });
+  }
+
+  private _forEachMatch(callback: (e: Entity) => void): void {
+    if (this.rootTerm) {
+      for (const entity of this.rootTerm) {
+        callback(entity);
+      }
+      return;
+    }
+    this.world.entities.forEach((e) => {
+      if (this._belongs(e)) {
+        callback(e);
+      }
     });
   }
 }

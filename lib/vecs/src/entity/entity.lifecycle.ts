@@ -1,7 +1,6 @@
 import { CleanupPolicy } from "../component_meta.js";
 import type { ComponentMeta } from "../component_meta.js";
 import { Relationship } from "../relationship.js";
-import type { Query } from "../query.js";
 import { CommandKind } from "../command.js";
 import { Components } from "./entity.components.js";
 import type { Entity } from "./entity.js";
@@ -37,20 +36,16 @@ export class Lifecycle extends Components {
       }
     }
 
-    const toExit: Query[] = [];
-    this._queries.forEach((q) => {
-      if (q.world) {
-        toExit.push(q);
-      }
-    });
     const entity = this as unknown as Entity;
-    toExit.forEach((q) => q._exit(entity));
+    this.world._notifyEntityDestroyed(entity);
 
     this._components.forEach((c, eid) => {
       const meta = this.world.entity(eid).ownMeta;
       if (meta.isRelationship) {
         this._removeIncoming((c as Relationship).target, eid);
       }
+      this.componentBitmask.deleteBit(meta.bitPtr);
+      this.world._notifyComponentRemoved(eid, entity);
       meta._decrementUsage();
       const removeHandlers = meta._onRemoveHandlers;
       if (removeHandlers) {
@@ -58,6 +53,7 @@ export class Lifecycle extends Components {
       }
     });
     this._dirtyComponentBitmask.clear();
+    this._queries.clear();
 
     if (this._events) {
       this._events.emit("destroy");
