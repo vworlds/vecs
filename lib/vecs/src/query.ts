@@ -84,16 +84,12 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   protected _hasExplicitQuery: boolean = false;
   /** @internal DSL predicate used to build the root membership term. */
   public _dsl: QueryDSL | undefined = undefined;
-  /** @internal Internal relationship subqueries are hidden from public listings. */
-  public _internal = false;
   /** Entity that stores this query as a component and carries query traits. */
   public readonly entity: Entity;
   /** @internal `true` once this query has been registered with its world. */
   private _built = false;
   /** @internal Guards destroy hooks against recursive removal. */
   private _destroyed = false;
-  /** @internal Retained for compatibility with older relationship-query tests. */
-  public _subqueries: Query[] = [];
   /** Materialized root term that owns membership for this query. */
   public rootTerm: Term | undefined;
   /** @internal Root term subscription handle. */

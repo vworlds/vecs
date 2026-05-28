@@ -336,7 +336,7 @@ describe("Relationship queries", () => {
     expect(cb).toHaveBeenCalledWith(candidate, [pos, undefined]);
   });
 
-  it("hides internal subqueries and destroys them with the outer query", () => {
+  it("target queries do not register hidden subqueries", () => {
     const { w } = setup();
     const plain = w.query("plain").requires(Body).build();
     const publicQueries = w.queries;
@@ -352,7 +352,6 @@ describe("Relationship queries", () => {
     expect(w.queries).toEqual([q]);
     q.destroy();
     expect(w.queries).toEqual([]);
-    expect((q as unknown as { _subqueries: unknown[] })._subqueries).toEqual([]);
   });
 
   it("source filter matches parents with a qualifying child", () => {

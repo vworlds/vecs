@@ -128,9 +128,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * watched components through {@link _notifyModified} to surface them as
    * inbox `update` events on entry.
    *
-   * Does **not** call `_onMembershipChange` — subqueries are always plain
-   * `Query` instances, never `System, so the base `Query._enter` handles
-   * that path.
+   * Target relationship reactivity is handled by `TargetTerm`; systems only
+   * translate root-term membership events into inbox commands here.
    */
   public override _enter(e: Entity): void {
     this._entities?.add(e);
