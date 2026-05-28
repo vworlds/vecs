@@ -227,6 +227,7 @@ function buildMergedTerm(
     dsl,
     worldTerm,
     watchedTerms,
+    // Shape refresh is only needed for collapsed subtrees containing `only(...)`.
     info.containsOnly,
     (term) => destroyTerm(world, term)
   );

@@ -128,6 +128,11 @@ export abstract class Term implements TermConsumer {
   }
 
   /** @internal */
+  protected _addChildCleanup(cleanup: () => void): void {
+    this._childUnsubscribes.push(cleanup);
+  }
+
+  /** @internal */
   protected _initializeFromWorld(): void {
     this.world.entities.forEach((entity) => {
       if (this._matches(entity)) {
@@ -177,6 +182,8 @@ export abstract class Term implements TermConsumer {
 }
 
 export class WorldTerm extends Term {
+  private readonly _shapeConsumers = new Set<TermConsumer>();
+
   public constructor(world: World, key: string, onDestroy: (term: Term) => void) {
     super(world, key, "world", true, onDestroy);
     this._initializeFromWorld();
@@ -194,8 +201,20 @@ export class WorldTerm extends Term {
 
   public entityShapeChanged(entity: Entity): void {
     if (this.has(entity)) {
-      this._emitRefresh(entity);
+      this._shapeConsumers.forEach((consumer) => consumer.onTermRefresh?.(entity));
     }
+  }
+
+  public subscribeShape(consumer: TermConsumer): () => void {
+    this._shapeConsumers.add(consumer);
+    let active = true;
+    return () => {
+      if (!active) {
+        return;
+      }
+      active = false;
+      this._shapeConsumers.delete(consumer);
+    };
   }
 
   /** @internal */
@@ -315,7 +334,14 @@ export class OnlyTerm extends Term {
   ) {
     super(world, key, "only", false, onDestroy);
     this._setChildren([allTerm, worldTerm]);
+    if (worldTerm instanceof WorldTerm) {
+      this._addChildCleanup(worldTerm.subscribeShape(this));
+    }
     this._initializeFromWorld();
+  }
+
+  public override onTermRefresh(entity: Entity): void {
+    this._sync(entity);
   }
 
   protected override _onChildRefresh(entity: Entity, child: Term): void {
@@ -377,7 +403,14 @@ export class MergedPredicateTerm extends Term {
     this._predicate = _compile(world, dsl);
     this._worldTerm = worldTerm;
     this._setChildren(worldTerm ? [worldTerm, ...watchedTerms] : watchedTerms);
+    if (this._usesWorldRefresh && worldTerm instanceof WorldTerm) {
+      this._addChildCleanup(worldTerm.subscribeShape(this));
+    }
     this._initializeFromWorld();
+  }
+
+  public override onTermRefresh(entity: Entity): void {
+    this._sync(entity);
   }
 
   protected override _onChildRefresh(entity: Entity, child: Term): void {

@@ -780,6 +780,16 @@ describe("Term — structural routing only touches dependent terms", () => {
     expect(enter).not.toHaveBeenCalled();
     expect(exit).not.toHaveBeenCalled();
   });
+
+  it("world shape refresh is subscribed only by exact-shape terms", () => {
+    const w = setup();
+    const worldTerm = w.getTerm(true);
+    w.getTerm({ not: Position });
+    expect((worldTerm as any)._shapeConsumers.size).toBe(0);
+
+    w.getTerm({ only: [Position] });
+    expect((worldTerm as any)._shapeConsumers.size).toBe(1);
+  });
 });
 
 describe("Term — update channel bypasses the tree", () => {
