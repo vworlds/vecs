@@ -127,10 +127,11 @@ function buildAllTerm(
   key: string,
   originalDSL: QueryDSL = terms as ComponentRefArray
 ): BuiltTerm {
-  const children = terms.map((term) => buildTerm(world, term));
-  if (hasDiamond(children) && !children.some((child) => child.containsTarget)) {
-    return buildMergedTerm(world, originalDSL, key, children);
+  const childInfos = terms.map(analyzeDSL);
+  if (hasDiamond(childInfos) && !childInfos.some((child) => child.containsTarget)) {
+    return buildMergedTerm(world, originalDSL, key, childInfos);
   }
+  const children = terms.map((term) => buildTerm(world, term));
   const term = new AllTerm(
     world,
     key,
@@ -146,10 +147,11 @@ function buildAnyTerm(
   key: string,
   originalDSL: QueryDSL
 ): BuiltTerm {
-  const children = terms.map((term) => buildTerm(world, term));
-  if (hasDiamond(children) && !children.some((child) => child.containsTarget)) {
-    return buildMergedTerm(world, originalDSL, key, children);
+  const childInfos = terms.map(analyzeDSL);
+  if (hasDiamond(childInfos) && !childInfos.some((child) => child.containsTarget)) {
+    return buildMergedTerm(world, originalDSL, key, childInfos);
   }
+  const children = terms.map((term) => buildTerm(world, term));
   const term = new AnyTerm(
     world,
     key,
@@ -214,7 +216,7 @@ function buildMergedTerm(
   world: World,
   dsl: QueryDSL,
   key: string,
-  children: readonly BuiltTerm[]
+  children: readonly BuildInfo[]
 ): BuiltTerm {
   const info = mergeInfo(...children);
   const watchedTerms = [...info.componentEids].map((eid) => buildTerm(world, eid).term);

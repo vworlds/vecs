@@ -555,6 +555,16 @@ describe("Term — MergedPredicateTerm (diamond breaking)", () => {
     expect(term.kind).toBe("merged");
   });
 
+  it("collapsing all(A, not(A)) does not leave orphan composite subscriptions", () => {
+    const w = setup();
+    w.getTerm({ all: [Position, { not: Position }] });
+
+    const cache = [...(w as any)._termCache.values()].map((term: Term) => term.kind);
+    expect(cache).toEqual(expect.arrayContaining(["merged", "component", "world"]));
+    expect(cache).not.toContain("all");
+    expect(cache).not.toContain("not");
+  });
+
   it("all(A, not(A)) always evaluates to false (contradiction)", () => {
     const w = setup();
     const term = w.getTerm({ all: [Position, { not: Position }] });
