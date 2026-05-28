@@ -6,9 +6,7 @@ import { type ComponentInstance, type ComponentMeta, type ComponentType } from "
 import { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import {
-  _compile,
   containsDownTerm,
-  simplifyQueryDSL,
   type EntityTestFunc,
   type MaybeRequired,
   type QueryDSL,
@@ -82,11 +80,9 @@ export const SOURCE_TRACKED_QUERY_ERROR =
 export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** @internal Tracked entity set. Allocated by {@link track} or {@link sort}. */
   protected _entities: Set<Entity> | undefined;
-  /** @internal Predicate compiled from the query DSL; defaults to "match nothing". */
-  protected _belongs: EntityTestFunc = (_e: Entity) => false;
   /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
-  /** @internal DSL predicate to compile and index when the query is built. */
+  /** @internal DSL predicate used to build the root membership term. */
   public _dsl: QueryDSL | undefined = undefined;
   /** @internal Internal relationship subqueries are hidden from public listings. */
   public _internal = false;
@@ -96,8 +92,6 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   private _built = false;
   /** @internal Guards destroy hooks against recursive removal. */
   private _destroyed = false;
-  /** @internal Compatibility: old top-level not queries did not enter on bare entity creation. */
-  private _suppressBareNotEnter = false;
   /** @internal Retained for compatibility with older relationship-query tests. */
   public _subqueries: Query[] = [];
   /** Materialized root term that owns membership for this query. */
@@ -147,11 +141,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       return;
     }
     this.world.defer(() => {
-      this.world.entities.forEach((e) => {
-        if (this.belongs(e) && !this.has(e)) {
+      for (const e of this.rootTerm ?? EMPTY_ENTITIES) {
+        if (!this.has(e)) {
           this._enter(e);
         }
-      });
+      }
     });
   }
 
@@ -209,13 +203,6 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
         this.destroy();
         throw new Error(SOURCE_TRACKED_QUERY_ERROR);
       }
-      const simplified = simplifyQueryDSL(this._dsl, this.world);
-      this._suppressBareNotEnter =
-        typeof simplified === "object" &&
-        simplified !== null &&
-        !(simplified instanceof Array) &&
-        "not" in simplified;
-      this._belongs = _compile(this.world, this._dsl);
       this.rootTerm = this.world.getTerm(this._dsl);
       this._unsubscribeTerm = this.rootTerm.subscribe(this);
     }
@@ -258,11 +245,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
 
   /** Route a root term membership event into the existing Query API. */
   public onTermEvent(kind: TermEventKind, entity: Entity): void {
-    this.belongs(entity);
     if (kind === TermEventKind.Enter) {
-      if (this._suppressBareNotEnter && entity.empty && !this.has(entity)) {
-        return;
-      }
       this._enter(entity);
     } else {
       this._exit(entity);
@@ -338,7 +321,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
 
   /** Returns `true` when `e` satisfies this query's predicate. */
   public belongs(e: Entity): boolean {
-    return this._belongs(e);
+    return this.rootTerm?.has(e) ?? false;
   }
 
   /**
@@ -874,7 +857,6 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;
-    this._belongs = (_e: Entity) => false;
     if (!this.entity._destroyed && this.entity.get(Query) === this) {
       this.entity.destroy();
     }

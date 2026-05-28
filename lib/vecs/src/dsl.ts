@@ -693,8 +693,8 @@ function _compileQueryExpression(
 /**
  * Compile a {@link QueryDSL} expression into a runtime entity-test predicate.
  *
- * @internal Used by `Query`, `System`, and `Filter` to translate user-supplied
- * DSL expressions into the predicate stored on `Query._belongs`.
+ * @internal Used by predicate-backed terms and the `Filter` fallback to
+ * translate user-supplied DSL expressions into runtime tests.
  *
  * @param world - World used to resolve registered component classes to type ids.
  * @param q - Query expression.

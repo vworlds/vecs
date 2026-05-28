@@ -251,7 +251,8 @@ describe("Query — component routing index", () => {
     const velocityOnly = w.entity();
     velocityOnly.add(Velocity);
     tick();
-    expect(belongs).toHaveBeenCalledWith(velocityOnly);
+    expect(belongs).not.toHaveBeenCalled();
+    expect(q.has(velocityOnly)).toBe(true);
   });
 
   it("destroy removes a query from the routing index", () => {
@@ -348,12 +349,10 @@ describe("Query — predicates (belongs)", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ test: (e) => e.eid === 7 })
+      .query({ test: (e) => e.eid === 77 })
       .build();
-    const seven = w.getOrCreateEntity(7);
-    seven.add(Position);
+    const seven = w.getOrCreateEntity(77);
     const three = w.getOrCreateEntity(3);
-    three.add(Position);
     expect(q.belongs(seven)).toBe(true);
     expect(q.belongs(three)).toBe(false);
   });
@@ -753,7 +752,7 @@ describe("Query — not predicate routing", () => {
     expect(events).toEqual(["enter", "exit", "enter"]);
   });
 
-  it("plain not query: entity enters when the excluded component is removed", () => {
+  it("plain not query: entity enters on creation and when the excluded component is removed", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
     w.query("test").query({ not: Velocity }).enter(enter);
@@ -762,7 +761,8 @@ describe("Query — not predicate routing", () => {
     const e = w.entity();
     e.add(Velocity);
     tick();
-    expect(enter).not.toHaveBeenCalled();
+    expect(enter).toHaveBeenCalledWith(e);
+    enter.mockClear();
     e.remove(Velocity);
     tick();
     expect(enter).toHaveBeenCalledWith(e);
