@@ -155,14 +155,7 @@ export function _resolveRelationship(ref: ComponentRef, world: World): number {
 }
 
 function _resolveChildOfRelationship(world: World): number {
-  let childOf = world.entity(ChildOf);
-  world._classRegistry.forEach((entity) => {
-    const meta = entity.ownMeta;
-    if (meta.isRelationship && meta.Class.name === "ChildOf") {
-      childOf = entity;
-    }
-  });
-  return childOf.eid;
+  return _resolveRelationship(ChildOf, world);
 }
 
 function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL {

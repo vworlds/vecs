@@ -1,5 +1,6 @@
 import { Component, type ComponentClass, type ComponentType } from "../component.js";
 import { Entity, type EntityClass } from "../entity/index.js";
+import { ChildOf, Relationship } from "../relationship.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";
 import { type World } from "./world.js";
@@ -83,6 +84,13 @@ export class Components extends Entities {
         `Component class ${ComponentClass.name} is already registered with eid ${existingComponent.eid}`
       );
     }
+    if (Constructor === (Component as unknown as EntityClass<T>) && _isChildOfAlias(ComponentClass)) {
+      const childOf = this._classRegistry.get(ChildOf) as T | undefined;
+      if (childOf) {
+        this._classRegistry.set(ComponentClass, childOf);
+        return childOf;
+      }
+    }
     if (this._componentRegistrationDisabled) {
       throw "World component registration is disabled";
     }
@@ -99,4 +107,12 @@ export class Components extends Entities {
     this._classRegistry.set(ComponentClass, component);
     return component;
   }
+}
+
+function _isChildOfAlias(ComponentClass: ComponentType): boolean {
+  return (
+    ComponentClass !== ChildOf &&
+    ComponentClass.prototype instanceof Relationship &&
+    ComponentClass.name === ChildOf.name
+  );
 }

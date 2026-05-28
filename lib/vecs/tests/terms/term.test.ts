@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Relationship, World, TermEventKind } from "../../src/index.js";
+import { ChildOf as BuiltinChildOf, Relationship, World, TermEventKind } from "../../src/index.js";
 import type { Entity, Term, TermConsumer } from "../../src/index.js";
 
 class Position {
@@ -937,6 +937,7 @@ describe("Term — TargetTerm", () => {
 
   it("parent is sugar over target(ChildOf, inner)", () => {
     const w = setup();
+    expect(w.entity(ChildOf)).toBe(w.entity(BuiltinChildOf));
     const child = w.entity();
     const parent = w.entity().set(ChildOf, { target: child });
 
