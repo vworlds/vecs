@@ -746,6 +746,17 @@ describe("Term — integration with existing Query public API", () => {
 });
 
 describe("Term — entity no longer carries full query membership set", () => {
+  it("unsorted queries read membership from the root term without a parallel entity set", () => {
+    const w = setup();
+    const q = w.query("q").requires(Position).build();
+    expect((q as any)._entities).toBeUndefined();
+
+    const e = w.entity().add(Position);
+    expect(q.has(e)).toBe(true);
+    expect(q.count).toBe(1);
+    expect([...q]).toEqual([e]);
+  });
+
   it("entity._queries holds only the slim update set, not every matching query", () => {
     const w = setup();
     w.query("q1").requires(Position).build();

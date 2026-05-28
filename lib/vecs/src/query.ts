@@ -1,5 +1,4 @@
 import { OrderedSet } from "./util/ordered_set.js";
-import { DenseSet } from "./util/dense_set.js";
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
 import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
@@ -78,7 +77,7 @@ export const SOURCE_TRACKED_QUERY_ERROR =
  *   and {@link update} callback tuples.
  */
 export class Query<R extends ComponentType[] = []> implements TermConsumer {
-  /** @internal Tracked entity set. Allocated by {@link track} or {@link sort}. */
+  /** @internal Sorted projection. Unsorted membership is read from `rootTerm`. */
   protected _entities: Set<Entity> | undefined;
   /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
@@ -90,6 +89,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   private _built = false;
   /** @internal Guards destroy hooks against recursive removal. */
   private _destroyed = false;
+  /** @internal Whether membership APIs are enabled for this query. */
+  private _tracking = false;
   /** Materialized root term that owns membership for this query. */
   public rootTerm: Term | undefined;
   /** @internal Root term subscription handle. */
@@ -133,14 +134,12 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * deferred scope so the caller's reentrant routing remains consistent.
    */
   private _backfill(): void {
-    if (this._entities === undefined) {
+    if (!this._tracking || !this.rootTerm) {
       return;
     }
     this.world.defer(() => {
       for (const e of this.rootTerm ?? EMPTY_ENTITIES) {
-        if (!this.has(e)) {
-          this._enter(e);
-        }
+        this._enter(e);
       }
     });
   }
@@ -195,7 +194,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     }
     this.world._removeUnbuiltQuery(this);
     if (this._dsl !== undefined) {
-      if (this._entities !== undefined && containsDownTerm(this._dsl)) {
+      if (this._tracking && containsDownTerm(this._dsl)) {
         this.destroy();
         throw new Error(SOURCE_TRACKED_QUERY_ERROR);
       }
@@ -281,17 +280,23 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * Returns `0` when tracking is not enabled.
    */
   public get count(): number {
-    return this._entities?.size ?? 0;
+    if (!this._tracking) {
+      return 0;
+    }
+    return this._entities?.size ?? this.rootTerm?.count ?? 0;
   }
 
   /** Returns `true` when `e` is currently tracked by this query. */
   public has(e: Entity): boolean {
-    return this._entities?.has(e) ?? false;
+    if (!this._tracking) {
+      return false;
+    }
+    return this._entities?.has(e) ?? this.rootTerm?.has(e) ?? false;
   }
 
   /** Iterate every entity currently tracked by this query. */
   public [Symbol.iterator](): IterableIterator<Entity> {
-    return (this._entities ?? EMPTY_ENTITIES)[Symbol.iterator]();
+    return this._matchedEntities()[Symbol.iterator]();
   }
 
   /** Returns the query name. */
@@ -311,7 +316,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    */
   public track(): this {
     this._assertConfigurable();
-    this._entities ??= new DenseSet<Entity>();
+    this._tracking = true;
     return this;
   }
 
@@ -382,10 +387,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     try {
       // Bare `forEach(callback)`: a function that is not a cursor marker.
       if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
-        this._entities?.forEach(arg0 as (e: Entity) => void);
-        return;
-      }
-      if (!this._entities) {
+        for (const entity of this._matchedEntities()) {
+          (arg0 as (e: Entity) => void)(entity);
+        }
         return;
       }
       const useIter = wantsIter(arg0);
@@ -395,7 +399,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
         resolved: unknown
       ) => void;
       const invoke = makeInjectedInvoker(this.world, components, useIter, callback);
-      this._entities.forEach(invoke);
+      for (const entity of this._matchedEntities()) {
+        invoke(entity);
+      }
     } finally {
       this.world.endDefer();
     }
@@ -764,6 +770,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (...args: unknown[]) => number;
     const inject = mapInject(this.world, components);
     const arity = injectArity(inject);
+    this._tracking = true;
     if (useIter) {
       const itA = new Iter(arity);
       const itB = new Iter(arity);
@@ -853,8 +860,16 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;
+    this._tracking = false;
     if (!this.entity._destroyed && this.entity.get(Query) === this) {
       this.entity.destroy();
     }
+  }
+
+  private _matchedEntities(): ReadonlySet<Entity> | Term {
+    if (!this._tracking) {
+      return EMPTY_ENTITIES;
+    }
+    return this._entities ?? this.rootTerm ?? EMPTY_ENTITIES;
   }
 }
