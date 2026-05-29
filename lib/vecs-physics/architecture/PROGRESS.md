@@ -153,10 +153,12 @@ numeric `type`), added body-type constants + `writeBodyTransform`;
 - **`PhysicsSystemTag` re-added** (deferred from VP-4): registered immediately
   after `PhysicsRoot` in `registerInternalComponents` (step 9); each of the
   three systems is tagged in `systems/index.ts` (step 12).
-- **Teleports react to component _modification_, not addition.** Vecs routes an
-  `update` only for a component that already existed; the canonical pose/velocity
-  components are expected present at creation (read in `enter`). See PLAN →
-  Settled. Tests reflect this (modify pre-existing components).
+- **`update` fires on query entry _or_ on modification.** `Query._enter` replays
+  every watchlisted component present at entry through `_notifyModified`; a modify
+  of an already-present component also fires. A watched component _added_ to a
+  body that already matches `requires(Body)` is **not** seen until next written
+  (adding it doesn't re-enter the query). The canonical pose/velocity components
+  are present at body creation, so they're caught on entry. See PLAN → Settled.
 - **`update(Body)` is partial by necessity.** Type/enable changes do the
   fully-portable solver-set transfer now; contact teardown, mass re-init, and
   broad-phase re-creation (the rest of `b2Body_SetType`/`Enable`/`Disable`) wait

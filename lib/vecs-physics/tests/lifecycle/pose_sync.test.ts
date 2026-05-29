@@ -71,8 +71,8 @@ describe("PhysicsPoseSyncIn (user → engine)", () => {
   });
 
   it("applies user linear and angular velocity to the body state", () => {
-    // Canonical velocity components are present from creation; the user modifies
-    // them (Vecs routes `update` only for components that already exist).
+    // Canonical velocity components are present from creation (so they're caught
+    // on query entry); here the user modifies them to drive the teleport path.
     const e = world
       .entity()
       .set(Body, { type: BodyType.Dynamic })
