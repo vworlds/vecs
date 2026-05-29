@@ -73,14 +73,19 @@ describe("PhysicsShapeLifecycle.enter", () => {
     expect(rec.proxyKey).toBeGreaterThanOrEqual(0);
   });
 
-  it("marks the body massDirty on shape creation", () => {
+  it("marks the body massDirty on shape creation (cleared by VP-12 mass recompute)", () => {
     const body = makeBody();
     makeShape(body);
     world.progress(0, 16);
 
+    // VP-12: PhysicsMassRecompute runs in physics-pre and clears massDirty.
+    // After a full world.progress() massDirty is false (mass was computed).
     const bodyHandle = state.bodyByEntity.get(body.eid)!;
     const bodyRec = state.bodies.get(bodyHandle.index);
-    expect(bodyRec.massDirty).toBe(true);
+    expect(bodyRec.massDirty).toBe(false);
+    // invMass is non-zero — mass was computed from the shape.
+    const set = state.solverSets[bodyRec.setIndex]!;
+    expect(set.bodySims[bodyRec.localIndex]!.invMass).toBeGreaterThan(0);
   });
 
   it("links the shape's bodyHandle to the correct body", () => {
@@ -469,14 +474,15 @@ describe("PhysicsShapeLifecycle.exit", () => {
     const shape = makeShape(body);
     world.progress(0, 16);
 
-    // Reset massDirty artificially to check it gets set again.
     const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    state.bodies.get(bodyHandle.index).massDirty = false;
+    // massDirty is already false after frame 1 (VP-12 cleared it).
 
     shape.remove(Box);
     world.progress(16, 16);
 
-    expect(state.bodies.get(bodyHandle.index).massDirty).toBe(true);
+    // VP-12: shape removal marks massDirty, then PhysicsMassRecompute clears it.
+    // After a full world.progress() massDirty is false again.
+    expect(state.bodies.get(bodyHandle.index).massDirty).toBe(false);
   });
 
   it("is idempotent — double-remove does not throw", () => {
@@ -598,15 +604,15 @@ describe("PhysicsShapeLifecycle — reparenting", () => {
     const shape = makeShape(bodyA);
     world.progress(0, 16);
 
-    // Clear massDirty on both
-    state.bodies.get(state.bodyByEntity.get(bodyA.eid)!.index).massDirty = false;
-    state.bodies.get(state.bodyByEntity.get(bodyB.eid)!.index).massDirty = false;
+    // After frame 0, massDirty was cleared by VP-12 mass recompute.
 
     shape.set(ChildOf, { target: bodyB });
     world.progress(16, 16);
 
-    expect(state.bodies.get(state.bodyByEntity.get(bodyA.eid)!.index).massDirty).toBe(true);
-    expect(state.bodies.get(state.bodyByEntity.get(bodyB.eid)!.index).massDirty).toBe(true);
+    // VP-12: reparenting marks both bodies massDirty, then PhysicsMassRecompute
+    // clears both. After a full world.progress() massDirty is false on both.
+    expect(state.bodies.get(state.bodyByEntity.get(bodyA.eid)!.index).massDirty).toBe(false);
+    expect(state.bodies.get(state.bodyByEntity.get(bodyB.eid)!.index).massDirty).toBe(false);
   });
 
   it("reparenting updates the bodyHandle on the shape record", () => {

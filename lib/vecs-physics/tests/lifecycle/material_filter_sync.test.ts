@@ -82,9 +82,10 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     world.progress(0, 16);
 
     const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    state.bodies.get(bodyHandle.index).massDirty = false;
+    const bodyRec = state.bodies.get(bodyHandle.index);
+    // After frame 0, massDirty is already false (VP-12 mass recompute cleared it).
 
-    // UPDATE with new density → should mark dirty.
+    // UPDATE with new density → marks dirty, then VP-12 clears it in the same frame.
     shape.set(Material, {
       density: 5,
       friction: 0.6,
@@ -95,7 +96,12 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(16, 16);
 
-    expect(state.bodies.get(bodyHandle.index).massDirty).toBe(true);
+    // VP-12: PhysicsMassRecompute ran and cleared massDirty; mass was updated.
+    expect(bodyRec.massDirty).toBe(false);
+    // Verify mass was recomputed with new density: mass = 5 * (box area)
+    const sim = state.solverSets[bodyRec.setIndex]!.bodySims[bodyRec.localIndex]!;
+    // Default Box is 1×1 (half-extents 0.5, 0.5) → area=1, mass=5*1=5
+    expect(sim.invMass).toBeCloseTo(1 / 5, 6);
   });
 
   it("does NOT mark massDirty for Material changes on a static body", () => {

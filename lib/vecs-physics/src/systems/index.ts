@@ -5,16 +5,18 @@
 // _Component registration order_).
 //
 // Physics-pre phase order (creation order = run order within a phase):
-//   1. PhysicsBodyLifecycle   — body must exist before any shape is inserted
-//   2. PhysicsShapeLifecycle  — creates/destroys shape records + broad-phase proxies
+//   1. PhysicsBodyLifecycle      — body must exist before any shape is inserted
+//   2. PhysicsShapeLifecycle     — creates/destroys shape records + broad-phase proxies
 //   3. PhysicsMaterialFilterSync — propagates Material/Filter/Sensor updates
-//   4. PhysicsShapePoseSync   — propagates ShapePosition/ShapeRotation updates
-//   5. PhysicsPoseSyncIn      — syncs Position/Rotation/Velocity into body sims
+//   4. PhysicsShapePoseSync      — propagates ShapePosition/ShapeRotation updates
+//   5. PhysicsPoseSyncIn         — syncs Position/Rotation/Velocity into body sims
+//   6. PhysicsMassRecompute      — recomputes mass for dirty bodies (last pre-step)
 
 import { type IPhase, type World } from "@vworlds/vecs";
 
 import { PhysicsSystemTag, type PhysicsState } from "../engine/state.js";
 import { installBodyLifecycle } from "./lifecycle.js";
+import { installMassRecompute } from "./mass_recompute.js";
 import { installMaterialFilterSync } from "./material_filter_sync.js";
 import { installPoseSyncIn } from "./pose_sync_in.js";
 import { installPoseSyncOut } from "./pose_sync_out.js";
@@ -43,6 +45,8 @@ export function installPhysicsSystems(
     installMaterialFilterSync(world, state, phases.preStep),
     installShapePoseSync(world, state, phases.preStep),
     installPoseSyncIn(world, state, phases.preStep),
+    // physics-pre: mass recompute — last pre-step, after all lifecycle/sync.
+    installMassRecompute(world, state, phases.preStep),
     // physics-step: integrator.
     installStep(world, state, phases.step),
     // physics-post: write simulated pose back to ECS.
