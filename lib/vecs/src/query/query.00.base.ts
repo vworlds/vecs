@@ -1,9 +1,6 @@
 import { ArrayMap } from "../util/array_map.js";
 import { Bitset } from "../util/bitset.js";
-import {
-  type ComponentInstance,
-  type ComponentType,
-} from "../component.js";
+import { type ComponentInstance, type ComponentType } from "../component.js";
 import { type QueryDSL } from "../dsl.js";
 import { Entity } from "../entity/index.js";
 import { type World } from "../world/index.js";
@@ -60,12 +57,7 @@ export class Base<R extends ComponentType[] = []> {
   /** @internal Component class for membership checks. */
   protected _queryComponentClass: ComponentType;
 
-  constructor(
-    name: string,
-    world: World,
-    componentClass: ComponentType,
-    track: boolean = true
-  ) {
+  constructor(name: string, world: World, componentClass: ComponentType, track: boolean = true) {
     this._queryComponentClass = componentClass;
     this.entity = world.entity();
     this.entity.name = name;
