@@ -1,6 +1,9 @@
 // Public API surface for @vworlds/vecs-physics. Only re-exports — no logic.
 // The stable contract is documented in docs/ and architecture/PLAN.md →
-// Public API Contract. `installPhysics` lands in VP-4.
+// Public API Contract.
+
+// Entry point
+export { installPhysics, type PhysicsOptions } from "./install.js";
 
 // Body
 export {

@@ -69,18 +69,55 @@ Ports box2d `math_functions.h` + `constants.h`. 30 tests incl. a port of
 - No Vecs registration here: `world.component(...)` calls and exclusivity land in
   VP-4.
 
-### ⬜ NEXT: VP-4 — `installPhysics` skeleton
+### ✅ VP-4 — `installPhysics` skeleton (commit __PENDING__)
 
-`src/install.ts` + `src/engine/state.ts`. Registers components (order per
-`PLAN.md`; `ChildOf` is built-in, do not register), calls
-`world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain)`,
-creates/looks up the three phases, attaches an empty `PhysicsState` via a
-`Singleton`. DoD: a world can `start()` without errors; throws if installed
-twice or after `start()`.
+`src/install.ts` + `src/engine/state.ts`; `installPhysics`/`PhysicsOptions`
+exported from `src/index.ts`. Registers all 29 public components in the PLAN
+order, `setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain)`,
+ensures the three phases (`physics-pre`/`-step`/`-post`, or caller-supplied
+`IPhase`/name), allocates a skeletal `PhysicsState` and attaches it via the
+`PhysicsRoot` singleton. 9 tests in `tests/lifecycle/install.test.ts`. Wiring
+only — no systems, engine is a no-op.
+
+- **`PhysicsState` is skeletal:** resolved config (flattened from
+  `PhysicsOptions`), the `bodyByEntity`/`shapeByEntity` maps, and `stepIndex`.
+  The solver storage subsystems (`BodyStorage`/`ShapeStorage`/… in the PLAN
+  sketch) and event-scratch arrays are deferred to the tickets that populate
+  them — their element types don't exist yet.
+- **`PhysicsSystemTag` deferred to VP-6.** PLAN registration step 9 lists it
+  alongside `PhysicsRoot`, but it only matters once systems exist (it marks
+  physics system entities for `ignoreSource`). Registering it now would add a
+  dead class. Re-add it in VP-6 immediately after `PhysicsRoot` to preserve the
+  documented registration order. Only `PhysicsRoot` is registered for now.
+- **Double-install / after-start guards.** `hasPhysics(world)` (side-effect
+  free: checks `world._classRegistry` before any registration) guards
+  double-install; `isWorldStarted` reads the world's internal `_started` flag
+  (no public accessor exists) to give a clear pre-`start()` error instead of the
+  generic "registration disabled" throw.
+- **Phase lookup uses `world._pipeline.get(name)` then `addPhase`** — `addPhase`
+  always creates a new phase and would clobber an existing same-named one, so we
+  look up first. Passing an `IPhase` directly is honoured as-is.
+
+### ⬜ NEXT: VP-5 — `engine/body.ts` + `engine/solver_set.ts`
+
+`InternalBody`, `BodySim`, `BodyState`; solver sets; transfer functions. Tests:
+transfers between awake/static/disabled sets preserve indices. See `PLAN.md`
+→ _Body storage_ / _Solver sets_. This is the first ticket with real engine
+data structures; `PhysicsState` grows to hold `BodyStorage`/solver sets.
 
 ## Environment / conventions learned
 
 - Run all checks from `lib/vecs-physics/`: `npm run typecheck | test | lint`.
+  (`npm run test` from the worktree root runs every workspace; scope with
+  `npm --prefix lib/vecs-physics run test` or `cd` in.)
+- **Vitest now resolves `@vworlds/vecs` via an explicit alias** in
+  `lib/vecs-physics/vitest.config.ts` → this checkout's `../vecs/src/index.ts`,
+  mirroring `tsconfig.base.json` `paths`. Added in VP-4 because vitest (unlike
+  tsc) had no alias and fell back to node resolution up to the repo-root
+  `node_modules/@vworlds/vecs` symlink, which points at the **main checkout's
+  working tree**. When that checkout is mid-refactor (it was: `query.ts` being
+  split into `query/`), every `@vworlds/vecs` import failed to load. The alias
+  makes the worktree hermetic; keep tsc and vitest pointed at the same source.
 - Private class members **must** be `_`-prefixed (`local/internal-underscore`
   lint rule). Free-function modules (the math layer) are unaffected.
 - ESM imports use explicit `.js` extensions.
