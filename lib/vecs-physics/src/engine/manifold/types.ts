@@ -10,9 +10,10 @@
 /**
  * A single contact point inside a {@link Manifold}.
  *
- * Mirrors `b2ManifoldPoint`. The solver fields (normalImpulse, tangentImpulse,
- * etc.) are deferred to M3 when the TGS solver lands; only the geometry fields
- * relevant to manifold generation are included here.
+ * Mirrors `b2ManifoldPoint`. The geometry fields (`clipPoint`/`anchorA`/
+ * `anchorB`/`separation`/`id`) are produced by the narrow-phase manifold
+ * functions; the remaining solver/warm-start fields are zeroed by those
+ * functions and populated by the TGS solver (VP-17).
  *
  * - `anchorA` — contact point relative to shape-A's body origin, world space.
  * - `anchorB` — contact point relative to shape-B's body origin, world space.
@@ -26,6 +27,21 @@ export interface ManifoldPoint {
   anchorB: { x: number; y: number };
   separation: number;
   id: number;
+
+  // ── Solver / warm-start fields (mirror `b2ManifoldPoint`) ───────────────────
+  /** Cached separation used for contact recycling. Solver/warm-start field. */
+  baseSeparation: number;
+  /** Accumulated impulse along the manifold normal. Solver/warm-start field. */
+  normalImpulse: number;
+  /** Accumulated friction (tangent) impulse. Solver/warm-start field. */
+  tangentImpulse: number;
+  /** Total normal impulse across sub-stepping + restitution; identifies
+   * speculative points that interacted this step. Solver field. */
+  totalNormalImpulse: number;
+  /** Relative normal velocity pre-solve (for hit events). Solver field. */
+  normalVelocity: number;
+  /** Whether this point existed the previous step (warm-start). Solver field. */
+  persisted: boolean;
 }
 
 // ─── Manifold ─────────────────────────────────────────────────────────────────
@@ -39,6 +55,8 @@ export interface ManifoldPoint {
 export interface Manifold {
   /** Unit normal from A to B, world space. */
   normal: { x: number; y: number };
+  /** Angular impulse applied for rolling resistance. Solver/warm-start field. */
+  rollingImpulse: number;
   /** 0, 1, or 2 contact points. */
   points: [ManifoldPoint, ManifoldPoint];
   /** Number of valid entries in `points`. */
@@ -62,7 +80,8 @@ export function makeId(a: number, b: number): number {
 
 // ─── Manifold factory helpers ─────────────────────────────────────────────────
 
-/** Allocate a zero manifold point. */
+/** Allocate a zero manifold point. The solver/warm-start fields are zeroed
+ * (numbers `0`, `persisted: false`), mirroring box2d's `(b2Manifold){ 0 }`. */
 export function emptyManifoldPoint(): ManifoldPoint {
   return {
     clipPoint: { x: 0, y: 0 },
@@ -70,6 +89,12 @@ export function emptyManifoldPoint(): ManifoldPoint {
     anchorB: { x: 0, y: 0 },
     separation: 0,
     id: 0,
+    baseSeparation: 0,
+    normalImpulse: 0,
+    tangentImpulse: 0,
+    totalNormalImpulse: 0,
+    normalVelocity: 0,
+    persisted: false,
   };
 }
 
@@ -77,6 +102,7 @@ export function emptyManifoldPoint(): ManifoldPoint {
 export function emptyManifold(): Manifold {
   return {
     normal: { x: 0, y: 0 },
+    rollingImpulse: 0,
     points: [emptyManifoldPoint(), emptyManifoldPoint()],
     pointCount: 0,
   };

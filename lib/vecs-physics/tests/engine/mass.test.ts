@@ -114,6 +114,10 @@ function makeBody(
     shapeHead: shapes.length > 0 ? 0 : NULL_INDEX,
     shapeCount: shapes.length,
     massDirty: true,
+    headContactKey: NULL_INDEX,
+    contactCount: 0,
+    islandId: NULL_INDEX,
+    islandIndex: NULL_INDEX,
   };
   const sim = makeBodySim(0);
   // Give the body a concrete transform (identity) + sweep start.

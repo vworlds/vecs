@@ -46,6 +46,7 @@ export type PhysicsOptions = {
   hitEventThreshold?: number; // m/s, default 10.0
   contactHertz?: number; // default 30
   contactDampingRatio?: number; // default 10
+  contactSpeed?: number; // m/s, default 3.0
   maximumLinearSpeed?: number; // m/s, default 400
   enableSleep?: boolean; // default true
   enableContinuous?: boolean; // default true
@@ -148,6 +149,8 @@ function resolveOptions(opts: PhysicsOptions): ResolvedPhysicsOptions {
     hitEventThreshold: opts.hitEventThreshold ?? 10.0,
     contactHertz: opts.contactHertz ?? 30,
     contactDampingRatio: opts.contactDampingRatio ?? 10,
+    // box2d b2DefaultWorldDef: def.contactSpeed = 3.0f * lengthUnits (types.c:18).
+    contactSpeed: opts.contactSpeed ?? 3.0,
     maximumLinearSpeed: opts.maximumLinearSpeed ?? 400,
     enableSleep: opts.enableSleep ?? true,
     enableContinuous: opts.enableContinuous ?? true,

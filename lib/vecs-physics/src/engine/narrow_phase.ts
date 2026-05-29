@@ -207,6 +207,28 @@ _addType(
   ShapeType.Polygon
 );
 
+// ─── Registry queries (mirror b2CanCollide / b2ContactRegister.primary) ───────
+
+/**
+ * Whether a manifold/collide function is registered for this shape-type pair.
+ * Mirrors `b2CanCollide( typeA, typeB )` (contact.c): true iff
+ * `s_registers[typeA][typeB].fcn != NULL`. Unregistered pairs (e.g.
+ * segment–segment) never form a contact.
+ */
+export function canCollide(typeA: ShapeType, typeB: ShapeType): boolean {
+  return _registry[typeA]?.[typeB] !== undefined;
+}
+
+/**
+ * Whether `(typeA, typeB)` is the canonical (primary) registration order.
+ * Mirrors `b2ContactRegister.primary`: `b2CreateContact` flips the shapes when
+ * the pair is registered in reverse so the contact always stores the canonical
+ * order. Returns `false` for an unregistered pair.
+ */
+export function isPrimaryPair(typeA: ShapeType, typeB: ShapeType): boolean {
+  return _registry[typeA]?.[typeB]?.primary === true;
+}
+
 // ─── Geometry extractor ───────────────────────────────────────────────────────
 
 // Extract the raw geometry object from an InternalShape in the form expected
@@ -231,6 +253,7 @@ function _geomOf(shape: InternalShape): GeometryUnion {
 function _flipManifold(m: Manifold): Manifold {
   const flipped: Manifold = {
     normal: { x: -m.normal.x, y: -m.normal.y },
+    rollingImpulse: m.rollingImpulse,
     points: [_flipPoint(m.points[0]!), _flipPoint(m.points[1]!)],
     pointCount: m.pointCount,
   };
@@ -238,12 +261,20 @@ function _flipManifold(m: Manifold): Manifold {
 }
 
 function _flipPoint(p: ManifoldPoint): ManifoldPoint {
+  // Solver/warm-start fields are carried through; the narrow phase leaves them
+  // zeroed (the solver populates them).
   return {
     clipPoint: { x: p.clipPoint.x, y: p.clipPoint.y },
     anchorA: { x: p.anchorB.x, y: p.anchorB.y },
     anchorB: { x: p.anchorA.x, y: p.anchorA.y },
     separation: p.separation,
     id: p.id,
+    baseSeparation: p.baseSeparation,
+    normalImpulse: p.normalImpulse,
+    tangentImpulse: p.tangentImpulse,
+    totalNormalImpulse: p.totalNormalImpulse,
+    normalVelocity: p.normalVelocity,
+    persisted: p.persisted,
   };
 }
 

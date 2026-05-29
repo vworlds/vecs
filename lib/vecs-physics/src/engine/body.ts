@@ -37,6 +37,15 @@ export const LOCK_ANGULAR_Z = 0x0004;
 export const IS_SPEED_CAPPED = 0x0020;
 export const ALLOW_FAST_ROTATION = 0x0080;
 
+/** Body-state flag marking a dynamic body: the solver only writes back to
+ * bodies whose state carries it. Mirrors box2d `b2_dynamicFlag = 0x00000200`
+ * (body.h:47) — "This body is dynamic so the solver should write to it." Set
+ * iff the body type is {@link DYNAMIC_BODY}; `b2CreateBody` does
+ * `bodySim->flags |= def->type == b2_dynamicBody ? b2_dynamicFlag : 0`
+ * (body.c:253). The value is taken verbatim from box2d and does not collide
+ * with the lock / speed-cap / fast-rotation bits above. */
+export const DYNAMIC_FLAG = 0x0200;
+
 /** Sparse, organisational body record. Indexed by a {@link BodyHandle}'s index;
  * the solver never reads it. Mirrors `b2Body` minus the id-API surface. */
 export interface InternalBody {
@@ -61,6 +70,22 @@ export interface InternalBody {
   /** Set when shape mass/inertia must be re-integrated. VP-12 reads and
    * clears this flag to recompute `BodySim.invMass`/`invInertia`. */
   massDirty: boolean;
+
+  // ── Contact linked list (VP-15a) ─────────────────────────────────────────
+  /** Encoded key `(contactId << 1) | edge` of the first contact on this body,
+   * or {@link NULL_INDEX}. Head of the intrusive contact-edge list. Mirrors
+   * `b2Body.headContactKey`. */
+  headContactKey: number;
+  /** Number of contacts attached to this body. Mirrors `b2Body.contactCount`. */
+  contactCount: number;
+
+  // ── Island linkage (VP-16) ───────────────────────────────────────────────
+  /** Island this body belongs to, or {@link NULL_INDEX}. Populated by VP-16;
+   * stays `NULL_INDEX` here. Mirrors `b2Body.islandId`. */
+  islandId: number;
+  /** Index within the island's body list (union-find). Populated by VP-16.
+   * Mirrors `b2Body.islandIndex`. */
+  islandIndex: number;
 }
 
 /** Dense per-body simulation data. One per body in a solver set. Transform and

@@ -17,12 +17,15 @@ import { swapRemove } from "../util/dense_array.js";
 import { NULL_INDEX, type BodyHandle } from "../util/handle.js";
 import {
   BodyStorage,
+  DYNAMIC_BODY,
+  DYNAMIC_FLAG,
   makeBodySim,
   makeIdentityBodyState,
   type BodySim,
   type BodyState,
   type InternalBody,
 } from "./body.js";
+import type { ContactSim } from "./contact.js";
 
 // Solver-set indices, mirroring `b2SolverSetType`. The static, disabled, and
 // awake sets are fixed; sleeping islands take indices from `FIRST_SLEEPING_SET`
@@ -45,6 +48,15 @@ export class SolverSet {
   /** Dense solver state, parallel to {@link bodySims}. Populated only for the
    * awake set; empty for static, disabled, and sleeping sets. */
   public readonly bodyStates: BodyState[] = [];
+
+  /** Non-touching contacts that live in this set. Touching contacts move out
+   * to the constraint graph (`state.graphContactSims`). Mirrors
+   * `b2SolverSet.contactSims`. Populated by VP-15a contact create/destroy. */
+  public readonly contactSims: ContactSim[] = [];
+
+  /** Islands that live in this set. Mirrors `b2SolverSet.islandSims`; populated
+   * by VP-16 (declared here so its file is the only one VP-16 touches). */
+  public readonly islandSims: { islandId: number }[] = [];
 
   public constructor(setIndex: number) {
     this.setIndex = setIndex;
@@ -73,6 +85,12 @@ export function createBody(
 ): BodyHandle {
   const handle = storage.idPool.allocate();
   const sim = makeBodySim(handle.index);
+  // box2d sets b2_dynamicFlag on the body sim for dynamic bodies
+  // (body.c:253); the awake body state carries it so the solver writes back
+  // only to dynamic bodies.
+  if (type === DYNAMIC_BODY) {
+    sim.flags |= DYNAMIC_FLAG;
+  }
   const body: InternalBody = {
     entity,
     type,
@@ -82,6 +100,12 @@ export function createBody(
     shapeHead: NULL_INDEX,
     shapeCount: 0,
     massDirty: false,
+    // Contact linked-list: populated by VP-15a contact create/destroy.
+    headContactKey: NULL_INDEX,
+    contactCount: 0,
+    // Island linkage: populated by VP-16 (stays NULL_INDEX here).
+    islandId: NULL_INDEX,
+    islandIndex: NULL_INDEX,
   };
   storage.records[handle.index] = body;
   set.bodySims.push(sim);

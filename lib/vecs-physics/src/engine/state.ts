@@ -16,6 +16,7 @@ import { Singleton, type World } from "@vworlds/vecs";
 import type { BodyHandle, ShapeHandle } from "../util/handle.js";
 import { BodyStorage } from "./body.js";
 import { BroadPhase } from "./broad_phase.js";
+import { ContactStorage, type ContactSim } from "./contact.js";
 import { ShapeStorage } from "./shape.js";
 import { createBaseSolverSets, type SolverSet } from "./solver_set.js";
 
@@ -32,6 +33,7 @@ export interface ResolvedPhysicsOptions {
   hitEventThreshold: number;
   contactHertz: number;
   contactDampingRatio: number;
+  contactSpeed: number;
   maximumLinearSpeed: number;
   enableSleep: boolean;
   enableContinuous: boolean;
@@ -50,6 +52,7 @@ export class PhysicsState {
   public hitEventThreshold: number;
   public contactHertz: number;
   public contactDampingRatio: number;
+  public contactSpeed: number;
   public maximumLinearSpeed: number;
   public enableSleep: boolean;
   public enableContinuous: boolean;
@@ -65,6 +68,21 @@ export class PhysicsState {
   // Broad-phase: three DynamicTrees (static/kinematic/dynamic), move buffer,
   // and pair set. Added VP-10; VP-11 inserts proxies; M3 consumes pairs.
   public readonly broadPhase = new BroadPhase();
+
+  // Contact records (sparse, handle-indexed) and the index allocator. Added
+  // VP-15a; the contact lifecycle (create/destroy) and VP-15b (narrow-phase
+  // update) populate it.
+  public readonly contacts = new ContactStorage();
+
+  // The single overflow constraint-graph color's touching-contact sims (box2d
+  // `constraintGraph.colors[OVERFLOW].contactSims`). v1 has no graph coloring,
+  // so this is the only color. VP-16/VP-17 populate and read it; VP-15a's
+  // destroyContact swap-removes from it when a touching contact is destroyed.
+  public readonly graphContactSims: ContactSim[] = [];
+
+  // TODO(VP-16): island storage (`islands: IslandStorage`) goes here. VP-16
+  // owns `engine/island.ts` and adds the field; left out now to avoid a merge
+  // conflict on this file.
 
   // Solver sets: static, disabled, awake (sleeping sets added with sleep).
   public readonly solverSets: SolverSet[] = createBaseSolverSets();
@@ -95,6 +113,7 @@ export class PhysicsState {
     this.hitEventThreshold = options.hitEventThreshold;
     this.contactHertz = options.contactHertz;
     this.contactDampingRatio = options.contactDampingRatio;
+    this.contactSpeed = options.contactSpeed;
     this.maximumLinearSpeed = options.maximumLinearSpeed;
     this.enableSleep = options.enableSleep;
     this.enableContinuous = options.enableContinuous;

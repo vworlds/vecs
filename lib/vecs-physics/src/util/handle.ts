@@ -13,12 +13,16 @@ export interface Handle {
 // brand exists only at the type level; there is no runtime field.
 declare const BodyBrand: unique symbol;
 declare const ShapeBrand: unique symbol;
+declare const ContactBrand: unique symbol;
 
 /** Handle into the body table. */
 export type BodyHandle = Handle & { readonly [BodyBrand]: "body" };
 
 /** Handle into the shape table. */
 export type ShapeHandle = Handle & { readonly [ShapeBrand]: "shape" };
+
+/** Handle into the contact table. */
+export type ContactHandle = Handle & { readonly [ContactBrand]: "contact" };
 
 /** Index value used for "no slot". */
 export const NULL_INDEX = -1;

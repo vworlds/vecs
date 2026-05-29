@@ -308,6 +308,15 @@ export class BroadPhase {
   // -------------------------------------------------------------------------
 
   /**
+   * Add a pair to the pair set (called by M3 from the contact-create path so
+   * pairSet membership means "a contact exists"). Mirrors `b2AddKey(
+   * &broadPhase.pairSet, B2_SHAPE_PAIR_KEY(...) )` in `b2CreateContact`.
+   */
+  addPair(shapeIndexA: number, shapeIndexB: number): void {
+    this._pairSet.add(pairKey(shapeIndexA, shapeIndexB));
+  }
+
+  /**
    * Remove a pair from the pair set (called by M3 when a contact is destroyed
    * so the same pair can be emitted again if the shapes re-overlap).
    */
