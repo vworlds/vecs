@@ -69,7 +69,7 @@ Ports box2d `math_functions.h` + `constants.h`. 30 tests incl. a port of
 - No Vecs registration here: `world.component(...)` calls and exclusivity land in
   VP-4.
 
-### ✅ VP-4 — `installPhysics` skeleton (commit __PENDING__)
+### ✅ VP-4 — `installPhysics` skeleton (commit a68051d)
 
 `src/install.ts` + `src/engine/state.ts`; `installPhysics`/`PhysicsOptions`
 exported from `src/index.ts`. Registers all 29 public components in the PLAN
