@@ -62,7 +62,7 @@ const player = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: Bo
 A shape is created from an immediate child entity with one geometry component.
 
 ```ts
-world.entity().setParent(player).set(Box, { hx: 0.5, hy: 1 });
+world.entity().set(ChildOf, { target: player }).set(Box, { hx: 0.5, hy: 1 });
 ```
 
 The internal engine tracks mappings similar to:
@@ -85,8 +85,8 @@ Vecs represents this naturally with child entities:
 ```ts
 const body = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().setParent(body).set(Box, { hx: 0.5, hy: 1 });
-world.entity().setParent(body).set(Circle, { radius: 0.25 }).set(ShapePosition, { x: 0, y: 1 });
+world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 1 });
+world.entity().set(ChildOf, { target: body }).set(Circle, { radius: 0.25 }).set(ShapePosition, { x: 0, y: 1 });
 ```
 
 This avoids a nested `Shapes` array component that would need custom diffing and manual `modified()` calls. It also lets Vecs' existing lifecycle machinery do useful work:
@@ -250,7 +250,7 @@ player.set(Force, { x: 1, y: 2 });
 Child force entities allow multiple independent sources:
 
 ```ts
-world.entity().setParent(player).set(Force, { x: 10, y: 0 });
+world.entity().set(ChildOf, { target: player }).set(Force, { x: 10, y: 0 });
 ```
 
 The target body resolution is intentionally shallow:
@@ -258,7 +258,7 @@ The target body resolution is intentionally shallow:
 ```ts
 function resolveTarget(entity: Entity): Entity | undefined {
   if (entity.get(Body)) return entity;
-  if (entity.parent?.get(Body)) return entity.parent;
+  if (entity.parent(ChildOf)?.get(Body)) return entity.parent(ChildOf);
   return undefined;
 }
 ```
@@ -331,14 +331,14 @@ Shape entities and force-source entities use immediate parent rules. This is int
 This applies:
 
 ```ts
-shape.setParent(body);
+shape.set(ChildOf, { target: body });
 ```
 
 This does not apply to `body` unless the middle entity has its own `Body`:
 
 ```ts
-grandchild.setParent(child);
-child.setParent(body);
+grandchild.set(ChildOf, { target: child });
+child.set(ChildOf, { target: body });
 ```
 
 ### Silent Cleanup Must Not Emit User Events

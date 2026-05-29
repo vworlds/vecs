@@ -13,7 +13,7 @@ const player = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: Bo
 
 const playerShape = world
   .entity()
-  .setParent(player)
+  .set(ChildOf, { target: player })
   .set(Box, { hx: 0.5, hy: 0.5 })
   .add(ContactEvents);
 ```
@@ -67,7 +67,7 @@ Minimal example:
 ```ts
 const crate = world.entity().set(Position, { x: 0, y: 3 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().setParent(crate).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
+world.entity().set(ChildOf, { target: crate }).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
 
 world.system("CrateContacts").update(ContactEvents, (shape, events) => {
   for (const event of events.begin) {
@@ -98,7 +98,7 @@ const checkpoint = world.entity().set(Position, { x: 10, y: 0 }).add(Body);
 
 world
   .entity()
-  .setParent(checkpoint)
+  .set(ChildOf, { target: checkpoint })
   .set(Box, { hx: 2, hy: 1 })
   .add(Sensor)
   .add(SensorEvents)
@@ -106,10 +106,10 @@ world
 
 world
   .system("CheckpointTriggers")
-  .query({ AND: [Checkpoint, SensorEvents] })
+  .query({ all: [Checkpoint, SensorEvents] })
   .update(SensorEvents, (checkpointShape, events) => {
     for (const event of events.begin) {
-      const otherBody = event.other.parent;
+      const otherBody = event.other.parent(ChildOf);
       if (otherBody?.get(Player)) {
         console.log("player entered checkpoint", checkpointShape.eid);
       }
@@ -160,9 +160,9 @@ class Health {
 
 world
   .system("ImpactDamage")
-  .query({ AND: [{ PARENT: Health }, HitEvents] })
+  .query({ all: [{ parent: Health }, HitEvents] })
   .update(HitEvents, (shape, events) => {
-    const body = shape.parent;
+    const body = shape.parent(ChildOf);
     const health = body?.getMut(Health);
     if (!health) return;
 
@@ -206,7 +206,7 @@ Only contact-listening shapes whose parent body is a player:
 ```ts
 world
   .system("PlayerContacts")
-  .query({ AND: [{ PARENT: Player }, ContactEvents] })
+  .query({ all: [{ parent: Player }, ContactEvents] })
   .update(ContactEvents, (shape, events) => {
     // shape belongs to a body with Player
   });
@@ -236,7 +236,7 @@ export type ContactEvent = {
 };
 ```
 
-Do not require `otherBody` in portable code. You can always get the body from `event.other.parent` because shape entities are immediate children of body entities.
+Do not require `otherBody` in portable code. You can always get the body from `event.other.parent(ChildOf)` because shape entities are immediate children of body entities.
 
 ## Common Mistakes
 
@@ -253,7 +253,7 @@ body.add(ContactEvents);
 This does:
 
 ```ts
-shape.setParent(body).add(ContactEvents);
+shape.set(ChildOf, { target: body }).add(ContactEvents);
 ```
 
 ### Forgetting Sensor On Sensor Triggers

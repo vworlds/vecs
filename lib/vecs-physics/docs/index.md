@@ -54,7 +54,7 @@ If a behavior needs to exist, add the component. If the component is missing, th
 This creates a static ground body and a dynamic box body with one child shape.
 
 ```ts
-import { World } from "@vworlds/vecs";
+import { World, ChildOf } from "@vworlds/vecs";
 import {
   Body,
   BodyType,
@@ -75,13 +75,13 @@ installPhysics(world, {
 
 const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
-world.entity().setParent(ground).set(Box, { hx: 25, hy: 1 });
+world.entity().set(ChildOf, { target: ground }).set(Box, { hx: 25, hy: 1 });
 
 const player = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
 world
   .entity()
-  .setParent(player)
+  .set(ChildOf, { target: player })
   .set(Box, { hx: 0.5, hy: 0.5 })
   .set(Material, { density: 1, friction: 0.6 })
   .add(ContactEvents);
@@ -197,7 +197,7 @@ Shapes are represented as child entities of a body entity.
 ```ts
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-const shape = world.entity().setParent(body).set(Box, { hx: 0.5, hy: 1 });
+const shape = world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 1 });
 ```
 
 A shape entity must be an immediate child of an entity with `Body`. `vecs-physics` does not recursively search ancestors.
@@ -348,7 +348,7 @@ export class Sensor {}
 Add `Sensor` to a shape entity to make that shape report overlaps without collision response.
 
 ```ts
-world.entity().setParent(body).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
+world.entity().set(ChildOf, { target: body }).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
 ```
 
 Missing `Sensor` means the shape is solid.
@@ -397,7 +397,7 @@ player.set(Force, { x: 1, y: 2 });
 Advanced API: add `Force` to an immediate child of the body entity.
 
 ```ts
-const tractorBeam = world.entity().setParent(player).set(Force, { x: 10, y: 22 });
+const tractorBeam = world.entity().set(ChildOf, { target: player }).set(Force, { x: 10, y: 22 });
 ```
 
 This lets multiple independent force sources act on one body. A spaceship can be pulled by two tractor beams while also receiving another child force from a planet's gravity field.
@@ -443,7 +443,7 @@ player.set(Impulse, { x: 1, y: 2 });
 Advanced API:
 
 ```ts
-world.entity().setParent(player).set(Impulse, { x: 5, y: 0 });
+world.entity().set(ChildOf, { target: player }).set(Impulse, { x: 5, y: 0 });
 ```
 
 Impulse targeting follows the same immediate entity-or-parent rule as `Force`.
@@ -503,7 +503,7 @@ export type ContactEvent = {
 Add `ContactEvents` to a shape entity to receive contact begin/end events involving that shape. If both shapes have `ContactEvents`, both receive events. If only one shape has `ContactEvents`, only that shape receives events.
 
 ```ts
-world.entity().setParent(player).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
+world.entity().set(ChildOf, { target: player }).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
 ```
 
 Systems can react normally with Vecs update handlers.
@@ -511,7 +511,7 @@ Systems can react normally with Vecs update handlers.
 ```ts
 world
   .system("DamagePlayers")
-  .query({ AND: [{ PARENT: Player }, ContactEvents] })
+  .query({ all: [{ parent: Player }, ContactEvents] })
   .update(ContactEvents, (shapeEntity, events) => {
     for (const event of events.begin) {
       // event.other is the other shape entity

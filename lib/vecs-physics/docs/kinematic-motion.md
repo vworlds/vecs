@@ -67,7 +67,7 @@ const platform = world
   .set(Body, { type: BodyType.Kinematic })
   .set(KinematicTargetPosition, { x: 5, y: 2 });
 
-world.entity().setParent(platform).set(Box, { hx: 2, hy: 0.25 });
+world.entity().set(ChildOf, { target: platform }).set(Box, { hx: 2, hy: 0.25 });
 
 world.start();
 
@@ -85,7 +85,7 @@ class MovingPlatform {
   goingRight = true;
 }
 
-world.registerComponent(MovingPlatform);
+world.component(MovingPlatform);
 
 world
   .system("MovePlatforms")

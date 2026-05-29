@@ -13,10 +13,10 @@ Add a component to opt into a behavior. Remove it to opt out. Missing optional c
 ```ts
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
-The body entity owns body-level state. Shape entities are immediate children of body entities.
+The body entity owns body-level state. Shape entities are immediate children of body entities, linked with Vecs' built-in `ChildOf` relationship (`shape.set(ChildOf, { target: body })`; `ChildOf` is exported from `@vworlds/vecs`). Re-targeting or removing that link is observed by physics on the next step.
 
 ## Minimal Example
 
@@ -25,7 +25,7 @@ This is the smallest dynamic body with one box shape.
 ```ts
 const box = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().setParent(box).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().set(ChildOf, { target: box }).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 The child shape uses default material and collision filtering:
@@ -237,7 +237,7 @@ export class ShapePosition {
 ```
 
 ```ts
-world.entity().setParent(body).set(ShapePosition, { x: 0, y: -0.5 }).set(Box, { hx: 0.5, hy: 1 });
+world.entity().set(ChildOf, { target: body }).set(ShapePosition, { x: 0, y: -0.5 }).set(Box, { hx: 0.5, hy: 1 });
 ```
 
 Missing `ShapePosition` means local offset `{ x: 0, y: 0 }`.
@@ -423,7 +423,7 @@ export class Sensor {}
 Sensors do not create collision response. Add event components if you want overlap events.
 
 ```ts
-world.entity().setParent(body).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
+world.entity().set(ChildOf, { target: body }).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
 ```
 
 Missing `Sensor` means the shape is solid.
@@ -453,7 +453,7 @@ player.set(Force, { x: 1, y: 2 });
 Child force source:
 
 ```ts
-world.entity().setParent(player).set(Force, { x: 10, y: 22 });
+world.entity().set(ChildOf, { target: player }).set(Force, { x: 10, y: 22 });
 ```
 
 ### `Torque`
@@ -595,13 +595,13 @@ See [Events](./events.md).
 This works:
 
 ```ts
-shape.setParent(body);
+shape.set(ChildOf, { target: body });
 ```
 
 This is ignored because physics does not search grandparents:
 
 ```ts
-grandchildShape.setParent(someChildOfBody);
+grandchildShape.set(ChildOf, { target: someChildOfBody });
 ```
 
 ### `Rotation` Is Optional

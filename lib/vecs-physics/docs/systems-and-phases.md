@@ -308,8 +308,8 @@ world
   .phase("physics-post")
   .update(ContactEvents, (shapeEntity, events) => {
     for (const event of events.begin) {
-      const body = shapeEntity.parent;
-      const otherBody = event.other.parent;
+      const body = shapeEntity.parent(ChildOf);
+      const otherBody = event.other.parent(ChildOf);
 
       if (body?.get(Player) && otherBody?.get(Enemy)) {
         body.set(Health, { hp: body.get(Health)!.hp - 1 });
@@ -374,10 +374,10 @@ Physics does not search grandparents.
 
 ```ts
 // Applies to player.
-world.entity().setParent(player).set(Force, { x: 1, y: 0 });
+world.entity().set(ChildOf, { target: player }).set(Force, { x: 1, y: 0 });
 
 // Does not apply unless tractorBeam itself has Body.
-world.entity().setParent(tractorBeam).set(Force, { x: 1, y: 0 });
+world.entity().set(ChildOf, { target: tractorBeam }).set(Force, { x: 1, y: 0 });
 ```
 
 ## Related Pages

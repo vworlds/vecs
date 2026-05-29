@@ -11,17 +11,17 @@ A body entity owns motion. A shape entity owns collision geometry.
 ```ts
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-const shape = world.entity().setParent(body).set(Box, { hx: 0.5, hy: 1 });
+const shape = world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 1 });
 ```
 
 The shape must be an immediate child of the body entity. `vecs-physics` does not search grandparents or deeper ancestors.
 
 ```ts
 // Works: shape's parent has Body.
-shape.setParent(body);
+shape.set(ChildOf, { target: body });
 
 // Ignored by physics: shape's grandparent has Body, but parent does not.
-grandchildShape.setParent(nonBodyChild);
+grandchildShape.set(ChildOf, { target: nonBodyChild });
 ```
 
 This model makes compound bodies natural: one body entity can have many child shape entities.
@@ -35,7 +35,7 @@ import { Body, BodyType, Box, Position } from "@vworlds/vecs-physics";
 
 const crate = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().setParent(crate).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().set(ChildOf, { target: crate }).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 The `Box` uses default material and collision filtering if no `Material` or `CollisionFilter` component is present.
@@ -54,7 +54,7 @@ Example with all common parts:
 ```ts
 world
   .entity()
-  .setParent(player)
+  .set(ChildOf, { target: player })
   .set(ShapePosition, { x: 0, y: -0.25 })
   .set(ShapeRotation, { angle: 0 })
   .set(Box, { hx: 0.5, hy: 1 })
@@ -86,7 +86,7 @@ Use `Position` and `Rotation` on body entities. Use `ShapePosition` and `ShapeRo
 ```ts
 const body = world.entity().set(Position, { x: 10, y: 3 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().setParent(body).set(ShapePosition, { x: 0, y: 1 }).set(Circle, { radius: 0.25 });
+world.entity().set(ChildOf, { target: body }).set(ShapePosition, { x: 0, y: 1 }).set(Circle, { radius: 0.25 });
 ```
 
 In this example, the circle is one meter above the body origin in body-local space.
@@ -131,7 +131,7 @@ export class Box {
 ```
 
 ```ts
-world.entity().setParent(body).set(Box, { hx: 0.5, hy: 1 });
+world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 1 });
 ```
 
 You can use `width` and `height` accessors when working with the component instance.
@@ -155,7 +155,7 @@ export class Circle {
 ```
 
 ```ts
-world.entity().setParent(body).set(Circle, { radius: 0.75 });
+world.entity().set(ChildOf, { target: body }).set(Circle, { radius: 0.75 });
 ```
 
 ### Capsule
@@ -173,7 +173,7 @@ export class Capsule {
 ```
 
 ```ts
-world.entity().setParent(body).set(Capsule, {
+world.entity().set(ChildOf, { target: body }).set(Capsule, {
   x1: -0.5,
   y1: 0,
   x2: 0.5,
@@ -198,7 +198,7 @@ export class Segment {
 ```
 
 ```ts
-world.entity().setParent(staticBody).set(Segment, { x1: -5, y1: 0, x2: 5, y2: 0 });
+world.entity().set(ChildOf, { target: staticBody }).set(Segment, { x1: -5, y1: 0, x2: 5, y2: 0 });
 ```
 
 Segments are best for static environment edges. For long terrain made of many connected edges, use `Chain`.
@@ -219,7 +219,7 @@ export class Polygon {
 ```ts
 world
   .entity()
-  .setParent(body)
+  .set(ChildOf, { target: body })
   .set(Polygon, {
     vertices: [
       { x: -0.5, y: 0 },
@@ -245,7 +245,7 @@ export class Chain {
 ```ts
 world
   .entity()
-  .setParent(staticBody)
+  .set(ChildOf, { target: staticBody })
   .set(Chain, {
     points: [
       { x: -4, y: 0 },
@@ -266,15 +266,15 @@ A compound body is one body entity with multiple child shape entities.
 ```ts
 const ship = world.entity().set(Position, { x: 0, y: 5 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().setParent(ship).set(Box, { hx: 1, hy: 0.25 });
+world.entity().set(ChildOf, { target: ship }).set(Box, { hx: 1, hy: 0.25 });
 
 world
   .entity()
-  .setParent(ship)
+  .set(ChildOf, { target: ship })
   .set(ShapePosition, { x: -0.9, y: 0.4 })
   .set(Circle, { radius: 0.25 });
 
-world.entity().setParent(ship).set(ShapePosition, { x: 0.9, y: 0.4 }).set(Circle, { radius: 0.25 });
+world.entity().set(ChildOf, { target: ship }).set(ShapePosition, { x: 0.9, y: 0.4 }).set(Circle, { radius: 0.25 });
 ```
 
 All three shapes move as one rigid body. They do not move relative to each other during simulation.
@@ -284,7 +284,7 @@ All three shapes move as one rigid body. They do not move relative to each other
 Add `Sensor` to make a shape detect overlaps without producing collision response.
 
 ```ts
-world.entity().setParent(body).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
+world.entity().set(ChildOf, { target: body }).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
 ```
 
 Missing `Sensor` means the shape is solid.
@@ -298,7 +298,7 @@ See [Events](./events.md).
 Shapes use useful defaults when `Material` or `CollisionFilter` is missing.
 
 ```ts
-world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 Default material values:
@@ -318,7 +318,7 @@ Override defaults with components.
 ```ts
 world
   .entity()
-  .setParent(body)
+  .set(ChildOf, { target: body })
   .set(Box, { hx: 0.5, hy: 0.5 })
   .set(Material, { density: 2, friction: 0.3 })
   .set(CollisionFilter, { categoryBits: 0b10n, maskBits: 0b101n });
@@ -349,9 +349,9 @@ This is ignored by physics:
 
 ```ts
 const body = world.entity().add(Body);
-const child = world.entity().setParent(body);
+const child = world.entity().set(ChildOf, { target: body });
 
-world.entity().setParent(child).set(Box, { hx: 1, hy: 1 });
+world.entity().set(ChildOf, { target: child }).set(Box, { hx: 1, hy: 1 });
 ```
 
 Only the immediate parent is checked. Put the shape directly under the body entity.
@@ -377,7 +377,7 @@ Missing `Material` is fine because the default density is `1`.
 This can be a problem:
 
 ```ts
-world.entity().setParent(dynamicBody).set(Box, { hx: 1, hy: 1 }).set(Material, { density: 0 });
+world.entity().set(ChildOf, { target: dynamicBody }).set(Box, { hx: 1, hy: 1 }).set(Material, { density: 0 });
 ```
 
 ### Invalid Polygon Or Chain Data

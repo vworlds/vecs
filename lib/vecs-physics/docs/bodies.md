@@ -54,7 +54,7 @@ Choose the type at creation whenever possible. Changing body type later is suppo
 ```ts
 const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
-world.entity().setParent(ground).set(Box, { hx: 25, hy: 1 });
+world.entity().set(ChildOf, { target: ground }).set(Box, { hx: 25, hy: 1 });
 ```
 
 `add(Body)` creates a static body because `Body.type` defaults to `BodyType.Static`.
@@ -64,7 +64,7 @@ world.entity().setParent(ground).set(Box, { hx: 25, hy: 1 });
 ```ts
 const crate = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().setParent(crate).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().set(ChildOf, { target: crate }).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 The `Box` is a child entity. Bodies do not define their own collision geometry directly. See [Shapes](./shapes.md).
@@ -165,7 +165,7 @@ const platform = world
   .set(Body, { type: BodyType.Kinematic })
   .set(LinearVelocity, { x: 2, y: 0 });
 
-world.entity().setParent(platform).set(Box, { hx: 2, hy: 0.25 });
+world.entity().set(ChildOf, { target: platform }).set(Box, { hx: 2, hy: 0.25 });
 ```
 
 Kinematic bodies do not respond to forces or impulses. Use velocity or kinematic target components instead.
@@ -324,7 +324,7 @@ Use a child entity for the shape.
 // Correct
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().setParent(body).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 ### Expecting A Body Without `Body` To Simulate
