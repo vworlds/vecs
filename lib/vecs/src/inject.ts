@@ -199,6 +199,46 @@ export function wantsIter(x: unknown): x is typeof Iter {
   return x === Iter;
 }
 
+/**
+ * Iterate `entities`, resolving injected components per the `forEach` /
+ * `each` argument grammar (bare callback, `[components]`, `Entity`/`Iter`
+ * cursor markers). Runs inside a deferred scope so mutations made by the
+ * callback are buffered and applied after iteration finishes.
+ *
+ * Shared by {@link Query.forEach} and {@link Group.forEach} so both honour the
+ * same injection and deferral semantics.
+ */
+export function forEachInjected(
+  world: World,
+  entities: Iterable<Entity>,
+  arg0: unknown,
+  arg1?: unknown,
+  arg2?: unknown
+): void {
+  world.beginDefer();
+  try {
+    // Bare `forEach(callback)`: a function that is not a cursor marker.
+    if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
+      for (const entity of entities) {
+        (arg0 as (e: Entity) => void)(entity);
+      }
+      return;
+    }
+    const useIter = wantsIter(arg0);
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
+    const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
+      eOrIt: unknown,
+      resolved: unknown
+    ) => void;
+    const invoke = makeInjectedInvoker(world, components, useIter, callback);
+    for (const entity of entities) {
+      invoke(entity);
+    }
+  } finally {
+    world.endDefer();
+  }
+}
+
 export function makeInjectedInvoker(
   world: World,
   components: readonly FanInjectElement[],

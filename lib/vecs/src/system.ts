@@ -134,6 +134,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public override _enter(e: Entity): void {
     this._entities?.add(e);
     e._addQueryMembership(this);
+    this._grouping?.enter(e);
     if (!this._enabled) {
       return;
     }
@@ -157,6 +158,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public override _exit(e: Entity): void {
     this._entities?.delete(e);
     e._removeQueryMembership(this);
+    this._grouping?.exit(e);
     if (!this._enabled) {
       return;
     }
@@ -180,7 +182,13 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * component matches the watchlist.
    */
   public override _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
-    if (!this._enabled || !this._watchlistBitmask.hasBit(meta.bitPtr)) {
+    if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
+      return;
+    }
+    // The grouping index stays live regardless of enabled state, mirroring how
+    // `_entities` membership is maintained for a disabled system.
+    this._grouping?.refresh(e, meta.eid);
+    if (!this._enabled) {
       return;
     }
     this._inbox.push({ kind: InboxCommand.Update, entity: e, meta, component: c });
