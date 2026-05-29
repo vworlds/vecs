@@ -95,8 +95,6 @@ export type ExtractRequired<Q> = Q extends ComponentType
         ? _ExtractAndChain<A>
         : [];
 
-export type TargetQueryTerm = { relEid: number; inner: QueryDSL };
-
 type _ExtractAndChain<A extends readonly QueryDSL[]> = A extends readonly [
   infer First,
   ...infer Rest extends readonly QueryDSL[],
@@ -538,29 +536,6 @@ export function containsDownTerm(q: QueryDSL): boolean {
   return false;
 }
 
-export function collectTargetTerms(world: World, q: QueryDSL): TargetQueryTerm[] {
-  return _collectTargetTerms(simplifyQueryDSL(q, world));
-}
-
-function _collectTargetTerms(q: QueryDSL): TargetQueryTerm[] {
-  if (typeof q !== "object" || q === null || q instanceof Array || q instanceof Entity) {
-    return [];
-  }
-  if ("target" in q) {
-    return [{ relEid: q.target[0] as number, inner: q.target[1] }];
-  }
-  if ("all" in q) {
-    return q.all.flatMap(_collectTargetTerms);
-  }
-  if ("any" in q) {
-    return q.any.flatMap(_collectTargetTerms);
-  }
-  if ("not" in q) {
-    return _collectTargetTerms(q.not);
-  }
-  return [];
-}
-
 /**
  * Return a deterministic FNV-1a hash for a query DSL expression.
  *
@@ -703,54 +678,4 @@ export function _compile(world: World, q: QueryDSL): EntityTestFunc {
     `return function entityTest(e) { return ${expression}; };`
   );
   return factory(...context.masks, ...context.funcs) as EntityTestFunc;
-}
-
-/**
- * Return the component type ids that can affect a query's membership, or
- * `undefined` when the expression is too broad to index safely.
- *
- * @internal Used by the world query index to route archetype changes only to
- * queries that may be invalidated by the changed component. Keep this
- * conservative: unsupported expressions fall back to full-scan routing.
- */
-export function _extractQueryDependencies(world: World, q: QueryDSL): number[] | undefined {
-  q = simplifyQueryDSL(q, world);
-
-  if (typeof q === "boolean") {
-    return [];
-  }
-
-  if (typeof q === "number") {
-    return [q];
-  }
-
-  if (typeof q === "function") {
-    return [world.entity(q as ComponentClass).eid];
-  }
-
-  if (q instanceof Array) {
-    return q.map((component) => world.entity(component).eid);
-  }
-
-  if ("all" in q) {
-    const dependencies: number[] = [];
-    for (const sq of q.all) {
-      const childDependencies = _extractQueryDependencies(world, sq);
-      if (childDependencies === undefined) {
-        return undefined;
-      }
-      dependencies.push(...childDependencies);
-    }
-    return dependencies;
-  }
-
-  if ("target" in q) {
-    return [_resolveRelationship(q.target[0], world)];
-  }
-
-  if ("source" in q) {
-    return [];
-  }
-
-  return undefined;
 }
