@@ -130,6 +130,12 @@ export function transferBody(
 
   // Body state exists only in the awake set: drop it when leaving, create a
   // fresh identity state when entering.
+  //
+  // FOLLOW-UP (M1 review): box2d seeds the new state's flags from `body->flags`
+  // (`b2TransferBody`, solver_set.c:539), not the sim's. Equivalent today (both
+  // 0 until MotionLocks/bullet are wired, and the lock/allowFastRotation bits
+  // match in both). `InternalBody` has no `flags` field yet — when the lock-flag
+  // ticket adds it, give the awake state its lock + allowFastRotation bits here.
   if (sourceSet.setIndex === AWAKE_SET) {
     swapRemove(sourceSet.bodyStates, sourceIndex);
   } else if (targetSet.setIndex === AWAKE_SET) {

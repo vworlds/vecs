@@ -35,6 +35,14 @@ export function installPoseSyncOut(world: World, state: PhysicsState, phase: IPh
         const record = state.bodies.get(bodyId);
         if (record.type !== DYNAMIC_BODY) {
           // Kinematic poses are user-owned; static bodies never get move events.
+          //
+          // FOLLOW-UP (M1 review): this drops kinematic motion that the engine
+          // *did* produce — `PhysicsPoseSyncIn` accepts kinematic velocity and
+          // the integrator advances it, so a kinematic body moves internally but
+          // is never written back (a silent no-op). box2d moves and reports
+          // kinematic bodies. Settle the contract when kinematic drive lands
+          // (M4 / PhysicsKinematicTargets): write kinematic poses back, or
+          // reject kinematic velocity input in PhysicsPoseSyncIn.
           continue;
         }
         const entity = record.entity;

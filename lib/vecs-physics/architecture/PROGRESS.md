@@ -255,3 +255,31 @@ still need eng review before the solver proper (M3).
   `cade99b` dev merge (`cascade` branch: commits `cc2a5a1`/`22ea51b`,
   `GroupedQuery` in `group.ts`). No longer uncommitted; still not on the critical
   path.
+
+## M1 review follow-ups
+
+Forward-looking items surfaced reviewing Milestone 1 (VP-5…VP-7) against box2d.
+None block M1 — the integrator/transfer/storage ports are faithful and the gate
+is green — but each needs attention in a later ticket.
+
+- **Kinematic accept-input / drop-output asymmetry.** `PhysicsPoseSyncIn` accepts
+  `LinearVelocity`/`AngularVelocity` on a kinematic body (`pose_sync_in.ts` only
+  excludes `STATIC_BODY`), and the integrator advances any awake body — so a
+  kinematic body with user-set velocity *does* move inside the engine and lands
+  on `bodyMoveEvents`. But `PhysicsPoseSyncOut` writes back **dynamic only**
+  (`pose_sync_out.ts`), so that motion is never visible in the ECS: a silent
+  no-op. box2d moves and reports kinematic bodies. Resolve when kinematic drive
+  lands (**M4 / `PhysicsKinematicTargets`**): either write kinematic poses back
+  too, or reject kinematic velocity input. Decide the contract, don't leave it
+  half-wired. Code comment left in `pose_sync_out.ts`.
+- **`transferBody` seeds `BodyState.flags` from `sim.flags`, box2d uses
+  `body.flags`** (`b2TransferBody`, solver_set.c:539). Equivalent today — both
+  `0` until `MotionLocks`/`bullet` are wired, and the lock/`allowFastRotation`
+  bits are identical in both. `InternalBody` has no `flags` field yet; whoever
+  wires `MotionLocks` (the lock-flag ticket) must give the awake-state its lock +
+  `allowFastRotation` bits. Code comment left at the seeding site in
+  `solver_set.ts`.
+- **No fixed-timestep accumulator.** `PhysicsStep` steps exactly once per frame
+  with `fixedTimeStep` and ignores the frame delta (debug-warns on mismatch).
+  This matches the PLAN (fixed step, no accumulator promised); flagged only so a
+  future "variable frame rate" request is a known design change, not a bug.
