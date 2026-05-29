@@ -655,7 +655,7 @@ function _compileQueryExpression(
     return `f${funcIndex}(${entityRef})`;
   }
 
-  throw "Unrecognized query term";
+  throw new Error("Unrecognized query term");
 }
 
 /**

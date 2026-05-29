@@ -351,10 +351,10 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this._assertConfigurable();
     if (typeof p !== "string") {
       if (!(p instanceof Phase)) {
-        throw "Invalid Phase object";
+        throw new Error("Invalid Phase object");
       }
       if (p.world !== this.world) {
-        throw "Phase does not belong to this system's world";
+        throw new Error("Phase does not belong to this system's world");
       }
     }
     this._phase = p;
@@ -448,7 +448,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public each(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
     this._assertConfigurable();
     if (this._eachCallback) {
-      throw `each already registered for system '${this.name}'`;
+      throw new Error(`each already registered for system '${this.name}'`);
     }
     this.track();
     const useIter = wantsIter(arg0);

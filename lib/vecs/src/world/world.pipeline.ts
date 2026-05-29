@@ -29,7 +29,7 @@ export class Pipeline extends Modules {
   /** Open a new frame and evaluate every registered tick source once. */
   public beginFrame(delta: number): void {
     if (this._frameInProgress) {
-      throw "endFrame() not called before beginFrame()";
+      throw new Error("endFrame() not called before beginFrame()");
     }
     this._frameInProgress = true;
     this._frameCounter++;
@@ -40,7 +40,7 @@ export class Pipeline extends Modules {
   /** Close the current frame. */
   public endFrame(): void {
     if (!this._frameInProgress) {
-      throw "beginFrame() not called before endFrame()";
+      throw new Error("beginFrame() not called before endFrame()");
     }
     this._frameInProgress = false;
   }
@@ -60,7 +60,7 @@ export class Pipeline extends Modules {
   /** Execute every system in `phase` within the current frame. */
   public runPhase(phase: IPhase, now: number, delta: number): void {
     if (!this._frameInProgress) {
-      throw "runPhase() called outside a frame — call beginFrame() first";
+      throw new Error("runPhase() called outside a frame — call beginFrame() first");
     }
     this.flush();
     (phase as Phase).systems.forEach((s) => {
@@ -79,7 +79,7 @@ export class Pipeline extends Modules {
   /** Create and return a new {@link System}, ready for fluent configuration. */
   public system(name: string): System {
     if (this._started) {
-      throw "systems cannot be added after world start";
+      throw new Error("systems cannot be added after world start");
     }
     return new System(name, this);
   }

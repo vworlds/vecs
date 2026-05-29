@@ -84,7 +84,7 @@ export class Components extends Entities {
       );
     }
     if (this._componentRegistrationDisabled) {
-      throw "World component registration is disabled";
+      throw new Error("World component registration is disabled");
     }
     if (eid === undefined) {
       eid = pool.alloc();

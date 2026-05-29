@@ -115,7 +115,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** @internal Throw when a builder method is called after registration. */
   protected _assertConfigurable(): void {
     if (this.built) {
-      throw `query '${this.name}' has already been built`;
+      throw new Error(`query '${this.name}' has already been built`);
     }
   }
 
