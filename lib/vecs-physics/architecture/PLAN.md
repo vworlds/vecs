@@ -170,9 +170,9 @@ These are part of the contract. They must match Box2D's `b2DefaultBodyDef()`, `b
 |                                | `friction`                        | `0.6`                    |
 |                                | `restitution`                     | `0`                      |
 |                                | `rollingResistance, tangentSpeed` | `0, 0`                   |
-|                                | `userMaterialId`                  | `0n`                     |
-| `CollisionFilter`              | `categoryBits`                    | `1n`                     |
-|                                | `maskBits`                        | `0xffff_ffff_ffff_ffffn` |
+|                                | `userMaterialId`                  | `0`                      |
+| `CollisionFilter`              | `categoryBits`                    | `1`                      |
+|                                | `maskBits`                        | `0xffffffff`             |
 |                                | `groupIndex`                      | `0`                      |
 | `Force` / `Impulse`            | `x, y, wake`                      | `0, 0, true`             |
 | `Torque` / `AngularImpulse`    | `value, wake`                     | `0, true`                |
@@ -474,10 +474,10 @@ interface InternalShape {
   restitution: number;
   rollingResistance: number;
   tangentSpeed: number;
-  userMaterialId: bigint;
+  userMaterialId: number;
 
-  categoryBits: bigint;
-  maskBits: bigint;
+  categoryBits: number; // 32-bit
+  maskBits: number; // 32-bit
   groupIndex: number;
 
   sensor: boolean;
@@ -1549,7 +1549,8 @@ Action items for the Vecs side:
 - Trigonometry: use `Math.cos`/`Math.sin`/`Math.atan2` directly, not Box2D's polynomial approximations (`b2ComputeCosSin`/`b2Atan2`). Simpler and more accurate on the x64 target; the parity tests' tolerances absorb the difference. (See `src/math/rot.ts`.) Revisit only if bit-for-bit matching against a Box2D C capture is ever required.
 - Internal id generations: `IdPool` owns the per-slot generation (bumped on `free`), so validity is a single `pool.isValid(handle)`. Box2D instead keeps the generation on the object; we consolidate it into the pool. (See `src/util/id_pool.ts`.)
 - Code style: private class members are `_`-prefixed (enforced by the `local/internal-underscore` lint rule).
-- Component shapes: `docs/components.md` is authoritative when it is stricter than the defaults table here. Two consequences settled at VP-3: (a) `BodyType` is a **string** enum (`"static"|"kinematic"|"dynamic"`), not numeric; (b) 64-bit fields are `bigint` — `CollisionFilter.categoryBits`/`maskBits` and `Material.userMaterialId` — while `groupIndex` stays a `number` (Box2D `int`).
+- Component shapes: `docs/components.md` is authoritative when it is stricter than the defaults table here. Settled at VP-3: `BodyType` is a **string** enum (`"static"|"kinematic"|"dynamic"`), not numeric.
+- Collision filter width: `CollisionFilter.categoryBits`/`maskBits` are **32-bit `number`**, not Box2D's `uint64_t`. 32 categories is ample and lets filtering use native JS bitwise ops (`(catA & maskB) !== 0`) instead of bigint. Default mask is `0xffffffff`. `Material.userMaterialId` is likewise a plain `number` (opaque id, not a bitfield), so the package has **no `bigint` in its public surface**. (Decided VP-3; diverges from the original PLAN/box2d 64-bit width.)
 
 ## Required Implementation Tickets
 

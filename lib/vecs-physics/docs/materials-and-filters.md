@@ -14,7 +14,7 @@ world
   .set(ChildOf, { target: body })
   .set(Box, { hx: 0.5, hy: 0.5 })
   .set(Material, { density: 1, friction: 0.6 })
-  .set(CollisionFilter, { categoryBits: 0b0010n });
+  .set(CollisionFilter, { categoryBits: 0b0010 });
 ```
 
 If either component is missing, `vecs-physics` uses Box2D-compatible defaults. A bare shape is still physical, has mass, has friction, and collides with everything.
@@ -29,7 +29,7 @@ That shape uses:
 - Friction `0.6`.
 - Restitution `0`.
 - Category bits `1`.
-- Mask bits `0xffff_ffff_ffff_ffffn`.
+- Mask bits `0xffffffff`.
 - Group index `0`.
 
 ## Material
@@ -43,7 +43,7 @@ export class Material {
   restitution = 0;
   rollingResistance = 0;
   tangentSpeed = 0;
-  userMaterialId = 0n;
+  userMaterialId = 0;
 }
 ```
 
@@ -54,7 +54,7 @@ export class Material {
 | `restitution`       |     `0` | Bounciness. `0` means no bounce. Higher values preserve more collision energy.                              |
 | `rollingResistance` |     `0` | Resistance to rolling motion. Usually left at `0` unless modelling wheels or round objects.                 |
 | `tangentSpeed`      |     `0` | Surface tangent speed, useful for conveyor belts.                                                           |
-| `userMaterialId`    |    `0n` | Application-defined material id. Used by custom material logic when supported.                              |
+| `userMaterialId`    |     `0` | Application-defined material id. Used by custom material logic when supported.                              |
 
 ### Minimal Material Example
 
@@ -104,23 +104,23 @@ The exact direction depends on the shape/contact orientation. Use debug drawing 
 
 ```ts
 export class CollisionFilter {
-  categoryBits = 1n;
-  maskBits = 0xffff_ffff_ffff_ffffn;
+  categoryBits = 1;
+  maskBits = 0xffffffff;
   groupIndex = 0;
 }
 ```
 
-| Property       |                  Default | Description                                                                                                                      |
-| -------------- | -----------------------: | -------------------------------------------------------------------------------------------------------------------------------- |
-| `categoryBits` |                     `1n` | What this shape is. Usually one bit, such as player, enemy, terrain, or trigger.                                                 |
-| `maskBits`     | `0xffff_ffff_ffff_ffffn` | What this shape accepts collisions with. Default accepts all categories.                                                         |
-| `groupIndex`   |                      `0` | Optional override. Matching positive groups always collide. Matching negative groups never collide. `0` means no group override. |
+| Property       |      Default | Description                                                                                                                      |
+| -------------- | -----------: | -------------------------------------------------------------------------------------------------------------------------------- |
+| `categoryBits` |          `1` | What this shape is. Usually one bit, such as player, enemy, terrain, or trigger.                                                 |
+| `maskBits`     | `0xffffffff` | What this shape accepts collisions with. Default accepts all categories.                                                         |
+| `groupIndex`   |          `0` | Optional override. Matching positive groups always collide. Matching negative groups never collide. `0` means no group override. |
 
 Two shapes can collide when both masks accept the other shape's category.
 
 ```ts
 const canCollide =
-  (shapeA.categoryBits & shapeB.maskBits) !== 0n && (shapeB.categoryBits & shapeA.maskBits) !== 0n;
+  (shapeA.categoryBits & shapeB.maskBits) !== 0 && (shapeB.categoryBits & shapeA.maskBits) !== 0;
 ```
 
 If two shapes have the same non-zero `groupIndex`, group filtering overrides category/mask filtering:
@@ -134,10 +134,10 @@ Define category constants in application code.
 
 ```ts
 const CollisionCategory = {
-  Terrain: 0b0001n,
-  Player: 0b0010n,
-  Enemy: 0b0100n,
-  Pickup: 0b1000n,
+  Terrain: 0b0001,
+  Player: 0b0010,
+  Enemy: 0b0100,
+  Pickup: 0b1000,
 } as const;
 ```
 
@@ -191,7 +191,7 @@ const playerSelfCollisionGroup = -1;
 
 world.entity().set(ChildOf, { target: player }).set(Box, { hx: 0.5, hy: 1 }).set(CollisionFilter, {
   categoryBits: CollisionCategory.Player,
-  maskBits: 0xffff_ffff_ffff_ffffn,
+  maskBits: 0xffffffff,
   groupIndex: playerSelfCollisionGroup,
 });
 
@@ -202,7 +202,7 @@ world
   .set(ShapePosition, { x: 0, y: 1.1 })
   .set(CollisionFilter, {
     categoryBits: CollisionCategory.Player,
-    maskBits: 0xffff_ffff_ffff_ffffn,
+    maskBits: 0xffffffff,
     groupIndex: playerSelfCollisionGroup,
   });
 ```
@@ -262,11 +262,11 @@ world
     restitution: 0,
     rollingResistance: 0,
     tangentSpeed: 0,
-    userMaterialId: 0n,
+    userMaterialId: 0,
   })
   .set(CollisionFilter, {
-    categoryBits: 1n,
-    maskBits: 0xffff_ffff_ffff_ffffn,
+    categoryBits: 1,
+    maskBits: 0xffffffff,
     groupIndex: 0,
   });
 ```
@@ -279,12 +279,12 @@ The explicit form is only needed when you want different behavior.
 
 Missing `CollisionFilter` means collide with everything, not collide with nothing.
 
-Use `maskBits: 0n` only when you intentionally want no category-based collisions.
+Use `maskBits: 0` only when you intentionally want no category-based collisions.
 
 ```ts
 shapeEntity.set(CollisionFilter, {
-  categoryBits: 1n,
-  maskBits: 0n,
+  categoryBits: 1,
+  maskBits: 0,
 });
 ```
 

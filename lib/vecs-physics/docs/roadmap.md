@@ -59,7 +59,7 @@ Expected API direction:
 const hit = physics.rayCastClosest({
   from: { x: 0, y: 2 },
   to: { x: 10, y: 2 },
-  filter: { categoryBits: 1n, maskBits: 0xffff_ffff_ffff_ffffn },
+  filter: { categoryBits: 1, maskBits: 0xffffffff },
 });
 
 if (hit) {

@@ -321,7 +321,7 @@ world
   .set(ChildOf, { target: body })
   .set(Box, { hx: 0.5, hy: 0.5 })
   .set(Material, { density: 2, friction: 0.3 })
-  .set(CollisionFilter, { categoryBits: 0b10n, maskBits: 0b101n });
+  .set(CollisionFilter, { categoryBits: 0b10, maskBits: 0b101 });
 ```
 
 See [Materials And Filters](./materials-and-filters.md).

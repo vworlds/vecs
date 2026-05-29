@@ -128,8 +128,8 @@ type InternalShape = {
   density: number;
   friction: number;
   restitution: number;
-  categoryBits: bigint;
-  maskBits: bigint;
+  categoryBits: number;
+  maskBits: number;
   groupIndex: number;
   sensor: boolean;
 };

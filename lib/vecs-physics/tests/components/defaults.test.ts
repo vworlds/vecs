@@ -140,14 +140,14 @@ describe("material and filter defaults", () => {
       restitution: 0,
       rollingResistance: 0,
       tangentSpeed: 0,
-      userMaterialId: 0n,
+      userMaterialId: 0,
     });
   });
 
-  it("CollisionFilter matches b2DefaultFilter", () => {
+  it("CollisionFilter uses 32-bit number bitfields (default mask all-ones)", () => {
     expect({ ...new CollisionFilter() }).toEqual({
-      categoryBits: 1n,
-      maskBits: 0xffff_ffff_ffff_ffffn,
+      categoryBits: 1,
+      maskBits: 0xffffffff,
       groupIndex: 0,
     });
   });

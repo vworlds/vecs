@@ -300,7 +300,7 @@ export class Material {
   restitution = 0;
   rollingResistance = 0;
   tangentSpeed = 0;
-  userMaterialId = 0n;
+  userMaterialId = 0;
 }
 ```
 
@@ -313,7 +313,7 @@ Default material behavior:
 | `restitution`       |     `0` | No bounce.                      |
 | `rollingResistance` |     `0` | No rolling resistance.          |
 | `tangentSpeed`      |     `0` | No conveyor-belt tangent speed. |
-| `userMaterialId`    |    `0n` | No application material id.     |
+| `userMaterialId`    |     `0` | No application material id.     |
 
 Changing `Material` on a live shape updates the physical shape. Density changes update body mass.
 
@@ -325,8 +325,8 @@ See [Materials And Filters](./materials-and-filters.md).
 
 ```ts
 export class CollisionFilter {
-  categoryBits = 1n;
-  maskBits = 0xffff_ffff_ffff_ffffn;
+  categoryBits = 1;
+  maskBits = 0xffffffff;
   groupIndex = 0;
 }
 ```

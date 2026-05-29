@@ -56,9 +56,11 @@ Ports box2d `math_functions.h` + `constants.h`. 30 tests incl. a port of
   table on two points now settled below.
 - **`BodyType` is a string enum** (`"static"|"kinematic"|"dynamic"`), per
   `docs/components.md` — the PLAN defaults table only named `BodyType.Static`.
-- **64-bit filter/material fields are `bigint`**: `categoryBits` (`1n`),
-  `maskBits` (`0xffff_ffff_ffff_ffffn`), `userMaterialId` (`0n`). `groupIndex`
-  stays a `number` (Box2D `int`).
+- **Collision filter fields are 32-bit `number`, not `bigint`** (diverges from
+  box2d's `uint64_t`): `categoryBits` (`1`), `maskBits` (`0xffffffff`),
+  `groupIndex` (`0`). `Material.userMaterialId` is also a `number` (`0`). 32
+  categories is ample and filtering uses native JS bitwise ops; the package has
+  no `bigint` in its public surface. See PLAN → Settled Decisions.
 - `Material` bundles `density` (from `b2ShapeDef`) with the `b2SurfaceMaterial`
   fields; not a separate density component.
 - Event payload types (`ContactEvent`/`SensorEvent`/`HitEvent`) import `Entity`

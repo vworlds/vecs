@@ -379,7 +379,7 @@ export class Material {
   restitution = 0;
   rollingResistance = 0;
   tangentSpeed = 0;
-  userMaterialId = 0n;
+  userMaterialId = 0;
 }
 ```
 
@@ -395,8 +395,8 @@ Optional collision category, mask, and group.
 
 ```ts
 export class CollisionFilter {
-  categoryBits = 1n;
-  maskBits = 0xffff_ffff_ffff_ffffn;
+  categoryBits = 1;
+  maskBits = 0xffffffff;
   groupIndex = 0;
 }
 ```
@@ -405,8 +405,8 @@ Missing `CollisionFilter` means category `1`, collides with everything, group `0
 
 ```ts
 shape.set(CollisionFilter, {
-  categoryBits: 0b0010n,
-  maskBits: 0b0101n,
+  categoryBits: 0b0010,
+  maskBits: 0b0101,
 });
 ```
 
