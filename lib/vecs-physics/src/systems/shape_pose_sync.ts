@@ -35,7 +35,9 @@ function getBodyWorldTransform(state: PhysicsState, bodyHandle: BodyHandle): Tra
 }
 
 /** Update local pose fields from new localX/Y/Cos/Sin, recompute AABBs, and
- * move/enlarge the broad-phase proxy for a single shape. */
+ * move/enlarge the broad-phase proxy for a single shape. Marks the owning body
+ * massDirty because the local pose affects the body-local center of mass and
+ * inertia (mirrors b2Shape_SetLocalTransform intent). */
 function refreshSingleShape(
   eid: number,
   state: PhysicsState,
@@ -58,14 +60,17 @@ function refreshSingleShape(
   const bodyXf = getBodyWorldTransform(state, shape.bodyHandle);
   const localXf: Transform = { p: { x: lx, y: ly }, q: { c: lcos, s: lsin } };
   const worldXf = mulTransforms(bodyXf, localXf);
-  const bodyType = state.bodies.get(shape.bodyHandle.index).type;
-  const fatAABB = updateShapeAABBs(shape, worldXf, bodyType);
+  const bodyRec = state.bodies.get(shape.bodyHandle.index);
+  const fatAABB = updateShapeAABBs(shape, worldXf, bodyRec.type);
 
   state.broadPhase.moveProxy(shape.proxyKey, fatAABB);
+  bodyRec.massDirty = true;
 }
 
 /** Update all chain segment shapes with a new local pose. Chain segments share
- * the same local pose (the pose of the chain entity). */
+ * the same local pose (the pose of the chain entity). Marks the owning body
+ * massDirty for extents consistency (chain segments have zero mass, but extents
+ * also depend on world AABB). */
 function refreshChainShapes(
   eid: number,
   state: PhysicsState,
@@ -79,6 +84,7 @@ function refreshChainShapes(
     return;
   }
 
+  let lastBodyHandle = undefined;
   for (const h of handles) {
     const seg = state.shapes.get(h.index);
     seg.localX = lx;
@@ -89,10 +95,15 @@ function refreshChainShapes(
     const bodyXf = getBodyWorldTransform(state, seg.bodyHandle);
     const localXf: Transform = { p: { x: lx, y: ly }, q: { c: lcos, s: lsin } };
     const worldXf = mulTransforms(bodyXf, localXf);
-    const bodyType = state.bodies.get(seg.bodyHandle.index).type;
-    const fatAABB = updateShapeAABBs(seg, worldXf, bodyType);
+    const bodyRec = state.bodies.get(seg.bodyHandle.index);
+    const fatAABB = updateShapeAABBs(seg, worldXf, bodyRec.type);
 
     state.broadPhase.moveProxy(seg.proxyKey, fatAABB);
+    lastBodyHandle = seg.bodyHandle;
+  }
+  // Mark the body massDirty once after all segments are updated.
+  if (lastBodyHandle !== undefined) {
+    state.bodies.get(lastBodyHandle.index).massDirty = true;
   }
 }
 

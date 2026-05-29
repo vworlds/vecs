@@ -13,11 +13,13 @@ import {
   Body,
   BodyType,
   Box,
+  Circle,
   ShapePosition,
   ShapeRotation,
   installPhysics,
 } from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
+import { AWAKE_SET } from "../../src/engine/solver_set.js";
 import { SPECULATIVE_DISTANCE } from "../../src/math/constants.js";
 
 let world: World;
@@ -142,5 +144,56 @@ describe("PhysicsShapePoseSync.update(ShapeRotation)", () => {
     rec = getShapeRecord(shape.eid)!;
     expect(rec.aabbMaxX - rec.aabbMinX).toBeCloseTo(0.2 + 2 * SPECULATIVE_DISTANCE, 1);
     expect(rec.aabbMaxY - rec.aabbMinY).toBeCloseTo(2 + 2 * SPECULATIVE_DISTANCE, 1);
+  });
+});
+
+// ─── massDirty propagation ────────────────────────────────────────────────────
+
+describe("PhysicsShapePoseSync marks body massDirty on local pose change", () => {
+  it("ShapePosition change triggers mass recompute (localCenterX moves with shape)", () => {
+    // Dynamic body + circle at origin → localCenterX = 0 after first progress.
+    const body = world.entity().set(Body, { type: BodyType.Dynamic });
+    const shape = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Circle, { radius: 1 })
+      .set(ShapePosition, { x: 0, y: 0 });
+    world.progress(0, 16);
+
+    const bodyHandle = state.bodyByEntity.get(body.eid)!;
+    const bodyRec = state.bodies.get(bodyHandle.index);
+    const sim0 = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
+    expect(sim0.localCenterX).toBeCloseTo(0, 5);
+
+    // Move the circle to (10, 0). PhysicsShapePoseSync must mark massDirty so
+    // PhysicsMassRecompute recomputes the center of mass.
+    shape.set(ShapePosition, { x: 10, y: 0 });
+    world.progress(16, 16);
+
+    // After progress, massDirty is cleared and localCenterX must equal 10.
+    const sim1 = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
+    expect(sim1.localCenterX).toBeCloseTo(10, 4);
+  });
+
+  it("ShapeRotation change triggers mass recompute (massDirty cleared after progress)", () => {
+    const body = world.entity().set(Body, { type: BodyType.Dynamic });
+    const shapeEntity = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Box, { hx: 0.5, hy: 0.5 })
+      .set(ShapeRotation, { angle: 0 });
+    world.progress(0, 16);
+
+    const bodyHandle = state.bodyByEntity.get(body.eid)!;
+    const bodyRec = state.bodies.get(bodyHandle.index);
+    // massDirty is false after first progress (VP-12 cleared it).
+    expect(bodyRec.massDirty).toBe(false);
+
+    // Update rotation — must re-set massDirty so the next progress recomputes.
+    shapeEntity.set(ShapeRotation, { angle: Math.PI / 4 });
+    world.progress(16, 16);
+
+    // massDirty cleared again by PhysicsMassRecompute.
+    expect(bodyRec.massDirty).toBe(false);
   });
 });
