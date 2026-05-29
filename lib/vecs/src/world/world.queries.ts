@@ -1,7 +1,7 @@
 import { type ComponentType } from "../component.js";
 import { type ExtractRequired, type QueryDSL } from "../dsl.js";
 import { Filter } from "../filter.js";
-import { Query } from "../query.js";
+import { Query } from "../query/index.js";
 import {
   getCachedTerm,
   getTerm,

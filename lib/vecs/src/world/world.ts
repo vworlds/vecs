@@ -1,5 +1,5 @@
 import { CleanupPolicy } from "../component_meta.js";
-import { Query } from "../query.js";
+import { Query } from "../query/index.js";
 import { ChildOf, SilenceSource } from "../relationship.js";
 import { System } from "../system.js";
 import { Pipeline } from "./world.pipeline.js";

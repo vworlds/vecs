@@ -1,5 +1,5 @@
 import { ComponentMeta, type ComponentInstance, type ComponentType } from "../component_meta.js";
-import type { Query } from "../query.js";
+import type { Query } from "../query/index.js";
 import { ArrayMap, type ReadonlyArrayMap } from "../util/array_map.js";
 import { Bitset } from "../util/bitset.js";
 import { DenseSet } from "../util/dense_set.js";
