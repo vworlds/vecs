@@ -134,7 +134,6 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public override _enter(e: Entity): void {
     this._entities?.add(e);
     e._addQueryMembership(this);
-    this._grouping?.enter(e);
     if (!this._enabled) {
       return;
     }
@@ -158,7 +157,6 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public override _exit(e: Entity): void {
     this._entities?.delete(e);
     e._removeQueryMembership(this);
-    this._grouping?.exit(e);
     if (!this._enabled) {
       return;
     }
@@ -185,9 +183,6 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }
-    // The grouping index stays live regardless of enabled state, mirroring how
-    // `_entities` membership is maintained for a disabled system.
-    this._grouping?.refresh(e, meta.eid);
     if (!this._enabled) {
       return;
     }
@@ -506,6 +501,13 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public override requires<T extends ComponentType[]>(...components: [...T]): System<T> {
     super.requires(...components);
     return this as unknown as System<T>;
+  }
+
+  /**
+   * Systems cannot use groupBy. Use `world.query(...).groupBy(...)` instead.
+   */
+  public override groupBy(..._args: any[]): never {
+    throw new Error("System does not support groupBy; use world.query(...).groupBy(...)");
   }
 
   /**

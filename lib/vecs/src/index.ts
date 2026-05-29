@@ -10,14 +10,8 @@ export {
   type RequiredResolvedInjectTuple,
   type UpInject,
 } from "./inject.js";
-export {
-  Query,
-  type EntityTestFunc,
-  type GroupedQuery,
-  type MaybeRequired,
-  type QueryDSL,
-} from "./query.js";
-export { Group } from "./group.js";
+export { Query, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./query.js";
+export { Group, GroupedQuery } from "./group.js";
 export { DEFAULT_POOLS, World, type WorldOptions } from "./world/index.js";
 export { Filter } from "./filter.js";
 export { ChildOf, Relationship } from "./relationship.js";

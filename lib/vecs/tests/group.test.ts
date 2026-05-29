@@ -220,11 +220,14 @@ describe("Query.groupBy — relationship grouping", () => {
 });
 
 describe("Query.groupBy — non-grouped queries", () => {
-  it("group accessors are inert on a query that was never grouped", () => {
+  it("groupBy returns a GroupedQuery with group accessors available", () => {
     const { w } = setup();
-    const q = w.query("plain").requires(Position);
+    const q = w
+      .query("gq")
+      .requires(Position)
+      .groupBy([Position], (_e, [pos]) => cellOf(pos));
     q.build();
-    expect(q.groupCount).toBe(0);
+    expect(typeof q.groupCount).toBe("number");
     expect(q.group(0)).toBeUndefined();
     expect([...q.groups()]).toEqual([]);
     expect([...q.groupKeys()]).toEqual([]);

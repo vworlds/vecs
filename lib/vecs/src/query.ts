@@ -9,14 +9,7 @@ import {
 } from "./component.js";
 import { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
-import {
-  _resolveRelationship,
-  containsDownTerm,
-  type EntityTestFunc,
-  type MaybeRequired,
-  type QueryDSL,
-} from "./dsl.js";
-import { Group, Grouping } from "./group.js";
+import { containsDownTerm, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 import {
   directInjectEids,
   forEachInjected,
@@ -56,32 +49,16 @@ export { Iter };
 type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => void;
 type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
-/**
- * A {@link Query} that has been partitioned by {@link Query.groupBy}. Adds the
- * typed group-accessor surface ({@link group}, {@link groups}, etc.) on top of
- * the query's usual reactive membership.
- *
- * @typeParam K - The grouping key type produced by the key function (or the
- *   relationship target entity, for the relationship form).
- * @typeParam R - Component classes guaranteed present on every matched entity.
- */
-export interface GroupedQuery<K, R extends ComponentType[] = []> extends Query<R> {
-  /** Return the live bucket for `key`, or `undefined` when none holds it. */
-  group(key: K): Group<K, R> | undefined;
-  /** Iterate every non-empty bucket. */
-  groups(): IterableIterator<Group<K, R>>;
-  /** Iterate every key that currently has at least one member. */
-  groupKeys(): IterableIterator<K>;
-  /** Number of non-empty buckets. */
-  readonly groupCount: number;
-  /** Register a callback fired when a bucket is created (gains its first member). */
-  onGroupEnter(callback: (group: Group<K, R>) => void): this;
-  /** Register a callback fired when a bucket empties and is dropped. */
-  onGroupExit(callback: (key: K, group: Group<K, R>) => void): this;
+// GroupedQuery is defined in group.ts to keep grouping out of Query/System.
+// group.ts calls _setGroupedQueryCtor during module init so that Query.groupBy
+// can create instances without a static import cycle.
+let _GroupedQueryCtor: new (...args: any[]) => any;
+
+export function _setGroupedQueryCtor(ctor: new (...args: any[]) => any): void {
+  _GroupedQueryCtor = ctor;
 }
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
-const EMPTY_GROUPS: ReadonlyMap<unknown, Group> = new Map();
 export const SOURCE_TRACKED_QUERY_ERROR =
   "source/children is not supported in a tracked query; use world.filter(...)";
 
@@ -127,8 +104,6 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public rootTerm: Term | undefined;
   /** @internal Root term subscription handle. */
   private _unsubscribeTerm: (() => void) | undefined;
-  /** @internal Bucket projection installed by {@link groupBy}, if any. */
-  protected _grouping: Grouping | undefined;
 
   /** @internal `enter` callback (already wraps any injection logic). */
   protected _enterCallback: EntityCallback | undefined = undefined;
@@ -252,7 +227,6 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public _enter(e: Entity): void {
     this._entities?.add(e);
     e._addQueryMembership(this);
-    this._grouping?.enter(e);
     this._enterCallback?.(e);
     e.components.forEach((c, eid) => {
       const meta = this.world.entity(eid).ownMeta;
@@ -271,7 +245,6 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     this._exitCallback?.(e);
     this._entities?.delete(e);
     e._removeQueryMembership(this);
-    this._grouping?.exit(e);
   }
 
   /** Route a root term membership event into the existing Query API. */
@@ -296,12 +269,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     if (callback) {
       callback(e, c);
     }
-    this._grouping?.refresh(e, meta.eid);
   }
 
   /** @internal Whether this query should be present in an entity's slim update set. */
   public _watchesUpdates(): boolean {
-    return this._componentUpdateCallbacks.size > 0 || this._grouping !== undefined;
+    return this._componentUpdateCallbacks.size > 0;
   }
 
   /** @internal Drop the root term subscription during world removal. */
@@ -870,8 +842,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * reactive root term; **re-keying** (a member changing buckets without
    * leaving the query) rides the same watchlist rail as {@link update}: a
    * change to any of `components` recomputes the key and moves the entity to
-   * its new bucket in place, with no archetype churn. Buckets stay live even on
-   * a {@link System} — only user callbacks defer there, not the index.
+   * its new bucket in place, with no archetype churn.
    *
    * The grouping components are implicitly required, since an entity cannot be
    * bucketed by a value it does not carry. A key of `undefined` leaves the
@@ -893,7 +864,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public groupBy<K, J extends FanInjectTuple>(
     components: readonly [...J],
     key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
-  ): GroupedQuery<K, R>;
+  ): import("./group.js").GroupedQuery<K, R>;
 
   /**
    * Partition the matched set by a relationship target: each bucket is keyed by
@@ -907,89 +878,15 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * @param relationship - Relationship component whose target is the key.
    * @returns This query, keyed by the target {@link Entity}.
    */
-  public groupBy(relationship: ComponentRef): GroupedQuery<Entity, R>;
+  public groupBy(relationship: ComponentRef): import("./group.js").GroupedQuery<Entity, R>;
 
   public groupBy(
     arg0: readonly FanInjectElement[] | ComponentRef,
     arg1?: (e: Entity, resolved: any) => any
-  ): GroupedQuery<any, R> {
+  ): any {
     this._assertConfigurable();
-    if (this._grouping !== undefined) {
-      throw `query '${this.name}' is already grouped`;
-    }
-    let keyOf: (e: Entity) => unknown;
-    let watchEids: number[];
-    if (typeof arg1 === "function") {
-      const components = arg0 as readonly FanInjectElement[];
-      const inject = mapInject(this.world, components);
-      const arity = injectArity(inject);
-      // One resolved tuple reused per key computation; the key function
-      // consumes it synchronously and must not retain it.
-      const resolved = new Array(arity);
-      keyOf = (e: Entity) => {
-        getInjected(e, inject, false, resolved);
-        return arg1(e, resolved);
-      };
-      watchEids = directInjectEids(inject);
-      this._composeGroupMembership(components);
-    } else {
-      const relEid = _resolveRelationship(arg0 as ComponentRef, this.world);
-      keyOf = (e: Entity) => e.parent(relEid);
-      watchEids = [relEid];
-      this._composeGroupMembership([arg0 as ComponentRef]);
-    }
-    for (const eid of watchEids) {
-      this._watchlistBitmask.add(eid);
-    }
-    this.track();
-    this._grouping = new Grouping(this.world, keyOf, watchEids);
-    return this as unknown as GroupedQuery<any, R>;
-  }
-
-  /**
-   * Return the live bucket for `key`, or `undefined` when no member holds it.
-   * Returns `undefined` on a query that was never grouped.
-   */
-  public group(key: unknown): Group | undefined {
-    return this._grouping?.get(key);
-  }
-
-  /** Iterate every non-empty bucket of this query's grouping. */
-  public groups(): IterableIterator<Group> {
-    return this._grouping?.groups.values() ?? EMPTY_GROUPS.values();
-  }
-
-  /** Iterate every grouping key that currently has at least one member. */
-  public groupKeys(): IterableIterator<unknown> {
-    return this._grouping?.keys() ?? EMPTY_GROUPS.keys();
-  }
-
-  /** Number of non-empty buckets in this query's grouping. */
-  public get groupCount(): number {
-    return this._grouping?.groups.size ?? 0;
-  }
-
-  /**
-   * Register a callback fired when a new bucket is created (an entity is the
-   * first to take a key). Fires live, at routing time.
-   *
-   * @returns This query, for chaining.
-   */
-  public onGroupEnter(callback: (group: Group) => void): this {
-    this._assertConfigurable();
-    this._grouping?.setOnGroupEnter(callback);
-    return this;
-  }
-
-  /**
-   * Register a callback fired when a bucket empties and is dropped.
-   *
-   * @returns This query, for chaining.
-   */
-  public onGroupExit(callback: (key: unknown, group: Group) => void): this {
-    this._assertConfigurable();
-    this._grouping?.setOnGroupExit(callback);
-    return this;
+    Object.setPrototypeOf(this, _GroupedQueryCtor.prototype);
+    return (this as any)._initialize(arg0, arg1);
   }
 
   /**
@@ -1008,31 +905,10 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;
-    this._grouping?.clear();
-    this._grouping = undefined;
     this._tracking = false;
     if (!this.entity._destroyed && this.entity.get(Query) === this) {
       this.entity.destroy();
     }
-  }
-
-  /**
-   * @internal Fold the grouping key's components into membership so the query
-   * only tracks entities that actually carry them. Non-component injection
-   * terms (relationship `up` reads) are skipped — they cannot constrain
-   * membership.
-   */
-  private _composeGroupMembership(refs: readonly unknown[]): void {
-    const componentRefs = refs.filter(
-      (ref): ref is ComponentRef =>
-        typeof ref === "number" || typeof ref === "function" || ref instanceof Entity
-    );
-    if (componentRefs.length === 0) {
-      return;
-    }
-    const existing: QueryDSL = this._dsl ?? true;
-    this._dsl = { all: [existing, ...componentRefs] };
-    this._hasExplicitQuery = true;
   }
 
   private _matchedEntities(): ReadonlySet<Entity> | Term {
