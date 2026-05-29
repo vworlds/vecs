@@ -100,6 +100,7 @@ export class Base<R extends ComponentType[] = []> {
     return this.name ?? "";
   }
 
+  /** @internal */
   protected _matchedEntities(): ReadonlySet<Entity> | Term {
     if (!this._tracking) {
       return EMPTY_ENTITIES;
