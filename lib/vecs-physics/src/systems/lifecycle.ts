@@ -25,6 +25,7 @@ import {
 import { Damping, GravityScale } from "../components/body_tuning.js";
 import { makeRot } from "../math/rot.js";
 import { DYNAMIC_BODY, KINEMATIC_BODY, STATIC_BODY, writeBodyTransform } from "../engine/body.js";
+import { updateShapeAABBs } from "../engine/shape.js";
 import {
   AWAKE_SET,
   DISABLED_SET,
@@ -34,6 +35,8 @@ import {
   transferBody,
 } from "../engine/solver_set.js";
 import { type PhysicsState } from "../engine/state.js";
+import { mulTransforms, type Transform } from "../math/transform.js";
+import { NULL_INDEX } from "../util/handle.js";
 
 /** Translate the public string {@link BodyType} to the engine's numeric type. */
 export function bodyTypeToNumber(type: BodyType): number {
@@ -61,6 +64,62 @@ function chooseSetIndex(body: Readonly<Body>): number {
     return STATIC_SET;
   }
   return AWAKE_SET;
+}
+
+// ─── Body proxy helpers ───────────────────────────────────────────────────────
+
+/** Destroy the broad-phase proxy for every shape attached to `bodyHandle`.
+ * Leaves `shape.proxyKey = -1` so re-creation is idempotent.
+ * Mirrors the loop in `b2Body_Disable` (box2d/src/body.c). */
+function destroyBodyShapeProxies(
+  state: PhysicsState,
+  bodyRecord: ReturnType<typeof state.bodies.get>
+): void {
+  let shapeIndex = bodyRecord.shapeHead;
+  while (shapeIndex !== NULL_INDEX) {
+    const shape = state.shapes.get(shapeIndex);
+    shapeIndex = shape.nextShape;
+    if (shape.proxyKey !== -1) {
+      state.broadPhase.destroyProxy(shape.proxyKey);
+      shape.proxyKey = -1;
+    }
+  }
+}
+
+/** Create a broad-phase proxy for every shape attached to `bodyRecord` using
+ * `newBodyType` as the tree selector (fat-AABB margin depends on body type).
+ * Computes world AABBs from the current BodySim transform.
+ * Mirrors the loop in `b2Body_Enable` and `b2Body_SetType` (box2d/src/body.c). */
+function createBodyShapeProxies(
+  state: PhysicsState,
+  bodyRecord: ReturnType<typeof state.bodies.get>,
+  newBodyType: number
+): void {
+  const sim = state.solverSets[bodyRecord.setIndex]!.bodySims[bodyRecord.localIndex]!;
+  const bodyXf: Transform = {
+    p: { x: sim.transformX, y: sim.transformY },
+    q: { c: sim.cos, s: sim.sin },
+  };
+
+  let shapeIndex = bodyRecord.shapeHead;
+  while (shapeIndex !== NULL_INDEX) {
+    const currentIndex = shapeIndex;
+    const shape = state.shapes.get(currentIndex);
+    shapeIndex = shape.nextShape;
+    const localXf: Transform = {
+      p: { x: shape.localX, y: shape.localY },
+      q: { c: shape.localCos, s: shape.localSin },
+    };
+    const worldXf = mulTransforms(bodyXf, localXf);
+    const fatAABB = updateShapeAABBs(shape, worldXf, newBodyType);
+    // proxyKey must be -1 before calling createProxy (assert-equivalent).
+    shape.proxyKey = state.broadPhase.createProxy(
+      newBodyType,
+      fatAABB,
+      shape.categoryBits,
+      currentIndex
+    );
+  }
 }
 
 /** Create `PhysicsBodyLifecycle` on `world`, bound to `state` and `phase`.
@@ -131,11 +190,19 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     }
     const record = state.bodies.get(handle.index);
 
-    // Type and enable changes relocate the body between solver sets — the part
-    // of `b2Body_SetType` / `b2Body_Enable`/`Disable` that is fully portable
-    // today. Their contact-destruction, mass re-init, and proxy re-creation
-    // arrive with the contact/mass/broad-phase tickets.
+    const wasDisabled = record.setIndex === DISABLED_SET;
     const targetSetIndex = chooseSetIndex(body);
+    const willBeDisabled = targetSetIndex === DISABLED_SET;
+    const newType = bodyTypeToNumber(body.type);
+    const typeChanged = newType !== record.type;
+
+    // ── Stage 1: Proxy teardown on disable ────────────────────────────────────
+    // Contact teardown on disable is deferred to M3.
+    if (!wasDisabled && willBeDisabled) {
+      destroyBodyShapeProxies(state, record);
+    }
+
+    // ── Stage 2: Transfer body between solver sets ────────────────────────────
     if (targetSetIndex !== record.setIndex) {
       transferBody(
         state.bodies,
@@ -144,7 +211,21 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
         record
       );
     }
-    record.type = bodyTypeToNumber(body.type);
+
+    // ── Stage 3: Update stored type ───────────────────────────────────────────
+    record.type = newType;
+
+    // ── Stage 4: Proxy management on enable / type change ────────────────────
+    if (wasDisabled && !willBeDisabled) {
+      // Body just enabled: create proxies for all shapes in the new type tree.
+      // Contact creation on enable is deferred to M3.
+      createBodyShapeProxies(state, record, newType);
+    } else if (!wasDisabled && !willBeDisabled && typeChanged) {
+      // Type changed while body stays enabled: move proxies to new type tree.
+      // Contact teardown on type change is deferred to M3.
+      destroyBodyShapeProxies(state, record);
+      createBodyShapeProxies(state, record, newType);
+    }
   });
 
   return system;

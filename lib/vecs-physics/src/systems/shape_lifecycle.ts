@@ -49,6 +49,7 @@ import {
   updateShapeAABBs,
   type InternalShape,
 } from "../engine/shape.js";
+import { DISABLED_SET } from "../engine/solver_set.js";
 import type { PhysicsState } from "../engine/state.js";
 import { LINEAR_SLOP } from "../math/constants.js";
 import { makeRot } from "../math/rot.js";
@@ -329,7 +330,9 @@ function readMaterialOpts(e: { get: (c: any) => any }): {
   };
 }
 
-/** Build and register chain segment shapes. Writes `state.chainShapeByEntity`. */
+/** Build and register chain segment shapes. Writes `state.chainShapeByEntity`.
+ * Skips proxy creation when `bodySetIndex === DISABLED_SET`, matching
+ * Box2D's `b2CreateShape` check (box2d/src/shape.c line 173-177). */
 function enterChain(
   eid: number,
   chain: Chain,
@@ -337,11 +340,13 @@ function enterChain(
   localXf: Transform,
   bodyHandle: BodyHandle,
   bodyType: number,
+  bodySetIndex: number,
   opts: ReturnType<typeof readMaterialOpts>,
   state: PhysicsState
 ): void {
   const segShapes = makeChainSegments(chain.points, chain.loop, worldXf);
   const handles: ShapeHandle[] = [];
+  const disabled = bodySetIndex === DISABLED_SET;
 
   for (const seg of segShapes) {
     // Set local pose (all chain segments share the same chain entity's local pose).
@@ -369,7 +374,15 @@ function enterChain(
     const fatAABB = updateShapeAABBs(seg, worldXf, bodyType);
     const handle = createShape(state.shapes, seg);
     linkShapeToBody(state, handle, bodyHandle);
-    seg.proxyKey = state.broadPhase.createProxy(bodyType, fatAABB, opts.categoryBits, handle.index);
+    // Disabled bodies have no proxies; proxyKey stays -1 (Box2D parity).
+    if (!disabled) {
+      seg.proxyKey = state.broadPhase.createProxy(
+        bodyType,
+        fatAABB,
+        opts.categoryBits,
+        handle.index
+      );
+    }
     handles.push(handle);
   }
 
@@ -416,7 +429,17 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     // Chain: expand to N segment shapes.
     const chain = e.get(Chain) as Chain | undefined;
     if (chain !== undefined) {
-      enterChain(e.eid, chain, worldXf, localXf, bodyHandle, bodyRec.type, opts, state);
+      enterChain(
+        e.eid,
+        chain,
+        worldXf,
+        localXf,
+        bodyHandle,
+        bodyRec.type,
+        bodyRec.setIndex,
+        opts,
+        state
+      );
       bodyRec.massDirty = true;
       return;
     }
@@ -447,15 +470,20 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     // Compute world AABB + fat AABB (overwriting the zeroed sentinel values).
     const fatAABB = updateShapeAABBs(shape, worldXf, bodyRec.type);
 
-    // Allocate slot, link into body list, create proxy.
+    // Allocate slot, link into body list.
     const handle = createShape(state.shapes, shape);
     linkShapeToBody(state, handle, bodyHandle);
-    shape.proxyKey = state.broadPhase.createProxy(
-      bodyRec.type,
-      fatAABB,
-      opts.categoryBits,
-      handle.index
-    );
+
+    // Create broad-phase proxy only when the body is NOT disabled.
+    // Disabled bodies have no proxies (Box2D parity: box2d/src/shape.c line 173).
+    if (bodyRec.setIndex !== DISABLED_SET) {
+      shape.proxyKey = state.broadPhase.createProxy(
+        bodyRec.type,
+        fatAABB,
+        opts.categoryBits,
+        handle.index
+      );
+    }
 
     state.shapeByEntity.set(e.eid, handle);
     bodyRec.massDirty = true;
@@ -605,7 +633,17 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     const worldXf = mulTransforms(bodyXf, localXf);
     const opts = readMaterialOpts(e);
 
-    enterChain(e.eid, chain, worldXf, localXf, bodyHandle, bodyRec.type, opts, state);
+    enterChain(
+      e.eid,
+      chain,
+      worldXf,
+      localXf,
+      bodyHandle,
+      bodyRec.type,
+      bodyRec.setIndex,
+      opts,
+      state
+    );
     bodyRec.massDirty = true;
   });
 
@@ -647,13 +685,18 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
         };
         const worldXf = mulTransforms(newBodyXf, localXf);
         const fatAABB = updateShapeAABBs(seg, worldXf, newBodyRec.type);
-        state.broadPhase.destroyProxy(seg.proxyKey);
-        seg.proxyKey = state.broadPhase.createProxy(
-          newBodyRec.type,
-          fatAABB,
-          seg.categoryBits,
-          h.index
-        );
+        if (seg.proxyKey !== -1) {
+          state.broadPhase.destroyProxy(seg.proxyKey);
+          seg.proxyKey = -1;
+        }
+        if (newBodyRec.setIndex !== DISABLED_SET) {
+          seg.proxyKey = state.broadPhase.createProxy(
+            newBodyRec.type,
+            fatAABB,
+            seg.categoryBits,
+            h.index
+          );
+        }
       }
       if (oldBodyHandle.index !== NULL_INDEX) {
         const oldRec = state.bodies.records[oldBodyHandle.index];
@@ -685,13 +728,18 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     const worldXf = mulTransforms(newBodyXf, localXf);
     const fatAABB = updateShapeAABBs(shape, worldXf, newBodyRec.type);
 
-    state.broadPhase.destroyProxy(shape.proxyKey);
-    shape.proxyKey = state.broadPhase.createProxy(
-      newBodyRec.type,
-      fatAABB,
-      shape.categoryBits,
-      handle.index
-    );
+    if (shape.proxyKey !== -1) {
+      state.broadPhase.destroyProxy(shape.proxyKey);
+      shape.proxyKey = -1;
+    }
+    if (newBodyRec.setIndex !== DISABLED_SET) {
+      shape.proxyKey = state.broadPhase.createProxy(
+        newBodyRec.type,
+        fatAABB,
+        shape.categoryBits,
+        handle.index
+      );
+    }
 
     if (oldBodyHandle.index !== NULL_INDEX) {
       const oldRec = state.bodies.records[oldBodyHandle.index];
@@ -731,6 +779,9 @@ function rebuildSingleShape(
   const bodyType = state.bodies.get(shape.bodyHandle.index).type;
   const fatAABB = updateShapeAABBs(shape, worldXf, bodyType);
 
-  state.broadPhase.moveProxy(shape.proxyKey, fatAABB);
+  // Only move the proxy if it exists (disabled bodies have no proxy).
+  if (shape.proxyKey !== -1) {
+    state.broadPhase.moveProxy(shape.proxyKey, fatAABB);
+  }
   state.bodies.get(shape.bodyHandle.index).massDirty = true;
 }

@@ -63,7 +63,10 @@ function refreshSingleShape(
   const bodyRec = state.bodies.get(shape.bodyHandle.index);
   const fatAABB = updateShapeAABBs(shape, worldXf, bodyRec.type);
 
-  state.broadPhase.moveProxy(shape.proxyKey, fatAABB);
+  // Only move proxy if the shape has one (disabled bodies have proxyKey = -1).
+  if (shape.proxyKey !== -1) {
+    state.broadPhase.moveProxy(shape.proxyKey, fatAABB);
+  }
   bodyRec.massDirty = true;
 }
 
@@ -98,7 +101,9 @@ function refreshChainShapes(
     const bodyRec = state.bodies.get(seg.bodyHandle.index);
     const fatAABB = updateShapeAABBs(seg, worldXf, bodyRec.type);
 
-    state.broadPhase.moveProxy(seg.proxyKey, fatAABB);
+    if (seg.proxyKey !== -1) {
+      state.broadPhase.moveProxy(seg.proxyKey, fatAABB);
+    }
     lastBodyHandle = seg.bodyHandle;
   }
   // Mark the body massDirty once after all segments are updated.
