@@ -8,7 +8,7 @@ import {
   type FanInjectTuple,
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
-import { SOURCE_TRACKED_QUERY_ERROR, Query, type MaybeRequired } from "./query.js";
+import { SOURCE_TRACKED_QUERY_ERROR, Query, type MaybeRequired } from "./query/index.js";
 import { containsDownTerm, type QueryDSL } from "./dsl.js";
 import { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";

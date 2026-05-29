@@ -1,6 +1,12 @@
 export { System, type SystemQuery } from "./system.js";
 export {
+  Query,
+  GroupedQuery,
+  Group,
   Iter,
+  type EntityTestFunc,
+  type MaybeRequired,
+  type QueryDSL,
   type DownInject,
   type FanInjectElement,
   type FanInjectTuple,
@@ -9,9 +15,7 @@ export {
   type MaybeResolvedInjectTuple,
   type RequiredResolvedInjectTuple,
   type UpInject,
-} from "./inject.js";
-export { Query, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./query.js";
-export { Group, GroupedQuery } from "./group.js";
+} from "./query/index.js";
 export { DEFAULT_POOLS, World, type WorldOptions } from "./world/index.js";
 export { Filter } from "./filter.js";
 export { ChildOf, Relationship, SilenceSource } from "./relationship.js";

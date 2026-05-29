@@ -1,4 +1,4 @@
-import type { Query } from "../query.js";
+import type { Query } from "../query/index.js";
 import { Base } from "./entity.base.js";
 
 export class Queries extends Base {
