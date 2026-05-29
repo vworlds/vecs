@@ -42,7 +42,11 @@ export class AllTerm extends Term {
     key: string,
     originalDSL: QueryDSL,
     getTerm: typeof GetTermFn,
-    precheck: (terms: readonly QueryDSL[]) => { hasDiamond: boolean; containsTarget: boolean; info: MergedInfo },
+    precheck: (terms: readonly QueryDSL[]) => {
+      hasDiamond: boolean;
+      containsTarget: boolean;
+      info: MergedInfo;
+    },
     onDestroy: (term: Term) => void
   ): Term {
     const checked = precheck(terms);

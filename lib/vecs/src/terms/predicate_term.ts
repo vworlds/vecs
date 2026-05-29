@@ -87,7 +87,16 @@ export class PredicateTerm extends Term {
     const watch = normalizeWatch(dsl.watch);
     const worldTerm = getTerm(world, true);
     const watchedTerms = watch.map((eid) => getTerm(world, eid));
-    return new PredicateTerm(world, key, "predicate", dsl.test, worldTerm, watchedTerms, false, onDestroy);
+    return new PredicateTerm(
+      world,
+      key,
+      "predicate",
+      dsl.test,
+      worldTerm,
+      watchedTerms,
+      false,
+      onDestroy
+    );
   }
 
   /**
@@ -118,7 +127,16 @@ export class PredicateTerm extends Term {
     const predicate = _compile(world, dsl);
     const worldTerm = info.dependsOnWorld ? getTerm(world, true) : undefined;
     const watchedTerms = [...info.componentEids].map((eid) => getTerm(world, eid));
-    return new PredicateTerm(world, key, "merged", predicate, worldTerm, watchedTerms, info.containsOnly, onDestroy);
+    return new PredicateTerm(
+      world,
+      key,
+      "merged",
+      predicate,
+      worldTerm,
+      watchedTerms,
+      info.containsOnly,
+      onDestroy
+    );
   }
 
   /** Direct shape-channel invalidation from `WorldTerm.subscribeShape`. */
