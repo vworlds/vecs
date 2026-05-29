@@ -205,13 +205,63 @@ the `physics-step` phase). `PhysicsState` gained `bodyMoveEvents`;
   `transformX` alone no longer survives the step), and the velocity-read check
   uses a zero-damping body so the step leaves the read value intact.
 
-### ⬜ NEXT: VP-8 — `engine/shape.ts` — `InternalShape`, `GeometryUnion`, AABB compute, mass compute
+## MILESTONE 2 — Shape lifecycle + broad/narrow phase (IN PROGRESS)
 
-First shape-storage ticket: the internal shape record, the geometry union, and
-shape AABB / mass-integral computation (`geometry.c`). Engine layer only (no
-systems yet — `PhysicsShapeLifecycle` is VP-11). See `PLAN.md` → VP-8 and
-_Shape storage_. Note the standing pre-M3 open questions (TGS vs PGS, CCD scope)
-still need eng review before the solver proper (M3).
+**Tickets: VP-8, VP-9, VP-10, VP-11, VP-12, VP-13, VP-14.** Architect: this pass.
+Engine-layer collision plumbing (shape storage, BVH, broad/narrow phase,
+manifolds, mass) plus the shape-lifecycle/material/pose systems. No solver yet
+(M3): contacts are _generated_, bodies still pass through.
+
+### Dependency graph & execution waves
+
+```
+VP-8  shape.ts/geometry.ts ─┬─> VP-10 broad_phase ─┬─> VP-11 shape systems
+VP-9  dynamic_tree ─────────┘                      │
+VP-8 ─> VP-12 mass.ts (engine) ───> VP-12 system ──┘ (system needs VP-11)
+VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
+```
+
+- **Wave 1 (parallel):** VP-8 and VP-9 — independent leaves. VP-9 runs in its own
+  worktree (touches only `dynamic_tree.ts` + tests; must NOT edit `state.ts`/
+  `install.ts`/`PROGRESS.md`).
+- **Wave 2 (after VP-8):** VP-10 (also needs VP-9), VP-12 (engine half), VP-13.
+- **Wave 3:** VP-11 (needs VP-8+VP-10), VP-14 (needs VP-13), VP-12 (system half,
+  needs VP-11).
+
+### Architect scoping decisions (refining the PLAN ticket list)
+
+- **`distance.c` is a manifold prerequisite, folded into VP-13 (not a new
+  top-level ticket).** Checked the sources: `b2CollidePolygons` needs only
+  `b2SegmentDistance` (closed-form) — _not_ GJK; full `b2ShapeDistance` (GJK) +
+  `b2MakeProxy` + `b2SimplexCache` are needed only by
+  `b2CollideChainSegmentAndPolygon`. So `engine/distance.ts` grows in two steps:
+  `b2SegmentDistance` in VP-13b (polygons), GJK in VP-13e (chain segments). The
+  PLAN's _Package layout_ lists `distance.ts` but the M2 ticket list omitted it —
+  this records the gap and where it lands.
+- **VP-13 sub-ticket relabel (a–e, not the PLAN's a–f).** Consolidated the three
+  circle functions into one sub-ticket and made distance-primitive growth
+  explicit: 13a circles, 13b distance+polygons, 13c capsules, 13d segments,
+  13e chain segments+GJK. Same twelve `b2Collide*` functions, clearer ordering.
+- **VP-8 owns shape record + geometry union + AABB + point-in-shape only; all
+  mass integrals are VP-12** (resolving the PLAN's flagged VP-8/VP-12 overlap).
+- **VP-11 splits `PhysicsMaterialFilterSync` into its own unit (VP-11b)** per the
+  granularity note. Its contact-refilter teardown is **deferred to M3** (no
+  contact graph exists yet) — same shape of deferral as VP-6's body teardown.
+- **VP-14 is the dispatch unit + a narrow-phase entry only.** Full
+  broad→narrow→contact step-loop wiring lands in M3 with contacts/islands/solver;
+  M2 proves manifold generation, not a wired collision step.
+- **Pre-M3 open questions (TGS vs PGS, CCD scope) still need eng review** before
+  the solver proper — unchanged by M2.
+
+### Status by ticket
+
+- ⬜ **VP-8** — `engine/shape.ts` + `engine/geometry.ts`. NEXT (wave 1).
+- ⬜ **VP-9** — `engine/dynamic_tree.ts`. NEXT (wave 1, parallel).
+- ⬜ **VP-10** — `engine/broad_phase.ts`.
+- ⬜ **VP-11** — `systems/shape_lifecycle.ts` + `shape_pose_sync.ts` + `material_filter_sync.ts`.
+- ⬜ **VP-12** — `engine/mass.ts` + `systems/mass_recompute.ts`.
+- ⬜ **VP-13** — `engine/manifold/*` + `engine/distance.ts`.
+- ⬜ **VP-14** — `engine/narrow_phase.ts`.
 
 ## Environment / conventions learned
 
