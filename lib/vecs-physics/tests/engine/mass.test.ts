@@ -302,13 +302,13 @@ describe("updateBodyMassData", () => {
     expect(sim.maxExtent).toBeCloseTo(0.5, 10);
   });
 
-  it("dynamic body with no shapes (zero mass) defaults to invMass=1, invInertia=0", () => {
+  it("dynamic body with no shapes (zero mass) stays invMass=0, invInertia=0", () => {
     const { body, sim, shapeRecords } = makeBody(DYNAMIC_BODY, []);
     updateBodyMassData(body, sim, makeShapeLookup(shapeRecords));
 
     expect(body.massDirty).toBe(false);
-    // VP-12 policy: massless dynamic body → mass=1, inertia stays 0.
-    expect(sim.invMass).toBe(1);
+    // box2d-faithful: a massless dynamic body keeps invMass=0 (infinite mass).
+    expect(sim.invMass).toBe(0);
     expect(sim.invInertia).toBe(0);
   });
 
@@ -318,8 +318,8 @@ describe("updateBodyMassData", () => {
     const { body, sim, shapeRecords } = makeBody(DYNAMIC_BODY, [sensor]);
     updateBodyMassData(body, sim, makeShapeLookup(shapeRecords));
 
-    // Sensor skipped → zero mass → default mass 1.
-    expect(sim.invMass).toBe(1);
+    // Sensor skipped → zero mass → box2d-faithful invMass=0.
+    expect(sim.invMass).toBe(0);
     expect(sim.invInertia).toBe(0);
   });
 

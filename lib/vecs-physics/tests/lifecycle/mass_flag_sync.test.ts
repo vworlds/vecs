@@ -115,7 +115,7 @@ describe("PhysicsMassRecompute", () => {
     expect(sim.invInertia).toBe(0);
   });
 
-  it("dynamic body with no shapes defaults to invMass=1", () => {
+  it("dynamic body with no shapes is never recomputed (massDirty stays false)", () => {
     const state = getPhysics(world);
     // Dynamic body with no shape children.
     const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
@@ -123,11 +123,9 @@ describe("PhysicsMassRecompute", () => {
     world.progress(0, 16);
     const bodyHandle = state.bodyByEntity.get(bodyEnt.eid)!;
     const bodyRec = state.bodies.get(bodyHandle.index);
-    // massDirty is false since no shapes were added (never dirtied).
-    // invMass stays 0 (default from makeBodySim) since massDirty was never set.
-    // The "massless dynamic defaults to 1" policy only fires inside updateBodyMassData.
-    // A body with NO shapes never has massDirty set, so this test stays at 0.
-    // (Mass is only recomputed when massDirty is set by a shape lifecycle event.)
+    // A body with NO shapes never has massDirty set, so mass is never recomputed
+    // (mass is only recomputed when a shape lifecycle event sets massDirty).
+    // Were it recomputed, box2d-faithfully it would stay invMass=0 (massless).
     expect(bodyRec.massDirty).toBe(false);
   });
 
@@ -149,7 +147,9 @@ describe("PhysicsMassRecompute", () => {
     // Frame 2: shape destroyed → massDirty set by lifecycle → recompute fires.
     world.progress(16, 16);
     expect(bodyRec.massDirty).toBe(false);
-    // No shapes left → massless dynamic → invMass = 1.
-    expect(sim.invMass).toBe(1);
+    // No shapes left → massless dynamic → invMass = 0 (box2d-faithful: a
+    // massless dynamic body has infinite mass and does not fall; the
+    // dynamic-body-without-density debug check flags the misconfiguration).
+    expect(sim.invMass).toBe(0);
   });
 });

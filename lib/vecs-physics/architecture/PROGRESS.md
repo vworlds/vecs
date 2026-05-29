@@ -192,8 +192,11 @@ the `physics-step` phase). `PhysicsState` gained `bodyMoveEvents`;
   VP-6 note called for.
 - **Mass is not computed yet** (VP-12), so a fresh dynamic body has `invMass = 0`
   and will not fall. The free-fall DoD test and the engine tests seed
-  `sim.invMass = 1` to stand in. Box2D defaults a massless dynamic body to mass
-  1; the mass ticket will too. Settled in PLAN.
+  `sim.invMass = 1` to stand in. ~~Box2D defaults a massless dynamic body to mass
+  1; the mass ticket will too.~~ **Corrected at VP-12:** this was wrong — box2d's
+  `b2UpdateBodyMassData` leaves a massless dynamic body at `invMass = 0` (infinite
+  mass), and vecs-physics now matches it. The free-fall tests are unaffected (they
+  seed `invMass` and their bodies have no shape, so mass is never recomputed).
 - **DoD met:** `tests/lifecycle/gravity.test.ts` drops a body through the full
   pipeline and matches `pos.y = 4 − ½·g·t²` (and `v = −g·t`) within tolerance;
   a static body does not move. `engine/step.test.ts` pins the semi-implicit

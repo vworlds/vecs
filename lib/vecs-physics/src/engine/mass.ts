@@ -397,10 +397,13 @@ function computeShapeExtent(shape: InternalShape, lcx: number, lcy: number): Sha
  *   geometry origin; the parallel-axis theorem is applied with the offset
  *   `(body-local centroid − body CoM)` to shift it to the body CoM.
  *
- * Deviations from box2d:
- *   - A dynamic body whose accumulated mass is zero defaults to `invMass=1`
- *     (`mass=1, inertia=0`). Box2D leaves mass=0 and invMass=0; we diverge to
- *     match the VP-7 gravity-test stand-in and make fresh bodies fall.
+ * Faithful to box2d: a dynamic body whose accumulated mass is zero keeps
+ * `mass=0, invMass=0` (infinite mass — it will not fall). `b2UpdateBodyMassData`
+ * (body.c) does NOT default it to mass 1; the `dynamic-body-without-density`
+ * debug check is what flags the misconfiguration. (An earlier VP-7 note claimed
+ * box2d defaults such a body to mass 1 — that is wrong; verified against source.)
+ *
+ * Deviation from box2d:
  *   - Velocity adjustment for CoM shift (box2d lines 629–633) is omitted —
  *     no `BodyState` lookup is threaded through here; the delta is negligible
  *     on the first mass computation and will be wired if sleep/CoM-drift
@@ -452,7 +455,7 @@ export function updateBodyMassData(
     mass: number;
     centerX: number; // body-local centroid
     centerY: number;
-    rotI: number; // inertia about geometry origin (in body space; same magnitude as geom-local)
+    rotI: number; // inertia about the shape centroid (box2d b2Compute*Mass convention)
   }> = [];
 
   let totalMass = 0;
@@ -501,9 +504,10 @@ export function updateBodyMassData(
     localCx = wcx * sim.invMass;
     localCy = wcy * sim.invMass;
   } else {
-    // VP-12 policy: massless dynamic body defaults to mass=1 (see header note).
-    sim.invMass = 1;
-    // localCenter stays (0,0) — there are no shapes to locate it.
+    // Faithful to box2d: a massless dynamic body keeps invMass=0 (infinite
+    // mass). localCenter stays (0,0). The dynamic-body-without-density debug
+    // check flags this; we do not silently assign unit mass.
+    sim.invMass = 0;
   }
 
   // Pass 2: accumulate rotational inertia about the body CoM via parallel-axis.
@@ -512,12 +516,12 @@ export function updateBodyMassData(
     if (md.mass === 0) {
       continue;
     }
-    // Parallel-axis: I_cm = I_geomOrigin + mass * |geomOrigin - CoM|²
-    // But our rotI is already about the geometry centroid (for circle/capsule)
-    // or the polygon centroid (for polygon after the internal centroid shift).
-    // The "geometry origin" in our case is actually the geometry centroid for
-    // circles/capsules/polygons (box2d's computeCircleMass returns I about center).
-    // So the parallel-axis offset is (body-local centroid − body CoM).
+    // rotI is about the shape's own centroid (box2d's b2Compute*Mass returns
+    // inertia about the center of mass). 2D centroidal inertia is invariant
+    // under the shape's local-pose rotation, so no rotation term is needed —
+    // only the parallel-axis shift to the body CoM:
+    //   I_bodyCoM += rotI + mass * |centroid_bodyLocal − CoM|²
+    // (matches b2UpdateBodyMassData's offset = localCenter − massData.center).
     const offX = md.centerX - localCx;
     const offY = md.centerY - localCy;
     totalInertia += md.rotI + md.mass * (offX * offX + offY * offY);
