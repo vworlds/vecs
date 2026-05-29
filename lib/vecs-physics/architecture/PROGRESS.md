@@ -98,7 +98,7 @@ only — no systems, engine is a no-op.
   always creates a new phase and would clobber an existing same-named one, so we
   look up first. Passing an `IPhase` directly is honoured as-is.
 
-### ✅ VP-5 — `engine/body.ts` + `engine/solver_set.ts` (commit __PENDING__)
+### ✅ VP-5 — `engine/body.ts` + `engine/solver_set.ts` (commit e0eb4c1)
 
 `InternalBody`/`BodySim`/`BodyState` + `BodyStorage` (`body.ts`); `SolverSet`,
 the set-type constants, and `createBody`/`destroyBody`/`transferBody`
