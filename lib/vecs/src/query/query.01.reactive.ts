@@ -4,6 +4,7 @@ import { TermConsumer, TermEventKind } from "../terms/term.js";
 import { Base } from "./query.00.base.js";
 
 export class Reactive<R extends ComponentType[] = []> extends Base<R> implements TermConsumer {
+  /** @internal */
   public _enter(e: Entity): void {
     this._entities?.add(e);
     e._addQueryMembership(this as any);
@@ -16,12 +17,14 @@ export class Reactive<R extends ComponentType[] = []> extends Base<R> implements
     });
   }
 
+  /** @internal */
   public _exit(e: Entity): void {
     this._exitCallback?.(e);
     this._entities?.delete(e);
     e._removeQueryMembership(this as any);
   }
 
+  /** @internal */
   public _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
     if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
@@ -35,6 +38,7 @@ export class Reactive<R extends ComponentType[] = []> extends Base<R> implements
     }
   }
 
+  /** @internal */
   protected _isSourceSilenced(): boolean {
     const source = this.entity.world._routingSource;
     return source !== undefined && this._silenceQuery?.has(source) === true;
@@ -48,10 +52,12 @@ export class Reactive<R extends ComponentType[] = []> extends Base<R> implements
     }
   }
 
+  /** @internal */
   public _watchesUpdates(): boolean {
     return this._componentUpdateCallbacks.size > 0;
   }
 
+  /** @internal */
   public _unsubscribeRootTerm(): void {
     this._unsubscribeTerm?.();
     this._unsubscribeTerm = undefined;
