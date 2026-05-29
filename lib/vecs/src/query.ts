@@ -1,18 +1,23 @@
 import { OrderedSet } from "./util/ordered_set.js";
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
-import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
+import {
+  type ComponentInstance,
+  type ComponentMeta,
+  type ComponentRef,
+  type ComponentType,
+} from "./component.js";
 import { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import { containsDownTerm, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 import {
   directInjectEids,
+  forEachInjected,
   getInjected,
   getInjectedWithSrc,
   injectArity,
   isCursorMarker,
   Iter,
-  makeInjectedInvoker,
   mapInject,
   wantsIter,
   type DownInject,
@@ -44,6 +49,15 @@ export { Iter };
 
 type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => void;
 type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
+
+// GroupedQuery is defined in group.ts to keep grouping out of Query/System.
+// group.ts calls _setGroupedQueryCtor during module init so that Query.groupBy
+// can create instances without a static import cycle.
+let _GroupedQueryCtor: new (...args: any[]) => any;
+
+export function _setGroupedQueryCtor(ctor: new (...args: any[]) => any): void {
+  _GroupedQueryCtor = ctor;
+}
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
 export const SOURCE_TRACKED_QUERY_ERROR =
@@ -447,28 +461,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   ): void;
 
   public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): void {
-    this.world.beginDefer();
-    try {
-      // Bare `forEach(callback)`: a function that is not a cursor marker.
-      if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
-        for (const entity of this._matchedEntities()) {
-          (arg0 as (e: Entity) => void)(entity);
-        }
-        return;
-      }
-      const useIter = wantsIter(arg0);
-      const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
-      const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
-        eOrIt: unknown,
-        resolved: unknown
-      ) => void;
-      const invoke = makeInjectedInvoker(this.world, components, useIter, callback);
-      for (const entity of this._matchedEntities()) {
-        invoke(entity);
-      }
-    } finally {
-      this.world.endDefer();
-    }
+    forEachInjected(this.world, this._matchedEntities(), arg0, arg1, arg2);
   }
 
   /**
@@ -906,6 +899,63 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public requires<T extends ComponentType[]>(...components: [...T]): Query<T> {
     this.query(components);
     return this as unknown as Query<T>;
+  }
+
+  /**
+   * Partition the matched set into live buckets keyed by a value derived from
+   * each entity, and return this query as a {@link GroupedQuery}.
+   *
+   * Grouping is a projection over the query's existing membership — the
+   * analogue of {@link sort}, but producing many buckets instead of one
+   * ordering. Membership (which entities are in scope) flows through the usual
+   * reactive root term; **re-keying** (a member changing buckets without
+   * leaving the query) rides the same watchlist rail as {@link update}: a
+   * change to any of `components` recomputes the key and moves the entity to
+   * its new bucket in place, with no archetype churn.
+   *
+   * The grouping components are implicitly required, since an entity cannot be
+   * bucketed by a value it does not carry. A key of `undefined` leaves the
+   * entity un-bucketed.
+   *
+   * @param components - Component classes resolved from each entity and passed
+   *   to `key`. Their `update`s drive re-keying.
+   * @param key - Computes the bucket key from the entity and resolved tuple.
+   * @returns This query, typed as a {@link GroupedQuery}.
+   *
+   * @example
+   * ```ts
+   * const byCell = world.query("byCell")
+   *   .requires(Position)
+   *   .groupBy([Position], (_e, [pos]) => cellIndex(pos));
+   * byCell.group(4)?.forEach([Position], (e, [pos]) => { ... });
+   * ```
+   */
+  public groupBy<K, J extends FanInjectTuple>(
+    components: readonly [...J],
+    key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
+  ): import("./group.js").GroupedQuery<K, R>;
+
+  /**
+   * Partition the matched set by a relationship target: each bucket is keyed by
+   * the entity that members point at through `relationship`.
+   *
+   * This is the cheap flavor — the key changes only when the relationship
+   * component itself is added, removed, or retargeted, so it rides membership
+   * and the watchlist directly without reading component values. The
+   * relationship is implicitly required.
+   *
+   * @param relationship - Relationship component whose target is the key.
+   * @returns This query, keyed by the target {@link Entity}.
+   */
+  public groupBy(relationship: ComponentRef): import("./group.js").GroupedQuery<Entity, R>;
+
+  public groupBy(
+    arg0: readonly FanInjectElement[] | ComponentRef,
+    arg1?: (e: Entity, resolved: any) => any
+  ): any {
+    this._assertConfigurable();
+    Object.setPrototypeOf(this, _GroupedQueryCtor.prototype);
+    return (this as any)._initialize(arg0, arg1);
   }
 
   /**

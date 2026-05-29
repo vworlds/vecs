@@ -8,7 +8,7 @@ import {
   VecsListener,
   View,
 } from "@vworlds/vecs-server";
-import { type ComponentClass } from "@vworlds/vecs";
+import { type ComponentClass, type Entity, type QueryDSL, Relationship } from "@vworlds/vecs";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WIDTH = 960;
@@ -63,9 +63,19 @@ class Color {
   public value = 0xffffff;
 }
 
-const gridCellComponents: ComponentClass[] = Array.from(
+/**
+ * Relationship pointing each networked entity at the grid-cell entity it
+ * currently occupies. Retargeting it as an entity moves between cells is a
+ * plain data change — no archetype churn, unlike swapping marker components.
+ */
+class InCell extends Relationship {}
+
+// One distinct tag component per cell, carried by that cell's anchor entity.
+// They make "which cell" expressible in the View DSL (`{ target: [InCell, tag] }`)
+// so every client in the same cell shares one replication tracker.
+const cellTagComponents: ComponentClass[] = Array.from(
   { length: GRID_CELL_COUNT },
-  () => class GridCell {}
+  () => class CellTag {}
 );
 
 const world = new ServerWorld({ name: "main", networkComponents: [Position, Player, Ball, Color] });
@@ -85,14 +95,37 @@ app.use((req, res, next) => {
 const vecsListener = new VecsListener();
 const server = vecsListener.registerWorld(world);
 world.component(Velocity);
-gridCellComponents.forEach((GridCell) => {
-  world.component(GridCell);
+world.component(InCell);
+cellTagComponents.forEach((CellTag) => {
+  world.component(CellTag);
 });
-world.setExclusiveComponents(...gridCellComponents);
+
+// One anchor entity per grid cell. Moving entities relate to these via InCell;
+// the per-cell View DSL targets each anchor's tag.
+const cellEntities: Entity[] = cellTagComponents.map((CellTag) => world.entity().add(CellTag));
+const cellViewDSL: QueryDSL[] = cellTagComponents.map(
+  (CellTag) => ({ target: [InCell, CellTag] }) as QueryDSL
+);
 
 world.component(NetworkClient).onSet((entity) => {
   entity.set(View, { dsl: false });
 });
+
+// Simulation index: balls bucketed by their position cell. Re-buckets in place
+// as a ball moves (driven by Position updates), giving collision a cheap
+// per-cell candidate set instead of scanning every ball.
+const ballsByCell = world
+  .query("BallsByCell")
+  .requires(Networked, Ball, Position)
+  .groupBy([Position], (_entity, [position]) => getGridCellIndex(position));
+
+// Interest index: every networked entity bucketed by the cell entity it points
+// at via InCell. Keyed by the cell anchor entity (the relationship target), so
+// it stays correct purely from relationship retargeting.
+const occupancyByCell = world
+  .query("OccupancyByCell")
+  .requires(Networked, Position)
+  .groupBy(InCell);
 
 for (let i = 0; i < 5; i++) {
   spawnBall(110 + i * 95, 120 + (i % 3) * 90);
@@ -141,14 +174,20 @@ world
     position.y = clamp(position.y + y * PLAYER_STEP, GAME_TOP, HEIGHT - PLAYER_SIZE);
     entity.modified(Position);
 
-    moveSystem.forEach([Position, Ball], (ballEntity, [ballPosition, ball]) => {
-      if (!overlaps(position, ballPosition, ball.radius)) {
-        return;
-      }
+    // Only test balls in the player's cell and its neighbours — the grouping
+    // turns an all-balls scan into a small per-cell candidate set.
+    forEachNearbyCell(position, (cellIndex) => {
+      ballsByCell
+        .group(cellIndex)
+        ?.forEach([Position, Ball], (ballEntity, [ballPosition, ball]) => {
+          if (!overlaps(position, ballPosition, ball.radius)) {
+            return;
+          }
 
-      player.score += 1;
-      entity.modified(Player);
-      ballEntity.destroy();
+          player.score += 1;
+          entity.modified(Player);
+          ballEntity.destroy();
+        });
     });
   });
 
@@ -161,37 +200,20 @@ world
     }
   });
 
+// Maintain each entity's InCell relationship from its position. Retargeting on
+// a cell crossing is a data change, so there is no per-entity archetype churn
+// and no exclusive-component bookkeeping.
 world
-  .system("AssignGridCells")
+  .system("AssignCells")
   .requires(Networked, Position)
-  .enter([Position], (entity, [position]) => {
-    const GridCell = getGridCellComponent(position);
-    if (entity.get(GridCell) === undefined) {
-      entity.add(GridCell);
-    }
-  })
-  .update(Position, (entity, position) => {
-    const GridCell = getGridCellComponent(position);
-    if (entity.get(GridCell) === undefined) {
-      entity.add(GridCell);
-    }
-  });
+  .enter([Position], (entity, [position]) => assignCell(entity, position))
+  .update(Position, (entity, position) => assignCell(entity, position));
 
 world
   .system("UpdatePlayerViews")
   .requires(Networked, NetworkClient, Position, View)
-  .enter([Position, View], (entity, [position, view]) => {
-    const GridCell = getGridCellComponent(position);
-    if (view.dsl !== GridCell) {
-      entity.set(View, { dsl: GridCell });
-    }
-  })
-  .update(Position, [View], (entity, position, [view]) => {
-    const GridCell = getGridCellComponent(position);
-    if (view.dsl !== GridCell) {
-      entity.set(View, { dsl: GridCell });
-    }
-  });
+  .enter([Position, View], (_entity, [position, view]) => updatePlayerView(position, view))
+  .update(Position, [View], (_entity, position, [view]) => updatePlayerView(position, view));
 
 world.addPhase("update");
 world.addPhase("collect");
@@ -234,17 +256,62 @@ function simulate(dt: number, tick: number): void {
   world.progress((tick + 1) * DT_MS, dt * 1000);
 }
 
-function spawnBall(x = randomInt(40, WIDTH - 40), y = randomInt(90, HEIGHT - 40)): void {
+function spawnBall(x?: number, y?: number): void {
+  // With no explicit position, drop the ball into the least-crowded cell using
+  // the relationship-keyed occupancy grouping, spreading balls away from packs.
+  const point = x !== undefined && y !== undefined ? { x, y } : randomPointInLeastCrowdedCell();
   world
     .entity()
     .add(Networked)
     .add(Ball)
     .set(Color, randomColor())
-    .set(Position, { x, y })
+    .set(Position, point)
     .set(Velocity, {
       x: randomSignedInt(2, 5),
       y: randomSignedInt(2, 4),
     });
+}
+
+function assignCell(entity: Entity, position: Position): void {
+  const cell = cellEntities[getGridCellIndex(position)];
+  if (entity.parent(InCell) !== cell) {
+    entity.set(InCell, { target: cell });
+  }
+}
+
+function updatePlayerView(position: Position, view: View): void {
+  const dsl = cellViewDSL[getGridCellIndex(position)];
+  if (view.dsl !== dsl) {
+    view.dsl = dsl;
+  }
+}
+
+function randomPointInLeastCrowdedCell(): { x: number; y: number } {
+  let bestIndex = 0;
+  let bestCount = Infinity;
+  for (let index = 0; index < GRID_CELL_COUNT; index++) {
+    const count = occupancyByCell.group(cellEntities[index])?.count ?? 0;
+    if (count < bestCount) {
+      bestCount = count;
+      bestIndex = index;
+    }
+  }
+  return randomPointInCell(bestIndex);
+}
+
+function randomPointInCell(cellIndex: number): { x: number; y: number } {
+  const column = cellIndex % GRID_COLUMNS;
+  const row = Math.floor(cellIndex / GRID_COLUMNS);
+  return {
+    x: randomInt(
+      Math.floor(column * GRID_CELL_WIDTH) + BALL_RADIUS,
+      Math.floor((column + 1) * GRID_CELL_WIDTH) - BALL_RADIUS
+    ),
+    y: randomInt(
+      Math.floor(GAME_TOP + row * GRID_CELL_HEIGHT) + BALL_RADIUS,
+      Math.floor(GAME_TOP + (row + 1) * GRID_CELL_HEIGHT) - BALL_RADIUS
+    ),
+  };
 }
 
 function randomColor(): Partial<Color> {
@@ -256,8 +323,25 @@ function randomColor(): Partial<Color> {
   };
 }
 
-function getGridCellComponent(position: Position): ComponentClass {
-  return gridCellComponents[getGridCellIndex(position)];
+function forEachNearbyCell(position: Position, visit: (cellIndex: number) => void): void {
+  const column = clampGridIndex(
+    Math.floor(clamp(position.x, 0, WIDTH - 1) / GRID_CELL_WIDTH),
+    GRID_COLUMNS
+  );
+  const row = clampGridIndex(
+    Math.floor((clamp(position.y, GAME_TOP, HEIGHT - 1) - GAME_TOP) / GRID_CELL_HEIGHT),
+    GRID_ROWS
+  );
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      const r = row + dr;
+      const c = column + dc;
+      if (r < 0 || r >= GRID_ROWS || c < 0 || c >= GRID_COLUMNS) {
+        continue;
+      }
+      visit(r * GRID_COLUMNS + c);
+    }
+  }
 }
 
 function getGridCellIndex(position: Position): number {

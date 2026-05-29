@@ -182,7 +182,10 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * component matches the watchlist and its source is not silenced.
    */
   public override _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
-    if (!this._enabled || !this._watchlistBitmask.hasBit(meta.bitPtr)) {
+    if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
+      return;
+    }
+    if (!this._enabled) {
       return;
     }
     if (this._isSourceSilenced()) {
@@ -522,6 +525,13 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public override requires<T extends ComponentType[]>(...components: [...T]): System<T> {
     super.requires(...components);
     return this as unknown as System<T>;
+  }
+
+  /**
+   * Systems cannot use groupBy. Use `world.query(...).groupBy(...)` instead.
+   */
+  public override groupBy(..._args: any[]): never {
+    throw new Error("System does not support groupBy; use world.query(...).groupBy(...)");
   }
 
   /**
