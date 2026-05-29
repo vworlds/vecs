@@ -72,7 +72,7 @@ export class IntervalTickSource extends BaseTickSource {
   public constructor(intervalSeconds: number) {
     super();
     if (intervalSeconds <= 0) {
-      throw "interval seconds must be greater than 0";
+      throw new Error("interval seconds must be greater than 0");
     }
     this._intervalMs = intervalSeconds * 1000;
   }
@@ -123,7 +123,7 @@ export class RateTickSource extends BaseTickSource {
   public constructor(rate: number, source?: ITickSource) {
     super();
     if (!Number.isInteger(rate) || rate <= 0) {
-      throw "rate must be a positive integer";
+      throw new Error("rate must be a positive integer");
     }
     this._rate = rate;
     this._source = source;

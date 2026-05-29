@@ -183,7 +183,15 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
     return getComponentTerm(world, dsl, key);
   }
   if (dsl instanceof Array) {
-    return AllTerm.build(world, dsl, key, dsl as ComponentRefArray, getTerm, _allAnyPrecheck, onDestroy);
+    return AllTerm.build(
+      world,
+      dsl,
+      key,
+      dsl as ComponentRefArray,
+      getTerm,
+      _allAnyPrecheck,
+      onDestroy
+    );
   }
   if ("all" in dsl) {
     return AllTerm.build(world, dsl.all, key, dsl, getTerm, _allAnyPrecheck, onDestroy);
@@ -199,7 +207,13 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
     return OnlyTerm.build(world, components as number[], key, getTerm, onDestroy);
   }
   if ("test" in dsl) {
-    return PredicateTerm.buildPredicate(world, dsl as { test: EntityTestFunc; watch?: unknown }, key, getTerm, onDestroy);
+    return PredicateTerm.buildPredicate(
+      world,
+      dsl as { test: EntityTestFunc; watch?: unknown },
+      key,
+      getTerm,
+      onDestroy
+    );
   }
   if ("target" in dsl) {
     return TargetTerm.build(world, dsl.target[0] as number, dsl.target[1], key, getTerm, onDestroy);
@@ -293,7 +307,13 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
     };
   }
   if (dsl === false) {
-    return { leafKeys: new Set(), componentEids: new Set(), dependsOnWorld: false, containsOnly: false, containsTarget: false };
+    return {
+      leafKeys: new Set(),
+      componentEids: new Set(),
+      dependsOnWorld: false,
+      containsOnly: false,
+      containsTarget: false,
+    };
   }
   if (typeof dsl === "number") {
     return {
@@ -315,7 +335,13 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
   }
   if ("not" in dsl) {
     return _mergeAnalyses([
-      { leafKeys: new Set([WORLD_LEAF]), componentEids: new Set(), dependsOnWorld: true, containsOnly: false, containsTarget: false },
+      {
+        leafKeys: new Set([WORLD_LEAF]),
+        componentEids: new Set(),
+        dependsOnWorld: true,
+        containsOnly: false,
+        containsTarget: false,
+      },
       _analyzeDSL(dsl.not),
     ]);
   }
@@ -330,13 +356,25 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
     }));
     return _mergeAnalyses([
       ...childAnalyses,
-      { leafKeys: new Set([WORLD_LEAF]), componentEids: new Set(), dependsOnWorld: true, containsOnly: true, containsTarget: false },
+      {
+        leafKeys: new Set([WORLD_LEAF]),
+        componentEids: new Set(),
+        dependsOnWorld: true,
+        containsOnly: true,
+        containsTarget: false,
+      },
     ]);
   }
   if ("test" in dsl) {
     const watch = normalizeWatch(dsl.watch);
     return _mergeAnalyses([
-      { leafKeys: new Set([WORLD_LEAF]), componentEids: new Set(), dependsOnWorld: true, containsOnly: false, containsTarget: false },
+      {
+        leafKeys: new Set([WORLD_LEAF]),
+        componentEids: new Set(),
+        dependsOnWorld: true,
+        containsOnly: false,
+        containsTarget: false,
+      },
       ...watch.map((eid) => ({
         leafKeys: new Set([`C:${eid}`]) as Set<string>,
         componentEids: new Set([eid]),
@@ -359,7 +397,13 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       { ..._analyzeDSL(dsl.target[1]), containsTarget: true },
     ]);
   }
-  return { leafKeys: new Set(), componentEids: new Set(), dependsOnWorld: false, containsOnly: false, containsTarget: false };
+  return {
+    leafKeys: new Set(),
+    componentEids: new Set(),
+    dependsOnWorld: false,
+    containsOnly: false,
+    containsTarget: false,
+  };
 }
 
 /**
@@ -424,9 +468,11 @@ function _hasDiamond(analyses: DslAnalysis[]): boolean {
  * @param terms - Direct child DSL nodes of the `all`/`any` being analyzed.
  * @returns Diamond flag, target flag, and aggregated `MergedInfo`.
  */
-function _allAnyPrecheck(
-  terms: readonly QueryDSL[]
-): { hasDiamond: boolean; containsTarget: boolean; info: MergedInfo } {
+function _allAnyPrecheck(terms: readonly QueryDSL[]): {
+  hasDiamond: boolean;
+  containsTarget: boolean;
+  info: MergedInfo;
+} {
   const analyses = terms.map(_analyzeDSL);
   const diamond = _hasDiamond(analyses);
   const containsTarget = analyses.some((a) => a.containsTarget);

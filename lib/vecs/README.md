@@ -27,7 +27,7 @@ yarn add @vworlds/vecs
 ### Lifecycle in brief
 
 ```
-registerComponent() × N  →  addPhase() / system() / query() × N  →  start()  →  progress() every frame
+world.component() × N  →  addPhase() / system() / query() × N  →  start()  →  progress() every frame
 ```
 
 Components must be registered before they are used as component classes. After `start()`, component registration is disabled. Systems and queries can still be created — standalone queries backfill existing matched entities immediately.
@@ -59,9 +59,9 @@ class Health {
 
 const world = new World();
 
-world.registerComponent(Position);
-world.registerComponent(Velocity);
-world.registerComponent(Health);
+world.component(Position);
+world.component(Velocity);
+world.component(Health);
 
 // ─── Phases ────────────────────────────────────────────────────────────────
 
@@ -153,22 +153,31 @@ class Position {
   y = 0;
 }
 
-// Auto-assigned type id (≥ 256 for "local" components):
-const positionMeta = world.registerComponent(Position);
+// Auto-assigned component id (drawn from the "component" id pool, 1–899 by default):
+const positionComponent = world.component(Position);
 
-// Explicit numeric type id (e.g. server-assigned):
-world.registerComponent(Position, 1);
+// Explicit numeric id (e.g. a server-assigned stable id):
+world.component(Position, 42);
 
-// Explicit display name (e.g. when the class name differs from the network name):
-world.registerComponent(Position, "pos");
+// Access component metadata (numeric id, cleanup policy, etc.):
+const meta = world.component(Position).ownMeta; // ComponentMeta
 
-// Pre-register a name → id mapping before the class is available:
-world.registerComponentType("Position", 1);
+// Give the component a name so it can be looked up by string later:
+world.component(Position).name = "Position";
+world.component("Position"); // resolves the same Component entity
 ```
 
-`registerComponent` returns the `ComponentMeta` for the class. Internally, vecs stores that metadata on the component class under a hidden world-specific key, so the same class can be registered independently in multiple worlds. Numeric type lookup still goes through the world's type table.
+`world.component(Class)` returns the `Component` entity for that class, creating and registering it on the first call. Subsequent calls with the same class return the same entity. The same class can be registered independently in multiple worlds.
 
-After `world.start()` (or `world.disableComponentRegistration()`) any further call to `registerComponent` throws. There is no automatic component registration; using an unregistered component class as a component is an error.
+Id ranges are configured by passing `idPools` to the `World` constructor. The built-in defaults are:
+
+| Pool        | Range     |
+| ----------- | --------- |
+| `component` | 1 – 899   |
+| `module`    | 900 – 999 |
+| `entity`    | 1000 – ∞  |
+
+After `world.start()` (or `world.disableComponentRegistration()`) any further call to `world.component(Class)` that would register a new class throws. There is no automatic component registration; using an unregistered component class as a component is an error.
 
 #### Exclusive component groups
 
@@ -198,10 +207,6 @@ const maybeFound = world.getEntity(42);
 const net = world.getOrCreateEntity(serverId, (newEntity) => {
   tracked.add(newEntity);
 });
-
-// Reserve a high id range for locally created entities so they don't collide
-// with server-assigned ids (call before world.start()):
-world.setEntityIdRange(0x10000);
 
 // Destroy everything (e.g. on level reset):
 world.clearAllEntities();
@@ -257,7 +262,7 @@ const send = world.addPhase("send");
 world.progress(now, delta);
 
 // ...or run individual phases manually:
-world.beginFrame(delta);
+world.beginFrame(delta); // one numeric arg: ms since last frame
 try {
   world.runPhase(preUpdate, now, delta);
   world.runPhase(update, now, delta);
@@ -404,7 +409,7 @@ class Position {
   y = 0;
 }
 
-world.registerComponent(Position);
+world.component(Position);
 
 entity.add(Position);
 const pos = entity.getMut(Position)!;
@@ -424,7 +429,7 @@ entity.get(Position) === shared; // true
 | ------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Plain class               | Components should be ordinary classes with field initializers and methods as needed.                           |
 | No-arg construction       | vecs calls `new ComponentClass()`, so constructors should be omitted or take no parameters.                    |
-| Explicit registration     | Call `world.registerComponent(C)` before using the class as a component.                                       |
+| Explicit registration     | Call `world.component(C)` before using the class as a component.                                               |
 | Shared instances possible | `entity.attach(instance)` stores the exact passed object; code should use the entity passed by vecs callbacks. |
 | Manual dirty marking      | After mutating fields directly, call `entity.modified(C)` to notify hooks, queries, and systems.               |
 
@@ -716,7 +721,7 @@ Both methods return `this` for chaining and are idempotent (calling `disable()` 
 
 #### `.destroy()`
 
-**Not supported on `System`** — calling it throws. Systems live for the duration of the world. Use a standalone `Query` for temporary reactive sets.
+Permanently remove this system from the world. Calls `disable()` first (clearing the inbox), then removes the system from its phase and unregisters its backing entity. No `exit` callbacks fire. Use a standalone `Query` if you need a temporary reactive set that can be destroyed mid-session.
 
 ---
 
@@ -804,18 +809,20 @@ A `Filter` holds no tracked set, makes no registration calls, and needs no `dest
 
 A compact, growable set of non-negative integers backed by 32-bit words. Used internally for entity archetypes and watchlists, and exposed in the public API so component data can use it for bit-flag fields.
 
-| Method             | Description                                                              |
-| ------------------ | ------------------------------------------------------------------------ |
-| `add(n)`           | Set bit `n`.                                                             |
-| `addBit(bptr)`     | Set the bit at a pre-computed `BitPtr`.                                  |
-| `delete(n)`        | Clear bit `n`. Trims trailing zero words.                                |
-| `clear()`          | Remove every set bit.                                                    |
-| `has(n)`           | Returns `true` if bit `n` is set.                                        |
-| `hasBit(bptr)`     | Fast check via a pre-computed `BitPtr`.                                  |
-| `equal(other)`     | Returns `true` when both bitsets have the same bits set.                 |
-| `hasBitset(other)` | Returns `true` when every bit set in `other` is also set in this bitset. |
-| `forEach(cb)`      | Visit each set bit index in ascending order.                             |
-| `indices()`        | Return all set bit indices as a `number[]`.                              |
+| Method             | Description                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| `add(n)`           | Set bit `n`.                                                                          |
+| `addBit(bptr)`     | Set the bit at a pre-computed `BitPtr` (fast path).                                   |
+| `delete(n)`        | Clear bit `n`. Storage is not compacted automatically; call `compact()` when needed.  |
+| `deleteBit(bptr)`  | Clear the bit at a pre-computed `BitPtr` (fast path). Does not compact automatically. |
+| `compact()`        | Trim trailing zero words from backing storage.                                        |
+| `clear()`          | Remove every set bit.                                                                 |
+| `has(n)`           | Returns `true` if bit `n` is set.                                                     |
+| `hasBit(bptr)`     | Fast check via a pre-computed `BitPtr`.                                               |
+| `equal(other)`     | Returns `true` when both bitsets have the same bits set.                              |
+| `hasBitset(other)` | Returns `true` when every bit set in `other` is also set in this bitset.              |
+| `forEach(cb)`      | Visit each set bit index in ascending order.                                          |
+| `indices()`        | Return all set bit indices as a `number[]`.                                           |
 
 ```ts
 class Tags {
