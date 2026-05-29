@@ -13,7 +13,7 @@ export {
 export { Query, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./query.js";
 export { DEFAULT_POOLS, World, type WorldOptions } from "./world/index.js";
 export { Filter } from "./filter.js";
-export { ChildOf, Relationship } from "./relationship.js";
+export { ChildOf, Relationship, SilenceSource } from "./relationship.js";
 export {
   CleanupPolicy,
   Component,

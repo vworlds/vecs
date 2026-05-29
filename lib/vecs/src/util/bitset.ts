@@ -230,16 +230,6 @@ export class Bitset {
   }
 
   /**
-   * Return `true` when every bit in `bitmask` is set in the word at
-   * `arrayIndex`.
-   *
-   * @internal
-   */
-  public _hasIndexBitmask(arrayIndex: number, bitmask: number): boolean {
-    return (this._bits[arrayIndex] & bitmask) !== 0;
-  }
-
-  /**
    * Emit a JavaScript expression that evaluates to `true` when the bitset
    * addressed by `targetBitsExpr` (a `number[]` of 32-bit words) contains
    * every bit set in this bitset.

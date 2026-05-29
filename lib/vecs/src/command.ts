@@ -27,7 +27,18 @@ export const enum CommandKind {
  *
  * @internal
  */
-export type Command =
+export type Command = CommandBody & {
+  /**
+   * Entity credited with producing this mutation — the running system's entity
+   * when the command was enqueued, or `undefined` for mutations made outside a
+   * system. Stamped by {@link World._enqueue} and consulted during routing to
+   * silence feedback loops (see {@link System.ignoreSource}).
+   */
+  source?: Entity;
+};
+
+/** @internal The discriminated payload of a {@link Command}, without provenance. */
+type CommandBody =
   | { kind: CommandKind.CreateEntity; entity: Entity }
   | {
       kind: CommandKind.Set;

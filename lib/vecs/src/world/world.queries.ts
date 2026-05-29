@@ -42,7 +42,7 @@ export class Queries extends Storage {
   /** @internal Register and index a freshly built {@link Query}. */
   public _addQuery(this: World, q: Query): void {
     if (this._frameInProgress && !this._buildingPendingQueries) {
-      throw "queries cannot be built while a frame is in progress";
+      throw new Error("queries cannot be built while a frame is in progress");
     }
     this._removeUnbuiltQuery(q);
     this._queries.push(q);

@@ -10,6 +10,38 @@ export class Components extends Entities {
   /** @internal `true` once {@link start} or {@link disableComponentRegistration} has been called. */
   protected _componentRegistrationDisabled = false;
 
+  /**
+   * Register a component class with this world, or look up a previously
+   * registered component entity.
+   *
+   * On the first call with a given class, a new `Component` entity is created
+   * and its id is drawn from the `"component"` id pool (1–899 by default).
+   * Subsequent calls with the same class return the same entity. The same class
+   * may be registered independently in multiple worlds.
+   *
+   * Pass an explicit numeric `eid` to pin the component to a server-assigned
+   * stable id instead of auto-allocating one.
+   *
+   * Passing a **string** resolves an already-registered component entity by
+   * name (set via `world.component(C).name = "..."`). Throws if no entity with
+   * that name exists or if the named entity is not a `Component` entity.
+   *
+   * After {@link start} (or {@link disableComponentRegistration}), registering a
+   * new class throws.
+   *
+   * @param ComponentClass - The component class to register or retrieve.
+   * @param eid - Optional explicit numeric entity id.
+   * @returns The `Component` entity for the given class.
+   *
+   * @example
+   * ```ts
+   * world.component(Position);               // register and auto-assign id
+   * world.component(Position, 42);           // register with explicit id 42
+   * const meta = world.component(Position).ownMeta; // access metadata
+   * world.component(Position).name = "Position";
+   * world.component("Position");             // look up by name
+   * ```
+   */
   public component<T extends ComponentType>(
     this: World,
     ComponentClass: T,
@@ -39,6 +71,17 @@ export class Components extends Entities {
     this._componentRegistrationDisabled = true;
   }
 
+  /**
+   * Read the singleton data stored on the component entity for `Class`.
+   *
+   * This is a convenience shorthand for `world.component(Class).get(Class)`.
+   * Use it when you store world-global state as a component on the component
+   * entity itself (the Singleton pattern).
+   *
+   * @param Class - Registered component class.
+   * @returns The component instance stored on the component entity, or
+   *   `undefined` when none has been set.
+   */
   public get<C extends ComponentClass>(
     this: World,
     Class: C
@@ -46,6 +89,17 @@ export class Components extends Entities {
     return this.component(Class).get(Class);
   }
 
+  /**
+   * Attach or update the singleton data stored on the component entity for `Class`.
+   *
+   * Shorthand for `world.component(Class).set(Class, props)`. Stores `props`
+   * on the component entity itself so the data can be retrieved globally via
+   * {@link get}.
+   *
+   * @param Class - Registered component class.
+   * @param props - Properties to merge onto the component instance.
+   * @returns The `Component` entity, for chaining.
+   */
   public set<C extends ComponentClass>(
     this: World,
     Class: C,
@@ -84,7 +138,7 @@ export class Components extends Entities {
       );
     }
     if (this._componentRegistrationDisabled) {
-      throw "World component registration is disabled";
+      throw new Error("World component registration is disabled");
     }
     if (eid === undefined) {
       eid = pool.alloc();

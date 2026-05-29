@@ -97,7 +97,7 @@ export function getInjected(
     if (typeof term === "number") {
       const c = exitSnapshot?.get(term) ?? e._get(term);
       if (requireDirectComponents && !c) {
-        throw "query does not contain component";
+        throw new Error("query does not contain component");
       }
       out[outIndex++] = c;
       return;
@@ -129,7 +129,7 @@ export function getInjectedWithSrc(
     if (typeof term === "number") {
       const c = exitSnapshot?.get(term) ?? e._get(term);
       if (requireDirectComponents && !c) {
-        throw "query does not contain component";
+        throw new Error("query does not contain component");
       }
       out[outIndex] = c;
       src[outIndex] = e;

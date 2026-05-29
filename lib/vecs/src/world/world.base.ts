@@ -24,4 +24,18 @@ export class Base {
    * removals, and destroy cleanup can delete stale entries safely.
    */
   public readonly _identityIndexedNames = new WeakMap<Entity, string>();
+
+  /**
+   * @internal Entity of the system currently running, or `undefined` outside a
+   * system. Stamped onto every command at enqueue time so the originating
+   * system survives until the command is routed (see {@link System._run}).
+   */
+  public _currentSource: Entity | undefined;
+
+  /**
+   * @internal Source entity of the command currently being applied. Read by
+   * {@link System._notifyModified} to silence updates from ignored sources;
+   * cleared once the command queue drains.
+   */
+  public _routingSource: Entity | undefined;
 }
