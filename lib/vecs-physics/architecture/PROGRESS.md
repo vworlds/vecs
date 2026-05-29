@@ -42,12 +42,39 @@ Ports box2d `math_functions.h` + `constants.h`. 30 tests incl. a port of
 - `bitset.ts` re-exports Vecs' `Bitset` (`@vworlds/vecs` exports it publicly).
 - `WarnDedupe` takes an injectable sink for testability.
 
-### ⬜ NEXT: VP-3 — public components + `src/index.ts` exports
+### ✅ VP-3 — public components + `src/index.ts` exports (commit __PENDING__)
 
-All public component classes (defaults table in `PLAN.md` → _Authoritative
-Component Defaults_) with zero-arg validity, plus `Box.width/height` accessors.
-Tests: defaults verified component-by-component. No engine work yet.
-Pairs naturally with VP-4 (`installPhysics` skeleton).
+`src/components/{body,body_tuning,shape_pose,geometry,material,force,target,events}.ts`
++ `src/index.ts`. All public component classes with zero-arg validity, plus
+`Box.width/height` accessors. 38 tests in `tests/components/`
+(`defaults.test.ts` verifies the defaults table component-by-component;
+`box_accessors.test.ts` covers the half-extent accessors).
+
+- Defaults verified against `box2d/src/types.c` `b2Default{Body,Shape}Def` /
+  `b2DefaultFilter` / `b2DefaultSurfaceMaterial`. Authoritative shapes taken from
+  `docs/components.md` (the public contract), which is stricter than the PLAN
+  table on two points now settled below.
+- **`BodyType` is a string enum** (`"static"|"kinematic"|"dynamic"`), per
+  `docs/components.md` — the PLAN defaults table only named `BodyType.Static`.
+- **64-bit filter/material fields are `bigint`**: `categoryBits` (`1n`),
+  `maskBits` (`0xffff_ffff_ffff_ffffn`), `userMaterialId` (`0n`). `groupIndex`
+  stays a `number` (Box2D `int`).
+- `Material` bundles `density` (from `b2ShapeDef`) with the `b2SurfaceMaterial`
+  fields; not a separate density component.
+- Event payload types (`ContactEvent`/`SensorEvent`/`HitEvent`) import `Entity`
+  from `@vworlds/vecs`. Event arrays are per-instance (field initialisers), not
+  prototype-shared — covered by a test.
+- No Vecs registration here: `world.component(...)` calls and exclusivity land in
+  VP-4.
+
+### ⬜ NEXT: VP-4 — `installPhysics` skeleton
+
+`src/install.ts` + `src/engine/state.ts`. Registers components (order per
+`PLAN.md`; `ChildOf` is built-in, do not register), calls
+`world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain)`,
+creates/looks up the three phases, attaches an empty `PhysicsState` via a
+`Singleton`. DoD: a world can `start()` without errors; throws if installed
+twice or after `start()`.
 
 ## Environment / conventions learned
 
