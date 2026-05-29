@@ -208,7 +208,7 @@ the `physics-step` phase). `PhysicsState` gained `bodyMoveEvents`;
   `transformX` alone no longer survives the step), and the velocity-read check
   uses a zero-damping body so the step leaves the read value intact.
 
-## MILESTONE 2 — Shape lifecycle + broad/narrow phase (IN PROGRESS)
+## MILESTONE 2 — Shape lifecycle + broad/narrow phase (✅ COMPLETE)
 
 **Tickets: VP-8, VP-9, VP-10, VP-11, VP-12, VP-13, VP-14.** Architect: this pass.
 Engine-layer collision plumbing (shape storage, BVH, broad/narrow phase,
@@ -329,15 +329,61 @@ VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
     endpoint reflection matches box2d only when the chain continues straight; at
     a sharp-turn endpoint it diverges from box2d's actual/neighbour ghosts. Loops
     match exactly. Resolve at VP-11 (chain creation) — M4 `ChainSegmentShapeTest`.
-- ⬜ **VP-14** — `engine/narrow_phase.ts` dispatch table. NEXT (last M2 ticket).
+- ✅ **VP-14** — `engine/narrow_phase.ts` dispatch table (commit 23900e9). Ports
+  `contact.c`'s `s_registers[type][type]` table (`b2AddType`) + the dispatch core
+  of `b2UpdateContact`: a 5×5 registry of `{ collideFn, primary }`, with the
+  reverse pair reusing the same fn and flipping the result. `computeManifold(
+  shapeA, xfA, shapeB, xfB, cache)` returns a `Manifold` with normal A→B
+  regardless of call order; unregistered pairs (segment–segment etc.) →
+  `pointCount=0`. **Transform convention:** caller passes fully-composed world
+  transforms (`mul(bodyXf, shapeLocalXf)`). 19 tests (all 12 pairs, both orders,
+  flip-normal/anchors). No contact record/persistence (VP-15/M3).
+  - **Caveat (box2d-faithful):** symmetric pairs are SAT order-dependent, so M3
+    must store **canonical** shape ordering in the contact record and always call
+    `computeManifold` in that order (mirrors `b2CreateContact`).
 
-### M2 progress snapshot
+### ✅ MILESTONE 2 COMPLETE
 
-Engine collision primitives are **complete and gate-green** (279 tests):
-VP-8 (shapes/geometry), VP-9 (BVH), VP-10 (broad phase), VP-13 (manifolds +
-distance). **Remaining for M2:** VP-12 (mass + recompute), VP-11 (shape lifecycle
-+ material/filter + shape-pose-sync systems), VP-14 (narrow-phase dispatch), then
-the M2 gate/review. _Paused here at the user's request before starting Wave 3._
+All seven tickets (VP-8…VP-14) done, reviewed, and **gate-green: 365 tests**,
+`typecheck`/`test`/`lint`/`prettier` all clean (run from `lib/vecs-physics/`).
+Engine collision plumbing — shapes/geometry, BVH, broad phase, manifolds +
+distance, mass, narrow-phase dispatch — plus the shape-lifecycle/material/pose
+systems, are in place. No solver yet (M3): contacts are _generated_, bodies still
+pass through.
+
+**M2 milestone DoD met:**
+- Unit parity green: all 8 `test_dynamic_tree.c` tests (VP-9); `ShapeMassTest`
+  (VP-12); `ShapeAABBTest`, `PointInShapeTest` (VP-8); `test_collision.c::AABBTest`
+  (VP-8); `SegmentDistanceTest`, `ShapeDistanceTest` (VP-13).
+- Contact generation (no solving): VP-13 manifolds + VP-14 dispatch.
+- AABB queries internally consistent (VP-9 tree tests).
+- Reparenting (VP-11), mass updates (`DeferredMassFlagSyncTest`, VP-12).
+- Module boundaries clean (engine/ imports no components/systems; no
+  cross-system imports); no stray TODO/console/.only/.skip markers.
+
+**Carried into M3 (deferred work + contracts, collected for the solver team):**
+- **Wire the collision step loop:** broad-phase pairs (VP-10 `updatePairs`) →
+  `InternalContact` (VP-15) → `computeManifold` (VP-14) → island (VP-16) →
+  solver (VP-17). The step orchestrator currently runs gravity-only (VP-7).
+- **Contact-dependent deferrals from M2:** contact teardown on shape
+  removal/type-change (VP-11 `exit`); contact refilter on `CollisionFilter`
+  change (VP-11b); dynamic `Sensor` toggle (VP-11b); `forcePairCreation` for a
+  static shape's `invokeContactCreation` (VP-10).
+- **Canonical contact ordering (VP-14 caveat):** M3 must store shapes in
+  canonical (type-ordered) order in `InternalContact` and always call
+  `computeManifold` in that order; persist the `SimplexCache` per contact.
+- **`transferBody` flags seeding** (M1 review) — wire `MotionLocks`/bullet bits
+  when those land; the awake-state lock/`allowFastRotation` bits belong there.
+- **Pre-M3 eng review still required:** TGS vs PGS, CCD scope (PLAN → _Open
+  Questions_) — settle before VP-17 (solver).
+
+**Carried into M4:** reconcile `InternalShape.entity` (eid) vs
+`InternalBody.entity` (`Entity`) in the events system; kinematic accept-input /
+drop-output asymmetry (M1 review); open-chain ghost-vertex fidelity vs box2d
+(`ChainSegmentShapeTest`).
+
+**Carried into M5:** CoM-shift velocity adjustment in `b2UpdateBodyMassData`
+(VP-12) if sleep/CoM-drift needs it.
 
 ### Cross-ticket contracts surfaced reviewing VP-8 (VP-10/11/12 must honour)
 
