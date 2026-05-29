@@ -312,13 +312,27 @@ describe("updateBodyMassData", () => {
     expect(sim.invInertia).toBe(0);
   });
 
-  it("sensor shape is skipped during mass accumulation", () => {
+  it("sensor shape with nonzero density contributes mass (Box2D parity)", () => {
+    // Box2D b2UpdateBodyMassData skips only density==0 shapes; it does NOT
+    // skip sensors. A sensor with default density 1 must contribute mass,
+    // center of mass, and inertia — exactly as a solid shape of equal geometry.
     const circleGeom = { kind: "circle" as const, cx: 0, cy: 0, radius: 1 };
     const sensor = makeInternalShape(ShapeType.Circle, circleGeom, 1, { sensor: true });
     const { body, sim, shapeRecords } = makeBody(DYNAMIC_BODY, [sensor]);
     updateBodyMassData(body, sim, makeShapeLookup(shapeRecords));
 
-    // Sensor skipped → zero mass → box2d-faithful invMass=0.
+    // Sensor included → mass = π·1²·1 = π → invMass = 1/π.
+    expect(sim.invMass).toBeCloseTo(1 / PI, 10);
+    expect(sim.invInertia).toBeCloseTo(1 / (0.5 * PI), 10);
+  });
+
+  it("sensor shape with density 0 is excluded from mass (Box2D parity)", () => {
+    const circleGeom = { kind: "circle" as const, cx: 0, cy: 0, radius: 1 };
+    const sensor = makeInternalShape(ShapeType.Circle, circleGeom, 0, { sensor: true });
+    const { body, sim, shapeRecords } = makeBody(DYNAMIC_BODY, [sensor]);
+    updateBodyMassData(body, sim, makeShapeLookup(shapeRecords));
+
+    // density==0 → excluded regardless of sensor flag → invMass=0 (massless dynamic).
     expect(sim.invMass).toBe(0);
     expect(sim.invInertia).toBe(0);
   });

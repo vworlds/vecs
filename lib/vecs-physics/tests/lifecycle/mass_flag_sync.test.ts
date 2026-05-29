@@ -9,7 +9,7 @@
 import { ChildOf, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { Body, BodyType, Circle, installPhysics } from "../../src/index.js";
+import { Body, BodyType, Circle, Sensor, installPhysics } from "../../src/index.js";
 import { getPhysics } from "../../src/engine/state.js";
 import { AWAKE_SET } from "../../src/engine/solver_set.js";
 import { PI } from "../../src/math/constants.js";
@@ -151,5 +151,24 @@ describe("PhysicsMassRecompute", () => {
     // massless dynamic body has infinite mass and does not fall; the
     // dynamic-body-without-density debug check flags the misconfiguration).
     expect(sim.invMass).toBe(0);
+  });
+
+  it("dynamic body whose only shape is a sensor Circle gets finite mass (Box2D parity)", () => {
+    // Box2D b2UpdateBodyMassData skips only density==0 shapes, not sensor shapes.
+    // A sensor with default density 1 must contribute mass, CoM, and inertia.
+    // Before this fix the port skipped sensors, giving invMass=0 (infinite mass).
+    const state = getPhysics(world);
+    const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
+    world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 }).add(Sensor);
+
+    world.progress(0, 16);
+
+    const bodyHandle = state.bodyByEntity.get(bodyEnt.eid)!;
+    const bodyRec = state.bodies.get(bodyHandle.index);
+    const sim = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
+
+    // Expected: mass = density·π·r² = 1·π·1 = π → invMass = 1/π ≈ 0.318.
+    expect(sim.invMass).toBeCloseTo(1 / PI, 6);
+    expect(sim.invInertia).toBeGreaterThan(0);
   });
 });

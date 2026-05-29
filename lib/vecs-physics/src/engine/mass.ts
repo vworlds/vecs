@@ -239,11 +239,12 @@ export function computePolygonMass(geom: PolygonGeometry, density: number): Mass
  * center in *geometry-local* space (the shape's own origin, NOT body-local).
  *
  * Mirrors `b2ComputeShapeMass` in shape.c (dispatch by type).
- * Sensors and zero-density shapes return a zeroed `MassData`.
+ * Zero-density shapes return a zeroed `MassData` (sensors are NOT skipped —
+ * box2d only skips density==0, regardless of the sensor flag).
  * Segment and chain-segment shapes have no area and return zero.
  */
 function computeShapeMassGeomLocal(shape: InternalShape): MassData {
-  if (shape.sensor || shape.density === 0) {
+  if (shape.density === 0) {
     return { mass: 0, centerX: 0, centerY: 0, rotationalInertia: 0 };
   }
   const g = shape.geometry;
@@ -449,7 +450,9 @@ export function updateBodyMassData(
     return;
   }
 
-  // Dynamic body: accumulate mass over all non-sensor, non-zero-density shapes.
+  // Dynamic body: accumulate mass over all non-zero-density shapes.
+  // Sensor shapes are included when their density is nonzero — matching Box2D,
+  // which only skips shapes with density==0 (no isSensor check).
   // Pass 1: sum mass and mass-weighted centroid contributions.
   const massDataArr: Array<{
     mass: number;
@@ -467,7 +470,7 @@ export function updateBodyMassData(
     const s = getShape(shapeIdx);
     shapeIdx = s.nextShape;
 
-    if (s.sensor || s.density === 0) {
+    if (s.density === 0) {
       massDataArr.push({ mass: 0, centerX: 0, centerY: 0, rotI: 0 });
       continue;
     }
