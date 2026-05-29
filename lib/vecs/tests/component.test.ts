@@ -7,17 +7,17 @@ class Health {
 }
 
 describe("ComponentMeta", () => {
-  it("stores the component name", () => {
+  it("stores the component eid", () => {
     const w = new World();
-    const meta = w.registerComponent(Health, "HP");
-    expect(meta.componentName).toBe("HP");
+    const component = w.component(Health);
+    expect(component.ownMeta.eid).toBe(component.eid);
   });
 
   it("entity.modified(C) queues an onSet hook delivery", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
@@ -28,9 +28,9 @@ describe("ComponentMeta", () => {
 
   it("entity.modified(C) in deferred mode is coalesced — onSet fires once even if called multiple times", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     e.add(Health);
@@ -45,9 +45,9 @@ describe("ComponentMeta", () => {
 
   it("entity.modified(C) at top level fires onSet immediately on each call", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     e.add(Health);
@@ -62,7 +62,7 @@ describe("ComponentMeta", () => {
 describe("Entity.modified", () => {
   it("returns the entity for chaining", () => {
     const w = new World();
-    w.registerComponent(Health);
+    w.component(Health);
     const e = w.entity();
     e.add(Health);
     expect(e.modified(Health)).toBe(e);
@@ -70,9 +70,9 @@ describe("Entity.modified", () => {
 
   it("queues an onSet hook delivery", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
@@ -83,9 +83,9 @@ describe("Entity.modified", () => {
 
   it("is coalesced in deferred mode — onSet fires once even if called multiple times", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     e.add(Health);
@@ -100,9 +100,9 @@ describe("Entity.modified", () => {
 
   it("can be chained after add", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onSet = vi.fn();
-    env.w.hook(Health).onSet(onSet);
+    env.w.component(Health).onSet(onSet);
     env.start();
     const e = env.w.entity();
     e.add(Health).modified(Health);
@@ -114,24 +114,37 @@ describe("Entity.modified", () => {
 describe("Hook", () => {
   it("onAdd fires when a component is first attached", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onAdd = vi.fn();
-    env.w.hook(Health).onAdd(onAdd);
+    env.w.component(Health).onAdd(onAdd);
     env.start();
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
     expect(onAdd).toHaveBeenCalledWith(e, h);
   });
 
+  it("hooks can be registered after world start", () => {
+    const env = makeWorldWithFlushPhase();
+    env.w.component(Health);
+    env.start();
+    const onAdd = vi.fn();
+
+    env.w.component(Health).onAdd(onAdd);
+    const e = env.w.entity();
+    const h = e.add(Health).get(Health)!;
+
+    expect(onAdd).toHaveBeenCalledWith(e, h);
+  });
+
   it("onSet fires when a component value is set", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
 
     const set_values: number[] = [];
     const onSet = vi.fn((_e, c) => set_values.push(c.hp));
 
     const onAdd = vi.fn();
-    env.w.hook(Health).onSet(onSet).onAdd(onAdd);
+    env.w.component(Health).onSet(onSet).onAdd(onAdd);
     env.start();
     const e = env.w.entity();
     const h = e.set(Health, { hp: 99 }).get(Health)!;
@@ -147,9 +160,9 @@ describe("Hook", () => {
 
   it("onRemove fires when a component is removed", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onRemove = vi.fn();
-    env.w.hook(Health).onRemove(onRemove);
+    env.w.component(Health).onRemove(onRemove);
     env.start();
     const e = env.w.entity();
     const h = e.add(Health).get(Health)!;
@@ -159,9 +172,9 @@ describe("Hook", () => {
 
   it("onRemove fires when the entity is destroyed", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Health);
+    env.w.component(Health);
     const onRemove = vi.fn();
-    env.w.hook(Health).onRemove(onRemove);
+    env.w.component(Health).onRemove(onRemove);
     env.start();
     const e = env.w.entity();
     e.add(Health);
@@ -171,19 +184,19 @@ describe("Hook", () => {
 
   it("hooks are chainable on the same Hook object", () => {
     const w = new World();
-    w.registerComponent(Health);
+    w.component(Health);
     const a = vi.fn();
     const b = vi.fn();
     const c = vi.fn();
-    const result = w.hook(Health).onAdd(a).onRemove(b).onSet(c);
-    expect(result).toBe(w.hook(Health));
+    const result = w.component(Health).onAdd(a).onRemove(b).onSet(c);
+    expect(result).toBe(w.component(Health));
   });
 
   it("repeated hook registrations stack in registration order", () => {
     const w = new World();
-    w.registerComponent(Health);
+    w.component(Health);
     const calls: string[] = [];
-    w.hook(Health)
+    w.component(Health)
       .onAdd(() => calls.push("add 1"))
       .onAdd(() => calls.push("add 2"))
       .onSet(() => calls.push("set 1"))

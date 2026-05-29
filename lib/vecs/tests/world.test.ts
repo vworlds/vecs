@@ -1,30 +1,185 @@
-import { describe, it, expect } from "vitest";
-import { World } from "../src/index.js";
+import { describe, expect, it } from "vitest";
+import { Component, Module, World } from "../src/index.js";
 
 class A {}
 class B {}
+class Settings {
+  enabled = false;
+  limit = 0;
+}
 
-describe("World — entity management", () => {
-  it("entity() assigns sequential ids starting at 0", () => {
+describe("World - id pools", () => {
+  it("uses default component, module, and entity pools", () => {
+    const w = new World();
+    const nextComponentEid = w.peekNextEid("component");
+    const nextModuleEid = w.peekNextEid("module");
+    const nextEntityEid = w.peekNextEid("entity");
+
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
+    expect(nextComponentEid).toBeGreaterThanOrEqual(1);
+    expect(nextComponentEid).toBeLessThanOrEqual(899);
+    expect(nextModuleEid).toBeGreaterThanOrEqual(900);
+    expect(nextModuleEid).toBeLessThanOrEqual(999);
+    expect(nextEntityEid).toBe(1000);
+    expect(w.component(A).eid).toBe(nextComponentEid);
+    expect(w.module(TestModule).eid).toBe(nextModuleEid);
+    expect(w.entity().eid).toBe(nextEntityEid);
+  });
+
+  it("rejects eid 0 for explicit component, module, and entity creation", () => {
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
+    const w = new World();
+
+    expect(() => w.component(A, 0)).toThrow();
+    expect(() => w.module(TestModule, 0)).toThrow();
+    expect(() => w.getOrCreateEntity(0)).toThrow();
+  });
+
+  it("accepts complete pool partitions", () => {
+    const w = new World({
+      idPools: [
+        { name: "network", min: 1, max: 255 },
+        { name: "component", min: 256, max: 899 },
+        { name: "module", min: 900, max: 999 },
+        { name: "entity", min: 1000 },
+      ],
+    });
+
+    const nextComponentEid = w.peekNextEid("component");
+    const nextModuleEid = w.peekNextEid("module");
+    const nextEntityEid = w.peekNextEid("entity");
+
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
+    expect(nextComponentEid).toBeGreaterThanOrEqual(256);
+    expect(nextComponentEid).toBeLessThanOrEqual(899);
+    expect(nextModuleEid).toBeGreaterThanOrEqual(900);
+    expect(nextModuleEid).toBeLessThanOrEqual(999);
+    expect(nextEntityEid).toBe(1000);
+    expect(w.component(A).eid).toBe(nextComponentEid);
+    expect(w.module(TestModule).eid).toBe(nextModuleEid);
+    expect(w.entity().eid).toBe(nextEntityEid);
+  });
+
+  it("rejects invalid pool partitions", () => {
+    expect(
+      () =>
+        new World({
+          idPools: [
+            { name: "component", min: 1, max: 10 },
+            { name: "module", min: 11, max: 20 },
+            { name: "entity", min: 22 },
+          ],
+        })
+    ).toThrow();
+    expect(
+      () =>
+        new World({
+          idPools: [
+            { name: "component", min: 1, max: 10 },
+            { name: "component", min: 11, max: 20 },
+            { name: "module", min: 21, max: 30 },
+            { name: "entity", min: 31 },
+          ],
+        })
+    ).toThrow();
+    expect(() => new World({ idPools: [{ name: "component", min: 1 }] })).toThrow();
+    expect(
+      () =>
+        new World({
+          idPools: [
+            { name: "component", min: 1, max: 10 },
+            { name: "module", min: 11, max: 20 },
+            { name: "entity", min: 21, max: 30 },
+          ],
+        })
+    ).toThrow();
+  });
+
+  it("bakes pool configuration into the constructor", () => {
+    const w = new World({
+      idPools: [
+        { name: "component", min: 1, max: 999 },
+        { name: "module", min: 1000, max: 1999 },
+        { name: "entity", min: 2000 },
+      ],
+    });
+    const nextComponentEid = w.peekNextEid("component");
+    const nextModuleEid = w.peekNextEid("module");
+    const nextEntityEid = w.peekNextEid("entity");
+
+    class TestModule extends Module {
+      public init(): void {}
+    }
+
+    expect(w.component(A).eid).toBe(nextComponentEid);
+    expect(w.module(TestModule).eid).toBe(nextModuleEid);
+    expect(w.entity().eid).toBe(nextEntityEid);
+    expect("configurePools" in w).toBe(false);
+  });
+
+  it("returns destroyed ids to their pools and reuses the lowest id", () => {
     const w = new World();
     const a = w.entity();
     const b = w.entity();
-    expect(a.eid).toBe(0);
-    expect(b.eid).toBe(1);
-    expect(a.world).toBe(w);
-  });
 
-  it("entity(id) returns the entity or undefined", () => {
+    a.destroy();
+
+    expect(w.entity().eid).toBe(a.eid);
+    expect(b.eid).toBe(1001);
+  });
+});
+
+describe("World - entity management", () => {
+  it("getEntity(id) returns the entity or undefined", () => {
     const w = new World();
     const e = w.entity();
+
+    expect(w.getEntity(e.eid)).toBe(e);
+    expect(w.getEntity(999)).toBeUndefined();
+    expect(() => w.getEntity(0)).toThrow(/reserved/);
+  });
+
+  it("entity(id) returns the entity or throws", () => {
+    const w = new World();
+    const e = w.entity();
+
     expect(w.entity(e.eid)).toBe(e);
-    expect(w.entity(999)).toBeUndefined();
+    expect(() => w.entity(999)).toThrow();
+    expect(() => w.entity(0)).toThrow(/reserved/);
+  });
+
+  it("getEntity(ref) resolves component classes and entity refs", () => {
+    const w = new World();
+    const component = w.component(A);
+    const e = w.entity();
+
+    expect(w.getEntity(A)).toBe(component);
+    expect(w.getEntity(e)).toBe(e);
+  });
+
+  it("entity(ref) resolves component classes and entity refs", () => {
+    const w = new World();
+    const component = w.component(A);
+    const e = w.entity();
+
+    expect(w.entity(A)).toBe(component);
+    expect(w.entity(e)).toBe(e);
   });
 
   it("getOrCreateEntity returns existing entity or creates a new one", () => {
     const w = new World();
     const a = w.getOrCreateEntity(42);
     const b = w.getOrCreateEntity(42);
+
     expect(a).toBe(b);
     expect(a.eid).toBe(42);
   });
@@ -32,209 +187,130 @@ describe("World — entity management", () => {
   it("getOrCreateEntity invokes the create callback only on first creation", () => {
     const w = new World();
     let created = 0;
+
     w.getOrCreateEntity(7, () => created++);
     w.getOrCreateEntity(7, () => created++);
+
     expect(created).toBe(1);
   });
 
-  it("setEntityIdRange shifts the auto-incrementing counter", () => {
+  it("clearAllEntities destroys ordinary entities before component entities", () => {
     const w = new World();
-    w.setEntityIdRange(1000);
-    expect(w.entity().eid).toBe(1000);
-    expect(w.entity().eid).toBe(1001);
-  });
-
-  it("setEntityIdRange after start() throws", () => {
-    const w = new World();
-    w.start();
-    expect(() => w.setEntityIdRange(1000)).toThrow();
-  });
-
-  it("setEntityIdRange before start() works even if components are registered", () => {
-    const w = new World();
-    w.registerComponent(A);
-    w.setEntityIdRange(500);
-    expect(w.entity().eid).toBe(500);
-  });
-
-  it("clearAllEntities destroys every entity", () => {
-    const w = new World();
-    w.registerComponent(A);
+    const component = w.component(A);
     const e1 = w.entity();
     const e2 = w.entity();
     e1.add(A);
     e2.add(A);
+
     w.clearAllEntities();
-    expect(w.entity(e1.eid)).toBeUndefined();
-    expect(w.entity(e2.eid)).toBeUndefined();
+
+    expect(() => w.entity(component.eid)).toThrow();
+    expect(() => w.entity(e1.eid)).toThrow();
+    expect(() => w.entity(e2.eid)).toThrow();
   });
 });
 
-describe("World — component registration", () => {
-  it("auto-assigns local type ids starting at 256", () => {
+describe("World - components", () => {
+  it("creates component entities and metadata", () => {
     const w = new World();
-    w.registerComponent(A);
-    expect(w.getComponentType(A)).toBe(256);
-    w.registerComponent(B);
-    expect(w.getComponentType(B)).toBe(257);
+    const component = w.component(A);
+
+    expect(component).toBeInstanceOf(Component);
+    expect(w.entity(component.eid)).toBe(component);
+    expect(component.ownMeta.eid).toBe(component.eid);
   });
 
-  it("setComponentTypeRange shifts the auto-incrementing component type counter", () => {
-    const w = new World();
-    w.setComponentTypeRange(1);
-
-    w.registerComponent(A);
-    w.registerComponent(B);
-
-    expect(w.getComponentType(A)).toBe(1);
-    expect(w.getComponentType(B)).toBe(2);
-  });
-
-  it("setComponentTypeRange skips already registered component types", () => {
-    const w = new World();
-    w.registerComponent(A, 1);
-    w.setComponentTypeRange(1);
-
-    w.registerComponent(B);
-
-    expect(w.getComponentType(B)).toBe(2);
-  });
-
-  it("setComponentTypeRange after start() throws", () => {
-    const w = new World();
-    w.start();
-
-    expect(() => w.setComponentTypeRange(1)).toThrow();
-  });
-
-  it("setComponentTypeRange rejects the universal marker type", () => {
+  it("reserves explicit component eids in any pool", () => {
     const w = new World();
 
-    expect(() => w.setComponentTypeRange(0)).toThrow("reserved type 0");
+    expect(w.component(A, 1200).eid).toBe(1200);
+    expect(w.entity().eid).toBe(1000);
   });
 
-  it("accepts an explicit numeric type id", () => {
+  it("is idempotent for the same class and same eid", () => {
     const w = new World();
-    w.registerComponent(A, 5);
-    expect(w.getComponentType(A)).toBe(5);
+    const component = w.component(A, 50);
+
+    expect(w.component(A, 50)).toBe(component);
   });
 
-  it("rejects component type 0", () => {
+  it("throws for a taken eid with a different class", () => {
     const w = new World();
+    w.component(A, 50);
 
-    expect(() => w.registerComponent(A, 0)).toThrow("Component type 0 is reserved");
-    expect(() => w.registerComponentType("A", 0)).toThrow("Component type 0 is reserved");
+    expect(() => w.component(B, 50)).toThrow();
   });
 
-  it("accepts a custom display name", () => {
+  it("throws for the same class at a different eid", () => {
     const w = new World();
-    w.registerComponent(A, "Apple");
-    expect(w.getComponentMeta(A).componentName).toBe("Apple");
+    w.component(A, 50);
+
+    expect(() => w.component(A, 51)).toThrow();
   });
 
-  it("accepts both an explicit type id and a name", () => {
+  it("lazily creates Object metadata for entity refs", () => {
     const w = new World();
-    w.registerComponent(A, 9, "Apple");
-    expect(w.getComponentType(A)).toBe(9);
-    expect(w.getComponentMeta(A).componentName).toBe("Apple");
+    const e = w.entity();
+
+    expect(e.ownMeta.Class).toBe(Object);
+    expect(e.ownMeta.eid).toBe(e.eid);
   });
 
-  it("uses pre-registered name→type mapping when present", () => {
+  it("throws for missing numeric component refs", () => {
     const w = new World();
-    w.registerComponentType("A", 10);
-    w.registerComponent(A);
-    expect(w.getComponentType(A)).toBe(10);
-  });
+    const e = w.entity();
 
-  it("stores component metadata on a hidden world-specific class key", () => {
-    const w = new World();
-    const meta = w.registerComponent(A);
-    expect(w.getComponentMeta(A)).toBe(meta);
-    expect(Object.keys(A)).not.toContain(w.worldKey);
-  });
-
-  it("allows the same component class to be registered independently in multiple worlds", () => {
-    const w1 = new World();
-    const w2 = new World();
-
-    w1.registerComponent(A, 10);
-    w2.registerComponent(A, 20);
-
-    expect(w1.getComponentType(A)).toBe(10);
-    expect(w2.getComponentType(A)).toBe(20);
-    expect(w1.worldKey).not.toBe(w2.worldKey);
-  });
-
-  it("throws when a class is registered twice", () => {
-    const w = new World();
-    w.registerComponent(A);
-    expect(() => w.registerComponent(A)).toThrow();
-  });
-
-  it("registration is disabled after start()", () => {
-    const w = new World();
-    w.registerComponent(A);
-    w.start();
-    expect(() => w.registerComponent(B)).toThrow();
-  });
-
-  it("disableComponentRegistration locks registration without starting", () => {
-    const w = new World();
-    w.registerComponent(A);
-    w.disableComponentRegistration();
-    expect(() => w.registerComponent(B)).toThrow();
-  });
-
-  it("getComponentType passes through numeric ids unchanged", () => {
-    const w = new World();
-    w.registerComponent(A, 99);
-    expect(w.getComponentType(99)).toBe(99);
-  });
-
-  it("getComponentMeta throws for an unknown type", () => {
-    const w = new World();
-    expect(() => w.getComponentMeta(A)).toThrow();
-    expect(() => w.getComponentMeta(123)).toThrow();
+    expect(() => e.add(42)).toThrow(/No entity with eid 42/);
   });
 
   it("component APIs throw for unregistered component classes", () => {
     const w = new World();
     const e = w.entity();
+
     expect(() => e.add(A)).toThrow();
     expect(() => e.set(A, {})).toThrow();
     expect(() => e.modified(A)).toThrow();
     expect(() => w.system("test").requires(A)._build()).toThrow();
   });
 
-  it("class-valued QueryDSL without registered metadata throws when evaluated", () => {
+  it("gets component-owned instances", () => {
     const w = new World();
-    const q = w.query("test").query(A);
-    q.build();
-    const e = w.entity();
-    expect(() => q.belongs(e)).toThrow();
+
+    expect(w.get(Settings)).toBeUndefined();
+    expect(w.component(Settings).ownMeta.Class).toBe(Settings);
+  });
+
+  it("sets component-owned instances", () => {
+    const w = new World();
+
+    const component = w.set(Settings, { enabled: true, limit: 3 });
+
+    expect(component).toBe(w.component(Settings));
+    expect(w.get(Settings)).toMatchObject({ enabled: true, limit: 3 });
+    expect(w.component(Settings).get(Settings)).toBe(w.get(Settings));
   });
 });
 
-describe("World — phases", () => {
+describe("World - phases", () => {
   it("addPhase returns an IPhase keyed by name", () => {
     const w = new World();
     const p = w.addPhase("preupdate");
+
     expect(p.name).toBe("preupdate");
     expect(p.world).toBe(w);
   });
 
-  it("hook returns the same ComponentMeta object", () => {
+  it("component returns the same component entity after registration is disabled", () => {
     const w = new World();
-    w.registerComponent(A);
-    const h1 = w.hook(A);
-    const h2 = w.hook(A);
-    expect(h1).toBe(h2);
+    w.component(A);
+    w.start();
+
+    expect(w.component(A)).toBe(w.component(A));
   });
 
   it("progress runs all phases in insertion order", () => {
     const w = new World();
     const order: string[] = [];
-
     const pre = w.addPhase("pre");
     const update = w.addPhase("update");
     const post = w.addPhase("post");
@@ -248,7 +324,6 @@ describe("World — phases", () => {
     w.system("s3")
       .phase(post)
       .run(() => order.push("post"));
-
     w.start();
     w.progress(0, 16);
 
@@ -258,9 +333,8 @@ describe("World — phases", () => {
   it("runPhase outside a frame throws", () => {
     const w = new World();
     const phase = w.addPhase("update");
-    w.start();
 
-    expect(() => w.runPhase(phase, 0, 0)).toThrow();
+    expect(() => w.runPhase(phase, 0, 16)).toThrow();
   });
 
   it("beginFrame without prior endFrame throws", () => {

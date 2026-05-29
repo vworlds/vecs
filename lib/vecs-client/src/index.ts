@@ -1,8 +1,8 @@
 export { ComponentSnapshot, Diff, Interpolator } from "./interpolator.js";
-export { VecsClient } from "./vecs_client.js";
+export { ClientWorld } from "./client_world.js";
 export type {
+  ClientWorldOptions,
   DgramConnectOptions,
   InstallSystemsOptions,
-  VecsClientOptions,
-} from "./vecs_client.js";
+} from "./client_world.js";
 export { worldPath } from "./world_path.js";

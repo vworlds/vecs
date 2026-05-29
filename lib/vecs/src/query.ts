@@ -1,30 +1,52 @@
 import { OrderedSet } from "./util/ordered_set.js";
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
-import { type Component, type ComponentClass, type ComponentMeta } from "./component.js";
-import type { Entity } from "./entity.js";
-import { type World } from "./world.js";
-import { _compile, type EntityTestFunc, type QueryDSL, type MaybeRequired } from "./dsl.js";
+import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
+import { Entity } from "./entity/index.js";
+import { type World } from "./world/index.js";
+import { containsDownTerm, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
+import {
+  directInjectEids,
+  getInjected,
+  getInjectedWithSrc,
+  injectArity,
+  isCursorMarker,
+  Iter,
+  makeInjectedInvoker,
+  mapInject,
+  wantsIter,
+  type DownInject,
+  type FanInjectElement,
+  type FanInjectTuple,
+  type InjectElement,
+  type InjectTuple,
+  type MaybeResolvedInjectTuple,
+  type RequiredResolvedInjectTuple,
+  type UpInject,
+} from "./inject.js";
+import { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
 
-export type { EntityTestFunc, QueryDSL, MaybeRequired };
+export type {
+  EntityTestFunc,
+  DownInject,
+  FanInjectElement,
+  FanInjectTuple,
+  InjectElement,
+  InjectTuple,
+  MaybeRequired,
+  MaybeResolvedInjectTuple,
+  QueryDSL,
+  RequiredResolvedInjectTuple,
+  UpInject,
+};
+export { Iter };
 
-type EntityCallback = (e: Entity, snapshot?: Map<number, Component>) => void;
-type ComponentCallback = (e: Entity, c: Component) => void;
-
-/** Component class, or `{ parent: ComponentClass }` to resolve from the entity's parent. */
-type ComponentOrParent = ComponentClass | { parent: ComponentClass };
-
-/** Numeric type id, or `{ parent: typeId }` to resolve from the entity's parent. */
-type ComponentOrParentType = number | { parent: number };
-
-/** Resolves the component instance type for one element of a `ComponentOrParent` tuple. */
-type ComponentInstance<T> = T extends { parent: ComponentClass }
-  ? InstanceType<T["parent"]>
-  : T extends ComponentClass
-    ? InstanceType<T>
-    : never;
+type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => void;
+type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
+export const SOURCE_TRACKED_QUERY_ERROR =
+  "source/children is not supported in a tracked query; use world.filter(...)";
 
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
@@ -49,39 +71,41 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  *   Components in `R` appear as non-nullable in {@link sort}, {@link forEach},
  *   and {@link update} callback tuples.
  */
-export class Query<R extends ComponentClass[] = []> {
-  /** @internal Tracked entity set. Allocated by {@link track} or {@link sort}. */
+export class Query<R extends ComponentType[] = []> implements TermConsumer {
+  /** @internal Sorted projection. Unsorted membership is read from `rootTerm`. */
   protected _entities: Set<Entity> | undefined;
-  /** @internal Predicate compiled from the query DSL; defaults to "match nothing". */
-  protected _belongs: EntityTestFunc = (_e: Entity) => false;
   /** @internal `true` once {@link query} or {@link requires} has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
-  /** @internal Component index buckets this query currently belongs to. */
-  public _queryIndexKeys: number[] | undefined = undefined;
-  /** @internal DSL predicate to compile and index when the query is built. */
+  /** @internal DSL predicate used to build the root membership term. */
   public _dsl: QueryDSL | undefined = undefined;
+  /** Entity that stores this query as a component and carries query traits. */
+  public readonly entity: Entity;
   /** @internal `true` once this query has been registered with its world. */
   private _built = false;
+  /** @internal Guards destroy hooks against recursive removal. */
+  private _destroyed = false;
+  /** @internal Whether membership APIs are enabled for this query. */
+  private _tracking = false;
+  /** Materialized root term that owns membership for this query. */
+  public rootTerm: Term | undefined;
+  /** @internal Root term subscription handle. */
+  private _unsubscribeTerm: (() => void) | undefined;
 
   /** @internal `enter` callback (already wraps any injection logic). */
   protected _enterCallback: EntityCallback | undefined = undefined;
   /** @internal `exit` callback (already wraps any injection logic). */
   protected _exitCallback: EntityCallback | undefined = undefined;
-  /** @internal Type ids the exit callback needs snapshotted before component removal. */
+  /** @internal Component eids the exit callback needs snapshotted before component removal. */
   protected _exitSnapshotTypes: number[] | undefined = undefined;
-
-  /** @internal Per-component-type `update` callbacks. */
+  /** @internal Per-component-eid `update` callbacks. */
   protected _componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
-  /** @internal Bitmask of component types this query reacts to via `update`. */
+  /** @internal Bitmask of component eids this query reacts to via `update`. */
   protected _watchlistBitmask: Bitset = new Bitset();
 
-  constructor(
-    /** Unique display name; appears in logs and debug output. */
-    public readonly name: string,
-    /** World that owns this query. */
-    public readonly world: World,
-    track: boolean = true
-  ) {
+  constructor(name: string, world: World, track: boolean = true) {
+    this.entity = world.entity();
+    this.entity.name = name;
+    this.entity.attach(Query, this);
     world._addUnbuiltQuery(this);
     if (track) {
       this.track();
@@ -101,26 +125,33 @@ export class Query<R extends ComponentClass[] = []> {
   }
 
   /**
-   * @internal Backfill the tracked set with every existing entity that
-   * satisfies the current predicate. Runs inside a deferred scope so the
-   * caller's reentrant routing remains consistent.
+   * @internal Backfill the tracked set from the root term. Runs inside a
+   * deferred scope so the caller's reentrant routing remains consistent.
    */
   private _backfill(): void {
-    if (this._entities === undefined) {
+    if (!this._tracking || !this.rootTerm) {
       return;
     }
     this.world.defer(() => {
-      this.world.entities.forEach((e) => {
-        if (this.belongs(e) && !e._isInQuery(this)) {
-          this._enter(e);
-        }
-      });
+      for (const e of this.rootTerm ?? EMPTY_ENTITIES) {
+        this._enter(e);
+      }
     });
   }
 
   /** `true` once this query has been registered with its world. */
   public get built(): boolean {
     return this._built;
+  }
+
+  /** Unique display name; forwards to the backing entity identity. */
+  public get name(): string | undefined {
+    return this.entity.name;
+  }
+
+  /** World that owns this query; forwards to the backing entity. */
+  public get world(): World {
+    return this.entity.world;
   }
 
   /**
@@ -156,64 +187,19 @@ export class Query<R extends ComponentClass[] = []> {
       this.destroy();
       return this;
     }
+    this.world._removeUnbuiltQuery(this);
     if (this._dsl !== undefined) {
-      this._belongs = _compile(this.world, this._dsl);
+      if (this._tracking && containsDownTerm(this._dsl)) {
+        this.destroy();
+        throw new Error(SOURCE_TRACKED_QUERY_ERROR);
+      }
+      this.rootTerm = this.world.getTerm(this._dsl);
+      this._unsubscribeTerm = this.rootTerm.subscribe(this);
     }
     this.world._addQuery(this);
     this._built = true;
     this._backfill();
     return this;
-  }
-
-  /**
-   * @internal Resolve one element of an `inject` tuple to a component
-   * instance, falling back to `exitSnapshot` when the entity is mid-exit.
-   */
-  private _getComponent(
-    e: Entity,
-    C: ComponentOrParentType,
-    exitSnapshot?: Map<number, Component>
-  ): Component | undefined {
-    if (typeof C === "number") {
-      return exitSnapshot?.get(C) ?? e.get(C);
-    } else {
-      return e.parent?.get(C.parent);
-    }
-  }
-
-  /**
-   * @internal Resolve every element of an `inject` tuple, throwing if any
-   * required component is missing on the entity (or its parent).
-   */
-  private _getInjected(
-    e: Entity,
-    inject: ComponentOrParentType[],
-    exitSnapshot?: Map<number, Component>
-  ): Component[] {
-    const injected: Component[] = [];
-    inject.forEach((C) => {
-      const c = this._getComponent(e, C, exitSnapshot);
-      if (!c) {
-        throw "query does not contain component";
-      }
-      injected.push(c);
-    });
-    return injected;
-  }
-
-  /**
-   * @internal Translate a tuple of component classes (or `{ parent: C }`
-   * markers) into the corresponding type ids understood by {@link _getInjected}.
-   */
-  private _mapInjectedClassToTypes<J extends ComponentOrParent[]>(
-    inject: readonly [...J]
-  ): ComponentOrParentType[] {
-    return inject.map((C) => {
-      if (typeof C === "function") {
-        return this.world.getComponentType(C);
-      }
-      return { parent: this.world.getComponentType(C.parent) };
-    });
   }
 
   /**
@@ -228,8 +214,8 @@ export class Query<R extends ComponentClass[] = []> {
     this._entities?.add(e);
     e._addQueryMembership(this);
     this._enterCallback?.(e);
-    e.components.forEach((c, type) => {
-      const meta = this.world.getComponentMeta(type);
+    e.components.forEach((c, eid) => {
+      const meta = this.world.entity(eid).ownMeta;
       if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
         this._notifyModified(e, meta, c);
       }
@@ -247,19 +233,40 @@ export class Query<R extends ComponentClass[] = []> {
     e._removeQueryMembership(this);
   }
 
+  /** Route a root term membership event into the existing Query API. */
+  public onTermEvent(kind: TermEventKind, entity: Entity): void {
+    if (kind === TermEventKind.Enter) {
+      this._enter(entity);
+    } else {
+      this._exit(entity);
+    }
+  }
+
   /**
    * @internal Routing entry: when the watchlist matches, invoke the registered
    * `update` callback for the component type. `System` overrides this to push
    * an inbox event instead of firing immediately.
    */
-  public _notifyModified(e: Entity, meta: ComponentMeta, c: Component): void {
+  public _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
     if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }
-    const callback = this._componentUpdateCallbacks.get(meta.type);
+    const callback = this._componentUpdateCallbacks.get(meta.eid);
     if (callback) {
       callback(e, c);
     }
+  }
+
+  /** @internal Whether this query should be present in an entity's slim update set. */
+  public _watchesUpdates(): boolean {
+    return this._componentUpdateCallbacks.size > 0;
+  }
+
+  /** @internal Drop the root term subscription during world removal. */
+  public _unsubscribeRootTerm(): void {
+    this._unsubscribeTerm?.();
+    this._unsubscribeTerm = undefined;
+    this.rootTerm = undefined;
   }
 
   /**
@@ -268,22 +275,28 @@ export class Query<R extends ComponentClass[] = []> {
    * Returns `0` when tracking is not enabled.
    */
   public get count(): number {
-    return this._entities?.size ?? 0;
+    if (!this._tracking) {
+      return 0;
+    }
+    return this._entities?.size ?? this.rootTerm?.count ?? 0;
   }
 
   /** Returns `true` when `e` is currently tracked by this query. */
   public has(e: Entity): boolean {
-    return this._entities?.has(e) ?? false;
+    if (!this._tracking) {
+      return false;
+    }
+    return this._entities?.has(e) ?? this.rootTerm?.has(e) ?? false;
   }
 
   /** Iterate every entity currently tracked by this query. */
   public [Symbol.iterator](): IterableIterator<Entity> {
-    return (this._entities ?? EMPTY_ENTITIES)[Symbol.iterator]();
+    return this._matchedEntities()[Symbol.iterator]();
   }
 
   /** Returns the query name. */
   public toString(): string {
-    return this.name;
+    return this.name ?? "";
   }
 
   /**
@@ -298,13 +311,13 @@ export class Query<R extends ComponentClass[] = []> {
    */
   public track(): this {
     this._assertConfigurable();
-    this._entities ??= new Set<Entity>();
+    this._tracking = true;
     return this;
   }
 
   /** Returns `true` when `e` satisfies this query's predicate. */
   public belongs(e: Entity): boolean {
-    return this._belongs(e);
+    return this.rootTerm?.has(e) ?? false;
   }
 
   /**
@@ -327,32 +340,62 @@ export class Query<R extends ComponentClass[] = []> {
    * {@link query}) are non-nullable in the resolved tuple; any other
    * requested component may be `undefined` if the entity lacks it.
    *
+   * The resolved tuple is a single array reused for every entity in the
+   * iteration; treat it as valid only for the duration of the callback. Read
+   * or destructure the components you need (the component instances themselves
+   * are stable) — do not retain the tuple array itself across callbacks.
+   *
    * @param components - Component classes to resolve from each entity.
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<J extends ComponentClass[]>(
+  public forEach<J extends FanInjectTuple>(
     components: readonly [...J],
-    callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void;
 
-  public forEach<J extends ComponentClass[]>(
-    componentsOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
-  ): void {
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public forEach<J extends FanInjectTuple>(
+    cursor: typeof Entity,
+    components: readonly [...J],
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): void;
+
+  /**
+   * As above, but pass `Iter` first to receive a reused {@link Iter}
+   * cursor instead of the bare entity. The cursor exposes the visited entity
+   * (`it.entity`) and, in `it.src`, the source entity each resolved component
+   * was read from (the visited entity for direct components, the relationship
+   * target for `up`-injected ones).
+   */
+  public forEach<J extends FanInjectTuple>(
+    cursor: typeof Iter,
+    components: readonly [...J],
+    callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): void;
+
+  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): void {
     this.world.beginDefer();
     try {
-      if (typeof componentsOrCallback === "function") {
-        this._entities?.forEach(componentsOrCallback);
-      } else {
-        if (!this._entities || !this.world) {
-          return;
+      // Bare `forEach(callback)`: a function that is not a cursor marker.
+      if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
+        for (const entity of this._matchedEntities()) {
+          (arg0 as (e: Entity) => void)(entity);
         }
-        const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
-        this._entities.forEach((e) => {
-          const resolved = types.map((t) => e.get(t));
-          callback!(e, resolved as any);
-        });
+        return;
+      }
+      const useIter = wantsIter(arg0);
+      const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
+      const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
+        eOrIt: unknown,
+        resolved: unknown
+      ) => void;
+      const invoke = makeInjectedInvoker(this.world, components, useIter, callback);
+      for (const entity of this._matchedEntities()) {
+        invoke(entity);
       }
     } finally {
       this.world.endDefer();
@@ -363,8 +406,8 @@ export class Query<R extends ComponentClass[] = []> {
    * Register a callback invoked when an entity **enters** this query (i.e.
    * first satisfies the predicate), with injected components.
    *
-   * @param inject - Ordered list of component classes (or `{ parent: C }`) to
-   *   resolve from the entering entity and pass to `callback`.
+   * @param inject - Ordered list of component classes to resolve from the
+   *   entering entity and pass to `callback`.
    * @param callback - Receives the entity and the resolved component tuple.
    * @returns This query, for chaining.
    *
@@ -376,9 +419,30 @@ export class Query<R extends ComponentClass[] = []> {
    * });
    * ```
    */
-  public enter<J extends ComponentOrParent[]>(
+  public enter<J extends InjectTuple>(
     inject: readonly [...J],
-    callback: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public enter<J extends InjectTuple>(
+    cursor: typeof Entity,
+    inject: readonly [...J],
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Iter` first to receive an {@link Iter} cursor instead
+   * of the bare entity. A fresh cursor is allocated per `enter` event so
+   * reentrant callbacks do not corrupt each other.
+   */
+  public enter<J extends InjectTuple>(
+    cursor: typeof Iter,
+    inject: readonly [...J],
+    callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
 
   /**
@@ -389,17 +453,35 @@ export class Query<R extends ComponentClass[] = []> {
    */
   public enter(callback: (e: Entity) => void): this;
 
-  public enter<J extends ComponentOrParent[]>(
-    injectOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
+  public enter<J extends InjectTuple>(
+    arg0: InjectTuple | ((e: Entity) => void) | typeof Entity | typeof Iter,
+    arg1?: InjectTuple | Function,
+    arg2?: Function
   ): this {
     this._assertConfigurable();
-    if (typeof injectOrCallback === "function") {
-      this._enterCallback = injectOrCallback;
-    } else {
-      const inject = this._mapInjectedClassToTypes(injectOrCallback);
+    // Bare `enter(callback)`
+    if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
+      this._enterCallback = arg0 as (e: Entity) => void;
+      return this;
+    }
+    const useIter = wantsIter(arg0);
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (eOrIt: unknown, injected: unknown) => void;
+    const inject = mapInject(this.world, components);
+    const arity = injectArity(inject);
+    if (useIter) {
       this._enterCallback = (e: Entity) => {
-        callback!(e, this._getInjected(e, inject) as any);
+        const injected = new Array(arity);
+        const it = new Iter(arity);
+        it.entity = e;
+        getInjectedWithSrc(e, inject, injected, it.src, true);
+        cb(it, injected as any);
+      };
+    } else {
+      this._enterCallback = (e: Entity) => {
+        const injected = new Array(arity);
+        getInjected(e, inject, true, injected);
+        cb(e, injected as any);
       };
     }
     return this;
@@ -417,9 +499,30 @@ export class Query<R extends ComponentClass[] = []> {
    * @param callback - Receives the entity and the resolved component tuple.
    * @returns This query, for chaining.
    */
-  public exit<J extends ComponentOrParent[]>(
+  public exit<J extends InjectTuple>(
     inject: readonly [...J],
-    callback: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public exit<J extends InjectTuple>(
+    cursor: typeof Entity,
+    inject: readonly [...J],
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Iter` first to receive an {@link Iter} cursor instead
+   * of the bare entity. A fresh cursor is allocated per `exit` event so
+   * reentrant callbacks do not corrupt each other.
+   */
+  public exit<J extends InjectTuple>(
+    cursor: typeof Iter,
+    inject: readonly [...J],
+    callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
 
   /**
@@ -430,19 +533,37 @@ export class Query<R extends ComponentClass[] = []> {
    */
   public exit(callback: (e: Entity) => void): this;
 
-  public exit<J extends ComponentOrParent[]>(
-    injectOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, injected: { [K in keyof J]: ComponentInstance<J[K]> }) => void
+  public exit<J extends InjectTuple>(
+    arg0: readonly [...J] | ((e: Entity) => void) | typeof Entity | typeof Iter,
+    arg1?: readonly [...J] | ((...args: any[]) => void),
+    arg2?: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    if (typeof injectOrCallback === "function") {
-      this._exitCallback = injectOrCallback;
+    // Bare `exit(callback)`
+    if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
+      this._exitCallback = arg0 as (e: Entity) => void;
       this._exitSnapshotTypes = undefined;
+      return this;
+    }
+    const useIter = wantsIter(arg0);
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (eOrIt: unknown, injected: unknown) => void;
+    const inject = mapInject(this.world, components);
+    this._exitSnapshotTypes = directInjectEids(inject);
+    const arity = injectArity(inject);
+    if (useIter) {
+      this._exitCallback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
+        const injected = new Array(arity);
+        const it = new Iter(arity);
+        it.entity = e;
+        getInjectedWithSrc(e, inject, injected, it.src, true, exitSnapshot);
+        cb(it, injected as any);
+      };
     } else {
-      const inject = this._mapInjectedClassToTypes(injectOrCallback);
-      this._exitSnapshotTypes = inject.filter((t): t is number => typeof t === "number");
-      this._exitCallback = (e: Entity, exitSnapshot?: Map<number, Component>) => {
-        callback!(e, this._getInjected(e, inject, exitSnapshot) as any);
+      this._exitCallback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
+        const injected = new Array(arity);
+        getInjected(e, inject, true, injected, exitSnapshot);
+        cb(e, injected as any);
       };
     }
     return this;
@@ -458,8 +579,7 @@ export class Query<R extends ComponentClass[] = []> {
    * system's next `_run`.
    *
    * If no other predicate has been set on this query, the watchlist
-   * automatically expands so `ComponentClass` is implicitly required (the
-   * predicate becomes a `HAS` of every watched type).
+   * automatically expands so `ComponentClass` is implicitly required.
    *
    * @param ComponentClass - Component class to watch.
    * @param callback - Receives the entity and modified component instance.
@@ -471,7 +591,7 @@ export class Query<R extends ComponentClass[] = []> {
    *   .update(Position, (e, pos) => sprite.setPosition(pos.x, pos.y));
    * ```
    */
-  public update<C extends ComponentClass>(
+  public update<C extends ComponentType>(
     ComponentClass: C,
     callback: (e: Entity, c: InstanceType<C>) => void
   ): this;
@@ -485,56 +605,92 @@ export class Query<R extends ComponentClass[] = []> {
    * @param callback - Receives the entity, modified component, and injected tuple.
    * @returns This query, for chaining.
    */
-  public update<C extends ComponentClass, J extends ComponentClass[]>(
+  public update<C extends ComponentType, J extends InjectTuple>(
     ComponentClass: C,
     inject: readonly [...J],
-    callback: (
-      e: Entity,
-      c: InstanceType<C>,
-      injected: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
 
-  public update<C extends ComponentClass, J extends ComponentClass[]>(
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public update<C extends ComponentType, J extends InjectTuple>(
+    cursor: typeof Entity,
     ComponentClass: C,
-    injectOrCallback: readonly [...J] | ((e: Entity, c: InstanceType<C>) => void),
-    callback?: (
-      e: Entity,
-      c: InstanceType<C>,
-      injected: { [K in keyof J]: MaybeRequired<J[K], R> }
-    ) => void
+    inject: readonly [...J],
+    callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Entity` and omit the injection tuple for the
+   * no-injection form. Identical behavior to the no-marker form.
+   */
+  public update<C extends ComponentType>(
+    cursor: typeof Entity,
+    ComponentClass: C,
+    callback: (e: Entity, c: InstanceType<C>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Iter` first to receive a reused {@link Iter} cursor
+   * instead of the bare entity. The cursor exposes the visited entity
+   * (`it.entity`) and, in `it.src`, the source entity each resolved component
+   * was read from.
+   */
+  public update<C extends ComponentType, J extends InjectTuple>(
+    cursor: typeof Iter,
+    ComponentClass: C,
+    inject: readonly [...J],
+    callback: (it: Iter, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+
+  public update<C extends ComponentType>(
+    arg0: C | typeof Entity | typeof Iter,
+    arg1: C | readonly InjectElement[] | ((...args: any[]) => void),
+    arg2?: readonly InjectElement[] | ((...args: any[]) => void),
+    arg3?: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const type = this.world.getComponentType(ComponentClass);
-    if (typeof injectOrCallback === "function") {
-      callback = injectOrCallback;
-      this._componentUpdateCallbacks.set(type, callback as any);
-    } else {
-      const inject = injectOrCallback;
-      const injectedComponentTypes = inject.map((C) => this.world.getComponentType(C));
-      const cb = (e: Entity, c: Component) => {
-        const injected: any[] = [];
-        injectedComponentTypes.forEach((InjectedComponentType) => {
-          injected.push(e.get(InjectedComponentType));
-        });
-
-        if (callback) {
-          callback(e, c as InstanceType<C>, injected as any);
-        }
-      };
-
-      this._componentUpdateCallbacks.set(type, cb);
+    const useIter = wantsIter(arg0);
+    if (isCursorMarker(arg0)) {
+      arg0 = arg1 as C;
+      arg1 = arg2 as readonly InjectElement[];
+      arg2 = arg3 as (...args: any[]) => void;
     }
-
-    this._watchlistBitmask.add(type);
-
+    const ComponentClass = arg0 as C;
+    const componentEid = this.world.entity(ComponentClass).eid;
+    if (typeof arg1 === "function") {
+      const callback = arg1 as (...args: any[]) => void;
+      this._componentUpdateCallbacks.set(componentEid, callback);
+    } else {
+      const components = arg1 as readonly InjectElement[];
+      const callback = arg2 as (...args: any[]) => void;
+      const inject = mapInject(this.world, components);
+      const arity = injectArity(inject);
+      // One tuple (and one cursor) reused across invocations; the callback
+      // consumes them synchronously and must not retain them (see doc).
+      const injected = new Array(arity);
+      if (useIter) {
+        const it = new Iter(arity);
+        const cb = (e: Entity, c: ComponentInstance) => {
+          it.entity = e;
+          getInjectedWithSrc(e, inject, injected, it.src);
+          callback(it, c as InstanceType<C>, injected as any);
+        };
+        this._componentUpdateCallbacks.set(componentEid, cb);
+      } else {
+        const cb = (e: Entity, c: ComponentInstance) => {
+          getInjected(e, inject, false, injected);
+          callback(e, c as InstanceType<C>, injected as any);
+        };
+        this._componentUpdateCallbacks.set(componentEid, cb);
+      }
+    }
+    this._watchlistBitmask.add(componentEid);
     if (!this._hasExplicitQuery) {
-      // Update-only queries derive membership from the watched component set.
-      // Install that predicate before backfill so the default match-nothing
-      // predicate is never used for update-watchlist expansion.
       this._dsl = this._watchlistBitmask.indices();
     }
-
     return this;
   }
 
@@ -557,20 +713,80 @@ export class Query<R extends ComponentClass[] = []> {
    *   .sort([Position], (_entityA, [posA], _entityB, [posB]) => posA.z - posB.z);
    * ```
    */
-  public sort<J extends ComponentClass[]>(
+  public sort<J extends InjectTuple>(
     components: readonly [...J],
     compare: (
       entityA: Entity,
-      a: { [K in keyof J]: MaybeRequired<J[K], R> },
+      a: MaybeResolvedInjectTuple<J, R>,
       entityB: Entity,
-      b: { [K in keyof J]: MaybeRequired<J[K], R> }
+      b: MaybeResolvedInjectTuple<J, R>
     ) => number
+  ): this;
+
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public sort<J extends InjectTuple>(
+    cursor: typeof Entity,
+    components: readonly [...J],
+    compare: (
+      entityA: Entity,
+      a: MaybeResolvedInjectTuple<J, R>,
+      entityB: Entity,
+      b: MaybeResolvedInjectTuple<J, R>
+    ) => number
+  ): this;
+
+  /**
+   * As above, but pass `Iter` first. The comparator receives two reused
+   * {@link Iter} cursors with `.entity` and `.src` populated per side, plus
+   * the resolved component tuples.
+   */
+  public sort<J extends InjectTuple>(
+    cursor: typeof Iter,
+    components: readonly [...J],
+    compare: (
+      a: Iter,
+      aResolved: MaybeResolvedInjectTuple<J, R>,
+      b: Iter,
+      bResolved: MaybeResolvedInjectTuple<J, R>
+    ) => number
+  ): this;
+
+  public sort(
+    arg0: readonly InjectElement[] | typeof Entity | typeof Iter,
+    arg1?: readonly InjectElement[] | Function,
+    arg2?: Function
   ): this {
     this._assertConfigurable();
-    const types = components.map((C) => this.world.getComponentType(C));
-    this._entities = new OrderedSet<Entity>((a, b) =>
-      compare(a, types.map((t) => a.get(t)) as any, b, types.map((t) => b.get(t)) as any)
-    );
+    const useIter = wantsIter(arg0);
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
+    const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (...args: unknown[]) => number;
+    const inject = mapInject(this.world, components);
+    const arity = injectArity(inject);
+    this._tracking = true;
+    if (useIter) {
+      const itA = new Iter(arity);
+      const itB = new Iter(arity);
+      const resolvedA = new Array(arity);
+      const resolvedB = new Array(arity);
+      this._entities = new OrderedSet<Entity>((a, b) => {
+        itA.entity = a;
+        itB.entity = b;
+        getInjectedWithSrc(a, inject, resolvedA, itA.src);
+        getInjectedWithSrc(b, inject, resolvedB, itB.src);
+        return cb(itA, resolvedA, itB, resolvedB);
+      });
+    } else {
+      const resolvedA = new Array(arity);
+      const resolvedB = new Array(arity);
+      this._entities = new OrderedSet<Entity>((a, b) => {
+        getInjected(a, inject, false, resolvedA);
+        getInjected(b, inject, false, resolvedB);
+        return cb(a, resolvedA, b, resolvedB);
+      });
+    }
     return this;
   }
 
@@ -591,13 +807,13 @@ export class Query<R extends ComponentClass[] = []> {
    * @example
    * ```ts
    * world.system("Move")
-   *   .query({ AND: [{ HAS: Position }, { HAS: Velocity }] }, [Position, Velocity])
+   *   .query({ all: [Position, Velocity] }, [Position, Velocity])
    *   .each([Position, Velocity], (e, [pos, vel]) => {
    *     pos.x += vel.vx;  // no ! needed
    *   });
    * ```
    */
-  public query<T extends ComponentClass[] = []>(
+  public query<T extends ComponentType[] = []>(
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): Query<T> {
@@ -611,14 +827,14 @@ export class Query<R extends ComponentClass[] = []> {
    * Shorthand for `query([...components])`: track entities that have **all**
    * of the listed component types.
    *
-   * Equivalent to `query({ HAS: components })`. Unlike `query`, the listed
+   * Equivalent to `query(components)`. Unlike `query`, the listed
    * components are also recorded in the type parameter `R`, so {@link sort}
    * and {@link forEach} callbacks see them as non-nullable.
    *
    * @param components - Component classes to require.
    * @returns This query, retyped with the required tuple as its `R`.
    */
-  public requires<T extends ComponentClass[]>(...components: [...T]): Query<T> {
+  public requires<T extends ComponentType[]>(...components: [...T]): Query<T> {
     this.query(components);
     return this as unknown as Query<T>;
   }
@@ -628,16 +844,27 @@ export class Query<R extends ComponentClass[] = []> {
    *
    * Every entity that currently belongs to this query has the membership
    * silently purged (no `exit` callbacks fire), the tracked set is cleared,
-   * and the `world` reference is forced to `undefined`. Calling any method on
-   * the query afterwards is **undefined behavior**.
-   *
-   * Not supported on {@link System} — calling it on a system throws.
+   * and the backing entity is destroyed. Calling any method on the query
+   * afterwards is **undefined behavior**.
    */
   public destroy(): void {
+    if (this._destroyed) {
+      return;
+    }
+    this._destroyed = true;
     this.world._removeQuery(this);
     this._entities?.clear();
     this._entities = undefined;
-    this._belongs = (_e: Entity) => false;
-    (this as any).world = undefined;
+    this._tracking = false;
+    if (!this.entity._destroyed && this.entity.get(Query) === this) {
+      this.entity.destroy();
+    }
+  }
+
+  private _matchedEntities(): ReadonlySet<Entity> | Term {
+    if (!this._tracking) {
+      return EMPTY_ENTITIES;
+    }
+    return this._entities ?? this.rootTerm ?? EMPTY_ENTITIES;
   }
 }

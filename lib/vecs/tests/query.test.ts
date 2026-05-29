@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { Query, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -11,15 +11,14 @@ class Velocity {
 }
 class Sprite {}
 class Container {}
-class Player {}
+class QueryTrait {}
 
 function setup() {
   const w = new World();
-  w.registerComponent(Position);
-  w.registerComponent(Velocity);
-  w.registerComponent(Sprite);
-  w.registerComponent(Container);
-  w.registerComponent(Player);
+  w.component(Position);
+  w.component(Velocity);
+  w.component(Sprite);
+  w.component(Container);
   const phase = w.addPhase("p");
   // dummy system ensures runPhase always flushes archetype changes
   w.system("__flush__")
@@ -133,6 +132,25 @@ describe("Query — construction", () => {
     expect(q.toString()).toBe("enemies");
   });
 
+  it("stores query instances on backing entities", () => {
+    const { w } = setup();
+    const q = w.query("tracked-query");
+
+    expect(q.entity.name).toBe("tracked-query");
+    expect(q.entity.get(Query)).toBe(q);
+  });
+
+  it("can query query entities by traits", () => {
+    const { w } = setup();
+    w.component(QueryTrait);
+    const tagged = w.query("tagged-query").query(false).build();
+    tagged.entity.add(QueryTrait);
+
+    const q = w.query("query-traits").requires(Query, QueryTrait).build();
+
+    expect(q.has(tagged.entity)).toBe(true);
+  });
+
   it("matches nothing until requires(), query(), or update() sets a predicate", () => {
     const { w, tick } = setup();
     const q = w.query("empty");
@@ -148,7 +166,7 @@ describe("Query — construction", () => {
     const { w } = setup();
     const q = w.query("empty").build();
     expect(w.queries).not.toContain(q);
-    expect((q as any).world).toBeUndefined();
+    expect(q.entity._destroyed).toBe(true);
   });
 });
 
@@ -196,6 +214,7 @@ describe("Query — component routing index", () => {
     const q = w.query("velocity").requires(Velocity);
     const belongs = vi.spyOn(q, "belongs");
     w.start();
+    belongs.mockClear();
 
     const e = w.entity();
     e.add(Position);
@@ -204,12 +223,25 @@ describe("Query — component routing index", () => {
     expect(belongs).not.toHaveBeenCalled();
   });
 
+  it("matches entity refs used as typeless component keys", () => {
+    const { w, tick } = setup();
+    const key = w.entity();
+    const q = w.query("tagged").query(key).build();
+    const e = w.entity();
+
+    e.add(key);
+    tick();
+
+    expect(q.has(e)).toBe(true);
+  });
+
   it("reindexes a query when its predicate is replaced", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);
     q.query(Velocity);
     const belongs = vi.spyOn(q, "belongs");
     w.start();
+    belongs.mockClear();
 
     const positionOnly = w.entity();
     positionOnly.add(Position);
@@ -219,7 +251,8 @@ describe("Query — component routing index", () => {
     const velocityOnly = w.entity();
     velocityOnly.add(Velocity);
     tick();
-    expect(belongs).toHaveBeenCalledWith(velocityOnly);
+    expect(belongs).not.toHaveBeenCalled();
+    expect(q.has(velocityOnly)).toBe(true);
   });
 
   it("destroy removes a query from the routing index", () => {
@@ -238,7 +271,7 @@ describe("Query — component routing index", () => {
 });
 
 describe("Query — predicates (belongs)", () => {
-  it("requires / HAS matches entities with all listed components", () => {
+  it("requires matches entities with all listed components", () => {
     const { w } = setup();
     const q = w.query("test").requires(Position, Velocity).build();
     const a = w.entity();
@@ -250,11 +283,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(true);
   });
 
-  it("HAS_ONLY matches entities with exactly that component set", () => {
+  it("only matches entities with exactly that component set", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ HAS_ONLY: [Position] })
+      .query({ only: [Position] })
       .build();
     const a = w.entity();
     a.add(Position);
@@ -265,11 +298,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(false);
   });
 
-  it("AND requires all sub-predicates to match", () => {
+  it("all requires all sub-predicates to match", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ AND: [Position, Velocity] })
+      .query({ all: [Position, Velocity] })
       .build();
     const a = w.entity();
     a.add(Position);
@@ -280,11 +313,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(true);
   });
 
-  it("OR matches if any branch is satisfied", () => {
+  it("any matches if any branch is satisfied", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ OR: [Sprite, Container] })
+      .query({ any: [Sprite, Container] })
       .build();
     const a = w.entity();
     a.add(Sprite);
@@ -297,11 +330,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(c)).toBe(false);
   });
 
-  it("NOT inverts a sub-predicate", () => {
+  it("not inverts a sub-predicate", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .build();
     const a = w.entity();
     a.add(Position);
@@ -312,39 +345,19 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(false);
   });
 
-  it("PARENT checks the entity's parent", () => {
+  it("an EntityTestFunc can be passed with test", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ PARENT: { AND: [Player, Container] } })
+      .query({ test: (e) => e.eid === 77 })
       .build();
-    const parent = w.entity();
-    parent.add(Player);
-    parent.add(Container);
-    const child = w.entity();
-    child.setParent(parent);
-    child.add(Position);
-    expect(q.belongs(child)).toBe(true);
-    const orphan = w.entity();
-    orphan.add(Position);
-    expect(q.belongs(orphan)).toBe(false);
-  });
-
-  it("an EntityTestFunc can be passed directly", () => {
-    const { w } = setup();
-    const q = w
-      .query("test")
-      .query((e) => e.eid === 7)
-      .build();
-    const seven = w.getOrCreateEntity(7);
-    seven.add(Position);
+    const seven = w.getOrCreateEntity(77);
     const three = w.getOrCreateEntity(3);
-    three.add(Position);
     expect(q.belongs(seven)).toBe(true);
     expect(q.belongs(three)).toBe(false);
   });
 
-  it("a single class is shorthand for HAS", () => {
+  it("a single class matches entities with that component", () => {
     const { w } = setup();
     const q = w.query("test").query(Position).build();
     const a = w.entity();
@@ -355,7 +368,7 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(false);
   });
 
-  it("an array is shorthand for HAS", () => {
+  it("an array matches entities with all listed components", () => {
     const { w } = setup();
     const q = w.query("test").query([Position, Velocity]).build();
     const a = w.entity();
@@ -367,11 +380,11 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(true);
   });
 
-  it("explicit { HAS: ... } is equivalent to requires", () => {
+  it("all is equivalent to requires", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ HAS: [Position, Velocity] })
+      .query({ all: [Position, Velocity] })
       .build();
     const e = w.entity();
     e.add(Position);
@@ -645,12 +658,14 @@ describe("Query — destroy", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it("destroy() sets world to undefined by force", () => {
+  it("destroy() destroys the backing entity", () => {
     const { w } = setup();
     const q = w.query("test").requires(Position);
+    const entity = q.entity;
     w.start();
     q.destroy();
-    expect((q as any).world).toBeUndefined();
+    expect(entity._destroyed).toBe(true);
+    expect(w.getEntity(entity.eid)).toBeUndefined();
   });
 
   it("destroy() leaves belongs() as a safe match-nothing predicate", () => {
@@ -684,13 +699,13 @@ describe("Query — destroy", () => {
   });
 });
 
-describe("Query — NOT predicate routing", () => {
-  it("removing a component causes enter on a NOT query", () => {
+describe("Query — not predicate routing", () => {
+  it("removing a component causes enter on a not query", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
-    // Matches entities that have Position but NOT Velocity.
+    // Matches entities that have Position but not Velocity.
     w.query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .enter(enter);
     w.start();
     const e = w.entity();
@@ -704,26 +719,26 @@ describe("Query — NOT predicate routing", () => {
     expect(enter).toHaveBeenCalledWith(e);
   });
 
-  it("adding a component causes exit on a NOT query", () => {
+  it("adding a component causes exit on a not query", () => {
     const { w, tick } = setup();
     const exit = vi.fn();
     w.query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .exit(exit);
     w.start();
     const e = w.entity();
     e.add(Position);
     tick(); // entity matches (no Velocity)
     e.add(Velocity);
-    tick(); // adding Velocity breaks the NOT predicate → exit fires
+    tick(); // adding Velocity breaks the not predicate → exit fires
     expect(exit).toHaveBeenCalledWith(e);
   });
 
-  it("cycling NOT query fires enter → exit → enter in order", () => {
+  it("cycling not query fires enter → exit → enter in order", () => {
     const { w, tick } = setup();
     const events: string[] = [];
     w.query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .enter(() => events.push("enter"))
       .exit(() => events.push("exit"));
     w.start();
@@ -737,27 +752,29 @@ describe("Query — NOT predicate routing", () => {
     expect(events).toEqual(["enter", "exit", "enter"]);
   });
 
-  it("plain NOT query: entity enters when the excluded component is removed", () => {
+  it("plain not query: entity enters on creation and when the excluded component is removed", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
-    w.query("test").query({ NOT: Velocity }).enter(enter);
+    w.query("test").query({ not: Velocity }).enter(enter);
     w.start();
+    enter.mockClear();
     const e = w.entity();
     e.add(Velocity);
     tick();
-    expect(enter).not.toHaveBeenCalled();
+    expect(enter).toHaveBeenCalledWith(e);
+    enter.mockClear();
     e.remove(Velocity);
     tick();
     expect(enter).toHaveBeenCalledWith(e);
   });
 
-  it("system receives enter inbox event when NOT-excluded component is removed", () => {
+  it("system receives enter inbox event when not-excluded component is removed", () => {
     const { w } = setup();
     const enter = vi.fn();
     const phase = w.addPhase("p2");
     w.system("test")
       .phase(phase)
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .enter(enter);
     w.start();
     const e = w.entity();

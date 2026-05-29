@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { ChildOf, CleanupPolicy, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -10,13 +10,15 @@ class Velocity {
 }
 class Walking {}
 class Running {}
+class DeferredRemove {}
+class DeferredDelete {}
 
 function setup() {
   const w = new World();
-  w.registerComponent(Position);
-  w.registerComponent(Velocity);
-  w.registerComponent(Walking);
-  w.registerComponent(Running);
+  w.component(Position);
+  w.component(Velocity);
+  w.component(Walking);
+  w.component(Running);
   const phase = w.addPhase("p");
   return {
     w,
@@ -79,6 +81,42 @@ describe("Deferred mode — data-layer visibility", () => {
     expect(observed[0]).toBe(pos);
   });
 
+  it("entity.getMut(C) without a callback is allowed and marks modified inside defer", () => {
+    const { w } = setup();
+    const onSet = vi.fn();
+    w.component(Position).onSet(onSet);
+    w.start();
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    onSet.mockClear();
+
+    let observed: Position | undefined;
+    w.defer(() => {
+      observed = e.getMut(Position);
+      observed!.x = 3;
+      expect(onSet).not.toHaveBeenCalled();
+    });
+
+    expect(observed).toBe(pos);
+    expect(onSet).toHaveBeenCalledWith(e, pos);
+  });
+
+  it("entity.getMut(C) without a callback returns undefined for missing components inside defer", () => {
+    const { w } = setup();
+    const onSet = vi.fn();
+    w.component(Position).onSet(onSet);
+    w.start();
+    const e = w.entity();
+
+    let observed: Position | undefined;
+    w.defer(() => {
+      observed = e.getMut(Position);
+    });
+
+    expect(observed).toBeUndefined();
+    expect(onSet).not.toHaveBeenCalled();
+  });
+
   it("at top level, mutations are immediately visible", () => {
     const { w } = setup();
     w.start();
@@ -96,7 +134,7 @@ describe("Deferred mode — entity creation", () => {
     w.start();
     w.beginDefer();
     const e = w.entity();
-    expect(w.entity(e.eid)).toBeUndefined();
+    expect(() => w.entity(e.eid)).toThrow();
     w.endDefer();
     expect(w.entity(e.eid)).toBe(e);
   });
@@ -121,7 +159,7 @@ describe("Deferred mode — flush()", () => {
   it("world.flush() drains queued top-level mutations", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.hook(Position).onAdd(onAdd);
+    w.component(Position).onAdd(onAdd);
     w.start();
     const e = w.entity();
     w.beginDefer();
@@ -190,8 +228,8 @@ describe("Deferred mode — System inbox ordering", () => {
     const { w, tick } = setup();
     const onAdd = vi.fn();
     const onRemove = vi.fn();
-    w.hook(Position).onAdd(onAdd);
-    w.hook(Position).onRemove(onRemove);
+    w.component(Position).onAdd(onAdd);
+    w.component(Position).onRemove(onRemove);
     w.start();
     const e = w.entity();
     w.beginDefer();
@@ -209,8 +247,8 @@ describe("Deferred mode — exclusive replacement", () => {
     const { w } = setup();
     w.setExclusiveComponents(Walking, Running);
     const order: string[] = [];
-    w.hook(Walking).onRemove(() => order.push("onRemove Walking"));
-    w.hook(Running).onAdd(() => order.push("onAdd Running"));
+    w.component(Walking).onRemove(() => order.push("onRemove Walking"));
+    w.component(Running).onAdd(() => order.push("onAdd Running"));
     w.start();
     const e = w.entity();
     e.add(Walking);
@@ -229,14 +267,14 @@ describe("Deferred mode — parent destruction", () => {
       .phase(phase)
       .requires(Position)
       .exit((e) => {
-        observedParentId = w.entity(parentEid)?.eid;
+        observedParentId = w.getEntity(parentEid)?.eid;
         // Parent was destroyed before this child's exit fires (top-down).
       });
     w.start();
     const parent = w.entity();
     parentEid = parent.eid;
     const child = w.entity();
-    child.setParent(parent);
+    child.set(ChildOf, { target: parent });
     child.add(Position);
     tick(); // settle enter
     parent.destroy();
@@ -262,7 +300,7 @@ describe("World.defer(fn)", () => {
   it("hooks fire after defer() returns, not during the callback", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.hook(Position).onAdd(onAdd);
+    w.component(Position).onAdd(onAdd);
     w.start();
     const e = w.entity();
     w.defer(() => {
@@ -275,7 +313,7 @@ describe("World.defer(fn)", () => {
   it("error thrown in fn propagates but the queue still drains via finally", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.hook(Position).onAdd(onAdd);
+    w.component(Position).onAdd(onAdd);
     w.start();
     const e = w.entity();
     expect(() =>
@@ -291,8 +329,8 @@ describe("World.defer(fn)", () => {
   it("nested defer() only drains when the outermost callback exits", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.hook(Position).onAdd(onAdd);
-    w.hook(Velocity).onAdd(onAdd);
+    w.component(Position).onAdd(onAdd);
+    w.component(Velocity).onAdd(onAdd);
     w.start();
     const e = w.entity();
     w.defer(() => {
@@ -308,6 +346,47 @@ describe("World.defer(fn)", () => {
     expect(e.get(Position)).toBeInstanceOf(Position);
     expect(e.get(Velocity)).toBeInstanceOf(Velocity);
     expect(onAdd).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies component entity onDelete cleanup while keeping the queue draining", () => {
+    {
+      const w = new World();
+      const componentEntity = w.component(DeferredRemove);
+      componentEntity.ownMeta.onDelete = CleanupPolicy.Remove;
+      w.component(Velocity);
+      w.start();
+      const carrier = w.entity().add(DeferredRemove);
+      const sentinel = w.entity();
+
+      w.defer(() => {
+        componentEntity.destroy();
+        sentinel.add(Velocity);
+      });
+
+      expect(carrier._destroyed).toBe(false);
+      expect(carrier._get(componentEntity.eid)).toBeUndefined();
+      expect(sentinel.get(Velocity)).toBeInstanceOf(Velocity);
+      expect(componentEntity._destroyed).toBe(true);
+    }
+
+    {
+      const w = new World();
+      const componentEntity = w.component(DeferredDelete);
+      componentEntity.ownMeta.onDelete = CleanupPolicy.Delete;
+      w.component(Velocity);
+      w.start();
+      const carrier = w.entity().add(DeferredDelete);
+      const sentinel = w.entity();
+
+      w.defer(() => {
+        componentEntity.destroy();
+        sentinel.add(Velocity);
+      });
+
+      expect(() => w.entity(carrier.eid)).toThrow();
+      expect(sentinel.get(Velocity)).toBeInstanceOf(Velocity);
+      expect(componentEntity._destroyed).toBe(true);
+    }
   });
 });
 

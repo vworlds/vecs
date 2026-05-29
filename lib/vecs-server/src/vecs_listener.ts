@@ -1,21 +1,19 @@
 import { type VecsSocketListener } from "@vworlds/vecs-protocol";
-import { type World } from "@vworlds/vecs";
-import { VecsServer, type VecsServerOptions } from "./vecs_server.js";
+import { ServerWorld } from "./server_world.js";
 import { worldPath } from "./world_path.js";
 
-export interface VecsListenerOptions extends VecsServerOptions {
+export interface VecsListenerOptions {
   apiBasePath?: string;
 }
 
 export class VecsListener {
-  private readonly _worlds = new Map<string, VecsServer>();
+  private readonly _worlds = new Map<string, ServerWorld>();
 
   public constructor(private readonly _options: VecsListenerOptions = {}) {}
 
-  public registerWorld(name: string, world: World): VecsServer {
-    const server = new VecsServer(name, world, this._options);
-    this._worlds.set(name, server);
-    return server;
+  public registerWorld(world: ServerWorld): ServerWorld {
+    this._worlds.set(world.name, world);
+    return world;
   }
 
   public async listen(app: unknown, dgramOptions: Record<string, unknown> = {}): Promise<void> {

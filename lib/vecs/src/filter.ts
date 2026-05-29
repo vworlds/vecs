@@ -1,7 +1,17 @@
-import { type ComponentClass } from "./component.js";
-import type { Entity } from "./entity.js";
-import type { World } from "./world.js";
-import { _compile, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
+import { type ComponentType } from "./component.js";
+import { Entity } from "./entity/index.js";
+import type { World } from "./world/index.js";
+import { _compile, type EntityTestFunc, type QueryDSL } from "./dsl.js";
+import type { Term } from "./terms/term.js";
+import {
+  isCursorMarker,
+  Iter,
+  makeInjectedInvoker,
+  wantsIter,
+  type FanInjectElement,
+  type FanInjectTuple,
+  type MaybeResolvedInjectTuple,
+} from "./inject.js";
 
 /**
  * A non-reactive, one-shot entity filter.
@@ -36,15 +46,21 @@ import { _compile, type EntityTestFunc, type MaybeRequired, type QueryDSL } from
  *   manually via the `_guaranteed` argument. Components in `R` are non-nullable
  *   in `forEach` callback tuples.
  */
-export class Filter<R extends ComponentClass[] = []> {
+export class Filter<R extends ComponentType[] = []> {
   private readonly _belongs: EntityTestFunc;
+  private readonly _dsl: QueryDSL;
 
   constructor(
     /** World this filter reads entities from. */
     public readonly world: World,
     dsl: QueryDSL
   ) {
+    this._dsl = dsl;
     this._belongs = _compile(world, dsl);
+  }
+
+  public get rootTerm(): Term | undefined {
+    return this.world._getCachedTerm(this._dsl);
   }
 
   /**
@@ -63,35 +79,73 @@ export class Filter<R extends ComponentClass[] = []> {
    * non-nullable in the resolved tuple; any other component class may be
    * `undefined` if the entity does not have it.
    *
+   * The resolved tuple is reused for every matching entity. Read or
+   * destructure it inside the callback; do not retain the tuple array.
+   *
    * @param components - Component classes to resolve from each matching entity.
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<J extends ComponentClass[]>(
+  public forEach<J extends FanInjectTuple>(
     components: readonly [...J],
-    callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): void;
 
-  public forEach<J extends ComponentClass[]>(
-    componentsOrCallback: readonly [...J] | ((e: Entity) => void),
-    callback?: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
-  ): void {
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public forEach<J extends FanInjectTuple>(
+    cursor: typeof Entity,
+    components: readonly [...J],
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): void;
+
+  /**
+   * As above, but pass `Iter` first to receive a reused {@link Iter}
+   * cursor instead of the bare entity. The cursor exposes the visited entity
+   * (`it.entity`) and, in `it.src`, the source entity each resolved component
+   * was read from (the visited entity for direct components, the relationship
+   * target for `up`-injected ones).
+   */
+  public forEach<J extends FanInjectTuple>(
+    cursor: typeof Iter,
+    components: readonly [...J],
+    callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): void;
+
+  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): void {
+    // Bare `forEach(callback)`: a function that is not a cursor marker.
+    if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
+      const callback = arg0 as (e: Entity) => void;
+      this.world.defer(() => {
+        this._forEachMatch(callback);
+      });
+      return;
+    }
+    const useIter = wantsIter(arg0);
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
+    const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
+      eOrIt: unknown,
+      resolved: unknown
+    ) => void;
     this.world.defer(() => {
-      if (typeof componentsOrCallback === "function") {
-        this.world.entities.forEach((e) => {
-          if (this._belongs(e)) {
-            componentsOrCallback(e);
-          }
-        });
-      } else {
-        const types = componentsOrCallback.map((C) => this.world.getComponentType(C));
-        this.world.entities.forEach((e) => {
-          if (!this._belongs(e)) {
-            return;
-          }
-          const resolved = types.map((t) => e.get(t));
-          callback!(e, resolved as any);
-        });
+      const invoke = makeInjectedInvoker(this.world, components, useIter, callback);
+      this._forEachMatch(invoke);
+    });
+  }
+
+  private _forEachMatch(callback: (e: Entity) => void): void {
+    const rootTerm = this.rootTerm;
+    if (rootTerm) {
+      for (const entity of rootTerm) {
+        callback(entity);
+      }
+      return;
+    }
+    this.world.entities.forEach((e) => {
+      if (this._belongs(e)) {
+        callback(e);
       }
     });
   }

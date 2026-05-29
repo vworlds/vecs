@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { ChildOf, CleanupPolicy, Relationship, World } from "../src/index.js";
 import { makeWorldWithFlushPhase } from "./_helpers.js";
 
 class Position {
@@ -9,11 +9,12 @@ class Position {
 class Velocity {
   vx = 0;
 }
+class FriendOf extends Relationship {}
 
 describe("Entity — components", () => {
   it("add returns the entity for chaining", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     expect(e.add(Position)).toBe(e);
     const pos = e.get(Position)!;
@@ -23,7 +24,7 @@ describe("Entity — components", () => {
 
   it("add is idempotent — same instance is returned on repeat", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const a = e.add(Position).get(Position);
     const b = e.add(Position).get(Position);
@@ -32,15 +33,15 @@ describe("Entity — components", () => {
 
   it("add(typeId) works with numeric type ids", () => {
     const w = new World();
-    w.registerComponent(Position, 5);
+    w.component(Position, 50);
     const e = w.entity();
-    const pos = e.add(5).get(5);
+    const pos = e.add(50).get(50);
     expect(pos).toBeInstanceOf(Position);
   });
 
   it("set returns the entity for chaining", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     expect(e.set(Position, { x: 10, y: 20 })).toBe(e);
     const pos = e.get(Position)!;
@@ -51,7 +52,7 @@ describe("Entity — components", () => {
 
   it("set is idempotent — same instance is kept with updated properties", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const a = e.set(Position, { x: 1 }).get(Position);
     const b = e.set(Position, { x: 99 }).get(Position);
@@ -61,7 +62,7 @@ describe("Entity — components", () => {
 
   it("set only assigns present properties — absent keys leave defaults intact", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const pos = e.set(Position, { x: 5 }).get(Position)!;
     expect(pos.x).toBe(5);
@@ -70,15 +71,44 @@ describe("Entity — components", () => {
 
   it("set(typeId, props) works with numeric type ids", () => {
     const w = new World();
-    w.registerComponent(Position, 7);
+    w.component(Position, 7);
     const e = w.entity();
     const pos = e.set(7, {}).get(7);
     expect(pos).toBeInstanceOf(Position);
   });
 
+  it("set/get/getMut/remove work with entity component refs", () => {
+    const w = new World();
+    const key = w.entity();
+    const e = w.entity();
+
+    e.set(key, { enabled: true });
+
+    expect(e.get(key)).toMatchObject({ enabled: true });
+    const component = e.getMut(key, (value) => Object.assign(value, { enabled: false }));
+    expect(component).toMatchObject({ enabled: false });
+    e.remove(key);
+    expect(e.get(key)).toBeUndefined();
+  });
+
+  it("tracks usage count for entity component refs", () => {
+    const w = new World();
+    const key = w.entity();
+    const e = w.entity();
+
+    e.add(key);
+    e.set(key, { enabled: true });
+    expect(key.instanceCount()).toBe(1);
+    expect(() => key.destroy()).toThrow();
+
+    e.remove(key);
+    expect(key.instanceCount()).toBe(0);
+    expect(() => key.destroy()).not.toThrow();
+  });
+
   it("attach stores the exact passed instance", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const pos = new Position();
     e.attach(pos);
@@ -87,7 +117,7 @@ describe("Entity — components", () => {
 
   it("attach returns the entity for chaining", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const pos = new Position();
     expect(e.attach(pos)).toBe(e);
@@ -97,12 +127,12 @@ describe("Entity — components", () => {
     const w = new World();
     const e = w.entity();
     const pos = new Position();
-    expect(() => e.attach(pos)).toThrow(/unregistered component meta/);
+    expect(() => e.attach(pos)).toThrow(/unregistered component entity/);
   });
 
   it("attach replaces an existing stored instance without assigning into the old object", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     const pos1 = new Position();
     const pos2 = new Position();
@@ -114,10 +144,10 @@ describe("Entity — components", () => {
 
   it("attach triggers onAdd and onSet hooks", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const onAdd = vi.fn();
     const onSet = vi.fn();
-    w.hook(Position).onAdd(onAdd).onSet(onSet);
+    w.component(Position).onAdd(onAdd).onSet(onSet);
     const e = w.entity();
     const pos = new Position();
     e.attach(pos);
@@ -127,10 +157,10 @@ describe("Entity — components", () => {
 
   it("attach triggers onSet but not onAdd when replacing", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const onAdd = vi.fn();
     const onSet = vi.fn();
-    w.hook(Position).onAdd(onAdd).onSet(onSet);
+    w.component(Position).onAdd(onAdd).onSet(onSet);
     const e = w.entity();
     const pos1 = new Position();
     const pos2 = new Position();
@@ -144,8 +174,8 @@ describe("Entity — components", () => {
 
   it("attach handles exclusive components", () => {
     const w = new World();
-    w.registerComponent(Position);
-    w.registerComponent(Velocity);
+    w.component(Position);
+    w.component(Velocity);
     w.setExclusiveComponents(Position, Velocity);
     const e = w.entity();
     const pos = new Position();
@@ -158,7 +188,7 @@ describe("Entity — components", () => {
 
   it("attach works in deferred mode", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     w.start();
     const e = w.entity();
     const pos = new Position();
@@ -171,10 +201,10 @@ describe("Entity — components", () => {
 
   it("set marks a new component as modified", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Position);
+    env.w.component(Position);
     env.start();
     const onSet = vi.fn();
-    env.w.hook(Position).onSet(onSet);
+    env.w.component(Position).onSet(onSet);
     const e = env.w.entity();
     e.set(Position, { x: 1 });
     env.tick();
@@ -183,10 +213,10 @@ describe("Entity — components", () => {
 
   it("set marks an already-present component as modified", () => {
     const env = makeWorldWithFlushPhase();
-    env.w.registerComponent(Position);
+    env.w.component(Position);
     env.start();
     const onSet = vi.fn();
-    env.w.hook(Position).onSet(onSet);
+    env.w.component(Position).onSet(onSet);
     const e = env.w.entity();
     e.add(Position);
     env.tick(); // flush the initial add notification
@@ -198,52 +228,77 @@ describe("Entity — components", () => {
 
   it("get returns the component or undefined", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     expect(e.get(Position)).toBeUndefined();
     expect(e.add(Position).get(Position)).toBeInstanceOf(Position);
   });
 
-  it("getMut returns the component or undefined", () => {
+  it("getMut invokes the callback with the component or returns undefined", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
-    expect(e.getMut(Position)).toBeUndefined();
-    expect(e.add(Position).getMut(Position)).toBeInstanceOf(Position);
+    const callback = vi.fn();
+    expect(e.getMut(Position, callback)).toBeUndefined();
+    expect(callback).not.toHaveBeenCalled();
+
+    let observed: Position | undefined;
+    const pos = e.add(Position).getMut(Position, (value) => {
+      observed = value;
+      value.x = 3;
+    });
+    expect(pos).toBeInstanceOf(Position);
+    expect(observed).toBe(pos);
+    expect(pos?.x).toBe(3);
   });
 
-  it("getMut marks an existing component as modified", () => {
+  it("getMut with a callback marks an existing component as modified after the callback", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const onSet = vi.fn();
-    w.hook(Position).onSet(onSet);
+    w.component(Position).onSet(onSet);
     const e = w.entity();
-    const pos = e.add(Position).getMut(Position)!;
+    const pos = e.add(Position).getMut(Position, (value) => {
+      value.x = 3;
+      expect(onSet).not.toHaveBeenCalled();
+    })!;
     expect(pos).toBe(e.get(Position));
+    expect(pos.x).toBe(3);
     expect(onSet).toHaveBeenCalledWith(e, pos);
   });
 
-  it("getMut does not mark a missing component as modified", () => {
+  it("getMut with a callback does not mark a missing component as modified", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const onSet = vi.fn();
-    w.hook(Position).onSet(onSet);
+    w.component(Position).onSet(onSet);
     const e = w.entity();
-    expect(e.getMut(Position)).toBeUndefined();
+    const callback = vi.fn();
+    expect(e.getMut(Position, callback)).toBeUndefined();
+    expect(callback).not.toHaveBeenCalled();
     expect(onSet).not.toHaveBeenCalled();
+  });
+
+  it("getMut without a callback throws outside deferred mode", () => {
+    const w = new World();
+    w.component(Position);
+    const e = w.entity();
+    e.add(Position);
+    expect(() => e.getMut(Position)).toThrow("deferred mode");
   });
 
   it("getMut(typeId) works with numeric type ids", () => {
     const w = new World();
-    w.registerComponent(Position, 8);
+    w.component(Position, 8);
     const e = w.entity();
-    const pos = e.add(8).getMut(8);
+    const pos = e.add(8).getMut(8, (value) => Object.assign(value, { x: 4 }));
     expect(pos).toBeInstanceOf(Position);
+    expect((pos as Position | undefined)?.x).toBe(4);
   });
 
   it("remove detaches a component", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     e.add(Position);
     e.remove(Position);
@@ -252,20 +307,20 @@ describe("Entity — components", () => {
 
   it("componentBitmask reflects added/removed components", () => {
     const w = new World();
-    w.registerComponent(Position);
-    w.registerComponent(Velocity);
+    w.component(Position);
+    w.component(Velocity);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
-    expect(e.componentBitmask.has(w.getComponentType(Position))).toBe(true);
-    expect(e.componentBitmask.has(w.getComponentType(Velocity))).toBe(true);
+    expect(e.componentBitmask.has(w.entity(Position).eid)).toBe(true);
+    expect(e.componentBitmask.has(w.entity(Velocity).eid)).toBe(true);
     e.remove(Position);
-    expect(e.componentBitmask.has(w.getComponentType(Position))).toBe(false);
+    expect(e.componentBitmask.has(w.entity(Position).eid)).toBe(false);
   });
 
   it("empty reflects whether any components remain", () => {
     const w = new World();
-    w.registerComponent(Position);
+    w.component(Position);
     const e = w.entity();
     expect(e.empty).toBe(true);
     e.add(Position);
@@ -276,8 +331,8 @@ describe("Entity — components", () => {
 
   it("components visits every attached component", () => {
     const w = new World();
-    w.registerComponent(Position);
-    w.registerComponent(Velocity);
+    w.component(Position);
+    w.component(Velocity);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
@@ -293,7 +348,7 @@ describe("Entity — components", () => {
   });
 });
 
-describe("Entity — lifecycle and hierarchy", () => {
+describe("Entity — lifecycle and relationships", () => {
   it("destroy emits the 'destroy' event", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
@@ -310,37 +365,41 @@ describe("Entity — lifecycle and hierarchy", () => {
     env.start();
     const e = env.w.entity();
     e.destroy();
-    expect(env.w.entity(e.eid)).toBeUndefined();
+    expect(() => env.w.entity(e.eid)).toThrow();
   });
 
-  it("destroy recursively destroys children", () => {
+  it("destroy cascades through ChildOf relationships", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
     const parent = env.w.entity();
     const child = env.w.entity();
-    child.setParent(parent);
+    const grandchild = env.w.entity();
+    child.set(ChildOf, { target: parent });
+    grandchild.set(ChildOf, { target: child });
 
     const childDestroyed = vi.fn();
     child.events.on("destroy", childDestroyed);
     parent.destroy();
     env.tick();
     expect(childDestroyed).toHaveBeenCalled();
-    expect(env.w.entity(child.eid)).toBeUndefined();
-    expect(env.w.entity(parent.eid)).toBeUndefined();
+    expect(() => env.w.entity(grandchild.eid)).toThrow();
+    expect(() => env.w.entity(child.eid)).toThrow();
+    expect(() => env.w.entity(parent.eid)).toThrow();
   });
 
-  it("destroy unlinks from parent and triggers parent's archetype update", () => {
+  it("default relationship cleanup removes the component when the target is destroyed", () => {
     const env = makeWorldWithFlushPhase();
+    env.w.component(FriendOf);
     env.start();
-    const parent = env.w.entity();
-    const child = env.w.entity();
-    child.setParent(parent);
+    const target = env.w.entity();
+    const source = env.w.entity().set(FriendOf, { target });
 
-    child.destroy();
+    target.destroy();
     env.tick();
-    expect(parent.children.has(child)).toBe(false);
-    expect(child.parent).toBeUndefined();
-    expect(env.w.entity(parent.eid)).toBe(parent);
+
+    expect(source._destroyed).toBe(false);
+    expect(source.get(FriendOf)).toBeUndefined();
+    expect(() => env.w.entity(target.eid)).toThrow();
   });
 
   it("destroy is re-entrant safe", () => {
@@ -353,23 +412,10 @@ describe("Entity — lifecycle and hierarchy", () => {
     expect(cb).toHaveBeenCalledTimes(1);
   });
 
-  it("_setParent does not mutate a destroyed entity", () => {
-    const env = makeWorldWithFlushPhase();
-    env.start();
-    const parent = env.w.entity();
-    const child = env.w.entity();
-
-    child.destroy();
-    child._setParent(parent);
-
-    expect(child.parent).toBeUndefined();
-    expect(parent.children.has(child)).toBe(false);
-  });
-
-  it("children returns an empty ReadonlySet before any child is added", () => {
+  it("children(ref) returns an empty ReadonlySet before any child is added", () => {
     const w = new World();
     const e = w.entity();
-    expect(e.children.size).toBe(0);
+    expect(e.children(ChildOf).size).toBe(0);
   });
 
   it("properties is a free-form map", () => {
@@ -380,65 +426,133 @@ describe("Entity — lifecycle and hierarchy", () => {
   });
 });
 
-describe("Entity — setParent / parent hierarchy", () => {
-  it("setParent links parent and child bidirectionally", () => {
+describe("Entity — component entity onDelete", () => {
+  it("removes the component from carriers when onDelete is Remove", () => {
+    const w = new World();
+    const componentEntity = w.component(Position);
+    componentEntity.ownMeta.onDelete = CleanupPolicy.Remove;
+    const a = w.entity().add(Position);
+    const b = w.entity().add(Position);
+
+    componentEntity.destroy();
+
+    expect(a._destroyed).toBe(false);
+    expect(b._destroyed).toBe(false);
+    expect(a._get(componentEntity.eid)).toBeUndefined();
+    expect(b._get(componentEntity.eid)).toBeUndefined();
+    expect(componentEntity.instanceCount()).toBe(0);
+    expect(componentEntity._destroyed).toBe(true);
+  });
+
+  it("destroys carriers when onDelete is Delete", () => {
+    const w = new World();
+    const componentEntity = w.component(Position);
+    componentEntity.ownMeta.onDelete = CleanupPolicy.Delete;
+    const a = w.entity().add(Position);
+    const b = w.entity().add(Position);
+
+    componentEntity.destroy();
+
+    expect(() => w.entity(a.eid)).toThrow();
+    expect(() => w.entity(b.eid)).toThrow();
+    expect(() => w.entity(componentEntity.eid)).toThrow();
+    expect(componentEntity._destroyed).toBe(true);
+  });
+
+  it("throws by default and leaves the component entity and carriers untouched", () => {
+    const w = new World();
+    const componentEntity = w.component(Position);
+    const carrier = w.entity().add(Position);
+    const component = carrier.get(Position);
+
+    expect(() => componentEntity.destroy()).toThrow(/component eid is still in use/);
+
+    expect(componentEntity._destroyed).toBe(false);
+    expect(w.entity(componentEntity.eid)).toBe(componentEntity);
+    expect(carrier._destroyed).toBe(false);
+    expect(carrier.get(Position)).toBe(component);
+    expect(componentEntity.instanceCount()).toBe(1);
+  });
+
+  it("allows a default component key to destroy itself when it has no other carriers", () => {
+    const w = new World();
+    const key = w.entity();
+    key.add(key);
+
+    expect(() => key.destroy()).not.toThrow();
+    expect(key._destroyed).toBe(true);
+    expect(key.instanceCount()).toBe(0);
+  });
+});
+
+describe("Entity — relationship navigation", () => {
+  it("ChildOf links parent and child bidirectionally", () => {
     const w = new World();
     const parent = w.entity();
     const child = w.entity();
-    child.setParent(parent);
-    expect(child.parent).toBe(parent);
-    expect(parent.children.has(child)).toBe(true);
+    child.set(ChildOf, { target: parent });
+    expect(child.parent(ChildOf)).toBe(parent);
+    expect(parent.children(ChildOf).has(child)).toBe(true);
   });
 
-  it("setParent(undefined) unlinks from parent", () => {
+  it("remove(ChildOf) unlinks from parent", () => {
     const w = new World();
     const parent = w.entity();
     const child = w.entity();
-    child.setParent(parent);
-    child.setParent(undefined);
-    expect(child.parent).toBeUndefined();
-    expect(parent.children.has(child)).toBe(false);
+    child.set(ChildOf, { target: parent });
+    child.remove(ChildOf);
+    expect(child.parent(ChildOf)).toBeUndefined();
+    expect(parent.children(ChildOf).has(child)).toBe(false);
   });
 
-  it("setParent moves child from old parent to new parent", () => {
+  it("set(ChildOf) moves child from old parent to new parent", () => {
     const w = new World();
     const p1 = w.entity();
     const p2 = w.entity();
     const child = w.entity();
-    child.setParent(p1);
-    child.setParent(p2);
-    expect(child.parent).toBe(p2);
-    expect(p1.children.has(child)).toBe(false);
-    expect(p2.children.has(child)).toBe(true);
+    child.set(ChildOf, { target: p1 });
+    child.set(ChildOf, { target: p2 });
+    expect(child.parent(ChildOf)).toBe(p2);
+    expect(p1.children(ChildOf).has(child)).toBe(false);
+    expect(p2.children(ChildOf).has(child)).toBe(true);
   });
 
-  it("_setParent throws on direct circular reference", () => {
+  it("getMut rejects relationship retargets and leaves incoming sets consistent", () => {
     const w = new World();
-    const a = w.entity();
-    expect(() => a.setParent(a)).toThrow();
+    const p1 = w.entity();
+    const p2 = w.entity();
+    const child = w.entity().set(ChildOf, { target: p1 });
+    const mutate = vi.fn((rel: ChildOf) => {
+      rel.target = p2;
+    });
+
+    expect(() => child.getMut(ChildOf, mutate)).toThrow(/Relationship/);
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(child.parent(ChildOf)).toBe(p1);
+    expect(p1.children(ChildOf).has(child)).toBe(true);
+    expect(p2.children(ChildOf).has(child)).toBe(false);
   });
 
-  it("_setParent throws on indirect circular reference", () => {
+  it("source destroy cleans the target's incoming set", () => {
     const w = new World();
-    const a = w.entity();
-    const b = w.entity();
-    const c = w.entity();
-    b.setParent(a);
-    c.setParent(b);
-    expect(() => a.setParent(c)).toThrow();
+    const parent = w.entity();
+    const child = w.entity().set(ChildOf, { target: parent });
+    child.destroy();
+    expect(parent.children(ChildOf).has(child)).toBe(false);
   });
 
-  it("setParent in deferred mode is not visible until queue drains", () => {
+  it("set(ChildOf) in deferred mode is not visible until queue drains", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
     const parent = env.w.entity();
     const child = env.w.entity();
     env.w.beginDefer();
-    child.setParent(parent);
-    expect(child.parent).toBeUndefined();
-    expect(parent.children.has(child)).toBe(false);
+    child.set(ChildOf, { target: parent });
+    expect(child.parent(ChildOf)).toBeUndefined();
+    expect(parent.children(ChildOf).has(child)).toBe(false);
     env.w.endDefer();
-    expect(child.parent).toBe(parent);
-    expect(parent.children.has(child)).toBe(true);
+    expect(child.parent(ChildOf)).toBe(parent);
+    expect(parent.children(ChildOf).has(child)).toBe(true);
   });
 });

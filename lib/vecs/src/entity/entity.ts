@@ -1,0 +1,40 @@
+import { type ComponentType } from "../component_meta.js";
+import { type World } from "../world/index.js";
+import { IdentityEntity } from "./entity.identity.js";
+
+export type EntityClass<T extends Entity = Entity> = new (
+  world: World,
+  eid: number,
+  ownComponentClass?: ComponentType
+) => T;
+
+/**
+ * A game object: a unique numeric id with an arbitrary set of
+ * {@link ComponentInstance | components} attached.
+ *
+ * Never instantiate `Entity` directly. Use {@link World.entity} for an
+ * auto-assigned id, or {@link World.getOrCreateEntity} when the id comes from
+ * an external authority such as a game server:
+ *
+ * ```ts
+ * const e = world.entity();
+ * e.set(Position, { x: 100 });
+ * ```
+ *
+ * ## Deferred semantics
+ *
+ * Inside a system body or `forEach` iteration the world is in **deferred
+ * mode**: `add` / `attach` / `set` / `modified` / `remove` / `destroy` only
+ * enqueue commands. The data layer (the components map and
+ * `componentBitmask`) is mutated when the world drains its queue. Concretely,
+ * while deferred:
+ *
+ * - `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.add(C)` (no instance yet).
+ * - `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.attach(instance)` if C was absent.
+ * - `entity.get(C)` / `entity.getMut(C)` returns the previous value after `entity.set(C, props)`.
+ * - `entity.get(C)` / `entity.getMut(C)` still returns the component after `entity.remove(C)`.
+ *
+ * Outside deferred mode the same calls execute inline and mutations are
+ * visible immediately.
+ */
+export class Entity extends IdentityEntity {}

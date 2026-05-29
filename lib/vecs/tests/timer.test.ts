@@ -19,7 +19,7 @@ class CountingIntervalTickSource extends IntervalTickSource {
 
 function setup() {
   const world = new World();
-  world.registerComponent(Position);
+  world.component(Position);
   const phase = world.addPhase("update");
   const tick = (now: number, delta: number) => world.progress(now, delta);
   return { world, phase, tick };
