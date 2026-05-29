@@ -144,42 +144,42 @@ Order in `installPhysics` matters: registration before `setExclusiveComponents` 
 
 These are part of the contract. They must match Box2D's `b2DefaultBodyDef()`, `b2DefaultShapeDef()`, `b2DefaultFilter()`, `b2DefaultSurfaceMaterial()`:
 
-| Component                      | Field                             | Default                  |
-| ------------------------------ | --------------------------------- | ------------------------ |
-| `Body`                         | `type`                            | `BodyType.Static`        |
-|                                | `bullet`                          | `false`                  |
-|                                | `enabled`                         | `true`                   |
-|                                | `allowFastRotation`               | `false`                  |
-| `Position`                     | `x, y`                            | `0, 0`                   |
-| `Rotation`                     | `angle`                           | `0`                      |
-| `LinearVelocity`               | `x, y`                            | `0, 0`                   |
-| `AngularVelocity`              | `value`                           | `0`                      |
-| `Damping`                      | `linear, angular`                 | `0, 0`                   |
-| `GravityScale`                 | `value`                           | `1`                      |
-| `MotionLocks`                  | `x, y, rotation`                  | `false, false, false`    |
-| `Sleep`                        | `enabled, awake, threshold`       | `true, true, 0.05`       |
-| `ShapePosition`                | `x, y`                            | `0, 0`                   |
-| `ShapeRotation`                | `angle`                           | `0`                      |
-| `Box`                          | `hx, hy`                          | `0.5, 0.5`               |
-| `Circle`                       | `radius`                          | `0.5`                    |
-| `Capsule`                      | `x1, y1, x2, y2, radius`          | `-0.5, 0, 0.5, 0, 0.25`  |
-| `Segment`                      | `x1, y1, x2, y2`                  | `-0.5, 0, 0.5, 0`        |
-| `Polygon`                      | `vertices, radius`                | `[], 0`                  |
-| `Chain`                        | `points, loop`                    | `[], false`              |
-| `Material`                     | `density`                         | `1`                      |
-|                                | `friction`                        | `0.6`                    |
-|                                | `restitution`                     | `0`                      |
-|                                | `rollingResistance, tangentSpeed` | `0, 0`                   |
-|                                | `userMaterialId`                  | `0`                      |
-| `CollisionFilter`              | `categoryBits`                    | `1`                      |
-|                                | `maskBits`                        | `0xffffffff`             |
-|                                | `groupIndex`                      | `0`                      |
-| `Force` / `Impulse`            | `x, y, wake`                      | `0, 0, true`             |
-| `Torque` / `AngularImpulse`    | `value, wake`                     | `0, true`                |
-| `KinematicTargetPosition`      | `x, y, tolerance, wake`           | `0, 0, 0.001, true`      |
-| `KinematicTargetRotation`      | `angle, tolerance, wake`          | `0, 0.001, true`         |
-| `ContactEvents`/`SensorEvents` | `begin, end`                      | `[], []`                 |
-| `HitEvents`                    | `hits`                            | `[]`                     |
+| Component                      | Field                             | Default                 |
+| ------------------------------ | --------------------------------- | ----------------------- |
+| `Body`                         | `type`                            | `BodyType.Static`       |
+|                                | `bullet`                          | `false`                 |
+|                                | `enabled`                         | `true`                  |
+|                                | `allowFastRotation`               | `false`                 |
+| `Position`                     | `x, y`                            | `0, 0`                  |
+| `Rotation`                     | `angle`                           | `0`                     |
+| `LinearVelocity`               | `x, y`                            | `0, 0`                  |
+| `AngularVelocity`              | `value`                           | `0`                     |
+| `Damping`                      | `linear, angular`                 | `0, 0`                  |
+| `GravityScale`                 | `value`                           | `1`                     |
+| `MotionLocks`                  | `x, y, rotation`                  | `false, false, false`   |
+| `Sleep`                        | `enabled, awake, threshold`       | `true, true, 0.05`      |
+| `ShapePosition`                | `x, y`                            | `0, 0`                  |
+| `ShapeRotation`                | `angle`                           | `0`                     |
+| `Box`                          | `hx, hy`                          | `0.5, 0.5`              |
+| `Circle`                       | `radius`                          | `0.5`                   |
+| `Capsule`                      | `x1, y1, x2, y2, radius`          | `-0.5, 0, 0.5, 0, 0.25` |
+| `Segment`                      | `x1, y1, x2, y2`                  | `-0.5, 0, 0.5, 0`       |
+| `Polygon`                      | `vertices, radius`                | `[], 0`                 |
+| `Chain`                        | `points, loop`                    | `[], false`             |
+| `Material`                     | `density`                         | `1`                     |
+|                                | `friction`                        | `0.6`                   |
+|                                | `restitution`                     | `0`                     |
+|                                | `rollingResistance, tangentSpeed` | `0, 0`                  |
+|                                | `userMaterialId`                  | `0`                     |
+| `CollisionFilter`              | `categoryBits`                    | `1`                     |
+|                                | `maskBits`                        | `0xffffffff`            |
+|                                | `groupIndex`                      | `0`                     |
+| `Force` / `Impulse`            | `x, y, wake`                      | `0, 0, true`            |
+| `Torque` / `AngularImpulse`    | `value, wake`                     | `0, true`               |
+| `KinematicTargetPosition`      | `x, y, tolerance, wake`           | `0, 0, 0.001, true`     |
+| `KinematicTargetRotation`      | `angle, tolerance, wake`          | `0, 0.001, true`        |
+| `ContactEvents`/`SensorEvents` | `begin, end`                      | `[], []`                |
+| `HitEvents`                    | `hits`                            | `[]`                    |
 
 All field initialisers belong on the class body so `new Component()` returns a valid, default-shaped instance — this is the Vecs contract (every component must work zero-arg).
 
@@ -1546,15 +1546,9 @@ Action items for the Vecs side:
 5. **Generation overflow.** Box2D uses `uint16_t` generation per slot. After 65k creates/destroys in one slot, ids wrap. We can use a plain `number` (53-bit safe int) for negligible cost. Recommend: use `number`, no overflow concern.
 6. **Single physics install per world.** Tests may want multiple worlds. The `PhysicsRoot` singleton is per-world, so multiple worlds are fine. Re-install on the same world is forbidden (the `Singleton` marker throws on a second instance, giving us the guard for free). If needed, add `uninstallPhysics(world)` in v2.
 
-### Open Questions (need eng review before M3)
+### Open Questions
 
-**Q1. Solver flavour: TGS or PGS?** Box2D v3 uses Temporal Gauss-Seidel (TGS) with sub-stepping. PGS (the v2-era classic) is simpler to port and to debug. TGS is more stable. We currently plan TGS to preserve parity with current Box2D. If parity tests become too brittle, falling back to PGS for v1 is acceptable; we'd lose the "exact same output" guarantee but keep "same behaviour".
-
-**Recommendation: TGS.** It's the documented direction; bringing it up later is harder than getting it right now.
-
-**Q2. Bullet/CCD scope.** Box2D's bullet path uses TOI computation and a second sub-pass. Porting this is real work and the doc explicitly says "bullets are not a substitute for ray casts." For v1 we could ship without CCD and document it. Users who hit tunnelling would set `enableContinuous: false` (default true) or accept the limitation.
-
-**Recommendation: ship `enableContinuous` true, but the bullet path may be a stub that does nothing in M3/M4 and gets filled in M5.** Parity tests for bullets stay yellow until M5.
+None. The pre-M3 solver decisions are now settled below.
 
 ### Settled Decisions
 
@@ -1576,6 +1570,8 @@ Action items for the Vecs side:
 - Mass recomputation: dirty flag + final pre-step recompute system.
 - Sleep: supported in v1 via `Sleep` component. Defaults match Box2D.
 - Trigonometry: use `Math.cos`/`Math.sin`/`Math.atan2` directly, not Box2D's polynomial approximations (`b2ComputeCosSin`/`b2Atan2`). Simpler and more accurate on the x64 target; the parity tests' tolerances absorb the difference. (See `src/math/rot.ts`.) Revisit only if bit-for-bit matching against a Box2D C capture is ever required.
+- Solver flavour: v1 uses Box2D v3-style TGS, not PGS. PGS is simpler per iteration, but it would weaken the package's Box2D v3 parity claim and create a second solver/tuning path. If performance is an issue, reduce `subSteps` or optimise hot storage/allocations before considering a solver rewrite. (Settled pre-M3.)
+- Continuous collision detection: CCD remains in M5 for v1. M3/M4 may carry a clearly marked no-op internal stub while contacts/events/solver land, but a public v1 release must not claim `enableContinuous: true` unless the bullet/TOI path is implemented and covered by parity tests. If CCD slips past v1, change the default to `false`, document it as unavailable, and debug-warn when `Body.bullet` or `enableContinuous: true` is used. (Settled pre-M3.)
 - Internal id generations: `IdPool` owns the per-slot generation (bumped on `free`), so validity is a single `pool.isValid(handle)`. Box2D instead keeps the generation on the object; we consolidate it into the pool. (See `src/util/id_pool.ts`.)
 - Solver-set transfers move object references, not bytes. Box2D `memcpy`s a `b2BodySim`/`b2ContactSim`/… into the target set then frees the source slot; we push the same JS object into the target dense array and swap-pop it from the source. Index bookkeeping is identical to Box2D (swap-pop fills the hole with the last element and repairs its stored `localIndex` via its back-pointer). A porting-fidelity instance: same model, idiomatic representation. (Settled VP-5; see `src/engine/solver_set.ts` `transferBody`.)
 - Code style: private class members are `_`-prefixed (enforced by the `local/internal-underscore` lint rule).
@@ -1705,14 +1701,11 @@ boundaries and should be split before they are picked up:
 
 ## Unresolved Decisions
 
-Two items remain open and should be settled before Milestone 3 starts:
+None. The former pre-M3 decisions are settled:
 
-1. **Solver flavour** (TGS vs PGS) — recommended TGS for parity; needs sign-off.
-2. **CCD inclusion in M5 vs deferral** — recommended ship `enableContinuous` flag, stub CCD until M5; needs sign-off.
-
-A third item, resolved (see **Vecs Dependencies**):
-
-3. **`System.ignoreSource`** (the pose-sync dependency) has landed in `physics`. Re-verify its source-attribution semantics with a focused test at VP-6.
+1. **Solver flavour:** TGS for v1, matching Box2D v3.
+2. **CCD scope:** keep CCD in M5 for v1; M3/M4 may stub internally, but no public v1 may default `enableContinuous` to `true` unless CCD actually works.
+3. **`System.ignoreSource`:** landed in `physics` and verified at VP-6.
 
 ## Recommendation
 
@@ -1720,7 +1713,7 @@ A third item, resolved (see **Vecs Dependencies**):
 
 The one cross-library dependency, `System.ignoreSource` (pose-sync), has landed in `physics`; re-verify its semantics with a focused test at VP-6 (see **Vecs Dependencies**).
 
-Before Milestone 3 starts (the solver port), schedule a 1-hour solver review meeting to lock in TGS vs PGS and CCD scope. After that meeting the architecture is fully signed off and no further design reviews are required until v2.
+The architecture is fully signed off for Milestone 3. No further design reviews are required until v2 unless implementation uncovers a solver correctness blocker.
 
 ## Appendix: Source Files Studied
 

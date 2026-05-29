@@ -16,7 +16,12 @@
 //                                       b2ComputeShapeMargin, b2UpdateShapeAABBs
 
 import type { AABB } from "../math/aabb.js";
-import { AABB_MARGIN_FRACTION, MAX_AABB_MARGIN, SPECULATIVE_DISTANCE } from "../math/constants.js";
+import {
+  AABB_MARGIN_FRACTION,
+  LINEAR_SLOP,
+  MAX_AABB_MARGIN,
+  SPECULATIVE_DISTANCE,
+} from "../math/constants.js";
 import type { Transform } from "../math/transform.js";
 import { NULL_INDEX, type BodyHandle, type ShapeHandle } from "../util/handle.js";
 import { IdPool } from "../util/id_pool.js";
@@ -392,6 +397,14 @@ export function makeChainSegments(
   for (let i = 0; i < segCount; i++) {
     const a = points[i]!;
     const b = points[(i + 1) % n]!;
+
+    // Skip degenerate adjacent points (mirrors b2CreateChainSegmentShape check
+    // in box2d/src/shape.c: endpoint distance must exceed B2_LINEAR_SLOP).
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    if (dx * dx + dy * dy <= LINEAR_SLOP * LINEAR_SLOP) {
+      continue;
+    }
 
     // Ghost vertex before a (ghost1).
     let ghost1x: number;

@@ -28,7 +28,7 @@ import {
 import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
 import { AWAKE_SET, STATIC_SET } from "../../src/engine/solver_set.js";
 import { NULL_INDEX } from "../../src/util/handle.js";
-import { SPECULATIVE_DISTANCE } from "../../src/math/constants.js";
+import { LINEAR_SLOP, SPECULATIVE_DISTANCE } from "../../src/math/constants.js";
 
 let world: World;
 let state: PhysicsState;
@@ -687,5 +687,118 @@ describe("static shape fat-AABB margin (b2UpdateShapeAABBs parity)", () => {
 
     expect(staticFatExtra).toBeCloseTo(spec, 6);
     expect(dynamicFatExtra).toBeGreaterThan(spec);
+  });
+});
+
+// ─── Degenerate segment / capsule rejection ───────────────────────────────────
+
+describe("degenerate capsule/segment rejection (Box2D parity)", () => {
+  it("zero-length Capsule is not registered as a shape (skipped at creation)", () => {
+    const body = makeBody();
+    const e = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Capsule, { x1: 0, y1: 0, x2: 0, y2: 0, radius: 1 });
+    world.progress(0, 16);
+
+    // Shape must not have been created.
+    expect(state.shapeByEntity.has(e.eid)).toBe(false);
+  });
+
+  it("near-zero Capsule (<= LINEAR_SLOP distance) is rejected", () => {
+    const body = makeBody();
+    const tinyDelta = LINEAR_SLOP * 0.5; // strictly less than LINEAR_SLOP
+    const e = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Capsule, { x1: 0, y1: 0, x2: tinyDelta, y2: 0, radius: 1 });
+    world.progress(0, 16);
+
+    expect(state.shapeByEntity.has(e.eid)).toBe(false);
+  });
+
+  it("valid Capsule (> LINEAR_SLOP distance) IS registered", () => {
+    const body = makeBody();
+    const e = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Capsule, { x1: -1, y1: 0, x2: 1, y2: 0, radius: 0.5 });
+    world.progress(0, 16);
+
+    expect(state.shapeByEntity.has(e.eid)).toBe(true);
+  });
+
+  it("zero-length Segment is not registered", () => {
+    const body = makeBody();
+    const e = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Segment, { x1: 5, y1: 5, x2: 5, y2: 5 });
+    world.progress(0, 16);
+
+    expect(state.shapeByEntity.has(e.eid)).toBe(false);
+  });
+
+  it("degenerate Capsule update is ignored; old valid geometry is preserved", () => {
+    const body = makeBody();
+    const e = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Capsule, { x1: -1, y1: 0, x2: 1, y2: 0, radius: 0.5 });
+    world.progress(0, 16);
+
+    // Capture the original AABB extremes.
+    const recBefore = getShapeRecord(e.eid)!;
+    const minXBefore = recBefore.aabbMinX;
+
+    // Update to degenerate endpoints — should be ignored.
+    e.set(Capsule, { x1: 0, y1: 0, x2: 0, y2: 0, radius: 0.5 });
+    world.progress(16, 16);
+
+    const recAfter = getShapeRecord(e.eid)!;
+    // Geometry unchanged — AABB must match the original.
+    expect(recAfter.aabbMinX).toBeCloseTo(minXBefore, 5);
+  });
+
+  it("degenerate Segment update is ignored; old valid geometry is preserved", () => {
+    const body = makeBody();
+    const e = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Segment, { x1: -2, y1: 0, x2: 2, y2: 0 });
+    world.progress(0, 16);
+
+    const recBefore = getShapeRecord(e.eid)!;
+    const maxXBefore = recBefore.aabbMaxX;
+
+    e.set(Segment, { x1: 0, y1: 0, x2: 0, y2: 0 });
+    world.progress(16, 16);
+
+    const recAfter = getShapeRecord(e.eid)!;
+    expect(recAfter.aabbMaxX).toBeCloseTo(maxXBefore, 5);
+  });
+
+  it("chain with duplicate adjacent points produces fewer segments", () => {
+    // Two distinct points → 1 valid segment + 1 degenerate segment skipped.
+    const body = makeBody(BodyType.Static);
+    const chain = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Chain, {
+        points: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 1, y: 0 }, // duplicate of previous — degenerate segment
+          { x: 2, y: 0 },
+        ],
+        loop: false,
+      });
+    world.progress(0, 16);
+
+    // 4 points open chain would normally give 3 segments, but one degenerate
+    // pair is skipped → only 2 segments created.
+    const handles = state.chainShapeByEntity.get(chain.eid);
+    expect(handles).toBeDefined();
+    expect(handles!.length).toBe(2);
   });
 });

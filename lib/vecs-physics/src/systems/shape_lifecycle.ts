@@ -50,9 +50,23 @@ import {
   type InternalShape,
 } from "../engine/shape.js";
 import type { PhysicsState } from "../engine/state.js";
+import { LINEAR_SLOP } from "../math/constants.js";
 import { makeRot } from "../math/rot.js";
 import { mulTransforms, type Transform } from "../math/transform.js";
 import { NULL_INDEX, type BodyHandle, type ShapeHandle } from "../util/handle.js";
+
+// ─── Degenerate-geometry guard ────────────────────────────────────────────────
+
+/** True when the endpoint pair (a→b) is long enough to be a valid capsule,
+ * segment, or chain-segment geometry. Mirrors the `B2_LINEAR_SLOP` threshold
+ * used in `b2CreateCapsuleShape`, `b2CreateSegmentShape`, and
+ * `b2CreateChainSegmentShape` (box2d/src/shape.c). */
+function hasValidEndpoints(ax: number, ay: number, bx: number, by: number): boolean {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const threshold = LINEAR_SLOP * LINEAR_SLOP;
+  return dx * dx + dy * dy > threshold;
+}
 
 // ─── Geometry translation (components/ → engine/) ────────────────────────────
 
@@ -80,6 +94,10 @@ function buildShapeForEntity(
 
   const capsule = e.get(Capsule) as Capsule | undefined;
   if (capsule !== undefined) {
+    if (!hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)) {
+      console.warn("Capsule endpoint distance <= LINEAR_SLOP — shape skipped (Box2D parity)");
+      return undefined;
+    }
     const geom: GeometryUnion = {
       kind: "capsule",
       ax: capsule.x1,
@@ -102,6 +120,10 @@ function buildShapeForEntity(
 
   const segment = e.get(Segment) as Segment | undefined;
   if (segment !== undefined) {
+    if (!hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)) {
+      console.warn("Segment endpoint distance <= LINEAR_SLOP — shape skipped (Box2D parity)");
+      return undefined;
+    }
     const geom: GeometryUnion = {
       kind: "segment",
       ax: segment.x1,
@@ -502,6 +524,11 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
   });
 
   system.update(Capsule, (e, capsule) => {
+    // Keep old valid shape if the new endpoints are degenerate (Box2D setter).
+    if (!hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)) {
+      console.warn("Capsule update ignored — endpoint distance <= LINEAR_SLOP (Box2D parity)");
+      return;
+    }
     rebuildSingleShape(e.eid, state, (shape) => {
       shape.geometry = {
         kind: "capsule",
@@ -516,6 +543,11 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
   });
 
   system.update(Segment, (e, segment) => {
+    // Keep old valid shape if the new endpoints are degenerate (Box2D setter).
+    if (!hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)) {
+      console.warn("Segment update ignored — endpoint distance <= LINEAR_SLOP (Box2D parity)");
+      return;
+    }
     rebuildSingleShape(e.eid, state, (shape) => {
       shape.geometry = {
         kind: "segment",
