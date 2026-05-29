@@ -77,21 +77,34 @@ describe("PhysicsBodyLifecycle.enter", () => {
     expect(record(e.eid).setIndex).toBe(DISABLED_SET);
   });
 
-  it("reads damping, gravity scale, and velocity off the entity", () => {
+  it("reads damping and gravity scale into the sim", () => {
     const e = world
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Damping, { linear: 0.5, angular: 0.25 })
-      .set(GravityScale, { value: 2 })
-      .set(LinearVelocity, { x: 1, y: -1 })
-      .set(AngularVelocity, { value: 4 });
+      .set(GravityScale, { value: 2 });
     world.progress(0, 16);
 
+    // These are integration coefficients on the sim — the step reads them but
+    // does not mutate them, so they are stable after a progress.
     const r = record(e.eid);
     const sim = state.solverSets[AWAKE_SET]!.bodySims[r.localIndex]!;
     expect(sim.linearDamping).toBe(0.5);
     expect(sim.angularDamping).toBe(0.25);
     expect(sim.gravityScale).toBe(2);
+  });
+
+  it("reads initial velocity into the body state", () => {
+    // No mass (invMass 0 until VP-12) and no damping, so the step leaves the
+    // velocity untouched — what we read back is what the lifecycle wrote.
+    const e = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(LinearVelocity, { x: 1, y: -1 })
+      .set(AngularVelocity, { value: 4 });
+    world.progress(0, 16);
+
+    const r = record(e.eid);
     const bodyState = state.solverSets[AWAKE_SET]!.bodyStates[r.localIndex]!;
     expect(bodyState.vx).toBe(1);
     expect(bodyState.vy).toBe(-1);

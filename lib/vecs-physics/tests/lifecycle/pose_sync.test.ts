@@ -106,30 +106,27 @@ describe("PhysicsPoseSyncIn (user → engine)", () => {
 
 describe("PhysicsPoseSyncOut (engine → user)", () => {
   it("writes the simulated pose back to a dynamic body's components", () => {
-    const e = world
-      .entity()
-      .set(Body, { type: BodyType.Dynamic })
-      .set(Position, { x: 0, y: 0 })
-      .set(LinearVelocity, { x: 0, y: 0 });
+    const e = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x: 0, y: 0 });
     world.progress(0, 16);
 
-    // Simulate the engine moving the body (no solver yet in VP-6).
+    // The solver runs each step now, so "the engine moved the body" means its
+    // centre of mass is elsewhere (finalize derives the origin transform from
+    // it). With zero velocity the body holds that centre through the step.
+    // (Velocity write-back is covered by the free-fall step test.)
     const sim = awakeSim(e.eid);
-    sim.transformX = 9;
-    sim.transformY = -1;
-    awakeState(e.eid).vx = 2;
+    sim.centerX = 9;
+    sim.centerY = -1;
     world.progress(16, 16);
 
     expect(e.get(Position)!.x).toBe(9);
     expect(e.get(Position)!.y).toBe(-1);
-    expect(e.get(LinearVelocity)!.x).toBe(2);
   });
 
   it("does not write back a kinematic body (its pose is user-owned)", () => {
     const e = world.entity().set(Body, { type: BodyType.Kinematic }).set(Position, { x: 0, y: 0 });
     world.progress(0, 16);
 
-    awakeSim(e.eid).transformX = 9;
+    awakeSim(e.eid).centerX = 9;
     world.progress(16, 16);
 
     expect(e.get(Position)!.x).toBe(0);
@@ -143,13 +140,13 @@ describe("pose-sync feedback suppression", () => {
 
     // Simulate the engine having moved the body after that write-back.
     const sim = awakeSim(e.eid);
-    sim.transformX = 7;
+    sim.centerX = 7;
 
     world.progress(16, 16);
 
     // If the (0,0) write-back had been mistaken for a user teleport,
     // PhysicsPoseSyncIn would have reset the body to the origin this frame.
-    expect(awakeSim(e.eid).transformX).toBe(7);
+    expect(awakeSim(e.eid).centerX).toBe(7);
     expect(e.get(Position)!.x).toBe(7);
   });
 
@@ -182,7 +179,7 @@ describe("pose-sync feedback suppression", () => {
     count = 0;
     const handle = us.bodyByEntity.get(e.eid)!;
     const r = us.bodies.get(handle.index);
-    us.solverSets[AWAKE_SET]!.bodySims[r.localIndex]!.transformX = 4;
+    us.solverSets[AWAKE_SET]!.bodySims[r.localIndex]!.centerX = 4;
     userWorld.progress(16, 16);
 
     expect(count).toBe(1);

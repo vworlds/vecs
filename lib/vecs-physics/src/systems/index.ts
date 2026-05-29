@@ -14,10 +14,12 @@ import { PhysicsSystemTag, type PhysicsState } from "../engine/state.js";
 import { installBodyLifecycle } from "./lifecycle.js";
 import { installPoseSyncIn } from "./pose_sync_in.js";
 import { installPoseSyncOut } from "./pose_sync_out.js";
+import { installStep } from "./step.js";
 
-/** The pre-step and post-step phases the VP-6 systems split across. */
+/** The three phases the physics systems split across. */
 export interface PhysicsPhases {
   preStep: IPhase;
+  step: IPhase;
   postStep: IPhase;
 }
 
@@ -31,6 +33,7 @@ export function installPhysicsSystems(
   const systems = [
     installBodyLifecycle(world, state, phases.preStep),
     installPoseSyncIn(world, state, phases.preStep),
+    installStep(world, state, phases.step),
     installPoseSyncOut(world, state, phases.postStep),
   ];
 

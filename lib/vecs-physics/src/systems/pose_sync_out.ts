@@ -10,9 +10,10 @@
 // `PhysicsSystemTag`, so `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])`
 // discards them next frame — no echo bookkeeping needed.
 //
-// VP-6 has no solver step yet, so there is no per-body move-event list to drive
-// this: it writes back every dynamic body each frame. VP-7's engine step
-// produces a move-event list and this narrows to the bodies that actually moved.
+// It iterates `state.bodyMoveEvents` (the bodies the solver finalized this step,
+// Box2D's move-event list), so it touches only awake bodies and skips anything
+// the step did not move. Until sleep lands the move-event list is every awake
+// body; once bodies sleep, sleeping bodies drop out of it automatically.
 
 import { type IPhase, type System, type World } from "@vworlds/vecs";
 
@@ -30,19 +31,20 @@ export function installPoseSyncOut(world: World, state: PhysicsState, phase: IPh
     .phase(phase)
     .run(() => {
       const awake = state.solverSets[AWAKE_SET]!;
-      for (let i = 0; i < awake.bodySims.length; i++) {
-        const sim = awake.bodySims[i]!;
-        const record = state.bodies.get(sim.bodyId);
+      for (const bodyId of state.bodyMoveEvents) {
+        const record = state.bodies.get(bodyId);
         if (record.type !== DYNAMIC_BODY) {
+          // Kinematic poses are user-owned; static bodies never get move events.
           continue;
         }
         const entity = record.entity;
+        const sim = awake.bodySims[record.localIndex]!;
         // Position is the canonical body pose, written unconditionally.
         entity.set(Position, { x: sim.transformX, y: sim.transformY });
         if (entity.get(Rotation) !== undefined) {
           entity.set(Rotation, { angle: getAngle({ c: sim.cos, s: sim.sin }) });
         }
-        const bodyState = awake.bodyStates[i]!;
+        const bodyState = awake.bodyStates[record.localIndex]!;
         if (entity.get(LinearVelocity) !== undefined) {
           entity.set(LinearVelocity, { x: bodyState.vx, y: bodyState.vy });
         }

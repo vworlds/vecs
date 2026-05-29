@@ -111,15 +111,14 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
   // 3. Geometry components are mutually exclusive: an entity holds at most one.
   world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);
 
-  // 4. Ensure the three physics phases exist (created if missing). The step
-  //    phase carries no systems until the solver lands (VP-7).
+  // 4. Ensure the three physics phases exist (created if missing).
   const preStep = resolvePhase(world, opts.preStepPhase, DEFAULT_PRE_STEP_PHASE);
-  resolvePhase(world, opts.stepPhase, DEFAULT_STEP_PHASE);
+  const step = resolvePhase(world, opts.stepPhase, DEFAULT_STEP_PHASE);
   const postStep = resolvePhase(world, opts.postStepPhase, DEFAULT_POST_STEP_PHASE);
 
   // 5. Allocate engine state, install the systems (bound to it), then attach it.
   const state = new PhysicsState(resolveOptions(opts));
-  installPhysicsSystems(world, state, { preStep, postStep });
+  installPhysicsSystems(world, state, { preStep, step, postStep });
   attachPhysics(world, state);
 }
 

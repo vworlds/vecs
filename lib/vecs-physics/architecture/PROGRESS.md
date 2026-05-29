@@ -170,14 +170,48 @@ numeric `type`), added body-type constants + `writeBodyTransform`;
   (now `toMatchObject` on the index-bookkeeping assertions, plus an entity/type
   check).
 
-### ⬜ NEXT: VP-7 — `systems/step.ts` — minimal `engineStep` (gravity only)
+### ✅ VP-7 — `systems/step.ts` + `engine/step.ts` — minimal `engineStep` (gravity only) (commit <pending>)
 
-`PhysicsStep` in the `physics-step` phase calling `engineStep(physics, dt,
-subSteps)` (`src/engine/step.ts`). M1/M3 only needs gravity integration: a
-dynamic body falls under gravity and matches `pos.y = 4 - 0.5*10*t^2` (no
-contacts yet). Once the step produces a per-body move-event list, narrow
-`PhysicsPoseSyncOut` to bodies that actually moved (it currently scans all
-dynamic awake bodies). See `PLAN.md` → VP-7 and _`PhysicsStep`_.
+`src/engine/step.ts` (the integrator) + `src/systems/step.ts` (`PhysicsStep` in
+the `physics-step` phase). `PhysicsState` gained `bodyMoveEvents`;
+`PhysicsPoseSyncOut` now consumes it; `engine/body.ts` gained the body flag bits
+(`LOCK_*`, `IS_SPEED_CAPPED`, `ALLOW_FAST_ROTATION`). 13 new tests
+(`tests/engine/step.test.ts`, `tests/lifecycle/gravity.test.ts`), 135 total.
+
+- **Integrator ports the gravity/damping core** of the TGS soft-step solver:
+  `b2IntegrateVelocitiesTask` (gravity gated on `invMass > 0`, Pade damping,
+  force/torque), `b2IntegratePositionsTask` (motion-lock zeroing, linear/angular
+  speed caps, delta-pose advance), and the body-write half of
+  `b2FinalizeBodiesTask` (fold delta-pose into centre/rotation, derive origin
+  `p = c − R·localCenter`, reset deltas/forces, advance sweep, emit move event).
+  Constraint stages, sleep, and CCD are documented no-ops until their tickets.
+- **Uniform sub-step `h = dt / subSteps`.** The PLAN's "first substep uses full
+  `dt`" was wrong; corrected against `b2_physics_world.c` and noted in PLAN.
+- **`PhysicsPoseSyncOut` now iterates `state.bodyMoveEvents`** (the awake bodies
+  the step finalized) instead of scanning the awake set — the narrowing the
+  VP-6 note called for.
+- **Mass is not computed yet** (VP-12), so a fresh dynamic body has `invMass = 0`
+  and will not fall. The free-fall DoD test and the engine tests seed
+  `sim.invMass = 1` to stand in. Box2D defaults a massless dynamic body to mass
+  1; the mass ticket will too. Settled in PLAN.
+- **DoD met:** `tests/lifecycle/gravity.test.ts` drops a body through the full
+  pipeline and matches `pos.y = 4 − ½·g·t²` (and `v = −g·t`) within tolerance;
+  a static body does not move. `engine/step.test.ts` pins the semi-implicit
+  Euler position/velocity exactly, plus damping, speed cap, force reset, and
+  move-event behaviour.
+- Two VP-6 pose-sync tests and the body-lifecycle velocity test were updated for
+  the now-active solver: "engine moved the body" is simulated by setting the
+  body **centre** (finalize derives the origin transform from it, so poking
+  `transformX` alone no longer survives the step), and the velocity-read check
+  uses a zero-damping body so the step leaves the read value intact.
+
+### ⬜ NEXT: VP-8 — `engine/shape.ts` — `InternalShape`, `GeometryUnion`, AABB compute, mass compute
+
+First shape-storage ticket: the internal shape record, the geometry union, and
+shape AABB / mass-integral computation (`geometry.c`). Engine layer only (no
+systems yet — `PhysicsShapeLifecycle` is VP-11). See `PLAN.md` → VP-8 and
+_Shape storage_. Note the standing pre-M3 open questions (TGS vs PGS, CCD scope)
+still need eng review before the solver proper (M3).
 
 ## Environment / conventions learned
 

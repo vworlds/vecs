@@ -62,6 +62,11 @@ export class PhysicsState {
   public readonly bodyByEntity = new Map<number /* eid */, BodyHandle>();
   public readonly shapeByEntity = new Map<number /* eid */, ShapeHandle>();
 
+  // Body handle indices that the solver finalized this step (Box2D's
+  // `bodyMoveEvents`). Rebuilt each step; `PhysicsPoseSyncOut` consumes it to
+  // write simulated pose back. One entry per awake body in finalize order.
+  public readonly bodyMoveEvents: number[] = [];
+
   // Monotonic step counter (determinism + event tagging).
   public stepIndex = 0;
 

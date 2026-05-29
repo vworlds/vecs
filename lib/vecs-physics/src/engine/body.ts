@@ -27,6 +27,16 @@ export const STATIC_BODY = 0;
 export const KINEMATIC_BODY = 1;
 export const DYNAMIC_BODY = 2;
 
+// Body flag bits, mirroring the subset of `b2BodyFlags` the solver reads. The
+// lock flags are populated from `MotionLocks` / `Body.bullet` by the ticket that
+// wires them; `IS_SPEED_CAPPED` is a transient the integrator sets and clears.
+// Defined here so the integrator (`engine/step.ts`) can honour them already.
+export const LOCK_LINEAR_X = 0x0001;
+export const LOCK_LINEAR_Y = 0x0002;
+export const LOCK_ANGULAR_Z = 0x0004;
+export const IS_SPEED_CAPPED = 0x0020;
+export const ALLOW_FAST_ROTATION = 0x0080;
+
 /** Sparse, organisational body record. Indexed by a {@link BodyHandle}'s index;
  * the solver never reads it. Mirrors `b2Body` minus the id-API surface. */
 export interface InternalBody {
