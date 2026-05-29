@@ -276,8 +276,29 @@ VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
   dynamic-dynamic pairs. **Contact creation is M3** — `updatePairs` only emits
   candidate `(shapeA, shapeB)` pairs. `PhysicsState.broadPhase` added. 31 tests.
   - Deferred: `forcePairCreation` for static `invokeContactCreation` → VP-11/M3.
-- ⬜ **VP-11** — `systems/shape_lifecycle.ts` + `shape_pose_sync.ts` + `material_filter_sync.ts`.
-- ⬜ **VP-12** — `engine/mass.ts` + `systems/mass_recompute.ts`.
+- ✅ **VP-11** — `systems/{shape_lifecycle,material_filter_sync,shape_pose_sync}.ts`
+  (e216999, cd62e63, 4a67d03). `PhysicsShapeLifecycle` (query
+  `{all:[{any:geoms},{parent:Body}]}`): enter builds the `InternalShape` from the
+  geometry component (components→engine boundary), sets local pose from
+  `ShapePosition`/`ShapeRotation`, computes the **world** AABB via
+  `computeAABB(geom, mul(bodyXf, localXf))` (the cross-ticket contract) + fat AABB
+  (`b2ComputeShapeMargin`/`b2UpdateShapeAABBs`), links into the body shape list
+  (`b2CreateShape` headShape manipulation), inserts a broad-phase proxy, marks
+  `massDirty`. Chains expand 1:N via `chainShapeByEntity`. exit is idempotent;
+  update(geom) rebuilds + refits; update(ChildOf) reparents between bodies.
+  `PhysicsMaterialFilterSync` + `PhysicsShapePoseSync` handle the update-driven
+  syncs. Wired into `installPhysics` after `PhysicsBodyLifecycle`. `InternalShape`
+  grew the VP-10/VP-11 deferred fields; `InternalBody` gained
+  `shapeHead`/`shapeCount`/`massDirty`. 48 new tests (327 total).
+  - **Deferred to M3:** contact teardown on shape removal/type-change; contact
+    refilter on `CollisionFilter` change; dynamic `Sensor` toggle (needs contact
+    teardown) — all documented in-code, mirroring `PhysicsBodyLifecycle.exit`.
+  - **Review follow-ups (non-blocking):** (1) `InternalShape.entity` is the **eid
+    (`number`)** while `InternalBody.entity` is an **`Entity`** — reconcile at M4
+    (the events system resolves handles→entities to write event components).
+    (2) `update(ChildOf)` reads `childOf.target.eid` via an `as unknown` cast;
+    prefer the typed `e.parent(ChildOf)` path (as `enter` uses). Tested + working.
+- ⬜ **VP-12** — `engine/mass.ts` + `systems/mass_recompute.ts`. NEXT (wave 3).
 - ✅ **VP-13** — `engine/manifold/*` + `engine/distance.ts` (13a 0f459c7, 13b
   5f75617, 13c 82253ee, 13d 300c7d1, 13e 24e2065). All twelve `b2Collide*`
   functions, `b2ClipPolygons`/`findMaxSeparation`, `b2SegmentDistance` + GJK
