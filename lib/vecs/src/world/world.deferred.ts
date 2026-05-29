@@ -16,6 +16,7 @@ export class Deferred extends Queries {
 
   /** @internal Append a command to the deferred-mode queue. */
   public _enqueue(cmd: Command): void {
+    cmd.source = this._currentSource;
     this._commandQueue.push(cmd);
   }
 
@@ -50,6 +51,7 @@ export class Deferred extends Queries {
 
   /** @internal Run one command's side effects. */
   protected _executeCommand(cmd: Command): void {
+    this._routingSource = cmd.source;
     switch (cmd.kind) {
       case CommandKind.CreateEntity:
         this._entities.set(cmd.entity.eid, cmd.entity);
@@ -88,6 +90,7 @@ export class Deferred extends Queries {
       }
       this._commandQueue.length = 0;
     } finally {
+      this._routingSource = undefined;
       this._draining = false;
     }
   }
