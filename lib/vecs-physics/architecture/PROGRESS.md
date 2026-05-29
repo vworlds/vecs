@@ -85,14 +85,27 @@ twice or after `start()`.
   lint rule). Free-function modules (the math layer) are unaffected.
 - ESM imports use explicit `.js` extensions.
 - Commit style: `<type>: <subject>` + body, no scope (see `.agent/rules/commits.md`).
+- Prettier is **not** enforced on `docs/*.md` (they aren't prettier-clean at
+  HEAD). Don't `prettier --write` docs — make minimal literal edits and keep the
+  existing hand-aligned table formatting, or you'll spray unrelated churn.
+- **Port the model, not the C representation** (PLAN → _Box2D Porting Strategy_).
+  Don't be slavishly literal about Box2D's C choices: 64-bit fields → `number`
+  (not `bigint`) unless >2^53 range is truly needed; opaque user data → a field
+  holding an arbitrary JS value, not a faked pointer/number. The collision-filter
+  32-bit decision (above) is the first instance.
 
 ## Cross-library / open items
 
-- `System.ignoreSource` (pose-sync feedback suppression, VP-6) **has landed** in
-  `physics` (dev merged at 3af1cab). The plan originally called it `silenceFrom`;
-  the real name is `ignoreSource(source: QueryDSL | Query)`. Re-verify its
-  source-attribution semantics with a focused test at VP-6.
+- Feedback suppression (pose-sync, VP-6) **has landed** but **moved**: a later
+  dev merge (`cade99b`, pulling in the `silent` branch) relocated the machinery
+  from `System` to **`Query`** — it's now `Query.ignoreSource` (commits
+  `b745b34`/`dad09aa`), not `System.ignoreSource` as earlier notes/PLAN said.
+  The plan originally called it `silenceFrom`. Re-verify its source-attribution
+  semantics with a focused test at VP-6, and confirm the exact signature against
+  the merged `@vworlds/vecs` source before relying on it.
 - Open design questions still to settle before **M3 (solver)**: TGS vs PGS, and
   CCD scope. See `PLAN.md` → _Open Questions_.
-- `Query.groupBy` (optional, mass-recompute convenience) is uncommitted in the
-  `cascade` worktree. Not on the critical path.
+- `Query.groupBy` (optional, mass-recompute convenience) **has landed** via the
+  `cade99b` dev merge (`cascade` branch: commits `cc2a5a1`/`22ea51b`,
+  `GroupedQuery` in `group.ts`). No longer uncommitted; still not on the critical
+  path.

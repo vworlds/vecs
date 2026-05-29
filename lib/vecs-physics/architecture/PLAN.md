@@ -1241,6 +1241,8 @@ Throttle behaviour: at most one warning per `(eid, code)` per session. A re-occu
 
 We port **algorithms and data shapes**, not the C API or the threading model. Each engine module corresponds to a Box2D source file. The mapping:
 
+> **Port the model, not the C representation.** Don't be slavishly literal about Box2D's C-level choices. C makes decisions for reasons that don't apply in JavaScript — fixed-width integers, `void*` opaque pointers, struct packing, manual memory layout. Translate the _intent_ into the idiomatic JS form (see _TypeScript idiom decisions_ below). Two recurring cases: 64-bit fields and opaque user data.
+
 | `lib/vecs-physics/src/engine/`   | Box2D source                                                 | Notes                                                                           |
 | -------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------- |
 | `state.ts`                       | `physics_world.h`/`physics_world.c`                          | Strip threading, scheduler, debug bitsets we don't need.                        |
@@ -1265,6 +1267,8 @@ We port **algorithms and data shapes**, not the C API or the threading model. Ea
 
 **TypeScript idiom decisions:**
 
+- **Don't mirror C's bit-widths.** Where Box2D uses a fixed-width integer (`uint64_t` filter bits, ids, hashes), use a plain JS `number` unless the value genuinely needs more than 2^53 of range. `number` is JavaScript's natural integer type; reaching for `bigint` just to match a 64-bit C field imports `bigint`'s ergonomic friction and per-op cost for no benefit. Forcing 64-bit precision is cargo-culting the C type. (Applied to collision filters at VP-3: `categoryBits`/`maskBits` are 32-bit `number`.)
+- **Opaque user data becomes a real reference.** Box2D models user/opaque data as a `void*` (or a `uint64_t` id standing in for one) because C has no other way to hand back "your thing." In JS the idiom is simply a field that holds an arbitrary value — let users store an object, a string, whatever — rather than reducing it to a number to imitate the pointer. (Box2D's _internal_ generation-tagged handle ids still stay internal; this is about _user-facing_ fields. Often the right answer in an ECS is no field at all — the `Entity` already is the handle.)
 - **No SIMD wide-constraint arrays.** Box2D's `b2ContactConstraintWide` (`b2ContactPrepareSpan`, `wideContactConstraints`) exist to feed AVX/Neon 4/8-wide solver kernels. JS has no portable SIMD; we keep one `ContactConstraint` per contact and solve sequentially.
 - **No `b2HashSet` / `b2Table`.** Use `Map` and `Set`. We pay a slightly higher per-op cost but the V8 hidden-class layout keeps them fast. Profile, then optimise if needed.
 - **No arena allocator.** Allocation pressure is V8's problem. We pre-size hot arrays (Float32Array buffers, contact constraint pool) at world create.
@@ -1550,6 +1554,7 @@ Action items for the Vecs side:
 - Internal id generations: `IdPool` owns the per-slot generation (bumped on `free`), so validity is a single `pool.isValid(handle)`. Box2D instead keeps the generation on the object; we consolidate it into the pool. (See `src/util/id_pool.ts`.)
 - Code style: private class members are `_`-prefixed (enforced by the `local/internal-underscore` lint rule).
 - Component shapes: `docs/components.md` is authoritative when it is stricter than the defaults table here. Settled at VP-3: `BodyType` is a **string** enum (`"static"|"kinematic"|"dynamic"`), not numeric.
+- Porting fidelity: port Box2D's **model**, not its C representation. Don't be slavishly literal about C-level choices (fixed-width ints, `void*` opaque pointers, struct layout) — translate the intent into idiomatic JS. See _Box2D Porting Strategy → Port the model, not the C representation_. Concretely: 64-bit fields default to `number` (not `bigint`) unless >2^53 range is truly needed; opaque user data is an arbitrary-value field, not a faked pointer/number.
 - Collision filter width: `CollisionFilter.categoryBits`/`maskBits` are **32-bit `number`**, not Box2D's `uint64_t`. 32 categories is ample and lets filtering use native JS bitwise ops (`(catA & maskB) !== 0`) instead of bigint. Default mask is `0xffffffff`. `Material.userMaterialId` is likewise a plain `number` (opaque id, not a bitfield), so the package has **no `bigint` in its public surface**. (Decided VP-3; diverges from the original PLAN/box2d 64-bit width.)
 
 ## Required Implementation Tickets
