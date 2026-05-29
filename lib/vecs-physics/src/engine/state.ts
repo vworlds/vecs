@@ -15,6 +15,7 @@ import { Singleton, type World } from "@vworlds/vecs";
 
 import type { BodyHandle, ShapeHandle } from "../util/handle.js";
 import { BodyStorage } from "./body.js";
+import { BroadPhase } from "./broad_phase.js";
 import { ShapeStorage } from "./shape.js";
 import { createBaseSolverSets, type SolverSet } from "./solver_set.js";
 
@@ -60,6 +61,10 @@ export class PhysicsState {
   // VP-8: shape storage + geometry union. Proxy linkage (VP-10), body
   // linkage + material/filter/sensor (VP-11), and mass (VP-12) slot in later.
   public readonly shapes = new ShapeStorage();
+
+  // Broad-phase: three DynamicTrees (static/kinematic/dynamic), move buffer,
+  // and pair set. Added VP-10; VP-11 inserts proxies; M3 consumes pairs.
+  public readonly broadPhase = new BroadPhase();
 
   // Solver sets: static, disabled, awake (sleeping sets added with sleep).
   public readonly solverSets: SolverSet[] = createBaseSolverSets();
