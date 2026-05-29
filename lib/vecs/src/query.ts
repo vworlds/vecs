@@ -1,18 +1,23 @@
 import { OrderedSet } from "./util/ordered_set.js";
 import { ArrayMap } from "./util/array_map.js";
 import { Bitset } from "./util/bitset.js";
-import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
+import {
+  type ComponentInstance,
+  type ComponentMeta,
+  type ComponentRef,
+  type ComponentType,
+} from "./component.js";
 import { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import { containsDownTerm, type EntityTestFunc, type MaybeRequired, type QueryDSL } from "./dsl.js";
 import {
   directInjectEids,
+  forEachInjected,
   getInjected,
   getInjectedWithSrc,
   injectArity,
   isCursorMarker,
   Iter,
-  makeInjectedInvoker,
   mapInject,
   wantsIter,
   type DownInject,
@@ -25,6 +30,7 @@ import {
   type UpInject,
 } from "./inject.js";
 import { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
+import { ChildOf, SilenceSource } from "./relationship.js";
 
 export type {
   EntityTestFunc,
@@ -43,6 +49,15 @@ export { Iter };
 
 type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => void;
 type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
+
+// GroupedQuery is defined in group.ts to keep grouping out of Query/System.
+// group.ts calls _setGroupedQueryCtor during module init so that Query.groupBy
+// can create instances without a static import cycle.
+let _GroupedQueryCtor: new (...args: any[]) => any;
+
+export function _setGroupedQueryCtor(ctor: new (...args: any[]) => any): void {
+  _GroupedQueryCtor = ctor;
+}
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
 export const SOURCE_TRACKED_QUERY_ERROR =
@@ -101,6 +116,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   protected _componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
   /** @internal Bitmask of component eids this query reacts to via `update`. */
   protected _watchlistBitmask: Bitset = new Bitset();
+  /** @internal Silence-domain query: `update` events whose source is a member are dropped. */
+  protected _silenceQuery: Query | undefined;
 
   constructor(name: string, world: World, track: boolean = true) {
     this.entity = world.entity();
@@ -251,10 +268,76 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }
+    if (this._isSourceSilenced()) {
+      return;
+    }
     const callback = this._componentUpdateCallbacks.get(meta.eid);
     if (callback) {
       callback(e, c);
     }
+  }
+
+  /** @internal True when the world's current routing source is a member of this query's silence domain. */
+  protected _isSourceSilenced(): boolean {
+    const source = this.entity.world._routingSource;
+    return source !== undefined && this._silenceQuery?.has(source) === true;
+  }
+
+  /** @internal Build a tracked silence-domain query from `dsl`, tied to this query's lifetime. */
+  private _buildSilenceQuery(dsl: QueryDSL): Query {
+    const query = this.world.query(`${this.name}:silence`).query(dsl);
+    query.entity.set(ChildOf, { target: this.entity });
+    return query;
+  }
+
+  /**
+   * Ignore `update` notifications produced by a set of source entities,
+   * preventing read/writeback feedback loops.
+   *
+   * Every component mutation is credited to the entity of the system that made
+   * it. `ignoreSource` declares a **silence domain** as a query over those
+   * source entities: any `update` whose source is a member of the query is
+   * dropped before it reaches this query's callback. Mutations made outside
+   * any system (gameplay code) have no source and always wake the query.
+   *
+   * Pass a {@link QueryDSL} to define the domain inline — a fresh tracked query
+   * is created and tied to this query's lifetime via {@link ChildOf}. Pass an
+   * existing {@link Query} to reuse its membership directly. To silence a
+   * query's own writeback, include its entity in the domain (for example, tag
+   * the participating query entities with a marker component and match it).
+   *
+   * Calling `ignoreSource` again replaces the previous domain. Entry-time
+   * initialization is never silenced. Call during setup, before
+   * {@link World.start}; the inline-DSL form builds a query, which cannot
+   * happen while a frame is in progress.
+   *
+   * @param source - A {@link QueryDSL} domain expression or an existing
+   *   {@link Query} whose members are the silenced sources.
+   * @returns This query, for chaining.
+   *
+   * @example
+   * ```ts
+   * // Tag every physics system entity, then have the reader ignore that domain.
+   * const integrate = world.system("Integrate").requires(Position, Velocity)
+   *   .each([Position, Velocity], (e, [p, v]) => { p.x += v.vx; });
+   * integrate.entity.add(Physics);
+   *
+   * const readQuery = world.query("PhysicsRead").requires(Position)
+   *   .ignoreSource([Physics])
+   *   .update(Position, reactToExternalChange);
+   * ```
+   */
+  public ignoreSource(source: QueryDSL | Query): this {
+    this._assertConfigurable();
+    const query = source instanceof Query ? source : this._buildSilenceQuery(source);
+    this.entity.set(SilenceSource, { target: query.entity });
+    this._silenceQuery = query;
+    return this;
+  }
+
+  /** @internal Drop the silence-domain query cache after the relationship is removed. */
+  public _clearSilence(): void {
+    this._silenceQuery = undefined;
   }
 
   /** @internal Whether this query should be present in an entity's slim update set. */
@@ -378,28 +461,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   ): void;
 
   public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): void {
-    this.world.beginDefer();
-    try {
-      // Bare `forEach(callback)`: a function that is not a cursor marker.
-      if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
-        for (const entity of this._matchedEntities()) {
-          (arg0 as (e: Entity) => void)(entity);
-        }
-        return;
-      }
-      const useIter = wantsIter(arg0);
-      const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
-      const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
-        eOrIt: unknown,
-        resolved: unknown
-      ) => void;
-      const invoke = makeInjectedInvoker(this.world, components, useIter, callback);
-      for (const entity of this._matchedEntities()) {
-        invoke(entity);
-      }
-    } finally {
-      this.world.endDefer();
-    }
+    forEachInjected(this.world, this._matchedEntities(), arg0, arg1, arg2);
   }
 
   /**
@@ -837,6 +899,63 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public requires<T extends ComponentType[]>(...components: [...T]): Query<T> {
     this.query(components);
     return this as unknown as Query<T>;
+  }
+
+  /**
+   * Partition the matched set into live buckets keyed by a value derived from
+   * each entity, and return this query as a {@link GroupedQuery}.
+   *
+   * Grouping is a projection over the query's existing membership — the
+   * analogue of {@link sort}, but producing many buckets instead of one
+   * ordering. Membership (which entities are in scope) flows through the usual
+   * reactive root term; **re-keying** (a member changing buckets without
+   * leaving the query) rides the same watchlist rail as {@link update}: a
+   * change to any of `components` recomputes the key and moves the entity to
+   * its new bucket in place, with no archetype churn.
+   *
+   * The grouping components are implicitly required, since an entity cannot be
+   * bucketed by a value it does not carry. A key of `undefined` leaves the
+   * entity un-bucketed.
+   *
+   * @param components - Component classes resolved from each entity and passed
+   *   to `key`. Their `update`s drive re-keying.
+   * @param key - Computes the bucket key from the entity and resolved tuple.
+   * @returns This query, typed as a {@link GroupedQuery}.
+   *
+   * @example
+   * ```ts
+   * const byCell = world.query("byCell")
+   *   .requires(Position)
+   *   .groupBy([Position], (_e, [pos]) => cellIndex(pos));
+   * byCell.group(4)?.forEach([Position], (e, [pos]) => { ... });
+   * ```
+   */
+  public groupBy<K, J extends FanInjectTuple>(
+    components: readonly [...J],
+    key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
+  ): import("./group.js").GroupedQuery<K, R>;
+
+  /**
+   * Partition the matched set by a relationship target: each bucket is keyed by
+   * the entity that members point at through `relationship`.
+   *
+   * This is the cheap flavor — the key changes only when the relationship
+   * component itself is added, removed, or retargeted, so it rides membership
+   * and the watchlist directly without reading component values. The
+   * relationship is implicitly required.
+   *
+   * @param relationship - Relationship component whose target is the key.
+   * @returns This query, keyed by the target {@link Entity}.
+   */
+  public groupBy(relationship: ComponentRef): import("./group.js").GroupedQuery<Entity, R>;
+
+  public groupBy(
+    arg0: readonly FanInjectElement[] | ComponentRef,
+    arg1?: (e: Entity, resolved: any) => any
+  ): any {
+    this._assertConfigurable();
+    Object.setPrototypeOf(this, _GroupedQueryCtor.prototype);
+    return (this as any)._initialize(arg0, arg1);
   }
 
   /**
