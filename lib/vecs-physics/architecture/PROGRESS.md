@@ -266,11 +266,40 @@ VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
   surface: `class DynamicTree`, `RayCastInput`, `TreeStats`, query/raycast
   callbacks `(proxyId, userData:number)=>…`. 22 tests porting all 8
   `test_dynamic_tree.c` cases. Leaf — no `state.ts`/`install.ts` coupling.
-- ⬜ **VP-10** — `engine/broad_phase.ts`. NEXT (wave 2).
+- ✅ **VP-10** — `engine/broad_phase.ts` (commit 83a713f). `BroadPhase` over three
+  `DynamicTree`s (by numeric body type); proxy key `(id<<2)|type` (= box2d
+  `B2_PROXY_KEY`); move buffer (`moveArray` + a `Set` dedup); `pairSet`
+  (`Set<number>`, pair key `min*2^22+max`); `createProxy/destroyProxy/moveProxy/
+  enlargeProxy/updatePairs(cb)/removePair/rebuildTrees`. Static proxies never
+  buffer; moving proxies query the static tree (→ dynamic-static pairs, no
+  static-static); canonical lower-key ordering avoids double-emitting
+  dynamic-dynamic pairs. **Contact creation is M3** — `updatePairs` only emits
+  candidate `(shapeA, shapeB)` pairs. `PhysicsState.broadPhase` added. 31 tests.
+  - Deferred: `forcePairCreation` for static `invokeContactCreation` → VP-11/M3.
 - ⬜ **VP-11** — `systems/shape_lifecycle.ts` + `shape_pose_sync.ts` + `material_filter_sync.ts`.
 - ⬜ **VP-12** — `engine/mass.ts` + `systems/mass_recompute.ts`.
-- ⬜ **VP-13** — `engine/manifold/*` + `engine/distance.ts`. NEXT (wave 2, parallel).
+- ✅ **VP-13** — `engine/manifold/*` + `engine/distance.ts` (13a 0f459c7, 13b
+  5f75617, 13c 82253ee, 13d 300c7d1, 13e 24e2065). All twelve `b2Collide*`
+  functions, `b2ClipPolygons`/`findMaxSeparation`, `b2SegmentDistance` + GJK
+  `b2ShapeDistance`/`makeProxy`/`SimplexCache`. Shared `Manifold`/`ManifoldPoint`
+  (`anchorA/B` relative to each body origin in world space; `separation`<0 =
+  penetrating; stable 16-bit `id` = `B2_MAKE_ID`; fixed length-2 `points` +
+  `pointCount`). Solver-only fields (impulses) deferred to M3. 47 tests (parity:
+  SegmentDistanceTest, ShapeDistanceTest + 40 manifold geometric tests).
+  - **Chain ghost-vertex caveat confirmed:** the chain-segment functions consume
+    ghosts exactly as `ChainSegmentGeometry` stores them. VP-8's open-chain
+    endpoint reflection matches box2d only when the chain continues straight; at
+    a sharp-turn endpoint it diverges from box2d's actual/neighbour ghosts. Loops
+    match exactly. Resolve at VP-11 (chain creation) — M4 `ChainSegmentShapeTest`.
 - ⬜ **VP-14** — `engine/narrow_phase.ts`.
+
+### M2 progress snapshot
+
+Engine collision primitives are **complete and gate-green** (279 tests):
+VP-8 (shapes/geometry), VP-9 (BVH), VP-10 (broad phase), VP-13 (manifolds +
+distance). **Remaining for M2:** VP-12 (mass + recompute), VP-11 (shape lifecycle
++ material/filter + shape-pose-sync systems), VP-14 (narrow-phase dispatch), then
+the M2 gate/review. _Paused here at the user's request before starting Wave 3._
 
 ### Cross-ticket contracts surfaced reviewing VP-8 (VP-10/11/12 must honour)
 
