@@ -11,6 +11,8 @@
 // repaired. See PLAN.md → _Box2D Porting Strategy_ (port the model, not the C
 // representation) and _Solver sets_.
 
+import type { Entity } from "@vworlds/vecs";
+
 import { swapRemove } from "../util/dense_array.js";
 import type { BodyHandle } from "../util/handle.js";
 import {
@@ -60,11 +62,23 @@ export function createBaseSolverSets(): SolverSet[] {
 
 /** Create a body record and its sim in `set`, allocating a handle. A body in the
  * awake set also gets a {@link BodyState}. Mirrors the storage half of
- * `b2CreateBody`; reading components into the sim is a later ticket. */
-export function createBody(storage: BodyStorage, set: SolverSet): BodyHandle {
+ * `b2CreateBody`; the caller (the lifecycle system) populates the sim from the
+ * entity's components after creation. `entity` and `type` are the engine's ECS
+ * binding and the resolved numeric body type. */
+export function createBody(
+  storage: BodyStorage,
+  set: SolverSet,
+  entity: Entity,
+  type: number
+): BodyHandle {
   const handle = storage.idPool.allocate();
   const sim = makeBodySim(handle.index);
-  const body: InternalBody = { setIndex: set.setIndex, localIndex: set.bodySims.length };
+  const body: InternalBody = {
+    entity,
+    type,
+    setIndex: set.setIndex,
+    localIndex: set.bodySims.length,
+  };
   storage.records[handle.index] = body;
   set.bodySims.push(sim);
   if (set.setIndex === AWAKE_SET) {

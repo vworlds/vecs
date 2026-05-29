@@ -1,7 +1,16 @@
+import type { Entity } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { HUGE } from "../../src/math/constants.js";
-import { BodyStorage, makeBodySim, makeIdentityBodyState } from "../../src/engine/body.js";
+import {
+  BodyStorage,
+  DYNAMIC_BODY,
+  makeBodySim,
+  makeIdentityBodyState,
+  type InternalBody,
+} from "../../src/engine/body.js";
+
+const ENTITY = { eid: 1 } as unknown as Entity;
 
 describe("makeBodySim", () => {
   it("returns a zeroed sim with identity rotation back-pointing at its body", () => {
@@ -34,8 +43,9 @@ describe("BodyStorage", () => {
   it("returns the live record for an occupied slot", () => {
     const storage = new BodyStorage();
     const handle = storage.idPool.allocate();
-    storage.records[handle.index] = { setIndex: 2, localIndex: 0 };
-    expect(storage.get(handle.index)).toEqual({ setIndex: 2, localIndex: 0 });
+    const record: InternalBody = { entity: ENTITY, type: DYNAMIC_BODY, setIndex: 2, localIndex: 0 };
+    storage.records[handle.index] = record;
+    expect(storage.get(handle.index)).toBe(record);
   });
 
   it("throws when the slot is empty", () => {

@@ -1,0 +1,162 @@
+// `PhysicsBodyLifecycle` (VP-6): body create/destroy and solver-set placement /
+// transfers driven by `Body` enter/exit/update events.
+
+import { World } from "@vworlds/vecs";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import {
+  AngularVelocity,
+  Body,
+  BodyType,
+  Damping,
+  GravityScale,
+  LinearVelocity,
+  Position,
+  Rotation,
+  installPhysics,
+} from "../../src/index.js";
+import { DYNAMIC_BODY, KINEMATIC_BODY, STATIC_BODY } from "../../src/engine/body.js";
+import { AWAKE_SET, DISABLED_SET, STATIC_SET } from "../../src/engine/solver_set.js";
+import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
+
+let world: World;
+let state: PhysicsState;
+
+beforeEach(() => {
+  world = new World();
+  installPhysics(world);
+  world.start();
+  state = getPhysics(world);
+});
+
+/** The internal body record for an entity, looked up through the engine state. */
+function record(eid: number) {
+  const handle = state.bodyByEntity.get(eid)!;
+  return state.bodies.get(handle.index);
+}
+
+describe("PhysicsBodyLifecycle.enter", () => {
+  it("creates a dynamic body in the awake set with its pose", () => {
+    const e = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 2, y: 3 })
+      .set(Rotation, { angle: 0 });
+    world.progress(0, 16);
+
+    const r = record(e.eid);
+    expect(r.setIndex).toBe(AWAKE_SET);
+    expect(r.type).toBe(DYNAMIC_BODY);
+    const sim = state.solverSets[AWAKE_SET]!.bodySims[r.localIndex]!;
+    expect(sim.transformX).toBe(2);
+    expect(sim.transformY).toBe(3);
+    expect(state.solverSets[AWAKE_SET]!.bodyStates).toHaveLength(1);
+  });
+
+  it("places a static body in the static set with no body state", () => {
+    const e = world.entity().set(Body, { type: BodyType.Static });
+    world.progress(0, 16);
+
+    expect(record(e.eid).setIndex).toBe(STATIC_SET);
+    expect(record(e.eid).type).toBe(STATIC_BODY);
+    expect(state.solverSets[STATIC_SET]!.bodyStates).toHaveLength(0);
+  });
+
+  it("places a kinematic body in the awake set", () => {
+    const e = world.entity().set(Body, { type: BodyType.Kinematic });
+    world.progress(0, 16);
+
+    expect(record(e.eid).setIndex).toBe(AWAKE_SET);
+    expect(record(e.eid).type).toBe(KINEMATIC_BODY);
+  });
+
+  it("places a disabled body in the disabled set whatever its type", () => {
+    const e = world.entity().set(Body, { type: BodyType.Dynamic, enabled: false });
+    world.progress(0, 16);
+
+    expect(record(e.eid).setIndex).toBe(DISABLED_SET);
+  });
+
+  it("reads damping, gravity scale, and velocity off the entity", () => {
+    const e = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Damping, { linear: 0.5, angular: 0.25 })
+      .set(GravityScale, { value: 2 })
+      .set(LinearVelocity, { x: 1, y: -1 })
+      .set(AngularVelocity, { value: 4 });
+    world.progress(0, 16);
+
+    const r = record(e.eid);
+    const sim = state.solverSets[AWAKE_SET]!.bodySims[r.localIndex]!;
+    expect(sim.linearDamping).toBe(0.5);
+    expect(sim.angularDamping).toBe(0.25);
+    expect(sim.gravityScale).toBe(2);
+    const bodyState = state.solverSets[AWAKE_SET]!.bodyStates[r.localIndex]!;
+    expect(bodyState.vx).toBe(1);
+    expect(bodyState.vy).toBe(-1);
+    expect(bodyState.omega).toBe(4);
+  });
+});
+
+describe("PhysicsBodyLifecycle.exit", () => {
+  it("destroys the internal body when Body is removed", () => {
+    const e = world.entity().set(Body, { type: BodyType.Dynamic });
+    world.progress(0, 16);
+    expect(state.bodyByEntity.has(e.eid)).toBe(true);
+
+    e.remove(Body);
+    world.progress(16, 16);
+
+    expect(state.bodyByEntity.has(e.eid)).toBe(false);
+    expect(state.solverSets[AWAKE_SET]!.bodySims).toHaveLength(0);
+  });
+
+  it("destroys the internal body when the entity is destroyed", () => {
+    const e = world.entity().set(Body, { type: BodyType.Dynamic });
+    world.progress(0, 16);
+
+    e.destroy();
+    world.progress(16, 16);
+
+    expect(state.bodyByEntity.has(e.eid)).toBe(false);
+    expect(state.solverSets[AWAKE_SET]!.bodySims).toHaveLength(0);
+  });
+});
+
+describe("PhysicsBodyLifecycle.update(Body)", () => {
+  it("moves a body to the disabled set and back on the enabled toggle", () => {
+    const e = world.entity().set(Body, { type: BodyType.Dynamic });
+    world.progress(0, 16);
+    expect(record(e.eid).setIndex).toBe(AWAKE_SET);
+
+    e.set(Body, { type: BodyType.Dynamic, enabled: false });
+    world.progress(16, 16);
+    expect(record(e.eid).setIndex).toBe(DISABLED_SET);
+
+    e.set(Body, { type: BodyType.Dynamic, enabled: true });
+    world.progress(32, 16);
+    expect(record(e.eid).setIndex).toBe(AWAKE_SET);
+  });
+
+  it("moves a body between awake and static sets on a type change", () => {
+    const e = world.entity().set(Body, { type: BodyType.Dynamic });
+    world.progress(0, 16);
+    expect(record(e.eid).setIndex).toBe(AWAKE_SET);
+
+    e.set(Body, { type: BodyType.Static });
+    world.progress(16, 16);
+    expect(record(e.eid).setIndex).toBe(STATIC_SET);
+    expect(record(e.eid).type).toBe(STATIC_BODY);
+  });
+
+  it("updates the recorded type for a kinematic↔dynamic change without moving sets", () => {
+    const e = world.entity().set(Body, { type: BodyType.Dynamic });
+    world.progress(0, 16);
+
+    e.set(Body, { type: BodyType.Kinematic });
+    world.progress(16, 16);
+    expect(record(e.eid).setIndex).toBe(AWAKE_SET);
+    expect(record(e.eid).type).toBe(KINEMATIC_BODY);
+  });
+});

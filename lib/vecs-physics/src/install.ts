@@ -23,8 +23,10 @@ import {
   attachPhysics,
   hasPhysics,
   PhysicsState,
+  registerInternalComponents,
   type ResolvedPhysicsOptions,
 } from "./engine/state.js";
+import { installPhysicsSystems } from "./systems/index.js";
 
 /** Options for {@link installPhysics}. Every field is optional; omitted fields
  * fall back to Box2D-aligned defaults. */
@@ -102,17 +104,23 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
   world.component(SensorEvents);
   world.component(HitEvents);
 
-  // 2. Geometry components are mutually exclusive: an entity holds at most one.
+  // 2. Internal, non-exported components (`PhysicsRoot`, `PhysicsSystemTag`),
+  //    registered in their documented order for deterministic type ids.
+  registerInternalComponents(world);
+
+  // 3. Geometry components are mutually exclusive: an entity holds at most one.
   world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);
 
-  // 3. Ensure the three physics phases exist (created if missing). VP-6 installs
-  //    the systems into them; for now they are empty buckets.
-  resolvePhase(world, opts.preStepPhase, DEFAULT_PRE_STEP_PHASE);
+  // 4. Ensure the three physics phases exist (created if missing). The step
+  //    phase carries no systems until the solver lands (VP-7).
+  const preStep = resolvePhase(world, opts.preStepPhase, DEFAULT_PRE_STEP_PHASE);
   resolvePhase(world, opts.stepPhase, DEFAULT_STEP_PHASE);
-  resolvePhase(world, opts.postStepPhase, DEFAULT_POST_STEP_PHASE);
+  const postStep = resolvePhase(world, opts.postStepPhase, DEFAULT_POST_STEP_PHASE);
 
-  // 4. Allocate and attach the private engine state.
-  attachPhysics(world, new PhysicsState(resolveOptions(opts)));
+  // 5. Allocate engine state, install the systems (bound to it), then attach it.
+  const state = new PhysicsState(resolveOptions(opts));
+  installPhysicsSystems(world, state, { preStep, postStep });
+  attachPhysics(world, state);
 }
 
 /** Resolve a phase placement option to a concrete phase. An `IPhase` is used

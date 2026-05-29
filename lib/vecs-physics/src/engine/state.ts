@@ -87,6 +87,24 @@ class PhysicsRoot {
   public state!: PhysicsState;
 }
 
+/** Internal marker tagging every physics **system entity** (systems are entities
+ * in Vecs). `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])` uses it as a
+ * silence domain so the engine's own pose write-back is never mistaken for a
+ * user teleport. Never exported from the package and only ever lives on system
+ * entities, so it adds zero per-entity archetype churn. See PLAN.md → _Pose And
+ * Velocity Synchronization_. */
+export class PhysicsSystemTag {}
+
+/** Register the package's two internal, non-exported components in their
+ * documented order (`PhysicsRoot` then `PhysicsSystemTag`, registration step 9).
+ * Keeping the order stable keeps Vecs' registration-order-assigned type ids
+ * deterministic across worlds. The singleton marking and state attachment for
+ * `PhysicsRoot` happen later in {@link attachPhysics} (step 13). */
+export function registerInternalComponents(world: World): void {
+  world.component(PhysicsRoot);
+  world.component(PhysicsSystemTag);
+}
+
 /** Bind `state` to `world` via the `PhysicsRoot` singleton. Marking the
  * component singleton auto-attaches the instance to its own meta entity (the
  * `Singleton` module does `target.add(target)`), so it is reachable through

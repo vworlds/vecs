@@ -14,13 +14,29 @@
 // (shape/contact/island links) are added by the tickets that populate them;
 // VP-5 keeps only what body storage and solver-set transfer touch.
 
+import type { Entity } from "@vworlds/vecs";
+
 import { HUGE } from "../math/constants.js";
 import type { BodyHandle } from "../util/handle.js";
 import { IdPool } from "../util/id_pool.js";
 
+// Numeric body types, mirroring `b2BodyType`. The public string `BodyType`
+// (`components/body.ts`) is translated to one of these at the systems-layer
+// boundary; the engine only ever sees the number.
+export const STATIC_BODY = 0;
+export const KINEMATIC_BODY = 1;
+export const DYNAMIC_BODY = 2;
+
 /** Sparse, organisational body record. Indexed by a {@link BodyHandle}'s index;
  * the solver never reads it. Mirrors `b2Body` minus the id-API surface. */
 export interface InternalBody {
+  /** The Vecs entity that owns this body. Set when the body is created from a
+   * `Body`-bearing entity; used to write simulated pose back to its components.
+   * Mirrors how `b2Body` carries `userData` back to the host. */
+  entity: Entity;
+  /** Numeric body type ({@link STATIC_BODY} / {@link KINEMATIC_BODY} /
+   * {@link DYNAMIC_BODY}). Decides solver-set placement and pose write-back. */
+  type: number;
   /** Which solver set this body lives in (see `solver_set.ts` constants). */
   setIndex: number;
   /** Index of this body's {@link BodySim} (and {@link BodyState}) within its set. */
@@ -137,6 +153,34 @@ export function makeBodySim(bodyId: number): BodySim {
     bodyId,
     flags: 0,
   };
+}
+
+/** Write a new origin transform into `sim` and resync the centre-of-mass sweep,
+ * mirroring `b2Body_SetTransform` minus the broad-phase refit (no proxies until
+ * shapes land). The rotation is supplied pre-resolved as `(cos, sin)`. The
+ * world-space centre is recomputed from the body-local centre, and the previous
+ * sweep (`rotation0`/`center0`) is reset to the new pose so a teleport leaves no
+ * stale motion baseline. */
+export function writeBodyTransform(
+  sim: BodySim,
+  x: number,
+  y: number,
+  cos: number,
+  sin: number
+): void {
+  sim.transformX = x;
+  sim.transformY = y;
+  sim.cos = cos;
+  sim.sin = sin;
+  // center = transformPoint(transform, localCenter)
+  const cx = x + (cos * sim.localCenterX - sin * sim.localCenterY);
+  const cy = y + (sin * sim.localCenterX + cos * sim.localCenterY);
+  sim.centerX = cx;
+  sim.centerY = cy;
+  sim.rotation0Cos = cos;
+  sim.rotation0Sin = sin;
+  sim.center0X = cx;
+  sim.center0Y = cy;
 }
 
 /** A zeroed {@link BodyState} with identity delta rotation, carrying `flags`.

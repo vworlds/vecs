@@ -133,16 +133,49 @@ sim/state factories and `BodyStorage.get`).
   `util/`, never `components/` (so the internal numeric body-type vs the public
   string `BodyType` translation is a VP-6 system-layer concern).
 
-### ⬜ NEXT: VP-6 — `systems/lifecycle.ts` (`PhysicsBodyLifecycle`) + `pose_sync_in.ts` + `pose_sync_out.ts`
+### ✅ VP-6 — `systems/lifecycle.ts` (`PhysicsBodyLifecycle`) + `pose_sync_in.ts` + `pose_sync_out.ts` (commit <pending>)
 
-Body create/destroy, teleport, and feedback suppression. Re-add
-`PhysicsSystemTag` (registered immediately after `PhysicsRoot`, deferred from
-VP-4) and wire `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])`. **Verify
-`ignoreSource` against the merged `@vworlds/vecs` source first** — a dev merge
-relocated it from `System` to `Query.ignoreSource` (see _Cross-library_ below).
-This ticket reads `Body.type` and translates it to the engine's solver-set
-placement, and stores the owning `Entity` on `InternalBody` (grows the struct).
-See `PLAN.md` → VP-6 and _System And Phase Pipeline_.
+`src/systems/{lifecycle,pose_sync_in,pose_sync_out,index}.ts`; `install.ts` now
+registers internal components (step 9) and installs+tags the three systems (step
+12) before attach (step 13). `engine/body.ts` grew `InternalBody` (`entity` +
+numeric `type`), added body-type constants + `writeBodyTransform`;
+`engine/solver_set.ts` `createBody` takes `(…, entity, type)`;
+`engine/state.ts` exports `PhysicsSystemTag` + `registerInternalComponents`.
+30 new tests (`tests/lifecycle/{ignore_source,body_lifecycle,pose_sync}.test.ts`),
+122 total.
+
+- **`ignoreSource` confirmed first, then wired.** A focused Vecs-level test
+  (`ignore_source.test.ts`) pins the contract: it lives on **`Query`** (not
+  `System`), drops updates whose source is in the silence query, never silences
+  entry-time init, and honours outside (sourceless) writes. The pose-sync
+  feedback suppression rides this with no value comparison. Mirrored to
+  PLAN → _Settled Decisions_.
+- **`PhysicsSystemTag` re-added** (deferred from VP-4): registered immediately
+  after `PhysicsRoot` in `registerInternalComponents` (step 9); each of the
+  three systems is tagged in `systems/index.ts` (step 12).
+- **Teleports react to component _modification_, not addition.** Vecs routes an
+  `update` only for a component that already existed; the canonical pose/velocity
+  components are expected present at creation (read in `enter`). See PLAN →
+  Settled. Tests reflect this (modify pre-existing components).
+- **`update(Body)` is partial by necessity.** Type/enable changes do the
+  fully-portable solver-set transfer now; contact teardown, mass re-init, and
+  broad-phase re-creation (the rest of `b2Body_SetType`/`Enable`/`Disable`) wait
+  for those subsystems. Same for `exit` — no shape/contact/island walk yet.
+- **`PhysicsPoseSyncOut` writes back every dynamic awake body each frame** (no
+  move-event list until the solver lands in VP-7); kinematic/static poses are
+  not written back.
+- VP-5 storage tests updated for the new `createBody` signature / grown record
+  (now `toMatchObject` on the index-bookkeeping assertions, plus an entity/type
+  check).
+
+### ⬜ NEXT: VP-7 — `systems/step.ts` — minimal `engineStep` (gravity only)
+
+`PhysicsStep` in the `physics-step` phase calling `engineStep(physics, dt,
+subSteps)` (`src/engine/step.ts`). M1/M3 only needs gravity integration: a
+dynamic body falls under gravity and matches `pos.y = 4 - 0.5*10*t^2` (no
+contacts yet). Once the step produces a per-body move-event list, narrow
+`PhysicsPoseSyncOut` to bodies that actually moved (it currently scans all
+dynamic awake bodies). See `PLAN.md` → VP-7 and _`PhysicsStep`_.
 
 ## Environment / conventions learned
 
@@ -172,13 +205,14 @@ See `PLAN.md` → VP-6 and _System And Phase Pipeline_.
 
 ## Cross-library / open items
 
-- Feedback suppression (pose-sync, VP-6) **has landed** but **moved**: a later
-  dev merge (`cade99b`, pulling in the `silent` branch) relocated the machinery
-  from `System` to **`Query`** — it's now `Query.ignoreSource` (commits
-  `b745b34`/`dad09aa`), not `System.ignoreSource` as earlier notes/PLAN said.
-  The plan originally called it `silenceFrom`. Re-verify its source-attribution
-  semantics with a focused test at VP-6, and confirm the exact signature against
-  the merged `@vworlds/vecs` source before relying on it.
+- Feedback suppression (pose-sync) **confirmed and wired at VP-6**. The machinery
+  lives on **`Query`** — `Query.ignoreSource(source: QueryDSL | Query)` (a dev
+  merge `cade99b`/`b745b34`/`dad09aa` relocated it from `System`; the plan
+  originally called it `silenceFrom`). Signature and source-attribution semantics
+  were pinned by a focused test (`tests/lifecycle/ignore_source.test.ts`) before
+  wiring: source = the system entity that made the mutation; entry-init is never
+  silenced; sourceless (gameplay) writes always wake. The documented
+  engine-origin-tag fallback was **not** needed.
 - Open design questions still to settle before **M3 (solver)**: TGS vs PGS, and
   CCD scope. See `PLAN.md` → _Open Questions_.
 - `Query.groupBy` (optional, mass-recompute convenience) **has landed** via the
