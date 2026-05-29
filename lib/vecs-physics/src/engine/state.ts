@@ -15,6 +15,7 @@ import { Singleton, type World } from "@vworlds/vecs";
 
 import type { BodyHandle, ShapeHandle } from "../util/handle.js";
 import { BodyStorage } from "./body.js";
+import { ShapeStorage } from "./shape.js";
 import { createBaseSolverSets, type SolverSet } from "./solver_set.js";
 
 /** Fully-resolved engine configuration: every `PhysicsOptions` field with its
@@ -54,6 +55,11 @@ export class PhysicsState {
 
   // Body records (sparse, handle-indexed) and the index allocator.
   public readonly bodies = new BodyStorage();
+
+  // Shape records (sparse, handle-indexed) and the index allocator.
+  // VP-8: shape storage + geometry union. Proxy linkage (VP-10), body
+  // linkage + material/filter/sensor (VP-11), and mass (VP-12) slot in later.
+  public readonly shapes = new ShapeStorage();
 
   // Solver sets: static, disabled, awake (sleeping sets added with sleep).
   public readonly solverSets: SolverSet[] = createBaseSolverSets();
