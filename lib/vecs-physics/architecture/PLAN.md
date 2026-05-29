@@ -14,7 +14,7 @@ The integration leans on four Vecs capabilities. The first three are load-bearin
 
 - **Relationships.** Parent/child is a first-class relationship component, `ChildOf extends Relationship`. A shape attaches to a body with `shape.set(ChildOf, { target: body })`. Because the parent link is a component, retargeting (reparenting) fires `onSet` and is observable through ordinary reactive queries. Queries can also inject a parent's components (`{ up: [ChildOf, [Body]] }`) and report which entity each came from (`Iter.src`).
 - **World singletons.** The `Singleton` module enforces one-instance-per-world for a marked component. `PhysicsState` rides on such a component, reached in O(1) through the world.
-- **System update silencing.** `System.silenceFrom(dsl | query)` lets a system ignore update events that originated from any system matched by the predicate. The pose write-back system and the teleport-input system are both physics systems, so the input system silences the physics group and never mistakes the engine's own write-back for a user teleport.
+- **System update silencing.** `System.ignoreSource(source: QueryDSL | Query)` lets a system ignore update events that originated from any system matched by the predicate. The pose write-back system and the teleport-input system are both physics systems, so the input system silences the physics group and never mistakes the engine's own write-back for a user teleport.
 - **Query grouping (optional).** `Query.groupBy(...)`, including `groupBy(ChildOf)` to bucket entities by parent, is noted where it could simplify per-body work; the plan does not depend on it.
 
 We are not wrapping a JavaScript Box2D. We are porting Box2D's architecture, math, and algorithms, choosing TypeScript idioms where they win and skipping pieces that exist only to serve multithreading or C-API ergonomics. v1 is single-threaded.
@@ -39,7 +39,7 @@ Recommendation at the end of this document: engineering can begin immediately on
 - Multithreading, SIMD, constraint-graph color partitioning. Pure single-threaded TGS-style solver.
 - Pre-solve / custom-filter callbacks. The world solver does not invoke user code mid-step.
 - A `Physics` global handle, `physics.*` imperative API, or any non-component way to inspect the simulation. Engineering must resist the urge.
-- Cross-platform / cross-engine bit-identical floats. The target platform is **x64 Linux**; we guarantee deterministic *order* and run-to-run reproducibility there, and parity with Box2D within float tolerance — not bit-equality with the C build or identical results on other architectures.
+- Cross-platform / cross-engine bit-identical floats. The target platform is **x64 Linux**; we guarantee deterministic _order_ and run-to-run reproducibility there, and parity with Box2D within float tolerance — not bit-equality with the C build or identical results on other architectures.
 
 ## Public API Contract
 
@@ -290,9 +290,9 @@ We need **no private components** for v1. All internal state lives in `PhysicsSt
 - They're slower than direct storage because every read goes through ArrayMap lookup.
 - The Vecs scaffolding for them already exists, but using it for engine state pollutes the user-visible component registry and `entity.components` iteration.
 
-No private marker is needed to track a shape's parent body: the parent link *is* a component (`ChildOf`), so reparenting is observed directly via a reactive `.update(ChildOf, ...)` callback in the lifecycle system. See **Shape Lifecycle → Reparent shape**.
+No private marker is needed to track a shape's parent body: the parent link _is_ a component (`ChildOf`), so reparenting is observed directly via a reactive `.update(ChildOf, ...)` callback in the lifecycle system. See **Shape Lifecycle → Reparent shape**.
 
-One internal component does exist: a marker tagging every physics **system entity** (systems are entities in Vecs) so the pose-sync input system can `silenceFrom` the group. It is internal, registered by `installPhysics`, never exported, and lives on system entities only — not on user entities — so it adds zero per-entity archetype churn. See **Pose And Velocity Synchronization**.
+One internal component does exist: a marker tagging every physics **system entity** (systems are entities in Vecs) so the pose-sync input system can `ignoreSource` the group. It is internal, registered by `installPhysics`, never exported, and lives on system entities only — not on user entities — so it adds zero per-entity archetype churn. See **Pose And Velocity Synchronization**.
 
 ## Internal Data Model
 
@@ -622,7 +622,7 @@ Components are registered with `world.component(Class)`. `ChildOf` is **built in
 6. `(Force)`, `(Torque)`, `(Impulse)`, `(AngularImpulse)`.
 7. `(KinematicTargetPosition)`, `(KinematicTargetRotation)`.
 8. `(ContactEvents)`, `(SensorEvents)`, `(HitEvents)`.
-9. Internal, non-exported: `(PhysicsRoot)` (singleton state holder) and `(PhysicsSystemTag)` (marks physics system entities for `silenceFrom`).
+9. Internal, non-exported: `(PhysicsRoot)` (singleton state holder) and `(PhysicsSystemTag)` (marks physics system entities for `ignoreSource`).
 10. `world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain)`.
 11. Phase creation/lookup (defaults: `physics-pre`, `physics-step`, `physics-post`).
 12. System creation (next subsection); tag each physics system entity with `PhysicsSystemTag`.
@@ -706,7 +706,7 @@ Owns body and shape creation/destruction. A Vecs `System` carries a single query
 #### `PhysicsBodyLifecycle` — query `Body`
 
 - `.enter(Iter, [Position, Rotation], (it, [pos, rot]) => { ... })` — create internal body at pos (or origin), with rotation (or 0). Read `Body.type`; read optional `Damping`/`GravityScale`/`MotionLocks`/`Sleep`/`LinearVelocity`/`AngularVelocity` from `it.entity` directly. Insert into the appropriate solver set. Add to `bodyByEntity`. **No child walk needed** — shapes attach themselves through the shape system's relationship query (below).
-- `.exit((e) => { ... })` — look up `bodyByEntity[e.eid]`. Destroy the internal body: walk the internal shape linked list, destroy each shape (proxy + contacts); remove from solver set; release id. Remove from `bodyByEntity`. **Do not** touch the entity; it may already be destroyed. The shape *entities* are handled independently by the shape system's `exit` (their `{ parent: Body }` membership drops when the parent loses `Body` or is destroyed).
+- `.exit((e) => { ... })` — look up `bodyByEntity[e.eid]`. Destroy the internal body: walk the internal shape linked list, destroy each shape (proxy + contacts); remove from solver set; release id. Remove from `bodyByEntity`. **Do not** touch the entity; it may already be destroyed. The shape _entities_ are handled independently by the shape system's `exit` (their `{ parent: Body }` membership drops when the parent loses `Body` or is destroyed).
 - `.update(Body, (e, body) => { ... })` — `type`/`bullet`/`enabled`/`allowFastRotation` changes propagate to the internal body. Type changes go through `BodyTransfer` between solver sets. Enable/disable transfers between AWAKE_SET and DISABLED_SET.
 
 #### `PhysicsShapeLifecycle` — query `{ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] }`
@@ -747,12 +747,12 @@ Parenting is the `ChildOf` relationship component, so retargeting a shape is an 
 - `.update(LinearVelocity, ...)` — push velocity into BodyState. For static bodies: ignore (Box2D ignores velocity on static).
 - `.update(AngularVelocity, ...)` — same.
 
-**Distinguishing a user teleport from the engine's own write-back.** `PhysicsPoseSyncOut` writes simulated pose back with `entity.set(Position, { x, y })` so that user systems watching `Position` see the result. Those same Set commands would otherwise land in `PhysicsPoseSyncIn`'s own `.update(Position)` inbox next frame, where they would be misread as user teleports — a self-feedback loop. `System.silenceFrom` breaks it.
+**Distinguishing a user teleport from the engine's own write-back.** `PhysicsPoseSyncOut` writes simulated pose back with `entity.set(Position, { x, y })` so that user systems watching `Position` see the result. Those same Set commands would otherwise land in `PhysicsPoseSyncIn`'s own `.update(Position)` inbox next frame, where they would be misread as user teleports — a self-feedback loop. `System.ignoreSource` breaks it.
 
-`System.silenceFrom(dsl | query)` makes a system ignore update events that *originated from* any system the predicate matches. Every physics system entity is tagged with the internal `PhysicsSystemTag` marker at install, and `PhysicsPoseSyncIn` declares:
+`System.ignoreSource(source: QueryDSL | Query)` makes a system ignore update events that _originated from_ any system the predicate matches. Every physics system entity is tagged with the internal `PhysicsSystemTag` marker at install (`poseSyncIn.entity.add(PhysicsSystemTag)`), and `PhysicsPoseSyncIn` declares:
 
 ```ts
-poseSyncIn.silenceFrom(PhysicsSystemTag);
+poseSyncIn.ignoreSource([PhysicsSystemTag]);
 ```
 
 `PhysicsPoseSyncIn` then sees `Position`/`Rotation`/`LinearVelocity`/`AngularVelocity` updates **only when they came from outside the physics group** — i.e. genuine user writes. The engine's own write-back (from `PhysicsPoseSyncOut`, a tagged physics system) is filtered at the source-attribution level, with no value comparison and no ordering dependency between the in/out systems.
@@ -760,10 +760,10 @@ poseSyncIn.silenceFrom(PhysicsSystemTag);
 Consequences:
 
 - A user teleport in any non-physics system is honoured (it isn't in the group).
-- A user teleport written from a *physics-post* user system placed after `PhysicsPoseSyncOut` is also honoured, provided that system isn't tagged `PhysicsSystemTag` — which user systems never are.
-- The order of `PhysicsPoseSyncIn` vs `PhysicsPoseSyncOut` does not affect echo suppression (it still matters for *freshness* of the values user systems read).
+- A user teleport written from a _physics-post_ user system placed after `PhysicsPoseSyncOut` is also honoured, provided that system isn't tagged `PhysicsSystemTag` — which user systems never are.
+- The order of `PhysicsPoseSyncIn` vs `PhysicsPoseSyncOut` does not affect echo suppression (it still matters for _freshness_ of the values user systems read).
 
-`silenceFrom` is a load-bearing dependency here; its status is tracked in **Vecs Dependencies**.
+`ignoreSource` is a load-bearing dependency here; its status is tracked in **Vecs Dependencies**.
 
 ### `PhysicsKinematicTargets` (phase: `physics-pre`)
 
@@ -785,14 +785,17 @@ Persistent forces. This is **not** reactive — we re-scan force sources every s
 - We resolve the target body in a single pass using relationship injection, so there is no manual ancestor walk. Iterate with the `Iter` cursor and inject the body from either the entity itself or its immediate `ChildOf` parent:
 
   ```ts
-  forceFilter.forEach(Iter, [Body, { up: [ChildOf, [Body] ] }, Force, Torque],
+  forceFilter.forEach(
+    Iter,
+    [Body, { up: [ChildOf, [Body]] }, Force, Torque],
     (it, [selfBody, parentBody, force, torque]) => {
-      const body = selfBody ?? parentBody;          // self wins; else immediate parent
-      if (!body) return;                            // neither → skip (debug: force-without-target)
+      const body = selfBody ?? parentBody; // self wins; else immediate parent
+      if (!body) return; // neither → skip (debug: force-without-target)
       const bodyEntity = selfBody ? it.entity : it.src[1]!; // src[1] = the ChildOf target
       const handle = bodyByEntity.get(bodyEntity.eid)!;
       // ...accumulate force/torque, wake as configured
-    });
+    }
+  );
   ```
 
   `{ up: [ChildOf, [Body]] }` injects the parent's `Body` (or `undefined`), and `it.src` reports which entity each slot came from — exactly the immediate-parent rule, enforced by the query engine rather than hand-written. Grandparents are never consulted because `up` resolves a single hop.
@@ -831,7 +834,7 @@ The dirty bit on the entity should also stay clean (post-step writes after the i
 
 This is the entire mechanism. It's important the docs are explicit (they are): direct write + no `modified` = invisible to update-watchers. We test it.
 
-**Note on `silenceFrom` vs silent zero — they solve different problems.** `silenceFrom` lets a *consumer* system opt out of updates from a group; it cannot stop **user** systems from waking. The silent-zero requirement is precisely that *no* watcher — physics or user — observes the reset, so the direct-write approach stays. `silenceFrom` is not a substitute here.
+**Note on `ignoreSource` vs silent zero — they solve different problems.** `ignoreSource` lets a _consumer_ system opt out of updates from a group; it cannot stop **user** systems from waking. The silent-zero requirement is precisely that _no_ watcher — physics or user — observes the reset, so the direct-write approach stays. `ignoreSource` is not a substitute here.
 
 ### `PhysicsMassRecompute` (phase: `physics-pre`)
 
@@ -887,7 +890,7 @@ Each numbered step is the matching Box2D source file (e.g. `broad_phase.c`, `sol
   - If the entity has `LinearVelocity`, `entity.set(LinearVelocity, { x, y })`.
   - If the entity has `AngularVelocity`, `entity.set(AngularVelocity, { value })`.
 
-No echo bookkeeping is needed. These Set commands are attributed to this system (a `PhysicsSystemTag`-tagged physics system), so `PhysicsPoseSyncIn`'s `silenceFrom(PhysicsSystemTag)` discards them automatically next frame. They still reach user systems watching `Position`/`Rotation`/velocity, which is the contract.
+No echo bookkeeping is needed. These Set commands are attributed to this system (a `PhysicsSystemTag`-tagged physics system), so `PhysicsPoseSyncIn`'s `ignoreSource([PhysicsSystemTag])` discards them automatically next frame. They still reach user systems watching `Position`/`Rotation`/velocity, which is the contract.
 
 For kinematic and static bodies we **do not** write back — their pose is user-owned.
 
@@ -972,7 +975,7 @@ This realises the docs contract: arrays are cleared and reused (user references 
 ### `PhysicsDebugValidation` (phase: `physics-pre`, installed only if `debug: true`)
 
 - Walks reactive queries that detect each issue code:
-  - `shape-without-parent-body`: `{ all: [{ any: [Box, Circle, ...] }, { not: { parent: Body } }] }` — query on entry warns once per entity+code. (This is exactly the complement of `PhysicsShapeLifecycle`'s membership, so it fires for precisely the geometry entities that did *not* attach.)
+  - `shape-without-parent-body`: `{ all: [{ any: [Box, Circle, ...] }, { not: { parent: Body } }] }` — query on entry warns once per entity+code. (This is exactly the complement of `PhysicsShapeLifecycle`'s membership, so it fires for precisely the geometry entities that did _not_ attach.)
   - `dynamic-body-without-density`: after `PhysicsMassRecompute`, walk dynamic bodies whose total mass is 0.
   - `chain-too-few-points`: in geometry update handler when `Chain.points.length < 4`.
   - `polygon-invalid`: in polygon update handler when `b2ValidateHull` (ported) rejects vertices.
@@ -1131,14 +1134,14 @@ This work happens in `PhysicsMaterialFilterSync`.
 
 Algorithm summary (already detailed in System pipeline):
 
-| Direction     | Source                           | Mechanism                            | Notes                                                                        |
-| ------------- | -------------------------------- | ------------------------------------ | --------------------------------------------------------------------------- |
-| User → engine | `entity.set(Position, ...)`      | `PhysicsPoseSyncIn.update(Position)` | Always a teleport — physics' own writes are filtered by `silenceFrom`.       |
-| User → engine | `entity.set(LinearVelocity,...)` | `PhysicsPoseSyncIn.update(LinearV)`  | Always applied; engine write-back filtered by the same `silenceFrom`.        |
-| Engine → user | Body moved during step           | `PhysicsPoseSyncOut.run`             | `entity.set(Position, {x,y})`; reaches user watchers, ignored by pose-in.    |
-| Engine → user | Body velocity changed            | `PhysicsPoseSyncOut.run`             | Only writes to components present on the entity.                             |
+| Direction     | Source                           | Mechanism                            | Notes                                                                     |
+| ------------- | -------------------------------- | ------------------------------------ | ------------------------------------------------------------------------- |
+| User → engine | `entity.set(Position, ...)`      | `PhysicsPoseSyncIn.update(Position)` | Always a teleport — physics' own writes are filtered by `ignoreSource`.   |
+| User → engine | `entity.set(LinearVelocity,...)` | `PhysicsPoseSyncIn.update(LinearV)`  | Always applied; engine write-back filtered by the same `ignoreSource`.    |
+| Engine → user | Body moved during step           | `PhysicsPoseSyncOut.run`             | `entity.set(Position, {x,y})`; reaches user watchers, ignored by pose-in. |
+| Engine → user | Body velocity changed            | `PhysicsPoseSyncOut.run`             | Only writes to components present on the entity.                          |
 
-`PhysicsPoseSyncIn.silenceFrom(PhysicsSystemTag)` drops every update that originated from a physics system, so anything the input system *does* receive is, by construction, a user write and is treated as a teleport. No per-body pose array or value comparison is involved.
+`PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])` drops every update that originated from a physics system, so anything the input system _does_ receive is, by construction, a user write and is treated as a teleport. No per-body pose array or value comparison is involved.
 
 ## Force, Torque, Impulse, And AngularImpulse Handling
 
@@ -1286,16 +1289,16 @@ Each engine file should be small, ported one Box2D function at a time, with the 
 
 The TGS soft-step solver is the heart of the engine. Box2D's worker pipeline (`src/solver.c`, `b2Solve` → `b2SolverTask`) runs a fixed sequence of stages, enumerated in `src/solver.h` as `b2SolverStageType`. **Port these stages in this order**; the multithreaded scaffolding around them (color blocks, sync indices, `b2ExecuteStage`/`b2ExecuteMainStage`) collapses to a plain loop over the single overflow color since v1 has no constraint-graph coloring:
 
-| Order | Box2D stage (`solver.h`) | Box2D function to port (`contact_solver.c`, `_Overflow` variants) | Runs |
-| ----- | ------------------------ | ----------------------------------------------------------------- | ---- |
-| 1 | `b2_stagePrepareContacts` | `b2PrepareContacts_Overflow` | once per step |
-| 2 | `b2_stageIntegrateVelocities` | `b2IntegrateVelocitiesTask` (`solver.c`) — gravity, damping, `maxLinearSpeed` clamp | per substep |
-| 3 | `b2_stageWarmStart` | `b2WarmStartContacts_Overflow` | per substep |
-| 4 | `b2_stageSolve` | `b2SolveContacts_Overflow(useBias = true)` | per substep |
-| 5 | `b2_stageIntegratePositions` | `b2IntegratePositionsTask` (`solver.c`) — advances the delta-pose | per substep |
-| 6 | `b2_stageRelax` | `b2SolveContacts_Overflow(useBias = false)` | per substep |
-| 7 | `b2_stageRestitution` | `b2ApplyRestitution_Overflow` | once per step |
-| 8 | `b2_stageStoreImpulses` | `b2StoreImpulses_Overflow` | once per step |
+| Order | Box2D stage (`solver.h`)      | Box2D function to port (`contact_solver.c`, `_Overflow` variants)                   | Runs          |
+| ----- | ----------------------------- | ----------------------------------------------------------------------------------- | ------------- |
+| 1     | `b2_stagePrepareContacts`     | `b2PrepareContacts_Overflow`                                                        | once per step |
+| 2     | `b2_stageIntegrateVelocities` | `b2IntegrateVelocitiesTask` (`solver.c`) — gravity, damping, `maxLinearSpeed` clamp | per substep   |
+| 3     | `b2_stageWarmStart`           | `b2WarmStartContacts_Overflow`                                                      | per substep   |
+| 4     | `b2_stageSolve`               | `b2SolveContacts_Overflow(useBias = true)`                                          | per substep   |
+| 5     | `b2_stageIntegratePositions`  | `b2IntegratePositionsTask` (`solver.c`) — advances the delta-pose                   | per substep   |
+| 6     | `b2_stageRelax`               | `b2SolveContacts_Overflow(useBias = false)`                                         | per substep   |
+| 7     | `b2_stageRestitution`         | `b2ApplyRestitution_Overflow`                                                       | once per step |
+| 8     | `b2_stageStoreImpulses`       | `b2StoreImpulses_Overflow`                                                          | once per step |
 
 `b2_stagePrepareJoints` is skipped (no joints in v1). The per-substep block (stages 2–6) runs `subSteps` times; the first substep uses the full time step `h = dt`, later substeps use `h = dt / subSteps` — copy the exact `context->h`, `inv_h`, `contactSoftness`/`staticSoftness` (`contactHertz`, `contactDampingRatio`) setup from `b2Solve`. Soft-constraint coefficients (`biasRate`, `massScale`, `impulseScale`) are computed in `b2MakeSoft` (`core.c`); port it verbatim — the parity tests are sensitive to it.
 
@@ -1361,27 +1364,27 @@ Box2D ships a C unit-test suite under `box2d/test/` (run via `box2d/test/main.c`
 
 **Unit-level parity (port directly — these need no full world):**
 
-| vecs-physics module | Box2D test file → function | What to assert (golden values from the source) |
-| ------------------- | -------------------------- | ---------------------------------------------- |
-| `math/*` | `test_math.c` → `MathTest` | vec/rot/transform identities. |
-| `math/aabb`, manifold AABB | `test_collision.c` → `AABBTest`, `AABBRayCastTest` | union/overlap/contains; segment-vs-AABB. |
-| `engine/mass` | `test_shape.c` → `ShapeMassTest` | circle: `mass == π`, `center == (1,0)`, `I == 0.5π` (density 1); capsule mass bracketed by bounding box and inscribed hull; polygon via `b2ComputePolygonMass`. |
-| `engine/shape` (AABB/point/raycast) | `test_shape.c` → `ShapeAABBTest`, `PointInShapeTest`, `RayCastShapeTest` | per-shape AABB, containment, ray hits. |
-| `engine/distance` | `test_distance.c` → `SegmentDistanceTest`, `ShapeDistanceTest`, `ShapeCastTest`, `TimeOfImpactTest` | GJK distance, cast, TOI. (`ShapeCast`/`TOI` only when CCD lands in M5.) |
-| `engine/dynamic_tree` | `test_dynamic_tree.c` → `TreeRayCastTest`, `TreeMultipleProxiesTest`, `TreeQueryTest`, `TreeMoveAndEnlargeTest`, `TreeRebuildAndValidateTest`, `TreeRowHeightTest`, `TreeGridHeightTest`, `TreeGridMovementTest` | insertion/move/enlarge/query/rebuild correctness and tree balance. **Port all eight** — the broad phase rests on this. |
+| vecs-physics module                 | Box2D test file → function                                                                                                                                                                                       | What to assert (golden values from the source)                                                                                                                  |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `math/*`                            | `test_math.c` → `MathTest`                                                                                                                                                                                       | vec/rot/transform identities.                                                                                                                                   |
+| `math/aabb`, manifold AABB          | `test_collision.c` → `AABBTest`, `AABBRayCastTest`                                                                                                                                                               | union/overlap/contains; segment-vs-AABB.                                                                                                                        |
+| `engine/mass`                       | `test_shape.c` → `ShapeMassTest`                                                                                                                                                                                 | circle: `mass == π`, `center == (1,0)`, `I == 0.5π` (density 1); capsule mass bracketed by bounding box and inscribed hull; polygon via `b2ComputePolygonMass`. |
+| `engine/shape` (AABB/point/raycast) | `test_shape.c` → `ShapeAABBTest`, `PointInShapeTest`, `RayCastShapeTest`                                                                                                                                         | per-shape AABB, containment, ray hits.                                                                                                                          |
+| `engine/distance`                   | `test_distance.c` → `SegmentDistanceTest`, `ShapeDistanceTest`, `ShapeCastTest`, `TimeOfImpactTest`                                                                                                              | GJK distance, cast, TOI. (`ShapeCast`/`TOI` only when CCD lands in M5.)                                                                                         |
+| `engine/dynamic_tree`               | `test_dynamic_tree.c` → `TreeRayCastTest`, `TreeMultipleProxiesTest`, `TreeQueryTest`, `TreeMoveAndEnlargeTest`, `TreeRebuildAndValidateTest`, `TreeRowHeightTest`, `TreeGridHeightTest`, `TreeGridMovementTest` | insertion/move/enlarge/query/rebuild correctness and tree balance. **Port all eight** — the broad phase rests on this.                                          |
 
 **World-level parity (full `installPhysics` world, driven by `world.progress`):**
 
-| Scenario | Box2D source | Golden assertion |
-| -------- | ------------ | ---------------- |
-| `hello_world` | `test_world.c` → `HelloWorld` | dynamic box on static ground; `timeStep = 1/60`, `subSteps = 4`, **90 steps**; final `\|x\| < 0.01`, `\|y − 1.00\| < 0.01`, `\|angle\| < 0.01`. This is the M3 gate. |
-| `sensor_begin_end` | `test_world.c` → `TestSensor` | bullet passing through a wall sensor produces begin then end sensor events. |
-| `chain_segment` | `test_world.c` → `ChainSegmentShapeTest` | one-sided chain collision; body rests on the correct side. |
-| `mass_flag_sync` | `test_world.c` → `DeferredMassFlagSyncTest` | adding/removing shapes recomputes body mass exactly when expected. |
-| `sleep_flag_sync` | `test_world.c` → `EnableSleepFlagSyncTest` | toggling sleep enable transfers bodies between solver sets correctly. |
-| `contact_recycling` | `test_world.c` → `EnableContactRecyclingTest` | contacts created/destroyed across enable toggles without leaks. |
-| `bullet_drift` | `test_world.c` → `SetBulletDriftTest` | bullet body does not drift/tunnel (CCD; M5). |
-| `determinism` | `test_determinism.c` → `CrossPlatformTest` (the "Falling Hinges" scene, also `samples/sample_determinism.cpp`) | run-to-run **reproducibility** on x64 Linux: the same creation/step sequence yields identical transforms every run (assert exact run-to-run equality of our own output — *not* a match to Box2D's cross-platform hash). See **Determinism And Ordering**. |
+| Scenario            | Box2D source                                                                                                   | Golden assertion                                                                                                                                                                                                                                          |
+| ------------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello_world`       | `test_world.c` → `HelloWorld`                                                                                  | dynamic box on static ground; `timeStep = 1/60`, `subSteps = 4`, **90 steps**; final `\|x\| < 0.01`, `\|y − 1.00\| < 0.01`, `\|angle\| < 0.01`. This is the M3 gate.                                                                                      |
+| `sensor_begin_end`  | `test_world.c` → `TestSensor`                                                                                  | bullet passing through a wall sensor produces begin then end sensor events.                                                                                                                                                                               |
+| `chain_segment`     | `test_world.c` → `ChainSegmentShapeTest`                                                                       | one-sided chain collision; body rests on the correct side.                                                                                                                                                                                                |
+| `mass_flag_sync`    | `test_world.c` → `DeferredMassFlagSyncTest`                                                                    | adding/removing shapes recomputes body mass exactly when expected.                                                                                                                                                                                        |
+| `sleep_flag_sync`   | `test_world.c` → `EnableSleepFlagSyncTest`                                                                     | toggling sleep enable transfers bodies between solver sets correctly.                                                                                                                                                                                     |
+| `contact_recycling` | `test_world.c` → `EnableContactRecyclingTest`                                                                  | contacts created/destroyed across enable toggles without leaks.                                                                                                                                                                                           |
+| `bullet_drift`      | `test_world.c` → `SetBulletDriftTest`                                                                          | bullet body does not drift/tunnel (CCD; M5).                                                                                                                                                                                                              |
+| `determinism`       | `test_determinism.c` → `CrossPlatformTest` (the "Falling Hinges" scene, also `samples/sample_determinism.cpp`) | run-to-run **reproducibility** on x64 Linux: the same creation/step sequence yields identical transforms every run (assert exact run-to-run equality of our own output — _not_ a match to Box2D's cross-platform hash). See **Determinism And Ordering**. |
 
 **Integration scenarios (no golden file in `test/`; mirror the sample setups in `samples/` and assert qualitative/geometric properties):**
 
@@ -1396,35 +1399,35 @@ Each parity test must assert at least one trajectory or state check; longer scen
 
 ### Required functional tests (from the brief)
 
-| Area                         | Test                                                                                                                               |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Component defaults           | `new Body()` matches `b2DefaultBodyDef()` projected to our subset; same for every component.                                       |
-| Component registration       | `installPhysics` registers every public component; `world.component(Body)` resolves post-install; `ChildOf` is already registered by Vecs.            |
-| Component exclusivity        | Adding `Circle` after `Box` removes `Box`. Adding `Polygon` removes `Circle`.                                                      |
-| Body creation                | `entity.set(Body, dynamic)` + Position + child Box → after `progress`, body falls.                                                 |
-| Body destruction             | `body.destroy()` removes the internal body; child shape entity is also destroyed; subsequent steps don't read deleted slot.        |
-| Shape child creation         | Adding `Box` after `Body` and before `start()` succeeds; same after start; same in subsequent frame.                               |
-| Shape child destruction      | Removing geometry component destroys internal shape; body persists; mass recomputed.                                               |
-| Immediate-parent rule        | Geometry on a grandchild of Body is ignored. Force on grandchild is ignored.                                                       |
-| Missing optional defaults    | Body without Position starts at origin; without Rotation, angle 0; without Material, density 1; without CollisionFilter, mask all. |
-| Force persistence            | `Force(10, 0)` on dynamic body produces 10 N every step until removed.                                                             |
-| Multiple child forces        | Two child entities with Force, each with different vector — body sees the sum.                                                     |
-| Impulse accumulation         | `set(Impulse, {x:1}); set(Impulse, {x:2}); set(Impulse, {x:3})` → body receives 6 N·s impulse before next step.                    |
-| Silent impulse zeroing       | After step, `entity.get(Impulse)` has `x=0, y=0` but `entity.events.has(Impulse update)` is false (no modified fired).             |
-| Dynamic pose sync            | After step, `entity.get(Position)` returns physics result. `entity.get(LinearVelocity)` updated if present.                        |
-| User teleport                | Mid-simulation `entity.set(Position, {...})` moves the body. Next step starts from teleported position.                            |
-| Write-back is not a teleport | `PhysicsPoseSyncOut`'s write does **not** trigger a teleport in `PhysicsPoseSyncIn` next step (`silenceFrom`); a user write to `Position` from a non-physics system **does**. |
-| Kinematic target convergence | Kinematic body with `KinematicTargetPosition` moves toward target each step; stops within tolerance; component stays attached.     |
-| Kinematic target re-engage   | After body reaches target, updating the target moves it again.                                                                     |
-| Contact event opt-in         | Two shapes colliding; only the one with `ContactEvents` receives events.                                                           |
-| Empty event step is silent   | Frame N produces contact events → `modified` fires. Frame N+1 no events → no `modified` fires; array empty.                        |
-| Sensor opt-in                | Sensor without `SensorEvents` produces nothing. With it, begin/end fire on overlap.                                                |
-| Hit event threshold          | Slow contact does not produce HitEvent; fast contact does.                                                                         |
-| Debug warning dedupe         | Invalid structure persisting for 600 steps logs exactly once.                                                                      |
-| Debug warning re-arm         | Structure becomes valid, then becomes invalid again → second warning emitted.                                                      |
-| Reparenting                  | Shape moved to a new Body — next step it is a shape on the new body.                                                               |
-| Reparenting to non-Body      | Shape moved to an entity without Body — shape is destroyed.                                                                        |
-| Filter change                | Updating `CollisionFilter` to exclude an existing partner destroys their contact within one step.                                  |
+| Area                         | Test                                                                                                                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Component defaults           | `new Body()` matches `b2DefaultBodyDef()` projected to our subset; same for every component.                                                                                   |
+| Component registration       | `installPhysics` registers every public component; `world.component(Body)` resolves post-install; `ChildOf` is already registered by Vecs.                                     |
+| Component exclusivity        | Adding `Circle` after `Box` removes `Box`. Adding `Polygon` removes `Circle`.                                                                                                  |
+| Body creation                | `entity.set(Body, dynamic)` + Position + child Box → after `progress`, body falls.                                                                                             |
+| Body destruction             | `body.destroy()` removes the internal body; child shape entity is also destroyed; subsequent steps don't read deleted slot.                                                    |
+| Shape child creation         | Adding `Box` after `Body` and before `start()` succeeds; same after start; same in subsequent frame.                                                                           |
+| Shape child destruction      | Removing geometry component destroys internal shape; body persists; mass recomputed.                                                                                           |
+| Immediate-parent rule        | Geometry on a grandchild of Body is ignored. Force on grandchild is ignored.                                                                                                   |
+| Missing optional defaults    | Body without Position starts at origin; without Rotation, angle 0; without Material, density 1; without CollisionFilter, mask all.                                             |
+| Force persistence            | `Force(10, 0)` on dynamic body produces 10 N every step until removed.                                                                                                         |
+| Multiple child forces        | Two child entities with Force, each with different vector — body sees the sum.                                                                                                 |
+| Impulse accumulation         | `set(Impulse, {x:1}); set(Impulse, {x:2}); set(Impulse, {x:3})` → body receives 6 N·s impulse before next step.                                                                |
+| Silent impulse zeroing       | After step, `entity.get(Impulse)` has `x=0, y=0` but `entity.events.has(Impulse update)` is false (no modified fired).                                                         |
+| Dynamic pose sync            | After step, `entity.get(Position)` returns physics result. `entity.get(LinearVelocity)` updated if present.                                                                    |
+| User teleport                | Mid-simulation `entity.set(Position, {...})` moves the body. Next step starts from teleported position.                                                                        |
+| Write-back is not a teleport | `PhysicsPoseSyncOut`'s write does **not** trigger a teleport in `PhysicsPoseSyncIn` next step (`ignoreSource`); a user write to `Position` from a non-physics system **does**. |
+| Kinematic target convergence | Kinematic body with `KinematicTargetPosition` moves toward target each step; stops within tolerance; component stays attached.                                                 |
+| Kinematic target re-engage   | After body reaches target, updating the target moves it again.                                                                                                                 |
+| Contact event opt-in         | Two shapes colliding; only the one with `ContactEvents` receives events.                                                                                                       |
+| Empty event step is silent   | Frame N produces contact events → `modified` fires. Frame N+1 no events → no `modified` fires; array empty.                                                                    |
+| Sensor opt-in                | Sensor without `SensorEvents` produces nothing. With it, begin/end fire on overlap.                                                                                            |
+| Hit event threshold          | Slow contact does not produce HitEvent; fast contact does.                                                                                                                     |
+| Debug warning dedupe         | Invalid structure persisting for 600 steps logs exactly once.                                                                                                                  |
+| Debug warning re-arm         | Structure becomes valid, then becomes invalid again → second warning emitted.                                                                                                  |
+| Reparenting                  | Shape moved to a new Body — next step it is a shape on the new body.                                                                                                           |
+| Reparenting to non-Body      | Shape moved to an entity without Body — shape is destroyed.                                                                                                                    |
+| Filter change                | Updating `CollisionFilter` to exclude an existing partner destroys their contact within one step.                                                                              |
 
 ### Test infrastructure
 
@@ -1494,17 +1497,17 @@ Coverage gate: tests must hit every code path in `src/systems/` and the engine p
 
 This plan relies on the Vecs capabilities below. Because we own both libraries, anything missing is filed as a **Vecs change**, not worked around inside vecs-physics. Availability is given against the `physics` branch:
 
-| Capability | Vecs API | Status | Used by | If unavailable |
-| ---------- | -------- | ------ | ------- | -------------- |
-| Relationships (`ChildOf`) | `set(ChildOf, { target })`, `entity.parent(ChildOf)`, `entity.children(ChildOf)`, DSL `{ parent }` / `{ target }` / `{ up: [ChildOf, […]] }`, `Iter.src` | **Landed** on `physics`. | Shape↔body wiring, reparenting, force/impulse target resolution. | N/A — core to the design. |
-| World singleton | `world.component(C).add(Singleton)`; instance on the component's own entity, read via `world.get(C)` | **Landed** (`modules/singleton.ts`). | `PhysicsRoot` state holder. | Fall back to a `WeakMap<World, PhysicsState>` keyed by world. Low risk. |
-| Relationship fan-out reactivity | `TargetTerm` re-evaluates all sources when a target's membership changes | **Landed** (`terms/target_term.ts`). | Order-independent body/shape creation; `{ parent: Body }` membership. | Re-introduce body `enter` child-walk + accept a creation-order constraint. |
-| System update silencing | `System.silenceFrom(dsl \| query)` — ignore updates originating from matched systems | **Merged in `dev`**; not yet merged into the `physics` worktree. Systems are entities (`System` component), so match them via a marker (`PhysicsSystemTag`). | Pose-sync feedback suppression. | Engine-origin tagging fallback: stamp each engine write with the current step index and per-body last-written pose; `PhysicsPoseSyncIn` treats an incoming value equal to that stamp (within epsilon) as the engine's own echo and ignores it. Only needed if `dev` is not yet merged when VP-6 starts. |
-| Query grouping | `Query.groupBy([...], keyFn)` and `groupBy(ChildOf)` → `Group` per parent | **Uncommitted** in the `cascade` worktree (`group.ts`), unreviewed. | *Optional* convenience for mass recompute / compound-body diagnostics. | None needed — not on the critical path; the internal shape list is canonical. |
+| Capability                      | Vecs API                                                                                                                                                 | Status                                                                                                                              | Used by                                                                | If unavailable                                                                                                                                                                                         |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Relationships (`ChildOf`)       | `set(ChildOf, { target })`, `entity.parent(ChildOf)`, `entity.children(ChildOf)`, DSL `{ parent }` / `{ target }` / `{ up: [ChildOf, […]] }`, `Iter.src` | **Landed** on `physics`.                                                                                                            | Shape↔body wiring, reparenting, force/impulse target resolution.       | N/A — core to the design.                                                                                                                                                                              |
+| World singleton                 | `world.component(C).add(Singleton)`; instance on the component's own entity, read via `world.get(C)`                                                     | **Landed** (`modules/singleton.ts`).                                                                                                | `PhysicsRoot` state holder.                                            | Fall back to a `WeakMap<World, PhysicsState>` keyed by world. Low risk.                                                                                                                                |
+| Relationship fan-out reactivity | `TargetTerm` re-evaluates all sources when a target's membership changes                                                                                 | **Landed** (`terms/target_term.ts`).                                                                                                | Order-independent body/shape creation; `{ parent: Body }` membership.  | Re-introduce body `enter` child-walk + accept a creation-order constraint.                                                                                                                             |
+| System update silencing         | `System.ignoreSource(source: QueryDSL \| Query)` — ignore updates originating from matched systems                                                       | **Landed** (`system.ts`, in `physics`). Systems are entities (`System` component), so match them via a marker (`PhysicsSystemTag`). | Pose-sync feedback suppression.                                        | Engine-origin tagging fallback (stamp each engine write with step index + per-body last-written pose; treat an echo within epsilon as the engine's own write) exists if ever needed; not required now. |
+| Query grouping                  | `Query.groupBy([...], keyFn)` and `groupBy(ChildOf)` → `Group` per parent                                                                                | **Uncommitted** in the `cascade` worktree (`group.ts`), unreviewed.                                                                 | _Optional_ convenience for mass recompute / compound-body diagnostics. | None needed — not on the critical path; the internal shape list is canonical.                                                                                                                          |
 
 Action items for the Vecs side:
 
-1. **Merge `dev` into the `physics` worktree before VP-6** so `System.silenceFrom` is available. It is merged in `dev` with the semantics this plan assumes: an update event (from `entity.set`/`modified` inside a system's deferred scope) carries the originating system identity; a consumer with a matching `silenceFrom` predicate drops it. Verify that contract holds once merged in.
+1. **`System.ignoreSource` is available in `physics`** (`dev` merged). It carries the semantics this plan assumes: an update event (from `entity.set`/`modified` inside a system's deferred scope) carries the originating system identity, and a consumer with a matching `ignoreSource` predicate drops it. Re-verify that contract with a focused test when wiring VP-6.
 2. **Decide `groupBy`'s fate independently.** vecs-physics does not block on it; if it merges, revisit `PhysicsMassRecompute` only if we ever drop the internal shape list.
 3. Reparenting needs no special Vecs support: it rides the `ChildOf` relationship's reactive events.
 
@@ -1512,8 +1515,8 @@ Action items for the Vecs side:
 
 ### Risks
 
-1. **Float parity with the Box2D C build.** A TypeScript port will not match Box2D's results to the last ULP. On the target platform (**x64 Linux**) the trajectories track closely, so tolerance-based parity is reliable; the risk is only that *long* runs accumulate small differences. Mitigation: keep step-by-step parity windows short (a few hundred steps), and for longer scenarios assert geometric/stability properties (e.g. "ball comes to rest within Δx of expected", "stack does not explode") rather than exact transforms. Run-to-run reproducibility on x64 Linux is unaffected — it holds regardless.
-2. **Dependence on in-flight Vecs features.** Pose-sync requires `System.silenceFrom` (merged in `dev`, pending merge into the `physics` worktree); `groupBy` (optional) is uncommitted in the `cascade` worktree. Verify `silenceFrom`'s source-attribution semantics once `dev` is merged in. Mitigation: a thin, well-tested fallback (engine-origin tagging) can stand in for one milestone — see **Vecs Dependencies**.
+1. **Float parity with the Box2D C build.** A TypeScript port will not match Box2D's results to the last ULP. On the target platform (**x64 Linux**) the trajectories track closely, so tolerance-based parity is reliable; the risk is only that _long_ runs accumulate small differences. Mitigation: keep step-by-step parity windows short (a few hundred steps), and for longer scenarios assert geometric/stability properties (e.g. "ball comes to rest within Δx of expected", "stack does not explode") rather than exact transforms. Run-to-run reproducibility on x64 Linux is unaffected — it holds regardless.
+2. **Dependence on Vecs feature semantics.** Pose-sync requires `System.ignoreSource` (landed in `physics`); `groupBy` (optional) is uncommitted in the `cascade` worktree. Re-verify `ignoreSource`'s source-attribution semantics with a focused test at VP-6. Mitigation: a thin, well-tested fallback (engine-origin tagging) can stand in for one milestone — see **Vecs Dependencies**.
 3. **`Box.width`/`height` setter footgun.** Direct setter doesn't trigger `modified`. Mitigation: clearly document it. Consider, in v2, generating a wrapper that auto-marks modified.
 4. **Event-array `length = 0` reuse.** If user code retains the array reference across frames, they'll see in-place mutation. This is per the docs but easy to miss. Tests should explicitly verify the array is the same instance after clear.
 5. **Generation overflow.** Box2D uses `uint16_t` generation per slot. After 65k creates/destroys in one slot, ids wrap. We can use a plain `number` (53-bit safe int) for negligible cost. Recommend: use `number`, no overflow concern.
@@ -1537,12 +1540,15 @@ Action items for the Vecs side:
 - System reactivity: systems, not hooks.
 - Parent/child model: the Vecs `ChildOf` relationship component. `shape.set(ChildOf, { target: body })`.
 - Reparent detection: reactive `enter`/`exit`/`.update(ChildOf)` in `PhysicsShapeLifecycle`; no scan.
-- Pose-sync feedback suppression: `PhysicsPoseSyncIn.silenceFrom(PhysicsSystemTag)`.
-- Silent impulse zero: direct property writes, bypass `modified` (`silenceFrom` does not address waking *user* watchers, so it cannot replace this).
+- Pose-sync feedback suppression: `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])`.
+- Silent impulse zero: direct property writes, bypass `modified` (`ignoreSource` does not address waking _user_ watchers, so it cannot replace this).
 - Event array semantics: clear-in-place, modified only on new events.
 - Geometry updates: same-type in place, type-swap is delete + create via exclusivity.
 - Mass recomputation: dirty flag + final pre-step recompute system.
 - Sleep: supported in v1 via `Sleep` component. Defaults match Box2D.
+- Trigonometry: use `Math.cos`/`Math.sin`/`Math.atan2` directly, not Box2D's polynomial approximations (`b2ComputeCosSin`/`b2Atan2`). Simpler and more accurate on the x64 target; the parity tests' tolerances absorb the difference. (See `src/math/rot.ts`.) Revisit only if bit-for-bit matching against a Box2D C capture is ever required.
+- Internal id generations: `IdPool` owns the per-slot generation (bumped on `free`), so validity is a single `pool.isValid(handle)`. Box2D instead keeps the generation on the object; we consolidate it into the pool. (See `src/util/id_pool.ts`.)
+- Code style: private class members are `_`-prefixed (enforced by the `local/internal-underscore` lint rule).
 
 ## Required Implementation Tickets
 
@@ -1575,8 +1581,8 @@ Below is the ticket breakdown the engineering team can pick up directly. Each ti
 
 - **VP-6: systems/lifecycle.ts (`PhysicsBodyLifecycle`) + systems/pose_sync_in.ts + systems/pose_sync_out.ts.**
   - Files: `src/systems/lifecycle.ts`, `src/systems/pose_sync_in.ts`, `src/systems/pose_sync_out.ts`.
-  - DoD: body create/destroy, teleport, and feedback suppression work — `PhysicsPoseSyncIn.silenceFrom(PhysicsSystemTag)` ignores the engine's own write-back while honouring user teleports.
-  - Depends on Vecs `System.silenceFrom` (see **Vecs Dependencies**). If unavailable, ship the documented engine-origin-tag fallback for this milestone only.
+  - DoD: body create/destroy, teleport, and feedback suppression work — `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])` ignores the engine's own write-back while honouring user teleports.
+  - Depends on Vecs `System.ignoreSource` (see **Vecs Dependencies**). If unavailable, ship the documented engine-origin-tag fallback for this milestone only.
 
 - **VP-7: systems/step.ts — minimal engineStep (gravity only).**
   - DoD: dynamic body falls under gravity; matches `pos.y = 4 - 0.5*10*t^2` (no contact yet).
@@ -1585,7 +1591,7 @@ Below is the ticket breakdown the engineering team can pick up directly. Each ti
 
 - **VP-8: engine/shape.ts — InternalShape, GeometryUnion, AABB compute, mass compute.**
 
-- **VP-9: engine/dynamic_tree.ts — full BVH port (`dynamic_tree.c`, `b2DynamicTree_*`).**
+- **VP-9: engine/dynamic*tree.ts — full BVH port (`dynamic_tree.c`, `b2DynamicTree*\*`).**
   - Tests: port the full `test/test_dynamic_tree.c` suite (`TreeRayCastTest`, `TreeMultipleProxiesTest`, `TreeQueryTest`, `TreeMoveAndEnlargeTest`, `TreeRebuildAndValidateTest`, `TreeRowHeightTest`, `TreeGridHeightTest`, `TreeGridMovementTest`).
 
 - **VP-10: engine/broad_phase.ts — three trees, moveSet, pairSet, pair query.**
@@ -1644,15 +1650,15 @@ Two items remain open and should be settled before Milestone 3 starts:
 1. **Solver flavour** (TGS vs PGS) — recommended TGS for parity; needs sign-off.
 2. **CCD inclusion in M5 vs deferral** — recommended ship `enableContinuous` flag, stub CCD until M5; needs sign-off.
 
-A third item, on the Vecs side (see **Vecs Dependencies**):
+A third item, resolved (see **Vecs Dependencies**):
 
-3. **`System.silenceFrom` must land** before VP-6 (pose-sync) with the assumed source-attribution semantics. Hard dependency.
+3. **`System.ignoreSource`** (the pose-sync dependency) has landed in `physics`. Re-verify its source-attribution semantics with a focused test at VP-6.
 
 ## Recommendation
 
 **Engineering can begin Milestone 0 immediately without further design review.** The component model, public API, package layout, internal state attachment (singleton), identifier strategy, and Vecs integration (relationships) are all settled against current Vecs. Tests for Milestone 0 can be written from the component defaults table and the `installPhysics` contract above.
 
-One cross-library gate precedes **Milestone 1**: confirm `System.silenceFrom` has landed with the assumed semantics (see **Vecs Dependencies**), or accept the engine-origin-tag fallback for pose-sync until it does.
+The one cross-library dependency, `System.ignoreSource` (pose-sync), has landed in `physics`; re-verify its semantics with a focused test at VP-6 (see **Vecs Dependencies**).
 
 Before Milestone 3 starts (the solver port), schedule a 1-hour solver review meeting to lock in TGS vs PGS and CCD scope. After that meeting the architecture is fully signed off and no further design reviews are required until v2.
 
@@ -1668,7 +1674,7 @@ Before Milestone 3 starts (the solver port), schedule a 1-hour solver review mee
 - `entity/` (split module) — `entity.components.ts` (set/add/attach/remove/getMut/modified), `entity.relationships.ts` (`parent(ref)`, `children(ref)`, incoming-link maintenance), `entity.lifecycle.ts` (destroy + relationship cleanup).
 - `relationship.ts` — `Relationship` base + built-in `ChildOf`.
 - `query.ts` — predicate compilation, watchlists, `enter`/`exit`/`update`/`each`/`forEach`/`sort`/`groupBy` routing.
-- `system.ts` — inbox model, `_run` defer scope, phase binding, tick sources, (planned) `silenceFrom`.
+- `system.ts` — inbox model, `_run` defer scope, phase binding, tick sources, `ignoreSource` (feedback silencing).
 - `dsl.ts` — query DSL surface: `all`/`any`/`not`/`only`/`target`/`source`/`parent`/`children`/`test`.
 - `inject.ts` — `up`/`down` relationship injection, `Iter` cursor with `src` source-tracking.
 - `terms/` — per-term classes incl. `target_term.ts` (relationship fan-out reactivity).
