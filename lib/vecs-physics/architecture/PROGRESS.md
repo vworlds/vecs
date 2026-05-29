@@ -42,7 +42,7 @@ Ports box2d `math_functions.h` + `constants.h`. 30 tests incl. a port of
 - `bitset.ts` re-exports Vecs' `Bitset` (`@vworlds/vecs` exports it publicly).
 - `WarnDedupe` takes an injectable sink for testability.
 
-### ✅ VP-3 — public components + `src/index.ts` exports (commit __PENDING__)
+### ✅ VP-3 — public components + `src/index.ts` exports (commit 2ae3a52)
 
 `src/components/{body,body_tuning,shape_pose,geometry,material,force,target,events}.ts`
 + `src/index.ts`. All public component classes with zero-arg validity, plus
