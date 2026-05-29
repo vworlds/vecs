@@ -10,6 +10,28 @@ section and the named box2d sources for the next ticket.
 - The **code** is ground truth; implementation caveats live as comments there,
   and the cross-cutting ones are mirrored into `PLAN.md` → _Settled Decisions_.
 
+## Working rules (read before changing anything — applies to every agent)
+
+Not every agent reads the whole `PLAN.md`, so the load-bearing rules are repeated
+here:
+
+- **Box2D parity is the north star.** Port the model faithfully. Verify against
+  the vendored source in `lib/vecs-physics/box2d/` — do **not** assert "Box2D does
+  X" from memory; open the file and quote it.
+- **Every intentional deviation from Box2D must be recorded as a deviation.** Put
+  it in `PLAN.md` → _Settled Decisions_ and note it here, quoting the Box2D
+  behaviour you are diverging from. Never describe a divergence in prose as if it
+  mirrors Box2D — that is how silent parity bugs get reviewed-in (it has happened:
+  e.g. "skip sensors/zero-density" implied Box2D skips sensors; it does not).
+- **Deferring work to a later milestone is fine, but track it.** Add a
+  `Carried into MX` line with the contract, and leave an in-code comment at the
+  site. Re-filing an already-tracked deferral as a "bug" is noise.
+- **Gate before every commit:** `npm run typecheck && npm run test && npm run lint`
+  + `npx prettier --check` on changed files, run from `lib/vecs-physics/`. The
+  repo-wide pre-commit hook currently fails on unrelated workspaces; `--no-verify`
+  is acceptable **only** when the `lib/vecs-physics/` gate above is fully green.
+- **Commits:** `<type>: <subject>` + body, no scope (see `.agent/rules/commits.md`).
+
 ## Workflow
 
 1. Read this file → find **NEXT**. Read the linked `PLAN.md` ticket + section
@@ -304,7 +326,7 @@ VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
 - ✅ **VP-12** — `engine/mass.ts` + `systems/mass_recompute.ts` (engine d348412,
   system e2c1173, parity fix 937dbe8). Mass integrals (`b2ComputeCircleMass`/
   `CapsuleMass`/`PolygonMass`) + `b2UpdateBodyMassData` (walk the body shape list,
-  skip sensors/zero-density, mass-weighted CoM, parallel-axis inertia about the
+  skip only zero-density shapes, mass-weighted CoM, parallel-axis inertia about the
   CoM, min/max extent). `PhysicsMassRecompute` runs last in `physics-pre`,
   recomputing every `massDirty` body. Mass fields written on `BodySim`. 19 tests
   (parity: ShapeMassTest, DeferredMassFlagSyncTest).
@@ -335,9 +357,11 @@ VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
   reverse pair reusing the same fn and flipping the result. `computeManifold(
   shapeA, xfA, shapeB, xfB, cache)` returns a `Manifold` with normal A→B
   regardless of call order; unregistered pairs (segment–segment etc.) →
-  `pointCount=0`. **Transform convention:** caller passes fully-composed world
-  transforms (`mul(bodyXf, shapeLocalXf)`). 19 tests (all 12 pairs, both orders,
-  flip-normal/anchors). No contact record/persistence (VP-15/M3).
+  `pointCount=0`. **Transform convention (updated in M2 bug-fix pass, commit
+  69541ca):** callers now pass each shape's **body** world transform;
+  `computeManifold` composes the shape world transform from the shape's stored
+  local pose and returns anchors relative to each shape's **body origin** (matches
+  box2d's solver contract). No contact record/persistence (VP-15/M3).
   - **Caveat (box2d-faithful):** symmetric pairs are SAT order-dependent, so M3
     must store **canonical** shape ordering in the contact record and always call
     `computeManifold` in that order (mirrors `b2CreateContact`).
@@ -384,6 +408,55 @@ drop-output asymmetry (M1 review); open-chain ghost-vertex fidelity vs box2d
 
 **Carried into M5:** CoM-shift velocity adjustment in `b2UpdateBodyMassData`
 (VP-12) if sleep/CoM-drift needs it.
+
+## M2 post-milestone bug-fix pass (architecture review)
+
+A review of M0–M2 filed issues under `architecture/issues/`. Triaged and resolved;
+the issues folder is now empty. **Six** review bugs were fixed (gate green, 394
+tests); **three** re-filed reports were dismissed as already-tracked M4 deferrals.
+
+**Fixed (commit per issue):**
+
+- `fc47d76` — **static fat-AABB margin was 0**, box2d uses `speculativeDistance`
+  ("cannot be zero due to TOI tolerance"). Margin helpers (`computeShapeMargin`/
+  `updateShapeAABBs`/`fatAabbContainsTight`) consolidated into `engine/shape.ts`.
+- `34fbe0f` — **degenerate capsule/segment/chain-segment shapes** now rejected at
+  the components→engine boundary (creation skips the shape; geometry update keeps
+  the old valid shape; chain expansion drops duplicate adjacent points), matching
+  box2d `shape.c`. Manifolds are no longer relied on to tolerate zero-length input.
+- `681443c` — **shape local-pose changes now mark the owning body `massDirty`**
+  so CoM/inertia/extents recompute.
+- `a3e6726` — **body teleports refit child shape proxies.** `PhysicsPoseSyncIn`
+  walks the shape list, recomputes world AABBs, and `moveProxy`s with the box2d
+  fat-AABB containment check. (Solver-movement refit still lands with M3.)
+- `ab966ef` — **broad-phase proxies synced on body enable/disable/type change**
+  (skip proxy for shapes on disabled bodies; create/destroy/migrate proxies across
+  type trees). **Contact** teardown/creation on these transitions stays M3.
+- `0213720` — **Material update dirties mass only when `density` actually
+  changed** (old density captured before `_applyMaterial`; friction/restitution/
+  etc. no longer trigger a needless full mass recompute). A companion meta-report
+  correctly noted the naive comparison-after-write fix would have been inverted.
+- `1685430` — **sensor shapes now contribute to body mass** (skip only
+  `density === 0`), matching box2d `b2UpdateBodyMassData`. Overturns the false
+  "skip sensors" note. _Settled: sensors are massless only when density is 0._
+- `69541ca` — **manifold anchor convention fixed** (see VP-14 entry above):
+  `computeManifold` takes body transforms and returns body-origin-relative
+  anchors, so compound bodies with offset (`ShapePosition`/`ShapeRotation`) shapes
+  get correct lever arms before the M3 solver consumes them.
+
+**Dismissed (already tracked for M4 — re-filed reports, no M2 action):**
+
+- _Open-chain ghost-vertex fidelity_ — already a `Carried into M4` item and an
+  M4 `ChainSegmentShapeTest` gate; the suggested "use neighbour ghosts" fix is
+  also questionable for open chains (no neighbours exist past the endpoints).
+- _`InternalShape.entity` (eid) vs `InternalBody.entity` (`Entity`)_ — already a
+  `Carried into M4` reconciliation owned by the events system; no runtime bug at
+  M2, and the representation choice interacts with the handle-based event-delivery
+  design (PLAN → _Entity-reference safety_).
+- _Kinematic pose-sync accept-input/drop-output asymmetry_ — already a documented
+  M1 follow-up; the **contract** (write kinematic poses back vs. reject kinematic
+  velocity input) is deliberately left for M4 `PhysicsKinematicTargets`, so the
+  re-filed "default to write-back" pre-empts an open decision.
 
 ### Cross-ticket contracts surfaced reviewing VP-8 (VP-10/11/12 must honour)
 
