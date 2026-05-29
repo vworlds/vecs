@@ -1445,6 +1445,8 @@ Coverage gate: tests must hit every code path in `src/systems/` and the engine p
 
 ### Milestone 0 — Scaffolding + math + components (1 week)
 
+**Tickets: VP-1, VP-2, VP-3, VP-4.** ✅ complete.
+
 - `src/math/*` and `src/util/*` ported.
 - All public component classes registered, with defaults and accessor pairs.
 - `installPhysics` implemented down to component registration + phase creation, but engine is a no-op.
@@ -1452,12 +1454,18 @@ Coverage gate: tests must hit every code path in `src/systems/` and the engine p
 
 ### Milestone 1 — Body lifecycle + pose sync (1.5 weeks)
 
+**Tickets: VP-5, VP-6, VP-7.** ✅ complete.
+
 - `engine/state.ts`, `engine/body.ts`, `IdPool`, solver sets (storage only).
 - `PhysicsLifecycle` for Body (no shape yet); `PhysicsPoseSyncIn`/`Out` with echo detection.
 - Tests: body creation/destruction, teleport, default pose, default Body type.
 - Engine `step()` is a no-op integrator (gravity only on dynamic bodies, no contacts). Falling-body test passes (no ground collision yet).
 
 ### Milestone 2 — Shape lifecycle + broad/narrow phase (3 weeks)
+
+**Tickets: VP-8, VP-9, VP-10, VP-11, VP-12, VP-13, VP-14.** (VP-13/VP-14 sit under
+the _Narrow phase_ ticket group below but gate this milestone; contact
+_persistence_ — VP-15 — is M3.)
 
 - `engine/shape.ts`, `engine/broad_phase.ts`, `engine/dynamic_tree.ts`.
 - `engine/manifold/` — the twelve `b2Collide*` functions (start with `b2CollidePolygons`; capsules/segments reduce to it).
@@ -1469,6 +1477,10 @@ Coverage gate: tests must hit every code path in `src/systems/` and the engine p
 
 ### Milestone 3 — Contacts + sequential-impulse solver (3 weeks)
 
+**Tickets: VP-15, VP-16, VP-17, VP-18.** (VP-17, the solver, is the single largest
+ticket — subdivide along the eight solver stages before starting; see note in the
+ticket list.)
+
 - `engine/contact.ts` (persistence, edges, manifolds).
 - `engine/island.ts` (build, merge; split deferred to M5).
 - `engine/solver.ts` (the eight stages in order: prepare-contacts, integrate-velocities, warm-start, solve, integrate-positions, relax, restitution, store — see **Solver pipeline**).
@@ -1477,6 +1489,8 @@ Coverage gate: tests must hit every code path in `src/systems/` and the engine p
 
 ### Milestone 4 — Forces, impulses, kinematic, events (1.5 weeks)
 
+**Tickets: VP-19, VP-20, VP-21, VP-22.**
+
 - `PhysicsForceGather`, `PhysicsImpulseAccumulate`, `PhysicsImpulseZero`, `PhysicsKinematicTargets`, `PhysicsEvents`.
 - `engine/sensor.ts` for sensor overlap.
 - All v1 functional tests green.
@@ -1484,12 +1498,18 @@ Coverage gate: tests must hit every code path in `src/systems/` and the engine p
 
 ### Milestone 5 — Sleep + continuous CCD + debug validation (1.5 weeks)
 
+**Tickets: VP-23, VP-24, VP-25, VP-26.**
+
 - Island split for sleep candidates; sleeping solver sets.
 - `engine/ccd.ts` for bullet path (single-threaded port of Box2D's bullet stage).
 - `PhysicsDebugValidation` system + warning dedupe.
 - Performance pass: profile a 200-body scene; optimise hot allocations.
 
 ### Milestone 6 — Hardening and docs (1 week)
+
+**Tickets: VP-27.** (The `architecture/SOLVER.md` write-up and the fuzz-testing
+pass below are M6 deliverables but are not yet ticketed — see _granularity gaps_
+at the end of the ticket list.)
 
 - Doc reconciliation: every docs page asserts a tested behaviour.
 - Internal `architecture/SOLVER.md` capturing the solver port in detail.
@@ -1565,9 +1585,9 @@ Action items for the Vecs side:
 
 ## Required Implementation Tickets
 
-Below is the ticket breakdown the engineering team can pick up directly. Each ticket lists files, tests, and a definition of done.
+Below is the ticket breakdown the engineering team can pick up directly. Each ticket lists files, tests, and a definition of done. The _Phase_ groupings below are conceptual; the **milestone** each ticket gates is tagged on the phase header (and called out inline where a phase straddles two milestones). The authoritative milestone definitions and their full ticket sets are in **Implementation Milestones** above.
 
-### Phase: Foundation
+### Phase: Foundation — Milestone 0
 
 - **VP-1: math/vec2, math/rot, math/transform, math/aabb, math/constants.**
   - Files: `src/math/*.ts`. Port `math_functions.c`; mirror constants from `constants.h`/`core.c`.
@@ -1586,7 +1606,7 @@ Below is the ticket breakdown the engineering team can pick up directly. Each ti
   - Files: `src/install.ts`, `src/engine/state.ts`.
   - DoD: registers components, sets exclusivity, creates phases, attaches empty PhysicsState. World can start without errors.
 
-### Phase: Body lifecycle
+### Phase: Body lifecycle — Milestone 1
 
 - **VP-5: engine/body.ts — InternalBody, BodySim, BodyState; solver sets; transfer functions.**
   - Files: `src/engine/body.ts`, `src/engine/solver_set.ts`.
@@ -1600,7 +1620,7 @@ Below is the ticket breakdown the engineering team can pick up directly. Each ti
 - **VP-7: systems/step.ts — minimal engineStep (gravity only).**
   - DoD: dynamic body falls under gravity; matches `pos.y = 4 - 0.5*10*t^2` (no contact yet).
 
-### Phase: Shape lifecycle
+### Phase: Shape lifecycle — Milestone 2
 
 - **VP-8: engine/shape.ts — InternalShape, GeometryUnion, AABB compute, mass compute.**
 
@@ -1615,7 +1635,7 @@ Below is the ticket breakdown the engineering team can pick up directly. Each ti
 - **VP-12: engine/mass.ts (`geometry.c` mass integrals + `body.c::b2UpdateBodyMassData`) + systems/mass_recompute.ts.**
   - Tests: `test_shape.c::ShapeMassTest` (circle `mass == π`, `center == (1,0)`, `I == 0.5π`; capsule/polygon brackets); `DeferredMassFlagSyncTest` at the world level.
 
-### Phase: Narrow phase
+### Phase: Narrow phase — Milestone 2 (VP-13, VP-14) → Milestone 3 (VP-15)
 
 - **VP-13: engine/manifold/ — port the twelve `b2Collide*` functions from `manifold.c`, one sub-ticket per pair.**
   - VP-13a `b2CollideCircles`, VP-13b `b2CollidePolygonAndCircle`/`b2CollideCapsuleAndCircle`, VP-13c `b2CollidePolygons` (do first — capsule/segment reduce to it), VP-13d `b2CollideCapsules`/`b2CollidePolygonAndCapsule`/`b2CollideSegmentAndCapsule`, VP-13e `b2CollideSegmentAndCircle`/`b2CollideSegmentAndPolygon`, VP-13f `b2CollideChainSegmentAnd{Circle,Capsule,Polygon}` (ghost-vertex one-sided collision).
@@ -1623,9 +1643,9 @@ Below is the ticket breakdown the engineering team can pick up directly. Each ti
 
 - **VP-14: engine/narrow_phase.ts — dispatch by ordered shape-type pair (`contact.c::b2UpdateContact`) and contact update.**
 
-- **VP-15: engine/contact.ts — persistence (`b2SimplexCache`), edges, begin/end touch flags.**
+- **VP-15: engine/contact.ts — persistence (`b2SimplexCache`), edges, begin/end touch flags.** _(Milestone 3 — contact persistence is an M3 deliverable, not M2.)_
 
-### Phase: Solver
+### Phase: Solver — Milestone 3
 
 - **VP-16: engine/island.ts — build, merge (`island.c`).**
 
@@ -1634,7 +1654,7 @@ Below is the ticket breakdown the engineering team can pick up directly. Each ti
 
 - **VP-18: `hello_world` parity green (`test_world.c::HelloWorld`; 90 steps, final `\|y−1.00\| < 0.01`).**
 
-### Phase: Forces / events / kinematic
+### Phase: Forces / events / kinematic — Milestone 4
 
 - **VP-19: systems/forces.ts + systems/impulse_accumulate.ts + systems/impulse_zero.ts.**
 
@@ -1644,7 +1664,7 @@ Below is the ticket breakdown the engineering team can pick up directly. Each ti
 
 - **VP-22: HitEvents threshold scan.**
 
-### Phase: Polish
+### Phase: Polish — Milestone 5 (VP-23–VP-26) → Milestone 6 (VP-27)
 
 - **VP-23: Sleep + island split.**
 
@@ -1654,7 +1674,34 @@ Below is the ticket breakdown the engineering team can pick up directly. Each ti
 
 - **VP-26: Performance pass and benchmarks.**
 
-- **VP-27: Doc audit — every doc page links to a passing test.**
+- **VP-27: Doc audit — every doc page links to a passing test.** _(Milestone 6.)_
+
+### Granularity gaps to ticket before the back half
+
+The first two milestones (VP-1…VP-7, ✅ done) are correctly grained — each ticket
+is roughly one focused PR. A few later tickets are oversized or have fuzzy
+boundaries and should be split before they are picked up:
+
+- **VP-17 (solver) is the worst offender** — it is flagged "the largest ticket"
+  and already told to subdivide along the eight solver stages, but those
+  sub-tickets are not enumerated. Promote them to first-class tickets (VP-17a…h)
+  the way VP-13 is already split (VP-13a…f): prepare-contacts, integrate-vel
+  (done in VP-7), warm-start, solve, integrate-pos (done in VP-7), relax,
+  restitution, store-impulses, plus `b2MakeSoft`.
+- **VP-8 vs VP-12 own overlapping "mass compute"** — VP-8's DoD says "mass
+  compute" and VP-12 is `engine/mass.ts` (the mass integrals). Draw the line:
+  VP-8 should own only the shape record + geometry union + AABB; all mass
+  integrals belong to VP-12.
+- **VP-11 bundles three systems** (`PhysicsShapeLifecycle` incl. reparenting,
+  `PhysicsMaterialFilterSync`, `PhysicsShapePoseSync`) — the milestone lists them
+  as three. Consider splitting at least material/filter sync out, since filter
+  changes carry a contact-refiltering cost worth its own DoD.
+- **VP-21 bundles `engine/sensor.ts` + `systems/events.ts`** — the engine-side
+  sensor overlap detection and the event-publish system are independent enough to
+  be two tickets.
+- **M6 is under-ticketed** — only VP-27 (doc audit) exists; the
+  `architecture/SOLVER.md` write-up and the fuzz-testing pass are M6 deliverables
+  with no ticket. Add VP-28 (SOLVER.md) and VP-29 (fuzz harness).
 
 ## Unresolved Decisions
 
