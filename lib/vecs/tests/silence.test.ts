@@ -9,7 +9,7 @@ class Velocity {
   vx = 0;
   vy = 0;
 }
-/** Marker attached to system entities to group them into a silence domain. */
+/** Marker attached to query entities to group them into a silence domain. */
 class Physics {}
 
 function setup() {
@@ -21,8 +21,8 @@ function setup() {
   return { w, phase };
 }
 
-describe("System.ignoreSource — silencing feedback loops", () => {
-  it("silences a system's own writeback", () => {
+describe("Query.ignoreSource — silencing feedback loops", () => {
+  it("on a system, silences its own writeback", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
     const damp = w
@@ -108,7 +108,7 @@ describe("System.ignoreSource — silencing feedback loops", () => {
     expect(readCb.mock.calls.length).toBe(afterEntry + 1);
   });
 
-  it("updates from sources outside the domain still wake the system", () => {
+  it("updates from sources outside the domain still wake the query", () => {
     const { w, phase } = setup();
     const readCb = vi.fn();
     w.system("Read")
@@ -160,7 +160,7 @@ describe("System.ignoreSource — silencing feedback loops", () => {
     expect(readCb.mock.calls[0][0]).toBe(created);
   });
 
-  it("destroys the inline silence query with the system", () => {
+  it("destroys the inline silence query with the parent query", () => {
     const { w, phase } = setup();
     const read = w
       .system("Read")
@@ -176,5 +176,94 @@ describe("System.ignoreSource — silencing feedback loops", () => {
 
     read.destroy();
     expect(w.queries).not.toContain(silenceQuery);
+  });
+
+  it("silences update callbacks on a plain query", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const rq = w
+      .query("ReadQ")
+      .requires(Position)
+      .ignoreSource([Physics])
+      .update(Position, () => cb());
+
+    const writer = w
+      .system("Writer")
+      .phase(phase)
+      .run(() => {
+        const e = w.entity();
+        e.add(Position);
+        e.getMut(Position, (p) => {
+          p.x = 1;
+        });
+      });
+    writer.entity.add(Physics);
+    w.start();
+
+    // Write is silenced — the plain query's update callback must not fire.
+    w.progress(0, 0);
+    w.progress(0, 0);
+    expect(cb).not.toHaveBeenCalled();
+
+    // External mutation (unsourced) must fire.
+    const ext = w.entity().add(Position);
+    ext.getMut(Position, (p) => {
+      p.x = 99;
+    });
+    w.flush();
+    expect(cb).toHaveBeenCalled();
+  });
+
+  it("destroys the inline silence query with the plain query", () => {
+    const { w } = setup();
+    const rq = w
+      .query("ReadQ")
+      .requires(Position)
+      .ignoreSource([Physics])
+      .update(Position, () => {});
+    w.start();
+
+    const silenceEntity = rq.entity.get(SilenceSource)!.target;
+    const silenceQuery = silenceEntity.get(Query)!;
+    expect(w.queries).toContain(silenceQuery);
+
+    rq.destroy();
+    expect(w.queries).not.toContain(silenceQuery);
+  });
+
+  it("accepts an existing query as the silence domain", () => {
+    const { w, phase } = setup();
+    const domain = w.query("Domain").requires(Physics);
+
+    const cb = vi.fn();
+    w.system("Read")
+      .phase(phase)
+      .requires(Position)
+      .ignoreSource(domain)
+      .update(Position, () => cb());
+
+    const writer = w
+      .system("Writer")
+      .phase(phase)
+      .requires(Position)
+      .each([Position], (e) => {
+        e.getMut(Position, (p) => {
+          p.x += 1;
+        });
+      });
+    writer.entity.add(Physics);
+    w.start();
+
+    const e = w.entity().add(Position);
+    w.progress(0, 0); // entry bridge
+    const afterEntry = cb.mock.calls.length;
+    w.progress(0, 0); // Writer writes, silenced
+    expect(cb).toHaveBeenCalledTimes(afterEntry);
+
+    e.getMut(Position, (p) => {
+      p.x = 42;
+    }); // external write
+    w.progress(0, 0);
+    expect(cb.mock.calls.length).toBeGreaterThan(afterEntry);
   });
 });
