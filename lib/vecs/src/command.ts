@@ -32,7 +32,7 @@ export type Command = CommandBody & {
    * Entity credited with producing this mutation — the running system's entity
    * when the command was enqueued, or `undefined` for mutations made outside a
    * system. Stamped by {@link World._enqueue} and consulted during routing to
-   * silence feedback loops (see {@link System.ignoreSource}).
+   * silence feedback loops (see {@link Query.ignoreSource}).
    */
   source?: Entity;
 };

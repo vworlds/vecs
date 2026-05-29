@@ -9,11 +9,12 @@ export abstract class Relationship {
 export class ChildOf extends Relationship {}
 
 /**
- * Built-in relationship marking a feedback **silence domain** for a system.
+ * Built-in relationship marking a feedback **silence domain** for a query
+ * or system.
  *
- * When a system carries a `SilenceSource` pointing at a query entity, the
- * system ignores `update` notifications whose originating entity (the system
+ * When a query carries a `SilenceSource` pointing at a query entity, it
+ * ignores `update` notifications whose originating entity (the system
  * that wrote the component) is a member of that query. Configure it through
- * {@link System.ignoreSource}.
+ * {@link Query.ignoreSource}.
  */
 export class SilenceSource extends Relationship {}

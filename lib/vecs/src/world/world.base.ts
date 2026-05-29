@@ -34,7 +34,7 @@ export class Base {
 
   /**
    * @internal Source entity of the command currently being applied. Read by
-   * {@link System._notifyModified} to silence updates from ignored sources;
+   * {@link Query._notifyModified} to silence updates from ignored sources;
    * cleared once the command queue drains.
    */
   public _routingSource: Entity | undefined;

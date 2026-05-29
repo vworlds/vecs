@@ -35,6 +35,6 @@ export class World extends Pipeline {
     this.component(ChildOf).ownMeta.onDeleteTarget = CleanupPolicy.Delete;
     this.component(Query).onRemove((_entity, query) => query.destroy());
     this.component(System).onRemove((_entity, system) => system.destroy());
-    this.component(SilenceSource).onRemove((entity) => entity.get(System)?._clearSilence());
+    this.component(SilenceSource).onRemove((entity) => entity.get(Query)?._clearSilence());
   }
 }

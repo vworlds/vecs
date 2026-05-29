@@ -25,6 +25,7 @@ import {
   type UpInject,
 } from "./inject.js";
 import { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
+import { ChildOf, SilenceSource } from "./relationship.js";
 
 export type {
   EntityTestFunc,
@@ -101,6 +102,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   protected _componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
   /** @internal Bitmask of component eids this query reacts to via `update`. */
   protected _watchlistBitmask: Bitset = new Bitset();
+  /** @internal Silence-domain query: `update` events whose source is a member are dropped. */
+  protected _silenceQuery: Query | undefined;
 
   constructor(name: string, world: World, track: boolean = true) {
     this.entity = world.entity();
@@ -251,10 +254,76 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }
+    if (this._isSourceSilenced()) {
+      return;
+    }
     const callback = this._componentUpdateCallbacks.get(meta.eid);
     if (callback) {
       callback(e, c);
     }
+  }
+
+  /** @internal True when the world's current routing source is a member of this query's silence domain. */
+  protected _isSourceSilenced(): boolean {
+    const source = this.entity.world._routingSource;
+    return source !== undefined && this._silenceQuery?.has(source) === true;
+  }
+
+  /** @internal Build a tracked silence-domain query from `dsl`, tied to this query's lifetime. */
+  private _buildSilenceQuery(dsl: QueryDSL): Query {
+    const query = this.world.query(`${this.name}:silence`).query(dsl);
+    query.entity.set(ChildOf, { target: this.entity });
+    return query;
+  }
+
+  /**
+   * Ignore `update` notifications produced by a set of source entities,
+   * preventing read/writeback feedback loops.
+   *
+   * Every component mutation is credited to the entity of the system that made
+   * it. `ignoreSource` declares a **silence domain** as a query over those
+   * source entities: any `update` whose source is a member of the query is
+   * dropped before it reaches this query's callback. Mutations made outside
+   * any system (gameplay code) have no source and always wake the query.
+   *
+   * Pass a {@link QueryDSL} to define the domain inline — a fresh tracked query
+   * is created and tied to this query's lifetime via {@link ChildOf}. Pass an
+   * existing {@link Query} to reuse its membership directly. To silence a
+   * query's own writeback, include its entity in the domain (for example, tag
+   * the participating query entities with a marker component and match it).
+   *
+   * Calling `ignoreSource` again replaces the previous domain. Entry-time
+   * initialization is never silenced. Call during setup, before
+   * {@link World.start}; the inline-DSL form builds a query, which cannot
+   * happen while a frame is in progress.
+   *
+   * @param source - A {@link QueryDSL} domain expression or an existing
+   *   {@link Query} whose members are the silenced sources.
+   * @returns This query, for chaining.
+   *
+   * @example
+   * ```ts
+   * // Tag every physics system entity, then have the reader ignore that domain.
+   * const integrate = world.system("Integrate").requires(Position, Velocity)
+   *   .each([Position, Velocity], (e, [p, v]) => { p.x += v.vx; });
+   * integrate.entity.add(Physics);
+   *
+   * const readQuery = world.query("PhysicsRead").requires(Position)
+   *   .ignoreSource([Physics])
+   *   .update(Position, reactToExternalChange);
+   * ```
+   */
+  public ignoreSource(source: QueryDSL | Query): this {
+    this._assertConfigurable();
+    const query = source instanceof Query ? source : this._buildSilenceQuery(source);
+    this.entity.set(SilenceSource, { target: query.entity });
+    this._silenceQuery = query;
+    return this;
+  }
+
+  /** @internal Drop the silence-domain query cache after the relationship is removed. */
+  public _clearSilence(): void {
+    this._silenceQuery = undefined;
   }
 
   /** @internal Whether this query should be present in an entity's slim update set. */
