@@ -67,7 +67,7 @@ describe("Iter cursor", () => {
       expect(srcs).toEqual([e]);
     });
 
-    it("it.src is the relationship target for up-injected components", () => {
+    it("it.src is the relationship target for target-injected components", () => {
       const w = new World();
       w.component(Position);
       w.component(Tag);
@@ -77,7 +77,7 @@ describe("Iter cursor", () => {
       w.system("sys")
         .phase(phase)
         .query({ target: [FriendOf, Position] })
-        .each(Iter, [{ up: [FriendOf, [Position, Tag]] }], (it) => {
+        .each(Iter, [{ target: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
         });
       w.start();
@@ -97,7 +97,7 @@ describe("Iter cursor", () => {
       w.system("sys")
         .phase(phase)
         .query({ target: [FriendOf, Position] })
-        .each(Iter, [{ up: [FriendOf, [Position, Tag]] }], (it) => {
+        .each(Iter, [{ target: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
         });
       w.start();
@@ -118,7 +118,7 @@ describe("Iter cursor", () => {
       w.system("sys")
         .phase(phase)
         .requires(Tag2)
-        .each(Iter, [{ up: [FriendOf, [Position]] }], (it) => src(it.src[0]));
+        .each(Iter, [{ target: [FriendOf, [Position]] }], (it) => src(it.src[0]));
       w.start();
       w.entity().add(Tag2);
       w.progress(0, 0);
@@ -506,8 +506,8 @@ describe("Iter cursor", () => {
     });
   });
 
-  describe("up injection with Iter cursor across surfaces", () => {
-    it("Filter.forEach Iter cursor with up injection", () => {
+  describe("target injection with Iter cursor across surfaces", () => {
+    it("Filter.forEach Iter cursor with target injection", () => {
       const w = new World();
       w.component(Position);
       w.component(Tag);
@@ -518,7 +518,7 @@ describe("Iter cursor", () => {
       const seen: unknown[] = [];
       w.filter({ target: [FriendOf, Position] }).forEach(
         Iter,
-        [{ up: [FriendOf, [Position, Tag]] }],
+        [{ target: [FriendOf, [Position, Tag]] }],
         (it, [pos, tag]) => {
           seen.push({ entity: it.entity, src0: it.src[0], src1: it.src[1], pos, tag });
         }
@@ -531,7 +531,7 @@ describe("Iter cursor", () => {
       expect(entry.tag).toBeUndefined();
     });
 
-    it("Iter cursor up injection through System enter (src is the target)", () => {
+    it("Iter cursor target injection through System enter (src is the target)", () => {
       const w = new World();
       w.component(Position);
       w.component(FriendOf);
@@ -540,7 +540,7 @@ describe("Iter cursor", () => {
       w.system("sys")
         .phase(phase)
         .query({ target: [FriendOf, Position] })
-        .enter(Iter, [{ up: [FriendOf, [Position]] }], (it, [pos]) => {
+        .enter(Iter, [{ target: [FriendOf, [Position]] }], (it, [pos]) => {
           entered.push({ entity: it.entity, src: it.src[0], pos });
         });
       w.start();
@@ -552,7 +552,7 @@ describe("Iter cursor", () => {
       expect(entry.src).toBe(target);
     });
 
-    it("Iter cursor up injection through System exit captures target src", () => {
+    it("Iter cursor target injection through System exit captures target src", () => {
       const w = new World();
       w.component(Position);
       w.component(FriendOf);
@@ -561,14 +561,14 @@ describe("Iter cursor", () => {
       w.system("sys")
         .phase(phase)
         .query({ target: [FriendOf, Position] })
-        .exit(Iter, [{ up: [FriendOf, [Position]] }], (it, [pos]) => {
+        .exit(Iter, [{ target: [FriendOf, [Position]] }], (it, [pos]) => {
           exited.push({ entity: it.entity, src: it.src[0], pos });
         });
       w.start();
       const target = w.entity().add(Position);
       const candidate = w.entity().set(FriendOf, { target });
       w.progress(0, 0);
-      // Exit caused by removal of target's Position — up injection resolves
+      // Exit caused by removal of target's Position — target injection resolves
       // live, so src is still the target at exit time.
       target.remove(Position);
       w.progress(0, 0);
@@ -579,7 +579,7 @@ describe("Iter cursor", () => {
   });
 
   describe("ChildOf with Iter cursor", () => {
-    it("System.each Iter cursor with ChildOf up injection", () => {
+    it("System.each Iter cursor with ChildOf target injection", () => {
       const w = new World();
       w.component(Position);
       const phase = w.addPhase("tick");
@@ -587,7 +587,7 @@ describe("Iter cursor", () => {
       w.system("sys")
         .phase(phase)
         .query({ target: [ChildOf, Position] })
-        .each(Iter, [{ up: [ChildOf, [Position]] }], (it) => {
+        .each(Iter, [{ target: [ChildOf, [Position]] }], (it) => {
           srcs.push(it.src[0]);
         });
       w.start();

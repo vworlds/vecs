@@ -3,19 +3,19 @@ import { Entity } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import { _resolveRelationship, type MaybeRequired } from "./dsl.js";
 
-export type UpInject<J extends readonly ComponentType[] = readonly ComponentType[]> = {
-  up: readonly [ComponentRef, readonly [...J]];
+export type TargetInject<J extends readonly ComponentType[] = readonly ComponentType[]> = {
+  target: readonly [ComponentRef, readonly [...J]];
 };
 export type DownInject<J extends readonly ComponentType[] = readonly ComponentType[]> = {
   down: readonly [ComponentRef, readonly [...J]];
 };
-export type InjectElement = ComponentType | UpInject;
+export type InjectElement = ComponentType | TargetInject;
 export type InjectTuple = readonly InjectElement[];
 export type FanInjectElement = InjectElement | DownInject;
 export type FanInjectTuple = readonly FanInjectElement[];
 export type ResolvedInjectTerm =
   | number
-  | { up: readonly [number, readonly number[]] }
+  | { target: readonly [number, readonly number[]] }
   | { down: readonly [number, readonly number[]] };
 
 /** Resolves the component instance type for one injected component class. */
@@ -25,14 +25,14 @@ type OptionalResolvedComponentInstances<J extends readonly ComponentType[]> = {
 };
 type MaybeResolvedInjectElement<T, R extends ComponentType[]> = T extends ComponentType
   ? [MaybeRequired<T, R>]
-  : T extends UpInject<infer J>
+  : T extends TargetInject<infer J>
     ? OptionalResolvedComponentInstances<J>
     : T extends DownInject<infer J>
       ? OptionalResolvedComponentInstances<J>
       : [];
 type RequiredResolvedInjectElement<T> = T extends ComponentType
   ? [ResolvedComponentInstance<T>]
-  : T extends UpInject<infer J>
+  : T extends TargetInject<infer J>
     ? OptionalResolvedComponentInstances<J>
     : T extends DownInject<infer J>
       ? OptionalResolvedComponentInstances<J>
@@ -50,8 +50,8 @@ export type RequiredResolvedInjectTuple<J extends InjectTuple> = J extends reado
   ? [...RequiredResolvedInjectElement<First>, ...RequiredResolvedInjectTuple<Rest>]
   : [];
 
-function _isUpInject(value: FanInjectElement): value is UpInject {
-  return typeof value === "object" && value !== null && "up" in value;
+function _isTargetInject(value: FanInjectElement): value is TargetInject {
+  return typeof value === "object" && value !== null && "target" in value;
 }
 
 function _isDownInject(value: FanInjectElement): value is DownInject {
@@ -60,9 +60,12 @@ function _isDownInject(value: FanInjectElement): value is DownInject {
 
 export function mapInject(world: World, inject: readonly FanInjectElement[]): ResolvedInjectTerm[] {
   return inject.map((term) => {
-    if (_isUpInject(term)) {
+    if (_isTargetInject(term)) {
       return {
-        up: [_resolveRelationship(term.up[0], world), term.up[1].map((C) => world.entity(C).eid)],
+        target: [
+          _resolveRelationship(term.target[0], world),
+          term.target[1].map((C) => world.entity(C).eid),
+        ],
       };
     }
     if (_isDownInject(term)) {
@@ -80,7 +83,8 @@ export function mapInject(world: World, inject: readonly FanInjectElement[]): Re
 export function injectArity(inject: readonly ResolvedInjectTerm[]): number {
   let arity = 0;
   inject.forEach((term) => {
-    arity += typeof term === "number" ? 1 : "up" in term ? term.up[1].length : term.down[1].length;
+    arity +=
+      typeof term === "number" ? 1 : "target" in term ? term.target[1].length : term.down[1].length;
   });
   return arity;
 }
@@ -105,12 +109,12 @@ export function getInjected(
     if ("down" in term) {
       throw new Error("down injection is only supported in each/forEach");
     }
-    const target = e.componentBitmask.has(term.up[0])
-      ? (e._get(term.up[0]) as { target?: Entity } | undefined)?.target
+    const targetEntity = e.componentBitmask.has(term.target[0])
+      ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
-    term.up[1].forEach((componentEid) => {
-      out[outIndex++] = target?.componentBitmask.has(componentEid)
-        ? target._get(componentEid)
+    term.target[1].forEach((componentEid) => {
+      out[outIndex++] = targetEntity?.componentBitmask.has(componentEid)
+        ? targetEntity._get(componentEid)
         : undefined;
     });
   });
@@ -139,14 +143,14 @@ export function getInjectedWithSrc(
     if ("down" in term) {
       throw new Error("down injection is only supported in each/forEach");
     }
-    const target = e.componentBitmask.has(term.up[0])
-      ? (e._get(term.up[0]) as { target?: Entity } | undefined)?.target
+    const targetEntity = e.componentBitmask.has(term.target[0])
+      ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
-    term.up[1].forEach((componentEid) => {
-      out[outIndex] = target?.componentBitmask.has(componentEid)
-        ? target._get(componentEid)
+    term.target[1].forEach((componentEid) => {
+      out[outIndex] = targetEntity?.componentBitmask.has(componentEid)
+        ? targetEntity._get(componentEid)
         : undefined;
-      src[outIndex] = target;
+      src[outIndex] = targetEntity;
       outIndex++;
     });
   });
@@ -162,7 +166,7 @@ export function directInjectEids(inject: readonly ResolvedInjectTerm[]): number[
  * the first argument:
  *
  * ```ts
- * system.each(Iter, [Body, { up: [ChildOf, [Position]] }], (it, [body, pos]) => {
+ * system.each(Iter, [Body, { target: [ChildOf, [Position]] }], (it, [body, pos]) => {
  *   it.entity;  // the visited entity
  *   it.src[0];  // entity `body` was read from (the visited entity)
  *   it.src[1];  // entity `pos` was read from (the ChildOf target), or undefined
@@ -181,7 +185,7 @@ export class Iter {
   /**
    * Source entity for each injected component, in the same order as the
    * resolved tuple: the visited entity for a directly-injected component, or
-   * the relationship target for an `up`-injected one (`undefined` when the
+   * the relationship target for a `target`-injected one (`undefined` when the
    * entity has no such relationship or target).
    */
   public readonly src: (Entity | undefined)[];
@@ -301,8 +305,8 @@ function _findSingleDownInject(
       slot++;
       return;
     }
-    if ("up" in term) {
-      slot += term.up[1].length;
+    if ("target" in term) {
+      slot += term.target[1].length;
       return;
     }
     if (found !== undefined) {
@@ -345,12 +349,12 @@ function getInjectedSkippingDown(
       outIndex += term.down[1].length;
       return;
     }
-    const target = e.componentBitmask.has(term.up[0])
-      ? (e._get(term.up[0]) as { target?: Entity } | undefined)?.target
+    const targetEntity = e.componentBitmask.has(term.target[0])
+      ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
-    term.up[1].forEach((componentEid) => {
-      out[outIndex++] = target?.componentBitmask.has(componentEid)
-        ? target._get(componentEid)
+    term.target[1].forEach((componentEid) => {
+      out[outIndex++] = targetEntity?.componentBitmask.has(componentEid)
+        ? targetEntity._get(componentEid)
         : undefined;
     });
   });
@@ -374,14 +378,14 @@ function getInjectedWithSrcSkippingDown(
       outIndex += term.down[1].length;
       return;
     }
-    const target = e.componentBitmask.has(term.up[0])
-      ? (e._get(term.up[0]) as { target?: Entity } | undefined)?.target
+    const targetEntity = e.componentBitmask.has(term.target[0])
+      ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
-    term.up[1].forEach((componentEid) => {
-      out[outIndex] = target?.componentBitmask.has(componentEid)
-        ? target._get(componentEid)
+    term.target[1].forEach((componentEid) => {
+      out[outIndex] = targetEntity?.componentBitmask.has(componentEid)
+        ? targetEntity._get(componentEid)
         : undefined;
-      src[outIndex] = target;
+      src[outIndex] = targetEntity;
       outIndex++;
     });
   });

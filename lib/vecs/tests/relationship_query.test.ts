@@ -167,7 +167,7 @@ describe("Relationship queries", () => {
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
   });
 
-  it("flattens up injection in query and filter iteration", () => {
+  it("flattens target injection in query and filter iteration", () => {
     const { w } = setup();
     const target = w.entity().set(Position, { x: 7 });
     const candidate = w.entity().add(Body).set(FriendOf, { target });
@@ -176,12 +176,12 @@ describe("Relationship queries", () => {
     const q = w.query("inject").requires(Body).build();
 
     const queryTuples: unknown[][] = [];
-    q.forEach([Body, { up: [FriendOf, [Position, Velocity]] }], (_e, tuple) => {
+    q.forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (_e, tuple) => {
       queryTuples.push([...tuple]);
     });
 
     const filterTuples: unknown[][] = [];
-    w.filter(Body).forEach([Body, { up: [FriendOf, [Position, Velocity]] }], (_e, tuple) => {
+    w.filter(Body).forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (_e, tuple) => {
       filterTuples.push([...tuple]);
     });
 
@@ -257,7 +257,7 @@ describe("Relationship queries", () => {
 
     q.forEach(
       Iter,
-      [Body, { up: [FriendOf, [Velocity]] }, { down: [FriendOf, [Position]] }],
+      [Body, { target: [FriendOf, [Velocity]] }, { down: [FriendOf, [Position]] }],
       (it, tuple) => {
         seen.push([it.entity, ...it.src, ...tuple]);
       }
@@ -300,7 +300,7 @@ describe("Relationship queries", () => {
     }).toThrow("Only one down injection is supported per tuple");
   });
 
-  it("flattens up injection for enter and exit callbacks", () => {
+  it("flattens target injection for enter and exit callbacks", () => {
     const { w } = setup();
     const target = w.entity();
     const candidate = w.entity().set(FriendOf, { target });
@@ -308,8 +308,8 @@ describe("Relationship queries", () => {
     const exit = vi.fn();
     w.query("events")
       .query({ target: [FriendOf, Position] })
-      .enter([{ up: [FriendOf, [Position]] }], enter)
-      .exit([{ up: [FriendOf, [Position]] }], exit)
+      .enter([{ target: [FriendOf, [Position]] }], enter)
+      .exit([{ target: [FriendOf, [Position]] }], exit)
       .build();
 
     const pos = target.add(Position).get(Position)!;
@@ -318,13 +318,13 @@ describe("Relationship queries", () => {
     expect(exit).toHaveBeenCalledWith(candidate, [undefined]);
   });
 
-  it("flattens up injection for system each", () => {
+  it("flattens target injection for system each", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
     w.system("system-up")
       .phase(phase)
       .query({ target: [FriendOf, Position] })
-      .each([{ up: [FriendOf, [Position, Velocity]] }], cb);
+      .each([{ target: [FriendOf, [Position, Velocity]] }], cb);
     w.start();
     const target = w.entity().set(Position, { x: 3 });
     const candidate = w.entity().set(FriendOf, { target });

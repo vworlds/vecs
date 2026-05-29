@@ -578,19 +578,19 @@ Declare which entities the system tracks.
 
 `target` and `source` use tuple form only: `{ target: [RelationshipClass, innerDSL] }` / `{ source: [RelationshipClass, innerDSL] }`. The first element must be a component that extends `Relationship`; passing a normal component throws. `target` evaluates the inner DSL against the relationship target; `source` evaluates it against each child/source and matches when at least one child/source matches. Because `source` and `children` are non-reactive, use them with `world.filter(...)`, not tracked queries or systems.
 
-Component injection also supports lowercase relationship markers. `up` works in `forEach`, `each`, `enter`, and `exit` injection lists. It follows the relationship target and flattens the requested target components into the callback tuple:
+Component injection also supports lowercase relationship markers. `target` works in `forEach`, `each`, `enter`, and `exit` injection lists. It follows the relationship target and flattens the requested target components into the callback tuple:
 
 ```ts
 world
   .query("friends")
   .query({ target: [FriendOf, Position] })
-  .forEach([Body, { up: [FriendOf, [Position, Velocity]] }], (e, [body, pos, vel]) => {
+  .forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (e, [body, pos, vel]) => {
     // body is from e; pos and vel are from e.parent(FriendOf)
     // target-side injected components are undefined if the target is absent or lacks them.
   });
 ```
 
-On `exit`, direct component injection is snapshot-stable when the exiting component was just removed. `up` injection resolves the target live at callback time, so target-side slots can be `undefined` if the exit was caused by the target losing that component.
+On `exit`, direct component injection is snapshot-stable when the exiting component was just removed. `target` injection resolves the target live at callback time, so target-side slots can be `undefined` if the exit was caused by the target losing that component.
 
 Lowercase `down` is allowed only in `forEach` and system `each`, where fan-out has a clear meaning. Only one `down` marker is allowed per injection tuple.
 
@@ -599,10 +599,10 @@ Lowercase `down` is allowed only in `forEach` and system `each`, where fan-out h
 Pass `Iter` as the first argument to `each`, `forEach`, `enter`, `exit`, `update`, or `sort` to receive a reusable cursor object instead of the bare entity. The cursor exposes:
 
 - `it.entity` — the visited entity.
-- `it.src` — a same-length array of source entities: the visited entity for a directly-injected component, the relationship target for an `up`-injected one, or the specific child for a `down`-injected one.
+- `it.src` — a same-length array of source entities: the visited entity for a directly-injected component, the relationship target for a `target`-injected one, or the specific child for a `down`-injected one.
 
 ```ts
-system.each(Iter, [Body, { up: [ChildOf, [Position]] }], (it, [body, pos]) => {
+system.each(Iter, [Body, { target: [ChildOf, [Position]] }], (it, [body, pos]) => {
   it.entity; // the visited entity
   it.src[0]; // entity `body` was read from (the visited entity)
   it.src[1]; // entity `pos` was read from (the ChildOf target)
@@ -646,7 +646,7 @@ Fires once when an entity first matches the system.
 
 #### `.exit(callback)` / `.exit(inject, callback)`
 
-Fires when an entity leaves the system (component removed or entity destroyed). Direct components removed in the same frame are still resolvable in `inject`; `up` injection resolves relationship targets live.
+Fires when an entity leaves the system (component removed or entity destroyed). Direct components removed in the same frame are still resolvable in `inject`; `target` injection resolves relationship targets live.
 
 ```ts
 .exit([Sprite], (e, [sprite]) => sprite.destroy());

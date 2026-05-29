@@ -105,8 +105,8 @@ export class Filter<R extends ComponentType[] = []> {
    * As above, but pass `Iter` first to receive a reused {@link Iter}
    * cursor instead of the bare entity. The cursor exposes the visited entity
    * (`it.entity`) and, in `it.src`, the source entity each resolved component
-   * was read from (the visited entity for direct components, the relationship
-   * target for `up`-injected ones).
+   * was read from (the visited entity for direct components, the
+   * relationship's target entity for ones injected via `target`).
    */
   public forEach<J extends FanInjectTuple>(
     cursor: typeof Iter,
