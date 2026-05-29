@@ -133,7 +133,7 @@ sim/state factories and `BodyStorage.get`).
   `util/`, never `components/` (so the internal numeric body-type vs the public
   string `BodyType` translation is a VP-6 system-layer concern).
 
-### ✅ VP-6 — `systems/lifecycle.ts` (`PhysicsBodyLifecycle`) + `pose_sync_in.ts` + `pose_sync_out.ts` (commit <pending>)
+### ✅ VP-6 — `systems/lifecycle.ts` (`PhysicsBodyLifecycle`) + `pose_sync_in.ts` + `pose_sync_out.ts` (commit f576659)
 
 `src/systems/{lifecycle,pose_sync_in,pose_sync_out,index}.ts`; `install.ts` now
 registers internal components (step 9) and installs+tags the three systems (step
