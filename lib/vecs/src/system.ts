@@ -10,6 +10,7 @@ import {
 } from "./inject.js";
 import { SOURCE_TRACKED_QUERY_ERROR, Query, type MaybeRequired } from "./query.js";
 import { containsDownTerm, type QueryDSL } from "./dsl.js";
+import { ChildOf, SilenceSource } from "./relationship.js";
 import { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world/index.js";
@@ -102,6 +103,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   private _enabled = true;
   /** @internal Cadence source for this system. Defaults to every frame. */
   private _tickSource: ITickSource = ALWAYS_TICK_SOURCE;
+  /** @internal Silence-domain query: `update` events whose source is a member are dropped. */
+  private _silenceQuery: Query | undefined;
 
   constructor(name: string, world: World) {
     super(name, world, false);
@@ -143,7 +146,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     e.components.forEach((c, eid) => {
       const meta = this.world.entity(eid).ownMeta;
       if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
-        this._notifyModified(e, meta, c);
+        // Entry-time initialization bypasses the silence filter: an entity
+        // introduced by an ignored source must still initialize in this system.
+        this._pushUpdate(e, meta, c);
       }
     });
   }
@@ -177,12 +182,21 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
 
   /**
    * @internal Routing entry: push an inbox `update` event when the modified
-   * component matches the watchlist.
+   * component matches the watchlist and its source is not silenced.
    */
   public override _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
     if (!this._enabled || !this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }
+    const source = this.world._routingSource;
+    if (source !== undefined && this._silenceQuery?.has(source)) {
+      return;
+    }
+    this._pushUpdate(e, meta, c);
+  }
+
+  /** @internal Append an `update` event to the inbox, bypassing the silence filter. */
+  private _pushUpdate(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
     this._inbox.push({ kind: InboxCommand.Update, entity: e, meta, component: c });
   }
 
@@ -201,6 +215,20 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       return;
     }
     const tickDelta = this._tickSource.lastFireDelta;
+    const prevSource = this.world._currentSource;
+    this.world._currentSource = this.entity;
+    try {
+      this._runDeferred(now, tickDelta);
+    } finally {
+      this.world._currentSource = prevSource;
+    }
+  }
+
+  /**
+   * @internal Drain the inbox and fire callbacks inside a deferred scope, with
+   * this system credited as the source of any mutations made by callbacks.
+   */
+  private _runDeferred(now: number, tickDelta: number): void {
     this.world.defer(() => {
       for (let i = 0; i < this._inbox.length; i++) {
         const event = this._inbox[i];
@@ -335,6 +363,13 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     source._register(this.world);
   }
 
+  /** @internal Build a tracked silence-domain query from `dsl`, tied to this system's lifetime. */
+  private _buildSilenceQuery(dsl: QueryDSL): Query {
+    const query = this.world.query(`${this.name}:silence`).query(dsl);
+    query.entity.set(ChildOf, { target: this.entity });
+    return query;
+  }
+
   /**
    * Assign this system to a pipeline phase.
    *
@@ -359,6 +394,56 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     }
     this._phase = p;
     return this;
+  }
+
+  /**
+   * Ignore `update` notifications produced by a set of source systems,
+   * preventing read/writeback feedback loops.
+   *
+   * Every component mutation is credited to the entity of the system that made
+   * it. `ignoreSource` declares a **silence domain** as a query over those
+   * source entities: any `update` whose source is a member of the query is
+   * dropped before it reaches this system's inbox. Mutations made outside any
+   * system (gameplay code) have no source and always wake the system.
+   *
+   * Pass a {@link QueryDSL} to define the domain inline — a fresh tracked query
+   * is created and tied to this system's lifetime via {@link ChildOf}. Pass an
+   * existing {@link Query} to reuse its membership directly. To silence a
+   * system's own writeback, include its entity in the domain (for example, tag
+   * the participating system entities with a marker component and match it).
+   *
+   * Calling `ignoreSource` again replaces the previous domain. Entry-time
+   * initialization is never silenced. Call during setup, before
+   * {@link World.start}; the inline-DSL form builds a query, which cannot
+   * happen while a frame is in progress.
+   *
+   * @param source - A {@link QueryDSL} domain expression or an existing
+   *   {@link Query} whose members are the silenced sources.
+   * @returns This system, for chaining.
+   *
+   * @example
+   * ```ts
+   * // Tag every physics system entity, then have the reader ignore that domain.
+   * const integrate = world.system("Integrate").requires(Position, Velocity)
+   *   .each([Position, Velocity], (e, [p, v]) => { p.x += v.vx; });
+   * integrate.entity.add(Physics);
+   *
+   * world.system("PhysicsRead").requires(Position)
+   *   .ignoreSource([Physics])
+   *   .update(Position, reactToExternalChange);
+   * ```
+   */
+  public ignoreSource(source: QueryDSL | Query): this {
+    this._assertConfigurable();
+    const query = source instanceof Query ? source : this._buildSilenceQuery(source);
+    this.entity.set(SilenceSource, { target: query.entity });
+    this._silenceQuery = query;
+    return this;
+  }
+
+  /** @internal Drop the silence-domain query cache after the relationship is removed. */
+  public _clearSilence(): void {
+    this._silenceQuery = undefined;
   }
 
   /**
