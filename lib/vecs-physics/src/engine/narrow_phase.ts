@@ -11,15 +11,18 @@
 // be flipped to restore the A→B normal convention).
 //
 // Transform convention:
-//   computeManifold accepts world transforms directly — the caller is
-//   responsible for composing mulTransforms(bodyWorldXf, shapeLocalXf) before
-//   calling. This matches b2UpdateContact which receives pre-composed world
-//   transforms for each shape. VP-15/M3 must compose the transforms before
-//   dispatching.
+//   computeManifold callers pass BODY world transforms (one per shape). The
+//   function composes each shape's world transform internally from the body
+//   transform and the shape-local pose stored on InternalShape
+//   (localX/Y/Cos/Sin), then dispatches to the collide functions using those
+//   composed transforms. After dispatch the returned anchors are converted from
+//   shape-origin-relative to body-origin-relative by adding the world vector
+//   from each body origin to its shape origin. VP-15/M3 passes body world
+//   transforms directly.
 //
 // Engine module boundary: import only from math/, engine/manifold/*, engine/shape.ts.
 
-import type { Transform } from "../math/transform.js";
+import { mulTransforms, type Transform } from "../math/transform.js";
 
 import {
   emptyManifold,
@@ -244,6 +247,33 @@ function _flipPoint(p: ManifoldPoint): ManifoldPoint {
   };
 }
 
+// ─── _shapeLocalXf ────────────────────────────────────────────────────────────
+
+// Build the shape-local transform from the InternalShape's stored pose fields.
+function _shapeLocalXf(shape: InternalShape): Transform {
+  return {
+    p: { x: shape.localX, y: shape.localY },
+    q: { c: shape.localCos, s: shape.localSin },
+  };
+}
+
+// ─── _addBodyOffset ───────────────────────────────────────────────────────────
+
+// Shift every valid manifold point's anchor by the world vector from the body
+// origin to the shape origin: anchorA += (shapeXf.p - bodyXf.p).
+// This converts shape-origin-relative anchors to body-origin-relative anchors.
+function _addBodyOffset(
+  m: Manifold,
+  levA: { x: number; y: number },
+  levB: { x: number; y: number }
+): void {
+  for (let i = 0; i < m.pointCount; i++) {
+    const mp = m.points[i]!;
+    mp.anchorA = { x: mp.anchorA.x + levA.x, y: mp.anchorA.y + levA.y };
+    mp.anchorB = { x: mp.anchorB.x + levB.x, y: mp.anchorB.y + levB.y };
+  }
+}
+
 // ─── computeManifold ─────────────────────────────────────────────────────────
 
 /**
@@ -252,29 +282,35 @@ function _flipPoint(p: ManifoldPoint): ManifoldPoint {
  * Mirrors the dispatch core of `b2UpdateContact` in contact.c, using the
  * registry built by `b2InitializeContactRegisters` / `b2AddType`.
  *
- * **Transform convention:** both `xfA` and `xfB` must be the fully-composed
- * world transforms for each shape: `mulTransforms(bodyWorldXf, shapeLocalXf)`.
- * VP-15/M3 is responsible for this composition before calling.
+ * **Transform convention:** `bodyXfA` and `bodyXfB` are the BODY world
+ * transforms for the bodies that own `shapeA` and `shapeB` respectively.
+ * `computeManifold` composes each shape's world transform internally from the
+ * body transform and the shape-local pose stored on {@link InternalShape}
+ * (`localX`, `localY`, `localCos`, `localSin`), then dispatches to the collide
+ * functions using those composed transforms.
  *
- * The returned manifold's normal always points from `shapeA` to `shapeB` in
- * world space, regardless of which canonical collide fn was invoked. If the
- * pair is not registered (e.g. segment–segment), returns an empty manifold
- * with `pointCount = 0`.
+ * The returned manifold's `anchorA` / `anchorB` are relative to each shape's
+ * **body origin** in world space (matching `b2ManifoldPoint.anchorA/B` and the
+ * TGS solver's lever-arm convention). The `normal` always points from `shapeA`
+ * to `shapeB` in world space, regardless of which canonical collide fn was
+ * invoked. If the pair is not registered (e.g. segment–segment), returns an
+ * empty manifold with `pointCount = 0`.
  *
  * @param shapeA   - First shape (caller's A side).
- * @param xfA      - World transform for shapeA (body world xf × shape local xf).
+ * @param bodyXfA  - Body world transform for shapeA's owning body.
  * @param shapeB   - Second shape (caller's B side).
- * @param xfB      - World transform for shapeB (body world xf × shape local xf).
+ * @param bodyXfB  - Body world transform for shapeB's owning body.
  * @param cache    - GJK simplex cache; zero-initialise for first call on a
  *                   contact. Passed through to chain-segment and distance fns.
- * @returns A {@link Manifold} with `normal` pointing from A→B. `pointCount=0`
- *          when the shapes are not touching or the pair is unregistered.
+ * @returns A {@link Manifold} with `normal` pointing from A→B and anchors
+ *          relative to each shape's body origin. `pointCount=0` when the
+ *          shapes are not touching or the pair is unregistered.
  */
 export function computeManifold(
   shapeA: InternalShape,
-  xfA: Transform,
+  bodyXfA: Transform,
   shapeB: InternalShape,
-  xfB: Transform,
+  bodyXfB: Transform,
   cache: SimplexCache
 ): Manifold {
   const reg = _registry[shapeA.type]?.[shapeB.type];
@@ -283,16 +319,37 @@ export function computeManifold(
     return emptyManifold();
   }
 
+  // Compose each shape's world transform: shapeXf = bodyXf * shapeLocalXf.
+  const shapeXfA = mulTransforms(bodyXfA, _shapeLocalXf(shapeA));
+  const shapeXfB = mulTransforms(bodyXfB, _shapeLocalXf(shapeB));
+
+  // World vector from each body origin to its shape origin (the lever arm that
+  // the collide fns are unaware of). Adding this to the returned anchors
+  // converts shape-origin-relative anchors to body-origin-relative anchors.
+  const levA = { x: shapeXfA.p.x - bodyXfA.p.x, y: shapeXfA.p.y - bodyXfA.p.y };
+  const levB = { x: shapeXfB.p.x - bodyXfB.p.x, y: shapeXfB.p.y - bodyXfB.p.y };
+
   const geomA = _geomOf(shapeA);
   const geomB = _geomOf(shapeB);
 
+  let m: Manifold;
   if (reg.primary) {
     // Canonical order: fn expects (A, B).
-    return reg.fn(geomA, xfA, geomB, xfB, cache);
+    m = reg.fn(geomA, shapeXfA, geomB, shapeXfB, cache);
+    // anchorA is shape-A-origin-relative; anchorB is shape-B-origin-relative.
+    _addBodyOffset(m, levA, levB);
   } else {
     // Flipped order: fn was registered for (B's type, A's type).
-    // Call with swapped arguments, then flip the manifold to restore A→B normal.
-    const m = reg.fn(geomB, xfB, geomA, xfA, cache);
-    return _flipManifold(m);
+    // Call with swapped arguments — in this call the roles are: first arg =
+    // shapeB (now "A" inside the collide fn), second arg = shapeA (now "B").
+    // The returned manifold has anchorA relative to shapeB's origin and
+    // anchorB relative to shapeA's origin.
+    // _flipManifold swaps anchorA ↔ anchorB so the result is in caller (A,B)
+    // order: anchorA relative to shapeA's origin, anchorB relative to
+    // shapeB's origin.  Then _addBodyOffset applies the correct lever arm per
+    // side.
+    m = _flipManifold(reg.fn(geomB, shapeXfB, geomA, shapeXfA, cache));
+    _addBodyOffset(m, levA, levB);
   }
+  return m;
 }
