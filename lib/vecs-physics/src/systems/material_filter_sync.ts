@@ -43,9 +43,11 @@ export function installMaterialFilterSync(
     if (chainHandles !== undefined) {
       for (const h of chainHandles) {
         const seg = state.shapes.get(h.index);
+        const densityChanged = seg.density !== mat.density;
         _applyMaterial(seg, mat);
-        // Mark massDirty if density changed on a dynamic body.
-        _maybeDirtyMass(state, seg, mat.density);
+        if (densityChanged) {
+          _maybeDirtyMass(state, seg);
+        }
       }
       return;
     }
@@ -56,8 +58,11 @@ export function installMaterialFilterSync(
       return;
     }
     const shape = state.shapes.get(handle.index);
+    const densityChanged = shape.density !== mat.density;
     _applyMaterial(shape, mat);
-    _maybeDirtyMass(state, shape, mat.density);
+    if (densityChanged) {
+      _maybeDirtyMass(state, shape);
+    }
   });
 
   // ── CollisionFilter update ─────────────────────────────────────────────────
@@ -109,9 +114,9 @@ function _applyMaterial(shape: InternalShape, mat: Material): void {
   shape.userMaterialId = mat.userMaterialId;
 }
 
-/** Mark the body massDirty when density changed on a dynamic body.
+/** Mark the owning body massDirty. Only called when density actually changed.
  * Static / kinematic bodies do not participate in mass computation. */
-function _maybeDirtyMass(state: PhysicsState, shape: InternalShape, _newDensity: number): void {
+function _maybeDirtyMass(state: PhysicsState, shape: InternalShape): void {
   if (shape.bodyHandle.index === NULL_INDEX) {
     return;
   }
@@ -122,6 +127,5 @@ function _maybeDirtyMass(state: PhysicsState, shape: InternalShape, _newDensity:
   if (bodyRec.type !== DYNAMIC_BODY) {
     return;
   }
-  // Mark dirty when density changed (old density is now updated on shape).
   bodyRec.massDirty = true;
 }

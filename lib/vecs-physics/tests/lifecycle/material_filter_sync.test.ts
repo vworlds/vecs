@@ -9,8 +9,18 @@
 import { ChildOf, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { Body, BodyType, Box, CollisionFilter, Material, installPhysics } from "../../src/index.js";
+import {
+  Body,
+  BodyType,
+  Box,
+  Circle,
+  CollisionFilter,
+  Material,
+  installPhysics,
+} from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
+import { AWAKE_SET } from "../../src/engine/solver_set.js";
+import { PI } from "../../src/math/constants.js";
 
 let world: World;
 let state: PhysicsState;
@@ -102,6 +112,86 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     const sim = state.solverSets[bodyRec.setIndex]!.bodySims[bodyRec.localIndex]!;
     // Default Box is 1×1 (half-extents 0.5, 0.5) → area=1, mass=5*1=5
     expect(sim.invMass).toBeCloseTo(1 / 5, 6);
+  });
+
+  it("does NOT mark massDirty or recompute mass when only friction changes on a dynamic body", () => {
+    const body = makeBody(BodyType.Dynamic);
+    const shape = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Circle, { radius: 1 })
+      .set(Material, {
+        density: 1,
+        friction: 0.3,
+        restitution: 0,
+        rollingResistance: 0,
+        tangentSpeed: 0,
+        userMaterialId: 0,
+      });
+    world.progress(0, 16);
+
+    const bodyHandle = state.bodyByEntity.get(body.eid)!;
+    const bodyRec = state.bodies.get(bodyHandle.index);
+    const sim = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
+    const invMassAfterFrame1 = sim.invMass;
+    // Sanity: mass should be finite (1/(π·1²)).
+    expect(invMassAfterFrame1).toBeCloseTo(1 / PI, 6);
+
+    // Change only friction — density stays 1, so massDirty must NOT be set.
+    shape.set(Material, {
+      density: 1,
+      friction: 0.8,
+      restitution: 0,
+      rollingResistance: 0,
+      tangentSpeed: 0,
+      userMaterialId: 0,
+    });
+
+    // Corrupt invMass to detect an unwanted recompute.
+    sim.invMass = 999;
+    world.progress(16, 16);
+
+    // massDirty must still be false (it was never set) and invMass must remain
+    // corrupted, proving PhysicsMassRecompute did NOT run for this body.
+    expect(bodyRec.massDirty).toBe(false);
+    expect(sim.invMass).toBe(999);
+  });
+
+  it("recomputes mass when density changes on a dynamic body (density 1 → 5)", () => {
+    const body = makeBody(BodyType.Dynamic);
+    const shape = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Circle, { radius: 1 })
+      .set(Material, {
+        density: 1,
+        friction: 0.6,
+        restitution: 0,
+        rollingResistance: 0,
+        tangentSpeed: 0,
+        userMaterialId: 0,
+      });
+    world.progress(0, 16);
+
+    const bodyHandle = state.bodyByEntity.get(body.eid)!;
+    const bodyRec = state.bodies.get(bodyHandle.index);
+    const sim = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
+    expect(sim.invMass).toBeCloseTo(1 / PI, 6);
+
+    // Change density from 1 → 5.
+    shape.set(Material, {
+      density: 5,
+      friction: 0.6,
+      restitution: 0,
+      rollingResistance: 0,
+      tangentSpeed: 0,
+      userMaterialId: 0,
+    });
+    world.progress(16, 16);
+
+    // PhysicsMassRecompute must have run: invMass = 1/(5·π·1²).
+    expect(bodyRec.massDirty).toBe(false);
+    expect(sim.invMass).toBeCloseTo(1 / (5 * PI), 6);
   });
 
   it("does NOT mark massDirty for Material changes on a static body", () => {
