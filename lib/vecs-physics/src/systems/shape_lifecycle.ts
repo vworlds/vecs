@@ -34,7 +34,6 @@ import { CollisionFilter, Material, Sensor } from "../components/material.js";
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
 import {
-  computeAABB,
   computeHull,
   makeBox,
   makePolygon,
@@ -47,99 +46,13 @@ import {
   freeShape,
   makeChainSegments,
   ShapeType,
+  updateShapeAABBs,
   type InternalShape,
 } from "../engine/shape.js";
-import { DYNAMIC_BODY, STATIC_BODY, type InternalBody } from "../engine/body.js";
 import type { PhysicsState } from "../engine/state.js";
-import { AABB_MARGIN_FRACTION, MAX_AABB_MARGIN, SPECULATIVE_DISTANCE } from "../math/constants.js";
 import { makeRot } from "../math/rot.js";
 import { mulTransforms, type Transform } from "../math/transform.js";
 import { NULL_INDEX, type BodyHandle, type ShapeHandle } from "../util/handle.js";
-
-// ─── AABB margin helpers (b2ComputeShapeMargin / b2UpdateShapeAABBs) ──────────
-
-/**
- * Compute the per-shape AABB margin. Mirrors `b2ComputeShapeMargin`.
- * Returns a capped fraction of the shape's rough maximum extent.
- */
-function computeShapeMargin(geom: GeometryUnion): number {
-  let raw: number;
-  switch (geom.kind) {
-    case "circle":
-      raw = geom.radius;
-      break;
-    case "capsule": {
-      const dx = geom.bx - geom.ax;
-      const dy = geom.by - geom.ay;
-      raw = 0.5 * Math.sqrt(dx * dx + dy * dy) + geom.radius;
-      break;
-    }
-    case "segment": {
-      const dx = geom.bx - geom.ax;
-      const dy = geom.by - geom.ay;
-      raw = 0.5 * Math.sqrt(dx * dx + dy * dy);
-      break;
-    }
-    case "chainSegment": {
-      const dx = geom.bx - geom.ax;
-      const dy = geom.by - geom.ay;
-      raw = 0.5 * Math.sqrt(dx * dx + dy * dy);
-      break;
-    }
-    case "polygon": {
-      const cx = geom.centroidX;
-      const cy = geom.centroidY;
-      let maxSq = 0;
-      for (let i = 0; i < geom.count; i++) {
-        const vx = geom.vertices[i * 2]! - cx;
-        const vy = geom.vertices[i * 2 + 1]! - cy;
-        const sq = vx * vx + vy * vy;
-        if (sq > maxSq) {
-          maxSq = sq;
-        }
-      }
-      raw = Math.sqrt(maxSq);
-      break;
-    }
-  }
-  return Math.min(MAX_AABB_MARGIN, AABB_MARGIN_FRACTION * raw);
-}
-
-/**
- * Compute + write the tight and fat AABBs on `shape` for the given world
- * transform and body type, mirroring `b2UpdateShapeAABBs`. Returns a fat-AABB
- * object suitable for `BroadPhase.createProxy`/`moveProxy`.
- *
- * box2d applies speculativeDistance to the tight AABB and then a further
- * aabbMargin (shape-specific) to get the fat AABB. Static bodies use only
- * speculativeDistance for the fat margin.
- */
-function updateShapeAABBs(
-  shape: InternalShape,
-  worldXf: Transform,
-  bodyType: number
-): { lowerBound: { x: number; y: number }; upperBound: { x: number; y: number } } {
-  const raw = computeAABB(shape.geometry, worldXf);
-  const spec = SPECULATIVE_DISTANCE;
-
-  // Tight AABB (with speculative margin, stored on shape.aabb in box2d).
-  shape.aabbMinX = raw.lowerBound.x - spec;
-  shape.aabbMinY = raw.lowerBound.y - spec;
-  shape.aabbMaxX = raw.upperBound.x + spec;
-  shape.aabbMaxY = raw.upperBound.y + spec;
-
-  // Fat AABB: static → speculative only; kinematic/dynamic → + aabbMargin.
-  const extra = bodyType === STATIC_BODY ? 0 : computeShapeMargin(shape.geometry);
-  shape.fatAabbMinX = shape.aabbMinX - extra;
-  shape.fatAabbMinY = shape.aabbMinY - extra;
-  shape.fatAabbMaxX = shape.aabbMaxX + extra;
-  shape.fatAabbMaxY = shape.aabbMaxY + extra;
-
-  return {
-    lowerBound: { x: shape.fatAabbMinX, y: shape.fatAabbMinY },
-    upperBound: { x: shape.fatAabbMaxX, y: shape.fatAabbMaxY },
-  };
-}
 
 // ─── Geometry translation (components/ → engine/) ────────────────────────────
 

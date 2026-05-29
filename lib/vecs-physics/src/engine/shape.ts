@@ -6,18 +6,21 @@
 //              fields (proxyKey, fatAabb*), shape linked-list on body.
 // VP-12: no mass fields on InternalShape (mass lives on BodySim).
 //
-// Engine module boundary: import only from math/ and util/.
+// Engine module boundary: import only from math/, util/, and sibling engine/.
 //
 // Upstream sources:
 //   box2d/include/box2d/collision.h  — b2ShapeType enum, b2ChainSegment
 //   box2d/src/geometry.c             — shape construction
 //   box2d/src/hull.c                 — hull validation
 //   box2d/src/shape.c                — b2CreateShape (proxy, linked-list, material)
+//                                       b2ComputeShapeMargin, b2UpdateShapeAABBs
 
 import type { AABB } from "../math/aabb.js";
+import { AABB_MARGIN_FRACTION, MAX_AABB_MARGIN, SPECULATIVE_DISTANCE } from "../math/constants.js";
 import type { Transform } from "../math/transform.js";
 import { NULL_INDEX, type BodyHandle, type ShapeHandle } from "../util/handle.js";
 import { IdPool } from "../util/id_pool.js";
+import { STATIC_BODY } from "./body.js";
 import {
   computeAABB,
   computeHull,
@@ -32,6 +35,106 @@ import {
 
 // Re-export GeometryUnion so callers can import it from here.
 export type { GeometryUnion, PolygonGeometry, ChainSegmentGeometry };
+
+// ─── AABB margin helpers (b2ComputeShapeMargin / b2UpdateShapeAABBs) ──────────
+//
+// Shared by PhysicsShapeLifecycle, PhysicsShapePoseSync, and PhysicsPoseSyncIn
+// so the margin rule lives in exactly one place.
+//
+// Box2D rule (b2UpdateShapeAABBs in box2d/src/shape.c):
+//   tight = computeAABB(geom, worldXf) ± speculativeDistance
+//   fat   = tight ± (static ? speculativeDistance : aabbMargin)
+// "Cannot be zero due to TOI tolerance."
+
+/**
+ * Compute the per-shape AABB motion margin. Mirrors `b2ComputeShapeMargin`.
+ * Returns a value capped to {@link MAX_AABB_MARGIN}.
+ */
+export function computeShapeMargin(geom: GeometryUnion): number {
+  let raw: number;
+  switch (geom.kind) {
+    case "circle":
+      raw = geom.radius;
+      break;
+    case "capsule": {
+      const dx = geom.bx - geom.ax;
+      const dy = geom.by - geom.ay;
+      raw = 0.5 * Math.sqrt(dx * dx + dy * dy) + geom.radius;
+      break;
+    }
+    case "segment":
+    case "chainSegment": {
+      const dx = geom.bx - geom.ax;
+      const dy = geom.by - geom.ay;
+      raw = 0.5 * Math.sqrt(dx * dx + dy * dy);
+      break;
+    }
+    case "polygon": {
+      const cx = geom.centroidX;
+      const cy = geom.centroidY;
+      let maxSq = 0;
+      for (let i = 0; i < geom.count; i++) {
+        const vx = geom.vertices[i * 2]! - cx;
+        const vy = geom.vertices[i * 2 + 1]! - cy;
+        const sq = vx * vx + vy * vy;
+        if (sq > maxSq) {
+          maxSq = sq;
+        }
+      }
+      raw = Math.sqrt(maxSq);
+      break;
+    }
+  }
+  return Math.min(MAX_AABB_MARGIN, AABB_MARGIN_FRACTION * raw);
+}
+
+/**
+ * Compute and write the tight AABB and fat AABB on `shape` for the given world
+ * transform and body type, mirroring `b2UpdateShapeAABBs`.
+ *
+ * Static bodies use `speculativeDistance` as the fat margin (not zero —
+ * "Cannot be zero due to TOI tolerance"). Kinematic/dynamic bodies use
+ * `computeShapeMargin` for the fat margin.
+ *
+ * Returns the fat AABB as an `{lowerBound, upperBound}` object suitable for
+ * `BroadPhase.createProxy` / `moveProxy`.
+ */
+export function updateShapeAABBs(shape: InternalShape, worldXf: Transform, bodyType: number): AABB {
+  const raw = computeAABB(shape.geometry, worldXf);
+  const spec = SPECULATIVE_DISTANCE;
+
+  // Tight AABB (geometry ± speculativeDistance).
+  shape.aabbMinX = raw.lowerBound.x - spec;
+  shape.aabbMinY = raw.lowerBound.y - spec;
+  shape.aabbMaxX = raw.upperBound.x + spec;
+  shape.aabbMaxY = raw.upperBound.y + spec;
+
+  // Fat AABB: static → speculativeDistance extra; kinematic/dynamic → aabbMargin.
+  const extra = bodyType === STATIC_BODY ? spec : computeShapeMargin(shape.geometry);
+  shape.fatAabbMinX = shape.aabbMinX - extra;
+  shape.fatAabbMinY = shape.aabbMinY - extra;
+  shape.fatAabbMaxX = shape.aabbMaxX + extra;
+  shape.fatAabbMaxY = shape.aabbMaxY + extra;
+
+  return {
+    lowerBound: { x: shape.fatAabbMinX, y: shape.fatAabbMinY },
+    upperBound: { x: shape.fatAabbMaxX, y: shape.fatAabbMaxY },
+  };
+}
+
+/**
+ * Test whether the new tight AABB is still contained within the existing fat
+ * AABB. When it is, no proxy move is needed. Mirrors the containment check in
+ * `b2Body_SetTransform` (box2d/src/body.c).
+ */
+export function fatAabbContainsTight(shape: InternalShape): boolean {
+  return (
+    shape.fatAabbMinX <= shape.aabbMinX &&
+    shape.fatAabbMinY <= shape.aabbMinY &&
+    shape.aabbMaxX <= shape.fatAabbMaxX &&
+    shape.aabbMaxY <= shape.fatAabbMaxY
+  );
+}
 
 // ─── ShapeType ────────────────────────────────────────────────────────────────
 

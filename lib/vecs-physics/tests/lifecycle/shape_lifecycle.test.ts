@@ -28,6 +28,7 @@ import {
 import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
 import { AWAKE_SET, STATIC_SET } from "../../src/engine/solver_set.js";
 import { NULL_INDEX } from "../../src/util/handle.js";
+import { SPECULATIVE_DISTANCE } from "../../src/math/constants.js";
 
 let world: World;
 let state: PhysicsState;
@@ -628,5 +629,63 @@ describe("PhysicsShapeLifecycle — reparenting", () => {
 
     const rec = getShapeRecord(shape.eid)!;
     expect(rec.bodyHandle!.index).toBe(bodyBHandle.index);
+  });
+});
+
+// ─── Static fat AABB margin (Box2D parity) ────────────────────────────────────
+
+describe("static shape fat-AABB margin (b2UpdateShapeAABBs parity)", () => {
+  it("static Box: fatAABB extends tight AABB by speculativeDistance on every side", () => {
+    // Box2D: static fat margin = speculativeDistance (NOT zero).
+    // tight AABB = geometry ± speculativeDistance
+    // fat  AABB  = tight   ± speculativeDistance  = geometry ± 2*speculativeDistance
+    const body = world.entity().set(Body, { type: BodyType.Static });
+    const shape = world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+    world.progress(0, 16);
+
+    const rec = getShapeRecord(shape.eid)!;
+    const spec = SPECULATIVE_DISTANCE;
+    // fat = tight ± spec
+    expect(rec.fatAabbMinX).toBeCloseTo(rec.aabbMinX - spec, 6);
+    expect(rec.fatAabbMinY).toBeCloseTo(rec.aabbMinY - spec, 6);
+    expect(rec.fatAabbMaxX).toBeCloseTo(rec.aabbMaxX + spec, 6);
+    expect(rec.fatAabbMaxY).toBeCloseTo(rec.aabbMaxY + spec, 6);
+    // Fat AABB is strictly larger than tight.
+    expect(rec.fatAabbMaxX).toBeGreaterThan(rec.aabbMaxX);
+  });
+
+  it("dynamic Box: fatAABB extends tight AABB by aabbMargin (> speculativeDistance)", () => {
+    const body = world.entity().set(Body, { type: BodyType.Dynamic });
+    const shape = world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+    world.progress(0, 16);
+
+    const rec = getShapeRecord(shape.eid)!;
+    const spec = SPECULATIVE_DISTANCE;
+    // Dynamic fat margin > speculativeDistance for a half-unit box.
+    expect(rec.fatAabbMaxX - rec.aabbMaxX).toBeGreaterThan(spec);
+  });
+
+  it("static fat margin equals speculativeDistance, dynamic fat margin > speculativeDistance", () => {
+    const staticBody = world.entity().set(Body, { type: BodyType.Static });
+    const dynamicBody = world.entity().set(Body, { type: BodyType.Dynamic });
+    const staticShape = world
+      .entity()
+      .set(ChildOf, { target: staticBody })
+      .set(Box, { hx: 0.5, hy: 0.5 });
+    const dynamicShape = world
+      .entity()
+      .set(ChildOf, { target: dynamicBody })
+      .set(Box, { hx: 0.5, hy: 0.5 });
+    world.progress(0, 16);
+
+    const sRec = getShapeRecord(staticShape.eid)!;
+    const dRec = getShapeRecord(dynamicShape.eid)!;
+    const spec = SPECULATIVE_DISTANCE;
+
+    const staticFatExtra = sRec.fatAabbMaxX - sRec.aabbMaxX;
+    const dynamicFatExtra = dRec.fatAabbMaxX - dRec.aabbMaxX;
+
+    expect(staticFatExtra).toBeCloseTo(spec, 6);
+    expect(dynamicFatExtra).toBeGreaterThan(spec);
   });
 });

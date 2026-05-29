@@ -19,87 +19,19 @@ import { type IPhase, type System, type World } from "@vworlds/vecs";
 import { Body } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
-import { computeAABB } from "../engine/geometry.js";
-import { STATIC_BODY } from "../engine/body.js";
-import type { InternalShape } from "../engine/shape.js";
+import { updateShapeAABBs } from "../engine/shape.js";
 import type { PhysicsState } from "../engine/state.js";
-import { AABB_MARGIN_FRACTION, MAX_AABB_MARGIN, SPECULATIVE_DISTANCE } from "../math/constants.js";
 import { makeRot } from "../math/rot.js";
 import { mulTransforms, type Transform } from "../math/transform.js";
 import type { BodyHandle } from "../util/handle.js";
 
-// ─── Helpers shared with shape_lifecycle ──────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Read the body's current world transform from its BodySim. */
 function getBodyWorldTransform(state: PhysicsState, bodyHandle: BodyHandle): Transform {
   const bodyRec = state.bodies.get(bodyHandle.index);
   const sim = state.solverSets[bodyRec.setIndex]!.bodySims[bodyRec.localIndex]!;
   return { p: { x: sim.transformX, y: sim.transformY }, q: { c: sim.cos, s: sim.sin } };
-}
-
-/** Compute shape margin (mirrors b2ComputeShapeMargin, duplicated here to avoid
- * cross-system imports; the function is small and pure). */
-function computeShapeMargin(geom: InternalShape["geometry"]): number {
-  let raw: number;
-  switch (geom.kind) {
-    case "circle":
-      raw = geom.radius;
-      break;
-    case "capsule": {
-      const dx = geom.bx - geom.ax;
-      const dy = geom.by - geom.ay;
-      raw = 0.5 * Math.sqrt(dx * dx + dy * dy) + geom.radius;
-      break;
-    }
-    case "segment":
-    case "chainSegment": {
-      const dx = geom.bx - geom.ax;
-      const dy = geom.by - geom.ay;
-      raw = 0.5 * Math.sqrt(dx * dx + dy * dy);
-      break;
-    }
-    case "polygon": {
-      const cx = geom.centroidX;
-      const cy = geom.centroidY;
-      let maxSq = 0;
-      for (let i = 0; i < geom.count; i++) {
-        const vx = geom.vertices[i * 2]! - cx;
-        const vy = geom.vertices[i * 2 + 1]! - cy;
-        const sq = vx * vx + vy * vy;
-        if (sq > maxSq) {
-          maxSq = sq;
-        }
-      }
-      raw = Math.sqrt(maxSq);
-      break;
-    }
-  }
-  return Math.min(MAX_AABB_MARGIN, AABB_MARGIN_FRACTION * raw);
-}
-
-/** Recompute and write the tight + fat AABBs for `shape`, return the fat AABB. */
-function refreshAABBs(
-  shape: InternalShape,
-  worldXf: Transform,
-  bodyType: number
-): { lowerBound: { x: number; y: number }; upperBound: { x: number; y: number } } {
-  const raw = computeAABB(shape.geometry, worldXf);
-  const spec = SPECULATIVE_DISTANCE;
-  shape.aabbMinX = raw.lowerBound.x - spec;
-  shape.aabbMinY = raw.lowerBound.y - spec;
-  shape.aabbMaxX = raw.upperBound.x + spec;
-  shape.aabbMaxY = raw.upperBound.y + spec;
-
-  const extra = bodyType === STATIC_BODY ? 0 : computeShapeMargin(shape.geometry);
-  shape.fatAabbMinX = shape.aabbMinX - extra;
-  shape.fatAabbMinY = shape.aabbMinY - extra;
-  shape.fatAabbMaxX = shape.aabbMaxX + extra;
-  shape.fatAabbMaxY = shape.aabbMaxY + extra;
-
-  return {
-    lowerBound: { x: shape.fatAabbMinX, y: shape.fatAabbMinY },
-    upperBound: { x: shape.fatAabbMaxX, y: shape.fatAabbMaxY },
-  };
 }
 
 /** Update local pose fields from new localX/Y/Cos/Sin, recompute AABBs, and
@@ -127,7 +59,7 @@ function refreshSingleShape(
   const localXf: Transform = { p: { x: lx, y: ly }, q: { c: lcos, s: lsin } };
   const worldXf = mulTransforms(bodyXf, localXf);
   const bodyType = state.bodies.get(shape.bodyHandle.index).type;
-  const fatAABB = refreshAABBs(shape, worldXf, bodyType);
+  const fatAABB = updateShapeAABBs(shape, worldXf, bodyType);
 
   state.broadPhase.moveProxy(shape.proxyKey, fatAABB);
 }
@@ -158,7 +90,7 @@ function refreshChainShapes(
     const localXf: Transform = { p: { x: lx, y: ly }, q: { c: lcos, s: lsin } };
     const worldXf = mulTransforms(bodyXf, localXf);
     const bodyType = state.bodies.get(seg.bodyHandle.index).type;
-    const fatAABB = refreshAABBs(seg, worldXf, bodyType);
+    const fatAABB = updateShapeAABBs(seg, worldXf, bodyType);
 
     state.broadPhase.moveProxy(seg.proxyKey, fatAABB);
   }
