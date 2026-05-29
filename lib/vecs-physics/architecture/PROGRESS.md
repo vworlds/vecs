@@ -301,7 +301,21 @@ VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
     (the events system resolves handles→entities to write event components).
     (2) `update(ChildOf)` reads `childOf.target.eid` via an `as unknown` cast;
     prefer the typed `e.parent(ChildOf)` path (as `enter` uses). Tested + working.
-- ⬜ **VP-12** — `engine/mass.ts` + `systems/mass_recompute.ts`. NEXT (wave 3).
+- ✅ **VP-12** — `engine/mass.ts` + `systems/mass_recompute.ts` (engine d348412,
+  system e2c1173, parity fix 937dbe8). Mass integrals (`b2ComputeCircleMass`/
+  `CapsuleMass`/`PolygonMass`) + `b2UpdateBodyMassData` (walk the body shape list,
+  skip sensors/zero-density, mass-weighted CoM, parallel-axis inertia about the
+  CoM, min/max extent). `PhysicsMassRecompute` runs last in `physics-pre`,
+  recomputing every `massDirty` body. Mass fields written on `BodySim`. 19 tests
+  (parity: ShapeMassTest, DeferredMassFlagSyncTest).
+  - **Local-pose contract honoured:** geometry-local centroid transformed by the
+    shape local pose; per-shape inertia is about the centroid (box2d convention)
+    and 2D centroidal inertia is rotation-invariant, so only the parallel-axis
+    shift to the body CoM is applied.
+  - **Parity fix (937dbe8):** massless dynamic body keeps `invMass=0` (box2d),
+    overturning the false VP-7 "default mass 1" note (see Settled Decisions).
+  - **Deferred:** CoM-shift velocity adjustment (box2d body.c:629–633) omitted —
+    no `BodyState` threaded through; wire if sleep/CoM-drift needs it (M3/M5).
 - ✅ **VP-13** — `engine/manifold/*` + `engine/distance.ts` (13a 0f459c7, 13b
   5f75617, 13c 82253ee, 13d 300c7d1, 13e 24e2065). All twelve `b2Collide*`
   functions, `b2ClipPolygons`/`findMaxSeparation`, `b2SegmentDistance` + GJK
@@ -315,7 +329,7 @@ VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
     endpoint reflection matches box2d only when the chain continues straight; at
     a sharp-turn endpoint it diverges from box2d's actual/neighbour ghosts. Loops
     match exactly. Resolve at VP-11 (chain creation) — M4 `ChainSegmentShapeTest`.
-- ⬜ **VP-14** — `engine/narrow_phase.ts`.
+- ⬜ **VP-14** — `engine/narrow_phase.ts` dispatch table. NEXT (last M2 ticket).
 
 ### M2 progress snapshot
 
