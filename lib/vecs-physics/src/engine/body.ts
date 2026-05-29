@@ -17,7 +17,7 @@
 import type { Entity } from "@vworlds/vecs";
 
 import { HUGE } from "../math/constants.js";
-import type { BodyHandle } from "../util/handle.js";
+import { NULL_INDEX, type BodyHandle } from "../util/handle.js";
 import { IdPool } from "../util/id_pool.js";
 
 // Numeric body types, mirroring `b2BodyType`. The public string `BodyType`
@@ -51,6 +51,16 @@ export interface InternalBody {
   setIndex: number;
   /** Index of this body's {@link BodySim} (and {@link BodyState}) within its set. */
   localIndex: number;
+
+  // ── Shape linked list (VP-11) ────────────────────────────────────────────
+  /** Handle index of the first shape on this body, or {@link NULL_INDEX}.
+   * Mirrors `b2Body.headShapeId`. */
+  shapeHead: number;
+  /** Number of shapes attached to this body. Mirrors `b2Body.shapeCount`. */
+  shapeCount: number;
+  /** Set when shape mass/inertia must be re-integrated. VP-12 reads and
+   * clears this flag to recompute `BodySim.invMass`/`invInertia`. */
+  massDirty: boolean;
 }
 
 /** Dense per-body simulation data. One per body in a solver set. Transform and

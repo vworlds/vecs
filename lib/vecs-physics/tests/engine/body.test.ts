@@ -43,7 +43,15 @@ describe("BodyStorage", () => {
   it("returns the live record for an occupied slot", () => {
     const storage = new BodyStorage();
     const handle = storage.idPool.allocate();
-    const record: InternalBody = { entity: ENTITY, type: DYNAMIC_BODY, setIndex: 2, localIndex: 0 };
+    const record: InternalBody = {
+      entity: ENTITY,
+      type: DYNAMIC_BODY,
+      setIndex: 2,
+      localIndex: 0,
+      shapeHead: -1,
+      shapeCount: 0,
+      massDirty: false,
+    };
     storage.records[handle.index] = record;
     expect(storage.get(handle.index)).toBe(record);
   });

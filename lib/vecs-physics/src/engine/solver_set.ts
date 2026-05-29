@@ -14,7 +14,7 @@
 import type { Entity } from "@vworlds/vecs";
 
 import { swapRemove } from "../util/dense_array.js";
-import type { BodyHandle } from "../util/handle.js";
+import { NULL_INDEX, type BodyHandle } from "../util/handle.js";
 import {
   BodyStorage,
   makeBodySim,
@@ -78,6 +78,10 @@ export function createBody(
     type,
     setIndex: set.setIndex,
     localIndex: set.bodySims.length,
+    // Shape linked-list: populated by VP-11 PhysicsShapeLifecycle.
+    shapeHead: NULL_INDEX,
+    shapeCount: 0,
+    massDirty: false,
   };
   storage.records[handle.index] = body;
   set.bodySims.push(sim);

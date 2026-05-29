@@ -2,13 +2,9 @@
 // components (Box, Circle, Capsule, Segment, Polygon, Chain).
 //
 // VP-8 scope: type, geometry union, local pose, local centroid, world AABB.
-// Fields deferred to later tickets are documented in comments:
-//   - VP-10: proxyKey, fatAabbMin/Max (broad-phase proxy)
-//   - VP-11: bodyHandle, entity, prevShape/nextShape, density/friction/
-//            restitution/rollingResistance/tangentSpeed/userMaterialId,
-//            categoryBits/maskBits/groupIndex, sensor/enableContactEvents/
-//            enableHitEvents/enableSensorEvents, sensorIndex
-//   - VP-12: no mass fields on InternalShape (mass lives on BodySim)
+// VP-11 scope: body linkage, material/filter/sensor fields, broad-phase proxy
+//              fields (proxyKey, fatAabb*), shape linked-list on body.
+// VP-12: no mass fields on InternalShape (mass lives on BodySim).
 //
 // Engine module boundary: import only from math/ and util/.
 //
@@ -16,10 +12,11 @@
 //   box2d/include/box2d/collision.h  — b2ShapeType enum, b2ChainSegment
 //   box2d/src/geometry.c             — shape construction
 //   box2d/src/hull.c                 — hull validation
+//   box2d/src/shape.c                — b2CreateShape (proxy, linked-list, material)
 
 import type { AABB } from "../math/aabb.js";
 import type { Transform } from "../math/transform.js";
-import type { ShapeHandle } from "../util/handle.js";
+import { NULL_INDEX, type BodyHandle, type ShapeHandle } from "../util/handle.js";
 import { IdPool } from "../util/id_pool.js";
 import {
   computeAABB,
@@ -54,25 +51,28 @@ export const enum ShapeType {
 // ─── InternalShape ────────────────────────────────────────────────────────────
 
 /**
- * Sparse, handle-indexed shape record. Intentionally thin: VP-8 populates only
- * the fields needed for geometry and AABB. See the block comments above for the
- * deferral map.
+ * Sparse, handle-indexed shape record. Populated incrementally across tickets:
+ * VP-8 (geometry + pose + AABB), VP-11 (body linkage, material, filter,
+ * sensor, proxy), VP-12 (mass lives on BodySim — nothing new here).
+ *
+ * Mirrors `b2Shape` from box2d/include/box2d/types.h, scoped to what the
+ * engine needs through M2.
  */
 export interface InternalShape {
   // ── Geometry & local pose ──────────────────────────────────────────────────
   type: ShapeType;
   geometry: GeometryUnion;
 
-  /** Shape-local pose relative to the body origin. Populated from
-   * `ShapePosition` / `ShapeRotation` by VP-11. */
+  /** Shape-local pose relative to the body origin. Set from
+   * `ShapePosition` / `ShapeRotation`; default identity (0,0,1,0). */
   localX: number;
   localY: number;
   localCos: number;
   localSin: number;
 
-  /** Centroid of the geometry in body-local space (not affected by the local
-   * pose transform — the shape-lifecycle system computes the final world
-   * centroid). */
+  /** Centroid of the geometry in shape-local space (NOT body-local; the
+   * local-pose transform is NOT applied). VP-12 mass/inertia applies it.
+   * Mirrors `b2Shape.localCentroid`. */
   localCentroidX: number;
   localCentroidY: number;
 
@@ -82,32 +82,59 @@ export interface InternalShape {
   aabbMaxX: number;
   aabbMaxY: number;
 
-  // ── VP-10 deferred: broad-phase proxy ─────────────────────────────────────
-  // proxyKey: number;          // broad-phase proxy id (DynamicTree leaf key)
-  // fatAabbMinX: number;       // enlarged AABB for proxy re-fit hysteresis
-  // fatAabbMinY: number;
-  // fatAabbMaxX: number;
-  // fatAabbMaxY: number;
+  // ── Broad-phase proxy (VP-11) ─────────────────────────────────────────────
+  /** Encoded proxy key `(proxyId << 2) | bodyType`. Mirrors `B2_PROXY_KEY`. */
+  proxyKey: number;
+  /** Fat (enlarged) AABB stored on the proxy for re-fit hysteresis.
+   *  Mirrors `b2Shape.fatAABB` / box2d's `B2_AABB_MARGIN` enlargement. */
+  fatAabbMinX: number;
+  fatAabbMinY: number;
+  fatAabbMaxX: number;
+  fatAabbMaxY: number;
 
-  // ── VP-11 deferred: body linkage & material/filter/sensor ─────────────────
-  // bodyHandle: BodyHandle | null;
-  // entity: Entity;
-  // prevShape: ShapeHandle | null;   // linked list on the body
-  // nextShape: ShapeHandle | null;
-  // density: number;
-  // friction: number;
-  // restitution: number;
-  // rollingResistance: number;
-  // tangentSpeed: number;
-  // userMaterialId: number;
-  // categoryBits: number;
-  // maskBits: number;
-  // groupIndex: number;
-  // sensor: boolean;
-  // enableContactEvents: boolean;
-  // enableHitEvents: boolean;
-  // enableSensorEvents: boolean;
-  // sensorIndex: number;   // into PhysicsState.sensors, or -1
+  // ── Body linkage (VP-11) ───────────────────────────────────────────────────
+  /** Handle of the owning body. Mirrors `b2Shape.bodyId`. */
+  bodyHandle: BodyHandle;
+  /** The Vecs entity id (eid) this shape was created from. */
+  entity: number;
+  /** Previous shape in the body's intrusive linked list, or `NULL_INDEX`. */
+  prevShape: number;
+  /** Next shape in the body's intrusive linked list, or `NULL_INDEX`. */
+  nextShape: number;
+
+  // ── Material (VP-11) ──────────────────────────────────────────────────────
+  /** Mass density (from `b2ShapeDef.density`). Default 1. */
+  density: number;
+  /** Coulomb friction coefficient. Default 0.6. */
+  friction: number;
+  /** Restitution coefficient. Default 0. */
+  restitution: number;
+  /** Rolling resistance. Default 0. */
+  rollingResistance: number;
+  /** Conveyor belt tangent speed. Default 0. */
+  tangentSpeed: number;
+  /** Opaque user material id. Default 0. */
+  userMaterialId: number;
+
+  // ── Collision filter (VP-11) ──────────────────────────────────────────────
+  /** Category bitmask. Default 1. */
+  categoryBits: number;
+  /** Mask bitmask (which categories this shape collides with). Default 0xffffffff. */
+  maskBits: number;
+  /** Group index (negative = never collide, positive = always). Default 0. */
+  groupIndex: number;
+
+  // ── Sensor / event flags (VP-11) ──────────────────────────────────────────
+  /** Whether this shape is a sensor (overlap-only, no collision response). */
+  sensor: boolean;
+  /** Opt-in to contact begin/end events. */
+  enableContactEvents: boolean;
+  /** Opt-in to hit events (fast contacts). */
+  enableHitEvents: boolean;
+  /** Opt-in to sensor overlap events. */
+  enableSensorEvents: boolean;
+  /** Index into PhysicsState.sensors (-1 until M3 sensor bookkeeping). */
+  sensorIndex: number;
 }
 
 // ─── ShapeStorage ─────────────────────────────────────────────────────────────
@@ -145,6 +172,27 @@ export function makeCircleShape(radius: number, xf: Transform): InternalShape {
   const geom = { kind: "circle" as const, cx: 0, cy: 0, radius };
   const aabb = computeAABB(geom, xf);
   return makeShape(ShapeType.Circle, geom, xf, 0, 0, aabb);
+}
+
+/** Allocate a shape handle and store a fully-initialised `InternalShape`
+ * record in {@link ShapeStorage}. Returns the handle so the caller can
+ * store it on the body's linked list and `shapeByEntity`. This is the
+ * storage-layer counterpart to box2d's `b2CreateShape` allocation block.
+ *
+ * All linked-list and body-linkage fields (`prevShape`, `nextShape`,
+ * `bodyHandle`) are zeroed/sentinel here; the caller must set them after
+ * this returns.
+ */
+export function createShape(storage: ShapeStorage, shape: InternalShape): ShapeHandle {
+  const handle = storage.idPool.allocate();
+  storage.records[handle.index] = shape;
+  return handle;
+}
+
+/** Free a shape slot back to the pool. */
+export function freeShape(storage: ShapeStorage, handle: ShapeHandle): void {
+  storage.records[handle.index] = undefined;
+  storage.idPool.free(handle);
 }
 
 /** Build an {@link InternalShape} for a capsule. */
@@ -299,9 +347,10 @@ export function makeChainSegments(
 // ─── Internal helper ──────────────────────────────────────────────────────────
 
 /** Build an {@link InternalShape} from pre-computed parts. Local pose is seeded
- * from the supplied transform so that a shape created at the identity transform
- * has `localX=0, localY=0, localCos=1, localSin=0` — the shape-lifecycle
- * system (VP-11) overwrites these from `ShapePosition` / `ShapeRotation`. */
+ * from the supplied transform. VP-11's `createShape` (storage-layer) overwrites
+ * the body-linkage, material, filter, proxy, and event fields after calling
+ * one of the per-shape constructors. Sentinel values are used so the record is
+ * always valid before those fields are set. */
 function makeShape(
   type: ShapeType,
   geometry: GeometryUnion,
@@ -310,6 +359,9 @@ function makeShape(
   centY: number,
   aabb: AABB
 ): InternalShape {
+  // A placeholder BodyHandle that is overwritten by VP-11 before the shape is
+  // exposed to any consumer. The generation 0 marks it as "not yet linked".
+  const placeholderBodyHandle = { index: NULL_INDEX, generation: 0 } as unknown as BodyHandle;
   return {
     type,
     geometry,
@@ -323,5 +375,33 @@ function makeShape(
     aabbMinY: aabb.lowerBound.y,
     aabbMaxX: aabb.upperBound.x,
     aabbMaxY: aabb.upperBound.y,
+    // Broad-phase proxy — filled by VP-11 lifecycle after createProxy.
+    proxyKey: -1,
+    fatAabbMinX: aabb.lowerBound.x,
+    fatAabbMinY: aabb.lowerBound.y,
+    fatAabbMaxX: aabb.upperBound.x,
+    fatAabbMaxY: aabb.upperBound.y,
+    // Body linkage — filled by VP-11 lifecycle after insertion.
+    bodyHandle: placeholderBodyHandle,
+    entity: 0,
+    prevShape: NULL_INDEX,
+    nextShape: NULL_INDEX,
+    // Material — box2d defaults from b2DefaultShapeDef / b2DefaultSurfaceMaterial.
+    density: 1,
+    friction: 0.6,
+    restitution: 0,
+    rollingResistance: 0,
+    tangentSpeed: 0,
+    userMaterialId: 0,
+    // Collision filter — box2d defaults from b2DefaultFilter.
+    categoryBits: 1,
+    maskBits: 0xffffffff,
+    groupIndex: 0,
+    // Sensor / events — all off by default.
+    sensor: false,
+    enableContactEvents: false,
+    enableHitEvents: false,
+    enableSensorEvents: false,
+    sensorIndex: -1,
   };
 }

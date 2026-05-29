@@ -1,19 +1,25 @@
-// Physics system installation. Creates the VP-6 systems in their canonical run
-// order and tags each one with `PhysicsSystemTag` so the pose-sync feedback
+// Physics system installation. Creates all physics systems in their canonical
+// run order and tags each one with `PhysicsSystemTag` so the pose-sync feedback
 // suppression (`PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])`) can filter
 // the engine's own write-back. This is registration step 12 (PLAN.md →
 // _Component registration order_).
 //
-// Systems run within a phase in creation order, so `PhysicsBodyLifecycle` is
-// created before `PhysicsPoseSyncIn`: a body must exist before a teleport can be
-// applied to it.
+// Physics-pre phase order (creation order = run order within a phase):
+//   1. PhysicsBodyLifecycle   — body must exist before any shape is inserted
+//   2. PhysicsShapeLifecycle  — creates/destroys shape records + broad-phase proxies
+//   3. PhysicsMaterialFilterSync — propagates Material/Filter/Sensor updates
+//   4. PhysicsShapePoseSync   — propagates ShapePosition/ShapeRotation updates
+//   5. PhysicsPoseSyncIn      — syncs Position/Rotation/Velocity into body sims
 
 import { type IPhase, type World } from "@vworlds/vecs";
 
 import { PhysicsSystemTag, type PhysicsState } from "../engine/state.js";
 import { installBodyLifecycle } from "./lifecycle.js";
+import { installMaterialFilterSync } from "./material_filter_sync.js";
 import { installPoseSyncIn } from "./pose_sync_in.js";
 import { installPoseSyncOut } from "./pose_sync_out.js";
+import { installShapeLifecycle } from "./shape_lifecycle.js";
+import { installShapePoseSync } from "./shape_pose_sync.js";
 import { installStep } from "./step.js";
 
 /** The three phases the physics systems split across. */
@@ -31,9 +37,15 @@ export function installPhysicsSystems(
   phases: PhysicsPhases
 ): void {
   const systems = [
+    // physics-pre: lifecycle + sync systems in dependency order.
     installBodyLifecycle(world, state, phases.preStep),
+    installShapeLifecycle(world, state, phases.preStep),
+    installMaterialFilterSync(world, state, phases.preStep),
+    installShapePoseSync(world, state, phases.preStep),
     installPoseSyncIn(world, state, phases.preStep),
+    // physics-step: integrator.
     installStep(world, state, phases.step),
+    // physics-post: write simulated pose back to ECS.
     installPoseSyncOut(world, state, phases.postStep),
   ];
 

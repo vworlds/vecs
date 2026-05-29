@@ -72,6 +72,10 @@ export class PhysicsState {
   // Maps between Vecs entities and internal engine handles.
   public readonly bodyByEntity = new Map<number /* eid */, BodyHandle>();
   public readonly shapeByEntity = new Map<number /* eid */, ShapeHandle>();
+  // Chain entities expand to N segment shapes; this map holds all N handles.
+  // Non-chain geometry entities use shapeByEntity (1:1). Chain entities use
+  // chainShapeByEntity (1:N) only, to keep the common path branch-free.
+  public readonly chainShapeByEntity = new Map<number /* eid */, ShapeHandle[]>();
 
   // Body handle indices that the solver finalized this step (Box2D's
   // `bodyMoveEvents`). Rebuilt each step; `PhysicsPoseSyncOut` consumes it to
