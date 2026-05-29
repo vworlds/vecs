@@ -553,3 +553,92 @@ is green — but each needs attention in a later ticket.
   with `fixedTimeStep` and ignores the frame delta (debug-warns on mismatch).
   This matches the PLAN (fixed step, no accumulator promised); flagged only so a
   future "variable frame rate" request is a known design change, not a bug.
+
+## MILESTONE 3 — Contacts + sequential-impulse solver (🚧 IN PROGRESS)
+
+**Tickets: VP-15 (split a/b), VP-16, VP-17, VP-18.** Architect: this pass.
+Wires the collision step loop the engine has been missing — broad-phase pairs →
+contacts (persistence + edges + touch events) → islands → TGS solver →
+finalize-with-refit — and proves it with the `HelloWorld` parity gate.
+
+Reference: box2d **v3.2.0** vendored under `box2d/` (gitignored; re-clone
+`erincatto/box2d` if absent). M1/M2 ports match it; the overflow `_Overflow`
+solver names, `b2MakeSoft`, `b2CreateContact`/`b2UpdateContact`, and the island
+link/merge flow are all verified present at this version.
+
+### Architect scoping decisions (refining the PLAN ticket list)
+
+- **VP-15 split into 15a (data model + storage + lifecycle) and 15b (narrow-phase
+  `updateContact`).** 15a is the shared-data-model foundation: it lands every
+  record/field the rest of M3 reads (Manifold solver fields, `ContactSim`,
+  `InternalContact` + edges + `ContactStorage`, `SolverSet.contactSims`, the
+  graph-overflow touching-contact array + island storage on `PhysicsState`,
+  `InternalBody` contact-list/island fields, `BodyState` dynamic flag). Landing
+  the model up front lets 15b / VP-16 / VP-17 add **logic in their own files**
+  with minimal shared-file contention, so they can run in parallel.
+- **VP-17 (solver) is implemented as ONE cohesive ticket by ONE agent**, not
+  fanned across parallel agents. The PLAN says "subdivide along the eight stages",
+  and the file _is_ organised stage-by-stage internally, but the stages share one
+  `ContactConstraint`/`ContactConstraintPoint` scratch struct and one body-state
+  contract; splitting that across parallel agents trades a small file for large
+  integration risk. The integrate-velocities / integrate-positions stages already
+  exist (VP-7, in `engine/step.ts`); VP-17 relocates them into `engine/solver.ts`
+  as solver stages 2 & 5 alongside the new ones.
+- **Constraint-graph coloring collapses to a single overflow color** (v1 has no
+  coloring, exactly as box2d's `B2_FORCE_OVERFLOW` path). So `b2AddContactToGraph`
+  / `b2RemoveContactFromGraph` reduce to push / swap-remove on one
+  `state.graphContactSims` array; `b2GetContactSim` resolves "touching → graph
+  array, non-touching → solver-set `contactSims`". A contact's location is tracked
+  by `colorIndex` = `OVERFLOW_COLOR (0)` (touching) vs `NULL_INDEX` (non-touching),
+  mirroring box2d so a future coloring pass is additive.
+- **Islands are built in M3 (VP-16) but NOT consumed by the solver.** box2d's
+  overflow solver iterates the contact array directly (reading body states by
+  index), so islands are not needed for `HelloWorld` correctness; they exist in M3
+  to keep the contact touch-begin/end flow faithful (it calls `b2LinkContact` /
+  `b2UnlinkContact`) and to seat the structure sleep needs. **Island split is M5**
+  (`b2UnlinkContact` only increments `constraintRemoveCount`).
+- **Per-step body-index refresh, not cached.** box2d's `b2CollideTask` re-sets each
+  contact's `bodySimIndexA/B` + `invMass*/invI*` every step during the narrow phase
+  (so they never go stale across body swap-pops). We do the same in the collide
+  loop (VP-18) rather than caching at graph-add time — same result, no staleness.
+- **Contact recycling (`b2_simRelativeTransformValid` path) is disabled** for v1
+  (`recycleDistance = 0`), matching a clean port; the cached-transform fields are
+  omitted from `ContactSim`. Pre-solve / custom-filter / sensor-contact paths are
+  out of scope (sensors are M4).
+- **ECS contact-event _publishing_ is M4 (VP-21).** M3 tracks began/stopped-touching
+  state (drives island link/unlink) but does not yet write `ContactEvents`
+  components. No begin/end event arrays are allocated in M3.
+- **`world.contactSpeed` default 3.0** (verified `types.c b2DefaultWorldDef`) must
+  be added to `ResolvedPhysicsOptions`/`PhysicsOptions` (used by the solve bias
+  clamp). The other solver tunables (`contactHertz` 30, `contactDampingRatio` 10,
+  `restitutionThreshold` 1.0, `maximumLinearSpeed` 400) already exist.
+- **Broad-phase `pairSet` semantics move to the contact layer (VP-18).** box2d adds
+  the pair key in `b2CreateContact` (only when a contact is actually created) and
+  the broad-phase callback does the `b2ShouldShapesCollide` / same-body / sensor
+  filtering. The current `BroadPhase.updatePairs` instead adds to `_pairSet` on
+  emit and does no filtering. VP-18 makes `updatePairs` emit raw overlap candidates
+  (in-batch dedup via a local set, no `_pairSet` add) and moves the filter +
+  `_pairSet` add into the contact-create path — so `pairSet` membership means "a
+  contact exists", filtered pairs are re-evaluated cheaply, and filter changes are
+  picked up. (`removePair` on contact destroy already exists.)
+
+### Dependency graph & execution waves
+
+```
+VP-15a (data model + storage + edges + create/destroy + filter helper)
+   ├─> VP-15b  updateContact (narrow-phase refresh, warm-start carry, touch flags)
+   ├─> VP-16   island.ts (create/destroy/merge/link/unlink) + body island hooks
+   └─> VP-17   solver.ts (8 stages + b2MakeSoft + finalize-with-refit)
+                              ↓ (all three)
+                         VP-18  engineStep wiring (collide + solve) + broad-phase
+                                pairSet fix + HelloWorld gate + scenarios
+```
+
+- **Wave 1:** VP-15a (foundation; everything depends on it).
+- **Wave 2 (parallel, separate worktrees):** VP-15b, VP-16, VP-17 — disjoint files
+  (`contact.ts` update fn / `island.ts`+`solver_set.ts` hooks / `solver.ts`).
+- **Wave 3:** VP-18 — integration + the milestone gate.
+
+### Status by ticket
+
+_(updated as tickets land)_
