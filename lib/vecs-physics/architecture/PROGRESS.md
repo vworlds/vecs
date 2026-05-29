@@ -98,12 +98,51 @@ only — no systems, engine is a no-op.
   always creates a new phase and would clobber an existing same-named one, so we
   look up first. Passing an `IPhase` directly is honoured as-is.
 
-### ⬜ NEXT: VP-5 — `engine/body.ts` + `engine/solver_set.ts`
+### ✅ VP-5 — `engine/body.ts` + `engine/solver_set.ts` (commit __PENDING__)
 
-`InternalBody`, `BodySim`, `BodyState`; solver sets; transfer functions. Tests:
-transfers between awake/static/disabled sets preserve indices. See `PLAN.md`
-→ _Body storage_ / _Solver sets_. This is the first ticket with real engine
-data structures; `PhysicsState` grows to hold `BodyStorage`/solver sets.
+`InternalBody`/`BodySim`/`BodyState` + `BodyStorage` (`body.ts`); `SolverSet`,
+the set-type constants, and `createBody`/`destroyBody`/`transferBody`
+(`solver_set.ts`). `PhysicsState` grows to hold `bodies: BodyStorage` and
+`solverSets: SolverSet[]`. 14 tests in `tests/engine/`
+(`solver_set.test.ts` covers transfers across awake/static/disabled preserving
+every set's `localIndex`, plus body-state create/drop crossing the awake
+boundary, same-set no-op, round-trip, and destroy; `body.test.ts` covers the
+sim/state factories and `BodyStorage.get`).
+
+- **Sims relocate by moving the object reference, not `memcpy`.** Box2D copies a
+  `b2BodySim` struct into the target set then removes the source slot; we push
+  the same `BodySim` object into the target array and swap-pop it out of the
+  source. Indices are still fixed exactly as Box2D does (swap-pop moves the last
+  element into the hole, and that element's `localIndex` is repaired via the
+  `bodyId` back-pointer). A porting-fidelity instance — see PLAN → Settled.
+- **`InternalBody` is intentionally thin** (`setIndex`, `localIndex`). The owning
+  `Entity`, `type`, mass, flags, and topology (shape/contact/island links) are
+  added by the tickets that populate them — body storage + transfer touch none
+  of them. No `generation` field: the `IdPool` owns generations (settled VP-2).
+- **Sleeping-set allocation deferred.** Only the three fixed sets
+  (`STATIC`/`DISABLED`/`AWAKE`, indices 0/1/2) are created;
+  `FIRST_SLEEPING_SET` is exported but sleeping islands take ids when sleep lands
+  (M5). `b2TransferBody`'s transient-sim-flag clear (`isFast`/`isSpeedCapped`/
+  `hadTimeOfImpact`) is a documented no-op until the solver/CCD introduce those
+  flags. `SolverSet` holds only `bodySims`/`bodyStates`; contact/joint/island
+  arrays land with their tickets.
+- **`bodyStates` is awake-set only** and kept parallel to `bodySims`: a body
+  gains an identity state when entering the awake set and drops it (swap-pop at
+  the same `localIndex`) when leaving, mirroring `b2CreateBody`/`b2TransferBody`.
+- Engine module boundary held: `body.ts`/`solver_set.ts` import only `math/` +
+  `util/`, never `components/` (so the internal numeric body-type vs the public
+  string `BodyType` translation is a VP-6 system-layer concern).
+
+### ⬜ NEXT: VP-6 — `systems/lifecycle.ts` (`PhysicsBodyLifecycle`) + `pose_sync_in.ts` + `pose_sync_out.ts`
+
+Body create/destroy, teleport, and feedback suppression. Re-add
+`PhysicsSystemTag` (registered immediately after `PhysicsRoot`, deferred from
+VP-4) and wire `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])`. **Verify
+`ignoreSource` against the merged `@vworlds/vecs` source first** — a dev merge
+relocated it from `System` to `Query.ignoreSource` (see _Cross-library_ below).
+This ticket reads `Body.type` and translates it to the engine's solver-set
+placement, and stores the owning `Entity` on `InternalBody` (grows the struct).
+See `PLAN.md` → VP-6 and _System And Phase Pipeline_.
 
 ## Environment / conventions learned
 

@@ -6,14 +6,16 @@
 // is GC'd with the world. `PhysicsRoot` is never exported: user code cannot
 // reach `PhysicsState`. See PLAN.md → _Internal-state attachment_.
 //
-// VP-4 keeps `PhysicsState` skeletal: resolved configuration, the entity↔handle
-// maps, and a step counter. The solver storage subsystems (bodies, shapes,
-// contacts, broad-phase, islands, sensors) and event scratch land in later
-// tickets, alongside the systems that populate them.
+// `PhysicsState` holds resolved configuration, the entity↔handle maps, a step
+// counter, and (since VP-5) body storage plus the solver sets. The remaining
+// solver subsystems (shapes, contacts, broad-phase, islands, sensors) and event
+// scratch land in later tickets, alongside the systems that populate them.
 
 import { Singleton, type World } from "@vworlds/vecs";
 
 import type { BodyHandle, ShapeHandle } from "../util/handle.js";
+import { BodyStorage } from "./body.js";
+import { createBaseSolverSets, type SolverSet } from "./solver_set.js";
 
 /** Fully-resolved engine configuration: every `PhysicsOptions` field with its
  * default applied. Built by `installPhysics`; the source of truth for tunables
@@ -49,6 +51,12 @@ export class PhysicsState {
   public maximumLinearSpeed: number;
   public enableSleep: boolean;
   public enableContinuous: boolean;
+
+  // Body records (sparse, handle-indexed) and the index allocator.
+  public readonly bodies = new BodyStorage();
+
+  // Solver sets: static, disabled, awake (sleeping sets added with sleep).
+  public readonly solverSets: SolverSet[] = createBaseSolverSets();
 
   // Maps between Vecs entities and internal engine handles.
   public readonly bodyByEntity = new Map<number /* eid */, BodyHandle>();
