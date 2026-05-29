@@ -45,28 +45,29 @@ Ports box2d `math_functions.h` + `constants.h`. 30 tests incl. a port of
 ### ✅ VP-3 — public components + `src/index.ts` exports (commit 2ae3a52)
 
 `src/components/{body,body_tuning,shape_pose,geometry,material,force,target,events}.ts`
-+ `src/index.ts`. All public component classes with zero-arg validity, plus
-`Box.width/height` accessors. 38 tests in `tests/components/`
-(`defaults.test.ts` verifies the defaults table component-by-component;
-`box_accessors.test.ts` covers the half-extent accessors).
 
-- Defaults verified against `box2d/src/types.c` `b2Default{Body,Shape}Def` /
+- `src/index.ts`. All public component classes with zero-arg validity, plus
+  `Box.width/height` accessors. 38 tests in `tests/components/`
+  (`defaults.test.ts` verifies the defaults table component-by-component;
+  `box_accessors.test.ts` covers the half-extent accessors).
+
+* Defaults verified against `box2d/src/types.c` `b2Default{Body,Shape}Def` /
   `b2DefaultFilter` / `b2DefaultSurfaceMaterial`. Authoritative shapes taken from
   `docs/components.md` (the public contract), which is stricter than the PLAN
   table on two points now settled below.
-- **`BodyType` is a string enum** (`"static"|"kinematic"|"dynamic"`), per
+* **`BodyType` is a string enum** (`"static"|"kinematic"|"dynamic"`), per
   `docs/components.md` — the PLAN defaults table only named `BodyType.Static`.
-- **Collision filter fields are 32-bit `number`, not `bigint`** (diverges from
+* **Collision filter fields are 32-bit `number`, not `bigint`** (diverges from
   box2d's `uint64_t`): `categoryBits` (`1`), `maskBits` (`0xffffffff`),
   `groupIndex` (`0`). `Material.userMaterialId` is also a `number` (`0`). 32
   categories is ample and filtering uses native JS bitwise ops; the package has
   no `bigint` in its public surface. See PLAN → Settled Decisions.
-- `Material` bundles `density` (from `b2ShapeDef`) with the `b2SurfaceMaterial`
+* `Material` bundles `density` (from `b2ShapeDef`) with the `b2SurfaceMaterial`
   fields; not a separate density component.
-- Event payload types (`ContactEvent`/`SensorEvent`/`HitEvent`) import `Entity`
+* Event payload types (`ContactEvent`/`SensorEvent`/`HitEvent`) import `Entity`
   from `@vworlds/vecs`. Event arrays are per-instance (field initialisers), not
   prototype-shared — covered by a test.
-- No Vecs registration here: `world.component(...)` calls and exclusivity land in
+* No Vecs registration here: `world.component(...)` calls and exclusivity land in
   VP-4.
 
 ### ✅ VP-4 — `installPhysics` skeleton (commit a68051d)
@@ -136,8 +137,7 @@ sim/state factories and `BodyStorage.get`).
 ### ✅ VP-6 — `systems/lifecycle.ts` (`PhysicsBodyLifecycle`) + `pose_sync_in.ts` + `pose_sync_out.ts` (commit f576659)
 
 `src/systems/{lifecycle,pose_sync_in,pose_sync_out,index}.ts`; `install.ts` now
-registers internal components (step 9) and installs+tags the three systems (step
-12) before attach (step 13). `engine/body.ts` grew `InternalBody` (`entity` +
+registers internal components (step 9) and installs+tags the three systems (step 12) before attach (step 13). `engine/body.ts` grew `InternalBody` (`entity` +
 numeric `type`), added body-type constants + `writeBodyTransform`;
 `engine/solver_set.ts` `createBody` takes `(…, entity, type)`;
 `engine/state.ts` exports `PhysicsSystemTag` + `registerInternalComponents`.
@@ -255,13 +255,45 @@ VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
 
 ### Status by ticket
 
-- ⬜ **VP-8** — `engine/shape.ts` + `engine/geometry.ts`. NEXT (wave 1).
-- ⬜ **VP-9** — `engine/dynamic_tree.ts`. NEXT (wave 1, parallel).
-- ⬜ **VP-10** — `engine/broad_phase.ts`.
+- ✅ **VP-8** — `engine/shape.ts` + `engine/geometry.ts` (commit 6ec4a63). `ShapeType`
+  enum, `GeometryUnion` (circle/capsule/segment/polygon/chainSegment), thin
+  `InternalShape` + `ShapeStorage`, per-kind constructors, `makeChainSegments`,
+  geometry helpers (`makeBox`/`makePolygon`/`computeHull`/`validateHull`/centroid),
+  `computeAABB`, point-in-shape. `PhysicsState.shapes` added. 44 tests (parity:
+  ShapeAABBTest, PointInShapeTest, AABBTest). **Mass deferred to VP-12.**
+- ✅ **VP-9** — `engine/dynamic_tree.ts` (commit c2c5e08). Full BVH: node pool,
+  create/destroy/move/enlarge, query, raycast, rebuild (SAH), validate. Public
+  surface: `class DynamicTree`, `RayCastInput`, `TreeStats`, query/raycast
+  callbacks `(proxyId, userData:number)=>…`. 22 tests porting all 8
+  `test_dynamic_tree.c` cases. Leaf — no `state.ts`/`install.ts` coupling.
+- ⬜ **VP-10** — `engine/broad_phase.ts`. NEXT (wave 2).
 - ⬜ **VP-11** — `systems/shape_lifecycle.ts` + `shape_pose_sync.ts` + `material_filter_sync.ts`.
 - ⬜ **VP-12** — `engine/mass.ts` + `systems/mass_recompute.ts`.
-- ⬜ **VP-13** — `engine/manifold/*` + `engine/distance.ts`.
+- ⬜ **VP-13** — `engine/manifold/*` + `engine/distance.ts`. NEXT (wave 2, parallel).
 - ⬜ **VP-14** — `engine/narrow_phase.ts`.
+
+### Cross-ticket contracts surfaced reviewing VP-8 (VP-10/11/12 must honour)
+
+- **Local pose vs world transform.** VP-8's `makeXShape(…, xf)` constructors
+  seed _both_ the local-pose fields (`localX/Y/cos/sin`) and the cached world
+  AABB from a single `xf`. The `InternalShape.localX…` are the shape's pose
+  **relative to the body origin** (from `ShapePosition`/`ShapeRotation`); the AABB
+  must be the **world** AABB. So **VP-11** must: set local pose from the shape's
+  pose components, then compute the world AABB as
+  `computeAABB(geom, mul(bodyWorldTransform, localPose))` and overwrite the
+  seeded cache. `computeAABB(geom, xf)` (geometry.ts) is general — it takes any
+  transform — so the broad-phase refit (VP-10) and lifecycle (VP-11) use it
+  directly with the composed world transform.
+- **`localCentroid` is geometry-local, not body-local.** VP-8 stores the bare
+  geometry centroid (local pose **not** applied). **VP-12** mass/parallel-axis
+  must transform it by the local pose to get the body-local centroid.
+- **`pointInPolygon`** uses a half-plane test (not GJK); exact for convex shapes
+  and passes the golden test. May be swapped for `b2ShapeDistance` at VP-13e.
+- **Chain ghost vertices for open chains** use reflection (`2a−b`) at the two
+  endpoints. Plausible but **unverified against box2d's real chain construction**
+  (`b2CreateChain`, which uses provided/neighbour ghost points). VP-11 (chain
+  creation) and VP-13e (chain-segment manifolds) must verify fidelity; chain
+  parity is an M4 gate (`ChainSegmentShapeTest`).
 
 ## Environment / conventions learned
 
@@ -315,7 +347,7 @@ is green — but each needs attention in a later ticket.
 - **Kinematic accept-input / drop-output asymmetry.** `PhysicsPoseSyncIn` accepts
   `LinearVelocity`/`AngularVelocity` on a kinematic body (`pose_sync_in.ts` only
   excludes `STATIC_BODY`), and the integrator advances any awake body — so a
-  kinematic body with user-set velocity *does* move inside the engine and lands
+  kinematic body with user-set velocity _does_ move inside the engine and lands
   on `bodyMoveEvents`. But `PhysicsPoseSyncOut` writes back **dynamic only**
   (`pose_sync_out.ts`), so that motion is never visible in the ECS: a silent
   no-op. box2d moves and reports kinematic bodies. Resolve when kinematic drive
