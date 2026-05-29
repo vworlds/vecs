@@ -32,7 +32,7 @@ Ports box2d `math_functions.h` + `constants.h`. 30 tests incl. a port of
 - **Caveat:** uses `Math.cos/sin/atan2`, not box2d's polynomial approximations.
   Documented in `rot.ts` header and `PLAN.md` _Settled Decisions_.
 
-### ✅ VP-2 — util layer (commit: pending this commit)
+### ✅ VP-2 — util layer (commit 12f94be)
 
 `src/util/{handle,id_pool,dense_array,warn,bitset}.ts` + `tests/util/`. 15 tests.
 
