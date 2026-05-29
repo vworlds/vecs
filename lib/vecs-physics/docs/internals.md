@@ -86,7 +86,11 @@ Vecs represents this naturally with child entities:
 const body = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
 
 world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 1 });
-world.entity().set(ChildOf, { target: body }).set(Circle, { radius: 0.25 }).set(ShapePosition, { x: 0, y: 1 });
+world
+  .entity()
+  .set(ChildOf, { target: body })
+  .set(Circle, { radius: 0.25 })
+  .set(ShapePosition, { x: 0, y: 1 });
 ```
 
 This avoids a nested `Shapes` array component that would need custom diffing and manual `modified()` calls. It also lets Vecs' existing lifecycle machinery do useful work:

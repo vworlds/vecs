@@ -237,7 +237,11 @@ export class ShapePosition {
 ```
 
 ```ts
-world.entity().set(ChildOf, { target: body }).set(ShapePosition, { x: 0, y: -0.5 }).set(Box, { hx: 0.5, hy: 1 });
+world
+  .entity()
+  .set(ChildOf, { target: body })
+  .set(ShapePosition, { x: 0, y: -0.5 })
+  .set(Box, { hx: 0.5, hy: 1 });
 ```
 
 Missing `ShapePosition` means local offset `{ x: 0, y: 0 }`.
@@ -423,7 +427,12 @@ export class Sensor {}
 Sensors do not create collision response. Add event components if you want overlap events.
 
 ```ts
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
+world
+  .entity()
+  .set(ChildOf, { target: body })
+  .set(Box, { hx: 2, hy: 1 })
+  .add(Sensor)
+  .add(SensorEvents);
 ```
 
 Missing `Sensor` means the shape is solid.

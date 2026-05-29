@@ -86,7 +86,11 @@ Use `Position` and `Rotation` on body entities. Use `ShapePosition` and `ShapeRo
 ```ts
 const body = world.entity().set(Position, { x: 10, y: 3 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: body }).set(ShapePosition, { x: 0, y: 1 }).set(Circle, { radius: 0.25 });
+world
+  .entity()
+  .set(ChildOf, { target: body })
+  .set(ShapePosition, { x: 0, y: 1 })
+  .set(Circle, { radius: 0.25 });
 ```
 
 In this example, the circle is one meter above the body origin in body-local space.
@@ -274,7 +278,11 @@ world
   .set(ShapePosition, { x: -0.9, y: 0.4 })
   .set(Circle, { radius: 0.25 });
 
-world.entity().set(ChildOf, { target: ship }).set(ShapePosition, { x: 0.9, y: 0.4 }).set(Circle, { radius: 0.25 });
+world
+  .entity()
+  .set(ChildOf, { target: ship })
+  .set(ShapePosition, { x: 0.9, y: 0.4 })
+  .set(Circle, { radius: 0.25 });
 ```
 
 All three shapes move as one rigid body. They do not move relative to each other during simulation.
@@ -284,7 +292,12 @@ All three shapes move as one rigid body. They do not move relative to each other
 Add `Sensor` to make a shape detect overlaps without producing collision response.
 
 ```ts
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
+world
+  .entity()
+  .set(ChildOf, { target: body })
+  .set(Box, { hx: 2, hy: 1 })
+  .add(Sensor)
+  .add(SensorEvents);
 ```
 
 Missing `Sensor` means the shape is solid.
@@ -377,7 +390,11 @@ Missing `Material` is fine because the default density is `1`.
 This can be a problem:
 
 ```ts
-world.entity().set(ChildOf, { target: dynamicBody }).set(Box, { hx: 1, hy: 1 }).set(Material, { density: 0 });
+world
+  .entity()
+  .set(ChildOf, { target: dynamicBody })
+  .set(Box, { hx: 1, hy: 1 })
+  .set(Material, { density: 0 });
 ```
 
 ### Invalid Polygon Or Chain Data

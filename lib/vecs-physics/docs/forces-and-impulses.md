@@ -113,9 +113,15 @@ player.set(Force, { x: 0, y: 20 });
 For advanced cases, put each force or impulse source on its own child entity.
 
 ```ts
-const leftTractorBeam = world.entity().set(ChildOf, { target: player }).set(Force, { x: -15, y: 5 });
+const leftTractorBeam = world
+  .entity()
+  .set(ChildOf, { target: player })
+  .set(Force, { x: -15, y: 5 });
 
-const rightTractorBeam = world.entity().set(ChildOf, { target: player }).set(Force, { x: 10, y: 12 });
+const rightTractorBeam = world
+  .entity()
+  .set(ChildOf, { target: player })
+  .set(Force, { x: 10, y: 12 });
 ```
 
 This is useful when multiple independent systems contribute forces to the same body. For example, a ship might have thrust, gravity, wind, and two tractor beams all active at the same time.

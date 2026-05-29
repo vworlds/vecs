@@ -144,42 +144,42 @@ Order in `installPhysics` matters: registration before `setExclusiveComponents` 
 
 These are part of the contract. They must match Box2D's `b2DefaultBodyDef()`, `b2DefaultShapeDef()`, `b2DefaultFilter()`, `b2DefaultSurfaceMaterial()`:
 
-| Component                      | Field                             | Default                  |
-| ------------------------------ | --------------------------------- | ------------------------ |
-| `Body`                         | `type`                            | `BodyType.Static`        |
-|                                | `bullet`                          | `false`                  |
-|                                | `enabled`                         | `true`                   |
-|                                | `allowFastRotation`               | `false`                  |
-| `Position`                     | `x, y`                            | `0, 0`                   |
-| `Rotation`                     | `angle`                           | `0`                      |
-| `LinearVelocity`               | `x, y`                            | `0, 0`                   |
-| `AngularVelocity`              | `value`                           | `0`                      |
-| `Damping`                      | `linear, angular`                 | `0, 0`                   |
-| `GravityScale`                 | `value`                           | `1`                      |
-| `MotionLocks`                  | `x, y, rotation`                  | `false, false, false`    |
-| `Sleep`                        | `enabled, awake, threshold`       | `true, true, 0.05`       |
-| `ShapePosition`                | `x, y`                            | `0, 0`                   |
-| `ShapeRotation`                | `angle`                           | `0`                      |
-| `Box`                          | `hx, hy`                          | `0.5, 0.5`               |
-| `Circle`                       | `radius`                          | `0.5`                    |
-| `Capsule`                      | `x1, y1, x2, y2, radius`          | `-0.5, 0, 0.5, 0, 0.25`  |
-| `Segment`                      | `x1, y1, x2, y2`                  | `-0.5, 0, 0.5, 0`        |
-| `Polygon`                      | `vertices, radius`                | `[], 0`                  |
-| `Chain`                        | `points, loop`                    | `[], false`              |
-| `Material`                     | `density`                         | `1`                      |
-|                                | `friction`                        | `0.6`                    |
-|                                | `restitution`                     | `0`                      |
-|                                | `rollingResistance, tangentSpeed` | `0, 0`                   |
-|                                | `userMaterialId`                  | `0`                      |
-| `CollisionFilter`              | `categoryBits`                    | `1`                      |
-|                                | `maskBits`                        | `0xffffffff`             |
-|                                | `groupIndex`                      | `0`                      |
-| `Force` / `Impulse`            | `x, y, wake`                      | `0, 0, true`             |
-| `Torque` / `AngularImpulse`    | `value, wake`                     | `0, true`                |
-| `KinematicTargetPosition`      | `x, y, tolerance, wake`           | `0, 0, 0.001, true`      |
-| `KinematicTargetRotation`      | `angle, tolerance, wake`          | `0, 0.001, true`         |
-| `ContactEvents`/`SensorEvents` | `begin, end`                      | `[], []`                 |
-| `HitEvents`                    | `hits`                            | `[]`                     |
+| Component                      | Field                             | Default                 |
+| ------------------------------ | --------------------------------- | ----------------------- |
+| `Body`                         | `type`                            | `BodyType.Static`       |
+|                                | `bullet`                          | `false`                 |
+|                                | `enabled`                         | `true`                  |
+|                                | `allowFastRotation`               | `false`                 |
+| `Position`                     | `x, y`                            | `0, 0`                  |
+| `Rotation`                     | `angle`                           | `0`                     |
+| `LinearVelocity`               | `x, y`                            | `0, 0`                  |
+| `AngularVelocity`              | `value`                           | `0`                     |
+| `Damping`                      | `linear, angular`                 | `0, 0`                  |
+| `GravityScale`                 | `value`                           | `1`                     |
+| `MotionLocks`                  | `x, y, rotation`                  | `false, false, false`   |
+| `Sleep`                        | `enabled, awake, threshold`       | `true, true, 0.05`      |
+| `ShapePosition`                | `x, y`                            | `0, 0`                  |
+| `ShapeRotation`                | `angle`                           | `0`                     |
+| `Box`                          | `hx, hy`                          | `0.5, 0.5`              |
+| `Circle`                       | `radius`                          | `0.5`                   |
+| `Capsule`                      | `x1, y1, x2, y2, radius`          | `-0.5, 0, 0.5, 0, 0.25` |
+| `Segment`                      | `x1, y1, x2, y2`                  | `-0.5, 0, 0.5, 0`       |
+| `Polygon`                      | `vertices, radius`                | `[], 0`                 |
+| `Chain`                        | `points, loop`                    | `[], false`             |
+| `Material`                     | `density`                         | `1`                     |
+|                                | `friction`                        | `0.6`                   |
+|                                | `restitution`                     | `0`                     |
+|                                | `rollingResistance, tangentSpeed` | `0, 0`                  |
+|                                | `userMaterialId`                  | `0`                     |
+| `CollisionFilter`              | `categoryBits`                    | `1`                     |
+|                                | `maskBits`                        | `0xffffffff`            |
+|                                | `groupIndex`                      | `0`                     |
+| `Force` / `Impulse`            | `x, y, wake`                      | `0, 0, true`            |
+| `Torque` / `AngularImpulse`    | `value, wake`                     | `0, true`               |
+| `KinematicTargetPosition`      | `x, y, tolerance, wake`           | `0, 0, 0.001, true`     |
+| `KinematicTargetRotation`      | `angle, tolerance, wake`          | `0, 0.001, true`        |
+| `ContactEvents`/`SensorEvents` | `begin, end`                      | `[], []`                |
+| `HitEvents`                    | `hits`                            | `[]`                    |
 
 All field initialisers belong on the class body so `new Component()` returns a valid, default-shaped instance — this is the Vecs contract (every component must work zero-arg).
 

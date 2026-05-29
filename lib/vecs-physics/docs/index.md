@@ -348,7 +348,12 @@ export class Sensor {}
 Add `Sensor` to a shape entity to make that shape report overlaps without collision response.
 
 ```ts
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
+world
+  .entity()
+  .set(ChildOf, { target: body })
+  .set(Box, { hx: 2, hy: 1 })
+  .add(Sensor)
+  .add(SensorEvents);
 ```
 
 Missing `Sensor` means the shape is solid.

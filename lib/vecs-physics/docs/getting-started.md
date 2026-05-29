@@ -121,7 +121,11 @@ Events are opt-in. Add `ContactEvents` to a shape entity if you want that shape 
 ```ts
 import { ContactEvents } from "@vworlds/vecs-physics";
 
-const playerShape = world.entity().set(ChildOf, { target: box }).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
+const playerShape = world
+  .entity()
+  .set(ChildOf, { target: box })
+  .set(Box, { hx: 0.5, hy: 0.5 })
+  .add(ContactEvents);
 
 world
   .system("LogContacts")

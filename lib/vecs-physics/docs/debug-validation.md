@@ -166,13 +166,21 @@ This can be invalid:
 ```ts
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 }).set(Material, { density: 0 });
+world
+  .entity()
+  .set(ChildOf, { target: body })
+  .set(Box, { hx: 0.5, hy: 0.5 })
+  .set(Material, { density: 0 });
 ```
 
 Use a positive density for ordinary dynamic bodies.
 
 ```ts
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 }).set(Material, { density: 1 });
+world
+  .entity()
+  .set(ChildOf, { target: body })
+  .set(Box, { hx: 0.5, hy: 0.5 })
+  .set(Material, { density: 1 });
 ```
 
 Missing `Material` is fine. It uses the default density `1`.

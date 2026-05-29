@@ -12,7 +12,7 @@ section and the named box2d sources for the next ticket.
 
 ## Working rules (read before changing anything — applies to every agent)
 
-Not every agent reads the whole `PLAN.md`, so the load-bearing rules are repeated
+The load-bearing rules are repeated
 here:
 
 - **Box2D parity is the north star.** Port the model faithfully. Verify against
@@ -27,9 +27,9 @@ here:
   `Carried into MX` line with the contract, and leave an in-code comment at the
   site. Re-filing an already-tracked deferral as a "bug" is noise.
 - **Gate before every commit:** `npm run typecheck && npm run test && npm run lint`
-  + `npx prettier --check` on changed files, run from `lib/vecs-physics/`. The
-  repo-wide pre-commit hook currently fails on unrelated workspaces; `--no-verify`
-  is acceptable **only** when the `lib/vecs-physics/` gate above is fully green.
+  - `npx prettier --check` on changed files, run from `lib/vecs-physics/`. The
+    repo-wide pre-commit hook currently fails on unrelated workspaces; `--no-verify`
+    is acceptable **only** when the `lib/vecs-physics/` gate above is fully green.
 - **Commits:** `<type>: <subject>` + body, no scope (see `.agent/rules/commits.md`).
 
 ## Workflow
@@ -295,7 +295,7 @@ VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
   `DynamicTree`s (by numeric body type); proxy key `(id<<2)|type` (= box2d
   `B2_PROXY_KEY`); move buffer (`moveArray` + a `Set` dedup); `pairSet`
   (`Set<number>`, pair key `min*2^22+max`); `createProxy/destroyProxy/moveProxy/
-  enlargeProxy/updatePairs(cb)/removePair/rebuildTrees`. Static proxies never
+enlargeProxy/updatePairs(cb)/removePair/rebuildTrees`. Static proxies never
   buffer; moving proxies query the static tree (→ dynamic-static pairs, no
   static-static); canonical lower-key ordering avoids double-emitting
   dynamic-dynamic pairs. **Contact creation is M3** — `updatePairs` only emits
@@ -355,7 +355,7 @@ VP-8 ─> VP-13 manifolds/distance ──> VP-14 narrow_phase dispatch
   `contact.c`'s `s_registers[type][type]` table (`b2AddType`) + the dispatch core
   of `b2UpdateContact`: a 5×5 registry of `{ collideFn, primary }`, with the
   reverse pair reusing the same fn and flipping the result. `computeManifold(
-  shapeA, xfA, shapeB, xfB, cache)` returns a `Manifold` with normal A→B
+shapeA, xfA, shapeB, xfB, cache)` returns a `Manifold` with normal A→B
   regardless of call order; unregistered pairs (segment–segment etc.) →
   `pointCount=0`. **Transform convention (updated in M2 bug-fix pass, commit
   69541ca):** callers now pass each shape's **body** world transform;
@@ -376,6 +376,7 @@ systems, are in place. No solver yet (M3): contacts are _generated_, bodies stil
 pass through.
 
 **M2 milestone DoD met:**
+
 - Unit parity green: all 8 `test_dynamic_tree.c` tests (VP-9); `ShapeMassTest`
   (VP-12); `ShapeAABBTest`, `PointInShapeTest` (VP-8); `test_collision.c::AABBTest`
   (VP-8); `SegmentDistanceTest`, `ShapeDistanceTest` (VP-13).
@@ -386,6 +387,7 @@ pass through.
   cross-system imports); no stray TODO/console/.only/.skip markers.
 
 **Carried into M3 (deferred work + contracts, collected for the solver team):**
+
 - **Wire the collision step loop:** broad-phase pairs (VP-10 `updatePairs`) →
   `InternalContact` (VP-15) → `computeManifold` (VP-14) → island (VP-16) →
   solver (VP-17). The step orchestrator currently runs gravity-only (VP-7).
