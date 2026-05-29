@@ -170,7 +170,7 @@ numeric `type`), added body-type constants + `writeBodyTransform`;
   (now `toMatchObject` on the index-bookkeeping assertions, plus an entity/type
   check).
 
-### ✅ VP-7 — `systems/step.ts` + `engine/step.ts` — minimal `engineStep` (gravity only) (commit <pending>)
+### ✅ VP-7 — `systems/step.ts` + `engine/step.ts` — minimal `engineStep` (gravity only) (commit db85b21)
 
 `src/engine/step.ts` (the integrator) + `src/systems/step.ts` (`PhysicsStep` in
 the `physics-step` phase). `PhysicsState` gained `bodyMoveEvents`;
