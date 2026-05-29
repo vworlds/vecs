@@ -11,10 +11,7 @@ import { _getGroupedQueryCtor } from "./query.00.base.js";
 import { Updates } from "./query.05.updates.js";
 
 export class Predicate<R extends ComponentType[] = []> extends Updates<R> {
-  public query<T extends ComponentType[] = []>(
-    q: QueryDSL,
-    _guaranteed?: readonly [...T]
-  ): any {
+  public query<T extends ComponentType[] = []>(q: QueryDSL, _guaranteed?: readonly [...T]): any {
     this._assertConfigurable();
     this._dsl = q;
     this._hasExplicitQuery = true;

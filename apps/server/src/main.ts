@@ -117,7 +117,7 @@ world.component(NetworkClient).onSet((entity) => {
 const ballsByCell = world
   .query("BallsByCell")
   .requires(Networked, Ball, Position)
-  .groupBy([Position], (_entity, [position]) => getGridCellIndex(position));
+  .groupBy([Position], (_entity: Entity, [position]: [Position]) => getGridCellIndex(position));
 
 // Interest index: every networked entity bucketed by the cell entity it points
 // at via InCell. Keyed by the cell anchor entity (the relationship target), so
@@ -179,15 +179,18 @@ world
     forEachNearbyCell(position, (cellIndex) => {
       ballsByCell
         .group(cellIndex)
-        ?.forEach([Position, Ball], (ballEntity, [ballPosition, ball]) => {
-          if (!overlaps(position, ballPosition, ball.radius)) {
-            return;
-          }
+        ?.forEach(
+          [Position, Ball],
+          (ballEntity: Entity, [ballPosition, ball]: [Position, Ball]) => {
+            if (!overlaps(position, ballPosition, ball.radius)) {
+              return;
+            }
 
-          player.score += 1;
-          entity.modified(Player);
-          ballEntity.destroy();
-        });
+            player.score += 1;
+            entity.modified(Player);
+            ballEntity.destroy();
+          }
+        );
     });
   });
 

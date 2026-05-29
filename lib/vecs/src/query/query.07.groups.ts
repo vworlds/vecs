@@ -1,7 +1,4 @@
-import {
-  type ComponentType,
-  type ComponentRef,
-} from "../component.js";
+import { type ComponentType, type ComponentRef } from "../component.js";
 import { Entity } from "../entity/index.js";
 import {
   forEachInjected,
