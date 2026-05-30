@@ -300,9 +300,13 @@ describe("updatePairs — pairSet de-duplication across calls", () => {
     const k1 = bp.createProxy(DYNAMIC_BODY, aabb(0, 0, 2, 2), 1, 0);
     const k2 = bp.createProxy(DYNAMIC_BODY, aabb(1, 1, 3, 3), 1, 1);
 
-    // First update — emits the pair and adds it to pairSet.
+    // First update — emits the pair. updatePairs no longer adds to the pairSet
+    // (that moved to the contact layer in VP-18); simulate the contact-create
+    // path adding the pair key.
     const first = collectPairs(bp);
     expect(first).toHaveLength(1);
+    const [a0, b0] = [first[0]!.shapeA, first[0]!.shapeB].sort((a, b) => a - b);
+    bp.addPair(a0!, b0!);
 
     // Move both so they'd be queried again.
     bp.moveProxy(k1, aabb(0, 0, 2, 2));
@@ -321,8 +325,17 @@ describe("updatePairs — pairSet de-duplication across calls", () => {
     const first = collectPairs(bp);
     expect(first).toHaveLength(1);
 
-    // Simulate M3 removing the pair from pairSet (they no longer overlap).
+    // Simulate the contact-create path adding the pair key (updatePairs no
+    // longer does this itself).
     const [shapeA, shapeB] = [first[0]!.shapeA, first[0]!.shapeB].sort((a, b) => a - b);
+    bp.addPair(shapeA!, shapeB!);
+
+    // Move both so they'd be queried again — pair exists, no re-emit.
+    bp.moveProxy(k1, aabb(0, 0, 2, 2));
+    bp.moveProxy(k2, aabb(1, 1, 3, 3));
+    expect(collectPairs(bp)).toHaveLength(0);
+
+    // Simulate M3 removing the pair from pairSet (they no longer overlap).
     bp.removePair(shapeA!, shapeB!);
 
     // Move both so they'd be queried again.

@@ -731,3 +731,73 @@ total; gate green (typecheck/test/lint/prettier from `lib/vecs-physics/`).
   `b2Cross` are inlined as scalar math matching the vec2 helpers; verified
   sign-for-sign. Constraint scratch is allocated per `solve()` call and reused
   across all sub-steps (one `ContactConstraint` per `graphContactSims[i]`).
+
+#### ✅ VP-18 — `engine/collide.ts` + `engineStep` wiring + HelloWorld gate
+
+Wires the full collision step loop: `engineStep` (step.ts) now runs
+`makeStepContext` → `broadPhase.updatePairs(pairCreateCallback)` → `collide` →
+`solve` → `finalizeBodies(with refit)`, mirroring box2d's `b2World_Step` →
+`b2Collide` → `b2Solve` → `b2FinalizeBodiesTask`. 5 new tests (HelloWorld gate +
+4 scenarios across `hello_world.test.ts` / `contacts.test.ts`); **450 total**;
+gate green (typecheck/test/lint/prettier from `lib/vecs-physics/`).
+
+**HelloWorld parity gate (M3 DoD) PASSES** — measured final
+`x = -0.00908` (|x| < 0.01), `y = 0.99991` (|y − 1| = 9e-5 < 0.01),
+`angle = 0` (< 0.01). Tolerance NOT loosened.
+
+box2d lines mirrored:
+
+- `collide` ← `b2Collide` (physics_world.c:610-815): gather all contact sims
+  (overflow graph color + awake-set non-touching) → per-contact update →
+  serial state-change loop. Single-threaded — the parallel-for and per-worker
+  `contactStateBitSet` collapse to a serial pass + a `Set<number>` of contact
+  ids (stable across array moves; iterated in gather order = deterministic).
+- per-contact update ← `b2CollideTask` (physics_world.c:445-578): fat-AABB
+  overlap → `SIM_DISJOINT`; else refresh `bodySimIndexA/B` + `invMass*/invI*`
+  every step, build body transforms + `centerOffset = rotate(q, localCenter)`,
+  `updateContact`, started/stopped flags, `mp.baseSeparation = mp.separation`.
+  **Recycling block (483-538) skipped** (recycleDistance = 0, v1); **bullet/
+  isFast nudge (565-576) skipped** (M5 CCD).
+- state-change loop ← `b2Collide`:697-808: `SIM_DISJOINT → destroyContact`;
+  `SIM_STARTED_TOUCHING →` set `CONTACT_TOUCHING_FLAG`, `linkContact`, re-fetch
+  sim by `localIndex`, `addContactToGraph`, then `_removeNonTouchingContact`
+  (link-first / add-before-remove order kept); `SIM_STOPPED_TOUCHING →`
+  `unlinkContact`, `_addNonTouchingContact`, then `removeContactFromGraph`.
+- `_addNonTouchingContact` ← `b2AddNonTouchingContact` (physics_world.c:583);
+  `_removeNonTouchingContact` ← `b2RemoveNonTouchingContact` (594), awake set.
+- `makePairCreateCallback` ← `b2PairQueryCallback` shape filtering
+  (broad_phase.c:243-270): same-body skip, sensor skip (M4), `shouldShapesCollide`,
+  then `createContact` (which does `canCollide` + canonical order + `addPair`).
+- `finalizeBodies` AABB refit ← `b2FinalizeBodiesTask` shape loop
+  (solver.c:686-732): walk `shapeHead`/`nextShape`, `updateShapeAABBs`, and
+  `enlargeProxy` when the new tight AABB escapes the old fat AABB. Sleep timer
+  (638-684) and isFast/CCD (688-728) skipped (M5).
+
+Decisions / deviations:
+
+- **Broad-phase `pairSet` semantics moved to the contact layer.**
+  `BroadPhase.updatePairs` no longer adds to `_pairSet` on emit and no longer
+  filters by shape; it emits raw OVERLAP candidates (keeping self-skip,
+  both-moving dedup, and the `_pairSet.has` "contact exists" skip) and de-dups
+  two moved proxies hitting the same target within one call via a LOCAL
+  `Set<number>`. `_pairSet` membership now means "a contact exists", maintained
+  by `createContact`/`destroyContact` (`addPair`/`removePair`). Two VP-10
+  broad-phase tests updated to call `bp.addPair(...)` to simulate the contact
+  layer. (PLAN → Settled already records this decision.)
+- **Refit rule lives in one place.** Extracted `refitBodyShapeProxies` into
+  `engine/shape.ts` with a `"move" | "enlarge"` mode; `pose_sync_in.ts`
+  (teleport → MOVE proxy, `b2Body_SetTransform`) and `finalizeBodies`
+  (per-step → ENLARGE proxy, `b2FinalizeBodiesTask`) both call it. The
+  move-vs-enlarge distinction is box2d-faithful.
+- **`integrateVelocities`/`integratePositions` removed from `step.ts`** — the
+  solver (VP-17) owns them as stages 2 & 5. `finalizeBodies` kept + extended
+  with the AABB refit; `engineStep` early-returns on `dt <= 0`. Empty-awake /
+  no-contact cases handled by `solve`'s and `collide`'s own early returns.
+- Scenarios (`contacts.test.ts`): a dropped box rests in a 0.9–1.1 band and
+  stays within 0.02 over 240 extra steps; a restitution-1 body rebounds with
+  ~88% of its impact speed (impact −4.5 → rebound +3.96); a 2-box stack settles
+  with centre-separation ≈ 2 (top does not sink through) and near-zero spin.
+
+**MILESTONE 3 COMPLETE** — contacts + TGS solver wired; HelloWorld parity gate
+green; 450 tests. M4 deferrals unchanged (begin/end contact events VP-21,
+sensors). M5: contact recycling, CCD/isFast, sleep, island split.

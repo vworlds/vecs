@@ -14,69 +14,23 @@ import { type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "../components/body.js";
 import { STATIC_BODY, writeBodyTransform } from "../engine/body.js";
-import { updateShapeAABBs } from "../engine/shape.js";
+import { refitBodyShapeProxies } from "../engine/shape.js";
 import { AWAKE_SET } from "../engine/solver_set.js";
 import { PhysicsSystemTag, type PhysicsState } from "../engine/state.js";
 import { makeRot } from "../math/rot.js";
-import { mulTransforms, type Transform } from "../math/transform.js";
-import { NULL_INDEX, type BodyHandle } from "../util/handle.js";
+import { type BodyHandle } from "../util/handle.js";
 
 // ─── Refit helper ─────────────────────────────────────────────────────────────
-
-/**
- * Walk the body's shape list, recompute each shape's world AABB from the
- * current BodySim transform × shape local pose, and move the broad-phase proxy
- * when the new tight AABB no longer fits inside the existing fat AABB.
- *
- * Mirrors the shape-refit loop in `b2Body_SetTransform`
- * (box2d/src/body.c:727-756):
- *   1. Compute new tight AABB (geometry ± speculativeDistance).
- *   2. If old fatAABB still contains the new tightAABB → no move needed.
- *   3. Otherwise expand to a new fat AABB and call moveProxy.
- */
-function refitBodyShapeProxies(state: PhysicsState, bodyHandle: BodyHandle): void {
+//
+// The shape-AABB refit on a user teleport (box2d `b2Body_SetTransform`,
+// body.c:727-756) is shared with the per-step finalize (VP-18 `finalizeBodies`)
+// via `refitBodyShapeProxies` in `engine/shape.ts`, so the refit rule lives in
+// one place. The teleport path uses the "move" proxy op (remove + reinsert);
+// finalize uses "enlarge". This wrapper resolves the body's sim and calls it.
+function refitForTeleport(state: PhysicsState, bodyHandle: BodyHandle): void {
   const bodyRec = state.bodies.get(bodyHandle.index);
   const sim = state.solverSets[bodyRec.setIndex]!.bodySims[bodyRec.localIndex]!;
-  const bodyXf: Transform = {
-    p: { x: sim.transformX, y: sim.transformY },
-    q: { c: sim.cos, s: sim.sin },
-  };
-
-  let shapeIndex = bodyRec.shapeHead;
-  while (shapeIndex !== NULL_INDEX) {
-    const shape = state.shapes.get(shapeIndex);
-    shapeIndex = shape.nextShape;
-
-    const localXf: Transform = {
-      p: { x: shape.localX, y: shape.localY },
-      q: { c: shape.localCos, s: shape.localSin },
-    };
-    const worldXf = mulTransforms(bodyXf, localXf);
-
-    // Snapshot the old fat AABB before we overwrite it.
-    const oldFatMinX = shape.fatAabbMinX;
-    const oldFatMinY = shape.fatAabbMinY;
-    const oldFatMaxX = shape.fatAabbMaxX;
-    const oldFatMaxY = shape.fatAabbMaxY;
-
-    // updateShapeAABBs writes new tight+fat AABBs and returns the fat AABB.
-    const fatAABB = updateShapeAABBs(shape, worldXf, bodyRec.type);
-
-    // Skip moveProxy when the old fat AABB still contains the new tight AABB
-    // (Box2D containment check — b2AABB_Contains(shape->fatAABB, aabb)).
-    // Disabled bodies have no proxy (proxyKey = -1).
-    if (shape.proxyKey === -1) {
-      continue;
-    }
-    const tightFitsInOldFat =
-      oldFatMinX <= shape.aabbMinX &&
-      oldFatMinY <= shape.aabbMinY &&
-      shape.aabbMaxX <= oldFatMaxX &&
-      shape.aabbMaxY <= oldFatMaxY;
-    if (!tightFitsInOldFat) {
-      state.broadPhase.moveProxy(shape.proxyKey, fatAABB);
-    }
-  }
+  refitBodyShapeProxies(state.shapes, state.broadPhase, bodyRec, sim, "move");
 }
 
 /** Create `PhysicsPoseSyncIn` on `world`, bound to `state` and `phase`. Returns
@@ -99,7 +53,7 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: IPha
     writeBodyTransform(sim, pos.x, pos.y, sim.cos, sim.sin);
     // Refit all child shape AABBs and broad-phase proxies for the new transform
     // (mirrors b2Body_SetTransform in box2d/src/body.c).
-    refitBodyShapeProxies(state, handle);
+    refitForTeleport(state, handle);
   });
 
   system.update(Rotation, (e, rot) => {
@@ -111,7 +65,7 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: IPha
     const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
     const q = makeRot(rot.angle);
     writeBodyTransform(sim, sim.transformX, sim.transformY, q.c, q.s);
-    refitBodyShapeProxies(state, handle);
+    refitForTeleport(state, handle);
   });
 
   system.update(LinearVelocity, (e, linear) => {

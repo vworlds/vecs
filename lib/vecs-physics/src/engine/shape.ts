@@ -22,10 +22,11 @@ import {
   MAX_AABB_MARGIN,
   SPECULATIVE_DISTANCE,
 } from "../math/constants.js";
-import type { Transform } from "../math/transform.js";
+import { mulTransforms, type Transform } from "../math/transform.js";
 import { NULL_INDEX, type BodyHandle, type ShapeHandle } from "../util/handle.js";
 import { IdPool } from "../util/id_pool.js";
-import { STATIC_BODY } from "./body.js";
+import type { BroadPhase } from "./broad_phase.js";
+import { type InternalBody, STATIC_BODY } from "./body.js";
 import {
   computeAABB,
   computeHull,
@@ -139,6 +140,100 @@ export function fatAabbContainsTight(shape: InternalShape): boolean {
     shape.aabbMaxX <= shape.fatAabbMaxX &&
     shape.aabbMaxY <= shape.fatAabbMaxY
   );
+}
+
+// ─── refitBodyShapeProxies (shared shape-AABB refit) ──────────────────────────
+//
+// The single refit rule, shared between the user-teleport path
+// (`PhysicsPoseSyncIn`, box2d `b2Body_SetTransform`) and the per-step finalize
+// (`finalizeBodies`, box2d `b2FinalizeBodiesTask`). Both walk the body's shape
+// list, recompute each shape's tight + fat world AABB, and — when the new tight
+// AABB no longer fits inside the OLD fat AABB — update the broad-phase proxy.
+//
+// The proxy operation differs by caller and that distinction is box2d-faithful:
+//   - teleport ("move")    → `b2BroadPhase_MoveProxy` (remove + reinsert)
+//   - finalize ("enlarge") → `b2BroadPhase_EnlargeProxy` (grow in place)
+// Mirrors `b2Body_SetTransform` (body.c:727-756) vs `b2FinalizeBodiesTask`
+// (solver.c:686-732).
+
+/** How the broad-phase proxy is updated when a shape's tight AABB outgrows its
+ * fat AABB. See {@link refitBodyShapeProxies}. */
+export type ProxyRefitMode = "move" | "enlarge";
+
+/** Minimal view of a body's sim transform that the refit needs. */
+interface RefitBodyView {
+  transformX: number;
+  transformY: number;
+  cos: number;
+  sin: number;
+}
+
+/**
+ * Walk `body`'s shape list, recompute each shape's world AABB from
+ * `bodySim`'s current transform × the shape's local pose, and update the
+ * broad-phase proxy when the new tight AABB no longer fits the old fat AABB.
+ *
+ * `mode` selects the proxy op (see {@link ProxyRefitMode}); static bodies never
+ * enlarge (box2d asserts non-static in `b2BroadPhase_EnlargeProxy`), but the
+ * containment check naturally skips them since a static fat AABB only changes
+ * on teleport. Shapes with no proxy (`proxyKey === -1`, on a disabled body) are
+ * skipped. The fat-AABB margin (static vs dynamic/kinematic) is selected from
+ * `body.type` inside {@link updateShapeAABBs}.
+ */
+export function refitBodyShapeProxies(
+  shapes: ShapeStorage,
+  broadPhase: BroadPhase,
+  body: InternalBody,
+  bodySim: RefitBodyView,
+  mode: ProxyRefitMode
+): void {
+  const bodyXf: Transform = {
+    p: { x: bodySim.transformX, y: bodySim.transformY },
+    q: { c: bodySim.cos, s: bodySim.sin },
+  };
+
+  let shapeIndex = body.shapeHead;
+  while (shapeIndex !== NULL_INDEX) {
+    const shape = shapes.get(shapeIndex);
+    shapeIndex = shape.nextShape;
+
+    const localXf: Transform = {
+      p: { x: shape.localX, y: shape.localY },
+      q: { c: shape.localCos, s: shape.localSin },
+    };
+    const worldXf = mulTransforms(bodyXf, localXf);
+
+    // Snapshot the old fat AABB before updateShapeAABBs overwrites it.
+    const oldFatMinX = shape.fatAabbMinX;
+    const oldFatMinY = shape.fatAabbMinY;
+    const oldFatMaxX = shape.fatAabbMaxX;
+    const oldFatMaxY = shape.fatAabbMaxY;
+
+    // Writes new tight + fat AABBs and returns the fat AABB.
+    const fatAABB = updateShapeAABBs(shape, worldXf, body.type);
+
+    // Disabled bodies have no proxy.
+    if (shape.proxyKey === -1) {
+      continue;
+    }
+
+    // Skip the proxy update when the old fat AABB still contains the new tight
+    // AABB (b2AABB_Contains(shape->fatAABB, aabb)).
+    const tightFitsInOldFat =
+      oldFatMinX <= shape.aabbMinX &&
+      oldFatMinY <= shape.aabbMinY &&
+      shape.aabbMaxX <= oldFatMaxX &&
+      shape.aabbMaxY <= oldFatMaxY;
+    if (tightFitsInOldFat) {
+      continue;
+    }
+
+    if (mode === "enlarge") {
+      broadPhase.enlargeProxy(shape.proxyKey, fatAABB);
+    } else {
+      broadPhase.moveProxy(shape.proxyKey, fatAABB);
+    }
+  }
 }
 
 // ─── ShapeType ────────────────────────────────────────────────────────────────

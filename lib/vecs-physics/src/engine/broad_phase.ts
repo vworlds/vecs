@@ -196,7 +196,16 @@ export class BroadPhase {
    *   - If both proxies are dynamic and moving, the lower-proxyKey proxy skips
    *     the pair (the higher-key proxy will emit it instead). This de-dupes
    *     within a single update without touching the pairSet.
-   *   - A pair already in `_pairSet` is skipped (contact already exists).
+   *   - A pair already in `_pairSet` is skipped (a contact already exists).
+   *
+   * `_pairSet` membership means "a contact exists"; it is maintained by the
+   * contact layer via {@link addPair} / {@link removePair} (box2d adds the key
+   * in `b2CreateContact`). This method does NOT add to `_pairSet` on emit. The
+   * shape filtering (same-body / sensor / `b2ShouldShapesCollide`) that box2d's
+   * `b2PairQueryCallback` does is likewise deferred to the contact-create
+   * callback (the broad phase stays shape-agnostic — it only knows shape
+   * indices via tree userData). In-batch de-dup of two moved proxies finding
+   * the same target within one call uses a local emitted-key {@link Set}.
    *
    * After emitting pairs the move buffer is cleared (both the set and array).
    * Mirrors `b2UpdateBroadPhasePairs`.
@@ -287,13 +296,17 @@ export class BroadPhase {
     this._trees[DYNAMIC_BODY]!.rebuild(false);
     this._trees[KINEMATIC_BODY]!.rebuild(false);
 
-    // --- Emit pairs + add to pairSet (single-threaded, deterministic) ---
+    // --- Emit pairs (single-threaded, deterministic) ---
+    // In-batch de-dup uses a LOCAL set (not _pairSet): two moved proxies both
+    // finding the same target in one call must emit the candidate only once.
+    // _pairSet is NOT touched here — it now means "a contact exists" and is
+    // maintained by the contact layer (addPair/removePair). The callback (the
+    // contact-create path) does the shape filtering and the _pairSet add.
+    const emitted = new Set<number>();
     for (const c of candidates) {
       const pk = pairKey(c.shapeA, c.shapeB);
-      // Guard again: a later candidate in the same batch might duplicate an
-      // earlier one (two moved proxies both finding the same static).
-      if (!this._pairSet.has(pk)) {
-        this._pairSet.add(pk);
+      if (!emitted.has(pk)) {
+        emitted.add(pk);
         callback(c.shapeA, c.shapeB);
       }
     }
