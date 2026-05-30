@@ -1709,5 +1709,54 @@ _(updated as tickets land)_
 
 - ⏳ **VP-23** — Sleep + island split. NEXT.
 - ⏳ **VP-24** — Continuous collision (CCD) for bullets + fast bodies.
-- ⏳ **VP-25** — `PhysicsDebugValidation` system.
+- ✅ **VP-25** — `PhysicsDebugValidation` system (commits 5d4ed8e, dbca1f9, 3d91299).
 - ⏳ **VP-26** — Performance pass + fat-AABB hysteresis fix + benchmark + closeout.
+
+#### ✅ VP-25 — `PhysicsDebugValidation` system
+
+**Files:**
+- `src/systems/debug.ts` (NEW) — `installDebugValidation`: a `.run()` physics-pre
+  system that walks three `world.filter()` scans every step and validates all six
+  structural codes from `docs/debug-validation.md`. Owns a `WarnDedupe` instance
+  (survives across steps). Re-arms (eid, code) pairs when the structure becomes
+  valid so a future relapse can warn again.
+- `src/systems/index.ts` — added `PhysicsSystemsOptions` interface; conditionally
+  calls `installDebugValidation` as the last physics-pre system when `debug: true`.
+- `src/install.ts` — added `debugSink?: (message: string) => void` to
+  `PhysicsOptions`; passes `{ debug, debugSink }` to `installPhysicsSystems`.
+- `tests/debug/debug_validation.test.ts` (NEW) — 42 tests, one describe block per
+  code, each covering: fires once (a), silent when debug: false (b), 600-step
+  deduplication (c), message contains code+eid (d), re-arm after fix+re-break (e).
+
+**Six validation codes (all from `docs/debug-validation.md`):**
+1. `shape-without-parent-body` — geometry entity with no direct Body parent.
+2. `dynamic-body-without-density` — dynamic body with no non-sensor shape of
+   density > 0, OR no shape children at all.
+3. `chain-too-few-points` — `Chain.points.length < 4`.
+4. `polygon-invalid` — `Polygon.vertices` fail `validateHull` / `computeHull`.
+5. `shape-position-on-body` — `Body` entity carries `ShapePosition` or `ShapeRotation`.
+6. `position-on-shape-entity` — geometry entity carries `Position`.
+
+**Decisions:**
+- **Filter scan approach** (not reactive queries). The validator is a read-only
+  pass that runs every step regardless, mirroring `PhysicsForceGather`. Three
+  `world.filter()` scans: geometry entities, body entities, and body-with-shape-pose
+  entities. No dependency on `PhysicsState` internals — pure ECS walk.
+- **`dynamic-body-without-density` child scan**: builds a `Map<body-eid, child[]>`
+  by walking the geometry filter and checking each entity's `ChildOf` parent. This
+  avoids threading `PhysicsState` through the validator. Correct because the
+  geometry filter already includes every geometry entity in the world.
+- **Re-arm on valid** (codes 1, 3, 4, 6): when the (eid, code) pair is valid on
+  the current step, call `dedupe.rearm()` so a future return to invalid warns again.
+  For code 5 (shape-position-on-body), re-arm is not needed — if the entity leaves
+  the filter (components removed) it simply isn't visited; re-entry is covered by
+  the new filter membership.
+- **`debugSink` on `PhysicsOptions`**: avoids exposing `installDebugValidation`
+  in the public API while still allowing test interception without console.warn
+  spying.
+- **Gate is last in physics-pre**: after `PhysicsMassRecompute`, so the validator
+  sees the world after all lifecycle/sync has run. Transient mid-frame states during
+  entity construction are not the validator's concern.
+
+**Test count:** 569 → 611 (42 new). Gate green:
+`typecheck/test/lint/prettier` all clean from `lib/vecs-physics/`.
