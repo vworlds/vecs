@@ -17,11 +17,9 @@
 // naturally. `finalizeBodies` (engine/step.ts) already zeroes force/torque each
 // step, so re-accumulation is correct — we do NOT zero them here.
 //
-// Wake flag: `b2Body_ApplyForceToCenter` (body.c:961) and `b2Body_ApplyTorque`
-// (body.c:983) both check `wake && body->setIndex >= b2_firstSleepingSet` and
-// call `b2WakeBody`. Sleep is not yet ported (M5), so the `wake` field is
-// carried structurally but is a no-op until sleep lands. Comment left at the
-// accumulation site.
+// Wake flag (VP-23): `b2Body_ApplyForceToCenter` (body.c:961) and
+// `b2Body_ApplyTorque` (body.c:983) both check `wake && body->setIndex >=
+// b2_firstSleepingSet` and call `b2WakeBody`. Honoured at the accumulation site.
 //
 // Box2D reference lines mirrored:
 //   b2Body_ApplyForceToCenter (body.c:946-966):
@@ -33,7 +31,8 @@ import { ChildOf, type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Force, Torque } from "../components/force.js";
-import { AWAKE_SET } from "../engine/solver_set.js";
+import { wakeBody } from "../engine/sleep.js";
+import { AWAKE_SET, FIRST_SLEEPING_SET } from "../engine/solver_set.js";
 import { type PhysicsState } from "../engine/state.js";
 
 /** Create `PhysicsForceGather` on `world`, bound to `state` and `phase`.
@@ -72,26 +71,35 @@ export function installForceGather(world: World, state: PhysicsState, phase: IPh
           return;
         }
         const record = state.bodies.get(handle.index);
-        // Only accumulate into bodies in the awake set (mirrors box2d's check:
-        // "if (body->setIndex == b2_awakeSet)" — body.c:961, body.c:983).
-        if (record.setIndex !== AWAKE_SET) {
-          return;
-        }
-        const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
 
-        // ── Accumulate force (b2Body_ApplyForceToCenter, body.c:964) ──────────
+        // ── Accumulate force (b2Body_ApplyForceToCenter, body.c:946-966) ──────
         const force = e.get(Force) as Force | undefined;
         if (force !== undefined) {
-          // Wake flag: a no-op until sleep lands (M5). See PROGRESS.md M4 note.
-          sim.forceX += force.x; // mirrors: bodySim->force = b2Add(bodySim->force, force) [body.c:964]
-          sim.forceY += force.y;
+          // b2Body_ApplyForceToCenter (body.c:928-932): skip non-dynamic or disabled.
+          // b2Body_ApplyForceToCenter (body.c:956-959): wake if sleeping and wake==true.
+          if (force.wake && record.setIndex >= FIRST_SLEEPING_SET) {
+            wakeBody(state, handle.index);
+          }
+          // Accumulate only if body is now in the awake set (mirrors body.c:961).
+          if (record.setIndex === AWAKE_SET) {
+            const sim = state.solverSets[AWAKE_SET]!.bodySims[record.localIndex]!;
+            sim.forceX += force.x; // body.c:964
+            sim.forceY += force.y;
+          }
         }
 
-        // ── Accumulate torque (b2Body_ApplyTorque, body.c:986) ────────────────
+        // ── Accumulate torque (b2Body_ApplyTorque, body.c:968-988) ────────────
         const torque = e.get(Torque) as Torque | undefined;
         if (torque !== undefined) {
-          // Wake flag: a no-op until sleep lands (M5).
-          sim.torque += torque.value; // mirrors: bodySim->torque += torque [body.c:986]
+          // b2Body_ApplyTorque (body.c:978-981): wake if sleeping and wake==true.
+          if (torque.wake && record.setIndex >= FIRST_SLEEPING_SET) {
+            wakeBody(state, handle.index);
+          }
+          // Accumulate only if body is now in the awake set (mirrors body.c:983).
+          if (record.setIndex === AWAKE_SET) {
+            const sim = state.solverSets[AWAKE_SET]!.bodySims[record.localIndex]!;
+            sim.torque += torque.value; // body.c:986
+          }
         }
       });
     });
