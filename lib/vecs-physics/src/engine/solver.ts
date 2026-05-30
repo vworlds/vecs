@@ -989,9 +989,15 @@ export function gatherHitEvents(state: PhysicsState): void {
     if (found) {
       // solver.c:1773: event.normal = contactSim->manifold.normal;
       // Build shape handles from the id pool, matching VP-21a's _makeContactTouchEvent.
+      // Capture entity eids now (shapes are alive during the solve; VP-21b uses them
+      // via state.shapeEntityByEid to resolve entities even after teardown).
+      const eA = state.shapes.records[contactSim.shapeIdA]?.entity ?? -1;
+      const eB = state.shapes.records[contactSim.shapeIdB]?.entity ?? -1;
       const event: ContactHitEvent = {
         shapeA: { index: contactSim.shapeIdA, generation: pool.generationOf(contactSim.shapeIdA) },
         shapeB: { index: contactSim.shapeIdB, generation: pool.generationOf(contactSim.shapeIdB) },
+        entityEidA: eA,
+        entityEidB: eB,
         pointX,
         pointY,
         normalX: manifold.normal.x,

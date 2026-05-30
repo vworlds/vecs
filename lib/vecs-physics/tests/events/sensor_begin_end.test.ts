@@ -1,21 +1,20 @@
-// VP-21c: sensor overlap pass — raw sensorBeginEvents / sensorEndEvents.
+// VP-21c / VP-21b: sensor overlap pass — raw arrays and ECS SensorEvents publishing.
 //
-// Tests verify that `state.sensorBeginEvents` and `state.sensorEndEvents` are
-// populated by `overlapSensors` and that:
-//   - TestSensor parity (ported from box2d test/test_world.c:329-395):
-//       a bullet sensor crossing a wall → exactly one frame with begin and one
-//       with end, matching box2d's ENSURE(beginCount == 1) / ENSURE(endCount == 1).
-//   - Opt-in: enableSensorEvents must be set on BOTH the sensor AND the visited
-//     shape; missing on either side → no events.
-//   - Same-body shapes do not generate a sensor event.
-//   - A sensor shape does not detect itself.
-//   - A sensor does not generate events against another sensor shape (box2d
-//     b2SensorQueryCallback does NOT reject other sensors — both detect each other).
+// After VP-21b, `PhysicsEvents` clears `state.sensorBeginEvents` and
+// `state.sensorEndEvents` at the END of physics-post (after publishing). World-level
+// tests therefore check the ECS `SensorEvents` component arrays. Engine-level tests
+// (destroySensor path) bypass the Vecs pipeline and still read raw arrays directly.
+//
+// Tests cover:
+//   - TestSensor parity (ported from box2d test/test_world.c:329-395): exactly
+//     one begin frame and one end frame (checked via SensorEvents component).
+//   - Opt-in: enableSensorEvents required on both shapes (checked via raw array
+//     absence at engine level / component presence at world level).
+//   - Same-body shapes do not generate sensor events.
+//   - A sensor does not detect itself.
+//   - Two overlapping sensors detect each other as visitors.
 //   - Begin then end as a body enters then leaves the sensor region.
-//   - destroySensor path: removing a sensor while overlapping emits an end event.
-//
-// Asserts on RAW `state.sensorBeginEvents` / `state.sensorEndEvents` arrays.
-// ECS `SensorEvents` component publishing is VP-21b — NOT tested here.
+//   - destroySensor path: removing a sensor while overlapping emits a raw end event.
 
 import { ChildOf, World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
@@ -150,28 +149,38 @@ describe("TestSensor parity (box2d test_world.c:329-395)", () => {
       .set(Position, { x: 7.39814, y: 4 })
       .set(LinearVelocity, { x: -20, y: 0 })
       .add(GravityScale); // defaults to 0 scale (no gravity)
-    world
+    const bulletShapeEntity = world
       .entity()
       .set(ChildOf, { target: bulletBody })
       .set(Circle, { radius: 0.1 })
       .add(Sensor)
       .add(SensorEvents);
 
-    const state = getPhysics(world);
-
+    // After VP-21b the raw arrays are cleared at end-of-publish.
+    // Count frames by checking the SensorEvents component instead.
     let beginCount = 0;
     let endCount = 0;
+    let prevBeginLen = 0;
+    let prevEndLen = 0;
 
     // Run until the bullet has passed through (x < -1.0 matches box2d test_world.c:382).
     for (let i = 0; i < 2000; i++) {
       step(world);
 
-      if (state.sensorBeginEvents.length > 0) {
+      const sev = bulletShapeEntity.get(SensorEvents)!;
+      const curBeginLen = sev.begin.length;
+      const curEndLen = sev.end.length;
+
+      // Count frames where new events arrived (component is non-empty after this step
+      // but was empty/smaller before — modified fires means new events).
+      if (curBeginLen > 0 && prevBeginLen === 0) {
         beginCount++;
       }
-      if (state.sensorEndEvents.length > 0) {
+      if (curEndLen > 0 && prevEndLen === 0) {
         endCount++;
       }
+      prevBeginLen = curBeginLen;
+      prevEndLen = curEndLen;
 
       const bulletPos = bulletBody.get(Position);
       if (bulletPos && bulletPos.x < -1.0) {
@@ -186,14 +195,14 @@ describe("TestSensor parity (box2d test_world.c:329-395)", () => {
     expect(endCount).toBe(1);
   });
 
-  it("sensor shape handle (bullet circle) is the sensorShape in the begin event", () => {
+  it("sensor shape entity (bullet circle) gets SensorEvents with other = wall shape", () => {
     const world = makeWorld();
 
     const wallBody = world
       .entity()
       .set(Body, { type: BodyType.Static })
       .set(Position, { x: 1.5, y: 11 });
-    world
+    const wallShapeEntity = world
       .entity()
       .set(ChildOf, { target: wallBody })
       .set(Box, { hx: 0.5, hy: 10 })
@@ -212,18 +221,14 @@ describe("TestSensor parity (box2d test_world.c:329-395)", () => {
       .add(Sensor)
       .add(SensorEvents);
 
-    const state = getPhysics(world);
-
-    // Step once so the lifecycle registers shapes.
-    step(world);
-    const bulletShapeHandle = state.shapeByEntity.get(bulletShapeEntity.eid);
-    expect(bulletShapeHandle).toBeDefined();
-
-    let beginEvent: (typeof state.sensorBeginEvents)[0] | undefined;
+    let foundBeginFrame = false;
     for (let i = 0; i < 2000; i++) {
       step(world);
-      if (state.sensorBeginEvents.length > 0) {
-        beginEvent = state.sensorBeginEvents[0];
+      const sev = bulletShapeEntity.get(SensorEvents)!;
+      if (sev.begin.length > 0) {
+        // The bullet is the sensor; other = the wall shape entity.
+        expect(sev.begin[0]!.other.eid).toBe(wallShapeEntity.eid);
+        foundBeginFrame = true;
         break;
       }
       const pos = bulletBody.get(Position);
@@ -232,10 +237,7 @@ describe("TestSensor parity (box2d test_world.c:329-395)", () => {
       }
     }
 
-    expect(beginEvent).toBeDefined();
-    // The bullet circle (the sensor) should be the sensorShape in the event.
-    expect(beginEvent!.sensorShape.index).toBe(bulletShapeHandle!.index);
-    expect(beginEvent!.sensorShape.generation).toBe(bulletShapeHandle!.generation);
+    expect(foundBeginFrame).toBe(true);
   });
 });
 
@@ -315,16 +317,16 @@ describe("sensor opt-in (enableSensorEvents required on both shapes)", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .add(GravityScale);
-    world
+    const bulletShape = world
       .entity()
       .set(ChildOf, { target: bulletBody })
       .set(Circle, { radius: 0.1 })
       .add(Sensor)
       .add(SensorEvents);
 
-    const state = getPhysics(world);
     step(world); // first step detects overlap → begin event
-    expect(state.sensorBeginEvents.length).toBeGreaterThan(0);
+    // After VP-21b the raw arrays are cleared; check the ECS component.
+    expect(bulletShape.get(SensorEvents)!.begin.length).toBeGreaterThan(0);
   });
 });
 
@@ -396,7 +398,7 @@ describe("sensor-vs-sensor", () => {
     const world = makeWorld();
 
     const bodyA = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
-    world
+    const shapeA = world
       .entity()
       .set(ChildOf, { target: bodyA })
       .set(Circle, { radius: 0.5 })
@@ -408,18 +410,20 @@ describe("sensor-vs-sensor", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .add(GravityScale);
-    world
+    const shapeB = world
       .entity()
       .set(ChildOf, { target: bodyB })
       .set(Circle, { radius: 0.5 })
       .add(Sensor)
       .add(SensorEvents);
 
-    const state = getPhysics(world);
     step(world);
-    // Each sensor sees the other as a visitor → 2 begin events total
-    // (sensorA detects shapeB, sensorB detects shapeA).
-    expect(state.sensorBeginEvents.length).toBe(2);
+    // Each sensor sees the other as a visitor → each SensorEvents gets a begin event.
+    // shapeA detects shapeB (other = shapeB), shapeB detects shapeA (other = shapeA).
+    expect(shapeA.get(SensorEvents)!.begin).toHaveLength(1);
+    expect(shapeA.get(SensorEvents)!.begin[0]!.other.eid).toBe(shapeB.eid);
+    expect(shapeB.get(SensorEvents)!.begin).toHaveLength(1);
+    expect(shapeB.get(SensorEvents)!.begin[0]!.other.eid).toBe(shapeA.eid);
   });
 });
 
@@ -434,7 +438,7 @@ describe("begin then end as body enters and leaves sensor", () => {
       .entity()
       .set(Body, { type: BodyType.Static })
       .set(Position, { x: 0, y: 0 });
-    world
+    const zoneShape = world
       .entity()
       .set(ChildOf, { target: zoneBody })
       .set(Box, { hx: 1, hy: 1 })
@@ -455,19 +459,28 @@ describe("begin then end as body enters and leaves sensor", () => {
       .set(Circle, { radius: 0.1 })
       .add(SensorEvents);
 
-    const state = getPhysics(world);
-
+    // After VP-21b the raw arrays are cleared at end-of-publish.
+    // Track begin/end frames via the SensorEvents component on the zone shape.
     let beginStep = -1;
     let endStep = -1;
+    let prevBeginLen = 0;
+    let prevEndLen = 0;
 
     for (let i = 0; i < 200; i++) {
       step(world);
-      if (beginStep < 0 && state.sensorBeginEvents.length > 0) {
+      const sev = zoneShape.get(SensorEvents)!;
+      const curBeginLen = sev.begin.length;
+      const curEndLen = sev.end.length;
+
+      if (beginStep < 0 && curBeginLen > 0 && prevBeginLen === 0) {
         beginStep = i;
       }
-      if (endStep < 0 && state.sensorEndEvents.length > 0) {
+      if (endStep < 0 && curEndLen > 0 && prevEndLen === 0) {
         endStep = i;
       }
+      prevBeginLen = curBeginLen;
+      prevEndLen = curEndLen;
+
       const pos = movingBody.get(Position);
       if (pos && pos.x > 3) {
         break;
@@ -483,16 +496,13 @@ describe("begin then end as body enters and leaves sensor", () => {
 
 // ─── destroySensor end-event path (engine-level) ─────────────────────────────
 //
-// Note: via the full Vecs world pipeline, sensorShapeEntity.destroy() queues
-// the exit callback to run in physics-pre; engineStep then clears sensorEndEvents
-// at the TOP of physics-step before the event can be read in physics-post.
-// This is exactly the same timing issue documented in VP-21a for destroyContact
-// and contact end events (see PROGRESS.md ARCHITECT RESOLUTION). VP-21b will
-// consolidate the clear at end-of-publish.
-//
-// We test destroySensor at the engine level (directly), bypassing Vecs timing,
-// to validate the emit-on-destroy path without fighting inbox buffering — the
-// same approach used in contact_begin_end.test.ts for the destroyContact path.
+// These tests bypass the Vecs pipeline entirely and call destroySensor directly.
+// They verify the raw sensorEndEvents emission path in the engine, independent
+// of the PhysicsEvents publish/clear cycle. The timing gap described in VP-21a
+// (physics-pre teardown events cleared before VP-21b could read them) is now
+// fixed by the ARCHITECT RESOLUTION: PhysicsEvents clears arrays at end-of-publish,
+// so teardown events generated in physics-pre survive to the publish. But
+// engine-level tests remain useful for validating the emit logic directly.
 
 describe("destroySensor emits end events for current overlaps (engine-level)", () => {
   it("destroySensor pushes an end event for each visitor in overlaps2", () => {

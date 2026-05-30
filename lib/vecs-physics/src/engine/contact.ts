@@ -411,9 +411,16 @@ export function destroyContact(
     const flags = contact.flags;
     if ((flags & CONTACT_TOUCHING_FLAG) !== 0 && (flags & CONTACT_ENABLE_CONTACT_EVENTS) !== 0) {
       const pool = state.shapes.idPool;
+      // Capture entity eids NOW (before the shape records may be freed later in
+      // the same physics-pre pass). VP-21b uses the eid to look up the Entity
+      // via state.shapeEntityByEid, bypassing the stale-record guard.
+      const eA = state.shapes.records[contact.shapeIdA]?.entity ?? -1;
+      const eB = state.shapes.records[contact.shapeIdB]?.entity ?? -1;
       const event: ContactTouchEvent = {
         shapeA: { index: contact.shapeIdA, generation: pool.generationOf(contact.shapeIdA) },
         shapeB: { index: contact.shapeIdB, generation: pool.generationOf(contact.shapeIdB) },
+        entityEidA: eA,
+        entityEidB: eB,
       };
       state.contactEndEvents.push(event);
     }

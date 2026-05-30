@@ -321,9 +321,13 @@ export function collide(state: PhysicsState, _ctx: StepContext): void {
  * to skip any handle whose shape was destroyed after this step. */
 function _makeContactTouchEvent(state: PhysicsState, contact: InternalContact): ContactTouchEvent {
   const pool = state.shapes.idPool;
+  const eA = state.shapes.records[contact.shapeIdA]?.entity ?? -1;
+  const eB = state.shapes.records[contact.shapeIdB]?.entity ?? -1;
   return {
     shapeA: { index: contact.shapeIdA, generation: pool.generationOf(contact.shapeIdA) },
     shapeB: { index: contact.shapeIdB, generation: pool.generationOf(contact.shapeIdB) },
+    entityEidA: eA,
+    entityEidB: eB,
   };
 }
 

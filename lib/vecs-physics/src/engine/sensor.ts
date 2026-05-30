@@ -484,13 +484,14 @@ export function overlapSensors(state: PhysicsState): void {
       continue;
     }
 
-    // Build the sensor's handle for the event payload.
+    // Build the sensor's handle + eid for the event payload.
     // Mirrors sensor.c:283:
     //   b2ShapeId sensorId = { sensor->shapeId + 1, world->worldId, sensorShape->generation };
     const sensorHandle: Handle = {
       index: sensor.shapeIndex,
       generation: state.shapes.idPool.generationOf(sensor.shapeIndex),
     };
+    const sensorEid = sensorShape.entity; // captured before shape record may be freed
 
     const refs1 = sensor.overlaps1;
     const refs2 = sensor.overlaps2;
@@ -509,19 +510,17 @@ export function overlapSensors(state: PhysicsState): void {
           // sensor.c:299-309:
           //   if (r1->generation < r2->generation) { // end
           //     b2Array_Push(world->sensorEndEvents[...], event); index1++;
-          state.sensorEndEvents.push({
-            sensorShape: sensorHandle,
-            visitorShape: { index: r1.shapeIndex, generation: r1.generation },
-          });
+          state.sensorEndEvents.push(
+            _makeSensorEvent(state, sensorHandle, sensorEid, r1.shapeIndex, r1.generation)
+          );
           index1++;
         } else if (r1.generation > r2.generation) {
           // begin (sensor.c:310-319):
           //   else if (r1->generation > r2->generation) { // begin
           //     b2Array_Push(world->sensorBeginEvents, event); index2++;
-          state.sensorBeginEvents.push({
-            sensorShape: sensorHandle,
-            visitorShape: { index: r2.shapeIndex, generation: r2.generation },
-          });
+          state.sensorBeginEvents.push(
+            _makeSensorEvent(state, sensorHandle, sensorEid, r2.shapeIndex, r2.generation)
+          );
           index2++;
         } else {
           // persisted (sensor.c:320-324): index1++; index2++;
@@ -531,18 +530,16 @@ export function overlapSensors(state: PhysicsState): void {
       } else if (r1.shapeIndex < r2.shapeIndex) {
         // end (sensor.c:325-330):
         //   b2Array_Push(world->sensorEndEvents[...], event); index1++;
-        state.sensorEndEvents.push({
-          sensorShape: sensorHandle,
-          visitorShape: { index: r1.shapeIndex, generation: r1.generation },
-        });
+        state.sensorEndEvents.push(
+          _makeSensorEvent(state, sensorHandle, sensorEid, r1.shapeIndex, r1.generation)
+        );
         index1++;
       } else {
         // begin (sensor.c:331-337):
         //   b2Array_Push(world->sensorBeginEvents, event); index2++;
-        state.sensorBeginEvents.push({
-          sensorShape: sensorHandle,
-          visitorShape: { index: r2.shapeIndex, generation: r2.generation },
-        });
+        state.sensorBeginEvents.push(
+          _makeSensorEvent(state, sensorHandle, sensorEid, r2.shapeIndex, r2.generation)
+        );
         index2++;
       }
     }
@@ -550,20 +547,18 @@ export function overlapSensors(state: PhysicsState): void {
     // Drain remaining overlaps1 → end events (sensor.c:343-351):
     while (index1 < count1) {
       const r1 = refs1[index1]!;
-      state.sensorEndEvents.push({
-        sensorShape: sensorHandle,
-        visitorShape: { index: r1.shapeIndex, generation: r1.generation },
-      });
+      state.sensorEndEvents.push(
+        _makeSensorEvent(state, sensorHandle, sensorEid, r1.shapeIndex, r1.generation)
+      );
       index1++;
     }
 
     // Drain remaining overlaps2 → begin events (sensor.c:353-361):
     while (index2 < count2) {
       const r2 = refs2[index2]!;
-      state.sensorBeginEvents.push({
-        sensorShape: sensorHandle,
-        visitorShape: { index: r2.shapeIndex, generation: r2.generation },
-      });
+      state.sensorBeginEvents.push(
+        _makeSensorEvent(state, sensorHandle, sensorEid, r2.shapeIndex, r2.generation)
+      );
       index2++;
     }
   }
@@ -591,15 +586,16 @@ export function destroySensor(state: PhysicsState, sensorIndex: number): void {
   // 1. Emit end events for current overlaps (sensor.c:375-393):
   //    for (int i = 0; i < sensor->overlaps2.count; ++i) {
   //      b2Array_Push(world->sensorEndEvents[...], event); }
+  const sensorShapeRec = state.shapes.records[sensor.shapeIndex];
   const sensorHandle: Handle = {
     index: sensor.shapeIndex,
     generation: state.shapes.idPool.generationOf(sensor.shapeIndex),
   };
+  const sensorEid = sensorShapeRec?.entity ?? -1;
   for (const ref of sensor.overlaps2) {
-    state.sensorEndEvents.push({
-      sensorShape: sensorHandle,
-      visitorShape: { index: ref.shapeIndex, generation: ref.generation },
-    });
+    state.sensorEndEvents.push(
+      _makeSensorEvent(state, sensorHandle, sensorEid, ref.shapeIndex, ref.generation)
+    );
   }
 
   // 2 & 3. Swap-remove (sensor.c:401-408):
@@ -616,4 +612,25 @@ export function destroySensor(state: PhysicsState, sensorIndex: number): void {
       movedShape.sensorIndex = sensorIndex;
     }
   }
+}
+
+// ─── Internal helper ──────────────────────────────────────────────────────────
+
+/** Build a {@link SensorTouchEvent} with entity eids captured at emit time so
+ * that VP-21b can resolve entities via `PhysicsState.shapeEntityByEid` even after
+ * the shape record has been freed in the same physics-pre pass (teardown case). */
+function _makeSensorEvent(
+  state: PhysicsState,
+  sensorHandle: Handle,
+  sensorEntityEid: number,
+  visitorIndex: number,
+  visitorGeneration: number
+): import("./state.js").SensorTouchEvent {
+  const visitorEid = state.shapes.records[visitorIndex]?.entity ?? -1;
+  return {
+    sensorShape: sensorHandle,
+    visitorShape: { index: visitorIndex, generation: visitorGeneration },
+    sensorEntityEid,
+    visitorEntityEid: visitorEid,
+  };
 }

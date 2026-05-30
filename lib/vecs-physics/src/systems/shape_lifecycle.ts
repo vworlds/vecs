@@ -480,6 +480,8 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
         opts,
         state
       );
+      // VP-21b: register Entity object so events can form payloads after destroy.
+      state.shapeEntityByEid.set(e.eid, e);
       bodyRec.massDirty = true;
       return;
     }
@@ -535,6 +537,12 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     }
 
     state.shapeByEntity.set(e.eid, handle);
+    // VP-21b: keep the Entity object reference so PhysicsEvents can form a
+    // valid `other: Entity` payload even after the entity is destroyed (Entity
+    // objects persist as JS objects after destroy; see PLAN → Entity-reference
+    // safety). Resolves the "carried-into-M4: reconcile InternalShape.entity
+    // (eid) vs InternalBody.entity (Entity)" item.
+    state.shapeEntityByEid.set(e.eid, e);
     bodyRec.massDirty = true;
   });
 
@@ -551,6 +559,8 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
         destroyShape(state, h);
       }
       state.chainShapeByEntity.delete(e.eid);
+      // VP-21b: shapeEntityByEid is cleaned up lazily in PhysicsEvents.run (not here)
+      // so the Entity reference survives from physics-pre exit to physics-post publish.
       if (chainBodyHandle !== undefined && chainBodyHandle.index !== NULL_INDEX) {
         const bodyRec = state.bodies.records[chainBodyHandle.index];
         if (bodyRec !== undefined) {
@@ -571,6 +581,8 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
 
     destroyShape(state, handle);
     state.shapeByEntity.delete(e.eid);
+    // VP-21b: shapeEntityByEid is cleaned up lazily in PhysicsEvents.run (not here)
+    // so the Entity reference survives from physics-pre exit to physics-post publish.
 
     // Mark the parent body massDirty (body may still be alive).
     if (bodyHandle !== undefined && bodyHandle.index !== NULL_INDEX) {

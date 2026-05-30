@@ -17,12 +17,13 @@
 //
 // Physics-post phase order:
 //   1. PhysicsPoseSyncOut  — write simulated pose back to ECS
-//   2. PhysicsImpulseZero  — silently zero consumed Impulse/AngularImpulse (VP-19)
-//      [VP-21b will insert PhysicsEvents before PhysicsImpulseZero]
+//   2. PhysicsEvents       — fan raw event arrays out to ContactEvents/SensorEvents/HitEvents (VP-21b)
+//   3. PhysicsImpulseZero  — silently zero consumed Impulse/AngularImpulse (VP-19)
 
 import { type IPhase, type World } from "@vworlds/vecs";
 
 import { PhysicsSystemTag, type PhysicsState } from "../engine/state.js";
+import { installEvents } from "./events.js";
 import { installForceGather } from "./forces.js";
 import { installImpulseAccumulate } from "./impulse_accumulate.js";
 import { installImpulseZero } from "./impulse_zero.js";
@@ -68,8 +69,10 @@ export function installPhysicsSystems(
     installStep(world, state, phases.step),
     // physics-post: write simulated pose back to ECS.
     installPoseSyncOut(world, state, phases.postStep),
+    // physics-post: fan raw event arrays out to ECS event components (VP-21b).
+    // Must run AFTER PoseSyncOut (so positions are up to date) and BEFORE ImpulseZero.
+    installEvents(world, state, phases.postStep),
     // physics-post: silently zero consumed Impulse/AngularImpulse (last in post).
-    // VP-21b will insert PhysicsEvents before this.
     installImpulseZero(world, state, phases.postStep),
   ];
 

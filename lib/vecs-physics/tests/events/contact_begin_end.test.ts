@@ -1,24 +1,16 @@
-// VP-21a: raw contact begin/end event recording (engine half).
-//
-// Tests verify that `state.contactBeginEvents` and `state.contactEndEvents`
-// are populated by the collide pass and by `destroyContact`, and that:
-//   - events only fire when at least one shape has `ContactEvents` (opt-in)
-//   - events do NOT fire when neither shape opted in
-//   - handles recorded match the shape handles in `shapeByEntity`
-//   - the destroyContact path fires an end event for touching+enabled contacts
-//   - arrays are cleared at the top of each step
-//
-// Does NOT assert on ECS `ContactEvents` component arrays (VP-21b).
+// VP-21a / VP-21b: contact begin/end event recording — raw engine arrays and ECS
+// publishing.
 //
 // Two test layers:
-//   1. World-level integration (tests/events/contact_begin_end.test.ts) —
-//      the full Vecs world pipeline verifying begin events from collide.ts.
-//   2. Engine-level unit (below "destroyContact engine-level tests") —
-//      directly calls destroyContact to validate the teardown path without
-//      fighting the Vecs inbox-buffering timing (the exit callback is deferred
-//      to the system's next _run, which is physics-pre, before engineStep clears
-//      the events in physics-step — so the teardown event is always cleared before
-//      VP-21b can read it in physics-post; a double-buffer fixes this in VP-21b).
+//   1. World-level integration — the full Vecs world pipeline. Now that VP-21b
+//      (PhysicsEvents) is wired, the raw `state.contactBeginEvents` /
+//      `state.contactEndEvents` are CLEARED at the END of PhysicsEvents.run
+//      (ARCHITECT RESOLUTION from PROGRESS.md). World-level tests therefore check
+//      the ECS `ContactEvents` component arrays (the user-facing surface), not the
+//      raw engine arrays, which are always empty after world.progress.
+//   2. Engine-level unit — directly calls destroyContact to validate the teardown
+//      path without fighting the Vecs pipeline (these bypass world.progress entirely
+//      so the raw arrays are visible before the PhysicsEvents clear).
 
 import type { Entity } from "@vworlds/vecs";
 import { ChildOf, World } from "@vworlds/vecs";
@@ -111,66 +103,72 @@ function makeBox(x: number, y: number, withEvents = false) {
   return { body, shapeEnt };
 }
 
-// ─── Opt-in: begin event ──────────────────────────────────────────────────────
+// ─── Opt-in: begin event (ECS ContactEvents component) ───────────────────────
+//
+// After VP-21b, the raw `state.contactBeginEvents` are cleared at the END of
+// PhysicsEvents.run. World-level tests check the ECS ContactEvents component.
 
 describe("contact begin events (opt-in)", () => {
   it("fires exactly one begin event when two overlapping boxes collide and one has ContactEvents", () => {
     // Place two boxes overlapping at creation so they contact on the first step.
-    // With zero gravity there is no tunnelling concern.
     const { shapeEnt: shapeA } = makeBox(-0.5, 0, true);
     const { shapeEnt: shapeB } = makeBox(0.5, 0, false);
 
     step(1);
 
-    expect(state.contactBeginEvents).toHaveLength(1);
-    expect(state.contactEndEvents).toHaveLength(0);
+    // shapeA has ContactEvents — it should receive a begin event with other = shapeB.
+    const eventsA = shapeA.get(ContactEvents)!;
+    expect(eventsA.begin).toHaveLength(1);
+    expect(eventsA.begin[0]!.other.eid).toBe(shapeB.eid);
+    expect(eventsA.end).toHaveLength(0);
 
-    // Confirm the handles recorded match the shape entries.
-    const handleA = state.shapeByEntity.get(shapeA.eid)!;
-    const handleB = state.shapeByEntity.get(shapeB.eid)!;
-    const evt = state.contactBeginEvents[0]!;
-
-    // The contact stores shapes in canonical (primary) order — verify both
-    // handles appear in the event (order depends on canonical ordering).
-    const indicesInEvent = new Set([evt.shapeA.index, evt.shapeB.index]);
-    expect(indicesInEvent.has(handleA.index)).toBe(true);
-    expect(indicesInEvent.has(handleB.index)).toBe(true);
+    // shapeB has no ContactEvents — it receives nothing.
+    expect(shapeB.get(ContactEvents)).toBeUndefined();
   });
 
   it("fires a begin event when both shapes have ContactEvents", () => {
-    makeBox(-0.5, 0, true);
-    makeBox(0.5, 0, true);
+    const { shapeEnt: shapeA } = makeBox(-0.5, 0, true);
+    const { shapeEnt: shapeB } = makeBox(0.5, 0, true);
 
     step(1);
 
-    expect(state.contactBeginEvents).toHaveLength(1);
+    // Both sides should receive a begin event with the other as `other`.
+    const eventsA = shapeA.get(ContactEvents)!;
+    const eventsB = shapeB.get(ContactEvents)!;
+    expect(eventsA.begin).toHaveLength(1);
+    expect(eventsA.begin[0]!.other.eid).toBe(shapeB.eid);
+    expect(eventsB.begin).toHaveLength(1);
+    expect(eventsB.begin[0]!.other.eid).toBe(shapeA.eid);
   });
 
   it("does NOT fire a begin event when neither shape has ContactEvents", () => {
     // Same geometry but neither shape opts in.
-    makeBox(-0.5, 0, false);
-    makeBox(0.5, 0, false);
+    const { shapeEnt: shapeA } = makeBox(-0.5, 0, false);
+    const { shapeEnt: shapeB } = makeBox(0.5, 0, false);
 
     step(1);
 
-    expect(state.contactBeginEvents).toHaveLength(0);
-    expect(state.contactEndEvents).toHaveLength(0);
+    // No ContactEvents on either entity — both remain undefined.
+    expect(shapeA.get(ContactEvents)).toBeUndefined();
+    expect(shapeB.get(ContactEvents)).toBeUndefined();
   });
 });
 
-// ─── Arrays cleared each step ────────────────────────────────────────────────
+// ─── Arrays cleared each step (ECS component) ────────────────────────────────
 
 describe("event arrays cleared each step", () => {
-  it("begin events from step N are gone by step N+1 when contact persists", () => {
-    makeBox(-0.5, 0, true);
+  it("begin events are in ContactEvents after step N, and cleared in step N+1 when contact persists", () => {
+    const { shapeEnt: shapeA } = makeBox(-0.5, 0, true);
     makeBox(0.5, 0, false);
 
     step(1);
-    expect(state.contactBeginEvents).toHaveLength(1);
+    // Step N: begin event populated.
+    expect(shapeA.get(ContactEvents)!.begin).toHaveLength(1);
 
-    // Step again — boxes still touching, no new begin event, array is cleared.
+    // Step again — boxes still touching, no new begin event; array silently cleared.
     step(1);
-    expect(state.contactBeginEvents).toHaveLength(0);
+    expect(shapeA.get(ContactEvents)!.begin).toHaveLength(0);
+    expect(shapeA.get(ContactEvents)!.end).toHaveLength(0);
   });
 });
 
@@ -179,7 +177,7 @@ describe("event arrays cleared each step", () => {
 describe("contact end events — separation", () => {
   it("fires an end event when separated boxes stop touching", () => {
     // Start overlapping, let contact form and become touching.
-    const { body: bodyB } = makeBox(0.5, 0, true);
+    const { body: bodyB, shapeEnt: shapeB } = makeBox(0.5, 0, true);
     makeBox(-0.5, 0, false);
 
     step(3); // contacts form and become touching
@@ -189,46 +187,34 @@ describe("contact end events — separation", () => {
 
     step(1); // refit happens in pose_sync_in; pair should go disjoint
 
-    // Either stopped-touching or disjoint (depending on separation distance);
-    // both paths must emit an end event.
-    expect(state.contactEndEvents).toHaveLength(1);
-    expect(state.contactBeginEvents).toHaveLength(0);
+    // Either stopped-touching or disjoint path; shapeB should get an end event.
+    const eventsB = shapeB.get(ContactEvents)!;
+    expect(eventsB.end).toHaveLength(1);
+    expect(eventsB.begin).toHaveLength(0);
   });
 });
 
-// ─── Handle correctness ───────────────────────────────────────────────────────
+// ─── Handle correctness (ECS component payload) ──────────────────────────────
 
-describe("event handle correctness", () => {
-  it("recorded handle indices match shapeByEntity entries", () => {
+describe("event entity correctness", () => {
+  it("ContactEvents.begin[0].other is the other shape entity", () => {
     const { shapeEnt: shapeA } = makeBox(-0.5, 0, true);
     const { shapeEnt: shapeB } = makeBox(0.5, 0, false);
 
     step(1);
 
-    expect(state.contactBeginEvents).toHaveLength(1);
-
-    const evt = state.contactBeginEvents[0]!;
-    const handleA = state.shapeByEntity.get(shapeA.eid)!;
-    const handleB = state.shapeByEntity.get(shapeB.eid)!;
-
-    // Both handle indices must be present in the event (canonical order may vary).
-    const indices = new Set([evt.shapeA.index, evt.shapeB.index]);
-    expect(indices.has(handleA.index)).toBe(true);
-    expect(indices.has(handleB.index)).toBe(true);
-
-    // Generations must match the current pool generations (valid at emit time).
-    const pool = state.shapes.idPool;
-    expect(evt.shapeA.generation).toBe(pool.generationOf(evt.shapeA.index));
-    expect(evt.shapeB.generation).toBe(pool.generationOf(evt.shapeB.index));
+    const eventsA = shapeA.get(ContactEvents)!;
+    expect(eventsA.begin).toHaveLength(1);
+    expect(eventsA.begin[0]!.other.eid).toBe(shapeB.eid);
   });
 });
 
 // ─── No double-emit for SIM_DISJOINT path ────────────────────────────────────
 
 describe("no double end-event for disjoint contacts", () => {
-  it("disjoint destroy emits exactly one end event (via destroyContact, not both paths)", () => {
+  it("disjoint destroy delivers exactly one end event to ContactEvents", () => {
     // Two overlapping boxes; let them form a touching contact.
-    const { body: bodyB } = makeBox(0.5, 0, true);
+    const { body: bodyB, shapeEnt: shapeB } = makeBox(0.5, 0, true);
     makeBox(-0.5, 0, false);
 
     step(3); // contact becomes touching
@@ -238,19 +224,18 @@ describe("no double end-event for disjoint contacts", () => {
 
     step(1);
 
-    // Exactly one end event — the SIM_DISJOINT path calls destroyContact which
-    // emits the event. The collide.ts SIM_DISJOINT branch does NOT also emit.
-    expect(state.contactEndEvents).toHaveLength(1);
+    // Exactly one end event in shapeB's ContactEvents.
+    const eventsB = shapeB.get(ContactEvents)!;
+    expect(eventsB.end).toHaveLength(1);
+    expect(eventsB.begin).toHaveLength(0);
   });
 });
 
 // ─── Engine-level: destroyContact teardown path ───────────────────────────────
 //
-// The Vecs inbox-buffering timing means that body lifecycle exit (physics-pre)
-// pushes the end event to contactEndEvents, then engineStep (physics-step)
-// clears it before VP-21b (physics-post) can read it. This is a known gap
-// addressed by a double-buffer in VP-21b. Here we validate the destroyContact
-// implementation directly at the engine level, bypassing the Vecs pipeline.
+// These tests bypass the Vecs pipeline entirely and call destroyContact directly
+// on a PhysicsState. They verify the raw contactEndEvents emission path in the
+// engine, independent of the PhysicsEvents publish/clear cycle.
 
 describe("destroyContact — engine-level end event recording", () => {
   it("pushes an end event when destroying a touching contact with ContactEvents opted in", () => {

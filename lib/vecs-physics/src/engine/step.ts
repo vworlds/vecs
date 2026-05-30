@@ -30,22 +30,15 @@ import { mulRot, normalizeRot, rotateVector } from "../math/rot.js";
  * finalizes the awake bodies (write-back + AABB refit). */
 export function engineStep(state: PhysicsState, dt: number, subSteps: number): void {
   state.stepIndex += 1;
+  // `bodyMoveEvents` is cleared here: it is step-only, consumed by
+  // PhysicsPoseSyncOut (physics-post), and must be fresh each step.
+  // The five ECS-bound event arrays (contactBeginEvents/contactEndEvents,
+  // sensorBeginEvents/sensorEndEvents, contactHitEvents) are cleared at the
+  // END of PhysicsEvents (physics-post), AFTER publishing, so that events
+  // generated in physics-pre (lifecycle teardown, entity.destroy()) survive
+  // until the publish. This is the ARCHITECT RESOLUTION from VP-21a
+  // (PROGRESS.md MILESTONE 4 VP-21a ARCHITECT RESOLUTION bullet).
   state.bodyMoveEvents.length = 0;
-  // Clear contact touch event arrays at step start (VP-21a), matching
-  // box2d's `b2World_Step` which clears contactBeginEvents/contactEndEvents
-  // before running b2Collide (physics_world.c).
-  state.contactBeginEvents.length = 0;
-  state.contactEndEvents.length = 0;
-  // Clear sensor event arrays at step start (VP-21c). These are step-only
-  // generated (overlapSensors runs after finalizeBodies), so clearing here
-  // is safe. VP-21b will consolidate the clear at end-of-publish per the
-  // PROGRESS.md ARCHITECT RESOLUTION — no change needed here then.
-  state.sensorBeginEvents.length = 0;
-  state.sensorEndEvents.length = 0;
-  // Clear hit event array at step start (VP-22). Step-only generated
-  // (gatherHitEvents runs after solve, before finalizeBodies). VP-21b will
-  // consolidate the clear at end-of-publish per the ARCHITECT RESOLUTION.
-  state.contactHitEvents.length = 0;
 
   if (dt <= 0) {
     return;

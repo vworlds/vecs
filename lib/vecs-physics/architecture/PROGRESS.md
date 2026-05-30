@@ -319,8 +319,9 @@ enlargeProxy/updatePairs(cb)/removePair/rebuildTrees`. Static proxies never
     refilter on `CollisionFilter` change; dynamic `Sensor` toggle (needs contact
     teardown) — all documented in-code, mirroring `PhysicsBodyLifecycle.exit`.
   - **Review follow-ups (non-blocking):** (1) `InternalShape.entity` is the **eid
-    (`number`)** while `InternalBody.entity` is an **`Entity`** — reconcile at M4
-    (the events system resolves handles→entities to write event components).
+    (`number`)** while `InternalBody.entity` is an **`Entity`** — reconcile at M4.
+    **✅ RESOLVED VP-21b**: `state.shapeEntityByEid` Map bridges the gap; no structural
+    change to `InternalShape` or engine layer needed.
     (2) `update(ChildOf)` reads `childOf.target.eid` via an `as unknown` cast;
     prefer the typed `e.parent(ChildOf)` path (as `enter` uses). Tested + working.
 - ✅ **VP-12** — `engine/mass.ts` + `systems/mass_recompute.ts` (engine d348412,
@@ -404,8 +405,10 @@ pass through.
   Questions_) — settle before VP-17 (solver).
 
 **Carried into M4:** reconcile `InternalShape.entity` (eid) vs
-`InternalBody.entity` (`Entity`) in the events system; kinematic accept-input /
-drop-output asymmetry (M1 review); open-chain ghost-vertex fidelity vs box2d
+`InternalBody.entity` (`Entity`) in the events system (**✅ RESOLVED VP-21b** — via
+`state.shapeEntityByEid` Map and eid capture in raw event types; no structural change
+to `InternalShape` needed); kinematic accept-input / drop-output asymmetry (M1 review)
+(**✅ RESOLVED VP-20**); open-chain ghost-vertex fidelity vs box2d
 (`ChainSegmentShapeTest`).
 
 **Carried into M5:** CoM-shift velocity adjustment in `b2UpdateBodyMassData`
@@ -1222,18 +1225,19 @@ flag on `InternalContact` → event emission in collide.ts/contact.ts.
   The `destroyContact` push IS correct — verified by an engine-level test that calls
   `destroyContact` directly (bypassing the Vecs inbox-buffering timing). The double-buffer
   fix belongs in VP-21b when the full publish pipeline is designed.
-  - **ARCHITECT RESOLUTION (binding on VP-21b):** do NOT add box2d's two-array double
-    buffer. Instead **relocate the clearing**: remove the contact-event clear from
-    `engineStep` and clear all ECS-bound event scratch arrays at the **end of
-    `PhysicsEvents`** (physics-post), AFTER it publishes. Then the per-frame order is
-    `physics-pre teardown → physics-step collide → physics-post publish → clear`, so
-    events generated in physics-pre (lifecycle/filter-change teardown) and between frames
+  - **ARCHITECT RESOLUTION (binding on VP-21b) — ✅ IMPLEMENTED IN VP-21b:** do NOT add
+    box2d's two-array double buffer. Instead **relocate the clearing**: remove the
+    contact-event clear from `engineStep` and clear all ECS-bound event scratch arrays at
+    the **end of `PhysicsEvents`** (physics-post), AFTER it publishes. Then the per-frame
+    order is `physics-pre teardown → physics-step collide → physics-post publish → clear`,
+    so events generated in physics-pre (lifecycle/filter-change teardown) and between frames
     (user `entity.destroy()` flushed at the next progress) accumulate and survive to the
     publish — achieving box2d's double-buffer *intent* with a single array and one clear
     point. `bodyMoveEvents` stays cleared in `engineStep` (step-only; consumed by
-    `PhysicsPoseSyncOut` earlier in physics-post). VP-21c (sensor) and VP-22 (hit) arrays
-    are step-only generated, so clearing in `engineStep` is harmless for them until VP-21b
-    consolidates the clear at end-of-publish.
+    `PhysicsPoseSyncOut` earlier in physics-post). **IMPLEMENTED**: VP-21b removes the five
+    event-array clears from `engineStep` and adds them at the end of `PhysicsEvents.run`.
+    The teardown test (`physics_events.test.ts` — "destroy a touching body → end event
+    next publish") exercises this path and would FAIL if the clear were still in engineStep.
 - **No sensor events here.** `collide.ts:77` already skips sensor pairs at contact creation;
   sensor begin/end is VP-21c (`engine/sensor.ts`).
 
@@ -1296,12 +1300,12 @@ Minimal — 6 lines of body.
   box2d sensor.c:157-164 merge path is present as a no-op loop.
 - Multi-threading / worker bitsets — collapsed to a serial pass.
 - Custom filter callback — not in v1.
-- **`destroySensor` end-event timing:** the ECS exit path (physics-pre) calls
-  `destroySensor` which pushes to `sensorEndEvents`, but `engineStep` (physics-step)
-  clears the arrays at the TOP, before VP-21b (physics-post) can read them.
-  This is the same double-buffer timing issue documented for VP-21a contact events
-  (PROGRESS.md ARCHITECT RESOLUTION). VP-21b will consolidate the clear at
-  end-of-publish. Engine-level test validates the `destroySensor` emit path directly.
+- **`destroySensor` end-event timing — ✅ IMPLEMENTED IN VP-21b:** the ECS exit path
+  (physics-pre) calls `destroySensor` which pushes to `sensorEndEvents`. This was the
+  same double-buffer timing issue documented for VP-21a. VP-21b's clearing relocation
+  (ARCHITECT RESOLUTION) fixes it: the five event arrays are now cleared at end-of-publish
+  in `PhysicsEvents.run`, so teardown end-events generated in physics-pre survive to
+  physics-post. Engine-level test still validates the `destroySensor` emit path directly.
 
 **TestSensor parity:** PASSES. Box2d `ENSURE(beginCount == 1) / ENSURE(endCount == 1)`
 — a bullet sensor (circle r=0.1, dynamic, vx=-20, no gravity) crossing a static wall
@@ -1368,10 +1372,95 @@ so the call is placed at the same logical position in the pipeline. The manifold
   in `b2ContactHitEvent` (types.h). vecs-physics does not expose contact ids in the public
   API; VP-21b (HitEvents component) does not need it, and omitting it keeps the type minimal.
   Deviation recorded here.
-- **Clearing strategy:** `contactHitEvents` is cleared at the TOP of `engineStep`, consistent
-  with all other event arrays. VP-21b will consolidate the clear at end-of-publish per the
-  ARCHITECT RESOLUTION (same note applies as VP-21a/c). Hit events are step-only generated
-  (the scan runs inside `engineStep`), so clearing in `engineStep` is correct for now.
+- **Clearing strategy — ✅ IMPLEMENTED IN VP-21b:** `contactHitEvents` clearing relocated
+  from `engineStep` to end of `PhysicsEvents.run` per the ARCHITECT RESOLUTION. VP-21b
+  consolidates all five event-array clears at end-of-publish.
 
 **Tests:** 10 new tests in `tests/events/hit_events.test.ts`. **544 tests total** (was 534).
+Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
+
+#### ✅ VP-21b — `systems/events.ts` — `PhysicsEvents` publish system
+
+**Files changed:**
+- `src/systems/events.ts` (NEW) — `installEvents`: `.run()` physics-post system.
+  Three closure-local `prevTouched` Sets (contact/sensor/hit). For each raw event array:
+  resolves shape entity eids via `state.shapeEntityByEid` (see below), publishes to
+  `ContactEvents`/`SensorEvents`/`HitEvents` components with clear-in-place + modified
+  only on new events + silent clear for previously-touched shapes with no events this step.
+  Clears all five ECS-bound raw event arrays at end-of-run (clearing relocation). Lazy GC
+  of `shapeEntityByEid` at end-of-run for freed shape entries.
+- `src/engine/state.ts` — added `shapeEntityByEid: Map<number, Entity>` (the M4 reconcile
+  item; see below). Added `entityEidA`/`entityEidB` to `ContactTouchEvent` and
+  `ContactHitEvent`; `sensorEntityEid`/`visitorEntityEid` to `SensorTouchEvent`. Added
+  `Entity` import from `@vworlds/vecs` (first engine-layer vecs type import; acceptable
+  since state.ts already imported from `@vworlds/vecs` for `Singleton`/`World`).
+- `src/engine/step.ts` — REMOVED the five event-array clears (`contactBeginEvents`,
+  `contactEndEvents`, `sensorBeginEvents`, `sensorEndEvents`, `contactHitEvents`).
+  `bodyMoveEvents.length = 0` stays (step-only, consumed by PoseSyncOut). Comment updated
+  to reference the ARCHITECT RESOLUTION in PROGRESS.md.
+- `src/engine/contact.ts` — `destroyContact` end-event emit updated to include
+  `entityEidA`/`entityEidB` fields (captured from shape records BEFORE they are freed).
+- `src/engine/collide.ts` — `_makeContactTouchEvent` updated to include
+  `entityEidA`/`entityEidB` fields.
+- `src/engine/sensor.ts` — all `sensorBeginEvents`/`sensorEndEvents` push sites updated
+  via new `_makeSensorEvent` helper (captures `sensorEntityEid`/`visitorEntityEid` at
+  emit time).
+- `src/engine/solver.ts` — `gatherHitEvents` hit event updated to include
+  `entityEidA`/`entityEidB` fields.
+- `src/systems/shape_lifecycle.ts` — enter paths (single + chain) set
+  `state.shapeEntityByEid.set(e.eid, e)` to register the Entity object; exit paths do NOT
+  delete (lazy GC in PhysicsEvents). Chain enter also registers eid.
+- `src/systems/index.ts` — wired `installEvents` in physics-post BETWEEN `installPoseSyncOut`
+  and `installImpulseZero`. Updated phase-order comment.
+- `tests/events/physics_events.test.ts` (NEW) — 11 new tests (6 functional areas).
+- `tests/events/contact_begin_end.test.ts` — world-level tests migrated from raw-array
+  assertions to ECS `ContactEvents` component assertions (clearing relocation makes raw
+  arrays empty after `world.progress`). Engine-level destroyContact tests unchanged.
+- `tests/events/sensor_begin_end.test.ts` — same migration: world-level tests now check
+  `SensorEvents` components. Engine-level `destroySensor` tests unchanged.
+- `tests/events/hit_events.test.ts` — fully rewritten to check `HitEvents` components
+  instead of raw `state.contactHitEvents`.
+
+**InternalShape.entity reconcile (M4 carried-into item — RESOLVED):**
+`InternalShape.entity` is a plain `number` (eid); `InternalBody.entity` is an `Entity`.
+The reconcile was deferred to M4. VP-21b resolves it WITHOUT changing `InternalShape.entity`
+to `Entity` (engine module boundary: engine/ cannot import `Entity`). Instead:
+- `state.shapeEntityByEid: Map<eid, Entity>` is added to `PhysicsState`. Populated in
+  `PhysicsShapeLifecycle.enter`; lazily GC'd in `PhysicsEvents.run` (NOT in exit callback).
+- Lazy GC is required because: the lifecycle exit fires in physics-pre (before PhysicsEvents
+  in physics-post), so deleting from the map in exit would remove the Entity reference before
+  PhysicsEvents can use it for teardown end-events. Lazy GC runs AFTER publishing, removing
+  entries where `shapeByEntity.has(eid)` is false.
+- Eids are ALSO captured in the raw event types (`entityEidA/B`, `sensorEntityEid/visitorEntityEid`)
+  at emit time, because: (a) shape records are freed in physics-pre (same pass as the emit),
+  so by physics-post `shapes.records[index]` is `undefined`; (b) `idPool.isValid` also returns
+  false because the generation is bumped when the slot is freed. Using the captured eid
+  bypasses both guards. The `isValid` check is still used as a stale-slot guard (if the
+  eid is -1 or the slot was reused since emit, no entity will be in the map anyway).
+- This is a clean resolution — no reconcile pass needed. Note for architect: this is the
+  "carried-into-M4: reconcile InternalShape.entity vs InternalBody.entity" item from VP-11.
+
+**ARCHITECT RESOLUTION — clearing relocation — ✅ IMPLEMENTED:**
+Per the VP-21a ARCHITECT RESOLUTION: the five ECS-bound raw event arrays are cleared at the
+END of `PhysicsEvents.run` (not in `engineStep`). `src/engine/step.ts` removes those five
+clears; `src/systems/events.ts` adds them after publishing. The teardown end-event test
+exercises this path. `bodyMoveEvents.length = 0` stays in `engineStep` (unchanged).
+
+**Delivery semantics (per docs/events.md):**
+- Contact: BOTH shapes receive if they have `ContactEvents`; `other` = the other shape entity.
+- Sensor: ONLY the SENSOR shape receives `SensorEvents`; `other` = the visitor entity.
+- Hit: BOTH shapes receive `HitEvents` if they have the component; A→B normal used for BOTH
+  sides without flipping (box2d `b2ContactHitEvent` uses a single normal; documented in code).
+
+**PLAN pseudocode divergences and confirmations:**
+- PLAN pseudocode used `state.shapes[index].entity` as an Entity object directly. Actual
+  code uses the eid from the captured-at-emit-time field + `state.shapeEntityByEid.get(eid)`.
+  Functionally equivalent; uses the established map mechanism instead of storing Entity in
+  InternalShape.
+- PLAN's `state.eventsTouchedThisStep` was mentioned as a PhysicsState field. VP-21b uses
+  closure-local `prevTouched` Sets per the ticket spec ("do not bloat PhysicsState").
+- PLAN's `world.entity(eid)?.modified(ContactEvents)` → VP-21b uses `world.getEntity(eid)?.modified(...)`.
+  Functionally the same — `world.getEntity(eid)` for a live entity returns the entity.
+
+**Tests:** 11 new tests in `tests/events/physics_events.test.ts`. **556 tests total** (was 544).
 Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
