@@ -209,17 +209,51 @@ describe("dynamic-body-without-density", () => {
     expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(0);
   });
 
-  it("warns when only sensor shapes exist (sensor shapes don't contribute mass)", () => {
+  it("does NOT warn when only sensor shapes exist with positive density (sensors contribute mass)", () => {
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
-    // Sensor shape — does not contribute to mass.
+    // Sensor shape with positive density — contributes mass per Box2D parity
+    // (b2UpdateBodyMassData skips only density === 0, not isSensor shapes).
     world
       .entity()
       .set(ChildOf, { target: body })
       .set(Circle, { radius: 0.5 })
       .add(Sensor)
-      .set(Material, { density: 1 }); // density > 0 but sensor
+      .set(Material, { density: 1 });
+    step();
+    expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(0);
+  });
+
+  it("warns when only sensor shapes exist with density 0 (still zero mass)", () => {
+    const body = world.entity().set(Body, { type: BodyType.Dynamic });
+    world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Circle, { radius: 0.5 })
+      .add(Sensor)
+      .set(Material, { density: 0 });
     step();
     expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(1);
+  });
+
+  it("re-arms: warn → fix density → warn stops → remove density → warn fires again", () => {
+    const body = world.entity().set(Body, { type: BodyType.Dynamic });
+    const shape = world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Box, { hx: 0.5, hy: 0.5 })
+      .set(Material, { density: 0 });
+    step(); // density 0 → warns once
+    expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(1);
+
+    // Fix: give the shape a positive density.
+    shape.set(Material, { density: 1 });
+    step(5); // valid → no new warning
+    expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(1);
+
+    // Regress: remove density back to 0.
+    shape.set(Material, { density: 0 });
+    step(); // re-arm fired, so warns again
+    expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(2);
   });
 
   it("does NOT warn when debug: false", () => {
@@ -576,6 +610,28 @@ describe("shape-position-on-body", () => {
     expect(warning).toBeDefined();
     expect(warning).toContain("shape-position-on-body");
     expect(warning).toContain(`Entity${body.eid}`);
+  });
+
+  it("re-arms via entity leaving+re-entering the filter: add ShapePosition → warn → remove → stops → re-add → warns again", () => {
+    // This exercises the "entity leaves+re-enters the filter" re-arm path:
+    // removing ShapePosition drops the entity from bodyPoseFilter; re-adding it
+    // brings it back as a fresh entry, which triggers a new warnOnce.
+    const body = world
+      .entity()
+      .set(Body, { type: BodyType.Static })
+      .set(ShapePosition, { x: 0, y: 0 });
+    step(); // entity is in filter → warns once
+    expect(messages.filter((m) => m.includes("shape-position-on-body"))).toHaveLength(1);
+
+    // Fix: remove the offending component — entity leaves bodyPoseFilter.
+    body.remove(ShapePosition);
+    step(5); // entity not in filter → no new warning
+    expect(messages.filter((m) => m.includes("shape-position-on-body"))).toHaveLength(1);
+
+    // Regress: re-add ShapePosition — entity re-enters bodyPoseFilter fresh.
+    body.set(ShapePosition, { x: 0, y: 0 });
+    step(); // warns again
+    expect(messages.filter((m) => m.includes("shape-position-on-body"))).toHaveLength(2);
   });
 });
 

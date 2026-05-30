@@ -11,8 +11,10 @@
 //   1. shape-without-parent-body     — geometry entity whose immediate parent
 //                                      lacks Body (or has no parent at all).
 //   2. dynamic-body-without-density  — dynamic Body with no valid shape child:
-//                                      either no children, or every non-sensor
-//                                      child shape has Material.density === 0.
+//                                      either no children, or every child shape
+//                                      has Material.density === 0. Sensor shapes
+//                                      with positive density DO contribute mass
+//                                      (Box2D parity: skip only density === 0).
 //   3. chain-too-few-points          — Chain.points.length < 4.
 //   4. polygon-invalid               — Polygon.vertices fail validateHull.
 //   5. shape-position-on-body        — entity has Body AND ShapePosition or
@@ -47,7 +49,7 @@ import {
 
 import { Body, BodyType, Position } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
-import { Material, Sensor } from "../components/material.js";
+import { Material } from "../components/material.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
 import { computeHull, validateHull } from "../engine/geometry.js";
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
@@ -92,13 +94,18 @@ export function installDebugValidation(
     all: [Body, { any: [ShapePosition, ShapeRotation] }],
   });
 
+  // Track body-pose entities seen in the previous step so we can rearm those
+  // that leave the filter (ShapePosition/ShapeRotation removed). Re-entry into
+  // the filter will then produce a fresh warning, completing the re-arm cycle.
+  const prevBodyPoseEids = new Set<number>();
+
   return world
     .system("PhysicsDebugValidation")
     .phase(phase)
     .run(() => {
       _validateGeomEntities(geomFilter, dedupe);
       _validateBodyEntities(geomFilter, bodyFilter, dedupe);
-      _validateBodyShapePositionEntities(bodyPoseFilter, dedupe);
+      _validateBodyShapePositionEntities(bodyPoseFilter, prevBodyPoseEids, dedupe);
     });
 }
 
@@ -175,6 +182,9 @@ function _validateGeomEntities(geomFilter: Filter, dedupe: WarnDedupe): void {
 /** Walk every entity with a Body component and check:
  *   - dynamic-body-without-density (code 2)
  *
+ * A dynamic body must have at least one child shape with density > 0. Sensor
+ * shapes count — Box2D parity skips only density === 0, not isSensor shapes.
+ *
  * To find child shapes without engine-state access, we build a map of
  * body-eid → geometry child entities by walking the geometry filter and checking
  * which have a direct Body parent. This is a read-only ECS walk with no
@@ -221,14 +231,12 @@ function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: W
       return;
     }
 
-    // Check if ANY non-sensor child has density > 0.
+    // Check if ANY child shape has density > 0.
+    // Sensor shapes with positive density DO contribute mass (Box2D parity:
+    // b2UpdateBodyMassData skips only density === 0, not isSensor shapes).
     // Missing Material means default density = 1 (fine).
     let hasValidDensity = false;
     for (const child of children) {
-      const isSensor = child.get(Sensor) !== undefined;
-      if (isSensor) {
-        continue; // sensors do not contribute mass
-      }
       const mat = child.get(Material) as Material | undefined;
       const density = mat !== undefined ? mat.density : 1; // default density is 1
       if (density > 0) {
@@ -241,7 +249,7 @@ function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: W
       dedupe.warnOnce(
         eid,
         CODE_DYNAMIC_BODY_WITHOUT_DENSITY,
-        `Entity${eid} is a dynamic body whose non-sensor shapes all have density 0; it will have zero mass.`
+        `Entity${eid} is a dynamic body whose shapes all have density 0; it will have zero mass.`
       );
     } else {
       dedupe.rearm(eid, CODE_DYNAMIC_BODY_WITHOUT_DENSITY);
@@ -251,10 +259,22 @@ function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: W
 
 // ─── Body-with-shape-pose validation ─────────────────────────────────────────
 
-/** Walk entities that have Body AND ShapePosition or ShapeRotation (code 5). */
-function _validateBodyShapePositionEntities(bodyPoseFilter: Filter, dedupe: WarnDedupe): void {
+/** Walk entities that have Body AND ShapePosition or ShapeRotation (code 5).
+ *
+ * Re-arm mechanism: entities that leave this filter (ShapePosition/ShapeRotation
+ * removed) are detected via `prevBodyPoseEids`. They are rearmed so re-entry
+ * into the filter produces a fresh warning if the issue recurs. */
+function _validateBodyShapePositionEntities(
+  bodyPoseFilter: Filter,
+  prevBodyPoseEids: Set<number>,
+  dedupe: WarnDedupe
+): void {
+  const currentEids = new Set<number>();
+
   bodyPoseFilter.forEach((e) => {
     const eid: number = e.eid;
+    currentEids.add(eid);
+
     const hasShapePos = e.get(ShapePosition) !== undefined;
     const hasShapeRot = e.get(ShapeRotation) !== undefined;
 
@@ -270,8 +290,19 @@ function _validateBodyShapePositionEntities(bodyPoseFilter: Filter, dedupe: Warn
       CODE_SHAPE_POSITION_ON_BODY,
       `Entity${eid} has Body and ${component}; move ${component} to a child shape entity.`
     );
-    // No rearm: if the entity leaves this filter (ShapePosition/ShapeRotation
-    // removed), it won't be visited. If it re-enters, the prior warning is
-    // preserved (correct — same entity, same structural issue).
   });
+
+  // Rearm any entities that left the filter this step (ShapePosition/ShapeRotation
+  // was removed). If they re-enter in a future step, a fresh warning can fire.
+  for (const eid of prevBodyPoseEids) {
+    if (!currentEids.has(eid)) {
+      dedupe.rearm(eid, CODE_SHAPE_POSITION_ON_BODY);
+    }
+  }
+
+  // Update the previous-seen set for next step.
+  prevBodyPoseEids.clear();
+  for (const eid of currentEids) {
+    prevBodyPoseEids.add(eid);
+  }
 }

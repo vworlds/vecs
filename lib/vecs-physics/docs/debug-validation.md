@@ -101,7 +101,7 @@ shape.set(ChildOf, { target: bodyWithoutBodyComponent });
 | Code                           | Meaning                                                         | Fix                                                                          |
 | ------------------------------ | --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `shape-without-parent-body`    | A geometry entity is not an immediate child of a `Body` entity. | Set the shape entity's parent to the body entity.                            |
-| `dynamic-body-without-density` | A dynamic body has no non-sensor shape with non-zero density.   | Add a shape with `Material.density > 0`.                                     |
+| `dynamic-body-without-density` | A dynamic body has no shape with non-zero density.              | Add a shape with `Material.density > 0`.                                     |
 | `chain-too-few-points`         | `Chain.points` has fewer than four points.                      | Provide at least four points.                                                |
 | `polygon-invalid`              | `Polygon.vertices` cannot form a valid convex polygon.          | Use a valid convex polygon with sensible winding and non-overlapping points. |
 | `shape-position-on-body`       | `ShapePosition` appears on a body entity.                       | Move `ShapePosition` to a child shape entity.                                |
@@ -159,7 +159,7 @@ To fix it, make the shape an immediate child of `player`, or add `Body` to `cont
 
 ## Dynamic Body Density
 
-Dynamic bodies need mass. Mass normally comes from non-sensor shapes with non-zero density.
+Dynamic bodies need mass. Mass comes from shapes with non-zero density. Sensor shapes with positive density contribute mass the same as non-sensor shapes — `vecs-physics` follows Box2D parity and skips only shapes with `density === 0`, regardless of the sensor flag.
 
 This can be invalid:
 
