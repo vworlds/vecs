@@ -42,7 +42,7 @@ function makeState(): PhysicsState {
 
 /** Create a dynamic body (awake set) and return its handle. */
 function makeBody(state: PhysicsState, type = DYNAMIC_BODY): BodyHandle {
-  return createBody(state.bodies, state.solverSets[AWAKE_SET]!, ENTITY, type);
+  return createBody(state, state.solverSets[AWAKE_SET]!, ENTITY, type);
 }
 
 /** Create a default circle shape attached to `bodyHandle`, optionally tweaking
@@ -310,8 +310,8 @@ describe("destroyContact", () => {
     // pair (both non-awake) exercises the disabled-set branch. Use static here
     // since neither lands in AWAKE_SET.
     const state = makeState();
-    const a = createBody(state.bodies, state.solverSets[0]!, ENTITY, STATIC_BODY);
-    const b = createBody(state.bodies, state.solverSets[0]!, ENTITY, STATIC_BODY);
+    const a = createBody(state, state.solverSets[0]!, ENTITY, STATIC_BODY);
+    const b = createBody(state, state.solverSets[0]!, ENTITY, STATIC_BODY);
     const sA = makeShapeOn(state, a);
     const sB = makeShapeOn(state, b);
     createContact(state, sA, sB);

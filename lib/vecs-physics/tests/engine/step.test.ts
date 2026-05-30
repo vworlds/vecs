@@ -34,7 +34,7 @@ beforeEach(() => {
 /** Add a dynamic body straight to the awake set and return its sim + state. */
 function addDynamic(type = DYNAMIC_BODY): { sim: BodySim; bodyState: BodyState } {
   const awake = state.solverSets[AWAKE_SET]!;
-  const handle = createBody(state.bodies, awake, ENTITY, type);
+  const handle = createBody(state, awake, ENTITY, type);
   const r = state.bodies.get(handle.index);
   return { sim: awake.bodySims[r.localIndex]!, bodyState: awake.bodyStates[r.localIndex]! };
 }

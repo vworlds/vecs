@@ -19,6 +19,7 @@ import {
   BodyStorage,
   DYNAMIC_BODY,
   DYNAMIC_FLAG,
+  STATIC_BODY,
   makeBodySim,
   makeIdentityBodyState,
   type BodySim,
@@ -26,6 +27,8 @@ import {
   type InternalBody,
 } from "./body.js";
 import type { ContactSim } from "./contact.js";
+import { createIslandForBody, removeBodyFromIsland } from "./island.js";
+import type { PhysicsState } from "./state.js";
 
 // Solver-set indices, mirroring `b2SolverSetType`. The static, disabled, and
 // awake sets are fixed; sleeping islands take indices from `FIRST_SLEEPING_SET`
@@ -78,11 +81,12 @@ export function createBaseSolverSets(): SolverSet[] {
  * entity's components after creation. `entity` and `type` are the engine's ECS
  * binding and the resolved numeric body type. */
 export function createBody(
-  storage: BodyStorage,
+  state: PhysicsState,
   set: SolverSet,
   entity: Entity,
   type: number
 ): BodyHandle {
+  const storage = state.bodies;
   const handle = storage.idPool.allocate();
   const sim = makeBodySim(handle.index);
   // box2d sets b2_dynamicFlag on the body sim for dynamic bodies
@@ -112,13 +116,33 @@ export function createBody(
   if (set.setIndex === AWAKE_SET) {
     set.bodyStates.push(makeIdentityBodyState(sim.flags));
   }
+
+  // Dynamic and kinematic bodies that are enabled (awake set) need an island.
+  // Mirrors b2CreateBody (body.c:317-320): `if ( setId >= b2_awakeSet )` — for
+  // M3 the only non-disabled, non-static set is the awake set. Static bodies
+  // and bodies in the disabled set never get an island.
+  if (set.setIndex === AWAKE_SET && type !== STATIC_BODY) {
+    createIslandForBody(state, AWAKE_SET, body);
+  }
+
   return handle;
 }
 
 /** Remove a body and its sim from `set` and free its handle. Mirrors the storage
  * half of `b2DestroyBody`. */
-export function destroyBody(storage: BodyStorage, set: SolverSet, handle: BodyHandle): void {
+export function destroyBody(state: PhysicsState, set: SolverSet, handle: BodyHandle): void {
+  const storage = state.bodies;
   const body = storage.get(handle.index);
+
+  // box2d's b2DestroyBody first destroys the body's attached contacts
+  // (b2DestroyBodyContacts) so the island is a singleton before island removal.
+  // In M3 the body-lifecycle `exit` teardown of shapes/contacts is still partial
+  // (full contact teardown on body destroy is the wiring ticket VP-18): callers
+  // here are expected to have already torn down the body's contacts, so its
+  // island is a singleton. `removeBodyFromIsland` asserts that (throws if the
+  // emptied island still has contacts).
+  removeBodyFromIsland(state, body);
+
   const localIndex = body.localIndex;
   removeBodySim(set, localIndex, storage);
   if (set.setIndex === AWAKE_SET) {

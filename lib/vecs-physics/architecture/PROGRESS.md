@@ -642,3 +642,56 @@ VP-15a (data model + storage + edges + create/destroy + filter helper)
 ### Status by ticket
 
 _(updated as tickets land)_
+
+#### ✅ VP-16 — `engine/island.ts` + body-island hooks
+
+`src/engine/island.ts` (NEW): `InternalIsland` / `ContactLink` / `IslandStorage`
+plus `createIsland` / `destroyIsland` / `mergeIslands` / `addContactToIsland` /
+`linkContact` / `unlinkContact` / `createIslandForBody` / `removeBodyFromIsland`.
+`state.ts` gains `islands: IslandStorage` (replacing the VP-15a TODO).
+`solver_set.ts` `createBody`/`destroyBody` now take `state` and wire the island
+hooks. `contact.ts` `destroyContact` now calls `unlinkContact` when touching.
+12 new island tests; 423 total. Gate green (typecheck/test/lint/prettier).
+
+box2d lines mirrored:
+
+- `createIsland` ← `b2CreateIsland` (island.c:15); `destroyIsland` ←
+  `b2DestroyIsland` (island.c:48, **skipping the `splitIslandId` reset** — no
+  split in M3); `mergeIslands` ← `b2MergeIslands` (island.c:82, keep-bigger,
+  body + contact-link migration; **joints dropped**); `addContactToIsland` ←
+  `b2AddContactToIsland` (island.c:174); `linkContact` ← `b2LinkContact`
+  (island.c:194, **wake-sleeping-set logic 207-217 skipped** — no sleep);
+  `unlinkContact` ← `b2UnlinkContact` (island.c:235, **no split**, only
+  `constraintRemoveCount += 1`).
+- `createIslandForBody` ← `b2CreateIslandForBody` (body.c:106);
+  `removeBodyFromIsland` ← `b2RemoveBodyFromIsland` (body.c:119, empty-island →
+  destroy, asserts no contacts). The `createBody` island gate mirrors
+  `b2CreateBody` body.c:317-320 (`setId >= b2_awakeSet`), narrowed in M3 to
+  "awake set AND non-static" (only the awake set is non-disabled/non-static).
+- `destroyContact`'s `b2UnlinkContact` call mirrors `b2DestroyContact`
+  (contact.c:473-476): after the edge unlink, before the graph removal.
+
+Decisions / deferrals:
+
+- **Islands are BUILT but NOT consumed by the solver in M3** (overflow solver
+  iterates the contact array directly). **Island SPLIT deferred to M5**:
+  `b2SplitIsland`/`b2SplitIslandTask` are NOT ported; `unlinkContact` only bumps
+  `constraintRemoveCount`. **No joints in v1** (`b2Island.joints`/`b2JointLink`
+  and the joint migration dropped). **No sleep** — `linkContact`'s wake logic
+  skipped.
+- **`createBody`/`destroyBody` signature changed**: first param is now
+  `state: PhysicsState` (was `storage: BodyStorage`); needed because the island
+  hooks read `state.islands`/`state.solverSets`, matching box2d's
+  `b2CreateBody(world, …)`. `transferBody` is unchanged (still takes
+  `BodyStorage`). Callers updated: `systems/lifecycle.ts` (enter/exit) and the
+  test files `tests/engine/{solver_set,contact,step}.test.ts` (converted to build
+  a `PhysicsState`).
+- **`destroyBody` assumes a singleton island** (callers must have torn down the
+  body's contacts first). Full contact teardown on body destroy is VP-18; the
+  body-lifecycle `exit` path destroys bodies with no contacts, so the
+  singleton-island case is what M3 exercises. `removeBodyFromIsland` throws if an
+  emptied island still has contacts (mirrors box2d's empty-island assert).
+- Island id allocation reuses a plain `IdPool<Handle>` in `IslandStorage` (no new
+  branded handle), matching how `ContactStorage` uses a generic pool. The body
+  id pushed into an island is recovered from `BodySim.bodyId` (the sim
+  back-pointer) since `InternalBody` does not store its own handle index.

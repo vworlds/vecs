@@ -17,6 +17,7 @@ import type { BodyHandle, ShapeHandle } from "../util/handle.js";
 import { BodyStorage } from "./body.js";
 import { BroadPhase } from "./broad_phase.js";
 import { ContactStorage, type ContactSim } from "./contact.js";
+import { IslandStorage } from "./island.js";
 import { ShapeStorage } from "./shape.js";
 import { createBaseSolverSets, type SolverSet } from "./solver_set.js";
 
@@ -80,9 +81,10 @@ export class PhysicsState {
   // destroyContact swap-removes from it when a touching contact is destroyed.
   public readonly graphContactSims: ContactSim[] = [];
 
-  // TODO(VP-16): island storage (`islands: IslandStorage`) goes here. VP-16
-  // owns `engine/island.ts` and adds the field; left out now to avoid a merge
-  // conflict on this file.
+  // Island storage (sparse, id-indexed) + id allocator. Added VP-16; islands
+  // are built (link/merge/unlink + body hooks) but NOT consumed by the solver
+  // in M3, and split is deferred to M5. Mirrors box2d's `world->islands`.
+  public readonly islands = new IslandStorage();
 
   // Solver sets: static, disabled, awake (sleeping sets added with sleep).
   public readonly solverSets: SolverSet[] = createBaseSolverSets();

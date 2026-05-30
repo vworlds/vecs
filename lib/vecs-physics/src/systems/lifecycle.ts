@@ -133,7 +133,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     const setIndex = chooseSetIndex(body);
     const set = state.solverSets[setIndex]!;
 
-    const handle = createBody(state.bodies, set, e, type);
+    const handle = createBody(state, set, e, type);
     const record = state.bodies.get(handle.index);
     const sim = set.bodySims[record.localIndex]!;
 
@@ -179,7 +179,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     const record = state.bodies.get(handle.index);
     // Shapes, contacts, and island links are torn down by their own systems
     // once they exist (VP-11+); a VP-6 body owns none of them.
-    destroyBody(state.bodies, state.solverSets[record.setIndex]!, handle);
+    destroyBody(state, state.solverSets[record.setIndex]!, handle);
     state.bodyByEntity.delete(e.eid);
   });
 

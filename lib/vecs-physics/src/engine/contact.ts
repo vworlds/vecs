@@ -33,6 +33,7 @@ import {
   type Manifold,
   type SimplexCache,
 } from "./manifold/types.js";
+import { unlinkContact } from "./island.js";
 import { canCollide, isPrimaryPair } from "./narrow_phase.js";
 import { AWAKE_SET, DISABLED_SET, type SolverSet } from "./solver_set.js";
 import type { PhysicsState } from "./state.js";
@@ -408,8 +409,11 @@ export function destroyContact(
   }
   bodyB.contactCount -= 1;
 
-  // VP-16: b2UnlinkContact here — only when contact.islandId !== NULL_INDEX.
-  // The island layer is not landed yet, so this is intentionally not called.
+  // Remove from the island when touching. Mirrors b2DestroyContact
+  // (contact.c:473-476): `if ( contact->islandId != B2_NULL_INDEX ) b2UnlinkContact`.
+  if (contact.islandId !== NULL_INDEX) {
+    unlinkContact(state, contact);
+  }
 
   if (contact.colorIndex !== NULL_INDEX) {
     // Touching contact: lives in the single overflow graph color. This is the
