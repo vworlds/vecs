@@ -25,7 +25,14 @@ import {
 import { Damping, GravityScale, MotionLocks } from "../components/body_tuning.js";
 import { destroyBodyContacts } from "../engine/contact.js";
 import { makeRot } from "../math/rot.js";
-import { DYNAMIC_BODY, KINEMATIC_BODY, STATIC_BODY, writeBodyTransform } from "../engine/body.js";
+import {
+  DYNAMIC_BODY,
+  DYNAMIC_FLAG,
+  KINEMATIC_BODY,
+  STATIC_BODY,
+  writeBodyTransform,
+} from "../engine/body.js";
+import { createIslandForBody, removeBodyFromIsland } from "../engine/island.js";
 import { updateShapeAABBs } from "../engine/shape.js";
 import {
   AWAKE_SET,
@@ -195,18 +202,70 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     const record = state.bodies.get(handle.index);
 
     const wasDisabled = record.setIndex === DISABLED_SET;
+    const wasStatic = record.type === STATIC_BODY;
     const targetSetIndex = chooseSetIndex(body);
     const willBeDisabled = targetSetIndex === DISABLED_SET;
+    const willBeStatic = targetSetIndex === STATIC_SET;
     const newType = bodyTypeToNumber(body.type);
     const typeChanged = newType !== record.type;
 
-    // ── Stage 1: Proxy teardown on disable ────────────────────────────────────
-    // Contact teardown on disable is deferred to M3.
+    // No-op if neither type nor enabled changed.
+    if (!typeChanged && targetSetIndex === record.setIndex) {
+      return;
+    }
+
+    // ── Stage 1: Destroy all contacts (before any set transfer) ───────────────
+    // Mirrors b2Body_SetType stage 2 (contact teardown) and b2Body_Disable
+    // stage 1 (destroy contacts before removing proxies and transferring).
+    // Disabled bodies never have contacts (no proxies), so this is a no-op there.
+    if (!wasDisabled) {
+      destroyBodyContacts(state, handle.index, false);
+    }
+
+    // ── Stage 2: For disabled body changing type only: update flags + mass ────
+    // Mirrors b2Body_SetType's early return for disabled bodies (body.c:1126-1145).
+    // Island membership does NOT change for disabled bodies.
+    if (wasDisabled && willBeDisabled && typeChanged) {
+      record.type = newType;
+      // Update DYNAMIC_FLAG on the sim (disabled bodies have no bodyState).
+      const sim = state.solverSets[DISABLED_SET]!.bodySims[record.localIndex]!;
+      if (newType === DYNAMIC_BODY) {
+        sim.flags |= DYNAMIC_FLAG;
+      } else {
+        sim.flags &= ~DYNAMIC_FLAG;
+      }
+      record.massDirty = true;
+      return;
+    }
+
+    // ── Stage 3: Proxy teardown on disable ────────────────────────────────────
+    // Mirrors b2Body_Disable: remove proxies before transferring the body.
     if (!wasDisabled && willBeDisabled) {
       destroyBodyShapeProxies(state, record);
     }
 
-    // ── Stage 2: Transfer body between solver sets ────────────────────────────
+    // ── Stage 4: Island teardown before leaving awake non-static ──────────────
+    // Mirrors b2Body_Disable (body.c:1670-1671): remove from island before
+    // transferring. Also mirrors b2Body_SetType (body.c:1216-1219): when going
+    // static, remove from the island.
+    if (!wasDisabled && (willBeDisabled || willBeStatic)) {
+      removeBodyFromIsland(state, record);
+    }
+
+    // ── Stage 5: Update stored type ───────────────────────────────────────────
+    record.type = newType;
+
+    // ── Stage 6: Update DYNAMIC_FLAG on the sim ───────────────────────────────
+    // Mirrors b2Body_SetType (body.c:1194-1201) / b2SyncBodyFlags (body.c:91-104).
+    // Must happen before transferBody so the new bodyState gets the correct flags.
+    const currentSim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
+    if (newType === DYNAMIC_BODY) {
+      currentSim.flags |= DYNAMIC_FLAG;
+    } else {
+      currentSim.flags &= ~DYNAMIC_FLAG;
+    }
+
+    // ── Stage 7: Transfer body between solver sets ────────────────────────────
     if (targetSetIndex !== record.setIndex) {
       transferBody(
         state.bodies,
@@ -216,19 +275,49 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
       );
     }
 
-    // ── Stage 3: Update stored type ───────────────────────────────────────────
-    record.type = newType;
+    // ── Stage 8: Mass dirty on type change ────────────────────────────────────
+    // Mirrors b2Body_SetType (body.c:1294-1295): type change affects mass.
+    if (typeChanged) {
+      record.massDirty = true;
+    }
 
-    // ── Stage 4: Proxy management on enable / type change ────────────────────
+    // ── Stage 9: Proxy management on enable / type change ────────────────────
     if (wasDisabled && !willBeDisabled) {
       // Body just enabled: create proxies for all shapes in the new type tree.
-      // Contact creation on enable is deferred to M3.
+      // forcePairCreation (b2Body_Enable, body.c:1704) is handled by the broad
+      // phase emitting pairs for newly created proxies — contact creation happens
+      // through the normal collide() pair-create callback.
       createBodyShapeProxies(state, record, newType);
     } else if (!wasDisabled && !willBeDisabled && typeChanged) {
       // Type changed while body stays enabled: move proxies to new type tree.
-      // Contact teardown on type change is deferred to M3.
       destroyBodyShapeProxies(state, record);
       createBodyShapeProxies(state, record, newType);
+    }
+
+    // ── Stage 10: Island creation for newly enabled / non-static bodies ───────
+    // Mirrors b2Body_Enable (body.c:1714-1716) and b2Body_SetType (body.c:1211-1214).
+    if (!willBeDisabled && !willBeStatic) {
+      // Entering the awake set from disabled or static.
+      if (wasDisabled || wasStatic) {
+        createIslandForBody(state, AWAKE_SET, record);
+      }
+    }
+
+    // ── Stage 11: Sync the existing bodyState flags (if awake and no transfer) ─
+    // transferBody creates a fresh bodyState seeded from sim.flags (Stage 6),
+    // so the transferred case is already correct. For bodies that stay in the
+    // awake set across the type change (e.g. dynamic↔kinematic), the bodyState
+    // object is the SAME instance and its flags need updating in place. Mirrors
+    // b2SyncBodyFlags (body.c:91-104): set bodySim->flags and bodyState->flags.
+    if (record.setIndex === AWAKE_SET) {
+      const existingState = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
+      if (existingState !== undefined) {
+        if (newType === DYNAMIC_BODY) {
+          existingState.flags |= DYNAMIC_FLAG;
+        } else {
+          existingState.flags &= ~DYNAMIC_FLAG;
+        }
+      }
     }
   });
 
