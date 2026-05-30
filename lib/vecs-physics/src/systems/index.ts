@@ -15,6 +15,7 @@
 //   8. PhysicsForceGather        — accumulates Force/Torque into BodySim each step (VP-19)
 //   9. PhysicsImpulseAccumulate  — drains Impulse/AngularImpulse into pendingImpulses (VP-19)
 //  10. PhysicsMassRecompute      — recomputes mass for dirty bodies (last pre-step)
+//  11. PhysicsDebugValidation    — structural validation (ONLY when debug: true, VP-25)
 //
 // Physics-post phase order:
 //   1. PhysicsPoseSyncOut  — write simulated pose back to ECS
@@ -24,6 +25,7 @@
 import { type IPhase, type World } from "@vworlds/vecs";
 
 import { PhysicsSystemTag, type PhysicsState } from "../engine/state.js";
+import { installDebugValidation } from "./debug.js";
 import { installEventOptInSync } from "./event_opt_in_sync.js";
 import { installEvents } from "./events.js";
 import { installForceGather } from "./forces.js";
@@ -38,6 +40,7 @@ import { installPoseSyncOut } from "./pose_sync_out.js";
 import { installShapeLifecycle } from "./shape_lifecycle.js";
 import { installShapePoseSync } from "./shape_pose_sync.js";
 import { installStep } from "./step.js";
+import type { WarnSink } from "../util/warn.js";
 
 /** The three phases the physics systems split across. */
 export interface PhysicsPhases {
@@ -46,12 +49,22 @@ export interface PhysicsPhases {
   postStep: IPhase;
 }
 
+/** Options forwarded to {@link installPhysicsSystems} from {@link installPhysics}. */
+export interface PhysicsSystemsOptions {
+  /** Install `PhysicsDebugValidation` when `true`. Default `false`. */
+  debug?: boolean;
+  /** Override the warning sink used by `PhysicsDebugValidation` (default
+   * `console.warn`). Primarily for tests. Only used when `debug` is `true`. */
+  debugSink?: WarnSink;
+}
+
 /** Install every physics system into `world`, bound to `state`, and tag each
  * system entity with {@link PhysicsSystemTag}. Must run before `world.start()`. */
 export function installPhysicsSystems(
   world: World,
   state: PhysicsState,
-  phases: PhysicsPhases
+  phases: PhysicsPhases,
+  opts: PhysicsSystemsOptions = {}
 ): void {
   const systems = [
     // physics-pre: lifecycle + sync systems in dependency order.
@@ -80,6 +93,15 @@ export function installPhysicsSystems(
     // physics-post: silently zero consumed Impulse/AngularImpulse (last in post).
     installImpulseZero(world, state, phases.postStep),
   ];
+
+  // physics-pre: debug validation — LAST in physics-pre, ONLY when debug: true.
+  // Runs after all lifecycle/sync/mass so the world is fully wired for the step.
+  if (opts.debug === true) {
+    const debugSystem = installDebugValidation(world, phases.preStep, {
+      sink: opts.debugSink,
+    });
+    systems.push(debugSystem);
+  }
 
   // Tag every physics system entity for the `ignoreSource` silence domain.
   for (const system of systems) {

@@ -35,6 +35,10 @@ export type PhysicsOptions = {
   fixedTimeStep?: number; // seconds, default 1/60
   subSteps?: number; // default 4
   debug?: boolean; // default false
+  /** Override the warning sink used by `PhysicsDebugValidation` when
+   * `debug: true`. Accepts any `(message: string) => void` callback.
+   * Primarily for tests; defaults to `console.warn`. */
+  debugSink?: (message: string) => void;
 
   // Optional phase placement. Either pass an IPhase or a name (created if missing).
   preStepPhase?: IPhase | string;
@@ -119,7 +123,15 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
 
   // 5. Allocate engine state, install the systems (bound to it), then attach it.
   const state = new PhysicsState(resolveOptions(opts));
-  installPhysicsSystems(world, state, { preStep, step, postStep });
+  installPhysicsSystems(
+    world,
+    state,
+    { preStep, step, postStep },
+    {
+      debug: opts.debug ?? false,
+      debugSink: opts.debugSink,
+    }
+  );
   attachPhysics(world, state);
 }
 
