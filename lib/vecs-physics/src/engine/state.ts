@@ -394,6 +394,32 @@ export class PhysicsState {
    * `engineStep`. Mirrors `stepContext->bulletBodies` (solver.c:644). */
   public readonly bulletBodies: number[] = [];
 
+  // ── VP-26: persistent per-step scratch (hot allocation avoidance) ────────────
+  //
+  // These objects are allocated once and reused each step. Each site that
+  // previously allocated them fresh per call now clears and reuses these fields.
+  //
+  // `_awakeIslandBitSet`: was `new Set<number>()` inside `finalizeBodies` every
+  //   step (VP-23 note). Now a persistent field cleared at the top of finalize.
+  //   Mirrors `awakeIslandBitSet` (solver.c:567) — tracks island local-indices
+  //   with at least one non-sleepy body.
+  // `_collideContactSims`: was `ContactSim[] = []` inside `collide()` every step.
+  //   The gather loop pushes all touching + non-touching contact sims here.
+  // `_collideStateChanged`: was `new Set<number>()` inside `collide()` every step.
+  //   Tracks contact ids whose touch state changed for the serial processing loop.
+
+  /** Persistent island-awake bitset. Cleared at the start of `finalizeBodies`;
+   * populated per body; consumed by the sleep loop. (VP-26 VP-23 carry.) */
+  public readonly _awakeIslandBitSet = new Set<number>();
+
+  /** Persistent contact-sim gather scratch for `collide`. Cleared at the start
+   * of each `collide` call; populated by the gather loop. (VP-26 perf.) */
+  public readonly _collideContactSims: import("./contact.js").ContactSim[] = [];
+
+  /** Persistent state-changed set for `collide`. Cleared at the start of each
+   * `collide` call; populated per contact; consumed by the serial loop. (VP-26.) */
+  public readonly _collideStateChanged = new Set<number>();
+
   // Monotonic step counter (determinism + event tagging).
   public stepIndex = 0;
 

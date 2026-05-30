@@ -123,7 +123,10 @@ export function collide(state: PhysicsState, _ctx: StepContext): void {
   // ── Gather all contact sims into one list (b2Collide:618-659) ──────────────
   // Touching contacts live in the single overflow graph color; non-touching
   // ones in the awake set's contactSims.
-  const contactSims: ContactSim[] = [];
+  // VP-26 perf: use persistent scratch arrays on PhysicsState instead of
+  // allocating fresh per call.
+  const contactSims = state._collideContactSims;
+  contactSims.length = 0;
   for (const sim of state.graphContactSims) {
     contactSims.push(sim);
   }
@@ -138,7 +141,9 @@ export function collide(state: PhysicsState, _ctx: StepContext): void {
   // Contacts whose touch state changed this step, tracked by contact id (sims
   // move between arrays so ids are stable; mirrors box2d's contactStateBitSet).
   // Iterating the gathered sims in order keeps this deterministic.
-  const stateChanged = new Set<number>();
+  // VP-26 perf: use persistent scratch Set on PhysicsState instead of new Set.
+  const stateChanged = state._collideStateChanged;
+  stateChanged.clear();
 
   // ── Per-contact narrow-phase update (b2CollideTask:445-578) ────────────────
   for (const contactSim of contactSims) {

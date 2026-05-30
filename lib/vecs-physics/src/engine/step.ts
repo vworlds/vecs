@@ -281,10 +281,12 @@ function finalizeBodies(state: PhysicsState, _ctx: StepContext, dt: number): Set
   const states = awake.bodyStates;
 
   // Mirrors box2d's awakeIslandBitSet (solver.c:567): tracks which awake-set island
-  // local-indices have at least one non-sleepy body. Cleared at the start of each
-  // step (fresh per step). Using a Set<number> instead of a BitSet (sufficient for
-  // single-threaded; mirrors the single-worker merge path in solver.c:2032-2036).
-  const awakeIslandBitSet = new Set<number>();
+  // local-indices have at least one non-sleepy body. Using a Set<number> (sufficient
+  // for single-threaded; mirrors the single-worker merge path in solver.c:2032-2036).
+  // VP-26 perf: hoisted to PhysicsState._awakeIslandBitSet to avoid per-step
+  // allocation; cleared here instead of allocating a fresh Set each call.
+  const awakeIslandBitSet = state._awakeIslandBitSet;
+  awakeIslandBitSet.clear();
 
   const invDt = dt > 0 ? 1 / dt : 0;
   const enableSleep = state.enableSleep;
