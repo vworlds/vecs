@@ -562,7 +562,8 @@ contacts (persistence + edges + touch events) → islands → TGS solver →
 finalize-with-refit — and proves it with the `HelloWorld` parity gate.
 
 Reference: box2d **v3.2.0** vendored under `box2d/` (gitignored; re-clone
-`erincatto/box2d` if absent). M1/M2 ports match it; the overflow `_Overflow`
+`erincatto/box2d` exact commit 6e96697064e1ec09265c64fe953e5e056098c215 if absent).
+M1/M2 ports match it; the overflow `_Overflow`
 solver names, `b2MakeSoft`, `b2CreateContact`/`b2UpdateContact`, and the island
 link/merge flow are all verified present at this version.
 
