@@ -41,6 +41,7 @@ import {
   type GeometryUnion,
   type PolygonGeometry,
 } from "../engine/geometry.js";
+import { destroyBodyContactsForShape } from "../engine/contact.js";
 import {
   createShape,
   freeShape,
@@ -277,8 +278,10 @@ function unlinkShapeFromBody(
 
 // ─── Destroy helper ───────────────────────────────────────────────────────────
 
-/** Destroy the proxy, unlink from the body list, and free the shape slot.
- * Mirrors `b2DestroyShape` minus contact teardown (deferred to M3). */
+/** Destroy the proxy, tear down contacts that reference this shape, unlink
+ * from the body list, and free the shape slot. Mirrors `b2DestroyShapeInternal`
+ * (box2d/src/shape.c:298–339). The contact teardown was deferred from M2; it
+ * is now wired so collide() never sees a stale shape handle. */
 function destroyShape(state: PhysicsState, handle: ShapeHandle): void {
   const shape = state.shapes.records[handle.index];
   if (shape === undefined) {
@@ -289,6 +292,18 @@ function destroyShape(state: PhysicsState, handle: ShapeHandle): void {
     state.broadPhase.destroyProxy(shape.proxyKey);
     shape.proxyKey = -1;
   }
+
+  // Destroy contacts that reference this shape before freeing the shape record.
+  // Mirrors b2DestroyShapeInternal (shape.c:326-338): walk the owning body's
+  // contact list, destroy every contact whose shapeIdA or shapeIdB matches.
+  // Robust to swap-remove: destroyBodyContactsForShape snapshots nextKey first.
+  if (shape.bodyHandle.index !== NULL_INDEX) {
+    const bodyRec = state.bodies.records[shape.bodyHandle.index];
+    if (bodyRec !== undefined) {
+      destroyBodyContactsForShape(state, shape.bodyHandle.index, handle.index, false);
+    }
+  }
+
   unlinkShapeFromBody(state, handle, shape.bodyHandle);
   freeShape(state.shapes, handle);
 }
@@ -651,7 +666,9 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
 
   // Fires when ChildOf changes on a matched entity (the entity stays matched
   // because its new parent also has Body; losing Body causes exit instead).
-  // Contact teardown on type-change reparent is deferred to M3.
+  // Contacts on the old body that reference this shape are destroyed before
+  // the shape is relinked, mirroring the b2ResetProxy / b2DestroyShapeInternal
+  // contact teardown path (shape.c:1282-1294, shape.c:326-338).
   system.update(ChildOf, (e, childOf) => {
     const newParentEntity = (childOf as unknown as { target?: { eid: number } }).target;
     if (newParentEntity === undefined) {
@@ -676,6 +693,13 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
       const oldBodyHandle = firstSeg.bodyHandle;
       for (const h of chainHandles) {
         const seg = state.shapes.get(h.index);
+        // Destroy contacts on the old body referencing this segment shape.
+        if (oldBodyHandle.index !== NULL_INDEX) {
+          const oldBodyRec = state.bodies.records[oldBodyHandle.index];
+          if (oldBodyRec !== undefined) {
+            destroyBodyContactsForShape(state, oldBodyHandle.index, h.index, false);
+          }
+        }
         unlinkShapeFromBody(state, h, oldBodyHandle);
         linkShapeToBody(state, h, newBodyHandle);
         seg.bodyHandle = newBodyHandle;
@@ -716,6 +740,15 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
 
     const shape = state.shapes.get(handle.index);
     const oldBodyHandle = shape.bodyHandle;
+
+    // Destroy contacts on the old body that reference this shape before
+    // relinking. Mirrors b2ResetProxy (shape.c:1282-1294).
+    if (oldBodyHandle.index !== NULL_INDEX) {
+      const oldBodyRec = state.bodies.records[oldBodyHandle.index];
+      if (oldBodyRec !== undefined) {
+        destroyBodyContactsForShape(state, oldBodyHandle.index, handle.index, false);
+      }
+    }
 
     unlinkShapeFromBody(state, handle, oldBodyHandle);
     linkShapeToBody(state, handle, newBodyHandle);

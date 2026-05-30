@@ -22,7 +22,8 @@ import {
   Position,
   Rotation,
 } from "../components/body.js";
-import { Damping, GravityScale } from "../components/body_tuning.js";
+import { Damping, GravityScale, MotionLocks } from "../components/body_tuning.js";
+import { destroyBodyContacts } from "../engine/contact.js";
 import { makeRot } from "../math/rot.js";
 import { DYNAMIC_BODY, KINEMATIC_BODY, STATIC_BODY, writeBodyTransform } from "../engine/body.js";
 import { updateShapeAABBs } from "../engine/shape.js";
@@ -177,8 +178,11 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
       return;
     }
     const record = state.bodies.get(handle.index);
-    // Shapes, contacts, and island links are torn down by their own systems
-    // once they exist (VP-11+); a VP-6 body owns none of them.
+    // Destroy all contacts on this body before removing it from its island and
+    // freeing the body slot. Mirrors b2DestroyBody → b2DestroyBodyContacts
+    // (body.c). The island must be a singleton (no contacts) before
+    // removeBodyFromIsland runs; without this teardown it throws.
+    destroyBodyContacts(state, handle.index, false);
     destroyBody(state, state.solverSets[record.setIndex]!, handle);
     state.bodyByEntity.delete(e.eid);
   });

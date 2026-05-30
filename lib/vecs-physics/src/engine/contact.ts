@@ -465,6 +465,64 @@ function _removeContactSim(state: PhysicsState, sims: ContactSim[], localIndex: 
   }
 }
 
+// ─── destroyBodyContacts / destroyBodyContactsForShape ────────────────────────
+
+/**
+ * Destroy every contact attached to `bodyId`. Mirrors
+ * `b2DestroyBodyContacts` (body.c — the helper called from `b2Body_Disable` /
+ * `b2Body_SetType`). Robust to swap-remove during the walk: the next key is
+ * captured BEFORE calling `destroyContact` (which may swap-remove sims and
+ * mutate neighbour edge pointers).
+ */
+export function destroyBodyContacts(
+  state: PhysicsState,
+  bodyId: number,
+  wakeBodies: boolean
+): void {
+  const body = state.bodies.get(bodyId);
+  let key = body.headContactKey;
+  while (key !== NULL_INDEX) {
+    const contactId = key >> 1;
+    const edgeIndex = key & 1;
+    const contact = state.contacts.records[contactId];
+    if (contact === undefined) {
+      break;
+    }
+    // Snapshot next key before destroy (destroyContact mutates edge pointers).
+    key = contact.edges[edgeIndex]!.nextKey;
+    destroyContact(state, contact, wakeBodies);
+  }
+}
+
+/**
+ * Destroy every contact on `bodyId` that references `shapeIndex` (either as
+ * shapeIdA or shapeIdB). Mirrors the loop in `b2DestroyShapeInternal`
+ * (shape.c:326–339) and `b2ResetProxy` (shape.c:1282–1295). Robust to
+ * swap-remove: next key is captured before destroy.
+ */
+export function destroyBodyContactsForShape(
+  state: PhysicsState,
+  bodyId: number,
+  shapeIndex: number,
+  wakeBodies: boolean
+): void {
+  const body = state.bodies.get(bodyId);
+  let key = body.headContactKey;
+  while (key !== NULL_INDEX) {
+    const contactId = key >> 1;
+    const edgeIndex = key & 1;
+    const contact = state.contacts.records[contactId];
+    if (contact === undefined) {
+      break;
+    }
+    // Snapshot next key before destroy.
+    key = contact.edges[edgeIndex]!.nextKey;
+    if (contact.shapeIdA === shapeIndex || contact.shapeIdB === shapeIndex) {
+      destroyContact(state, contact, wakeBodies);
+    }
+  }
+}
+
 // ─── updateContact (b2UpdateContact narrow-phase refresh) ─────────────────────
 
 /** The radius used by the rolling-resistance rule. Mirrors `b2GetShapeRadius`
