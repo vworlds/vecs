@@ -1169,3 +1169,61 @@ updated to assert the opposite (renamed, assertion inverted).
 
 **Tests:** 15 new tests in `tests/kinematic/kinematic_targets.test.ts`. **513 tests total** (was 498).
 Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
+
+#### ✅ VP-21a — raw contact begin/end event recording (engine half)
+
+**Files:**
+- `src/engine/state.ts` — added `ContactTouchEvent` interface (engine-internal, uses base
+  `Handle` not branded `ShapeHandle` — branding is an API-boundary guard, not useful inside
+  the engine) and two `readonly` arrays: `contactBeginEvents: ContactTouchEvent[]` and
+  `contactEndEvents: ContactTouchEvent[]` with doc comments referencing box2d's
+  `world->contactBeginEvents`/`contactEndEvents` and the VP-21b consumer.
+- `src/engine/step.ts` — clears `contactBeginEvents.length = 0` and `contactEndEvents.length = 0`
+  at the TOP of `engineStep` (alongside `bodyMoveEvents.length = 0`), mirroring box2d's
+  `b2World_Step` which clears event arrays before running `b2Collide`.
+- `src/engine/collide.ts` — filled the two M4 hook points:
+  - `SIM_STARTED_TOUCHING` branch: when `CONTACT_ENABLE_CONTACT_EVENTS` is set, push to
+    `state.contactBeginEvents`. Added `_makeContactTouchEvent` helper (builds handles from
+    `contact.shapeIdA/shapeIdB` + `state.shapes.idPool.generationOf`).
+  - `SIM_STOPPED_TOUCHING` branch: when `CONTACT_ENABLE_CONTACT_EVENTS` is set, push to
+    `state.contactEndEvents` BEFORE `unlinkContact`. Note: the SIM_DISJOINT branch calls
+    `destroyContact` which emits the end event itself — the collide `SIM_DISJOINT` branch
+    does NOT also emit (no double-emit).
+- `src/engine/contact.ts` — filled the M4 hook in `destroyContact`: when the contact has
+  `CONTACT_TOUCHING_FLAG` AND `CONTACT_ENABLE_CONTACT_EVENTS`, push to `state.contactEndEvents`.
+  Mirrors `b2DestroyContact` (contact.c:400-422). This covers disjoint-destroy, shape removal,
+  body destroy, and filter-change teardown paths.
+- `tests/events/contact_begin_end.test.ts` (NEW) — 10 tests (7 world-level + 3 engine-level).
+
+**Box2D lines mirrored:**
+- Begin event: `b2Collide` (physics_world.c:749-753):
+  `if ( flags & b2_contactEnableContactEvents ) b2Array_Push( world->contactBeginEvents, event )`
+- End event (stopped-touching): `b2Collide` (physics_world.c:786-790):
+  `if ( contact->flags & b2_contactEnableContactEvents ) b2Array_Push( world->contactEndEvents[...], event )`
+- End event (teardown): `b2DestroyContact` (contact.c:400-422):
+  `bool touching = ( flags & b2_contactTouchingFlag ) != 0; if ( touching && ( flags & b2_contactEnableContactEvents ) != 0 ) b2Array_Push( world->contactEndEvents[...], event )`
+
+**Opt-in wiring finding:** `InternalShape.enableContactEvents` is **already wired** — no new
+code needed. `shape_lifecycle.ts:342` sets `enableContactEvents: e.get(ContactEvents) !== undefined`
+when building the `InternalShape` options, and `contact.ts:320-322` sets `CONTACT_ENABLE_CONTACT_EVENTS`
+on the contact when either shape has `enableContactEvents = true`. The chain is complete:
+`ContactEvents` component → `InternalShape.enableContactEvents` → `CONTACT_ENABLE_CONTACT_EVENTS`
+flag on `InternalContact` → event emission in collide.ts/contact.ts.
+
+**Decisions / deferrals:**
+- **`ContactTouchEvent` uses `Handle` (not `ShapeHandle`).** The `ShapeHandle` brand is a
+  TypeScript API-boundary guard; engine-internal events don't benefit from it and it requires
+  `as unknown as ShapeHandle` casts. Using the base `Handle` type is cleaner and honest.
+- **Double-buffer for body-teardown end events deferred to VP-21b.** Box2D uses two
+  `contactEndEvents` arrays (double-buffer, physics_world.c:239-243/949-951) so that
+  `b2Body_Destroy` end events (pushed between steps) survive until the user reads them.
+  In vecs-physics, the body lifecycle exit runs in `physics-pre`, pushes the end event,
+  then `engineStep` (physics-step) clears it before VP-21b (physics-post) can read it.
+  The `destroyContact` push IS correct — verified by an engine-level test that calls
+  `destroyContact` directly (bypassing the Vecs inbox-buffering timing). The double-buffer
+  fix belongs in VP-21b when the full publish pipeline is designed.
+- **No sensor events here.** `collide.ts:77` already skips sensor pairs at contact creation;
+  sensor begin/end is VP-21c (`engine/sensor.ts`).
+
+**Tests:** 10 new tests in `tests/events/contact_begin_end.test.ts`. **523 tests total** (was 513).
+Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.

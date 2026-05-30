@@ -39,6 +39,7 @@ import {
   removeContactFromGraph,
   shouldShapesCollide,
   updateContact,
+  CONTACT_ENABLE_CONTACT_EVENTS,
   CONTACT_TOUCHING_FLAG,
   SIM_DISJOINT,
   SIM_STARTED_TOUCHING,
@@ -50,7 +51,7 @@ import {
 import { linkContact, unlinkContact } from "./island.js";
 import { AWAKE_SET } from "./solver_set.js";
 import type { StepContext } from "./solver.js";
-import type { PhysicsState } from "./state.js";
+import type { ContactTouchEvent, PhysicsState } from "./state.js";
 
 // ─── pairCreateCallback (b2PairQueryCallback shape filtering) ─────────────────
 
@@ -263,8 +264,16 @@ export function collide(state: PhysicsState, _ctx: StepContext): void {
       // Bounding boxes no longer overlap.
       destroyContact(state, contact, false);
     } else if (simFlags & SIM_STARTED_TOUCHING) {
-      // M4 (VP-21): emit a begin-touch event here when
-      // CONTACT_ENABLE_CONTACT_EVENTS is set. No event arrays exist in M3.
+      // Emit a begin-touch event when either shape opted in (VP-21a).
+      // Mirrors b2Collide (physics_world.c:749-753):
+      //   if ( flags & b2_contactEnableContactEvents )
+      //     b2ContactBeginTouchEvent event = { shapeIdA, shapeIdB, contactFullId };
+      //     b2Array_Push( world->contactBeginEvents, event );
+      // Note: SIM_DISJOINT → destroyContact (above) fires its own end event,
+      // so we do NOT emit here for the disjoint branch — destroyContact covers it.
+      if (contact.flags & CONTACT_ENABLE_CONTACT_EVENTS) {
+        state.contactBeginEvents.push(_makeContactTouchEvent(state, contact));
+      }
 
       // Link first because this ensures the body sims are in the correct place
       // (b2Collide:758-761).
@@ -286,7 +295,14 @@ export function collide(state: PhysicsState, _ctx: StepContext): void {
       contactSim.simFlags &= ~SIM_STOPPED_TOUCHING;
       contact.flags &= ~CONTACT_TOUCHING_FLAG;
 
-      // M4 (VP-21): emit an end-touch event here.
+      // Emit an end-touch event when either shape opted in (VP-21a).
+      // Mirrors b2Collide (physics_world.c:786-790):
+      //   if ( contact->flags & b2_contactEnableContactEvents )
+      //     b2ContactEndTouchEvent event = { shapeIdA, shapeIdB, contactFullId };
+      //     b2Array_Push( world->contactEndEvents[endEventArrayIndex], event );
+      if (contact.flags & CONTACT_ENABLE_CONTACT_EVENTS) {
+        state.contactEndEvents.push(_makeContactTouchEvent(state, contact));
+      }
 
       unlinkContact(state, contact);
 
@@ -297,6 +313,18 @@ export function collide(state: PhysicsState, _ctx: StepContext): void {
       removeContactFromGraph(state, localIndex);
     }
   }
+}
+
+/** Build a {@link ContactTouchEvent} from `contact`'s canonical shape indices.
+ * Retrieves the current generation for each shape index from the id pool so the
+ * handle is valid at emit time (VP-21a). VP-21b resolves with `IdPool.isValid`
+ * to skip any handle whose shape was destroyed after this step. */
+function _makeContactTouchEvent(state: PhysicsState, contact: InternalContact): ContactTouchEvent {
+  const pool = state.shapes.idPool;
+  return {
+    shapeA: { index: contact.shapeIdA, generation: pool.generationOf(contact.shapeIdA) },
+    shapeB: { index: contact.shapeIdB, generation: pool.generationOf(contact.shapeIdB) },
+  };
 }
 
 /** Swap-remove the non-touching sim at `localIndex` from the awake set's

@@ -40,7 +40,7 @@ import { unlinkContact } from "./island.js";
 import { canCollide, computeManifold, isPrimaryPair } from "./narrow_phase.js";
 import type { InternalShape } from "./shape.js";
 import { AWAKE_SET, DISABLED_SET, type SolverSet } from "./solver_set.js";
-import type { PhysicsState } from "./state.js";
+import type { ContactTouchEvent, PhysicsState } from "./state.js";
 
 // ─── Contact flags (subset of b2ContactFlags, contact.h:15) ───────────────────
 //
@@ -394,8 +394,30 @@ export function destroyContact(
   const bodyA = state.bodies.get(edgeA.bodyId);
   const bodyB = state.bodies.get(edgeB.bodyId);
 
-  // M4 (VP-21): emit the end-touch ECS event here when the contact was touching
-  // and CONTACT_ENABLE_CONTACT_EVENTS is set. No event arrays exist in M3.
+  // Emit an end-touch event when the contact was touching and either shape
+  // opted in (VP-21a). Mirrors b2DestroyContact (contact.c:400-422):
+  //   bool touching = ( flags & b2_contactTouchingFlag ) != 0;
+  //   if ( touching && ( flags & b2_contactEnableContactEvents ) != 0 )
+  //     b2ContactEndTouchEvent event = { shapeIdA, shapeIdB, contactId };
+  //     b2Array_Push( world->contactEndEvents[world->endEventArrayIndex], event );
+  // This covers disjoint-destroy (SIM_DISJOINT path in collide.ts — see note
+  // there: disjoint calls destroyContact directly, so only this site emits the
+  // end event for that path), shape removal, body destroy, and filter-change
+  // teardown. The SIM_STOPPED_TOUCHING path in collide.ts emits its own end
+  // event BEFORE calling destroyContact — but at that point the contact is
+  // no longer touching (CONTACT_TOUCHING_FLAG was cleared), so the guard below
+  // naturally does NOT double-emit.
+  {
+    const flags = contact.flags;
+    if ((flags & CONTACT_TOUCHING_FLAG) !== 0 && (flags & CONTACT_ENABLE_CONTACT_EVENTS) !== 0) {
+      const pool = state.shapes.idPool;
+      const event: ContactTouchEvent = {
+        shapeA: { index: contact.shapeIdA, generation: pool.generationOf(contact.shapeIdA) },
+        shapeB: { index: contact.shapeIdB, generation: pool.generationOf(contact.shapeIdB) },
+      };
+      state.contactEndEvents.push(event);
+    }
+  }
 
   const contactId = contact.contactId;
 

@@ -30,6 +30,11 @@ import { mulRot, normalizeRot, rotateVector } from "../math/rot.js";
 export function engineStep(state: PhysicsState, dt: number, subSteps: number): void {
   state.stepIndex += 1;
   state.bodyMoveEvents.length = 0;
+  // Clear contact touch event arrays at step start (VP-21a), matching
+  // box2d's `b2World_Step` which clears contactBeginEvents/contactEndEvents
+  // before running b2Collide (physics_world.c).
+  state.contactBeginEvents.length = 0;
+  state.contactEndEvents.length = 0;
 
   if (dt <= 0) {
     return;

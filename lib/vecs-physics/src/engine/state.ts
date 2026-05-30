@@ -13,13 +13,36 @@
 
 import { Singleton, type World } from "@vworlds/vecs";
 
-import type { BodyHandle, ShapeHandle } from "../util/handle.js";
+import type { BodyHandle, Handle, ShapeHandle } from "../util/handle.js";
 import { BodyStorage } from "./body.js";
 import { BroadPhase } from "./broad_phase.js";
 import { ContactStorage, type ContactSim } from "./contact.js";
 import { IslandStorage } from "./island.js";
 import { ShapeStorage } from "./shape.js";
 import { createBaseSolverSets, type SolverSet } from "./solver_set.js";
+
+// ─── Engine-internal contact touch event (VP-21a) ─────────────────────────────
+//
+// Raw begin/end touch events recorded by the collide pass and by destroyContact.
+// NOT a public type — stays inside engine/. VP-21b (`PhysicsEvents`) resolves
+// handles → entities and fans these arrays out to `ContactEvents` components.
+//
+// Both handles are recorded at event-emit time (engine-internal indices).
+// `shapeA`/`shapeB` may refer to a shape that was destroyed mid-step (e.g.
+// a shape removed in the same step it stopped touching). VP-21b resolves via
+// `IdPool.isValid` and skips stale handles — the surviving other shape still
+// receives its end event. See PLAN.md → _Entity-reference safety_.
+
+/** Raw contact touch event held in {@link PhysicsState}'s per-step arrays.
+ * Engine-internal only; not exported from the package.
+ * Both fields are shape (index, generation) pairs built from `shapeIdA/shapeIdB`
+ * on the contact's canonical ordering at event-emit time.
+ * Uses the base {@link Handle} type — the `ShapeHandle` brand is an API-boundary
+ * guard and is not needed inside the engine. */
+export interface ContactTouchEvent {
+  shapeA: Handle;
+  shapeB: Handle;
+}
 
 /** Fully-resolved engine configuration: every `PhysicsOptions` field with its
  * default applied. Built by `installPhysics`; the source of truth for tunables
@@ -101,6 +124,27 @@ export class PhysicsState {
   // `bodyMoveEvents`). Rebuilt each step; `PhysicsPoseSyncOut` consumes it to
   // write simulated pose back. One entry per awake body in finalize order.
   public readonly bodyMoveEvents: number[] = [];
+
+  // ── VP-21a: raw contact touch events (engine-internal) ────────────────────
+  //
+  // Mirrors box2d's `world->contactBeginEvents` / `world->contactEndEvents`
+  // (physics_world.c), which are cleared at the top of `b2World_Step` and
+  // populated by the collide state-change loop (`b2Collide`) and by
+  // `b2DestroyContact` (end-touch only). Cleared each step in `engineStep`
+  // (alongside `bodyMoveEvents.length = 0`) so the arrays accumulate only the
+  // current step's events and the prior step's entries survive until
+  // `PhysicsEvents` (VP-21b) publishes them in the post phase.
+  //
+  // Consumed by: VP-21b `PhysicsEvents` (fans out to `ContactEvents` ECS
+  // components). Must NOT be used by sensors (VP-21c) or hit events (VP-22).
+
+  /** Raw contact begin-touch events. Cleared at the start of each step.
+   * Mirrors box2d's `world->contactBeginEvents` (physics_world.c). */
+  public readonly contactBeginEvents: ContactTouchEvent[] = [];
+
+  /** Raw contact end-touch events. Cleared at the start of each step.
+   * Mirrors box2d's `world->contactEndEvents` (physics_world.c). */
+  public readonly contactEndEvents: ContactTouchEvent[] = [];
 
   // ── VP-19: impulse accumulation (M4 scoping decision in PROGRESS.md) ────────
   //
