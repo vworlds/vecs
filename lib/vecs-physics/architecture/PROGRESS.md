@@ -988,7 +988,7 @@ M3 carried-forward items from this pass now resolved:
 - Contact-event publishing (begin/end arrays) — M4 VP-21.
 - Fat-AABB hysteresis fix — M5 performance pass.
 
-## MILESTONE 4 — Forces, impulses, kinematic, events, sensors (🚧 IN PROGRESS)
+## MILESTONE 4 — Forces, impulses, kinematic, events, sensors (✅ COMPLETE)
 
 **Tickets: VP-19, VP-20, VP-21 (split a/b), VP-22.** Architect: this pass.
 Wires the user-facing intent layer on top of the M3 solver: persistent forces,
@@ -1514,3 +1514,71 @@ No gap found — no new mass test needed.
 
 **Tests:** 7 new tests. **563 tests total** (was 556).
 Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
+
+### ✅ MILESTONE 4 COMPLETE
+
+All M4 tickets done, reviewed against vendored box2d v3.2.0, and **gate-green: 563
+tests** (50 files), `typecheck`/`test`/`lint`/`prettier` all clean from
+`lib/vecs-physics/`. The user-facing intent + event layer now sits on the M3 solver:
+persistent forces, accumulating impulses (`onSet` hooks), kinematic-target drive with
+pose write-back, the full event surface (contact begin/end, hit, sensor), and box2d's
+separate sensor-overlap pass.
+
+**Ticket map (sequential, this worktree):** VP-19 (`df9e00c`) forces+impulses ·
+VP-20 (`c27594f`) kinematic+kinematic write-back · VP-21a (`47ec5f1`) contact
+begin/end recording · VP-21c (`2f449f9`) sensor overlap engine · VP-22 (`87814ae`)
+hit-event scan · VP-21b (`7bb0f77`) PhysicsEvents publish + event-clearing relocation ·
+M4 closeout (`f856227`) chain one-sided + friction ramp. Plus architect doc/nit
+commits (`eb54a3e`, `df4b3a7`, `edda709`, `476fba2`, `88ed235`).
+
+**M4 milestone DoD met:**
+
+- **Parity gates green:** `sensor_begin_end` (`TestSensor`, VP-21c) — exactly one
+  begin frame + one end frame; `chain_segment` one-sided collision (loop chain: front
+  rests, back passes through) and `friction ramp` (μ=0.6 holds at 20°, μ=0 slides) at
+  the milestone close; `DeferredMassFlagSyncTest` (`tests/lifecycle/mass_flag_sync.test.ts`,
+  from VP-12).
+- **Functional matrix (PLAN ~1404):** force persistence, multi-source force sum,
+  immediate-parent rule, impulse accumulation, silent impulse zero, kinematic
+  convergence + re-engage + tolerance, contact-event opt-in, empty-step-is-silent,
+  sensor opt-in, hit-event threshold — all covered across `tests/{forces,kinematic,events}`.
+- **Module boundaries clean:** `engine/` imports neither `components/` nor `systems/`;
+  no cross-system imports; no stray `.only`/`.skip`/TODO markers.
+
+**Architect review notes (deviations recorded, none open):**
+
+- **Impulse accumulation uses `onSet` hooks, not `.update()`** — the one v1 exception to
+  "systems, not hooks". Verified necessary: Vecs' system inbox stores a component
+  **reference**, so multiple `set()`s in a frame all replay the final value (3 sets →
+  9, not 6); `onSet` fires synchronously per set. Recorded in PLAN → _Settled Decisions_
+  (supersedes the `.update()`-based prose in `PhysicsImpulseAccumulate`).
+- **Event-array clearing relocated** (not box2d's two-array double buffer): all five
+  ECS-bound raw arrays are cleared at the END of `PhysicsEvents` (physics-post) after
+  publish, so physics-pre teardown end-events and between-frame `entity.destroy()` events
+  survive to the publish. Single array, one clear point, box2d's double-buffer *intent*.
+- **Kinematic linear velocity** is computed from the body origin — proven byte-for-byte
+  equal to box2d's CoM form for the only bodies it drives (kinematic bodies always have
+  `localCenter = 0`). NOT a deviation.
+- **Sensors are a separate overlap pass** (box2d v3): `engine/sensor.ts` ports
+  `b2OverlapSensors` (double-buffered visitor lists, broad-phase query + `b2ShapeDistance`,
+  sorted two-finger merge). No `isSensor` gate in the query (sensors detect sensors,
+  box2d-faithful). The `hits`/TOI queue is an empty stub (CCD is M5).
+
+**Carried-into-M4 items now RESOLVED:**
+
+- Kinematic accept-input / drop-output asymmetry → **write kinematic poses back** (VP-20).
+- `InternalShape.entity` (eid) vs `InternalBody.entity` (`Entity`) → events resolve
+  eid→`Entity` via the `state.shapeEntityByEid` bridge (populated at shape `enter`, GC'd
+  after publish so destroyed-shape `Entity` references survive to delivery). No structural
+  reconcile needed (VP-21b).
+
+**Carried forward (unchanged):**
+
+- **Open-chain ghost-vertex fidelity at sharp endpoints** (M2 caveat) — the loop-chain
+  parity test confirms the chain-segment manifold pipeline end-to-end, but open-chain
+  endpoint reflection (`2a−b`) vs box2d's `b2CreateChain` neighbour ghosts is still
+  unverified at sharp turns. **M5.**
+- **`wake` flag is a structural no-op** on Force/Torque/Impulse/Kinematic targets until
+  **sleep (M5)** wires sleeping sets.
+- **Fat-AABB hysteresis** (M3 review) — **M5 performance pass.**
+- **Contact recycling, CCD/`isFast`, sleep, island split** — **M5.**
