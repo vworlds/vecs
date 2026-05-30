@@ -985,3 +985,82 @@ M3 carried-forward items from this pass now resolved:
   - recreate shape is the safe path until M4 sensors land).
 - Contact-event publishing (begin/end arrays) — M4 VP-21.
 - Fat-AABB hysteresis fix — M5 performance pass.
+
+## MILESTONE 4 — Forces, impulses, kinematic, events, sensors (🚧 IN PROGRESS)
+
+**Tickets: VP-19, VP-20, VP-21 (split a/b), VP-22.** Architect: this pass.
+Wires the user-facing intent layer on top of the M3 solver: persistent forces,
+accumulating impulses, kinematic-target drive, and the full event surface
+(contact begin/end, hit, sensor) — plus the engine-side sensor overlap pass
+(box2d's separate `b2OverlapSensors`, NOT contacts). M3 already left the hook
+points marked (`collide.ts:266/289`, `CONTACT_ENABLE_CONTACT_EVENTS`,
+`SIM_ENABLE_HIT_EVENT`); M4 fills them in and fans the raw arrays out to ECS
+event components.
+
+Reference: box2d **v3.2.0** vendored under `box2d/`.
+
+### Architect scoping decisions (refining the PLAN ticket list)
+
+- **Impulses are applied directly to body velocity at step start — no
+  `pendingLinearImpulse`/`pendingAngularImpulse` Float32Arrays.** Box2D's
+  `b2Body_ApplyLinearImpulse` adds `invMass * impulse` to `state->linearVelocity`
+  immediately and wakes the body; there is no buffering in box2d. The PLAN sketch
+  buffered into pre-sized Float32Arrays to defer application — but `PhysicsImpulseAccumulate`
+  runs in `physics-pre` (before `PhysicsMassRecompute`, which is last in pre), so to
+  use *fresh* invMass the drained impulse must be applied at the top of `engineStep`
+  (physics-step), after mass recompute. So: `PhysicsImpulseAccumulate` sums into a
+  small per-body pending accumulator (`Map<bodyIndex, {x,y,angular,wake}>`, cleared each
+  step) on `PhysicsState`; `engineStep` applies it to the awake `BodyState` velocity
+  before `collide`/`solve`. Pre-sizing the accumulator is an M5 perf concern. The
+  accumulation guarantee (3 `set(Impulse)` → summed) falls out of one inbox event per
+  `set`. `impulseEntitiesThisStep: Set<eid>` is kept for `PhysicsImpulseZero`.
+- **Forces re-gather every step (non-reactive).** `PhysicsForceGather` walks
+  `world.filter({any:[Force,Torque]})` once per step, resolving the target body by the
+  immediate-parent rule (`{up:[ChildOf,[Body]]}` injection), and adds into
+  `BodySim.forceX/forceY/torque`. `finalizeBodies` already zeroes force each step (VP-7),
+  so next step re-accumulates fresh — matches box2d.
+- **VP-21 split into VP-21a (engine) and VP-21b (publish system)** per the granularity
+  note. **VP-21a**: contact begin/end event recording in `collide.ts` (+ `contact.ts`
+  `destroyContact` end-event), the raw event arrays on `PhysicsState`, and the engine-side
+  sensor overlap module `engine/sensor.ts` (`b2OverlapSensors` — double-buffered visitor
+  lists, broad-phase query + `b2ShapeDistance` narrow check, begin/end via sorted
+  two-finger merge) wired into `engineStep` + sensor registration in `shape_lifecycle`.
+  **VP-21b**: `systems/events.ts` (`PhysicsEvents`) fans the raw arrays out to
+  `ContactEvents`/`SensorEvents`/`HitEvents` components (clear-in-place, `modified` only
+  on new events, three independent previously-touched sets).
+- **Sensors are a separate overlap pass, not contacts** (box2d v3): `collide.ts:77`
+  already skips sensor pairs in contact creation. `engine/sensor.ts` runs after the
+  solver/finalize and queries the broad-phase trees directly.
+- **VP-22 (hit events) reads the solver's existing manifold fields.** `ManifoldPoint`
+  already carries `normalVelocity` + `totalNormalImpulse` (populated by VP-17). The
+  hit-event scan (`b2ContactHitEvent`: approach speed > `hitEventThreshold`,
+  `totalNormalImpulse > 0`) reads them post-solve and pushes to `contactHitEvents`.
+- **Execution is sequential in the `physics` worktree.** M4's footprint is concentrated
+  in shared files (`engine/state.ts`, `engine/step.ts`, `engine/collide.ts`,
+  `systems/index.ts`), so parallel worktrees would collide on every ticket; the win is
+  small. Each ticket lands as its own commit(s) with its PROGRESS status line.
+- **`ChainSegmentShapeTest` is scoped to one-sided collision behaviour.** Box2D's test
+  exercises C-API shape-type mutation (`b2Shape_SetChainSegment`, orphan chain segments,
+  `b2Shape_GetParentChain`) that vecs-physics does not expose. The portable M4 gate is the
+  physical property: a body rests on the **front** side of a `Chain` and is not stopped
+  from the back (one-sided) — validating the M2 VP-13e ghost-vertex manifolds through the
+  full pipeline. Verified at milestone close.
+
+### Dependency graph & execution order
+
+```
+VP-19 forces+impulses ─┐
+VP-20 kinematic targets ┤ (independent of each other)
+                        ├─> VP-21a engine contact-events + sensor overlap
+                        │        └─> VP-22 hit-event scan
+                        │                  └─> VP-21b PhysicsEvents publish
+                        └─> (closeout) M4 parity: chain one-sided, friction ramp,
+                                       DeferredMassFlagSync, sensor_begin_end
+```
+
+- **VP-21b is last** — it consumes the contact/sensor/hit raw arrays all of
+  21a + 22 populate. **VP-22 needs 21a's** `PhysicsState` event-array foundation.
+
+### Status by ticket
+
+_(updated as tickets land)_
