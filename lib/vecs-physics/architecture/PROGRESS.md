@@ -695,3 +695,39 @@ Decisions / deferrals:
   branded handle), matching how `ContactStorage` uses a generic pool. The body
   id pushed into an island is recovered from `BodySim.bodyId` (the sim
   back-pointer) since `InternalBody` does not store its own handle index.
+
+#### ✅ VP-17 — `engine/solver.ts` — the TGS soft-step constraint solver
+
+Ports box2d v3.2.0's eight-stage solver restricted to the **single overflow
+color**: the stages iterate `state.graphContactSims` directly and the awake
+set's `bodyStates` (no island consumption). Exports `makeSoft`,
+`makeStepContext`, `solve`, `StepContext`, `Softness`, the constraint types,
+and the individual stages. 12 new tests (`tests/engine/solver.test.ts`); 423
+total; gate green (typecheck/test/lint/prettier from `lib/vecs-physics/`).
+
+- **`b2MakeSoft` ported VERBATIM** (solver.h:239), including the `hertz === 0`
+  early return; a test pins `massScale + impulseScale ≈ 1` for non-zero hertz.
+- **Each `_Overflow` stage ported verbatim** over the overflow color:
+  `b2PrepareContacts` (contact_solver.c:24), `b2WarmStartContacts` (162),
+  `b2SolveContacts` (239, with the `useBias` speculative/soft bias and the
+  `-contactSpeed` clamp), `b2ApplyRestitution` (410), `b2StoreImpulses` (516).
+  The integrate-velocities (solver.c:65) / integrate-positions (solver.c:113)
+  stages are reproduced as solver stages 2 & 5 — same math as `step.ts` (VP-7).
+- **Stage order** (solver.c:1038-1045/1521, physics_world.c b2Solve):
+  prepare (once) → per sub-step {integrateVelocities, warmStart, solve(bias),
+  integratePositions, relax=solve(no-bias)} → restitution (once) →
+  storeImpulses (once).
+- **Identity-static-state + `DYNAMIC_FLAG` write-back gate:** a module-level
+  `b2_identityBodyState` stands in for static/null bodies (base-1 index 0 →
+  base-0 `NULL_INDEX`); a stage writes velocity back to a state only when
+  `state.flags & DYNAMIC_FLAG` (box2d's `b2_dynamicFlag`), so the shared dummy
+  is never mutated and static bodies are untouched.
+- **Finalize stays in the orchestrator.** `solve()` leaves the resolved
+  velocities + accumulated delta-pose on the awake `bodyStates`; folding
+  delta-pose / writing transforms / move events / AABB refit is step.ts /
+  VP-18. `solve()` early-returns on an empty awake set and does NOT edit
+  `engine/step.ts`.
+- No divergence from box2d. Tangent uses `rightPerp(normal)` and `b2CrossSV` /
+  `b2Cross` are inlined as scalar math matching the vec2 helpers; verified
+  sign-for-sign. Constraint scratch is allocated per `solve()` call and reused
+  across all sub-steps (one `ContactConstraint` per `graphContactSims[i]`).
