@@ -150,12 +150,19 @@ describe("Bullet no-tunnel gate (VP-24 milestone physical gate)", () => {
     runSteps(world, 15);
 
     const pos = bullet.get(Position)!;
-    // With CCD: bullet stops at or before the wall face (left side: x = -0.25).
-    // It should not be at x < -0.5 (the right face of the wall is x = -0.25;
-    // left face x = 0.25; bullet approaches from the right, so it stops at x ≥ -0.25).
-    // Using a generous margin: bullet final x > -1.0 (still on the right side or
-    // embedded, not cleanly passed through to x ≈ -7).
-    expect(pos.x).toBeGreaterThan(-1.0);
+    // With CCD: bullet (r=0.2) stops at the wall right face (x = +0.25).
+    // Expected resting centre: x ≈ 0.25 + 0.2 = 0.45.
+    //
+    // Upper bound: centre must not pass the wall right face minus body radius —
+    //   i.e. must not have tunnelled into or through the wall.
+    //   wall right face (x=+0.25) − radius (0.2) = +0.05; with contact slop: < 0.15.
+    // Lower bound: centre must have reached the wall and stopped close to it —
+    //   not sat far back. wall right face (0.25) + radius (0.2) − 0.15 slop = 0.30.
+    //
+    // Measured: pos.x ≈ 0.449. If CCD broke and body advanced 0.5 m past the
+    // wall, pos.x would be ≈ −0.05, which fails the lower bound.
+    expect(pos.x).toBeGreaterThan(0.3); // stopped near wall, not far past it
+    expect(pos.x).toBeLessThan(0.55); // did not overshoot wall right face significantly
   });
 
   it("with enableContinuous=false a very-fast bullet WILL tunnel through a thin wall", () => {
@@ -243,9 +250,18 @@ describe("Fast non-bullet body CCD", () => {
     runSteps(world, 20);
 
     const pos = body.get(Position)!;
-    // CCD should stop the body at the wall face (x ≈ 0.05); it must not be
-    // significantly past the wall (x < -1.0 would mean it tunnelled).
-    expect(pos.x).toBeGreaterThan(-2.0);
+    // CCD should stop the body at the wall right face (x = +0.05).
+    // Expected resting centre: x ≈ 0.05 + 0.25 (half-extent) = 0.30.
+    //
+    // Upper bound: centre must not have tunnelled into the wall —
+    //   wall right face (0.05) + half-extent (0.25) − 0.10 slop = 0.20.
+    // Lower bound: centre must have reached the wall and stopped close to it.
+    //   wall right face (0.05) + half-extent (0.25) − 0.20 slop = 0.10.
+    //
+    // Measured: pos.x ≈ 0.300. If CCD broke and body advanced 0.5 m past the
+    // wall, pos.x would be ≈ −0.20, which fails the lower bound.
+    expect(pos.x).toBeGreaterThan(0.1); // stopped near wall, not far past it
+    expect(pos.x).toBeLessThan(0.4); // did not overshoot wall right face significantly
   });
 });
 
