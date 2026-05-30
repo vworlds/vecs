@@ -34,8 +34,40 @@ export const DYNAMIC_BODY = 2;
 export const LOCK_LINEAR_X = 0x0001;
 export const LOCK_LINEAR_Y = 0x0002;
 export const LOCK_ANGULAR_Z = 0x0004;
+
+/** Retained for debug draw: marks a body that triggered CCD this step.
+ * Mirrors `b2_isFast = 0x00000008` (body.h:26). Transient — cleared at the
+ * top of finalize via {@link BODY_TRANSIENT_FLAGS}. */
+export const IS_FAST = 0x0008;
+
+/** This dynamic body does a final CCD pass against all body types (not
+ * other bullets). Set from `Body.bullet = true` via the lifecycle system.
+ * Mirrors `b2_isBullet = 0x00000010` (body.h:29). */
+export const IS_BULLET = 0x0010;
+
 export const IS_SPEED_CAPPED = 0x0020;
+
+/** Body had a time-of-impact event this step. Retained for debug draw.
+ * Mirrors `b2_hadTimeOfImpact = 0x00000040` (body.h:35). Transient —
+ * cleared via {@link BODY_TRANSIENT_FLAGS}. */
+export const HAD_TIME_OF_IMPACT = 0x0040;
+
 export const ALLOW_FAST_ROTATION = 0x0080;
+
+/** This body needs its AABB enlarged in the broad phase after CCD.
+ * Set inside `solveContinuous` when the TOI-interpolated AABB escapes the
+ * existing fat AABB. Mirrors `b2_enlargeBounds = 0x00000100` (body.h:41).
+ * Unlike the other transient flags, ENLARGE_BOUNDS is NOT in
+ * BODY_TRANSIENT_FLAGS — it is consumed and cleared explicitly in the
+ * bullet-proxy-enlarge loop (physics_world.c:1929). */
+export const ENLARGE_BOUNDS = 0x0100;
+
+/** Bitmask of per-step transient flags that are cleared at the top of
+ * `finalizeBodies`. Mirrors `b2_bodyTransientFlags = b2_isFast |
+ * b2_isSpeedCapped | b2_hadTimeOfImpact` (body.h:65). Note: `b2_enlargeBounds`
+ * is intentionally excluded (consumed and cleared separately in the bullet
+ * proxy-enlarge loop, not at finalize-start). */
+export const BODY_TRANSIENT_FLAGS = IS_FAST | IS_SPEED_CAPPED | HAD_TIME_OF_IMPACT;
 
 /** Flag allowing a body to fall asleep. Mirrors `b2_enableSleep = 0x00000800`
  * (body.h:53). Set when `Sleep.enabled = true` (the default). When clear, the
