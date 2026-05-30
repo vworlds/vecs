@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   AngularImpulse,
+  AngularVelocity,
   Body,
   BodyType,
   Box,
@@ -210,29 +211,50 @@ describe("sleep transition", () => {
 // ─── 3. Wake on touch ─────────────────────────────────────────────────────────
 
 describe("wake on touch", () => {
-  it("a sleeping body wakes when a contact begins touching (linkContact)", () => {
-    // We can't easily create a real contact between two bodies in a unit test
-    // without the full physics pipeline. Instead, we test the wake path through
-    // the state._wakeSolverSet hook that linkContact calls.
-    const world = makeWorld({ x: 0, y: 0 }, true);
-    const b = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
+  it("a sleeping body wakes when a moving body's contact reaches it (linkContact path)", () => {
+    // End-to-end test: one dynamic body moving downward collides with a sleeping
+    // dynamic body. The actual linkContact → _wakeSolverSet path is exercised
+    // through the full physics pipeline (not via _wakeSolverSet directly).
+    //
+    // Setup: gravity = (0, -10). Static floor at y = -10.
+    // "mover"  — starts at (0, 3), awake, falling down under gravity, has a Box shape.
+    // "sleeper"— starts at (0, 1), put to sleep immediately, has a Box shape.
+    // After enough steps the mover lands on the sleeper and the contact wakes it.
+    const world = makeWorld({ x: 0, y: -10 }, true);
 
+    // Static ground so the sleeper doesn't fall through.
+    const ground = world
+      .entity()
+      .set(Body, { type: BodyType.Static })
+      .set(Position, { x: 0, y: -10 });
+    world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 20 });
+
+    // Sleeping body resting on the floor — full shape so mass is computed.
+    const sleeper = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 0, y: 1 })
+      .set(Sleep, { enabled: true, awake: false, threshold: 0.05 });
+    world.entity().set(ChildOf, { target: sleeper }).set(Box, { width: 2, height: 2 });
+
+    // Awake body above the sleeper, about to fall.
+    const mover = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 0, y: 5 });
+    world.entity().set(ChildOf, { target: mover }).set(Box, { width: 2, height: 2 });
+
+    // Step once to register bodies and shapes.
     let now = step(world, 1, 0);
-    seedMass(world, b, 1);
-    forceSleep(world, b);
-    now = step(world, 1, now);
 
-    // Confirm sleeping.
-    const state = getPhysics(world);
-    const handle = state.bodyByEntity.get(b.eid)!;
-    const rec = state.bodies.get(handle.index);
-    expect(rec.setIndex).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+    // Confirm sleeper is already sleeping (Sleep.awake=false seeds high sleepTime).
+    expect(getSetIndex(world, sleeper)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
 
-    // Directly invoke the wake hook (simulating what linkContact does).
-    const sleepSetId = rec.setIndex;
-    state._wakeSolverSet(state, sleepSetId);
+    // Run until the mover has had time to fall and hit the sleeper (~60 steps = 1 s).
+    now = step(world, 90, now);
 
-    expect(rec.setIndex).toBe(AWAKE_SET);
+    // The sleeper must have been woken by the collision.
+    expect(getSetIndex(world, sleeper)).toBe(AWAKE_SET);
   });
 });
 
@@ -526,35 +548,57 @@ describe("sleep + wake round-trip", () => {
 // ─── 10. Sleep does not destroy contacts ─────────────────────────────────────
 
 describe("sleep does not destroy contacts", () => {
-  it("contact count stays consistent after body falls asleep and wakes", () => {
-    // We need two bodies that have contacts. Without a real collide step we
-    // can't create actual contacts easily, but we can verify the mechanics:
-    // when a body sleeps, its non-touching contacts go to the disabled set
-    // (not destroyed). The contact count on the body is unchanged.
-    const world = makeWorld({ x: 0, y: 0 }, true);
-    const b = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
+  it("contact count is preserved when touching bodies fall asleep and one wakes", () => {
+    // Two stacked boxes fall asleep together. Wake one via teleport and assert
+    // the contacts that existed before sleep are still present (sleep moves them
+    // to the sleeping-set contactSims; wake moves them back into the graph).
+    //
+    // Uses gravity + a static floor so the two boxes truly touch and accumulate
+    // a contact before sleep is forced.
+    const world = makeWorld({ x: 0, y: -10 }, true);
 
-    let now = step(world, 1, 0);
-    seedMass(world, b, 1);
+    // Static floor.
+    const ground = world
+      .entity()
+      .set(Body, { type: BodyType.Static })
+      .set(Position, { x: 0, y: -10 });
+    world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 20 });
+
+    // Bottom box rests on the floor; top box rests on the bottom.
+    const bottom = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 0, y: 1 });
+    world.entity().set(ChildOf, { target: bottom }).set(Box, { width: 2, height: 2 });
+
+    const top = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x: 0, y: 3 });
+    world.entity().set(ChildOf, { target: top }).set(Box, { width: 2, height: 2 });
+
+    // Settle the stack so real contacts form between them and with the floor.
+    let now = step(world, 60, 0);
+
     const state = getPhysics(world);
-    const handle = state.bodyByEntity.get(b.eid)!;
-    const rec = state.bodies.get(handle.index);
+    const hBottom = state.bodyByEntity.get(bottom.eid)!;
+    const recBottom = state.bodies.get(hBottom.index);
 
-    // No contacts at start.
-    expect(rec.contactCount).toBe(0);
+    // Bottom box has at least one contact (with the floor or the top box).
+    const contactsBefore = recBottom.contactCount;
+    expect(contactsBefore).toBeGreaterThan(0);
 
-    // Sleep and wake.
-    forceSleep(world, b);
+    // Force both to sleep.
+    forceSleep(world, bottom);
+    forceSleep(world, top);
     now = step(world, 1, now);
-    expect(rec.setIndex).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
 
-    // Wake via teleport.
-    b.set(Position, { x: 0, y: 1 });
+    expect(recBottom.setIndex).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+
+    // Wake the bottom body via teleport (tiny nudge).
+    bottom.set(Position, { x: 0, y: 1.001 });
     now = step(world, 1, now);
-    expect(rec.setIndex).toBe(AWAKE_SET);
+    expect(recBottom.setIndex).toBe(AWAKE_SET);
 
-    // Contact count unchanged.
-    expect(rec.contactCount).toBe(0);
+    // Contact count must not have been destroyed by the sleep/wake round-trip.
+    expect(recBottom.contactCount).toBe(contactsBefore);
   });
 });
 
@@ -785,5 +829,190 @@ describe("linkContact — both-sleeping bodies leave sets distinct (box2d parity
     expect(r1.setIndex).toBe(setABefore);
     expect(r2.setIndex).toBe(setBBefore);
     expect(r1.setIndex).not.toBe(r2.setIndex);
+  });
+});
+
+// ─── 16. LinearVelocity setter wakes a sleeping body ─────────────────────────
+
+describe("wake on LinearVelocity setter", () => {
+  it("setting non-zero LinearVelocity on a sleeping body wakes it", () => {
+    // Mirrors b2Body_SetLinearVelocity (body.c:793-796): nonzero velocity wakes.
+    // The LinearVelocity component must already be present so update() fires.
+    const world = makeWorld({ x: 0, y: 0 }, true);
+    const b = world
+      .entity()
+      .set(Position, { x: 0, y: 0 })
+      .set(Body, { type: BodyType.Dynamic })
+      .set(LinearVelocity, { x: 0, y: 0 });
+
+    let now = step(world, 1, 0);
+    seedMass(world, b, 1);
+    forceSleep(world, b);
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+
+    // Non-zero velocity → should wake.
+    b.set(LinearVelocity, { x: 1, y: 0 });
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBe(AWAKE_SET);
+  });
+
+  it("setting zero LinearVelocity on a sleeping body does NOT wake it", () => {
+    // Mirrors pose_sync_in.ts:93-94: wake only when linear.x !== 0 || linear.y !== 0.
+    // The component must be present from creation (zero) so that system.update
+    // fires (not system.enter) when we set it again to zero after sleep.
+    // Zero velocity also allows forceSleep to succeed (nonzero velocity resets sleepTime).
+    const world = makeWorld({ x: 0, y: 0 }, true);
+    const b = world
+      .entity()
+      .set(Position, { x: 0, y: 0 })
+      .set(Body, { type: BodyType.Dynamic })
+      .set(LinearVelocity, { x: 0, y: 0 }); // present from creation, zero
+
+    let now = step(world, 1, 0);
+    seedMass(world, b, 1);
+    forceSleep(world, b);
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+
+    // Re-set the component to zero → update fires (component already exists),
+    // but the wake guard (linear.x !== 0 || linear.y !== 0) is false → no wake.
+    b.set(LinearVelocity, { x: 0, y: 0 });
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+  });
+});
+
+// ─── 17. Torque setter wakes a sleeping body ──────────────────────────────────
+
+describe("wake on Torque setter", () => {
+  it("sleeping body wakes when Torque is set with wake:true", () => {
+    // Mirrors forces.ts:95-96 (b2Body_ApplyTorque, body.c:978-981).
+    const world = makeWorld({ x: 0, y: 0 }, true);
+    const b = world
+      .entity()
+      .set(Position, { x: 0, y: 0 })
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Torque, { value: 0, wake: true });
+
+    let now = step(world, 1, 0);
+    seedMass(world, b, 1, 1);
+    forceSleep(world, b);
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+
+    // Non-zero torque with wake:true → should wake.
+    b.set(Torque, { value: 5, wake: true });
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBe(AWAKE_SET);
+  });
+
+  it("sleeping body stays asleep when Torque has wake:false", () => {
+    // Mirrors forces.ts:95: wake only when torque.wake is true.
+    const world = makeWorld({ x: 0, y: 0 }, true);
+    const b = world
+      .entity()
+      .set(Position, { x: 0, y: 0 })
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Torque, { value: 0, wake: false });
+
+    let now = step(world, 1, 0);
+    seedMass(world, b, 1, 1);
+    forceSleep(world, b);
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+
+    // Torque with wake:false → must NOT wake.
+    b.set(Torque, { value: 5, wake: false });
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+  });
+});
+
+// ─── 18. AngularVelocity setter wakes a sleeping body ────────────────────────
+
+describe("wake on AngularVelocity setter", () => {
+  it("setting non-zero AngularVelocity on a sleeping body wakes it", () => {
+    // Mirrors pose_sync_in.ts:114-115 (b2Body_SetAngularVelocity, body.c:817-820).
+    const world = makeWorld({ x: 0, y: 0 }, true);
+    const b = world
+      .entity()
+      .set(Position, { x: 0, y: 0 })
+      .set(Body, { type: BodyType.Dynamic })
+      .set(AngularVelocity, { value: 0 });
+
+    let now = step(world, 1, 0);
+    seedMass(world, b, 1, 1);
+    forceSleep(world, b);
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+
+    // Non-zero omega → should wake.
+    b.set(AngularVelocity, { value: 1 });
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBe(AWAKE_SET);
+  });
+
+  it("setting zero AngularVelocity on a sleeping body does NOT wake it", () => {
+    // Mirrors pose_sync_in.ts:114: wake only when angular.value !== 0.
+    // The component must be present from creation (zero) so system.update fires
+    // when we re-set it to zero after sleep, and zero omega allows sleep to proceed.
+    const world = makeWorld({ x: 0, y: 0 }, true);
+    const b = world
+      .entity()
+      .set(Position, { x: 0, y: 0 })
+      .set(Body, { type: BodyType.Dynamic })
+      .set(AngularVelocity, { value: 0 }); // present from creation, zero
+
+    let now = step(world, 1, 0);
+    seedMass(world, b, 1, 1);
+    forceSleep(world, b);
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+
+    // Re-set to zero → update fires (component already exists),
+    // but the wake guard (angular.value !== 0) is false → no wake.
+    b.set(AngularVelocity, { value: 0 });
+    now = step(world, 1, now);
+    expect(getSetIndex(world, b)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+  });
+});
+
+// ─── 19. Destroying a sleeping body releases the sleeping-set slot ───────────
+
+describe("destroy sleeping body releases sleeping-set slot", () => {
+  it("destroying the only body in a sleeping set frees the slot back to the pool", () => {
+    // box2d b2DestroyBody (body.c:416-419): when the sleeping set becomes empty
+    // after the body is removed, b2DestroySolverSet is called. Mirrors
+    // freeSleepingSet in our code. A failure here means the slot is leaked.
+    const world = makeWorld({ x: 0, y: 0 }, true);
+    const b = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
+
+    let now = step(world, 1, 0);
+    seedMass(world, b, 1);
+    forceSleep(world, b);
+    now = step(world, 1, now);
+
+    // Confirm sleeping.
+    expect(getSetIndex(world, b)).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+
+    const state = getPhysics(world);
+    const poolLenBefore = state.sleepingSetPool.length;
+    const setCountBefore = state.solverSets.length;
+
+    // Destroy the sleeping body entity.
+    b.destroy();
+    now = step(world, 1, now);
+
+    // The sleeping set slot must have been freed. Either:
+    //   (a) the pool grew by 1 (slot returned to pool), OR
+    //   (b) solverSets.length shrank by 1 (slot was at the tail and trimmed).
+    // In our implementation freeSleepingSet pushes to the pool without trimming,
+    // so we expect the pool to grow by 1.
+    const poolLenAfter = state.sleepingSetPool.length;
+    expect(poolLenAfter).toBe(poolLenBefore + 1);
+
+    // The total number of solver-set slots should not have grown (no new sets).
+    expect(state.solverSets.length).toBe(setCountBefore);
   });
 });

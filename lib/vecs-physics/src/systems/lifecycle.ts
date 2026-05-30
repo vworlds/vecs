@@ -39,7 +39,7 @@ import {
   writeBodyTransform,
 } from "../engine/body.js";
 import { createIslandForBody, removeBodyFromIsland } from "../engine/island.js";
-import { wakeBody } from "../engine/sleep.js";
+import { freeSleepingSet, wakeBody } from "../engine/sleep.js";
 import { updateShapeAABBs } from "../engine/shape.js";
 import {
   AWAKE_SET,
@@ -300,8 +300,16 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     // freeing the body slot. Mirrors b2DestroyBody → b2DestroyBodyContacts
     // (body.c). The island must be a singleton (no contacts) before
     // removeBodyFromIsland runs; without this teardown it throws.
+    const setIndex = record.setIndex;
     destroyBodyContacts(state, handle.index, false);
-    destroyBody(state, state.solverSets[record.setIndex]!, handle);
+    destroyBody(state, state.solverSets[setIndex]!, handle);
+    // Mirrors b2DestroyBody (body.c:416-419): if the body was in a sleeping set
+    // and that set is now empty, release the slot back to the pool.
+    // Box2D: `else if (set->setIndex >= b2_firstSleepingSet && set->bodySims.count == 0)`
+    //         `b2DestroySolverSet(world, set->setIndex)`.
+    if (setIndex >= FIRST_SLEEPING_SET && state.solverSets[setIndex]!.bodySims.length === 0) {
+      freeSleepingSet(state, setIndex);
+    }
     state.bodyByEntity.delete(e.eid);
   });
 
