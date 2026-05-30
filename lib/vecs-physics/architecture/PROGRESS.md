@@ -1588,3 +1588,126 @@ commits (`eb54a3e`, `df4b3a7`, `edda709`, `476fba2`, `88ed235`).
   (Re-surfaced and re-tracked in the M4 architecture-review pass — the event-opt-in
   half of that same gap, runtime `ContactEvents`/`HitEvents`/`SensorEvents` add/remove,
   IS now handled by `PhysicsEventOptInSync`; only the marker toggle remains deferred.)
+
+## MILESTONE 5 — Sleep + continuous CCD + debug validation + perf (🚧 IN PROGRESS)
+
+**Tickets: VP-23, VP-24, VP-25, VP-26.** Architect: this pass.
+Closes the simulation loop: idle islands fall asleep (and wake on disturbance),
+fast/bullet dynamic bodies stop tunnelling (CCD), invalid ECS structures warn once
+in debug mode, and a profiling pass removes hot-path allocations (incl. the M3
+fat-AABB hysteresis divergence). After M5 the only v1-excluded surface is the
+explicitly-roadmapped one (ray/shape casts, AABB queries, joints, character movers).
+
+Reference: box2d **v3.2.0** vendored under `box2d/` (gitignored; re-clone
+`erincatto/box2d` at commit 6e96697064e1ec09265c64fe953e5e056098c215 if absent).
+Baseline at M5 start: **569 tests / 51 files**, gate green
+(typecheck/test/lint/prettier from `lib/vecs-physics/`).
+
+### Box2D source map for M5 (verified this pass)
+
+The PLAN _Package layout_ put CCD in `engine/ccd.ts` and sleep in `solver.ts`, but
+the actual box2d functions are spread across files — recorded here so ticket authors
+open the right source:
+
+- **Sleep transition:** `b2TrySleepIsland` / `b2WakeSolverSet` / `b2MergeSolverSets`
+  (`solver_set.c:155 / 35 / 417`); the per-step sleep loop that calls
+  `b2TrySleepIsland` is in `b2Solve` (`solver.c:~2006`, `if (world->enableSleep)`).
+- **Sleep accumulation:** `b2FinalizeBodiesTask` sleep block (`solver.c:556-684`) —
+  `sleepVelocity`, `sleepTime += timeStep`, `awakeIslandBitSet`, and the
+  `splitIslandId`/`splitSleepTime` selection (chosen here, executed later).
+- **Island split:** `b2SplitIsland` / `b2SplitIslandTask` (`island.c:389 / 659`) —
+  union-find DFS over the island's contact graph; runs after finalize when a sleepy
+  island has `constraintRemoveCount > 0`.
+- **CCD:** `b2ContinuousQueryCallback` / `b2SolveContinuous` / `b2BulletBodyTask`
+  (`physics_world.c:181 / 379 / 1249`); the fast/bullet detection + dispatch is the
+  `enableContinuous` branch of `b2FinalizeBodiesTask` (`solver.c:635-657`); the
+  bullet stage runs after the main solve (`physics_world.c:1896-1968`).
+- **Wake on touch:** `b2WakeBody` (`body.c:328`) is called from `b2Collide`'s contact
+  begin path (`contact.c:508-509`) and from the force/impulse/teleport setters
+  (`body.c:795/819/871/935/958/980/1011/1039/1068`).
+
+`step.ts` already carries M5 hook-point comments at the exact insertion sites
+(lines 49/112/133/153/160 in `finalizeBodies`) left by the VP-7/VP-18 authors.
+
+### Architect scoping decisions (refining the PLAN ticket list)
+
+- **VP-23 (Sleep + island split) is ONE cohesive ticket by ONE agent.** Sleep,
+  island split, and the wake paths are a single tightly-coupled subsystem: the
+  sleep block in finalize selects the split island, the split runs post-finalize,
+  `b2TrySleepIsland` consumes the split result, and every wake path
+  (`b2WakeBody`/`b2WakeSolverSet`) must round-trip the same sleeping-set bookkeeping.
+  Splitting across agents trades a small file for large integration risk (same
+  reasoning as VP-17). It touches `island.ts` (split), `solver_set.ts`
+  (sleep/wake/merge + sleeping-set allocation past `FIRST_SLEEPING_SET`),
+  `step.ts`/`solver.ts` (finalize sleep accumulation + post-solve sleep loop),
+  `body.ts` (sleep fields + `b2WakeBody` + `enableSleep`/`isAwake` flags),
+  `contact.ts` (wake-on-touch), and the `Sleep` component + `wake`-flag wiring in
+  systems. **This is the milestone's critical path** — VP-24 and VP-26 build on it.
+- **VP-23 also activates every `wake` flag** carried as a structural no-op since M4
+  (`Force`/`Torque`/`Impulse`/`AngularImpulse`/`KinematicTarget*`). Until VP-23
+  there was no sleeping set to wake into; now `applyPendingImpulses`, force gather,
+  and kinematic drive must call `b2WakeBody` when `wake === true` and the body is
+  asleep. Mirrors box2d's wake guards (`body.c:933-936` etc.).
+- **VP-24 (CCD) ports the single-threaded bullet+fast path.** `engine/ccd.ts`
+  (NEW) gets `solveContinuous` + the continuous query callback; `engine/distance.ts`
+  grows `b2TimeOfImpact` (conservative advancement, `distance.c`) — the one genuinely
+  new geometry primitive in M5. Fast (non-bullet) bodies TOI-resolve inline during
+  finalize against the **static** tree; bullets are collected and resolved in a
+  post-solve stage against static+kinematic+dynamic trees. `enableContinuous`
+  defaults `true` (PLAN), but the **Unresolved Decisions** rule stands: the default
+  may only stay `true` if CCD actually works — so VP-24 owns the
+  `SetBulletDriftTest`/no-tunnel gate. Depends on VP-23 (shares the finalize loop;
+  cleaner to layer CCD onto the settled sleep block than to merge two finalize
+  rewrites).
+- **VP-25 (PhysicsDebugValidation) is fully independent — runs in parallel from the
+  start, in its own worktree.** New `systems/debug.ts` + a one-line debug-gated
+  install hook + tests; reuses the existing `util/warn.ts` `WarnDedupe`. Validates
+  the six codes in `docs/debug-validation.md` (`shape-without-parent-body`,
+  `dynamic-body-without-density`, `chain-too-few-points`, `polygon-invalid`,
+  `shape-position-on-body`, `position-on-shape-entity`). Only `install.ts` is shared
+  with VP-23 (a localized conditional insert) — trivial rebase. Registered only when
+  `debug: true`.
+- **VP-26 (perf pass) is LAST and owns the M5 closeout** — it profiles the full
+  post-VP-23/24 pipeline, so it must run after both. Scope: (1) the **fat-AABB
+  hysteresis fix** (M3 review — hold `shape.fatAabb*` across steps, reset only on
+  escape; a parity fix *and* a perf win); (2) hot-allocation removal on a 200-body
+  scene (pre-size the impulse accumulator, scratch reuse in solver/collide/sensor);
+  (3) a repeatable benchmark harness under `tests/` (or `bench/`). It does **not**
+  chase micro-opts that risk parity — measurable wins only, gate stays green.
+- **Carried-deferral triage (avoid bloat — not all M5-bucketed items are milestone
+  DoD):**
+  - _CoM-shift velocity adjustment_ (VP-12 carry) — VP-23 evaluates whether sleep
+    needs it; v1 has no runtime CoM drift beyond mass recompute, so likely stays
+    deferred. VP-23 author decides and records.
+  - _Open-chain ghost-vertex fidelity at sharp endpoints_ — verification task, not in
+    the milestone DoD. Assessed at closeout: fix if cheap, else formally defer to v2
+    with the in-code `makeChainSegments` comment as the tracker (open chains with
+    sharp turns are an edge case; loop chains already match box2d exactly).
+  - _Dynamic `Sensor` marker toggle_ — a feature gap with a documented workaround
+    (shape recreate), **not** in the milestone DoD ("Sleep + CCD + debug + perf").
+    Kept deferred unless it falls out cheaply; the architect will not let it expand
+    M5 scope.
+
+### Dependency graph & execution waves
+
+```
+VP-25 debug validation ── independent, own worktree ──┐ (parallel from t0)
+                                                       │
+VP-23 sleep + island split ──> VP-24 CCD (bullets) ───┤
+        (critical path, main worktree)    (main)      │
+                                                       └─> VP-26 perf pass + fat-AABB
+                                                                + M5 closeout/triage
+```
+
+- **Wave 1 (parallel):** VP-23 (main worktree) ‖ VP-25 (separate worktree).
+- **Wave 2:** VP-24 (after VP-23; shares `finalizeBodies`).
+- **Wave 3:** VP-26 (after VP-23+VP-24; profiles the whole pipeline) + closeout.
+
+### Status by ticket
+
+_(updated as tickets land)_
+
+- ⏳ **VP-23** — Sleep + island split. NEXT.
+- ⏳ **VP-24** — Continuous collision (CCD) for bullets + fast bodies.
+- ⏳ **VP-25** — `PhysicsDebugValidation` system.
+- ⏳ **VP-26** — Performance pass + fat-AABB hysteresis fix + benchmark + closeout.
