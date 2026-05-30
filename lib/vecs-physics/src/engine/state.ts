@@ -409,15 +409,18 @@ export class PhysicsState {
   //   Tracks contact ids whose touch state changed for the serial processing loop.
 
   /** Persistent island-awake bitset. Cleared at the start of `finalizeBodies`;
-   * populated per body; consumed by the sleep loop. (VP-26 VP-23 carry.) */
+   * populated per body; consumed by the sleep loop. (VP-26 VP-23 carry.)
+   * @internal */
   public readonly _awakeIslandBitSet = new Set<number>();
 
   /** Persistent contact-sim gather scratch for `collide`. Cleared at the start
-   * of each `collide` call; populated by the gather loop. (VP-26 perf.) */
+   * of each `collide` call; populated by the gather loop. (VP-26 perf.)
+   * @internal */
   public readonly _collideContactSims: import("./contact.js").ContactSim[] = [];
 
   /** Persistent state-changed set for `collide`. Cleared at the start of each
-   * `collide` call; populated per contact; consumed by the serial loop. (VP-26.) */
+   * `collide` call; populated per contact; consumed by the serial loop. (VP-26.)
+   * @internal */
   public readonly _collideStateChanged = new Set<number>();
 
   // Monotonic step counter (determinism + event tagging).

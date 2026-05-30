@@ -1589,7 +1589,7 @@ commits (`eb54a3e`, `df4b3a7`, `edda709`, `476fba2`, `88ed235`).
   half of that same gap, runtime `ContactEvents`/`HitEvents`/`SensorEvents` add/remove,
   IS now handled by `PhysicsEventOptInSync`; only the marker toggle remains deferred.)
 
-## MILESTONE 5 — Sleep + continuous CCD + debug validation + perf (🚧 IN PROGRESS)
+## MILESTONE 5 — Sleep + continuous CCD + debug validation + perf (✅ COMPLETE)
 
 **Tickets: VP-23, VP-24, VP-25, VP-26.** Architect: this pass.
 Closes the simulation loop: idle islands fall asleep (and wake on disturbance),
@@ -1714,7 +1714,9 @@ _(updated as tickets land)_
   `b57f9d5`, tests `31b95f0`). See entry below.
 - ✅ **VP-25** — `PhysicsDebugValidation` system (`5d4ed8e`, `dbca1f9`, `3d91299`,
   `be6ee6a`). See entry below.
-- ⏳ **VP-26** — Performance pass + fat-AABB hysteresis fix + benchmark + closeout.
+- ✅ **VP-26** — Performance pass + fat-AABB hysteresis fix + benchmark + closeout
+  (`ed56bfa` hysteresis, `12fcd4d` shapeIndex, `807c723` scratch, `ad67360` bench,
+  docs commit below). See entry below.
 
 #### ✅ VP-25 — `PhysicsDebugValidation` system
 
@@ -1954,7 +1956,160 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 - HelloWorld no-regression: slow box rests at y≈1 with CCD enabled.
 
 **Carried forward / deferrals:**
-- **Sensor TOI hits queue** — deferred (see above).
-- **_getShapeIndex O(n)** — deferred to VP-26 perf pass.
-- **Fat-AABB hysteresis** — unchanged from M3 review; still VP-26.
-- **Open-chain ghost-vertex fidelity** — unchanged; VP-26 / v2.
+- **Sensor TOI hits queue** — deferred (see above). ✅ Closed out in VP-26 M5 closeout.
+- **_getShapeIndex O(n)** — ✅ **RESOLVED VP-26**: the O(n) scan never existed in the
+  VP-24 implementation; the loop variable was used directly. VP-26 added `shapeIndex`
+  to `InternalShape` and removed the redundant `fastShapeIndex` from `ContinuousContext`.
+- **Fat-AABB hysteresis** — ✅ **RESOLVED VP-26**: see VP-26 entry below.
+- **Open-chain ghost-vertex fidelity** — deferred to v2.
+
+#### ✅ VP-26 — Perf pass + fat-AABB hysteresis fix + benchmark harness + M5 closeout
+
+**Files** (4 commits on `vp26-perf`):
+
+**`ed56bfa` — `fix: VP-26 fat-AABB hysteresis — hold fat AABB until tight escapes`**
+
+- `src/engine/shape.ts` — restructured `refitBodyShapeProxies` to implement
+  box2d's fat-AABB hysteresis (solver.c:712-728) for the "enlarge" (per-step)
+  mode. Old code: `updateShapeAABBs` unconditionally reset the fat AABB every
+  step. New code: compute new tight AABB, check containment in existing fat AABB;
+  only reset fat and call `enlargeProxy` when tight escapes (solver.c:714:
+  `b2AABB_Contains`). The "move" (teleport) path still resets both tight and fat
+  unconditionally (box2d-faithful). `updateShapeAABBs` now uses `shape.aabbMargin`
+  (cached, VP-24) instead of recomputing it each call.
+- `tests/engine/fat_aabb_hysteresis.test.ts` (NEW) — 5 tests:
+  1. `enlargeProxy` NOT called for stationary body after step 1 (tight stays in fat).
+  2. Fat AABB values stable across 5+ steps for stationary body.
+  3. `enlargeProxy` IS called when body escapes fat margin (enableContinuous=false
+     to isolate from CCD path).
+  4. Fat AABB recentred correctly on tight when escape occurs (fat = tight ± margin).
+  5. Teleport ("move" mode) always resets fat AABB to new location.
+
+**`12fcd4d` — `refactor: VP-26 cache InternalShape.shapeIndex, use in CCD same-shape skip`**
+
+- `src/engine/shape.ts` — added `shapeIndex: number` to `InternalShape` interface.
+  Set by `createShape()` to `handle.index`; initialized to `NULL_INDEX` sentinel in
+  `makeShape()`. ShapeStorage uses sparse handle-indexed records (no swap-remove),
+  so the index is stable for the shape's lifetime.
+- `src/engine/ccd.ts` — removed `fastShapeIndex` field from `ContinuousContext`;
+  `_continuousQueryCallback` now reads `ctx.fastShape.shapeIndex` directly for the
+  same-shape skip (solver.c:193-196). No O(n) scan existed in VP-24 — the
+  `_getShapeIndex` carry was already implemented via the loop variable; VP-26 makes
+  it self-contained on the shape record.
+- `src/systems/shape_lifecycle.ts` — inline `newShape()` factory updated to include
+  `shapeIndex: NULL_INDEX` sentinel.
+- `tests/engine/mass.test.ts` — `makeInternalShape` test helper updated to include
+  `shapeIndex: NULL_INDEX`.
+
+**`807c723` — `perf: VP-26 hoist hot per-step scratch onto PhysicsState`**
+
+- `src/engine/state.ts` — added three persistent scratch fields:
+  `_awakeIslandBitSet: Set<number>` (was `new Set<number>()` per step in
+  `finalizeBodies`; VP-23 carry); `_collideContactSims: ContactSim[]` (was `[]` per
+  step in `collide()`); `_collideStateChanged: Set<number>` (was `new Set<number>()`
+  per step in `collide()`).
+- `src/engine/step.ts` — `finalizeBodies` now clears `state._awakeIslandBitSet`
+  instead of allocating a fresh `Set`.
+- `src/engine/collide.ts` — `collide()` now clears `state._collideContactSims` and
+  `state._collideStateChanged` instead of allocating fresh per call.
+
+**`ad67360` — `feat: VP-26 benchmark harness (bench/) + npm run bench`**
+
+- `bench/index.ts` (NEW) — runs all scenarios, prints a results table.
+- `bench/scenarios/stacking.bench.ts` (NEW) — 200-body scene (20 cols × 10 rows),
+  500 steps. Reference baseline: ~109 ms total / ~0.22 ms per step.
+- `bench/scenarios/falling_balls.bench.ts` (NEW) — 100 circles, 300 steps.
+  Reference baseline: ~100 ms total / ~0.33 ms per step.
+- `package.json` — added `"bench": "tsx bench/index.ts"` script (no new deps;
+  `tsx` is a transitive dep of vitest). Not part of `vitest run`.
+
+**Box2D lines mirrored (hysteresis fix):**
+- `b2FinalizeBodiesTask` shape-AABB refit: `solver.c:703-728`.
+- Containment check: `solver.c:714: b2AABB_Contains(shape->fatAABB, aabb)`.
+- Fat-AABB reset: `solver.c:716-727: fatAABB = {aabb ± margin}; shape->fatAABB = fatAABB`.
+
+**Hysteresis fix verification:**
+- `fat_aabb_hysteresis.test.ts` test 1 (`enlargeProxy NOT called`): a stationary
+  body's `enlargeProxy` is never called after step 1 because tight AABB is
+  identical every step and fits inside the fat (solver.c:714 containment → skip).
+- `fat_aabb_hysteresis.test.ts` test 3 (`enlargeProxy IS called on escape`): with
+  `enableContinuous=false` (to isolate from CCD path), a body moving faster than
+  the fat margin per step triggers `enlargeProxy` (solver.c:716-727 resets fat).
+- Tests 2, 4, 5 verify: fat stability across steps; fat = tight ± margin on reset;
+  teleport unconditionally resets fat.
+
+**Perf-pass decisions (non-obvious skips):**
+- **`pendingImpulses` object pooling** — each per-body entry is a plain object
+  `{x,y,angular,wake,generation}`. Replacing with a TypedArray layout would
+  require restructuring `applyPendingImpulses` and `PhysicsImpulseAccumulate` for
+  minimal gain (impulse accumulation is low frequency). Skipped.
+- **`solver.ts` `ContactConstraint` per-contact scratch** — correctness-critical;
+  allocates once per `solve()` call and reuses across sub-steps. Pooling would
+  require a free-list coupled to contact lifecycle. Skipped.
+- **`ContinuousContext` centroid scratch** — two `{x,y}` objects per fast/bullet
+  body per shape per step. Could be shared mutable pair on ctx. Skipped; CCD path
+  is not hot for typical scenes (bullets are rare) and the current code is clearer.
+
+**Test count:** 647 → 652 (5 new). Gate green: typecheck/test/lint/prettier all
+clean from `lib/vecs-physics/`.
+
+**Benchmark baseline (`npm run bench` on dev machine):**
+```
+scenario         | steps | total (ms) |  ms/step
+stacking         |   500 |      109.7 |    0.219
+falling_balls    |   300 |       99.7 |    0.332
+```
+
+### ✅ MILESTONE 5 COMPLETE
+
+All four tickets (VP-23 / VP-24 / VP-25 / VP-26) done. **Gate-green: 652 tests**,
+`typecheck`/`test`/`lint`/`prettier` all clean from `lib/vecs-physics/`.
+
+**Ticket map:**
+
+- ✅ **VP-23** — Sleep + island split (`55768ed` engine, `71d0b88` systems,
+  `c70c91f` tests, `0309b73` docs). Sleep transitions, island split, wake
+  activation on all force/impulse/kinematic/teleport paths.
+- ✅ **VP-24** — CCD for bullets + fast bodies (`49887c6` flags, `e71569d` TOI,
+  `1677cc7` shape fields, `3c781d3` engine, `b57f9d5` wiring, `31b95f0` tests).
+  No-tunnel gate: SetBulletDriftTest, physical bullet stop, TimeOfImpactTest.
+- ✅ **VP-25** — `PhysicsDebugValidation` system (`5d4ed8e`, `dbca1f9`, `3d91299`,
+  `be6ee6a`). Warns once per (eid, code) for all six structural codes; re-arms.
+- ✅ **VP-26** — Perf pass + fat-AABB hysteresis fix + benchmark harness + M5
+  closeout (`ed56bfa`, `12fcd4d`, `807c723`, `ad67360`, docs commit).
+
+**DoD met:**
+
+- Sleep transitions: idle islands sleep; disturbance wakes. `EnableSleepFlagSyncTest`,
+  `mergeSolverSets` round-trip, angular-impulse wake, `Sleep.awake=false`
+  start-asleep — all covered. (`tests/sleep/sleep.test.ts`, 26 tests.)
+- Bullets / fast bodies don't tunnel: `SetBulletDriftTest`, physical no-tunnel
+  gate, `enableContinuous=false` regression, fast non-bullet, `TimeOfImpactTest`,
+  bullet-vs-bullet skip, HelloWorld no-regression. (`tests/ccd/ccd.test.ts`, 10 tests.)
+- Debug validation warns once for all six codes. (`tests/debug/debug_validation.test.ts`,
+  42 tests.)
+- Perf pass: fat-AABB hysteresis implemented (parity with box2d solver.c:712-728);
+  three per-step scratch allocations hoisted to `PhysicsState`; `shapeIndex`
+  cached on `InternalShape`. Benchmark harness in `bench/`; baseline numbers above.
+
+**Tests:** 652 total (55 test files). Gate green.
+
+**Carried forward (deferred to v2 or a future milestone — NOT M5 DoD):**
+
+- **Open-chain ghost-vertex fidelity at sharp endpoints** (M2 carry) — loop chains
+  use real neighbour ghosts and match box2d exactly. Open-chain endpoints use
+  reflection (`2a−b`), which is correct for straight chains but unverified at sharp
+  turns against `b2CreateChain`'s actual neighbour ghost logic. In-code comment at
+  `makeChainSegments` is the authoritative tracker. Deferred to v2.
+- **Dynamic `Sensor` MARKER toggle** (solid ↔ sensor at runtime, M4 carry) —
+  needs contact teardown + `SensorStorage` create/destroy + mass/proxy invariants.
+  Shape recreate (remove + re-add geometry component) is the supported workaround
+  until v2. Deferred to v2.
+- **CoM-shift velocity adjustment** (VP-12 carry, body.c:629-633) — VP-23 assessed:
+  sleep does not exercise CoM drift in v1 (no runtime CoM change happens to a
+  sleeping body; mass recompute on a sleeping body is rare, and the v=ω=0 sleep
+  state makes the shift identically zero anyway). Kept deferred; revisit in v2 if
+  a regression points at it.
+- **Sensor TOI hits queue** (VP-24 carry, solver.c:531-537) — the AABB-based sensor
+  overlap pass (VP-21c, `engine/sensor.ts`) covers v1 sensor use cases without TOI
+  precision. TOI-precise sensor detection is M6+ scope.
