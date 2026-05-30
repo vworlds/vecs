@@ -293,9 +293,15 @@ export class PhysicsState {
   // Keyed by body handle index (InternalBody.localIndex is unstable across
   // swap-pops; the handle index, i.e. IdPool slot, is stable for the body's
   // lifetime and is how all other maps in PhysicsState are keyed).
+  //
+  // The `generation` captured at accumulation time guards against same-frame
+  // aliasing: if the target body is destroyed before `engineStep` applies the
+  // accumulator and another body reuses the freed slot, the generation no
+  // longer matches and the stale impulse is dropped (validated in
+  // `applyPendingImpulses` via `bodies.idPool.isValid`).
   public readonly pendingImpulses = new Map<
     number /* body handle index */,
-    { x: number; y: number; angular: number; wake: boolean }
+    { x: number; y: number; angular: number; wake: boolean; generation: number }
   >();
 
   // EIDs of entities that had Impulse or AngularImpulse set this step.

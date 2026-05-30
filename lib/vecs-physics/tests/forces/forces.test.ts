@@ -388,3 +388,75 @@ describe("PhysicsImpulseZero — silent zero", () => {
     expect(modifiedCount).toBe(0);
   });
 });
+
+// ─── Stale-target rejection (same-frame destroy/recreate index reuse) ──────────
+//
+// `PhysicsImpulseAccumulate` keys `pendingImpulses` by the body's stable IdPool
+// slot index. If the target body is destroyed before `engineStep` applies the
+// accumulator and another body reuses the freed slot, the raw index would alias
+// the new body. The accumulator captures the target's handle generation and
+// `applyPendingImpulses` validates it via `bodies.idPool.isValid`, dropping the
+// stale impulse instead of redirecting it. These tests pin that guard.
+describe("PhysicsImpulseAccumulate — stale-target generation guard", () => {
+  it("drops a pending impulse whose target slot generation is stale", () => {
+    const world = makeWorld();
+    let now = 0;
+
+    const e = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 0, y: 0 })
+      .set(LinearVelocity, { x: 0, y: 0 });
+
+    now = step(world, 1, now); // body enters the awake set
+    seedMass(world, e, 1);
+
+    // Model a body that occupied this slot in a prior life: inject a pending
+    // impulse tagged with the previous generation (handle.generation - 1). This
+    // is exactly what would remain after a same-frame destroy → slot reuse.
+    const state = getPhysics(world);
+    const handle = state.bodyByEntity.get(e.eid)!;
+    state.pendingImpulses.set(handle.index, {
+      x: 100,
+      y: 0,
+      angular: 0,
+      wake: true,
+      generation: handle.generation - 1,
+    });
+
+    now = step(world, 1, now);
+
+    // The generation mismatch must drop the impulse — the body that now owns the
+    // slot is untouched.
+    expect(e.get(LinearVelocity)!.x).toBe(0);
+  });
+
+  it("applies a pending impulse whose target slot generation matches", () => {
+    const world = makeWorld();
+    let now = 0;
+
+    const e = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 0, y: 0 })
+      .set(LinearVelocity, { x: 0, y: 0 });
+
+    now = step(world, 1, now);
+    seedMass(world, e, 1);
+
+    // Positive control: same index, correct generation → applied (Δv = invMass·x).
+    const state = getPhysics(world);
+    const handle = state.bodyByEntity.get(e.eid)!;
+    state.pendingImpulses.set(handle.index, {
+      x: 100,
+      y: 0,
+      angular: 0,
+      wake: true,
+      generation: handle.generation,
+    });
+
+    now = step(world, 1, now);
+
+    expect(e.get(LinearVelocity)!.x).toBeCloseTo(100, 5);
+  });
+});

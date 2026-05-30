@@ -24,6 +24,7 @@ import { gatherHitEvents, makeStepContext, solve, type StepContext } from "./sol
 import { AWAKE_SET, type SolverSet } from "./solver_set.js";
 import { type PhysicsState } from "./state.js";
 import { mulRot, normalizeRot, rotateVector } from "../math/rot.js";
+import type { BodyHandle } from "../util/handle.js";
 
 /** Advance the simulation by one fixed step. Builds the step context, creates
  * contacts from new broad-phase pairs, runs the narrow phase + solver, then
@@ -111,6 +112,18 @@ function applyPendingImpulses(state: PhysicsState): void {
   const awake = state.solverSets[AWAKE_SET]!;
 
   for (const [bodyIndex, acc] of state.pendingImpulses) {
+    // Reject a stale target: if the body was destroyed (and possibly its slot
+    // reused) since the impulse was accumulated this frame, the generation no
+    // longer matches and the impulse must not be redirected to whatever body
+    // now occupies the slot. Mirrors box2d's handle-generation validation.
+    if (
+      !state.bodies.idPool.isValid({
+        index: bodyIndex,
+        generation: acc.generation,
+      } as unknown as BodyHandle)
+    ) {
+      continue;
+    }
     const record = state.bodies.records[bodyIndex];
     // Skip if the body no longer exists or is not in the awake set.
     if (record === undefined || record.setIndex !== AWAKE_SET) {
