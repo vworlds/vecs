@@ -1,13 +1,15 @@
-// `engineStep` — the per-step orchestrator (VP-18 + VP-23 sleep).
+// `engineStep` — the per-step orchestrator (VP-18, VP-23 sleep, VP-24 CCD).
 //
 // Wires the full collision step loop: build the step context, create contacts
 // from broad-phase pairs, run the narrow phase + contact state changes (collide),
 // run the TGS soft-step solver (solve), gather hit events, finalize bodies
-// (fold delta-pose, write transforms, move events, refit shape AABBs / proxies),
-// run the island-split candidate (VP-23), run the sleep loop (VP-23), then run
-// the sensor overlap pass. Mirrors box2d's `b2World_Step` → `b2Collide` →
-// `b2Solve` → `b2FinalizeBodiesTask` + the sleep block in `b2Solve`
-// (solver.c:2003-2059), serialised.
+// (fold delta-pose, write transforms, move events, sleep accumulation, CCD
+// fast/bullet detection, refit shape AABBs / proxies), run the island-split
+// candidate (VP-23), run the sleep loop (VP-23), run the bullet CCD stage
+// (VP-24), then run the sensor overlap pass. Mirrors box2d's `b2World_Step` →
+// `b2Collide` → `b2Solve` → `b2FinalizeBodiesTask` + the sleep block in
+// `b2Solve` (solver.c:2003-2059) + the bullet stage (physics_world.c:1896-1968),
+// all serialised.
 //
 // VP-23 additions:
 //   - `finalizeBodies` now runs the sleep accumulation block from
@@ -23,8 +25,32 @@
 //     the target body is in a sleeping set (mirrors body.c:1009-1012).
 //   - Sleep hooks are installed on the first step (wires `wakeSolverSet` /
 //     `mergeSolverSets` into `state` without a circular import).
+//
+// VP-24 additions:
+//   - `finalizeBodies` now runs the CCD fast/bullet detection block from
+//     `b2FinalizeBodiesTask` (solver.c:633-657): if body is not sleepy and
+//     `maxMotion > 0.5 * sim.minExtent`, marks `IS_FAST` and either calls
+//     `solveContinuous` inline (non-bullet) or pushes onto `state.bulletBodies`
+//     (bullet bodies).
+//   - After the sleep loop, `engineStep` walks `state.bulletBodies`, calls
+//     `solveContinuous` for each, then calls `enlargeBulletProxies` to grow
+//     the broad-phase proxies. Mirrors physics_world.c:1896-1968.
+//   - The finalize shape-AABB refit block (solver.c:686-732) now honours the
+//     `IS_FAST` flag: fast bodies skip the normal refit (solveContinuous already
+//     updated their AABBs) and instead mark the sim directly for broad-phase
+//     enlargement. Non-fast bodies go through the normal `refitBodyShapeProxies`
+//     path (unchanged from VP-23).
 
-import { DYNAMIC_BODY, ENABLE_SLEEP, IS_SPEED_CAPPED } from "./body.js";
+import {
+  BODY_TRANSIENT_FLAGS,
+  DYNAMIC_BODY,
+  ENABLE_SLEEP,
+  ENLARGE_BOUNDS,
+  IS_BULLET,
+  IS_FAST,
+  IS_SPEED_CAPPED,
+} from "./body.js";
+import { enlargeBulletProxies, solveContinuous } from "./ccd.js";
 import { collide, makePairCreateCallback } from "./collide.js";
 import { splitIsland } from "./island.js";
 import { overlapSensors } from "./sensor.js";
@@ -56,6 +82,8 @@ export function engineStep(state: PhysicsState, dt: number, subSteps: number): v
   // until the publish. This is the ARCHITECT RESOLUTION from VP-21a
   // (PROGRESS.md MILESTONE 4 VP-21a ARCHITECT RESOLUTION bullet).
   state.bodyMoveEvents.length = 0;
+  // Bullet body collection: cleared each step. Rebuilt by finalizeBodies (VP-24).
+  state.bulletBodies.length = 0;
   // fell-asleep tracking: cleared each step so pose-sync-out can skip sleeping bodies.
   state.fellAsleepThisStep.clear();
   // reset split-island bookkeeping for this step.
@@ -141,10 +169,23 @@ export function engineStep(state: PhysicsState, dt: number, subSteps: number): v
     }
   }
 
+  // ── VP-24: Bullet CCD stage (physics_world.c:1896-1968) ─────────────────────
+  // Run solveContinuous for each bullet body collected in finalizeBodies.
+  // This MUST run AFTER the sleep loop so that a bullet body currently in an
+  // awake island doesn't accidentally sleep in the same step it gets TOI-resolved.
+  // Mirrors the b2BulletBodyTask + serial proxy-enlarge loop from physics_world.c.
+  if (state.bulletBodies.length > 0) {
+    for (const simIndex of state.bulletBodies) {
+      solveContinuous(state, simIndex);
+    }
+    // Enlarge broad-phase proxies for bullet shapes that moved (physics_world.c:1907-1958).
+    enlargeBulletProxies(state, state.bulletBodies);
+  }
+
   // Sensor overlap pass. Runs AFTER finalizeBodies so shape AABBs are fresh
   // for the current step. Mirrors box2d's b2OverlapSensors call in
   // b2World_Step (physics_world.c), which runs after b2FinalizeBodiesTask.
-  // CCD (hits queue) is M5 — sensors.hits is always empty in v1.
+  // CCD sensor hits queue is a no-op stub (VP-24 deferral — see engine/ccd.ts).
   overlapSensors(state);
 }
 
@@ -220,11 +261,15 @@ function applyPendingImpulses(state: PhysicsState): void {
 
 /** Fold the accumulated delta-pose into each body's centre/rotation, derive the
  * origin transform, reset the per-step deltas and applied force, record a move
- * event, run the sleep accumulation block, and refit shape AABBs / proxies.
+ * event, run the sleep accumulation + CCD fast/bullet detection block, and
+ * refit shape AABBs / proxies.
  *
- * Mirrors the body-write + shape-AABB half of `b2FinalizeBodiesTask`
- * (solver.c:544-736) including the sleep block (solver.c:556-684). CCD /
- * isFast (solver.c:688-728) is still skipped (VP-24).
+ * Mirrors `b2FinalizeBodiesTask` (solver.c:544-736) including the sleep block
+ * (solver.c:556-684) and the CCD isFast/bullet block (solver.c:633-657).
+ * The shape-AABB refit (solver.c:686-732) honours the IS_FAST flag: fast bodies
+ * already had their AABBs updated by `solveContinuous` (or will be by the bullet
+ * stage) and are added directly to the enlarged-sim set; non-fast bodies go
+ * through the normal `refitBodyShapeProxies` path.
  *
  * Returns a `Set<number>` of island local-indices in the awake set that are
  * "still awake" (at least one body's sleepTime < B2_TIME_TO_SLEEP). The sleep
@@ -285,28 +330,57 @@ function finalizeBodies(state: PhysicsState, _ctx: StepContext, dt: number): Set
     sim.torque = 0;
 
     // ── Clear transient body flags (solver.c:622-626) ─────────────────────
-    st.flags &= ~IS_SPEED_CAPPED;
+    // body->flags &= ~b2_bodyTransientFlags (covers IS_FAST, IS_SPEED_CAPPED,
+    // HAD_TIME_OF_IMPACT). sim->flags and state->flags are cleared identically.
+    // Note: IS_SPEED_CAPPED was the only flag cleared before VP-24; the full
+    // BODY_TRANSIENT_FLAGS mask now also clears IS_FAST and HAD_TIME_OF_IMPACT.
+    sim.flags &= ~BODY_TRANSIENT_FLAGS;
+    st.flags &= ~BODY_TRANSIENT_FLAGS;
 
-    // ── Sleep accumulation block (solver.c:628-684) ───────────────────────
+    // ── Sleep accumulation block + CCD detection (solver.c:628-684) ────────
     // Mirrors: `if (enableSleep == false || !(body->flags & b2_enableSleep) ||
     //              sleepVelocity > body->sleepThreshold)`
     const body = state.bodies.get(sim.bodyId);
     if (!enableSleep || !(body.flags & ENABLE_SLEEP) || sleepVelocity > body.sleepThreshold) {
-      // Body is NOT sleepy: reset its sleep timer.
-      // solver.c:630: `body->sleepTime = 0.0f`
+      // Body is NOT sleepy: reset its sleep timer (solver.c:631).
       body.sleepTime = 0;
 
-      // No CCD: body is safe to advance (solver.c:654-657).
-      sim.center0X = sim.centerX;
-      sim.center0Y = sim.centerY;
-      sim.rotation0Cos = q.c;
-      sim.rotation0Sin = q.s;
+      // ── CCD fast/bullet detection (solver.c:633-657) ───────────────────
+      // maxMotion = max(maxDeltaPosition, |v| * dt) (solver.c:634)
+      const safetyFactor = 0.5;
+      const maxMotion = Math.max(maxDeltaPosition, maxVelocity * dt);
+      if (
+        body.type === DYNAMIC_BODY &&
+        state.enableContinuous &&
+        maxMotion > safetyFactor * sim.minExtent
+      ) {
+        // This flag is only retained for debug draw (solver.c:638).
+        sim.flags |= IS_FAST;
+
+        if (sim.flags & IS_BULLET) {
+          // Collect for the post-solve bullet stage (solver.c:642-645).
+          state.bulletBodies.push(i);
+        } else {
+          // Inline TOI vs the static tree (solver.c:649).
+          solveContinuous(state, i);
+          // Enlarge proxies for non-bullet fast bodies immediately. This
+          // mirrors b2Solve's refit-BVH pass (which runs after finalize for
+          // non-bullet fast bodies, solver.c:1801+). We do it inline here
+          // because vecs-physics has no separate refit task.
+          enlargeBulletProxies(state, [i]);
+        }
+      } else {
+        // Body is safe to advance — advance sweep baseline (solver.c:654-657).
+        sim.center0X = sim.centerX;
+        sim.center0Y = sim.centerY;
+        sim.rotation0Cos = q.c;
+        sim.rotation0Sin = q.s;
+      }
     } else {
       // Body IS sleepy: accumulate sleep time (solver.c:663-664).
-      // `body->sleepTime += timeStep`
       body.sleepTime += dt;
 
-      // Body is safe to advance (no CCD path).
+      // Body is safe to advance (no CCD when sleepy, solver.c:661-664).
       sim.center0X = sim.centerX;
       sim.center0Y = sim.centerY;
       sim.rotation0Cos = q.c;
@@ -336,8 +410,18 @@ function finalizeBodies(state: PhysicsState, _ctx: StepContext, dt: number): Set
     state.bodyMoveEvents.push(sim.bodyId);
 
     // ── Refit shape AABBs and broad-phase proxies (solver.c:686-732) ──────
-    // The isFast (CCD) branch is skipped (VP-24).
-    refitBodyShapeProxies(state.shapes, state.broadPhase, body, sim, "enlarge");
+    // For fast bodies (isFast = sim.flags & b2_isFast), the AABBs and proxies
+    // were already handled:
+    //   - Non-bullet fast body: solveContinuous + enlargeBulletProxies ran above.
+    //   - Bullet body: will run in the post-solve bullet stage in engineStep.
+    // Fast bodies skip the normal refitBodyShapeProxies call. Mirrors
+    // solver.c:694-701 ("For fast non-bullet bodies the AABB has already been
+    // updated in b2SolveContinuous. For fast bullet bodies the AABB will be
+    // updated at a later stage. Add to enlarged shapes regardless of AABB changes.")
+    if (!(sim.flags & IS_FAST)) {
+      // Normal (slow/sleeping) body: refit via the standard path (solver.c:703-728).
+      refitBodyShapeProxies(state.shapes, state.broadPhase, body, sim, "enlarge");
+    }
   }
 
   return awakeIslandBitSet;

@@ -30,6 +30,7 @@ import {
   DYNAMIC_BODY,
   DYNAMIC_FLAG,
   ENABLE_SLEEP,
+  IS_BULLET,
   KINEMATIC_BODY,
   LOCK_ANGULAR_Z,
   LOCK_LINEAR_X,
@@ -259,7 +260,12 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     // that point), so we patch both objects directly.
     const lockBits = _motionLockBits(e);
     const fastRot = body.allowFastRotation ? ALLOW_FAST_ROTATION : 0;
-    const extraFlags = lockBits | fastRot;
+    // IS_BULLET (VP-24): marks a body for full CCD against all body types.
+    // Mirrors b2CreateBody reading b2BodyDef.isBullet (body.c). The flag is set
+    // on sim.flags so finalizeBodies can detect it and push the body onto
+    // state.bulletBodies for the post-solve bullet stage.
+    const bulletFlag = body.bullet ? IS_BULLET : 0;
+    const extraFlags = lockBits | fastRot | bulletFlag;
     if (extraFlags !== 0) {
       sim.flags |= extraFlags;
       if (setIndex === AWAKE_SET) {
@@ -314,15 +320,21 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     const newType = bodyTypeToNumber(body.type);
     const typeChanged = newType !== record.type;
 
-    // If only allowFastRotation changed (type and enabled unchanged), just update
-    // that flag bit and return early — no solver-set transfer needed.
+    // If only allowFastRotation or bullet changed (type and enabled unchanged),
+    // just update those flag bits and return early — no solver-set transfer needed.
     if (!typeChanged && targetSetIndex === record.setIndex) {
       const fastRotFlag = body.allowFastRotation ? ALLOW_FAST_ROTATION : 0;
+      const bulletFlag = body.bullet ? IS_BULLET : 0;
       const simOnly = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
       if (fastRotFlag) {
         simOnly.flags |= ALLOW_FAST_ROTATION;
       } else {
         simOnly.flags &= ~ALLOW_FAST_ROTATION;
+      }
+      if (bulletFlag) {
+        simOnly.flags |= IS_BULLET;
+      } else {
+        simOnly.flags &= ~IS_BULLET;
       }
       if (record.setIndex === AWAKE_SET) {
         const stateOnly = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
@@ -332,6 +344,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
           } else {
             stateOnly.flags &= ~ALLOW_FAST_ROTATION;
           }
+          // IS_BULLET does not live on bodyState (finalizeBodies reads from sim.flags).
         }
       }
       return;
@@ -443,24 +456,31 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
       }
     }
 
-    // ── Stage 12: allowFastRotation flag on Body update ───────────────────────
-    // Body.allowFastRotation may change without a type/enabled change. Update
-    // ALLOW_FAST_ROTATION on both sim and state, preserving the lock bits.
-    const fastRotFlag = body.allowFastRotation ? ALLOW_FAST_ROTATION : 0;
+    // ── Stage 12: allowFastRotation + bullet flags on Body update ────────────
+    // Body.allowFastRotation and Body.bullet may change without a type/enabled
+    // change. Update ALLOW_FAST_ROTATION and IS_BULLET on sim, preserving other bits.
+    const fastRotFlagAfter = body.allowFastRotation ? ALLOW_FAST_ROTATION : 0;
+    const bulletFlagAfter = body.bullet ? IS_BULLET : 0;
     const currentSimAfter = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
-    if (fastRotFlag) {
+    if (fastRotFlagAfter) {
       currentSimAfter.flags |= ALLOW_FAST_ROTATION;
     } else {
       currentSimAfter.flags &= ~ALLOW_FAST_ROTATION;
     }
+    if (bulletFlagAfter) {
+      currentSimAfter.flags |= IS_BULLET;
+    } else {
+      currentSimAfter.flags &= ~IS_BULLET;
+    }
     if (record.setIndex === AWAKE_SET) {
       const stateAfter = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
       if (stateAfter !== undefined) {
-        if (fastRotFlag) {
+        if (fastRotFlagAfter) {
           stateAfter.flags |= ALLOW_FAST_ROTATION;
         } else {
           stateAfter.flags &= ~ALLOW_FAST_ROTATION;
         }
+        // IS_BULLET is read from sim.flags by finalizeBodies; no need on bodyState.
       }
     }
   });
