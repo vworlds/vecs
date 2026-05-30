@@ -554,6 +554,46 @@ export function destroyBodyContactsForShape(
   }
 }
 
+/**
+ * Recompute `CONTACT_ENABLE_CONTACT_EVENTS` on every existing contact on
+ * `bodyId` that references `shapeIndex`. Unlike `SIM_ENABLE_HIT_EVENT` (which
+ * `updateContact` refreshes every step from the shapes' `enableHitEvents`),
+ * the contact-events flag lives on the persistent `InternalContact` and is only
+ * set at `createContact` time — so a runtime toggle of a shape's
+ * `enableContactEvents` must walk its contacts and update them, mirroring
+ * box2d's `b2Shape_EnableContactEvents` (shape.c), which sets/clears the flag
+ * on each contact in the shape's contact list. The flag is the OR of both
+ * shapes' `enableContactEvents`.
+ */
+export function refreshShapeContactEventFlag(
+  state: PhysicsState,
+  bodyId: number,
+  shapeIndex: number
+): void {
+  const body = state.bodies.get(bodyId);
+  let key = body.headContactKey;
+  while (key !== NULL_INDEX) {
+    const contactId = key >> 1;
+    const edgeIndex = key & 1;
+    const contact = state.contacts.records[contactId];
+    if (contact === undefined) {
+      break;
+    }
+    key = contact.edges[edgeIndex]!.nextKey;
+    if (contact.shapeIdA === shapeIndex || contact.shapeIdB === shapeIndex) {
+      const shapeA = state.shapes.records[contact.shapeIdA];
+      const shapeB = state.shapes.records[contact.shapeIdB];
+      const enabled =
+        (shapeA?.enableContactEvents ?? false) || (shapeB?.enableContactEvents ?? false);
+      if (enabled) {
+        contact.flags |= CONTACT_ENABLE_CONTACT_EVENTS;
+      } else {
+        contact.flags &= ~CONTACT_ENABLE_CONTACT_EVENTS;
+      }
+    }
+  }
+}
+
 // ─── updateContact (b2UpdateContact narrow-phase refresh) ─────────────────────
 
 /** The radius used by the rolling-resistance rule. Mirrors `b2GetShapeRadius`

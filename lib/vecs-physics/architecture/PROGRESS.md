@@ -1582,3 +1582,9 @@ commits (`eb54a3e`, `df4b3a7`, `edda709`, `476fba2`, `88ed235`).
   **sleep (M5)** wires sleeping sets.
 - **Fat-AABB hysteresis** (M3 review) — **M5 performance pass.**
 - **Contact recycling, CCD/`isFast`, sleep, island split** — **M5.**
+- **Dynamic `Sensor` MARKER toggle** (solid ↔ sensor at runtime) — **M5.** Needs
+  contact teardown + `SensorStorage` create/destroy + mass/proxy invariants. Shape
+  recreation (remove + re-add geometry) is the supported workaround until then.
+  (Re-surfaced and re-tracked in the M4 architecture-review pass — the event-opt-in
+  half of that same gap, runtime `ContactEvents`/`HitEvents`/`SensorEvents` add/remove,
+  IS now handled by `PhysicsEventOptInSync`; only the marker toggle remains deferred.)

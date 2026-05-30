@@ -1,0 +1,169 @@
+// Runtime event opt-in sync (PhysicsEventOptInSync).
+//
+// Regression for: ContactEvents / HitEvents / SensorEvents added to or removed
+// from a shape AFTER it entered the engine were silently ignored — the engine
+// opt-in flags were latched once in PhysicsShapeLifecycle.enter. These tests
+// drive the documented "add an event component when you want events" contract
+// at runtime, not just at shape creation.
+
+import { ChildOf, World } from "@vworlds/vecs";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import {
+  Body,
+  BodyType,
+  Box,
+  Circle,
+  ContactEvents,
+  GravityScale,
+  HitEvents,
+  installPhysics,
+  Position,
+  Sensor,
+  SensorEvents,
+} from "../../src/index.js";
+import { CONTACT_ENABLE_CONTACT_EVENTS } from "../../src/engine/contact.js";
+import { getPhysics, PhysicsState } from "../../src/engine/state.js";
+
+const STEP_MS = 1000 / 60;
+
+let world: World;
+let state: PhysicsState;
+let now: number;
+
+beforeEach(() => {
+  world = new World();
+  installPhysics(world, { gravity: { x: 0, y: 0 } });
+  world.start();
+  state = getPhysics(world);
+  now = 0;
+});
+
+function step(n = 1): void {
+  for (let i = 0; i < n; i++) {
+    now += STEP_MS;
+    world.progress(now, STEP_MS);
+  }
+}
+
+/** A dynamic 2×2 box body+shape at (x, y). Returns the body and shape entities. */
+function makeBox(x: number, y: number) {
+  const body = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x, y });
+  const shapeEnt = world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+  return { body, shapeEnt };
+}
+
+/** The InternalShape backing a single-shape entity. */
+function internalShape(eid: number) {
+  const handle = state.shapeByEntity.get(eid);
+  if (handle === undefined) {
+    throw new Error("shape not in engine");
+  }
+  return state.shapes.records[handle.index]!;
+}
+
+// ─── ContactEvents ────────────────────────────────────────────────────────────
+
+describe("runtime ContactEvents opt-in", () => {
+  it("delivers a begin event after ContactEvents is added to an existing shape", () => {
+    // Two boxes far apart, neither opted in. After they enter the engine, add
+    // ContactEvents to one, then teleport them together so a NEW contact forms.
+    const a = makeBox(-3, 0);
+    const b = makeBox(3, 0);
+    step(1);
+
+    a.shapeEnt.add(ContactEvents); // runtime opt-in
+
+    // Bring them into overlap (2×2 boxes, centres 1 apart → overlap by 1).
+    a.body.set(Position, { x: -0.5, y: 0 });
+    b.body.set(Position, { x: 0.5, y: 0 });
+    step(1);
+
+    const events = a.shapeEnt.get(ContactEvents)!;
+    expect(events.begin.length).toBe(1);
+    expect(events.begin[0]!.other.eid).toBe(b.shapeEnt.eid);
+  });
+
+  it("clears the engine flag and existing contact flag when ContactEvents is removed", () => {
+    // Overlapping boxes, one opted in at creation.
+    const a = makeBox(-0.5, 0);
+    const b = makeBox(0.5, 0);
+    a.shapeEnt.set(ContactEvents, {});
+    step(1);
+
+    // Sanity: opted in and the live contact carries the flag.
+    expect(internalShape(a.shapeEnt.eid).enableContactEvents).toBe(true);
+    const beforeFlagged = state.contacts.records.some(
+      (c) => c !== undefined && (c.flags & CONTACT_ENABLE_CONTACT_EVENTS) !== 0
+    );
+    expect(beforeFlagged).toBe(true);
+
+    a.shapeEnt.remove(ContactEvents); // runtime opt-out
+    step(1);
+
+    expect(internalShape(a.shapeEnt.eid).enableContactEvents).toBe(false);
+    const afterFlagged = state.contacts.records.some(
+      (c) => c !== undefined && (c.flags & CONTACT_ENABLE_CONTACT_EVENTS) !== 0
+    );
+    expect(afterFlagged).toBe(false);
+    void b;
+  });
+});
+
+// ─── HitEvents ──────────────────────────────────────────────────────────────
+
+describe("runtime HitEvents opt-in", () => {
+  it("flips the engine enableHitEvents flag when HitEvents is added then removed", () => {
+    const a = makeBox(0, 0);
+    step(1);
+    expect(internalShape(a.shapeEnt.eid).enableHitEvents).toBe(false);
+
+    a.shapeEnt.add(HitEvents);
+    step(1);
+    expect(internalShape(a.shapeEnt.eid).enableHitEvents).toBe(true);
+
+    a.shapeEnt.remove(HitEvents);
+    step(1);
+    expect(internalShape(a.shapeEnt.eid).enableHitEvents).toBe(false);
+  });
+});
+
+// ─── SensorEvents (the originally-filed visitor case) ─────────────────────────
+
+describe("runtime SensorEvents opt-in", () => {
+  it("a sensor begins detecting a visitor once the visitor adds SensorEvents", () => {
+    // Sensor shape on a static body; a solid visitor overlapping it. The visitor
+    // is NOT opted in at creation, so box2d's detection rule rejects it.
+    const sensorBody = world
+      .entity()
+      .set(Body, { type: BodyType.Static })
+      .set(Position, { x: 0, y: 0 });
+    const sensorShape = world
+      .entity()
+      .set(ChildOf, { target: sensorBody })
+      .set(Box, { hx: 1, hy: 1 })
+      .add(Sensor)
+      .add(SensorEvents);
+
+    const visitorBody = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 0, y: 0 })
+      .add(GravityScale); // 0 scale → stays overlapping
+    const visitorShape = world
+      .entity()
+      .set(ChildOf, { target: visitorBody })
+      .set(Circle, { radius: 0.4 });
+
+    step(1);
+    // Visitor not opted in → no detection.
+    expect(sensorShape.get(SensorEvents)!.begin.length).toBe(0);
+
+    visitorShape.add(SensorEvents); // runtime opt-in on the visitor
+    step(1);
+
+    const events = sensorShape.get(SensorEvents)!;
+    expect(events.begin.length).toBe(1);
+    expect(events.begin[0]!.other.eid).toBe(visitorShape.eid);
+  });
+});

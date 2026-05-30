@@ -8,12 +8,13 @@
 //   1. PhysicsBodyLifecycle      — body must exist before any shape is inserted
 //   2. PhysicsShapeLifecycle     — creates/destroys shape records + broad-phase proxies
 //   3. PhysicsMaterialFilterSync — propagates Material/Filter/Sensor updates
-//   4. PhysicsShapePoseSync      — propagates ShapePosition/ShapeRotation updates
-//   5. PhysicsPoseSyncIn         — syncs Position/Rotation/Velocity into body sims
-//   6. PhysicsKinematicTargets   — sets target-convergence velocity on kinematic bodies (VP-20)
-//   7. PhysicsForceGather        — accumulates Force/Torque into BodySim each step (VP-19)
-//   8. PhysicsImpulseAccumulate  — drains Impulse/AngularImpulse into pendingImpulses (VP-19)
-//   9. PhysicsMassRecompute      — recomputes mass for dirty bodies (last pre-step)
+//   4. PhysicsEventOptInSync     — runtime ContactEvents/HitEvents/SensorEvents add/remove (hooks)
+//   5. PhysicsShapePoseSync      — propagates ShapePosition/ShapeRotation updates
+//   6. PhysicsPoseSyncIn         — syncs Position/Rotation/Velocity into body sims
+//   7. PhysicsKinematicTargets   — sets target-convergence velocity on kinematic bodies (VP-20)
+//   8. PhysicsForceGather        — accumulates Force/Torque into BodySim each step (VP-19)
+//   9. PhysicsImpulseAccumulate  — drains Impulse/AngularImpulse into pendingImpulses (VP-19)
+//  10. PhysicsMassRecompute      — recomputes mass for dirty bodies (last pre-step)
 //
 // Physics-post phase order:
 //   1. PhysicsPoseSyncOut  — write simulated pose back to ECS
@@ -23,6 +24,7 @@
 import { type IPhase, type World } from "@vworlds/vecs";
 
 import { PhysicsSystemTag, type PhysicsState } from "../engine/state.js";
+import { installEventOptInSync } from "./event_opt_in_sync.js";
 import { installEvents } from "./events.js";
 import { installForceGather } from "./forces.js";
 import { installImpulseAccumulate } from "./impulse_accumulate.js";
@@ -56,6 +58,9 @@ export function installPhysicsSystems(
     installBodyLifecycle(world, state, phases.preStep),
     installShapeLifecycle(world, state, phases.preStep),
     installMaterialFilterSync(world, state, phases.preStep),
+    // physics-pre: keep event opt-in flags in sync when ContactEvents/HitEvents/
+    // SensorEvents are added/removed on a shape after creation (hook-based).
+    installEventOptInSync(world, state, phases.preStep),
     installShapePoseSync(world, state, phases.preStep),
     installPoseSyncIn(world, state, phases.preStep),
     // physics-pre: kinematic target drive after PoseSyncIn, before ForceGather (VP-20).

@@ -111,10 +111,17 @@ export function installMaterialFilterSync(
 
   // NOTE: Sensor is an add/remove component (no data), not an update. The
   // sensor flag is set at shape creation by PhysicsShapeLifecycle (reading
-  // `e.get(Sensor) !== undefined`). Dynamic isSensor changes are deferred to
-  // M3: box2d forbids them without destroying active contacts first (which
-  // requires the contact graph). Shape recreation (remove + add geometry) is
-  // the safe way to change sensor status before M3.
+  // `e.get(Sensor) !== undefined`). Dynamic `Sensor` MARKER toggles
+  // (solid <-> sensor) remain deferred to M5: box2d forbids them without
+  // destroying active contacts AND creating/destroying the SensorStorage record
+  // and preserving mass/proxy invariants. Shape recreation (remove + re-add
+  // geometry) is the supported way to change sensor status until then.
+  // (Tracked in PROGRESS.md -> Carried into M5.)
+  //
+  // The event-opt-in components (ContactEvents/HitEvents/SensorEvents) ARE now
+  // synced at runtime by `PhysicsEventOptInSync` (event_opt_in_sync.ts) via
+  // add/remove hooks — that is a separate, lighter concern (just engine flags,
+  // no structural changes) and does not live here.
 
   return system;
 }
