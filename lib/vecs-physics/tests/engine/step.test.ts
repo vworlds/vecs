@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { installPhysics } from "../../src/index.js";
 import {
   DYNAMIC_BODY,
+  HAD_TIME_OF_IMPACT,
+  IS_SPEED_CAPPED,
   KINEMATIC_BODY,
   type BodySim,
   type BodyState,
@@ -142,5 +144,60 @@ describe("engineStep move events", () => {
 
     expect(bodyState.vy).toBe(0); // invMass 0 → no gravity
     expect(state.bodyMoveEvents).toHaveLength(1);
+  });
+});
+
+describe("finalizeBodies flag propagation (M5 regression)", () => {
+  // box2d solver.c:622-626 — body->flags receives IS_SPEED_CAPPED |
+  // HAD_TIME_OF_IMPACT from sim->flags / state->flags before those fields are
+  // cleared. Without this, debug-draw consumers reading body.flags see no events.
+
+  it("propagates IS_SPEED_CAPPED from bodyState.flags to body.flags after a step", () => {
+    const { sim, bodyState } = addDynamic();
+    // Seed the per-substep working flag as the solver would (solver.ts:710,717).
+    bodyState.flags |= IS_SPEED_CAPPED;
+
+    engineStep(state, DT, SUB_STEPS);
+
+    // The flag must be on InternalBody.flags (retained for debug draw).
+    const body = state.bodies.records[sim.bodyId]!;
+    expect(body.flags & IS_SPEED_CAPPED).toBeTruthy();
+
+    // The working copy on bodyState must be cleared.
+    expect(bodyState.flags & IS_SPEED_CAPPED).toBe(0);
+  });
+
+  it("propagates IS_SPEED_CAPPED from sim.flags to body.flags after a step", () => {
+    const { sim, bodyState } = addDynamic();
+    sim.flags |= IS_SPEED_CAPPED;
+
+    engineStep(state, DT, SUB_STEPS);
+
+    const body = state.bodies.records[sim.bodyId]!;
+    expect(body.flags & IS_SPEED_CAPPED).toBeTruthy();
+    expect(sim.flags & IS_SPEED_CAPPED).toBe(0);
+  });
+
+  it("propagates HAD_TIME_OF_IMPACT from sim.flags to body.flags after a step", () => {
+    const { sim } = addDynamic();
+    sim.flags |= HAD_TIME_OF_IMPACT;
+
+    engineStep(state, DT, SUB_STEPS);
+
+    const body = state.bodies.records[sim.bodyId]!;
+    expect(body.flags & HAD_TIME_OF_IMPACT).toBeTruthy();
+    expect(sim.flags & HAD_TIME_OF_IMPACT).toBe(0);
+  });
+
+  it("clears stale IS_SPEED_CAPPED on body.flags when not set this step", () => {
+    const { sim } = addDynamic();
+    // Pre-seed body.flags as if from a previous step.
+    const body = state.bodies.records[sim.bodyId]!;
+    body.flags |= IS_SPEED_CAPPED;
+
+    // No speed-cap this step.
+    engineStep(state, DT, SUB_STEPS);
+
+    expect(body.flags & IS_SPEED_CAPPED).toBe(0);
   });
 });

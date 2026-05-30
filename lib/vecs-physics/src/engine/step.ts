@@ -46,6 +46,7 @@ import {
   DYNAMIC_BODY,
   ENABLE_SLEEP,
   ENLARGE_BOUNDS,
+  HAD_TIME_OF_IMPACT,
   IS_BULLET,
   IS_FAST,
   IS_SPEED_CAPPED,
@@ -332,17 +333,25 @@ function finalizeBodies(state: PhysicsState, _ctx: StepContext, dt: number): Set
     sim.torque = 0;
 
     // ── Clear transient body flags (solver.c:622-626) ─────────────────────
-    // body->flags &= ~b2_bodyTransientFlags (covers IS_FAST, IS_SPEED_CAPPED,
-    // HAD_TIME_OF_IMPACT). sim->flags and state->flags are cleared identically.
-    // Note: IS_SPEED_CAPPED was the only flag cleared before VP-24; the full
-    // BODY_TRANSIENT_FLAGS mask now also clears IS_FAST and HAD_TIME_OF_IMPACT.
+    // Mirrors box2d exactly:
+    //   body->flags &= ~b2_bodyTransientFlags;
+    //   body->flags |= ( sim->flags  & ( b2_isSpeedCapped | b2_hadTimeOfImpact ) );
+    //   body->flags |= ( state->flags & ( b2_isSpeedCapped | b2_hadTimeOfImpact ) );
+    //   sim->flags   &= ~b2_bodyTransientFlags;
+    //   state->flags &= ~b2_bodyTransientFlags;
+    // IS_FAST is intentionally NOT propagated to body.flags — box2d sets it on
+    // sim->flags after this block (solver.c:638) purely for the refit branch and
+    // does not carry it to body->flags here.
+    const body = state.bodies.get(sim.bodyId);
+    body.flags &= ~BODY_TRANSIENT_FLAGS;
+    body.flags |= sim.flags & (IS_SPEED_CAPPED | HAD_TIME_OF_IMPACT);
+    body.flags |= st.flags & (IS_SPEED_CAPPED | HAD_TIME_OF_IMPACT);
     sim.flags &= ~BODY_TRANSIENT_FLAGS;
     st.flags &= ~BODY_TRANSIENT_FLAGS;
 
     // ── Sleep accumulation block + CCD detection (solver.c:628-684) ────────
     // Mirrors: `if (enableSleep == false || !(body->flags & b2_enableSleep) ||
     //              sleepVelocity > body->sleepThreshold)`
-    const body = state.bodies.get(sim.bodyId);
     if (!enableSleep || !(body.flags & ENABLE_SLEEP) || sleepVelocity > body.sleepThreshold) {
       // Body is NOT sleepy: reset its sleep timer (solver.c:631).
       body.sleepTime = 0;

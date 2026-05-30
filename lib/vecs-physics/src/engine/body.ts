@@ -35,9 +35,12 @@ export const LOCK_LINEAR_X = 0x0001;
 export const LOCK_LINEAR_Y = 0x0002;
 export const LOCK_ANGULAR_Z = 0x0004;
 
-/** Retained for debug draw: marks a body that triggered CCD this step.
- * Mirrors `b2_isFast = 0x00000008` (body.h:26). Transient — cleared at the
- * top of finalize via {@link BODY_TRANSIENT_FLAGS}. */
+/** Transient: marks a body that triggered CCD this step. Set on sim.flags
+ * after the transient-flag clear block in finalizeBodies (solver.c:638) and
+ * consumed within the same iteration by the refit branch. NOT propagated to
+ * InternalBody.flags — box2d only carries IS_SPEED_CAPPED | HAD_TIME_OF_IMPACT
+ * to body->flags (solver.c:623-624). Mirrors `b2_isFast = 0x00000008` (body.h:26).
+ * Cleared at the top of the next finalize via {@link BODY_TRANSIENT_FLAGS}. */
 export const IS_FAST = 0x0008;
 
 /** This dynamic body does a final CCD pass against all body types (not
@@ -45,6 +48,10 @@ export const IS_FAST = 0x0008;
  * Mirrors `b2_isBullet = 0x00000010` (body.h:29). */
 export const IS_BULLET = 0x0010;
 
+/** Body had its velocity capped by the max-translation / max-rotation limit
+ * this step. Retained on InternalBody.flags for debug draw (solver.c:623-624).
+ * Mirrors `b2_isSpeedCapped = 0x00000020` (body.h:32). Transient —
+ * cleared via {@link BODY_TRANSIENT_FLAGS}. */
 export const IS_SPEED_CAPPED = 0x0020;
 
 /** Body had a time-of-impact event this step. Retained for debug draw.
