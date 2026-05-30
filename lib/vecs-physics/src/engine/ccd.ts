@@ -62,9 +62,8 @@ const LINEAR_SLOP = 0.005;
 interface ContinuousContext {
   state: PhysicsState;
   fastBodySim: BodySim;
-  /** Index of fastShape in ShapeStorage (for same-shape skip). */
-  fastShapeIndex: number;
-  /** The shape currently being swept (changes per shape in solveContinuous). */
+  /** The shape currently being swept (changes per shape in solveContinuous).
+   * Same-shape skip uses `fastShape.shapeIndex` (VP-26 cached field). */
   fastShape: InternalShape;
   /** Fast shape's centroid at start of sweep (world space). */
   centroid1: { x: number; y: number };
@@ -99,8 +98,9 @@ function _continuousQueryCallback(
   shapeIndex: number,
   ctx: ContinuousContext
 ): boolean {
-  // Skip same shape (solver.c:193-196).
-  if (shapeIndex === ctx.fastShapeIndex) {
+  // Skip same shape (solver.c:193-196). Uses the cached shapeIndex field on
+  // InternalShape (VP-26) so no O(n) scan is needed — direct field read.
+  if (shapeIndex === ctx.fastShape.shapeIndex) {
     return true;
   }
 
@@ -306,7 +306,6 @@ export function solveContinuous(state: PhysicsState, bodySimIndex: number): void
   const ctx: ContinuousContext = {
     state,
     fastBodySim,
-    fastShapeIndex: -1, // set per-shape below
     fastShape: undefined as unknown as InternalShape, // set per-shape below
     centroid1: { x: 0, y: 0 },
     centroid2: { x: 0, y: 0 },
@@ -320,7 +319,8 @@ export function solveContinuous(state: PhysicsState, bodySimIndex: number): void
     const fastShape = state.shapes.get(shapeIndex);
 
     ctx.fastShape = fastShape;
-    ctx.fastShapeIndex = shapeIndex;
+    // fastShape.shapeIndex (VP-26 cached field) is used by _continuousQueryCallback
+    // for the same-shape skip — no need to carry it separately in ctx.
     shapeIndex = fastShape.nextShape;
 
     // Shape's local transform → world space at start/end of sweep.

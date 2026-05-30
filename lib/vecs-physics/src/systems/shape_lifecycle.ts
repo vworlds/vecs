@@ -214,6 +214,9 @@ function newShape(
     // CCD fields (VP-24): aabbMargin pre-computed once; enlargedAABB is transient.
     aabbMargin: computeShapeMargin(geometry),
     enlargedAABB: false,
+    // VP-26: set by createShape() immediately after newShape() returns.
+    // NULL_INDEX sentinel until then; no consumer reads it before createShape.
+    shapeIndex: NULL_INDEX,
   };
 }
 

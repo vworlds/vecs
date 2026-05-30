@@ -398,6 +398,16 @@ export interface InternalShape {
    * and its broad-phase proxy must be grown in the bullet-proxy-enlarge loop.
    * Mirrors `b2Shape.enlargedAABB` (shape.h). Cleared by the enlarge loop. */
   enlargedAABB: boolean;
+
+  // ── Cached storage index (VP-26) ──────────────────────────────────────────
+  /** This shape's slot index in {@link ShapeStorage.records}. Equals the
+   * {@link ShapeHandle}'s `index` field. Cached here so any code that holds
+   * only an {@link InternalShape} reference can locate the slot without an
+   * O(n) scan. Set by {@link createShape} at allocation time.
+   *
+   * ShapeStorage uses a sparse handle-indexed table (not a dense array), so
+   * there is no swap-remove and this index is stable for the shape's lifetime. */
+  shapeIndex: number;
 }
 
 // ─── ShapeStorage ─────────────────────────────────────────────────────────────
@@ -448,6 +458,9 @@ export function makeCircleShape(radius: number, xf: Transform): InternalShape {
  */
 export function createShape(storage: ShapeStorage, shape: InternalShape): ShapeHandle {
   const handle = storage.idPool.allocate();
+  // Set the cached storage index so any caller holding the shape reference can
+  // locate its slot without a scan. (VP-26 shapeIndex carry from VP-24.)
+  shape.shapeIndex = handle.index;
   storage.records[handle.index] = shape;
   return handle;
 }
@@ -677,5 +690,8 @@ function makeShape(
     // CCD fields (VP-24): aabbMargin pre-computed once; enlargedAABB is transient.
     aabbMargin: computeShapeMargin(geometry),
     enlargedAABB: false,
+    // VP-26: set by createShape() immediately after makeShape() returns.
+    // NULL_INDEX sentinel until then; no consumer should read it before createShape.
+    shapeIndex: NULL_INDEX,
   };
 }

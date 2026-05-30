@@ -90,6 +90,7 @@ function makeInternalShape(
     sensorIndex: -1,
     aabbMargin: 0,
     enlargedAABB: false,
+    shapeIndex: NULL_INDEX, // VP-26: set by createShape(); sentinel in tests
   };
 }
 
