@@ -830,3 +830,106 @@ from box2d's hysteresis, recorded here; the proper fix (hold the fat AABB across
 steps, reset only on escape) is also a perf win and belongs in the M5 performance
 pass. This is a pre-existing `updateShapeAABBs` property (VP-8/VP-11), not
 introduced by M3; VP-18 only reuses it via the shared `refitBodyShapeProxies`.
+
+### MILESTONE 3 — post-review bug-fix pass (architecture issues)
+
+Four architecture-review issues filed under `architecture/issues/` and fixed in
+order. All four committed on the `physics` branch; **485 tests**; gate green
+(typecheck/test/lint/prettier from `lib/vecs-physics/`).
+
+#### ✅ M3-contact-teardown-missing (commit 372e58e)
+
+`engine/contact.ts` gained two exported helpers:
+
+- `destroyBodyContacts(state, bodyId, wakeBodies)` — walks the `headContactKey`
+  linked list and destroys every contact for a body (mirrors
+  `b2DestroyBodyContacts`, body.c). Snapshot `nextKey` before calling
+  `destroyContact` (which swap-removes sims and mutates edge pointers).
+- `destroyBodyContactsForShape(state, bodyId, shapeIndex, wakeBodies)` — same
+  walk, destroys only contacts involving a specific shape index.
+
+`systems/shape_lifecycle.ts` updated:
+
+- `destroyShape` now calls `destroyBodyContactsForShape` before freeing (mirrors
+  `b2DestroyShapeInternal` → `b2DestroyBodyContacts` for the specific shape).
+- `update(ChildOf)` reparent paths (chain and single-shape) destroy contacts
+  before relinking the shape to a different body.
+- `rebuildSingleShape` destroys contacts before mutating geometry (mirrors
+  `b2ResetProxy`).
+
+7 tests in `tests/lifecycle/contact_teardown.test.ts`.
+
+- **Caveat:** `destroyContact` swap-removes `contactSims` and mutates
+  `edges[].prevKey/nextKey`; the walk MUST snapshot `nextKey` before each call.
+
+#### ✅ M3-body-type-enable-bookkeeping (commit 0c461b7)
+
+`systems/lifecycle.ts` `update(Body)` fully ported against `b2Body_SetType` /
+`b2Body_Enable` / `b2Body_Disable` / `b2SyncBodyFlags`:
+
+- **Stage 1:** destroy all contacts (`destroyBodyContacts`) on type/enable change
+  (unless body was already disabled — contacts don't exist for disabled bodies).
+- **Stage 2–4:** disabled-body early paths, proxy teardown, island teardown
+  (`removeBodyFromIsland`).
+- **Stage 5–6:** update `record.type` and DYNAMIC_FLAG on `BodySim.flags`.
+- **Stage 7:** `transferBody` to the target solver set.
+- **Stage 8:** `massDirty` on type change.
+- **Stage 9–10:** proxy management (create proxies on enable, destroy/migrate on
+  disable/type change) and `createIslandForBody` for newly active non-static bodies.
+- **Stage 11:** sync existing `bodyState.flags` for same-set type changes
+  (dynamic↔kinematic both stay in `AWAKE_SET`; `transferBody` doesn't create a
+  new `BodyState` in that case).
+
+`systems/lifecycle.ts` `exit` now calls `destroyBodyContacts` before `destroyBody`
+(mirrors `b2DestroyBody` contact teardown; satisfies the island singleton assert).
+
+13 tests in `tests/lifecycle/body_type_enable_bookkeeping.test.ts`.
+
+#### ✅ M3-live-contact-invalidation-missing (commit ba03ea4)
+
+`systems/material_filter_sync.ts` `update(CollisionFilter)` now calls
+`destroyBodyContactsForShape` **before** updating the filter bits, for both single
+shapes and chain segments. Mirrors `b2Shape_SetFilter → b2ResetProxy`
+(shape.c:1325-1347): all contacts for the shape are destroyed so stale pair keys
+leave `pairSet` and the pair re-evaluates under the new filter next step.
+
+`systems/shape_lifecycle.ts` `rebuildSingleShape` already destroys contacts
+(covered by M3-contact-teardown-missing above), providing the geometry-update path.
+
+4 tests in `tests/lifecycle/live_contact_invalidation.test.ts`.
+
+#### ✅ M3-motion-locks-not-wired (commit 713b206)
+
+`systems/lifecycle.ts` `enter(Body)` now reads `MotionLocks` and
+`Body.allowFastRotation` to seed `LOCK_LINEAR_X | LOCK_LINEAR_Y | LOCK_ANGULAR_Z |
+ALLOW_FAST_ROTATION` into `BodySim.flags` (and `BodyState.flags` when in
+`AWAKE_SET`).
+
+New `update(MotionLocks)` handler syncs lock-bit changes whenever `MotionLocks` is
+modified (second `set`); clears old bits, applies new.
+
+`update(Body)` includes an `allowFastRotation` fast-path: when only that flag
+changes, the ALLOW_FAST_ROTATION bit is updated on sim + state and the handler
+returns early (no contact teardown or set transfer needed).
+
+**Vecs `update` semantics caveat:** `update()` fires on query entry OR modification.
+A watched component _added_ to a body already in the query is NOT seen until the
+next write. Tests reflect this: `MotionLocks` must be present at entity creation
+for `enter` to read it; a subsequent `set` exercises the update handler.
+
+11 tests in `tests/lifecycle/motion_locks.test.ts`.
+
+M3 carried-forward items from this pass now resolved:
+
+- contact teardown on shape removal/type-change ✅
+- contact refilter on `CollisionFilter` change ✅
+- `MotionLocks`/`allowFastRotation` flag seeding ✅
+- `DYNAMIC_FLAG`, `massDirty`, island hooks on body type/enable changes ✅
+
+**Carried forward unchanged (M4/M5):**
+
+- Dynamic `Sensor` toggle (needs contact teardown + contact graph refilter; destroy
+  - recreate shape is the safe path until M4 sensors land).
+- `forcePairCreation` for static shape `invokeContactCreation` (VP-10 deferral).
+- Contact-event publishing (begin/end arrays) — M4 VP-21.
+- Fat-AABB hysteresis fix — M5 performance pass.
