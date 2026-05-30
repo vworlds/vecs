@@ -76,28 +76,12 @@ export function installEvents(world: World, state: PhysicsState, phase: IPhase):
       const touchedContact = new Set<number /* eid */>();
 
       for (const ev of state.contactBeginEvents) {
-        _emitContact(
-          state,
-          world,
-          touchedContact,
-          ev.shapeA,
-          ev.entityEidA,
-          ev.entityEidB,
-          "begin"
-        );
-        _emitContact(
-          state,
-          world,
-          touchedContact,
-          ev.shapeB,
-          ev.entityEidB,
-          ev.entityEidA,
-          "begin"
-        );
+        _emitContact(state, touchedContact, ev.shapeA, ev.entityEidA, ev.entityEidB, "begin");
+        _emitContact(state, touchedContact, ev.shapeB, ev.entityEidB, ev.entityEidA, "begin");
       }
       for (const ev of state.contactEndEvents) {
-        _emitContact(state, world, touchedContact, ev.shapeA, ev.entityEidA, ev.entityEidB, "end");
-        _emitContact(state, world, touchedContact, ev.shapeB, ev.entityEidB, ev.entityEidA, "end");
+        _emitContact(state, touchedContact, ev.shapeA, ev.entityEidA, ev.entityEidB, "end");
+        _emitContact(state, touchedContact, ev.shapeB, ev.entityEidB, ev.entityEidA, "end");
       }
 
       // Notify modified for shapes that received events this step.
@@ -133,7 +117,6 @@ export function installEvents(world: World, state: PhysicsState, phase: IPhase):
       for (const ev of state.sensorBeginEvents) {
         _emitSensor(
           state,
-          world,
           touchedSensor,
           ev.sensorShape,
           ev.sensorEntityEid,
@@ -144,7 +127,6 @@ export function installEvents(world: World, state: PhysicsState, phase: IPhase):
       for (const ev of state.sensorEndEvents) {
         _emitSensor(
           state,
-          world,
           touchedSensor,
           ev.sensorShape,
           ev.sensorEntityEid,
@@ -181,8 +163,8 @@ export function installEvents(world: World, state: PhysicsState, phase: IPhase):
       const touchedHit = new Set<number /* eid */>();
 
       for (const ev of state.contactHitEvents) {
-        _emitHit(state, world, touchedHit, ev.shapeA, ev.entityEidA, ev.entityEidB, ev);
-        _emitHit(state, world, touchedHit, ev.shapeB, ev.entityEidB, ev.entityEidA, ev);
+        _emitHit(state, touchedHit, ev.shapeA, ev.entityEidA, ev.entityEidB, ev);
+        _emitHit(state, touchedHit, ev.shapeB, ev.entityEidB, ev.entityEidA, ev);
       }
 
       for (const eid of touchedHit) {
@@ -246,7 +228,6 @@ export function installEvents(world: World, state: PhysicsState, phase: IPhase):
  * `other: Entity` reference. */
 function _emitContact(
   state: PhysicsState,
-  world: World,
   touched: Set<number>,
   selfHandle: Handle,
   selfEid: number,
@@ -292,7 +273,6 @@ function _emitContact(
  * Only the sensor side receives; the visitor does not. */
 function _emitSensor(
   state: PhysicsState,
-  world: World,
   touched: Set<number>,
   sensorHandle: Handle,
   sensorEid: number,
@@ -333,7 +313,6 @@ function _emitSensor(
  * The A→B normal from `ev` is used for both sides without flipping. */
 function _emitHit(
   state: PhysicsState,
-  world: World,
   touched: Set<number>,
   selfHandle: Handle,
   selfEid: number,
