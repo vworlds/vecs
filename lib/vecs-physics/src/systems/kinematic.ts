@@ -15,17 +15,21 @@
 //
 // Per-body velocity calculation (mirrors b2Body_SetTargetTransform, body.c:831):
 //
-//   Linear (DEVIATION from box2d — see below):
-//     box2d: center2 = transformPoint(target, localCenter); v = (center2 − center1) / dt
+//   Linear (equivalent to box2d for kinematic bodies):
+//     box2d: center2 = b2TransformPoint(target, localCenter); v = (center2 − center1) / dt
+//            (body.c:854-857)
 //     vecs-physics: dx = target.x − sim.transformX; v = dx / dt
 //
-//   DEVIATION: box2d uses the centre of mass for the velocity calculation (body.c:856-863),
-//   so moving the CoM to the target's implied CoM. vecs-physics uses the body ORIGIN
-//   (transformX/transformY), because `KinematicTargetPosition.x/y` is the target ORIGIN
-//   and `Position` = body origin. This is consistent with the public contract
-//   (docs/kinematic-motion.md), which says "target world x position in metres" — the
-//   same space as `Position`. Bodies with a zero local centre (no shapes, or shapes whose
-//   CoM coincides with the origin) are unaffected by the difference.
+//   These are byte-for-byte the same for the ONLY bodies this system drives
+//   (KINEMATIC_BODY): `b2UpdateBodyMassData` zeroes `localCenter` for every
+//   non-dynamic body (body.c:528-533; our mass.ts:424-433), so a kinematic body's
+//   centre of mass always coincides with its origin. With localCenter = (0,0):
+//     center2 = b2TransformPoint(target, 0) = target origin = (target.x, target.y)
+//     center1 = sim.center = sim origin = (sim.transformX, sim.transformY)
+//   so reading the origin directly is identical to box2d's CoM form, and avoids a
+//   needless mass-data round-trip. `KinematicTargetPosition.x/y` is the target ORIGIN
+//   (docs/kinematic-motion.md: same space as `Position`), which is what we converge.
+//   (For a dynamic body localCenter could be non-zero — but those are skipped here.)
 //
 //   Angular (identical to box2d):
 //     deltaAngle = relativeAngle(currentRot, targetRot) [b2RelativeAngle, body.c:866]
@@ -43,8 +47,8 @@
 //
 // Box2D reference lines mirrored:
 //   b2Body_SetTargetTransform (body.c:831-887)
-//     body.c:856: center2 = b2TransformPoint(target, sim->localCenter)
-//     body.c:857: linearVelocity = b2MulSV(invTimeStep, b2Sub(center2, center1)) [ORIGIN DEVIATION]
+//     body.c:856: center2 = b2TransformPoint(target, sim->localCenter)  [localCenter≡0 for kinematic]
+//     body.c:857: linearVelocity = b2MulSV(invTimeStep, b2Sub(center2, center1))
 //     body.c:863: deltaAngle = b2RelativeAngle(q1, q2)      — body.c:863
 //     body.c:864: angularVelocity = invTimeStep * deltaAngle — body.c:864
 //     body.c:885: state->linearVelocity = linearVelocity     — body.c:885
@@ -96,7 +100,7 @@ export function installKinematicTargets(world: World, state: PhysicsState, phase
         if (tpos !== undefined) {
           // Read the authoritative current body-origin position from BodySim
           // (not from the Position component, which may lag behind by one step).
-          const dx = tpos.x - sim.transformX; // b2Sub(center2, center1) [ORIGIN DEVIATION — see header]
+          const dx = tpos.x - sim.transformX; // b2Sub(center2, center1); center≡origin for kinematic (localCenter=0)
           const dy = tpos.y - sim.transformY;
           const dist = Math.hypot(dx, dy);
           if (dist > tpos.tolerance) {

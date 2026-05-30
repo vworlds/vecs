@@ -1136,7 +1136,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 
 **Box2D lines mirrored:**
 - `PhysicsKinematicTargets` ← `b2Body_SetTargetTransform` (body.c:831-887):
-  - `dx = target.x − sim.transformX` [ORIGIN DEVIATION; see below]
+  - `dx = target.x − sim.transformX` (origin form; equivalent to box2d's CoM form — see below)
   - `v = dx * invDt` ← `linearVelocity = b2MulSV(invTimeStep, b2Sub(center2, center1))` [body.c:857]
   - `dAngle = relativeAngle(currentRot, targetRot)` ← `b2RelativeAngle(q1, q2)` [body.c:863]
   - `omega = dAngle * invDt` ← `angularVelocity = invTimeStep * deltaAngle` [body.c:864/886]
@@ -1149,13 +1149,16 @@ superseded. The VP-6 pose_sync test asserting kinematic is NOT written back was
 updated to assert the opposite (renamed, assertion inverted).
 
 **Decisions / deviations:**
-- **Linear velocity targets the body ORIGIN, not the centre of mass (deviation from
-  box2d).** `b2Body_SetTargetTransform` (body.c:856-857) computes `center2 =
-  b2TransformPoint(target, sim->localCenter)` and drives the CoM there; vecs-physics
-  uses `sim.transformX/transformY` (the body origin) because `KinematicTargetPosition`
-  is in the same space as `Position` = body origin. For bodies where `localCenter = 0`
-  (no shapes, or shapes whose CoM is at the origin) the results are identical. Deviation
-  is documented in the `kinematic.ts` file header.
+- **Linear velocity is computed from the body ORIGIN — equivalent to box2d's CoM
+  form, NOT a deviation (architect review correction).** `b2Body_SetTargetTransform`
+  (body.c:854-857) computes `center2 = b2TransformPoint(target, sim->localCenter)` and
+  drives the CoM there. But `b2UpdateBodyMassData` zeroes `localCenter` for every
+  non-dynamic body (body.c:528-533; our `mass.ts:424-433`), so a **kinematic body's CoM
+  always coincides with its origin** (`localCenter ≡ 0`). The only bodies this system
+  drives are kinematic, so `center2 = target origin` and `center1 = sim origin`, making
+  `v = (target − origin)/dt` byte-for-byte box2d's calculation. The origin form just
+  skips a needless mass-data round-trip. (The earlier VP-20 note labelled this a deviation;
+  it is not — corrected here and in the `kinematic.ts` header.)
 - **Angular cap applies:** the solver's `MAX_ROTATION = π/4` cap (per full step) limits
   how far a kinematic body can rotate per step; large angular targets take multiple steps
   to converge. This is not a deviation — it is the same cap that applies to dynamic
