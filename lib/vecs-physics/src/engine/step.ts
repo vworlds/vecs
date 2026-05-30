@@ -18,6 +18,7 @@
 
 import { DYNAMIC_BODY, IS_SPEED_CAPPED } from "./body.js";
 import { collide, makePairCreateCallback } from "./collide.js";
+import { overlapSensors } from "./sensor.js";
 import { refitBodyShapeProxies } from "./shape.js";
 import { makeStepContext, solve, type StepContext } from "./solver.js";
 import { AWAKE_SET, type SolverSet } from "./solver_set.js";
@@ -35,6 +36,12 @@ export function engineStep(state: PhysicsState, dt: number, subSteps: number): v
   // before running b2Collide (physics_world.c).
   state.contactBeginEvents.length = 0;
   state.contactEndEvents.length = 0;
+  // Clear sensor event arrays at step start (VP-21c). These are step-only
+  // generated (overlapSensors runs after finalizeBodies), so clearing here
+  // is safe. VP-21b will consolidate the clear at end-of-publish per the
+  // PROGRESS.md ARCHITECT RESOLUTION — no change needed here then.
+  state.sensorBeginEvents.length = 0;
+  state.sensorEndEvents.length = 0;
 
   if (dt <= 0) {
     return;
@@ -70,6 +77,12 @@ export function engineStep(state: PhysicsState, dt: number, subSteps: number): v
 
   // Fold delta-pose, write transforms, push move events, refit proxies.
   finalizeBodies(state, ctx);
+
+  // Sensor overlap pass. Runs AFTER finalizeBodies so shape AABBs are fresh
+  // for the current step. Mirrors box2d's b2OverlapSensors call in
+  // b2World_Step (physics_world.c), which runs after b2FinalizeBodiesTask.
+  // CCD (hits queue) is M5 — sensors.hits is always empty in v1.
+  overlapSensors(state);
 }
 
 /** Apply accumulated impulses from `state.pendingImpulses` to awake body

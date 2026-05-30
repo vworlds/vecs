@@ -18,6 +18,7 @@ import { BodyStorage } from "./body.js";
 import { BroadPhase } from "./broad_phase.js";
 import { ContactStorage, type ContactSim } from "./contact.js";
 import { IslandStorage } from "./island.js";
+import { SensorStorage } from "./sensor.js";
 import { ShapeStorage } from "./shape.js";
 import { createBaseSolverSets, type SolverSet } from "./solver_set.js";
 
@@ -42,6 +43,20 @@ import { createBaseSolverSets, type SolverSet } from "./solver_set.js";
 export interface ContactTouchEvent {
   shapeA: Handle;
   shapeB: Handle;
+}
+
+/** Raw sensor touch event held in {@link PhysicsState}'s per-step arrays.
+ * Engine-internal only; not exported from the package.
+ * Mirrors box2d's `b2SensorBeginTouchEvent` / `b2SensorEndTouchEvent` (types.h).
+ * `sensorShape` is the sensor shape handle; `visitorShape` is the overlapping
+ * (non-sensor) shape handle. Both use the base {@link Handle} type — the
+ * `ShapeHandle` brand is an API-boundary guard not needed inside the engine.
+ * VP-21b `PhysicsEvents` resolves handles → entities and fans to `SensorEvents`
+ * components; stale handles (shape freed mid-step) are skipped via
+ * `ShapeStorage.idPool.isValid`. */
+export interface SensorTouchEvent {
+  sensorShape: Handle;
+  visitorShape: Handle;
 }
 
 /** Fully-resolved engine configuration: every `PhysicsOptions` field with its
@@ -145,6 +160,41 @@ export class PhysicsState {
   /** Raw contact end-touch events. Cleared at the start of each step.
    * Mirrors box2d's `world->contactEndEvents` (physics_world.c). */
   public readonly contactEndEvents: ContactTouchEvent[] = [];
+
+  // ── VP-21c: sensor overlap records + raw sensor touch events ─────────────
+  //
+  // In box2d v3, sensors do NOT generate contacts — they run a separate overlap
+  // pass (`b2OverlapSensors`, sensor.c) after the solver. This pass is ported in
+  // `engine/sensor.ts` and wired into `engineStep` after `finalizeBodies`.
+  //
+  // `sensors` holds the per-sensor double-buffered visitor lists (one record per
+  // live sensor shape, indexed via `InternalShape.sensorIndex`). Created by
+  // `shape_lifecycle.ts` on sensor-shape enter; destroyed on exit.
+  //
+  // `sensorBeginEvents` / `sensorEndEvents` are cleared at the top of
+  // `engineStep` (step-only generated, consistent with contactBeginEvents).
+  // VP-21b consolidates the clear at end-of-publish (ARCHITECT RESOLUTION in
+  // PROGRESS.md); until then, cleared in engineStep like contactBeginEvents.
+  //
+  // Consumed by: VP-21b `PhysicsEvents` (fans out to `SensorEvents` ECS
+  // components).
+
+  /** Per-sensor double-buffered visitor lists. Mirrors box2d's `world->sensors`
+   * array (sensor.h / sensor.c). Indexed via `InternalShape.sensorIndex`.
+   * `SensorStorage` owns the dense array and provides create/destroy helpers. */
+  public readonly sensors = new SensorStorage();
+
+  /** Raw sensor begin-touch events for the current step. Cleared at step start.
+   * Mirrors box2d's `world->sensorBeginEvents` (physics_world.c). Each entry
+   * records the sensor shape handle and the visitor (overlapping) shape handle.
+   * Consumed by VP-21b `PhysicsEvents`. */
+  public readonly sensorBeginEvents: SensorTouchEvent[] = [];
+
+  /** Raw sensor end-touch events for the current step. Cleared at step start.
+   * Mirrors box2d's `world->sensorEndEvents` (physics_world.c). Populated by
+   * the two-finger merge in `overlapSensors` and by `destroySensor` (when a
+   * sensor shape is removed while still overlapping). Consumed by VP-21b. */
+  public readonly sensorEndEvents: SensorTouchEvent[] = [];
 
   // ── VP-19: impulse accumulation (M4 scoping decision in PROGRESS.md) ────────
   //

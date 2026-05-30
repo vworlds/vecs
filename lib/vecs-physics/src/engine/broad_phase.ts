@@ -335,6 +335,39 @@ export class BroadPhase {
   }
 
   // -------------------------------------------------------------------------
+  // All-tree query (VP-21c sensor pass)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Query all three trees (static, kinematic, dynamic) with the given AABB
+   * and maskBits, invoking `callback(proxyId, shapeIndex)` for every candidate.
+   *
+   * Used by the sensor overlap pass (`engine/sensor.ts`), which must search
+   * all body types because a sensor on a static body should still detect a
+   * dynamic visitor (and vice-versa). The contact broad-phase only queries
+   * selected trees per body type; sensors query everything.
+   *
+   * Mirrors box2d's sensor.c:191-193:
+   *   ```c
+   *   b2DynamicTree_Query(trees + 0, queryBounds, maskBits, cb, ctx);
+   *   b2DynamicTree_Query(trees + 1, queryBounds, maskBits, cb, ctx);
+   *   b2DynamicTree_Query(trees + 2, queryBounds, maskBits, cb, ctx);
+   *   ```
+   *
+   * The `userData` delivered to the callback is the shape index stored in the
+   * tree leaf (matching `BroadPhase.getShapeIndex`).
+   */
+  queryAll(
+    aabb: AABB,
+    maskBits: number,
+    callback: (proxyId: number, shapeIndex: number) => boolean
+  ): void {
+    for (let t = 0; t < 3; t++) {
+      this._trees[t]!.query(aabb, maskBits, callback);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Pair tracking (M3 interface)
   // -------------------------------------------------------------------------
 

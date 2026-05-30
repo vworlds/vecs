@@ -1239,3 +1239,74 @@ flag on `InternalContact` → event emission in collide.ts/contact.ts.
 
 **Tests:** 10 new tests in `tests/events/contact_begin_end.test.ts`. **523 tests total** (was 513).
 Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
+
+#### ✅ VP-21c — engine-side sensor overlap pass (`engine/sensor.ts`)
+
+**Files:**
+- `src/engine/sensor.ts` (NEW) — `VisitorRecord`, `SensorRecord`, `SensorStorage`
+  (create/destroy with swap-remove + sensorIndex fixup), `makeShapeDistanceProxy`,
+  `sensorQueryCallback`, `processSensorTask`, `overlapSensors`, `destroySensor`.
+- `src/engine/state.ts` — added `SensorTouchEvent` interface (sensorShape + visitorShape
+  handles, engine-internal); `sensors: SensorStorage`; `sensorBeginEvents` and
+  `sensorEndEvents` raw arrays with doc-comments.
+- `src/engine/broad_phase.ts` — added `BroadPhase.queryAll(aabb, maskBits, cb)`:
+  queries all three trees (static, kinematic, dynamic) in order. Mirrors box2d
+  sensor.c:191-193 (`b2DynamicTree_Query(trees + 0/1/2, ...)`).
+- `src/engine/step.ts` — clears `sensorBeginEvents.length = 0` /
+  `sensorEndEvents.length = 0` at the TOP of `engineStep`; calls `overlapSensors(state)`
+  AFTER `finalizeBodies` (mirrors `b2OverlapSensors` position in `b2World_Step`).
+- `src/systems/shape_lifecycle.ts` — sensor shapes registered in `SensorStorage`
+  (`shape.sensorIndex = state.sensors.create(handle.index)`) on enter (single + chain);
+  `destroySensor` called before proxy destroy on exit (emits end events for current
+  overlaps). Added `import { destroySensor } from "../engine/sensor.js"`.
+- `tests/events/sensor_begin_end.test.ts` (NEW) — 11 tests.
+
+**box2d lines mirrored:**
+- `VisitorRecord` ← `b2Visitor` (sensor.h); `SensorRecord` ← `b2Sensor` (sensor.h).
+- `processSensorTask` ← `b2SensorTask` (sensor.c:135-237): swap overlaps1↔overlaps2,
+  append hits (CCD, no-op), disabled/!enableSensorEvents early-exit, AABB tree query,
+  sort + dedup overlaps2.
+- `sensorQueryCallback` ← `b2SensorQueryCallback` (sensor.c:44-120): rejection rules
+  in box2d order (self, enableSensorEvents, same-body, collision filter; custom filter
+  skipped — not in v1).
+- `overlapSensors` ← `b2OverlapSensors` (sensor.c:239-370): serial pass (no bitset),
+  two-finger sorted merge of overlaps1 vs overlaps2 for begin/end events.
+- `destroySensor` ← `b2DestroySensor` (sensor.c:372-409): emit end events for
+  overlaps2, swap-remove, patch moved shape's sensorIndex.
+- `makeShapeDistanceProxy` ← `b2MakeShapeDistanceProxy` (shape.c:1024-1045):
+  circle→1pt, capsule→2pt, segment→2pt r=0, polygon→all verts, chainSegment→2pt r=0.
+- Overlap check: `output.distance < 10.0 * FLT_EPSILON` (sensor.c:107).
+- Sensor registration ← `b2CreateShape` sensor block (shape.c:~215-220).
+
+**Opt-in / rejection rules confirmed in box2d (sensor.c:44-120):**
+1. Skip self (`shapeId == sensorShapeId`).
+2. Skip if `otherShape->enableSensorEvents == false` — requires opt-in on BOTH shapes.
+3. Skip same-body (`otherShape->bodyId == sensorShape->bodyId`).
+4. Skip collision-filter mismatch (`!b2ShouldShapesCollide`).
+5. Custom filter: skipped (not in v1).
+6. **No isSensor gate** — two sensors on different bodies detect each other as visitors.
+   Confirmed by test: 2 begin events when two overlapping sensor circles overlap.
+
+**`BroadPhase.queryAll` addition:** queries `_trees[0..2]` in order with the given
+AABB + maskBits. Placed in a new "All-tree query" section before "Pair tracking".
+Minimal — 6 lines of body.
+
+**Deferrals:**
+- `hits` (TOI queue for CCD) — always empty stub; CCD is M5.
+  box2d sensor.c:157-164 merge path is present as a no-op loop.
+- Multi-threading / worker bitsets — collapsed to a serial pass.
+- Custom filter callback — not in v1.
+- **`destroySensor` end-event timing:** the ECS exit path (physics-pre) calls
+  `destroySensor` which pushes to `sensorEndEvents`, but `engineStep` (physics-step)
+  clears the arrays at the TOP, before VP-21b (physics-post) can read them.
+  This is the same double-buffer timing issue documented for VP-21a contact events
+  (PROGRESS.md ARCHITECT RESOLUTION). VP-21b will consolidate the clear at
+  end-of-publish. Engine-level test validates the `destroySensor` emit path directly.
+
+**TestSensor parity:** PASSES. Box2d `ENSURE(beginCount == 1) / ENSURE(endCount == 1)`
+— a bullet sensor (circle r=0.1, dynamic, vx=-20, no gravity) crossing a static wall
+(box 0.5×10, enableSensorEvents on both sides) produces exactly one begin frame and
+one end frame. Tolerance not loosened.
+
+**Tests:** 11 new tests in `tests/events/sensor_begin_end.test.ts`. **534 tests total** (was 523).
+Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.

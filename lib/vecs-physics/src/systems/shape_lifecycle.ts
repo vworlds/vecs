@@ -42,6 +42,7 @@ import {
   type PolygonGeometry,
 } from "../engine/geometry.js";
 import { destroyBodyContactsForShape } from "../engine/contact.js";
+import { destroySensor } from "../engine/sensor.js";
 import {
   createShape,
   freeShape,
@@ -278,15 +279,29 @@ function unlinkShapeFromBody(
 
 // ─── Destroy helper ───────────────────────────────────────────────────────────
 
-/** Destroy the proxy, tear down contacts that reference this shape, unlink
- * from the body list, and free the shape slot. Mirrors `b2DestroyShapeInternal`
- * (box2d/src/shape.c:298–339). The contact teardown was deferred from M2; it
- * is now wired so collide() never sees a stale shape handle. */
+/** Destroy the proxy, tear down contacts that reference this shape (if not a
+ * sensor), destroy the sensor record (if a sensor), unlink from the body list,
+ * and free the shape slot. Mirrors `b2DestroyShapeInternal`
+ * (box2d/src/shape.c:298–339) and `b2DestroySensor` (sensor.c:372-409).
+ *
+ * For sensor shapes, `destroySensor` emits end events for current overlaps
+ * and removes the sensor record from `state.sensors` (swap-remove, patching
+ * the moved sensor shape's sensorIndex). The proxy is still destroyed as
+ * normal (sensors do have broad-phase proxies for the AABB query pass). */
 function destroyShape(state: PhysicsState, handle: ShapeHandle): void {
   const shape = state.shapes.records[handle.index];
   if (shape === undefined) {
     return;
   } // already freed — idempotent
+
+  // If this is a sensor, destroy the sensor record first (emits end events for
+  // all current overlaps, swap-removes from state.sensors, patches moved shape).
+  // Mirrors b2DestroySensor (sensor.c:372-409); called before the proxy is
+  // destroyed so overlaps2 is still populated.
+  if (shape.sensor && shape.sensorIndex !== -1) {
+    destroySensor(state, shape.sensorIndex);
+    shape.sensorIndex = -1;
+  }
 
   if (shape.proxyKey !== -1) {
     state.broadPhase.destroyProxy(shape.proxyKey);
@@ -294,6 +309,8 @@ function destroyShape(state: PhysicsState, handle: ShapeHandle): void {
   }
 
   // Destroy contacts that reference this shape before freeing the shape record.
+  // Sensors never generate contacts (collide.ts skips sensor pairs), so this
+  // walk is a no-op for sensor shapes. Kept unconditional for safety + parity.
   // Mirrors b2DestroyShapeInternal (shape.c:326-338): walk the owning body's
   // contact list, destroy every contact whose shapeIdA or shapeIdB matches.
   // Robust to swap-remove: destroyBodyContactsForShape snapshots nextKey first.
@@ -399,6 +416,13 @@ function enterChain(
         true // force pair creation (Box2D b2ShapeDef.invokeContactCreation)
       );
     }
+    // Register chain-segment sensor shapes in SensorStorage. Chains can be
+    // sensors; each segment gets its own SensorRecord, mirroring box2d's
+    // per-shape sensor index (b2Shape.sensorIndex).
+    if (opts.sensor) {
+      seg.sensorIndex = state.sensors.create(handle.index);
+    }
+
     handles.push(handle);
   }
 
@@ -500,6 +524,14 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
         handle.index,
         true // force pair creation (Box2D b2ShapeDef.invokeContactCreation)
       );
+    }
+
+    // Register sensor shapes in SensorStorage so the sensor overlap pass
+    // (`overlapSensors` in engine/sensor.ts) can track overlaps for this shape.
+    // Mirrors b2CreateShape (shape.c:~215-220) which calls into
+    // b2Array_Push(world->sensors, ...) and sets shape->sensorIndex.
+    if (shape.sensor) {
+      shape.sensorIndex = state.sensors.create(handle.index);
     }
 
     state.shapeByEntity.set(e.eid, handle);
