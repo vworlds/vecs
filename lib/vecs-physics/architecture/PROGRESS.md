@@ -554,7 +554,7 @@ is green — but each needs attention in a later ticket.
   This matches the PLAN (fixed step, no accumulator promised); flagged only so a
   future "variable frame rate" request is a known design change, not a bug.
 
-## MILESTONE 3 — Contacts + sequential-impulse solver (🚧 IN PROGRESS)
+## MILESTONE 3 — Contacts + sequential-impulse solver (✅ COMPLETE)
 
 **Tickets: VP-15 (split a/b), VP-16, VP-17, VP-18.** Architect: this pass.
 Wires the collision step loop the engine has been missing — broad-phase pairs →
