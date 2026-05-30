@@ -1464,3 +1464,53 @@ exercises this path. `bodyMoveEvents.length = 0` stays in `engineStep` (unchange
 
 **Tests:** 11 new tests in `tests/events/physics_events.test.ts`. **556 tests total** (was 544).
 Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
+
+#### ✅ M4 closeout parity — chain one-sided collision + friction ramp
+
+**Files:**
+- `tests/lifecycle/chain_collision.test.ts` (NEW) — 3 tests.
+- `tests/lifecycle/friction_ramp.test.ts` (NEW) — 4 tests.
+
+**Chain one-sided collision (`chain_collision.test.ts`):**
+Ports the physical one-sided-collision property from `box2d/test/test_world.c::ChainSegmentShapeTest`
+(lines 474-489). Box2D's C-API shape-type mutation is not ported (not exposed); the test covers
+the portable physical property: a dynamic circle dropped onto a `Chain` ground rests on the front
+(top) side and does not tunnel through; a circle starting below and moving up passes through the
+back (behind the collision normal) unimpeded.
+
+- **Loop chain used.** Points ordered right-to-left on the top edge so `rightPerp(edge) = (0,+1)`
+  (upward-facing collision normal). Loop: `{5,0},{-5,0},{-5,-2},{5,-2}`. Loop chains use real
+  neighbour ghost vertices — match box2d exactly.
+- **One-sidedness confirmed:** a circle at y=−0.5 moving upward at 5 m/s (no gravity) passes
+  THROUGH the back side of the chain and ends above y=0. The `offset < 0` check in
+  `collideChainSegmentAndCircle` correctly returns an empty manifold. One-sided semantics HOLD.
+- **Resting position:** after 120 steps at 1/60 the circle settles in the band 0.3 < y < 0.7
+  (matching box2d's `circlePos.y > 0` assertion plus a tighter window). Stable over 240 further
+  steps (< 0.05 m vertical drift).
+- **Open-chain ghost-vertex divergence** (the `Carried into M4` item): the loop chain avoids
+  the endpoint-reflection issue entirely. The open-chain endpoint ghost vertices (reflection:
+  `2a−b`) are accurate for straight chains but may diverge from box2d's `b2CreateChain`
+  behaviour at sharp endpoint turns. This remains **carried into M5** — the loop test confirms
+  the chain-segment manifold pipeline works correctly end-to-end; open-chain endpoint behaviour
+  at sharp turns is still unverified vs box2d. In-code comment at `makeChainSegments` is the
+  authoritative tracking.
+
+**Friction ramp (`friction_ramp.test.ts`):**
+A static body at −20° (`Rotation.angle = −RAMP_ANGLE`) with a flat `Box` shape forms an inclined
+surface. A dynamic box is placed just above the ramp surface.
+
+- **High friction (0.6 on dynamic body):** μ_mix = sqrt(0.6 × 0.6) = 0.6; atan(0.6) ≈ 31° > 20°
+  → static friction holds. After 120 steps the box stays within 1.5 m of its start-x and has
+  near-zero speed (< 0.5 m/s). Stable over 180 further steps (< 0.2 m x-drift). ✅
+- **Zero friction on dynamic body:** μ_mix = sqrt(0 × 0.6) = 0 → no friction. After 120 steps
+  the box has slid > 2 m down the slope. ✅
+- **Qualitative difference confirmed:** zero-friction box slides > 2 m; high-friction box moves
+  < (zero-friction displacement − 1 m). Friction mixing is observable.
+
+**`DeferredMassFlagSyncTest` confirmation:** `tests/lifecycle/mass_flag_sync.test.ts` fully covers
+this test (VP-12, commit e2c1173 + parity fix 937dbe8). The file includes the golden test port
+(`DeferredMassFlagSyncTest` describe block) plus 5 additional mass-recompute lifecycle tests.
+No gap found — no new mass test needed.
+
+**Tests:** 7 new tests. **563 tests total** (was 556).
+Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
