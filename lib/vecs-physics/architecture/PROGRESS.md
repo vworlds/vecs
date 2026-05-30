@@ -1709,7 +1709,9 @@ _(updated as tickets land)_
 
 - ✅ **VP-23** — Sleep + island split (engine `55768ed`, systems `71d0b88`, tests
   `c70c91f`, docs `0309b73`). See entry below.
-- ⏳ **VP-24** — Continuous collision (CCD) for bullets + fast bodies.
+- ✅ **VP-24** — Continuous collision (CCD) for bullets + fast bodies (flags
+  `49887c6`, TOI `e71569d`, shape fields `1677cc7`, engine `3c781d3`, wiring
+  `b57f9d5`, tests `31b95f0`). See entry below.
 - ✅ **VP-25** — `PhysicsDebugValidation` system (`5d4ed8e`, `dbca1f9`, `3d91299`,
   `be6ee6a`). See entry below.
 - ⏳ **VP-26** — Performance pass + fat-AABB hysteresis fix + benchmark + closeout.
@@ -1872,3 +1874,87 @@ functional. Comments calling it "a no-op until sleep lands (M5)" were removed.
 **Gate green**: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 **595 tests** total in this branch (was 569 at M5 start; +26 sleep tests).
 After merging VP-25 into the integrated branch: **637 tests** total.
+
+#### ✅ VP-24 — CCD for bullets + fast bodies
+
+**Files** (6 commits on `vp24-ccd`):
+
+- `src/engine/body.ts` — added `IS_FAST = 0x0008`, `IS_BULLET = 0x0010`,
+  `HAD_TIME_OF_IMPACT = 0x0040`, `ENLARGE_BOUNDS = 0x0100`,
+  `BODY_TRANSIENT_FLAGS = IS_FAST | IS_SPEED_CAPPED | HAD_TIME_OF_IMPACT`.
+  Mirrors body.h:26-65.
+- `src/engine/distance.ts` — grew with the CCD geometry primitives: `Sweep`,
+  `TOIInput`, `TOIOutput`, `TOIState` types (collision.h:441-487); `getSweepTransform`
+  (distance.c:14-30); `makeSweep` (body.h:235-244); `_makeSeparationFunction` /
+  `_findMinSeparation` / `_evaluateSeparation` (distance.c:935-1136); `timeOfImpact`
+  (distance.c:1140-1426, verbatim port with box2d line-number comments).
+- `src/engine/shape.ts` + `src/systems/shape_lifecycle.ts` — `InternalShape` gained
+  `aabbMargin` (pre-computed fat-AABB margin, cached once) and `enlargedAABB` (transient
+  per-step proxy-enlarge flag). Mirrors `b2Shape.aabbMargin / enlargedAABB` (shape.h).
+- `src/engine/ccd.ts` (NEW) — `_continuousQueryCallback` (solver.c:181-376):
+  rejection rules (same-shape/body, sensor, filter, other-bullet), chain-segment
+  parallel-movement early-out (solver.c:256-279), `b2TimeOfImpact` call + zero-fraction
+  circle fallback. `solveContinuous` (solver.c:379-541): per-shape sweep against BVH
+  trees, TOI-interpolated body advance, fat-AABB refit, `enlargedAABB` marking.
+  `enlargeBulletProxies` (physics_world.c:1917-1958): post-bullet broad-phase enlarge.
+- `src/engine/broad_phase.ts` — added `BroadPhase.queryTree(bodyType, aabb, maskBits,
+  cb)`: query a single body-type tree. Mirrors `b2DynamicTree_Query(trees + N, ...)`
+  in `b2SolveContinuous` (solver.c:434-440).
+- `src/engine/state.ts` — added `bulletBodies: number[]` (awake-set sim indices of
+  bullet bodies collected by finalizeBodies; cleared each step).
+- `src/engine/step.ts` — `finalizeBodies`: clears `BODY_TRANSIENT_FLAGS` on sim+state
+  (solver.c:622-626); CCD fast/bullet detection block (solver.c:633-657) in the
+  "not sleepy" branch; fast bodies skip normal `refitBodyShapeProxies`. `engineStep`:
+  clears `state.bulletBodies` at top; bullet stage after sleep loop (walks
+  `bulletBodies`, calls `solveContinuous` + `enlargeBulletProxies`).
+- `src/systems/lifecycle.ts` — `enter(Body)` seeds `IS_BULLET` from `Body.bullet`.
+  `update(Body)` early-path and stage 12 sync `IS_BULLET` on type/enabled-unchanged
+  changes.
+
+**Tests** (`tests/ccd/ccd.test.ts`): 10 tests. **637 → 647** total.
+Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
+
+**Box2D lines mirrored:**
+- `_continuousQueryCallback` ← solver.c:181-376.
+- `solveContinuous` ← solver.c:379-541.
+- `enlargeBulletProxies` ← physics_world.c:1917-1958 (serial loop).
+- Fast/bullet detection ← `b2FinalizeBodiesTask` solver.c:633-657.
+- Bullet stage call site ← physics_world.c:1896-1968 (collapsed to serial).
+- `timeOfImpact` ← distance.c:1140-1426; separation helpers ← distance.c:935-1136.
+- `getSweepTransform` ← distance.c:14-30; `makeSweep` ← body.h:235-244.
+
+**Decisions / deviations:**
+
+- **Sensor TOI hits queue** (solver.c:531-537 / b2TaskContext.sensorHits): deferred.
+  Vecs-physics sensors use an AABB-based overlap pass (engine/sensor.ts, VP-21c)
+  that already runs after finalize; adding TOI precision for sensors is M6+ scope.
+  Documented as a deferral in the `engine/ccd.ts` module header.
+- **Custom pre-solve / custom filter callbacks** (solver.c:240-254, 360-365): absent
+  in vecs-physics v1. Consistent with collide.ts:88.
+- **b2ShouldBodiesCollide** (solver.c:232-238): no joints in v1; equivalent to
+  always returning true. Consistent with collide.ts:88. Skipped.
+- **Non-bullet fast-body proxy enlargement**: in box2d a separate
+  `enlargedSimBitSet` + refit-BVH task runs after finalize for non-bullet fast bodies.
+  In vecs-physics (single-threaded, no task graph), `enlargeBulletProxies` is called
+  inline after `solveContinuous` for non-bullet fast bodies and in the bullet stage
+  for bullets. Semantically equivalent; no separate refit-BVH pass needed.
+- **`_getShapeIndex` is O(n)** — scans `shapes.records` to find a shape's slot index
+  for the same-shape skip in the query callback. This is acceptable for v1 (the scan
+  is bounded by the body's live shape count, not the entire shape pool). A cached
+  `shapeIndex: number` field on `InternalShape` would eliminate it; deferred to VP-26
+  perf pass.
+
+**Parity tests passed:**
+- `SetBulletDriftTest` (flag persistence, box2d test_world.c:611-654).
+- Physical no-tunnel gate: bullet (r=0.2, vx=-20) stops at wall with CCD on.
+- `enableContinuous=false` tunnel: very-fast tiny bullet crosses hairline wall.
+- Fast non-bullet body: vx=-15 box avoids tunnelling through thin static wall.
+- `TimeOfImpactTest` (test_distance.c:80-102): fraction ≈ 0.5 ± 0.005.
+- Bullet-vs-bullet skip: two bullets pass through each other (solver.c:227-230).
+- HelloWorld no-regression: slow box rests at y≈1 with CCD enabled.
+
+**Carried forward / deferrals:**
+- **Sensor TOI hits queue** — deferred (see above).
+- **_getShapeIndex O(n)** — deferred to VP-26 perf pass.
+- **Fat-AABB hysteresis** — unchanged from M3 review; still VP-26.
+- **Open-chain ghost-vertex fidelity** — unchanged; VP-26 / v2.
