@@ -125,17 +125,32 @@ export class BroadPhase {
    * @param fatAABB   Fat AABB (caller must apply motion-predict inflation)
    * @param categoryBits  Collision category bits (from the shape filter)
    * @param shapeIndex    Engine shape index stored as userData in the tree leaf
+   * @param forcePairCreation  Buffer the proxy even when it is static, so its
+   *   overlaps are evaluated for contacts immediately. Box2D's default
+   *   `b2ShapeDef` sets `invokeContactCreation = true`, which `b2CreateShapeProxy`
+   *   passes here (shape.c:176); the enable / type-change proxy recreation paths
+   *   also force it (shape.c:1307). Defaults to `false` (the plain VP-10 query
+   *   semantics) for callers that do not create a contactable shape.
    * @returns Encoded proxy key (store on InternalShape.proxyKey)
    */
-  createProxy(bodyType: number, fatAABB: AABB, categoryBits: number, shapeIndex: number): number {
+  createProxy(
+    bodyType: number,
+    fatAABB: AABB,
+    categoryBits: number,
+    shapeIndex: number,
+    forcePairCreation = false
+  ): number {
     const id = this._trees[bodyType]!.createProxy(fatAABB, categoryBits, shapeIndex);
     const key = proxyKey(id, bodyType);
 
-    // Static proxies are not buffered unless forcePairCreation is set.
-    // VP-10 does not expose forcePairCreation (it is used only by the
-    // b2ShapeDef::invokeContactCreation path, which lands in M3/VP-11).
-    // Static bodies never move so they are never re-buffered after creation.
-    if (bodyType !== STATIC_BODY) {
+    // Buffer the new proxy for the next pair query. Non-static proxies are always
+    // buffered; a static proxy only when forcePairCreation is set. Mirrors
+    // b2BroadPhase_CreateProxy (broad_phase.c:104-112): `if ( proxyType !=
+    // b2_staticBody || forcePairCreation ) b2BufferMove(...)`. Without the force
+    // path a static shape added under an already-settled, non-moving shape would
+    // not form a contact until some other proxy happened to move. Static bodies
+    // never move, so a forced static proxy is queried exactly once.
+    if (bodyType !== STATIC_BODY || forcePairCreation) {
       this._bufferMove(key);
     }
 
@@ -253,9 +268,12 @@ export class BroadPhase {
               }
             }
           } else {
-            // queryType is KINEMATIC_BODY (static never buffered).
-            // treeType must be DYNAMIC_BODY (kinematic only queries dynamic).
-            // If the found dynamic proxy is also moving, skip (it will emit).
+            // queryType is KINEMATIC_BODY, or a force-buffered STATIC_BODY
+            // proxy (see createProxy's forcePairCreation). Either way the only
+            // tree it queries is DYNAMIC_BODY. If the found dynamic proxy is also
+            // moving, skip — the dynamic side will emit the pair when it queries
+            // this tree (a moving static cannot happen: static proxies never move
+            // after their one forced buffer).
             if (this._movedSet.has(foundKey)) {
               return true;
             }

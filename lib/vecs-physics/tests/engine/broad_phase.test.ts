@@ -444,3 +444,36 @@ describe("testOverlap", () => {
     expect(bp.testOverlap(sk, dk)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// createProxy forcePairCreation (Box2D invokeContactCreation)
+// ---------------------------------------------------------------------------
+//
+// Box2D's default b2ShapeDef sets invokeContactCreation = true, and
+// b2BroadPhase_CreateProxy (broad_phase.c:104-112) buffers a proxy when
+// `proxyType != b2_staticBody || forcePairCreation`. Without the force path a
+// static shape created over an already-settled (drained) non-static proxy would
+// never be queried, so its overlap forms no contact until some other proxy moves.
+
+describe("createProxy forcePairCreation", () => {
+  it("does not buffer a static proxy by default (drained dynamic → no pair)", () => {
+    const bp = new BroadPhase();
+    const box = aabb(0, 0, 2, 2);
+    bp.createProxy(DYNAMIC_BODY, box, 1, 0); // buffered on create
+    expect(collectPairs(bp).length).toBe(0); // drains the dynamic move entry
+    bp.createProxy(STATIC_BODY, box, 1, 1); // overlapping, NOT forced
+    // Nothing is buffered, so the static overlap is never evaluated.
+    expect(collectPairs(bp)).toEqual([]);
+  });
+
+  it("buffers a static proxy when forcePairCreation is set, emitting the overlap", () => {
+    const bp = new BroadPhase();
+    const box = aabb(0, 0, 2, 2);
+    bp.createProxy(DYNAMIC_BODY, box, 1, 0); // buffered on create
+    expect(collectPairs(bp).length).toBe(0); // drain the dynamic move entry
+    bp.createProxy(STATIC_BODY, box, 1, 1, true); // overlapping, FORCED
+    const pairs = collectPairs(bp);
+    expect(pairs.length).toBe(1);
+    expect(new Set([pairs[0]!.shapeA, pairs[0]!.shapeB])).toEqual(new Set([0, 1]));
+  });
+});

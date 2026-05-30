@@ -129,7 +129,8 @@ function createBodyShapeProxies(
       newBodyType,
       fatAABB,
       shape.categoryBits,
-      currentIndex
+      currentIndex,
+      true // force pair creation (Box2D b2Body_Enable/SetType, shape.c:1307)
     );
   }
 }

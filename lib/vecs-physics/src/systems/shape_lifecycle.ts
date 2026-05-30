@@ -395,7 +395,8 @@ function enterChain(
         bodyType,
         fatAABB,
         opts.categoryBits,
-        handle.index
+        handle.index,
+        true // force pair creation (Box2D b2ShapeDef.invokeContactCreation)
       );
     }
     handles.push(handle);
@@ -496,7 +497,8 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
         bodyRec.type,
         fatAABB,
         opts.categoryBits,
-        handle.index
+        handle.index,
+        true // force pair creation (Box2D b2ShapeDef.invokeContactCreation)
       );
     }
 
@@ -718,7 +720,8 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
             newBodyRec.type,
             fatAABB,
             seg.categoryBits,
-            h.index
+            h.index,
+            true // force pair creation (Box2D b2ShapeDef.invokeContactCreation)
           );
         }
       }
@@ -770,7 +773,8 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
         newBodyRec.type,
         fatAABB,
         shape.categoryBits,
-        handle.index
+        handle.index,
+        true // force pair creation (Box2D b2ShapeDef.invokeContactCreation)
       );
     }
 

@@ -946,18 +946,31 @@ classes, which is how this slipped through). Consumed by M4 hit events (VP-22).
 
 #### ✅ M3-static-proxy-force-pair-creation
 
-`BroadPhase.createProxy` never buffered static proxies, so a static shape added
-under an already-settled non-static shape produced no contact until something
-moved. Box2D's `b2DefaultShapeDef` sets `invokeContactCreation = true`
-(`types.c`), `b2CreateShape` passes `invokeContactCreation || isSensor` into
-`b2CreateShapeProxy` (`shape.c:176`), and `b2BroadPhase_CreateProxy`
-(`broad_phase.c:104-112`) buffers when `proxyType != b2_staticBody ||
-forcePairCreation`. Added a `forcePairCreation` parameter to
-`BroadPhase.createProxy` (buffer when `bodyType !== STATIC_BODY ||
-forcePairCreation`); shape creation (single + chain segments) and the
+`BroadPhase.createProxy` never buffered static proxies (`forcePairCreation` was
+the unimplemented VP-10 deferral), diverging from Box2D: `b2DefaultShapeDef` sets
+`invokeContactCreation = true` (`types.c`), `b2CreateShape` passes
+`invokeContactCreation || isSensor` into `b2CreateShapeProxy` (`shape.c:176`), and
+`b2BroadPhase_CreateProxy` (`broad_phase.c:104-112`) buffers when `proxyType !=
+b2_staticBody || forcePairCreation`. Added a `forcePairCreation` parameter to
+`BroadPhase.createProxy` (default `false`; buffer when `bodyType !== STATIC_BODY
+|| forcePairCreation`); shape creation (single + chain segments) and the
 enable/type-change proxy recreation now pass `true`, matching `b2Body_Enable` /
-`b2Body_SetType` (`shape.c:1307`). This resolves the VP-10 `forcePairCreation`
-deferral (it is no longer carried forward).
+`b2Body_SetType` (`shape.c:1307`). Resolves the VP-10 `forcePairCreation`
+deferral (no longer carried forward).
+
+**Scope note (corrected the issue's premise):** the issue claimed a static shape
+added under a settled body produces _no contact_ until something moves. In the
+current lifecycle that observable miss does **not** reproduce — a freshly created
+static body is pose-synced on entry, and `PhysicsPoseSyncIn`'s teleport refit
+calls `BroadPhase.moveProxy`, which buffers the proxy unconditionally (no static
+gate), incidentally covering the gap. So the bug here is a **Box2D parity /
+robustness** divergence in `createProxy`, not a live missed-contact crash:
+relying on the teleport masking is fragile (it breaks the moment a static proxy is
+created without a following move). Regression test lives at the broad-phase unit
+level (`tests/engine/broad_phase.test.ts` → `createProxy forcePairCreation`),
+where `createProxy`'s buffering is the deciding factor: with a drained dynamic
+proxy, a forced static proxy emits the overlap pair (fails without the fix, passes
+with it); the unforced default stays unbuffered.
 
 M3 carried-forward items from this pass now resolved:
 
