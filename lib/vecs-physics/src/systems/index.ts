@@ -10,11 +10,21 @@
 //   3. PhysicsMaterialFilterSync — propagates Material/Filter/Sensor updates
 //   4. PhysicsShapePoseSync      — propagates ShapePosition/ShapeRotation updates
 //   5. PhysicsPoseSyncIn         — syncs Position/Rotation/Velocity into body sims
-//   6. PhysicsMassRecompute      — recomputes mass for dirty bodies (last pre-step)
+//   6. PhysicsForceGather        — accumulates Force/Torque into BodySim each step (VP-19)
+//   7. PhysicsImpulseAccumulate  — drains Impulse/AngularImpulse into pendingImpulses (VP-19)
+//   8. PhysicsMassRecompute      — recomputes mass for dirty bodies (last pre-step)
+//
+// Physics-post phase order:
+//   1. PhysicsPoseSyncOut  — write simulated pose back to ECS
+//   2. PhysicsImpulseZero  — silently zero consumed Impulse/AngularImpulse (VP-19)
+//      [VP-21b will insert PhysicsEvents before PhysicsImpulseZero]
 
 import { type IPhase, type World } from "@vworlds/vecs";
 
 import { PhysicsSystemTag, type PhysicsState } from "../engine/state.js";
+import { installForceGather } from "./forces.js";
+import { installImpulseAccumulate } from "./impulse_accumulate.js";
+import { installImpulseZero } from "./impulse_zero.js";
 import { installBodyLifecycle } from "./lifecycle.js";
 import { installMassRecompute } from "./mass_recompute.js";
 import { installMaterialFilterSync } from "./material_filter_sync.js";
@@ -45,12 +55,18 @@ export function installPhysicsSystems(
     installMaterialFilterSync(world, state, phases.preStep),
     installShapePoseSync(world, state, phases.preStep),
     installPoseSyncIn(world, state, phases.preStep),
-    // physics-pre: mass recompute — last pre-step, after all lifecycle/sync.
+    // physics-pre: force/impulse systems after PoseSyncIn, before MassRecompute (VP-19).
+    installForceGather(world, state, phases.preStep),
+    installImpulseAccumulate(world, state, phases.preStep),
+    // physics-pre: mass recompute — last pre-step, after all lifecycle/sync/force.
     installMassRecompute(world, state, phases.preStep),
     // physics-step: integrator.
     installStep(world, state, phases.step),
     // physics-post: write simulated pose back to ECS.
     installPoseSyncOut(world, state, phases.postStep),
+    // physics-post: silently zero consumed Impulse/AngularImpulse (last in post).
+    // VP-21b will insert PhysicsEvents before this.
+    installImpulseZero(world, state, phases.postStep),
   ];
 
   // Tag every physics system entity for the `ignoreSource` silence domain.

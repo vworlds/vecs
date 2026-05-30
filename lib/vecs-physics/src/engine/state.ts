@@ -102,6 +102,28 @@ export class PhysicsState {
   // write simulated pose back. One entry per awake body in finalize order.
   public readonly bodyMoveEvents: number[] = [];
 
+  // ── VP-19: impulse accumulation (M4 scoping decision in PROGRESS.md) ────────
+  //
+  // Box2D applies impulses immediately to body velocity in `b2Body_ApplyLinearImpulse`
+  // (body.c:1020: state->linearVelocity = b2MulAdd(state->linearVelocity, invMass, impulse)).
+  // We cannot do this in `physics-pre` because `PhysicsMassRecompute` (the last
+  // pre-step system) may update invMass for the same frame. So we defer: the
+  // accumulate system sums impulses here, and `engineStep` applies them at the
+  // very top (after mass recompute has run), using fresh invMass.
+  //
+  // Keyed by body handle index (InternalBody.localIndex is unstable across
+  // swap-pops; the handle index, i.e. IdPool slot, is stable for the body's
+  // lifetime and is how all other maps in PhysicsState are keyed).
+  public readonly pendingImpulses = new Map<
+    number /* body handle index */,
+    { x: number; y: number; angular: number; wake: boolean }
+  >();
+
+  // EIDs of entities that had Impulse or AngularImpulse set this step.
+  // PhysicsImpulseZero walks this set in physics-post to silently zero them.
+  // Cleared by PhysicsImpulseZero at the end of each post phase.
+  public readonly impulseEntitiesThisStep = new Set<number /* eid */>();
+
   // Monotonic step counter (determinism + event tagging).
   public stepIndex = 0;
 

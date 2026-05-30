@@ -16,7 +16,7 @@
 // Sleep timer (solver.c:638-684) and CCD / isFast (solver.c:688-728) blocks are
 // skipped with comments (M5).
 
-import { IS_SPEED_CAPPED } from "./body.js";
+import { DYNAMIC_BODY, IS_SPEED_CAPPED } from "./body.js";
 import { collide, makePairCreateCallback } from "./collide.js";
 import { refitBodyShapeProxies } from "./shape.js";
 import { makeStepContext, solve, type StepContext } from "./solver.js";
@@ -35,6 +35,22 @@ export function engineStep(state: PhysicsState, dt: number, subSteps: number): v
     return;
   }
 
+  // ── Apply pending impulses BEFORE collide/solve (VP-19) ───────────────────
+  // `PhysicsImpulseAccumulate` (physics-pre) sums Impulse/AngularImpulse sets
+  // into `state.pendingImpulses`. We apply them here — after `PhysicsMassRecompute`
+  // (last pre-step system, so invMass is fresh) and before `collide`/`solve`
+  // (so the velocity delta is visible to the solver this step).
+  //
+  // This mirrors the immediate velocity update in `b2Body_ApplyLinearImpulseToCenter`
+  // (body.c:1048): state->linearVelocity = b2MulAdd(state->linearVelocity, invMass, impulse)
+  // and `b2Body_ApplyAngularImpulse` (body.c:1077):
+  //   state->angularVelocity += invInertia * impulse
+  //
+  // Only awake bodies have BodyState entries; static/disabled bodies have
+  // invMass = 0, so skipping them is both correct and cheap (they are not in
+  // the awake set and have no BodyState slot).
+  applyPendingImpulses(state);
+
   const ctx = makeStepContext(state, dt, subSteps);
 
   // Create contacts for new broad-phase pairs (filtered in the callback).
@@ -49,6 +65,54 @@ export function engineStep(state: PhysicsState, dt: number, subSteps: number): v
 
   // Fold delta-pose, write transforms, push move events, refit proxies.
   finalizeBodies(state, ctx);
+}
+
+/** Apply accumulated impulses from `state.pendingImpulses` to awake body
+ * velocities, then clear the accumulator. This runs at the TOP of each
+ * `engineStep` call — after `PhysicsMassRecompute` has updated invMass — so
+ * impulse magnitudes are correct and the solver sees the updated velocity.
+ *
+ * Mirrors the velocity update in `b2Body_ApplyLinearImpulseToCenter` (body.c:1048):
+ *   state->linearVelocity = b2MulAdd(state->linearVelocity, bodySim->invMass, impulse)
+ * and `b2Body_ApplyAngularImpulse` (body.c:1077):
+ *   state->angularVelocity += bodySim->invInertia * impulse
+ *
+ * Only dynamic bodies in the awake set have a BodyState; static/disabled bodies
+ * are not in the awake set so they are naturally skipped (and their invMass is 0
+ * anyway, matching box2d's `body->type != b2_dynamicBody` early-return). */
+function applyPendingImpulses(state: PhysicsState): void {
+  if (state.pendingImpulses.size === 0) {
+    return;
+  }
+
+  const awake = state.solverSets[AWAKE_SET]!;
+
+  for (const [bodyIndex, acc] of state.pendingImpulses) {
+    const record = state.bodies.records[bodyIndex];
+    // Skip if the body no longer exists or is not in the awake set.
+    if (record === undefined || record.setIndex !== AWAKE_SET) {
+      continue;
+    }
+    // Only dynamic bodies have invMass > 0 (kinematic invMass = 0, static = 0).
+    // This mirrors box2d's `body->type != b2_dynamicBody || body->setIndex == b2_disabledSet`
+    // guard — we rely on invMass/invInertia being 0 for non-dynamic bodies.
+    if (record.type !== DYNAMIC_BODY) {
+      continue;
+    }
+
+    const sim = awake.bodySims[record.localIndex]!;
+    const st = awake.bodyStates[record.localIndex]!;
+
+    // vx += invMass * impulse.x  (b2Body_ApplyLinearImpulseToCenter body.c:1048)
+    // vy += invMass * impulse.y
+    st.vx += sim.invMass * acc.x;
+    st.vy += sim.invMass * acc.y;
+    // omega += invInertia * angular  (b2Body_ApplyAngularImpulse body.c:1077)
+    st.omega += sim.invInertia * acc.angular;
+    // Wake flag is a no-op until sleep lands (M5).
+  }
+
+  state.pendingImpulses.clear();
 }
 
 /** Fold the accumulated delta-pose into each body's centre/rotation, derive the
