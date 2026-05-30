@@ -192,9 +192,12 @@ export class PhysicsState {
   // end-event can still deliver `other: Entity` even when the other shape was
   // destroyed in the same step.
   //
-  // Populated by `PhysicsShapeLifecycle.enter` for single and chain shapes;
-  // cleared by `PhysicsShapeLifecycle.exit`. The map is state-layer (not event-
-  // layer) because it must outlive the entity's presence in the world map.
+  // Populated by `PhysicsShapeLifecycle.enter` for single and chain shapes.
+  // Entries are NOT removed in `exit` — they are lazily GC'd at the end of
+  // `PhysicsEvents.run` (physics-post), so a shape destroyed in physics-pre
+  // still resolves to its `Entity` when teardown end-events publish later in
+  // the same frame. The map is state-layer (not event-layer) because it must
+  // outlive the entity's presence in the world map.
   public readonly shapeEntityByEid = new Map<number /* eid */, Entity>();
 
   // Body handle indices that the solver finalized this step (Box2D's
@@ -205,21 +208,21 @@ export class PhysicsState {
   // ── VP-21a: raw contact touch events (engine-internal) ────────────────────
   //
   // Mirrors box2d's `world->contactBeginEvents` / `world->contactEndEvents`
-  // (physics_world.c), which are cleared at the top of `b2World_Step` and
-  // populated by the collide state-change loop (`b2Collide`) and by
-  // `b2DestroyContact` (end-touch only). Cleared each step in `engineStep`
-  // (alongside `bodyMoveEvents.length = 0`) so the arrays accumulate only the
-  // current step's events and the prior step's entries survive until
-  // `PhysicsEvents` (VP-21b) publishes them in the post phase.
+  // (physics_world.c), populated by the collide state-change loop (`b2Collide`)
+  // and by `b2DestroyContact` (end-touch only). Cleared at the END of
+  // `PhysicsEvents.run` (physics-post), AFTER publishing — the ARCHITECT
+  // RESOLUTION (PROGRESS.md VP-21a) that replaced box2d's top-of-step clear so
+  // that events generated in physics-pre teardown (lifecycle exit,
+  // `entity.destroy()`) survive until the publish. NOT cleared in `engineStep`.
   //
   // Consumed by: VP-21b `PhysicsEvents` (fans out to `ContactEvents` ECS
   // components). Must NOT be used by sensors (VP-21c) or hit events (VP-22).
 
-  /** Raw contact begin-touch events. Cleared at the start of each step.
+  /** Raw contact begin-touch events. Cleared at the end of `PhysicsEvents.run`.
    * Mirrors box2d's `world->contactBeginEvents` (physics_world.c). */
   public readonly contactBeginEvents: ContactTouchEvent[] = [];
 
-  /** Raw contact end-touch events. Cleared at the start of each step.
+  /** Raw contact end-touch events. Cleared at the end of `PhysicsEvents.run`.
    * Mirrors box2d's `world->contactEndEvents` (physics_world.c). */
   public readonly contactEndEvents: ContactTouchEvent[] = [];
 
@@ -233,10 +236,11 @@ export class PhysicsState {
   // live sensor shape, indexed via `InternalShape.sensorIndex`). Created by
   // `shape_lifecycle.ts` on sensor-shape enter; destroyed on exit.
   //
-  // `sensorBeginEvents` / `sensorEndEvents` are cleared at the top of
-  // `engineStep` (step-only generated, consistent with contactBeginEvents).
-  // VP-21b consolidates the clear at end-of-publish (ARCHITECT RESOLUTION in
-  // PROGRESS.md); until then, cleared in engineStep like contactBeginEvents.
+  // `sensorBeginEvents` / `sensorEndEvents` are cleared at the END of
+  // `PhysicsEvents.run` (physics-post) after publishing, alongside the contact
+  // and hit event arrays (ARCHITECT RESOLUTION in PROGRESS.md VP-21a) — so a
+  // sensor end-event pushed by `destroySensor` during physics-pre teardown
+  // survives to the publish. NOT cleared in `engineStep`.
   //
   // Consumed by: VP-21b `PhysicsEvents` (fans out to `SensorEvents` ECS
   // components).
@@ -246,13 +250,13 @@ export class PhysicsState {
    * `SensorStorage` owns the dense array and provides create/destroy helpers. */
   public readonly sensors = new SensorStorage();
 
-  /** Raw sensor begin-touch events for the current step. Cleared at step start.
+  /** Raw sensor begin-touch events. Cleared at the end of `PhysicsEvents.run`.
    * Mirrors box2d's `world->sensorBeginEvents` (physics_world.c). Each entry
    * records the sensor shape handle and the visitor (overlapping) shape handle.
    * Consumed by VP-21b `PhysicsEvents`. */
   public readonly sensorBeginEvents: SensorTouchEvent[] = [];
 
-  /** Raw sensor end-touch events for the current step. Cleared at step start.
+  /** Raw sensor end-touch events. Cleared at the end of `PhysicsEvents.run`.
    * Mirrors box2d's `world->sensorEndEvents` (physics_world.c). Populated by
    * the two-finger merge in `overlapSensors` and by `destroySensor` (when a
    * sensor shape is removed while still overlapping). Consumed by VP-21b. */
@@ -261,8 +265,9 @@ export class PhysicsState {
   // ── VP-22: raw contact hit events (engine-internal) ──────────────────────────
   //
   // Mirrors box2d's `world->contactHitEvents` (solver.c:1788).
-  // Cleared at the top of each `engineStep` (step-only generated, consistent
-  // with contactBeginEvents/sensorBeginEvents clearing).
+  // Cleared at the END of `PhysicsEvents.run` (physics-post) after publishing,
+  // alongside the contact/sensor event arrays (ARCHITECT RESOLUTION in
+  // PROGRESS.md VP-21a). NOT cleared in `engineStep`.
   // Populated by `gatherHitEvents` (engine/solver.ts) after `solve()` returns.
   //
   // Each entry records the two shape handles plus impact geometry:
@@ -270,10 +275,8 @@ export class PhysicsState {
   // (totalNormalImpulse > 0 gates out speculative contacts).
   //
   // Consumed by: VP-21b `PhysicsEvents` (fans out to `HitEvents` ECS components).
-  // VP-21b will consolidate the clear at end-of-publish per the ARCHITECT
-  // RESOLUTION — clearing in engineStep is correct and harmless until then.
 
-  /** Raw hit events for the current step. Cleared at step start.
+  /** Raw hit events. Cleared at the end of `PhysicsEvents.run`.
    * Mirrors box2d's `world->contactHitEvents` (solver.c:1788).
    * Populated by `gatherHitEvents` after `solve()`. Consumed by VP-21b. */
   public readonly contactHitEvents: ContactHitEvent[] = [];
