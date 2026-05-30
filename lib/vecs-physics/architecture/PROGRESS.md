@@ -1707,7 +1707,118 @@ VP-23 sleep + island split ──> VP-24 CCD (bullets) ───┤
 
 _(updated as tickets land)_
 
-- ⏳ **VP-23** — Sleep + island split. NEXT.
+- ✅ **VP-23** — Sleep + island split (engine `55768ed`, systems `71d0b88`, tests
+  `c70c91f`). See entry below.
 - ⏳ **VP-24** — Continuous collision (CCD) for bullets + fast bodies.
-- ⏳ **VP-25** — `PhysicsDebugValidation` system.
+- ⏳ **VP-25** — `PhysicsDebugValidation` system. (Done on `vp25-debug`
+  worktree, awaiting integration into `physics`.)
 - ⏳ **VP-26** — Performance pass + fat-AABB hysteresis fix + benchmark + closeout.
+
+#### ✅ VP-23 — sleep transition + island split + wake activation
+
+**Files** (3 commits on `vp23-sleep`):
+
+- `src/engine/sleep.ts` (NEW) — `wakeSolverSet`, `trySleepIsland`,
+  `mergeSolverSets`, `wakeBody`, `installSleepHooks`, plus the sleeping-set id
+  pool (`allocSleepingSet`/`freeSleepingSet`). Mirrors `box2d/src/solver_set.c`
+  `b2WakeSolverSet`/`b2TrySleepIsland`/`b2MergeSolverSets` (lines 35/155/417).
+- `src/engine/island.ts` — `splitIsland` (union-find DFS over contacts;
+  `island.c:389`); `linkContact` now wakes/merges sleeping sets via state
+  callback hooks (mirrors `island.c:207-217`).
+- `src/engine/body.ts` — `InternalBody` grows `sleepTime`, `sleepThreshold`,
+  `flags`, `bodyMoveIndex` (mirrors `b2Body.sleepThreshold/sleepTime/flags/
+  bodyMoveIndex`, body.h:106-112); adds `ENABLE_SLEEP = 0x0800` (`body.h:53`).
+- `src/engine/state.ts` — `solverSets` array grows past `FIRST_SLEEPING_SET`;
+  adds `sleepingSetPool`, `splitIslandId`, `splitSleepTime`,
+  `fellAsleepThisStep`, and the `_wakeSolverSet`/`_mergeSolverSets` hooks (used
+  by `island.ts`/`contact.ts` without importing `sleep.ts`).
+- `src/engine/contact.ts` — `destroyContact(wakeBodies)` wakes both bodies on a
+  touching teardown (`contact.c:506-510`).
+- `src/engine/step.ts` — `finalizeBodies` runs the sleep accumulation block
+  (`solver.c:556-684`): compute `sleepVelocity`, bump `body.sleepTime`,
+  mark `awakeIslandBitSet`, pick the sleepiest split-candidate. After finalize:
+  `splitIsland` on the candidate, then the reverse-iteration sleep loop
+  (`solver.c:2039-2053`). `applyPendingImpulses` honours `acc.wake`.
+- `src/systems/lifecycle.ts` — `enter(Body)` reads `Sleep`, sets `ENABLE_SLEEP`
+  / threshold, and seeds `sleepTime > B2_TIME_TO_SLEEP` when
+  `Sleep.awake === false` (body sleeps on first step). `update(Sleep)` syncs
+  flags + wakes on `enabled=false` / `awake=true`.
+- `src/systems/forces.ts` / `kinematic.ts` / `pose_sync_in.ts` — activate the
+  `wake` flag (Force/Torque/KinematicTarget/teleport/velocity setters call
+  `wakeBody` per the matching box2d setters: body.c:946-988 / 831-887 / 704 /
+  783-820).
+- `src/systems/pose_sync_out.ts` — skip bodies in `fellAsleepThisStep`
+  (their sim has moved to a sleeping set; mirrors
+  `b2BodyMoveEvent.fellAsleep`).
+- `src/install.ts` — calls `installSleepHooks(state)` before
+  `installPhysicsSystems` so wake calls from physics-pre work on step 1.
+
+**Tests** (`tests/sleep/sleep.test.ts`): **26 tests / 14 describe blocks**;
+covers all 10 scenarios from the architect brief plus `EnableSleepFlagSyncTest`,
+`mergeSolverSets`, angular impulse wake, and `Sleep.awake=false` start-asleep.
+**595 → 595** (the file was already discovered by vitest before commit; net
+delta +26 vs baseline 569).
+
+**Box2D lines mirrored** (sample):
+
+- Sleep transition: `solver_set.c:35` (`b2WakeSolverSet`), `:155`
+  (`b2TrySleepIsland`), `:417` (`b2MergeSolverSets`).
+- Sleep accumulation: `solver.c:556-684` (`b2FinalizeBodiesTask` sleep block).
+- Post-solve sleep loop: `solver.c:2003-2059` (`b2Solve` sleep block).
+- Island split: `island.c:389-650` (`b2SplitIsland`; joints dropped).
+- Wake-on-touch: `island.c:207-217` (`b2LinkContact`); `contact.c:506-510`
+  (`b2DestroyContact`).
+- `b2WakeBody`: `body.c:328-338`. Setter wake calls: `body.c:704/795/819/871/
+  935/958/980/1011/1039/1068`.
+
+**Decisions / deviations**:
+
+- **Circular-dependency hook** — `island.ts` and `contact.ts` need to call
+  `wakeSolverSet`/`mergeSolverSets` (sleep.ts), but `sleep.ts` imports from
+  `contact.ts` (`addContactToGraph`, `CONTACT_TOUCHING_FLAG`) and from
+  `island.ts` is structurally awkward. Resolved by storing
+  `_wakeSolverSet`/`_mergeSolverSets` as fields on `PhysicsState`, populated by
+  `installSleepHooks` (called from `installPhysics`). Default to no-ops, safe
+  before sleep is wired. Recorded as a structural decision, not a divergence
+  from Box2D.
+- **`Set<number>` instead of bitset** for `awakeIslandBitSet` — single-threaded,
+  so the in-place-union step (`solver.c:2032-2036`) is irrelevant; a Set is
+  simpler and equivalent.
+- **`fellAsleepThisStep`** — Box2D marks `b2BodyMoveEvent.fellAsleep = true` on
+  the move-event struct. vecs-physics' `bodyMoveEvents` is a `number[]` of
+  body ids (not full events), so the fell-asleep state lives on a sibling
+  `Set<number>` consumed by `PhysicsPoseSyncOut`. Semantically equivalent.
+- **Sleeping-set id recycling** — Box2D uses `b2AllocId`/`b2FreeId` over
+  `world->solverSetIdPool`. We use a plain number-stack free-list
+  (`sleepingSetPool`); slots reuse the same `SolverSet` JS object (arrays
+  cleared on free). Mirrors the model, drops the generation tracking (we don't
+  hand out sleeping-set handles to user code).
+- **Joints dropped everywhere** — `splitIsland`, `mergeSolverSets`,
+  `wakeSolverSet`, and `trySleepIsland` all skip the joint loops (v1 has no
+  joints; PLAN → Settled Decisions).
+- **`Sleep.awake = false` at creation** — Box2D's `b2CreateBody` does not
+  publicly call `b2TrySleepIsland`; we cannot put a body to sleep at creation
+  because its island may not be fully wired (no contacts yet, no
+  `constraintRemoveCount`). The chosen path: set `record.sleepTime = 1.0`
+  (above `B2_TIME_TO_SLEEP = 0.5`), so finalize elects the island for sleep on
+  step 1. Functionally equivalent — body is asleep by the end of the first
+  step. Recorded here; alternative would be a direct sleep-on-create path.
+
+**Carried forward / deferrals**:
+
+- **CoM-shift velocity adjustment** (VP-12 carry, body.c:629-633) — sleep does
+  not exercise CoM drift in v1 (no runtime CoM change happens to a sleeping
+  body; mass recompute on a sleeping body is rare and the v=ω=0 sleep state
+  makes the shift identically zero anyway). **Kept deferred**; will be revisited
+  in v2 or earlier if a regression points at it.
+- **VP-24 (CCD)** — fast/bullet TOI path stays a no-op in `finalizeBodies` (the
+  sleep block sits alongside the future CCD branch).
+- **VP-26 (perf)** — pre-allocation of the per-step `awakeIslandBitSet` Set is
+  fair game in the perf pass.
+
+**Wake-flag note**: every `wake` field on `Force`/`Torque`/`Impulse`/
+`AngularImpulse`/`KinematicTargetPosition`/`KinematicTargetRotation` is now
+functional. Comments calling it "a no-op until sleep lands (M5)" were removed.
+
+**Gate green**: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
+**595 tests** total (was 569 at M5 start; +26 sleep tests).
