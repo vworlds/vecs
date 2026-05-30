@@ -43,7 +43,7 @@ export type PhysicsOptions = {
 
   // Optional thresholds and tunables, all with Box2D-aligned defaults.
   restitutionThreshold?: number; // m/s, default 1.0
-  hitEventThreshold?: number; // m/s, default 10.0
+  hitEventThreshold?: number; // m/s, default 1.0
   contactHertz?: number; // default 30
   contactDampingRatio?: number; // default 10
   contactSpeed?: number; // m/s, default 3.0
@@ -146,7 +146,8 @@ function resolveOptions(opts: PhysicsOptions): ResolvedPhysicsOptions {
     subSteps: opts.subSteps ?? 4,
     debug: opts.debug ?? false,
     restitutionThreshold: opts.restitutionThreshold ?? 1.0,
-    hitEventThreshold: opts.hitEventThreshold ?? 10.0,
+    // box2d b2DefaultWorldDef: def.hitEventThreshold = 1.0f * lengthUnits (types.c:16).
+    hitEventThreshold: opts.hitEventThreshold ?? 1.0,
     contactHertz: opts.contactHertz ?? 30,
     contactDampingRatio: opts.contactDampingRatio ?? 10,
     // box2d b2DefaultWorldDef: def.contactSpeed = 3.0f * lengthUnits (types.c:18).

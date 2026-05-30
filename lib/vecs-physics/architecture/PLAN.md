@@ -117,7 +117,7 @@ export type PhysicsOptions = {
 
   // Optional thresholds and tunables, all with Box2D-aligned defaults.
   restitutionThreshold?: number; // m/s, default 1.0
-  hitEventThreshold?: number; // m/s, default 10.0
+  hitEventThreshold?: number; // m/s, default 1.0
   contactHertz?: number; // default 30
   contactDampingRatio?: number; // default 10
   maximumLinearSpeed?: number; // m/s, default 400

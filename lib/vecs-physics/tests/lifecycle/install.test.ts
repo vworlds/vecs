@@ -123,6 +123,17 @@ describe("installPhysics", () => {
     expect(state.fixedTimeStep).toBeCloseTo(1 / 60);
     expect(state.subSteps).toBe(4);
     expect(state.debug).toBe(false);
+    // World-def tunables must match box2d's b2DefaultWorldDef (types.c). These
+    // are NOT covered by the per-component defaults test, which is how the
+    // hitEventThreshold 10x error (M0-hitEventThreshold-default) slipped through.
+    expect(state.restitutionThreshold).toBe(1.0);
+    expect(state.hitEventThreshold).toBe(1.0);
+    expect(state.contactHertz).toBe(30);
+    expect(state.contactDampingRatio).toBe(10);
+    expect(state.contactSpeed).toBe(3.0);
+    expect(state.maximumLinearSpeed).toBe(400);
+    expect(state.enableSleep).toBe(true);
+    expect(state.enableContinuous).toBe(true);
     expect(state.bodyByEntity.size).toBe(0);
     expect(state.shapeByEntity.size).toBe(0);
     expect(state.stepIndex).toBe(0);
