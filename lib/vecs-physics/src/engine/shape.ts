@@ -338,6 +338,16 @@ export interface InternalShape {
   enableSensorEvents: boolean;
   /** Index into PhysicsState.sensors (-1 until M3 sensor bookkeeping). */
   sensorIndex: number;
+
+  // ── CCD proxy fields (VP-24) ───────────────────────────────────────────────
+  /** Pre-computed fat-AABB motion margin (= `computeShapeMargin(geometry)`).
+   * Cached once at shape creation so `solveContinuous` does not recompute it
+   * on every TOI step. Mirrors `b2Shape.aabbMargin` (shape.h). */
+  aabbMargin: number;
+  /** Transient per-step flag: this shape's AABB was enlarged in `solveContinuous`
+   * and its broad-phase proxy must be grown in the bullet-proxy-enlarge loop.
+   * Mirrors `b2Shape.enlargedAABB` (shape.h). Cleared by the enlarge loop. */
+  enlargedAABB: boolean;
 }
 
 // ─── ShapeStorage ─────────────────────────────────────────────────────────────
@@ -614,5 +624,8 @@ function makeShape(
     enableHitEvents: false,
     enableSensorEvents: false,
     sensorIndex: -1,
+    // CCD fields (VP-24): aabbMargin pre-computed once; enlargedAABB is transient.
+    aabbMargin: computeShapeMargin(geometry),
+    enlargedAABB: false,
   };
 }

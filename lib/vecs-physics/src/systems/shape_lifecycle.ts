@@ -44,6 +44,7 @@ import {
 import { destroyBodyContactsForShape } from "../engine/contact.js";
 import { destroySensor } from "../engine/sensor.js";
 import {
+  computeShapeMargin,
   createShape,
   freeShape,
   makeChainSegments,
@@ -210,6 +211,9 @@ function newShape(
     enableHitEvents: false,
     enableSensorEvents: false,
     sensorIndex: -1,
+    // CCD fields (VP-24): aabbMargin pre-computed once; enlargedAABB is transient.
+    aabbMargin: computeShapeMargin(geometry),
+    enlargedAABB: false,
   };
 }
 

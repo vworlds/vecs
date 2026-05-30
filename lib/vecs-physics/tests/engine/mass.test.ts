@@ -88,6 +88,8 @@ function makeInternalShape(
     enableHitEvents: false,
     enableSensorEvents: false,
     sensorIndex: -1,
+    aabbMargin: 0,
+    enlargedAABB: false,
   };
 }
 
