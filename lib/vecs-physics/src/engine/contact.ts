@@ -403,9 +403,11 @@ export function destroyContact(
   // This covers disjoint-destroy (SIM_DISJOINT path in collide.ts — see note
   // there: disjoint calls destroyContact directly, so only this site emits the
   // end event for that path), shape removal, body destroy, and filter-change
-  // teardown. The SIM_STOPPED_TOUCHING path in collide.ts emits its own end
-  // event BEFORE calling destroyContact — but at that point the contact is
-  // no longer touching (CONTACT_TOUCHING_FLAG was cleared), so the guard below
+  // teardown. The SIM_STOPPED_TOUCHING path in collide.ts does NOT call
+  // destroyContact — it emits its own end event, clears CONTACT_TOUCHING_FLAG,
+  // and moves the contact to the awake set as non-touching (the contact
+  // persists). If that contact later becomes SIM_DISJOINT and destroyContact
+  // runs, the CONTACT_TOUCHING_FLAG guard below is already false, so this site
   // naturally does NOT double-emit.
   {
     const flags = contact.flags;
