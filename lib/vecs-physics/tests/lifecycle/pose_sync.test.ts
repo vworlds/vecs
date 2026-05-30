@@ -123,14 +123,19 @@ describe("PhysicsPoseSyncOut (engine → user)", () => {
     expect(e.get(Position)!.y).toBe(-1);
   });
 
-  it("does not write back a kinematic body (its pose is user-owned)", () => {
+  it("writes back a kinematic body's pose (VP-20: box2d moves and reports kinematic bodies)", () => {
+    // VP-20 architect decision resolves the M1 asymmetry: kinematic bodies are
+    // written back just like dynamic bodies. box2d finalizes kinematic transforms
+    // and they appear on the move-event list; we honour that.
     const e = world.entity().set(Body, { type: BodyType.Kinematic }).set(Position, { x: 0, y: 0 });
     world.progress(0, 16);
 
+    // Simulate the engine having moved the kinematic body's centre.
     awakeSim(e.eid).centerX = 9;
     world.progress(16, 16);
 
-    expect(e.get(Position)!.x).toBe(0);
+    // Pose MUST be written back to the Position component.
+    expect(e.get(Position)!.x).toBe(9);
   });
 });
 

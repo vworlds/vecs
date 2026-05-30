@@ -1,10 +1,18 @@
 // `PhysicsPoseSyncOut` — simulated pose flows back to the entity's components.
 //
-// Runs in the post-step phase. For every dynamic body it writes the engine's
-// transform (and velocity, when those components are present) back with
+// Runs in the post-step phase. For every dynamic or kinematic body it writes the
+// engine's transform (and velocity, when those components are present) back with
 // `entity.set(...)`, so user systems watching `Position`/`Rotation`/velocity see
-// the simulation result. Kinematic and static poses are user-owned and never
-// written back. See PLAN.md → _Pose And Velocity Synchronization_.
+// the simulation result. Static bodies never get move events and are never written
+// back. See PLAN.md → _Pose And Velocity Synchronization_.
+//
+// VP-20 architect decision (resolves M1 kinematic accept-input / drop-output
+// asymmetry): box2d moves and reports kinematic bodies. `PhysicsPoseSyncOut` now
+// writes back both dynamic AND kinematic bodies. The old VP-6 rule ("kinematic
+// poses are user-owned") is superseded: kinematic targets (`PhysicsKinematicTargets`)
+// drive velocity onto the body state, the solver integrates position, and this
+// system writes the resulting pose back to ECS components so callers see it.
+// Static bodies are still never written back (they never receive move events).
 //
 // These writes are attributed to this system's entity, which carries
 // `PhysicsSystemTag`, so `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])`
@@ -18,7 +26,7 @@
 import { type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { AngularVelocity, LinearVelocity, Position, Rotation } from "../components/body.js";
-import { DYNAMIC_BODY } from "../engine/body.js";
+import { STATIC_BODY } from "../engine/body.js";
 import { AWAKE_SET } from "../engine/solver_set.js";
 import { type PhysicsState } from "../engine/state.js";
 import { getAngle } from "../math/rot.js";
@@ -33,16 +41,11 @@ export function installPoseSyncOut(world: World, state: PhysicsState, phase: IPh
       const awake = state.solverSets[AWAKE_SET]!;
       for (const bodyId of state.bodyMoveEvents) {
         const record = state.bodies.get(bodyId);
-        if (record.type !== DYNAMIC_BODY) {
-          // Kinematic poses are user-owned; static bodies never get move events.
-          //
-          // FOLLOW-UP (M1 review): this drops kinematic motion that the engine
-          // *did* produce — `PhysicsPoseSyncIn` accepts kinematic velocity and
-          // the integrator advances it, so a kinematic body moves internally but
-          // is never written back (a silent no-op). box2d moves and reports
-          // kinematic bodies. Settle the contract when kinematic drive lands
-          // (M4 / PhysicsKinematicTargets): write kinematic poses back, or
-          // reject kinematic velocity input in PhysicsPoseSyncIn.
+        if (record.type === STATIC_BODY) {
+          // Static bodies never receive move events; this branch is a safety guard.
+          // Kinematic and dynamic bodies are both written back (VP-20 architect
+          // decision: box2d moves and reports kinematic bodies; the M1 asymmetry
+          // is resolved by writing kinematic poses back, not by rejecting input).
           continue;
         }
         const entity = record.entity;

@@ -532,16 +532,13 @@ Forward-looking items surfaced reviewing Milestone 1 (VP-5…VP-7) against box2d
 None block M1 — the integrator/transfer/storage ports are faithful and the gate
 is green — but each needs attention in a later ticket.
 
-- **Kinematic accept-input / drop-output asymmetry.** `PhysicsPoseSyncIn` accepts
-  `LinearVelocity`/`AngularVelocity` on a kinematic body (`pose_sync_in.ts` only
-  excludes `STATIC_BODY`), and the integrator advances any awake body — so a
-  kinematic body with user-set velocity _does_ move inside the engine and lands
-  on `bodyMoveEvents`. But `PhysicsPoseSyncOut` writes back **dynamic only**
-  (`pose_sync_out.ts`), so that motion is never visible in the ECS: a silent
-  no-op. box2d moves and reports kinematic bodies. Resolve when kinematic drive
-  lands (**M4 / `PhysicsKinematicTargets`**): either write kinematic poses back
-  too, or reject kinematic velocity input. Decide the contract, don't leave it
-  half-wired. Code comment left in `pose_sync_out.ts`.
+- **Kinematic accept-input / drop-output asymmetry.** ✅ RESOLVED in VP-20.
+  Architect decision: write kinematic poses back (box2d-faithful).
+  `PhysicsPoseSyncOut` now writes back all awake non-static bodies (both dynamic
+  and kinematic). The VP-6 "kinematic poses are user-owned" rule is superseded.
+  `KinematicTargetPosition`/`KinematicTargetRotation` drive velocity each step;
+  the solver integrates the kinematic body; `PhysicsPoseSyncOut` writes the
+  resulting pose back to `Position`/`Rotation` components.
 - **`transferBody` seeds `BodyState.flags` from `sim.flags`, box2d uses
   `body.flags`** (`b2TransferBody`, solver_set.c:539). Equivalent today — both
   `0` until `MotionLocks`/`bullet` are wired, and the lock/`allowFastRotation`
@@ -1120,4 +1117,52 @@ _(updated as tickets land)_
   `body->type != b2_dynamicBody || body->setIndex == b2_disabledSet` early return.
 
 **Tests:** 10 new tests in `tests/forces/forces.test.ts`. **498 tests total** (was 488).
+Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
+
+#### ✅ VP-20 — `PhysicsKinematicTargets` + kinematic write-back in `PhysicsPoseSyncOut`
+
+**Files:**
+- `src/systems/kinematic.ts` (NEW) — `PhysicsKinematicTargets`: non-reactive filter scan of
+  `{ any: [KinematicTargetPosition, KinematicTargetRotation] }` every step; skips non-kinematic
+  and non-awake bodies; sets `bState.vx/vy` and `bState.omega` to drive toward the target.
+- `src/systems/pose_sync_out.ts` — updated to write back both dynamic AND kinematic bodies
+  (was dynamic-only; changed `record.type !== DYNAMIC_BODY` guard to `=== STATIC_BODY`).
+  Updated header comment explains the VP-20 architect decision.
+- `src/systems/index.ts` — wired `installKinematicTargets` in physics-pre AFTER
+  `installPoseSyncIn` and BEFORE `installForceGather`; updated phase-order comment.
+- `tests/kinematic/kinematic_targets.test.ts` (NEW) — 15 tests.
+- `tests/lifecycle/pose_sync.test.ts` — updated "does not write back a kinematic body"
+  test to assert kinematic bodies ARE written back (renamed and inverted assertion).
+
+**Box2D lines mirrored:**
+- `PhysicsKinematicTargets` ← `b2Body_SetTargetTransform` (body.c:831-887):
+  - `dx = target.x − sim.transformX` [ORIGIN DEVIATION; see below]
+  - `v = dx * invDt` ← `linearVelocity = b2MulSV(invTimeStep, b2Sub(center2, center1))` [body.c:857]
+  - `dAngle = relativeAngle(currentRot, targetRot)` ← `b2RelativeAngle(q1, q2)` [body.c:863]
+  - `omega = dAngle * invDt` ← `angularVelocity = invTimeStep * deltaAngle` [body.c:864/886]
+
+**Kinematic-asymmetry resolution (M1 review follow-up):** The VP-6 M1 asymmetry
+("kinematic accept-input / drop-output") is resolved in VP-20. Architect decision:
+**write kinematic poses back** (box2d-faithful). `PhysicsPoseSyncOut` now writes
+back any awake non-static body. The VP-6 "kinematic poses are user-owned" rule is
+superseded. The VP-6 pose_sync test asserting kinematic is NOT written back was
+updated to assert the opposite (renamed, assertion inverted).
+
+**Decisions / deviations:**
+- **Linear velocity targets the body ORIGIN, not the centre of mass (deviation from
+  box2d).** `b2Body_SetTargetTransform` (body.c:856-857) computes `center2 =
+  b2TransformPoint(target, sim->localCenter)` and drives the CoM there; vecs-physics
+  uses `sim.transformX/transformY` (the body origin) because `KinematicTargetPosition`
+  is in the same space as `Position` = body origin. For bodies where `localCenter = 0`
+  (no shapes, or shapes whose CoM is at the origin) the results are identical. Deviation
+  is documented in the `kinematic.ts` file header.
+- **Angular cap applies:** the solver's `MAX_ROTATION = π/4` cap (per full step) limits
+  how far a kinematic body can rotate per step; large angular targets take multiple steps
+  to converge. This is not a deviation — it is the same cap that applies to dynamic
+  bodies in `b2IntegratePositionsTask`. Tests reflect this (step(3) for π/2 target).
+- **Wake flag is a structural no-op until M5 (sleep).** Both `KinematicTargetPosition.wake`
+  and `KinematicTargetRotation.wake` are carried structurally but the system does not act
+  on them (no sleeping set exists). Mirrors the forces.ts pattern.
+
+**Tests:** 15 new tests in `tests/kinematic/kinematic_targets.test.ts`. **513 tests total** (was 498).
 Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
