@@ -20,6 +20,7 @@ import { Body } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
 import { CollisionFilter, Material } from "../components/material.js";
 import { DYNAMIC_BODY } from "../engine/body.js";
+import { destroyBodyContactsForShape } from "../engine/contact.js";
 import type { InternalShape } from "../engine/shape.js";
 import type { PhysicsState } from "../engine/state.js";
 import { NULL_INDEX } from "../util/handle.js";
@@ -73,11 +74,19 @@ export function installMaterialFilterSync(
     if (chainHandles !== undefined) {
       for (const h of chainHandles) {
         const seg = state.shapes.get(h.index);
+        // Destroy contacts for this segment before updating filter bits.
+        // Mirrors b2Shape_SetFilter → b2ResetProxy (shape.c:1325-1347): all
+        // contacts for the shape are destroyed so stale pair keys leave pairSet
+        // and the pair re-evaluates under the new filter next step.
+        if (seg.bodyHandle.index !== NULL_INDEX) {
+          const bodyRec = state.bodies.records[seg.bodyHandle.index];
+          if (bodyRec !== undefined) {
+            destroyBodyContactsForShape(state, seg.bodyHandle.index, h.index, true);
+          }
+        }
         seg.categoryBits = filt.categoryBits;
         seg.maskBits = filt.maskBits;
         seg.groupIndex = filt.groupIndex;
-        // NOTE: contact refilter (destroy now-incompatible contacts) is
-        // deferred to M3 — no contact graph exists yet.
       }
       return;
     }
@@ -87,10 +96,17 @@ export function installMaterialFilterSync(
       return;
     }
     const shape = state.shapes.get(handle.index);
+    // Destroy all contacts for this shape before updating filter bits.
+    // Mirrors b2Shape_SetFilter → b2ResetProxy (shape.c:1325-1347, 1282-1294).
+    if (shape.bodyHandle.index !== NULL_INDEX) {
+      const bodyRec = state.bodies.records[shape.bodyHandle.index];
+      if (bodyRec !== undefined) {
+        destroyBodyContactsForShape(state, shape.bodyHandle.index, handle.index, true);
+      }
+    }
     shape.categoryBits = filt.categoryBits;
     shape.maskBits = filt.maskBits;
     shape.groupIndex = filt.groupIndex;
-    // NOTE: contact refilter deferred to M3.
   });
 
   // NOTE: Sensor is an add/remove component (no data), not an update. The

@@ -801,6 +801,17 @@ function rebuildSingleShape(
   }
   const shape = state.shapes.get(handle.index);
 
+  // Destroy contacts referencing this shape before mutating its geometry.
+  // Mirrors b2ResetProxy (shape.c:1282-1294): all contacts for the shape are
+  // destroyed so the old pair keys leave pairSet, allowing the pair to
+  // re-emit and re-evaluate against the new geometry next step.
+  if (shape.bodyHandle.index !== NULL_INDEX) {
+    const bodyRec = state.bodies.records[shape.bodyHandle.index];
+    if (bodyRec !== undefined) {
+      destroyBodyContactsForShape(state, shape.bodyHandle.index, handle.index, false);
+    }
+  }
+
   mutateFn(shape);
 
   const bodyXf = getBodyWorldTransform(state, shape.bodyHandle);
