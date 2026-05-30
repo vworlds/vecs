@@ -1222,6 +1222,18 @@ flag on `InternalContact` → event emission in collide.ts/contact.ts.
   The `destroyContact` push IS correct — verified by an engine-level test that calls
   `destroyContact` directly (bypassing the Vecs inbox-buffering timing). The double-buffer
   fix belongs in VP-21b when the full publish pipeline is designed.
+  - **ARCHITECT RESOLUTION (binding on VP-21b):** do NOT add box2d's two-array double
+    buffer. Instead **relocate the clearing**: remove the contact-event clear from
+    `engineStep` and clear all ECS-bound event scratch arrays at the **end of
+    `PhysicsEvents`** (physics-post), AFTER it publishes. Then the per-frame order is
+    `physics-pre teardown → physics-step collide → physics-post publish → clear`, so
+    events generated in physics-pre (lifecycle/filter-change teardown) and between frames
+    (user `entity.destroy()` flushed at the next progress) accumulate and survive to the
+    publish — achieving box2d's double-buffer *intent* with a single array and one clear
+    point. `bodyMoveEvents` stays cleared in `engineStep` (step-only; consumed by
+    `PhysicsPoseSyncOut` earlier in physics-post). VP-21c (sensor) and VP-22 (hit) arrays
+    are step-only generated, so clearing in `engineStep` is harmless for them until VP-21b
+    consolidates the clear at end-of-publish.
 - **No sensor events here.** `collide.ts:77` already skips sensor pairs at contact creation;
   sensor begin/end is VP-21c (`engine/sensor.ts`).
 
