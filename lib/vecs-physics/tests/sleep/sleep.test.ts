@@ -30,8 +30,10 @@ import {
 import { AWAKE_SET, FIRST_SLEEPING_SET } from "../../src/engine/solver_set.js";
 import { getPhysics } from "../../src/engine/state.js";
 import { ENABLE_SLEEP } from "../../src/engine/body.js";
-import { mergeIslands, splitIsland } from "../../src/engine/island.js";
+import { linkContact, mergeIslands, splitIsland } from "../../src/engine/island.js";
+import { type InternalContact } from "../../src/engine/contact.js";
 import { mergeSolverSets } from "../../src/engine/sleep.js";
+import { NULL_INDEX } from "../../src/util/handle.js";
 
 const DT = 1 / 60;
 const STEP_MS = DT * 1000;
@@ -713,5 +715,75 @@ describe("mergeSolverSets", () => {
     // The merged set should have 2 bodies.
     const merged = state.solverSets[r1.setIndex]!;
     expect(merged.bodySims.length).toBe(2);
+  });
+});
+
+// ─── 15. linkContact both-sleeping parity (M5 fix) ───────────────────────────
+//
+// Regression for M5 issue: `linkContact` used to call `_mergeSolverSets` when
+// both bodies are sleeping, but box2d (island.c:207-217) never merges sleeping
+// sets from `b2LinkContact` — it only merges from joint creation (joint.c:326).
+// With the fix, the two sleeping sets must remain distinct after `linkContact`.
+
+describe("linkContact — both-sleeping bodies leave sets distinct (box2d parity)", () => {
+  it("does not merge the two sleeping solver sets when a contact links them", () => {
+    const world = makeWorld({ x: 0, y: 0 }, true);
+    const b1 = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
+    const b2 = world.entity().set(Position, { x: 5, y: 0 }).set(Body, { type: BodyType.Dynamic });
+
+    let now = step(world, 1, 0);
+    seedMass(world, b1, 1);
+    seedMass(world, b2, 1);
+
+    // Sleep b1 first (step gives it its own sleeping set).
+    forceSleep(world, b1);
+    now = step(world, 1, now);
+
+    // Sleep b2 separately (step gives it a different sleeping set).
+    forceSleep(world, b2);
+    now = step(world, 1, now);
+
+    const state = getPhysics(world);
+    const h1 = state.bodyByEntity.get(b1.eid)!;
+    const h2 = state.bodyByEntity.get(b2.eid)!;
+    const r1 = state.bodies.get(h1.index);
+    const r2 = state.bodies.get(h2.index);
+
+    expect(r1.setIndex).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+    expect(r2.setIndex).toBeGreaterThanOrEqual(FIRST_SLEEPING_SET);
+    // They must be in different sleeping sets.
+    expect(r1.setIndex).not.toBe(r2.setIndex);
+
+    const setABefore = r1.setIndex;
+    const setBBefore = r2.setIndex;
+
+    // Build a minimal fake contact linking the two sleeping bodies.
+    // linkContact reads: edges[0].bodyId, edges[1].bodyId, body.islandId.
+    // We give it valid body ids and island ids so mergeIslands + addContactToIsland
+    // can proceed.  The contact itself carries no sim (it is cold).
+    const fakeContact: InternalContact = {
+      edges: [
+        { bodyId: h1.index, prevKey: NULL_INDEX, nextKey: NULL_INDEX },
+        { bodyId: h2.index, prevKey: NULL_INDEX, nextKey: NULL_INDEX },
+      ],
+      islandId: NULL_INDEX,
+      islandIndex: NULL_INDEX,
+      setIndex: NULL_INDEX,
+      colorIndex: NULL_INDEX,
+      localIndex: NULL_INDEX,
+      contactId: NULL_INDEX,
+      shapeIdA: NULL_INDEX,
+      shapeIdB: NULL_INDEX,
+      flags: 0,
+    };
+
+    // Call linkContact directly (simulating the both-sleeping path).
+    linkContact(state, fakeContact);
+
+    // box2d parity: each sleeping set must remain untouched — no merge fired.
+    // The body.setIndex values must still be the original (distinct) sleeping sets.
+    expect(r1.setIndex).toBe(setABefore);
+    expect(r2.setIndex).toBe(setBBefore);
+    expect(r1.setIndex).not.toBe(r2.setIndex);
   });
 });

@@ -235,7 +235,10 @@ export class PhysicsState {
    * @internal */
   public _wakeSolverSet: (state: PhysicsState, setIndex: number) => void = () => {};
 
-  /** Hook: merge two sleeping sets. Populated by `engine/step.ts`. Default no-op.
+  /** Hook: merge two sleeping sets. Populated by `engine/sleep.ts`.
+   * Currently unused from engine code — `linkContact` no longer calls it
+   * (matching box2d, which only merges sets from joint creation; see
+   * box2d joint.c:326). Kept for joint support planned in v2.
    * @internal */
   public _mergeSolverSets: (state: PhysicsState, setId1: number, setId2: number) => void = () => {};
 

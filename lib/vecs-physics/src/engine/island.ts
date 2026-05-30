@@ -279,8 +279,11 @@ export function addContactToIsland(
  *
  * At least one body is dynamic, so at least one has an island. When one body is
  * awake and the other is sleeping, the sleeping body's set is woken via
- * `wakeSolverSet` (island.c:207-217). When both bodies are in sleeping sets, the
- * two sets are merged via `mergeSolverSets` (island.c:212-217). */
+ * `wakeSolverSet`. When both bodies are sleeping box2d does NOT merge their
+ * solver sets — it simply leaves both sleeping (island.c:207-217 has two
+ * independent `b2WakeSolverSet` calls, each guarded by the other body being
+ * awake; no merge call exists in `b2LinkContact`). vecs-physics matches this
+ * behaviour exactly. */
 export function linkContact(state: PhysicsState, contact: InternalContact): void {
   const bodyIdA = contact.edges[0]!.bodyId;
   const bodyIdB = contact.edges[1]!.bodyId;
@@ -288,30 +291,24 @@ export function linkContact(state: PhysicsState, contact: InternalContact): void
   const bodyA = state.bodies.get(bodyIdA);
   const bodyB = state.bodies.get(bodyIdB);
 
-  // island.c:207-217: wake sleeping bodies when a contact begins.
+  // island.c:207-210: wake bodyB if bodyA is awake and bodyB is sleeping.
+  // island.c:213-216: wake bodyA if bodyB is awake and bodyA is sleeping.
+  // These are two independent checks — when both bodies are sleeping neither
+  // fires and both sets remain distinct (box2d never calls b2MergeSolverSets
+  // from b2LinkContact; that call lives only in joint.c:326).
   // Import lazily to avoid circular dependency (sleep.ts imports island.ts).
-  // We use dynamic access on `state` which already has the right type.
   const setA = bodyA.setIndex;
   const setB = bodyB.setIndex;
 
   if (setA >= _FIRST_SLEEPING_SET || setB >= _FIRST_SLEEPING_SET) {
-    // Lazy import avoidance: import sleep functions via a module-level re-export
-    // in state.ts is not possible without circularity. Instead we call the
-    // functions from the cached module reference stored on state.
-    // island.c:207-210: if setA is sleeping and setB is awake → wake A.
-    // island.c:211-213: if setB is sleeping and setA is awake → wake B.
-    // island.c:214-217: if both sleeping → merge the two sets.
-    if (setA >= _FIRST_SLEEPING_SET && setB >= _FIRST_SLEEPING_SET) {
-      // Both sleeping: merge their sets so they stay asleep together.
-      state._mergeSolverSets(state, setA, setB);
-      // After merge, both bodies are in the same set. Re-read.
-    } else if (setA >= _FIRST_SLEEPING_SET) {
-      // A is sleeping, B is awake → wake A.
-      state._wakeSolverSet(state, setA);
-    } else {
-      // B is sleeping, A is awake → wake B.
+    if (setA === AWAKE_SET && setB >= _FIRST_SLEEPING_SET) {
+      // A is awake, B is sleeping → wake B (island.c:207-210).
       state._wakeSolverSet(state, setB);
+    } else if (setB === AWAKE_SET && setA >= _FIRST_SLEEPING_SET) {
+      // B is awake, A is sleeping → wake A (island.c:213-216).
+      state._wakeSolverSet(state, setA);
     }
+    // Both sleeping: no merge — box2d leaves the two sleeping sets distinct.
   }
 
   const islandIdA = bodyA.islandId;
