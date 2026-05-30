@@ -1009,7 +1009,7 @@ Reference: box2d **v3.2.0** vendored under `box2d/`.
   immediately and wakes the body; there is no buffering in box2d. The PLAN sketch
   buffered into pre-sized Float32Arrays to defer application — but `PhysicsImpulseAccumulate`
   runs in `physics-pre` (before `PhysicsMassRecompute`, which is last in pre), so to
-  use *fresh* invMass the drained impulse must be applied at the top of `engineStep`
+  use _fresh_ invMass the drained impulse must be applied at the top of `engineStep`
   (physics-step), after mass recompute. So: `PhysicsImpulseAccumulate` sums into a
   small per-body pending accumulator (`Map<bodyIndex, {x,y,angular,wake}>`, cleared each
   step) on `PhysicsState`; `engineStep` applies it to the awake `BodyState` velocity
@@ -1070,6 +1070,7 @@ _(updated as tickets land)_
 #### ✅ VP-19 — `PhysicsForceGather` + `PhysicsImpulseAccumulate` + `PhysicsImpulseZero`
 
 **Files:**
+
 - `src/engine/state.ts` — added `pendingImpulses: Map<bodyIndex, {x,y,angular,wake}>` and
   `impulseEntitiesThisStep: Set<eid>` with doc comments referencing M4 scoping decision.
 - `src/engine/step.ts` — added `applyPendingImpulses` helper called at the TOP of
@@ -1090,6 +1091,7 @@ _(updated as tickets land)_
 - `tests/forces/forces.test.ts` (NEW) — 10 tests.
 
 **Box2D lines mirrored:**
+
 - `PhysicsForceGather` ← `b2Body_ApplyForceToCenter` (body.c:964):
   `bodySim->force = b2Add(bodySim->force, force)` and `b2Body_ApplyTorque` (body.c:986):
   `bodySim->torque += torque`.
@@ -1098,6 +1100,7 @@ _(updated as tickets land)_
   `b2Body_ApplyAngularImpulse` (body.c:1077): `state->angularVelocity += invInertia * impulse`.
 
 **Decisions / deviations:**
+
 - **`onSet` hooks instead of `.update()` for impulse accumulation (PLAN divergence).**
   PLAN stated "each `set(Impulse,...)` fires one inbox event; summing across multiple sets
   in a frame is the accumulation guarantee" via `.update()` callbacks. This is incorrect:
@@ -1125,6 +1128,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 #### ✅ VP-20 — `PhysicsKinematicTargets` + kinematic write-back in `PhysicsPoseSyncOut`
 
 **Files:**
+
 - `src/systems/kinematic.ts` (NEW) — `PhysicsKinematicTargets`: non-reactive filter scan of
   `{ any: [KinematicTargetPosition, KinematicTargetRotation] }` every step; skips non-kinematic
   and non-awake bodies; sets `bState.vx/vy` and `bState.omega` to drive toward the target.
@@ -1138,6 +1142,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
   test to assert kinematic bodies ARE written back (renamed and inverted assertion).
 
 **Box2D lines mirrored:**
+
 - `PhysicsKinematicTargets` ← `b2Body_SetTargetTransform` (body.c:831-887):
   - `dx = target.x − sim.transformX` (origin form; equivalent to box2d's CoM form — see below)
   - `v = dx * invDt` ← `linearVelocity = b2MulSV(invTimeStep, b2Sub(center2, center1))` [body.c:857]
@@ -1152,6 +1157,7 @@ superseded. The VP-6 pose_sync test asserting kinematic is NOT written back was
 updated to assert the opposite (renamed, assertion inverted).
 
 **Decisions / deviations:**
+
 - **Linear velocity is computed from the body ORIGIN — equivalent to box2d's CoM
   form, NOT a deviation (architect review correction).** `b2Body_SetTargetTransform`
   (body.c:854-857) computes `center2 = b2TransformPoint(target, sim->localCenter)` and
@@ -1176,6 +1182,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 #### ✅ VP-21a — raw contact begin/end event recording (engine half)
 
 **Files:**
+
 - `src/engine/state.ts` — added `ContactTouchEvent` interface (engine-internal, uses base
   `Handle` not branded `ShapeHandle` — branding is an API-boundary guard, not useful inside
   the engine) and two `readonly` arrays: `contactBeginEvents: ContactTouchEvent[]` and
@@ -1199,6 +1206,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 - `tests/events/contact_begin_end.test.ts` (NEW) — 10 tests (7 world-level + 3 engine-level).
 
 **Box2D lines mirrored:**
+
 - Begin event: `b2Collide` (physics_world.c:749-753):
   `if ( flags & b2_contactEnableContactEvents ) b2Array_Push( world->contactBeginEvents, event )`
 - End event (stopped-touching): `b2Collide` (physics_world.c:786-790):
@@ -1214,6 +1222,7 @@ on the contact when either shape has `enableContactEvents = true`. The chain is 
 flag on `InternalContact` → event emission in collide.ts/contact.ts.
 
 **Decisions / deferrals:**
+
 - **`ContactTouchEvent` uses `Handle` (not `ShapeHandle`).** The `ShapeHandle` brand is a
   TypeScript API-boundary guard; engine-internal events don't benefit from it and it requires
   `as unknown as ShapeHandle` casts. Using the base `Handle` type is cleaner and honest.
@@ -1232,7 +1241,7 @@ flag on `InternalContact` → event emission in collide.ts/contact.ts.
     order is `physics-pre teardown → physics-step collide → physics-post publish → clear`,
     so events generated in physics-pre (lifecycle/filter-change teardown) and between frames
     (user `entity.destroy()` flushed at the next progress) accumulate and survive to the
-    publish — achieving box2d's double-buffer *intent* with a single array and one clear
+    publish — achieving box2d's double-buffer _intent_ with a single array and one clear
     point. `bodyMoveEvents` stays cleared in `engineStep` (step-only; consumed by
     `PhysicsPoseSyncOut` earlier in physics-post). **IMPLEMENTED**: VP-21b removes the five
     event-array clears from `engineStep` and adds them at the end of `PhysicsEvents.run`.
@@ -1247,6 +1256,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 #### ✅ VP-21c — engine-side sensor overlap pass (`engine/sensor.ts`)
 
 **Files:**
+
 - `src/engine/sensor.ts` (NEW) — `VisitorRecord`, `SensorRecord`, `SensorStorage`
   (create/destroy with swap-remove + sensorIndex fixup), `makeShapeDistanceProxy`,
   `sensorQueryCallback`, `processSensorTask`, `overlapSensors`, `destroySensor`.
@@ -1266,6 +1276,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 - `tests/events/sensor_begin_end.test.ts` (NEW) — 11 tests.
 
 **box2d lines mirrored:**
+
 - `VisitorRecord` ← `b2Visitor` (sensor.h); `SensorRecord` ← `b2Sensor` (sensor.h).
 - `processSensorTask` ← `b2SensorTask` (sensor.c:135-237): swap overlaps1↔overlaps2,
   append hits (CCD, no-op), disabled/!enableSensorEvents early-exit, AABB tree query,
@@ -1283,6 +1294,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 - Sensor registration ← `b2CreateShape` sensor block (shape.c:~215-220).
 
 **Opt-in / rejection rules confirmed in box2d (sensor.c:44-120):**
+
 1. Skip self (`shapeId == sensorShapeId`).
 2. Skip if `otherShape->enableSensorEvents == false` — requires opt-in on BOTH shapes.
 3. Skip same-body (`otherShape->bodyId == sensorShape->bodyId`).
@@ -1296,6 +1308,7 @@ AABB + maskBits. Placed in a new "All-tree query" section before "Pair tracking"
 Minimal — 6 lines of body.
 
 **Deferrals:**
+
 - `hits` (TOI queue for CCD) — always empty stub; CCD is M5.
   box2d sensor.c:157-164 merge path is present as a no-op loop.
 - Multi-threading / worker bitsets — collapsed to a serial pass.
@@ -1318,6 +1331,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 #### ✅ VP-22 — engine-side hit event scan (`gatherHitEvents`)
 
 **Files:**
+
 - `src/engine/state.ts` — added `ContactHitEvent` interface (engine-internal; doc-comments reference
   box2d `b2ContactHitEvent` types.h / solver.c:1749-1789 and VP-21b consumer). Added
   `contactHitEvents: ContactHitEvent[]` readonly array with clearing comment referencing the
@@ -1331,6 +1345,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 - `tests/events/hit_events.test.ts` (NEW) — 10 tests.
 
 **box2d lines mirrored (solver.c:1725-1794):**
+
 - `gatherHitEvents` ← `b2Solve` hit-events block (solver.c:1725-1794):
   - `approachSpeed = threshold` init (solver.c:1750) ← `let approachSpeed = threshold`
   - `approachSpeed = -mp->normalVelocity` (solver.c:1757) ← `const speed = -mp.normalVelocity`
@@ -1359,6 +1374,7 @@ so the call is placed at the same logical position in the pipeline. The manifold
 (storeImpulses has run) and body transforms are not yet advanced — the same window box2d uses.
 
 **Decisions / deviations:**
+
 - **`gatherHitEvents` iterates `state.graphContactSims` directly** (no bitset scan). box2d uses
   a per-contact bitset (`hitEventBitSet`, solver.c:1732-1793) set during the parallel constraint
   solve. vecs-physics is single-threaded and the overflow color owns all contacts in
@@ -1382,6 +1398,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 #### ✅ VP-21b — `systems/events.ts` — `PhysicsEvents` publish system
 
 **Files changed:**
+
 - `src/systems/events.ts` (NEW) — `installEvents`: `.run()` physics-post system.
   Three closure-local `prevTouched` Sets (contact/sensor/hit). For each raw event array:
   resolves shape entity eids via `state.shapeEntityByEid` (see below), publishes to
@@ -1425,6 +1442,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 `InternalShape.entity` is a plain `number` (eid); `InternalBody.entity` is an `Entity`.
 The reconcile was deferred to M4. VP-21b resolves it WITHOUT changing `InternalShape.entity`
 to `Entity` (engine module boundary: engine/ cannot import `Entity`). Instead:
+
 - `state.shapeEntityByEid: Map<eid, Entity>` is added to `PhysicsState`. Populated in
   `PhysicsShapeLifecycle.enter`; lazily GC'd in `PhysicsEvents.run` (NOT in exit callback).
 - Lazy GC is required because: the lifecycle exit fires in physics-pre (before PhysicsEvents
@@ -1447,12 +1465,14 @@ clears; `src/systems/events.ts` adds them after publishing. The teardown end-eve
 exercises this path. `bodyMoveEvents.length = 0` stays in `engineStep` (unchanged).
 
 **Delivery semantics (per docs/events.md):**
+
 - Contact: BOTH shapes receive if they have `ContactEvents`; `other` = the other shape entity.
 - Sensor: ONLY the SENSOR shape receives `SensorEvents`; `other` = the visitor entity.
 - Hit: BOTH shapes receive `HitEvents` if they have the component; A→B normal used for BOTH
   sides without flipping (box2d `b2ContactHitEvent` uses a single normal; documented in code).
 
 **PLAN pseudocode divergences and confirmations:**
+
 - PLAN pseudocode used `state.shapes[index].entity` as an Entity object directly. Actual
   code uses the eid from the captured-at-emit-time field + `state.shapeEntityByEid.get(eid)`.
   Functionally equivalent; uses the established map mechanism instead of storing Entity in
@@ -1468,6 +1488,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 #### ✅ M4 closeout parity — chain one-sided collision + friction ramp
 
 **Files:**
+
 - `tests/lifecycle/chain_collision.test.ts` (NEW) — 3 tests.
 - `tests/lifecycle/friction_ramp.test.ts` (NEW) — 4 tests.
 
@@ -1555,7 +1576,7 @@ commits (`eb54a3e`, `df4b3a7`, `edda709`, `476fba2`, `88ed235`).
 - **Event-array clearing relocated** (not box2d's two-array double buffer): all five
   ECS-bound raw arrays are cleared at the END of `PhysicsEvents` (physics-post) after
   publish, so physics-pre teardown end-events and between-frame `entity.destroy()` events
-  survive to the publish. Single array, one clear point, box2d's double-buffer *intent*.
+  survive to the publish. Single array, one clear point, box2d's double-buffer _intent_.
 - **Kinematic linear velocity** is computed from the body origin — proven byte-for-byte
   equal to box2d's CoM form for the only bodies it drives (kinematic bodies always have
   `localCenter = 0`). NOT a deviation.
@@ -1670,7 +1691,7 @@ open the right source:
 - **VP-26 (perf pass) is LAST and owns the M5 closeout** — it profiles the full
   post-VP-23/24 pipeline, so it must run after both. Scope: (1) the **fat-AABB
   hysteresis fix** (M3 review — hold `shape.fatAabb*` across steps, reset only on
-  escape; a parity fix *and* a perf win); (2) hot-allocation removal on a 200-body
+  escape; a parity fix _and_ a perf win); (2) hot-allocation removal on a 200-body
   scene (pre-size the impulse accumulator, scratch reuse in solver/collide/sensor);
   (3) a repeatable benchmark harness under `tests/` (or `bench/`). It does **not**
   chase micro-opts that risk parity — measurable wins only, gate stays green.
@@ -1721,6 +1742,7 @@ _(updated as tickets land)_
 #### ✅ VP-25 — `PhysicsDebugValidation` system
 
 **Files:**
+
 - `src/systems/debug.ts` (NEW) — `installDebugValidation`: a `.run()` physics-pre
   system that walks three `world.filter()` scans every step and validates all six
   structural codes from `docs/debug-validation.md`. Owns a `WarnDedupe` instance
@@ -1735,6 +1757,7 @@ _(updated as tickets land)_
   deduplication (c), message contains code+eid (d), re-arm after fix+re-break (e).
 
 **Six validation codes (all from `docs/debug-validation.md`):**
+
 1. `shape-without-parent-body` — geometry entity with no direct Body parent.
 2. `dynamic-body-without-density` — dynamic body with no non-sensor shape of
    density > 0, OR no shape children at all.
@@ -1744,6 +1767,7 @@ _(updated as tickets land)_
 6. `position-on-shape-entity` — geometry entity carries `Position`.
 
 **Decisions:**
+
 - **Filter scan approach** (not reactive queries). The validator is a read-only
   pass that runs every step regardless, mirroring `PhysicsForceGather`. Three
   `world.filter()` scans: geometry entities, body entities, and body-with-shape-pose
@@ -1780,7 +1804,7 @@ _(updated as tickets land)_
   callback hooks (mirrors `island.c:207-217`).
 - `src/engine/body.ts` — `InternalBody` grows `sleepTime`, `sleepThreshold`,
   `flags`, `bodyMoveIndex` (mirrors `b2Body.sleepThreshold/sleepTime/flags/
-  bodyMoveIndex`, body.h:106-112); adds `ENABLE_SLEEP = 0x0800` (`body.h:53`).
+bodyMoveIndex`, body.h:106-112); adds `ENABLE_SLEEP = 0x0800` (`body.h:53`).
 - `src/engine/state.ts` — `solverSets` array grows past `FIRST_SLEEPING_SET`;
   adds `sleepingSetPool`, `splitIslandId`, `splitSleepTime`,
   `fellAsleepThisStep`, and the `_wakeSolverSet`/`_mergeSolverSets` hooks (used
@@ -1822,7 +1846,7 @@ delta +26 vs baseline 569).
 - Wake-on-touch: `island.c:207-217` (`b2LinkContact`); `contact.c:506-510`
   (`b2DestroyContact`).
 - `b2WakeBody`: `body.c:328-338`. Setter wake calls: `body.c:704/795/819/871/
-  935/958/980/1011/1039/1068`.
+935/958/980/1011/1039/1068`.
 
 **Decisions / deviations**:
 
@@ -1900,7 +1924,7 @@ After merging VP-25 into the integrated branch: **637 tests** total.
   trees, TOI-interpolated body advance, fat-AABB refit, `enlargedAABB` marking.
   `enlargeBulletProxies` (physics_world.c:1917-1958): post-bullet broad-phase enlarge.
 - `src/engine/broad_phase.ts` — added `BroadPhase.queryTree(bodyType, aabb, maskBits,
-  cb)`: query a single body-type tree. Mirrors `b2DynamicTree_Query(trees + N, ...)`
+cb)`: query a single body-type tree. Mirrors `b2DynamicTree_Query(trees + N, ...)`
   in `b2SolveContinuous` (solver.c:434-440).
 - `src/engine/state.ts` — added `bulletBodies: number[]` (awake-set sim indices of
   bullet bodies collected by finalizeBodies; cleared each step).
@@ -1917,6 +1941,7 @@ After merging VP-25 into the integrated branch: **637 tests** total.
 Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 
 **Box2D lines mirrored:**
+
 - `_continuousQueryCallback` ← solver.c:181-376.
 - `solveContinuous` ← solver.c:379-541.
 - `enlargeBulletProxies` ← physics_world.c:1917-1958 (serial loop).
@@ -1947,6 +1972,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
   perf pass.
 
 **Parity tests passed:**
+
 - `SetBulletDriftTest` (flag persistence, box2d test_world.c:611-654).
 - Physical no-tunnel gate: bullet (r=0.2, vx=-20) stops at wall with CCD on.
 - `enableContinuous=false` tunnel: very-fast tiny bullet crosses hairline wall.
@@ -1956,8 +1982,9 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 - HelloWorld no-regression: slow box rests at y≈1 with CCD enabled.
 
 **Carried forward / deferrals:**
+
 - **Sensor TOI hits queue** — deferred (see above). ✅ Closed out in VP-26 M5 closeout.
-- **_getShapeIndex O(n)** — ✅ **RESOLVED VP-26**: the O(n) scan never existed in the
+- **\_getShapeIndex O(n)** — ✅ **RESOLVED VP-26**: the O(n) scan never existed in the
   VP-24 implementation; the loop variable was used directly. VP-26 added `shapeIndex`
   to `InternalShape` and removed the redundant `fastShapeIndex` from `ContinuousContext`.
 - **Fat-AABB hysteresis** — ✅ **RESOLVED VP-26**: see VP-26 entry below.
@@ -2024,11 +2051,13 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
   `tsx` is a transitive dep of vitest). Not part of `vitest run`.
 
 **Box2D lines mirrored (hysteresis fix):**
+
 - `b2FinalizeBodiesTask` shape-AABB refit: `solver.c:703-728`.
 - Containment check: `solver.c:714: b2AABB_Contains(shape->fatAABB, aabb)`.
 - Fat-AABB reset: `solver.c:716-727: fatAABB = {aabb ± margin}; shape->fatAABB = fatAABB`.
 
 **Hysteresis fix verification:**
+
 - `fat_aabb_hysteresis.test.ts` test 1 (`enlargeProxy NOT called`): a stationary
   body's `enlargeProxy` is never called after step 1 because tight AABB is
   identical every step and fits inside the fat (solver.c:714 containment → skip).
@@ -2039,6 +2068,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
   teleport unconditionally resets fat.
 
 **Perf-pass decisions (non-obvious skips):**
+
 - **`pendingImpulses` object pooling** — each per-body entry is a plain object
   `{x,y,angular,wake,generation}`. Replacing with a TypedArray layout would
   require restructuring `applyPendingImpulses` and `PhysicsImpulseAccumulate` for
@@ -2054,6 +2084,7 @@ Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
 clean from `lib/vecs-physics/`.
 
 **Benchmark baseline (`npm run bench` on dev machine):**
+
 ```
 scenario         | steps | total (ms) |  ms/step
 stacking         |   500 |      109.7 |    0.219
@@ -2113,3 +2144,27 @@ All four tickets (VP-23 / VP-24 / VP-25 / VP-26) done. **Gate-green: 652 tests**
 - **Sensor TOI hits queue** (VP-24 carry, solver.c:531-537) — the AABB-based sensor
   overlap pass (VP-21c, `engine/sensor.ts`) covers v1 sensor use cases without TOI
   precision. TOI-precise sensor detection is M6+ scope.
+
+## MILESTONE 6 — Hardening, docs, release v1.0.0 (🚧 IN PROGRESS)
+
+**Tickets: VP-27 … VP-34** (8 total). Architect: planning pass before kickoff.
+No new engine behaviour — only doc audit, box2d test-suite parity sweep,
+`SOLVER.md`, fuzz pass, public-API freeze, README + examples, monorepo
+server-demo integration, and release mechanics (MIT, CHANGELOG, v1.0.0 tag).
+
+**Execution contract: `architecture/CLOSING_PLAN.md`.** Read it first — it
+carries the full ticket breakdown (scope / files / DoD), the dependency graph,
+the settled decisions from the planning round, and notes on what is
+intentionally not in M6 scope.
+
+**Baseline at M6 start:** 668 tests / 55 files, gate green (typecheck / test /
+lint / prettier from `lib/vecs-physics/`). Post-M5 review fix pass landed
+on top of VP-26 (7 commits ending at `4c4af8d`); `architecture/issues/` empty.
+
+**NEXT: VP-27** — doc audit + docs↔code defaults pin + roadmap v2-carries
+refresh. See `CLOSING_PLAN.md` § VP-27 for scope and DoD. Suggested
+sequence: VP-27 → VP-31 → VP-28 → VP-29 → VP-30 → VP-32 → VP-33 → VP-34.
+
+### Status by ticket
+
+_(updated as tickets land)_

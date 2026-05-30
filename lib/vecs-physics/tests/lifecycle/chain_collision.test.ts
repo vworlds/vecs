@@ -80,7 +80,7 @@ function makeChainGround(world: World): void {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("Chain one-sided collision (M4 closeout parity gate)", () => {
+describe("ChainSegmentShapeTest — one-sided collision (port of box2d test_world.c::ChainSegmentShapeTest, M4 closeout parity gate)", () => {
   it("a circle dropped from above the chain rests on the front (top) side", () => {
     // Mirrors box2d ChainSegmentShapeTest lines 474-489:
     //   b2Body_GetPosition(circleBodyId).y > 0
