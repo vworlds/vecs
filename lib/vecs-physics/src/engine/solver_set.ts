@@ -16,6 +16,7 @@ import type { Entity } from "@vworlds/vecs";
 import { swapRemove } from "../util/dense_array.js";
 import { NULL_INDEX, type BodyHandle } from "../util/handle.js";
 import {
+  BODY_TRANSIENT_FLAGS,
   BodyStorage,
   DYNAMIC_BODY,
   DYNAMIC_FLAG,
@@ -180,20 +181,22 @@ export function transferBody(
   const targetIndex = targetSet.bodySims.length;
   targetSet.bodySims.push(sim);
 
-  // Box2D clears the transient sim flags (isFast | isSpeedCapped |
-  // hadTimeOfImpact) here. Those are set by the solver/CCD, which are not ported
-  // yet, so there is nothing to clear in VP-5.
+  // Clear per-step transient flags so a body that was IS_FAST / IS_SPEED_CAPPED /
+  // HAD_TIME_OF_IMPACT when it left the awake set does not carry stale CCD state
+  // into the next set. Mirrors box2d `b2TransferBody` (solver_set.c:526):
+  //   targetSim->flags &= ~(b2_isFast | b2_isSpeedCapped | b2_hadTimeOfImpact);
+  sim.flags &= ~BODY_TRANSIENT_FLAGS;
 
   removeBodySim(sourceSet, sourceIndex, storage);
 
   // Body state exists only in the awake set: drop it when leaving, create a
   // fresh identity state when entering.
   //
-  // FOLLOW-UP (M1 review): box2d seeds the new state's flags from `body->flags`
-  // (`b2TransferBody`, solver_set.c:539), not the sim's. Equivalent today (both
-  // 0 until MotionLocks/bullet are wired, and the lock/allowFastRotation bits
-  // match in both). `InternalBody` has no `flags` field yet — when the lock-flag
-  // ticket adds it, give the awake state its lock + allowFastRotation bits here.
+  // `makeIdentityBodyState` seeds from `sim.flags` rather than `body.flags`
+  // because the bits the solver/integrator consume (DYNAMIC_FLAG, LOCK_*,
+  // ALLOW_FAST_ROTATION) live on sim.flags. ENABLE_SLEEP lives only on
+  // body.flags (consulted by the finalize sleep block, not the integrator), so
+  // it is correct to omit it from the state seed.
   if (sourceSet.setIndex === AWAKE_SET) {
     swapRemove(sourceSet.bodyStates, sourceIndex);
   } else if (targetSet.setIndex === AWAKE_SET) {

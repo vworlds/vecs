@@ -1,7 +1,14 @@
 import type { Entity } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
-import { DYNAMIC_BODY, STATIC_BODY } from "../../src/engine/body.js";
+import {
+  BODY_TRANSIENT_FLAGS,
+  DYNAMIC_BODY,
+  HAD_TIME_OF_IMPACT,
+  IS_FAST,
+  IS_SPEED_CAPPED,
+  STATIC_BODY,
+} from "../../src/engine/body.js";
 import {
   AWAKE_SET,
   DISABLED_SET,
@@ -191,6 +198,24 @@ describe("transferBody", () => {
     expect(awake.bodyStates).toHaveLength(1);
     expect(staticSet.bodySims).toHaveLength(0);
     expect(disabled.bodySims).toHaveLength(0);
+  });
+
+  it("clears CCD transient flags (IS_FAST | IS_SPEED_CAPPED | HAD_TIME_OF_IMPACT) on transfer — parity with b2TransferBody solver_set.c:526", () => {
+    const state = makeState();
+    const awake = state.solverSets[AWAKE_SET]!;
+    const disabled = state.solverSets[DISABLED_SET]!;
+
+    const a = create(state, awake);
+    const sim = awake.bodySims[0]!;
+
+    // Simulate flags that the solver/CCD sets within a step.
+    sim.flags |= IS_FAST | IS_SPEED_CAPPED | HAD_TIME_OF_IMPACT;
+    expect(sim.flags & BODY_TRANSIENT_FLAGS).not.toBe(0); // sanity: flags are set
+
+    transferBody(state.bodies, disabled, awake, state.bodies.get(a.index));
+
+    // The moved sim must have all transient flags cleared.
+    expect(disabled.bodySims[0]!.flags & BODY_TRANSIENT_FLAGS).toBe(0);
   });
 });
 
