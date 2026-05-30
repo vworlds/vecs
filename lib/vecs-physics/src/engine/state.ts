@@ -376,6 +376,24 @@ export class PhysicsState {
   // Cleared by PhysicsImpulseZero at the end of each post phase.
   public readonly impulseEntitiesThisStep = new Set<number /* eid */>();
 
+  // ── VP-24: bullet-body collection ────────────────────────────────────────────
+  //
+  // Body-sim indices (in the awake set) of dynamic bullet bodies that triggered
+  // the fast-body threshold this step. Populated by `finalizeBodies` (the
+  // `IS_BULLET` branch in the isFast block); consumed and cleared by the
+  // post-solve bullet stage in `engineStep`.
+  //
+  // Mirrors `stepContext->bulletBodies` / `bulletBodyCount` (solver.c:644-645,
+  // physics_world.c:1896-1968). We use a resizable array instead of a stack-
+  // allocated fixed buffer — semantically equivalent for the single-threaded path.
+  //
+  // Must be cleared at the top of each `engineStep` alongside bodyMoveEvents.
+
+  /** Awake-set body-sim indices of bullet bodies collected this step.
+   * Rebuilt each step. Consumed and cleared by the post-solve bullet stage in
+   * `engineStep`. Mirrors `stepContext->bulletBodies` (solver.c:644). */
+  public readonly bulletBodies: number[] = [];
+
   // Monotonic step counter (determinism + event tagging).
   public stepIndex = 0;
 

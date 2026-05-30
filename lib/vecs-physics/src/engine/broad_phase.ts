@@ -367,6 +367,27 @@ export class BroadPhase {
     }
   }
 
+  /**
+   * Query one specific body-type tree (STATIC_BODY / KINEMATIC_BODY /
+   * DYNAMIC_BODY) with the given AABB and maskBits.
+   *
+   * Used by the CCD `solveContinuous` pass (VP-24): fast non-bullet bodies
+   * query only the static tree; bullet bodies also query kinematic and
+   * dynamic trees. Mirrors `b2DynamicTree_Query(staticTree, ...)` etc. in
+   * `b2SolveContinuous` (solver.c:434-440).
+   *
+   * The `userData` delivered to the callback is the shape index stored in
+   * the tree leaf.
+   */
+  queryTree(
+    bodyType: number,
+    aabb: AABB,
+    maskBits: number,
+    callback: (proxyId: number, shapeIndex: number) => boolean
+  ): void {
+    this._trees[bodyType]!.query(aabb, maskBits, callback);
+  }
+
   // -------------------------------------------------------------------------
   // Pair tracking (M3 interface)
   // -------------------------------------------------------------------------
