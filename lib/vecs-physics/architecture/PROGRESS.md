@@ -801,3 +801,31 @@ Decisions / deviations:
 **MILESTONE 3 COMPLETE** — contacts + TGS solver wired; HelloWorld parity gate
 green; 450 tests. M4 deferrals unchanged (begin/end contact events VP-21,
 sensors). M5: contact recycling, CCD/isFast, sleep, island split.
+
+### MILESTONE 3 — architecture review (this pass)
+
+All five tickets (VP-15a/b, VP-16, VP-17, VP-18) reviewed against the vendored
+box2d v3.2.0 source. The contact split, narrow-phase update (CoM-relative anchors
+
+- warm-start id matching), island link/merge/unlink, the eight TGS stages
+  (verbatim, incl. `b2MakeSoft`), and the collide state-change ordering
+  (link-first / add-before-remove, fresh `localIndex` re-resolution each iteration)
+  are all faithful. Gate independently re-run green: typecheck/test/lint/prettier,
+  **450 tests**. HelloWorld rests at `y = 0.99991` (target `|y − 1| < 0.01`).
+
+**Carried into M5 (review finding — fat-AABB hysteresis):** `updateShapeAABBs`
+(`engine/shape.ts`) **recomputes the fat AABB every step** (fat = tight + margin,
+recentred), whereas box2d **holds** `shape->fatAABB` until the tight AABB escapes
+it and only then resets it (`b2FinalizeBodiesTask`). Consequence: the cached
+`shape.fatAabb*` (used by `collide`'s disjoint check) recentres each step while
+the broad-phase **tree** proxy keeps the older, larger fat until `enlargeProxy`
+fires. This is benign for v1 — the tree proxy lags **larger**, never smaller, so
+no broad-phase pair is ever missed; a contact is only destroyed once the cached
+fats genuinely separate (gap ≈ 2·margin, i.e. not touching), and any meaningful
+re-approach moves the tight AABB out of the lagged fat, which re-buffers the proxy
+and re-creates the contact. So it self-heals and the geometric outcome matches
+(HelloWorld + the rest/stack/bounce scenarios all pass). It is a real divergence
+from box2d's hysteresis, recorded here; the proper fix (hold the fat AABB across
+steps, reset only on escape) is also a perf win and belongs in the M5 performance
+pass. This is a pre-existing `updateShapeAABBs` property (VP-8/VP-11), not
+introduced by M3; VP-18 only reuses it via the shared `refitBodyShapeProxies`.
