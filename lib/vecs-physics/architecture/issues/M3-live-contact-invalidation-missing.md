@@ -51,6 +51,25 @@ This causes two classes of bugs:
 This also contradicts the M3 contract recorded in `PROGRESS.md`, which lists the
 M2 contact-dependent deferrals as carried into M3.
 
+The Box2D reference confirms this is required lifecycle work. Checked against the
+available upstream checkout at commit `f2086ed638be65eca10830719566a95d94e1bde3`:
+
+- `box2d/src/shape.c:1325-1348` (`b2Shape_SetFilter`) updates the filter and then
+  calls `b2ResetProxy`; `box2d/src/shape.c:1281-1294` shows `b2ResetProxy` walking
+  the owning body's contact list and destroying contacts that reference the shape.
+- `box2d/src/body.c:1115-1150` (`b2Body_SetType`) destroys all body contacts
+  before transferring solver sets or recreating proxies.
+- `box2d/src/body.c:1610-1628` (`b2Body_Disable`) destroys all body contacts before
+  removing shape proxies and moving the body to the disabled set.
+- `box2d/src/body.c:1680-1717` (`b2Body_Enable`) recreates shape proxies with
+  `forcePairCreation = true`, so contacts are rebuilt through the broad-phase pair
+  path after enable.
+- `box2d/src/shape.c:298-339` (`b2DestroyShapeInternal`) destroys any contacts
+  associated with a shape before freeing it.
+- `box2d/src/broad_phase.c:249-270` re-applies same-body, sensor, filter, and type
+  eligibility before creating a contact, which only works if stale contacts/pair
+  keys were invalidated first.
+
 ## Impacted code
 
 - `src/systems/material_filter_sync.ts:70-94` updates collision filters but still
