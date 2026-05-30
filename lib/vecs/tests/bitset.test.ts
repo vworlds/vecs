@@ -140,4 +140,84 @@ describe("Bitset", () => {
     expect(b.has(1)).toBe(false);
     expect(b.has(0)).toBe(true);
   });
+
+  describe("_compileSubsetCheck", () => {
+    it("returns 'true' for an empty mask", () => {
+      const mask = new Bitset();
+      expect(mask._compileSubsetCheck("B")).toBe("true");
+    });
+
+    it("emits a single conjunct for a one-word mask", () => {
+      const mask = new Bitset();
+      mask.add(0);
+      expect(mask._compileSubsetCheck("B")).toBe("(B[0]&1)===1");
+    });
+
+    it("ORs multiple bits in the same word into one conjunct", () => {
+      const mask = new Bitset();
+      mask.add(1);
+      mask.add(2);
+      expect(mask._compileSubsetCheck("B")).toBe("(B[0]&6)===6");
+    });
+
+    it("skips zero words at code-generation time", () => {
+      const mask = new Bitset();
+      mask.add(1); // word 0, bitmask 2
+      mask.add(130); // word 4, bitmask 4
+      expect(mask._compileSubsetCheck("B")).toBe("(B[0]&2)===2&&(B[4]&4)===4");
+    });
+
+    it("emits a negative int32 literal for bit 31", () => {
+      const mask = new Bitset();
+      mask.add(31);
+      expect(mask._compileSubsetCheck("B")).toBe("(B[0]&-2147483648)===-2147483648");
+    });
+
+    it("emitted expression matches Bitset.hasBitset semantics on synthetic word arrays", () => {
+      const mask = new Bitset();
+      mask.add(1);
+      mask.add(2);
+      mask.add(33);
+      mask.add(130);
+
+      const evaluator = new Function("B", `return ${mask._compileSubsetCheck("B")};`) as (
+        b: number[]
+      ) => boolean;
+
+      const cases: { entityBits: number[]; expected: boolean }[] = [
+        // Superset of mask.
+        { entityBits: [0xff, 0xff, 0xff, 0xff, 0xff], expected: true },
+        // Missing bit 130 (word 4 missing the 0b100 bit).
+        { entityBits: [0xff, 0xff, 0xff, 0xff, 0x0], expected: false },
+        // Missing bit 33 (word 1 has only bit 0 set, not bit 1).
+        { entityBits: [0xff, 0x1, 0xff, 0xff, 0xff], expected: false },
+        // Entity shorter than the mask -> missing high words.
+        { entityBits: [0xff], expected: false },
+        // Entity exactly equal to the mask.
+        { entityBits: [0b110, 0b10, 0, 0, 0b100], expected: true },
+      ];
+
+      for (const c of cases) {
+        const target = new Bitset();
+        c.entityBits.forEach((w, i) => target._setIndexBitmask(i, w));
+        expect(evaluator(target._bits)).toBe(c.expected);
+        expect(target.hasBitset(mask)).toBe(c.expected);
+      }
+    });
+
+    it("handles bit-31 masks correctly when evaluated", () => {
+      const mask = new Bitset();
+      mask.add(31);
+      const evaluator = new Function("B", `return ${mask._compileSubsetCheck("B")};`) as (
+        b: number[]
+      ) => boolean;
+
+      const target = new Bitset();
+      target.add(31);
+      expect(evaluator(target._bits)).toBe(true);
+
+      const empty = new Bitset();
+      expect(evaluator(empty._bits)).toBe(false);
+    });
+  });
 });

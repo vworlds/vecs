@@ -1,0 +1,96 @@
+import { describe, expect, it } from "vitest";
+import { Singleton, SingletonModule, World } from "../../src/index.js";
+
+class Gravity {
+  y = -9.8;
+}
+
+class Position {
+  x = 0;
+}
+
+describe("SingletonModule", () => {
+  it("loads automatically", () => {
+    const world = new World();
+    const mod = world.module(SingletonModule);
+
+    expect(mod).toBe(world.entity(mod.eid));
+    expect(world.component(Singleton).ownMeta.Class).toBe(Singleton);
+  });
+
+  it("creates the singleton instance on the component entity", () => {
+    const world = new World();
+    const gravityComponent = world.component(Gravity);
+
+    gravityComponent.add(Singleton);
+
+    expect(gravityComponent.get(Singleton)).toBeInstanceOf(Singleton);
+    expect(gravityComponent.get(Gravity)).toBeInstanceOf(Gravity);
+    expect(world.component(Gravity).get(Gravity)).toBe(gravityComponent.get(Gravity));
+    expect(gravityComponent.instanceCount()).toBe(1);
+  });
+
+  it("allows accessing singleton instances through world.get", () => {
+    const world = new World();
+    world.component(Gravity).add(Singleton);
+    world.component(Gravity).set(Gravity, { y: -1.62 });
+
+    expect(world.get(Gravity)).toBe(world.component(Gravity).get(Gravity));
+    expect(world.get(Gravity)?.y).toBe(-1.62);
+  });
+
+  it("throws when adding a second instance", () => {
+    const world = new World();
+    const gravityComponent = world.component(Gravity);
+    const entity = world.entity();
+
+    gravityComponent.add(Singleton);
+
+    expect(() => entity.add(Gravity)).toThrow(/singleton component Gravity/);
+  });
+
+  it("is idempotent when the Singleton trait is added repeatedly", () => {
+    const world = new World();
+    const gravityComponent = world.component(Gravity);
+
+    gravityComponent.add(Singleton);
+    const gravity = gravityComponent.get(Gravity);
+
+    expect(() => gravityComponent.add(Singleton)).not.toThrow();
+    expect(gravityComponent.get(Gravity)).toBe(gravity);
+    expect(gravityComponent.instanceCount()).toBe(1);
+  });
+
+  it("rejects making a component singleton after another entity already has it", () => {
+    const world = new World();
+    const gravityComponent = world.component(Gravity);
+    const entity = world.entity().add(Gravity);
+
+    expect(() => gravityComponent.add(Singleton)).toThrow(/1 instance\(s\) already exist/);
+    expect(entity.get(Gravity)).toBeInstanceOf(Gravity);
+  });
+
+  it("does not affect non-singleton components", () => {
+    const world = new World();
+    world.component(Position);
+    const first = world.entity();
+    const second = world.entity();
+
+    first.add(Position);
+    second.add(Position);
+
+    expect(first.get(Position)).toBeInstanceOf(Position);
+    expect(second.get(Position)).toBeInstanceOf(Position);
+    expect(world.component(Position).instanceCount()).toBe(2);
+  });
+
+  it("allows clearing a singleton component entity", () => {
+    const world = new World();
+    const gravityComponent = world.component(Gravity);
+    gravityComponent.add(Singleton);
+
+    world.clearAllEntities();
+
+    expect(() => world.entity(gravityComponent.eid)).toThrow();
+  });
+});

@@ -9,7 +9,8 @@
     "node": ">=24"
   },
   "workspaces": [
-    "lib/*"
+    "lib/*",
+    "apps/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
@@ -18,6 +19,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "npm run test --workspaces --if-present",
+    "bench:vecs": "npm run bench:ecs -w @vworlds/vecs",
     "prepare": "husky"
   },
   "devDependencies": {

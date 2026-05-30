@@ -1,9 +1,18 @@
-import { type Component, type ComponentClass, type ComponentMeta } from "./component.js";
-import { Query } from "./query.js";
-import { type QueryDSL, type MaybeRequired } from "./dsl.js";
-import type { Entity } from "./entity.js";
+import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
+import {
+  isCursorMarker,
+  Iter,
+  makeInjectedInvoker,
+  wantsIter,
+  type FanInjectElement,
+  type FanInjectTuple,
+  type MaybeResolvedInjectTuple,
+} from "./inject.js";
+import { SOURCE_TRACKED_QUERY_ERROR, Query, type MaybeRequired } from "./query/index.js";
+import { containsDownTerm, type QueryDSL } from "./dsl.js";
+import { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
-import { type World } from "./world.js";
+import { type World } from "./world/index.js";
 import {
   ALWAYS_TICK_SOURCE,
   IntervalTickSource,
@@ -30,8 +39,17 @@ const enum InboxCommand {
  */
 type _SystemInboxEvent =
   | { kind: InboxCommand.Enter; entity: Entity }
-  | { kind: InboxCommand.Exit; entity: Entity; snapshot: Map<number, Component> | undefined }
-  | { kind: InboxCommand.Update; entity: Entity; meta: ComponentMeta; component: Component };
+  | {
+      kind: InboxCommand.Exit;
+      entity: Entity;
+      snapshot: Map<number, ComponentInstance> | undefined;
+    }
+  | {
+      kind: InboxCommand.Update;
+      entity: Entity;
+      meta: ComponentMeta;
+      component: ComponentInstance;
+    };
 
 /**
  * A reactive processor running over a filtered subset of world entities.
@@ -60,8 +78,7 @@ type _SystemInboxEvent =
  *
  * `enter`, `exit`, `update`, `each`, and `sort` accept an array of component
  * classes resolved from the entity and passed as a typed tuple to the
- * callback. Use `{ parent: SomeComponent }` to resolve from the entity's
- * parent instead of the entity itself.
+ * callback.
  *
  * Components declared via {@link requires} (or the `_guaranteed` argument of
  * {@link query}) are tracked as the type parameter `R`. Inside `sort`,
@@ -70,7 +87,7 @@ type _SystemInboxEvent =
  *
  * @typeParam R - Component classes guaranteed present on every matched entity.
  */
-export class System<R extends ComponentClass[] = []> extends Query<R> implements ITickSource {
+export class System<R extends ComponentType[] = []> extends Query<R> implements ITickSource {
   /** @internal Single inbox replayed in arrival order on every `_run`. */
   private readonly _inbox: _SystemInboxEvent[] = [];
   /** @internal Callback registered via {@link run}, fired every tick. */
@@ -88,6 +105,21 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
 
   constructor(name: string, world: World) {
     super(name, world, false);
+    this.entity.attach(System, this);
+  }
+
+  /** @internal Reject non-reactive source/children terms before registering this system. */
+  public override _build(): this {
+    if (this._dsl !== undefined && containsDownTerm(this._dsl)) {
+      this.destroy();
+      throw new Error(SOURCE_TRACKED_QUERY_ERROR);
+    }
+    return super._build() as this;
+  }
+
+  /** @internal Systems may be run-only processors without entity membership. */
+  protected override _isBuildable(): boolean {
+    return true;
   }
 
   /**
@@ -95,6 +127,9 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    * inbox `enter` event when an `enter` callback is registered, and bridge
    * watched components through {@link _notifyModified} to surface them as
    * inbox `update` events on entry.
+   *
+   * Target relationship reactivity is handled by `TargetTerm`; systems only
+   * translate root-term membership events into inbox commands here.
    */
   public override _enter(e: Entity): void {
     this._entities?.add(e);
@@ -105,10 +140,12 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
     if (this._enterCallback !== undefined) {
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
-    e.components.forEach((c, type) => {
-      const meta = this.world.getComponentMeta(type);
+    e.components.forEach((c, eid) => {
+      const meta = this.world.entity(eid).ownMeta;
       if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
-        this._notifyModified(e, meta, c);
+        // Entry-time initialization bypasses the silence filter: an entity
+        // introduced by an ignored source must still initialize in this system.
+        this._pushUpdate(e, meta, c);
       }
     });
   }
@@ -126,13 +163,13 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
       return;
     }
     if (this._exitCallback !== undefined) {
-      let snapshot: Map<number, Component> | undefined;
+      let snapshot: Map<number, ComponentInstance> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
-        snapshot = new Map<number, Component>();
-        for (const type of this._exitSnapshotTypes) {
-          const c = e._get(type);
+        snapshot = new Map<number, ComponentInstance>();
+        for (const eid of this._exitSnapshotTypes) {
+          const c = e._get(eid);
           if (c) {
-            snapshot.set(type, c);
+            snapshot.set(eid, c);
           }
         }
       }
@@ -142,12 +179,23 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
 
   /**
    * @internal Routing entry: push an inbox `update` event when the modified
-   * component matches the watchlist.
+   * component matches the watchlist and its source is not silenced.
    */
-  public override _notifyModified(e: Entity, meta: ComponentMeta, c: Component): void {
-    if (!this._enabled || !this._watchlistBitmask.hasBit(meta.bitPtr)) {
+  public override _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
+    if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
       return;
     }
+    if (!this._enabled) {
+      return;
+    }
+    if (this._isSourceSilenced()) {
+      return;
+    }
+    this._pushUpdate(e, meta, c);
+  }
+
+  /** @internal Append an `update` event to the inbox, bypassing the silence filter. */
+  private _pushUpdate(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
     this._inbox.push({ kind: InboxCommand.Update, entity: e, meta, component: c });
   }
 
@@ -166,6 +214,20 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
       return;
     }
     const tickDelta = this._tickSource.lastFireDelta;
+    const prevSource = this.world._currentSource;
+    this.world._currentSource = this.entity;
+    try {
+      this._runDeferred(now, tickDelta);
+    } finally {
+      this.world._currentSource = prevSource;
+    }
+  }
+
+  /**
+   * @internal Drain the inbox and fire callbacks inside a deferred scope, with
+   * this system credited as the source of any mutations made by callbacks.
+   */
+  private _runDeferred(now: number, tickDelta: number): void {
     this.world.defer(() => {
       for (let i = 0; i < this._inbox.length; i++) {
         const event = this._inbox[i];
@@ -177,7 +239,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
             this._exitCallback!(event.entity, event.snapshot);
             break;
           case InboxCommand.Update:
-            const callback = this._componentUpdateCallbacks.get(event.meta.type);
+            const callback = this._componentUpdateCallbacks.get(event.meta.eid);
             if (callback) {
               callback(event.entity, event.component);
             }
@@ -191,8 +253,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
       }
 
       if (this._eachCallback) {
-        const cb = this._eachCallback;
-        this.forEach((e) => cb(e));
+        this.forEach(this._eachCallback);
       }
     });
   }
@@ -239,6 +300,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    * ```
    */
   public interval(seconds: number): this {
+    this._assertConfigurable();
     this._setTickSource(new IntervalTickSource(seconds));
     return this;
   }
@@ -267,6 +329,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
   public rate(n: number): this;
   public rate(n: number, source: ITickSource): this;
   public rate(n: number, source?: ITickSource): this {
+    this._assertConfigurable();
     this._setTickSource(new RateTickSource(n, source ?? this._tickSource));
     return this;
   }
@@ -289,6 +352,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    * ```
    */
   public tickSource(source: ITickSource): this {
+    this._assertConfigurable();
     this._setTickSource(source);
     return this;
   }
@@ -311,12 +375,13 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    *   different world.
    */
   public phase(p: string | IPhase): this {
+    this._assertConfigurable();
     if (typeof p !== "string") {
       if (!(p instanceof Phase)) {
-        throw "Invalid Phase object";
+        throw new Error("Invalid Phase object");
       }
       if (p.world !== this.world) {
-        throw "Phase does not belong to this system's world";
+        throw new Error("Phase does not belong to this system's world");
       }
     }
     this._phase = p;
@@ -337,6 +402,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    * @returns This system, for chaining.
    */
   public run(callback: RunCallback): this {
+    this._assertConfigurable();
     this._runCallback = callback;
     return this;
   }
@@ -352,10 +418,15 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    *
    * `each` does **not** modify the system's query — define membership with
    * {@link requires} or {@link query} as usual. It does, however, implicitly
-   * enable {@link track}, so matched entities are exposed via {@link entities}.
+   * enable {@link track}, so matched entities are exposed via {@link count},
+   * {@link has}, iteration, and {@link forEach}.
    *
    * Only one `each` callback may be registered per system; calling `each` a
    * second time throws.
+   *
+   * The resolved tuple is a single array reused for every entity each tick;
+   * treat it as valid only for the duration of the callback. The component
+   * instances it holds are stable — do not retain the tuple array itself.
    *
    * @param components - Component classes to resolve from each entity.
    * @param callback - Receives the entity and a tuple of resolved component
@@ -373,19 +444,47 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    *   });
    * ```
    */
-  public each<J extends ComponentClass[]>(
+  public each<J extends FanInjectTuple>(
     components: readonly [...J],
-    callback: (e: Entity, resolved: { [K in keyof J]: MaybeRequired<J[K], R> }) => void
-  ): this {
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Entity` first to make the entity-first signature
+   * explicit. Identical behavior to the no-marker form.
+   */
+  public each<J extends FanInjectTuple>(
+    cursor: typeof Entity,
+    components: readonly [...J],
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+
+  /**
+   * As above, but pass `Iter` first to receive a reused {@link Iter}
+   * cursor instead of the bare entity. The cursor exposes the visited entity
+   * (`it.entity`) and, in `it.src`, the source entity each resolved component
+   * was read from (the visited entity for direct components, the relationship
+   * target for `up`-injected ones).
+   */
+  public each<J extends FanInjectTuple>(
+    cursor: typeof Iter,
+    components: readonly [...J],
+    callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+
+  public each(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
+    this._assertConfigurable();
     if (this._eachCallback) {
-      throw `each already registered for system '${this.name}'`;
+      throw new Error(`each already registered for system '${this.name}'`);
     }
     this.track();
-    const types = components.map((C) => this.world.getComponentType(C));
-    this._eachCallback = (e: Entity) => {
-      const resolved = types.map((t) => e.get(t));
-      callback(e, resolved as any);
-    };
+    const useIter = wantsIter(arg0);
+    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
+    const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
+      eOrIt: unknown,
+      resolved: unknown
+    ) => void;
+    this._eachCallback = makeInjectedInvoker(this.world, components, useIter, callback);
     return this;
   }
 
@@ -404,7 +503,7 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    *   entity (type hint only — not validated at runtime).
    * @returns This system, retyped with the guaranteed tuple as its `R`.
    */
-  public override query<T extends ComponentClass[] = []>(
+  public override query<T extends ComponentType[] = []>(
     q: QueryDSL,
     _guaranteed?: readonly [...T]
   ): System<T> {
@@ -416,16 +515,23 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
    * Shorthand for `query([...components])` — tracks entities that have **all**
    * of the listed component types.
    *
-   * Equivalent to `query({ HAS: components })`. The listed components are also
+   * Equivalent to `query(components)`. The listed components are also
    * recorded in the type parameter `R`, so {@link sort}, {@link each}, and
    * {@link update} callbacks treat them as non-nullable.
    *
    * @param components - Component classes to require.
    * @returns This system, retyped with the required tuple as its `R`.
    */
-  public override requires<T extends ComponentClass[]>(...components: [...T]): System<T> {
+  public override requires<T extends ComponentType[]>(...components: [...T]): System<T> {
     super.requires(...components);
     return this as unknown as System<T>;
+  }
+
+  /**
+   * Systems cannot use groupBy. Use `world.query(...).groupBy(...)` instead.
+   */
+  public override groupBy(..._args: any[]): never {
+    throw new Error("System does not support groupBy; use world.query(...).groupBy(...)");
   }
 
   /**
@@ -479,14 +585,9 @@ export class System<R extends ComponentClass[] = []> extends Query<R> implements
     return this;
   }
 
-  /**
-   * Not supported on `System`. Throws unconditionally.
-   *
-   * Systems are owned by the world for the duration of the session; if you
-   * need a temporary reactive set use a standalone {@link Query} via
-   * {@link World.query}.
-   */
-  public override destroy(): never {
-    throw `destroy() is not supported on System '${this.name}'`;
+  /** Permanently remove this system from the world. */
+  public override destroy(): void {
+    this.disable();
+    super.destroy();
   }
 }

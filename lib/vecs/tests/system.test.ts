@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { Query, System, World, type QueryDSL } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -12,14 +12,16 @@ class Velocity {
 class Sprite {}
 class Container {}
 class Player {}
+class Flag {}
 
 function setup() {
   const w = new World();
-  w.registerComponent(Position);
-  w.registerComponent(Velocity);
-  w.registerComponent(Sprite);
-  w.registerComponent(Container);
-  w.registerComponent(Player);
+  w.component(Position);
+  w.component(Velocity);
+  w.component(Sprite);
+  w.component(Container);
+  w.component(Player);
+  w.component(Flag);
   const phase = w.addPhase("p");
   return { w, phase };
 }
@@ -172,6 +174,149 @@ describe("System — enter / exit / update", () => {
 });
 
 describe("System — phases", () => {
+  it("does not register world.system() until _build()", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .run(() => {});
+    expect(w.queries).not.toContain(sys);
+    sys._build();
+    expect(w.queries).toContain(sys);
+  });
+
+  it("throws when configuring a built system", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .run(() => {})
+      .requires(Position)
+      ._build();
+    expect(() => sys.phase(phase)).toThrow();
+    expect(() => sys.run(() => {})).toThrow();
+    expect(() => sys.each([Position], () => {})).toThrow();
+    expect(() => sys.requires(Velocity)).toThrow();
+  });
+
+  it("auto-builds systems before start() reindexes phases", () => {
+    const { w, phase } = setup();
+    const cb = vi.fn();
+    const sys = w.system("test").phase(phase).run(cb);
+    w.start();
+    expect(w.queries).toContain(sys);
+    w.progress(0, 0);
+    expect(cb).toHaveBeenCalled();
+  });
+
+  it("rejects systems created after start()", () => {
+    const { w } = setup();
+    w.start();
+    expect(() => w.system("late")).toThrow("systems cannot be added after world start");
+  });
+
+  it("rejects query builds while a frame is in progress", () => {
+    const { w, phase } = setup();
+    w.system("test")
+      .phase(phase)
+      .run(() => {
+        expect(() => w.query("mid-frame").requires(Position)._build()).toThrow(
+          "queries cannot be built while a frame is in progress"
+        );
+      });
+    w.start();
+    w.progress(0, 0);
+  });
+
+  it("auto-builds queries created by an earlier system before the next system runs", () => {
+    const { w, phase } = setup();
+    const e = w.entity();
+    e.add(Flag);
+    let dynamicQuery: ReturnType<World["query"]> | undefined;
+
+    w.system("create query")
+      .phase(phase)
+      .run(() => {
+        dynamicQuery = w.query("dynamic").requires(Flag);
+      });
+    w.system("read query")
+      .phase(phase)
+      .run(() => {
+        expect(dynamicQuery?.built).toBe(true);
+        expect(dynamicQuery?.count).toBe(1);
+        expect(dynamicQuery?.has(e)).toBe(true);
+      });
+
+    w.start();
+    w.progress(0, 0);
+  });
+
+  it("build() inside a system defers until before the next system runs", () => {
+    const { w, phase } = setup();
+    const e = w.entity();
+    e.add(Flag);
+    let dynamicQuery: ReturnType<World["query"]> | undefined;
+
+    w.system("create query")
+      .phase(phase)
+      .run(() => {
+        dynamicQuery = w.query("dynamic").requires(Flag).build();
+        expect(dynamicQuery.built).toBe(false);
+      });
+    w.system("read query")
+      .phase(phase)
+      .run(() => {
+        expect(dynamicQuery?.built).toBe(true);
+        expect(dynamicQuery?.count).toBe(1);
+        expect(dynamicQuery?.has(e)).toBe(true);
+      });
+
+    w.start();
+    w.progress(0, 0);
+  });
+
+  it("build() inside a system observes commands queued by that system", () => {
+    const { w, phase } = setup();
+    const e = w.entity();
+    const enter = vi.fn();
+    let dynamicQuery: ReturnType<World["query"]> | undefined;
+
+    w.system("create query and mutation")
+      .phase(phase)
+      .run(() => {
+        dynamicQuery = w.query("dynamic").requires(Flag).enter(enter).build();
+        e.add(Flag);
+        expect(dynamicQuery.built).toBe(false);
+        expect(dynamicQuery.has(e)).toBe(false);
+      });
+    w.system("read query")
+      .phase(phase)
+      .run(() => {
+        expect(dynamicQuery?.built).toBe(true);
+        expect(dynamicQuery?.has(e)).toBe(true);
+        expect(enter).toHaveBeenCalledWith(e);
+      });
+
+    w.start();
+    w.progress(0, 0);
+  });
+
+  it("propagates pending query build errors before the next system runs", () => {
+    const { w, phase } = setup();
+    const nextSystem = vi.fn();
+
+    w.system("create broken query")
+      .phase(phase)
+      .run(() => {
+        w.query("broken").query({ BROKEN: [] } as unknown as QueryDSL);
+      });
+    w.system("must not run").phase(phase).run(nextSystem);
+
+    w.start();
+    expect(() => w.progress(0, 0)).toThrow("Unrecognized query term");
+    expect(nextSystem).not.toHaveBeenCalled();
+  });
+
   it("phase by IPhase reference assigns the system to that phase", () => {
     const w = new World();
     const seen: string[] = [];
@@ -427,7 +572,7 @@ describe("System — each", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.size).toBe(0);
+    expect(sys.count).toBe(0);
   });
 
   it("track() populates entities on enter and clears them on exit", () => {
@@ -437,11 +582,11 @@ describe("System — each", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.size).toBe(1);
-    expect(sys.entities.has(e)).toBe(true);
+    expect(sys.count).toBe(1);
+    expect(sys.has(e)).toBe(true);
     e.remove(Position);
     w.progress(0, 0);
-    expect(sys.entities.size).toBe(0);
+    expect(sys.count).toBe(0);
   });
 
   it("track() returns the system and is idempotent", () => {
@@ -453,10 +598,10 @@ describe("System — each", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.size).toBe(1);
+    expect(sys.count).toBe(1);
   });
 
-  it("each() implies track() — entities is populated without an explicit track call", () => {
+  it("each() implies track() without an explicit track call", () => {
     const { w, phase } = setup();
     const sys = w
       .system("test")
@@ -467,17 +612,7 @@ describe("System — each", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.has(e)).toBe(true);
-  });
-
-  it("system.entities is typed as a ReadonlySet", () => {
-    const { w } = setup();
-    const sys = w.system("test").requires(Position).track();
-    const fakeEntity = {} as any;
-    // @ts-expect-error entities is a ReadonlySet — add() is not exposed
-    sys.entities.add(fakeEntity);
-    // @ts-expect-error entities is a ReadonlySet — delete() is not exposed
-    sys.entities.delete(fakeEntity);
+    expect(sys.has(e)).toBe(true);
   });
 
   it("each and update coexist on the same system", () => {
@@ -524,10 +659,10 @@ describe("System — sort", () => {
     const e = w.entity();
     e.set(Position, { x: 5 });
     w.progress(0, 0);
-    expect(sys.entities.has(e)).toBe(true);
+    expect(sys.has(e)).toBe(true);
   });
 
-  it("entities are iterated in sorted order", () => {
+  it("entities in a sorted system are iterated in sorted order", () => {
     const { w, phase } = setup();
     const sys = w
       .system("test")
@@ -547,7 +682,7 @@ describe("System — sort", () => {
 
     w.progress(0, 0);
 
-    expect([...sys.entities]).toEqual([e2, e3, e1]);
+    expect([...sys]).toEqual([e2, e3, e1]);
   });
 
   it("each() visits entities in sorted order", () => {
@@ -592,11 +727,11 @@ describe("System — sort", () => {
     e2.set(Position, { x: 20 });
 
     w.progress(0, 0);
-    expect([...sys.entities]).toEqual([e1, e2]);
+    expect([...sys]).toEqual([e1, e2]);
 
     e1.remove(Position);
     w.progress(0, 0);
-    expect([...sys.entities]).toEqual([e2]);
+    expect([...sys]).toEqual([e2]);
   });
 
   it("sort with multiple components passes tuples to compare", () => {
@@ -624,16 +759,37 @@ describe("System — sort", () => {
     e3.set(Velocity, { vx: 5 }); // sum = 10
 
     w.progress(0, 0);
-    expect([...sys.entities]).toEqual([e2, e3, e1]);
+    expect([...sys]).toEqual([e2, e3, e1]);
   });
 });
 
 describe("System — destroy", () => {
-  it("destroy() throws — destroying a system is not supported", () => {
+  it("destroy() removes the system and destroys its backing entity", () => {
     const { w, phase } = setup();
     const sys = w.system("test").phase(phase).requires(Position);
+    const entity = sys.entity;
     w.start();
-    expect(() => sys.destroy()).toThrow();
+    sys.destroy();
+
+    expect(w.queries).not.toContain(sys);
+    expect(entity._destroyed).toBe(true);
+    expect(w.getEntity(entity.eid)).toBeUndefined();
+  });
+
+  it("stores systems as both query and system components", () => {
+    const { w, phase } = setup();
+    const sys = w.system("stored-system").phase(phase);
+
+    expect(sys.entity.get(Query)).toBe(sys);
+    expect(sys.entity.get(System)).toBe(sys);
+  });
+
+  it("can query system entities", () => {
+    const { w, phase } = setup();
+    const sys = w.system("queried-system").phase(phase);
+    const systems = w.query("systems").requires(Query, System).build();
+
+    expect(systems.has(sys.entity)).toBe(true);
   });
 });
 
@@ -742,13 +898,13 @@ describe("System — enable / disable", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.has(e)).toBe(true);
+    expect(sys.has(e)).toBe(true);
     sys.disable();
     const f = w.entity();
     f.add(Position);
     w.progress(0, 0);
-    expect(sys.entities.has(e)).toBe(true);
-    expect(sys.entities.has(f)).toBe(true);
+    expect(sys.has(e)).toBe(true);
+    expect(sys.has(f)).toBe(true);
   });
 
   it("entity exits are reflected in the tracked set while disabled", () => {
@@ -761,7 +917,7 @@ describe("System — enable / disable", () => {
     sys.disable();
     e.remove(Position);
     w.progress(0, 0);
-    expect(sys.entities.has(e)).toBe(false);
+    expect(sys.has(e)).toBe(false);
   });
 
   it("enable() and disable() return this for chaining", () => {

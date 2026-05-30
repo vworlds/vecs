@@ -4,11 +4,22 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "development": {
+        "types": "./src/index.ts",
+        "import": "./src/index.ts"
+      },
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
     "clean": "rimraf dist",
     "prepack": "npm run build",
     "build": "npm run clean && npm run compile",
     "compile": "tsc -p tsconfig.build.json && cp \"./package.json\" ./dist/",
+    "bench:ecs": "NODE_OPTIONS=--max-old-space-size=32768 RUN_VECS_ECS_BENCH=1 vitest run tests/ecs.bench.test.ts --pool=forks --poolOptions.forks.singleFork",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",

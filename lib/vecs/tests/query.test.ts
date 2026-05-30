@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { Query, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -11,15 +11,14 @@ class Velocity {
 }
 class Sprite {}
 class Container {}
-class Player {}
+class QueryTrait {}
 
 function setup() {
   const w = new World();
-  w.registerComponent(Position);
-  w.registerComponent(Velocity);
-  w.registerComponent(Sprite);
-  w.registerComponent(Container);
-  w.registerComponent(Player);
+  w.component(Position);
+  w.component(Velocity);
+  w.component(Sprite);
+  w.component(Container);
   const phase = w.addPhase("p");
   // dummy system ensures runPhase always flushes archetype changes
   w.system("__flush__")
@@ -32,24 +31,98 @@ function setup() {
 }
 
 describe("Query — construction", () => {
-  it("world.query() tracks entities by default", () => {
+  it("world.query() tracks entities by default once built", () => {
     const { w, tick } = setup();
-    const q = w.query("test").requires(Position);
+    const q = w.query("test").requires(Position).build();
     w.start();
     const e = w.entity();
     e.add(Position);
     tick();
-    expect(q.entities.has(e)).toBe(true);
+    expect(q.has(e)).toBe(true);
   });
 
-  it("can be created after start() and immediately backfills existing entities", () => {
+  it("counts tracked entities", () => {
+    const { w, tick } = setup();
+    const q = w.query("test").requires(Position).build();
+    w.start();
+
+    const position = w.entity().add(Position);
+    w.entity().add(Velocity);
+    tick();
+    expect(q.count).toBe(1);
+
+    position.remove(Position);
+    tick();
+    expect(q.count).toBe(0);
+  });
+
+  it("can be built after start() and immediately backfills existing entities", () => {
     const { w, tick } = setup();
     w.start();
     const e = w.entity();
     e.add(Position);
     tick(); // flush archetype so e is "settled"
+    const q = w.query("late").requires(Position).build();
+    expect(q.has(e)).toBe(true);
+  });
+
+  it("does not register world.query() until build()", () => {
+    const { w } = setup();
+    const q = w.query("test").requires(Position);
+    expect(w.queries).not.toContain(q);
+    q.build();
+    expect(w.queries).toContain(q);
+  });
+
+  it("build() leaves queries pending until deferred flush", () => {
+    const { w } = setup();
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    w.progress(0, 0);
+
+    const q = w.query("deferred").requires(Position);
+    w.defer(() => {
+      q.build();
+      expect(q.built).toBe(false);
+      expect(w.queries).not.toContain(q);
+      expect(q.has(e)).toBe(false);
+    });
+
+    expect(q.built).toBe(true);
+    expect(w.queries).toContain(q);
+    expect(q.has(e)).toBe(true);
+  });
+
+  it("does not route unbuilt queries", () => {
+    const { w } = setup();
+    const enter = vi.fn();
+    const q = w.query("test").requires(Position).enter(enter);
+    const e = w.entity();
+    e.add(Position);
+    expect(enter).not.toHaveBeenCalled();
+    expect(q.has(e)).toBe(false);
+  });
+
+  it("auto-builds unbuilt queries before a frame", () => {
+    const { w } = setup();
+    w.start();
+    const e = w.entity();
+    e.add(Position);
     const q = w.query("late").requires(Position);
-    expect(q.entities.has(e)).toBe(true);
+    expect(q.has(e)).toBe(false);
+    w.progress(0, 0);
+    expect(q.has(e)).toBe(true);
+  });
+
+  it("throws when configuring a built query", () => {
+    const { w } = setup();
+    const q = w.query("test").requires(Position).build();
+    expect(() => q.requires(Velocity)).toThrow();
+    expect(() => q.enter(() => {})).toThrow();
+    expect(() => q.track()).toThrow();
+    expect(q.count).toBe(0);
+    expect([...q]).toEqual([]);
   });
 
   it("name is accessible on the query", () => {
@@ -57,6 +130,25 @@ describe("Query — construction", () => {
     const q = w.query("enemies");
     expect(q.name).toBe("enemies");
     expect(q.toString()).toBe("enemies");
+  });
+
+  it("stores query instances on backing entities", () => {
+    const { w } = setup();
+    const q = w.query("tracked-query");
+
+    expect(q.entity.name).toBe("tracked-query");
+    expect(q.entity.get(Query)).toBe(q);
+  });
+
+  it("can query query entities by traits", () => {
+    const { w } = setup();
+    w.component(QueryTrait);
+    const tagged = w.query("tagged-query").query(false).build();
+    tagged.entity.add(QueryTrait);
+
+    const q = w.query("query-traits").requires(Query, QueryTrait).build();
+
+    expect(q.has(tagged.entity)).toBe(true);
   });
 
   it("matches nothing until requires(), query(), or update() sets a predicate", () => {
@@ -67,7 +159,14 @@ describe("Query — construction", () => {
     e.add(Position);
     tick();
     expect(q.belongs(e)).toBe(false);
-    expect(q.entities.size).toBe(0);
+    expect(q.count).toBe(0);
+  });
+
+  it("forgets queries built without a predicate", () => {
+    const { w } = setup();
+    const q = w.query("empty").build();
+    expect(w.queries).not.toContain(q);
+    expect(q.entity._destroyed).toBe(true);
   });
 });
 
@@ -80,18 +179,101 @@ describe("Query — update watchlist predicate", () => {
     tick();
 
     const update = vi.fn();
-    const q = w.query("updated").update(Position, update);
+    const q = w.query("updated").update(Position, update).build();
 
     expect(q.belongs(e)).toBe(true);
-    expect(q.entities.has(e)).toBe(true);
+    expect(q.has(e)).toBe(true);
     expect(update).toHaveBeenCalledWith(e, pos);
+  });
+
+  it("multiple update() calls before build() combine into the implicit predicate", () => {
+    const { w, tick } = setup();
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    e.add(Velocity);
+    tick();
+
+    const positionUpdate = vi.fn();
+    const velocityUpdate = vi.fn();
+    const q = w
+      .query("updated")
+      .update(Position, positionUpdate)
+      .update(Velocity, velocityUpdate)
+      .build();
+
+    expect(q.has(e)).toBe(true);
+    expect(positionUpdate).toHaveBeenCalledWith(e, e.get(Position));
+    expect(velocityUpdate).toHaveBeenCalledWith(e, e.get(Velocity));
+  });
+});
+
+describe("Query — component routing index", () => {
+  it("does not reevaluate simple queries when unrelated components change", () => {
+    const { w, tick } = setup();
+    const q = w.query("velocity").requires(Velocity);
+    const belongs = vi.spyOn(q, "belongs");
+    w.start();
+    belongs.mockClear();
+
+    const e = w.entity();
+    e.add(Position);
+    tick();
+
+    expect(belongs).not.toHaveBeenCalled();
+  });
+
+  it("matches entity refs used as typeless component keys", () => {
+    const { w, tick } = setup();
+    const key = w.entity();
+    const q = w.query("tagged").query(key).build();
+    const e = w.entity();
+
+    e.add(key);
+    tick();
+
+    expect(q.has(e)).toBe(true);
+  });
+
+  it("reindexes a query when its predicate is replaced", () => {
+    const { w, tick } = setup();
+    const q = w.query("test").requires(Position);
+    q.query(Velocity);
+    const belongs = vi.spyOn(q, "belongs");
+    w.start();
+    belongs.mockClear();
+
+    const positionOnly = w.entity();
+    positionOnly.add(Position);
+    tick();
+    expect(belongs).not.toHaveBeenCalled();
+
+    const velocityOnly = w.entity();
+    velocityOnly.add(Velocity);
+    tick();
+    expect(belongs).not.toHaveBeenCalled();
+    expect(q.has(velocityOnly)).toBe(true);
+  });
+
+  it("destroy removes a query from the routing index", () => {
+    const { w, tick } = setup();
+    const q = w.query("test").requires(Position);
+    w.start();
+    q.destroy();
+    const belongs = vi.spyOn(q, "belongs");
+
+    const e = w.entity();
+    e.add(Position);
+    tick();
+
+    expect(belongs).not.toHaveBeenCalled();
   });
 });
 
 describe("Query — predicates (belongs)", () => {
-  it("requires / HAS matches entities with all listed components", () => {
+  it("requires matches entities with all listed components", () => {
     const { w } = setup();
-    const q = w.query("test").requires(Position, Velocity);
+    const q = w.query("test").requires(Position, Velocity).build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -101,9 +283,12 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(true);
   });
 
-  it("HAS_ONLY matches entities with exactly that component set", () => {
+  it("only matches entities with exactly that component set", () => {
     const { w } = setup();
-    const q = w.query("test").query({ HAS_ONLY: [Position] });
+    const q = w
+      .query("test")
+      .query({ only: [Position] })
+      .build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -113,9 +298,12 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(false);
   });
 
-  it("AND requires all sub-predicates to match", () => {
+  it("all requires all sub-predicates to match", () => {
     const { w } = setup();
-    const q = w.query("test").query({ AND: [Position, Velocity] });
+    const q = w
+      .query("test")
+      .query({ all: [Position, Velocity] })
+      .build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -125,9 +313,12 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(true);
   });
 
-  it("OR matches if any branch is satisfied", () => {
+  it("any matches if any branch is satisfied", () => {
     const { w } = setup();
-    const q = w.query("test").query({ OR: [Sprite, Container] });
+    const q = w
+      .query("test")
+      .query({ any: [Sprite, Container] })
+      .build();
     const a = w.entity();
     a.add(Sprite);
     const b = w.entity();
@@ -139,9 +330,12 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(c)).toBe(false);
   });
 
-  it("NOT inverts a sub-predicate", () => {
+  it("not inverts a sub-predicate", () => {
     const { w } = setup();
-    const q = w.query("test").query({ AND: [Position, { NOT: Velocity }] });
+    const q = w
+      .query("test")
+      .query({ all: [Position, { not: Velocity }] })
+      .build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -151,35 +345,21 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(false);
   });
 
-  it("PARENT checks the entity's parent", () => {
+  it("an EntityTestFunc can be passed with test", () => {
     const { w } = setup();
-    const q = w.query("test").query({ PARENT: { AND: [Player, Container] } });
-    const parent = w.entity();
-    parent.add(Player);
-    parent.add(Container);
-    const child = w.entity();
-    child.setParent(parent);
-    child.add(Position);
-    expect(q.belongs(child)).toBe(true);
-    const orphan = w.entity();
-    orphan.add(Position);
-    expect(q.belongs(orphan)).toBe(false);
-  });
-
-  it("an EntityTestFunc can be passed directly", () => {
-    const { w } = setup();
-    const q = w.query("test").query((e) => e.eid === 7);
-    const seven = w.getOrCreateEntity(7);
-    seven.add(Position);
+    const q = w
+      .query("test")
+      .query({ test: (e) => e.eid === 77 })
+      .build();
+    const seven = w.getOrCreateEntity(77);
     const three = w.getOrCreateEntity(3);
-    three.add(Position);
     expect(q.belongs(seven)).toBe(true);
     expect(q.belongs(three)).toBe(false);
   });
 
-  it("a single class is shorthand for HAS", () => {
+  it("a single class matches entities with that component", () => {
     const { w } = setup();
-    const q = w.query("test").query(Position);
+    const q = w.query("test").query(Position).build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -188,9 +368,9 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(false);
   });
 
-  it("an array is shorthand for HAS", () => {
+  it("an array matches entities with all listed components", () => {
     const { w } = setup();
-    const q = w.query("test").query([Position, Velocity]);
+    const q = w.query("test").query([Position, Velocity]).build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -200,9 +380,12 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(true);
   });
 
-  it("explicit { HAS: ... } is equivalent to requires", () => {
+  it("all is equivalent to requires", () => {
     const { w } = setup();
-    const q = w.query("test").query({ HAS: [Position, Velocity] });
+    const q = w
+      .query("test")
+      .query({ all: [Position, Velocity] })
+      .build();
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
@@ -218,8 +401,8 @@ describe("Query — entity tracking via world pipeline", () => {
     const e = w.entity();
     e.add(Position);
     tick();
-    expect(q.entities.has(e)).toBe(true);
-    expect(q.entities.size).toBe(1);
+    expect(q.has(e)).toBe(true);
+    expect(q.count).toBe(1);
   });
 
   it("entity exits query when it loses a required component", () => {
@@ -231,7 +414,7 @@ describe("Query — entity tracking via world pipeline", () => {
     tick();
     e.remove(Position);
     tick();
-    expect(q.entities.size).toBe(0);
+    expect(q.count).toBe(0);
   });
 
   it("forEach (entity-only) iterates all matched entities", () => {
@@ -248,6 +431,22 @@ describe("Query — entity tracking via world pipeline", () => {
     expect(visited).toContain(a);
     expect(visited).toContain(b);
     expect(visited.length).toBe(2);
+  });
+
+  it("is directly iterable", () => {
+    const { w, tick } = setup();
+    const q = w.query("test").requires(Position);
+    w.start();
+    const a = w.entity();
+    a.add(Position);
+    const b = w.entity();
+    b.add(Position);
+    tick();
+    const visited: (typeof a)[] = [];
+    for (const e of q) {
+      visited.push(e);
+    }
+    expect(visited).toEqual([a, b]);
   });
 
   it("forEach with injection resolves components for each entity", () => {
@@ -279,16 +478,6 @@ describe("Query — entity tracking via world pipeline", () => {
     expect(velSeen).toBeUndefined();
   });
 
-  it("entities is typed as a ReadonlySet", () => {
-    const { w } = setup();
-    const q = w.query("test");
-    const fakeEntity = {} as any;
-    // @ts-expect-error entities is a ReadonlySet — add() is not exposed
-    q.entities.add(fakeEntity);
-    // @ts-expect-error entities is a ReadonlySet — delete() is not exposed
-    q.entities.delete(fakeEntity);
-  });
-
   it("destroyed entity is removed from the query", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);
@@ -296,10 +485,10 @@ describe("Query — entity tracking via world pipeline", () => {
     const e = w.entity();
     e.add(Position);
     tick();
-    expect(q.entities.has(e)).toBe(true);
+    expect(q.has(e)).toBe(true);
     e.destroy();
     tick();
-    expect(q.entities.size).toBe(0);
+    expect(q.count).toBe(0);
   });
 });
 
@@ -381,7 +570,7 @@ describe("Query — sort", () => {
     const e3 = w.entity();
     e3.set(Position, { x: 20 });
     tick();
-    expect([...q.entities]).toEqual([e2, e3, e1]);
+    expect([...q]).toEqual([e2, e3, e1]);
   });
 
   it("forEach visits entities in sorted order", () => {
@@ -415,10 +604,10 @@ describe("Query — sort", () => {
     const e2 = w.entity();
     e2.set(Position, { x: 20 });
     tick();
-    expect([...q.entities]).toEqual([e1, e2]);
+    expect([...q]).toEqual([e1, e2]);
     e1.remove(Position);
     tick();
-    expect([...q.entities]).toEqual([e2]);
+    expect([...q]).toEqual([e2]);
   });
 
   it("sort() returns the query for chaining", () => {
@@ -429,16 +618,16 @@ describe("Query — sort", () => {
 });
 
 describe("Query — destroy", () => {
-  it("destroy() clears the entities set", () => {
+  it("destroy() clears the tracked entities", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);
     w.start();
     const e = w.entity();
     e.add(Position);
     tick();
-    expect(q.entities.size).toBe(1);
+    expect(q.count).toBe(1);
     q.destroy();
-    expect(q.entities.size).toBe(0);
+    expect(q.count).toBe(0);
   });
 
   it("destroy() removes the query from the world — new entities no longer enter it", () => {
@@ -469,17 +658,19 @@ describe("Query — destroy", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it("destroy() sets world to undefined by force", () => {
+  it("destroy() destroys the backing entity", () => {
     const { w } = setup();
     const q = w.query("test").requires(Position);
+    const entity = q.entity;
     w.start();
     q.destroy();
-    expect((q as any).world).toBeUndefined();
+    expect(entity._destroyed).toBe(true);
+    expect(w.getEntity(entity.eid)).toBeUndefined();
   });
 
   it("destroy() leaves belongs() as a safe match-nothing predicate", () => {
     const { w } = setup();
-    const q = w.query("test").requires(Position);
+    const q = w.query("test").requires(Position).build();
     const e = w.entity().add(Position);
     expect(q.belongs(e)).toBe(true);
     q.destroy();
@@ -508,13 +699,13 @@ describe("Query — destroy", () => {
   });
 });
 
-describe("Query — NOT predicate routing", () => {
-  it("removing a component causes enter on a NOT query", () => {
+describe("Query — not predicate routing", () => {
+  it("removing a component causes enter on a not query", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
-    // Matches entities that have Position but NOT Velocity.
+    // Matches entities that have Position but not Velocity.
     w.query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .enter(enter);
     w.start();
     const e = w.entity();
@@ -528,26 +719,26 @@ describe("Query — NOT predicate routing", () => {
     expect(enter).toHaveBeenCalledWith(e);
   });
 
-  it("adding a component causes exit on a NOT query", () => {
+  it("adding a component causes exit on a not query", () => {
     const { w, tick } = setup();
     const exit = vi.fn();
     w.query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .exit(exit);
     w.start();
     const e = w.entity();
     e.add(Position);
     tick(); // entity matches (no Velocity)
     e.add(Velocity);
-    tick(); // adding Velocity breaks the NOT predicate → exit fires
+    tick(); // adding Velocity breaks the not predicate → exit fires
     expect(exit).toHaveBeenCalledWith(e);
   });
 
-  it("cycling NOT query fires enter → exit → enter in order", () => {
+  it("cycling not query fires enter → exit → enter in order", () => {
     const { w, tick } = setup();
     const events: string[] = [];
     w.query("test")
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .enter(() => events.push("enter"))
       .exit(() => events.push("exit"));
     w.start();
@@ -561,27 +752,29 @@ describe("Query — NOT predicate routing", () => {
     expect(events).toEqual(["enter", "exit", "enter"]);
   });
 
-  it("plain NOT query: entity enters when the excluded component is removed", () => {
+  it("plain not query: entity enters on creation and when the excluded component is removed", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
-    w.query("test").query({ NOT: Velocity }).enter(enter);
+    w.query("test").query({ not: Velocity }).enter(enter);
     w.start();
+    enter.mockClear();
     const e = w.entity();
     e.add(Velocity);
     tick();
-    expect(enter).not.toHaveBeenCalled();
+    expect(enter).toHaveBeenCalledWith(e);
+    enter.mockClear();
     e.remove(Velocity);
     tick();
     expect(enter).toHaveBeenCalledWith(e);
   });
 
-  it("system receives enter inbox event when NOT-excluded component is removed", () => {
+  it("system receives enter inbox event when not-excluded component is removed", () => {
     const { w } = setup();
     const enter = vi.fn();
     const phase = w.addPhase("p2");
     w.system("test")
       .phase(phase)
-      .query({ AND: [Position, { NOT: Velocity }] })
+      .query({ all: [Position, { not: Velocity }] })
       .enter(enter);
     w.start();
     const e = w.entity();

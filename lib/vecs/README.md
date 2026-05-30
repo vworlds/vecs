@@ -27,7 +27,7 @@ yarn add @vworlds/vecs
 ### Lifecycle in brief
 
 ```
-registerComponent() × N  →  addPhase() / system() / query() × N  →  start()  →  progress() every frame
+world.component() × N  →  addPhase() / system() / query() × N  →  start()  →  progress() every frame
 ```
 
 Components must be registered before they are used as component classes. After `start()`, component registration is disabled. Systems and queries can still be created — standalone queries backfill existing matched entities immediately.
@@ -59,9 +59,9 @@ class Health {
 
 const world = new World();
 
-world.registerComponent(Position);
-world.registerComponent(Velocity);
-world.registerComponent(Health);
+world.component(Position);
+world.component(Velocity);
+world.component(Health);
 
 // ─── Phases ────────────────────────────────────────────────────────────────
 
@@ -95,7 +95,7 @@ world
 // ─── Hooks ─────────────────────────────────────────────────────────────────
 
 world
-  .hook(Health)
+  .component(Health)
   .onAdd((entity, h) => console.log(`entity ${entity.eid} spawned with hp=${h.hp}`))
   .onRemove((entity) => console.log(`entity ${entity.eid} died`));
 
@@ -120,14 +120,14 @@ for (let tick = 0; tick < 5; tick++) {
 
 ## Deferred mode
 
-Inside a system body, a `Query.forEach`, or any `world.defer(...)` block, the world is in **deferred mode**: entity mutations (`add` / `attach` / `set` / `remove` / `destroy` / `setParent` / `modified`) are queued instead of applied inline. The queue drains on the boundary that opened the deferred scope.
+Inside a system body, a `Query.forEach`, or any `world.defer(...)` block, the world is in **deferred mode**: entity mutations (`add` / `attach` / `set` / `remove` / `destroy` / `modified`) are queued instead of applied inline. The queue drains on the boundary that opened the deferred scope.
 
 Concretely, while deferred:
 
-- `entity.get(C)` returns `undefined` after `entity.add(C)` (no instance has been created yet).
-- `entity.get(C)` returns `undefined` after `entity.attach(instance)` if C was absent.
-- `entity.get(C)` returns the **previous** value after `entity.set(C, props)`.
-- `entity.get(C)` still returns the component after `entity.remove(C)`.
+- `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.add(C)` (no instance has been created yet).
+- `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.attach(instance)` if C was absent.
+- `entity.get(C)` / `entity.getMut(C)` returns the **previous** value after `entity.set(C, props)`.
+- `entity.get(C)` / `entity.getMut(C)` still returns the component after `entity.remove(C)`.
 
 Outside any deferred scope (top-level user code) the same calls execute inline and effects are visible immediately. `world.flush()` drains any pending top-level commands; `world.defer(fn)` is sugar for `beginDefer / fn / endDefer`.
 
@@ -145,7 +145,7 @@ const world = new World();
 
 #### Component registration
 
-Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `requires`, `query`, `filter`, `hook`, or `setExclusiveComponents`.
+Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `requires`, `query`, `filter`, hook registration, or `setExclusiveComponents`.
 
 ```ts
 class Position {
@@ -153,22 +153,31 @@ class Position {
   y = 0;
 }
 
-// Auto-assigned type id (≥ 256 for "local" components):
-const positionMeta = world.registerComponent(Position);
+// Auto-assigned component id (drawn from the "component" id pool, 1–899 by default):
+const positionComponent = world.component(Position);
 
-// Explicit numeric type id (e.g. server-assigned):
-world.registerComponent(Position, 1);
+// Explicit numeric id (e.g. a server-assigned stable id):
+world.component(Position, 42);
 
-// Explicit display name (e.g. when the class name differs from the network name):
-world.registerComponent(Position, "pos");
+// Access component metadata (numeric id, cleanup policy, etc.):
+const meta = world.component(Position).ownMeta; // ComponentMeta
 
-// Pre-register a name → id mapping before the class is available:
-world.registerComponentType("Position", 1);
+// Give the component a name so it can be looked up by string later:
+world.component(Position).name = "Position";
+world.component("Position"); // resolves the same Component entity
 ```
 
-`registerComponent` returns the `ComponentMeta` for the class. Internally, vecs stores that metadata on the component class under a hidden world-specific key, so the same class can be registered independently in multiple worlds. Numeric type lookup still goes through the world's type table.
+`world.component(Class)` returns the `Component` entity for that class, creating and registering it on the first call. Subsequent calls with the same class return the same entity. The same class can be registered independently in multiple worlds.
 
-After `world.start()` (or `world.disableComponentRegistration()`) any further call to `registerComponent` throws. There is no automatic component registration; using an unregistered component class as a component is an error.
+Id ranges are configured by passing `idPools` to the `World` constructor. The built-in defaults are:
+
+| Pool        | Range     |
+| ----------- | --------- |
+| `component` | 1 – 899   |
+| `module`    | 900 – 999 |
+| `entity`    | 1000 – ∞  |
+
+After `world.start()` (or `world.disableComponentRegistration()`) any further call to `world.component(Class)` that would register a new class throws. There is no automatic component registration; using an unregistered component class as a component is an error.
 
 #### Exclusive component groups
 
@@ -188,27 +197,53 @@ Each call defines one independent group. A component may belong to at most one g
 // New entity with an auto-incrementing id:
 const e = world.entity();
 
-// Look up by id (returns undefined if not found):
+// Look up by id (throws if not found):
 const found = world.entity(42);
+
+// Optional lookup by id or component ref:
+const maybeFound = world.getEntity(42);
 
 // Server-assigned id; creates the entity if it doesn't exist yet:
 const net = world.getOrCreateEntity(serverId, (newEntity) => {
   tracked.add(newEntity);
 });
 
-// Reserve a high id range for locally created entities so they don't collide
-// with server-assigned ids (call before world.start()):
-world.setEntityIdRange(0x10000);
-
 // Destroy everything (e.g. on level reset):
 world.clearAllEntities();
+
+// Named entity lookup via Identity.name — creates entity with that name if absent:
+world.entity("player").name === "player"; // true
+world.getEntity("player") === entity; // true (returns undefined when absent)
+
+// Named component lookup — set the name first, then resolve by name:
+world.component(Position).name = "Position";
+world.component("Position"); // resolves the same component entity
 ```
+
+#### Component entity deletion cleanup
+
+Every component key is backed by a component entity. Destroying that component entity is controlled by `world.component(C).ownMeta.onDelete`:
+
+| Policy                 | Meaning                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| `CleanupPolicy.Throw`  | Default. Destroying the component entity while other entities carry it throws and changes nothing. |
+| `CleanupPolicy.Remove` | Remove the component from every carrier, then destroy the component entity.                        |
+| `CleanupPolicy.Delete` | Destroy every carrier, then destroy the component entity.                                          |
+
+```ts
+import { CleanupPolicy } from "@vworlds/vecs";
+
+world.component(Temporary).ownMeta.onDelete = CleanupPolicy.Remove;
+world.component(Temporary).destroy(); // strips Temporary from all carriers
+```
+
+The `Throw` default also applies to plain entities used as component keys (`entity.add(key)`). It preserves consistency: a failed destroy leaves the component entity, its carriers, and the usage count untouched.
 
 #### Hooks
 
 ```ts
 world
-  .hook(Sprite)
+  .component(Sprite)
   .onAdd((entity, sprite) => sprite.initialize(scene, entity))
   .onRemove((entity, sprite) => sprite.destroy(scene, entity))
   .onSet((entity, sprite) => sprite.syncToScene(entity));
@@ -227,7 +262,7 @@ const send = world.addPhase("send");
 world.progress(now, delta);
 
 // ...or run individual phases manually:
-world.beginFrame(delta);
+world.beginFrame(delta); // one numeric arg: ms since last frame
 try {
   world.runPhase(preUpdate, now, delta);
   world.runPhase(update, now, delta);
@@ -322,7 +357,7 @@ const enemies = world
   .enter((e) => console.log("enemy spawned", e.eid));
 
 world.start();
-// enemies.entities is kept up-to-date automatically.
+// enemies.count and query iteration are kept up-to-date automatically.
 
 // Standalone queries can also be created after start(); existing matched
 // entities are backfilled immediately.
@@ -340,14 +375,12 @@ world.filter([Position, Velocity]).forEach([Position, Velocity], (e, [pos, vel])
 });
 
 // Full DSL, with auto-deduced required components:
-world
-  .filter({ AND: [{ HAS: Position }, { HAS: Velocity }] })
-  .forEach([Position, Velocity], (e, [pos, vel]) => {
-    pos.x += vel.vx;
-  });
+world.filter({ all: [Position, Velocity] }).forEach([Position, Velocity], (e, [pos, vel]) => {
+  pos.x += vel.vx;
+});
 
 // Manual hint for queries the type extractor can't see through:
-world.filter({ OR: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
+world.filter({ any: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
 ```
 
 A `Filter` requires no name, no `world.start()`, and no `destroy()` — create it anywhere and discard freely.
@@ -366,7 +399,7 @@ world.endDefer();
 
 ---
 
-### `Component`
+### `ComponentInstance`
 
 Components are plain classes. vecs does not provide a runtime base class and does not attach `entity`, `meta`, `type`, `bitPtr`, or `modified()` to component instances.
 
@@ -376,12 +409,12 @@ class Position {
   y = 0;
 }
 
-world.registerComponent(Position);
+world.component(Position);
 
 entity.add(Position);
-const pos = entity.get(Position)!;
+const pos = entity.getMut(Position)!;
 pos.x = 100;
-entity.modified(Position); // tell the world this component changed
+// getMut marks Position changed before returning the mutable instance.
 
 // Equivalent — set assigns props and fires onSet automatically:
 entity.set(Position, { x: 100 });
@@ -396,11 +429,11 @@ entity.get(Position) === shared; // true
 | ------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Plain class               | Components should be ordinary classes with field initializers and methods as needed.                           |
 | No-arg construction       | vecs calls `new ComponentClass()`, so constructors should be omitted or take no parameters.                    |
-| Explicit registration     | Call `world.registerComponent(C)` before using the class as a component.                                       |
+| Explicit registration     | Call `world.component(C)` before using the class as a component.                                               |
 | Shared instances possible | `entity.attach(instance)` stores the exact passed object; code should use the entity passed by vecs callbacks. |
 | Manual dirty marking      | After mutating fields directly, call `entity.modified(C)` to notify hooks, queries, and systems.               |
 
-Use `world.getComponentMeta(C)` or `world.getComponentType(C)` when you need metadata such as the numeric type id or component name. Metadata is world-specific.
+Use `world.component(C).ownMeta` when you need metadata such as the numeric type id or component name. Metadata is world-specific.
 
 ---
 
@@ -408,48 +441,105 @@ Use `world.getComponentMeta(C)` or `world.getComponentType(C)` when you need met
 
 Created via `world.entity()` (auto-assigned id) or `world.getOrCreateEntity(id, ...)` (caller-supplied id).
 
-| Property / Method   | Description                                                                                                                           |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `eid`               | Unique numeric entity id.                                                                                                             |
-| `world`             | The `World` that owns this entity.                                                                                                    |
-| `componentBitmask`  | `Bitset` of component type ids attached to this entity. Used by archetype matching.                                                   |
-| `properties`        | `Map<string, any>` free-form bag for module-level bookkeeping.                                                                        |
-| `add(Class)`        | Attach a component (idempotent). Returns the entity for chaining.                                                                     |
-| `attach(instance)`  | Attach an existing registered component instance directly; replaces any previous instance for that component class and fires `onSet`. |
-| `set(Class, props)` | Attach a component and assign `props`; fires `onSet`. Returns the entity for chaining.                                                |
-| `modified(Class)`   | Queue an `onSet` / `update` notification for a component class or numeric type id. Returns the entity for chaining.                   |
-| `get(Class)`        | Return the component instance, or `undefined`.                                                                                        |
-| `remove(Class)`     | Detach a component (fires `onRemove` and `exit`).                                                                                     |
-| `destroy()`         | Remove all components, unregister from the world, recurse into children.                                                              |
-| `components`        | `ReadonlyArrayMap<Component>` — read-only view of attached components keyed by type id. Supports `forEach`, `get`, `has`, and `size`. |
-| `empty`             | `true` when no components are attached.                                                                                               |
-| `parent`            | Parent entity, or `undefined` for a root entity.                                                                                      |
-| `children`          | `ReadonlySet<Entity>` of direct children (lazy).                                                                                      |
-| `setParent(p)`      | Reparent the entity. `undefined` makes it a root entity. Throws on cycles.                                                            |
-| `events`            | Typed event emitter. Currently emits `"destroy"` just before teardown.                                                                |
-| `toString()`        | Returns `"EntityN"`.                                                                                                                  |
+| Property / Method   | Description                                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `eid`               | Unique numeric entity id.                                                                                                                     |
+| `world`             | The `World` that owns this entity.                                                                                                            |
+| `componentBitmask`  | `Bitset` of component type ids attached to this entity. Used by archetype matching.                                                           |
+| `properties`        | `Map<string, any>` free-form bag for module-level bookkeeping.                                                                                |
+| `add(Class)`        | Attach a component (idempotent). Returns the entity for chaining.                                                                             |
+| `attach(instance)`  | Attach an existing registered component instance directly; replaces any previous instance for that component class and fires `onSet`.         |
+| `set(Class, props)` | Attach a component and assign `props`; fires `onSet`. Returns the entity for chaining.                                                        |
+| `modified(Class)`   | Queue an `onSet` / `update` notification for a component class or numeric type id. Returns the entity for chaining.                           |
+| `get(Class)`        | Return the component as a readonly-typed value, or `undefined`.                                                                               |
+| `getMut(Class)`     | Mark the component modified and return the mutable instance, or `undefined`.                                                                  |
+| `remove(Class)`     | Detach a component (fires `onRemove` and `exit`).                                                                                             |
+| `destroy()`         | Remove all components, unregister from the world, then applies incoming relationship cleanup policies.                                        |
+| `components`        | `ReadonlyArrayMap<ComponentInstance>` — read-only view of attached components keyed by type id. Supports `forEach`, `get`, `has`, and `size`. |
+| `empty`             | `true` when no components are attached.                                                                                                       |
+| `parent(ref)`       | Target entity for relationship component `ref`, or `undefined`.                                                                               |
+| `children(ref)`     | `ReadonlySet<Entity>` of entities targeting this one through relationship component `ref`.                                                    |
+| `events`            | Typed event emitter. Currently emits `"destroy"` just before teardown.                                                                        |
+| `toString()`        | Returns `"EntityN"`.                                                                                                                          |
 
-Call `entity.modified(C)` after mutating a component directly. Repeated calls for the same component type are coalesced while the world is deferred:
+Use `entity.getMut(C)` when you need to mutate a component directly. It calls `entity.modified(C)` before returning the mutable instance. Repeated modified notifications for the same component type are coalesced while the world is deferred:
 
 ```ts
-const vel = entity.get(Velocity)!;
+const vel = entity.getMut(Velocity)!;
 vel.vx += accel;
-entity.modified(Velocity); // chainable
 ```
 
 Use `entity.attach(instance)` when component ownership is intentionally shared with caller code or another object graph. The instance constructor must be registered in the entity's world; unregistered instances throw. If the component belongs to an exclusive component group, conflicting components are removed before the instance is stored.
 
-#### Parent / child hierarchy
+#### Relationships and parent / child hierarchy
 
 ```ts
-child.setParent(parent);
-parent.children.has(child); // true
+import { ChildOf, CleanupPolicy, Relationship } from "@vworlds/vecs";
 
-// Destroying a parent recursively destroys all children:
+child.set(ChildOf, { target: parent });
+child.parent(ChildOf) === parent; // true
+parent.children(ChildOf).has(child); // true
+
+// ChildOf is configured with CleanupPolicy.Delete, so destroying a parent
+// recursively destroys children that target it through ChildOf:
 parent.destroy();
 ```
 
-`setParent` throws if the new parent is a descendant of the entity. Archetype queries that use `{ PARENT: ... }` are re-evaluated automatically when a parent's component set changes.
+Any component that extends `Relationship` can point at another entity through its `target` field. The source entity stores the relationship component; the target entity can enumerate sources with `children(ref)`.
+
+```ts
+class EquippedBy extends Relationship {}
+
+item.set(EquippedBy, { target: player });
+item.parent(EquippedBy); // player
+player.children(EquippedBy).has(item); // true
+```
+
+Relationship target cleanup is controlled by `ownMeta.onDeleteTarget`:
+
+| Policy                 | Meaning                                                                                      |
+| ---------------------- | -------------------------------------------------------------------------------------------- |
+| `CleanupPolicy.Remove` | Default. When a target is destroyed, remove the relationship component from each source.     |
+| `CleanupPolicy.Delete` | When a target is destroyed, destroy each source entity that targets it through the relation. |
+
+`ChildOf` is registered by every `World` and uses `CleanupPolicy.Delete`. Custom relationships default to `Remove`; set `world.component(MyRelationship).ownMeta.onDeleteTarget = CleanupPolicy.Delete` if target deletion should cascade.
+
+`onDeleteTarget` is independent from `onDelete`: `onDeleteTarget` runs when a relationship target is destroyed, while `onDelete` runs when the relationship component entity itself is destroyed.
+
+Retarget relationships with `entity.set(RelationshipClass, { target })`. `entity.getMut(RelationshipClass)` throws for relationship components because in-place target mutation would bypass the reverse index used by `children(ref)` and cleanup cascades.
+
+Relationship queries use `target` to follow a relationship from the candidate entity to its target and test that target with another DSL expression. Use `parent` for the built-in `ChildOf` hierarchy:
+
+```ts
+world.query("body-friends").query({ all: [Body, { target: [FriendOf, [Position, Velocity]] }] });
+world.query("positioned-children").query({ all: [Position, { parent: Body }] });
+```
+
+Tracked queries stay live when either side changes. Adding or removing `FriendOf` on the candidate re-routes the candidate normally; adding or removing `Position` / `Velocity` on the target also refreshes every candidate that points at that target. Nested `target` works the same way across multiple hops.
+
+Use `source` with `world.filter(...)` when you need the opposite direction: test whether at least one child points at the candidate through a relationship and matches an inner DSL expression. Use `children` for the built-in `ChildOf` hierarchy. `source` and `children` are exact for each filter scan, but they are non-reactive and rejected by tracked `Query` / `System` membership.
+
+```ts
+world.filter({ all: [Body, { children: Position }] }).forEach((parent) => {
+  // parent has at least one ChildOf child with Position right now.
+});
+```
+
+Component injection supports lowercase `down` in `forEach` and system `each` injection lists. It fans out: the callback fires once for each child pointing at the visited entity through the relationship, and child component slots are nullable.
+
+```ts
+world
+  .query("parents")
+  .requires(Body)
+  .forEach([Body, { down: [ChildOf, [Position]] }], (parent, [body, childPos]) => {
+    // One call per ChildOf child of parent. childPos is undefined when that child lacks Position.
+  });
+```
+
+Two details matter:
+
+- A `down` injection does not call the callback for a matched entity with zero children through that relationship.
+- `down` injection iterates all children through the relationship, independent of any `children` / `source` filter used for membership. For example, `world.filter({ children: Position }).forEach([{ down: [ChildOf, [Position]] }], ...)` also visits children without `Position`, with `childPos === undefined`.
 
 ---
 
@@ -462,33 +552,73 @@ Systems are created via `world.system(name)` and configured through a fluent bui
 Declare which entities the system tracks.
 
 ```ts
-.requires(Position, Velocity)                                    // shorthand for HAS
-.query({ HAS: [Position, Velocity] })                            // explicit
-.query({ PARENT: { AND: [Player, Container] } })                 // parent-aware
-.query({ AND: [Position, { OR: [Sprite, Container] }] })         // compound
-.query({ NOT: Invisible })
+.requires(Position, Velocity)                                      // shorthand for [Position, Velocity]
+.query([Position, Velocity])                                       // explicit component list
+.query({ all: [Position, { any: [Sprite, Container] }] })          // compound
+.query({ not: Invisible })
+.query({ target: [FriendOf, Position] })                           // relationship target has Position
+.query({ parent: Body })                                           // ChildOf target has Body
 ```
 
 **Query operators:**
 
-| Operator               | Meaning                                  |
-| ---------------------- | ---------------------------------------- |
-| `{ HAS: [A, B] }`      | Entity has all of A and B                |
-| `{ HAS_ONLY: [A, B] }` | Entity has exactly A and B, nothing else |
-| `{ AND: [q1, q2] }`    | Both sub-queries must match              |
-| `{ OR: [q1, q2] }`     | Either sub-query matches                 |
-| `{ NOT: q }`           | Sub-query must not match                 |
-| `{ PARENT: q }`        | Entity's parent matches q                |
-| An array `[A, B]`      | Shorthand for `{ HAS: [A, B] }`          |
-| A single class / id    | Shorthand for `{ HAS: [C] }`             |
-| A predicate function   | Custom membership logic                  |
+| Operator             | Meaning                                                |
+| -------------------- | ------------------------------------------------------ |
+| A single class / id  | Entity has that component                              |
+| An array `[A, B]`    | Entity has all of A and B                              |
+| `{ only: [A, B] }`   | Entity has exactly A and B, nothing else               |
+| `{ all: [q1, q2] }`  | Both sub-queries must match                            |
+| `{ any: [q1, q2] }`  | Either sub-query matches                               |
+| `{ not: q }`         | Sub-query must not match                               |
+| `{ target: [R, q] }` | Relationship `R` target matches `q`                    |
+| `{ source: [R, q] }` | Filter-only: some `R` source/child matches `q`         |
+| `{ parent: q }`      | Built-in `ChildOf` target matches `q`                  |
+| `{ children: q }`    | Filter-only: some built-in `ChildOf` child matches `q` |
+| `{ test: fn }`       | Custom membership logic                                |
 
-Class-valued query terms are recognized as components by looking up registered metadata for the current world. Register component classes before using them in a `QueryDSL`; an unregistered class is treated like a predicate function and will fail if it cannot be called that way.
+`target` and `source` use tuple form only: `{ target: [RelationshipClass, innerDSL] }` / `{ source: [RelationshipClass, innerDSL] }`. The first element must be a component that extends `Relationship`; passing a normal component throws. `target` evaluates the inner DSL against the relationship target; `source` evaluates it against each child/source and matches when at least one child/source matches. Because `source` and `children` are non-reactive, use them with `world.filter(...)`, not tracked queries or systems.
+
+Component injection also supports lowercase relationship markers. `up` works in `forEach`, `each`, `enter`, and `exit` injection lists. It follows the relationship target and flattens the requested target components into the callback tuple:
+
+```ts
+world
+  .query("friends")
+  .query({ target: [FriendOf, Position] })
+  .forEach([Body, { up: [FriendOf, [Position, Velocity]] }], (e, [body, pos, vel]) => {
+    // body is from e; pos and vel are from e.parent(FriendOf)
+    // target-side injected components are undefined if the target is absent or lacks them.
+  });
+```
+
+On `exit`, direct component injection is snapshot-stable when the exiting component was just removed. `up` injection resolves the target live at callback time, so target-side slots can be `undefined` if the exit was caused by the target losing that component.
+
+Lowercase `down` is allowed only in `forEach` and system `each`, where fan-out has a clear meaning. Only one `down` marker is allowed per injection tuple.
+
+#### Iter cursor
+
+Pass `Iter` as the first argument to `each`, `forEach`, `enter`, `exit`, `update`, or `sort` to receive a reusable cursor object instead of the bare entity. The cursor exposes:
+
+- `it.entity` — the visited entity.
+- `it.src` — a same-length array of source entities: the visited entity for a directly-injected component, the relationship target for an `up`-injected one, or the specific child for a `down`-injected one.
+
+```ts
+system.each(Iter, [Body, { up: [ChildOf, [Position]] }], (it, [body, pos]) => {
+  it.entity; // the visited entity
+  it.src[0]; // entity `body` was read from (the visited entity)
+  it.src[1]; // entity `pos` was read from (the ChildOf target)
+});
+```
+
+When `Iter` is **not** requested, the original code path runs with zero per-entity overhead. Dispatch to the cursor or non-cursor path happens once at setup time — not per entity. A single `Iter` instance is mutated before each callback; read what you need inside the callback but do not retain the cursor or its `src` array across callbacks.
+
+`enter` and `exit` allocate a fresh `Iter` per event (they fire reentrantly during command routing). `each` / `forEach` / `update` reuse a single `Iter` instance for the whole pass; `sort` reuses two (one per side of the comparison). Because a plain `Query.update` callback fires synchronously during command routing, a nested mutation triggered from inside it can re-enter `update` and overwrite that reused cursor and tuple mid-callback — snapshot any `it`, `it.src`, or tuple values you need before triggering further mutations.
+
+Class-valued query terms are components. Register component classes before using them in a `QueryDSL`; an unregistered class throws. Use `{ test: fn }` for arbitrary predicate functions.
 
 **Type inference.** `requires()` records the listed classes as a type parameter `R` on the system. Callbacks in `.sort()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `query()` expressions the type system can't introspect, supply a `_guaranteed` second argument:
 
 ```ts
-.query({ AND: [{ HAS: Position }, { HAS: Velocity }] }, [Position, Velocity])
+.query({ all: [Position, Velocity] }, [Position, Velocity])
 .each([Position, Velocity], (e, [pos, vel]) => {
   pos.x += vel.vx; // pos and vel are non-null
 });
@@ -512,16 +642,11 @@ Fires once when an entity first matches the system.
 .enter([Position, Sprite], (e, [pos, sprite]) => {
   sprite.setPosition(pos.x, pos.y);
 })
-
-// Resolve from the entity's parent:
-.enter([{ parent: Container }], (e, [container]) => {
-  container.add(e.get(Sprite)!.gameObject);
-});
 ```
 
 #### `.exit(callback)` / `.exit(inject, callback)`
 
-Fires when an entity leaves the system (component removed or entity destroyed). Components removed in the same frame are still resolvable in `inject`.
+Fires when an entity leaves the system (component removed or entity destroyed). Direct components removed in the same frame are still resolvable in `inject`; `up` injection resolves relationship targets live.
 
 ```ts
 .exit([Sprite], (e, [sprite]) => sprite.destroy());
@@ -539,7 +664,7 @@ Fires when `entity.modified(ComponentClass)` is called for the watched component
 });
 ```
 
-If `query()` has not been called, `update` automatically expands the implicit `HAS` predicate to require the watched component.
+If `query()` has not been called, `update` automatically expands the implicit component predicate to require the watched component.
 
 #### `.each(components, callback)`
 
@@ -554,7 +679,7 @@ Fires every tick for **every tracked entity**, regardless of whether anything ch
 
 #### `.sort(components, compare)`
 
-Store matched entities in a custom order determined by `compare`. Implies `.track()`. Iterating `system.entities`, `forEach`, and `each` walks entities in sorted order.
+Store matched entities in a custom order determined by `compare`. Implies `.track()`. Iterating the system, `forEach`, and `each` walks entities in sorted order.
 
 ```ts
 world
@@ -566,7 +691,7 @@ world
 
 #### `.track()`
 
-Enable entity tracking without an `each` callback — exposes matched entities via `system.entities`. `each` and `sort` imply `track` automatically. When called after `world.start()`, immediately backfills existing matched entities.
+Enable entity tracking without an `each` callback — exposes matched entities via `system.count`, `system.has(e)`, and direct iteration. `each` and `sort` imply `track` automatically. When called after `world.start()`, immediately backfills existing matched entities.
 
 #### `.run(callback)`
 
@@ -596,7 +721,7 @@ Both methods return `this` for chaining and are idempotent (calling `disable()` 
 
 #### `.destroy()`
 
-**Not supported on `System`** — calling it throws. Systems live for the duration of the world. Use a standalone `Query` for temporary reactive sets.
+Permanently remove this system from the world. Calls `disable()` first (clearing the inbox), then removes the system from its phase and unregisters its backing entity. No `exit` callbacks fire. Use a standalone `Query` if you need a temporary reactive set that can be destroyed mid-session.
 
 ---
 
@@ -616,12 +741,13 @@ const projectiles = world
 world.start();
 
 projectiles.forEach((e) => { ... });
-console.log(projectiles.entities.size, "active projectiles");
+for (const e of projectiles) { ... }
+console.log(projectiles.count, "active projectiles");
 ```
 
 | Method                                                  | Description                                                                                         |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `.requires(...components)`                              | Set the membership predicate to `HAS(...components)` and start tracking.                            |
+| `.requires(...components)`                              | Set the membership predicate to require all listed components and start tracking.                   |
 | `.query(expr, _guaranteed?)`                            | Set the membership predicate using a `QueryDSL` expression.                                         |
 | `.enter(callback)` / `.enter(inject, callback)`         | Fires when an entity joins the query.                                                               |
 | `.exit(callback)` / `.exit(inject, callback)`           | Fires when an entity leaves the query.                                                              |
@@ -629,9 +755,11 @@ console.log(projectiles.entities.size, "active projectiles");
 | `.sort(components, compare)`                            | Store matched entities in sorted order. Comparator receives `(entityA, tupleA, entityB, tupleB)`.   |
 | `.track()`                                              | Enable tracking. Backfills when called after `start()`.                                             |
 | `.belongs(e)`                                           | Returns `true` if the entity satisfies the predicate.                                               |
+| `.count`                                                | Number of currently tracked entities.                                                               |
+| `.has(e)`                                               | Returns `true` if the entity is currently tracked.                                                  |
+| `[Symbol.iterator]()`                                   | Iterate currently tracked entities with `for (const e of query)`.                                   |
 | `.forEach(callback)`                                    | Iterate currently tracked entities.                                                                 |
 | `.forEach(components, callback)`                        | Iterate with component injection.                                                                   |
-| `.entities`                                             | `ReadonlySet<Entity>` of currently tracked entities.                                                |
 | `.destroy()`                                            | Remove the query from the world and from every entity (no exit fires).                              |
 
 #### `.destroy()` semantics
@@ -640,7 +768,7 @@ console.log(projectiles.entities.size, "active projectiles");
 
 ```ts
 const q = world.query("Temporary").requires(Position);
-// ... use q.entities ...
+// ... use q.count, q.has(e), or iterate q ...
 q.destroy();
 ```
 
@@ -663,14 +791,14 @@ const f = world.filter([Position, Velocity]);
 
 `forEach` runs inside a deferred scope, so mutations made by the callback are batched and become visible after iteration finishes.
 
-**Type inference.** Component classes the type system can extract from the DSL (`HAS`, `HAS_ONLY`, plain arrays, `AND` of those) are non-nullable in the callback tuple. For the rest, supply a `_guaranteed` second argument to `world.filter()`:
+**Type inference.** Component classes the type system can extract from the DSL (plain component classes, plain arrays, `only`, and `all` of those) are non-nullable in the callback tuple. For the rest, supply a `_guaranteed` second argument to `world.filter()`:
 
 ```ts
 // Auto-deduced — both non-null:
 world.filter([Position, Velocity]).forEach([Position, Velocity], (e, [pos, vel]) => { ... });
 
-// Manual hint for OR / NOT / PARENT / custom function:
-world.filter({ OR: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
+// Manual hint for any / not / test:
+world.filter({ any: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
 ```
 
 A `Filter` holds no tracked set, makes no registration calls, and needs no `destroy()`.
@@ -681,18 +809,20 @@ A `Filter` holds no tracked set, makes no registration calls, and needs no `dest
 
 A compact, growable set of non-negative integers backed by 32-bit words. Used internally for entity archetypes and watchlists, and exposed in the public API so component data can use it for bit-flag fields.
 
-| Method             | Description                                                              |
-| ------------------ | ------------------------------------------------------------------------ |
-| `add(n)`           | Set bit `n`.                                                             |
-| `addBit(bptr)`     | Set the bit at a pre-computed `BitPtr`.                                  |
-| `delete(n)`        | Clear bit `n`. Trims trailing zero words.                                |
-| `clear()`          | Remove every set bit.                                                    |
-| `has(n)`           | Returns `true` if bit `n` is set.                                        |
-| `hasBit(bptr)`     | Fast check via a pre-computed `BitPtr`.                                  |
-| `equal(other)`     | Returns `true` when both bitsets have the same bits set.                 |
-| `hasBitset(other)` | Returns `true` when every bit set in `other` is also set in this bitset. |
-| `forEach(cb)`      | Visit each set bit index in ascending order.                             |
-| `indices()`        | Return all set bit indices as a `number[]`.                              |
+| Method             | Description                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| `add(n)`           | Set bit `n`.                                                                          |
+| `addBit(bptr)`     | Set the bit at a pre-computed `BitPtr` (fast path).                                   |
+| `delete(n)`        | Clear bit `n`. Storage is not compacted automatically; call `compact()` when needed.  |
+| `deleteBit(bptr)`  | Clear the bit at a pre-computed `BitPtr` (fast path). Does not compact automatically. |
+| `compact()`        | Trim trailing zero words from backing storage.                                        |
+| `clear()`          | Remove every set bit.                                                                 |
+| `has(n)`           | Returns `true` if bit `n` is set.                                                     |
+| `hasBit(bptr)`     | Fast check via a pre-computed `BitPtr`.                                               |
+| `equal(other)`     | Returns `true` when both bitsets have the same bits set.                              |
+| `hasBitset(other)` | Returns `true` when every bit set in `other` is also set in this bitset.              |
+| `forEach(cb)`      | Visit each set bit index in ascending order.                                          |
+| `indices()`        | Return all set bit indices as a `number[]`.                                           |
 
 ```ts
 class Tags {

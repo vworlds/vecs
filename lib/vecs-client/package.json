@@ -11,5 +11,11 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
     "test": "vitest run --passWithNoTests"
   },
+  "dependencies": {
+    "@vworlds/vecs": "*",
+    "@vworlds/vecs-protocol": "*",
+    "@vworlds/vecs-wire": "*",
+    "@vworlds/dgram-client": "^1.0.7"
+  },
   "license": "UNLICENSED"
 }
