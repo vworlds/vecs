@@ -15,7 +15,8 @@ import { type IPhase, type System, type World } from "@vworlds/vecs";
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "../components/body.js";
 import { STATIC_BODY, writeBodyTransform } from "../engine/body.js";
 import { refitBodyShapeProxies } from "../engine/shape.js";
-import { AWAKE_SET } from "../engine/solver_set.js";
+import { wakeBody } from "../engine/sleep.js";
+import { AWAKE_SET, FIRST_SLEEPING_SET } from "../engine/solver_set.js";
 import { PhysicsSystemTag, type PhysicsState } from "../engine/state.js";
 import { makeRot } from "../math/rot.js";
 import { type BodyHandle } from "../util/handle.js";
@@ -48,6 +49,12 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: IPha
       return;
     }
     const record = state.bodies.get(handle.index);
+    // b2Body_SetTransform (body.c:704): wake the body when teleporting.
+    // Mirrors: box2d wakes the body inside b2Body_SetTransform, which calls
+    // b2BroadPhase_MoveProxy (always buffers the proxy). We wake if sleeping.
+    if (record.setIndex >= FIRST_SLEEPING_SET) {
+      wakeBody(state, handle.index);
+    }
     const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
     // Teleport the origin, keeping the current rotation.
     writeBodyTransform(sim, pos.x, pos.y, sim.cos, sim.sin);
@@ -62,6 +69,10 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: IPha
       return;
     }
     const record = state.bodies.get(handle.index);
+    // b2Body_SetTransform (body.c:704): wake the body when teleporting.
+    if (record.setIndex >= FIRST_SLEEPING_SET) {
+      wakeBody(state, handle.index);
+    }
     const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
     const q = makeRot(rot.angle);
     writeBodyTransform(sim, sim.transformX, sim.transformY, q.c, q.s);
@@ -69,48 +80,45 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: IPha
   });
 
   system.update(LinearVelocity, (e, linear) => {
-    const bodyState = awakeBodyState(state, e.eid);
-    if (bodyState === undefined) {
+    // b2Body_SetLinearVelocity (body.c:793-796): nonzero velocity on a sleeping
+    // body wakes it. Wake first so the body has a BodyState to write into.
+    const handle = state.bodyByEntity.get(e.eid);
+    if (handle === undefined) {
       return;
     }
+    const record = state.bodies.get(handle.index);
+    if (record.type === STATIC_BODY) {
+      return;
+    }
+    if (record.setIndex >= FIRST_SLEEPING_SET && (linear.x !== 0 || linear.y !== 0)) {
+      wakeBody(state, handle.index);
+    }
+    if (record.setIndex !== AWAKE_SET) {
+      return;
+    }
+    const bodyState = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex]!;
     bodyState.vx = linear.x;
     bodyState.vy = linear.y;
-    // Box2D wakes the body on a nonzero velocity write; sleep is not ported yet.
   });
 
   system.update(AngularVelocity, (e, angular) => {
-    const bodyState = awakeBodyState(state, e.eid);
-    if (bodyState === undefined) {
+    // b2Body_SetAngularVelocity (body.c:817-820): nonzero omega wakes a sleeping body.
+    const handle = state.bodyByEntity.get(e.eid);
+    if (handle === undefined) {
       return;
     }
-    bodyState.omega = angular.value;
+    const record = state.bodies.get(handle.index);
+    if (record.type === STATIC_BODY) {
+      return;
+    }
+    if (record.setIndex >= FIRST_SLEEPING_SET && angular.value !== 0) {
+      wakeBody(state, handle.index);
+    }
+    if (record.setIndex !== AWAKE_SET) {
+      return;
+    }
+    state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex]!.omega = angular.value;
   });
 
   return system;
-}
-
-/** The body sim for the body keyed by `eid`, or `undefined` when the entity has
- * no internal body. */
-function bodySim(state: PhysicsState, eid: number) {
-  const handle = state.bodyByEntity.get(eid);
-  if (handle === undefined) {
-    return undefined;
-  }
-  const record = state.bodies.get(handle.index);
-  return state.solverSets[record.setIndex]!.bodySims[record.localIndex];
-}
-
-/** The body state for the body keyed by `eid`, but only when it can hold one: a
- * non-static body in the awake set. Static bodies ignore velocity (Box2D does);
- * disabled / sleeping bodies have no body state. */
-function awakeBodyState(state: PhysicsState, eid: number) {
-  const handle = state.bodyByEntity.get(eid);
-  if (handle === undefined) {
-    return undefined;
-  }
-  const record = state.bodies.get(handle.index);
-  if (record.type === STATIC_BODY || record.setIndex !== AWAKE_SET) {
-    return undefined;
-  }
-  return state.solverSets[record.setIndex]!.bodyStates[record.localIndex];
 }

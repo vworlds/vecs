@@ -26,6 +26,7 @@ import {
   registerInternalComponents,
   type ResolvedPhysicsOptions,
 } from "./engine/state.js";
+import { installSleepHooks } from "./engine/sleep.js";
 import { installPhysicsSystems } from "./systems/index.js";
 
 /** Options for {@link installPhysics}. Every field is optional; omitted fields
@@ -121,8 +122,13 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
   const step = resolvePhase(world, opts.stepPhase, DEFAULT_STEP_PHASE);
   const postStep = resolvePhase(world, opts.postStepPhase, DEFAULT_POST_STEP_PHASE);
 
-  // 5. Allocate engine state, install the systems (bound to it), then attach it.
+  // 5. Allocate engine state, install sleep hooks (wires the circular-dep
+  //    callbacks so physics-pre systems can call wake before engineStep runs),
+  //    install the systems (bound to it), then attach it.
   const state = new PhysicsState(resolveOptions(opts));
+  // VP-23: install sleep hooks (wakeSolverSet / mergeSolverSets) BEFORE the
+  // systems so any physics-pre system can call `wakeBody` from its first step.
+  installSleepHooks(state);
   installPhysicsSystems(
     world,
     state,

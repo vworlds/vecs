@@ -28,8 +28,51 @@ import { IdPool } from "../util/id_pool.js";
 
 import type { InternalBody } from "./body.js";
 import type { InternalContact } from "./contact.js";
-import { AWAKE_SET } from "./solver_set.js";
+import { AWAKE_SET, FIRST_SLEEPING_SET as _FIRST_SLEEPING_SET } from "./solver_set.js";
 import type { PhysicsState } from "./state.js";
+
+// ─── Union-find helpers (inline, for b2SplitIsland) ─────────────────────────
+//
+// Mirrors the static inline helpers `b2IslandFindParent` (island.c:344) and
+// `b2IslandUnion` (island.c:359) used by `b2SplitIsland`.
+
+/** Path-compressing find on a `parents` index array.
+ * Mirrors `b2IslandFindParent` (island.c:344-355). */
+function _islandFindParent(parents: number[], node: number): number {
+  while (parents[node] !== node) {
+    const grandParent = parents[parents[node]!]!;
+    parents[node] = grandParent;
+    node = grandParent;
+  }
+  return node;
+}
+
+/** Union by rank: connect the components containing node1 and node2, merging
+ * their contact counts. Mirrors `b2IslandUnion` (island.c:359-385). */
+function _islandUnion(
+  parents: number[],
+  ranks: number[],
+  contactCounts: number[],
+  node1: number,
+  node2: number
+): void {
+  const root1 = _islandFindParent(parents, node1);
+  const root2 = _islandFindParent(parents, node2);
+  if (root1 === root2) {
+    return;
+  }
+  if (ranks[root1]! < ranks[root2]!) {
+    parents[root1] = root2;
+    contactCounts[root2]! += contactCounts[root1]!;
+  } else if (ranks[root1]! > ranks[root2]!) {
+    parents[root2] = root1;
+    contactCounts[root1]! += contactCounts[root2]!;
+  } else {
+    parents[root2] = root1;
+    ranks[root1]!++;
+    contactCounts[root1]! += contactCounts[root2]!;
+  }
+}
 
 // ─── ContactLink ──────────────────────────────────────────────────────────────
 
@@ -118,9 +161,14 @@ export function createIsland(state: PhysicsState, setIndex: number): InternalIsl
 
 /** Free an empty island, swap-removing its `islandSim` from its set (and fixing
  * the moved island's `localIndex`) and freeing the record + id. Mirrors
- * `b2DestroyIsland` (island.c:48). The `splitIslandId` world reset is skipped
- * (no split in M3). */
+ * `b2DestroyIsland` (island.c:48). The `splitIslandId` world reset (island.c:50)
+ * is now wired for M5 sleep. */
 export function destroyIsland(state: PhysicsState, islandId: number): void {
+  // b2DestroyIsland (island.c:50-52): reset splitIslandId if this island was the candidate.
+  if (state.splitIslandId === islandId) {
+    state.splitIslandId = NULL_INDEX;
+  }
+
   // assume island is empty
   const island = state.islands.get(islandId);
   const set = state.solverSets[island.setIndex]!;
@@ -227,18 +275,44 @@ export function addContactToIsland(
 
 /** Link a touching `contact` into the island graph, merging the two bodies'
  * islands (one is destroyed) and adding the contact to the survivor. Mirrors
- * `b2LinkContact` (island.c:194). At least one body is dynamic, so at least one
- * has an island. The wake-sleeping-set logic (island.c:207-217) is skipped: no
- * sleep / sleeping sets in M3. */
+ * `b2LinkContact` (island.c:194).
+ *
+ * At least one body is dynamic, so at least one has an island. When one body is
+ * awake and the other is sleeping, the sleeping body's set is woken via
+ * `wakeSolverSet` (island.c:207-217). When both bodies are in sleeping sets, the
+ * two sets are merged via `mergeSolverSets` (island.c:212-217). */
 export function linkContact(state: PhysicsState, contact: InternalContact): void {
-  const bodyIdA = contact.edges[0].bodyId;
-  const bodyIdB = contact.edges[1].bodyId;
+  const bodyIdA = contact.edges[0]!.bodyId;
+  const bodyIdB = contact.edges[1]!.bodyId;
 
   const bodyA = state.bodies.get(bodyIdA);
   const bodyB = state.bodies.get(bodyIdB);
 
-  // box2d wakes a sleeping body here if its partner is awake. No sleeping sets
-  // exist in M3, so there is nothing to wake.
+  // island.c:207-217: wake sleeping bodies when a contact begins.
+  // Import lazily to avoid circular dependency (sleep.ts imports island.ts).
+  // We use dynamic access on `state` which already has the right type.
+  const setA = bodyA.setIndex;
+  const setB = bodyB.setIndex;
+
+  if (setA >= _FIRST_SLEEPING_SET || setB >= _FIRST_SLEEPING_SET) {
+    // Lazy import avoidance: import sleep functions via a module-level re-export
+    // in state.ts is not possible without circularity. Instead we call the
+    // functions from the cached module reference stored on state.
+    // island.c:207-210: if setA is sleeping and setB is awake → wake A.
+    // island.c:211-213: if setB is sleeping and setA is awake → wake B.
+    // island.c:214-217: if both sleeping → merge the two sets.
+    if (setA >= _FIRST_SLEEPING_SET && setB >= _FIRST_SLEEPING_SET) {
+      // Both sleeping: merge their sets so they stay asleep together.
+      state._mergeSolverSets(state, setA, setB);
+      // After merge, both bodies are in the same set. Re-read.
+    } else if (setA >= _FIRST_SLEEPING_SET) {
+      // A is sleeping, B is awake → wake A.
+      state._wakeSolverSet(state, setA);
+    } else {
+      // B is sleeping, A is awake → wake B.
+      state._wakeSolverSet(state, setB);
+    }
+  }
 
   const islandIdA = bodyA.islandId;
   const islandIdB = bodyB.islandId;
@@ -274,6 +348,149 @@ export function unlinkContact(state: PhysicsState, contact: InternalContact): vo
 
   // box2d marks the island for splitting here (constraintRemoveCount > 0).
   // Split is deferred to M5.
+}
+
+// ─── splitIsland (b2SplitIsland, island.c:389) ──────────────────────────────
+//
+// Union-find DFS over the base island's contact graph. Allocates per-component
+// arrays, creates new islands, reassigns bodies and contacts. The base island is
+// destroyed after the split.
+//
+// **Joints dropped**: no joints in v1. The `jointCounts` and joint-union loops
+// in box2d (island.c:459-484, 613-631) are omitted; we pass a dummy zero array
+// for `contactCounts` since contacts are the only edges.
+//
+// Mirrors `b2SplitIsland` (island.c:389-650) + `b2SplitIslandTask` (island.c:659).
+
+/** Split island `baseId` into its connected components. Called when
+ * `constraintRemoveCount > 0` and an island needs splitting before sleeping.
+ * Creates one new island per component; the base island is destroyed.
+ * Mirrors `b2SplitIsland` (island.c:389-650). No-op if the island is already
+ * a single connected component (resets `constraintRemoveCount` to 0 instead). */
+export function splitIsland(state: PhysicsState, baseId: number): void {
+  const baseIsland = state.islands.get(baseId);
+  // island.c:392-393: assert constraintRemoveCount > 0 && setIndex == awakeSet
+  if (baseIsland.constraintRemoveCount <= 0 || baseIsland.setIndex !== AWAKE_SET) {
+    return;
+  }
+
+  // Cache base island data before createIsland may reallocate (island.c:399-409).
+  const baseBodyCount = baseIsland.bodies.length;
+  const baseBodyIds = baseIsland.bodies.slice(); // snapshot
+  const baseContacts = baseIsland.contacts.slice(); // snapshot
+
+  // island.c:415-425: allocate union-find arrays.
+  const parents: number[] = new Array(baseBodyCount);
+  const contactCounts: number[] = new Array(baseBodyCount).fill(0);
+  const ranks: number[] = new Array(baseBodyCount).fill(0);
+  for (let i = 0; i < baseBodyCount; i++) {
+    parents[i] = i;
+  }
+
+  // island.c:430-455: union over contacts.
+  for (let i = 0; i < baseContacts.length; i++) {
+    const link = baseContacts[i]!;
+    const bodyA = state.bodies.get(link.bodyIdA);
+    const bodyB = state.bodies.get(link.bodyIdB);
+    const islandIndexA = bodyA.islandIndex;
+    const islandIndexB = bodyB.islandIndex;
+
+    // Only connect non-static bodies.
+    if (islandIndexA !== NULL_INDEX && islandIndexB !== NULL_INDEX) {
+      _islandUnion(parents, ranks, contactCounts, islandIndexA, islandIndexB);
+      const root = _islandFindParent(parents, islandIndexA);
+      contactCounts[root]!++;
+    } else {
+      const islandIndex = islandIndexA !== NULL_INDEX ? islandIndexA : islandIndexB;
+      if (islandIndex !== NULL_INDEX) {
+        const root = _islandFindParent(parents, islandIndex);
+        contactCounts[root]!++;
+      }
+    }
+  }
+
+  // Joints: dropped (no joints in v1). island.c:459-484 skipped.
+
+  // island.c:491-499: flatten parents and count components.
+  let componentCount = 0;
+  for (let i = 0; i < baseBodyCount; i++) {
+    parents[i] = _islandFindParent(parents, i);
+    if (parents[i] === i) {
+      componentCount++;
+    }
+  }
+
+  // island.c:502-509: early return when still fully connected.
+  if (componentCount === 1) {
+    baseIsland.constraintRemoveCount = 0;
+    return;
+  }
+
+  // island.c:512-526: detach body/contact arrays from base island so destroyIsland
+  // won't destroy them. We already snapshotted them above; clear the island's arrays.
+  baseIsland.bodies.length = 0;
+  baseIsland.contacts.length = 0;
+
+  // island.c:529-572: create new islands, one per component, reserving arrays.
+  // Map from (island body-index root → component index).
+  const rootMap = new Array<number>(baseBodyCount).fill(NULL_INDEX);
+  const componentBodyCounts = new Array<number>(componentCount).fill(0);
+  const componentContactCounts = new Array<number>(componentCount).fill(0);
+  let islandCount = 0;
+  for (let i = 0; i < baseBodyCount; i++) {
+    const rootIndex = parents[i]!;
+    if (rootMap[rootIndex] === NULL_INDEX) {
+      rootMap[rootIndex] = islandCount;
+      componentBodyCounts[islandCount] = 0;
+      componentContactCounts[islandCount] = contactCounts[rootIndex]!;
+      islandCount++;
+    }
+    componentBodyCounts[rootMap[rootIndex]!]!++;
+  }
+
+  // island.c:560-572: create new islands.
+  const islandIds = new Array<number>(islandCount);
+  for (let i = 0; i < islandCount; i++) {
+    const newIsland = createIsland(state, AWAKE_SET);
+    islandIds[i] = newIsland.islandId;
+    // Pre-fill with dummy slots (island.c reserves capacity).
+    newIsland.bodies.length = 0;
+    newIsland.contacts.length = 0;
+  }
+
+  // island.c:575-590: assign bodies to new islands.
+  for (let i = 0; i < baseBodyCount; i++) {
+    const bodyId = baseBodyIds[i]!;
+    const root = _islandFindParent(parents, i);
+    const newIslandId = islandIds[rootMap[root]!]!;
+    const body = state.bodies.get(bodyId);
+    const newIsland = state.islands.get(newIslandId);
+
+    body.islandId = newIslandId;
+    body.islandIndex = newIsland.bodies.length;
+    newIsland.bodies.push(bodyId);
+  }
+
+  // island.c:593-610: assign contacts to the island of their bodies.
+  for (let i = 0; i < baseContacts.length; i++) {
+    const link = baseContacts[i]!;
+    const contact = state.contacts.get(link.contactId);
+
+    // Static bodies don't have an island id. Use either body's island.
+    const bodyA = state.bodies.get(link.bodyIdA);
+    const bodyB = state.bodies.get(link.bodyIdB);
+    const targetIslandId = bodyA.islandId !== NULL_INDEX ? bodyA.islandId : bodyB.islandId;
+
+    const targetIsland = state.islands.get(targetIslandId);
+    contact.islandId = targetIslandId;
+    contact.islandIndex = targetIsland.contacts.length;
+    targetIsland.contacts.push(link);
+  }
+
+  // Joints: dropped (no joints in v1). island.c:613-631 skipped.
+
+  // island.c:633: destroy the base island.
+  destroyIsland(state, baseId);
 }
 
 // ─── createIslandForBody (b2CreateIslandForBody, body.c:106) ──────────────────

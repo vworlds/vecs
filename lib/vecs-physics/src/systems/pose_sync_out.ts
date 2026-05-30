@@ -43,9 +43,14 @@ export function installPoseSyncOut(world: World, state: PhysicsState, phase: IPh
         const record = state.bodies.get(bodyId);
         if (record.type === STATIC_BODY) {
           // Static bodies never receive move events; this branch is a safety guard.
-          // Kinematic and dynamic bodies are both written back (VP-20 architect
-          // decision: box2d moves and reports kinematic bodies; the M1 asymmetry
-          // is resolved by writing kinematic poses back, not by rejecting input).
+          continue;
+        }
+        // A body that fell asleep this step was moved to a sleeping set by
+        // trySleepIsland; its record.setIndex is no longer AWAKE_SET. The body
+        // IS in bodyMoveEvents (added during finalizeBodies before it fell asleep)
+        // but its sim/state slot is gone from the awake set — skip it. Box2D sets
+        // b2BodyMoveEvent.fellAsleep = true for these bodies (solver_set.c:206-213).
+        if (record.setIndex !== AWAKE_SET) {
           continue;
         }
         const entity = record.entity;

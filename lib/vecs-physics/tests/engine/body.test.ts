@@ -55,6 +55,10 @@ describe("BodyStorage", () => {
       contactCount: 0,
       islandId: -1,
       islandIndex: -1,
+      sleepTime: 0,
+      sleepThreshold: 0.05,
+      flags: 0,
+      bodyMoveIndex: -1,
     };
     storage.records[handle.index] = record;
     expect(storage.get(handle.index)).toBe(record);

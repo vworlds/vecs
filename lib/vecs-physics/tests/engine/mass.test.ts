@@ -118,6 +118,10 @@ function makeBody(
     contactCount: 0,
     islandId: NULL_INDEX,
     islandIndex: NULL_INDEX,
+    sleepTime: 0,
+    sleepThreshold: 0.05,
+    flags: 0,
+    bodyMoveIndex: NULL_INDEX,
   };
   const sim = makeBodySim(0);
   // Give the body a concrete transform (identity) + sweep start.

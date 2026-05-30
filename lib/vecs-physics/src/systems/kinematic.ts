@@ -43,7 +43,8 @@
 //   Linear: clamp the speed to `state.maximumLinearSpeed` (mirrors the per-step
 //   integration clamp in b2IntegratePositionsTask, solver.c:130-135).
 //
-// Wake flag: structural no-op until sleep (M5). See forces.ts note.
+// Wake flag (VP-23): a `KinematicTarget*.wake = true` set on a sleeping body
+// wakes it via `b2WakeBody` so the convergence drive can run. Honoured below.
 //
 // Box2D reference lines mirrored:
 //   b2Body_SetTargetTransform (body.c:831-887)
@@ -58,7 +59,8 @@ import { type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { KinematicTargetPosition, KinematicTargetRotation } from "../components/target.js";
 import { KINEMATIC_BODY } from "../engine/body.js";
-import { AWAKE_SET } from "../engine/solver_set.js";
+import { wakeBody } from "../engine/sleep.js";
+import { AWAKE_SET, FIRST_SLEEPING_SET } from "../engine/solver_set.js";
 import { type PhysicsState } from "../engine/state.js";
 import { makeRot, relativeAngle } from "../math/rot.js";
 
@@ -87,9 +89,32 @@ export function installKinematicTargets(world: World, state: PhysicsState, phase
         }
         const record = state.bodies.get(handle.index);
 
-        // Only act on kinematic bodies in the awake set.
-        if (record.type !== KINEMATIC_BODY || record.setIndex !== AWAKE_SET) {
-          return; // static/dynamic ignored; disabled/sleeping ignored (M5)
+        // Only act on kinematic bodies.
+        if (record.type !== KINEMATIC_BODY) {
+          return; // static/dynamic ignored
+        }
+
+        // b2Body_SetTargetTransform (body.c:836-849): skip disabled bodies.
+        // For sleeping bodies, wake if wake flag is set and velocity would be meaningful.
+        if (record.setIndex !== AWAKE_SET) {
+          if (record.setIndex < FIRST_SLEEPING_SET) {
+            return; // disabled set
+          }
+          // Sleeping set: check if either target component has wake = true.
+          const tposWake = (e.get(KinematicTargetPosition) as KinematicTargetPosition | undefined)
+            ?.wake;
+          const trotWake = (e.get(KinematicTargetRotation) as KinematicTargetRotation | undefined)
+            ?.wake;
+          if (tposWake || trotWake) {
+            // b2Body_SetTargetTransform (body.c:846-848): wake == true → wake body.
+            wakeBody(state, handle.index);
+            // After wake, body should be in the awake set now.
+            if (record.setIndex !== AWAKE_SET) {
+              return;
+            }
+          } else {
+            return; // sleeping and wake = false
+          }
         }
 
         const sim = state.solverSets[AWAKE_SET]!.bodySims[record.localIndex]!;
@@ -118,7 +143,6 @@ export function installKinematicTargets(world: World, state: PhysicsState, phase
             }
             bState.vx = vx; // mirrors: state->linearVelocity = linearVelocity [body.c:885]
             bState.vy = vy;
-            // Wake flag: a no-op until sleep lands (M5).
           } else {
             // Within tolerance — stop linear motion but keep the component.
             bState.vx = 0;
@@ -136,7 +160,6 @@ export function installKinematicTargets(world: World, state: PhysicsState, phase
           const dAngle = relativeAngle(currentRot, targetRot);
           if (Math.abs(dAngle) > trot.tolerance) {
             bState.omega = dAngle * invDt; // mirrors: state->angularVelocity = invTimeStep * deltaAngle [body.c:864,886]
-            // Wake flag: a no-op until sleep lands (M5).
           } else {
             bState.omega = 0;
           }

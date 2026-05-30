@@ -22,13 +22,14 @@ import {
   Position,
   Rotation,
 } from "../components/body.js";
-import { Damping, GravityScale, MotionLocks } from "../components/body_tuning.js";
+import { Damping, GravityScale, MotionLocks, Sleep } from "../components/body_tuning.js";
 import { destroyBodyContacts } from "../engine/contact.js";
 import { makeRot } from "../math/rot.js";
 import {
   ALLOW_FAST_ROTATION,
   DYNAMIC_BODY,
   DYNAMIC_FLAG,
+  ENABLE_SLEEP,
   KINEMATIC_BODY,
   LOCK_ANGULAR_Z,
   LOCK_LINEAR_X,
@@ -37,10 +38,12 @@ import {
   writeBodyTransform,
 } from "../engine/body.js";
 import { createIslandForBody, removeBodyFromIsland } from "../engine/island.js";
+import { wakeBody } from "../engine/sleep.js";
 import { updateShapeAABBs } from "../engine/shape.js";
 import {
   AWAKE_SET,
   DISABLED_SET,
+  FIRST_SLEEPING_SET,
   STATIC_SET,
   createBody,
   destroyBody,
@@ -186,12 +189,50 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
   system.enter((e) => {
     const body = e.get(Body)!;
     const type = bodyTypeToNumber(body.type);
+    const sleepComp = e.get(Sleep) as Sleep | undefined;
+
+    // Determine whether this body starts asleep. A body starts asleep when:
+    //   - sleep is enabled for this world (state.enableSleep)
+    //   - the body is dynamic or kinematic (non-static)
+    //   - Sleep.awake === false (user explicitly requested start-asleep)
+    //   - Sleep.enabled !== false (per-body sleep is not disabled)
     const setIndex = chooseSetIndex(body);
     const set = state.solverSets[setIndex]!;
 
     const handle = createBody(state, set, e, type);
     const record = state.bodies.get(handle.index);
     const sim = set.bodySims[record.localIndex]!;
+
+    // ── Sleep fields (VP-23) ───────────────────────────────────────────────
+    // Set ENABLE_SLEEP flag from Sleep.enabled (default true when Sleep absent).
+    // Mirrors b2Body_EnableSleep (body.c): sets/clears b2_enableSleep flag.
+    const sleepEnabled = sleepComp?.enabled !== false; // absent = true
+    if (sleepEnabled) {
+      record.flags |= ENABLE_SLEEP;
+    }
+    // Set sleep threshold from Sleep.threshold (default 0.05, already set in createBody).
+    if (sleepComp?.threshold !== undefined) {
+      record.sleepThreshold = sleepComp.threshold;
+    }
+    // If Sleep.awake === false, set sleepTime above B2_TIME_TO_SLEEP so the body
+    // is immediately eligible for sleeping on the first step. Box2D's
+    // `b2Body_SetAwake(false)` calls `b2TrySleepIsland` directly; we cannot do that
+    // here because the island may not be fully set up yet (no contacts, no
+    // constraintRemoveCount issue). Setting a high sleepTime causes finalizeBodies
+    // to elect this island for sleep on the very first step. This avoids the
+    // Vecs `update(Body)` race condition where the enter-replay fires and transfers
+    // the body back to AWAKE_SET if it was placed in a sleeping set at creation.
+    const wantsSleepAtStart =
+      state.enableSleep &&
+      body.type !== BodyType.Static &&
+      body.enabled &&
+      sleepComp !== undefined &&
+      sleepComp.awake === false &&
+      sleepEnabled;
+    if (wantsSleepAtStart) {
+      // B2_TIME_TO_SLEEP is 0.5; set 1.0 to ensure the body qualifies.
+      record.sleepTime = 1.0;
+    }
 
     // Pose: from Position/Rotation, defaulting to the origin / no rotation.
     const pos = e.get(Position);
@@ -447,6 +488,40 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
       if (st !== undefined) {
         st.flags = (st.flags & ~lockMask) | lockBits;
       }
+    }
+  });
+
+  // ── Sleep update (VP-23) ───────────────────────────────────────────────────
+  //
+  // Fires when Sleep is toggled on a body entity:
+  //   - Sleep.enabled toggle → set/clear ENABLE_SLEEP on InternalBody.flags.
+  //     Also: `b2Body_EnableSleep(false)` wakes a sleeping body (box2d body.c).
+  //   - Sleep.awake = true → wake the body if sleeping.
+  //   - Sleep.threshold change → update record.sleepThreshold.
+  system.update(Sleep, (e, sleep) => {
+    const handle = state.bodyByEntity.get(e.eid);
+    if (handle === undefined) {
+      return;
+    }
+    const record = state.bodies.get(handle.index);
+
+    // Update ENABLE_SLEEP flag.
+    if (sleep.enabled) {
+      record.flags |= ENABLE_SLEEP;
+    } else {
+      record.flags &= ~ENABLE_SLEEP;
+      // b2Body_EnableSleep (body.c): disabling sleep wakes a sleeping body.
+      if (record.setIndex >= FIRST_SLEEPING_SET) {
+        wakeBody(state, handle.index);
+      }
+    }
+
+    // Update sleep threshold.
+    record.sleepThreshold = sleep.threshold;
+
+    // Wake the body on Sleep.awake = true.
+    if (sleep.awake && record.setIndex >= FIRST_SLEEPING_SET) {
+      wakeBody(state, handle.index);
     }
   });
 

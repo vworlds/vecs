@@ -13,7 +13,7 @@
 
 import { Singleton, type Entity, type World } from "@vworlds/vecs";
 
-import type { BodyHandle, Handle, ShapeHandle } from "../util/handle.js";
+import { NULL_INDEX, type BodyHandle, type Handle, type ShapeHandle } from "../util/handle.js";
 import { BodyStorage } from "./body.js";
 import { BroadPhase } from "./broad_phase.js";
 import { ContactStorage, type ContactSim } from "./contact.js";
@@ -169,8 +169,75 @@ export class PhysicsState {
   // in M3, and split is deferred to M5. Mirrors box2d's `world->islands`.
   public readonly islands = new IslandStorage();
 
-  // Solver sets: static, disabled, awake (sleeping sets added with sleep).
+  // Solver sets: static (0), disabled (1), awake (2), then sleeping sets.
+  // The array grows dynamically past FIRST_SLEEPING_SET (3) as islands sleep.
+  // Sleeping-set indices are recycled via `sleepingSetPool` so the array never
+  // has unbounded holes (mirrors box2d's `world->solverSetIdPool`). When a
+  // sleeping set empties its slot is pushed back to the pool.
   public readonly solverSets: SolverSet[] = createBaseSolverSets();
+
+  // ── VP-23: sleeping-set id pool ───────────────────────────────────────────
+  //
+  // Free-list of sleeping-set indices that can be reused. Mirrors box2d's
+  // `world->solverSetIdPool` (`b2AllocId` / `b2FreeId`, id_pool.h). We use a
+  // simple number stack because sleeping sets don't need handle validation.
+  //
+  // Invariant: every index in this array is >= FIRST_SLEEPING_SET and
+  // solverSets[index] is a freed SolverSet (setIndex === NULL_INDEX).
+
+  /** Free-list of recyclable sleeping-set indices. */
+  public readonly sleepingSetPool: number[] = [];
+
+  // ── VP-23: island split tracking ─────────────────────────────────────────
+  //
+  // At most one island is selected for splitting per step. The finalize sleep
+  // block (`step.ts`) picks the sleepiest island that has
+  // `constraintRemoveCount > 0`. The post-solve sleep loop then calls
+  // `splitIsland` on it before the island-sleep iteration.
+  // Mirrors `world->splitIslandId` (physics_world.c) and the per-task
+  // `taskContext->splitIslandId / splitSleepTime` selection.
+
+  /** Id of the island to split this step, or {@link NULL_INDEX} if none.
+   * Mirrors `world->splitIslandId`. Reset to NULL_INDEX after split. */
+  public splitIslandId: number = NULL_INDEX;
+
+  /** Accumulated sleep time of the split-island candidate, for tie-breaking.
+   * Mirrors `b2Solve`'s `splitSleepTimer` selection (solver.c:2013-2030). */
+  public splitSleepTime: number = 0;
+
+  // ── VP-23: fell-asleep body tracking ─────────────────────────────────────
+  //
+  // Box2D marks `b2BodyMoveEvent.fellAsleep = true` on the move-event entry for
+  // any body that fell asleep this step. In vecs-physics, `bodyMoveEvents` holds
+  // body-sim `bodyId` indices (not event structs). We track fell-asleep body ids
+  // in a separate Set so `PhysicsPoseSyncOut` can skip them (a sleeping body's
+  // transform does not change, so no write-back needed). Cleared at the TOP of
+  // each `engineStep`, alongside `bodyMoveEvents`.
+
+  /** Body handle indices (bodyId values) that fell asleep this step.
+   * Populated by `trySleepIsland`; consumed by `PhysicsPoseSyncOut`.
+   * Cleared at the top of `engineStep`. */
+  public readonly fellAsleepThisStep = new Set<number>();
+
+  // ── VP-23: sleep callback hooks (avoid circular dependency) ──────────────
+  //
+  // `island.ts` calls into `sleep.ts` (wakeSolverSet / mergeSolverSets) when a
+  // contact links two bodies and one or both are sleeping. Because `sleep.ts`
+  // imports from `contact.ts` which imports from `island.ts`, there is a
+  // potential circular dependency. We break the cycle by storing the sleep
+  // functions as fields on PhysicsState. They are populated by `step.ts` (which
+  // imports sleep.ts) on first step, avoiding any import-time circularity.
+  //
+  // Initial value: a no-op (before sleep is installed, no body is sleeping).
+
+  /** Hook: wake the sleeping set at `setIndex`. Populated by `engine/step.ts`.
+   * Default no-op (safe because no body is in a sleeping set before sleep lands).
+   * @internal */
+  public _wakeSolverSet: (state: PhysicsState, setIndex: number) => void = () => {};
+
+  /** Hook: merge two sleeping sets. Populated by `engine/step.ts`. Default no-op.
+   * @internal */
+  public _mergeSolverSets: (state: PhysicsState, setId1: number, setId2: number) => void = () => {};
 
   // Maps between Vecs entities and internal engine handles.
   public readonly bodyByEntity = new Map<number /* eid */, BodyHandle>();
