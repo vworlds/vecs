@@ -26,9 +26,13 @@ import { Damping, GravityScale, MotionLocks } from "../components/body_tuning.js
 import { destroyBodyContacts } from "../engine/contact.js";
 import { makeRot } from "../math/rot.js";
 import {
+  ALLOW_FAST_ROTATION,
   DYNAMIC_BODY,
   DYNAMIC_FLAG,
   KINEMATIC_BODY,
+  LOCK_ANGULAR_Z,
+  LOCK_LINEAR_X,
+  LOCK_LINEAR_Y,
   STATIC_BODY,
   writeBodyTransform,
 } from "../engine/body.js";
@@ -130,6 +134,49 @@ function createBodyShapeProxies(
   }
 }
 
+// ─── Motion-lock / fast-rotation helpers ─────────────────────────────────────
+
+/** Compute the motion-lock flag bits from an entity's `MotionLocks` component.
+ * Returns 0 when `MotionLocks` is absent or all axes are unlocked. */
+function _motionLockBits(e: { get: (c: any) => any }): number {
+  const locks = e.get(MotionLocks) as MotionLocks | undefined;
+  if (!locks) {
+    return 0;
+  }
+  let bits = 0;
+  if (locks.x) {
+    bits |= LOCK_LINEAR_X;
+  }
+  if (locks.y) {
+    bits |= LOCK_LINEAR_Y;
+  }
+  if (locks.rotation) {
+    bits |= LOCK_ANGULAR_Z;
+  }
+  return bits;
+}
+
+/** Sync motion-lock and fast-rotation flag bits to a body's sim and (when in the
+ * awake set) its body state. Clears the old bits then applies the new ones so
+ * unlocking an axis works correctly. */
+function _syncMotionFlags(
+  state: PhysicsState,
+  bodyHandleIndex: number,
+  lockBits: number,
+  fastRotFlag: number
+): void {
+  const record = state.bodies.get(bodyHandleIndex);
+  const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
+  const lockMask = LOCK_LINEAR_X | LOCK_LINEAR_Y | LOCK_ANGULAR_Z | ALLOW_FAST_ROTATION;
+  sim.flags = (sim.flags & ~lockMask) | lockBits | fastRotFlag;
+  if (record.setIndex === AWAKE_SET) {
+    const st = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
+    if (st !== undefined) {
+      st.flags = (st.flags & ~lockMask) | lockBits | fastRotFlag;
+    }
+  }
+}
+
 /** Create `PhysicsBodyLifecycle` on `world`, bound to `state` and `phase`.
  * Returns the system so the caller can tag its entity. */
 export function installBodyLifecycle(world: World, state: PhysicsState, phase: IPhase): System {
@@ -160,6 +207,22 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     const gravityScale = e.get(GravityScale);
     if (gravityScale) {
       sim.gravityScale = gravityScale.value;
+    }
+
+    // Motion locks and fast-rotation flag — set on both sim.flags and
+    // bodyState.flags so transferBody's seeding from sim.flags propagates
+    // them correctly if the body later moves between sets. Mirrors the
+    // b2SyncBodyFlags approach (body.c:91-104). Must be set after createBody
+    // returns (the bodyState has already been allocated from sim.flags at
+    // that point), so we patch both objects directly.
+    const lockBits = _motionLockBits(e);
+    const fastRot = body.allowFastRotation ? ALLOW_FAST_ROTATION : 0;
+    const extraFlags = lockBits | fastRot;
+    if (extraFlags !== 0) {
+      sim.flags |= extraFlags;
+      if (setIndex === AWAKE_SET) {
+        set.bodyStates[record.localIndex]!.flags |= extraFlags;
+      }
     }
 
     // Velocity lives in the body state, which exists only in the awake set.
@@ -209,8 +272,26 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     const newType = bodyTypeToNumber(body.type);
     const typeChanged = newType !== record.type;
 
-    // No-op if neither type nor enabled changed.
+    // If only allowFastRotation changed (type and enabled unchanged), just update
+    // that flag bit and return early — no solver-set transfer needed.
     if (!typeChanged && targetSetIndex === record.setIndex) {
+      const fastRotFlag = body.allowFastRotation ? ALLOW_FAST_ROTATION : 0;
+      const simOnly = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
+      if (fastRotFlag) {
+        simOnly.flags |= ALLOW_FAST_ROTATION;
+      } else {
+        simOnly.flags &= ~ALLOW_FAST_ROTATION;
+      }
+      if (record.setIndex === AWAKE_SET) {
+        const stateOnly = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
+        if (stateOnly !== undefined) {
+          if (fastRotFlag) {
+            stateOnly.flags |= ALLOW_FAST_ROTATION;
+          } else {
+            stateOnly.flags &= ~ALLOW_FAST_ROTATION;
+          }
+        }
+      }
       return;
     }
 
@@ -317,6 +398,53 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
         } else {
           existingState.flags &= ~DYNAMIC_FLAG;
         }
+      }
+    }
+
+    // ── Stage 12: allowFastRotation flag on Body update ───────────────────────
+    // Body.allowFastRotation may change without a type/enabled change. Update
+    // ALLOW_FAST_ROTATION on both sim and state, preserving the lock bits.
+    const fastRotFlag = body.allowFastRotation ? ALLOW_FAST_ROTATION : 0;
+    const currentSimAfter = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
+    if (fastRotFlag) {
+      currentSimAfter.flags |= ALLOW_FAST_ROTATION;
+    } else {
+      currentSimAfter.flags &= ~ALLOW_FAST_ROTATION;
+    }
+    if (record.setIndex === AWAKE_SET) {
+      const stateAfter = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
+      if (stateAfter !== undefined) {
+        if (fastRotFlag) {
+          stateAfter.flags |= ALLOW_FAST_ROTATION;
+        } else {
+          stateAfter.flags &= ~ALLOW_FAST_ROTATION;
+        }
+      }
+    }
+  });
+
+  // ── MotionLocks update ─────────────────────────────────────────────────────
+
+  // Fires when MotionLocks changes on any entity that matches requires(Body).
+  // Updates LOCK_LINEAR_X/Y and LOCK_ANGULAR_Z on both sim.flags and bodyState.flags.
+  system.update(MotionLocks, (e, locks) => {
+    const handle = state.bodyByEntity.get(e.eid);
+    if (handle === undefined) {
+      return;
+    }
+    const lockBits =
+      (locks.x ? LOCK_LINEAR_X : 0) |
+      (locks.y ? LOCK_LINEAR_Y : 0) |
+      (locks.rotation ? LOCK_ANGULAR_Z : 0);
+    // Preserve the ALLOW_FAST_ROTATION bit and DYNAMIC_FLAG; only update lock bits.
+    const record = state.bodies.get(handle.index);
+    const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
+    const lockMask = LOCK_LINEAR_X | LOCK_LINEAR_Y | LOCK_ANGULAR_Z;
+    sim.flags = (sim.flags & ~lockMask) | lockBits;
+    if (record.setIndex === AWAKE_SET) {
+      const st = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
+      if (st !== undefined) {
+        st.flags = (st.flags & ~lockMask) | lockBits;
       }
     }
   });

@@ -6,14 +6,7 @@
 import { ChildOf, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  Body,
-  BodyType,
-  Box,
-  Circle,
-  Position,
-  installPhysics,
-} from "../../src/index.js";
+import { Body, BodyType, Box, Circle, Position, installPhysics } from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
 
 const STEP_MS = 1000 / 60;
