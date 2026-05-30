@@ -416,7 +416,7 @@ export class PhysicsState {
   /** Persistent contact-sim gather scratch for `collide`. Cleared at the start
    * of each `collide` call; populated by the gather loop. (VP-26 perf.)
    * @internal */
-  public readonly _collideContactSims: import("./contact.js").ContactSim[] = [];
+  public readonly _collideContactSims: ContactSim[] = [];
 
   /** Persistent state-changed set for `collide`. Cleared at the start of each
    * `collide` call; populated per contact; consumed by the serial loop. (VP-26.)
