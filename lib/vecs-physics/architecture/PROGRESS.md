@@ -1310,3 +1310,68 @@ one end frame. Tolerance not loosened.
 
 **Tests:** 11 new tests in `tests/events/sensor_begin_end.test.ts`. **534 tests total** (was 523).
 Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
+
+#### ✅ VP-22 — engine-side hit event scan (`gatherHitEvents`)
+
+**Files:**
+- `src/engine/state.ts` — added `ContactHitEvent` interface (engine-internal; doc-comments reference
+  box2d `b2ContactHitEvent` types.h / solver.c:1749-1789 and VP-21b consumer). Added
+  `contactHitEvents: ContactHitEvent[]` readonly array with clearing comment referencing the
+  VP-21a ARCHITECT RESOLUTION.
+- `src/engine/solver.ts` — added `gatherHitEvents(state: PhysicsState)` export (placed after
+  `solve` per the Stepdown Rule — high-level first, helpers below). Added `SIM_ENABLE_HIT_EVENT`
+  and `ContactHitEvent` imports.
+- `src/engine/step.ts` — clears `contactHitEvents.length = 0` at the TOP of `engineStep`
+  (alongside the other event-array clears); imports and calls `gatherHitEvents(state)` after
+  `solve(state, ctx)`, before `finalizeBodies`. Added `gatherHitEvents` to solver.ts import.
+- `tests/events/hit_events.test.ts` (NEW) — 10 tests.
+
+**box2d lines mirrored (solver.c:1725-1794):**
+- `gatherHitEvents` ← `b2Solve` hit-events block (solver.c:1725-1794):
+  - `approachSpeed = threshold` init (solver.c:1750) ← `let approachSpeed = threshold`
+  - `approachSpeed = -mp->normalVelocity` (solver.c:1757) ← `const speed = -mp.normalVelocity`
+  - `if ( approachSpeed > event.approachSpeed && mp->totalNormalImpulse > 0.0f )` (solver.c:1760)
+    ← `if (speed > approachSpeed && mp.totalNormalImpulse > 0)`
+  - `event.point = mp->clipPoint` (solver.c:1764) ← `pointX = mp.clipPoint.x; pointY = mp.clipPoint.y`
+  - `event.normal = contactSim->manifold.normal` (solver.c:1773) ← `normalX = manifold.normal.x/y`
+  - `b2Array_Push( world->contactHitEvents, event )` (solver.c:1788) ← `state.contactHitEvents.push(event)`
+- `storeImpulses` (contact_solver.c:537-538) ← already present in VP-17 (writes
+  `mp.normalVelocity = cp.relativeVelocity` and `mp.totalNormalImpulse`).
+
+**`enableHitEvents` opt-in wiring finding (VERIFIED, no new code needed):**
+`shape_lifecycle.ts:360` already sets `enableHitEvents: e.get(HitEvents) !== undefined` in
+`readMaterialOpts`, applied to both single-shape (line 505) and chain-segment (line 401)
+creation. `contact.ts:630` sets `SIM_ENABLE_HIT_EVENT` when
+`shapeA.enableHitEvents || shapeB.enableHitEvents`. The full chain is:
+`HitEvents` component → `InternalShape.enableHitEvents` → `SIM_ENABLE_HIT_EVENT` on `ContactSim`
+→ `gatherHitEvents` scans only flagged contacts. No wiring change needed.
+
+**Where the scan runs and why:**
+`gatherHitEvents` runs in `engineStep` AFTER `solve(state, ctx)` and BEFORE `finalizeBodies`.
+This mirrors box2d exactly: `b2Solve` emits hit events after `b2StoreImpulses_Overflow`
+(solver.c:1705 → 1725) but before the refit-BVH block (solver.c:1801). In vecs-physics these
+steps are separated across files (`solve` in solver.ts, refit in `finalizeBodies` in step.ts),
+so the call is placed at the same logical position in the pipeline. The manifolds are stable
+(storeImpulses has run) and body transforms are not yet advanced — the same window box2d uses.
+
+**Decisions / deviations:**
+- **`gatherHitEvents` iterates `state.graphContactSims` directly** (no bitset scan). box2d uses
+  a per-contact bitset (`hitEventBitSet`, solver.c:1732-1793) set during the parallel constraint
+  solve. vecs-physics is single-threaded and the overflow color owns all contacts in
+  `graphContactSims`, so a simple loop with a `SIM_ENABLE_HIT_EVENT` flag check is equivalent.
+  Not a semantic divergence — same contacts, same flag, same filter.
+- **clipPoint note preserved from box2d** (solver.c:1763: "Using the clip point here is
+  somewhat questionable"). Mirrored faithfully with a doc-comment. In v1 (no contact recycling)
+  clipPoint is refreshed every step, so reliability is acceptable. Will degrade if recycling
+  is re-enabled in M5.
+- **`contactId` field omitted** from `ContactHitEvent`. box2d includes it as a `b2ContactId`
+  in `b2ContactHitEvent` (types.h). vecs-physics does not expose contact ids in the public
+  API; VP-21b (HitEvents component) does not need it, and omitting it keeps the type minimal.
+  Deviation recorded here.
+- **Clearing strategy:** `contactHitEvents` is cleared at the TOP of `engineStep`, consistent
+  with all other event arrays. VP-21b will consolidate the clear at end-of-publish per the
+  ARCHITECT RESOLUTION (same note applies as VP-21a/c). Hit events are step-only generated
+  (the scan runs inside `engineStep`), so clearing in `engineStep` is correct for now.
+
+**Tests:** 10 new tests in `tests/events/hit_events.test.ts`. **544 tests total** (was 534).
+Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.

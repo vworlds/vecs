@@ -20,7 +20,7 @@ import { DYNAMIC_BODY, IS_SPEED_CAPPED } from "./body.js";
 import { collide, makePairCreateCallback } from "./collide.js";
 import { overlapSensors } from "./sensor.js";
 import { refitBodyShapeProxies } from "./shape.js";
-import { makeStepContext, solve, type StepContext } from "./solver.js";
+import { gatherHitEvents, makeStepContext, solve, type StepContext } from "./solver.js";
 import { AWAKE_SET, type SolverSet } from "./solver_set.js";
 import { type PhysicsState } from "./state.js";
 import { mulRot, normalizeRot, rotateVector } from "../math/rot.js";
@@ -42,6 +42,10 @@ export function engineStep(state: PhysicsState, dt: number, subSteps: number): v
   // PROGRESS.md ARCHITECT RESOLUTION — no change needed here then.
   state.sensorBeginEvents.length = 0;
   state.sensorEndEvents.length = 0;
+  // Clear hit event array at step start (VP-22). Step-only generated
+  // (gatherHitEvents runs after solve, before finalizeBodies). VP-21b will
+  // consolidate the clear at end-of-publish per the ARCHITECT RESOLUTION.
+  state.contactHitEvents.length = 0;
 
   if (dt <= 0) {
     return;
@@ -74,6 +78,14 @@ export function engineStep(state: PhysicsState, dt: number, subSteps: number): v
   // The eight-stage TGS soft-step solver over the awake set + overflow color.
   // Early-returns on an empty awake set.
   solve(state, ctx);
+
+  // Scan touching contacts for high-speed impacts (VP-22). Runs after solve()
+  // so storeImpulses has populated normalVelocity + totalNormalImpulse on each
+  // manifold point. Mirrors box2d: hit events are emitted from within b2Solve
+  // after b2StoreImpulses_Overflow (solver.c:1725-1794). We place it here
+  // (between solve and finalizeBodies) because the manifolds are stable and the
+  // body transforms have not yet been advanced — the same window box2d uses.
+  gatherHitEvents(state);
 
   // Fold delta-pose, write transforms, push move events, refit proxies.
   finalizeBodies(state, ctx);

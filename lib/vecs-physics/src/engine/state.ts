@@ -59,6 +59,33 @@ export interface SensorTouchEvent {
   visitorShape: Handle;
 }
 
+// ─── Engine-internal contact hit event (VP-22) ───────────────────────────────
+//
+// Raw hit events recorded by `gatherHitEvents` (engine/solver.ts) after solve.
+// NOT a public type — stays inside engine/. VP-21b (`PhysicsEvents`) resolves
+// handles → entities and fans these arrays out to `HitEvents` components.
+//
+// Mirrors box2d's `b2ContactHitEvent` (types.h); omits `contactId` which is a
+// box2d API detail not exposed by vecs-physics.
+//
+// `approachSpeed` is the max `-mp.normalVelocity` across qualifying points
+// (totalNormalImpulse > 0) — mirrors solver.c:1757-1766.
+
+/** Raw contact hit event held in {@link PhysicsState}'s per-step array.
+ * Engine-internal only; not exported from the package.
+ * Mirrors box2d's `b2ContactHitEvent` (types.h / solver.c:1749-1789).
+ * Uses the base {@link Handle} type — the `ShapeHandle` brand is an API-boundary
+ * guard not needed inside the engine. VP-21b resolves to entities. */
+export interface ContactHitEvent {
+  shapeA: Handle;
+  shapeB: Handle;
+  pointX: number;
+  pointY: number;
+  normalX: number;
+  normalY: number;
+  approachSpeed: number;
+}
+
 /** Fully-resolved engine configuration: every `PhysicsOptions` field with its
  * default applied. Built by `installPhysics`; the source of truth for tunables
  * the engine reads at runtime. */
@@ -195,6 +222,26 @@ export class PhysicsState {
    * the two-finger merge in `overlapSensors` and by `destroySensor` (when a
    * sensor shape is removed while still overlapping). Consumed by VP-21b. */
   public readonly sensorEndEvents: SensorTouchEvent[] = [];
+
+  // ── VP-22: raw contact hit events (engine-internal) ──────────────────────────
+  //
+  // Mirrors box2d's `world->contactHitEvents` (solver.c:1788).
+  // Cleared at the top of each `engineStep` (step-only generated, consistent
+  // with contactBeginEvents/sensorBeginEvents clearing).
+  // Populated by `gatherHitEvents` (engine/solver.ts) after `solve()` returns.
+  //
+  // Each entry records the two shape handles plus impact geometry:
+  // `approachSpeed = -mp.normalVelocity` of the fastest qualifying point
+  // (totalNormalImpulse > 0 gates out speculative contacts).
+  //
+  // Consumed by: VP-21b `PhysicsEvents` (fans out to `HitEvents` ECS components).
+  // VP-21b will consolidate the clear at end-of-publish per the ARCHITECT
+  // RESOLUTION — clearing in engineStep is correct and harmless until then.
+
+  /** Raw hit events for the current step. Cleared at step start.
+   * Mirrors box2d's `world->contactHitEvents` (solver.c:1788).
+   * Populated by `gatherHitEvents` after `solve()`. Consumed by VP-21b. */
+  public readonly contactHitEvents: ContactHitEvent[] = [];
 
   // ── VP-19: impulse accumulation (M4 scoping decision in PROGRESS.md) ────────
   //

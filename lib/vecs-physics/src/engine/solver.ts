@@ -47,9 +47,9 @@ import {
   makeIdentityBodyState,
   type BodyState,
 } from "./body.js";
-import type { ContactSim } from "./contact.js";
+import { SIM_ENABLE_HIT_EVENT, type ContactSim } from "./contact.js";
 import { AWAKE_SET, type SolverSet } from "./solver_set.js";
-import type { PhysicsState } from "./state.js";
+import { type ContactHitEvent, type PhysicsState } from "./state.js";
 
 // ─── Softness ─────────────────────────────────────────────────────────────────
 
@@ -904,4 +904,102 @@ export function solve(state: PhysicsState, ctx: StepContext): void {
 
   applyRestitution(state, ctx, constraints);
   storeImpulses(state, constraints);
+}
+
+// ─── gatherHitEvents (VP-22) ─────────────────────────────────────────────────
+
+/**
+ * Scan the touching contacts for high-speed impacts and push raw
+ * {@link ContactHitEvent} entries into `state.contactHitEvents`.
+ *
+ * Must be called AFTER `solve()` so that `storeImpulses` has written
+ * `mp.normalVelocity = cp.relativeVelocity` and `mp.totalNormalImpulse` back
+ * onto each manifold point (contact_solver.c:537-538 / solver.ts `storeImpulses`).
+ *
+ * Ports box2d solver.c:1725-1794 (the hit-event bitset scan), adapted for our
+ * flat `state.graphContactSims` array instead of a per-color bitset walk.
+ *
+ * Algorithm (mirrors solver.c:1749-1789):
+ *   for each touching contact with SIM_ENABLE_HIT_EVENT:
+ *     approachSpeed = threshold   // (box2d: event.approachSpeed = threshold)
+ *     found = false
+ *     for each manifold point p:
+ *       speed = -p.normalVelocity // (box2d: approachSpeed = -mp->normalVelocity)
+ *       if speed > approachSpeed && p.totalNormalImpulse > 0:  // skip speculative
+ *         approachSpeed = speed
+ *         pointX = p.clipPoint.x, pointY = p.clipPoint.y
+ *         found = true
+ *     if found:
+ *       push ContactHitEvent with normal = manifold.normal, the two shape handles
+ *
+ * box2d note on clipPoint (solver.c:1763):
+ *   "Using the clip point here is somewhat questionable"
+ *   We mirror this faithfully; VP-21b consumers should be aware that clipPoint
+ *   accuracy degrades on recycled contacts (recycling is disabled in v1, so the
+ *   point is fresh every step and reliable for now).
+ */
+export function gatherHitEvents(state: PhysicsState): void {
+  const contacts = state.graphContactSims;
+  const contactCount = contacts.length;
+  if (contactCount === 0) {
+    return;
+  }
+
+  const pool = state.shapes.idPool;
+  const threshold = state.hitEventThreshold;
+
+  for (let i = 0; i < contactCount; i++) {
+    const contactSim: ContactSim = contacts[i]!;
+
+    // Only contacts where at least one shape opted in (SIM_ENABLE_HIT_EVENT).
+    // Mirrors box2d: the bitset scan iterates only contacts flagged by the
+    // hit-event bit set in updateContact (contact.c:609-616 / contact.ts:630).
+    if ((contactSim.simFlags & SIM_ENABLE_HIT_EVENT) === 0) {
+      continue;
+    }
+
+    const manifold = contactSim.manifold;
+    const pointCount = manifold.pointCount;
+
+    // Mirrors solver.c:1749-1751: init event.approachSpeed = threshold.
+    let approachSpeed = threshold;
+    let pointX = 0;
+    let pointY = 0;
+    let found = false;
+
+    for (let p = 0; p < pointCount; p++) {
+      const mp = manifold.points[p]!;
+
+      // solver.c:1757: approachSpeed = -mp->normalVelocity
+      const speed = -mp.normalVelocity;
+
+      // solver.c:1760: "Need to check total impulse because the point may be
+      // speculative and not colliding"
+      // if ( approachSpeed > event.approachSpeed && mp->totalNormalImpulse > 0.0f )
+      if (speed > approachSpeed && mp.totalNormalImpulse > 0) {
+        approachSpeed = speed;
+        // solver.c:1764: "Using the clip point here is somewhat questionable"
+        // event.point = mp->clipPoint;
+        pointX = mp.clipPoint.x;
+        pointY = mp.clipPoint.y;
+        found = true;
+      }
+    }
+
+    if (found) {
+      // solver.c:1773: event.normal = contactSim->manifold.normal;
+      // Build shape handles from the id pool, matching VP-21a's _makeContactTouchEvent.
+      const event: ContactHitEvent = {
+        shapeA: { index: contactSim.shapeIdA, generation: pool.generationOf(contactSim.shapeIdA) },
+        shapeB: { index: contactSim.shapeIdB, generation: pool.generationOf(contactSim.shapeIdB) },
+        pointX,
+        pointY,
+        normalX: manifold.normal.x,
+        normalY: manifold.normal.y,
+        approachSpeed,
+      };
+      // solver.c:1788: b2Array_Push( world->contactHitEvents, event );
+      state.contactHitEvents.push(event);
+    }
+  }
 }
