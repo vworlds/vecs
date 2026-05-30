@@ -226,7 +226,19 @@ export function collide(state: PhysicsState, _ctx: StepContext): void {
   }
 
   // ── Serial state-change processing (b2Collide:697-808) ─────────────────────
-  for (const contactId of stateChanged) {
+  // Box2D processes the changed contacts in ASCENDING contact-id order: it walks
+  // a `contactStateBitSet` block by block, peeling the lowest set bit with
+  // `b2CTZ64` (`contactId = 64*k + ctz`). Our `stateChanged` Set iterates in
+  // insertion (gather) order, which is graph-array order then awake-set order —
+  // and once sims have swap-moved between those arrays the gather order no longer
+  // matches ascending id. The loop mutates `graphContactSims`/`contactSims` (adds
+  // to graph, removes from awake, destroys), so a different processing order
+  // yields a different post-loop array order, and the solver iterates
+  // `graphContactSims` in array order → divergent (but still self-consistent)
+  // numeric results. Sort to recover Box2D's id order and keep step-to-step
+  // parity. Ids are small ints; the per-step changed set is tiny.
+  const changedInOrder = [...stateChanged].sort((a, b) => a - b);
+  for (const contactId of changedInOrder) {
     const contact = state.contacts.records[contactId];
     if (contact === undefined) {
       // Already destroyed earlier in this loop (cannot happen with distinct

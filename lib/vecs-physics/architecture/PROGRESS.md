@@ -919,6 +919,46 @@ for `enter` to read it; a subsequent `set` exercises the update handler.
 
 11 tests in `tests/lifecycle/motion_locks.test.ts`.
 
+#### ✅ M3-contact-state-change-order
+
+`engine/collide.ts` processed touch-state changes in `Set` insertion (gather)
+order — graph-array order then awake-set order. Box2D's `b2Collide`
+(`physics_world.c:697-704`) instead peels the lowest set bit of a per-contact
+bitset, i.e. processes in **ascending contact-id order**. Once sims have
+swap-moved between the awake set and the graph the two orders diverge, and since
+the state-change loop mutates `graphContactSims` (and the solver iterates it in
+array order) the resulting constraint-solve order drifted from Box2D. Fixed by
+sorting the changed-contact ids ascending before the apply loop
+(`[...stateChanged].sort((a, b) => a - b)`). Single-run behaviour was already
+deterministic; this aligns the order with Box2D. Regression test
+(`tests/engine/collide_order.test.ts`) scrambles awake-set order via id reuse and
+asserts the graph lands ascending (fails `[0,2,1]` before, passes `[0,1,2]` after).
+
+#### ✅ M0-hitEventThreshold-default
+
+`installPhysics` resolved `hitEventThreshold` to `10.0`; Box2D's
+`b2DefaultWorldDef` (`types.c:16`) uses `1.0 * lengthUnits`. Every other world-def
+default already matched Box2D — this was a lone 10× outlier (and the PLAN sketch
+carried it too). Corrected to `1.0` in `install.ts` and the `PLAN.md`
+`PhysicsOptions` sketch; extended `tests/lifecycle/install.test.ts` to pin the
+resolved world-def defaults (the existing defaults test only covered component
+classes, which is how this slipped through). Consumed by M4 hit events (VP-22).
+
+#### ✅ M3-static-proxy-force-pair-creation
+
+`BroadPhase.createProxy` never buffered static proxies, so a static shape added
+under an already-settled non-static shape produced no contact until something
+moved. Box2D's `b2DefaultShapeDef` sets `invokeContactCreation = true`
+(`types.c`), `b2CreateShape` passes `invokeContactCreation || isSensor` into
+`b2CreateShapeProxy` (`shape.c:176`), and `b2BroadPhase_CreateProxy`
+(`broad_phase.c:104-112`) buffers when `proxyType != b2_staticBody ||
+forcePairCreation`. Added a `forcePairCreation` parameter to
+`BroadPhase.createProxy` (buffer when `bodyType !== STATIC_BODY ||
+forcePairCreation`); shape creation (single + chain segments) and the
+enable/type-change proxy recreation now pass `true`, matching `b2Body_Enable` /
+`b2Body_SetType` (`shape.c:1307`). This resolves the VP-10 `forcePairCreation`
+deferral (it is no longer carried forward).
+
 M3 carried-forward items from this pass now resolved:
 
 - contact teardown on shape removal/type-change ✅
@@ -930,6 +970,5 @@ M3 carried-forward items from this pass now resolved:
 
 - Dynamic `Sensor` toggle (needs contact teardown + contact graph refilter; destroy
   - recreate shape is the safe path until M4 sensors land).
-- `forcePairCreation` for static shape `invokeContactCreation` (VP-10 deferral).
 - Contact-event publishing (begin/end arrays) — M4 VP-21.
 - Fat-AABB hysteresis fix — M5 performance pass.
