@@ -98,6 +98,11 @@ export function computeShapeMargin(geom: GeometryUnion): number {
  * Compute and write the tight AABB and fat AABB on `shape` for the given world
  * transform and body type, mirroring `b2UpdateShapeAABBs`.
  *
+ * Always resets BOTH the tight and the fat AABB. Use this for initial setup
+ * and for teleport ("move") refits where the fat AABB must be recentred from
+ * scratch. For per-step enlarge refits, use {@link refitBodyShapeProxies} with
+ * `mode = "enlarge"`, which implements the fat-AABB hysteresis.
+ *
  * Static bodies use `speculativeDistance` as the fat margin (not zero —
  * "Cannot be zero due to TOI tolerance"). Kinematic/dynamic bodies use
  * `computeShapeMargin` for the fat margin.
@@ -116,7 +121,7 @@ export function updateShapeAABBs(shape: InternalShape, worldXf: Transform, bodyT
   shape.aabbMaxY = raw.upperBound.y + spec;
 
   // Fat AABB: static → speculativeDistance extra; kinematic/dynamic → aabbMargin.
-  const extra = bodyType === STATIC_BODY ? spec : computeShapeMargin(shape.geometry);
+  const extra = bodyType === STATIC_BODY ? spec : shape.aabbMargin;
   shape.fatAabbMinX = shape.aabbMinX - extra;
   shape.fatAabbMinY = shape.aabbMinY - extra;
   shape.fatAabbMaxX = shape.aabbMaxX + extra;
@@ -147,14 +152,28 @@ export function fatAabbContainsTight(shape: InternalShape): boolean {
 // The single refit rule, shared between the user-teleport path
 // (`PhysicsPoseSyncIn`, box2d `b2Body_SetTransform`) and the per-step finalize
 // (`finalizeBodies`, box2d `b2FinalizeBodiesTask`). Both walk the body's shape
-// list, recompute each shape's tight + fat world AABB, and — when the new tight
-// AABB no longer fits inside the OLD fat AABB — update the broad-phase proxy.
+// list, recompute each shape's tight world AABB, and — when the new tight AABB
+// no longer fits inside the cached fat AABB — reset the fat AABB and update
+// the broad-phase proxy.
 //
-// The proxy operation differs by caller and that distinction is box2d-faithful:
-//   - teleport ("move")    → `b2BroadPhase_MoveProxy` (remove + reinsert)
-//   - finalize ("enlarge") → `b2BroadPhase_EnlargeProxy` (grow in place)
-// Mirrors `b2Body_SetTransform` (body.c:727-756) vs `b2FinalizeBodiesTask`
-// (solver.c:686-732).
+// The proxy operation and fat-AABB reset strategy differ by caller:
+//
+//   "enlarge" (per-step finalize, b2FinalizeBodiesTask solver.c:686-732):
+//     Box2D holds `shape->fatAABB` across steps and resets it only when the
+//     freshly-computed tight AABB escapes it (solver.c:712-728):
+//       if (!b2AABB_Contains(shape->fatAABB, aabb)) {
+//         shape->fatAABB = {tight ± margin};
+//         shape->enlargedAABB = true;         // mark for proxy enlarge
+//       }
+//     If contained, only the tight AABB is updated; the fat AABB and proxy
+//     stay as-is. This is the fat-AABB hysteresis fix (M3 review → VP-26).
+//
+//   "move" (teleport, b2Body_SetTransform body.c:727-756):
+//     The user explicitly moved the body, so both the tight and fat AABBs are
+//     always recomputed from scratch and the proxy is always moved. No
+//     hysteresis — the body's prior fat AABB is irrelevant.
+//
+// Shapes with no proxy (`proxyKey === -1`, on a disabled body) are skipped.
 
 /** How the broad-phase proxy is updated when a shape's tight AABB outgrows its
  * fat AABB. See {@link refitBodyShapeProxies}. */
@@ -169,16 +188,22 @@ interface RefitBodyView {
 }
 
 /**
- * Walk `body`'s shape list, recompute each shape's world AABB from
- * `bodySim`'s current transform × the shape's local pose, and update the
- * broad-phase proxy when the new tight AABB no longer fits the old fat AABB.
+ * Walk `body`'s shape list, recompute each shape's world tight AABB, and
+ * update the broad-phase proxy when the tight AABB escapes the cached fat AABB.
  *
- * `mode` selects the proxy op (see {@link ProxyRefitMode}); static bodies never
- * enlarge (box2d asserts non-static in `b2BroadPhase_EnlargeProxy`), but the
- * containment check naturally skips them since a static fat AABB only changes
- * on teleport. Shapes with no proxy (`proxyKey === -1`, on a disabled body) are
- * skipped. The fat-AABB margin (static vs dynamic/kinematic) is selected from
- * `body.type` inside {@link updateShapeAABBs}.
+ * **"enlarge" mode (per-step finalize):** Implements box2d's fat-AABB
+ * hysteresis (solver.c:712-728). If the new tight AABB fits inside the
+ * existing `shape.fatAabb*`, only the tight AABB is updated — the fat AABB
+ * and proxy stay unchanged. If the tight AABB escapes the fat AABB, the fat
+ * is reset (tight ± `shape.aabbMargin`) and `enlargeProxy` is called.
+ *
+ * **"move" mode (teleport):** Always resets both tight and fat AABBs and
+ * calls `moveProxy`. Mirrors `b2Body_SetTransform` (body.c:727-756), which
+ * treats a user teleport as an unconditional recentre.
+ *
+ * Static bodies never enlarge (box2d asserts non-static in
+ * `b2BroadPhase_EnlargeProxy`), but the containment check naturally skips
+ * them since a static fat AABB never escapes unless teleported.
  */
 export function refitBodyShapeProxies(
   shapes: ShapeStorage,
@@ -203,35 +228,60 @@ export function refitBodyShapeProxies(
     };
     const worldXf = mulTransforms(bodyXf, localXf);
 
-    // Snapshot the old fat AABB before updateShapeAABBs overwrites it.
-    const oldFatMinX = shape.fatAabbMinX;
-    const oldFatMinY = shape.fatAabbMinY;
-    const oldFatMaxX = shape.fatAabbMaxX;
-    const oldFatMaxY = shape.fatAabbMaxY;
-
-    // Writes new tight + fat AABBs and returns the fat AABB.
-    const fatAABB = updateShapeAABBs(shape, worldXf, body.type);
-
-    // Disabled bodies have no proxy.
-    if (shape.proxyKey === -1) {
-      continue;
-    }
-
-    // Skip the proxy update when the old fat AABB still contains the new tight
-    // AABB (b2AABB_Contains(shape->fatAABB, aabb)).
-    const tightFitsInOldFat =
-      oldFatMinX <= shape.aabbMinX &&
-      oldFatMinY <= shape.aabbMinY &&
-      shape.aabbMaxX <= oldFatMaxX &&
-      shape.aabbMaxY <= oldFatMaxY;
-    if (tightFitsInOldFat) {
-      continue;
-    }
-
-    if (mode === "enlarge") {
-      broadPhase.enlargeProxy(shape.proxyKey, fatAABB);
-    } else {
+    if (mode === "move") {
+      // Teleport path (b2Body_SetTransform body.c:727-756): always reset both
+      // tight and fat AABBs unconditionally, then move the proxy.
+      // `updateShapeAABBs` writes both tight and fat (fat = tight ± margin).
+      const fatAABB = updateShapeAABBs(shape, worldXf, body.type);
+      if (shape.proxyKey === -1) {
+        continue;
+      }
       broadPhase.moveProxy(shape.proxyKey, fatAABB);
+    } else {
+      // Per-step enlarge path (b2FinalizeBodiesTask solver.c:703-728):
+      // implement fat-AABB hysteresis — hold the fat AABB until the new
+      // tight AABB escapes it; only then reset the fat and enlarge the proxy.
+      //
+      // Step 1: compute the new tight AABB and write it to shape.aabb*.
+      // (Mirrors solver.c:705-710: aabb = b2ComputeShapeAABB + speculativeDistance.)
+      const raw = computeAABB(shape.geometry, worldXf);
+      const spec = SPECULATIVE_DISTANCE;
+      shape.aabbMinX = raw.lowerBound.x - spec;
+      shape.aabbMinY = raw.lowerBound.y - spec;
+      shape.aabbMaxX = raw.upperBound.x + spec;
+      shape.aabbMaxY = raw.upperBound.y + spec;
+
+      if (shape.proxyKey === -1) {
+        continue;
+      }
+
+      // Step 2: check if the new tight AABB still fits inside the existing fat
+      // AABB (solver.c:712: b2AABB_Contains(shape->fatAABB, aabb)).
+      if (
+        shape.fatAabbMinX <= shape.aabbMinX &&
+        shape.fatAabbMinY <= shape.aabbMinY &&
+        shape.aabbMaxX <= shape.fatAabbMaxX &&
+        shape.aabbMaxY <= shape.fatAabbMaxY
+      ) {
+        // Contained — fat AABB and proxy are unchanged. Only the tight AABB
+        // (written above) is updated on the shape record. This is the hysteresis
+        // — the proxy tree node keeps the larger cached fat AABB.
+        continue;
+      }
+
+      // Step 3: tight escaped the fat — reset the fat AABB and enlarge the proxy.
+      // (solver.c:716-727: fatAABB = {aabb ± margin}; shape->fatAABB = fatAABB;
+      //  shape->enlargedAABB = true; b2SetBit(enlargedSimBitSet, simIndex).)
+      const margin = body.type === STATIC_BODY ? spec : shape.aabbMargin;
+      shape.fatAabbMinX = shape.aabbMinX - margin;
+      shape.fatAabbMinY = shape.aabbMinY - margin;
+      shape.fatAabbMaxX = shape.aabbMaxX + margin;
+      shape.fatAabbMaxY = shape.aabbMaxY + margin;
+
+      broadPhase.enlargeProxy(shape.proxyKey, {
+        lowerBound: { x: shape.fatAabbMinX, y: shape.fatAabbMinY },
+        upperBound: { x: shape.fatAabbMaxX, y: shape.fatAabbMaxY },
+      });
     }
   }
 }
