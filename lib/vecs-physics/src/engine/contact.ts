@@ -39,7 +39,7 @@ import {
 import { unlinkContact } from "./island.js";
 import { canCollide, computeManifold, isPrimaryPair } from "./narrow_phase.js";
 import type { InternalShape } from "./shape.js";
-import { AWAKE_SET, DISABLED_SET, type SolverSet } from "./solver_set.js";
+import { AWAKE_SET, DISABLED_SET, FIRST_SLEEPING_SET, type SolverSet } from "./solver_set.js";
 import type { ContactTouchEvent, PhysicsState } from "./state.js";
 
 // ─── Contact flags (subset of b2ContactFlags, contact.h:15) ───────────────────
@@ -383,7 +383,7 @@ export function createContact(state: PhysicsState, shapeIndexA: number, shapeInd
 export function destroyContact(
   state: PhysicsState,
   contact: InternalContact,
-  _wakeBodies: boolean
+  wakeBodies: boolean
 ): void {
   // Remove the pair key from the broad phase so the pair can re-emit if the
   // shapes re-overlap.
@@ -393,6 +393,9 @@ export function destroyContact(
   const edgeB = contact.edges[1];
   const bodyA = state.bodies.get(edgeA.bodyId);
   const bodyB = state.bodies.get(edgeB.bodyId);
+
+  // Capture touching flag before clearing (b2DestroyContact, contact.c:395).
+  const touching = (contact.flags & CONTACT_TOUCHING_FLAG) !== 0;
 
   // Emit an end-touch event when the contact was touching and either shape
   // opted in (VP-21a). Mirrors b2DestroyContact (contact.c:400-422):
@@ -411,7 +414,7 @@ export function destroyContact(
   // naturally does NOT double-emit.
   {
     const flags = contact.flags;
-    if ((flags & CONTACT_TOUCHING_FLAG) !== 0 && (flags & CONTACT_ENABLE_CONTACT_EVENTS) !== 0) {
+    if (touching && (flags & CONTACT_ENABLE_CONTACT_EVENTS) !== 0) {
       const pool = state.shapes.idPool;
       // Capture entity eids NOW (before the shape records may be freed later in
       // the same physics-pre pass). VP-21b uses the eid to look up the Entity
@@ -468,8 +471,17 @@ export function destroyContact(
   state.contacts.records[contactId] = undefined;
   state.contacts.idPool.free(contactId);
 
-  // M5 (sleep): box2d calls b2WakeBody(bodyA/bodyB) when wakeBodies && touching.
-  // No sleep in M3, so this is skipped.
+  // b2DestroyContact (contact.c:506-510): wake bodies when the contact was
+  // touching. Mirrors: `if (wakeBodies && touching) { b2WakeBody(bodyA); b2WakeBody(bodyB); }`
+  // Uses the state._wakeSolverSet hook (set by sleep.ts) to avoid a circular import.
+  if (wakeBodies && touching) {
+    if (bodyA.setIndex >= FIRST_SLEEPING_SET) {
+      state._wakeSolverSet(state, bodyA.setIndex);
+    }
+    if (bodyB.setIndex >= FIRST_SLEEPING_SET) {
+      state._wakeSolverSet(state, bodyB.setIndex);
+    }
+  }
 }
 
 /** Unlink one edge from its body's doubly-linked contact list by patching the

@@ -37,6 +37,13 @@ export const LOCK_ANGULAR_Z = 0x0004;
 export const IS_SPEED_CAPPED = 0x0020;
 export const ALLOW_FAST_ROTATION = 0x0080;
 
+/** Flag allowing a body to fall asleep. Mirrors `b2_enableSleep = 0x00000800`
+ * (body.h:53). Set when `Sleep.enabled = true` (the default). When clear, the
+ * sleep timer never advances for this body and it stays awake regardless of
+ * world `enableSleep`. Stored on `InternalBody.flags` (cold) and consulted in
+ * the finalize sleep block (`step.ts`). */
+export const ENABLE_SLEEP = 0x0800;
+
 /** Body-state flag marking a dynamic body: the solver only writes back to
  * bodies whose state carries it. Mirrors box2d `b2_dynamicFlag = 0x00000200`
  * (body.h:47) — "This body is dynamic so the solver should write to it." Set
@@ -86,6 +93,24 @@ export interface InternalBody {
   /** Index within the island's body list (union-find). Populated by VP-16.
    * Mirrors `b2Body.islandIndex`. */
   islandIndex: number;
+
+  // ── Sleep fields (VP-23) ─────────────────────────────────────────────────
+  /** Accumulated idle time in seconds. Incremented by the finalize sleep block
+   * when the body's sleepVelocity <= sleepThreshold. Reset to 0 on wake.
+   * Mirrors `b2Body.sleepTime` (body.h:107). */
+  sleepTime: number;
+  /** Body-level sleep speed threshold in m/s. A body is considered sleepy when
+   * `sleepVelocity <= sleepThreshold`. Mirrors `b2Body.sleepThreshold`
+   * (body.h:106). Default `0.05` (box2d's `b2DefaultBodyDef.sleepThreshold`). */
+  sleepThreshold: number;
+  /** Cold flag bits on the `InternalBody` record (not duplicated on the sim).
+   * Bit {@link ENABLE_SLEEP} is the only flag here for now. */
+  flags: number;
+  /** Index of the body's entry in `bodyMoveEvents` this step, or
+   * {@link NULL_INDEX} when the body has not been finalized this step.
+   * Used by `b2TrySleepIsland` to mark the move event `fellAsleep = true`.
+   * Mirrors `b2Body.bodyMoveIndex` (body.h:109). */
+  bodyMoveIndex: number;
 }
 
 /** Dense per-body simulation data. One per body in a solver set. Transform and

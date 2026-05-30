@@ -110,6 +110,12 @@ export function createBody(
     // Island linkage: populated by VP-16 (stays NULL_INDEX here).
     islandId: NULL_INDEX,
     islandIndex: NULL_INDEX,
+    // Sleep fields (VP-23): body.h:106-109.
+    // ENABLE_SLEEP is set by the lifecycle from the Sleep component (default true).
+    sleepTime: 0,
+    sleepThreshold: 0.05, // b2DefaultBodyDef.sleepThreshold
+    flags: 0,
+    bodyMoveIndex: NULL_INDEX,
   };
   storage.records[handle.index] = body;
   set.bodySims.push(sim);
