@@ -23,10 +23,13 @@
 //
 // Engine module boundary: imports only from math/, util/, and sibling engine/.
 
+import type { Transform } from "../math/transform.js";
+import type { Vec2 } from "../math/vec2.js";
 import { swapRemove } from "../util/dense_array.js";
 import { NULL_INDEX, type ContactHandle } from "../util/handle.js";
 import { IdPool } from "../util/id_pool.js";
 
+import { STATIC_BODY } from "./body.js";
 import {
   emptyManifold,
   emptySimplexCache,
@@ -34,7 +37,8 @@ import {
   type SimplexCache,
 } from "./manifold/types.js";
 import { unlinkContact } from "./island.js";
-import { canCollide, isPrimaryPair } from "./narrow_phase.js";
+import { canCollide, computeManifold, isPrimaryPair } from "./narrow_phase.js";
+import type { InternalShape } from "./shape.js";
 import { AWAKE_SET, DISABLED_SET, type SolverSet } from "./solver_set.js";
 import type { PhysicsState } from "./state.js";
 
@@ -459,4 +463,216 @@ function _removeContactSim(state: PhysicsState, sims: ContactSim[], localIndex: 
   if (moved !== undefined) {
     state.contacts.get(moved.contactId).localIndex = localIndex;
   }
+}
+
+// ─── updateContact (b2UpdateContact narrow-phase refresh) ─────────────────────
+
+/** The radius used by the rolling-resistance rule. Mirrors `b2GetShapeRadius`
+ * (shape.h:103-116): circle/capsule/polygon return the geometry's `radius`
+ * field, segment/chainSegment return 0. */
+function _shapeRadius(shape: InternalShape): number {
+  const geom = shape.geometry;
+  switch (geom.kind) {
+    case "circle":
+    case "capsule":
+    case "polygon":
+      return geom.radius;
+    default:
+      // segment / chainSegment have no radius field.
+      return 0;
+  }
+}
+
+/**
+ * Refresh a contact's manifold and touching status. Ports `b2UpdateContact`
+ * (contact.c:529-707).
+ *
+ * Computes the new manifold via {@link computeManifold} (anchors arrive
+ * body-origin-relative with a normal A→B; the GJK `cache` is warm-started in
+ * place), then:
+ * - keeps `friction` / `restitution` (and the rolling-resistance / tangent-speed
+ *   derived values) current in case the shape materials changed;
+ * - sets/clears `SIM_ENABLE_HIT_EVENT` from the shapes' `enableHitEvents`;
+ * - **shifts each new anchor to center-of-mass-relative** (subtracting the
+ *   per-side `centerOffset`) and **carries warm-start impulses** from the old
+ *   manifold to any new point with a matching `id` (marking it `persisted`);
+ * - sets/clears `SIM_TOUCHING_FLAG` and returns whether the shapes touch.
+ *
+ * The pre-solve, `enableSpeculative`, and custom-event blocks are out of scope
+ * (sensors / pre-solve are later milestones). `baseSeparation` and the
+ * started/stopped flags are NOT set here — the collide loop (VP-18) sets those,
+ * mirroring `b2CollideTask` (not `b2UpdateContact`).
+ */
+export function updateContact(
+  state: PhysicsState,
+  contactSim: ContactSim,
+  shapeA: InternalShape,
+  transformA: Transform,
+  centerOffsetA: Vec2,
+  shapeB: InternalShape,
+  transformB: Transform,
+  centerOffsetB: Vec2
+): boolean {
+  // Save old manifold (contact.c:533).
+  const oldManifold = contactSim.manifold;
+
+  // Compute new manifold (contact.c:536-537). computeManifold returns anchors
+  // relative to each shape's BODY origin and a normal A→B, mutating the cache
+  // in place for GJK warm-starting.
+  contactSim.manifold = computeManifold(shapeA, transformA, shapeB, transformB, contactSim.cache);
+
+  // Keep friction/restitution current in case the shape materials changed
+  // (contact.c:540-543).
+  contactSim.friction = mixFriction(shapeA.friction, shapeB.friction);
+  contactSim.restitution = mixRestitution(shapeA.restitution, shapeB.restitution);
+
+  // Rolling resistance (contact.c:545-556): when either shape has rolling
+  // resistance, scale the larger coefficient by the larger shape radius.
+  if (shapeA.rollingResistance > 0 || shapeB.rollingResistance > 0) {
+    const radiusA = _shapeRadius(shapeA);
+    const radiusB = _shapeRadius(shapeB);
+    const maxRadius = Math.max(radiusA, radiusB);
+    contactSim.rollingResistance =
+      Math.max(shapeA.rollingResistance, shapeB.rollingResistance) * maxRadius;
+  } else {
+    contactSim.rollingResistance = 0;
+  }
+
+  // Conveyor-belt tangent speed (contact.c:558).
+  contactSim.tangentSpeed = shapeA.tangentSpeed + shapeB.tangentSpeed;
+
+  const manifold = contactSim.manifold;
+  const pointCount = manifold.pointCount;
+  const touching = pointCount > 0;
+
+  // Hit-event flag (contact.c:609-616). Pre-solve / enableSpeculative blocks
+  // (contact.c:563-607) are out of scope.
+  if (touching && (shapeA.enableHitEvents || shapeB.enableHitEvents)) {
+    contactSim.simFlags |= SIM_ENABLE_HIT_EVENT;
+  } else {
+    contactSim.simFlags &= ~SIM_ENABLE_HIT_EVENT;
+  }
+
+  // Carry the rolling impulse across the refresh (contact.c:618-621).
+  if (pointCount > 0) {
+    manifold.rollingImpulse = oldManifold.rollingImpulse;
+  }
+
+  // Match old contact ids to new ids, shift anchors to center-of-mass-relative,
+  // and copy stored impulses to warm-start the solver (contact.c:625-660).
+  for (let i = 0; i < pointCount; i++) {
+    const mp2 = manifold.points[i]!;
+
+    // Shift anchors to be center-of-mass relative.
+    mp2.anchorA = { x: mp2.anchorA.x - centerOffsetA.x, y: mp2.anchorA.y - centerOffsetA.y };
+    mp2.anchorB = { x: mp2.anchorB.x - centerOffsetB.x, y: mp2.anchorB.y - centerOffsetB.y };
+
+    mp2.normalImpulse = 0;
+    mp2.tangentImpulse = 0;
+    mp2.totalNormalImpulse = 0;
+    mp2.normalVelocity = 0;
+    mp2.persisted = false;
+
+    const id2 = mp2.id;
+
+    for (let j = 0; j < oldManifold.pointCount; j++) {
+      const mp1 = oldManifold.points[j]!;
+      if (mp1.id === id2) {
+        mp2.normalImpulse = mp1.normalImpulse;
+        mp2.tangentImpulse = mp1.tangentImpulse;
+        mp2.persisted = true;
+
+        // Clear old impulse.
+        mp1.normalImpulse = 0;
+        mp1.tangentImpulse = 0;
+        break;
+      }
+    }
+  }
+
+  // Touching flag (contact.c:697-704).
+  if (touching) {
+    contactSim.simFlags |= SIM_TOUCHING_FLAG;
+  } else {
+    contactSim.simFlags &= ~SIM_TOUCHING_FLAG;
+  }
+
+  return touching;
+}
+
+// ─── addContactToGraph (overflow path of b2AddContactToGraph) ─────────────────
+
+/**
+ * Move a newly-touching contact's sim into the single overflow graph color.
+ * Ports the overflow path of `b2AddContactToGraph` (constraint_graph.c:66-182).
+ *
+ * v1 has no graph coloring (box2d's `B2_FORCE_OVERFLOW` path), so `colorIndex`
+ * is always {@link OVERFLOW_COLOR}. Pushes the SAME `contactSim` object
+ * reference into `state.graphContactSims` (the move-the-reference porting
+ * decision, mirroring `BodySim` relocation in solver_set.ts): box2d memcpys the
+ * struct then the caller removes the source slot from the awake set's
+ * `contactSims`, so re-using the live object reference is equivalent and avoids
+ * a struct copy. Then refreshes the sim's transient body indices / inverse
+ * masses from the current bodies (static side → {@link NULL_INDEX} / 0).
+ */
+export function addContactToGraph(
+  state: PhysicsState,
+  contactSim: ContactSim,
+  contact: InternalContact
+): void {
+  // box2d asserts the contact is touching here (constraint_graph.c:68-70).
+  if (contactSim.manifold.pointCount <= 0 || (contactSim.simFlags & SIM_TOUCHING_FLAG) === 0) {
+    throw new Error("addContactToGraph: contact is not touching");
+  }
+
+  const colorIndex = OVERFLOW_COLOR;
+  contact.colorIndex = colorIndex;
+  contact.localIndex = state.graphContactSims.length;
+
+  // Move-the-reference: push the live sim (see header). The caller removes it
+  // from the source set's contactSims afterward.
+  state.graphContactSims.push(contactSim);
+  const newSim = contactSim;
+
+  const awakeSet = state.solverSets[AWAKE_SET]!;
+
+  // Refresh side A body index / inverse mass (constraint_graph.c:145-162).
+  const bodyA = state.bodies.get(contact.edges[0].bodyId);
+  if (bodyA.type === STATIC_BODY) {
+    newSim.bodySimIndexA = NULL_INDEX;
+    newSim.invMassA = 0;
+    newSim.invIA = 0;
+  } else {
+    newSim.bodySimIndexA = bodyA.localIndex;
+    const bodySimA = awakeSet.bodySims[bodyA.localIndex]!;
+    newSim.invMassA = bodySimA.invMass;
+    newSim.invIA = bodySimA.invInertia;
+  }
+
+  // Refresh side B body index / inverse mass (constraint_graph.c:164-181).
+  const bodyB = state.bodies.get(contact.edges[1].bodyId);
+  if (bodyB.type === STATIC_BODY) {
+    newSim.bodySimIndexB = NULL_INDEX;
+    newSim.invMassB = 0;
+    newSim.invIB = 0;
+  } else {
+    newSim.bodySimIndexB = bodyB.localIndex;
+    const bodySimB = awakeSet.bodySims[bodyB.localIndex]!;
+    newSim.invMassB = bodySimB.invMass;
+    newSim.invIB = bodySimB.invInertia;
+  }
+}
+
+// ─── removeContactFromGraph (overflow path of b2RemoveContactFromGraph) ───────
+
+/**
+ * Swap-remove the contact sim at `localIndex` from the overflow graph color
+ * (`state.graphContactSims`) and repair the moved sim's owning contact's
+ * `localIndex`. Ports the overflow path of `b2RemoveContactFromGraph`
+ * (constraint_graph.c:184-212) — the `colorIndex !== OVERFLOW_INDEX` bodySet
+ * clears do not apply with no coloring. Reuses the {@link _removeContactSim}
+ * swap-remove helper.
+ */
+export function removeContactFromGraph(state: PhysicsState, localIndex: number): void {
+  _removeContactSim(state, state.graphContactSims, localIndex);
 }
