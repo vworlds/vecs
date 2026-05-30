@@ -36,7 +36,14 @@
 // Upstream docs: docs/debug-validation.md.
 // Re-uses: validateHull / computeHull from engine/geometry.ts.
 
-import { ChildOf, type Filter, type IPhase, type System, type World } from "@vworlds/vecs";
+import {
+  ChildOf,
+  type Entity,
+  type Filter,
+  type IPhase,
+  type System,
+  type World,
+} from "@vworlds/vecs";
 
 import { Body, BodyType, Position } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
@@ -174,14 +181,11 @@ function _validateGeomEntities(geomFilter: Filter, dedupe: WarnDedupe): void {
  * dependency on PhysicsState internals. */
 function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: WarnDedupe): void {
   // Build a map: body-eid → list of geometry child entities (per this step).
-  const geomChildrenByBody = new Map<number, ReturnType<typeof geomFilter.forEach>[]>();
+  const geomChildrenByBody = new Map<number, Entity[]>();
 
   geomFilter.forEach((e) => {
     const parent = e.parent(ChildOf);
-    if (parent === undefined) {
-      return;
-    }
-    if (parent.get(Body) === undefined) {
+    if (parent === undefined || parent.get(Body) === undefined) {
       return;
     }
     const bodyEid: number = parent.eid;
@@ -190,8 +194,7 @@ function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: W
       list = [];
       geomChildrenByBody.set(bodyEid, list);
     }
-    // Store the entity itself for later inspection.
-    (list as any[]).push(e);
+    list.push(e);
   });
 
   // Walk every body entity and check dynamic-body-without-density.
@@ -206,7 +209,7 @@ function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: W
       return;
     }
 
-    const children = geomChildrenByBody.get(eid) as any[] | undefined;
+    const children = geomChildrenByBody.get(eid);
 
     // A dynamic body with no geometry children always warns.
     if (children === undefined || children.length === 0) {
