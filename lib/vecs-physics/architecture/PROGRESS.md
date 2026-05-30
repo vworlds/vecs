@@ -642,6 +642,8 @@ VP-15a (data model + storage + edges + create/destroy + filter helper)
 
 ### Status by ticket
 
+_(See M3 entries above for VP-15a/b, VP-16, VP-17, VP-18.)_
+
 _(updated as tickets land)_
 
 #### ✅ VP-16 — `engine/island.ts` + body-island hooks
@@ -1064,3 +1066,58 @@ VP-20 kinematic targets ┤ (independent of each other)
 ### Status by ticket
 
 _(updated as tickets land)_
+
+#### ✅ VP-19 — `PhysicsForceGather` + `PhysicsImpulseAccumulate` + `PhysicsImpulseZero`
+
+**Files:**
+- `src/engine/state.ts` — added `pendingImpulses: Map<bodyIndex, {x,y,angular,wake}>` and
+  `impulseEntitiesThisStep: Set<eid>` with doc comments referencing M4 scoping decision.
+- `src/engine/step.ts` — added `applyPendingImpulses` helper called at the TOP of
+  `engineStep` (after `PhysicsMassRecompute` has run, before `collide`). Also merged the
+  `DYNAMIC_BODY` import from `body.js` with the existing `IS_SPEED_CAPPED`.
+- `src/systems/forces.ts` (NEW) — `PhysicsForceGather`: non-reactive Filter walk of
+  `{ any: [Force, Torque] }` every step; immediate-parent rule via `e.parent(ChildOf)`;
+  accumulates into `BodySim.forceX/forceY/torque` (awake set only).
+- `src/systems/impulse_accumulate.ts` (NEW) — `PhysicsImpulseAccumulate`: `onSet` hooks
+  for `Impulse`/`AngularImpulse`; accumulates to `pendingImpulses` synchronously at each
+  `set()` call; records eid in `impulseEntitiesThisStep`. System entity used for tagging.
+- `src/systems/impulse_zero.ts` (NEW) — `PhysicsImpulseZero`: physics-post `.run()` walks
+  `impulseEntitiesThisStep`, zeroes `imp.x/y` and `ai.value` via direct property write
+  (no `entity.modified`), then clears the set.
+- `src/systems/index.ts` — wired `installForceGather` and `installImpulseAccumulate` in
+  physics-pre after `installPoseSyncIn`, before `installMassRecompute`; `installImpulseZero`
+  in physics-post after `installPoseSyncOut`.
+- `tests/forces/forces.test.ts` (NEW) — 10 tests.
+
+**Box2D lines mirrored:**
+- `PhysicsForceGather` ← `b2Body_ApplyForceToCenter` (body.c:964):
+  `bodySim->force = b2Add(bodySim->force, force)` and `b2Body_ApplyTorque` (body.c:986):
+  `bodySim->torque += torque`.
+- `applyPendingImpulses` ← `b2Body_ApplyLinearImpulseToCenter` (body.c:1048):
+  `state->linearVelocity = b2MulAdd(state->linearVelocity, invMass, impulse)` and
+  `b2Body_ApplyAngularImpulse` (body.c:1077): `state->angularVelocity += invInertia * impulse`.
+
+**Decisions / deviations:**
+- **`onSet` hooks instead of `.update()` for impulse accumulation (PLAN divergence).**
+  PLAN stated "each `set(Impulse,...)` fires one inbox event; summing across multiple sets
+  in a frame is the accumulation guarantee" via `.update()` callbacks. This is incorrect:
+  Vecs inbox events store a MUTABLE REFERENCE to the component; by drain time all events
+  for the same component show the LAST `Object.assign`'d value. Three `set`s with x=1,2,3
+  would all fire the callback with x=3 → sum = 9, not 6. `world.component(Impulse).onSet`
+  fires SYNCHRONOUSLY inside `_notifyComponentSet`, called after each `Object.assign`,
+  seeing the correct value at set-time. This is safe: the hook only mutates PhysicsState
+  accumulators (no structural ECS mutations). PLAN.md → _PhysicsImpulseAccumulate_ carries
+  the wrong assumption; NEXT ticket author should be aware.
+- **`ImpulseZero` watcher test uses `.query({ any: [Impulse] })`** (not `.requires(Body)`).
+  Vecs does NOT fire `.update()` when a component is ADDED to an entity already in a query
+  (isUpdate=false in `_notifyComponentSet` skips `_notifyModified`). The watcher must
+  match entities via the watched component so the entity enters at component-add time,
+  triggering entry-time initialization.
+- **Wake flag is a structural no-op until M5 (sleep).** Force gather and impulse accumulate
+  carry `wake` structurally but `applyPendingImpulses` does not act on it (no sleeping set
+  exists). Mirrors `b2Body_ApplyForceToCenter` body.c:933-936 wake guard. Carried into M5.
+- **`applyPendingImpulses` skips non-AWAKE and non-DYNAMIC bodies.** Mirrors box2d's
+  `body->type != b2_dynamicBody || body->setIndex == b2_disabledSet` early return.
+
+**Tests:** 10 new tests in `tests/forces/forces.test.ts`. **498 tests total** (was 488).
+Gate green: typecheck/test/lint/prettier all clean from `lib/vecs-physics/`.
