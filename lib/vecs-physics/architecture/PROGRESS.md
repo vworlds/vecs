@@ -2161,9 +2161,13 @@ intentionally not in M6 scope.
 lint / prettier from `lib/vecs-physics/`). Post-M5 review fix pass landed
 on top of VP-26 (7 commits ending at `4c4af8d`); `architecture/issues/` empty.
 
-**NEXT: VP-31** — last of Wave 1; VP-27, VP-28, VP-29, VP-30 merged. Plus a
-sibling `fix:` against M5 (CCD/sleep stale-index bug, surfaced by VP-30 fuzz —
-see VP-30 entry below).
+**Wave 1 COMPLETE.** VP-27, VP-28, VP-29, VP-30, VP-31 all merged; plus a
+sibling `fix:` against M5 (CCD/sleep stale-index bug, surfaced by VP-30 fuzz
+— see VP-30 entry below). **NEXT: Wave 2** — VP-32 (README + examples) and
+VP-33 (monorepo server-demo integration). Both depend on VP-31's frozen
+export surface; VP-32 also consumes VP-27's refreshed `docs/roadmap.md`.
+VP-34 (release: bench/BASELINE, CHANGELOG, version bump, MIT LICENSE, v1.0.0
+tag) is strictly last and depends on VP-33.
 See `CLOSING_PLAN.md` § VP-NN per ticket. Suggested sequence:
 VP-27 → VP-31 → VP-28 → VP-29 → VP-30 → VP-32 → VP-33 → VP-34.
 
@@ -2405,5 +2409,69 @@ premise (finalize already marks a bullet body's island awake via the sleepTime
 =0 path, so running bullets first does NOT let a bullet body sleep). All 684
 tests stay green with the swap, plus all 10 fuzz seeds now pass with sleep
 enabled.
+
+#### ✅ VP-31 — Public API freeze (export snapshot) (commit c394962)
+
+**Files:**
+
+- `lib/vecs-physics/tests/api/exports.approved.json` (NEW, 69 lines) — the approved
+  API snapshot stored as JSON-as-data (not vitest `.toMatchSnapshot`). Five fields:
+  - `runtimeExports` (30): every named export of `@vworlds/vecs-physics`, sorted.
+  - `classExports` (29): every component class.
+  - `functionExports` (1): `installPhysics`.
+  - `valueExports` (1): `BodyType` (the `"static"|"kinematic"|"dynamic"` string enum).
+  - `typeExports` (5): `ContactEvent`, `HitEvent`, `PhysicsOptions`, `SensorEvent`,
+    `Vec2` — type-only, not runtime-discoverable, pinned via `tsc` on the test file.
+- `lib/vecs-physics/tests/api/exports.test.ts` (NEW, 112 lines) — three tests in one
+  `describe("public API exports")` block:
+  1. "matches the approved public API snapshot" — `expect(buildApiSnapshot()).toEqual(APPROVED_API)`.
+  2. "exports component classes, installPhysics, and BodyType with expected runtime
+     kinds" — runtime kind check per category: every `classExports` entry is a class
+     (`Function.prototype.toString` starts with `"class "`); `installPhysics` is a
+     function-but-not-class; `BodyType` equals `{Static:"static",Kinematic:"kinematic",Dynamic:"dynamic"}`.
+  3. "keeps docs/components.md component rows in sync with exported component classes" —
+     parses the docs Defaults table (regex on `## Defaults\n\n…\n\n…(?=\n## )`), extracts
+     unique component names from the first column, asserts equal to sorted `classExports`.
+     Plus a `PublicTypeExports` tuple alias that imports all 5 types as `type`s so `tsc`
+     fails if any are removed; `void (undefined as unknown as PublicTypeExports)` keeps the
+     alias live without runtime cost.
+- `lib/vecs-physics/scripts/api-snapshot.ts` (NEW, 78 lines) — small CLI helper. Default
+  invocation re-checks the approved snapshot against the current `* as api` exports;
+  `--write` re-renders the JSON via Prettier and overwrites the approved file.
+  Intended workflow for intentional API changes: edit `src/index.ts`, run
+  `npm run api:snapshot -- --write`, commit the JSON diff alongside the code change.
+- `lib/vecs-physics/package.json` (+1) — added `"api:snapshot": "tsx scripts/api-snapshot.ts"`.
+
+**Decisions / deviations:**
+
+- **No engine behaviour changed** (M6 iron rule respected). `src/index.ts` already
+  matched PLAN.md → _Top-level Exports_; the audit confirmed it (no rename / delete /
+  add needed).
+- **JSON-as-data snapshot file + helper script** instead of the inline-string-array
+  in the issue brief. The agent chose this path for cleaner PR diffs and `--write`
+  ergonomics on intentional changes. Accepted at review — the durable contract is
+  the same (any drift in the public surface fails the test), and the JSON file is
+  Prettier-formatted via the script.
+- **Type exports pinned via `tsc`, not runtime introspection.** TypeScript erases
+  type-only exports at runtime, so `Object.keys(api)` cannot see `PhysicsOptions`/
+  `Vec2`/`ContactEvent`/`SensorEvent`/`HitEvent`. The test imports them as `type`s in
+  a tuple alias; removing or renaming any breaks the typecheck step of the gate.
+- **Docs cross-check uses the same regex as VP-27's defaults parser**, with a `Set`
+  dedup over the first column. Because every public component class appears at least
+  once in the Defaults table, the deduped first-column list equals the class export
+  list.
+
+**Tests:** 687 tests / 62 files (was 684 / 61, +3 tests / +1 file). Gate green:
+typecheck/test/lint/prettier from `lib/vecs-physics/`. Closes #78.
+
+### ✅ MILESTONE 6 — WAVE 1 COMPLETE
+
+VP-27 / VP-28 / VP-29 / VP-30 / VP-31 all merged + sibling M5 CCD/sleep fix. **Gate
+green: 687 tests / 62 files**, typecheck / test / lint / prettier all clean from
+`lib/vecs-physics/`. PRs #79, #80, #81, #82, #83 all squash-rebase-merged with branch
+deletion; agent worktrees survive locally (`VP27`/`VP28`/`VP29`/`VP30`/`VPxxx` under
+`.worktrees/`) but the remote branches are gone.
+
+**Wave 1 → Wave 2 carry:** none. All five tickets landed clean.
 
 _(updated as further tickets land)_
