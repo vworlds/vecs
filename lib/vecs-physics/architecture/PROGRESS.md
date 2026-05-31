@@ -2161,7 +2161,7 @@ intentionally not in M6 scope.
 lint / prettier from `lib/vecs-physics/`). Post-M5 review fix pass landed
 on top of VP-26 (7 commits ending at `4c4af8d`); `architecture/issues/` empty.
 
-**NEXT: VP-31** — remaining Wave 1 (VP-28/29/30 in PR review). VP-27 merged.
+**NEXT: VP-31** — remaining Wave 1 (VP-29/30 in PR review). VP-27, VP-28 merged.
 See `CLOSING_PLAN.md` § VP-NN per ticket. Suggested sequence:
 VP-27 → VP-31 → VP-28 → VP-29 → VP-30 → VP-32 → VP-33 → VP-34.
 
@@ -2214,5 +2214,72 @@ VP-27 → VP-31 → VP-28 → VP-29 → VP-30 → VP-32 → VP-33 → VP-34.
 
 **Tests:** 669 tests / 55 files (was 668 / 55). Gate green: typecheck/test/lint/prettier
 from `lib/vecs-physics/`. Closes #74.
+
+#### ✅ VP-28 — Box2D test-suite parity sweep (commit 0ed1a78)
+
+**Files:**
+
+- `lib/vecs-physics/tests/parity/cross_platform.test.ts` (NEW) — v1-equivalent of
+  `test_world.c::CrossPlatformTest`. Box2D's Falling Hinges scene relies on revolute
+  joints (v1 excludes); the port instead builds a 20×10 dynamic-box stack on a static
+  ground, steps 360 frames at 1/60, snapshots every body's `(bodyId, x, y, rotation,
+vx, vy, omega, sleeping)` via `getPhysics(world)`, and asserts byte-equal snapshots
+  across two independent runs in one process. Snapshot is `JSON.stringify` (string
+  equality, not deep equality), so any deterministic float drift surfaces.
+- `lib/vecs-physics/tests/lifecycle/empty_world.test.ts` (NEW) — port of
+  `test_world.c::EmptyWorld`. `installPhysics` + `world.start()` + 32 `world.progress`
+  calls with no entities; asserts `bodies/shapes/contacts/islands.records` empty,
+  `graphContactSims` empty, exactly 3 solver sets (STATIC/DISABLED/AWAKE), every
+  set's `bodySims/bodyStates/contactSims/islandSims` empty.
+- `lib/vecs-physics/tests/lifecycle/destroy_all_bodies.test.ts` (NEW) — port of
+  `test_world.c::DestroyAllBodiesWorld`. Builds a static ground + 8 dynamic boxes,
+  lets contacts form (5 steps), destroys every shape+body in one frame, steps once,
+  asserts no live `bodyByEntity`/`shapeByEntity` entries, no records, no
+  `graphContactSims`, no non-touching contacts, no islands, no broad-phase proxies
+  (via `state.broadPhase.queryAll`).
+- `lib/vecs-physics/tests/lifecycle/enable_contact_recycling.test.ts` (NEW) — port
+  of `test_world.c::EnableContactRecyclingTest`. Single dynamic box on a ground;
+  after contacts form, toggle `Body.enabled = false` and assert the body moved to
+  `DISABLED_SET`, shape `proxyKey === -1`, zero live contacts; toggle back to
+  `enabled = true` and assert proxy recreated (`proxyKey >= 0`) and contacts
+  regenerated. v1 disables contact recycling (`recycleDistance = 0`) but the
+  enable/disable contact-teardown invariant still applies (M3 review fix
+  `M3-body-type-enable-bookkeeping`).
+- `lib/vecs-physics/tests/math/aabb_raycast.test.ts` (NEW) — port of
+  `test_collision.c::AABBRayCastTest`. All 14 sub-cases (side / edge / corner / miss /
+  inside / degenerate / exact-boundary, offset AABB) exercised in a single `it()` block.
+- `lib/vecs-physics/tests/parity/README.md` (NEW) — catalogues intentionally-not-
+  ported box2d tests with the PLAN _Non-Goals_ reason for each: `RayCastShapeTest`,
+  `ShapeCastTest`, threading tests, container/hash-set tests, `TestIsValid`,
+  `TestWorldRecycle`, `TestWorldCoverage`, `TestSetWorkerCount`. Also notes
+  `ChainSegmentShapeTest`'s partial-port status (physical one-sided ✅; C-API
+  shape-type mutation ❌ — M4 closeout).
+- `lib/vecs-physics/src/math/aabb.ts` (+100/-1) — added `rayCastAABB(a, p1, p2)`
+  with the exported `AABBCastOutput` (`hit/fraction/normal/point`). **Verbatim port
+  of `b2AABB_RayCast`** (`box2d/src/aabb.c:19`) — same `tmin = -MAX / tmax = MAX`
+  init, same `absD < FLT_EPSILON` parallel-axis test, same swap logic with sign-of-
+  normal `s`, same `tmin < 0 || 1 < tmin` early returns. Used only by the new
+  `aabb_raycast.test.ts` (CCD does not consume it in v1).
+
+**Decisions / deviations:**
+
+- **No engine behaviour changed.** No parity divergence was uncovered by the five
+  ports; no sibling `fix:` PR needed (M6 iron rule respected).
+- **`rayCastAABB` is a new internal math primitive, not an engine behaviour change.**
+  It's a pure function on the math layer (no state, no solver call sites) added so
+  the `AABBRayCastTest` port has a function to exercise. Could become a public ray-
+  cast primitive in v2 alongside `physics.rayCastClosest`; for now it's exported
+  from `math/aabb.ts` only.
+- **`cross_platform.test.ts` is broader than `tests/engine/collide_order.test.ts`.**
+  collide_order only pins 3-contact id ordering; cross_platform exercises a 200-body
+  stack across 360 steps and pins every body's full pose+velocity+sleep state. If
+  any future change re-introduces a determinism regression, this test catches it.
+  Snapshot uses `JSON.stringify` for byte-equality (no `toBeCloseTo`).
+- **`enable_contact_recycling` reaches into `state.shapes.get(shapeIndex).proxyKey`**
+  for the disable assertion — proxyKey = -1 is the explicit "no broad-phase proxy"
+  sentinel set by the M3 enable/type-change bookkeeping fix.
+
+**Tests:** 674 tests / 60 files (was 669 / 55, +5 tests / +5 files). Gate green:
+typecheck/test/lint/prettier from `lib/vecs-physics/`. Closes #75.
 
 _(updated as further tickets land)_
