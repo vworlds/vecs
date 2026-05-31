@@ -2474,4 +2474,126 @@ deletion; agent worktrees survive locally (`VP27`/`VP28`/`VP29`/`VP30`/`VPxxx` u
 
 **Wave 1 → Wave 2 carry:** none. All five tickets landed clean.
 
+#### ✅ VP-32 — README + examples (commit 7540587 + cherry-pick 4d528aa)
+
+**Files:**
+
+- `lib/vecs-physics/README.md` (NEW) — package-root entry point. One-paragraph
+  what-it-is (Box2D v3 → Vecs port, idiomatic ECS through `installPhysics`),
+  install snippet, **HelloWorld quickstart** (M3 parity scene: dynamic box at
+  `y=4`, static ground at `y=-1`, 60 steps at `1/60`), v1 features table (10
+  rows: sleep, CCD, contact/sensor/hit events, kinematic, forces, materials,
+  filters, debug), v1 limitations list (now 10 bullets, including the two
+  v2-carries cherry-picked from #86: dynamic `Sensor` marker toggle requires
+  shape recreation; open-chain ghost vertices at sharp endpoints), how to run
+  the examples, learn-more links into `docs/*`, architecture links into
+  `architecture/{PLAN,SOLVER}.md`.
+- `lib/vecs-physics/examples/hello_world.ts` (NEW, 62 lines) — dropping box;
+  prints `y` every 10 frames; rests at `(0.000, 0.500)` within 60 frames.
+- `lib/vecs-physics/examples/sensor_trigger.ts` (NEW, 66 lines) — a moving
+  circle enters and exits a static `Sensor` box; recolours a `Tint` component
+  on begin/end via `SensorEvents`. Prints `entered: tint=green` / `exited:
+  tint=blue`.
+- `lib/vecs-physics/examples/kinematic_platform.ts` (NEW, 52 lines) —
+  `KinematicTargetPosition` drives a horizontal platform along
+  `sin(frame*0.03)*2`; a dynamic rider sits on it; prints rider vs platform x
+  every 20 frames.
+- `lib/vecs-physics/examples/contact_events.ts` (NEW, 59 lines) — stack of two
+  dynamic boxes on a static ground, all three with `ContactEvents`; prints
+  begin events as the stack settles.
+- `lib/vecs-physics/tsconfig.json` — `include` now adds `examples` so examples
+  compile under the package `typecheck`.
+- `lib/vecs-physics/package.json` — `examples` script (`tsx examples/X.ts &&
+  ...`) cherry-picked from #86 so all four examples can be smoke-run with
+  `npm run examples`.
+
+**Decisions / deviations:**
+
+- **No engine behaviour changed** (M6 iron rule respected).
+- **Two competing PRs (best-of-both merge).** Agents A (#86) and B (#87) both
+  picked up VP-32. #87 was merged as the primary because its examples are
+  more thorough (sensor_trigger demos a `Tint` component to make the event
+  use case concrete; kinematic_platform compares rider/platform x; contact_events
+  uses a stack on ground rather than two free-floating boxes). The two wins
+  from #86 — the extended limitations list (dynamic `Sensor` toggle, open-chain
+  ghost endpoints) and the `examples` npm script — were cherry-picked in
+  4d528aa. #86 was closed with a comment explaining the choice.
+- **Examples use the public API exclusively** — every imported name appears in
+  `tests/api/exports.approved.json` (the VP-31 snapshot).
+- **README is prettier-clean** (lives outside `docs/`, so the formatter rule
+  does apply).
+
+**Tests:** 687 tests / 62 files (unchanged — docs+examples only, no
+runtime code added to the engine). Gate green: typecheck/test/lint/prettier
+from `lib/vecs-physics/`. All four examples run cleanly via
+`npm run examples`. Closes #84 (issue), supersedes #86 (closed), merges #87.
+
+#### ✅ VP-33 — Monorepo server-demo: bouncing balls via vecs-physics (commit 52f3173)
+
+**Files:**
+
+- `apps/server/package.json` (+1) — adds `"@vworlds/vecs-physics": "*"` to
+  `dependencies`. `package-lock.json` regenerated.
+- `apps/server/src/main.ts` (+83 / -29) — replaces the hand-rolled ball motion
+  (per-frame `position += velocity`, manual wall bounce) with `installPhysics`-
+  driven simulation:
+  - `installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: DT,
+    subSteps: 4 })` is called after the demo's `update` phase is registered, so
+    the default `physics-*` phases land after gameplay writes and before
+    `collect`/`send`.
+  - Walls: a single static body holds 4 child `Segment` shapes outlining the
+    play area (`WIDTH × PLAY_HEIGHT`), with `Material { density: 0, friction:
+    0.6, restitution: 0 }`.
+  - Balls: each ball entity gains `Body { type: Dynamic }` + `PhysicsPosition`
+    + `PhysicsVelocity` (vecs-physics' `Position`/`LinearVelocity`, imported
+    with `as` aliases to avoid colliding with the demo's wire-typed
+    `Position`); a child shape entity owns the `Circle` + `Material { friction:
+    0.6, restitution: 0.7 }`.
+  - New `SyncPhysicsBalls` system in `physics-post`: reads `PhysicsPosition`,
+    writes the demo `Position` (with a y-flip — physics y-up vs screen y-down
+    — and a u16-safe `clamp + round`), and calls `entity.modified(Position)`
+    to trigger network sync. This was the "option 2: adapt" path from the
+    issue brief; "option 1: replace + decorate the external class" was not
+    attempted because decorating an external class with `@wireType` is not
+    supported by the wire layer.
+  - `AssignCells` and `UpdatePlayerViews` were moved to `physics-post` so they
+    observe post-physics positions.
+  - The old `Velocity` class and `MoveSystem` are deleted; players still move
+    via direct `Position` writes in `MovePlayers` (no velocity needed).
+
+**Decisions / deviations:**
+
+- **No engine behaviour changed.** Public-API integration; no `@vworlds/vecs-physics/src/*`
+  imports; no engine internals reached. The integration uncovered no API gaps
+  that required a sibling `fix:` — the export surface frozen by VP-31 covered
+  every use case (`Body`, `BodyType`, `Circle`, `installPhysics`,
+  `LinearVelocity`, `Material`, `Position`, `Segment`, plus `ChildOf` from
+  `@vworlds/vecs`).
+- **Coord-system flip.** Demo screen coords have y-down (GAME_TOP=60 at the
+  top, HEIGHT=540 at the bottom); physics uses y-up. The sync helpers
+  `toPhysicsPoint` and `toDemoBallPoint` flip via `HEIGHT - y` in both
+  directions. Gravity stays `(0, -10)` in physics space so balls fall toward
+  larger demo-y values (visually down).
+- **Optional sensor zone deliberately skipped.** The brief marked it
+  "optional, drop if it gets complex"; the agent skipped to stay within the
+  ~200-line budget.
+- **Visual verification limited.** PR notes "browser automation was unavailable
+  in this environment", so the agent confirmed the server starts cleanly
+  (`timeout 8s npm --prefix apps/server run dev`) and types/lints pass, but
+  did not capture a client-side recording of the balls bouncing. Local
+  smoke-test post-merge: server boots to `vecs demo server listening on
+  http://localhost:3000` with no errors in 6 seconds.
+
+**Tests:** 687 tests / 62 files (unchanged — server-side integration only,
+no `lib/vecs-physics/` code changed). Server gate green: `npm --prefix
+apps/server run typecheck` + `lint`. Closes #85.
+
+### ✅ MILESTONE 6 — WAVE 2 COMPLETE
+
+VP-32 + VP-33 merged. Public-facing surface is now in place: README + four
+runnable examples + a real-app dogfood. **Gate green: 687 tests / 62 files**
+in `lib/vecs-physics/`, `apps/server/` typecheck + lint clean. **NEXT: VP-34**
+(release mechanics — bench/BASELINE.md, CHANGELOG, version bump, MIT LICENSE,
+final gate, v1.0.0 tag) — the last ticket.
+
 _(updated as further tickets land)_
