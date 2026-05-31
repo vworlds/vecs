@@ -2161,7 +2161,9 @@ intentionally not in M6 scope.
 lint / prettier from `lib/vecs-physics/`). Post-M5 review fix pass landed
 on top of VP-26 (7 commits ending at `4c4af8d`); `architecture/issues/` empty.
 
-**NEXT: VP-31** — remaining Wave 1 (VP-30 in PR review). VP-27, VP-28, VP-29 merged.
+**NEXT: VP-31** — last of Wave 1; VP-27, VP-28, VP-29, VP-30 merged. Plus a
+sibling `fix:` against M5 (CCD/sleep stale-index bug, surfaced by VP-30 fuzz —
+see VP-30 entry below).
 See `CLOSING_PLAN.md` § VP-NN per ticket. Suggested sequence:
 VP-27 → VP-31 → VP-28 → VP-29 → VP-30 → VP-32 → VP-33 → VP-34.
 
@@ -2338,5 +2340,60 @@ notes)`. Every line range was verified against the vendored source at commit
 
 **Tests:** 674 tests / 60 files (unchanged — doc-only). Gate green: typecheck/test/lint
 from `lib/vecs-physics/`. Closes #76.
+
+#### ✅ VP-30 — Fuzz harness (commit 8fe1117)
+
+**Files:**
+
+- `lib/vecs-physics/tests/fuzz/rng.ts` (NEW, 35 lines) — `Rng` class implementing
+  mulberry32 (deterministic seeded PRNG). Exposes `float`, `int(min,max)`,
+  `range(min,max)`, `signed(maxMag)`, `bool(p)`, `choice([])`. Internal `_state`
+  is a uint32 mask of the seed; `>>> 0` keeps it 32-bit across `+ 0x6d2b79f5`.
+- `lib/vecs-physics/tests/fuzz/scene.ts` (NEW, 325 lines) — `buildFuzzScene(seed)`:
+  installs physics (`debug: true`, `subSteps: 2`, gravity `(0, -10)`, **`enableSleep: false`**
+  — see deviation below), adds static boundaries + coverage bodies, then 8–12 random
+  bodies with random geometry (`Box`/`Circle`/`Capsule`/`Polygon`/`Segment`/`Chain`),
+  random `Material` (density/friction/restitution), random `CollisionFilter`
+  (categoryBits/maskBits drawn from a fixed 8-category set), some `Sensor` shapes,
+  some `KinematicTargetPosition` drivers, persistent `Force`/`Torque`, per-step
+  `Impulse`/`AngularImpulse`. Respects M2 validators (no zero-length capsules/
+  segments/chains, no duplicate adjacent chain points).
+- `lib/vecs-physics/tests/fuzz/fuzz.test.ts` (NEW, 61 lines) — committed seed list
+  `[1, 2, 3, 5, 8, 13, 42, 1337, 65537, 3735928559]`, 300 steps at 1/60, asserts per
+  step: `Position`/`Rotation`/`LinearVelocity`/`AngularVelocity` all finite;
+  `world.progress` wall time < 5 s (hard infinite-loop guard, not a perf gate). Whole
+  suite runs in ~1 s on a dev machine.
+- `lib/vecs-physics/vitest.config.ts` — narrowed `include` from `tests/**/*.ts` to
+  `tests/**/*.test.ts` so the helper files (`rng.ts`, `scene.ts`) are not reported as
+  empty test suites.
+
+**Decisions / deviations:**
+
+- **No engine behaviour changed** in this PR (M6 iron rule respected).
+- **`enableSleep: false` is a temporary workaround for a real M5 CCD/sleep bug.**
+  Setting `enableSleep: true` reproduces a `TypeError: Cannot read properties of
+undefined (reading 'center0X')` at `engine/distance.ts:668` (`makeSweep`), reached
+  through `engine/ccd.ts:279` (`solveContinuous`), on seeds 2, 3, 13, 3735928559.
+  Root cause: `state.bulletBodies` (`engine/state.ts:398`) holds **awake-set local
+  indices** pushed during `finalizeBodies`; the sleep loop runs between finalize and
+  the bullet stage and may swap-pop those slots out of the awake set, leaving the
+  index either stale (pointing at a different body's sim) or out of range. The fix
+  is to either store stable `bodyId`s (and resolve set/index at call time) or skip
+  bullet bodies that moved out of `AWAKE_SET` before the bullet stage. **Tracked as
+  a separate `fix:` against M5 VP-24**; once that lands, `enableSleep` flips back to
+  `true` in `tests/fuzz/scene.ts`. This is exactly the iron-rule-mandated pattern:
+  M6 ports/tests surface a real M5 bug → file it separately, don't bundle.
+- **`vitest.config.ts` `include` narrowing is safe.** All existing test files use the
+  `*.test.ts` suffix; verified before commit. Helper files in any future `tests/<area>/`
+  are now silently allowed.
+- **Wall-time bound of 5 s/step** is generous on purpose — it catches infinite loops
+  and pathological perf regressions only, not normal slowdown. Whole 10-seed suite
+  finished in ~1 s on the dev machine.
+
+**Tests:** 684 tests / 61 files (was 674 / 60, +10 tests / +1 file). Gate green:
+typecheck/test/lint/prettier from `lib/vecs-physics/`. Closes #77.
+
+**Carried into a separate M5 fix:** `state.bulletBodies` stale-index bug when
+sleep is enabled (described above).
 
 _(updated as further tickets land)_
