@@ -2161,10 +2161,58 @@ intentionally not in M6 scope.
 lint / prettier from `lib/vecs-physics/`). Post-M5 review fix pass landed
 on top of VP-26 (7 commits ending at `4c4af8d`); `architecture/issues/` empty.
 
-**NEXT: VP-27** — doc audit + docs↔code defaults pin + roadmap v2-carries
-refresh. See `CLOSING_PLAN.md` § VP-27 for scope and DoD. Suggested
-sequence: VP-27 → VP-31 → VP-28 → VP-29 → VP-30 → VP-32 → VP-33 → VP-34.
+**NEXT: VP-31** — remaining Wave 1 (VP-28/29/30 in PR review). VP-27 merged.
+See `CLOSING_PLAN.md` § VP-NN per ticket. Suggested sequence:
+VP-27 → VP-31 → VP-28 → VP-29 → VP-30 → VP-32 → VP-33 → VP-34.
 
 ### Status by ticket
 
-_(updated as tickets land)_
+#### ✅ VP-27 — Doc audit + docs↔code defaults pin + roadmap v2-carries (commit 2e00b1e)
+
+**Files:**
+
+- `lib/vecs-physics/docs/components.md` — added a `## Defaults` table covering every
+  public component / field with its `new C()`-produced default value (the table is now
+  parsed by the regression test below). The hand-aligned table style is preserved
+  per the prettier rule on docs.
+- `lib/vecs-physics/tests/components/defaults.test.ts` — extended with a
+  docs↔code defaults parser test (`describe("docs/components.md defaults table")`):
+  reads the new Defaults table out of `docs/components.md` with a small regex, builds
+  the expected pairs from fresh public component instances, and asserts equality
+  per `(Component, field)` key. Numeric formatting handles `0xffffffff`, JSON
+  encoding for objects/strings, `[]` for empty arrays. Sensor uses a synthetic
+  `marker` row → `{}`.
+- M5 doc-coverage refresh across the pages CLOSING_PLAN.md §1.4 flagged:
+  `docs/events.md` (hit threshold default, sleeping-body event behaviour, CCD/sensor
+  TOI deferral, dropped the stale optional `otherBody` payload), `docs/getting-started.md`
+  (added `enableSleep`/`enableContinuous` rows), `docs/internals.md`, `docs/kinematic-motion.md`,
+  `docs/shapes.md` (dynamic `Sensor` toggle deferral, CCD/bullet shape notes, sensor-mass
+  wording), `docs/systems-and-phases.md` (added a full world-options defaults table:
+  `gravity`, `fixedTimeStep`, `subSteps`, `debug`, `restitutionThreshold`,
+  `hitEventThreshold` 1.0, `contactHertz` 30, `contactDampingRatio` 10,
+  `contactSpeed` 3.0, `maximumLinearSpeed` 400, `enableSleep`, `enableContinuous`).
+- `lib/vecs-physics/docs/roadmap.md` — added a `## V2 Carries From V1 Closeout`
+  subsection listing the four v2 carries (open-chain ghost-vertex fidelity at sharp
+  endpoints, dynamic `Sensor` marker toggle, CoM-shift velocity adjustment, sensor
+  TOI hits queue) with one-line reasons; the v1 scope table grew Sleeping / Continuous
+  CCD / Debug validation rows.
+
+**Decisions / deviations:**
+
+- **No engine behaviour changed** (M6 iron rule respected). The docs↔code defaults
+  test was always going to pass on first try because the doc table is mechanically
+  derived from the same code the test instantiates; the value is that any future
+  doc drift now fails CI, so reviewers can stop manually spot-checking defaults.
+- **Stale `otherBody` payload prose removed** from `docs/events.md` — the
+  `ContactEvent`/`SensorEvent`/`HitEvent` types in `src/components/events.ts` only
+  carry `other: Entity`, never `otherBody`. The previous prose described an optional
+  field that does not exist; consumers were already directed to
+  `event.other.parent(ChildOf)` for the body entity.
+- Defaults parser is intentionally regex-based + brittle to malformed tables —
+  the test throws if the `## Defaults` heading or table structure is missing, so
+  doc edits that break it surface immediately.
+
+**Tests:** 669 tests / 55 files (was 668 / 55). Gate green: typecheck/test/lint/prettier
+from `lib/vecs-physics/`. Closes #74.
+
+_(updated as further tickets land)_
