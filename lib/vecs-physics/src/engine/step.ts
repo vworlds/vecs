@@ -150,7 +150,26 @@ export function engineStep(state: PhysicsState, dt: number, subSteps: number): v
     state.splitIslandId = NULL_INDEX;
   }
 
-  // ── Island sleep loop (VP-23, b2Solve:2039-2053) ─────────────────────────
+  // ── VP-24: Bullet CCD stage (solver.c:1896-1968) ─────────────────────────
+  // Run solveContinuous for each bullet body collected in finalizeBodies.
+  // MUST run BEFORE the sleep loop to match box2d ordering (solver.c:1896 then
+  // :2003). The sleep loop's trySleepIsland swap-pops awake-set bodySims, which
+  // invalidates the awake-set local indices stored in state.bulletBodies. A
+  // bullet body's own island is always marked awake by the awakeIslandBitSet
+  // (its sleepTime resets to 0 in the !sleepy branch above), so running bullets
+  // first does not let a fast/bullet body sleep — it just keeps the indices
+  // valid. (Previously the order was sleep→bullet, with a justification that
+  // turned out to be wrong; reproduced by the VP-30 fuzz harness on seeds 2/3/
+  // 13/3735928559 with enableSleep:true → undefined sim → throw in makeSweep.)
+  if (state.bulletBodies.length > 0) {
+    for (const simIndex of state.bulletBodies) {
+      solveContinuous(state, simIndex);
+    }
+    // Enlarge broad-phase proxies for bullet shapes that moved (solver.c:1907-1958).
+    enlargeBulletProxies(state, state.bulletBodies);
+  }
+
+  // ── Island sleep loop (VP-23, solver.c:2003-2059) ────────────────────────
   // Reverse-iterate the awake set's islandSims; put any island whose bit is NOT
   // set in the awakeIslandBitSet to sleep. Gated on `state.enableSleep`.
   // (solver.c:2006: `if ( world->enableSleep == true )`)
@@ -168,19 +187,6 @@ export function engineStep(state: PhysicsState, dt: number, subSteps: number): v
       }
       trySleepIsland(state, islandSim.islandId);
     }
-  }
-
-  // ── VP-24: Bullet CCD stage (physics_world.c:1896-1968) ─────────────────────
-  // Run solveContinuous for each bullet body collected in finalizeBodies.
-  // This MUST run AFTER the sleep loop so that a bullet body currently in an
-  // awake island doesn't accidentally sleep in the same step it gets TOI-resolved.
-  // Mirrors the b2BulletBodyTask + serial proxy-enlarge loop from physics_world.c.
-  if (state.bulletBodies.length > 0) {
-    for (const simIndex of state.bulletBodies) {
-      solveContinuous(state, simIndex);
-    }
-    // Enlarge broad-phase proxies for bullet shapes that moved (physics_world.c:1907-1958).
-    enlargeBulletProxies(state, state.bulletBodies);
   }
 
   // Sensor overlap pass. Runs AFTER finalizeBodies so shape AABBs are fresh
