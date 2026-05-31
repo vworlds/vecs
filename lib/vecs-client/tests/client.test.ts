@@ -153,6 +153,48 @@ describe("ClientWorld", () => {
     expect(() => world.entity(7)).toThrow();
   });
 
+  it("applies compressed create-then-remove diffs without materializing the entity", () => {
+    const world = createClientWorld({ interpolatorBucketLength: 2, serverTickIntervalMs: 10 });
+    const socket = new MemorySocket("server");
+    const client = world;
+    client.attachSocket(socket);
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 0,
+            snapshots: [posSnapshot(1012, 1, 2)],
+          }),
+        })
+      )
+    );
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            removed: [[1012, 1]],
+          }),
+        })
+      )
+    );
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 1,
+            toFrame: 2,
+          }),
+        })
+      )
+    );
+
+    expect(() => client.apply(0)).not.toThrow();
+    expect(world.getEntity(1012)).toBeUndefined();
+  });
+
   it("recreates server-owned ids immediately when the server reuses them", () => {
     const world = createClientWorld({ serverTickIntervalMs: 10 });
     const entity = world.getOrCreateEntity(1000);

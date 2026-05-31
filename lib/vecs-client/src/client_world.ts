@@ -182,7 +182,9 @@ export class ClientWorld extends NetworkWorld {
   }
 
   private _removeComponent(eid: number, type: number): void {
-    const entity = this.entity(eid);
+    // Merged/interpolated client diffs can contain a net removal for an entity
+    // whose create snapshot was compressed away before it materialized locally.
+    const entity = this.getEntity(eid);
     if (!entity) {
       return;
     }
