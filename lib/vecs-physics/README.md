@@ -61,6 +61,8 @@ console.log(finalPosition.x.toFixed(3), finalPosition.y.toFixed(3));
 - Single-threaded solver only.
 - No contact recycling.
 - No public sensor TOI hits queue.
+- Dynamic `Sensor` marker toggles require recreating the shape in v1.
+- Open-chain ghost vertices at sharp endpoints are deferred to v2 parity work.
 
 ## Examples
 
@@ -72,6 +74,8 @@ tsx examples/sensor_trigger.ts
 tsx examples/kinematic_platform.ts
 tsx examples/contact_events.ts
 ```
+
+Or run all four in sequence via `npm run examples`.
 
 ## Learn More
 
