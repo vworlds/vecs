@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["tests/**/*.ts"],
+    include: ["tests/**/*.test.ts"],
     // Resolve `@vworlds/vecs` to this checkout's own source, mirroring the
     // `paths` mapping in `tsconfig.base.json`. Without it, vitest's node
     // resolution walks up to the repo-root `node_modules/@vworlds/vecs`
