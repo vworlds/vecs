@@ -304,7 +304,22 @@ Missing `Sensor` means the shape is solid.
 
 Sensor events are opt-in. Add `SensorEvents` only to shapes that should receive sensor begin/end events.
 
+Changing an existing shape between solid and sensor by adding or removing the `Sensor` marker at runtime is deferred to v2. For v1, recreate the shape entity or swap the geometry component when gameplay needs a solid/sensor mode change.
+
 See [Events](./events.md).
+
+## Continuous Collision And Bullets
+
+Continuous collision is controlled by body/world options, not shape geometry. Set `Body.bullet = true` on fast dynamic bodies that should use the bullet CCD path, and leave `enableContinuous` at its default `true` unless you intentionally disable CCD for performance.
+
+```ts
+projectile.set(Body, {
+  type: BodyType.Dynamic,
+  bullet: true,
+});
+```
+
+Shape defaults are unchanged by CCD: `Sensor` still means overlap-only, missing `Sensor` still means solid, and material/filter defaults still apply.
 
 ## Materials And Filters
 
@@ -383,7 +398,7 @@ shape.set(ShapePosition, { x: 1, y: 0 });
 
 ### Forgetting Dynamic Bodies Need Density
 
-Dynamic bodies need at least one non-sensor shape with non-zero density to behave normally.
+Dynamic bodies need at least one shape with non-zero density to behave normally. Sensor shapes with positive density contribute mass like solid shapes.
 
 Missing `Material` is fine because the default density is `1`.
 

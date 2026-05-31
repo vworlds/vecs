@@ -539,7 +539,7 @@ export class HitEvents {
 
 Event arrays are cleared every physics step. If new events arrive, physics pushes events and calls `entity.modified(EventComponent)`. If a previous step had events and the next step has none, physics clears the arrays silently and does not call `modified`.
 
-Event payloads always include the other shape entity. If the other body entity is already available at no meaningful cost during implementation, event payloads may also include it.
+Event payloads include the other shape entity. Get the body with `event.other.parent(ChildOf)` when needed.
 
 See [Events](./events.md).
 
@@ -577,7 +577,7 @@ In debug mode, `vecs-physics` warns about invalid structures without flooding th
 Examples:
 
 - Shape entity without an immediate parent `Body`.
-- Dynamic body with no non-sensor shape with non-zero density.
+- Dynamic body with no shape with non-zero density.
 - Chain with fewer than four points.
 - Invalid polygon.
 - Shape-local components placed on a body entity.

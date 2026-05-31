@@ -156,6 +156,12 @@ Physics attempts to converge both the position and the rotation. Each target use
 | `tolerance` | `0.001` | Angular threshold for considering the target reached.  |
 | `wake`      |  `true` | Whether to wake the body while applying target motion. |
 
+With the default `wake: true`, target motion wakes a sleeping body while physics applies the target. If you explicitly set `wake: false`, a sleeping body can remain asleep until another disturbance wakes it.
+
+`Body.bullet` and the `enableContinuous` option are body/world CCD controls, not kinematic target controls. They can coexist with kinematic bodies, but target components only decide the velocity needed to approach the requested pose.
+
+Debug validation does not require target components on kinematic bodies, but `debug: true` is useful for catching the adjacent structural mistakes: missing `Body`, shape entities without an immediate body parent, and invalid geometry.
+
 ## Direct Teleporting
 
 Changing `Position` or `Rotation` directly teleports the body.

@@ -43,6 +43,7 @@ Conceptually, the internal state owns:
 - Broad-phase acceleration structures.
 - Solver islands.
 - Sleeping state.
+- Continuous collision state for bullet and fast-body CCD.
 - Event buffers.
 - Pending force and impulse queues.
 - Entity-to-physics-object mappings.
@@ -176,6 +177,8 @@ Before stepping, physics consumes ECS changes:
 - Removed geometry components destroy internal shapes.
 - Modified `Position` or `Rotation` teleports bodies.
 - Modified `LinearVelocity` or `AngularVelocity` updates body velocities.
+- Modified `Body` updates type, enabled state, `bullet`, and `allowFastRotation`.
+- Modified `Sleep` updates per-body sleep enablement, awake state, and threshold.
 - Modified `Material` updates shape material and mass.
 - Modified `CollisionFilter` updates shape filtering.
 - Modified `Impulse` queues one-shot kicks.
@@ -195,6 +198,7 @@ The step performs the Box2D-style simulation work:
 - Contact updates.
 - Island construction.
 - Constraint solving.
+- Continuous collision detection when `enableContinuous` is `true`.
 - Velocity and position integration.
 - Sleeping.
 - Event generation.
@@ -293,9 +297,7 @@ For a contact between shape A and shape B:
 - If shape B has `ContactEvents`, append `{ other: shapeAEntity }` to shape B's event array.
 - Mark only the event components that received new events as modified.
 
-Same idea for hit and sensor events.
-
-If the implementation already has the other body entity available at no meaningful cost, event payloads may include it. The guaranteed minimal event identity is the other shape entity.
+Same idea for hit and sensor events. The public payload identity is the other shape entity; callers can recover the other body with `event.other.parent(ChildOf)`.
 
 ## Debug Validation
 
@@ -306,11 +308,13 @@ Debug mode can inspect common mistakes and warn once per entity/issue code.
 Examples:
 
 - Shape entity has no immediate parent body.
-- Dynamic body has no non-sensor shape with non-zero density.
+- Dynamic body has no shape with non-zero density.
 - `Chain` has fewer than four points.
 - `Polygon` is invalid.
 - Shape-local components are attached to a body entity.
 - Body components are attached to a shape entity by mistake.
+
+Debug validation is installed only when `installPhysics(world, { debug: true })` is used. Normal mode ignores invalid structures without warning.
 
 Warnings must be deduplicated. A bad entity should not flood the console every frame.
 

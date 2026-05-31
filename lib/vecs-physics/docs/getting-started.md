@@ -197,12 +197,14 @@ installPhysics(world, {
 
 Common options:
 
-| Option          |            Default | Description                                                                          |
-| --------------- | -----------------: | ------------------------------------------------------------------------------------ |
-| `gravity`       | `{ x: 0, y: -10 }` | World gravity in meters per second squared.                                          |
-| `fixedTimeStep` |           `1 / 60` | Physics step size in seconds. Vecs `delta` is expected to be fixed.                  |
-| `subSteps`      |                `4` | Solver substeps per physics step. More substeps improve stability and cost more CPU. |
-| `debug`         |            `false` | Enables deduplicated warnings for invalid ECS structures.                            |
+| Option             |            Default | Description                                                                          |
+| ------------------ | -----------------: | ------------------------------------------------------------------------------------ |
+| `gravity`          | `{ x: 0, y: -10 }` | World gravity in meters per second squared.                                          |
+| `fixedTimeStep`    |           `1 / 60` | Physics step size in seconds. Vecs `delta` is expected to be fixed.                  |
+| `subSteps`         |                `4` | Solver substeps per physics step. More substeps improve stability and cost more CPU. |
+| `debug`            |            `false` | Enables deduplicated warnings for invalid ECS structures.                            |
+| `enableSleep`      |             `true` | Allows inactive bodies with `Sleep.enabled` to fall asleep.                          |
+| `enableContinuous` |             `true` | Enables continuous collision for bullet and fast-body paths.                         |
 
 Advanced callers can pass phase names or phase objects to place physics systems inside an existing Vecs pipeline. See [Systems And Phases](./systems-and-phases.md).
 

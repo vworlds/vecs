@@ -131,6 +131,8 @@ export type SensorEvent = {
 
 Hit events report high-speed impacts. Use them for damage, impact sounds, particles, or screen shake.
 
+The default `hitEventThreshold` is `1.0` meter per second. Lower it to receive softer impacts; raise it to report only harder hits.
+
 ```ts
 export type HitEvent = {
   other: Entity;
@@ -186,6 +188,10 @@ If a previous step had events and the next step has none, physics clears the arr
 
 This keeps systems quiet when nothing happened.
 
+Sleeping bodies do not produce new contact, hit, or sensor events while they remain undisturbed. Forces, impulses, teleports, kinematic targets, or new contacts can wake them according to the `Sleep` component and `enableSleep` option.
+
+Continuous collision detection feeds the normal contact and hit event path. A fast `Body` with `bullet: true` can generate begin/contact/hit events after the CCD step, but sensor time-of-impact hits are intentionally deferred to v2; sensor events use the regular overlap pass in v1.
+
 ## Querying Event Shapes
 
 Because events are components, you can query for exactly the shapes that care about them.
@@ -223,20 +229,17 @@ world
   });
 ```
 
-## Optional Body References
+## Body References
 
-Event payloads always include the other shape entity.
-
-Implementations may also include the other body entity when it is already available at no meaningful cost.
+Event payloads include the other shape entity.
 
 ```ts
 export type ContactEvent = {
   other: Entity;
-  otherBody?: Entity;
 };
 ```
 
-Do not require `otherBody` in portable code. You can always get the body from `event.other.parent(ChildOf)` because shape entities are immediate children of body entities.
+Get the body from `event.other.parent(ChildOf)` because shape entities are immediate children of body entities.
 
 ## Common Mistakes
 

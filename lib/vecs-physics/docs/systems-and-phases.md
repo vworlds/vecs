@@ -214,6 +214,27 @@ Higher values improve stability for difficult constraints and fast interactions,
 
 For the first version of `vecs-physics`, joints are deferred, so most projects should start with `4` and only tune if contacts feel unstable.
 
+## World Options
+
+`installPhysics` applies Box2D-aligned defaults when options are omitted.
+
+| Option                 |            Default | Description                                                             |
+| ---------------------- | -----------------: | ----------------------------------------------------------------------- |
+| `gravity`              | `{ x: 0, y: -10 }` | World gravity in meters per second squared.                             |
+| `fixedTimeStep`        |           `1 / 60` | Physics step size in seconds.                                           |
+| `subSteps`             |                `4` | Solver substeps per physics step.                                       |
+| `debug`                |            `false` | Installs debug validation and fixed-delta warnings when `true`.         |
+| `restitutionThreshold` |              `1.0` | Speed below which restitution is suppressed.                            |
+| `hitEventThreshold`    |              `1.0` | Minimum impact speed for `HitEvents`.                                   |
+| `contactHertz`         |               `30` | Contact softness frequency before the per-substep Box2D clamp.          |
+| `contactDampingRatio`  |               `10` | Contact damping ratio.                                                  |
+| `contactSpeed`         |              `3.0` | Contact speed threshold used by contact event classification.           |
+| `maximumLinearSpeed`   |              `400` | Maximum linear speed in meters per second.                              |
+| `enableSleep`          |             `true` | Allows inactive bodies with `Sleep.enabled` to move into sleeping sets. |
+| `enableContinuous`     |             `true` | Enables continuous collision for bullet and fast-body paths.            |
+
+When `debug` is `true`, `PhysicsDebugValidation` runs at the end of `physics-pre`; otherwise that system is not installed. When `enableContinuous` is `true`, the step can run the CCD path for `Body.bullet` and other fast bodies before events are published.
+
 ## What Runs Before The Step
 
 Before stepping, physics systems consume ECS changes such as:

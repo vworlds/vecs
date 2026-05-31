@@ -23,6 +23,8 @@ Included areas:
 | Contact events    | Included | Shape-local `ContactEvents` component.                                  |
 | Sensor events     | Included | Shape-local `SensorEvents` component.                                   |
 | Hit events        | Included | Shape-local `HitEvents` component.                                      |
+| Sleeping          | Included | `Sleep` component plus world `enableSleep: true` default.               |
+| Continuous CCD    | Included | `Body.bullet` / fast-body CCD with `enableContinuous: true` default.    |
 | Debug validation  | Included | Optional deduplicated warnings for invalid ECS structures.              |
 
 The goal for v1 is that this kind of game object should be straightforward:
@@ -40,6 +42,15 @@ player.set(Impulse, { x: 0, y: 8 });
 The following features are intentionally not part of the first version.
 
 They are important, but they should come after the body/shape/event model is solid.
+
+## V2 Carries From V1 Closeout
+
+The M5 closeout left four explicit v2 carries:
+
+- Open-chain ghost-vertex fidelity at sharp endpoints: loop chains use real neighbor ghosts; open-chain endpoints use reflection, which is correct for straight chains but still needs sharp-endpoint Box2D parity work.
+- Dynamic `Sensor` marker toggle: switching solid ↔ sensor at runtime needs contact teardown, sensor-storage create/destroy, and mass/proxy invariant handling; recreating the shape is the v1 workaround.
+- CoM-shift velocity adjustment: v1 sleep state uses `v = ω = 0`, making the shift identically zero in the covered cases; revisit if v2 adds runtime center-of-mass changes that can affect sleeping bodies.
+- Sensor TOI hits queue: v1 sensor events use the regular overlap pass; TOI-precise sensor hits are deferred until sensor CCD use cases need them.
 
 ## Ray Casts
 

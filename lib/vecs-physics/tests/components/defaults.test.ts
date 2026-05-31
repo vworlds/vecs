@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
 import {
   AngularImpulse,
@@ -220,3 +221,125 @@ describe("event component defaults", () => {
     expect(a.begin).not.toBe(b.begin);
   });
 });
+
+describe("docs/components.md defaults table", () => {
+  it("matches fresh public component instances", () => {
+    const documentedDefaults = parseDocumentedDefaults();
+    const expectedDefaults = buildDefaultSpecs();
+
+    expect([...documentedDefaults.keys()].sort()).toEqual([...expectedDefaults.keys()].sort());
+
+    for (const [key, expected] of expectedDefaults) {
+      expect(documentedDefaults.get(key)).toBe(expected);
+    }
+  });
+});
+
+function buildDefaultSpecs(): Map<string, string> {
+  return new Map<string, string>([
+    ...rowsFor("Body", new Body(), ["type", "bullet", "enabled", "allowFastRotation"]),
+    ...rowsFor("Position", new Position(), ["x", "y"]),
+    ...rowsFor("Rotation", new Rotation(), ["angle"]),
+    ...rowsFor("LinearVelocity", new LinearVelocity(), ["x", "y"]),
+    ...rowsFor("AngularVelocity", new AngularVelocity(), ["value"]),
+    ...rowsFor("Damping", new Damping(), ["linear", "angular"]),
+    ...rowsFor("GravityScale", new GravityScale(), ["value"]),
+    ...rowsFor("MotionLocks", new MotionLocks(), ["x", "y", "rotation"]),
+    ...rowsFor("Sleep", new Sleep(), ["enabled", "awake", "threshold"]),
+    ...rowsFor("ShapePosition", new ShapePosition(), ["x", "y"]),
+    ...rowsFor("ShapeRotation", new ShapeRotation(), ["angle"]),
+    ...rowsFor("Box", new Box(), ["hx", "hy"]),
+    ...rowsFor("Circle", new Circle(), ["radius"]),
+    ...rowsFor("Capsule", new Capsule(), ["x1", "y1", "x2", "y2", "radius"]),
+    ...rowsFor("Segment", new Segment(), ["x1", "y1", "x2", "y2"]),
+    ...rowsFor("Polygon", new Polygon(), ["vertices", "radius"]),
+    ...rowsFor("Chain", new Chain(), ["points", "loop"]),
+    ...rowsFor("Material", new Material(), [
+      "density",
+      "friction",
+      "restitution",
+      "rollingResistance",
+      "tangentSpeed",
+      "userMaterialId",
+    ]),
+    ...rowsFor("CollisionFilter", new CollisionFilter(), [
+      "categoryBits",
+      "maskBits",
+      "groupIndex",
+    ]),
+    [keyFor("Sensor", "marker"), formatValue(new Sensor())],
+    ...rowsFor("Force", new Force(), ["x", "y", "wake"]),
+    ...rowsFor("Torque", new Torque(), ["value", "wake"]),
+    ...rowsFor("Impulse", new Impulse(), ["x", "y", "wake"]),
+    ...rowsFor("AngularImpulse", new AngularImpulse(), ["value", "wake"]),
+    ...rowsFor("KinematicTargetPosition", new KinematicTargetPosition(), [
+      "x",
+      "y",
+      "tolerance",
+      "wake",
+    ]),
+    ...rowsFor("KinematicTargetRotation", new KinematicTargetRotation(), [
+      "angle",
+      "tolerance",
+      "wake",
+    ]),
+    ...rowsFor("ContactEvents", new ContactEvents(), ["begin", "end"]),
+    ...rowsFor("SensorEvents", new SensorEvents(), ["begin", "end"]),
+    ...rowsFor("HitEvents", new HitEvents(), ["hits"]),
+  ]);
+}
+
+function parseDocumentedDefaults(): Map<string, string> {
+  const docs = readFileSync(new URL("../../docs/components.md", import.meta.url), "utf8");
+  const section = docs.match(/## Defaults\n\n[\s\S]*?\n\n([\s\S]*?)(?=\n## )/);
+  if (!section) {
+    throw new Error("docs/components.md is missing its Defaults table");
+  }
+
+  const rows = section[1]
+    .split("\n")
+    .filter((line) => line.startsWith("|") && !/^\|\s*-/.test(line))
+    .slice(1);
+
+  return new Map(
+    rows.map((line) => {
+      const [component, field, defaultValue] = line
+        .slice(1, -1)
+        .split("|")
+        .map((cell) => stripBackticks(cell.trim()));
+      return [keyFor(component, field), defaultValue];
+    })
+  );
+}
+
+function rowsFor<T extends object>(
+  component: string,
+  instance: T,
+  fields: Array<keyof T & string>
+): Array<[string, string]> {
+  return fields.map((field) => [keyFor(component, field), formatValue(instance[field])]);
+}
+
+function keyFor(component: string, field: string): string {
+  return `${component}.${field}`;
+}
+
+function formatValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return "[]";
+  }
+  if (typeof value === "string") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  if (value === 0xffffffff) {
+    return "0xffffffff";
+  }
+  return String(value);
+}
+
+function stripBackticks(value: string): string {
+  return value.startsWith("`") && value.endsWith("`") ? value.slice(1, -1) : value;
+}
