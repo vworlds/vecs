@@ -8,7 +8,7 @@ import {
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { type Entity, type World } from "@vworlds/vecs";
+import { Relationship, type Entity, type World } from "@vworlds/vecs";
 import {
   EntityTracker,
   type IEntityTrackerListener,
@@ -36,6 +36,12 @@ class LocalOnly {
 class Velocity {
   public x = 0;
 }
+
+class InCell extends Relationship {}
+
+class CellA {}
+
+class CellB {}
 
 type SocketHandler = (arg?: unknown) => void;
 
@@ -1028,6 +1034,50 @@ describe("ServerWorld", () => {
     const message = decodeLastMessage(socket);
     expect(message.diff!.removed).toEqual([[local.eid, ALL_COMPONENTS]]);
     expect(message.diff!.snapshots).toHaveLength(1);
+  });
+
+  it("refreshes set View DSL changes before sending relationship visibility changes", () => {
+    const world = createWorld();
+    world.component(InCell);
+    world.component(CellA);
+    world.component(CellB);
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+
+    const cellA = world.entity().add(CellA);
+    const cellB = world.entity().add(CellB);
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).set(InCell, {
+      target: cellA,
+    });
+    const entering = world.entity().add(Networked).set(Position, { x: 2, y: 2 }).set(InCell, {
+      target: cellB,
+    });
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+    const view = getSessionView(server, "client-1");
+    session.entity.set(View, { dsl: { target: [InCell, CellA] } });
+    world.progress(0, 16);
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    const baseline = socket.sent.length;
+
+    entity.set(Position, { x: 3, y: 3 });
+    entity.set(InCell, { target: cellB });
+    session.entity.set(View, { dsl: { target: [InCell, CellB] } });
+    world.progress(16, 16);
+
+    expect(view.tracker.has(entity)).toBe(true);
+    expect(socket.sent.length).toBeGreaterThan(baseline);
+    const message = decodeLastMessage(socket);
+    expect(message.diff!.removed).toEqual([]);
+    const snapshotEids = message.diff!.snapshots.map(
+      (snapshot) => new Decoder(snapshot.bytes).read(ComponentSnapshot).eid
+    );
+    expect(snapshotEids).toContain(entity.eid);
+    expect(snapshotEids).toContain(entering.eid);
   });
 
   it("queues all networked entities when a client View changes to true", () => {
