@@ -64,6 +64,7 @@ const EMPTY_GROUPS: ReadonlyMap<unknown, Group> = new Map();
 export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Query<R> {
   private _grouping!: Grouping;
 
+  /** @internal */
   public _initialize(
     arg0: readonly FanInjectElement[] | ComponentRef,
     arg1?: (e: Entity, resolved: any) => any
@@ -98,21 +99,25 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
     return this;
   }
 
+  /** @internal */
   public override _enter(e: Entity): void {
     this._grouping.enter(e);
     super._enter(e);
   }
 
+  /** @internal */
   public override _exit(e: Entity): void {
     super._exit(e);
     this._grouping.exit(e);
   }
 
+  /** @internal */
   public override _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
     super._notifyModified(e, meta, c);
     this._grouping.refresh(e, meta.eid);
   }
 
+  /** @internal */
   public override _watchesUpdates(): boolean {
     return super._watchesUpdates() || true;
   }

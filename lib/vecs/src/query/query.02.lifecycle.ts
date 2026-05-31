@@ -4,6 +4,7 @@ import { SOURCE_TRACKED_QUERY_ERROR, EMPTY_ENTITIES } from "./query.00.base.js";
 import { Reactive } from "./query.01.reactive.js";
 
 export class Lifecycle<R extends ComponentType[] = []> extends Reactive<R> {
+  /** @internal */
   protected _backfill(): void {
     if (!this._tracking || !this.rootTerm) {
       return;
@@ -26,6 +27,7 @@ export class Lifecycle<R extends ComponentType[] = []> extends Reactive<R> {
     return (this as any)._build();
   }
 
+  /** @internal */
   public _build(): this {
     if (this.built) {
       return this;

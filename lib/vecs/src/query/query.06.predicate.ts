@@ -40,6 +40,7 @@ export class Predicate<R extends ComponentType[] = []> extends Updates<R> {
     return q;
   }
 
+  /** @internal */
   public _clearSilence(): void {
     this._silenceQuery = undefined;
   }

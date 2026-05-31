@@ -50,10 +50,12 @@ export class Group<K = unknown, R extends ComponentType[] = []> {
     forEachInjected(this._world, this._entities, arg0, arg1, arg2);
   }
 
+  /** @internal */
   public _add(e: Entity): void {
     this._entities.add(e);
   }
 
+  /** @internal */
   public _remove(e: Entity): boolean {
     this._entities.delete(e);
     return this._entities.size === 0;
