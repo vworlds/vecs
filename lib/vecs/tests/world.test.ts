@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Component, Module, World } from "../src/index.js";
+import { Component, DEFAULT_ID_REUSE_WAIT_FRAMES, Module, World } from "../src/index.js";
 
 class A {}
 class B {}
@@ -102,6 +102,16 @@ describe("World - id pools", () => {
           ],
         })
     ).toThrow();
+    expect(
+      () =>
+        new World({
+          idPools: [
+            { name: "component", min: 1, max: 10 },
+            { name: "module", min: 11, max: 20 },
+            { name: "entity", min: 21, reuseWaitFrames: -1 },
+          ],
+        })
+    ).toThrow();
   });
 
   it("bakes pool configuration into the constructor", () => {
@@ -126,13 +136,17 @@ describe("World - id pools", () => {
     expect("configurePools" in w).toBe(false);
   });
 
-  it("returns destroyed ids to their pools and reuses the lowest id", () => {
+  it("returns destroyed ids to their pools after the reuse wait", () => {
     const w = new World();
     const a = w.entity();
     const b = w.entity();
 
     a.destroy();
 
+    expect(w.entity().eid).toBe(1002);
+    for (let i = 0; i < DEFAULT_ID_REUSE_WAIT_FRAMES; i++) {
+      w.progress(0, 0);
+    }
     expect(w.entity().eid).toBe(a.eid);
     expect(b.eid).toBe(1001);
   });

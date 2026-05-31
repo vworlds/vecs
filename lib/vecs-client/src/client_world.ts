@@ -16,6 +16,8 @@ import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
 
+const DEFAULT_CLIENT_LOCAL_ENTITY_ID_START = 10000;
+
 export interface ClientWorldOptions extends NetworkWorldOptions {
   socket?: VecsSocket;
   encodeBufferSize?: number;
@@ -47,7 +49,11 @@ export class ClientWorld extends NetworkWorld {
   private _systemsInstalled = false;
 
   public constructor(options: ClientWorldOptions = {}) {
-    super(options);
+    super({
+      ...options,
+      localEntityIdStart: options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START,
+      networkEntityReuseWaitFrames: 0,
+    });
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
