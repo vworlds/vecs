@@ -16,6 +16,8 @@ import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
 
+const DEFAULT_CLIENT_LOCAL_ENTITY_ID_START = 10000;
+
 export interface ClientWorldOptions extends NetworkWorldOptions {
   socket?: VecsSocket;
   encodeBufferSize?: number;
@@ -47,7 +49,11 @@ export class ClientWorld extends NetworkWorld {
   private _systemsInstalled = false;
 
   public constructor(options: ClientWorldOptions = {}) {
-    super(options);
+    super({
+      ...options,
+      localEntityIdStart: options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START,
+      networkEntityReuseWaitFrames: 0,
+    });
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
@@ -176,7 +182,9 @@ export class ClientWorld extends NetworkWorld {
   }
 
   private _removeComponent(eid: number, type: number): void {
-    const entity = this.entity(eid);
+    // Merged/interpolated client diffs can contain a net removal for an entity
+    // whose create snapshot was compressed away before it materialized locally.
+    const entity = this.getEntity(eid);
     if (!entity) {
       return;
     }

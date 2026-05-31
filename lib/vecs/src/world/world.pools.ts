@@ -26,7 +26,11 @@ export class Pools extends Base {
     const idPools = options.idPools ?? DEFAULT_POOLS;
     validateIdPoolConfigs(idPools);
     this._poolConfigs.push(...idPools.map((pool) => ({ ...pool })));
-    this._pools.push(...this._poolConfigs.map((pool) => new IdPool(pool.name, pool.min, pool.max)));
+    this._pools.push(
+      ...this._poolConfigs.map(
+        (pool) => new IdPool(pool.name, pool.min, pool.max, pool.reuseWaitFrames)
+      )
+    );
     this._cacheNamedPools();
   }
 
@@ -44,6 +48,11 @@ export class Pools extends Base {
     this._componentPool = this._poolByName("component");
     this._modulePool = this._poolByName("module");
     this._entityPool = this._poolByName("entity");
+  }
+
+  /** @internal Advance every id pool waitlist by one frame. */
+  protected _advanceIdPoolFrame(): void {
+    this._pools.forEach((pool) => pool.advanceFrame());
   }
 
   /** @internal Look up a configured id pool by name. */

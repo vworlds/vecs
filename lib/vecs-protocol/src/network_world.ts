@@ -14,6 +14,7 @@ export interface NetworkWorldOptions extends Omit<WorldOptions, "idPools"> {
   networkComponents?: readonly ComponentClass[];
   entityIdStart?: number;
   localEntityIdStart?: number;
+  networkEntityReuseWaitFrames?: number;
 }
 
 export class NetworkWorld extends World {
@@ -90,10 +91,16 @@ function buildNetworkIdPools(
     throw new Error("localEntityIdStart must be greater than entityIdStart");
   }
 
-  pools.push(
-    { name: "network_entity", min: entityIdStart, max: localEntityIdStart - 1 },
-    { name: "entity", min: localEntityIdStart }
-  );
+  const networkEntityPool: IdPoolConfig = {
+    name: "network_entity",
+    min: entityIdStart,
+    max: localEntityIdStart - 1,
+  };
+  if (options.networkEntityReuseWaitFrames !== undefined) {
+    networkEntityPool.reuseWaitFrames = options.networkEntityReuseWaitFrames;
+  }
+
+  pools.push(networkEntityPool, { name: "entity", min: localEntityIdStart });
   return pools;
 }
 

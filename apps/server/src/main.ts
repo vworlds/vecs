@@ -215,8 +215,8 @@ world
 world
   .system("UpdatePlayerViews")
   .requires(Networked, NetworkClient, Position, View)
-  .enter([Position, View], (_entity, [position, view]) => updatePlayerView(position, view))
-  .update(Position, [View], (_entity, position, [view]) => updatePlayerView(position, view));
+  .enter([Position, View], (entity, [position, view]) => updatePlayerView(entity, position, view))
+  .update(Position, [View], (entity, position, [view]) => updatePlayerView(entity, position, view));
 
 world.addPhase("update");
 world.addPhase("collect");
@@ -282,10 +282,10 @@ function assignCell(entity: Entity, position: Position): void {
   }
 }
 
-function updatePlayerView(position: Position, view: View): void {
+function updatePlayerView(entity: Entity, position: Position, view: View): void {
   const dsl = cellViewDSL[getGridCellIndex(position)];
   if (view.dsl !== dsl) {
-    view.dsl = dsl;
+    entity.set(View, { dsl });
   }
 }
 

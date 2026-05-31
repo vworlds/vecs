@@ -33,6 +33,7 @@ export class Pipeline extends Modules {
     }
     this._frameInProgress = true;
     this._frameCounter++;
+    this._advanceIdPoolFrame();
     this.flush();
     this._tickSources.forEach((t) => t._evalTick(delta, this._frameCounter));
   }
