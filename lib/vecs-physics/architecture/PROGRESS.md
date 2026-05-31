@@ -2161,7 +2161,7 @@ intentionally not in M6 scope.
 lint / prettier from `lib/vecs-physics/`). Post-M5 review fix pass landed
 on top of VP-26 (7 commits ending at `4c4af8d`); `architecture/issues/` empty.
 
-**NEXT: VP-31** — remaining Wave 1 (VP-29/30 in PR review). VP-27, VP-28 merged.
+**NEXT: VP-31** — remaining Wave 1 (VP-30 in PR review). VP-27, VP-28, VP-29 merged.
 See `CLOSING_PLAN.md` § VP-NN per ticket. Suggested sequence:
 VP-27 → VP-31 → VP-28 → VP-29 → VP-30 → VP-32 → VP-33 → VP-34.
 
@@ -2281,5 +2281,62 @@ vx, vy, omega, sleeping)` via `getPhysics(world)`, and asserts byte-equal snapsh
 
 **Tests:** 674 tests / 60 files (was 669 / 55, +5 tests / +5 files). Gate green:
 typecheck/test/lint/prettier from `lib/vecs-physics/`. Closes #75.
+
+#### ✅ VP-29 — `architecture/SOLVER.md` solver/CCD/sleep implementation map (commit 80d7114)
+
+**Files:**
+
+- `lib/vecs-physics/architecture/SOLVER.md` (NEW, 356 lines). Maintainer-facing map of
+  the solver subsystem; complements (does not duplicate) `PLAN.md` (design) and
+  `PROGRESS.md` (per-ticket history). Sections:
+  - Step orchestration (`engine/step.ts`): per-step flow (clear event arrays, install
+    sleep hooks, apply pending impulses, `makeStepContext`, broad-phase pair-create
+    callback, `collide`, `solve`, `gatherHitEvents`, `finalizeBodies`, island split,
+    sleep loop, bullet stage, sensor overlap).
+  - TGS solver core (`engine/solver.ts`): `makeStepContext`, `makeSoft` (verbatim
+    `b2MakeSoft` port), the eight overflow-only stages with box2d source ranges.
+  - Collide and contact state (`engine/collide.ts`): pair create callback, narrow-phase
+    refresh, ascending contact-id state-change order (M3 review fix).
+  - Contact model (`engine/contact.ts`): `InternalContact`/`ContactSim` split, create/
+    destroy/update, single-overflow-color graph movement.
+  - Islands and sleep (`engine/island.ts`, `engine/sleep.ts`): bookkeeping, link/unlink/
+    merge, `splitIsland`, sleeping-set allocation, `wakeSolverSet`/`trySleepIsland`.
+  - Continuous collision (`engine/ccd.ts`, `engine/distance.ts`): fast/bullet detection
+    in finalize, `_continuousQueryCallback`, `solveContinuous`, `enlargeBulletProxies`,
+    `timeOfImpact` + sweep/separation helpers.
+  - Broad phase, dynamic tree, fat AABBs (`engine/broad_phase.ts`, `engine/dynamic_tree.ts`,
+    `engine/shape.ts`): three trees, pair key encoding, `pairSet` semantics, M5 fat-AABB
+    hysteresis fix in `refitBodyShapeProxies` "enlarge" mode.
+  - Mass and extents (`engine/mass.ts`): `updateBodyMassData`, sensor-mass parity,
+    CoM-shift deferral.
+  - **Box2D source map** — 30-row table mapping `(vecs-physics code, box2d source:line,
+notes)`. Every line range was verified against the vendored source at commit
+    `6e96697064e1ec09265c64fe953e5e056098c215`; references that could not be verified
+    were omitted (per the issue brief).
+  - **Intentional deviations** — 11-row table covering single overflow color, contact-
+    layer `pairSet`, ref-based solver-set transfers, IdPool-owned generations, fat-AABB
+    hysteresis, sensors-are-not-contacts, `linkContact` no-merge, impulse-accumulate
+    `onSet` hooks, CCD transient flag propagation, joints omitted, sensor TOI hits queue.
+  - V1 non-goals (constraint coloring, joints, multi-threading, contact recycling,
+    pre-solve/custom filter, casts/queries, sensor TOI hits, deep TGS theory).
+  - Cross-links to `PROGRESS.md` and `PLAN.md` → _Settled Decisions_ at the end of every
+    major section.
+
+**Decisions / deviations:**
+
+- **Doc-only**, no engine behaviour change (M6 iron rule respected).
+- **Lightweight map per CLOSING_PLAN.md § VP-29.** Not a deep dive; deep theory and
+  derivations are intentionally left in box2d sources. Length sits at the ~300-line
+  target zone.
+- **`architecture/*.md` is intentionally not prettier-clean** (same rule as `docs/*.md`);
+  no `prettier --check` run on the new file. Hand-aligned tables preserved.
+- Spot-verified line references against vendored box2d: `solver.h:239` (b2MakeSoft),
+  `contact_solver.c:{24,162,239,410,516}` (the five overflow stages), `solver.c:{65,113}`
+  (integrate-velocities/positions), `body.c:515` (b2UpdateBodyMassData), `contact.c:{224,
+382,529}` (createContact/destroyContact/updateContact), `solver.c:1249` (b2BulletBodyTask).
+  All match.
+
+**Tests:** 674 tests / 60 files (unchanged — doc-only). Gate green: typecheck/test/lint
+from `lib/vecs-physics/`. Closes #76.
 
 _(updated as further tickets land)_
