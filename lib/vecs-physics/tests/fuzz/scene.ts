@@ -42,8 +42,7 @@ export function buildFuzzScene(seed: number): FuzzScene {
   const world = new World();
   installPhysics(world, {
     debug: true,
-    // Keep the fuzz scene active; sleep lifecycle has dedicated coverage.
-    enableSleep: false,
+    enableSleep: true,
     fixedTimeStep: DT,
     gravity: { x: 0, y: -10 },
     subSteps: 2,
