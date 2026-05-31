@@ -2394,6 +2394,16 @@ undefined (reading 'center0X')` at `engine/distance.ts:668` (`makeSweep`), reach
 typecheck/test/lint/prettier from `lib/vecs-physics/`. Closes #77.
 
 **Carried into a separate M5 fix:** `state.bulletBodies` stale-index bug when
-sleep is enabled (described above).
+sleep is enabled (described above). **✅ FIXED** in commit `54257a6` (`fix: M5
+CCD ordering — run bullet stage before sleep loop`); the fuzz harness was flipped
+back to `enableSleep: true` in commit `1ac46e9`. Root cause: vecs-physics ran
+sleep → bullet, but box2d runs bullet → sleep (solver.c:1896 then :2003); the
+sleep loop's `trySleepIsland` swap-pops awake-set `bodySims`, which invalidated
+the awake-set local indices stored in `state.bulletBodies` during finalize. The
+previous comment claiming bullets had to run AFTER sleep was based on a wrong
+premise (finalize already marks a bullet body's island awake via the sleepTime
+=0 path, so running bullets first does NOT let a bullet body sleep). All 684
+tests stay green with the swap, plus all 10 fuzz seeds now pass with sleep
+enabled.
 
 _(updated as further tickets land)_
