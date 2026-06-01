@@ -4,9 +4,11 @@ This page explains how `vecs-physics` installs itself into a Vecs world, which p
 
 ## Summary
 
-`vecs-physics` is installed before `world.start()`.
+`vecs-physics` preloads its WASM backend, then installs before `world.start()`.
 
 ```ts
+await preloadPhysics();
+
 installPhysics(world, {
   gravity: { x: 0, y: -10 },
   fixedTimeStep: 1 / 60,
@@ -24,7 +26,7 @@ Vecs runs systems inside named phases. Phases run in registration order, and sys
 
 Physics needs several ordered steps:
 
-1. Read ECS changes and update internal physics state.
+1. Read ECS changes and update the internal Box2D world.
 2. Apply forces, torques, impulses, velocity changes, teleports, and kinematic targets.
 3. Step the physics simulation.
 4. Write simulation results back to ECS components.
@@ -36,9 +38,11 @@ Physics needs several ordered steps:
 
 ```ts
 import { World } from "@vworlds/vecs";
-import { installPhysics } from "@vworlds/vecs-physics";
+import { installPhysics, preloadPhysics } from "@vworlds/vecs-physics";
 
 const world = new World();
+
+await preloadPhysics();
 
 installPhysics(world, {
   gravity: { x: 0, y: -10 },

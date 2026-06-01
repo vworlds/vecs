@@ -4,6 +4,19 @@ All notable changes to `@vworlds/vecs-physics` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Migrated the physics backend from the in-house TypeScript engine to `box2d3-wasm`, while keeping the Vecs component API unchanged.
+- Pinned the migration baseline to `box2d3-wasm@5.2.0`; tight parity expectations are now determined by that WASM build.
+- Updated bootstrap docs and examples to call `await preloadPhysics()` before `installPhysics()`.
+
+### Performance
+
+- `npm run bench` on this branch reports stacking at 0.129 ms/step versus the pre-migration ~0.47 ms/step VP-26 baseline, approximately a 3.6x speedup on this machine.
+- The same run reports falling balls at 0.332 ms/step. M7-10 recorded 0.119 ms/step stacking and 0.362 ms/step falling balls against the same `box2d3-wasm@5.2.0` pin; these are wall-clock benchmark numbers and will vary by host.
+
 ## [1.0.0] - 2026-05-31
 
 ### Added - Bodies

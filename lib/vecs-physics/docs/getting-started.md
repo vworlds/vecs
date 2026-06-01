@@ -2,7 +2,7 @@
 
 This guide shows how to install `vecs-physics`, add it to a Vecs world, create a static ground body, create a dynamic box body, and advance the simulation.
 
-`vecs-physics` is native to Vecs. You create entities and components. The physics engine creates and updates its internal bodies and shapes from that ECS state.
+`vecs-physics` is native to Vecs. You create entities and components. The Box2D WASM backend creates and updates its internal bodies and shapes from that ECS state.
 
 ## Install
 
@@ -35,7 +35,16 @@ This example creates a world with gravity, a static ground, and one dynamic box.
 
 ```ts
 import { World, ChildOf } from "@vworlds/vecs";
-import { Body, BodyType, Box, Position, installPhysics } from "@vworlds/vecs-physics";
+import {
+  Body,
+  BodyType,
+  Box,
+  Position,
+  installPhysics,
+  preloadPhysics,
+} from "@vworlds/vecs-physics";
+
+await preloadPhysics();
 
 const world = new World();
 
@@ -57,6 +66,8 @@ world.start();
 
 world.progress(performance.now(), 1000 / 60);
 ```
+
+`preloadPhysics()` loads the `box2d3-wasm` module once for the process. It must resolve before `installPhysics()` creates the internal Box2D world.
 
 `ground.add(Body)` creates a static body because `Body` defaults to `BodyType.Static`.
 
@@ -184,9 +195,11 @@ box.set(Impulse, { x: 0, y: 3 });
 
 ## Setup Options
 
-`installPhysics` must run before `world.start()`.
+`preloadPhysics` must resolve before `installPhysics`, and `installPhysics` must run before `world.start()`.
 
 ```ts
+await preloadPhysics();
+
 installPhysics(world, {
   gravity: { x: 0, y: -10 },
   fixedTimeStep: 1 / 60,
@@ -215,6 +228,7 @@ Advanced callers can pass phase names or phase objects to place physics systems 
 Physics components and systems must be registered before `world.start()`.
 
 ```ts
+await preloadPhysics();
 installPhysics(world);
 world.start();
 ```

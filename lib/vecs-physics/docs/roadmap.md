@@ -2,7 +2,7 @@
 
 This page describes what is intentionally included in the first version of `vecs-physics`, what is deferred, and how those future features are expected to fit into the Vecs API.
 
-The first version focuses on the core simulation loop: bodies, shapes, materials, filters, forces, impulses, kinematic targets, and events.
+The first version focuses on the core simulation loop: bodies, shapes, materials, filters, forces, impulses, kinematic targets, and events. The simulation backend is `box2d3-wasm`, with Vecs entities and components as the public API.
 
 ## Version 1 Scope
 
@@ -41,7 +41,7 @@ player.set(Impulse, { x: 0, y: 8 });
 
 The following features are intentionally not part of the first version.
 
-They are important, but they should come after the body/shape/event model is solid.
+They are important, but they should come after the body/shape/event model is solid. Box2D already exposes many of these primitives through `box2d3-wasm`; the remaining work is designing and implementing the vecs-physics adapters without leaking Box2D handles into the public API.
 
 ### V2 Carries From V1 Closeout
 
@@ -55,6 +55,8 @@ The M5 closeout left four explicit v2 carries:
 ### Ray Casts
 
 Ray casts answer the question: what shape would this ray hit?
+
+The upstream WASM backend exposes ray casts. The vecs-physics-side adapter and public API are still pending.
 
 Expected use cases:
 
@@ -90,6 +92,8 @@ See also: [Materials And Filters](./materials-and-filters.md), [Events](./events
 
 Overlap queries answer the question: which shapes overlap this box-shaped area?
 
+The upstream WASM backend exposes broad-phase overlap query primitives. The vecs-physics-side adapter and public API are still pending.
+
 Expected use cases:
 
 - Area triggers.
@@ -116,6 +120,8 @@ Like ray casts, overlap queries are expected to be imperative reads.
 ### Shape Casts
 
 Shape casts answer the question: if this shape moved along this vector, what would it hit?
+
+The upstream WASM backend exposes shape casts. The vecs-physics-side adapter and public API are still pending.
 
 Expected use cases:
 
@@ -165,6 +171,8 @@ This is deferred because character movement tends to become game-specific quickl
 ### Joints
 
 Joints connect two bodies with constraints.
+
+The upstream WASM backend exposes Box2D joint APIs. The vecs-physics-side ECS model and adapters are still pending.
 
 Expected joint types:
 

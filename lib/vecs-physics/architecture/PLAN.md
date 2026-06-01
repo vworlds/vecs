@@ -220,6 +220,15 @@ Part of the contract. Match Box2D's `b2DefaultBodyDef()`, `b2DefaultShapeDef()`,
 All field initialisers belong on the class body so `new Component()` returns
 a valid, default-shaped instance — every component must work zero-arg.
 
+`box2d3-wasm@5.2.0` exposes `Body.allowFastRotation` only on the body create
+definition. Changing `Body.allowFastRotation` after creation is a no-op in
+vecs-physics until the upstream binding exposes `b2Body_SetAllowFastRotation`.
+
+`box2d3-wasm@5.2.0` does not expose runtime setters for
+`Material.rollingResistance`, `Material.tangentSpeed`, or `userMaterialId`.
+Changes to those fields recreate the shape so the new material values can be
+applied through the shape definition.
+
 ## Component model
 
 ### `Box` accessors
@@ -408,8 +417,10 @@ Query: `Body`.
 - `.exit` — look up `b2BodyId`; call `b2DestroyBody(id)`. Drop maps. Box2D
   cascades shape destruction internally.
 - `.update(Body, …)` — `type` change → `b2Body_SetType`; `enabled` →
-  `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`;
-  `allowFastRotation` → corresponding setter.
+  `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`.
+  `allowFastRotation` is create-time only under `box2d3-wasm@5.2.0` because
+  `b2Body_SetAllowFastRotation` is not exposed; changing the component field
+  after creation is a no-op.
 
 ### `PhysicsShapeLifecycle` (`physics-pre`)
 
@@ -442,8 +453,10 @@ and reparenting via one query.
 ### `PhysicsMaterialFilterSync` (`physics-pre`)
 
 - `.update(Material, …)` → `b2Shape_SetDensity(id, d, true)`,
-  `b2Shape_SetFriction`, `b2Shape_SetRestitution`,
-  `b2Shape_SetRollingResistance`, etc.
+  `b2Shape_SetFriction`, `b2Shape_SetRestitution`. Changes to
+  `rollingResistance`, `tangentSpeed`, or `userMaterialId` recreate the shape
+  via `recreateShapeForEntity` because `box2d3-wasm@5.2.0` does not expose
+  setters for those fields.
 - `.update(CollisionFilter, …)` → build a `b2Filter` (32-bit fields widen to
   Box2D's 64-bit by zero-padding upper bits) and call `b2Shape_SetFilter`.
 - `.update(Sensor, …)` — v1: destroy + recreate the shape with
@@ -554,8 +567,9 @@ parent body) drop matching entries so a re-broken structure re-warns.
 
 ### `PhysicsPoseSyncOut` (`physics-post`)
 
-After `b2World_Step`, read `b2World_GetBodyEvents(worldId).moveEvents` (Box2D
-emits these for awake bodies that moved). For each event:
+After `b2World_Step`, read `b2World_GetBodyEvents(worldId).moveCount` and walk
+`GetMoveEvent(i)` (Box2D emits these for awake bodies that moved). For each
+event:
 
 - `entity.set(Position, { x, y })`
 - If the entity has `Rotation`: `entity.set(Rotation, { angle })`
@@ -572,10 +586,13 @@ Poll once per step:
 ```ts
 const ce = b2World_GetContactEvents(worldId);
 const se = b2World_GetSensorEvents(worldId);
-const be = b2World_GetBodyEvents(worldId); // moveEvents (consumed above) + hitEvents
+const be = b2World_GetBodyEvents(worldId); // moveCount + GetMoveEvent(i), consumed above
 ```
 
-Walk each array; resolve `b2ShapeId → Entity` via `state.entityByShape`; push
+Walk the contact events via `beginCount` / `GetBeginEvent(i)` and `endCount` /
+`GetEndEvent(i)`. Walk sensor events with the same count/getter shape. Walk hit
+events from `b2World_GetContactEvents(worldId)` via `hitCount` /
+`GetHitEvent(i)`. Resolve `b2ShapeId → Entity` via `state.entityByShape`; push
 into the entity's `ContactEvents.begin/end`, `SensorEvents.begin/end`, or
 `HitEvents.hits`. Mark the component modified once per receiving entity per
 step (`world.entity(eid).modified(ContactEvents)`).
@@ -677,11 +694,11 @@ Already covered in `PhysicsMaterialFilterSync`. Notes:
 
 ## Pose and velocity synchronization
 
-| Direction     | Trigger                         | Mechanism                                                                                   |
-| ------------- | ------------------------------- | ------------------------------------------------------------------------------------------- |
-| User → engine | `entity.set(Position, …)`       | `PhysicsPoseSyncIn.update(Position)` → `b2Body_SetTransform`                                |
-| User → engine | `entity.set(LinearVelocity, …)` | `PhysicsPoseSyncIn.update(LinearVelocity)` → `b2Body_SetLinearVelocity`                     |
-| Engine → user | Awake body moved                | `PhysicsPoseSyncOut` reads `b2World_GetBodyEvents().moveEvents` → `entity.set(Position, …)` |
+| Direction     | Trigger                         | Mechanism                                                                          |
+| ------------- | ------------------------------- | ---------------------------------------------------------------------------------- |
+| User → engine | `entity.set(Position, …)`       | `PhysicsPoseSyncIn.update(Position)` → `b2Body_SetTransform`                       |
+| User → engine | `entity.set(LinearVelocity, …)` | `PhysicsPoseSyncIn.update(LinearVelocity)` → `b2Body_SetLinearVelocity`            |
+| Engine → user | Awake body moved                | `PhysicsPoseSyncOut` walks `b2World_GetBodyEvents().moveCount` / `GetMoveEvent(i)` |
 
 `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])` drops every update
 originating from a physics system, so what the input system sees is, by
