@@ -83,11 +83,15 @@ export class PhysicsState {
   public readonly enableSleep: boolean;
   public readonly enableContinuous: boolean;
 
-  // Entity ↔ WASM body/shape ID maps.
+  // Entity → WASM body/shape IDs plus index-keyed reverse maps.
+  // Emscripten returns fresh wrapper objects for b2*Id fields on events, so
+  // Map<b2*Id, EntityId> misses by object identity. Box2D only emits events
+  // for live IDs; lifecycle enter/exit updates these maps before a slot can be
+  // reused, so index1 is sufficient for this single-world adapter.
   public readonly bodyByEntityWasm = new Map<EntityId, b2BodyId>();
-  public readonly entityByBody = new Map<b2BodyId, EntityId>();
+  public readonly entityByBodyIndex = new Map<number, EntityId>();
   public readonly shapeByEntityWasm = new Map<EntityId, b2ShapeId>();
-  public readonly entityByShape = new Map<b2ShapeId, EntityId>();
+  public readonly entityByShapeIndex = new Map<number, EntityId>();
   public readonly chainByEntity = new Map<EntityId, b2ChainId>();
 
   // Shape entity object map: shape eid → Entity object.
@@ -111,9 +115,9 @@ export class PhysicsState {
   // Cleared by PhysicsImpulseZero at the end of each post phase.
   public readonly impulseEntitiesThisStep = new Set<number /* eid */>();
 
-  // Pending linear impulses keyed by b2BodyId (declared as EntityId to match
-  // the Map key type; cast to b2BodyId in impulse_accumulate.ts via the
-  // pendingLinearImpulse / pendingAngularImpulse accessors).
+  // Pending impulses remain wrapper-keyed by invariant: hooks resolve bodyId
+  // from bodyByEntityWasm, then get/set with that same stored wrapper, and the
+  // pre-step drain iterates stored keys instead of looking up event wrappers.
   public readonly pendingLinearImpulse = new Map<
     b2BodyId,
     { x: number; y: number; wake: boolean }

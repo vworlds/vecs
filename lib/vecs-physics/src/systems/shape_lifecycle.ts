@@ -90,7 +90,7 @@ function createShapeForEntity(state: PhysicsState, entity: Entity): void {
   const shapeId = createSingleShape(state, entity, bodyId, options, pose);
   if (shapeId !== undefined) {
     state.shapeByEntityWasm.set(entity.eid, shapeId);
-    state.entityByShape.set(shapeId, entity.eid);
+    state.entityByShapeIndex.set(shapeId.index1, entity.eid);
     state.shapeEntityByEid.set(entity.eid, entity);
     state.dirtyMassBodies.add(parentEntity.eid);
   }
@@ -120,7 +120,7 @@ function destroyShapeForEntity(
       state.box2d.b2DestroyShape(shapeId, true);
     }
     state.shapeByEntityWasm.delete(entity.eid);
-    state.entityByShape.delete(shapeId);
+    state.entityByShapeIndex.delete(shapeId.index1);
     markParentBodyMassDirty(state, entity);
   }
 }

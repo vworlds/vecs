@@ -24,8 +24,8 @@ describe("test_world.c::EmptyWorld", () => {
     // No bodies or shapes were registered.
     expect(state.bodyByEntityWasm.size).toBe(0);
     expect(state.shapeByEntityWasm.size).toBe(0);
-    expect(state.entityByBody.size).toBe(0);
-    expect(state.entityByShape.size).toBe(0);
+    expect(state.entityByBodyIndex.size).toBe(0);
+    expect(state.entityByShapeIndex.size).toBe(0);
     // The WASM world is still valid after 32 empty steps.
     expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
   });

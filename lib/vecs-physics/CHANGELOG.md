@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `npm run bench` on this branch reports stacking at 0.129 ms/step versus the pre-migration ~0.47 ms/step VP-26 baseline, approximately a 3.6x speedup on this machine.
 - The same run reports falling balls at 0.332 ms/step. M7-10 recorded 0.119 ms/step stacking and 0.362 ms/step falling balls against the same `box2d3-wasm@5.2.0` pin; these are wall-clock benchmark numbers and will vary by host.
+- Replaced Emscripten wrapper-keyed reverse body/shape maps with `.index1`-keyed maps. On this branch, `npm run bench` reports the new `many_movers` workload at 1.896 ms/step for 500 moving bodies, and its reverse-id lookup comparison is 10.8x faster than the old linear-scan fallback.
 
 ## [1.0.0] - 2026-05-31
 

@@ -7,6 +7,7 @@
 // Scenarios:
 //   stacking     — 200-body scene (20 cols × 10 rows of boxes), 500 steps
 //   falling_balls — 100 circles falling onto a static floor, 300 steps
+//   many_movers  — 500 moving bodies plus reverse-id lookup comparison
 //
 // Output format:
 //   scenario       | steps |  total (ms) | ms/step
@@ -20,6 +21,7 @@
 import { preloadPhysics } from "../src/adapter/runtime.js";
 import { runStacking } from "./scenarios/stacking.bench.js";
 import { runFallingBalls } from "./scenarios/falling_balls.bench.js";
+import { runManyMovers } from "./scenarios/many_movers.bench.js";
 
 interface BenchResult {
   name: string;
@@ -46,6 +48,13 @@ async function main(): Promise<void> {
   const fallingBalls = runFallingBalls();
   results.push({ name: "falling_balls", ...fallingBalls });
   console.log(`done (${fallingBalls.totalMs.toFixed(1)} ms)`);
+
+  process.stdout.write("Running many_movers (500 bodies × 300 steps)... ");
+  const manyMovers = runManyMovers();
+  results.push({ name: "many_movers", ...manyMovers });
+  console.log(
+    `done (${manyMovers.totalMs.toFixed(1)} ms, lookup ${manyMovers.lookupLinearMs.toFixed(1)} ms linear vs ${manyMovers.lookupIndexMs.toFixed(1)} ms index, ${manyMovers.lookupSpeedup.toFixed(1)}x faster)`
+  );
 
   // ── Results table ──────────────────────────────────────────────────────────
   console.log("");

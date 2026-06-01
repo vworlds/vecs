@@ -36,8 +36,8 @@ describe("test_world.c::DestroyAllBodiesWorld", () => {
     // All entity → WASM mappings must be cleared.
     expect(state.bodyByEntityWasm.size).toBe(0);
     expect(state.shapeByEntityWasm.size).toBe(0);
-    expect(state.entityByBody.size).toBe(0);
-    expect(state.entityByShape.size).toBe(0);
+    expect(state.entityByBodyIndex.size).toBe(0);
+    expect(state.entityByShapeIndex.size).toBe(0);
     // The WASM world remains valid after all bodies are destroyed.
     expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
   });

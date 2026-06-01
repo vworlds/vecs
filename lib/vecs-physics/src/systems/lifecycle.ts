@@ -20,7 +20,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     const body = entity.get(Body)!;
     const bodyId = createWasmBodyId(state, entity, body);
     state.bodyByEntityWasm.set(entity.eid, bodyId);
-    state.entityByBody.set(bodyId, entity.eid);
+    state.entityByBodyIndex.set(bodyId.index1, entity.eid);
   });
 
   system.exit((entity) => {
@@ -30,7 +30,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     }
     state.box2d.b2DestroyBody(bodyId);
     state.bodyByEntityWasm.delete(entity.eid);
-    state.entityByBody.delete(bodyId);
+    state.entityByBodyIndex.delete(bodyId.index1);
   });
 
   system.update(Body, (entity, body) => {

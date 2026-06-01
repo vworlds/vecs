@@ -8,7 +8,7 @@ import {
   Position,
   Rotation,
 } from "../components/body.js";
-import { type b2BodyId, type PhysicsState } from "../adapter/state.js";
+import { type PhysicsState } from "../adapter/state.js";
 
 export function installPoseSyncOut(world: World, state: PhysicsState, phase: IPhase): System {
   return world
@@ -20,7 +20,7 @@ export function installPoseSyncOut(world: World, state: PhysicsState, phase: IPh
         for (let i = 0; i < bodyEvents.moveCount; i++) {
           const move = bodyEvents.GetMoveEvent(i);
           try {
-            const entityId = resolveBodyEntityId(state, move.bodyId);
+            const entityId = state.entityByBodyIndex.get(move.bodyId.index1);
             if (entityId === undefined) {
               continue;
             }
@@ -56,22 +56,4 @@ export function installPoseSyncOut(world: World, state: PhysicsState, phase: IPh
         bodyEvents.delete();
       }
     });
-}
-
-function resolveBodyEntityId(state: PhysicsState, bodyId: b2BodyId): number | undefined {
-  const direct = state.entityByBody.get(bodyId);
-  if (direct !== undefined) {
-    return direct;
-  }
-
-  for (const [knownBodyId, entityId] of state.entityByBody) {
-    if (
-      knownBodyId.index1 === bodyId.index1 &&
-      knownBodyId.world0 === bodyId.world0 &&
-      knownBodyId.generation === bodyId.generation
-    ) {
-      return entityId;
-    }
-  }
-  return undefined;
 }

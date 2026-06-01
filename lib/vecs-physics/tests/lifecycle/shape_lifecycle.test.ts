@@ -74,7 +74,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     expect(hasWasmShape(shape.eid)).toBe(true);
-    expect(state.entityByShape.has(state.shapeByEntityWasm.get(shape.eid)!)).toBe(true);
+    expect(state.entityByShapeIndex.has(state.shapeByEntityWasm.get(shape.eid)!.index1)).toBe(true);
   });
 
   it("computes mass on body after shape creation (VP-12 mass recompute)", () => {

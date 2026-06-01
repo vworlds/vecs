@@ -1,7 +1,7 @@
 import { type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
-import { type b2ShapeId, type PhysicsState } from "../adapter/state.js";
+import { type PhysicsState } from "../adapter/state.js";
 import { type Box2DModule } from "../adapter/runtime.js";
 
 type ContactBeginEvent = ReturnType<
@@ -110,8 +110,8 @@ function emitContactEvent(
   event: ContactBeginEvent | ContactEndEvent,
   kind: "begin" | "end"
 ): void {
-  const entityA = resolveShapeEntity(world, state, event.shapeIdA);
-  const entityB = resolveShapeEntity(world, state, event.shapeIdB);
+  const entityA = getLiveEntity(world, state.entityByShapeIndex.get(event.shapeIdA.index1));
+  const entityB = getLiveEntity(world, state.entityByShapeIndex.get(event.shapeIdB.index1));
   if (entityA === undefined || entityB === undefined) {
     return;
   }
@@ -127,8 +127,8 @@ function emitSensorEvent(
   event: SensorEvent,
   kind: "begin" | "end"
 ): void {
-  const sensor = resolveShapeEntity(world, state, event.sensorShapeId);
-  const visitor = resolveShapeEntity(world, state, event.visitorShapeId);
+  const sensor = getLiveEntity(world, state.entityByShapeIndex.get(event.sensorShapeId.index1));
+  const visitor = getLiveEntity(world, state.entityByShapeIndex.get(event.visitorShapeId.index1));
   if (sensor === undefined || visitor === undefined) {
     return;
   }
@@ -157,8 +157,8 @@ function emitHitEvent(
   touched: Set<number>,
   event: ContactHitEvent
 ): void {
-  const entityA = resolveShapeEntity(world, state, event.shapeIdA);
-  const entityB = resolveShapeEntity(world, state, event.shapeIdB);
+  const entityA = getLiveEntity(world, state.entityByShapeIndex.get(event.shapeIdA.index1));
+  const entityB = getLiveEntity(world, state.entityByShapeIndex.get(event.shapeIdB.index1));
   if (entityA === undefined || entityB === undefined) {
     return;
   }
@@ -217,12 +217,7 @@ function emitHitToEntity(
   });
 }
 
-function resolveShapeEntity(
-  world: World,
-  state: PhysicsState,
-  shapeId: b2ShapeId
-): Entity | undefined {
-  const entityId = resolveShapeEntityId(state, shapeId);
+function getLiveEntity(world: World, entityId: number | undefined): Entity | undefined {
   if (entityId === undefined) {
     return undefined;
   }
@@ -232,24 +227,6 @@ function resolveShapeEntity(
     return undefined;
   }
   return entity;
-}
-
-function resolveShapeEntityId(state: PhysicsState, shapeId: b2ShapeId): number | undefined {
-  const direct = state.entityByShape.get(shapeId);
-  if (direct !== undefined) {
-    return direct;
-  }
-
-  for (const [knownShapeId, entityId] of state.entityByShape) {
-    if (sameShapeId(knownShapeId, shapeId)) {
-      return entityId;
-    }
-  }
-  return undefined;
-}
-
-function sameShapeId(a: b2ShapeId, b: b2ShapeId): boolean {
-  return a.index1 === b.index1 && a.world0 === b.world0 && a.generation === b.generation;
 }
 
 function markModified<T extends object>(

@@ -46,7 +46,7 @@ export function registerImpulseHooks(world: World, state: PhysicsState): void {
 
 function drainLinearImpulses(state: PhysicsState): void {
   for (const [bodyId, impulse] of state.pendingLinearImpulse) {
-    if (!state.entityByBody.has(bodyId)) {
+    if (!state.entityByBodyIndex.has(bodyId.index1)) {
       continue;
     }
     state.scratchVec2.Set(impulse.x, impulse.y);
@@ -57,7 +57,7 @@ function drainLinearImpulses(state: PhysicsState): void {
 
 function drainAngularImpulses(state: PhysicsState): void {
   for (const [bodyId, impulse] of state.pendingAngularImpulse) {
-    if (!state.entityByBody.has(bodyId)) {
+    if (!state.entityByBodyIndex.has(bodyId.index1)) {
       continue;
     }
     state.box2d.b2Body_ApplyAngularImpulse(bodyId, impulse.value, impulse.wake);
