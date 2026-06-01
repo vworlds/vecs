@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Sensor overlap pass (VP-21c): detect sensor overlaps and record raw
 // begin/end sensor events into PhysicsState arrays.
 //

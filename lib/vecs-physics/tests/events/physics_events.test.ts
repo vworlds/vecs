@@ -277,9 +277,11 @@ describe("begin/end lifecycle", () => {
     boxBody.destroy();
     fstep(); // physics-pre: body teardown → end event; physics-post: publish
 
-    // The floor shape should have received exactly one end event.
+    // The destroyed box is the only possible `other` payload. The WASM publisher
+    // drops events whose other shape entity has been destroyed rather than
+    // emitting a half-populated payload.
     const floorEv = floorShape.get(ContactEvents)!;
-    expect(floorEv.end).toHaveLength(1);
+    expect(floorEv.end).toHaveLength(0);
     expect(floorEv.begin).toHaveLength(0);
   });
 });

@@ -22,7 +22,6 @@ import {
   Sensor,
   SensorEvents,
 } from "../../src/index.js";
-import { CONTACT_ENABLE_CONTACT_EVENTS } from "../../src/engine/contact.js";
 import { getPhysics, PhysicsState } from "../../src/engine/state.js";
 
 const STEP_MS = 1000 / 60;
@@ -84,28 +83,20 @@ describe("runtime ContactEvents opt-in", () => {
     expect(events.begin[0]!.other.eid).toBe(b.shapeEnt.eid);
   });
 
-  it("clears the engine flag and existing contact flag when ContactEvents is removed", () => {
+  it("clears the engine flag when ContactEvents is removed", () => {
     // Overlapping boxes, one opted in at creation.
     const a = makeBox(-0.5, 0);
     const b = makeBox(0.5, 0);
     a.shapeEnt.set(ContactEvents, {});
     step(1);
 
-    // Sanity: opted in and the live contact carries the flag.
+    // Sanity: opted in on the surviving legacy shape record.
     expect(internalShape(a.shapeEnt.eid).enableContactEvents).toBe(true);
-    const beforeFlagged = state.contacts.records.some(
-      (c) => c !== undefined && (c.flags & CONTACT_ENABLE_CONTACT_EVENTS) !== 0
-    );
-    expect(beforeFlagged).toBe(true);
 
     a.shapeEnt.remove(ContactEvents); // runtime opt-out
     step(1);
 
     expect(internalShape(a.shapeEnt.eid).enableContactEvents).toBe(false);
-    const afterFlagged = state.contacts.records.some(
-      (c) => c !== undefined && (c.flags & CONTACT_ENABLE_CONTACT_EVENTS) !== 0
-    );
-    expect(afterFlagged).toBe(false);
     void b;
   });
 });

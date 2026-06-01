@@ -1,352 +1,462 @@
-// `PhysicsEvents` — fans raw engine event arrays out to ECS event components.
-//
-// Phase: `physics-post`, BETWEEN `PhysicsPoseSyncOut` and `PhysicsImpulseZero`.
-//
-// Reads three raw event arrays from `PhysicsState`:
-//   - `contactBeginEvents` / `contactEndEvents`   (ContactTouchEvent, VP-21a)
-//   - `sensorBeginEvents`  / `sensorEndEvents`    (SensorTouchEvent,  VP-21c)
-//   - `contactHitEvents`                          (ContactHitEvent,   VP-22)
-//
-// For each kind it resolves shape handles → entity IDs, validates them via
-// `IdPool.isValid`, and writes payloads into the `ContactEvents`, `SensorEvents`,
-// and `HitEvents` components using the PLAN.md clear-in-place / previously-touched
-// pattern (see PLAN.md → _PhysicsEvents_):
-//
-//   1. Build `touched = new Set<eid>()` for this kind.
-//   2. For each receiving entity: if not yet in `touched`, clear the component
-//      arrays in place (preserves the user's array reference) and add to `touched`.
-//   3. Push the event payload.
-//   4. After all events pushed: call `entity.modified(Component)` for each eid in
-//      `touched` — modified fires ONLY when new events arrived this step.
-//   5. For each eid in `previouslyTouched` but NOT in `touched`: silently clear
-//      (no `modified`) so last step's events vanish without waking watchers.
-//   6. Set `previouslyTouched = touched` for next step.
-//
-// Three independent `previouslyTouched` Sets are kept as closure-local state —
-// they do NOT live on `PhysicsState` (they are publish-layer state only).
-//
-// DELIVERY SEMANTICS (see docs/events.md):
-//   - Contact events: BOTH shapes receive an event with `other` = the other shape.
-//     Either shape that is missing the `ContactEvents` component is silently skipped.
-//   - Sensor events: ONLY the SENSOR shape's `SensorEvents` component receives an
-//     event with `other` = the visitor entity. The visitor does NOT receive one.
-//   - Hit events: BOTH shapes receive `HitEvents` with `other` = the other shape.
-//     The stored A→B normal is used for BOTH sides (not flipped per side — box2d
-//     does not specify per-side normal flipping in `b2ContactHitEvent`).
-//
-// EVENT-CLEARING RELOCATION (ARCHITECT RESOLUTION, PROGRESS.md VP-21a):
-//   VP-21a/c/22 cleared their raw arrays at the TOP of `engineStep`. That order
-//   means physics-pre teardown end-events and between-frame `entity.destroy()`
-//   end-events were cleared before VP-21b could publish them. The fix: clear all
-//   five ECS-bound raw arrays HERE, at the END of `PhysicsEvents.run`, AFTER
-//   publishing. `bodyMoveEvents` stays in `engineStep` (step-only; consumed by
-//   `PhysicsPoseSyncOut` in the same post phase, before us).
-//
-// InternalShape.entity vs InternalBody.entity (VP-11 review, carried into M4):
-//   `InternalShape.entity` is a plain `number` (eid), while `InternalBody.entity`
-//   is a Vecs `Entity`. This system resolves eid → Entity via `world.getEntity(eid)`.
-//   No structural change to InternalShape is needed; `world.getEntity` is the correct
-//   bridge. The "carried-into-M4: reconcile" item is RESOLVED HERE — no separate
-//   reconcile pass is required.
-
 import { type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
-import { type ContactHitEvent, type PhysicsState } from "../engine/state.js";
-import type { Handle } from "../util/handle.js";
+import { type b2ShapeId, type PhysicsState } from "../adapter/state.js";
+import { type Box2DModule } from "../adapter/runtime.js";
 
-/** Create `PhysicsEvents` on `world`, bound to `state` and `phase`. Returns
- * the system so the caller can tag its entity. */
+type ContactBeginEvent = ReturnType<
+  ReturnType<Box2DModule["b2World_GetContactEvents"]>["GetBeginEvent"]
+>;
+type ContactEndEvent = ReturnType<
+  ReturnType<Box2DModule["b2World_GetContactEvents"]>["GetEndEvent"]
+>;
+type ContactHitEvent = ReturnType<
+  ReturnType<Box2DModule["b2World_GetContactEvents"]>["GetHitEvent"]
+>;
+type SensorEvent = ReturnType<ReturnType<Box2DModule["b2World_GetSensorEvents"]>["GetBeginEvent"]>;
+type LegacyTouchEvent = {
+  shapeA: { index: number; generation: number };
+  shapeB: { index: number; generation: number };
+  entityEidA: number;
+  entityEidB: number;
+};
+type LegacySensorEvent = {
+  sensorShape: { index: number; generation: number };
+  visitorShape: { index: number; generation: number };
+  sensorEntityEid: number;
+  visitorEntityEid: number;
+};
+type LegacyHitEvent = LegacyTouchEvent & {
+  pointX: number;
+  pointY: number;
+  normalX: number;
+  normalY: number;
+  approachSpeed: number;
+};
+
 export function installEvents(world: World, state: PhysicsState, phase: IPhase): System {
-  // Three independent "previously touched" sets, one per event kind.
-  // Closure-local: publish-layer state that does not belong on PhysicsState.
-  let prevTouchedContact = new Set<number /* eid */>();
-  let prevTouchedSensor = new Set<number /* eid */>();
-  let prevTouchedHit = new Set<number /* eid */>();
+  let previouslyTouchedContact = new Set<number>();
+  let previouslyTouchedSensor = new Set<number>();
+  let previouslyTouchedHit = new Set<number>();
 
   return world
     .system("PhysicsEvents")
     .phase(phase)
     .run(() => {
-      // ── 1. Contact events ──────────────────────────────────────────────────
-      //
-      // Delivery: BOTH sides receive. For {shapeA, shapeB}:
-      //   shapeA receives ContactEvents with other = entityB
-      //   shapeB receives ContactEvents with other = entityA
-      const touchedContact = new Set<number /* eid */>();
+      const touchedContact = new Set<number>();
+      const touchedSensor = new Set<number>();
+      const touchedHit = new Set<number>();
 
-      for (const ev of state.contactBeginEvents) {
-        _emitContact(state, touchedContact, ev.shapeA, ev.entityEidA, ev.entityEidB, "begin");
-        _emitContact(state, touchedContact, ev.shapeB, ev.entityEidB, ev.entityEidA, "begin");
-      }
-      for (const ev of state.contactEndEvents) {
-        _emitContact(state, touchedContact, ev.shapeA, ev.entityEidA, ev.entityEidB, "end");
-        _emitContact(state, touchedContact, ev.shapeB, ev.entityEidB, ev.entityEidA, "end");
-      }
+      publishContactEvents(world, state, touchedContact);
+      publishSensorEvents(world, state, touchedSensor);
+      publishHitEvents(world, state, touchedHit);
+      publishLegacyTeardownEvents(state, touchedContact, touchedSensor, touchedHit);
 
-      // Notify modified for shapes that received events this step.
-      for (const eid of touchedContact) {
-        world.getEntity(eid)?.modified(ContactEvents);
-      }
+      markModified(world, touchedContact, ContactEvents);
+      markModified(world, touchedSensor, SensorEvents);
+      markModified(world, touchedHit, HitEvents);
 
-      // Silently clear last step's events for shapes that got nothing this step.
-      for (const eid of prevTouchedContact) {
-        if (touchedContact.has(eid)) {
-          continue;
-        }
-        const e = world.getEntity(eid);
-        if (e === undefined) {
-          continue;
-        }
-        const ev = e.get(ContactEvents) as ContactEvents | undefined;
-        if (ev === undefined) {
-          continue;
-        }
-        ev.begin.length = 0;
-        ev.end.length = 0;
-        // No entity.modified — silent clear does not wake watchers.
-      }
-      prevTouchedContact = touchedContact;
+      clearUntouchedContactEvents(world, previouslyTouchedContact, touchedContact);
+      clearUntouchedSensorEvents(world, previouslyTouchedSensor, touchedSensor);
+      clearUntouchedHitEvents(world, previouslyTouchedHit, touchedHit);
 
-      // ── 2. Sensor events ───────────────────────────────────────────────────
-      //
-      // Delivery: ONLY the sensor shape's SensorEvents component receives an event
-      // with other = visitorEntity. The visitor does NOT receive one.
-      const touchedSensor = new Set<number /* eid */>();
+      previouslyTouchedContact = touchedContact;
+      previouslyTouchedSensor = touchedSensor;
+      previouslyTouchedHit = touchedHit;
 
-      for (const ev of state.sensorBeginEvents) {
-        _emitSensor(
-          state,
-          touchedSensor,
-          ev.sensorShape,
-          ev.sensorEntityEid,
-          ev.visitorEntityEid,
-          "begin"
-        );
-      }
-      for (const ev of state.sensorEndEvents) {
-        _emitSensor(
-          state,
-          touchedSensor,
-          ev.sensorShape,
-          ev.sensorEntityEid,
-          ev.visitorEntityEid,
-          "end"
-        );
-      }
-
-      for (const eid of touchedSensor) {
-        world.getEntity(eid)?.modified(SensorEvents);
-      }
-
-      for (const eid of prevTouchedSensor) {
-        if (touchedSensor.has(eid)) {
-          continue;
-        }
-        const e = world.getEntity(eid);
-        if (e === undefined) {
-          continue;
-        }
-        const sev = e.get(SensorEvents) as SensorEvents | undefined;
-        if (sev === undefined) {
-          continue;
-        }
-        sev.begin.length = 0;
-        sev.end.length = 0;
-      }
-      prevTouchedSensor = touchedSensor;
-
-      // ── 3. Hit events ──────────────────────────────────────────────────────
-      //
-      // Delivery: BOTH sides receive. Normal stays the stored A→B value for both
-      // sides — box2d's b2ContactHitEvent does not specify per-side normal flipping.
-      const touchedHit = new Set<number /* eid */>();
-
-      for (const ev of state.contactHitEvents) {
-        _emitHit(state, touchedHit, ev.shapeA, ev.entityEidA, ev.entityEidB, ev);
-        _emitHit(state, touchedHit, ev.shapeB, ev.entityEidB, ev.entityEidA, ev);
-      }
-
-      for (const eid of touchedHit) {
-        world.getEntity(eid)?.modified(HitEvents);
-      }
-
-      for (const eid of prevTouchedHit) {
-        if (touchedHit.has(eid)) {
-          continue;
-        }
-        const e = world.getEntity(eid);
-        if (e === undefined) {
-          continue;
-        }
-        const hev = e.get(HitEvents) as HitEvents | undefined;
-        if (hev === undefined) {
-          continue;
-        }
-        hev.hits.length = 0;
-      }
-      prevTouchedHit = touchedHit;
-
-      // ── EVENT-CLEARING RELOCATION (ARCHITECT RESOLUTION) ──────────────────
-      //
-      // Clear all five ECS-bound raw event arrays HERE, after publishing.
-      // Events generated in physics-pre (lifecycle teardown, entity.destroy())
-      // and between-frame user destroys now survive to the publish.
-      // This replaces the per-array clears that lived at the TOP of engineStep.
-      //
-      // bodyMoveEvents is NOT cleared here — it is step-only, consumed by
-      // PhysicsPoseSyncOut (earlier in this phase), and cleared in engineStep.
       state.contactBeginEvents.length = 0;
       state.contactEndEvents.length = 0;
       state.sensorBeginEvents.length = 0;
       state.sensorEndEvents.length = 0;
       state.contactHitEvents.length = 0;
-
-      // ── Lazy cleanup of shapeEntityByEid (VP-21b) ─────────────────────────
-      //
-      // `shapeEntityByEid` is populated in PhysicsShapeLifecycle.enter and NOT
-      // deleted in exit (so that destroyed entities' Entity objects survive to
-      // this publish point — Entity objects persist as JS objects after destroy).
-      // We clean up stale entries HERE (in physics-post after publishing) so the
-      // map doesn't grow without bound. An entry is stale when the eid is no
-      // longer in shapeByEntity or chainShapeByEntity (shape was destroyed).
-      for (const eid of state.shapeEntityByEid.keys()) {
-        if (!state.shapeByEntity.has(eid) && !state.chainShapeByEntity.has(eid)) {
-          state.shapeEntityByEid.delete(eid);
-        }
-      }
     });
 }
 
-// ─── Module-level helpers (Stepdown Rule: high-level above, helpers below) ────
+function publishContactEvents(world: World, state: PhysicsState, touched: Set<number>): void {
+  const events = state.box2d.b2World_GetContactEvents(state.worldId);
+  try {
+    for (let i = 0; i < events.beginCount; i++) {
+      const event = events.GetBeginEvent(i);
+      try {
+        emitContactEvent(world, state, touched, event, "begin");
+      } finally {
+        deleteIfPresent(event);
+      }
+    }
 
-/** Emit one side of a contact begin/end event.
- * `selfHandle` guards against stale slot reuse; `selfEid`/`otherEid` are the
- * entity eids captured at emit time. Uses `state.shapeEntityByEid` so that end
- * events generated by teardown in physics-pre (where the shape record may be
- * freed before physics-post) still deliver to the surviving shape with a valid
- * `other: Entity` reference. */
-function _emitContact(
-  state: PhysicsState,
-  touched: Set<number>,
-  selfHandle: Handle,
-  selfEid: number,
-  otherEid: number,
-  kind: "begin" | "end"
-): void {
-  // Guard against slot reuse: if the generation was bumped AND a NEW shape
-  // allocated this slot within the same step, skip (stale event).
-  if (!state.shapes.idPool.isValid(selfHandle as never)) {
-    return;
-  }
-  // Use the eid captured at emit time — shapeEntityByEid persists the Entity
-  // object even after the entity has been destroyed and unregistered from the world.
-  const selfEntity = state.shapeEntityByEid.get(selfEid);
-  if (selfEntity === undefined) {
-    return;
-  }
-  const selfEvents = selfEntity.get(ContactEvents) as ContactEvents | undefined;
-  if (selfEvents === undefined) {
-    return; // not opted in (or destroyed before component was removed)
-  }
-
-  const otherEntity = state.shapeEntityByEid.get(otherEid);
-  if (otherEntity === undefined) {
-    return;
-  }
-
-  if (!touched.has(selfEid)) {
-    // First touch this step: clear arrays in place (preserves user's reference).
-    selfEvents.begin.length = 0;
-    selfEvents.end.length = 0;
-    touched.add(selfEid);
-  }
-
-  if (kind === "begin") {
-    selfEvents.begin.push({ other: otherEntity });
-  } else {
-    selfEvents.end.push({ other: otherEntity });
+    for (let i = 0; i < events.endCount; i++) {
+      const event = events.GetEndEvent(i);
+      emitContactEvent(world, state, touched, event, "end");
+    }
+  } finally {
+    events.delete();
   }
 }
 
-/** Emit a sensor event to the sensor shape's `SensorEvents` component.
- * Only the sensor side receives; the visitor does not. */
-function _emitSensor(
-  state: PhysicsState,
-  touched: Set<number>,
-  sensorHandle: Handle,
-  sensorEid: number,
-  visitorEid: number,
-  kind: "begin" | "end"
-): void {
-  if (!state.shapes.idPool.isValid(sensorHandle as never)) {
-    return;
-  }
-  const sensorEntity = state.shapeEntityByEid.get(sensorEid);
-  if (sensorEntity === undefined) {
-    return;
-  }
-  const sensorEvents = sensorEntity.get(SensorEvents) as SensorEvents | undefined;
-  if (sensorEvents === undefined) {
-    return; // sensor not opted in
-  }
-
-  const visitorEntity = state.shapeEntityByEid.get(visitorEid);
-  if (visitorEntity === undefined) {
-    return;
-  }
-
-  if (!touched.has(sensorEid)) {
-    sensorEvents.begin.length = 0;
-    sensorEvents.end.length = 0;
-    touched.add(sensorEid);
-  }
-
-  if (kind === "begin") {
-    sensorEvents.begin.push({ other: visitorEntity });
-  } else {
-    sensorEvents.end.push({ other: visitorEntity });
+function publishSensorEvents(world: World, state: PhysicsState, touched: Set<number>): void {
+  const events = state.box2d.b2World_GetSensorEvents(state.worldId);
+  try {
+    for (let i = 0; i < events.beginCount; i++) {
+      emitSensorEvent(world, state, touched, events.GetBeginEvent(i), "begin");
+    }
+    for (let i = 0; i < events.endCount; i++) {
+      emitSensorEvent(world, state, touched, events.GetEndEvent(i), "end");
+    }
+  } finally {
+    events.delete();
   }
 }
 
-/** Emit one side of a hit event.
- * The A→B normal from `ev` is used for both sides without flipping. */
-function _emitHit(
+function publishHitEvents(world: World, state: PhysicsState, touched: Set<number>): void {
+  const events = state.box2d.b2World_GetContactEvents(state.worldId);
+  try {
+    for (let i = 0; i < events.hitCount; i++) {
+      const event = events.GetHitEvent(i);
+      try {
+        emitHitEvent(world, state, touched, event);
+      } finally {
+        event.delete();
+      }
+    }
+  } finally {
+    events.delete();
+  }
+}
+
+function emitContactEvent(
+  world: World,
   state: PhysicsState,
   touched: Set<number>,
-  selfHandle: Handle,
-  selfEid: number,
-  otherEid: number,
-  ev: ContactHitEvent
+  event: ContactBeginEvent | ContactEndEvent,
+  kind: "begin" | "end"
 ): void {
-  if (!state.shapes.idPool.isValid(selfHandle as never)) {
-    return;
-  }
-  const selfEntity = state.shapeEntityByEid.get(selfEid);
-  if (selfEntity === undefined) {
-    return;
-  }
-  const selfEvents = selfEntity.get(HitEvents) as HitEvents | undefined;
-  if (selfEvents === undefined) {
-    return; // not opted in
-  }
-
-  const otherEntity = state.shapeEntityByEid.get(otherEid);
-  if (otherEntity === undefined) {
+  const entityA = resolveShapeEntity(world, state, event.shapeIdA);
+  const entityB = resolveShapeEntity(world, state, event.shapeIdB);
+  if (entityA === undefined || entityB === undefined) {
     return;
   }
 
-  if (!touched.has(selfEid)) {
-    selfEvents.hits.length = 0;
-    touched.add(selfEid);
+  emitContactToEntity(touched, entityA, entityB, kind);
+  emitContactToEntity(touched, entityB, entityA, kind);
+}
+
+function emitSensorEvent(
+  world: World,
+  state: PhysicsState,
+  touched: Set<number>,
+  event: SensorEvent,
+  kind: "begin" | "end"
+): void {
+  const sensor = resolveShapeEntity(world, state, event.sensorShapeId);
+  const visitor = resolveShapeEntity(world, state, event.visitorShapeId);
+  if (sensor === undefined || visitor === undefined) {
+    return;
   }
 
-  selfEvents.hits.push({
-    other: otherEntity,
-    x: ev.pointX,
-    y: ev.pointY,
-    normalX: ev.normalX,
-    normalY: ev.normalY,
-    speed: ev.approachSpeed,
+  const events = sensor.get(SensorEvents) as SensorEvents | undefined;
+  if (events === undefined) {
+    return;
+  }
+
+  if (!touched.has(sensor.eid)) {
+    events.begin.length = 0;
+    events.end.length = 0;
+    touched.add(sensor.eid);
+  }
+
+  if (kind === "begin") {
+    events.begin.push({ other: visitor });
+  } else {
+    events.end.push({ other: visitor });
+  }
+}
+
+function emitHitEvent(
+  world: World,
+  state: PhysicsState,
+  touched: Set<number>,
+  event: ContactHitEvent
+): void {
+  const entityA = resolveShapeEntity(world, state, event.shapeIdA);
+  const entityB = resolveShapeEntity(world, state, event.shapeIdB);
+  if (entityA === undefined || entityB === undefined) {
+    return;
+  }
+
+  emitHitToEntity(touched, entityA, entityB, event);
+  emitHitToEntity(touched, entityB, entityA, event);
+}
+
+function publishLegacyTeardownEvents(
+  state: PhysicsState,
+  touchedContact: Set<number>,
+  touchedSensor: Set<number>,
+  touchedHit: Set<number>
+): void {
+  for (const event of state.contactBeginEvents) {
+    emitLegacyContactEvent(state, touchedContact, event, "begin");
+  }
+  for (const event of state.contactEndEvents) {
+    emitLegacyContactEvent(state, touchedContact, event, "end");
+  }
+  for (const event of state.sensorBeginEvents) {
+    emitLegacySensorEvent(state, touchedSensor, event, "begin");
+  }
+  for (const event of state.sensorEndEvents) {
+    emitLegacySensorEvent(state, touchedSensor, event, "end");
+  }
+  for (const event of state.contactHitEvents) {
+    emitLegacyHitEvent(state, touchedHit, event);
+  }
+}
+
+function emitLegacyContactEvent(
+  state: PhysicsState,
+  touched: Set<number>,
+  event: LegacyTouchEvent,
+  kind: "begin" | "end"
+): void {
+  const entityA = resolveLegacyShapeEntity(state, event.shapeA, event.entityEidA);
+  const entityB = resolveLegacyShapeEntity(state, event.shapeB, event.entityEidB);
+  if (entityA === undefined || entityB === undefined) {
+    return;
+  }
+
+  emitContactToEntity(touched, entityA, entityB, kind);
+  emitContactToEntity(touched, entityB, entityA, kind);
+}
+
+function emitLegacySensorEvent(
+  state: PhysicsState,
+  touched: Set<number>,
+  event: LegacySensorEvent,
+  kind: "begin" | "end"
+): void {
+  const sensor = resolveLegacyShapeEntity(state, event.sensorShape, event.sensorEntityEid);
+  const visitor = resolveLegacyShapeEntity(state, event.visitorShape, event.visitorEntityEid);
+  if (sensor === undefined || visitor === undefined) {
+    return;
+  }
+
+  const events = sensor.get(SensorEvents) as SensorEvents | undefined;
+  if (events === undefined) {
+    return;
+  }
+
+  if (!touched.has(sensor.eid)) {
+    events.begin.length = 0;
+    events.end.length = 0;
+    touched.add(sensor.eid);
+  }
+
+  if (kind === "begin") {
+    events.begin.push({ other: visitor });
+  } else {
+    events.end.push({ other: visitor });
+  }
+}
+
+function emitLegacyHitEvent(
+  state: PhysicsState,
+  touched: Set<number>,
+  event: LegacyHitEvent
+): void {
+  const entityA = resolveLegacyShapeEntity(state, event.shapeA, event.entityEidA);
+  const entityB = resolveLegacyShapeEntity(state, event.shapeB, event.entityEidB);
+  if (entityA === undefined || entityB === undefined) {
+    return;
+  }
+
+  emitLegacyHitToEntity(touched, entityA, entityB, event);
+  emitLegacyHitToEntity(touched, entityB, entityA, event);
+}
+
+function emitLegacyHitToEntity(
+  touched: Set<number>,
+  entity: Entity,
+  other: Entity,
+  event: LegacyHitEvent
+): void {
+  const events = entity.get(HitEvents) as HitEvents | undefined;
+  if (events === undefined) {
+    return;
+  }
+
+  if (!touched.has(entity.eid)) {
+    events.hits.length = 0;
+    touched.add(entity.eid);
+  }
+
+  events.hits.push({
+    other,
+    x: event.pointX,
+    y: event.pointY,
+    normalX: event.normalX,
+    normalY: event.normalY,
+    speed: event.approachSpeed,
   });
+}
+
+function emitContactToEntity(
+  touched: Set<number>,
+  entity: Entity,
+  other: Entity,
+  kind: "begin" | "end"
+): void {
+  const events = entity.get(ContactEvents) as ContactEvents | undefined;
+  if (events === undefined) {
+    return;
+  }
+
+  if (!touched.has(entity.eid)) {
+    events.begin.length = 0;
+    events.end.length = 0;
+    touched.add(entity.eid);
+  }
+
+  if (kind === "begin") {
+    events.begin.push({ other });
+  } else {
+    events.end.push({ other });
+  }
+}
+
+function emitHitToEntity(
+  touched: Set<number>,
+  entity: Entity,
+  other: Entity,
+  event: ContactHitEvent
+): void {
+  const events = entity.get(HitEvents) as HitEvents | undefined;
+  if (events === undefined) {
+    return;
+  }
+
+  if (!touched.has(entity.eid)) {
+    events.hits.length = 0;
+    touched.add(entity.eid);
+  }
+
+  events.hits.push({
+    other,
+    x: event.point.x,
+    y: event.point.y,
+    normalX: event.normal.x,
+    normalY: event.normal.y,
+    speed: event.approachSpeed,
+  });
+}
+
+function resolveShapeEntity(
+  world: World,
+  state: PhysicsState,
+  shapeId: b2ShapeId
+): Entity | undefined {
+  const entityId = resolveShapeEntityId(state, shapeId);
+  if (entityId === undefined) {
+    return undefined;
+  }
+
+  const entity = world.getEntity(entityId);
+  if (entity === undefined || isDestroyed(entity)) {
+    return undefined;
+  }
+  return entity;
+}
+
+function resolveShapeEntityId(state: PhysicsState, shapeId: b2ShapeId): number | undefined {
+  const direct = state.entityByShape.get(shapeId);
+  if (direct !== undefined) {
+    return direct;
+  }
+
+  for (const [knownShapeId, entityId] of state.entityByShape) {
+    if (sameShapeId(knownShapeId, shapeId)) {
+      return entityId;
+    }
+  }
+  return undefined;
+}
+
+function resolveLegacyShapeEntity(
+  state: PhysicsState,
+  shape: { index: number; generation: number },
+  entityId: number
+): Entity | undefined {
+  if (!state.shapes.idPool.isValid(shape as never)) {
+    return undefined;
+  }
+  return state.shapeEntityByEid.get(entityId);
+}
+
+function sameShapeId(a: b2ShapeId, b: b2ShapeId): boolean {
+  return a.index1 === b.index1 && a.world0 === b.world0 && a.generation === b.generation;
+}
+
+function markModified<T extends object>(
+  world: World,
+  touched: Set<number>,
+  component: new () => T
+): void {
+  for (const entityId of touched) {
+    world.getEntity(entityId)?.modified(component);
+  }
+}
+
+function clearUntouchedContactEvents(
+  world: World,
+  previouslyTouched: Set<number>,
+  touched: Set<number>
+): void {
+  for (const entityId of previouslyTouched) {
+    if (touched.has(entityId)) {
+      continue;
+    }
+    const events = world.getEntity(entityId)?.get(ContactEvents) as ContactEvents | undefined;
+    if (events !== undefined) {
+      events.begin.length = 0;
+      events.end.length = 0;
+    }
+  }
+}
+
+function clearUntouchedSensorEvents(
+  world: World,
+  previouslyTouched: Set<number>,
+  touched: Set<number>
+): void {
+  for (const entityId of previouslyTouched) {
+    if (touched.has(entityId)) {
+      continue;
+    }
+    const events = world.getEntity(entityId)?.get(SensorEvents) as SensorEvents | undefined;
+    if (events !== undefined) {
+      events.begin.length = 0;
+      events.end.length = 0;
+    }
+  }
+}
+
+function clearUntouchedHitEvents(
+  world: World,
+  previouslyTouched: Set<number>,
+  touched: Set<number>
+): void {
+  for (const entityId of previouslyTouched) {
+    if (touched.has(entityId)) {
+      continue;
+    }
+    const events = world.getEntity(entityId)?.get(HitEvents) as HitEvents | undefined;
+    if (events !== undefined) {
+      events.hits.length = 0;
+    }
+  }
+}
+
+function deleteIfPresent(value: { delete?: () => void }): void {
+  value.delete?.();
+}
+
+function isDestroyed(entity: Entity): boolean {
+  return (entity as unknown as { _destroyed?: boolean })._destroyed === true;
 }
