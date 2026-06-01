@@ -4,6 +4,7 @@
 
 // Entry point
 export { installPhysics, type PhysicsOptions } from "./install.js";
+export { preloadPhysics } from "./adapter/runtime.js";
 
 // Body
 export {

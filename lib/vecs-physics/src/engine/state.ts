@@ -1,10 +1,8 @@
-// Internal engine state and its world-scoped attachment.
+// Internal TypeScript engine state.
 //
-// `PhysicsState` is the single private container the whole engine reads and
-// writes. It rides on a `Singleton` component (`PhysicsRoot`) so it is reachable
-// in O(1) via `world.get(PhysicsRoot)` — no per-step query, no `WeakMap` — and
-// is GC'd with the world. `PhysicsRoot` is never exported: user code cannot
-// reach `PhysicsState`. See PLAN.md → _Internal-state attachment_.
+// `PhysicsState` remains the private container the surviving TS engine reads and
+// writes. The world-scoped singleton attachment moved to `adapter/state.ts` for
+// M7 while the engine migration lands incrementally.
 //
 // `PhysicsState` holds resolved configuration, the entity↔handle maps, a step
 // counter, and (since VP-5) body storage plus the solver sets. The remaining
@@ -446,8 +444,7 @@ export class PhysicsState {
   }
 }
 
-// Internal singleton state holder. Never exported from the package; the only way
-// to reach `PhysicsState` from inside the package is `getPhysics(world)`.
+// Internal singleton state holder. Never exported from the package public API.
 class PhysicsRoot {
   public state!: PhysicsState;
 }
@@ -455,32 +452,20 @@ class PhysicsRoot {
 /** Internal marker tagging every physics **system entity** (systems are entities
  * in Vecs). `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])` uses it as a
  * silence domain so the engine's own pose write-back is never mistaken for a
- * user teleport. Never exported from the package and only ever lives on system
- * entities, so it adds zero per-entity archetype churn. See PLAN.md → _Pose And
- * Velocity Synchronization_. */
+ * user teleport. Never exported from the package public API and only ever lives
+ * on system entities, so it adds zero per-entity archetype churn. */
 export class PhysicsSystemTag {}
 
-/** Register the package's two internal, non-exported components in their
- * documented order (`PhysicsRoot` then `PhysicsSystemTag`, registration step 9).
- * Keeping the order stable keeps Vecs' registration-order-assigned type ids
- * deterministic across worlds. The singleton marking and state attachment for
- * `PhysicsRoot` happen later in {@link attachPhysics} (step 13). */
 export function registerInternalComponents(world: World): void {
   world.component(PhysicsRoot);
   world.component(PhysicsSystemTag);
 }
 
-/** Bind `state` to `world` via the `PhysicsRoot` singleton. Marking the
- * component singleton auto-attaches the instance to its own meta entity (the
- * `Singleton` module does `target.add(target)`), so it is reachable through
- * `world.get(PhysicsRoot)` with no extra entity and no query. */
 export function attachPhysics(world: World, state: PhysicsState): void {
   world.component(PhysicsRoot).add(Singleton);
   world.set(PhysicsRoot, { state });
 }
 
-/** O(1) read of the engine state for `world`. Throws if physics was never
- * installed. The single legal way to reach engine internals inside the package. */
 export function getPhysics(world: World): PhysicsState {
   const root = world.get(PhysicsRoot) as PhysicsRoot | undefined;
   if (!root) {
@@ -489,8 +474,6 @@ export function getPhysics(world: World): PhysicsState {
   return root.state;
 }
 
-/** Whether `installPhysics` has already run on `world`. Side-effect free: it
- * does not register `PhysicsRoot` if it is absent. */
 export function hasPhysics(world: World): boolean {
   if (!world._classRegistry.has(PhysicsRoot)) {
     return false;

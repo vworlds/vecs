@@ -19,13 +19,14 @@ import { CollisionFilter, Material, Sensor } from "./components/material.js";
 import { ContactEvents, HitEvents, SensorEvents } from "./components/events.js";
 import { KinematicTargetPosition, KinematicTargetRotation } from "./components/target.js";
 import { ShapePosition, ShapeRotation } from "./components/shape_pose.js";
+import { getBox2D } from "./adapter/runtime.js";
 import {
   attachPhysics,
   hasPhysics,
   PhysicsState,
   registerInternalComponents,
   type ResolvedPhysicsOptions,
-} from "./engine/state.js";
+} from "./adapter/state.js";
 import { installSleepHooks } from "./engine/sleep.js";
 import { installPhysicsSystems } from "./systems/index.js";
 
@@ -125,7 +126,7 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
   // 5. Allocate engine state, install sleep hooks (wires the circular-dep
   //    callbacks so physics-pre systems can call wake before engineStep runs),
   //    install the systems (bound to it), then attach it.
-  const state = new PhysicsState(resolveOptions(opts));
+  const state = new PhysicsState(getBox2D(), resolveOptions(opts));
   // VP-23: install sleep hooks (wakeSolverSet / mergeSolverSets) BEFORE the
   // systems so any physics-pre system can call `wakeBody` from its first step.
   installSleepHooks(state);

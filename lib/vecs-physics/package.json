@@ -34,7 +34,8 @@
     "examples": "tsx --conditions=development examples/hello_world.ts && tsx --conditions=development examples/sensor_trigger.ts && tsx --conditions=development examples/kinematic_platform.ts && tsx --conditions=development examples/contact_events.ts"
   },
   "dependencies": {
-    "@vworlds/vecs": "^1.0.13"
+    "@vworlds/vecs": "^1.0.13",
+    "box2d3-wasm": "^5.2.0"
   },
   "license": "MIT"
 }

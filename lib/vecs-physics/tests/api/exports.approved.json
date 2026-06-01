@@ -30,7 +30,8 @@
     "ShapeRotation",
     "Sleep",
     "Torque",
-    "installPhysics"
+    "installPhysics",
+    "preloadPhysics"
   ],
   "classExports": [
     "AngularImpulse",
@@ -63,7 +64,7 @@
     "Sleep",
     "Torque"
   ],
-  "functionExports": ["installPhysics"],
+  "functionExports": ["installPhysics", "preloadPhysics"],
   "valueExports": ["BodyType"],
   "typeExports": ["ContactEvent", "HitEvent", "PhysicsOptions", "SensorEvent", "Vec2"]
 }

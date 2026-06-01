@@ -17,7 +17,8 @@ import { STATIC_BODY, writeBodyTransform } from "../engine/body.js";
 import { refitBodyShapeProxies } from "../engine/shape.js";
 import { wakeBody } from "../engine/sleep.js";
 import { AWAKE_SET, FIRST_SLEEPING_SET } from "../engine/solver_set.js";
-import { PhysicsSystemTag, type PhysicsState } from "../engine/state.js";
+import { PhysicsSystemTag } from "../adapter/state.js";
+import { type PhysicsState } from "../engine/state.js";
 import { makeRot } from "../math/rot.js";
 import { type BodyHandle } from "../util/handle.js";
 
