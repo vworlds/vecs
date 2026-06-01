@@ -40,7 +40,6 @@ import { installPoseSyncOut } from "./pose_sync_out.js";
 import { installShapeLifecycle } from "./shape_lifecycle.js";
 import { installShapePoseSync } from "./shape_pose_sync.js";
 import { installStep } from "./step.js";
-import type { WarnSink } from "../util/warn.js";
 
 /** The three phases the physics systems split across. */
 export interface PhysicsPhases {
@@ -53,9 +52,6 @@ export interface PhysicsPhases {
 export interface PhysicsSystemsOptions {
   /** Install `PhysicsDebugValidation` when `true`. Default `false`. */
   debug?: boolean;
-  /** Override the warning sink used by `PhysicsDebugValidation` (default
-   * `console.warn`). Primarily for tests. Only used when `debug` is `true`. */
-  debugSink?: WarnSink;
 }
 
 /** Install every physics system into `world`, bound to `state`, and tag each
@@ -97,9 +93,7 @@ export function installPhysicsSystems(
   // physics-pre: debug validation — LAST in physics-pre, ONLY when debug: true.
   // Runs after all lifecycle/sync/mass so the world is fully wired for the step.
   if (opts.debug === true) {
-    const debugSystem = installDebugValidation(world, state, phases.preStep, {
-      sink: opts.debugSink,
-    });
+    const debugSystem = installDebugValidation(world, state, phases.preStep);
     systems.push(debugSystem);
   }
 

@@ -71,12 +71,7 @@ const CODE_FORCE_WITHOUT_TARGET = "force-without-target";
 
 /** Create `PhysicsDebugValidation` on `world` in `phase`.
  * Returns the system so the caller can tag its entity. */
-export function installDebugValidation(
-  world: World,
-  state: PhysicsState,
-  phase: IPhase,
-  _opts: unknown = undefined
-): System {
+export function installDebugValidation(world: World, state: PhysicsState, phase: IPhase): System {
   // ── Filters (non-reactive; walked every step) ─────────────────────────────
   // Geometry entities: any entity with at least one geometry component.
   const geomFilter: Filter = world.filter({ any: [Box, Circle, Capsule, Segment, Polygon, Chain] });

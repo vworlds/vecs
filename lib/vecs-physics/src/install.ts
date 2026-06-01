@@ -137,7 +137,6 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
     { preStep, step, postStep },
     {
       debug: opts.debug ?? false,
-      debugSink: opts.debugSink,
     }
   );
   attachPhysics(world, state);
