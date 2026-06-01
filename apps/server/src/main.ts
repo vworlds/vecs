@@ -24,6 +24,7 @@ import {
   LinearVelocity as PhysicsVelocity,
   Material,
   Position as PhysicsPosition,
+  preloadPhysics,
 } from "@vworlds/vecs-physics";
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -120,6 +121,7 @@ cellTagComponents.forEach((CellTag) => {
 // default physics-* phases after update so gameplay writes happen before the step
 // and network collection observes post-physics sync.
 world.addPhase("update");
+await preloadPhysics();
 installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 });
 
 // One anchor entity per grid cell. Moving entities relate to these via InCell;
