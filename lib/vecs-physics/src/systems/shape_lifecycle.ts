@@ -409,7 +409,6 @@ function createPolygonShape(
   pose: { x: number; y: number; angle: number }
 ): { shapeId: b2ShapeId; legacyHandle: ShapeHandle } | undefined {
   if (polygon.vertices.length > MAX_POLYGON_VERTICES || polygon.vertices.length < 3) {
-    warnInvalidPolygon(entity);
     return undefined;
   }
 
@@ -419,7 +418,6 @@ function createPolygonShape(
     const hull = box2d.b2ComputeHull(points);
     try {
       if (hull.count < 3) {
-        warnInvalidPolygon(entity);
         return undefined;
       }
       const wasmPolygon = box2d.b2MakePolygon(hull, polygon.radius);
@@ -459,7 +457,6 @@ function createChain(
   pose: { x: number; y: number; angle: number }
 ): void {
   if (chain.points.length < 4) {
-    warnTooFewChainPoints(entity, chain.points.length);
     return;
   }
 
@@ -1049,16 +1046,4 @@ function hasValidEndpoints(ax: number, ay: number, bx: number, by: number): bool
 
 function reflect(a: Vec2, b: Vec2): Vec2 {
   return { x: 2 * a.x - b.x, y: 2 * a.y - b.y };
-}
-
-function warnInvalidPolygon(entity: Entity): void {
-  console.warn(
-    `Entity${entity.eid} has Polygon with invalid or non-convex vertices. [polygon-invalid]`
-  );
-}
-
-function warnTooFewChainPoints(entity: Entity, count: number): void {
-  console.warn(
-    `Entity${entity.eid} has Chain with ${count} point(s); at least 4 are required. [chain-too-few-points]`
-  );
 }
