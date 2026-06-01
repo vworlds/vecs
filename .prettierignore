@@ -1,2 +1,4 @@
 .tmp/
 lib/vecs-physics/box2d/
+lib/vecs-physics/box2d3-wasm/
+
