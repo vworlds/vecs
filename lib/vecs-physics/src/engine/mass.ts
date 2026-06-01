@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Mass integrals and body mass recomputation.
 //
 // Ports:

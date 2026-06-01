@@ -1,8 +1,7 @@
 // VP-12 — DeferredMassFlagSyncTest: port of box2d/test/test_world.c::DeferredMassFlagSyncTest.
 //
-// Verifies that the `massDirty` flag is set when a shape is added and cleared
-// (mass recomputed) by PhysicsMassRecompute during the next world.progress().
-// Also tests that mass updates correctly propagate when shapes are removed.
+// Verifies box2d3-wasm auto-mass behaviour and the explicit dirtyMassBodies
+// recompute path owned by PhysicsMassRecompute.
 //
 // Upstream source: box2d/test/test_world.c::DeferredMassFlagSyncTest
 
@@ -10,8 +9,7 @@ import { ChildOf, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { Body, BodyType, Circle, Sensor, installPhysics } from "../../src/index.js";
-import { getPhysics } from "../../src/engine/state.js";
-import { AWAKE_SET } from "../../src/engine/solver_set.js";
+import { getPhysics } from "../../src/adapter/state.js";
 import { PI } from "../../src/math/constants.js";
 
 let world: World;
@@ -25,78 +23,73 @@ beforeEach(() => {
 // ─── Port of DeferredMassFlagSyncTest ─────────────────────────────────────────
 
 describe("DeferredMassFlagSyncTest (golden from box2d/test/test_world.c)", () => {
-  it("creates body, adds shape, steps without crash (smoke test of deferred-mass pipeline)", () => {
+  it("creates body, adds shape, and Box2D auto-computes mass", () => {
     const state = getPhysics(world);
 
     const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
 
     // Frame 1: body created, massDirty should be false (no shapes yet).
     world.progress(0, 16);
-    const bodyHandle = state.bodyByEntity.get(bodyEnt.eid)!;
-    expect(bodyHandle).toBeDefined();
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    // No shapes yet — massDirty should be false.
-    expect(bodyRec.massDirty).toBe(false);
+    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    expect(bodyId).toBeDefined();
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBe(0);
 
     // Add a circle shape (r=0.5) as a child.
     world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 0.5 });
 
-    // Frame 2: shape created → massDirty set by shape lifecycle.
+    // Frame 2: shape creation updates Box2D mass immediately.
     world.progress(16, 16);
-    expect(bodyRec.massDirty).toBe(false); // MassRecompute ran → cleared it
-    // invMass should now be nonzero (mass = density·π·r² = π·0.25 ≈ 0.785).
-    const bodyIdx = bodyRec.localIndex;
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[bodyIdx]!;
+    expect(state.dirtyMassBodies.size).toBe(0);
     const expectedMass = PI * 0.5 * 0.5; // density=1, radius=0.5
-    expect(sim.invMass).toBeCloseTo(1 / expectedMass, 4);
+    // box2d3-wasm@5.2.0 baseline.
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(expectedMass, 4);
 
     // Step again — no crash; mass remains recomputed.
     world.progress(32, 16);
-    expect(bodyRec.massDirty).toBe(false);
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(expectedMass, 4);
   });
 });
 
 // ─── Additional lifecycle tests ────────────────────────────────────────────────
 
 describe("PhysicsMassRecompute", () => {
-  it("clears massDirty and writes invMass after shape creation", () => {
+  it("clears dirtyMassBodies and writes mass after explicit recompute", () => {
     const state = getPhysics(world);
     const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
-    world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 });
+    const shapeEnt = world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 });
 
-    // Before progress: massDirty not yet set (body not created yet).
     world.progress(0, 16);
-    const bodyHandle = state.bodyByEntity.get(bodyEnt.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
+    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    const shapeId = state.shapeByEntityWasm.get(shapeEnt.eid)!;
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(PI, 6);
 
-    expect(bodyRec.massDirty).toBe(false);
-    const expectedMass = PI; // radius=1, density=1
-    expect(sim.invMass).toBeCloseTo(1 / expectedMass, 6);
+    state.box2d.b2Shape_SetDensity(shapeId, 5, false);
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(PI, 6);
+
+    state.dirtyMassBodies.add(bodyEnt.eid);
+    world.progress(16, 16);
+
+    expect(state.dirtyMassBodies.size).toBe(0);
+    // Tight numeric baseline recorded from box2d3-wasm@5.2.0.
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(15.707963943481445, 6);
   });
 
-  it("does not recompute mass for body without massDirty", () => {
+  it("does not explicitly recompute mass for body without dirtyMassBodies", () => {
     const state = getPhysics(world);
     const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
-    world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 });
+    const shapeEnt = world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 });
 
-    // Frame 1: mass computed, invMass = 1/π.
     world.progress(0, 16);
-    const bodyHandle = state.bodyByEntity.get(bodyEnt.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
+    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    const shapeId = state.shapeByEntityWasm.get(shapeEnt.eid)!;
 
-    const invMassAfterFrame1 = sim.invMass;
-    // Manually corrupt invMass and ensure it is NOT restored on next frame
-    // (massDirty is false, so recompute should not run again).
-    sim.invMass = 42;
+    const massAfterFrame1 = state.box2d.b2Body_GetMass(bodyId);
+    state.box2d.b2Shape_SetDensity(shapeId, 5, false);
 
     world.progress(16, 16);
-    // Still corrupted — recompute did not run.
-    expect(sim.invMass).toBe(42);
 
-    // Restore correct value for any downstream tests.
-    sim.invMass = invMassAfterFrame1;
+    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(massAfterFrame1, 6);
   });
 
   it("static body: invMass stays 0 even with shapes", () => {
@@ -105,14 +98,10 @@ describe("PhysicsMassRecompute", () => {
     world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 });
 
     world.progress(0, 16);
-    const bodyHandle = state.bodyByEntity.get(bodyEnt.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    // Static body lives in the static set; its sim is in solverSets[0].
-    const staticSet = state.solverSets[0]!;
-    const sim = staticSet.bodySims[bodyRec.localIndex]!;
+    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
 
-    expect(sim.invMass).toBe(0);
-    expect(sim.invInertia).toBe(0);
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBe(0);
+    expect(state.box2d.b2Body_GetRotationalInertia(bodyId)).toBe(0);
   });
 
   it("dynamic body with no shapes is never recomputed (massDirty stays false)", () => {
@@ -121,12 +110,9 @@ describe("PhysicsMassRecompute", () => {
     const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
 
     world.progress(0, 16);
-    const bodyHandle = state.bodyByEntity.get(bodyEnt.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    // A body with NO shapes never has massDirty set, so mass is never recomputed
-    // (mass is only recomputed when a shape lifecycle event sets massDirty).
-    // Were it recomputed, box2d-faithfully it would stay invMass=0 (massless).
-    expect(bodyRec.massDirty).toBe(false);
+    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBe(0);
   });
 
   it("removing a shape re-marks massDirty and triggers recompute on next step", () => {
@@ -136,21 +122,19 @@ describe("PhysicsMassRecompute", () => {
 
     // Frame 1: shape created, mass computed.
     world.progress(0, 16);
-    const bodyHandle = state.bodyByEntity.get(bodyEnt.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
-    expect(sim.invMass).toBeCloseTo(1 / PI, 6);
+    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(PI, 6);
 
     // Remove the shape entity.
     shapeEnt.destroy();
 
-    // Frame 2: shape destroyed → massDirty set by lifecycle → recompute fires.
+    // Frame 2: shape destroyed with updateBodyMass=true, so Box2D mass updates.
     world.progress(16, 16);
-    expect(bodyRec.massDirty).toBe(false);
-    // No shapes left → massless dynamic → invMass = 0 (box2d-faithful: a
+    expect(state.dirtyMassBodies.size).toBe(0);
+    // No shapes left → massless dynamic → mass = 0 (box2d-faithful: a
     // massless dynamic body has infinite mass and does not fall; the
     // dynamic-body-without-density debug check flags the misconfiguration).
-    expect(sim.invMass).toBe(0);
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBe(0);
   });
 
   it("dynamic body whose only shape is a sensor Circle gets finite mass (Box2D parity)", () => {
@@ -163,12 +147,10 @@ describe("PhysicsMassRecompute", () => {
 
     world.progress(0, 16);
 
-    const bodyHandle = state.bodyByEntity.get(bodyEnt.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
+    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
 
-    // Expected: mass = density·π·r² = 1·π·1 = π → invMass = 1/π ≈ 0.318.
-    expect(sim.invMass).toBeCloseTo(1 / PI, 6);
-    expect(sim.invInertia).toBeGreaterThan(0);
+    // box2d3-wasm@5.2.0 baseline: mass = density·π·r² = 1·π·1 = π.
+    expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(PI, 6);
+    expect(state.box2d.b2Body_GetRotationalInertia(bodyId)).toBeGreaterThan(0);
   });
 });

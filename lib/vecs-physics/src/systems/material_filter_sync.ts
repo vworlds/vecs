@@ -1,31 +1,13 @@
-// `PhysicsMaterialFilterSync` — propagates Material, CollisionFilter, and
-// Sensor changes from ECS components to the corresponding InternalShape fields.
-//
-// Runs in `physics-pre` after `PhysicsShapeLifecycle`. The shape record must
-// already exist in `state.shapeByEntity` or `state.chainShapeByEntity` when
-// these update callbacks fire.
-//
-// Deferred to M3 (no contact graph yet):
-//   Contact refilter on CollisionFilter change — existing incompatible contacts
-//   must be destroyed when category/mask bits change (box2d calls
-//   `b2RefilterShape` which walks the contact list). Documented here, mirroring
-//   the PhysicsBodyLifecycle.exit contact-teardown deferral.
-//
-// Upstream sources:
-//   box2d/src/shape.c — b2Shape_SetDensity, b2Shape_SetFilter, b2Shape_EnableSensorEvents
-
-import { type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
-import { CollisionFilter, Material } from "../components/material.js";
-import { DYNAMIC_BODY } from "../engine/body.js";
-import { destroyBodyContactsForShape } from "../engine/contact.js";
+import { CollisionFilter, Material, Sensor } from "../components/material.js";
+import { withAllocated } from "../adapter/disposal.js";
+import { type PhysicsState } from "../adapter/state.js";
 import type { InternalShape } from "../engine/shape.js";
-import type { PhysicsState } from "../engine/state.js";
-import { NULL_INDEX } from "../util/handle.js";
+import { recreateShapeForEntity } from "./shape_lifecycle.js";
 
-/** Create `PhysicsMaterialFilterSync` on `world`, bound to `state` and `phase`. */
 export function installMaterialFilterSync(
   world: World,
   state: PhysicsState,
@@ -36,119 +18,129 @@ export function installMaterialFilterSync(
     .query({ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] })
     .phase(phase);
 
-  // ── Material update ────────────────────────────────────────────────────────
-
-  system.update(Material, (e, mat) => {
-    // Chain shapes — update all segments.
-    const chainHandles = state.chainShapeByEntity.get(e.eid);
-    if (chainHandles !== undefined) {
-      for (const h of chainHandles) {
-        const seg = state.shapes.get(h.index);
-        const densityChanged = seg.density !== mat.density;
-        _applyMaterial(seg, mat);
-        if (densityChanged) {
-          _maybeDirtyMass(state, seg);
-        }
-      }
+  system.update(Material, (entity, material) => {
+    const previousMaterial = readLegacyMaterial(state, entity);
+    if (previousMaterial !== undefined && requiresMaterialRecreate(previousMaterial, material)) {
+      // box2d3-wasm@5.2.0 exposes no shape setters for rollingResistance,
+      // tangentSpeed, or userMaterialId, so those updates recreate the shape.
+      recreateShapeForEntity(state, entity);
       return;
     }
 
-    // Single shape.
-    const handle = state.shapeByEntity.get(e.eid);
-    if (handle === undefined) {
-      return;
+    const shapeId = state.shapeByEntityWasm.get(entity.eid);
+    if (shapeId !== undefined) {
+      state.box2d.b2Shape_SetDensity(shapeId, material.density, true);
+      state.box2d.b2Shape_SetFriction(shapeId, material.friction);
+      state.box2d.b2Shape_SetRestitution(shapeId, material.restitution);
     }
-    const shape = state.shapes.get(handle.index);
-    const densityChanged = shape.density !== mat.density;
-    _applyMaterial(shape, mat);
-    if (densityChanged) {
-      _maybeDirtyMass(state, shape);
-    }
+
+    applyLegacyMaterial(state, entity, material);
   });
 
-  // ── CollisionFilter update ─────────────────────────────────────────────────
-
-  system.update(CollisionFilter, (e, filt) => {
-    // Chain shapes.
-    const chainHandles = state.chainShapeByEntity.get(e.eid);
-    if (chainHandles !== undefined) {
-      for (const h of chainHandles) {
-        const seg = state.shapes.get(h.index);
-        // Destroy contacts for this segment before updating filter bits.
-        // Mirrors b2Shape_SetFilter → b2ResetProxy (shape.c:1325-1347): all
-        // contacts for the shape are destroyed so stale pair keys leave pairSet
-        // and the pair re-evaluates under the new filter next step.
-        if (seg.bodyHandle.index !== NULL_INDEX) {
-          const bodyRec = state.bodies.records[seg.bodyHandle.index];
-          if (bodyRec !== undefined) {
-            destroyBodyContactsForShape(state, seg.bodyHandle.index, h.index, true);
-          }
+  system.update(CollisionFilter, (entity, filter) => {
+    const shapeId = state.shapeByEntityWasm.get(entity.eid);
+    if (shapeId !== undefined) {
+      withAllocated(
+        () => new state.box2d.b2Filter(),
+        (wasmFilter) => {
+          // Public filters are 32-bit numbers; Box2D stores 64-bit masks. The
+          // decimal string setters zero-pad the upper 32 bits explicitly.
+          wasmFilter.setCategoryBits64(String(filter.categoryBits >>> 0));
+          wasmFilter.setMaskBits64(String(filter.maskBits >>> 0));
+          wasmFilter.groupIndex = filter.groupIndex;
+          state.box2d.b2Shape_SetFilter(shapeId, wasmFilter);
         }
-        seg.categoryBits = filt.categoryBits;
-        seg.maskBits = filt.maskBits;
-        seg.groupIndex = filt.groupIndex;
-      }
-      return;
+      );
     }
 
-    const handle = state.shapeByEntity.get(e.eid);
-    if (handle === undefined) {
-      return;
-    }
-    const shape = state.shapes.get(handle.index);
-    // Destroy all contacts for this shape before updating filter bits.
-    // Mirrors b2Shape_SetFilter → b2ResetProxy (shape.c:1325-1347, 1282-1294).
-    if (shape.bodyHandle.index !== NULL_INDEX) {
-      const bodyRec = state.bodies.records[shape.bodyHandle.index];
-      if (bodyRec !== undefined) {
-        destroyBodyContactsForShape(state, shape.bodyHandle.index, handle.index, true);
-      }
-    }
-    shape.categoryBits = filt.categoryBits;
-    shape.maskBits = filt.maskBits;
-    shape.groupIndex = filt.groupIndex;
+    applyLegacyFilter(state, entity, filter);
   });
 
-  // NOTE: Sensor is an add/remove component (no data), not an update. The
-  // sensor flag is set at shape creation by PhysicsShapeLifecycle (reading
-  // `e.get(Sensor) !== undefined`). Dynamic `Sensor` MARKER toggles
-  // (solid <-> sensor) remain deferred to M5: box2d forbids them without
-  // destroying active contacts AND creating/destroying the SensorStorage record
-  // and preserving mass/proxy invariants. Shape recreation (remove + re-add
-  // geometry) is the supported way to change sensor status until then.
-  // (Tracked in PROGRESS.md -> Carried into M5.)
-  //
-  // The event-opt-in components (ContactEvents/HitEvents/SensorEvents) ARE now
-  // synced at runtime by `PhysicsEventOptInSync` (event_opt_in_sync.ts) via
-  // add/remove hooks — that is a separate, lighter concern (just engine flags,
-  // no structural changes) and does not live here.
+  system.update(Sensor, (entity) => {
+    recreateShapeForEntity(state, entity);
+  });
 
   return system;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+function readLegacyMaterial(state: PhysicsState, entity: Entity): MaterialSnapshot | undefined {
+  const handle = state.shapeByEntity.get(entity.eid);
+  if (handle !== undefined) {
+    const shape = state.shapes.get(handle.index) as InternalShape;
+    return snapshotMaterial(shape);
+  }
 
-function _applyMaterial(shape: InternalShape, mat: Material): void {
-  shape.density = mat.density;
-  shape.friction = mat.friction;
-  shape.restitution = mat.restitution;
-  shape.rollingResistance = mat.rollingResistance;
-  shape.tangentSpeed = mat.tangentSpeed;
-  shape.userMaterialId = mat.userMaterialId;
+  const chainHandles = state.chainShapeByEntity.get(entity.eid);
+  const firstChainHandle = chainHandles?.[0];
+  if (firstChainHandle !== undefined) {
+    const shape = state.shapes.get(firstChainHandle.index) as InternalShape;
+    return snapshotMaterial(shape);
+  }
+
+  return undefined;
 }
 
-/** Mark the owning body massDirty. Only called when density actually changed.
- * Static / kinematic bodies do not participate in mass computation. */
-function _maybeDirtyMass(state: PhysicsState, shape: InternalShape): void {
-  if (shape.bodyHandle.index === NULL_INDEX) {
-    return;
+function requiresMaterialRecreate(previous: MaterialSnapshot, next: Material): boolean {
+  return (
+    previous.rollingResistance !== next.rollingResistance ||
+    previous.tangentSpeed !== next.tangentSpeed ||
+    previous.userMaterialId !== next.userMaterialId
+  );
+}
+
+function applyLegacyMaterial(state: PhysicsState, entity: Entity, material: Material): void {
+  const handle = state.shapeByEntity.get(entity.eid);
+  if (handle !== undefined) {
+    applyMaterialToShape(state.shapes.get(handle.index) as InternalShape, material);
   }
-  const bodyRec = state.bodies.records[shape.bodyHandle.index];
-  if (bodyRec === undefined) {
-    return;
+
+  const chainHandles = state.chainShapeByEntity.get(entity.eid);
+  if (chainHandles !== undefined) {
+    for (const chainHandle of chainHandles) {
+      applyMaterialToShape(state.shapes.get(chainHandle.index) as InternalShape, material);
+    }
   }
-  if (bodyRec.type !== DYNAMIC_BODY) {
-    return;
+}
+
+function applyLegacyFilter(state: PhysicsState, entity: Entity, filter: CollisionFilter): void {
+  const handle = state.shapeByEntity.get(entity.eid);
+  if (handle !== undefined) {
+    applyFilterToShape(state.shapes.get(handle.index) as InternalShape, filter);
   }
-  bodyRec.massDirty = true;
+
+  const chainHandles = state.chainShapeByEntity.get(entity.eid);
+  if (chainHandles !== undefined) {
+    for (const chainHandle of chainHandles) {
+      applyFilterToShape(state.shapes.get(chainHandle.index) as InternalShape, filter);
+    }
+  }
+}
+
+function applyMaterialToShape(shape: InternalShape, material: Material): void {
+  shape.density = material.density;
+  shape.friction = material.friction;
+  shape.restitution = material.restitution;
+  shape.rollingResistance = material.rollingResistance;
+  shape.tangentSpeed = material.tangentSpeed;
+  shape.userMaterialId = material.userMaterialId;
+}
+
+function applyFilterToShape(shape: InternalShape, filter: CollisionFilter): void {
+  shape.categoryBits = filter.categoryBits;
+  shape.maskBits = filter.maskBits;
+  shape.groupIndex = filter.groupIndex;
+}
+
+function snapshotMaterial(shape: InternalShape): MaterialSnapshot {
+  return {
+    rollingResistance: shape.rollingResistance,
+    tangentSpeed: shape.tangentSpeed,
+    userMaterialId: shape.userMaterialId,
+  };
+}
+
+interface MaterialSnapshot {
+  rollingResistance: number;
+  tangentSpeed: number;
+  userMaterialId: number;
 }

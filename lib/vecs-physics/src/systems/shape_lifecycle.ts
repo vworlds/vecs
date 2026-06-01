@@ -173,18 +173,6 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     recreateShapeForEntity(state, entity);
   });
 
-  system.update(Material, (entity, material) => {
-    updateWasmMaterial(state, entity, material);
-    updateLegacyMaterial(state, entity, readShapeOptions(entity));
-  });
-  system.update(CollisionFilter, (entity, filter) => {
-    updateWasmFilter(state, entity, filter);
-    updateLegacyMaterial(state, entity, readShapeOptions(entity));
-  });
-  system.update(Sensor, (entity) => {
-    recreateShapeForEntity(state, entity);
-  });
-
   return system;
 }
 
@@ -545,58 +533,6 @@ function readLocalPose(entity: Entity): { x: number; y: number; angle: number } 
     y: entity.get(ShapePosition)?.y ?? 0,
     angle: entity.get(ShapeRotation)?.angle ?? 0,
   };
-}
-
-function updateWasmMaterial(state: PhysicsState, entity: Entity, material: Material): void {
-  const shapeId = state.shapeByEntityWasm.get(entity.eid);
-  if (shapeId !== undefined) {
-    state.box2d.b2Shape_SetDensity(shapeId, material.density, true);
-    state.box2d.b2Shape_SetFriction(shapeId, material.friction);
-    state.box2d.b2Shape_SetRestitution(shapeId, material.restitution);
-  }
-}
-
-function updateWasmFilter(state: PhysicsState, entity: Entity, filter: CollisionFilter): void {
-  const shapeId = state.shapeByEntityWasm.get(entity.eid);
-  if (shapeId === undefined) {
-    return;
-  }
-  withAllocated(
-    () => new state.box2d.b2Filter(),
-    (wasmFilter) => {
-      wasmFilter.categoryBits = filter.categoryBits;
-      wasmFilter.maskBits = filter.maskBits;
-      wasmFilter.groupIndex = filter.groupIndex;
-      state.box2d.b2Shape_SetFilter(shapeId, wasmFilter);
-    }
-  );
-}
-
-function updateLegacyMaterial(state: PhysicsState, entity: Entity, options: ShapeOptions): void {
-  const handle = state.shapeByEntity.get(entity.eid);
-  if (handle !== undefined) {
-    const shape = getLegacyShape(state, handle);
-    if (shape) {
-      const densityChanged = shape.density !== options.density;
-      applyLegacyOptions(shape, options);
-      if (densityChanged) {
-        markLegacyBodyMassDirty(state, shape.bodyHandle);
-      }
-    }
-  }
-  const handles = state.chainShapeByEntity.get(entity.eid);
-  if (handles !== undefined) {
-    for (const chainHandle of handles) {
-      const shape = getLegacyShape(state, chainHandle);
-      if (shape) {
-        const densityChanged = shape.density !== options.density;
-        applyLegacyOptions(shape, options);
-        if (densityChanged) {
-          markLegacyBodyMassDirty(state, shape.bodyHandle);
-        }
-      }
-    }
-  }
 }
 
 function createLegacyShape(

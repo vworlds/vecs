@@ -18,8 +18,7 @@ import {
   Material,
   installPhysics,
 } from "../../src/index.js";
-import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
-import { AWAKE_SET } from "../../src/engine/solver_set.js";
+import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 import { PI } from "../../src/math/constants.js";
 
 let world: World;
@@ -35,6 +34,10 @@ function getShapeRecord(eid: number) {
     return undefined;
   }
   return state.shapes.get(handle.index);
+}
+
+function getBodyMass(eid: number): number {
+  return state.box2d.b2Body_GetMass(state.bodyByEntityWasm.get(eid)!);
 }
 
 beforeEach(() => {
@@ -106,12 +109,9 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(16, 16);
 
-    // VP-12: PhysicsMassRecompute ran and cleared massDirty; mass was updated.
-    expect(bodyRec.massDirty).toBe(false);
-    // Verify mass was recomputed with new density: mass = 5 * (box area)
-    const sim = state.solverSets[bodyRec.setIndex]!.bodySims[bodyRec.localIndex]!;
-    // Default Box is 1×1 (half-extents 0.5, 0.5) → area=1, mass=5*1=5
-    expect(sim.invMass).toBeCloseTo(1 / 5, 6);
+    expect(state.dirtyMassBodies.size).toBe(0);
+    // box2d3-wasm@5.2.0 baseline: default Box area is 1, so mass = density 5.
+    expect(getBodyMass(body.eid)).toBeCloseTo(5, 6);
   });
 
   it("does NOT mark massDirty or recompute mass when only friction changes on a dynamic body", () => {
@@ -130,12 +130,9 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
       });
     world.progress(0, 16);
 
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
-    const invMassAfterFrame1 = sim.invMass;
-    // Sanity: mass should be finite (1/(π·1²)).
-    expect(invMassAfterFrame1).toBeCloseTo(1 / PI, 6);
+    // box2d3-wasm@5.2.0 baseline: mass = density * pi * r^2.
+    const massAfterFrame1 = getBodyMass(body.eid);
+    expect(massAfterFrame1).toBeCloseTo(PI, 6);
 
     // Change only friction — density stays 1, so massDirty must NOT be set.
     shape.set(Material, {
@@ -147,14 +144,10 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
       userMaterialId: 0,
     });
 
-    // Corrupt invMass to detect an unwanted recompute.
-    sim.invMass = 999;
     world.progress(16, 16);
 
-    // massDirty must still be false (it was never set) and invMass must remain
-    // corrupted, proving PhysicsMassRecompute did NOT run for this body.
-    expect(bodyRec.massDirty).toBe(false);
-    expect(sim.invMass).toBe(999);
+    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(getBodyMass(body.eid)).toBeCloseTo(massAfterFrame1, 6);
   });
 
   it("recomputes mass when density changes on a dynamic body (density 1 → 5)", () => {
@@ -173,10 +166,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
       });
     world.progress(0, 16);
 
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[bodyRec.localIndex]!;
-    expect(sim.invMass).toBeCloseTo(1 / PI, 6);
+    expect(getBodyMass(body.eid)).toBeCloseTo(PI, 6);
 
     // Change density from 1 → 5.
     shape.set(Material, {
@@ -189,9 +179,10 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(16, 16);
 
-    // PhysicsMassRecompute must have run: invMass = 1/(5·π·1²).
-    expect(bodyRec.massDirty).toBe(false);
-    expect(sim.invMass).toBeCloseTo(1 / (5 * PI), 6);
+    // b2Shape_SetDensity(..., true) auto-recomputes mass in box2d3-wasm@5.2.0.
+    expect(state.dirtyMassBodies.size).toBe(0);
+    // Tight numeric baseline recorded from box2d3-wasm@5.2.0.
+    expect(getBodyMass(body.eid)).toBeCloseTo(15.707963943481445, 6);
   });
 
   it("does NOT mark massDirty for Material changes on a static body", () => {
