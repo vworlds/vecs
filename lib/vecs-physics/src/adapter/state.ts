@@ -1,4 +1,4 @@
-import { Singleton, type Entity, type World } from "@vworlds/vecs";
+import { ArrayMap, Singleton, type Entity, type World } from "@vworlds/vecs";
 
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
 import { type Box2DModule } from "./runtime.js";
@@ -83,15 +83,16 @@ export class PhysicsState {
   public readonly enableSleep: boolean;
   public readonly enableContinuous: boolean;
 
-  // Entity → WASM body/shape IDs plus index-keyed reverse maps.
+  // Entity → WASM body/shape IDs plus index-keyed reverse ArrayMaps.
   // Emscripten returns fresh wrapper objects for b2*Id fields on events, so
-  // Map<b2*Id, EntityId> misses by object identity. Box2D only emits events
-  // for live IDs; lifecycle enter/exit updates these maps before a slot can be
-  // reused, so index1 is sufficient for this single-world adapter.
+  // Map<b2*Id, EntityId> misses by object identity. Public index1 slot 0 is
+  // unused/null-aligned by Box2D, so ArrayMap slot 0 stays empty too. We do not
+  // check id generations in hot lookups: correctness comes from clearing each
+  // slot on Box2D destruction before Box2D can reuse that index1.
   public readonly bodyByEntityWasm = new Map<EntityId, b2BodyId>();
-  public readonly entityByBodyIndex = new Map<number, EntityId>();
+  public readonly entityByBodyIndex = new ArrayMap<EntityId>();
   public readonly shapeByEntityWasm = new Map<EntityId, b2ShapeId>();
-  public readonly entityByShapeIndex = new Map<number, EntityId>();
+  public readonly entityByShapeIndex = new ArrayMap<EntityId>();
   public readonly chainByEntity = new Map<EntityId, b2ChainId>();
 
   // Shape entity object map: shape eid → Entity object.

@@ -141,6 +141,25 @@ describe("PhysicsBodyLifecycle.exit", () => {
     expect(state.bodyByEntityWasm.has(e.eid)).toBe(false);
     expect(state.box2d.b2Body_IsValid(bodyId)).toBe(false);
   });
+
+  it("clears the reverse body slot before Box2D reuses the public index", () => {
+    const oldBody = world.entity().set(Body, { type: BodyType.Dynamic });
+    world.progress(0, 16);
+    const oldBodyId = wasmBodyId(oldBody.eid);
+
+    oldBody.remove(Body);
+    world.progress(16, 16);
+
+    expect(state.entityByBodyIndex.get(oldBodyId.index1)).toBeUndefined();
+
+    const newBody = world.entity().set(Body, { type: BodyType.Dynamic });
+    world.progress(32, 16);
+    const newBodyId = wasmBodyId(newBody.eid);
+
+    expect(newBodyId.index1).toBe(oldBodyId.index1);
+    expect(state.entityByBodyIndex.get(newBodyId.index1)).toBe(newBody.eid);
+    expect(state.entityByBodyIndex.get(newBodyId.index1)).not.toBe(oldBody.eid);
+  });
 });
 
 describe("PhysicsBodyLifecycle.update(Body)", () => {

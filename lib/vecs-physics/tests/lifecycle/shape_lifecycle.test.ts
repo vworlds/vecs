@@ -469,6 +469,26 @@ describe("PhysicsShapeLifecycle.exit", () => {
     expect(state.shapeByEntityWasm.has(eid)).toBe(false);
   });
 
+  it("clears the reverse shape slot before Box2D reuses the public index", () => {
+    const body = makeBody();
+    const oldShape = makeShape(body);
+    world.progress(0, 16);
+    const oldShapeId = state.shapeByEntityWasm.get(oldShape.eid)!;
+
+    oldShape.remove(Box);
+    world.progress(16, 16);
+
+    expect(state.entityByShapeIndex.get(oldShapeId.index1)).toBeUndefined();
+
+    const newShape = makeShape(body);
+    world.progress(32, 16);
+    const newShapeId = state.shapeByEntityWasm.get(newShape.eid)!;
+
+    expect(newShapeId.index1).toBe(oldShapeId.index1);
+    expect(state.entityByShapeIndex.get(newShapeId.index1)).toBe(newShape.eid);
+    expect(state.entityByShapeIndex.get(newShapeId.index1)).not.toBe(oldShape.eid);
+  });
+
   it("body persists after its shape is removed", () => {
     const body = makeBody();
     const shape = makeShape(body);
