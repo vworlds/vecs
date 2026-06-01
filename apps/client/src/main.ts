@@ -8,14 +8,15 @@ const SERVER_PORT = 3000;
 const GAME_TOP = 60;
 const GRID_COLUMNS = 3;
 const GRID_ROWS = 3;
+const VIEW_ALL_KEY = "g";
 
 type Session = ClientWorld;
 
 class Position {
-  @wireType("u16")
+  @wireType("i16")
   public x = 0;
 
-  @wireType("u16")
+  @wireType("i16")
   public y = 0;
 }
 
@@ -35,11 +36,17 @@ class Color {
 }
 
 const keys = new Set<string>();
+let viewAll = true;
 
 window.addEventListener("keydown", (event) => {
   if (isArrowKey(event.key)) {
     event.preventDefault();
     keys.add(event.key);
+    return;
+  }
+  if (isViewAllKey(event.key) && !event.repeat) {
+    event.preventDefault();
+    viewAll = !viewAll;
   }
 });
 
@@ -170,7 +177,11 @@ function frame(now: number): void {
   drawGrid();
   context.fillStyle = "#e2e8f0";
   context.font = "16px sans-serif";
-  context.fillText("vecs-client: arrow keys move your square, eat balls to score", 20, 30);
+  context.fillText(
+    `vecs-client: arrows move, G toggles ${viewAll ? "all entities" : "nearby grid view"}`,
+    20,
+    30
+  );
 
   if (activeSession) {
     activeSession.setInput({
@@ -178,6 +189,7 @@ function frame(now: number): void {
       right: keys.has("ArrowRight"),
       up: keys.has("ArrowUp"),
       down: keys.has("ArrowDown"),
+      viewAll,
     });
     activeSession.progress(now, delta);
   } else {
@@ -210,6 +222,10 @@ function drawGrid(): void {
 
 function isArrowKey(key: string): boolean {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
+}
+
+function isViewAllKey(key: string): boolean {
+  return key.toLowerCase() === VIEW_ALL_KEY;
 }
 
 function formatError(err: unknown): string {

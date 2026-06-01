@@ -22,6 +22,19 @@ describe("Encoder", () => {
     expect(decoder.read_u32()).toBe(123456);
   });
 
+  it("rejects unsigned integer values outside their wire range", () => {
+    const encoder = createEncoder();
+
+    expect(() => encoder.write_u8(-1)).toThrow(RangeError);
+    expect(() => encoder.write_u8(256)).toThrow(RangeError);
+    expect(() => encoder.write_u16(-1)).toThrow(RangeError);
+    expect(() => encoder.write_u16(65536)).toThrow(RangeError);
+    expect(() => encoder.write_u32(-1)).toThrow(RangeError);
+    expect(() => encoder.write_u32(0x100000000)).toThrow(RangeError);
+    expect(() => encoder.write_u64(-1n)).toThrow(RangeError);
+    expect(() => encoder.write_u64(0x10000000000000000n)).toThrow(RangeError);
+  });
+
   it("encodes and decodes int32", () => {
     const encoder = createEncoder();
     encoder.write_i32(-654321);
@@ -29,6 +42,28 @@ describe("Encoder", () => {
     const decoder = new Decoder(encoder.getBuffer());
 
     expect(decoder.read_i32()).toBe(-654321);
+  });
+
+  it("rejects signed integer values outside their wire range", () => {
+    const encoder = createEncoder();
+
+    expect(() => encoder.write_i8(-129)).toThrow(RangeError);
+    expect(() => encoder.write_i8(128)).toThrow(RangeError);
+    expect(() => encoder.write_i16(-32769)).toThrow(RangeError);
+    expect(() => encoder.write_i16(32768)).toThrow(RangeError);
+    expect(() => encoder.write_i32(-0x80000001)).toThrow(RangeError);
+    expect(() => encoder.write_i32(0x80000000)).toThrow(RangeError);
+    expect(() => encoder.write_i64(-0x8000000000000001n)).toThrow(RangeError);
+    expect(() => encoder.write_i64(0x8000000000000000n)).toThrow(RangeError);
+  });
+
+  it("encodes and decodes the int32 minimum value", () => {
+    const encoder = createEncoder();
+    encoder.write_i32(-0x80000000);
+
+    const decoder = new Decoder(encoder.getBuffer());
+
+    expect(decoder.read_i32()).toBe(-0x80000000);
   });
 
   it("encodes and decodes float", () => {

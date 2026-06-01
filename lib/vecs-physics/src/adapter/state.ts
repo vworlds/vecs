@@ -1,0 +1,156 @@
+import { ArrayMap, Singleton, type Entity, type World } from "@vworlds/vecs";
+
+import { type WarnSink, WarnDedupe } from "../util/warn.js";
+import { type Box2DModule } from "./runtime.js";
+
+export type EntityId = number;
+export type b2WorldId = ReturnType<Box2DModule["b2CreateWorld"]>;
+export type b2BodyId = ReturnType<Box2DModule["b2CreateBody"]>;
+export type b2ShapeId = ReturnType<Box2DModule["b2CreateCircleShape"]>;
+export type b2ChainId = ReturnType<Box2DModule["b2CreateChain"]>;
+export type b2Vec2 = ReturnType<Box2DModule["b2Body_GetPosition"]>;
+
+/** Fully-resolved engine configuration: every `PhysicsOptions` field with its
+ * default applied. Built by `installPhysics`; the source of truth for tunables
+ * the engine reads at runtime. */
+export interface ResolvedPhysicsOptions {
+  gravityX: number;
+  gravityY: number;
+  fixedTimeStep: number;
+  subSteps: number;
+  debug: boolean;
+  restitutionThreshold: number;
+  hitEventThreshold: number;
+  contactHertz: number;
+  contactDampingRatio: number;
+  contactSpeed: number;
+  maximumLinearSpeed: number;
+  enableSleep: boolean;
+  enableContinuous: boolean;
+}
+
+/** Internal marker tagging every physics **system entity** (systems are entities
+ * in Vecs). `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])` uses it as a
+ * silence domain so the engine's own pose write-back is never mistaken for a
+ * user teleport. Never exported from the package public API and only ever lives
+ * on system entities, so it adds zero per-entity archetype churn. */
+export class PhysicsSystemTag {}
+
+export function registerInternalComponents(world: World): void {
+  world.component(PhysicsRoot);
+  world.component(PhysicsSystemTag);
+}
+
+export function attachPhysics(world: World, state: PhysicsState): void {
+  world.component(PhysicsRoot).add(Singleton);
+  world.set(PhysicsRoot, { state });
+}
+
+export function getPhysics(world: World): PhysicsState {
+  const root = world.get(PhysicsRoot) as PhysicsRoot | undefined;
+  if (!root) {
+    throw new Error("installPhysics(world, ...) must be called before world.start()");
+  }
+  return root.state;
+}
+
+export function hasPhysics(world: World): boolean {
+  if (!world._classRegistry.has(PhysicsRoot)) {
+    return false;
+  }
+  const root = world.get(PhysicsRoot) as PhysicsRoot | undefined;
+  return root?.state !== undefined;
+}
+
+export class PhysicsState {
+  public worldId!: b2WorldId;
+  public readonly box2d: Box2DModule;
+  public readonly options: ResolvedPhysicsOptions;
+
+  // Resolved configuration (flattened from PhysicsOptions).
+  public readonly gravityX: number;
+  public readonly gravityY: number;
+  public readonly fixedTimeStep: number;
+  public readonly subSteps: number;
+  public readonly debug: boolean;
+  public readonly warn: WarnDedupe;
+  public readonly restitutionThreshold: number;
+  public readonly hitEventThreshold: number;
+  public readonly contactHertz: number;
+  public readonly contactDampingRatio: number;
+  public readonly contactSpeed: number;
+  public readonly maximumLinearSpeed: number;
+  public readonly enableSleep: boolean;
+  public readonly enableContinuous: boolean;
+
+  // Entity → WASM body/shape IDs plus index-keyed reverse ArrayMaps.
+  // Emscripten returns fresh wrapper objects for b2*Id fields on events, so
+  // Map<b2*Id, EntityId> misses by object identity. Public index1 slot 0 is
+  // unused/null-aligned by Box2D, so ArrayMap slot 0 stays empty too. We do not
+  // check id generations in hot lookups: correctness comes from clearing each
+  // slot on Box2D destruction before Box2D can reuse that index1.
+  public readonly bodyByEntityWasm = new Map<EntityId, b2BodyId>();
+  public readonly entityByBodyIndex = new ArrayMap<EntityId>();
+  public readonly shapeByEntityWasm = new Map<EntityId, b2ShapeId>();
+  public readonly entityByShapeIndex = new ArrayMap<EntityId>();
+  public readonly chainByEntity = new Map<EntityId, b2ChainId>();
+
+  // Shape entity object map: shape eid → Entity object.
+  // Used by events.ts to resolve entities for teardown events even after
+  // the entity has been removed from the world lookup table.
+  public readonly shapeEntityByEid = new Map<number /* eid */, Entity>();
+
+  // Bodies whose mass needs recomputing this step (populated by shape lifecycle).
+  public readonly dirtyMassBodies = new Set<EntityId>();
+
+  // Per-step event tracking sets for PhysicsEvents (M7-8 should-fix: moved from
+  // closure-local to state so they survive future pause/resume cycles).
+  // Populated by PhysicsEvents at the end of each step; persist into the next
+  // step to detect which entities stopped receiving events.
+  public readonly prevTouchedContact = new Set<number /* eid */>();
+  public readonly prevTouchedSensor = new Set<number /* eid */>();
+  public readonly prevTouchedHit = new Set<number /* eid */>();
+
+  // EIDs of entities that had Impulse or AngularImpulse set this step.
+  // PhysicsImpulseZero walks this set in physics-post to silently zero them.
+  // Cleared by PhysicsImpulseZero at the end of each post phase.
+  public readonly impulseEntitiesThisStep = new Set<number /* eid */>();
+
+  // Pending impulses remain wrapper-keyed by invariant: hooks resolve bodyId
+  // from bodyByEntityWasm, then get/set with that same stored wrapper, and the
+  // pre-step drain iterates stored keys instead of looking up event wrappers.
+  public readonly pendingLinearImpulse = new Map<
+    b2BodyId,
+    { x: number; y: number; wake: boolean }
+  >();
+  public readonly pendingAngularImpulse = new Map<b2BodyId, { value: number; wake: boolean }>();
+
+  // World-lifetime scratch vector reused by hot pose/velocity setters.
+  // It is intentionally not wrapped in withAllocated: teardown does not exist yet.
+  public readonly scratchVec2: b2Vec2;
+
+  public constructor(box2d: Box2DModule, options: ResolvedPhysicsOptions, warnSink?: WarnSink) {
+    this.box2d = box2d;
+    this.options = options;
+    this.gravityX = options.gravityX;
+    this.gravityY = options.gravityY;
+    this.fixedTimeStep = options.fixedTimeStep;
+    this.subSteps = options.subSteps;
+    this.debug = options.debug;
+    this.warn = new WarnDedupe(warnSink);
+    this.restitutionThreshold = options.restitutionThreshold;
+    this.hitEventThreshold = options.hitEventThreshold;
+    this.contactHertz = options.contactHertz;
+    this.contactDampingRatio = options.contactDampingRatio;
+    this.contactSpeed = options.contactSpeed;
+    this.maximumLinearSpeed = options.maximumLinearSpeed;
+    this.enableSleep = options.enableSleep;
+    this.enableContinuous = options.enableContinuous;
+    this.scratchVec2 = new box2d.b2Vec2();
+  }
+}
+
+// Internal singleton state holder. Never exported from the package public API.
+class PhysicsRoot {
+  public state!: PhysicsState;
+}

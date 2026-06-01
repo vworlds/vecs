@@ -94,6 +94,24 @@ describe("type decorator", () => {
     expect(decoded.extra).toEqual({ ok: true, values: [1, 2, 3] });
   });
 
+  it("rejects unsigned decorated fields with negative values", () => {
+    class Position {
+      @type("u16")
+      public x = 0;
+
+      @type("u16")
+      public y = 0;
+    }
+
+    const value = new Position();
+    value.x = -1;
+
+    expect(() => {
+      const encoder = new Encoder(new Uint8Array(128));
+      encoder.write(value);
+    }).toThrow(RangeError);
+  });
+
   it("encodes arrays as a u32 length followed by elements", () => {
     class NumberList {
       @type(["u32"])

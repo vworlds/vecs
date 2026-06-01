@@ -1,0 +1,62 @@
+import { type IPhase, type System, type World } from "@vworlds/vecs";
+
+import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "../components/body.js";
+import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
+
+export function installPoseSyncIn(world: World, state: PhysicsState, phase: IPhase): System {
+  const system = world.system("PhysicsPoseSyncIn").requires(Body).phase(phase);
+
+  system.ignoreSource([PhysicsSystemTag]);
+
+  system.update(Position, (entity, position) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId === undefined) {
+      return;
+    }
+
+    const rotation = state.box2d.b2Body_GetRotation(bodyId);
+    try {
+      state.scratchVec2.Set(position.x, position.y);
+      state.box2d.b2Body_SetTransform(bodyId, state.scratchVec2, rotation);
+    } finally {
+      rotation.delete();
+    }
+  });
+
+  system.update(Rotation, (entity, rotation) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId === undefined) {
+      return;
+    }
+
+    const position = state.box2d.b2Body_GetPosition(bodyId);
+    const wasmRotation = state.box2d.b2MakeRot(rotation.angle);
+    try {
+      state.box2d.b2Body_SetTransform(bodyId, position, wasmRotation);
+    } finally {
+      wasmRotation.delete();
+      position.delete();
+    }
+  });
+
+  system.update(LinearVelocity, (entity, velocity) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId === undefined) {
+      return;
+    }
+
+    state.scratchVec2.Set(velocity.x, velocity.y);
+    state.box2d.b2Body_SetLinearVelocity(bodyId, state.scratchVec2);
+  });
+
+  system.update(AngularVelocity, (entity, velocity) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId === undefined) {
+      return;
+    }
+
+    state.box2d.b2Body_SetAngularVelocity(bodyId, velocity.value);
+  });
+
+  return system;
+}

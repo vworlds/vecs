@@ -18,6 +18,18 @@ function canBeFloat(value: number): boolean {
   return value === Math.fround(value);
 }
 
+function assertBigIntRange(value: bigint, min: bigint, max: bigint, method: string): void {
+  if (value < min || value > max) {
+    throw new RangeError(`vecs-wire/encoder ${method}: value ${value} is out of range`);
+  }
+}
+
+function assertIntegerRange(value: number, min: number, max: number, method: string): void {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new RangeError(`vecs-wire/encoder ${method}: value ${value} is out of range`);
+  }
+}
+
 export class Encoder {
   private readonly _buffer: Uint8Array;
   private _cursor = 0;
@@ -39,6 +51,7 @@ export class Encoder {
   }
 
   write_varint_u32(value: number): void {
+    assertIntegerRange(value, 0, 0xffffffff, "write_varint_u32");
     while (value > 0x7f) {
       if (this._cursor >= this._buffer.length) {
         throw new RangeError(
@@ -57,6 +70,7 @@ export class Encoder {
   }
 
   write_varint_u64(value: bigint): void {
+    assertBigIntRange(value, 0n, 0xffffffffffffffffn, "write_varint_u64");
     while (value > 0x7fn) {
       if (this._cursor >= this._buffer.length) {
         throw new RangeError(
@@ -75,7 +89,7 @@ export class Encoder {
   }
 
   encode_zz_u32(value: number): number {
-    return (value << 1) ^ (value >> 31);
+    return ((value << 1) ^ (value >> 31)) >>> 0;
   }
 
   encode_zz_u64(value: bigint): bigint {
@@ -83,6 +97,7 @@ export class Encoder {
   }
 
   write_u8(value: number): void {
+    assertIntegerRange(value, 0, 0xff, "write_u8");
     if (this._cursor >= this._buffer.length) {
       throw new RangeError("vecs-wire/encoder write_u8: Attempt to write beyond buffer size");
     }
@@ -90,6 +105,7 @@ export class Encoder {
   }
 
   write_i8(value: number): void {
+    assertIntegerRange(value, -0x80, 0x7f, "write_i8");
     this.write_u8(value & 0xff);
   }
 
@@ -98,22 +114,27 @@ export class Encoder {
   }
 
   write_u16(value: number): void {
+    assertIntegerRange(value, 0, 0xffff, "write_u16");
     this.write_varint_u32(value);
   }
 
   write_u32(value: number): void {
+    assertIntegerRange(value, 0, 0xffffffff, "write_u32");
     this.write_varint_u32(value);
   }
 
   write_u64(value: bigint): void {
+    assertBigIntRange(value, 0n, 0xffffffffffffffffn, "write_u64");
     this.write_varint_u64(value);
   }
 
   write_i16(value: number): void {
+    assertIntegerRange(value, -0x8000, 0x7fff, "write_i16");
     this.write_varint_u32(this.encode_zz_u32(value));
   }
 
   write_i32(value: number): void {
+    assertIntegerRange(value, -0x80000000, 0x7fffffff, "write_i32");
     this.write_varint_u32(this.encode_zz_u32(value));
   }
 
@@ -122,6 +143,7 @@ export class Encoder {
   }
 
   write_i64(value: bigint): void {
+    assertBigIntRange(value, -0x8000000000000000n, 0x7fffffffffffffffn, "write_i64");
     this.write_varint_u64(this.encode_zz_u64(value));
   }
 
