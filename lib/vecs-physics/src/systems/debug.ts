@@ -7,7 +7,7 @@
 // This ensures the validator sees the world after lifecycle/sync have run, so
 // ephemeral intermediate states during entity construction are not flagged.
 //
-// Six issue codes (docs/debug-validation.md):
+// Seven issue codes (docs/debug-validation.md):
 //   1. shape-without-parent-body     — geometry entity whose immediate parent
 //                                      lacks Body (or has no parent at all).
 //   2. dynamic-body-without-density  — dynamic Body with no valid shape child:
@@ -21,6 +21,8 @@
 //                                      ShapeRotation.
 //   6. position-on-shape-entity      — entity has a geometry component AND
 //                                      Position.
+//   7. force-without-target          — force/impulse entity has no Body and no
+//                                      immediate Body parent.
 //
 // Re-arm semantics: when a (eid, code) pair that was previously warned becomes
 // valid for that code (issue cleared), we call rearm() so a future relapse can
@@ -48,6 +50,7 @@ import {
 } from "@vworlds/vecs";
 
 import { Body, BodyType, Position } from "../components/body.js";
+import { AngularImpulse, Force, Impulse, Torque } from "../components/force.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
 import { Material } from "../components/material.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
@@ -62,6 +65,7 @@ const CODE_CHAIN_TOO_FEW_POINTS = "chain-too-few-points";
 const CODE_POLYGON_INVALID = "polygon-invalid";
 const CODE_SHAPE_POSITION_ON_BODY = "shape-position-on-body";
 const CODE_POSITION_ON_SHAPE_ENTITY = "position-on-shape-entity";
+const CODE_FORCE_WITHOUT_TARGET = "force-without-target";
 
 // ─── Options ──────────────────────────────────────────────────────────────────
 
@@ -89,6 +93,9 @@ export function installDebugValidation(
   // Body entities: any entity with Body.
   const bodyFilter: Filter = world.filter(Body);
 
+  // Force-class entities: any entity with a force, torque, impulse, or angular impulse.
+  const forceFilter: Filter = world.filter({ any: [Force, Torque, Impulse, AngularImpulse] });
+
   // Body entities that also carry ShapePosition or ShapeRotation.
   const bodyPoseFilter: Filter = world.filter({
     all: [Body, { any: [ShapePosition, ShapeRotation] }],
@@ -106,6 +113,7 @@ export function installDebugValidation(
       _validateGeomEntities(geomFilter, dedupe);
       _validateBodyEntities(geomFilter, bodyFilter, dedupe);
       _validateBodyShapePositionEntities(bodyPoseFilter, prevBodyPoseEids, dedupe);
+      _validateForceEntities(forceFilter, dedupe);
     });
 }
 
@@ -305,4 +313,25 @@ function _validateBodyShapePositionEntities(
   for (const eid of currentEids) {
     prevBodyPoseEids.add(eid);
   }
+}
+
+// ─── Force-target validation ─────────────────────────────────────────────────
+
+function _validateForceEntities(forceFilter: Filter, dedupe: WarnDedupe): void {
+  forceFilter.forEach((e) => {
+    const eid = e.eid;
+    const parent = e.parent(ChildOf);
+    const hasTarget =
+      e.get(Body) !== undefined || (parent !== undefined && parent.get(Body) !== undefined);
+
+    if (!hasTarget) {
+      dedupe.warnOnce(
+        eid,
+        CODE_FORCE_WITHOUT_TARGET,
+        `Entity${eid} has Force/Torque/Impulse/AngularImpulse but no Body or immediate Body parent.`
+      );
+    } else {
+      dedupe.rearm(eid, CODE_FORCE_WITHOUT_TARGET);
+    }
+  });
 }

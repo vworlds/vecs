@@ -3,10 +3,8 @@
 // Test-first (TDD) per project conventions. All tests run the full Vecs world
 // pipeline: installPhysics → world.start → world.progress.
 //
-// Pattern for "known mass": create the body, run one step so the lifecycle fires
-// and the body enters the awake set, then seed `sim.invMass` directly (mirrors
-// the gravity.test.ts approach: no shape → invMass = 0, so we patch it in).
-// This keeps tests isolated from the mass/shape subsystem.
+// Pattern for "known mass": attach a default 1x1 Box with density 1. On
+// box2d3-wasm@5.2.0 this gives mass = 1 and inertia = 1/6.
 //
 // Cases covered:
 //   1. Force persistence: Force(10,0) → body accelerates each step (F = m·a).
@@ -19,7 +17,7 @@
 //   8. Silent impulse zeroing: Impulse is {x:0,y:0} after step, no update fired.
 //   9. AngularImpulse accumulation + silent zero.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { ChildOf, type Entity, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -27,6 +25,7 @@ import {
   AngularVelocity,
   Body,
   BodyType,
+  Box,
   Force,
   Impulse,
   LinearVelocity,
@@ -34,8 +33,6 @@ import {
   Torque,
   installPhysics,
 } from "../../src/index.js";
-import { AWAKE_SET } from "../../src/engine/solver_set.js";
-import { getPhysics } from "../../src/engine/state.js";
 
 const DT = 1 / 60;
 const STEP_MS = DT * 1000;
@@ -59,18 +56,8 @@ function step(world: World, n: number, now: number): number {
   return now;
 }
 
-/** Seed a body's invMass and invInertia after it has entered the awake set.
- * Call after at least one step so the lifecycle has created the body record. */
-function seedMass(world: World, e: { eid: number }, invMass: number, invInertia = 0): void {
-  const state = getPhysics(world);
-  const handle = state.bodyByEntity.get(e.eid);
-  if (!handle) {
-    throw new Error("body not created yet");
-  }
-  const rec = state.bodies.get(handle.index);
-  const sim = state.solverSets[rec.setIndex]!.bodySims[rec.localIndex]!;
-  sim.invMass = invMass;
-  sim.invInertia = invInertia;
+function attachUnitBox(world: World, body: Entity): void {
+  world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
 }
 
 // ─── 1. Force persistence ─────────────────────────────────────────────────────
@@ -85,10 +72,9 @@ describe("PhysicsForceGather — force persistence", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 0, y: 0 });
+    attachUnitBox(world, e);
 
-    // Run frame 0 so lifecycle creates the body, then seed invMass = 1.
     now = step(world, 1, now);
-    seedMass(world, e, 1);
 
     // Add a force of 10 N in x.
     e.set(Force, { x: 10, y: 0 });
@@ -114,9 +100,9 @@ describe("PhysicsForceGather — force persistence", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 0, y: 0 });
+    attachUnitBox(world, e);
 
     now = step(world, 1, now);
-    seedMass(world, e, 1);
 
     e.set(Force, { x: 8, y: 0 });
     now = step(world, 1, now);
@@ -143,12 +129,12 @@ describe("PhysicsForceGather — force on child entity", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 0, y: 0 });
+    attachUnitBox(world, bodyE);
+
+    now = step(world, 1, now);
 
     // Force component lives on a child entity (not the body entity itself).
     const childE = world.entity().set(ChildOf, { target: bodyE }).set(Force, { x: 5, y: 0 });
-
-    now = step(world, 1, now);
-    seedMass(world, bodyE, 1);
 
     // The child force is resolved to the parent body each step.
     now = step(world, 1, now);
@@ -168,13 +154,13 @@ describe("PhysicsForceGather — force on child entity", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 0, y: 0 });
+    attachUnitBox(world, bodyE);
+
+    now = step(world, 1, now);
 
     // Two separate child entities each carrying a Force.
     world.entity().set(ChildOf, { target: bodyE }).set(Force, { x: 3, y: 0 });
     world.entity().set(ChildOf, { target: bodyE }).set(Force, { x: 7, y: 0 });
-
-    now = step(world, 1, now);
-    seedMass(world, bodyE, 1);
 
     now = step(world, 1, now);
     // 3 + 7 = 10 N → vx = 10·DT
@@ -195,12 +181,12 @@ describe("PhysicsForceGather — immediate-parent rule", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 0, y: 0 });
+    attachUnitBox(world, bodyE);
 
     const childE = world.entity().set(ChildOf, { target: bodyE });
     world.entity().set(ChildOf, { target: childE }).set(Force, { x: 999, y: 0 });
 
     now = step(world, 1, now);
-    seedMass(world, bodyE, 1);
     now = step(world, 1, now);
 
     // The grandchild's Force should NOT be applied (only the immediate parent is consulted).
@@ -220,19 +206,17 @@ describe("PhysicsForceGather — torque persistence", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(AngularVelocity, { value: 0 });
+    attachUnitBox(world, e);
 
     now = step(world, 1, now);
-    // Seed invInertia = 1 so torque produces angular accel = torque·invInertia.
-    seedMass(world, e, 0, 1);
 
     e.set(Torque, { value: 5 });
     now = step(world, 1, now);
-    // omega += torque·invInertia·dt = 5·1·DT (via the integrator's torque path)
-    expect(e.get(AngularVelocity)!.value).toBeCloseTo(5 * DT, 5);
+    // box2d3-wasm@5.2.0: default 1x1 box has inertia 1/6, so invInertia = 6.
+    expect(e.get(AngularVelocity)!.value).toBeCloseTo(5 * 6 * DT, 5);
 
     now = step(world, 1, now);
-    // Torque re-accumulated second step → omega = 2·5·DT
-    expect(e.get(AngularVelocity)!.value).toBeCloseTo(2 * 5 * DT, 4);
+    expect(e.get(AngularVelocity)!.value).toBeCloseTo(2 * 5 * 6 * DT, 4);
   });
 });
 
@@ -248,10 +232,9 @@ describe("PhysicsImpulseAccumulate — accumulation", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 0, y: 0 });
+    attachUnitBox(world, e);
 
-    // Frame 0: create the body.
     now = step(world, 1, now);
-    seedMass(world, e, 1); // invMass = 1, so Δv = impulse.x
 
     // Three impulse sets BEFORE the next step: each set fires an update event.
     // The accumulate system sums them: total x = 1 + 2 + 3 = 6 N·s.
@@ -274,9 +257,9 @@ describe("PhysicsImpulseAccumulate — accumulation", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 0, y: 0 });
+    attachUnitBox(world, bodyE);
 
     now = step(world, 1, now);
-    seedMass(world, bodyE, 1);
 
     // Impulse on a child entity.
     const childE = world.entity().set(ChildOf, { target: bodyE }).set(Impulse, { x: 5, y: 0 });
@@ -317,9 +300,9 @@ describe("PhysicsImpulseZero — silent zero", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 0, y: 0 });
+    attachUnitBox(world, e);
 
     now = step(world, 1, now);
-    seedMass(world, e, 1);
 
     // Set an impulse — this fires one update event (the set itself).
     e.set(Impulse, { x: 10, y: 0 });
@@ -363,9 +346,9 @@ describe("PhysicsImpulseZero — silent zero", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(AngularVelocity, { value: 0 });
+    attachUnitBox(world, e);
 
     now = step(world, 1, now);
-    seedMass(world, e, 0, 1); // invInertia = 1
 
     // Two sets before the step: total = 3 + 4 = 7 N·m·s.
     e.set(AngularImpulse, { value: 3 });
@@ -373,8 +356,8 @@ describe("PhysicsImpulseZero — silent zero", () => {
 
     now = step(world, 1, now);
 
-    // omega += invInertia * 7 = 7.
-    expect(e.get(AngularVelocity)!.value).toBeCloseTo(7, 5);
+    // box2d3-wasm@5.2.0: default 1x1 box has inertia 1/6, so invInertia = 6.
+    expect(e.get(AngularVelocity)!.value).toBeCloseTo(42, 5);
 
     // Watcher saw the two user sets, not the silent zero.
     expect(modifiedCount).toBe(2);
@@ -389,16 +372,10 @@ describe("PhysicsImpulseZero — silent zero", () => {
   });
 });
 
-// ─── Stale-target rejection (same-frame destroy/recreate index reuse) ──────────
-//
-// `PhysicsImpulseAccumulate` keys `pendingImpulses` by the body's stable IdPool
-// slot index. If the target body is destroyed before `engineStep` applies the
-// accumulator and another body reuses the freed slot, the raw index would alias
-// the new body. The accumulator captures the target's handle generation and
-// `applyPendingImpulses` validates it via `bodies.idPool.isValid`, dropping the
-// stale impulse instead of redirecting it. These tests pin that guard.
-describe("PhysicsImpulseAccumulate — stale-target generation guard", () => {
-  it("drops a pending impulse whose target slot generation is stale", () => {
+// ─── Removed-target rejection ─────────────────────────────────────────────────
+
+describe("PhysicsImpulseAccumulate — removed target guard", () => {
+  it("drops a pending impulse when its target body is removed before drain", () => {
     const world = makeWorld();
     let now = 0;
 
@@ -407,31 +384,20 @@ describe("PhysicsImpulseAccumulate — stale-target generation guard", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 0, y: 0 });
-
-    now = step(world, 1, now); // body enters the awake set
-    seedMass(world, e, 1);
-
-    // Model a body that occupied this slot in a prior life: inject a pending
-    // impulse tagged with the previous generation (handle.generation - 1). This
-    // is exactly what would remain after a same-frame destroy → slot reuse.
-    const state = getPhysics(world);
-    const handle = state.bodyByEntity.get(e.eid)!;
-    state.pendingImpulses.set(handle.index, {
-      x: 100,
-      y: 0,
-      angular: 0,
-      wake: true,
-      generation: handle.generation - 1,
-    });
+    attachUnitBox(world, e);
 
     now = step(world, 1, now);
+    e.set(Impulse, { x: 100, y: 0 });
+    e.remove(Body);
 
-    // The generation mismatch must drop the impulse — the body that now owns the
-    // slot is untouched.
-    expect(e.get(LinearVelocity)!.x).toBe(0);
+    expect(() => {
+      now = step(world, 1, now);
+    }).not.toThrow();
+
+    expect(e.get(Impulse)!.x).toBe(0);
   });
 
-  it("applies a pending impulse whose target slot generation matches", () => {
+  it("applies a pending impulse while its target body is still alive", () => {
     const world = makeWorld();
     let now = 0;
 
@@ -440,20 +406,10 @@ describe("PhysicsImpulseAccumulate — stale-target generation guard", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 0, y: 0 });
+    attachUnitBox(world, e);
 
     now = step(world, 1, now);
-    seedMass(world, e, 1);
-
-    // Positive control: same index, correct generation → applied (Δv = invMass·x).
-    const state = getPhysics(world);
-    const handle = state.bodyByEntity.get(e.eid)!;
-    state.pendingImpulses.set(handle.index, {
-      x: 100,
-      y: 0,
-      angular: 0,
-      wake: true,
-      generation: handle.generation,
-    });
+    e.set(Impulse, { x: 100, y: 0 });
 
     now = step(world, 1, now);
 
