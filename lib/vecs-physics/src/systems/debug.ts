@@ -32,9 +32,9 @@
 //   - Uses world.filter() scans (non-reactive) — same pattern as ForceGather.
 //     An entity enters the relevant filter when it carries the matching
 //     component(s), and the validator re-checks it every step.
-//   - WarnDedupe instance is owned by this system (survives across steps).
-//   - The injectable WarnSink in WarnDedupe is the test hook; pass it via the
-//     `sink` option of installDebugValidation.
+//   - WarnDedupe instance is owned by PhysicsState (survives across systems).
+//   - The injectable WarnSink in WarnDedupe is the test hook; pass it via
+//     PhysicsOptions.debugSink.
 //   - Does NOT modify any engine state — read-only pass.
 //
 // Upstream docs: docs/debug-validation.md.
@@ -55,7 +55,7 @@ import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geo
 import { Material } from "../components/material.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
 import { type PhysicsState } from "../adapter/state.js";
-import { type WarnSink, WarnDedupe } from "../util/warn.js";
+import { type WarnDedupe } from "../util/warn.js";
 
 // ─── Issue codes ──────────────────────────────────────────────────────────────
 
@@ -67,14 +67,6 @@ const CODE_SHAPE_POSITION_ON_BODY = "shape-position-on-body";
 const CODE_POSITION_ON_SHAPE_ENTITY = "position-on-shape-entity";
 const CODE_FORCE_WITHOUT_TARGET = "force-without-target";
 
-// ─── Options ──────────────────────────────────────────────────────────────────
-
-/** Options for {@link installDebugValidation}. */
-export interface DebugValidationOptions {
-  /** Override the warning sink (default `console.warn`). Primarily for tests. */
-  sink?: WarnSink;
-}
-
 // ─── System factory ───────────────────────────────────────────────────────────
 
 /** Create `PhysicsDebugValidation` on `world` in `phase`.
@@ -83,10 +75,8 @@ export function installDebugValidation(
   world: World,
   state: PhysicsState,
   phase: IPhase,
-  opts: DebugValidationOptions = {}
+  _opts: unknown = undefined
 ): System {
-  const dedupe = new WarnDedupe(opts.sink);
-
   // ── Filters (non-reactive; walked every step) ─────────────────────────────
   // Geometry entities: any entity with at least one geometry component.
   const geomFilter: Filter = world.filter({ any: [Box, Circle, Capsule, Segment, Polygon, Chain] });
@@ -111,10 +101,10 @@ export function installDebugValidation(
     .system("PhysicsDebugValidation")
     .phase(phase)
     .run(() => {
-      _validateGeomEntities(state, geomFilter, dedupe);
-      _validateBodyEntities(geomFilter, bodyFilter, dedupe);
-      _validateBodyShapePositionEntities(bodyPoseFilter, prevBodyPoseEids, dedupe);
-      _validateForceEntities(forceFilter, dedupe);
+      _validateGeomEntities(state, geomFilter, state.warn);
+      _validateBodyEntities(geomFilter, bodyFilter, state.warn);
+      _validateBodyShapePositionEntities(bodyPoseFilter, prevBodyPoseEids, state.warn);
+      _validateForceEntities(forceFilter, state.warn);
     });
 }
 
@@ -221,9 +211,6 @@ function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: W
     const body = e.get(Body) as Body;
 
     if (body.type !== BodyType.Dynamic) {
-      // Only dynamic bodies require density — re-arm so a type change back to
-      // Dynamic can warn again if the body still has no valid shapes.
-      dedupe.rearm(eid, CODE_DYNAMIC_BODY_WITHOUT_DENSITY);
       return;
     }
 
@@ -259,8 +246,6 @@ function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: W
         CODE_DYNAMIC_BODY_WITHOUT_DENSITY,
         `Entity${eid} is a dynamic body whose shapes all have density 0; it will have zero mass.`
       );
-    } else {
-      dedupe.rearm(eid, CODE_DYNAMIC_BODY_WITHOUT_DENSITY);
     }
   });
 }

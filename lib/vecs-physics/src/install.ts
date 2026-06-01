@@ -128,7 +128,7 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
   //    to it), then attach it.
   const box2d = getBox2D();
   const options = resolveOptions(opts);
-  const state = new PhysicsState(box2d, options);
+  const state = new PhysicsState(box2d, options, opts.debugSink);
   state.worldId = createWorldId(state, options);
   registerImpulseHooks(world, state);
   installPhysicsSystems(

@@ -1,5 +1,6 @@
 import { Singleton, type Entity, type World } from "@vworlds/vecs";
 
+import { type WarnSink, WarnDedupe } from "../util/warn.js";
 import { type Box2DModule } from "./runtime.js";
 
 export type EntityId = number;
@@ -72,6 +73,7 @@ export class PhysicsState {
   public readonly fixedTimeStep: number;
   public readonly subSteps: number;
   public readonly debug: boolean;
+  public readonly warn: WarnDedupe;
   public readonly restitutionThreshold: number;
   public readonly hitEventThreshold: number;
   public readonly contactHertz: number;
@@ -122,7 +124,7 @@ export class PhysicsState {
   // It is intentionally not wrapped in withAllocated: teardown does not exist yet.
   public readonly scratchVec2: b2Vec2;
 
-  public constructor(box2d: Box2DModule, options: ResolvedPhysicsOptions) {
+  public constructor(box2d: Box2DModule, options: ResolvedPhysicsOptions, warnSink?: WarnSink) {
     this.box2d = box2d;
     this.options = options;
     this.gravityX = options.gravityX;
@@ -130,6 +132,7 @@ export class PhysicsState {
     this.fixedTimeStep = options.fixedTimeStep;
     this.subSteps = options.subSteps;
     this.debug = options.debug;
+    this.warn = new WarnDedupe(warnSink);
     this.restitutionThreshold = options.restitutionThreshold;
     this.hitEventThreshold = options.hitEventThreshold;
     this.contactHertz = options.contactHertz;

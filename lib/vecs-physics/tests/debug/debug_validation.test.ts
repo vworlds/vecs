@@ -179,6 +179,19 @@ describe("dynamic-body-without-density", () => {
     expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(1);
   });
 
+  it("dedupes when the WASM mass check and structural check both fire in one step", () => {
+    const body = world.entity().set(Body, { type: BodyType.Dynamic });
+    world
+      .entity()
+      .set(ChildOf, { target: body })
+      .set(Box, { hx: 0.5, hy: 0.5 })
+      .set(Material, { density: 0 });
+
+    step();
+
+    expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(1);
+  });
+
   it("does NOT warn when default Material (density 1) is used", () => {
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
     world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
