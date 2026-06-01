@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // The collide pass (VP-18): narrow-phase contact update + contact state changes.
 //
 // Ports box2d v3.2.0's `b2Collide` (physics_world.c:610-815) and its worker

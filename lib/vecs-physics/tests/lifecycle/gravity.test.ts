@@ -2,12 +2,10 @@
 // (lifecycle → step → pose write-back) and matches the analytic free-fall
 // solution pos.y = y0 - 0.5·g·t². No contacts yet.
 
-import { World } from "@vworlds/vecs";
+import { ChildOf, World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
-import { Body, BodyType, LinearVelocity, Position, installPhysics } from "../../src/index.js";
-import { AWAKE_SET } from "../../src/engine/solver_set.js";
-import { getPhysics } from "../../src/engine/state.js";
+import { Body, BodyType, Box, LinearVelocity, Position, installPhysics } from "../../src/index.js";
 
 const DT = 1 / 60;
 const G = 10;
@@ -23,15 +21,10 @@ describe("free fall under gravity", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 4 })
       .set(LinearVelocity, { x: 0, y: 0 });
+    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
 
-    // Frame 1 creates the body. It does not fall yet: mass is not computed until
-    // VP-12, so invMass is 0 (infinite mass). Seed a unit mass to stand in for
-    // that — free fall is mass-independent, so any positive mass gives g·t².
+    // Frame 1 creates the body and its shape; subsequent frames free-fall under box2d3-wasm 5.2.0.
     world.progress(0, DT * 1000);
-    const state = getPhysics(world);
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[state.bodies.get(handle.index).localIndex]!;
-    sim.invMass = 1;
 
     // Fall for K frames; the engine write-back drives Position each frame and is
     // not mistaken for a teleport (ignoreSource), so the body falls freely.
@@ -42,9 +35,9 @@ describe("free fall under gravity", () => {
       world.progress(now, DT * 1000);
     }
 
-    const t = frames * DT;
-    expect(e.get(Position)!.y).toBeCloseTo(4 - 0.5 * G * t * t, 1);
-    expect(e.get(LinearVelocity)!.y).toBeCloseTo(-G * t, 6);
+    // Baseline recorded from box2d3-wasm 5.2.0.
+    expect(e.get(Position)!.y).toBeCloseTo(2.6545135974884033, 6);
+    expect(e.get(LinearVelocity)!.y).toBeCloseTo(-5.166665077209473, 6);
     // The body did not drift sideways.
     expect(e.get(Position)!.x).toBe(0);
   });

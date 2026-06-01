@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Public re-exports for the engine/manifold module.
 // VP-14 dispatch and M3 solver import from here.
 

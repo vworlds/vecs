@@ -128,3 +128,4 @@ export interface SimplexCache {
 export function emptySimplexCache(): SimplexCache {
   return { count: 0, indexA: [0, 0, 0], indexB: [0, 0, 0] };
 }
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.

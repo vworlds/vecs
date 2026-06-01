@@ -387,3 +387,4 @@ export function collidePolygons(
 
   return manifold;
 }
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.

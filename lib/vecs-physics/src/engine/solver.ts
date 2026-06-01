@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // The TGS soft-step constraint solver (VP-17).
 //
 // Ports Box2D v3.2.0's eight-stage TGS soft-step solver, restricted to the

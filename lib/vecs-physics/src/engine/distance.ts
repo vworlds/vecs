@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Distance primitives for VP-13b (b2SegmentDistance) and VP-13e (GJK).
 //
 // Upstream source: box2d/src/distance.c

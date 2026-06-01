@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // `engineStep` — the per-step orchestrator (VP-18, VP-23 sleep, VP-24 CCD).
 //
 // Wires the full collision step loop: build the step context, create contacts

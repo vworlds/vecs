@@ -643,3 +643,4 @@ export function collideChainSegmentAndPolygon(
   }
   return m;
 }
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.

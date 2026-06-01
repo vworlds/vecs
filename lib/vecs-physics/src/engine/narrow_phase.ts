@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Narrow-phase shape-type-pair dispatch table (VP-14).
 //
 // Ported from box2d/src/contact.c:

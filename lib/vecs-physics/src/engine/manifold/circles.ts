@@ -303,3 +303,4 @@ export function collidePolygonAndCircle(
 
   return manifold;
 }
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.

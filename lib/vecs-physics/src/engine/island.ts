@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Island graph: build / merge / link / unlink (VP-16).
 //
 // Ports box2d/src/island.{h,c} and the body-island hooks from box2d/src/body.c.

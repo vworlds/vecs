@@ -14,6 +14,7 @@ export type b2WorldId = ReturnType<Box2DModule["b2CreateWorld"]>;
 export type b2BodyId = ReturnType<Box2DModule["b2CreateBody"]>;
 export type b2ShapeId = ReturnType<Box2DModule["b2CreateCircleShape"]>;
 export type b2ChainId = ReturnType<Box2DModule["b2CreateChain"]>;
+export type b2Vec2 = ReturnType<Box2DModule["b2Body_GetPosition"]>;
 export { attachPhysics, getPhysics, hasPhysics, PhysicsSystemTag, registerInternalComponents };
 export type { ResolvedPhysicsOptions };
 
@@ -26,6 +27,9 @@ export class PhysicsState extends EnginePhysicsState {
   public readonly entityByShape = new Map<b2ShapeId, EntityId>();
   public readonly chainByEntity = new Map<EntityId, b2ChainId>();
   public readonly options: ResolvedPhysicsOptions;
+  // World-lifetime scratch vector reused by hot pose/velocity setters.
+  // It is intentionally not wrapped in withAllocated: teardown does not exist yet.
+  public readonly scratchVec2: b2Vec2;
   public readonly pendingLinearImpulse = new Map<
     EntityId,
     { x: number; y: number; wake: boolean }
@@ -36,5 +40,6 @@ export class PhysicsState extends EnginePhysicsState {
     super(options);
     this.box2d = box2d;
     this.options = options;
+    this.scratchVec2 = new box2d.b2Vec2();
   }
 }

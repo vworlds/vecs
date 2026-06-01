@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Continuous Collision Detection (CCD) for bullets and fast bodies (VP-24).
 //
 // Ports box2d v3.2.0's single-threaded CCD path:

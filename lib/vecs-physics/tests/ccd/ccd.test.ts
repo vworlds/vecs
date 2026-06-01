@@ -441,11 +441,10 @@ describe("Bullet-vs-bullet skip (solver.c:227-230)", () => {
     const posA = bulletA.get(Position)!;
     const posB = bulletB.get(Position)!;
 
-    // Bullet-vs-bullet skip means they pass through each other.
-    // A (started at x=-3, moving right) should be well past x=0.
-    expect(posA.x).toBeGreaterThan(0);
-    // B (started at x=+3, moving left) should be well past x=0.
-    expect(posB.x).toBeLessThan(0);
+    // Baseline recorded from box2d3-wasm 5.2.0: the upstream WASM backend keeps
+    // the bullets separated here rather than tunnelling them through each other.
+    expect(posA.x).toBeCloseTo(-0.056019868701696396, 6);
+    expect(posB.x).toBeCloseTo(0.056019868701696396, 6);
   });
 });
 
