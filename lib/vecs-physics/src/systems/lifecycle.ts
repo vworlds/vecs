@@ -14,7 +14,6 @@ import { type b2BodyId, type PhysicsState } from "../adapter/state.js";
 import { withAllocated } from "../adapter/disposal.js";
 import { destroyBodyContacts } from "../engine/contact.js";
 import { createIslandForBody, removeBodyFromIsland } from "../engine/island.js";
-import { freeSleepingSet, wakeBody } from "../engine/sleep.js";
 import { updateShapeAABBs } from "../engine/shape.js";
 import { makeRot } from "../math/rot.js";
 import { mulTransforms, type Transform } from "../math/transform.js";
@@ -27,7 +26,6 @@ const DYNAMIC_BODY = 2;
 const STATIC_SET = 0;
 const DISABLED_SET = 1;
 const AWAKE_SET = 2;
-const FIRST_SLEEPING_SET = 3;
 const LOCK_LINEAR_X = 0x0001;
 const LOCK_LINEAR_Y = 0x0002;
 const LOCK_ANGULAR_Z = 0x0004;
@@ -64,9 +62,6 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     const setIndex = record.setIndex;
     destroyBodyContacts(state, handle.index, false);
     destroyLegacyBody(state, state.solverSets[setIndex]!, handle);
-    if (setIndex >= FIRST_SLEEPING_SET && state.solverSets[setIndex]!.bodySims.length === 0) {
-      freeSleepingSet(state, setIndex);
-    }
     state.bodyByEntity.delete(entity.eid);
   });
 
@@ -106,6 +101,13 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
   });
 
   system.update(Sleep, (entity, sleep) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId !== undefined) {
+      state.box2d.b2Body_EnableSleep(bodyId, sleep.enabled);
+      state.box2d.b2Body_SetAwake(bodyId, sleep.awake);
+      state.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
+    }
+
     const handle = state.bodyByEntity.get(entity.eid);
     if (handle === undefined) {
       return;
@@ -115,14 +117,8 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
       record.flags |= ENABLE_SLEEP;
     } else {
       record.flags &= ~ENABLE_SLEEP;
-      if (record.setIndex >= FIRST_SLEEPING_SET) {
-        wakeBody(state, handle.index);
-      }
     }
     record.sleepThreshold = sleep.threshold;
-    if (sleep.awake && record.setIndex >= FIRST_SLEEPING_SET) {
-      wakeBody(state, handle.index);
-    }
   });
 
   return system;

@@ -28,7 +28,6 @@ import {
   registerInternalComponents,
   type ResolvedPhysicsOptions,
 } from "./adapter/state.js";
-import { installSleepHooks } from "./engine/sleep.js";
 import { registerImpulseHooks } from "./systems/impulse_accumulate.js";
 import { installPhysicsSystems } from "./systems/index.js";
 
@@ -131,7 +130,6 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
   const options = resolveOptions(opts);
   const state = new PhysicsState(box2d, options);
   state.worldId = createWorldId(state, options);
-  installSleepHooks(state);
   registerImpulseHooks(world, state);
   installPhysicsSystems(
     world,

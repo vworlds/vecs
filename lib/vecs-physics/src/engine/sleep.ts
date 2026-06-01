@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Sleep transition: waking, sleeping, and sleeping-set merging (VP-23).
 //
 // Ports the three solver-set sleep helpers from box2d/src/solver_set.c:

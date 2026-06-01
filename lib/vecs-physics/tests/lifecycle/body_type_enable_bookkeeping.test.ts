@@ -8,10 +8,10 @@
 import { ChildOf, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { Body, BodyType, Box, Circle, Position, installPhysics } from "../../src/index.js";
+import { Body, BodyType, Box, Circle, Position, Sleep, installPhysics } from "../../src/index.js";
 import { DYNAMIC_BODY, DYNAMIC_FLAG, KINEMATIC_BODY, STATIC_BODY } from "../../src/engine/body.js";
 import { AWAKE_SET, DISABLED_SET, STATIC_SET } from "../../src/engine/solver_set.js";
-import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
+import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 import { NULL_INDEX } from "../../src/util/handle.js";
 
 const STEP_MS = 1000 / 60;
@@ -24,7 +24,7 @@ beforeEach(() => {
   world = new World();
   installPhysics(world, { gravity: { x: 0, y: -10 } });
   world.start();
-  state = getPhysics(world);
+  state = getPhysics(world) as PhysicsState;
   now = 0;
 });
 
@@ -240,7 +240,7 @@ describe("contact teardown on body type/disable changes", () => {
     world.entity().set(ChildOf, { target: g }).set(Box, { width: 100, height: 20 });
   }
 
-  it("disabling a body with live contacts destroys them before transfer", () => {
+  it("disabling a shaped body updates the WASM body without crashing", () => {
     makeGround();
     const body = world
       .entity()
@@ -250,17 +250,14 @@ describe("contact teardown on body type/disable changes", () => {
 
     step(5); // create contacts
 
-    const handle = state.bodyByEntity.get(body.eid)!;
-    const record = state.bodies.get(handle.index);
-    expect(record.contactCount).toBeGreaterThan(0);
-
-    // Disable — should destroy contacts first.
+    // Disable — Box2D owns contact teardown internally after M7.
     body.set(Body, { type: BodyType.Dynamic, enabled: false });
     expect(() => step()).not.toThrow();
-    expect(record.contactCount).toBe(0);
+    const bodyId = state.bodyByEntityWasm.get(body.eid)!;
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(false);
   });
 
-  it("changing body type with live contacts does not crash", () => {
+  it("changing body type on a shaped body updates the WASM body without crashing", () => {
     makeGround();
     const body = world
       .entity()
@@ -270,11 +267,61 @@ describe("contact teardown on body type/disable changes", () => {
 
     step(5);
 
-    const handle = state.bodyByEntity.get(body.eid)!;
-    const record = state.bodies.get(handle.index);
-    expect(record.contactCount).toBeGreaterThan(0);
-
     body.set(Body, { type: BodyType.Static });
     expect(() => step()).not.toThrow();
+    const bodyId = state.bodyByEntityWasm.get(body.eid)!;
+    expect(state.box2d.b2Body_GetType(bodyId)).toBe(state.box2d.b2BodyType.b2_staticBody);
+  });
+});
+
+// ─── WASM sleep/type bookkeeping ───────────────────────────────────────────────
+
+describe("WASM awake bookkeeping on type/enable transitions", () => {
+  function wasmBodyId(eid: number) {
+    const bodyId = state.bodyByEntityWasm.get(eid);
+    if (bodyId === undefined) {
+      throw new Error("missing wasm body");
+    }
+    return bodyId;
+  }
+
+  it("disabled bodies do not wake on input", () => {
+    const e = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 0, y: 0 })
+      .set(Sleep, { enabled: true, awake: false, threshold: 0.05 });
+
+    step();
+    expect(state.box2d.b2Body_IsAwake(wasmBodyId(e.eid))).toBe(false);
+
+    e.set(Body, { type: BodyType.Dynamic, enabled: false });
+    step();
+    expect(state.box2d.b2Body_IsEnabled(wasmBodyId(e.eid))).toBe(false);
+
+    e.set(Position, { x: 1, y: 0 });
+    step();
+
+    expect(state.box2d.b2Body_IsEnabled(wasmBodyId(e.eid))).toBe(false);
+    expect(state.box2d.b2Body_IsAwake(wasmBodyId(e.eid))).toBe(false);
+  });
+
+  it("type swaps preserve the body awake state", () => {
+    const e = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 0, y: 0 })
+      .set(Sleep, { enabled: true, awake: false, threshold: 0.05 });
+
+    step();
+    expect(state.box2d.b2Body_IsAwake(wasmBodyId(e.eid))).toBe(false);
+
+    e.set(Body, { type: BodyType.Static });
+    step();
+
+    expect(state.box2d.b2Body_GetType(wasmBodyId(e.eid))).toBe(
+      state.box2d.b2BodyType.b2_staticBody
+    );
+    expect(state.box2d.b2Body_IsAwake(wasmBodyId(e.eid))).toBe(false);
   });
 });
