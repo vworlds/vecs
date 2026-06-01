@@ -5,7 +5,12 @@
 The goal is not to expose a JavaScript Box2D binding. Users should not create Box2D worlds, bodies, shapes, handles, or callbacks. Users work with entities and components. `vecs-physics` owns the simulation internals.
 
 ```ts
+import { World } from "@vworlds/vecs";
+import { installPhysics, preloadPhysics } from "@vworlds/vecs-physics";
+
 const world = new World();
+
+await preloadPhysics();
 
 installPhysics(world, {
   gravity: { x: 0, y: -10 },
@@ -19,6 +24,7 @@ world.start();
 ## Documentation
 
 - [Getting Started](./getting-started.md) - install, setup, and first falling box.
+- [Installation](./installation.md) - runtime dependency, preload, Node, and browser setup notes.
 - [Core Components](./components.md) - public component reference.
 - [Bodies](./bodies.md) - body types, position sync, velocities, damping, sleep, and motion locks.
 - [Shapes](./shapes.md) - child shape entities, geometry components, local shape pose, and shape lifecycle.
@@ -63,7 +69,10 @@ import {
   Material,
   Position,
   installPhysics,
+  preloadPhysics,
 } from "@vworlds/vecs-physics";
+
+await preloadPhysics();
 
 const world = new World();
 
@@ -93,15 +102,19 @@ world.progress(performance.now(), 1000 / 60);
 
 ## Installation And Setup
 
-Install physics once before `world.start()`.
+Preload the WASM runtime once, then install physics before `world.start()`.
 
 ```ts
+await preloadPhysics();
+
 installPhysics(world, options);
 ```
 
 `installPhysics` registers physics components, marks mutually exclusive shape components, installs physics systems, and creates the internal simulation state.
 
 ```ts
+await preloadPhysics();
+
 installPhysics(world, {
   gravity: { x: 0, y: -10 },
   fixedTimeStep: 1 / 60,
@@ -113,6 +126,8 @@ installPhysics(world, {
 Default setup is meant to work without custom phase wiring. Advanced callers can provide phases or phase names so physics can sit at a specific point in an existing Vecs pipeline.
 
 ```ts
+await preloadPhysics();
+
 installPhysics(world, {
   preStepPhase: "physics-pre",
   stepPhase: "physics-step",
@@ -567,6 +582,8 @@ See [Shapes](./shapes.md) and [Debug Validation](./debug-validation.md).
 Debug validation is optional.
 
 ```ts
+await preloadPhysics();
+
 installPhysics(world, { debug: true });
 ```
 
