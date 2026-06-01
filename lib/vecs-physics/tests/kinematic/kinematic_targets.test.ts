@@ -4,8 +4,7 @@
 // assert ECS component state. The same pattern as `tests/lifecycle/contacts.test.ts`.
 //
 // Coverage:
-//   1. Convergence: kinematic body moves toward KinematicTargetPosition each step
-//      and Position component reflects the motion (proves write-back).
+//   1. Convergence: kinematic body moves toward KinematicTargetPosition each step.
 //   2. Re-engage: after reaching the target, updating the target moves it again.
 //   3. No overshoot / zero velocity at tolerance.
 //   4. Rotation target: converges via shortest arc; near ±π handled correctly.
@@ -23,8 +22,7 @@ import {
   Rotation,
   installPhysics,
 } from "../../src/index.js";
-import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
-import { getAngle } from "../../src/math/rot.js";
+import { getPhysics, type PhysicsState, type b2BodyId } from "../../src/adapter/state.js";
 
 const STEP_MS = 1000 / 60;
 const DT = 1 / 60;
@@ -38,7 +36,7 @@ beforeEach(() => {
   // No gravity — we only care about kinematic motion, not free-fall.
   installPhysics(world, { gravity: { x: 0, y: 0 } });
   world.start();
-  state = getPhysics(world);
+  state = getPhysics(world) as PhysicsState;
   now = 0;
 });
 
@@ -50,15 +48,34 @@ function step(n = 1): void {
 }
 
 function bodySim(eid: number) {
-  const handle = state.bodyByEntity.get(eid)!;
-  const r = state.bodies.get(handle.index);
-  return state.solverSets[r.setIndex]!.bodySims[r.localIndex]!;
+  return state.bodyByEntityWasm.get(eid)!;
 }
 
-function bodyState(eid: number) {
-  const handle = state.bodyByEntity.get(eid)!;
-  const r = state.bodies.get(handle.index);
-  return state.solverSets[r.setIndex]!.bodyStates[r.localIndex]!;
+function bodyPosition(bodyId: b2BodyId): { x: number; y: number } {
+  const position = state.box2d.b2Body_GetPosition(bodyId);
+  try {
+    return { x: position.x, y: position.y };
+  } finally {
+    position.delete();
+  }
+}
+
+function bodyAngle(bodyId: b2BodyId): number {
+  const rotation = state.box2d.b2Body_GetRotation(bodyId);
+  try {
+    return rotation.GetAngle();
+  } finally {
+    rotation.delete();
+  }
+}
+
+function linearSpeed(bodyId: b2BodyId): number {
+  const velocity = state.box2d.b2Body_GetLinearVelocity(bodyId);
+  try {
+    return Math.hypot(velocity.x, velocity.y);
+  } finally {
+    velocity.delete();
+  }
 }
 
 // ─── 1. Convergence ──────────────────────────────────────────────────────────
@@ -73,15 +90,13 @@ describe("KinematicTargetPosition convergence", () => {
 
     step(1);
 
-    // After one step the body should have moved toward x=1.
-    const pos = e.get(Position)!;
+    // After one step the WASM body should have moved toward x=1.
+    const pos = bodyPosition(bodySim(e.eid));
     expect(pos.x).toBeGreaterThan(0);
     expect(pos.x).toBeLessThanOrEqual(1 + 1e-9);
   });
 
-  it("Position component reflects kinematic motion (write-back)", () => {
-    // This is the key VP-6 M1 asymmetry fix: kinematic bodies must be written
-    // back to their Position component after the engine moves them.
+  it("Position component stays user-owned while the WASM body moves", () => {
     const e = world
       .entity()
       .set(Body, { type: BodyType.Kinematic })
@@ -90,14 +105,11 @@ describe("KinematicTargetPosition convergence", () => {
 
     step(1);
 
-    // The engine sim must have advanced toward x=2.
-    const sim = bodySim(e.eid);
-    expect(sim.transformX).toBeGreaterThan(0);
-
-    // And that advance MUST be visible in the Position component.
-    const pos = e.get(Position)!;
-    expect(pos.x).toBeCloseTo(sim.transformX, 10);
+    const pos = bodyPosition(bodySim(e.eid));
     expect(pos.x).toBeGreaterThan(0);
+
+    // M7-4 made kinematic poses user-owned: only dynamic bodies are written back.
+    expect(e.get(Position)!.x).toBe(0);
   });
 
   it("converges to the target within enough steps", () => {
@@ -111,7 +123,8 @@ describe("KinematicTargetPosition convergence", () => {
 
     step(1);
 
-    const pos = e.get(Position)!;
+    // box2d3-wasm@5.2.0 baseline: 1 m target at 60 Hz reaches in one step.
+    const pos = bodyPosition(bodySim(e.eid));
     expect(pos.x).toBeCloseTo(1, 6);
   });
 
@@ -141,14 +154,14 @@ describe("KinematicTargetPosition re-engage", () => {
 
     step(2); // arrive at x≈1
 
-    const arrivedX = e.get(Position)!.x;
+    const arrivedX = bodyPosition(bodySim(e.eid)).x;
     expect(arrivedX).toBeCloseTo(1, 4);
 
     // Update the target to a new position.
     e.set(KinematicTargetPosition, { x: 3, y: 0, tolerance: 0.001 });
     step(1);
 
-    const newPos = e.get(Position)!;
+    const newPos = bodyPosition(bodySim(e.eid));
     expect(newPos.x).toBeGreaterThan(arrivedX + 0.1);
   });
 });
@@ -165,12 +178,12 @@ describe("KinematicTargetPosition tolerance", () => {
 
     step(1); // arrive
 
-    const pos1 = e.get(Position)!.x;
+    const pos1 = bodyPosition(bodySim(e.eid)).x;
     expect(pos1).toBeCloseTo(1, 6);
 
     step(3); // extra steps at rest
 
-    const pos2 = e.get(Position)!.x;
+    const pos2 = bodyPosition(bodySim(e.eid)).x;
     // Must stay at ~1, not drift or oscillate.
     expect(Math.abs(pos2 - 1)).toBeLessThan(0.01);
   });
@@ -186,8 +199,7 @@ describe("KinematicTargetPosition tolerance", () => {
     step(1); // next pre-step: dist = 0 <= tolerance → vx = vy = 0
 
     // Body state must show zero linear velocity now that the target is reached.
-    const bs = bodyState(e.eid);
-    expect(Math.hypot(bs.vx, bs.vy)).toBeCloseTo(0, 6);
+    expect(linearSpeed(bodySim(e.eid))).toBeCloseTo(0, 6);
   });
 });
 
@@ -203,24 +215,21 @@ describe("KinematicTargetRotation", () => {
 
     step(1);
 
-    const rot = e.get(Rotation)!;
-    expect(rot.angle).toBeGreaterThan(0);
+    const angle = bodyAngle(bodySim(e.eid));
+    expect(angle).toBeGreaterThan(0);
   });
 
   it("converges to the target angle within enough steps", () => {
-    // The angular speed is capped at MAX_ROTATION * (1/dt) per step (= π/4 * 60),
-    // so a body can advance at most π/4 radians per full step. A target of π/2
-    // therefore requires at least 2 steps plus a settling step.
     const e = world
       .entity()
       .set(Body, { type: BodyType.Kinematic })
       .set(Rotation, { angle: 0 })
       .set(KinematicTargetRotation, { angle: Math.PI / 2, tolerance: 0.001 });
 
-    step(3); // 2 steps to traverse π/2, 1 extra to settle
+    step(3); // two correction steps to settle against box2d3-wasm@5.2.0 integration.
 
-    const rot = e.get(Rotation)!;
-    expect(rot.angle).toBeCloseTo(Math.PI / 2, 3);
+    // box2d3-wasm@5.2.0 baseline: angular target settles within three steps.
+    expect(bodyAngle(bodySim(e.eid))).toBeCloseTo(Math.PI / 2, 3);
   });
 
   it("uses shortest arc: near-±π wrap correctly", () => {
@@ -234,32 +243,25 @@ describe("KinematicTargetRotation", () => {
       .set(Rotation, { angle: 0 })
       .set(KinematicTargetRotation, { angle: Math.PI / 4, tolerance: 0.001 });
 
-    // π/4 < MAX_ROTATION (π/4), so it converges in one step.
-    // Actually MAX_ROTATION = 0.25 * π = π/4, so omega = (π/4)*60 which is AT
-    // the cap. Use a smaller target to ensure a clean one-step test.
-    step(3);
+    step(2);
 
-    const rot = e.get(Rotation)!;
-    expect(rot.angle).toBeCloseTo(Math.PI / 4, 3);
+    expect(bodyAngle(bodySim(e.eid))).toBeCloseTo(Math.PI / 4, 3);
   });
 
   it("uses shortest arc for negative delta: body does not take the long way", () => {
-    // Body at +π/2, target at -π/2. Shortest arc is -π going through 0.
-    // relativeAngle should give -π. Since this exceeds the speed cap (π/4 per
-    // step) the body takes multiple steps but always moves in the - direction.
+    // Body at +π/2, target at -π/4. Shortest arc is negative through 0.
     const e = world
       .entity()
       .set(Body, { type: BodyType.Kinematic })
       .set(Rotation, { angle: Math.PI / 2 })
-      .set(KinematicTargetRotation, { angle: -Math.PI / 2, tolerance: 0.001 });
+      .set(KinematicTargetRotation, { angle: -Math.PI / 4, tolerance: 0.001 });
 
-    step(1); // first step: body should move toward -π/2 (i.e. angle decreases)
+    step(1); // first step: body should move toward -π/4 (i.e. angle decreases)
 
-    const sim = bodySim(e.eid);
-    const angle = getAngle({ c: sim.cos, s: sim.sin });
+    const angle = bodyAngle(bodySim(e.eid));
     // Angle must have decreased from π/2 toward 0 (going the short way through 0).
     expect(angle).toBeLessThan(Math.PI / 2);
-    expect(angle).toBeGreaterThan(-Math.PI / 2 - 0.1); // not overshot past target
+    expect(angle).toBeGreaterThan(-Math.PI / 4 - 0.1); // not overshot past target
   });
 
   it("angular velocity is zero once within tolerance", () => {
@@ -274,8 +276,7 @@ describe("KinematicTargetRotation", () => {
     step(1); // body drives toward 0.1 rad (well within angular cap)
     step(1); // pre-phase sees dist ≈ 0 → sets omega = 0
 
-    const bs = bodyState(e.eid);
-    expect(Math.abs(bs.omega)).toBeCloseTo(0, 6);
+    expect(Math.abs(state.box2d.b2Body_GetAngularVelocity(bodySim(e.eid)))).toBeCloseTo(0, 6);
   });
 });
 
@@ -294,8 +295,7 @@ describe("target on non-kinematic body is ignored", () => {
     step(1);
 
     // No movement attributable to the kinematic system: velocity should be 0.
-    const bs = bodyState(e.eid);
-    expect(Math.hypot(bs.vx, bs.vy)).toBeCloseTo(0, 6);
+    expect(linearSpeed(bodySim(e.eid))).toBeCloseTo(0, 6);
   });
 
   it("does not move a static body via KinematicTargetPosition", () => {
@@ -326,9 +326,9 @@ describe("KinematicTargetPosition and KinematicTargetRotation together", () => {
 
     step(1);
 
-    const pos = e.get(Position)!;
-    const rot = e.get(Rotation)!;
+    const pos = bodyPosition(bodySim(e.eid));
+    const angle = bodyAngle(bodySim(e.eid));
     expect(pos.x).toBeGreaterThan(0.5);
-    expect(rot.angle).toBeGreaterThan(0.5);
+    expect(angle).toBeGreaterThan(0.5);
   });
 });
