@@ -37,7 +37,7 @@ export function buildApiSnapshot(): ApiSnapshot {
   };
 }
 
-export function parseTypeExports(source = readFileSync(INDEX_FILE, "utf8")): string[] {
+function parseTypeExports(source = readFileSync(INDEX_FILE, "utf8")): string[] {
   const names = new Set<string>();
 
   for (const match of source.matchAll(/export\s*\{([\s\S]*?)\}\s*from\s*["'][^"']+["'];/g)) {
