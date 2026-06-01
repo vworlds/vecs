@@ -1,0 +1,41 @@
+{
+  "name": "@vworlds/vecs-physics",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "development": {
+        "types": "./src/index.ts",
+        "import": "./src/index.ts"
+      },
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "api:snapshot": "tsx scripts/api-snapshot.ts",
+    "clean": "rimraf dist",
+    "prepack": "npm run build",
+    "build": "npm run build -w @vworlds/vecs && npm run clean && npm run compile",
+    "compile": "rimraf .build && tsc -p tsconfig.build.json && mkdir -p dist && cp -R .build/vecs-physics/src/. dist/ && rimraf .build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
+    "test": "vitest run",
+    "bench": "tsx bench/index.ts",
+    "examples": "tsx --conditions=development examples/hello_world.ts && tsx --conditions=development examples/sensor_trigger.ts && tsx --conditions=development examples/kinematic_platform.ts && tsx --conditions=development examples/contact_events.ts"
+  },
+  "dependencies": {
+    "@vworlds/vecs": "^1.0.13",
+    "box2d3-wasm": "^5.2.0"
+  },
+  "license": "MIT"
+}

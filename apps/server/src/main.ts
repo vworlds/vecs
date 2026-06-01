@@ -8,12 +8,30 @@ import {
   VecsListener,
   View,
 } from "@vworlds/vecs-server";
-import { type ComponentClass, type Entity, type QueryDSL, Relationship } from "@vworlds/vecs";
+import {
+  ChildOf,
+  type ComponentClass,
+  type Entity,
+  type QueryDSL,
+  Relationship,
+} from "@vworlds/vecs";
+import {
+  Body,
+  BodyType,
+  Chain,
+  Circle,
+  installPhysics,
+  LinearVelocity as PhysicsVelocity,
+  Material,
+  Position as PhysicsPosition,
+  preloadPhysics,
+} from "@vworlds/vecs-physics";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WIDTH = 960;
 const HEIGHT = 540;
 const GAME_TOP = 60;
+const PLAY_HEIGHT = HEIGHT - GAME_TOP;
 const GRID_COLUMNS = 3;
 const GRID_ROWS = 3;
 const GRID_CELL_COUNT = GRID_COLUMNS * GRID_ROWS;
@@ -21,11 +39,12 @@ const GRID_CELL_WIDTH = WIDTH / GRID_COLUMNS;
 const GRID_CELL_HEIGHT = (HEIGHT - GAME_TOP) / GRID_ROWS;
 const PLAYER_SIZE = 28;
 const PLAYER_STEP = 7;
-const MAX_BALLS = 12;
+const MAX_BALLS = 50;
 const BALL_RADIUS = 12;
 const TICK_RATE = 30;
 const DT = 1 / TICK_RATE;
 const DT_MS = 1000 / TICK_RATE;
+const PIXELS_PER_METER = 100;
 let playerSpawnIndex = 0;
 
 interface PlayerInput {
@@ -33,18 +52,14 @@ interface PlayerInput {
   right?: boolean;
   up?: boolean;
   down?: boolean;
+  viewAll?: boolean;
 }
 
 class Position {
-  @wireType("u16")
+  @wireType("i16")
   public x = 0;
 
-  @wireType("u16")
-  public y = 0;
-}
-
-class Velocity {
-  public x = 0;
+  @wireType("i16")
   public y = 0;
 }
 
@@ -62,6 +77,8 @@ class Color {
   @wireType("u32")
   public value = 0xffffff;
 }
+
+class ViewAll {}
 
 /**
  * Relationship pointing each networked entity at the grid-cell entity it
@@ -94,11 +111,18 @@ app.use((req, res, next) => {
 
 const vecsListener = new VecsListener();
 const server = vecsListener.registerWorld(world);
-world.component(Velocity);
 world.component(InCell);
+world.component(ViewAll);
 cellTagComponents.forEach((CellTag) => {
   world.component(CellTag);
 });
+
+// The demo already has update/collect/send phases. Let installPhysics create its
+// default physics-* phases after update so gameplay writes happen before the step
+// and network collection observes post-physics sync.
+world.addPhase("update");
+await preloadPhysics();
+installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 });
 
 // One anchor entity per grid cell. Moving entities relate to these via InCell;
 // the per-cell View DSL targets each anchor's tag.
@@ -127,27 +151,20 @@ const occupancyByCell = world
   .requires(Networked, Position)
   .groupBy(InCell);
 
-for (let i = 0; i < 5; i++) {
-  spawnBall(110 + i * 95, 120 + (i % 3) * 90);
-}
-
-const moveSystem = world
-  .system("MoveSystem")
-  .requires(Networked, Ball, Position, Velocity)
-  .each([Position, Velocity, Ball], (entity, [position, velocity, ball]) => {
-    position.x += velocity.x;
-    position.y += velocity.y;
-
-    if (position.x < ball.radius || position.x > WIDTH - ball.radius) {
-      velocity.x *= -1;
-      position.x = clamp(position.x, ball.radius, WIDTH - ball.radius);
+var selected: Entity | undefined = undefined;
+world
+  .system("SyncPhysicsBalls")
+  .phase("physics-post")
+  .requires(Networked, Ball, Position, PhysicsPosition)
+  .each([Position, PhysicsPosition, Ball], (entity, [position, physicsPosition, ball]) => {
+    // Keep the wire-typed demo Position as the client protocol and adapt from
+    // vecs-physics Position post-step instead of decorating external classes.
+    const next = toDemoBallPoint(physicsPosition, ball.radius);
+    if (position.x !== next.x || position.y !== next.y) {
+      position.x = next.x;
+      position.y = next.y;
+      entity.modified(Position);
     }
-    if (position.y < GAME_TOP + ball.radius || position.y > HEIGHT - ball.radius) {
-      velocity.y *= -1;
-      position.y = clamp(position.y, GAME_TOP + ball.radius, HEIGHT - ball.radius);
-    }
-
-    entity.modified(Position);
   });
 
 world
@@ -159,7 +176,7 @@ world
       x: 80 + (playerIndex % 8) * 70,
       y: 420 - Math.floor(playerIndex / 8) * 45,
     });
-    entity.add(Player);
+    entity.add(Player).add(ViewAll);
   });
 
 world
@@ -167,6 +184,8 @@ world
   .requires(Networked, NetworkClient, NetworkInput, Player, Position)
   .each([NetworkInput, Player, Position], (entity, [networkInput, player, position]) => {
     const input = normalizeInput(networkInput.input);
+    syncViewAll(entity, input.viewAll === true);
+
     const x = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     const y = (input.down ? 1 : 0) - (input.up ? 1 : 0);
 
@@ -198,7 +217,7 @@ world
   .system("SpawnBalls")
   .interval(2)
   .run(() => {
-    if (moveSystem.count < MAX_BALLS) {
+    if (ballsByCell.count < MAX_BALLS) {
       spawnBall();
     }
   });
@@ -208,21 +227,28 @@ world
 // and no exclusive-component bookkeeping.
 world
   .system("AssignCells")
+  .phase("physics-post")
   .requires(Networked, Position)
   .enter([Position], (entity, [position]) => assignCell(entity, position))
   .update(Position, (entity, position) => assignCell(entity, position));
 
 world
   .system("UpdatePlayerViews")
+  .phase("physics-post")
   .requires(Networked, NetworkClient, Position, View)
   .enter([Position, View], (entity, [position, view]) => updatePlayerView(entity, position, view))
   .update(Position, [View], (entity, position, [view]) => updatePlayerView(entity, position, view));
 
-world.addPhase("update");
 world.addPhase("collect");
 world.addPhase("send");
 server.installSystems({ collectPhase: "collect", sendPhase: "send" });
 world.start();
+
+createPhysicsWalls();
+for (let i = 0; i < 1; i++) {
+  spawnBall(110 + i * 95, 120 + (i % 3) * 90);
+}
+
 await vecsListener.listen(app, { ordered: false, maxRetransmits: 2 });
 
 app.get("/", (_req, res) => {
@@ -263,16 +289,47 @@ function spawnBall(x?: number, y?: number): void {
   // With no explicit position, drop the ball into the least-crowded cell using
   // the relationship-keyed occupancy grouping, spreading balls away from packs.
   const point = x !== undefined && y !== undefined ? { x, y } : randomPointInLeastCrowdedCell();
-  world
+const body = world
     .entity()
     .add(Networked)
     .add(Ball)
     .set(Color, randomColor())
     .set(Position, point)
-    .set(Velocity, {
-      x: randomSignedInt(2, 5),
-      y: randomSignedInt(2, 4),
+    .set(PhysicsPosition, toPhysicsPoint(point))
+    .set(Body, { type: BodyType.Dynamic })
+    .set(PhysicsVelocity, {
+      x: demoUnitsToMeters(randomSignedInt(60, 150)),
+      y: demoUnitsToMeters(randomSignedInt(60, 120)),
     });
+
+  world
+    .entity()
+    .set(ChildOf, { target: body })
+    .set(Circle, { radius: demoUnitsToMeters(BALL_RADIUS) })
+    .set(Material, { friction: 0.6, restitution: 0.7 });
+}
+
+function createPhysicsWalls(): void {
+  const walls = world.entity().set(PhysicsPosition, { x: 0, y: 0 }).set(Body, {
+    type: BodyType.Static,
+  });
+
+  // Loop-chain front faces are on rightPerp(edge), so these clockwise points
+  // orient every wall normal inward toward the play area.
+  world
+    .entity()
+    .set(ChildOf, { target: walls })
+    .set(Chain, {
+      points: [
+        toPhysicsPoint({ x: WIDTH, y: HEIGHT }),
+        toPhysicsPoint({ x: 0, y: HEIGHT }),
+        toPhysicsPoint({ x: 0, y: 0 }),
+        toPhysicsPoint({ x: WIDTH, y: 0 }),
+      ],
+
+      loop: true,
+    })
+    .set(Material, { density: 0, friction: 0.6, restitution: 0.7 });
 }
 
 function assignCell(entity: Entity, position: Position): void {
@@ -283,9 +340,23 @@ function assignCell(entity: Entity, position: Position): void {
 }
 
 function updatePlayerView(entity: Entity, position: Position, view: View): void {
-  const dsl = cellViewDSL[getGridCellIndex(position)];
+  const dsl: QueryDSL =
+    entity.get(ViewAll) !== undefined ? true : cellViewDSL[getGridCellIndex(position)];
   if (view.dsl !== dsl) {
-    entity.set(View, { dsl });
+    view.dsl = dsl;
+    entity.modified(View);
+  }
+}
+
+function syncViewAll(entity: Entity, enabled: boolean): void {
+  const hasViewAll = entity.get(ViewAll) !== undefined;
+  if (enabled === hasViewAll) {
+    return;
+  }
+  if (enabled) {
+    entity.add(ViewAll);
+  } else {
+    entity.remove(ViewAll);
   }
 }
 
@@ -315,6 +386,25 @@ function randomPointInCell(cellIndex: number): { x: number; y: number } {
       Math.floor(GAME_TOP + (row + 1) * GRID_CELL_HEIGHT) - BALL_RADIUS
     ),
   };
+}
+
+function toPhysicsPoint(point: { x: number; y: number }): { x: number; y: number } {
+  return { x: demoUnitsToMeters(point.x), y: demoUnitsToMeters(HEIGHT - point.y) };
+}
+
+function toDemoBallPoint(position: PhysicsPosition, radius: number): { x: number; y: number } {
+  return {
+    x: Math.round(metersToDemoUnits(position.x)),
+    y: Math.round(HEIGHT - metersToDemoUnits(position.y)),
+  };
+}
+
+function demoUnitsToMeters(value: number): number {
+  return value / PIXELS_PER_METER;
+}
+
+function metersToDemoUnits(value: number): number {
+  return value * PIXELS_PER_METER;
 }
 
 function randomColor(): Partial<Color> {
@@ -373,6 +463,7 @@ function normalizeInput(input: unknown): PlayerInput {
     right: source.right === true,
     up: source.up === true,
     down: source.down === true,
+    viewAll: source.viewAll === true,
   };
 }
 
