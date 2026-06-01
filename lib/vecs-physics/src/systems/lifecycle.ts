@@ -1,92 +1,343 @@
-// `PhysicsBodyLifecycle` — body creation, destruction, and type/enable changes.
-//
-// This is the body half of `PhysicsLifecycle` (PLAN.md → _System And Phase
-// Pipeline_). It runs in the pre-step phase and owns the entity ↔ internal-body
-// binding: `enter` creates an internal body and reads the entity's components
-// into its sim/state, `exit` tears it down, and `update(Body)` propagates
-// type/enable changes by moving the body between solver sets.
-//
-// This system is the components/ → engine/ boundary: it reads the public string
-// `Body.type` and translates it to the engine's numeric body type and solver-set
-// placement (the engine layer never sees components). Shape teardown, contact
-// graph cleanup, mass recompute, and broad-phase refits referenced by the PLAN's
-// lifecycle are deferred to the tickets that build those subsystems.
-
-import { type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
 
 import {
+  AngularVelocity,
   Body,
   BodyType,
   LinearVelocity,
-  AngularVelocity,
   Position,
   Rotation,
 } from "../components/body.js";
 import { Damping, GravityScale, MotionLocks, Sleep } from "../components/body_tuning.js";
+import { type Box2DModule } from "../adapter/runtime.js";
+import { type b2BodyId, type PhysicsState } from "../adapter/state.js";
+import { withAllocated } from "../adapter/disposal.js";
 import { destroyBodyContacts } from "../engine/contact.js";
-import { makeRot } from "../math/rot.js";
-import {
-  ALLOW_FAST_ROTATION,
-  DYNAMIC_BODY,
-  DYNAMIC_FLAG,
-  ENABLE_SLEEP,
-  IS_BULLET,
-  KINEMATIC_BODY,
-  LOCK_ANGULAR_Z,
-  LOCK_LINEAR_X,
-  LOCK_LINEAR_Y,
-  STATIC_BODY,
-  writeBodyTransform,
-} from "../engine/body.js";
 import { createIslandForBody, removeBodyFromIsland } from "../engine/island.js";
 import { freeSleepingSet, wakeBody } from "../engine/sleep.js";
 import { updateShapeAABBs } from "../engine/shape.js";
-import {
-  AWAKE_SET,
-  DISABLED_SET,
-  FIRST_SLEEPING_SET,
-  STATIC_SET,
-  createBody,
-  destroyBody,
-  transferBody,
-} from "../engine/solver_set.js";
-import { type PhysicsState } from "../engine/state.js";
+import { makeRot } from "../math/rot.js";
 import { mulTransforms, type Transform } from "../math/transform.js";
-import { NULL_INDEX } from "../util/handle.js";
+import { swapRemove } from "../util/dense_array.js";
+import { NULL_INDEX, type BodyHandle } from "../util/handle.js";
 
-/** Translate the public string {@link BodyType} to the engine's numeric type. */
-export function bodyTypeToNumber(type: BodyType): number {
-  switch (type) {
-    case BodyType.Static:
-      return STATIC_BODY;
-    case BodyType.Kinematic:
-      return KINEMATIC_BODY;
-    case BodyType.Dynamic:
-      return DYNAMIC_BODY;
-  }
+const STATIC_BODY = 0;
+const KINEMATIC_BODY = 1;
+const DYNAMIC_BODY = 2;
+const STATIC_SET = 0;
+const DISABLED_SET = 1;
+const AWAKE_SET = 2;
+const FIRST_SLEEPING_SET = 3;
+const LOCK_LINEAR_X = 0x0001;
+const LOCK_LINEAR_Y = 0x0002;
+const LOCK_ANGULAR_Z = 0x0004;
+const IS_BULLET = 0x0010;
+const ALLOW_FAST_ROTATION = 0x0080;
+const DYNAMIC_FLAG = 0x0200;
+const ENABLE_SLEEP = 0x0800;
+const BODY_TRANSIENT_FLAGS = 0x0008 | 0x0020 | 0x0040;
+
+export function installBodyLifecycle(world: World, state: PhysicsState, phase: IPhase): System {
+  const system = world.system("PhysicsBodyLifecycle").requires(Body).phase(phase);
+
+  system.enter((entity) => {
+    const body = entity.get(Body)!;
+    const bodyId = createWasmBodyId(state, entity, body);
+    state.bodyByEntityWasm.set(entity.eid, bodyId);
+    state.entityByBody.set(bodyId, entity.eid);
+    createLegacyBodyRecord(state, entity, body);
+  });
+
+  system.exit((entity) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId !== undefined) {
+      state.box2d.b2DestroyBody(bodyId);
+      state.bodyByEntityWasm.delete(entity.eid);
+      state.entityByBody.delete(bodyId);
+    }
+
+    const handle = state.bodyByEntity.get(entity.eid);
+    if (handle === undefined) {
+      return;
+    }
+    const record = state.bodies.get(handle.index);
+    const setIndex = record.setIndex;
+    destroyBodyContacts(state, handle.index, false);
+    destroyLegacyBody(state, state.solverSets[setIndex]!, handle);
+    if (setIndex >= FIRST_SLEEPING_SET && state.solverSets[setIndex]!.bodySims.length === 0) {
+      freeSleepingSet(state, setIndex);
+    }
+    state.bodyByEntity.delete(entity.eid);
+  });
+
+  system.update(Body, (entity, body) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId !== undefined) {
+      state.box2d.b2Body_SetType(bodyId, bodyTypeToBox2D(state.box2d, body.type));
+      if (body.enabled) {
+        state.box2d.b2Body_Enable(bodyId);
+      } else {
+        state.box2d.b2Body_Disable(bodyId);
+      }
+      state.box2d.b2Body_SetBullet(bodyId, body.bullet);
+    }
+    updateLegacyBodyRecord(state, entity, body);
+  });
+
+  system.update(MotionLocks, (entity, locks) => {
+    const handle = state.bodyByEntity.get(entity.eid);
+    if (handle === undefined) {
+      return;
+    }
+    const lockBits =
+      (locks.x ? LOCK_LINEAR_X : 0) |
+      (locks.y ? LOCK_LINEAR_Y : 0) |
+      (locks.rotation ? LOCK_ANGULAR_Z : 0);
+    const record = state.bodies.get(handle.index);
+    const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
+    const lockMask = LOCK_LINEAR_X | LOCK_LINEAR_Y | LOCK_ANGULAR_Z;
+    sim.flags = (sim.flags & ~lockMask) | lockBits;
+    if (record.setIndex === AWAKE_SET) {
+      const bodyState = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
+      if (bodyState !== undefined) {
+        bodyState.flags = (bodyState.flags & ~lockMask) | lockBits;
+      }
+    }
+  });
+
+  system.update(Sleep, (entity, sleep) => {
+    const handle = state.bodyByEntity.get(entity.eid);
+    if (handle === undefined) {
+      return;
+    }
+    const record = state.bodies.get(handle.index);
+    if (sleep.enabled) {
+      record.flags |= ENABLE_SLEEP;
+    } else {
+      record.flags &= ~ENABLE_SLEEP;
+      if (record.setIndex >= FIRST_SLEEPING_SET) {
+        wakeBody(state, handle.index);
+      }
+    }
+    record.sleepThreshold = sleep.threshold;
+    if (sleep.awake && record.setIndex >= FIRST_SLEEPING_SET) {
+      wakeBody(state, handle.index);
+    }
+  });
+
+  return system;
 }
 
-/** Pick the solver set a body belongs in, mirroring the placement logic in
- * `b2CreateBody`: a disabled body goes to the disabled set whatever its type, a
- * static body to the static set, and everything else (dynamic / kinematic) to
- * the awake set. Creating a body already asleep (its own sleeping set) lands
- * with sleep support (M5); until then enabled non-static bodies are always
- * awake. */
-function chooseSetIndex(body: Readonly<Body>): number {
-  if (!body.enabled) {
-    return DISABLED_SET;
-  }
-  if (body.type === BodyType.Static) {
-    return STATIC_SET;
-  }
-  return AWAKE_SET;
+function createWasmBodyId(state: PhysicsState, entity: Entity, body: Body): b2BodyId {
+  const box2d = state.box2d;
+  return withAllocated(box2d.b2DefaultBodyDef, (def) => {
+    const position = entity.get(Position);
+    const rotation = entity.get(Rotation);
+    const linearVelocity = entity.get(LinearVelocity);
+    const angularVelocity = entity.get(AngularVelocity);
+    const damping = entity.get(Damping);
+    const gravityScale = entity.get(GravityScale);
+    const motionLocks = entity.get(MotionLocks);
+    const sleep = entity.get(Sleep);
+
+    def.type = bodyTypeToBox2D(box2d, body.type);
+    def.position.Set(position?.x ?? 0, position?.y ?? 0);
+    def.rotation.SetAngle(rotation?.angle ?? 0);
+    def.linearVelocity.Set(linearVelocity?.x ?? 0, linearVelocity?.y ?? 0);
+    def.angularVelocity = angularVelocity?.value ?? 0;
+    def.linearDamping = damping?.linear ?? 0;
+    def.angularDamping = damping?.angular ?? 0;
+    def.gravityScale = gravityScale?.value ?? 1;
+    def.motionLocks.linearX = motionLocks?.x ?? false;
+    def.motionLocks.linearY = motionLocks?.y ?? false;
+    def.motionLocks.angularZ = motionLocks?.rotation ?? false;
+    def.enableSleep = sleep?.enabled ?? true;
+    def.isAwake = sleep?.awake ?? true;
+    def.sleepThreshold = sleep?.threshold ?? 0.05;
+    def.isEnabled = body.enabled;
+    def.isBullet = body.bullet;
+    def.allowFastRotation = body.allowFastRotation;
+
+    return box2d.b2CreateBody(state.worldId, def);
+  });
 }
 
-// ─── Body proxy helpers ───────────────────────────────────────────────────────
+function createLegacyBodyRecord(state: PhysicsState, entity: Entity, body: Body): void {
+  const type = bodyTypeToNumber(body.type);
+  const setIndex = chooseSetIndex(body);
+  const set = state.solverSets[setIndex]!;
+  const handle = state.bodies.idPool.allocate();
+  const sim = makeLegacyBodySim(handle.index);
+  if (type === DYNAMIC_BODY) {
+    sim.flags |= DYNAMIC_FLAG;
+  }
+  const record = {
+    entity,
+    type,
+    setIndex,
+    localIndex: set.bodySims.length,
+    shapeHead: NULL_INDEX,
+    shapeCount: 0,
+    massDirty: false,
+    headContactKey: NULL_INDEX,
+    contactCount: 0,
+    islandId: NULL_INDEX,
+    islandIndex: NULL_INDEX,
+    sleepTime: 0,
+    sleepThreshold: 0.05,
+    flags: 0,
+    bodyMoveIndex: NULL_INDEX,
+  };
 
-/** Destroy the broad-phase proxy for every shape attached to `bodyHandle`.
- * Leaves `shape.proxyKey = -1` so re-creation is idempotent.
- * Mirrors the loop in `b2Body_Disable` (box2d/src/body.c). */
+  state.bodies.records[handle.index] = record;
+  set.bodySims.push(sim);
+  if (setIndex === AWAKE_SET) {
+    set.bodyStates.push(makeLegacyBodyState(sim.flags));
+  }
+  if (setIndex === AWAKE_SET && type !== STATIC_BODY) {
+    createIslandForBody(state, AWAKE_SET, record);
+  }
+
+  const sleep = entity.get(Sleep);
+  const sleepEnabled = sleep?.enabled !== false;
+  if (sleepEnabled) {
+    record.flags |= ENABLE_SLEEP;
+  }
+  if (sleep?.threshold !== undefined) {
+    record.sleepThreshold = sleep.threshold;
+  }
+  if (
+    state.enableSleep &&
+    body.type !== BodyType.Static &&
+    body.enabled &&
+    sleep !== undefined &&
+    sleep.awake === false &&
+    sleepEnabled
+  ) {
+    record.sleepTime = 1.0;
+  }
+
+  const position = entity.get(Position);
+  const rotation = entity.get(Rotation);
+  const q = makeRot(rotation?.angle ?? 0);
+  writeLegacyBodyTransform(sim, position?.x ?? 0, position?.y ?? 0, q.c, q.s);
+
+  const damping = entity.get(Damping);
+  if (damping) {
+    sim.linearDamping = damping.linear;
+    sim.angularDamping = damping.angular;
+  }
+  const gravityScale = entity.get(GravityScale);
+  if (gravityScale) {
+    sim.gravityScale = gravityScale.value;
+  }
+
+  const extraFlags =
+    motionLockBits(entity) |
+    (body.allowFastRotation ? ALLOW_FAST_ROTATION : 0) |
+    (body.bullet ? IS_BULLET : 0);
+  if (extraFlags !== 0) {
+    sim.flags |= extraFlags;
+    if (setIndex === AWAKE_SET) {
+      set.bodyStates[record.localIndex]!.flags |= extraFlags;
+    }
+  }
+
+  if (setIndex === AWAKE_SET) {
+    const bodyState = set.bodyStates[record.localIndex]!;
+    const linear = entity.get(LinearVelocity);
+    if (linear) {
+      bodyState.vx = linear.x;
+      bodyState.vy = linear.y;
+    }
+    const angular = entity.get(AngularVelocity);
+    if (angular) {
+      bodyState.omega = angular.value;
+    }
+  }
+
+  state.bodyByEntity.set(entity.eid, handle);
+}
+
+function updateLegacyBodyRecord(state: PhysicsState, entity: Entity, body: Body): void {
+  const handle = state.bodyByEntity.get(entity.eid);
+  if (handle === undefined) {
+    return;
+  }
+  const record = state.bodies.get(handle.index);
+  const wasDisabled = record.setIndex === DISABLED_SET;
+  const wasStatic = record.type === STATIC_BODY;
+  const targetSetIndex = chooseSetIndex(body);
+  const willBeDisabled = targetSetIndex === DISABLED_SET;
+  const willBeStatic = targetSetIndex === STATIC_SET;
+  const newType = bodyTypeToNumber(body.type);
+  const typeChanged = newType !== record.type;
+
+  if (!typeChanged && targetSetIndex === record.setIndex) {
+    syncLegacyBodyFlags(state, record, body);
+    return;
+  }
+  if (!wasDisabled) {
+    destroyBodyContacts(state, handle.index, false);
+  }
+  if (wasDisabled && willBeDisabled && typeChanged) {
+    record.type = newType;
+    const sim = state.solverSets[DISABLED_SET]!.bodySims[record.localIndex]!;
+    if (newType === DYNAMIC_BODY) {
+      sim.flags |= DYNAMIC_FLAG;
+    } else {
+      sim.flags &= ~DYNAMIC_FLAG;
+    }
+    record.massDirty = true;
+    return;
+  }
+  if (!wasDisabled && willBeDisabled) {
+    destroyBodyShapeProxies(state, record);
+  }
+  if (!wasDisabled && (willBeDisabled || willBeStatic)) {
+    removeBodyFromIsland(state, record);
+  }
+
+  record.type = newType;
+  const currentSim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
+  if (newType === DYNAMIC_BODY) {
+    currentSim.flags |= DYNAMIC_FLAG;
+  } else {
+    currentSim.flags &= ~DYNAMIC_FLAG;
+  }
+  if (targetSetIndex !== record.setIndex) {
+    transferLegacyBody(
+      state.bodies,
+      state.solverSets[targetSetIndex]!,
+      state.solverSets[record.setIndex]!,
+      record
+    );
+  }
+  if (typeChanged) {
+    record.massDirty = true;
+  }
+  if (wasDisabled && !willBeDisabled) {
+    createBodyShapeProxies(state, record, newType);
+  } else if (!wasDisabled && !willBeDisabled && typeChanged) {
+    destroyBodyShapeProxies(state, record);
+    createBodyShapeProxies(state, record, newType);
+  }
+  if (!willBeDisabled && !willBeStatic && (wasDisabled || wasStatic)) {
+    createIslandForBody(state, AWAKE_SET, record);
+  }
+  if (record.setIndex === AWAKE_SET) {
+    const bodyState = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
+    if (bodyState !== undefined) {
+      if (newType === DYNAMIC_BODY) {
+        bodyState.flags |= DYNAMIC_FLAG;
+      } else {
+        bodyState.flags &= ~DYNAMIC_FLAG;
+      }
+    }
+  }
+  syncLegacyBodyFlags(state, record, body);
+}
+
 function destroyBodyShapeProxies(
   state: PhysicsState,
   bodyRecord: ReturnType<typeof state.bodies.get>
@@ -102,10 +353,6 @@ function destroyBodyShapeProxies(
   }
 }
 
-/** Create a broad-phase proxy for every shape attached to `bodyRecord` using
- * `newBodyType` as the tree selector (fat-AABB margin depends on body type).
- * Computes world AABBs from the current BodySim transform.
- * Mirrors the loop in `b2Body_Enable` and `b2Body_SetType` (box2d/src/body.c). */
 function createBodyShapeProxies(
   state: PhysicsState,
   bodyRecord: ReturnType<typeof state.bodies.get>,
@@ -116,7 +363,6 @@ function createBodyShapeProxies(
     p: { x: sim.transformX, y: sim.transformY },
     q: { c: sim.cos, s: sim.sin },
   };
-
   let shapeIndex = bodyRecord.shapeHead;
   while (shapeIndex !== NULL_INDEX) {
     const currentIndex = shapeIndex;
@@ -126,432 +372,203 @@ function createBodyShapeProxies(
       p: { x: shape.localX, y: shape.localY },
       q: { c: shape.localCos, s: shape.localSin },
     };
-    const worldXf = mulTransforms(bodyXf, localXf);
-    const fatAABB = updateShapeAABBs(shape, worldXf, newBodyType);
-    // proxyKey must be -1 before calling createProxy (assert-equivalent).
+    const fatAABB = updateShapeAABBs(shape, mulTransforms(bodyXf, localXf), newBodyType);
     shape.proxyKey = state.broadPhase.createProxy(
       newBodyType,
       fatAABB,
       shape.categoryBits,
       currentIndex,
-      true // force pair creation (Box2D b2Body_Enable/SetType, shape.c:1307)
+      true
     );
   }
 }
 
-// ─── Motion-lock / fast-rotation helpers ─────────────────────────────────────
+function destroyLegacyBody(
+  state: PhysicsState,
+  set: PhysicsState["solverSets"][number],
+  handle: BodyHandle
+): void {
+  const storage = state.bodies;
+  const body = storage.get(handle.index);
+  removeBodyFromIsland(state, body);
+  const localIndex = body.localIndex;
+  removeLegacyBodySim(set, localIndex, storage);
+  if (set.setIndex === AWAKE_SET) {
+    swapRemove(set.bodyStates, localIndex);
+  }
+  storage.records[handle.index] = undefined;
+  storage.idPool.free(handle);
+}
 
-/** Compute the motion-lock flag bits from an entity's `MotionLocks` component.
- * Returns 0 when `MotionLocks` is absent or all axes are unlocked. */
-function _motionLockBits(e: { get: (c: any) => any }): number {
-  const locks = e.get(MotionLocks) as MotionLocks | undefined;
+function transferLegacyBody(
+  storage: PhysicsState["bodies"],
+  targetSet: PhysicsState["solverSets"][number],
+  sourceSet: PhysicsState["solverSets"][number],
+  body: ReturnType<PhysicsState["bodies"]["get"]>
+): void {
+  if (targetSet === sourceSet) {
+    return;
+  }
+  const sourceIndex = body.localIndex;
+  const sim = sourceSet.bodySims[sourceIndex]!;
+  const targetIndex = targetSet.bodySims.length;
+  targetSet.bodySims.push(sim);
+  sim.flags &= ~BODY_TRANSIENT_FLAGS;
+  removeLegacyBodySim(sourceSet, sourceIndex, storage);
+  if (sourceSet.setIndex === AWAKE_SET) {
+    swapRemove(sourceSet.bodyStates, sourceIndex);
+  } else if (targetSet.setIndex === AWAKE_SET) {
+    targetSet.bodyStates.push(makeLegacyBodyState(sim.flags));
+  }
+  body.setIndex = targetSet.setIndex;
+  body.localIndex = targetIndex;
+}
+
+function removeLegacyBodySim(
+  set: PhysicsState["solverSets"][number],
+  localIndex: number,
+  storage: PhysicsState["bodies"]
+): void {
+  const moved = swapRemove(set.bodySims, localIndex);
+  if (moved !== undefined) {
+    storage.get(moved.bodyId).localIndex = localIndex;
+  }
+}
+
+function syncLegacyBodyFlags(
+  state: PhysicsState,
+  record: ReturnType<PhysicsState["bodies"]["get"]>,
+  body: Body
+): void {
+  const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
+  if (body.allowFastRotation) {
+    sim.flags |= ALLOW_FAST_ROTATION;
+  } else {
+    sim.flags &= ~ALLOW_FAST_ROTATION;
+  }
+  if (body.bullet) {
+    sim.flags |= IS_BULLET;
+  } else {
+    sim.flags &= ~IS_BULLET;
+  }
+  if (record.setIndex === AWAKE_SET) {
+    const bodyState = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
+    if (bodyState !== undefined) {
+      if (body.allowFastRotation) {
+        bodyState.flags |= ALLOW_FAST_ROTATION;
+      } else {
+        bodyState.flags &= ~ALLOW_FAST_ROTATION;
+      }
+    }
+  }
+}
+
+function motionLockBits(entity: Entity): number {
+  const locks = entity.get(MotionLocks);
   if (!locks) {
     return 0;
   }
-  let bits = 0;
-  if (locks.x) {
-    bits |= LOCK_LINEAR_X;
-  }
-  if (locks.y) {
-    bits |= LOCK_LINEAR_Y;
-  }
-  if (locks.rotation) {
-    bits |= LOCK_ANGULAR_Z;
-  }
-  return bits;
+  return (
+    (locks.x ? LOCK_LINEAR_X : 0) |
+    (locks.y ? LOCK_LINEAR_Y : 0) |
+    (locks.rotation ? LOCK_ANGULAR_Z : 0)
+  );
 }
 
-/** Sync motion-lock and fast-rotation flag bits to a body's sim and (when in the
- * awake set) its body state. Clears the old bits then applies the new ones so
- * unlocking an axis works correctly. */
-function _syncMotionFlags(
-  state: PhysicsState,
-  bodyHandleIndex: number,
-  lockBits: number,
-  fastRotFlag: number
+function makeLegacyBodySim(bodyId: number) {
+  return {
+    transformX: 0,
+    transformY: 0,
+    cos: 1,
+    sin: 0,
+    centerX: 0,
+    centerY: 0,
+    rotation0Cos: 1,
+    rotation0Sin: 0,
+    center0X: 0,
+    center0Y: 0,
+    localCenterX: 0,
+    localCenterY: 0,
+    forceX: 0,
+    forceY: 0,
+    torque: 0,
+    invMass: 0,
+    invInertia: 0,
+    minExtent: Number.MAX_VALUE,
+    maxExtent: 0,
+    linearDamping: 0,
+    angularDamping: 0,
+    gravityScale: 1,
+    bodyId,
+    flags: 0,
+  };
+}
+
+function makeLegacyBodyState(flags: number) {
+  return {
+    vx: 0,
+    vy: 0,
+    omega: 0,
+    flags,
+    deltaPosX: 0,
+    deltaPosY: 0,
+    deltaRotCos: 1,
+    deltaRotSin: 0,
+  };
+}
+
+function writeLegacyBodyTransform(
+  sim: ReturnType<typeof makeLegacyBodySim>,
+  x: number,
+  y: number,
+  cos: number,
+  sin: number
 ): void {
-  const record = state.bodies.get(bodyHandleIndex);
-  const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
-  const lockMask = LOCK_LINEAR_X | LOCK_LINEAR_Y | LOCK_ANGULAR_Z | ALLOW_FAST_ROTATION;
-  sim.flags = (sim.flags & ~lockMask) | lockBits | fastRotFlag;
-  if (record.setIndex === AWAKE_SET) {
-    const st = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
-    if (st !== undefined) {
-      st.flags = (st.flags & ~lockMask) | lockBits | fastRotFlag;
-    }
+  sim.transformX = x;
+  sim.transformY = y;
+  sim.cos = cos;
+  sim.sin = sin;
+  const cx = x + (cos * sim.localCenterX - sin * sim.localCenterY);
+  const cy = y + (sin * sim.localCenterX + cos * sim.localCenterY);
+  sim.centerX = cx;
+  sim.centerY = cy;
+  sim.rotation0Cos = cos;
+  sim.rotation0Sin = sin;
+  sim.center0X = cx;
+  sim.center0Y = cy;
+}
+
+function chooseSetIndex(body: Readonly<Body>): number {
+  if (!body.enabled) {
+    return DISABLED_SET;
+  }
+  if (body.type === BodyType.Static) {
+    return STATIC_SET;
+  }
+  return AWAKE_SET;
+}
+
+function bodyTypeToNumber(type: BodyType): number {
+  switch (type) {
+    case BodyType.Static:
+      return STATIC_BODY;
+    case BodyType.Kinematic:
+      return KINEMATIC_BODY;
+    case BodyType.Dynamic:
+      return DYNAMIC_BODY;
   }
 }
 
-/** Create `PhysicsBodyLifecycle` on `world`, bound to `state` and `phase`.
- * Returns the system so the caller can tag its entity. */
-export function installBodyLifecycle(world: World, state: PhysicsState, phase: IPhase): System {
-  const system = world.system("PhysicsBodyLifecycle").requires(Body).phase(phase);
-
-  system.enter((e) => {
-    const body = e.get(Body)!;
-    const type = bodyTypeToNumber(body.type);
-    const sleepComp = e.get(Sleep) as Sleep | undefined;
-
-    // Determine whether this body starts asleep. A body starts asleep when:
-    //   - sleep is enabled for this world (state.enableSleep)
-    //   - the body is dynamic or kinematic (non-static)
-    //   - Sleep.awake === false (user explicitly requested start-asleep)
-    //   - Sleep.enabled !== false (per-body sleep is not disabled)
-    const setIndex = chooseSetIndex(body);
-    const set = state.solverSets[setIndex]!;
-
-    const handle = createBody(state, set, e, type);
-    const record = state.bodies.get(handle.index);
-    const sim = set.bodySims[record.localIndex]!;
-
-    // ── Sleep fields (VP-23) ───────────────────────────────────────────────
-    // Set ENABLE_SLEEP flag from Sleep.enabled (default true when Sleep absent).
-    // Mirrors b2Body_EnableSleep (body.c): sets/clears b2_enableSleep flag.
-    const sleepEnabled = sleepComp?.enabled !== false; // absent = true
-    if (sleepEnabled) {
-      record.flags |= ENABLE_SLEEP;
-    }
-    // Set sleep threshold from Sleep.threshold (default 0.05, already set in createBody).
-    if (sleepComp?.threshold !== undefined) {
-      record.sleepThreshold = sleepComp.threshold;
-    }
-    // If Sleep.awake === false, set sleepTime above B2_TIME_TO_SLEEP so the body
-    // is immediately eligible for sleeping on the first step. Box2D's
-    // `b2Body_SetAwake(false)` calls `b2TrySleepIsland` directly; we cannot do that
-    // here because the island may not be fully set up yet (no contacts, no
-    // constraintRemoveCount issue). Setting a high sleepTime causes finalizeBodies
-    // to elect this island for sleep on the very first step. This avoids the
-    // Vecs `update(Body)` race condition where the enter-replay fires and transfers
-    // the body back to AWAKE_SET if it was placed in a sleeping set at creation.
-    const wantsSleepAtStart =
-      state.enableSleep &&
-      body.type !== BodyType.Static &&
-      body.enabled &&
-      sleepComp !== undefined &&
-      sleepComp.awake === false &&
-      sleepEnabled;
-    if (wantsSleepAtStart) {
-      // B2_TIME_TO_SLEEP is 0.5; set 1.0 to ensure the body qualifies.
-      record.sleepTime = 1.0;
-    }
-
-    // Pose: from Position/Rotation, defaulting to the origin / no rotation.
-    const pos = e.get(Position);
-    const rot = e.get(Rotation);
-    const q = makeRot(rot?.angle ?? 0);
-    writeBodyTransform(sim, pos?.x ?? 0, pos?.y ?? 0, q.c, q.s);
-
-    // Integration inputs that the engine reads straight off the sim.
-    const damping = e.get(Damping);
-    if (damping) {
-      sim.linearDamping = damping.linear;
-      sim.angularDamping = damping.angular;
-    }
-    const gravityScale = e.get(GravityScale);
-    if (gravityScale) {
-      sim.gravityScale = gravityScale.value;
-    }
-
-    // Motion locks and fast-rotation flag — set on both sim.flags and
-    // bodyState.flags so transferBody's seeding from sim.flags propagates
-    // them correctly if the body later moves between sets. Mirrors the
-    // b2SyncBodyFlags approach (body.c:91-104). Must be set after createBody
-    // returns (the bodyState has already been allocated from sim.flags at
-    // that point), so we patch both objects directly.
-    const lockBits = _motionLockBits(e);
-    const fastRot = body.allowFastRotation ? ALLOW_FAST_ROTATION : 0;
-    // IS_BULLET (VP-24): marks a body for full CCD against all body types.
-    // Mirrors b2CreateBody reading b2BodyDef.isBullet (body.c). The flag is set
-    // on sim.flags so finalizeBodies can detect it and push the body onto
-    // state.bulletBodies for the post-solve bullet stage.
-    const bulletFlag = body.bullet ? IS_BULLET : 0;
-    const extraFlags = lockBits | fastRot | bulletFlag;
-    if (extraFlags !== 0) {
-      sim.flags |= extraFlags;
-      if (setIndex === AWAKE_SET) {
-        set.bodyStates[record.localIndex]!.flags |= extraFlags;
-      }
-    }
-
-    // Velocity lives in the body state, which exists only in the awake set.
-    if (setIndex === AWAKE_SET) {
-      const bodyState = set.bodyStates[record.localIndex]!;
-      const linear = e.get(LinearVelocity);
-      if (linear) {
-        bodyState.vx = linear.x;
-        bodyState.vy = linear.y;
-      }
-      const angular = e.get(AngularVelocity);
-      if (angular) {
-        bodyState.omega = angular.value;
-      }
-    }
-
-    state.bodyByEntity.set(e.eid, handle);
-  });
-
-  system.exit((e) => {
-    const handle = state.bodyByEntity.get(e.eid);
-    if (handle === undefined) {
-      return;
-    }
-    const record = state.bodies.get(handle.index);
-    // Destroy all contacts on this body before removing it from its island and
-    // freeing the body slot. Mirrors b2DestroyBody → b2DestroyBodyContacts
-    // (body.c). The island must be a singleton (no contacts) before
-    // removeBodyFromIsland runs; without this teardown it throws.
-    const setIndex = record.setIndex;
-    destroyBodyContacts(state, handle.index, false);
-    destroyBody(state, state.solverSets[setIndex]!, handle);
-    // Mirrors b2DestroyBody (body.c:416-419): if the body was in a sleeping set
-    // and that set is now empty, release the slot back to the pool.
-    // Box2D: `else if (set->setIndex >= b2_firstSleepingSet && set->bodySims.count == 0)`
-    //         `b2DestroySolverSet(world, set->setIndex)`.
-    if (setIndex >= FIRST_SLEEPING_SET && state.solverSets[setIndex]!.bodySims.length === 0) {
-      freeSleepingSet(state, setIndex);
-    }
-    state.bodyByEntity.delete(e.eid);
-  });
-
-  system.update(Body, (e, body) => {
-    const handle = state.bodyByEntity.get(e.eid);
-    if (handle === undefined) {
-      return;
-    }
-    const record = state.bodies.get(handle.index);
-
-    const wasDisabled = record.setIndex === DISABLED_SET;
-    const wasStatic = record.type === STATIC_BODY;
-    const targetSetIndex = chooseSetIndex(body);
-    const willBeDisabled = targetSetIndex === DISABLED_SET;
-    const willBeStatic = targetSetIndex === STATIC_SET;
-    const newType = bodyTypeToNumber(body.type);
-    const typeChanged = newType !== record.type;
-
-    // If only allowFastRotation or bullet changed (type and enabled unchanged),
-    // just update those flag bits and return early — no solver-set transfer needed.
-    if (!typeChanged && targetSetIndex === record.setIndex) {
-      const fastRotFlag = body.allowFastRotation ? ALLOW_FAST_ROTATION : 0;
-      const bulletFlag = body.bullet ? IS_BULLET : 0;
-      const simOnly = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
-      if (fastRotFlag) {
-        simOnly.flags |= ALLOW_FAST_ROTATION;
-      } else {
-        simOnly.flags &= ~ALLOW_FAST_ROTATION;
-      }
-      if (bulletFlag) {
-        simOnly.flags |= IS_BULLET;
-      } else {
-        simOnly.flags &= ~IS_BULLET;
-      }
-      if (record.setIndex === AWAKE_SET) {
-        const stateOnly = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
-        if (stateOnly !== undefined) {
-          if (fastRotFlag) {
-            stateOnly.flags |= ALLOW_FAST_ROTATION;
-          } else {
-            stateOnly.flags &= ~ALLOW_FAST_ROTATION;
-          }
-          // IS_BULLET does not live on bodyState (finalizeBodies reads from sim.flags).
-        }
-      }
-      return;
-    }
-
-    // ── Stage 1: Destroy all contacts (before any set transfer) ───────────────
-    // Mirrors b2Body_SetType stage 2 (contact teardown) and b2Body_Disable
-    // stage 1 (destroy contacts before removing proxies and transferring).
-    // Disabled bodies never have contacts (no proxies), so this is a no-op there.
-    if (!wasDisabled) {
-      destroyBodyContacts(state, handle.index, false);
-    }
-
-    // ── Stage 2: For disabled body changing type only: update flags + mass ────
-    // Mirrors b2Body_SetType's early return for disabled bodies (body.c:1126-1145).
-    // Island membership does NOT change for disabled bodies.
-    if (wasDisabled && willBeDisabled && typeChanged) {
-      record.type = newType;
-      // Update DYNAMIC_FLAG on the sim (disabled bodies have no bodyState).
-      const sim = state.solverSets[DISABLED_SET]!.bodySims[record.localIndex]!;
-      if (newType === DYNAMIC_BODY) {
-        sim.flags |= DYNAMIC_FLAG;
-      } else {
-        sim.flags &= ~DYNAMIC_FLAG;
-      }
-      record.massDirty = true;
-      return;
-    }
-
-    // ── Stage 3: Proxy teardown on disable ────────────────────────────────────
-    // Mirrors b2Body_Disable: remove proxies before transferring the body.
-    if (!wasDisabled && willBeDisabled) {
-      destroyBodyShapeProxies(state, record);
-    }
-
-    // ── Stage 4: Island teardown before leaving awake non-static ──────────────
-    // Mirrors b2Body_Disable (body.c:1670-1671): remove from island before
-    // transferring. Also mirrors b2Body_SetType (body.c:1216-1219): when going
-    // static, remove from the island.
-    if (!wasDisabled && (willBeDisabled || willBeStatic)) {
-      removeBodyFromIsland(state, record);
-    }
-
-    // ── Stage 5: Update stored type ───────────────────────────────────────────
-    record.type = newType;
-
-    // ── Stage 6: Update DYNAMIC_FLAG on the sim ───────────────────────────────
-    // Mirrors b2Body_SetType (body.c:1194-1201) / b2SyncBodyFlags (body.c:91-104).
-    // Must happen before transferBody so the new bodyState gets the correct flags.
-    const currentSim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
-    if (newType === DYNAMIC_BODY) {
-      currentSim.flags |= DYNAMIC_FLAG;
-    } else {
-      currentSim.flags &= ~DYNAMIC_FLAG;
-    }
-
-    // ── Stage 7: Transfer body between solver sets ────────────────────────────
-    if (targetSetIndex !== record.setIndex) {
-      transferBody(
-        state.bodies,
-        state.solverSets[targetSetIndex]!,
-        state.solverSets[record.setIndex]!,
-        record
-      );
-    }
-
-    // ── Stage 8: Mass dirty on type change ────────────────────────────────────
-    // Mirrors b2Body_SetType (body.c:1294-1295): type change affects mass.
-    if (typeChanged) {
-      record.massDirty = true;
-    }
-
-    // ── Stage 9: Proxy management on enable / type change ────────────────────
-    if (wasDisabled && !willBeDisabled) {
-      // Body just enabled: create proxies for all shapes in the new type tree.
-      // forcePairCreation (b2Body_Enable, body.c:1704) is handled by the broad
-      // phase emitting pairs for newly created proxies — contact creation happens
-      // through the normal collide() pair-create callback.
-      createBodyShapeProxies(state, record, newType);
-    } else if (!wasDisabled && !willBeDisabled && typeChanged) {
-      // Type changed while body stays enabled: move proxies to new type tree.
-      destroyBodyShapeProxies(state, record);
-      createBodyShapeProxies(state, record, newType);
-    }
-
-    // ── Stage 10: Island creation for newly enabled / non-static bodies ───────
-    // Mirrors b2Body_Enable (body.c:1714-1716) and b2Body_SetType (body.c:1211-1214).
-    if (!willBeDisabled && !willBeStatic) {
-      // Entering the awake set from disabled or static.
-      if (wasDisabled || wasStatic) {
-        createIslandForBody(state, AWAKE_SET, record);
-      }
-    }
-
-    // ── Stage 11: Sync the existing bodyState flags (if awake and no transfer) ─
-    // transferBody creates a fresh bodyState seeded from sim.flags (Stage 6),
-    // so the transferred case is already correct. For bodies that stay in the
-    // awake set across the type change (e.g. dynamic↔kinematic), the bodyState
-    // object is the SAME instance and its flags need updating in place. Mirrors
-    // b2SyncBodyFlags (body.c:91-104): set bodySim->flags and bodyState->flags.
-    if (record.setIndex === AWAKE_SET) {
-      const existingState = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
-      if (existingState !== undefined) {
-        if (newType === DYNAMIC_BODY) {
-          existingState.flags |= DYNAMIC_FLAG;
-        } else {
-          existingState.flags &= ~DYNAMIC_FLAG;
-        }
-      }
-    }
-
-    // ── Stage 12: allowFastRotation + bullet flags on Body update ────────────
-    // Body.allowFastRotation and Body.bullet may change without a type/enabled
-    // change. Update ALLOW_FAST_ROTATION and IS_BULLET on sim, preserving other bits.
-    const fastRotFlagAfter = body.allowFastRotation ? ALLOW_FAST_ROTATION : 0;
-    const bulletFlagAfter = body.bullet ? IS_BULLET : 0;
-    const currentSimAfter = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
-    if (fastRotFlagAfter) {
-      currentSimAfter.flags |= ALLOW_FAST_ROTATION;
-    } else {
-      currentSimAfter.flags &= ~ALLOW_FAST_ROTATION;
-    }
-    if (bulletFlagAfter) {
-      currentSimAfter.flags |= IS_BULLET;
-    } else {
-      currentSimAfter.flags &= ~IS_BULLET;
-    }
-    if (record.setIndex === AWAKE_SET) {
-      const stateAfter = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
-      if (stateAfter !== undefined) {
-        if (fastRotFlagAfter) {
-          stateAfter.flags |= ALLOW_FAST_ROTATION;
-        } else {
-          stateAfter.flags &= ~ALLOW_FAST_ROTATION;
-        }
-        // IS_BULLET is read from sim.flags by finalizeBodies; no need on bodyState.
-      }
-    }
-  });
-
-  // ── MotionLocks update ─────────────────────────────────────────────────────
-
-  // Fires when MotionLocks changes on any entity that matches requires(Body).
-  // Updates LOCK_LINEAR_X/Y and LOCK_ANGULAR_Z on both sim.flags and bodyState.flags.
-  system.update(MotionLocks, (e, locks) => {
-    const handle = state.bodyByEntity.get(e.eid);
-    if (handle === undefined) {
-      return;
-    }
-    const lockBits =
-      (locks.x ? LOCK_LINEAR_X : 0) |
-      (locks.y ? LOCK_LINEAR_Y : 0) |
-      (locks.rotation ? LOCK_ANGULAR_Z : 0);
-    // Preserve the ALLOW_FAST_ROTATION bit and DYNAMIC_FLAG; only update lock bits.
-    const record = state.bodies.get(handle.index);
-    const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
-    const lockMask = LOCK_LINEAR_X | LOCK_LINEAR_Y | LOCK_ANGULAR_Z;
-    sim.flags = (sim.flags & ~lockMask) | lockBits;
-    if (record.setIndex === AWAKE_SET) {
-      const st = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex];
-      if (st !== undefined) {
-        st.flags = (st.flags & ~lockMask) | lockBits;
-      }
-    }
-  });
-
-  // ── Sleep update (VP-23) ───────────────────────────────────────────────────
-  //
-  // Fires when Sleep is toggled on a body entity:
-  //   - Sleep.enabled toggle → set/clear ENABLE_SLEEP on InternalBody.flags.
-  //     Also: `b2Body_EnableSleep(false)` wakes a sleeping body (box2d body.c).
-  //   - Sleep.awake = true → wake the body if sleeping.
-  //   - Sleep.threshold change → update record.sleepThreshold.
-  system.update(Sleep, (e, sleep) => {
-    const handle = state.bodyByEntity.get(e.eid);
-    if (handle === undefined) {
-      return;
-    }
-    const record = state.bodies.get(handle.index);
-
-    // Update ENABLE_SLEEP flag.
-    if (sleep.enabled) {
-      record.flags |= ENABLE_SLEEP;
-    } else {
-      record.flags &= ~ENABLE_SLEEP;
-      // b2Body_EnableSleep (body.c): disabling sleep wakes a sleeping body.
-      if (record.setIndex >= FIRST_SLEEPING_SET) {
-        wakeBody(state, handle.index);
-      }
-    }
-
-    // Update sleep threshold.
-    record.sleepThreshold = sleep.threshold;
-
-    // Wake the body on Sleep.awake = true.
-    if (sleep.awake && record.setIndex >= FIRST_SLEEPING_SET) {
-      wakeBody(state, handle.index);
-    }
-  });
-
-  return system;
+function bodyTypeToBox2D(
+  box2d: Box2DModule,
+  type: BodyType
+): ReturnType<Box2DModule["b2Body_GetType"]> {
+  switch (type) {
+    case BodyType.Static:
+      return box2d.b2BodyType.b2_staticBody;
+    case BodyType.Kinematic:
+      return box2d.b2BodyType.b2_kinematicBody;
+    case BodyType.Dynamic:
+      return box2d.b2BodyType.b2_dynamicBody;
+  }
 }

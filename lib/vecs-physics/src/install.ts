@@ -20,6 +20,7 @@ import { ContactEvents, HitEvents, SensorEvents } from "./components/events.js";
 import { KinematicTargetPosition, KinematicTargetRotation } from "./components/target.js";
 import { ShapePosition, ShapeRotation } from "./components/shape_pose.js";
 import { getBox2D } from "./adapter/runtime.js";
+import { withAllocated } from "./adapter/disposal.js";
 import {
   attachPhysics,
   hasPhysics,
@@ -123,12 +124,12 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
   const step = resolvePhase(world, opts.stepPhase, DEFAULT_STEP_PHASE);
   const postStep = resolvePhase(world, opts.postStepPhase, DEFAULT_POST_STEP_PHASE);
 
-  // 5. Allocate engine state, install sleep hooks (wires the circular-dep
-  //    callbacks so physics-pre systems can call wake before engineStep runs),
-  //    install the systems (bound to it), then attach it.
-  const state = new PhysicsState(getBox2D(), resolveOptions(opts));
-  // VP-23: install sleep hooks (wakeSolverSet / mergeSolverSets) BEFORE the
-  // systems so any physics-pre system can call `wakeBody` from its first step.
+  // 5. Allocate WASM state, create the Box2D world, install the systems (bound
+  //    to it), then attach it.
+  const box2d = getBox2D();
+  const options = resolveOptions(opts);
+  const state = new PhysicsState(box2d, options);
+  state.worldId = createWorldId(state, options);
   installSleepHooks(state);
   installPhysicsSystems(
     world,
@@ -140,6 +141,32 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
     }
   );
   attachPhysics(world, state);
+}
+
+function createWorldId(
+  state: PhysicsState,
+  options: ResolvedPhysicsOptions
+): PhysicsState["worldId"] {
+  const box2d = state.box2d;
+  return withAllocated(box2d.b2DefaultWorldDef, (def) => {
+    def.gravity.x = options.gravityX;
+    def.gravity.y = options.gravityY;
+    def.restitutionThreshold = options.restitutionThreshold;
+    def.hitEventThreshold = options.hitEventThreshold;
+    def.contactHertz = options.contactHertz;
+    def.contactDampingRatio = options.contactDampingRatio;
+    def.maximumLinearSpeed = options.maximumLinearSpeed;
+    def.enableSleep = options.enableSleep;
+    def.enableContinuous = options.enableContinuous;
+    const worldId = box2d.b2CreateWorld(def);
+    box2d.b2World_SetContactTuning(
+      worldId,
+      options.contactHertz,
+      options.contactDampingRatio,
+      options.contactSpeed
+    );
+    return worldId;
+  });
 }
 
 /** Resolve a phase placement option to a concrete phase. An `IPhase` is used

@@ -1,15 +1,4 @@
-// Solver sets and the body create / destroy / transfer operations that move
-// bodies between them. Ports `b2SolverSet` and `b2TransferBody` from
-// box2d/src/solver_set.c, scoped to bodies — contacts, joints, islands, and
-// sleeping-set allocation arrive with the tickets that build them.
-//
-// The Box2D C code `memcpy`s a `b2BodySim` struct into the target set's array
-// then removes it from the source. We instead **move the object reference**: a
-// `BodySim` relocates between solver-set arrays without copying. Indices still
-// need fixing exactly as Box2D does — a swap-pop in the source array moves the
-// last element into the vacated slot, and that element's `localIndex` must be
-// repaired. See PLAN.md → _Box2D Porting Strategy_ (port the model, not the C
-// representation) and _Solver sets_.
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 
 import type { Entity } from "@vworlds/vecs";
 
@@ -31,43 +20,20 @@ import type { ContactSim } from "./contact.js";
 import { createIslandForBody, removeBodyFromIsland } from "./island.js";
 import type { PhysicsState } from "./state.js";
 
-// Solver-set indices, mirroring `b2SolverSetType`. The static, disabled, and
-// awake sets are fixed; sleeping islands take indices from `FIRST_SLEEPING_SET`
-// up (allocated when sleep lands).
 export const STATIC_SET = 0;
 export const DISABLED_SET = 1;
 export const AWAKE_SET = 2;
 export const FIRST_SLEEPING_SET = 3;
 
-/** A solver set: the dense body sims (and, for the awake set, body states) that
- * live together for memory locality. Mirrors `b2SolverSet`, bodies only —
- * contact/joint/island arrays are added by their tickets. */
 export class SolverSet {
-  /** This set's index (one of the constants above, or a sleeping-set id). */
-  public readonly setIndex: number;
-
-  /** Dense body simulation data. */
   public readonly bodySims: BodySim[] = [];
-
-  /** Dense solver state, parallel to {@link bodySims}. Populated only for the
-   * awake set; empty for static, disabled, and sleeping sets. */
   public readonly bodyStates: BodyState[] = [];
-
-  /** Non-touching contacts that live in this set. Touching contacts move out
-   * to the constraint graph (`state.graphContactSims`). Mirrors
-   * `b2SolverSet.contactSims`. Populated by VP-15a contact create/destroy. */
   public readonly contactSims: ContactSim[] = [];
-
-  /** Islands that live in this set. Mirrors `b2SolverSet.islandSims`; populated
-   * by VP-16 (declared here so its file is the only one VP-16 touches). */
   public readonly islandSims: { islandId: number }[] = [];
 
-  public constructor(setIndex: number) {
-    this.setIndex = setIndex;
-  }
+  public constructor(public readonly setIndex: number) {}
 }
 
-/** The three always-present solver sets, indexed by the set-type constants. */
 export function createBaseSolverSets(): SolverSet[] {
   const sets: SolverSet[] = [];
   sets[STATIC_SET] = new SolverSet(STATIC_SET);
@@ -76,11 +42,6 @@ export function createBaseSolverSets(): SolverSet[] {
   return sets;
 }
 
-/** Create a body record and its sim in `set`, allocating a handle. A body in the
- * awake set also gets a {@link BodyState}. Mirrors the storage half of
- * `b2CreateBody`; the caller (the lifecycle system) populates the sim from the
- * entity's components after creation. `entity` and `type` are the engine's ECS
- * binding and the resolved numeric body type. */
 export function createBody(
   state: PhysicsState,
   set: SolverSet,
@@ -90,9 +51,6 @@ export function createBody(
   const storage = state.bodies;
   const handle = storage.idPool.allocate();
   const sim = makeBodySim(handle.index);
-  // box2d sets b2_dynamicFlag on the body sim for dynamic bodies
-  // (body.c:253); the awake body state carries it so the solver writes back
-  // only to dynamic bodies.
   if (type === DYNAMIC_BODY) {
     sim.flags |= DYNAMIC_FLAG;
   }
@@ -101,20 +59,15 @@ export function createBody(
     type,
     setIndex: set.setIndex,
     localIndex: set.bodySims.length,
-    // Shape linked-list: populated by VP-11 PhysicsShapeLifecycle.
     shapeHead: NULL_INDEX,
     shapeCount: 0,
     massDirty: false,
-    // Contact linked-list: populated by VP-15a contact create/destroy.
     headContactKey: NULL_INDEX,
     contactCount: 0,
-    // Island linkage: populated by VP-16 (stays NULL_INDEX here).
     islandId: NULL_INDEX,
     islandIndex: NULL_INDEX,
-    // Sleep fields (VP-23): body.h:106-109.
-    // ENABLE_SLEEP is set by the lifecycle from the Sleep component (default true).
     sleepTime: 0,
-    sleepThreshold: 0.05, // b2DefaultBodyDef.sleepThreshold
+    sleepThreshold: 0.05,
     flags: 0,
     bodyMoveIndex: NULL_INDEX,
   };
@@ -123,31 +76,16 @@ export function createBody(
   if (set.setIndex === AWAKE_SET) {
     set.bodyStates.push(makeIdentityBodyState(sim.flags));
   }
-
-  // Dynamic and kinematic bodies that are enabled (awake set) need an island.
-  // Mirrors b2CreateBody (body.c:317-320): `if ( setId >= b2_awakeSet )` — for
-  // M3 the only non-disabled, non-static set is the awake set. Static bodies
-  // and bodies in the disabled set never get an island.
   if (set.setIndex === AWAKE_SET && type !== STATIC_BODY) {
     createIslandForBody(state, AWAKE_SET, body);
   }
-
   return handle;
 }
 
-/** Remove a body and its sim from `set` and free its handle. Mirrors the storage
- * half of `b2DestroyBody`. */
 export function destroyBody(state: PhysicsState, set: SolverSet, handle: BodyHandle): void {
   const storage = state.bodies;
   const body = storage.get(handle.index);
 
-  // box2d's b2DestroyBody first destroys the body's attached contacts
-  // (b2DestroyBodyContacts) so the island is a singleton before island removal.
-  // In M3 the body-lifecycle `exit` teardown of shapes/contacts is still partial
-  // (full contact teardown on body destroy is the wiring ticket VP-18): callers
-  // here are expected to have already torn down the body's contacts, so its
-  // island is a singleton. `removeBodyFromIsland` asserts that (throws if the
-  // emptied island still has contacts).
   removeBodyFromIsland(state, body);
 
   const localIndex = body.localIndex;
@@ -159,10 +97,6 @@ export function destroyBody(state: PhysicsState, set: SolverSet, handle: BodyHan
   storage.idPool.free(handle);
 }
 
-/** Move `body` from `sourceSet` to `targetSet`, relocating its sim (and its
- * state when crossing the awake-set boundary) while keeping every set's
- * `localIndex` back-pointers correct. Mirrors `b2TransferBody`. No-op when the
- * two sets are the same. */
 export function transferBody(
   storage: BodyStorage,
   targetSet: SolverSet,
@@ -175,28 +109,12 @@ export function transferBody(
 
   const sourceIndex = body.localIndex;
   const sim = sourceSet.bodySims[sourceIndex]!;
-
-  // Append to the target (move the reference, no copy) before removing from the
-  // source, matching Box2D's order.
   const targetIndex = targetSet.bodySims.length;
   targetSet.bodySims.push(sim);
-
-  // Clear per-step transient flags so a body that was IS_FAST / IS_SPEED_CAPPED /
-  // HAD_TIME_OF_IMPACT when it left the awake set does not carry stale CCD state
-  // into the next set. Mirrors box2d `b2TransferBody` (solver_set.c:526):
-  //   targetSim->flags &= ~(b2_isFast | b2_isSpeedCapped | b2_hadTimeOfImpact);
   sim.flags &= ~BODY_TRANSIENT_FLAGS;
 
   removeBodySim(sourceSet, sourceIndex, storage);
 
-  // Body state exists only in the awake set: drop it when leaving, create a
-  // fresh identity state when entering.
-  //
-  // `makeIdentityBodyState` seeds from `sim.flags` rather than `body.flags`
-  // because the bits the solver/integrator consume (DYNAMIC_FLAG, LOCK_*,
-  // ALLOW_FAST_ROTATION) live on sim.flags. ENABLE_SLEEP lives only on
-  // body.flags (consulted by the finalize sleep block, not the integrator), so
-  // it is correct to omit it from the state seed.
   if (sourceSet.setIndex === AWAKE_SET) {
     swapRemove(sourceSet.bodyStates, sourceIndex);
   } else if (targetSet.setIndex === AWAKE_SET) {
@@ -207,8 +125,6 @@ export function transferBody(
   body.localIndex = targetIndex;
 }
 
-/** Swap-pop the sim at `localIndex` out of `set` and repair the moved sim's
- * owner `localIndex`. Mirrors `b2RemoveBodySim`. */
 function removeBodySim(set: SolverSet, localIndex: number, storage: BodyStorage): void {
   const moved = swapRemove(set.bodySims, localIndex);
   if (moved !== undefined) {

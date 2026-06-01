@@ -24,8 +24,7 @@
 
 import { type IPhase, type World } from "@vworlds/vecs";
 
-import { PhysicsSystemTag } from "../adapter/state.js";
-import { type PhysicsState } from "../engine/state.js";
+import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 import { installDebugValidation } from "./debug.js";
 import { installEventOptInSync } from "./event_opt_in_sync.js";
 import { installEvents } from "./events.js";
