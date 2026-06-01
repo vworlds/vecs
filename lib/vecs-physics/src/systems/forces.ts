@@ -1,8 +1,8 @@
-import { ChildOf, type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
+import { type IPhase, type System, type World } from "@vworlds/vecs";
 
-import { Body } from "../components/body.js";
 import { Force, Torque } from "../components/force.js";
-import { type b2BodyId, type PhysicsState } from "../adapter/state.js";
+import { type PhysicsState } from "../adapter/state.js";
+import { resolveBodyId } from "../util/resolve_body.js";
 
 export function installForceGather(world: World, state: PhysicsState, phase: IPhase): System {
   const forceFilter = world.filter({ any: [Force, Torque] });
@@ -29,16 +29,4 @@ export function installForceGather(world: World, state: PhysicsState, phase: IPh
         }
       });
     });
-}
-
-function resolveBodyId(entity: Entity, state: PhysicsState): b2BodyId | undefined {
-  if (entity.get(Body) !== undefined) {
-    return state.bodyByEntityWasm.get(entity.eid);
-  }
-
-  const parent = entity.parent(ChildOf);
-  if (parent === undefined || parent.get(Body) === undefined) {
-    return undefined;
-  }
-  return state.bodyByEntityWasm.get(parent.eid);
 }

@@ -20,40 +20,11 @@ export function installMassRecompute(world: World, state: PhysicsState, phase: I
         }
       }
       state.dirtyMassBodies.clear();
-      syncLegacyMassState(state);
 
       if (state.debug) {
         warnOnMasslessDynamicBodies(world, state, warn);
       }
     });
-}
-
-function syncLegacyMassState(state: PhysicsState): void {
-  for (const body of state.bodies.records) {
-    if (body === undefined || !body.massDirty) {
-      continue;
-    }
-
-    body.massDirty = false;
-    const bodyId = state.bodyByEntityWasm.get(body.entity.eid);
-    const set = state.solverSets[body.setIndex];
-    const sim = set?.bodySims[body.localIndex];
-    if (bodyId === undefined || sim === undefined) {
-      continue;
-    }
-
-    const massData = state.box2d.b2Body_GetMassData(bodyId);
-    try {
-      sim.invMass = massData.mass > 0 ? 1 / massData.mass : 0;
-      sim.invInertia = massData.rotationalInertia > 0 ? 1 / massData.rotationalInertia : 0;
-      sim.localCenterX = massData.center.x;
-      sim.localCenterY = massData.center.y;
-      sim.centerX = sim.cos * sim.localCenterX - sim.sin * sim.localCenterY + sim.transformX;
-      sim.centerY = sim.sin * sim.localCenterX + sim.cos * sim.localCenterY + sim.transformY;
-    } finally {
-      massData.delete();
-    }
-  }
 }
 
 function warnOnMasslessDynamicBodies(world: World, state: PhysicsState, warn: WarnDedupe): void {

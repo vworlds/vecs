@@ -2,7 +2,6 @@ import { type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
 import { type b2ShapeId, type PhysicsState } from "../adapter/state.js";
-import { refreshShapeContactEventFlag } from "../engine/contact.js";
 
 type EventFlag = "contact" | "hit" | "sensor";
 
@@ -39,27 +38,6 @@ function setEventFlag(
   const shapeId = state.shapeByEntityWasm.get(entityId);
   if (shapeId !== undefined) {
     applyEventFlag(state, shapeId, flag, enabled);
-  }
-
-  const legacyShapeHandle = state.shapeByEntity.get(entityId);
-  if (legacyShapeHandle === undefined) {
-    return;
-  }
-  const legacyShape = state.shapes.records[legacyShapeHandle.index];
-  if (legacyShape === undefined) {
-    return;
-  }
-  switch (flag) {
-    case "contact":
-      legacyShape.enableContactEvents = enabled;
-      refreshShapeContactEventFlag(state, legacyShape.bodyHandle.index, legacyShapeHandle.index);
-      break;
-    case "hit":
-      legacyShape.enableHitEvents = enabled;
-      break;
-    case "sensor":
-      legacyShape.enableSensorEvents = enabled;
-      break;
   }
 }
 

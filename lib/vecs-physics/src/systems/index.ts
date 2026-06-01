@@ -97,7 +97,7 @@ export function installPhysicsSystems(
   // physics-pre: debug validation — LAST in physics-pre, ONLY when debug: true.
   // Runs after all lifecycle/sync/mass so the world is fully wired for the step.
   if (opts.debug === true) {
-    const debugSystem = installDebugValidation(world, phases.preStep, {
+    const debugSystem = installDebugValidation(world, state, phases.preStep, {
       sink: opts.debugSink,
     });
     systems.push(debugSystem);

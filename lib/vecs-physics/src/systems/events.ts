@@ -14,31 +14,8 @@ type ContactHitEvent = ReturnType<
   ReturnType<Box2DModule["b2World_GetContactEvents"]>["GetHitEvent"]
 >;
 type SensorEvent = ReturnType<ReturnType<Box2DModule["b2World_GetSensorEvents"]>["GetBeginEvent"]>;
-type LegacyTouchEvent = {
-  shapeA: { index: number; generation: number };
-  shapeB: { index: number; generation: number };
-  entityEidA: number;
-  entityEidB: number;
-};
-type LegacySensorEvent = {
-  sensorShape: { index: number; generation: number };
-  visitorShape: { index: number; generation: number };
-  sensorEntityEid: number;
-  visitorEntityEid: number;
-};
-type LegacyHitEvent = LegacyTouchEvent & {
-  pointX: number;
-  pointY: number;
-  normalX: number;
-  normalY: number;
-  approachSpeed: number;
-};
 
 export function installEvents(world: World, state: PhysicsState, phase: IPhase): System {
-  let previouslyTouchedContact = new Set<number>();
-  let previouslyTouchedSensor = new Set<number>();
-  let previouslyTouchedHit = new Set<number>();
-
   return world
     .system("PhysicsEvents")
     .phase(phase)
@@ -50,25 +27,28 @@ export function installEvents(world: World, state: PhysicsState, phase: IPhase):
       publishContactEvents(world, state, touchedContact);
       publishSensorEvents(world, state, touchedSensor);
       publishHitEvents(world, state, touchedHit);
-      publishLegacyTeardownEvents(state, touchedContact, touchedSensor, touchedHit);
 
       markModified(world, touchedContact, ContactEvents);
       markModified(world, touchedSensor, SensorEvents);
       markModified(world, touchedHit, HitEvents);
 
-      clearUntouchedContactEvents(world, previouslyTouchedContact, touchedContact);
-      clearUntouchedSensorEvents(world, previouslyTouchedSensor, touchedSensor);
-      clearUntouchedHitEvents(world, previouslyTouchedHit, touchedHit);
+      clearUntouchedContactEvents(world, state.prevTouchedContact, touchedContact);
+      clearUntouchedSensorEvents(world, state.prevTouchedSensor, touchedSensor);
+      clearUntouchedHitEvents(world, state.prevTouchedHit, touchedHit);
 
-      previouslyTouchedContact = touchedContact;
-      previouslyTouchedSensor = touchedSensor;
-      previouslyTouchedHit = touchedHit;
-
-      state.contactBeginEvents.length = 0;
-      state.contactEndEvents.length = 0;
-      state.sensorBeginEvents.length = 0;
-      state.sensorEndEvents.length = 0;
-      state.contactHitEvents.length = 0;
+      // Store touched sets on state for the next step's clear pass.
+      state.prevTouchedContact.clear();
+      for (const eid of touchedContact) {
+        state.prevTouchedContact.add(eid);
+      }
+      state.prevTouchedSensor.clear();
+      for (const eid of touchedSensor) {
+        state.prevTouchedSensor.add(eid);
+      }
+      state.prevTouchedHit.clear();
+      for (const eid of touchedHit) {
+        state.prevTouchedHit.add(eid);
+      }
     });
 }
 
@@ -187,116 +167,6 @@ function emitHitEvent(
   emitHitToEntity(touched, entityB, entityA, event);
 }
 
-function publishLegacyTeardownEvents(
-  state: PhysicsState,
-  touchedContact: Set<number>,
-  touchedSensor: Set<number>,
-  touchedHit: Set<number>
-): void {
-  for (const event of state.contactBeginEvents) {
-    emitLegacyContactEvent(state, touchedContact, event, "begin");
-  }
-  for (const event of state.contactEndEvents) {
-    emitLegacyContactEvent(state, touchedContact, event, "end");
-  }
-  for (const event of state.sensorBeginEvents) {
-    emitLegacySensorEvent(state, touchedSensor, event, "begin");
-  }
-  for (const event of state.sensorEndEvents) {
-    emitLegacySensorEvent(state, touchedSensor, event, "end");
-  }
-  for (const event of state.contactHitEvents) {
-    emitLegacyHitEvent(state, touchedHit, event);
-  }
-}
-
-function emitLegacyContactEvent(
-  state: PhysicsState,
-  touched: Set<number>,
-  event: LegacyTouchEvent,
-  kind: "begin" | "end"
-): void {
-  const entityA = resolveLegacyShapeEntity(state, event.shapeA, event.entityEidA);
-  const entityB = resolveLegacyShapeEntity(state, event.shapeB, event.entityEidB);
-  if (entityA === undefined || entityB === undefined) {
-    return;
-  }
-
-  emitContactToEntity(touched, entityA, entityB, kind);
-  emitContactToEntity(touched, entityB, entityA, kind);
-}
-
-function emitLegacySensorEvent(
-  state: PhysicsState,
-  touched: Set<number>,
-  event: LegacySensorEvent,
-  kind: "begin" | "end"
-): void {
-  const sensor = resolveLegacyShapeEntity(state, event.sensorShape, event.sensorEntityEid);
-  const visitor = resolveLegacyShapeEntity(state, event.visitorShape, event.visitorEntityEid);
-  if (sensor === undefined || visitor === undefined) {
-    return;
-  }
-
-  const events = sensor.get(SensorEvents) as SensorEvents | undefined;
-  if (events === undefined) {
-    return;
-  }
-
-  if (!touched.has(sensor.eid)) {
-    events.begin.length = 0;
-    events.end.length = 0;
-    touched.add(sensor.eid);
-  }
-
-  if (kind === "begin") {
-    events.begin.push({ other: visitor });
-  } else {
-    events.end.push({ other: visitor });
-  }
-}
-
-function emitLegacyHitEvent(
-  state: PhysicsState,
-  touched: Set<number>,
-  event: LegacyHitEvent
-): void {
-  const entityA = resolveLegacyShapeEntity(state, event.shapeA, event.entityEidA);
-  const entityB = resolveLegacyShapeEntity(state, event.shapeB, event.entityEidB);
-  if (entityA === undefined || entityB === undefined) {
-    return;
-  }
-
-  emitLegacyHitToEntity(touched, entityA, entityB, event);
-  emitLegacyHitToEntity(touched, entityB, entityA, event);
-}
-
-function emitLegacyHitToEntity(
-  touched: Set<number>,
-  entity: Entity,
-  other: Entity,
-  event: LegacyHitEvent
-): void {
-  const events = entity.get(HitEvents) as HitEvents | undefined;
-  if (events === undefined) {
-    return;
-  }
-
-  if (!touched.has(entity.eid)) {
-    events.hits.length = 0;
-    touched.add(entity.eid);
-  }
-
-  events.hits.push({
-    other,
-    x: event.pointX,
-    y: event.pointY,
-    normalX: event.normalX,
-    normalY: event.normalY,
-    speed: event.approachSpeed,
-  });
-}
-
 function emitContactToEntity(
   touched: Set<number>,
   entity: Entity,
@@ -376,17 +246,6 @@ function resolveShapeEntityId(state: PhysicsState, shapeId: b2ShapeId): number |
     }
   }
   return undefined;
-}
-
-function resolveLegacyShapeEntity(
-  state: PhysicsState,
-  shape: { index: number; generation: number },
-  entityId: number
-): Entity | undefined {
-  if (!state.shapes.idPool.isValid(shape as never)) {
-    return undefined;
-  }
-  return state.shapeEntityByEid.get(entityId);
 }
 
 function sameShapeId(a: b2ShapeId, b: b2ShapeId): boolean {

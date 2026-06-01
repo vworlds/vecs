@@ -1,13 +1,5 @@
-import {
-  attachPhysics,
-  getPhysics as getEnginePhysics,
-  hasPhysics,
-  PhysicsState as EnginePhysicsState,
-  PhysicsSystemTag,
-  registerInternalComponents,
-  type ResolvedPhysicsOptions,
-} from "../engine/state.js";
-import { type World } from "@vworlds/vecs";
+import { Singleton, type Entity, type World } from "@vworlds/vecs";
+
 import { type Box2DModule } from "./runtime.js";
 
 export type EntityId = number;
@@ -16,36 +8,141 @@ export type b2BodyId = ReturnType<Box2DModule["b2CreateBody"]>;
 export type b2ShapeId = ReturnType<Box2DModule["b2CreateCircleShape"]>;
 export type b2ChainId = ReturnType<Box2DModule["b2CreateChain"]>;
 export type b2Vec2 = ReturnType<Box2DModule["b2Body_GetPosition"]>;
-export { attachPhysics, hasPhysics, PhysicsSystemTag, registerInternalComponents };
-export type { ResolvedPhysicsOptions };
 
-export function getPhysics(world: World): PhysicsState {
-  return getEnginePhysics(world) as PhysicsState;
+/** Fully-resolved engine configuration: every `PhysicsOptions` field with its
+ * default applied. Built by `installPhysics`; the source of truth for tunables
+ * the engine reads at runtime. */
+export interface ResolvedPhysicsOptions {
+  gravityX: number;
+  gravityY: number;
+  fixedTimeStep: number;
+  subSteps: number;
+  debug: boolean;
+  restitutionThreshold: number;
+  hitEventThreshold: number;
+  contactHertz: number;
+  contactDampingRatio: number;
+  contactSpeed: number;
+  maximumLinearSpeed: number;
+  enableSleep: boolean;
+  enableContinuous: boolean;
 }
 
-export class PhysicsState extends EnginePhysicsState {
+/** Internal marker tagging every physics **system entity** (systems are entities
+ * in Vecs). `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])` uses it as a
+ * silence domain so the engine's own pose write-back is never mistaken for a
+ * user teleport. Never exported from the package public API and only ever lives
+ * on system entities, so it adds zero per-entity archetype churn. */
+export class PhysicsSystemTag {}
+
+export function registerInternalComponents(world: World): void {
+  world.component(PhysicsRoot);
+  world.component(PhysicsSystemTag);
+}
+
+export function attachPhysics(world: World, state: PhysicsState): void {
+  world.component(PhysicsRoot).add(Singleton);
+  world.set(PhysicsRoot, { state });
+}
+
+export function getPhysics(world: World): PhysicsState {
+  const root = world.get(PhysicsRoot) as PhysicsRoot | undefined;
+  if (!root) {
+    throw new Error("installPhysics(world, ...) must be called before world.start()");
+  }
+  return root.state;
+}
+
+export function hasPhysics(world: World): boolean {
+  if (!world._classRegistry.has(PhysicsRoot)) {
+    return false;
+  }
+  const root = world.get(PhysicsRoot) as PhysicsRoot | undefined;
+  return root?.state !== undefined;
+}
+
+export class PhysicsState {
   public worldId!: b2WorldId;
   public readonly box2d: Box2DModule;
+  public readonly options: ResolvedPhysicsOptions;
+
+  // Resolved configuration (flattened from PhysicsOptions).
+  public readonly gravityX: number;
+  public readonly gravityY: number;
+  public readonly fixedTimeStep: number;
+  public readonly subSteps: number;
+  public readonly debug: boolean;
+  public readonly restitutionThreshold: number;
+  public readonly hitEventThreshold: number;
+  public readonly contactHertz: number;
+  public readonly contactDampingRatio: number;
+  public readonly contactSpeed: number;
+  public readonly maximumLinearSpeed: number;
+  public readonly enableSleep: boolean;
+  public readonly enableContinuous: boolean;
+
+  // Entity ↔ WASM body/shape ID maps.
   public readonly bodyByEntityWasm = new Map<EntityId, b2BodyId>();
   public readonly entityByBody = new Map<b2BodyId, EntityId>();
   public readonly shapeByEntityWasm = new Map<EntityId, b2ShapeId>();
   public readonly entityByShape = new Map<b2ShapeId, EntityId>();
   public readonly chainByEntity = new Map<EntityId, b2ChainId>();
+
+  // Shape entity object map: shape eid → Entity object.
+  // Used by events.ts to resolve entities for teardown events even after
+  // the entity has been removed from the world lookup table.
+  public readonly shapeEntityByEid = new Map<number /* eid */, Entity>();
+
+  // Bodies whose mass needs recomputing this step (populated by shape lifecycle).
   public readonly dirtyMassBodies = new Set<EntityId>();
-  public readonly options: ResolvedPhysicsOptions;
+
+  // Per-step event tracking sets for PhysicsEvents (M7-8 should-fix: moved from
+  // closure-local to state so they survive future pause/resume cycles).
+  // Populated by PhysicsEvents at the end of each step; persist into the next
+  // step to detect which entities stopped receiving events.
+  public readonly prevTouchedContact = new Set<number /* eid */>();
+  public readonly prevTouchedSensor = new Set<number /* eid */>();
+  public readonly prevTouchedHit = new Set<number /* eid */>();
+
+  // EIDs of entities that had Impulse or AngularImpulse set this step.
+  // PhysicsImpulseZero walks this set in physics-post to silently zero them.
+  // Cleared by PhysicsImpulseZero at the end of each post phase.
+  public readonly impulseEntitiesThisStep = new Set<number /* eid */>();
+
+  // Pending linear impulses keyed by b2BodyId (declared as EntityId to match
+  // the Map key type; cast to b2BodyId in impulse_accumulate.ts via the
+  // pendingLinearImpulse / pendingAngularImpulse accessors).
+  public readonly pendingLinearImpulse = new Map<
+    b2BodyId,
+    { x: number; y: number; wake: boolean }
+  >();
+  public readonly pendingAngularImpulse = new Map<b2BodyId, { value: number; wake: boolean }>();
+
   // World-lifetime scratch vector reused by hot pose/velocity setters.
   // It is intentionally not wrapped in withAllocated: teardown does not exist yet.
   public readonly scratchVec2: b2Vec2;
-  public readonly pendingLinearImpulse = new Map<
-    EntityId,
-    { x: number; y: number; wake: boolean }
-  >();
-  public readonly pendingAngularImpulse = new Map<EntityId, { value: number; wake: boolean }>();
 
   public constructor(box2d: Box2DModule, options: ResolvedPhysicsOptions) {
-    super(options);
     this.box2d = box2d;
     this.options = options;
+    this.gravityX = options.gravityX;
+    this.gravityY = options.gravityY;
+    this.fixedTimeStep = options.fixedTimeStep;
+    this.subSteps = options.subSteps;
+    this.debug = options.debug;
+    this.restitutionThreshold = options.restitutionThreshold;
+    this.hitEventThreshold = options.hitEventThreshold;
+    this.contactHertz = options.contactHertz;
+    this.contactDampingRatio = options.contactDampingRatio;
+    this.contactSpeed = options.contactSpeed;
+    this.maximumLinearSpeed = options.maximumLinearSpeed;
+    this.enableSleep = options.enableSleep;
+    this.enableContinuous = options.enableContinuous;
     this.scratchVec2 = new box2d.b2Vec2();
   }
+}
+
+// Internal singleton state holder. Never exported from the package public API.
+class PhysicsRoot {
+  public state!: PhysicsState;
 }

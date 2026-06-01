@@ -54,7 +54,7 @@ import { AngularImpulse, Force, Impulse, Torque } from "../components/force.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
 import { Material } from "../components/material.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
-import { computeHull, validateHull } from "../engine/geometry.js";
+import { type PhysicsState } from "../adapter/state.js";
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
 
 // ─── Issue codes ──────────────────────────────────────────────────────────────
@@ -81,6 +81,7 @@ export interface DebugValidationOptions {
  * Returns the system so the caller can tag its entity. */
 export function installDebugValidation(
   world: World,
+  state: PhysicsState,
   phase: IPhase,
   opts: DebugValidationOptions = {}
 ): System {
@@ -110,7 +111,7 @@ export function installDebugValidation(
     .system("PhysicsDebugValidation")
     .phase(phase)
     .run(() => {
-      _validateGeomEntities(geomFilter, dedupe);
+      _validateGeomEntities(state, geomFilter, dedupe);
       _validateBodyEntities(geomFilter, bodyFilter, dedupe);
       _validateBodyShapePositionEntities(bodyPoseFilter, prevBodyPoseEids, dedupe);
       _validateForceEntities(forceFilter, dedupe);
@@ -124,7 +125,7 @@ export function installDebugValidation(
  *   - chain-too-few-points      (code 3)
  *   - polygon-invalid           (code 4)
  *   - position-on-shape-entity  (code 6) */
-function _validateGeomEntities(geomFilter: Filter, dedupe: WarnDedupe): void {
+function _validateGeomEntities(state: PhysicsState, geomFilter: Filter, dedupe: WarnDedupe): void {
   geomFilter.forEach((e) => {
     const eid: number = e.eid;
 
@@ -158,8 +159,7 @@ function _validateGeomEntities(geomFilter: Filter, dedupe: WarnDedupe): void {
     // ── polygon-invalid (code 4) ─────────────────────────────────────────────
     const polygon = e.get(Polygon) as Polygon | undefined;
     if (polygon !== undefined) {
-      const hull = computeHull(polygon.vertices);
-      const valid = hull.count > 0 && validateHull(hull);
+      const valid = isValidPolygon(state, polygon.vertices);
       if (!valid) {
         dedupe.warnOnce(
           eid,
@@ -312,6 +312,36 @@ function _validateBodyShapePositionEntities(
   prevBodyPoseEids.clear();
   for (const eid of currentEids) {
     prevBodyPoseEids.add(eid);
+  }
+}
+
+// ─── Polygon hull validation ──────────────────────────────────────────────────
+
+/**
+ * Returns true if `vertices` forms a valid convex polygon according to Box2D.
+ * Delegates to `b2ComputeHull` (WASM); a hull with count >= 3 is valid. Allocates
+ * and frees temporary b2Vec2 objects via the WASM heap.
+ */
+function isValidPolygon(
+  state: PhysicsState,
+  vertices: ReadonlyArray<{ x: number; y: number }>
+): boolean {
+  if (vertices.length < 3) {
+    return false;
+  }
+  const box2d = state.box2d;
+  const points = vertices.map((v) => new box2d.b2Vec2(v.x, v.y));
+  try {
+    const hull = box2d.b2ComputeHull(points);
+    try {
+      return hull.count >= 3;
+    } finally {
+      hull.delete();
+    }
+  } finally {
+    for (const p of points) {
+      p.delete();
+    }
   }
 }
 
