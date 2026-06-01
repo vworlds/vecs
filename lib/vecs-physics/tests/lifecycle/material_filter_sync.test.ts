@@ -13,6 +13,7 @@ import {
   Body,
   BodyType,
   Box,
+  Chain,
   Circle,
   CollisionFilter,
   Material,
@@ -38,6 +39,21 @@ function getShapeRecord(eid: number) {
 
 function getBodyMass(eid: number): number {
   return state.box2d.b2Body_GetMass(state.bodyByEntityWasm.get(eid)!);
+}
+
+function makeChainShape(body: ReturnType<typeof makeBody>) {
+  return world
+    .entity()
+    .set(ChildOf, { target: body })
+    .set(Chain, {
+      points: [
+        { x: -1, y: 0 },
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 2, y: 0 },
+      ],
+      loop: false,
+    });
 }
 
 beforeEach(() => {
@@ -213,6 +229,36 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
 
     expect(state.bodies.get(bodyHandle.index).massDirty).toBe(false);
   });
+
+  it("recreates a WASM chain when a setter-backed Material field changes", () => {
+    const body = makeBody(BodyType.Static);
+    const shape = makeChainShape(body).set(Material, {
+      density: 1,
+      friction: 0.6,
+      restitution: 0,
+      rollingResistance: 0,
+      tangentSpeed: 0,
+      userMaterialId: 0,
+    });
+    world.progress(0, 16);
+
+    const oldChainId = state.chainByEntity.get(shape.eid)!;
+
+    shape.set(Material, {
+      density: 1,
+      friction: 0.2,
+      restitution: 0,
+      rollingResistance: 0,
+      tangentSpeed: 0,
+      userMaterialId: 0,
+    });
+    world.progress(16, 16);
+
+    const newChainId = state.chainByEntity.get(shape.eid)!;
+    expect(state.box2d.b2Chain_IsValid(oldChainId)).toBe(false);
+    expect(state.box2d.b2Chain_IsValid(newChainId)).toBe(true);
+    expect(newChainId).not.toEqual(oldChainId);
+  });
 });
 
 // ─── CollisionFilter updates ──────────────────────────────────────────────────
@@ -236,5 +282,25 @@ describe("PhysicsMaterialFilterSync.update(CollisionFilter)", () => {
     expect(rec.categoryBits).toBe(0x8);
     expect(rec.maskBits).toBe(0xff);
     expect(rec.groupIndex).toBe(2);
+  });
+
+  it("recreates a WASM chain when CollisionFilter changes", () => {
+    const body = makeBody(BodyType.Static);
+    const shape = makeChainShape(body).set(CollisionFilter, {
+      categoryBits: 1,
+      maskBits: 0xffffffff,
+      groupIndex: 0,
+    });
+    world.progress(0, 16);
+
+    const oldChainId = state.chainByEntity.get(shape.eid)!;
+
+    shape.set(CollisionFilter, { categoryBits: 0x8, maskBits: 0xff, groupIndex: 2 });
+    world.progress(16, 16);
+
+    const newChainId = state.chainByEntity.get(shape.eid)!;
+    expect(state.box2d.b2Chain_IsValid(oldChainId)).toBe(false);
+    expect(state.box2d.b2Chain_IsValid(newChainId)).toBe(true);
+    expect(newChainId).not.toEqual(oldChainId);
   });
 });

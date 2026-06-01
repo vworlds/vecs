@@ -33,6 +33,9 @@ export function installMaterialFilterSync(
       state.box2d.b2Shape_SetFriction(shapeId, material.friction);
       state.box2d.b2Shape_SetRestitution(shapeId, material.restitution);
     }
+    if (state.chainByEntity.has(entity.eid)) {
+      recreateShapeForEntity(state, entity);
+    }
 
     applyLegacyMaterial(state, entity, material);
   });
@@ -51,6 +54,9 @@ export function installMaterialFilterSync(
           state.box2d.b2Shape_SetFilter(shapeId, wasmFilter);
         }
       );
+    }
+    if (state.chainByEntity.has(entity.eid)) {
+      recreateShapeForEntity(state, entity);
     }
 
     applyLegacyFilter(state, entity, filter);
