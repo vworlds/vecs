@@ -1,5 +1,5 @@
 import { type System } from "./system.js";
-import { type World } from "./world.js";
+import { type World } from "./world/index.js";
 
 /**
  * Public interface for a pipeline phase, returned by {@link World.addPhase}.
@@ -14,7 +14,7 @@ import { type World } from "./world.js";
  * world.system("NetworkUpdate").phase(preUpdate).run(tick);
  *
  * // each frame:
- * world.beginFrame(now, delta);
+ * world.beginFrame(delta);
  * try {
  *   world.runPhase(preUpdate, now, delta);
  *   world.runPhase(send,      now, delta);

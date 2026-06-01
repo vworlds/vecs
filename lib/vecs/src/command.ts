@@ -1,5 +1,5 @@
-import type { Component, ComponentMeta } from "./component.js";
-import type { Entity } from "./entity.js";
+import type { ComponentInstance, ComponentMeta } from "./component.js";
+import type { Entity } from "./entity/index.js";
 
 /**
  * Discriminator for the {@link Command} union.
@@ -12,13 +12,12 @@ export const enum CommandKind {
   Modified,
   Remove,
   Destroy,
-  SetParent,
   Attach,
 }
 
 /**
  * One queued mutation produced by an {@link Entity} method (`add`, `attach`,
- * `set`, `remove`, `destroy`, `setParent`) or by `Entity.modified`, and routed by
+ * `set`, `remove`, `destroy`) or by `Entity.modified`, and routed by
  * {@link World} during command-queue processing.
  *
  * In deferred mode the command is appended to `World`'s queue and applied at a
@@ -28,23 +27,33 @@ export const enum CommandKind {
  *
  * @internal
  */
-export type Command =
+export type Command = CommandBody & {
+  /**
+   * Entity credited with producing this mutation — the running system's entity
+   * when the command was enqueued, or `undefined` for mutations made outside a
+   * system. Stamped by {@link World._enqueue} and consulted during routing to
+   * silence feedback loops (see {@link Query.ignoreSource}).
+   */
+  source?: Entity;
+};
+
+/** @internal The discriminated payload of a {@link Command}, without provenance. */
+type CommandBody =
   | { kind: CommandKind.CreateEntity; entity: Entity }
   | {
       kind: CommandKind.Set;
       entity: Entity;
       meta: ComponentMeta;
       /** Properties to assign. `undefined` for `entity.add(C)` (ensure-exists, no data). */
-      props: Partial<Component> | undefined;
+      props: Partial<ComponentInstance> | undefined;
     }
   | {
       kind: CommandKind.Attach;
       entity: Entity;
       meta: ComponentMeta;
       /** Existing component instance to store directly on the entity. */
-      component: Component;
+      component: ComponentInstance;
     }
   | { kind: CommandKind.Modified; entity: Entity; meta: ComponentMeta }
   | { kind: CommandKind.Remove; entity: Entity; meta: ComponentMeta }
-  | { kind: CommandKind.Destroy; entity: Entity }
-  | { kind: CommandKind.SetParent; entity: Entity; parent: Entity | undefined };
+  | { kind: CommandKind.Destroy; entity: Entity };

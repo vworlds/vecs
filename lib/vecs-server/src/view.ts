@@ -253,6 +253,6 @@ export class TrackerCache {
   }
 
   private _trackedDSL(dsl: QueryDSL): QueryDSL {
-    return { AND: [dsl, Networked] };
+    return { all: [dsl, Networked] };
   }
 }

@@ -1,11 +1,6 @@
-import { VecsClient } from "@vworlds/vecs-client";
-import { World } from "@vworlds/vecs";
+import { ClientWorld } from "@vworlds/vecs-client";
 import { type as wireType } from "@vworlds/vecs-wire";
 
-const POSITION_TYPE = 1;
-const PLAYER_TYPE = 2;
-const BALL_TYPE = 3;
-const COLOR_TYPE = 4;
 const LOCAL_ENTITY_START = 100_000;
 const PLAYER_SIZE = 28;
 const RECONNECT_DELAY_MS = 1_000;
@@ -13,17 +8,15 @@ const SERVER_PORT = 3000;
 const GAME_TOP = 60;
 const GRID_COLUMNS = 3;
 const GRID_ROWS = 3;
+const VIEW_ALL_KEY = "g";
 
-interface Session {
-  client: VecsClient;
-  world: World;
-}
+type Session = ClientWorld;
 
 class Position {
-  @wireType("u16")
+  @wireType("i16")
   public x = 0;
 
-  @wireType("u16")
+  @wireType("i16")
   public y = 0;
 }
 
@@ -43,11 +36,17 @@ class Color {
 }
 
 const keys = new Set<string>();
+let viewAll = true;
 
 window.addEventListener("keydown", (event) => {
   if (isArrowKey(event.key)) {
     event.preventDefault();
     keys.add(event.key);
+    return;
+  }
+  if (isViewAllKey(event.key) && !event.repeat) {
+    event.preventDefault();
+    viewAll = !viewAll;
   }
 });
 
@@ -86,13 +85,13 @@ async function connect(): Promise<void> {
   try {
     const session = await createSession();
     if (generation !== connectGeneration) {
-      session.client.close();
+      session.close();
       return;
     }
 
     activeSession = session;
     connectionStatus = "Connected";
-    session.client.onDisconnect(() => handleDisconnect(session));
+    session.onDisconnect(() => handleDisconnect(session));
   } catch (err: unknown) {
     if (generation === connectGeneration) {
       scheduleReconnect(`Connection failed: ${formatError(err)}`);
@@ -101,33 +100,22 @@ async function connect(): Promise<void> {
 }
 
 async function createSession(): Promise<Session> {
-  const world = new World();
-  world.setEntityIdRange(LOCAL_ENTITY_START);
-  world.registerComponent(Position, POSITION_TYPE);
-  world.registerComponent(Player, PLAYER_TYPE);
-  world.registerComponent(Ball, BALL_TYPE);
-  world.registerComponent(Color, COLOR_TYPE);
-
-  const client = await VecsClient.connectDgram({
-    world,
+  const client = await ClientWorld.connectDgram({
+    networkComponents: [Position, Player, Ball, Color],
+    localEntityIdStart: LOCAL_ENTITY_START,
     host: location.hostname,
     port: SERVER_PORT,
     worldName: "main",
-    localEntityIdStart: LOCAL_ENTITY_START,
   });
-  client.registerComponent(Position);
-  client.registerComponent(Player);
-  client.registerComponent(Ball);
-  client.registerComponent(Color);
   client.installSystems();
 
-  installRenderSystems(world);
-  world.start();
+  installRenderSystems(client);
+  client.start();
 
-  return { client, world };
+  return client;
 }
 
-function installRenderSystems(world: World): void {
+function installRenderSystems(world: ClientWorld): void {
   world
     .system("RenderBalls")
     .requires(Position, Ball, Color)
@@ -162,7 +150,7 @@ function handleDisconnect(session: Session): void {
   }
 
   keys.clear();
-  session.world.clearAllEntities();
+  session.clearAllEntities();
   activeSession = undefined;
   scheduleReconnect("Disconnected. Reconnecting...");
 }
@@ -189,16 +177,21 @@ function frame(now: number): void {
   drawGrid();
   context.fillStyle = "#e2e8f0";
   context.font = "16px sans-serif";
-  context.fillText("vecs-client: arrow keys move your square, eat balls to score", 20, 30);
+  context.fillText(
+    `vecs-client: arrows move, G toggles ${viewAll ? "all entities" : "nearby grid view"}`,
+    20,
+    30
+  );
 
   if (activeSession) {
-    activeSession.client.setInput({
+    activeSession.setInput({
       left: keys.has("ArrowLeft"),
       right: keys.has("ArrowRight"),
       up: keys.has("ArrowUp"),
       down: keys.has("ArrowDown"),
+      viewAll,
     });
-    activeSession.world.progress(now, delta);
+    activeSession.progress(now, delta);
   } else {
     context.fillStyle = "#fecaca";
     context.fillText(connectionStatus, 20, 60);
@@ -229,6 +222,10 @@ function drawGrid(): void {
 
 function isArrowKey(key: string): boolean {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
+}
+
+function isViewAllKey(key: string): boolean {
+  return key.toLowerCase() === VIEW_ALL_KEY;
 }
 
 function formatError(err: unknown): string {

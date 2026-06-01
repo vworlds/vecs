@@ -7,7 +7,7 @@ import {
   type CID,
 } from "@vworlds/vecs-protocol";
 import { Decoder } from "@vworlds/vecs-wire";
-import { type Component } from "@vworlds/vecs";
+import { type ComponentInstance } from "@vworlds/vecs";
 
 const MAX_LENGTH = 3;
 const POSITION_COMPONENT_TYPE = 1;
@@ -17,16 +17,16 @@ export interface IPosition {
   readonly y: number;
 }
 
-type DecodeComponentSnapshot = (snapshot: ComponentSnapshot) => Component;
-type PositionComponent = Component & IPosition;
+type DecodeComponentSnapshot = (snapshot: ComponentSnapshot) => ComponentInstance;
+type PositionComponent = ComponentInstance & IPosition;
 
 export class ComponentSnapshot {
   public readonly eid: number;
   public readonly type: number;
-  public payload: Uint8Array | Component;
+  public payload: Uint8Array | ComponentInstance;
   public readonly cid: CID;
 
-  public constructor(eid: number, type: number, payload: Uint8Array | Component) {
+  public constructor(eid: number, type: number, payload: Uint8Array | ComponentInstance) {
     this.eid = eid;
     this.type = type;
     this.payload = payload;
@@ -316,7 +316,7 @@ export class Interpolator {
   }
 }
 
-function isPosition(component: Component): component is PositionComponent {
+function isPosition(component: ComponentInstance): component is PositionComponent {
   const candidate = component as Partial<IPosition>;
   return typeof candidate.x === "number" && typeof candidate.y === "number";
 }
@@ -327,12 +327,12 @@ function lerp(
   start: number,
   end: number,
   t: number
-): Component {
+): ComponentInstance {
   if (end === start) {
     return b;
   }
   const d = end - start;
-  const position = new (b.constructor as new () => Component & { x: number; y: number })();
+  const position = new (b.constructor as new () => ComponentInstance & { x: number; y: number })();
   position.x = a.x + ((b.x - a.x) / d) * (t - start);
   position.y = a.y + ((b.y - a.y) / d) * (t - start);
   return position;
