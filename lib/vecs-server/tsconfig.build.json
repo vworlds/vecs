@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "noEmit": false,
+    "outDir": "dist",
+    "paths": {
+      "@vworlds/vecs": ["lib/vecs/src/index.ts"],
+      "@vworlds/vecs-protocol": ["lib/vecs-protocol/src/index.ts"],
+      "@vworlds/vecs-wire": ["lib/vecs-wire/src/index.ts"]
+    },
+    "rootDir": "..",
+    "sourceMap": true
+  },
+  "include": ["src", "../vecs-protocol/src", "../vecs-wire/src"]
+}

@@ -289,7 +289,7 @@ function spawnBall(x?: number, y?: number): void {
   // With no explicit position, drop the ball into the least-crowded cell using
   // the relationship-keyed occupancy grouping, spreading balls away from packs.
   const point = x !== undefined && y !== undefined ? { x, y } : randomPointInLeastCrowdedCell();
-const body = world
+  const body = world
     .entity()
     .add(Networked)
     .add(Ball)
