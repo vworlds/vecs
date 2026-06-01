@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Ported from box2d/src/dynamic_tree.c.
 // Self-balancing AABB BVH used by the broad phase.
 //

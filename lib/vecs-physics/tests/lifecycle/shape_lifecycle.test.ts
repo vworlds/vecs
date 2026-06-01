@@ -426,6 +426,7 @@ describe("PhysicsShapeLifecycle — Chain shapes", () => {
           { x: 0, y: 0 },
           { x: 1, y: 0 },
           { x: 2, y: 0 },
+          { x: 3, y: 0 },
         ],
         loop: false,
       });
@@ -507,12 +508,13 @@ describe("PhysicsShapeLifecycle.exit", () => {
           { x: 0, y: 0 },
           { x: 1, y: 0 },
           { x: 2, y: 0 },
+          { x: 3, y: 0 },
         ],
         loop: false,
       });
     world.progress(0, 16);
     expect(state.chainShapeByEntity.has(chain.eid)).toBe(true);
-    expect(state.bodies.get(state.bodyByEntity.get(body.eid)!.index).shapeCount).toBe(2);
+    expect(state.bodies.get(state.bodyByEntity.get(body.eid)!.index).shapeCount).toBe(3);
 
     chain.remove(Chain);
     world.progress(16, 16);

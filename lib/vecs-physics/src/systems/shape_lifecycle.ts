@@ -1,341 +1,93 @@
-// `PhysicsShapeLifecycle` — shape creation, destruction, geometry rebuild, and
-// reparenting between bodies.
-//
-// This is the components/ → engine/ boundary for shapes. It runs in
-// `physics-pre` AFTER `PhysicsBodyLifecycle`. The body must already exist in
-// `state.bodyByEntity` before any of its shapes are inserted.
-//
-// Query: entities that carry one geometry component AND whose immediate ChildOf
-// parent has a Body component. The `{ parent: Body }` DSL predicate enforces
-// the immediate-parent rule (geometry on a grandchild is ignored).
-//
-// Chain shapes expand to N InternalShape records (one per segment). They are
-// tracked via `state.chainShapeByEntity` (1:N); the common 1:1 path uses
-// `state.shapeByEntity` — keeping both paths branch-free in the hot loop.
-//
-// Cross-ticket contract (PROGRESS.md → _Cross-ticket contracts_):
-//   World AABB = computeAABB(geom, mul(bodyWorldTransform, localPose)).
-//   Local pose fields (localX/Y/Cos/Sin) are set from ShapePosition/ShapeRotation;
-//   the seeded values from the VP-8 constructors are overwritten here.
-//
-// Deferred to M3 (no contact graph yet):
-//   Contact teardown on shape removal / type change (same shape of deferral as
-//   PhysicsBodyLifecycle.exit). Contact refilter on CollisionFilter change.
-//
-// Upstream sources:
-//   box2d/src/shape.c — b2CreateShape, b2DestroyShape,
-//                       b2UpdateShapeAABBs, b2ComputeShapeMargin
-
-import { ChildOf, type IPhase, type System, type World } from "@vworlds/vecs";
+import { ChildOf, type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
-import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
-import { CollisionFilter, Material, Sensor } from "../components/material.js";
-import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
-import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
 import {
-  computeHull,
-  makeBox,
-  makePolygon,
-  validateHull,
-  type GeometryUnion,
-  type PolygonGeometry,
-} from "../engine/geometry.js";
+  Box,
+  Capsule,
+  Chain,
+  Circle,
+  Polygon,
+  Segment,
+  type Vec2,
+} from "../components/geometry.js";
+import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
+import { CollisionFilter, Material, Sensor } from "../components/material.js";
+import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
+import { type Box2DModule } from "../adapter/runtime.js";
+import {
+  type b2BodyId,
+  type b2ChainId,
+  type b2ShapeId,
+  type PhysicsState,
+} from "../adapter/state.js";
+import { withAllocated } from "../adapter/disposal.js";
 import { destroyBodyContactsForShape } from "../engine/contact.js";
 import { destroySensor } from "../engine/sensor.js";
-import {
-  computeShapeMargin,
-  createShape,
-  freeShape,
-  makeChainSegments,
-  ShapeType,
-  updateShapeAABBs,
-  type InternalShape,
-} from "../engine/shape.js";
-import { DISABLED_SET } from "../engine/solver_set.js";
-import type { PhysicsState } from "../engine/state.js";
-import { LINEAR_SLOP } from "../math/constants.js";
+import { LINEAR_SLOP, MAX_AABB_MARGIN, SPECULATIVE_DISTANCE } from "../math/constants.js";
 import { makeRot } from "../math/rot.js";
-import { mulTransforms, type Transform } from "../math/transform.js";
+import { transformPoint, type Transform } from "../math/transform.js";
 import { NULL_INDEX, type BodyHandle, type ShapeHandle } from "../util/handle.js";
 
-// ─── Degenerate-geometry guard ────────────────────────────────────────────────
+const STATIC_BODY = 0;
+const DISABLED_SET = 1;
+const MAX_POLYGON_VERTICES = 8;
 
-/** True when the endpoint pair (a→b) is long enough to be a valid capsule,
- * segment, or chain-segment geometry. Mirrors the `B2_LINEAR_SLOP` threshold
- * used in `b2CreateCapsuleShape`, `b2CreateSegmentShape`, and
- * `b2CreateChainSegmentShape` (box2d/src/shape.c). */
-function hasValidEndpoints(ax: number, ay: number, bx: number, by: number): boolean {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const threshold = LINEAR_SLOP * LINEAR_SLOP;
-  return dx * dx + dy * dy > threshold;
+const enum ShapeType {
+  Circle = 0,
+  Capsule = 1,
+  Segment = 2,
+  Polygon = 3,
+  ChainSegment = 4,
 }
 
-// ─── Geometry translation (components/ → engine/) ────────────────────────────
-
-/** Translate a geometry component on `e` into a bare InternalShape (without
- * body-linkage or material fields). Returns undefined for Chain (handled
- * separately) or if the geometry is invalid. */
-function buildShapeForEntity(
-  e: { get: (c: any) => any },
-  lx: number,
-  ly: number,
-  lcos: number,
-  lsin: number
-): InternalShape | undefined {
-  const box = e.get(Box) as Box | undefined;
-  if (box !== undefined) {
-    const geom = makeBox(box.hx, box.hy);
-    return newShape(ShapeType.Polygon, geom, lx, ly, lcos, lsin, geom.centroidX, geom.centroidY);
-  }
-
-  const circle = e.get(Circle) as Circle | undefined;
-  if (circle !== undefined) {
-    const geom: GeometryUnion = { kind: "circle", cx: 0, cy: 0, radius: circle.radius };
-    return newShape(ShapeType.Circle, geom, lx, ly, lcos, lsin, 0, 0);
-  }
-
-  const capsule = e.get(Capsule) as Capsule | undefined;
-  if (capsule !== undefined) {
-    if (!hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)) {
-      console.warn("Capsule endpoint distance <= LINEAR_SLOP — shape skipped (Box2D parity)");
-      return undefined;
+type GeometryUnion =
+  | { kind: "circle"; cx: number; cy: number; radius: number }
+  | { kind: "capsule"; ax: number; ay: number; bx: number; by: number; radius: number }
+  | { kind: "segment"; ax: number; ay: number; bx: number; by: number }
+  | {
+      kind: "polygon";
+      vertices: Float32Array;
+      normals: Float32Array;
+      count: number;
+      radius: number;
+      centroidX: number;
+      centroidY: number;
     }
-    const geom: GeometryUnion = {
-      kind: "capsule",
-      ax: capsule.x1,
-      ay: capsule.y1,
-      bx: capsule.x2,
-      by: capsule.y2,
-      radius: capsule.radius,
+  | {
+      kind: "chainSegment";
+      ghost1X: number;
+      ghost1Y: number;
+      ax: number;
+      ay: number;
+      bx: number;
+      by: number;
+      ghost2X: number;
+      ghost2Y: number;
+      chainId: number;
     };
-    return newShape(
-      ShapeType.Capsule,
-      geom,
-      lx,
-      ly,
-      lcos,
-      lsin,
-      0.5 * (capsule.x1 + capsule.x2),
-      0.5 * (capsule.y1 + capsule.y2)
-    );
-  }
 
-  const segment = e.get(Segment) as Segment | undefined;
-  if (segment !== undefined) {
-    if (!hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)) {
-      console.warn("Segment endpoint distance <= LINEAR_SLOP — shape skipped (Box2D parity)");
-      return undefined;
-    }
-    const geom: GeometryUnion = {
-      kind: "segment",
-      ax: segment.x1,
-      ay: segment.y1,
-      bx: segment.x2,
-      by: segment.y2,
-    };
-    return newShape(
-      ShapeType.Segment,
-      geom,
-      lx,
-      ly,
-      lcos,
-      lsin,
-      0.5 * (segment.x1 + segment.x2),
-      0.5 * (segment.y1 + segment.y2)
-    );
-  }
-
-  const polygon = e.get(Polygon) as Polygon | undefined;
-  if (polygon !== undefined && polygon.vertices.length >= 3) {
-    const hull = computeHull(polygon.vertices);
-    if (hull.count < 3 || !validateHull(hull)) {
-      return undefined;
-    }
-    const geom = makePolygon(hull, polygon.radius);
-    return newShape(ShapeType.Polygon, geom, lx, ly, lcos, lsin, geom.centroidX, geom.centroidY);
-  }
-
-  return undefined;
-}
-
-/** Allocate a fresh InternalShape with zeroed AABB / sentinel linkage. */
-function newShape(
-  type: ShapeType,
-  geometry: GeometryUnion,
-  lx: number,
-  ly: number,
-  lcos: number,
-  lsin: number,
-  centX: number,
-  centY: number
-): InternalShape {
-  return {
-    type,
-    geometry,
-    localX: lx,
-    localY: ly,
-    localCos: lcos,
-    localSin: lsin,
-    localCentroidX: centX,
-    localCentroidY: centY,
-    aabbMinX: 0,
-    aabbMinY: 0,
-    aabbMaxX: 0,
-    aabbMaxY: 0,
-    proxyKey: -1,
-    fatAabbMinX: 0,
-    fatAabbMinY: 0,
-    fatAabbMaxX: 0,
-    fatAabbMaxY: 0,
-    // body-linkage — set by the caller before createShape.
-    bodyHandle: { index: NULL_INDEX, generation: 0 } as unknown as BodyHandle,
-    entity: 0,
-    prevShape: NULL_INDEX,
-    nextShape: NULL_INDEX,
-    // material defaults (b2DefaultShapeDef / b2DefaultSurfaceMaterial)
-    density: 1,
-    friction: 0.6,
-    restitution: 0,
-    rollingResistance: 0,
-    tangentSpeed: 0,
-    userMaterialId: 0,
-    // filter defaults (b2DefaultFilter)
-    categoryBits: 1,
-    maskBits: 0xffffffff,
-    groupIndex: 0,
-    // sensor / events
-    sensor: false,
-    enableContactEvents: false,
-    enableHitEvents: false,
-    enableSensorEvents: false,
-    sensorIndex: -1,
-    // CCD fields (VP-24): aabbMargin pre-computed once; enlargedAABB is transient.
-    aabbMargin: computeShapeMargin(geometry),
-    enlargedAABB: false,
-    // VP-26: set by createShape() immediately after newShape() returns.
-    // NULL_INDEX sentinel until then; no consumer reads it before createShape.
-    shapeIndex: NULL_INDEX,
-  };
-}
-
-// ─── Body-transform helper ─────────────────────────────────────────────────────
-
-/** Read the body's current world transform from the BodySim. */
-function getBodyWorldTransform(state: PhysicsState, bodyHandle: BodyHandle): Transform {
-  const bodyRec = state.bodies.get(bodyHandle.index);
-  const sim = state.solverSets[bodyRec.setIndex]!.bodySims[bodyRec.localIndex]!;
-  return { p: { x: sim.transformX, y: sim.transformY }, q: { c: sim.cos, s: sim.sin } };
-}
-
-// ─── Shape linked-list helpers ────────────────────────────────────────────────
-
-/** Prepend `handle` to the body's shape linked list. Mirrors the headShapeId
- * manipulation in `b2CreateShape` (box2d/src/shape.c). */
-function linkShapeToBody(state: PhysicsState, handle: ShapeHandle, bodyHandle: BodyHandle): void {
-  const bodyRec = state.bodies.get(bodyHandle.index);
-  const shape = state.shapes.get(handle.index);
-
-  if (bodyRec.shapeHead !== NULL_INDEX) {
-    // Existing head points back to the new shape.
-    state.shapes.get(bodyRec.shapeHead).prevShape = handle.index;
-  }
-  shape.prevShape = NULL_INDEX;
-  shape.nextShape = bodyRec.shapeHead;
-  bodyRec.shapeHead = handle.index;
-  bodyRec.shapeCount += 1;
-}
-
-/** Remove `handle` from its body's shape linked list. Mirrors the doubly-linked
- * removal in `b2DestroyShape` (box2d/src/shape.c). */
-function unlinkShapeFromBody(
-  state: PhysicsState,
-  handle: ShapeHandle,
-  bodyHandle: BodyHandle
-): void {
-  if (bodyHandle.index === NULL_INDEX) {
-    return;
-  }
-  const bodyRec = state.bodies.records[bodyHandle.index];
-  if (bodyRec === undefined) {
-    return;
-  }
-
-  const shape = state.shapes.records[handle.index];
-  if (shape === undefined) {
-    return;
-  }
-
-  if (shape.prevShape !== NULL_INDEX) {
-    const prevShape = state.shapes.records[shape.prevShape];
-    if (prevShape !== undefined) {
-      prevShape.nextShape = shape.nextShape;
-    }
-  } else {
-    bodyRec.shapeHead = shape.nextShape;
-  }
-  if (shape.nextShape !== NULL_INDEX) {
-    const nextShape = state.shapes.records[shape.nextShape];
-    if (nextShape !== undefined) {
-      nextShape.prevShape = shape.prevShape;
-    }
-  }
-  bodyRec.shapeCount -= 1;
-}
-
-// ─── Destroy helper ───────────────────────────────────────────────────────────
-
-/** Destroy the proxy, tear down contacts that reference this shape (if not a
- * sensor), destroy the sensor record (if a sensor), unlink from the body list,
- * and free the shape slot. Mirrors `b2DestroyShapeInternal`
- * (box2d/src/shape.c:298–339) and `b2DestroySensor` (sensor.c:372-409).
- *
- * For sensor shapes, `destroySensor` emits end events for current overlaps
- * and removes the sensor record from `state.sensors` (swap-remove, patching
- * the moved sensor shape's sensorIndex). The proxy is still destroyed as
- * normal (sensors do have broad-phase proxies for the AABB query pass). */
-function destroyShape(state: PhysicsState, handle: ShapeHandle): void {
-  const shape = state.shapes.records[handle.index];
-  if (shape === undefined) {
-    return;
-  } // already freed — idempotent
-
-  // If this is a sensor, destroy the sensor record first (emits end events for
-  // all current overlaps, swap-removes from state.sensors, patches moved shape).
-  // Mirrors b2DestroySensor (sensor.c:372-409); called before the proxy is
-  // destroyed so overlaps2 is still populated.
-  if (shape.sensor && shape.sensorIndex !== -1) {
-    destroySensor(state, shape.sensorIndex);
-    shape.sensorIndex = -1;
-  }
-
-  if (shape.proxyKey !== -1) {
-    state.broadPhase.destroyProxy(shape.proxyKey);
-    shape.proxyKey = -1;
-  }
-
-  // Destroy contacts that reference this shape before freeing the shape record.
-  // Sensors never generate contacts (collide.ts skips sensor pairs), so this
-  // walk is a no-op for sensor shapes. Kept unconditional for safety + parity.
-  // Mirrors b2DestroyShapeInternal (shape.c:326-338): walk the owning body's
-  // contact list, destroy every contact whose shapeIdA or shapeIdB matches.
-  // Robust to swap-remove: destroyBodyContactsForShape snapshots nextKey first.
-  if (shape.bodyHandle.index !== NULL_INDEX) {
-    const bodyRec = state.bodies.records[shape.bodyHandle.index];
-    if (bodyRec !== undefined) {
-      destroyBodyContactsForShape(state, shape.bodyHandle.index, handle.index, false);
-    }
-  }
-
-  unlinkShapeFromBody(state, handle, shape.bodyHandle);
-  freeShape(state.shapes, handle);
-}
-
-// ─── Chain expansion helper ───────────────────────────────────────────────────
-
-/** Read material / filter / event opts from an entity into a flat record. */
-function readMaterialOpts(e: { get: (c: any) => any }): {
+interface LegacyShape {
+  type: ShapeType;
+  geometry: GeometryUnion;
+  localX: number;
+  localY: number;
+  localCos: number;
+  localSin: number;
+  localCentroidX: number;
+  localCentroidY: number;
+  aabbMinX: number;
+  aabbMinY: number;
+  aabbMaxX: number;
+  aabbMaxY: number;
+  proxyKey: number;
+  fatAabbMinX: number;
+  fatAabbMinY: number;
+  fatAabbMaxX: number;
+  fatAabbMaxY: number;
+  bodyHandle: BodyHandle;
+  entity: number;
+  prevShape: number;
+  nextShape: number;
   density: number;
   friction: number;
   restitution: number;
@@ -349,538 +101,964 @@ function readMaterialOpts(e: { get: (c: any) => any }): {
   enableContactEvents: boolean;
   enableHitEvents: boolean;
   enableSensorEvents: boolean;
-} {
-  const mat = e.get(Material) as Material | undefined;
-  const filt = e.get(CollisionFilter) as CollisionFilter | undefined;
-  return {
-    density: mat?.density ?? 1,
-    friction: mat?.friction ?? 0.6,
-    restitution: mat?.restitution ?? 0,
-    rollingResistance: mat?.rollingResistance ?? 0,
-    tangentSpeed: mat?.tangentSpeed ?? 0,
-    userMaterialId: mat?.userMaterialId ?? 0,
-    categoryBits: filt?.categoryBits ?? 1,
-    maskBits: filt?.maskBits ?? 0xffffffff,
-    groupIndex: filt?.groupIndex ?? 0,
-    sensor: e.get(Sensor) !== undefined,
-    enableContactEvents: e.get(ContactEvents) !== undefined,
-    enableHitEvents: e.get(HitEvents) !== undefined,
-    enableSensorEvents: e.get(SensorEvents) !== undefined,
-  };
+  sensorIndex: number;
+  aabbMargin: number;
+  enlargedAABB: boolean;
+  shapeIndex: number;
 }
 
-/** Build and register chain segment shapes. Writes `state.chainShapeByEntity`.
- * Skips proxy creation when `bodySetIndex === DISABLED_SET`, matching
- * Box2D's `b2CreateShape` check (box2d/src/shape.c line 173-177). */
-function enterChain(
-  eid: number,
-  chain: Chain,
-  worldXf: Transform,
-  localXf: Transform,
-  bodyHandle: BodyHandle,
-  bodyType: number,
-  bodySetIndex: number,
-  opts: ReturnType<typeof readMaterialOpts>,
-  state: PhysicsState
-): void {
-  const segShapes = makeChainSegments(chain.points, chain.loop, worldXf);
-  const handles: ShapeHandle[] = [];
-  const disabled = bodySetIndex === DISABLED_SET;
-
-  for (const seg of segShapes) {
-    // Set local pose (all chain segments share the same chain entity's local pose).
-    seg.localX = localXf.p.x;
-    seg.localY = localXf.p.y;
-    seg.localCos = localXf.q.c;
-    seg.localSin = localXf.q.s;
-    // Apply material / filter / events.
-    seg.density = opts.density;
-    seg.friction = opts.friction;
-    seg.restitution = opts.restitution;
-    seg.rollingResistance = opts.rollingResistance;
-    seg.tangentSpeed = opts.tangentSpeed;
-    seg.userMaterialId = opts.userMaterialId;
-    seg.categoryBits = opts.categoryBits;
-    seg.maskBits = opts.maskBits;
-    seg.groupIndex = opts.groupIndex;
-    seg.sensor = opts.sensor;
-    seg.enableContactEvents = opts.enableContactEvents;
-    seg.enableHitEvents = opts.enableHitEvents;
-    seg.enableSensorEvents = opts.enableSensorEvents;
-    seg.entity = eid; // eid stored as number
-    seg.bodyHandle = bodyHandle;
-
-    const fatAABB = updateShapeAABBs(seg, worldXf, bodyType);
-    const handle = createShape(state.shapes, seg);
-    linkShapeToBody(state, handle, bodyHandle);
-    // Disabled bodies have no proxies; proxyKey stays -1 (Box2D parity).
-    if (!disabled) {
-      seg.proxyKey = state.broadPhase.createProxy(
-        bodyType,
-        fatAABB,
-        opts.categoryBits,
-        handle.index,
-        true // force pair creation (Box2D b2ShapeDef.invokeContactCreation)
-      );
-    }
-    // Register chain-segment sensor shapes in SensorStorage. Chains can be
-    // sensors; each segment gets its own SensorRecord, mirroring box2d's
-    // per-shape sensor index (b2Shape.sensorIndex).
-    if (opts.sensor) {
-      seg.sensorIndex = state.sensors.create(handle.index);
-    }
-
-    handles.push(handle);
-  }
-
-  state.chainShapeByEntity.set(eid, handles);
+interface ShapeOptions {
+  density: number;
+  friction: number;
+  restitution: number;
+  rollingResistance: number;
+  tangentSpeed: number;
+  userMaterialId: number;
+  categoryBits: number;
+  maskBits: number;
+  groupIndex: number;
+  sensor: boolean;
+  enableContactEvents: boolean;
+  enableHitEvents: boolean;
+  enableSensorEvents: boolean;
 }
 
-// ─── System factory ───────────────────────────────────────────────────────────
-
-/** Create `PhysicsShapeLifecycle` on `world`, bound to `state` and `phase`. */
 export function installShapeLifecycle(world: World, state: PhysicsState, phase: IPhase): System {
   const system = world
     .system("PhysicsShapeLifecycle")
     .query({ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] })
     .phase(phase);
 
-  // ── Enter ──────────────────────────────────────────────────────────────────
-
-  system.enter((e) => {
-    const parentEntity = e.parent(ChildOf);
-    if (parentEntity === undefined) {
-      return;
-    }
-    const bodyHandle = state.bodyByEntity.get(parentEntity.eid);
-    if (bodyHandle === undefined) {
-      return;
-    } // parent not yet a body (should not happen given query)
-
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const bodyXf = getBodyWorldTransform(state, bodyHandle);
-
-    // Local pose from ShapePosition / ShapeRotation (default identity).
-    const shapePos = e.get(ShapePosition) as ShapePosition | undefined;
-    const shapeRot = e.get(ShapeRotation) as ShapeRotation | undefined;
-    const lx = shapePos?.x ?? 0;
-    const ly = shapePos?.y ?? 0;
-    const lq = makeRot(shapeRot?.angle ?? 0);
-    const localXf: Transform = { p: { x: lx, y: ly }, q: lq };
-
-    // World transform = body ∘ local pose (cross-ticket contract).
-    const worldXf = mulTransforms(bodyXf, localXf);
-
-    const opts = readMaterialOpts(e);
-
-    // Chain: expand to N segment shapes.
-    const chain = e.get(Chain) as Chain | undefined;
-    if (chain !== undefined) {
-      enterChain(
-        e.eid,
-        chain,
-        worldXf,
-        localXf,
-        bodyHandle,
-        bodyRec.type,
-        bodyRec.setIndex,
-        opts,
-        state
-      );
-      // VP-21b: register Entity object so events can form payloads after destroy.
-      state.shapeEntityByEid.set(e.eid, e);
-      bodyRec.massDirty = true;
-      return;
-    }
-
-    // Single geometry shape.
-    const shape = buildShapeForEntity(e, lx, ly, lq.c, lq.s);
-    if (shape === undefined) {
-      return;
-    }
-
-    // Apply material / filter / events.
-    shape.density = opts.density;
-    shape.friction = opts.friction;
-    shape.restitution = opts.restitution;
-    shape.rollingResistance = opts.rollingResistance;
-    shape.tangentSpeed = opts.tangentSpeed;
-    shape.userMaterialId = opts.userMaterialId;
-    shape.categoryBits = opts.categoryBits;
-    shape.maskBits = opts.maskBits;
-    shape.groupIndex = opts.groupIndex;
-    shape.sensor = opts.sensor;
-    shape.enableContactEvents = opts.enableContactEvents;
-    shape.enableHitEvents = opts.enableHitEvents;
-    shape.enableSensorEvents = opts.enableSensorEvents;
-    shape.entity = e.eid; // eid stored as number (InternalShape.entity)
-    shape.bodyHandle = bodyHandle;
-
-    // Compute world AABB + fat AABB (overwriting the zeroed sentinel values).
-    const fatAABB = updateShapeAABBs(shape, worldXf, bodyRec.type);
-
-    // Allocate slot, link into body list.
-    const handle = createShape(state.shapes, shape);
-    linkShapeToBody(state, handle, bodyHandle);
-
-    // Create broad-phase proxy only when the body is NOT disabled.
-    // Disabled bodies have no proxies (Box2D parity: box2d/src/shape.c line 173).
-    if (bodyRec.setIndex !== DISABLED_SET) {
-      shape.proxyKey = state.broadPhase.createProxy(
-        bodyRec.type,
-        fatAABB,
-        opts.categoryBits,
-        handle.index,
-        true // force pair creation (Box2D b2ShapeDef.invokeContactCreation)
-      );
-    }
-
-    // Register sensor shapes in SensorStorage so the sensor overlap pass
-    // (`overlapSensors` in engine/sensor.ts) can track overlaps for this shape.
-    // Mirrors b2CreateShape (shape.c:~215-220) which calls into
-    // b2Array_Push(world->sensors, ...) and sets shape->sensorIndex.
-    if (shape.sensor) {
-      shape.sensorIndex = state.sensors.create(handle.index);
-    }
-
-    state.shapeByEntity.set(e.eid, handle);
-    // VP-21b: keep the Entity object reference so PhysicsEvents can form a
-    // valid `other: Entity` payload even after the entity is destroyed (Entity
-    // objects persist as JS objects after destroy; see PLAN → Entity-reference
-    // safety). Resolves the "carried-into-M4: reconcile InternalShape.entity
-    // (eid) vs InternalBody.entity (Entity)" item.
-    state.shapeEntityByEid.set(e.eid, e);
-    bodyRec.massDirty = true;
+  system.enter((entity) => {
+    createShapeForEntity(state, entity);
   });
 
-  // ── Exit ───────────────────────────────────────────────────────────────────
-
-  system.exit((e) => {
-    // Chain teardown: destroy all segment shapes.
-    const chainHandles = state.chainShapeByEntity.get(e.eid);
-    if (chainHandles !== undefined) {
-      // Read bodyHandle from the first segment before destroying.
-      const firstSeg = state.shapes.records[chainHandles[0]!.index];
-      const chainBodyHandle = firstSeg?.bodyHandle;
-      for (const h of chainHandles) {
-        destroyShape(state, h);
-      }
-      state.chainShapeByEntity.delete(e.eid);
-      // VP-21b: shapeEntityByEid is cleaned up lazily in PhysicsEvents.run (not here)
-      // so the Entity reference survives from physics-pre exit to physics-post publish.
-      if (chainBodyHandle !== undefined && chainBodyHandle.index !== NULL_INDEX) {
-        const bodyRec = state.bodies.records[chainBodyHandle.index];
-        if (bodyRec !== undefined) {
-          bodyRec.massDirty = true;
-        }
-      }
-      return;
-    }
-
-    // Single-shape teardown.
-    const handle = state.shapeByEntity.get(e.eid);
-    if (handle === undefined) {
-      return;
-    } // idempotent
-
-    const shape = state.shapes.records[handle.index];
-    const bodyHandle = shape?.bodyHandle;
-
-    destroyShape(state, handle);
-    state.shapeByEntity.delete(e.eid);
-    // VP-21b: shapeEntityByEid is cleaned up lazily in PhysicsEvents.run (not here)
-    // so the Entity reference survives from physics-pre exit to physics-post publish.
-
-    // Mark the parent body massDirty (body may still be alive).
-    if (bodyHandle !== undefined && bodyHandle.index !== NULL_INDEX) {
-      const bodyRec = state.bodies.records[bodyHandle.index];
-      if (bodyRec !== undefined) {
-        bodyRec.massDirty = true;
-      }
-    }
+  system.exit((entity) => {
+    destroyShapeForEntity(state, entity, true);
   });
 
-  // ── Update — geometry rebuild ──────────────────────────────────────────────
-
-  // Each geometry update handler rebuilds the shape's geometry union and
-  // recomputes the world AABB + fat AABB, then moves the proxy.
-
-  system.update(Box, (e, box) => {
-    rebuildSingleShape(e.eid, state, (shape) => {
-      (shape.geometry as PolygonGeometry) = makeBox(box.hx, box.hy);
-      shape.type = ShapeType.Polygon;
-    });
+  system.update(Box, (entity) => {
+    recreateShapeForEntity(state, entity);
+  });
+  system.update(Circle, (entity) => {
+    recreateShapeForEntity(state, entity);
+  });
+  system.update(Capsule, (entity) => {
+    const capsule = entity.get(Capsule);
+    if (
+      capsule !== undefined &&
+      !hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)
+    ) {
+      return;
+    }
+    recreateShapeForEntity(state, entity);
+  });
+  system.update(Segment, (entity) => {
+    const segment = entity.get(Segment);
+    if (
+      segment !== undefined &&
+      !hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)
+    ) {
+      return;
+    }
+    recreateShapeForEntity(state, entity);
+  });
+  system.update(Polygon, (entity) => {
+    recreateShapeForEntity(state, entity);
+  });
+  system.update(Chain, (entity) => {
+    recreateShapeForEntity(state, entity);
+  });
+  system.update(ChildOf, (entity) => {
+    recreateShapeForEntity(state, entity);
   });
 
-  system.update(Circle, (e, circle) => {
-    rebuildSingleShape(e.eid, state, (shape) => {
-      shape.geometry = { kind: "circle", cx: 0, cy: 0, radius: circle.radius };
-      shape.type = ShapeType.Circle;
-    });
+  system.update(Material, (entity, material) => {
+    updateWasmMaterial(state, entity, material);
+    updateLegacyMaterial(state, entity, readShapeOptions(entity));
   });
-
-  system.update(Capsule, (e, capsule) => {
-    // Keep old valid shape if the new endpoints are degenerate (Box2D setter).
-    if (!hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)) {
-      console.warn("Capsule update ignored — endpoint distance <= LINEAR_SLOP (Box2D parity)");
-      return;
-    }
-    rebuildSingleShape(e.eid, state, (shape) => {
-      shape.geometry = {
-        kind: "capsule",
-        ax: capsule.x1,
-        ay: capsule.y1,
-        bx: capsule.x2,
-        by: capsule.y2,
-        radius: capsule.radius,
-      };
-      shape.type = ShapeType.Capsule;
-    });
+  system.update(CollisionFilter, (entity, filter) => {
+    updateWasmFilter(state, entity, filter);
+    updateLegacyMaterial(state, entity, readShapeOptions(entity));
   });
-
-  system.update(Segment, (e, segment) => {
-    // Keep old valid shape if the new endpoints are degenerate (Box2D setter).
-    if (!hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)) {
-      console.warn("Segment update ignored — endpoint distance <= LINEAR_SLOP (Box2D parity)");
-      return;
-    }
-    rebuildSingleShape(e.eid, state, (shape) => {
-      shape.geometry = {
-        kind: "segment",
-        ax: segment.x1,
-        ay: segment.y1,
-        bx: segment.x2,
-        by: segment.y2,
-      };
-      shape.type = ShapeType.Segment;
-    });
-  });
-
-  system.update(Polygon, (e, polygon) => {
-    if (polygon.vertices.length < 3) {
-      return;
-    }
-    const hull = computeHull(polygon.vertices);
-    if (hull.count < 3 || !validateHull(hull)) {
-      return;
-    }
-    const geom = makePolygon(hull, polygon.radius);
-    rebuildSingleShape(e.eid, state, (shape) => {
-      shape.geometry = geom;
-      shape.type = ShapeType.Polygon;
-    });
-  });
-
-  system.update(Chain, (e, chain) => {
-    const parentEntity = e.parent(ChildOf);
-    if (parentEntity === undefined) {
-      return;
-    }
-    const bodyHandle = state.bodyByEntity.get(parentEntity.eid);
-    if (bodyHandle === undefined) {
-      return;
-    }
-
-    // Destroy old segments.
-    const oldHandles = state.chainShapeByEntity.get(e.eid);
-    if (oldHandles !== undefined) {
-      for (const h of oldHandles) {
-        destroyShape(state, h);
-      }
-      state.chainShapeByEntity.delete(e.eid);
-    }
-
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const bodyXf = getBodyWorldTransform(state, bodyHandle);
-    const shapePos = e.get(ShapePosition) as ShapePosition | undefined;
-    const shapeRot = e.get(ShapeRotation) as ShapeRotation | undefined;
-    const lx = shapePos?.x ?? 0;
-    const ly = shapePos?.y ?? 0;
-    const lq = makeRot(shapeRot?.angle ?? 0);
-    const localXf: Transform = { p: { x: lx, y: ly }, q: lq };
-    const worldXf = mulTransforms(bodyXf, localXf);
-    const opts = readMaterialOpts(e);
-
-    enterChain(
-      e.eid,
-      chain,
-      worldXf,
-      localXf,
-      bodyHandle,
-      bodyRec.type,
-      bodyRec.setIndex,
-      opts,
-      state
-    );
-    bodyRec.massDirty = true;
-  });
-
-  // ── Update — reparenting ───────────────────────────────────────────────────
-
-  // Fires when ChildOf changes on a matched entity (the entity stays matched
-  // because its new parent also has Body; losing Body causes exit instead).
-  // Contacts on the old body that reference this shape are destroyed before
-  // the shape is relinked, mirroring the b2ResetProxy / b2DestroyShapeInternal
-  // contact teardown path (shape.c:1282-1294, shape.c:326-338).
-  system.update(ChildOf, (e, childOf) => {
-    const newParentEntity = (childOf as unknown as { target?: { eid: number } }).target;
-    if (newParentEntity === undefined) {
-      return;
-    }
-
-    const newBodyHandle = state.bodyByEntity.get(newParentEntity.eid);
-    if (newBodyHandle === undefined) {
-      return;
-    } // new parent is not a body
-
-    const newBodyRec = state.bodies.get(newBodyHandle.index);
-    const newBodyXf = getBodyWorldTransform(state, newBodyHandle);
-
-    // Chain reparent.
-    const chainHandles = state.chainShapeByEntity.get(e.eid);
-    if (chainHandles !== undefined) {
-      if (chainHandles.length === 0) {
-        return;
-      }
-      const firstSeg = state.shapes.get(chainHandles[0]!.index);
-      const oldBodyHandle = firstSeg.bodyHandle;
-      for (const h of chainHandles) {
-        const seg = state.shapes.get(h.index);
-        // Destroy contacts on the old body referencing this segment shape.
-        if (oldBodyHandle.index !== NULL_INDEX) {
-          const oldBodyRec = state.bodies.records[oldBodyHandle.index];
-          if (oldBodyRec !== undefined) {
-            destroyBodyContactsForShape(state, oldBodyHandle.index, h.index, false);
-          }
-        }
-        unlinkShapeFromBody(state, h, oldBodyHandle);
-        linkShapeToBody(state, h, newBodyHandle);
-        seg.bodyHandle = newBodyHandle;
-        const localXf: Transform = {
-          p: { x: seg.localX, y: seg.localY },
-          q: { c: seg.localCos, s: seg.localSin },
-        };
-        const worldXf = mulTransforms(newBodyXf, localXf);
-        const fatAABB = updateShapeAABBs(seg, worldXf, newBodyRec.type);
-        if (seg.proxyKey !== -1) {
-          state.broadPhase.destroyProxy(seg.proxyKey);
-          seg.proxyKey = -1;
-        }
-        if (newBodyRec.setIndex !== DISABLED_SET) {
-          seg.proxyKey = state.broadPhase.createProxy(
-            newBodyRec.type,
-            fatAABB,
-            seg.categoryBits,
-            h.index,
-            true // force pair creation (Box2D b2ShapeDef.invokeContactCreation)
-          );
-        }
-      }
-      if (oldBodyHandle.index !== NULL_INDEX) {
-        const oldRec = state.bodies.records[oldBodyHandle.index];
-        if (oldRec !== undefined) {
-          oldRec.massDirty = true;
-        }
-      }
-      newBodyRec.massDirty = true;
-      return;
-    }
-
-    // Single-shape reparent.
-    const handle = state.shapeByEntity.get(e.eid);
-    if (handle === undefined) {
-      return;
-    }
-
-    const shape = state.shapes.get(handle.index);
-    const oldBodyHandle = shape.bodyHandle;
-
-    // Destroy contacts on the old body that reference this shape before
-    // relinking. Mirrors b2ResetProxy (shape.c:1282-1294).
-    if (oldBodyHandle.index !== NULL_INDEX) {
-      const oldBodyRec = state.bodies.records[oldBodyHandle.index];
-      if (oldBodyRec !== undefined) {
-        destroyBodyContactsForShape(state, oldBodyHandle.index, handle.index, false);
-      }
-    }
-
-    unlinkShapeFromBody(state, handle, oldBodyHandle);
-    linkShapeToBody(state, handle, newBodyHandle);
-    shape.bodyHandle = newBodyHandle;
-
-    const localXf: Transform = {
-      p: { x: shape.localX, y: shape.localY },
-      q: { c: shape.localCos, s: shape.localSin },
-    };
-    const worldXf = mulTransforms(newBodyXf, localXf);
-    const fatAABB = updateShapeAABBs(shape, worldXf, newBodyRec.type);
-
-    if (shape.proxyKey !== -1) {
-      state.broadPhase.destroyProxy(shape.proxyKey);
-      shape.proxyKey = -1;
-    }
-    if (newBodyRec.setIndex !== DISABLED_SET) {
-      shape.proxyKey = state.broadPhase.createProxy(
-        newBodyRec.type,
-        fatAABB,
-        shape.categoryBits,
-        handle.index,
-        true // force pair creation (Box2D b2ShapeDef.invokeContactCreation)
-      );
-    }
-
-    if (oldBodyHandle.index !== NULL_INDEX) {
-      const oldRec = state.bodies.records[oldBodyHandle.index];
-      if (oldRec !== undefined) {
-        oldRec.massDirty = true;
-      }
-    }
-    newBodyRec.massDirty = true;
+  system.update(Sensor, (entity) => {
+    recreateShapeForEntity(state, entity);
   });
 
   return system;
 }
 
-// ─── Geometry-rebuild helper ──────────────────────────────────────────────────
+export function recreateShapeForEntity(state: PhysicsState, entity: Entity): void {
+  destroyShapeForEntity(state, entity, false);
+  createShapeForEntity(state, entity);
+}
 
-/** Rebuild a single (non-chain) shape after a geometry update. Recomputes the
- * world AABB, moves the broad-phase proxy, and marks massDirty. */
-function rebuildSingleShape(
-  eid: number,
-  state: PhysicsState,
-  mutateFn: (shape: InternalShape) => void
-): void {
-  const handle = state.shapeByEntity.get(eid);
-  if (handle === undefined) {
+function createShapeForEntity(state: PhysicsState, entity: Entity): void {
+  const parentEntity = entity.parent(ChildOf);
+  if (parentEntity === undefined) {
     return;
   }
-  const shape = state.shapes.get(handle.index);
+  const bodyId = state.bodyByEntityWasm.get(parentEntity.eid);
+  const bodyHandle = state.bodyByEntity.get(parentEntity.eid);
+  if (bodyId === undefined || bodyHandle === undefined) {
+    return;
+  }
 
-  // Destroy contacts referencing this shape before mutating its geometry.
-  // Mirrors b2ResetProxy (shape.c:1282-1294): all contacts for the shape are
-  // destroyed so the old pair keys leave pairSet, allowing the pair to
-  // re-emit and re-evaluate against the new geometry next step.
+  const options = readShapeOptions(entity);
+  const pose = readLocalPose(entity);
+  const chain = entity.get(Chain);
+  if (chain !== undefined) {
+    createChain(state, entity, bodyId, bodyHandle, chain, options, pose);
+    return;
+  }
+
+  const created = createSingleShape(state, entity, bodyId, bodyHandle, options, pose);
+  if (created !== undefined) {
+    state.shapeByEntityWasm.set(entity.eid, created.shapeId);
+    state.entityByShape.set(created.shapeId, entity.eid);
+    state.shapeByEntity.set(entity.eid, created.legacyHandle);
+    state.shapeEntityByEid.set(entity.eid, entity);
+  }
+}
+
+function destroyShapeForEntity(
+  state: PhysicsState,
+  entity: Entity,
+  allowCascadeSkip: boolean
+): void {
+  const chainId = state.chainByEntity.get(entity.eid);
+  if (chainId !== undefined) {
+    const parentBodyExists = parentBodyStillExists(state, entity);
+    if (!allowCascadeSkip || parentBodyExists || state.box2d.b2Chain_IsValid(chainId)) {
+      if (state.box2d.b2Chain_IsValid(chainId)) {
+        state.box2d.b2DestroyChain(chainId);
+      }
+    }
+    state.chainByEntity.delete(entity.eid);
+  }
+
+  const chainHandles = state.chainShapeByEntity.get(entity.eid);
+  if (chainHandles !== undefined) {
+    const bodyHandle = getFirstBodyHandle(state, chainHandles);
+    for (const handle of chainHandles) {
+      destroyLegacyShape(state, handle);
+    }
+    state.chainShapeByEntity.delete(entity.eid);
+    markLegacyBodyMassDirty(state, bodyHandle);
+  }
+
+  const shapeId = state.shapeByEntityWasm.get(entity.eid);
+  if (shapeId !== undefined) {
+    const parentBodyExists = parentBodyStillExists(state, entity);
+    if ((!allowCascadeSkip || parentBodyExists) && state.box2d.b2Shape_IsValid(shapeId)) {
+      state.box2d.b2DestroyShape(shapeId, true);
+    }
+    state.shapeByEntityWasm.delete(entity.eid);
+    state.entityByShape.delete(shapeId);
+  }
+
+  const handle = state.shapeByEntity.get(entity.eid);
+  if (handle !== undefined) {
+    const shape = getLegacyShape(state, handle);
+    const bodyHandle = shape?.bodyHandle;
+    destroyLegacyShape(state, handle);
+    state.shapeByEntity.delete(entity.eid);
+    markLegacyBodyMassDirty(state, bodyHandle);
+  }
+}
+
+function createSingleShape(
+  state: PhysicsState,
+  entity: Entity,
+  bodyId: b2BodyId,
+  bodyHandle: BodyHandle,
+  options: ShapeOptions,
+  pose: { x: number; y: number; angle: number }
+): { shapeId: b2ShapeId; legacyHandle: ShapeHandle } | undefined {
+  const box2d = state.box2d;
+  return withAllocated(box2d.b2DefaultShapeDef, (def) => {
+    applyShapeDef(def, options);
+
+    const box = entity.get(Box);
+    if (box !== undefined) {
+      return withAllocated(
+        () => new box2d.b2Vec2(pose.x, pose.y),
+        (center) =>
+          withAllocated(
+            () => new box2d.b2Rot(),
+            (rot) => {
+              rot.SetAngle(pose.angle);
+              const polygon = box2d.b2MakeOffsetBox(box.hx, box.hy, center, rot);
+              try {
+                const shapeId = box2d.b2CreatePolygonShape(bodyId, def, polygon);
+                const legacyHandle = createLegacyShape(
+                  state,
+                  entity,
+                  bodyHandle,
+                  makeLegacyBox(box.hx, box.hy),
+                  ShapeType.Polygon,
+                  options,
+                  pose
+                );
+                return { shapeId, legacyHandle };
+              } finally {
+                polygon.delete();
+              }
+            }
+          )
+      );
+    }
+
+    const circle = entity.get(Circle);
+    if (circle !== undefined) {
+      return withAllocated(
+        () => new box2d.b2Circle(),
+        (shape) => {
+          shape.center.Set(pose.x, pose.y);
+          shape.radius = circle.radius;
+          const shapeId = box2d.b2CreateCircleShape(bodyId, def, shape);
+          const legacyHandle = createLegacyShape(
+            state,
+            entity,
+            bodyHandle,
+            { kind: "circle", cx: 0, cy: 0, radius: circle.radius },
+            ShapeType.Circle,
+            options,
+            pose
+          );
+          return { shapeId, legacyHandle };
+        }
+      );
+    }
+
+    const capsule = entity.get(Capsule);
+    if (capsule !== undefined) {
+      if (!hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)) {
+        return undefined;
+      }
+      return withAllocated(
+        () => new box2d.b2Capsule(),
+        (shape) => {
+          shape.center1.Set(capsule.x1 + pose.x, capsule.y1 + pose.y);
+          shape.center2.Set(capsule.x2 + pose.x, capsule.y2 + pose.y);
+          shape.radius = capsule.radius;
+          const shapeId = box2d.b2CreateCapsuleShape(bodyId, def, shape);
+          const legacyHandle = createLegacyShape(
+            state,
+            entity,
+            bodyHandle,
+            {
+              kind: "capsule",
+              ax: capsule.x1,
+              ay: capsule.y1,
+              bx: capsule.x2,
+              by: capsule.y2,
+              radius: capsule.radius,
+            },
+            ShapeType.Capsule,
+            options,
+            pose
+          );
+          return { shapeId, legacyHandle };
+        }
+      );
+    }
+
+    const segment = entity.get(Segment);
+    if (segment !== undefined) {
+      if (!hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)) {
+        return undefined;
+      }
+      return withAllocated(
+        () => new box2d.b2Segment(),
+        (shape) => {
+          shape.point1.Set(segment.x1 + pose.x, segment.y1 + pose.y);
+          shape.point2.Set(segment.x2 + pose.x, segment.y2 + pose.y);
+          const shapeId = box2d.b2CreateSegmentShape(bodyId, def, shape);
+          const legacyHandle = createLegacyShape(
+            state,
+            entity,
+            bodyHandle,
+            { kind: "segment", ax: segment.x1, ay: segment.y1, bx: segment.x2, by: segment.y2 },
+            ShapeType.Segment,
+            options,
+            pose
+          );
+          return { shapeId, legacyHandle };
+        }
+      );
+    }
+
+    const polygon = entity.get(Polygon);
+    if (polygon !== undefined) {
+      return createPolygonShape(state, entity, bodyId, bodyHandle, def, polygon, options, pose);
+    }
+
+    return undefined;
+  });
+}
+
+function createPolygonShape(
+  state: PhysicsState,
+  entity: Entity,
+  bodyId: b2BodyId,
+  bodyHandle: BodyHandle,
+  def: ReturnType<Box2DModule["b2DefaultShapeDef"]>,
+  polygon: Polygon,
+  options: ShapeOptions,
+  pose: { x: number; y: number; angle: number }
+): { shapeId: b2ShapeId; legacyHandle: ShapeHandle } | undefined {
+  if (polygon.vertices.length > MAX_POLYGON_VERTICES || polygon.vertices.length < 3) {
+    warnInvalidPolygon(entity);
+    return undefined;
+  }
+
+  const box2d = state.box2d;
+  const points = polygon.vertices.map((point) => new box2d.b2Vec2(point.x, point.y));
+  try {
+    const hull = box2d.b2ComputeHull(points);
+    try {
+      if (hull.count < 3) {
+        warnInvalidPolygon(entity);
+        return undefined;
+      }
+      const wasmPolygon = box2d.b2MakePolygon(hull, polygon.radius);
+      try {
+        const shapeId = box2d.b2CreatePolygonShape(bodyId, def, wasmPolygon);
+        const legacyGeometry = makeLegacyPolygonFromHull(hull, polygon.radius);
+        const legacyHandle = createLegacyShape(
+          state,
+          entity,
+          bodyHandle,
+          legacyGeometry,
+          ShapeType.Polygon,
+          options,
+          pose
+        );
+        return { shapeId, legacyHandle };
+      } finally {
+        wasmPolygon.delete();
+      }
+    } finally {
+      hull.delete();
+    }
+  } finally {
+    for (const point of points) {
+      point.delete();
+    }
+  }
+}
+
+function createChain(
+  state: PhysicsState,
+  entity: Entity,
+  bodyId: b2BodyId,
+  bodyHandle: BodyHandle,
+  chain: Chain,
+  options: ShapeOptions,
+  pose: { x: number; y: number; angle: number }
+): void {
+  if (chain.points.length < 4) {
+    warnTooFewChainPoints(entity, chain.points.length);
+    return;
+  }
+
+  const box2d = state.box2d;
+  const points = chain.points.map((point) => new box2d.b2Vec2(point.x, point.y));
+  try {
+    const chainId = withAllocated(box2d.b2DefaultChainDef, (def) => {
+      applyChainDef(def, options);
+      def.isLoop = chain.loop;
+      def.count = points.length;
+      def.SetPoints(points);
+      return box2d.b2CreateChain(bodyId, def);
+    });
+    state.chainByEntity.set(entity.eid, chainId);
+    state.chainShapeByEntity.set(
+      entity.eid,
+      createLegacyChainShapes(state, entity, bodyHandle, chain, options, pose)
+    );
+    state.shapeEntityByEid.set(entity.eid, entity);
+  } finally {
+    for (const point of points) {
+      point.delete();
+    }
+  }
+}
+
+function applyShapeDef(
+  def: ReturnType<Box2DModule["b2DefaultShapeDef"]>,
+  options: ShapeOptions
+): void {
+  def.density = options.density;
+  def.isSensor = options.sensor;
+  def.enableSensorEvents = options.enableSensorEvents;
+  def.enableContactEvents = options.enableContactEvents;
+  def.enableHitEvents = options.enableHitEvents;
+  def.filter.categoryBits = options.categoryBits;
+  def.filter.maskBits = options.maskBits;
+  def.filter.groupIndex = options.groupIndex;
+  def.material.friction = options.friction;
+  def.material.restitution = options.restitution;
+  def.material.rollingResistance = options.rollingResistance;
+  def.material.tangentSpeed = options.tangentSpeed;
+  def.material.userMaterialId = BigInt(options.userMaterialId);
+}
+
+function applyChainDef(
+  def: ReturnType<Box2DModule["b2DefaultChainDef"]>,
+  options: ShapeOptions
+): void {
+  def.filter.categoryBits = options.categoryBits;
+  def.filter.maskBits = options.maskBits;
+  def.filter.groupIndex = options.groupIndex;
+  const material = def.GetMaterials()[0];
+  material.friction = options.friction;
+  material.restitution = options.restitution;
+  material.rollingResistance = options.rollingResistance;
+  material.tangentSpeed = options.tangentSpeed;
+  material.userMaterialId = BigInt(options.userMaterialId);
+  def.materialCount = 1;
+  def.enableSensorEvents = options.enableSensorEvents;
+}
+
+function readShapeOptions(entity: Entity): ShapeOptions {
+  const material = entity.get(Material);
+  const filter = entity.get(CollisionFilter);
+  return {
+    density: material?.density ?? 1,
+    friction: material?.friction ?? 0.6,
+    restitution: material?.restitution ?? 0,
+    rollingResistance: material?.rollingResistance ?? 0,
+    tangentSpeed: material?.tangentSpeed ?? 0,
+    userMaterialId: material?.userMaterialId ?? 0,
+    categoryBits: filter?.categoryBits ?? 1,
+    maskBits: filter?.maskBits ?? 0xffffffff,
+    groupIndex: filter?.groupIndex ?? 0,
+    sensor: entity.get(Sensor) !== undefined,
+    enableContactEvents: entity.get(ContactEvents) !== undefined,
+    enableHitEvents: entity.get(HitEvents) !== undefined,
+    enableSensorEvents: entity.get(SensorEvents) !== undefined,
+  };
+}
+
+function readLocalPose(entity: Entity): { x: number; y: number; angle: number } {
+  return {
+    x: entity.get(ShapePosition)?.x ?? 0,
+    y: entity.get(ShapePosition)?.y ?? 0,
+    angle: entity.get(ShapeRotation)?.angle ?? 0,
+  };
+}
+
+function updateWasmMaterial(state: PhysicsState, entity: Entity, material: Material): void {
+  const shapeId = state.shapeByEntityWasm.get(entity.eid);
+  if (shapeId !== undefined) {
+    state.box2d.b2Shape_SetDensity(shapeId, material.density, true);
+    state.box2d.b2Shape_SetFriction(shapeId, material.friction);
+    state.box2d.b2Shape_SetRestitution(shapeId, material.restitution);
+  }
+}
+
+function updateWasmFilter(state: PhysicsState, entity: Entity, filter: CollisionFilter): void {
+  const shapeId = state.shapeByEntityWasm.get(entity.eid);
+  if (shapeId === undefined) {
+    return;
+  }
+  withAllocated(
+    () => new state.box2d.b2Filter(),
+    (wasmFilter) => {
+      wasmFilter.categoryBits = filter.categoryBits;
+      wasmFilter.maskBits = filter.maskBits;
+      wasmFilter.groupIndex = filter.groupIndex;
+      state.box2d.b2Shape_SetFilter(shapeId, wasmFilter);
+    }
+  );
+}
+
+function updateLegacyMaterial(state: PhysicsState, entity: Entity, options: ShapeOptions): void {
+  const handle = state.shapeByEntity.get(entity.eid);
+  if (handle !== undefined) {
+    const shape = getLegacyShape(state, handle);
+    if (shape) {
+      const densityChanged = shape.density !== options.density;
+      applyLegacyOptions(shape, options);
+      if (densityChanged) {
+        markLegacyBodyMassDirty(state, shape.bodyHandle);
+      }
+    }
+  }
+  const handles = state.chainShapeByEntity.get(entity.eid);
+  if (handles !== undefined) {
+    for (const chainHandle of handles) {
+      const shape = getLegacyShape(state, chainHandle);
+      if (shape) {
+        const densityChanged = shape.density !== options.density;
+        applyLegacyOptions(shape, options);
+        if (densityChanged) {
+          markLegacyBodyMassDirty(state, shape.bodyHandle);
+        }
+      }
+    }
+  }
+}
+
+function createLegacyShape(
+  state: PhysicsState,
+  entity: Entity,
+  bodyHandle: BodyHandle,
+  geometry: GeometryUnion,
+  type: ShapeType,
+  options: ShapeOptions,
+  pose: { x: number; y: number; angle: number }
+): ShapeHandle {
+  const q = makeRot(pose.angle);
+  const legacyShape = makeLegacyShape(
+    type,
+    geometry,
+    pose.x,
+    pose.y,
+    q.c,
+    q.s,
+    entity.eid,
+    bodyHandle,
+    options
+  );
+  const bodyRec = state.bodies.get(bodyHandle.index);
+  const worldXf = composeLegacyWorldTransform(state, bodyHandle, legacyShape);
+  updateLegacyAabbs(legacyShape, worldXf, bodyRec.type);
+  const handle = state.shapes.idPool.allocate();
+  legacyShape.shapeIndex = handle.index;
+  state.shapes.records[handle.index] = legacyShape as never;
+  linkLegacyShapeToBody(state, handle, bodyHandle);
+  if (bodyRec.setIndex !== DISABLED_SET) {
+    legacyShape.proxyKey = state.broadPhase.createProxy(
+      bodyRec.type,
+      legacyFatAabb(legacyShape),
+      options.categoryBits,
+      handle.index,
+      true
+    );
+  }
+  if (legacyShape.sensor) {
+    legacyShape.sensorIndex = state.sensors.create(handle.index);
+  }
+  bodyRec.massDirty = true;
+  return handle;
+}
+
+function createLegacyChainShapes(
+  state: PhysicsState,
+  entity: Entity,
+  bodyHandle: BodyHandle,
+  chain: Chain,
+  options: ShapeOptions,
+  pose: { x: number; y: number; angle: number }
+): ShapeHandle[] {
+  const handles: ShapeHandle[] = [];
+  const n = chain.points.length;
+  const segmentCount = chain.loop ? n : n - 1;
+  for (let i = 0; i < segmentCount; i++) {
+    const a = chain.points[i]!;
+    const b = chain.points[(i + 1) % n]!;
+    if (!hasValidEndpoints(a.x, a.y, b.x, b.y)) {
+      continue;
+    }
+    const ghost1 = chain.loop
+      ? chain.points[(i - 1 + n) % n]!
+      : i === 0
+        ? reflect(a, b)
+        : chain.points[i - 1]!;
+    const ghost2 = chain.loop
+      ? chain.points[(i + 2) % n]!
+      : i === segmentCount - 1
+        ? reflect(b, a)
+        : chain.points[i + 2]!;
+    handles.push(
+      createLegacyShape(
+        state,
+        entity,
+        bodyHandle,
+        {
+          kind: "chainSegment",
+          ghost1X: ghost1.x,
+          ghost1Y: ghost1.y,
+          ax: a.x,
+          ay: a.y,
+          bx: b.x,
+          by: b.y,
+          ghost2X: ghost2.x,
+          ghost2Y: ghost2.y,
+          chainId: 0,
+        },
+        ShapeType.ChainSegment,
+        options,
+        pose
+      )
+    );
+  }
+  return handles;
+}
+
+function makeLegacyShape(
+  type: ShapeType,
+  geometry: GeometryUnion,
+  localX: number,
+  localY: number,
+  localCos: number,
+  localSin: number,
+  eid: number,
+  bodyHandle: BodyHandle,
+  options: ShapeOptions
+): LegacyShape {
+  const centroid = legacyCentroid(geometry);
+  const shape: LegacyShape = {
+    type,
+    geometry,
+    localX,
+    localY,
+    localCos,
+    localSin,
+    localCentroidX: centroid.x,
+    localCentroidY: centroid.y,
+    aabbMinX: 0,
+    aabbMinY: 0,
+    aabbMaxX: 0,
+    aabbMaxY: 0,
+    proxyKey: -1,
+    fatAabbMinX: 0,
+    fatAabbMinY: 0,
+    fatAabbMaxX: 0,
+    fatAabbMaxY: 0,
+    bodyHandle,
+    entity: eid,
+    prevShape: NULL_INDEX,
+    nextShape: NULL_INDEX,
+    sensorIndex: -1,
+    aabbMargin: computeShapeMargin(geometry),
+    enlargedAABB: false,
+    shapeIndex: NULL_INDEX,
+    density: 1,
+    friction: 0.6,
+    restitution: 0,
+    rollingResistance: 0,
+    tangentSpeed: 0,
+    userMaterialId: 0,
+    categoryBits: 1,
+    maskBits: 0xffffffff,
+    groupIndex: 0,
+    sensor: false,
+    enableContactEvents: false,
+    enableHitEvents: false,
+    enableSensorEvents: false,
+  };
+  applyLegacyOptions(shape, options);
+  return shape;
+}
+
+function applyLegacyOptions(shape: LegacyShape, options: ShapeOptions): void {
+  shape.density = options.density;
+  shape.friction = options.friction;
+  shape.restitution = options.restitution;
+  shape.rollingResistance = options.rollingResistance;
+  shape.tangentSpeed = options.tangentSpeed;
+  shape.userMaterialId = options.userMaterialId;
+  shape.categoryBits = options.categoryBits;
+  shape.maskBits = options.maskBits;
+  shape.groupIndex = options.groupIndex;
+  shape.sensor = options.sensor;
+  shape.enableContactEvents = options.enableContactEvents;
+  shape.enableHitEvents = options.enableHitEvents;
+  shape.enableSensorEvents = options.enableSensorEvents;
+}
+
+function destroyLegacyShape(state: PhysicsState, handle: ShapeHandle): void {
+  const shape = getLegacyShape(state, handle);
+  if (shape === undefined) {
+    return;
+  }
+  if (shape.sensor && shape.sensorIndex !== -1) {
+    destroySensor(state, shape.sensorIndex);
+    shape.sensorIndex = -1;
+  }
   if (shape.bodyHandle.index !== NULL_INDEX) {
     const bodyRec = state.bodies.records[shape.bodyHandle.index];
     if (bodyRec !== undefined) {
       destroyBodyContactsForShape(state, shape.bodyHandle.index, handle.index, false);
     }
   }
-
-  mutateFn(shape);
-
-  const bodyXf = getBodyWorldTransform(state, shape.bodyHandle);
-  const localXf: Transform = {
-    p: { x: shape.localX, y: shape.localY },
-    q: { c: shape.localCos, s: shape.localSin },
-  };
-  const worldXf = mulTransforms(bodyXf, localXf);
-  const bodyType = state.bodies.get(shape.bodyHandle.index).type;
-  const fatAABB = updateShapeAABBs(shape, worldXf, bodyType);
-
-  // Only move the proxy if it exists (disabled bodies have no proxy).
   if (shape.proxyKey !== -1) {
-    state.broadPhase.moveProxy(shape.proxyKey, fatAABB);
+    state.broadPhase.destroyProxy(shape.proxyKey);
+    shape.proxyKey = -1;
   }
-  state.bodies.get(shape.bodyHandle.index).massDirty = true;
+  unlinkLegacyShapeFromBody(state, handle, shape.bodyHandle);
+  state.shapes.records[handle.index] = undefined;
+  state.shapes.idPool.free(handle);
+}
+
+function getLegacyShape(state: PhysicsState, handle: ShapeHandle): LegacyShape | undefined {
+  return state.shapes.records[handle.index] as LegacyShape | undefined;
+}
+
+function linkLegacyShapeToBody(
+  state: PhysicsState,
+  handle: ShapeHandle,
+  bodyHandle: BodyHandle
+): void {
+  const bodyRec = state.bodies.get(bodyHandle.index);
+  const shape = getLegacyShape(state, handle)!;
+  if (bodyRec.shapeHead !== NULL_INDEX) {
+    getLegacyShape(state, { index: bodyRec.shapeHead, generation: 0 } as ShapeHandle)!.prevShape =
+      handle.index;
+  }
+  shape.prevShape = NULL_INDEX;
+  shape.nextShape = bodyRec.shapeHead;
+  bodyRec.shapeHead = handle.index;
+  bodyRec.shapeCount += 1;
+}
+
+function unlinkLegacyShapeFromBody(
+  state: PhysicsState,
+  handle: ShapeHandle,
+  bodyHandle: BodyHandle
+): void {
+  const bodyRec = state.bodies.records[bodyHandle.index];
+  const shape = getLegacyShape(state, handle);
+  if (bodyRec === undefined || shape === undefined) {
+    return;
+  }
+  if (shape.prevShape !== NULL_INDEX) {
+    const prev = state.shapes.records[shape.prevShape] as LegacyShape | undefined;
+    if (prev) {
+      prev.nextShape = shape.nextShape;
+    }
+  } else {
+    bodyRec.shapeHead = shape.nextShape;
+  }
+  if (shape.nextShape !== NULL_INDEX) {
+    const next = state.shapes.records[shape.nextShape] as LegacyShape | undefined;
+    if (next) {
+      next.prevShape = shape.prevShape;
+    }
+  }
+  bodyRec.shapeCount -= 1;
+}
+
+function parentBodyStillExists(state: PhysicsState, entity: Entity): boolean {
+  const parent = entity.parent(ChildOf);
+  return parent !== undefined && state.bodyByEntityWasm.has(parent.eid);
+}
+
+function getFirstBodyHandle(state: PhysicsState, handles: ShapeHandle[]): BodyHandle | undefined {
+  const first = handles[0];
+  return first === undefined ? undefined : getLegacyShape(state, first)?.bodyHandle;
+}
+
+function markLegacyBodyMassDirty(state: PhysicsState, bodyHandle: BodyHandle | undefined): void {
+  if (bodyHandle === undefined || bodyHandle.index === NULL_INDEX) {
+    return;
+  }
+  const body = state.bodies.records[bodyHandle.index];
+  if (body !== undefined) {
+    body.massDirty = true;
+  }
+}
+
+function composeLegacyWorldTransform(
+  state: PhysicsState,
+  bodyHandle: BodyHandle,
+  shape: LegacyShape
+): Transform {
+  const bodyRec = state.bodies.get(bodyHandle.index);
+  const sim = state.solverSets[bodyRec.setIndex]!.bodySims[bodyRec.localIndex]!;
+  const bx = sim.transformX;
+  const by = sim.transformY;
+  const bc = sim.cos;
+  const bs = sim.sin;
+  const x = bx + bc * shape.localX - bs * shape.localY;
+  const y = by + bs * shape.localX + bc * shape.localY;
+  return {
+    p: { x, y },
+    q: {
+      c: bc * shape.localCos - bs * shape.localSin,
+      s: bs * shape.localCos + bc * shape.localSin,
+    },
+  };
+}
+
+function updateLegacyAabbs(shape: LegacyShape, xf: Transform, bodyType: number): void {
+  const raw = computeAabb(shape.geometry, xf);
+  const spec = SPECULATIVE_DISTANCE;
+  shape.aabbMinX = raw.lowerBound.x - spec;
+  shape.aabbMinY = raw.lowerBound.y - spec;
+  shape.aabbMaxX = raw.upperBound.x + spec;
+  shape.aabbMaxY = raw.upperBound.y + spec;
+  const extra = bodyType === STATIC_BODY ? spec : shape.aabbMargin;
+  shape.fatAabbMinX = shape.aabbMinX - extra;
+  shape.fatAabbMinY = shape.aabbMinY - extra;
+  shape.fatAabbMaxX = shape.aabbMaxX + extra;
+  shape.fatAabbMaxY = shape.aabbMaxY + extra;
+}
+
+function legacyFatAabb(shape: LegacyShape) {
+  return {
+    lowerBound: { x: shape.fatAabbMinX, y: shape.fatAabbMinY },
+    upperBound: { x: shape.fatAabbMaxX, y: shape.fatAabbMaxY },
+  };
+}
+
+function makeLegacyBox(hx: number, hy: number): GeometryUnion {
+  return {
+    kind: "polygon",
+    vertices: new Float32Array([-hx, -hy, hx, -hy, hx, hy, -hx, hy]),
+    normals: new Float32Array([0, -1, 1, 0, 0, 1, -1, 0]),
+    count: 4,
+    radius: 0,
+    centroidX: 0,
+    centroidY: 0,
+  };
+}
+
+function makeLegacyPolygonFromHull(
+  hull: ReturnType<Box2DModule["b2ComputeHull"]>,
+  radius: number
+): GeometryUnion {
+  const vertices = new Float32Array(hull.count * 2);
+  for (let i = 0; i < hull.count; i++) {
+    const point = hull.getPoint(i);
+    vertices[i * 2] = point.x;
+    vertices[i * 2 + 1] = point.y;
+  }
+  const normals = new Float32Array(hull.count * 2);
+  for (let i = 0; i < hull.count; i++) {
+    const j = i + 1 < hull.count ? i + 1 : 0;
+    const ex = vertices[j * 2]! - vertices[i * 2]!;
+    const ey = vertices[j * 2 + 1]! - vertices[i * 2 + 1]!;
+    const len = Math.hypot(ex, ey);
+    if (len > 0) {
+      normals[i * 2] = ey / len;
+      normals[i * 2 + 1] = -ex / len;
+    }
+  }
+  const centroid = computePolygonCentroid(vertices, hull.count);
+  return {
+    kind: "polygon",
+    vertices,
+    normals,
+    count: hull.count,
+    radius,
+    centroidX: centroid.x,
+    centroidY: centroid.y,
+  };
+}
+
+function computeAabb(geom: GeometryUnion, xf: Transform) {
+  if (geom.kind === "circle") {
+    const center = transformPoint(xf, { x: geom.cx, y: geom.cy });
+    return {
+      lowerBound: { x: center.x - geom.radius, y: center.y - geom.radius },
+      upperBound: { x: center.x + geom.radius, y: center.y + geom.radius },
+    };
+  }
+  if (geom.kind === "capsule") {
+    const a = transformPoint(xf, { x: geom.ax, y: geom.ay });
+    const b = transformPoint(xf, { x: geom.bx, y: geom.by });
+    return {
+      lowerBound: { x: Math.min(a.x, b.x) - geom.radius, y: Math.min(a.y, b.y) - geom.radius },
+      upperBound: { x: Math.max(a.x, b.x) + geom.radius, y: Math.max(a.y, b.y) + geom.radius },
+    };
+  }
+  if (geom.kind === "segment" || geom.kind === "chainSegment") {
+    const a = transformPoint(xf, { x: geom.ax, y: geom.ay });
+    const b = transformPoint(xf, { x: geom.bx, y: geom.by });
+    return {
+      lowerBound: { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y) },
+      upperBound: { x: Math.max(a.x, b.x), y: Math.max(a.y, b.y) },
+    };
+  }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < geom.count; i++) {
+    const point = transformPoint(xf, { x: geom.vertices[i * 2]!, y: geom.vertices[i * 2 + 1]! });
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+  return {
+    lowerBound: { x: minX - geom.radius, y: minY - geom.radius },
+    upperBound: { x: maxX + geom.radius, y: maxY + geom.radius },
+  };
+}
+
+function computeShapeMargin(geom: GeometryUnion): number {
+  let raw = 0;
+  if (geom.kind === "circle") {
+    raw = geom.radius;
+  } else if (geom.kind === "capsule") {
+    raw = 0.5 * Math.hypot(geom.bx - geom.ax, geom.by - geom.ay) + geom.radius;
+  } else if (geom.kind === "segment" || geom.kind === "chainSegment") {
+    raw = 0.5 * Math.hypot(geom.bx - geom.ax, geom.by - geom.ay);
+  } else {
+    for (let i = 0; i < geom.count; i++) {
+      raw = Math.max(
+        raw,
+        Math.hypot(
+          geom.vertices[i * 2]! - geom.centroidX,
+          geom.vertices[i * 2 + 1]! - geom.centroidY
+        )
+      );
+    }
+  }
+  return Math.min(MAX_AABB_MARGIN, 0.1 * raw);
+}
+
+function legacyCentroid(geom: GeometryUnion): { x: number; y: number } {
+  if (geom.kind === "circle") {
+    return { x: geom.cx, y: geom.cy };
+  }
+  if (geom.kind === "capsule" || geom.kind === "segment" || geom.kind === "chainSegment") {
+    return { x: 0.5 * (geom.ax + geom.bx), y: 0.5 * (geom.ay + geom.by) };
+  }
+  return { x: geom.centroidX, y: geom.centroidY };
+}
+
+function computePolygonCentroid(vertices: Float32Array, count: number): { x: number; y: number } {
+  let cx = 0;
+  let cy = 0;
+  let area = 0;
+  const ox = vertices[0]!;
+  const oy = vertices[1]!;
+  for (let i = 1; i < count - 1; i++) {
+    const e1x = vertices[i * 2]! - ox;
+    const e1y = vertices[i * 2 + 1]! - oy;
+    const e2x = vertices[(i + 1) * 2]! - ox;
+    const e2y = vertices[(i + 1) * 2 + 1]! - oy;
+    const a = 0.5 * (e1x * e2y - e1y * e2x);
+    cx += (a * (e1x + e2x)) / 3;
+    cy += (a * (e1y + e2y)) / 3;
+    area += a;
+  }
+  return { x: ox + cx / area, y: oy + cy / area };
+}
+
+function hasValidEndpoints(ax: number, ay: number, bx: number, by: number): boolean {
+  return (bx - ax) ** 2 + (by - ay) ** 2 > LINEAR_SLOP * LINEAR_SLOP;
+}
+
+function reflect(a: Vec2, b: Vec2): Vec2 {
+  return { x: 2 * a.x - b.x, y: 2 * a.y - b.y };
+}
+
+function warnInvalidPolygon(entity: Entity): void {
+  console.warn(
+    `Entity${entity.eid} has Polygon with invalid or non-convex vertices. [polygon-invalid]`
+  );
+}
+
+function warnTooFewChainPoints(entity: Entity, count: number): void {
+  console.warn(
+    `Entity${entity.eid} has Chain with ${count} point(s); at least 4 are required. [chain-too-few-points]`
+  );
 }

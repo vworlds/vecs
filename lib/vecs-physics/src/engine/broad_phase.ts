@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Broad-phase collision detection: three BVH trees (one per body type) plus
 // move-buffering and pair-set de-duplication.
 //

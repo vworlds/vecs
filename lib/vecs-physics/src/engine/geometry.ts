@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Geometry helpers ported from box2d/src/geometry.c and box2d/src/hull.c.
 //
 // VP-8 scope: shape construction, AABB computation, point-in-shape tests.

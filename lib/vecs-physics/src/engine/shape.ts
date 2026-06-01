@@ -1,3 +1,4 @@
+// Transitional stub kept alive for surviving engine code; full deletion happens in M7-10.
 // Internal shape model. The engine-layer counterpart to the public geometry
 // components (Box, Circle, Capsule, Segment, Polygon, Chain).
 //
