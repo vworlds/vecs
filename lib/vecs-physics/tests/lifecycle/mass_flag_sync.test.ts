@@ -10,7 +10,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { Body, BodyType, Circle, Sensor, installPhysics } from "../../src/index.js";
 import { getPhysics } from "../../src/adapter/state.js";
-import { PI } from "../../src/math/constants.js";
+
+const PI = Math.PI;
 
 let world: World;
 

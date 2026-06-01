@@ -33,7 +33,7 @@ import {
   Sleep,
   Torque,
 } from "../../src/index.js";
-import { getPhysics } from "../../src/engine/state.js";
+import { getPhysics } from "../../src/adapter/state.js";
 
 const PUBLIC_COMPONENTS = [
   Position,
@@ -134,9 +134,8 @@ describe("installPhysics", () => {
     expect(state.maximumLinearSpeed).toBe(400);
     expect(state.enableSleep).toBe(true);
     expect(state.enableContinuous).toBe(true);
-    expect(state.bodyByEntity.size).toBe(0);
-    expect(state.shapeByEntity.size).toBe(0);
-    expect(state.stepIndex).toBe(0);
+    expect(state.bodyByEntityWasm.size).toBe(0);
+    expect(state.shapeByEntityWasm.size).toBe(0);
   });
 
   it("applies overridden options onto the PhysicsState", () => {
@@ -162,7 +161,7 @@ describe("installPhysics", () => {
     installPhysics(world);
     expect(() => world.start()).not.toThrow();
     // State is still reachable after start.
-    expect(getPhysics(world).stepIndex).toBe(0);
+    expect(getPhysics(world).worldId).toBeDefined();
   });
 
   it("throws if installed twice on the same world", () => {

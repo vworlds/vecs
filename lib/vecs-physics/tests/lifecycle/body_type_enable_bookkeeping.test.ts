@@ -1,18 +1,16 @@
-// M3-body-type-enable-bookkeeping regression tests.
+// Body type/enable bookkeeping regression tests.
 //
-// Verifies that runtime type and enabled changes correctly update:
-//   - DYNAMIC_FLAG on sim.flags and state.flags
-//   - massDirty (so mass recomputes on next frame)
-//   - island membership (createIslandForBody / removeBodyFromIsland)
+// Verifies that runtime type and enabled changes correctly update the WASM body:
+//   - Body type is reflected via b2Body_GetType
+//   - Enabled state is reflected via b2Body_IsEnabled
+//   - Mass recomputes correctly after type change (via b2Body_GetMass)
+//   - Awake/sleep state is maintained across type changes
 
 import { ChildOf, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Circle, Position, Sleep, installPhysics } from "../../src/index.js";
-import { DYNAMIC_BODY, DYNAMIC_FLAG, KINEMATIC_BODY, STATIC_BODY } from "../../src/engine/body.js";
-import { AWAKE_SET, DISABLED_SET, STATIC_SET } from "../../src/engine/solver_set.js";
 import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
-import { NULL_INDEX } from "../../src/util/handle.js";
 
 const STEP_MS = 1000 / 60;
 
@@ -35,200 +33,161 @@ function step(n = 1): void {
   }
 }
 
-// ─── Dynamic flag synchronisation ─────────────────────────────────────────────
+function wasmBodyId(eid: number) {
+  const bodyId = state.bodyByEntityWasm.get(eid);
+  if (bodyId === undefined) {
+    throw new Error(`missing wasm body for entity ${eid}`);
+  }
+  return bodyId;
+}
 
-describe("DYNAMIC_FLAG on type change", () => {
-  it("static→dynamic: sets DYNAMIC_FLAG on sim.flags and bodyState.flags", () => {
+// ─── Body type synchronisation ────────────────────────────────────────────────
+
+describe("WASM body type on type change", () => {
+  it("static→dynamic: b2Body_GetType returns dynamic", () => {
     const e = world.entity().set(Body, { type: BodyType.Static });
     step();
 
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
-    const sim = state.solverSets[STATIC_SET]!.bodySims[record.localIndex]!;
-    expect(sim.flags & DYNAMIC_FLAG).toBe(0); // static: no dynamic flag
+    expect(state.box2d.b2Body_GetType(wasmBodyId(e.eid))).toBe(
+      state.box2d.b2BodyType.b2_staticBody
+    );
 
-    // Change to dynamic.
     e.set(Body, { type: BodyType.Dynamic });
     step();
 
-    expect(record.type).toBe(DYNAMIC_BODY);
-    expect(record.setIndex).toBe(AWAKE_SET);
-    const newSim = state.solverSets[AWAKE_SET]!.bodySims[record.localIndex]!;
-    expect(newSim.flags & DYNAMIC_FLAG).toBe(DYNAMIC_FLAG);
-    const newState = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex]!;
-    expect(newState.flags & DYNAMIC_FLAG).toBe(DYNAMIC_FLAG);
+    expect(state.box2d.b2Body_GetType(wasmBodyId(e.eid))).toBe(
+      state.box2d.b2BodyType.b2_dynamicBody
+    );
   });
 
-  it("dynamic→static: clears DYNAMIC_FLAG on sim.flags", () => {
+  it("dynamic→static: b2Body_GetType returns static", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     step();
 
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[record.localIndex]!;
-    expect(sim.flags & DYNAMIC_FLAG).toBe(DYNAMIC_FLAG);
+    expect(state.box2d.b2Body_GetType(wasmBodyId(e.eid))).toBe(
+      state.box2d.b2BodyType.b2_dynamicBody
+    );
 
     e.set(Body, { type: BodyType.Static });
     step();
 
-    expect(record.type).toBe(STATIC_BODY);
-    const newSim = state.solverSets[STATIC_SET]!.bodySims[record.localIndex]!;
-    expect(newSim.flags & DYNAMIC_FLAG).toBe(0);
+    expect(state.box2d.b2Body_GetType(wasmBodyId(e.eid))).toBe(
+      state.box2d.b2BodyType.b2_staticBody
+    );
   });
 
-  it("dynamic→kinematic: clears DYNAMIC_FLAG", () => {
+  it("dynamic→kinematic: b2Body_GetType returns kinematic", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     step();
 
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
     e.set(Body, { type: BodyType.Kinematic });
     step();
 
-    expect(record.type).toBe(KINEMATIC_BODY);
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[record.localIndex]!;
-    expect(sim.flags & DYNAMIC_FLAG).toBe(0);
-    const st = state.solverSets[AWAKE_SET]!.bodyStates[record.localIndex]!;
-    expect(st.flags & DYNAMIC_FLAG).toBe(0);
+    expect(state.box2d.b2Body_GetType(wasmBodyId(e.eid))).toBe(
+      state.box2d.b2BodyType.b2_kinematicBody
+    );
   });
 
-  it("type change on disabled body updates DYNAMIC_FLAG without island change", () => {
+  it("type change on disabled body does not crash", () => {
     const e = world.entity().set(Body, { type: BodyType.Static, enabled: false });
     step();
 
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
-    expect(record.setIndex).toBe(DISABLED_SET);
-    expect(record.islandId).toBe(NULL_INDEX);
+    expect(state.box2d.b2Body_IsEnabled(wasmBodyId(e.eid))).toBe(false);
 
     e.set(Body, { type: BodyType.Dynamic, enabled: false });
-    step();
+    expect(() => step()).not.toThrow();
 
-    // Still disabled, no island.
-    expect(record.setIndex).toBe(DISABLED_SET);
-    expect(record.islandId).toBe(NULL_INDEX);
-    // But DYNAMIC_FLAG is set on the sim.
-    const sim = state.solverSets[DISABLED_SET]!.bodySims[record.localIndex]!;
-    expect(sim.flags & DYNAMIC_FLAG).toBe(DYNAMIC_FLAG);
+    expect(state.box2d.b2Body_IsEnabled(wasmBodyId(e.eid))).toBe(false);
+    expect(state.box2d.b2Body_GetType(wasmBodyId(e.eid))).toBe(
+      state.box2d.b2BodyType.b2_dynamicBody
+    );
   });
 });
 
-// ─── Mass dirty on type change ─────────────────────────────────────────────────
+// ─── Mass recompute on type change ────────────────────────────────────────────
 
-describe("massDirty on type change", () => {
-  it("static→dynamic: marks massDirty so invMass recomputes from shapes", () => {
+describe("mass recompute on type change", () => {
+  it("static→dynamic: mass becomes non-zero from shapes", () => {
     const e = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 5 });
-    world.entity().set(ChildOf, { target: e }).set(Box, { width: 2, height: 2 });
+    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 1, hy: 1 });
 
-    step(); // static: invMass stays 0 (no mass computation for static)
+    step(); // static: mass is 0
 
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
+    expect(state.box2d.b2Body_GetMass(wasmBodyId(e.eid))).toBe(0);
 
-    // Change to dynamic. Should mark massDirty.
+    // Change to dynamic. Mass recompute should trigger.
     e.set(Body, { type: BodyType.Dynamic });
-    step(); // lifecycle marks dirty; PhysicsMassRecompute clears it
+    step();
 
-    // invMass should now be non-zero (density=1, box 2×2=area4, mass=4).
-    const sim = state.solverSets[record.setIndex]!.bodySims[record.localIndex]!;
-    expect(sim.invMass).toBeGreaterThan(0);
+    expect(state.box2d.b2Body_GetMass(wasmBodyId(e.eid))).toBeGreaterThan(0);
   });
 
-  it("dynamic→static: marks massDirty so mass becomes 0 (static infinite mass)", () => {
+  it("dynamic→static: mass becomes 0 (static infinite mass)", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x: 0, y: 5 });
     world.entity().set(ChildOf, { target: e }).set(Circle, { radius: 1 });
 
-    step(); // VP-12 sets invMass from shape
+    step();
 
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
-    const simBefore = state.solverSets[AWAKE_SET]!.bodySims[record.localIndex]!;
-    expect(simBefore.invMass).toBeGreaterThan(0); // dynamic: has mass
+    expect(state.box2d.b2Body_GetMass(wasmBodyId(e.eid))).toBeGreaterThan(0);
 
     e.set(Body, { type: BodyType.Static });
-    step(); // lifecycle marks dirty; PhysicsMassRecompute recomputes (static → invMass=0)
+    step();
 
-    const newSim = state.solverSets[STATIC_SET]!.bodySims[record.localIndex]!;
-    // Box2D: static/kinematic bodies have invMass=0 after b2UpdateBodyMassData.
-    expect(newSim.invMass).toBe(0);
+    // Box2D: static bodies have mass 0.
+    expect(state.box2d.b2Body_GetMass(wasmBodyId(e.eid))).toBe(0);
   });
 });
 
-// ─── Island membership ────────────────────────────────────────────────────────
+// ─── Island membership (verified via WASM awake state) ───────────────────────
 
-describe("island membership on type/enable transitions", () => {
-  it("static body has no island; changing to dynamic creates one", () => {
+describe("WASM enabled/awake state on type/enable transitions", () => {
+  it("static body is not awake by default", () => {
     const e = world.entity().set(Body, { type: BodyType.Static });
     step();
 
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
-    expect(record.islandId).toBe(NULL_INDEX); // static: no island
-
-    e.set(Body, { type: BodyType.Dynamic });
-    step();
-
-    // Now awake and dynamic: should have an island.
-    expect(record.islandId).not.toBe(NULL_INDEX);
+    // Static bodies are not awake in Box2D.
+    expect(state.box2d.b2Body_IsAwake(wasmBodyId(e.eid))).toBe(false);
   });
 
-  it("dynamic body has island; changing to static removes it", () => {
+  it("dynamic body is awake by default", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     step();
 
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
-    expect(record.islandId).not.toBe(NULL_INDEX); // dynamic: has island
-
-    e.set(Body, { type: BodyType.Static });
-    step();
-
-    expect(record.islandId).toBe(NULL_INDEX); // static: no island
+    expect(state.box2d.b2Body_IsAwake(wasmBodyId(e.eid))).toBe(true);
   });
 
-  it("disabling a dynamic body removes it from its island", () => {
+  it("disabling a dynamic body: b2Body_IsEnabled returns false", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     step();
-
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
-    expect(record.islandId).not.toBe(NULL_INDEX);
 
     e.set(Body, { type: BodyType.Dynamic, enabled: false });
     step();
 
-    // Disabled body has no island.
-    expect(record.setIndex).toBe(DISABLED_SET);
-    expect(record.islandId).toBe(NULL_INDEX);
+    expect(state.box2d.b2Body_IsEnabled(wasmBodyId(e.eid))).toBe(false);
   });
 
-  it("enabling a non-static body creates an island for it", () => {
+  it("enabling a disabled body: b2Body_IsEnabled returns true", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic, enabled: false });
     step();
 
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
-    expect(record.islandId).toBe(NULL_INDEX); // disabled: no island
+    expect(state.box2d.b2Body_IsEnabled(wasmBodyId(e.eid))).toBe(false);
 
     e.set(Body, { type: BodyType.Dynamic, enabled: true });
     step();
 
-    expect(record.setIndex).toBe(AWAKE_SET);
-    expect(record.islandId).not.toBe(NULL_INDEX);
+    expect(state.box2d.b2Body_IsEnabled(wasmBodyId(e.eid))).toBe(true);
+    expect(state.box2d.b2Body_IsAwake(wasmBodyId(e.eid))).toBe(true);
   });
 
-  it("enabling a static body does NOT create an island", () => {
+  it("enabling a static disabled body stays not awake", () => {
     const e = world.entity().set(Body, { type: BodyType.Static, enabled: false });
     step();
-
-    const handle = state.bodyByEntity.get(e.eid)!;
-    const record = state.bodies.get(handle.index);
 
     e.set(Body, { type: BodyType.Static, enabled: true });
     step();
 
-    expect(record.setIndex).toBe(STATIC_SET);
-    expect(record.islandId).toBe(NULL_INDEX); // static: no island
+    expect(state.box2d.b2Body_IsEnabled(wasmBodyId(e.eid))).toBe(true);
+    expect(state.box2d.b2Body_IsAwake(wasmBodyId(e.eid))).toBe(false);
   });
 });
 
@@ -237,7 +196,7 @@ describe("island membership on type/enable transitions", () => {
 describe("contact teardown on body type/disable changes", () => {
   function makeGround() {
     const g = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -10 });
-    world.entity().set(ChildOf, { target: g }).set(Box, { width: 100, height: 20 });
+    world.entity().set(ChildOf, { target: g }).set(Box, { hx: 50, hy: 10 });
   }
 
   it("disabling a shaped body updates the WASM body without crashing", () => {
@@ -246,7 +205,7 @@ describe("contact teardown on body type/disable changes", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+    world.entity().set(ChildOf, { target: body }).set(Box, { hx: 1, hy: 1 });
 
     step(5); // create contacts
 
@@ -263,7 +222,7 @@ describe("contact teardown on body type/disable changes", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+    world.entity().set(ChildOf, { target: body }).set(Box, { hx: 1, hy: 1 });
 
     step(5);
 
@@ -277,14 +236,6 @@ describe("contact teardown on body type/disable changes", () => {
 // ─── WASM sleep/type bookkeeping ───────────────────────────────────────────────
 
 describe("WASM awake bookkeeping on type/enable transitions", () => {
-  function wasmBodyId(eid: number) {
-    const bodyId = state.bodyByEntityWasm.get(eid);
-    if (bodyId === undefined) {
-      throw new Error("missing wasm body");
-    }
-    return bodyId;
-  }
-
   it("disabled bodies do not wake on input", () => {
     const e = world
       .entity()

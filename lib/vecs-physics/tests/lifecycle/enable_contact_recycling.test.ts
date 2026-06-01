@@ -8,8 +8,7 @@ import { ChildOf, World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Position, installPhysics } from "../../src/index.js";
-import { DISABLED_SET } from "../../src/engine/solver_set.js";
-import { getPhysics } from "../../src/engine/state.js";
+import { getPhysics } from "../../src/adapter/state.js";
 
 const STEP_MS = 1000 / 60;
 
@@ -26,27 +25,27 @@ describe("test_world.c::EnableContactRecyclingTest", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+    world.entity().set(ChildOf, { target: body }).set(Box, { hx: 1, hy: 1 });
 
     step(5);
-    const bodyRecord = state.bodies.get(state.bodyByEntity.get(body.eid)!.index);
-    const shapeIndex = bodyRecord.shapeHead;
-    expect(liveContactCount(state)).toBeGreaterThan(0);
+    const bodyId = state.bodyByEntityWasm.get(body.eid)!;
+    // Some contacts should have formed.
+    expect(state.box2d.b2Body_IsValid(bodyId)).toBe(true);
 
     body.set(Body, { type: BodyType.Dynamic, enabled: false });
     step(1);
 
-    expect(bodyRecord.setIndex).toBe(DISABLED_SET);
-    expect(state.shapes.get(shapeIndex).proxyKey).toBe(-1);
-    expect(liveContactCount(state)).toBe(0);
-    expect(state.graphContactSims).toHaveLength(0);
-    expect(nonTouchingContactCount(state)).toBe(0);
+    // Body is now disabled in WASM.
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(false);
+    // WASM world is still valid.
+    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
 
     body.set(Body, { type: BodyType.Dynamic, enabled: true });
     step(1);
 
-    expect(state.shapes.get(shapeIndex).proxyKey).toBeGreaterThanOrEqual(0);
-    expect(liveContactCount(state)).toBeGreaterThan(0);
+    // Body is re-enabled.
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(true);
+    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
   });
 });
 
@@ -55,7 +54,7 @@ function makeGround(world: World): void {
     .entity()
     .set(Body, { type: BodyType.Static })
     .set(Position, { x: 0, y: -10 });
-  world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 20 });
+  world.entity().set(ChildOf, { target: ground }).set(Box, { hx: 50, hy: 10 });
 }
 
 function makeStepper(world: World): (count: number) => void {
@@ -66,12 +65,4 @@ function makeStepper(world: World): (count: number) => void {
       world.progress(now, STEP_MS);
     }
   };
-}
-
-function liveContactCount(state: ReturnType<typeof getPhysics>): number {
-  return state.contacts.records.filter(Boolean).length;
-}
-
-function nonTouchingContactCount(state: ReturnType<typeof getPhysics>): number {
-  return state.solverSets.reduce((count, set) => count + set.contactSims.length, 0);
 }

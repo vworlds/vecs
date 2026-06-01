@@ -1,5 +1,5 @@
 // `PhysicsMaterialFilterSync` (VP-11 commit 2): material and filter updates
-// reflected on the internal shape record.
+// reflected on the WASM shape.
 //
 // Note on Vecs update semantics: `update(Component, cb)` fires only when the
 // component is MODIFIED (not when it is first added). So these tests set up the
@@ -20,7 +20,8 @@ import {
   installPhysics,
 } from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
-import { PI } from "../../src/math/constants.js";
+
+const PI = Math.PI;
 
 let world: World;
 let state: PhysicsState;
@@ -29,16 +30,40 @@ function makeBody(type: BodyType = BodyType.Dynamic) {
   return world.entity().set(Body, { type });
 }
 
-function getShapeRecord(eid: number) {
-  const handle = state.shapeByEntity.get(eid);
-  if (handle === undefined) {
-    return undefined;
-  }
-  return state.shapes.get(handle.index);
-}
-
 function getBodyMass(eid: number): number {
   return state.box2d.b2Body_GetMass(state.bodyByEntityWasm.get(eid)!);
+}
+
+function getShapeMaterial(shapeEid: number) {
+  const shapeId = state.shapeByEntityWasm.get(shapeEid);
+  if (shapeId === undefined) {
+    return undefined;
+  }
+  const mat = state.box2d.b2Shape_GetSurfaceMaterial(shapeId);
+  const result = {
+    density: state.box2d.b2Shape_GetDensity(shapeId),
+    friction: mat.friction,
+    restitution: mat.restitution,
+    rollingResistance: mat.rollingResistance,
+    userMaterialId: Number(mat.userMaterialId),
+  };
+  mat.delete();
+  return result;
+}
+
+function getShapeFilter(shapeEid: number) {
+  const shapeId = state.shapeByEntityWasm.get(shapeEid);
+  if (shapeId === undefined) {
+    return undefined;
+  }
+  const filter = state.box2d.b2Shape_GetFilter(shapeId);
+  const result = {
+    categoryBits: filter.categoryBits,
+    maskBits: filter.maskBits,
+    groupIndex: filter.groupIndex,
+  };
+  filter.delete();
+  return result;
 }
 
 function makeChainShape(body: ReturnType<typeof makeBody>) {
@@ -66,9 +91,9 @@ beforeEach(() => {
 // ─── Material updates ─────────────────────────────────────────────────────────
 
 describe("PhysicsMaterialFilterSync.update(Material)", () => {
-  it("copies material fields to the internal shape when Material is updated", () => {
+  it("copies material fields to the WASM shape when Material is updated", () => {
     const body = makeBody();
-    // Create shape with initial Material (lifecycle reads density=1 initially).
+    // Create shape with initial Material.
     const shape = world.entity().set(ChildOf, { target: body }).add(Box).set(Material, {
       density: 1,
       friction: 0.6,
@@ -90,12 +115,13 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(16, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.density).toBeCloseTo(3);
-    expect(rec.friction).toBeCloseTo(0.2);
-    expect(rec.restitution).toBeCloseTo(0.8);
-    expect(rec.rollingResistance).toBeCloseTo(0.1);
-    expect(rec.userMaterialId).toBe(42);
+    // rollingResistance and userMaterialId changes trigger shape recreation (no WASM setters).
+    const mat = getShapeMaterial(shape.eid)!;
+    expect(mat.density).toBeCloseTo(3);
+    expect(mat.friction).toBeCloseTo(0.2);
+    expect(mat.restitution).toBeCloseTo(0.8);
+    expect(mat.rollingResistance).toBeCloseTo(0.1);
+    expect(mat.userMaterialId).toBe(42);
   });
 
   it("marks body massDirty when density changes on a dynamic body", () => {
@@ -110,11 +136,10 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(0, 16);
 
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    // After frame 0, massDirty is already false (VP-12 mass recompute cleared it).
+    // After frame 0, dirtyMassBodies should be clear.
+    expect(state.dirtyMassBodies.size).toBe(0);
 
-    // UPDATE with new density → marks dirty, then VP-12 clears it in the same frame.
+    // UPDATE with new density → b2Shape_SetDensity auto-recomputes mass.
     shape.set(Material, {
       density: 5,
       friction: 0.6,
@@ -130,7 +155,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     expect(getBodyMass(body.eid)).toBeCloseTo(5, 6);
   });
 
-  it("does NOT mark massDirty or recompute mass when only friction changes on a dynamic body", () => {
+  it("does NOT recompute mass when only friction changes on a dynamic body", () => {
     const body = makeBody(BodyType.Dynamic);
     const shape = world
       .entity()
@@ -150,7 +175,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     const massAfterFrame1 = getBodyMass(body.eid);
     expect(massAfterFrame1).toBeCloseTo(PI, 6);
 
-    // Change only friction — density stays 1, so massDirty must NOT be set.
+    // Change only friction — density stays 1, so mass must not change.
     shape.set(Material, {
       density: 1,
       friction: 0.8,
@@ -201,7 +226,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     expect(getBodyMass(body.eid)).toBeCloseTo(15.707963943481445, 6);
   });
 
-  it("does NOT mark massDirty for Material changes on a static body", () => {
+  it("does NOT trigger mass recompute for Material changes on a static body", () => {
     const body = makeBody(BodyType.Static);
     const shape = world.entity().set(ChildOf, { target: body }).add(Box).set(Material, {
       density: 1,
@@ -213,8 +238,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(0, 16);
 
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    state.bodies.get(bodyHandle.index).massDirty = false;
+    expect(state.dirtyMassBodies.size).toBe(0);
 
     // Update density on a static body — static bodies don't participate in mass.
     shape.set(Material, {
@@ -227,7 +251,9 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(16, 16);
 
-    expect(state.bodies.get(bodyHandle.index).massDirty).toBe(false);
+    // Static bodies have mass 0 regardless of density.
+    expect(getBodyMass(body.eid)).toBe(0);
+    expect(state.dirtyMassBodies.size).toBe(0);
   });
 
   it("recreates a WASM chain when a setter-backed Material field changes", () => {
@@ -264,7 +290,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
 // ─── CollisionFilter updates ──────────────────────────────────────────────────
 
 describe("PhysicsMaterialFilterSync.update(CollisionFilter)", () => {
-  it("copies filter bits to the internal shape when CollisionFilter is updated", () => {
+  it("copies filter bits to the WASM shape when CollisionFilter is updated", () => {
     const body = makeBody();
     // Create shape with initial filter.
     const shape = world
@@ -278,10 +304,10 @@ describe("PhysicsMaterialFilterSync.update(CollisionFilter)", () => {
     shape.set(CollisionFilter, { categoryBits: 0x8, maskBits: 0xff, groupIndex: 2 });
     world.progress(16, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.categoryBits).toBe(0x8);
-    expect(rec.maskBits).toBe(0xff);
-    expect(rec.groupIndex).toBe(2);
+    const filter = getShapeFilter(shape.eid)!;
+    expect(filter.categoryBits).toBe(0x8);
+    expect(filter.maskBits).toBe(0xff);
+    expect(filter.groupIndex).toBe(2);
   });
 
   it("recreates a WASM chain when CollisionFilter changes", () => {

@@ -11,6 +11,7 @@ import {
   Sensor,
   SensorEvents,
   installPhysics,
+  preloadPhysics,
 } from "@vworlds/vecs-physics";
 
 class Tint {
@@ -18,6 +19,8 @@ class Tint {
 }
 
 const STEP_MS = 1000 / 60;
+
+await preloadPhysics();
 
 const world = new World();
 installPhysics(world, { gravity: { x: 0, y: 0 }, fixedTimeStep: 1 / 60, subSteps: 4 });

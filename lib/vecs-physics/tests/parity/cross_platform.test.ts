@@ -4,13 +4,16 @@
 // excludes. This representative joint-free stack checks the same local promise:
 // identical setup and fixed stepping produce byte-equal engine snapshots within
 // one x64 Linux process.
+//
+// Baseline recorded against box2d3-wasm@5.2.0.
+// If the upstream box2d3-wasm version bumps, this parity baseline must be
+// re-recorded against the new version.
 
 import { ChildOf, World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Material, Position, installPhysics } from "../../src/index.js";
-import { AWAKE_SET, FIRST_SLEEPING_SET } from "../../src/engine/solver_set.js";
-import { getPhysics } from "../../src/engine/state.js";
+import { getPhysics } from "../../src/adapter/state.js";
 
 const COLUMNS = 20;
 const ROWS = 10;
@@ -37,30 +40,47 @@ function runStackingSnapshot(): string {
   step(world, STEPS);
 
   const state = getPhysics(world);
-  const bodies = state.bodies.records.flatMap((body, bodyId) => {
-    if (body === undefined) {
-      return [];
+
+  // Collect body states from WASM via body events and direct API calls.
+  const bodies: Array<{
+    eid: number;
+    x: number;
+    y: number;
+    angle: number;
+    vx: number;
+    vy: number;
+    omega: number;
+    awake: boolean;
+  }> = [];
+
+  for (const [eid, bodyId] of state.bodyByEntityWasm) {
+    if (!state.box2d.b2Body_IsValid(bodyId)) {
+      continue;
     }
 
-    const set = state.solverSets[body.setIndex]!;
-    const sim = set.bodySims[body.localIndex]!;
-    const bodyState = body.setIndex === AWAKE_SET ? set.bodyStates[body.localIndex] : undefined;
+    const pos = state.box2d.b2Body_GetPosition(bodyId);
+    const rot = state.box2d.b2Body_GetRotation(bodyId);
+    const vel = state.box2d.b2Body_GetLinearVelocity(bodyId);
+    const omega = state.box2d.b2Body_GetAngularVelocity(bodyId);
 
-    return [
-      {
-        bodyId,
-        x: sim.transformX,
-        y: sim.transformY,
-        rotation: Math.atan2(sim.sin, sim.cos),
-        vx: bodyState?.vx ?? 0,
-        vy: bodyState?.vy ?? 0,
-        omega: bodyState?.omega ?? 0,
-        sleeping: body.setIndex >= FIRST_SLEEPING_SET,
-      },
-    ];
-  });
+    const x = pos.x;
+    const y = pos.y;
+    const angle = rot.GetAngle();
+    const vx = vel.x;
+    const vy = vel.y;
+    const awake = state.box2d.b2Body_IsAwake(bodyId);
 
-  return JSON.stringify({ stepIndex: state.stepIndex, bodies });
+    pos.delete();
+    rot.delete();
+    vel.delete();
+
+    bodies.push({ eid, x, y, angle, vx, vy, omega, awake });
+  }
+
+  // Sort by eid for determinism.
+  bodies.sort((a, b) => a.eid - b.eid);
+
+  return JSON.stringify({ bodies });
 }
 
 function makeGround(world: World): void {

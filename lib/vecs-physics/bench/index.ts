@@ -17,6 +17,7 @@
 // Numbers are reference baselines only — no CI gate. Append to PROGRESS.md
 // when establishing a new baseline.
 
+import { preloadPhysics } from "../src/adapter/runtime.js";
 import { runStacking } from "./scenarios/stacking.bench.js";
 import { runFallingBalls } from "./scenarios/falling_balls.bench.js";
 
@@ -28,6 +29,7 @@ interface BenchResult {
 }
 
 async function main(): Promise<void> {
+  await preloadPhysics();
   const results: BenchResult[] = [];
 
   console.log("vecs-physics benchmark harness");

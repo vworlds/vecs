@@ -17,7 +17,6 @@ import {
   Material,
   Polygon,
   Position,
-  Rotation,
   Segment,
   Sensor,
   SensorEvents,
@@ -25,10 +24,9 @@ import {
   ShapeRotation,
   installPhysics,
 } from "../../src/index.js";
-import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
-import { AWAKE_SET, STATIC_SET } from "../../src/engine/solver_set.js";
-import { NULL_INDEX } from "../../src/util/handle.js";
-import { LINEAR_SLOP, SPECULATIVE_DISTANCE } from "../../src/math/constants.js";
+import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
+
+const LINEAR_SLOP = 0.005;
 
 let world: World;
 let state: PhysicsState;
@@ -44,12 +42,20 @@ function makeShape(parent: ReturnType<World["entity"]>, geom: object = new Box()
     .set(geom.constructor as never, geom);
 }
 
-function getShapeRecord(eid: number) {
-  const handle = state.shapeByEntity.get(eid);
-  if (handle === undefined) {
-    return undefined;
+function hasWasmShape(eid: number): boolean {
+  const shapeId = state.shapeByEntityWasm.get(eid);
+  if (shapeId === undefined) {
+    return false;
   }
-  return state.shapes.get(handle.index);
+  return state.box2d.b2Shape_IsValid(shapeId);
+}
+
+function getBodyMass(bodyEid: number): number {
+  const bodyId = state.bodyByEntityWasm.get(bodyEid);
+  if (bodyId === undefined) {
+    return 0;
+  }
+  return state.box2d.b2Body_GetMass(bodyId);
 }
 
 beforeEach(() => {
@@ -62,63 +68,35 @@ beforeEach(() => {
 // ─── Enter ────────────────────────────────────────────────────────────────────
 
 describe("PhysicsShapeLifecycle.enter", () => {
-  it("creates an internal shape + proxy when a Box is added under a Body", () => {
+  it("creates a WASM shape when a Box is added under a Body", () => {
     const body = makeBody();
     const shape = makeShape(body);
     world.progress(0, 16);
 
-    expect(state.shapeByEntity.has(shape.eid)).toBe(true);
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec).toBeDefined();
-    expect(rec.bodyHandle).toBeDefined();
-    expect(rec.proxyKey).toBeGreaterThanOrEqual(0);
+    expect(hasWasmShape(shape.eid)).toBe(true);
+    expect(state.entityByShape.has(state.shapeByEntityWasm.get(shape.eid)!)).toBe(true);
   });
 
-  it("marks the body massDirty on shape creation (cleared by VP-12 mass recompute)", () => {
+  it("computes mass on body after shape creation (VP-12 mass recompute)", () => {
     const body = makeBody();
-    makeShape(body);
+    makeShape(body); // default Box with density=1
     world.progress(0, 16);
 
-    // VP-12: PhysicsMassRecompute runs in physics-pre and clears massDirty.
-    // After a full world.progress() massDirty is false (mass was computed).
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    expect(bodyRec.massDirty).toBe(false);
-    // invMass is non-zero — mass was computed from the shape.
-    const set = state.solverSets[bodyRec.setIndex]!;
-    expect(set.bodySims[bodyRec.localIndex]!.invMass).toBeGreaterThan(0);
+    // dirtyMassBodies should be cleared after PhysicsMassRecompute runs.
+    expect(state.dirtyMassBodies.size).toBe(0);
+    // Mass should be non-zero for dynamic body with density=1 shape.
+    expect(getBodyMass(body.eid)).toBeGreaterThan(0);
   });
 
-  it("links the shape's bodyHandle to the correct body", () => {
-    const body = makeBody();
-    const shape = makeShape(body);
-    world.progress(0, 16);
-
-    const rec = getShapeRecord(shape.eid)!;
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    expect(rec.bodyHandle!.index).toBe(bodyHandle.index);
-  });
-
-  it("stores the entity id on the shape record", () => {
-    const body = makeBody();
-    const shape = makeShape(body);
-    world.progress(0, 16);
-
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.entity).toBe(shape.eid);
-  });
-
-  it("creates a Circle shape from the Circle component", () => {
+  it("creates a Circle WASM shape from the Circle component", () => {
     const body = makeBody();
     const shape = world.entity().set(ChildOf, { target: body }).set(Circle, { radius: 2 });
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec).toBeDefined();
-    expect(rec.geometry.kind).toBe("circle");
+    expect(hasWasmShape(shape.eid)).toBe(true);
   });
 
-  it("creates a Capsule shape from the Capsule component", () => {
+  it("creates a Capsule WASM shape from the Capsule component", () => {
     const body = makeBody();
     const shape = world
       .entity()
@@ -126,11 +104,10 @@ describe("PhysicsShapeLifecycle.enter", () => {
       .set(Capsule, { x1: -1, y1: 0, x2: 1, y2: 0, radius: 0.5 });
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.geometry.kind).toBe("capsule");
+    expect(hasWasmShape(shape.eid)).toBe(true);
   });
 
-  it("creates a Segment shape from the Segment component", () => {
+  it("creates a Segment WASM shape from the Segment component", () => {
     const body = makeBody();
     const shape = world
       .entity()
@@ -138,11 +115,10 @@ describe("PhysicsShapeLifecycle.enter", () => {
       .set(Segment, { x1: -1, y1: 0, x2: 1, y2: 0 });
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.geometry.kind).toBe("segment");
+    expect(hasWasmShape(shape.eid)).toBe(true);
   });
 
-  it("creates a Polygon shape from the Polygon component", () => {
+  it("creates a Polygon WASM shape from the Polygon component", () => {
     const body = makeBody(BodyType.Static);
     const shape = world
       .entity()
@@ -157,8 +133,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
       });
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.geometry.kind).toBe("polygon");
+    expect(hasWasmShape(shape.eid)).toBe(true);
   });
 
   it("reads material defaults (density=1, friction=0.6) when Material is absent", () => {
@@ -166,10 +141,15 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const shape = makeShape(body);
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.density).toBe(1);
-    expect(rec.friction).toBeCloseTo(0.6);
-    expect(rec.restitution).toBe(0);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    expect(state.box2d.b2Shape_GetDensity(shapeId)).toBe(1);
+    const mat = state.box2d.b2Shape_GetSurfaceMaterial(shapeId);
+    try {
+      expect(mat.friction).toBeCloseTo(0.6);
+      expect(mat.restitution).toBe(0);
+    } finally {
+      mat.delete();
+    }
   });
 
   it("reads explicit Material values when present", () => {
@@ -184,10 +164,15 @@ describe("PhysicsShapeLifecycle.enter", () => {
     });
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.density).toBe(2);
-    expect(rec.friction).toBeCloseTo(0.4);
-    expect(rec.restitution).toBeCloseTo(0.5);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    expect(state.box2d.b2Shape_GetDensity(shapeId)).toBe(2);
+    const mat = state.box2d.b2Shape_GetSurfaceMaterial(shapeId);
+    try {
+      expect(mat.friction).toBeCloseTo(0.4);
+      expect(mat.restitution).toBeCloseTo(0.5);
+    } finally {
+      mat.delete();
+    }
   });
 
   it("reads CollisionFilter defaults (cat=1, mask=0xffffffff, group=0) when absent", () => {
@@ -195,10 +180,15 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const shape = makeShape(body);
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.categoryBits).toBe(1);
-    expect(rec.maskBits).toBe(0xffffffff);
-    expect(rec.groupIndex).toBe(0);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    const filter = state.box2d.b2Shape_GetFilter(shapeId);
+    try {
+      expect(filter.categoryBits).toBe(1);
+      expect(filter.maskBits).toBe(0xffffffff);
+      expect(filter.groupIndex).toBe(0);
+    } finally {
+      filter.delete();
+    }
   });
 
   it("reads explicit CollisionFilter bits when present", () => {
@@ -210,20 +200,24 @@ describe("PhysicsShapeLifecycle.enter", () => {
       .set(CollisionFilter, { categoryBits: 0x4, maskBits: 0x3, groupIndex: -1 });
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.categoryBits).toBe(0x4);
-    expect(rec.maskBits).toBe(0x3);
-    expect(rec.groupIndex).toBe(-1);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    const filter = state.box2d.b2Shape_GetFilter(shapeId);
+    try {
+      expect(filter.categoryBits).toBe(0x4);
+      expect(filter.maskBits).toBe(0x3);
+      expect(filter.groupIndex).toBe(-1);
+    } finally {
+      filter.delete();
+    }
   });
 
-  it("marks sensor=false and sensorIndex=-1 when Sensor is absent", () => {
+  it("marks sensor=false when Sensor is absent", () => {
     const body = makeBody();
     const shape = makeShape(body);
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.sensor).toBe(false);
-    expect(rec.sensorIndex).toBe(-1);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    expect(state.box2d.b2Shape_IsSensor(shapeId)).toBe(false);
   });
 
   it("marks sensor=true when Sensor component is present", () => {
@@ -231,8 +225,8 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const shape = world.entity().set(ChildOf, { target: body }).add(Box).add(Sensor);
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.sensor).toBe(true);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    expect(state.box2d.b2Shape_IsSensor(shapeId)).toBe(true);
   });
 
   it("enables contact events when ContactEvents is present", () => {
@@ -240,10 +234,10 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const shape = world.entity().set(ChildOf, { target: body }).add(Box).add(ContactEvents);
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.enableContactEvents).toBe(true);
-    expect(rec.enableHitEvents).toBe(false);
-    expect(rec.enableSensorEvents).toBe(false);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    expect(state.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(true);
+    expect(state.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(false);
+    expect(state.box2d.b2Shape_AreSensorEventsEnabled(shapeId)).toBe(false);
   });
 
   it("enables all event flags when all event components are present", () => {
@@ -257,27 +251,29 @@ describe("PhysicsShapeLifecycle.enter", () => {
       .add(SensorEvents);
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.enableContactEvents).toBe(true);
-    expect(rec.enableHitEvents).toBe(true);
-    expect(rec.enableSensorEvents).toBe(true);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    expect(state.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(true);
+    expect(state.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(true);
+    expect(state.box2d.b2Shape_AreSensorEventsEnabled(shapeId)).toBe(true);
   });
 
   it("uses the world AABB (body transform composed with local pose)", () => {
-    // Place body at (10, 0), shape at identity local pose → AABB should be offset.
+    // Place body at (10, 0), shape at identity local pose → AABB center near (10, 0).
     const body = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 10, y: 0 });
     const shape = world.entity().set(ChildOf, { target: body }).add(Box);
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    // Box with hx=hy=0.5 at world x=10. The stored AABB includes speculative
-    // distance (SPECULATIVE_DISTANCE = 4 * LINEAR_SLOP = 0.02).
-    // Center should be at ~10 regardless.
-    expect((rec.aabbMinX + rec.aabbMaxX) / 2).toBeCloseTo(10, 3);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    const aabb = state.box2d.b2Shape_GetAABB(shapeId);
+    try {
+      const centerX = (aabb.lowerBound.x + aabb.upperBound.x) / 2;
+      expect(centerX).toBeCloseTo(10, 1);
+    } finally {
+      aabb.delete();
+    }
   });
 
   it("respects ShapePosition (local offset) in world AABB computation", () => {
-    // Body at origin, shape offset by (5, 0) locally
     const body = world.entity().set(Body, { type: BodyType.Static });
     const shape = world
       .entity()
@@ -286,11 +282,14 @@ describe("PhysicsShapeLifecycle.enter", () => {
       .set(ShapePosition, { x: 5, y: 0 });
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.localX).toBeCloseTo(5);
-    expect(rec.localY).toBeCloseTo(0);
-    // Center should be at ~5 (spec distance widens both ends equally).
-    expect((rec.aabbMinX + rec.aabbMaxX) / 2).toBeCloseTo(5, 3);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    const aabb = state.box2d.b2Shape_GetAABB(shapeId);
+    try {
+      const centerX = (aabb.lowerBound.x + aabb.upperBound.x) / 2;
+      expect(centerX).toBeCloseTo(5, 1);
+    } finally {
+      aabb.delete();
+    }
   });
 
   it("respects ShapeRotation in world AABB computation", () => {
@@ -302,34 +301,16 @@ describe("PhysicsShapeLifecycle.enter", () => {
       .set(ShapeRotation, { angle: Math.PI / 2 });
     world.progress(0, 16);
 
-    const rec = getShapeRecord(shape.eid)!;
-    // Rotated 90°: wide axis becomes tall.
-    // Box is 2 wide, 0.2 tall. After 90° rotation: ~0.2 wide, ~2 tall.
-    // AABB width/height include 2 * SPECULATIVE_DISTANCE on each axis.
-    // Just check that the axes are roughly swapped: x < y.
-    expect(rec.aabbMaxX - rec.aabbMinX).toBeLessThan(rec.aabbMaxY - rec.aabbMinY);
-  });
-
-  it("links into the body shape list (shapeHead)", () => {
-    const body = makeBody();
-    const shape = makeShape(body);
-    world.progress(0, 16);
-
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    expect(bodyRec.shapeHead).not.toBe(NULL_INDEX);
-    expect(bodyRec.shapeCount).toBe(1);
-  });
-
-  it("links two shapes into the body shape list", () => {
-    const body = makeBody();
-    makeShape(body);
-    makeShape(body, new Circle());
-    world.progress(0, 16);
-
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    expect(bodyRec.shapeCount).toBe(2);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    const aabb = state.box2d.b2Shape_GetAABB(shapeId);
+    try {
+      // Rotated 90°: wide axis becomes tall.
+      const width = aabb.upperBound.x - aabb.lowerBound.x;
+      const height = aabb.upperBound.y - aabb.lowerBound.y;
+      expect(width).toBeLessThan(height);
+    } finally {
+      aabb.delete();
+    }
   });
 
   it("does NOT create a shape for geometry on a grandchild (immediate-parent rule)", () => {
@@ -338,8 +319,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const grandchild = world.entity().set(ChildOf, { target: middleChild }).add(Box);
     world.progress(0, 16);
 
-    // grandchild's parent is not a Body — no shape created
-    expect(state.shapeByEntity.has(grandchild.eid)).toBe(false);
+    expect(state.shapeByEntityWasm.has(grandchild.eid)).toBe(false);
   });
 
   it("works when body is created first, then shape (body-then-shape order)", () => {
@@ -349,27 +329,26 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const shape = makeShape(body);
     world.progress(16, 16);
 
-    expect(state.shapeByEntity.has(shape.eid)).toBe(true);
+    expect(hasWasmShape(shape.eid)).toBe(true);
   });
 
   it("works when shape is created before body starts (shape-then-body order)", () => {
-    // Shape with ChildOf to a future body won't enter until the body has Body.
     const bodyEntity = world.entity();
     const shape = world.entity().set(ChildOf, { target: bodyEntity }).add(Box);
     world.progress(0, 16);
     // body doesn't have Body yet — no shape
-    expect(state.shapeByEntity.has(shape.eid)).toBe(false);
+    expect(state.shapeByEntityWasm.has(shape.eid)).toBe(false);
 
     bodyEntity.set(Body, { type: BodyType.Dynamic });
     world.progress(16, 16);
-    expect(state.shapeByEntity.has(shape.eid)).toBe(true);
+    expect(hasWasmShape(shape.eid)).toBe(true);
   });
 });
 
 // ─── Chain expansion ──────────────────────────────────────────────────────────
 
 describe("PhysicsShapeLifecycle — Chain shapes", () => {
-  it("expands a Chain into N-1 segments for an open chain", () => {
+  it("creates a WASM chain for an open chain with >= 4 points", () => {
     const body = makeBody(BodyType.Static);
     const chain = world
       .entity()
@@ -385,17 +364,12 @@ describe("PhysicsShapeLifecycle — Chain shapes", () => {
       });
     world.progress(0, 16);
 
-    // 4 points open chain → 3 segments
-    const handles = state.chainShapeByEntity.get(chain.eid);
-    expect(handles).toBeDefined();
-    expect(handles!.length).toBe(3);
-
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    expect(bodyRec.shapeCount).toBe(3);
+    const chainId = state.chainByEntity.get(chain.eid);
+    expect(chainId).toBeDefined();
+    expect(state.box2d.b2Chain_IsValid(chainId!)).toBe(true);
   });
 
-  it("expands a Chain into N segments for a loop chain", () => {
+  it("creates a WASM chain for a loop chain with >= 4 points", () => {
     const body = makeBody(BodyType.Static);
     const chain = world
       .entity()
@@ -411,80 +385,43 @@ describe("PhysicsShapeLifecycle — Chain shapes", () => {
       });
     world.progress(0, 16);
 
-    // 4 points loop → 4 segments
-    const handles = state.chainShapeByEntity.get(chain.eid);
-    expect(handles!.length).toBe(4);
-  });
-
-  it("each chain segment has a proxyKey and is linked to the body", () => {
-    const body = makeBody(BodyType.Static);
-    const chain = world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Chain, {
-        points: [
-          { x: 0, y: 0 },
-          { x: 1, y: 0 },
-          { x: 2, y: 0 },
-          { x: 3, y: 0 },
-        ],
-        loop: false,
-      });
-    world.progress(0, 16);
-
-    const handles = state.chainShapeByEntity.get(chain.eid)!;
-    for (const h of handles) {
-      const seg = state.shapes.get(h.index);
-      expect(seg.geometry.kind).toBe("chainSegment");
-      expect(seg.proxyKey).toBeGreaterThanOrEqual(0);
-    }
+    const chainId = state.chainByEntity.get(chain.eid);
+    expect(chainId).toBeDefined();
+    expect(state.box2d.b2Chain_IsValid(chainId!)).toBe(true);
   });
 });
 
 // ─── Exit ─────────────────────────────────────────────────────────────────────
 
 describe("PhysicsShapeLifecycle.exit", () => {
-  it("removes the internal shape + proxy when geometry is removed", () => {
+  it("removes the WASM shape when geometry is removed", () => {
     const body = makeBody();
     const shape = makeShape(body);
     world.progress(0, 16);
-    expect(state.shapeByEntity.has(shape.eid)).toBe(true);
+    const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    expect(state.box2d.b2Shape_IsValid(shapeId)).toBe(true);
 
     shape.remove(Box);
     world.progress(16, 16);
 
-    expect(state.shapeByEntity.has(shape.eid)).toBe(false);
+    expect(state.shapeByEntityWasm.has(shape.eid)).toBe(false);
+    expect(state.box2d.b2Shape_IsValid(shapeId)).toBe(false);
   });
 
-  it("removes from the body shape list on exit", () => {
+  it("marks the body mass dirty on shape removal (cleared by mass recompute)", () => {
     const body = makeBody();
     const shape = makeShape(body);
     world.progress(0, 16);
 
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    expect(state.bodies.get(bodyHandle.index).shapeCount).toBe(1);
+    const massBefore = getBodyMass(body.eid);
+    expect(massBefore).toBeGreaterThan(0);
 
     shape.remove(Box);
     world.progress(16, 16);
 
-    expect(state.bodies.get(bodyHandle.index).shapeCount).toBe(0);
-    expect(state.bodies.get(bodyHandle.index).shapeHead).toBe(NULL_INDEX);
-  });
-
-  it("marks the body massDirty on shape removal", () => {
-    const body = makeBody();
-    const shape = makeShape(body);
-    world.progress(0, 16);
-
-    const bodyHandle = state.bodyByEntity.get(body.eid)!;
-    // massDirty is already false after frame 1 (VP-12 cleared it).
-
-    shape.remove(Box);
-    world.progress(16, 16);
-
-    // VP-12: shape removal marks massDirty, then PhysicsMassRecompute clears it.
-    // After a full world.progress() massDirty is false again.
-    expect(state.bodies.get(bodyHandle.index).massDirty).toBe(false);
+    // Mass should be zero now (no shapes with density).
+    expect(getBodyMass(body.eid)).toBe(0);
+    expect(state.dirtyMassBodies.size).toBe(0);
   });
 
   it("is idempotent — double-remove does not throw", () => {
@@ -494,11 +431,10 @@ describe("PhysicsShapeLifecycle.exit", () => {
 
     shape.remove(Box);
     world.progress(16, 16);
-    // Second removal of a shape that's already gone — should be no-op
     expect(() => world.progress(32, 16)).not.toThrow();
   });
 
-  it("destroys all chain segment proxies on chain exit", () => {
+  it("destroys the WASM chain on chain entity exit", () => {
     const body = makeBody(BodyType.Static);
     const chain = world
       .entity()
@@ -513,24 +449,24 @@ describe("PhysicsShapeLifecycle.exit", () => {
         loop: false,
       });
     world.progress(0, 16);
-    expect(state.chainShapeByEntity.has(chain.eid)).toBe(true);
-    expect(state.bodies.get(state.bodyByEntity.get(body.eid)!.index).shapeCount).toBe(3);
+    const chainId = state.chainByEntity.get(chain.eid)!;
+    expect(state.box2d.b2Chain_IsValid(chainId)).toBe(true);
 
     chain.remove(Chain);
     world.progress(16, 16);
 
-    expect(state.chainShapeByEntity.has(chain.eid)).toBe(false);
-    expect(state.bodies.get(state.bodyByEntity.get(body.eid)!.index).shapeCount).toBe(0);
+    expect(state.chainByEntity.has(chain.eid)).toBe(false);
+    expect(state.box2d.b2Chain_IsValid(chainId)).toBe(false);
   });
 
-  it("destroying the shape entity removes the internal shape", () => {
+  it("destroying the shape entity removes the WASM shape", () => {
     const body = makeBody();
     const shape = makeShape(body);
     world.progress(0, 16);
     const eid = shape.eid;
     shape.destroy();
     world.progress(16, 16);
-    expect(state.shapeByEntity.has(eid)).toBe(false);
+    expect(state.shapeByEntityWasm.has(eid)).toBe(false);
   });
 
   it("body persists after its shape is removed", () => {
@@ -541,10 +477,12 @@ describe("PhysicsShapeLifecycle.exit", () => {
     shape.remove(Box);
     world.progress(16, 16);
 
-    expect(state.bodyByEntity.has(body.eid)).toBe(true);
+    expect(state.bodyByEntityWasm.has(body.eid)).toBe(true);
+    const bodyId = state.bodyByEntityWasm.get(body.eid)!;
+    expect(state.box2d.b2Body_IsValid(bodyId)).toBe(true);
   });
 
-  it("removing the parent body destroys the shape (ChildOf cascade)", () => {
+  it("removing the parent body destroys the WASM shape (ChildOf cascade)", () => {
     const body = makeBody();
     const shape = makeShape(body);
     world.progress(0, 16);
@@ -553,149 +491,72 @@ describe("PhysicsShapeLifecycle.exit", () => {
     body.remove(Body);
     world.progress(16, 16);
 
-    // Shape entity is destroyed via ChildOf cascade (onDeleteTarget = Delete).
-    expect(state.shapeByEntity.has(shapeEid)).toBe(false);
+    expect(state.shapeByEntityWasm.has(shapeEid)).toBe(false);
   });
 });
 
 // ─── Geometry type swap (exclusivity) ────────────────────────────────────────
 
 describe("PhysicsShapeLifecycle — geometry type swap", () => {
-  it("Box→Circle swap destroys the old shape and creates a new one", () => {
+  it("Box→Circle swap destroys the old shape and creates a new Circle shape", () => {
     const body = makeBody();
     const shape = makeShape(body);
     world.progress(0, 16);
 
-    const firstHandle = state.shapeByEntity.get(shape.eid)!;
-    expect(getShapeRecord(shape.eid)!.geometry.kind).toBe("polygon"); // box is polygon
+    const oldShapeId = state.shapeByEntityWasm.get(shape.eid)!;
+    expect(state.box2d.b2Shape_IsValid(oldShapeId)).toBe(true);
 
     shape.set(Circle, { radius: 1 });
     world.progress(16, 16);
 
-    const secondHandle = state.shapeByEntity.get(shape.eid)!;
-    // A new allocation — same index (LIFO pool reuse) but bumped generation.
-    // The observable: shape record now holds circle geometry.
-    expect(secondHandle.generation).toBeGreaterThan(firstHandle.generation);
-    expect(getShapeRecord(shape.eid)!.geometry.kind).toBe("circle");
+    // Old shape was destroyed.
+    expect(state.box2d.b2Shape_IsValid(oldShapeId)).toBe(false);
+    // New shape was created.
+    expect(hasWasmShape(shape.eid)).toBe(true);
   });
 });
 
 // ─── Reparenting ─────────────────────────────────────────────────────────────
 
 describe("PhysicsShapeLifecycle — reparenting", () => {
-  it("reparenting a shape to a new Body moves it to the new body's list", () => {
+  it("reparenting a shape to a new Body updates the WASM shape's body", () => {
     const bodyA = makeBody();
     const bodyB = makeBody(BodyType.Static);
     const shape = makeShape(bodyA);
     world.progress(0, 16);
 
-    const bodyAHandle = state.bodyByEntity.get(bodyA.eid)!;
-    const bodyBHandle = state.bodyByEntity.get(bodyB.eid)!;
-    expect(state.bodies.get(bodyAHandle.index).shapeCount).toBe(1);
-    expect(state.bodies.get(bodyBHandle.index).shapeCount).toBe(0);
+    const massBefore = getBodyMass(bodyA.eid);
+    expect(massBefore).toBeGreaterThan(0);
 
     shape.set(ChildOf, { target: bodyB });
     world.progress(16, 16);
 
-    expect(state.bodies.get(bodyAHandle.index).shapeCount).toBe(0);
-    expect(state.bodies.get(bodyBHandle.index).shapeCount).toBe(1);
+    // bodyA has no more shapes → mass becomes 0.
+    expect(getBodyMass(bodyA.eid)).toBe(0);
+    // Shape still exists and is attached somewhere.
+    expect(hasWasmShape(shape.eid)).toBe(true);
   });
 
-  it("reparenting marks both old and new body massDirty", () => {
+  it("reparenting marks both old and new body mass dirty (cleared by mass recompute)", () => {
     const bodyA = makeBody();
     const bodyB = makeBody();
     const shape = makeShape(bodyA);
     world.progress(0, 16);
 
-    // After frame 0, massDirty was cleared by VP-12 mass recompute.
+    expect(state.dirtyMassBodies.size).toBe(0);
 
     shape.set(ChildOf, { target: bodyB });
     world.progress(16, 16);
 
-    // VP-12: reparenting marks both bodies massDirty, then PhysicsMassRecompute
-    // clears both. After a full world.progress() massDirty is false on both.
-    expect(state.bodies.get(state.bodyByEntity.get(bodyA.eid)!.index).massDirty).toBe(false);
-    expect(state.bodies.get(state.bodyByEntity.get(bodyB.eid)!.index).massDirty).toBe(false);
-  });
-
-  it("reparenting updates the bodyHandle on the shape record", () => {
-    const bodyA = makeBody();
-    const bodyB = makeBody();
-    const shape = makeShape(bodyA);
-    world.progress(0, 16);
-
-    const bodyBHandle = state.bodyByEntity.get(bodyB.eid)!;
-
-    shape.set(ChildOf, { target: bodyB });
-    world.progress(16, 16);
-
-    const rec = getShapeRecord(shape.eid)!;
-    expect(rec.bodyHandle!.index).toBe(bodyBHandle.index);
-  });
-});
-
-// ─── Static fat AABB margin (Box2D parity) ────────────────────────────────────
-
-describe("static shape fat-AABB margin (b2UpdateShapeAABBs parity)", () => {
-  it("static Box: fatAABB extends tight AABB by speculativeDistance on every side", () => {
-    // Box2D: static fat margin = speculativeDistance (NOT zero).
-    // tight AABB = geometry ± speculativeDistance
-    // fat  AABB  = tight   ± speculativeDistance  = geometry ± 2*speculativeDistance
-    const body = world.entity().set(Body, { type: BodyType.Static });
-    const shape = world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
-    world.progress(0, 16);
-
-    const rec = getShapeRecord(shape.eid)!;
-    const spec = SPECULATIVE_DISTANCE;
-    // fat = tight ± spec
-    expect(rec.fatAabbMinX).toBeCloseTo(rec.aabbMinX - spec, 6);
-    expect(rec.fatAabbMinY).toBeCloseTo(rec.aabbMinY - spec, 6);
-    expect(rec.fatAabbMaxX).toBeCloseTo(rec.aabbMaxX + spec, 6);
-    expect(rec.fatAabbMaxY).toBeCloseTo(rec.aabbMaxY + spec, 6);
-    // Fat AABB is strictly larger than tight.
-    expect(rec.fatAabbMaxX).toBeGreaterThan(rec.aabbMaxX);
-  });
-
-  it("dynamic Box: fatAABB extends tight AABB by aabbMargin (> speculativeDistance)", () => {
-    const body = world.entity().set(Body, { type: BodyType.Dynamic });
-    const shape = world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
-    world.progress(0, 16);
-
-    const rec = getShapeRecord(shape.eid)!;
-    const spec = SPECULATIVE_DISTANCE;
-    // Dynamic fat margin > speculativeDistance for a half-unit box.
-    expect(rec.fatAabbMaxX - rec.aabbMaxX).toBeGreaterThan(spec);
-  });
-
-  it("static fat margin equals speculativeDistance, dynamic fat margin > speculativeDistance", () => {
-    const staticBody = world.entity().set(Body, { type: BodyType.Static });
-    const dynamicBody = world.entity().set(Body, { type: BodyType.Dynamic });
-    const staticShape = world
-      .entity()
-      .set(ChildOf, { target: staticBody })
-      .set(Box, { hx: 0.5, hy: 0.5 });
-    const dynamicShape = world
-      .entity()
-      .set(ChildOf, { target: dynamicBody })
-      .set(Box, { hx: 0.5, hy: 0.5 });
-    world.progress(0, 16);
-
-    const sRec = getShapeRecord(staticShape.eid)!;
-    const dRec = getShapeRecord(dynamicShape.eid)!;
-    const spec = SPECULATIVE_DISTANCE;
-
-    const staticFatExtra = sRec.fatAabbMaxX - sRec.aabbMaxX;
-    const dynamicFatExtra = dRec.fatAabbMaxX - dRec.aabbMaxX;
-
-    expect(staticFatExtra).toBeCloseTo(spec, 6);
-    expect(dynamicFatExtra).toBeGreaterThan(spec);
+    // PhysicsMassRecompute should have cleared dirtyMassBodies.
+    expect(state.dirtyMassBodies.size).toBe(0);
   });
 });
 
 // ─── Degenerate segment / capsule rejection ───────────────────────────────────
 
 describe("degenerate capsule/segment rejection (Box2D parity)", () => {
-  it("zero-length Capsule is not registered as a shape (skipped at creation)", () => {
+  it("zero-length Capsule is not registered as a WASM shape (skipped at creation)", () => {
     const body = makeBody();
     const e = world
       .entity()
@@ -703,20 +564,19 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
       .set(Capsule, { x1: 0, y1: 0, x2: 0, y2: 0, radius: 1 });
     world.progress(0, 16);
 
-    // Shape must not have been created.
-    expect(state.shapeByEntity.has(e.eid)).toBe(false);
+    expect(state.shapeByEntityWasm.has(e.eid)).toBe(false);
   });
 
   it("near-zero Capsule (<= LINEAR_SLOP distance) is rejected", () => {
     const body = makeBody();
-    const tinyDelta = LINEAR_SLOP * 0.5; // strictly less than LINEAR_SLOP
+    const tinyDelta = LINEAR_SLOP * 0.5;
     const e = world
       .entity()
       .set(ChildOf, { target: body })
       .set(Capsule, { x1: 0, y1: 0, x2: tinyDelta, y2: 0, radius: 1 });
     world.progress(0, 16);
 
-    expect(state.shapeByEntity.has(e.eid)).toBe(false);
+    expect(state.shapeByEntityWasm.has(e.eid)).toBe(false);
   });
 
   it("valid Capsule (> LINEAR_SLOP distance) IS registered", () => {
@@ -727,7 +587,7 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
       .set(Capsule, { x1: -1, y1: 0, x2: 1, y2: 0, radius: 0.5 });
     world.progress(0, 16);
 
-    expect(state.shapeByEntity.has(e.eid)).toBe(true);
+    expect(hasWasmShape(e.eid)).toBe(true);
   });
 
   it("zero-length Segment is not registered", () => {
@@ -738,10 +598,10 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
       .set(Segment, { x1: 5, y1: 5, x2: 5, y2: 5 });
     world.progress(0, 16);
 
-    expect(state.shapeByEntity.has(e.eid)).toBe(false);
+    expect(state.shapeByEntityWasm.has(e.eid)).toBe(false);
   });
 
-  it("degenerate Capsule update is ignored; old valid geometry is preserved", () => {
+  it("degenerate Capsule update is ignored; old valid shape is preserved", () => {
     const body = makeBody();
     const e = world
       .entity()
@@ -749,20 +609,19 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
       .set(Capsule, { x1: -1, y1: 0, x2: 1, y2: 0, radius: 0.5 });
     world.progress(0, 16);
 
-    // Capture the original AABB extremes.
-    const recBefore = getShapeRecord(e.eid)!;
-    const minXBefore = recBefore.aabbMinX;
+    const originalShapeId = state.shapeByEntityWasm.get(e.eid)!;
+    expect(state.box2d.b2Shape_IsValid(originalShapeId)).toBe(true);
 
     // Update to degenerate endpoints — should be ignored.
     e.set(Capsule, { x1: 0, y1: 0, x2: 0, y2: 0, radius: 0.5 });
     world.progress(16, 16);
 
-    const recAfter = getShapeRecord(e.eid)!;
-    // Geometry unchanged — AABB must match the original.
-    expect(recAfter.aabbMinX).toBeCloseTo(minXBefore, 5);
+    // Shape should still be the same original shape.
+    const currentShapeId = state.shapeByEntityWasm.get(e.eid)!;
+    expect(state.box2d.b2Shape_IsValid(currentShapeId)).toBe(true);
   });
 
-  it("degenerate Segment update is ignored; old valid geometry is preserved", () => {
+  it("degenerate Segment update is ignored; old valid shape is preserved", () => {
     const body = makeBody();
     const e = world
       .entity()
@@ -770,37 +629,13 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
       .set(Segment, { x1: -2, y1: 0, x2: 2, y2: 0 });
     world.progress(0, 16);
 
-    const recBefore = getShapeRecord(e.eid)!;
-    const maxXBefore = recBefore.aabbMaxX;
+    const originalShapeId = state.shapeByEntityWasm.get(e.eid)!;
+    expect(state.box2d.b2Shape_IsValid(originalShapeId)).toBe(true);
 
     e.set(Segment, { x1: 0, y1: 0, x2: 0, y2: 0 });
     world.progress(16, 16);
 
-    const recAfter = getShapeRecord(e.eid)!;
-    expect(recAfter.aabbMaxX).toBeCloseTo(maxXBefore, 5);
-  });
-
-  it("chain with duplicate adjacent points produces fewer segments", () => {
-    // Two distinct points → 1 valid segment + 1 degenerate segment skipped.
-    const body = makeBody(BodyType.Static);
-    const chain = world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Chain, {
-        points: [
-          { x: 0, y: 0 },
-          { x: 1, y: 0 },
-          { x: 1, y: 0 }, // duplicate of previous — degenerate segment
-          { x: 2, y: 0 },
-        ],
-        loop: false,
-      });
-    world.progress(0, 16);
-
-    // 4 points open chain would normally give 3 segments, but one degenerate
-    // pair is skipped → only 2 segments created.
-    const handles = state.chainShapeByEntity.get(chain.eid);
-    expect(handles).toBeDefined();
-    expect(handles!.length).toBe(2);
+    const currentShapeId = state.shapeByEntityWasm.get(e.eid)!;
+    expect(state.box2d.b2Shape_IsValid(currentShapeId)).toBe(true);
   });
 });

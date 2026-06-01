@@ -1,5 +1,5 @@
-// `PhysicsBodyLifecycle` (VP-6): body create/destroy and solver-set placement /
-// transfers driven by `Body` enter/exit/update events.
+// `PhysicsBodyLifecycle` (VP-6): body create/destroy and WASM body state driven
+// by `Body` enter/exit/update events.
 
 import { ChildOf, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -16,10 +16,7 @@ import {
   Rotation,
   installPhysics,
 } from "../../src/index.js";
-import { DYNAMIC_BODY, KINEMATIC_BODY, STATIC_BODY } from "../../src/engine/body.js";
-import { proxyType } from "../../src/engine/broad_phase.js";
-import { AWAKE_SET, DISABLED_SET, STATIC_SET } from "../../src/engine/solver_set.js";
-import { getPhysics, type PhysicsState } from "../../src/engine/state.js";
+import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 
 let world: World;
 let state: PhysicsState;
@@ -31,14 +28,16 @@ beforeEach(() => {
   state = getPhysics(world);
 });
 
-/** The internal body record for an entity, looked up through the engine state. */
-function record(eid: number) {
-  const handle = state.bodyByEntity.get(eid)!;
-  return state.bodies.get(handle.index);
+function wasmBodyId(eid: number) {
+  const bodyId = state.bodyByEntityWasm.get(eid);
+  if (bodyId === undefined) {
+    throw new Error(`missing wasm body for entity ${eid}`);
+  }
+  return bodyId;
 }
 
 describe("PhysicsBodyLifecycle.enter", () => {
-  it("creates a dynamic body in the awake set with its pose", () => {
+  it("creates a dynamic body with its pose in WASM", () => {
     const e = world
       .entity()
       .set(Body, { type: BodyType.Dynamic })
@@ -46,40 +45,44 @@ describe("PhysicsBodyLifecycle.enter", () => {
       .set(Rotation, { angle: 0 });
     world.progress(0, 16);
 
-    const r = record(e.eid);
-    expect(r.setIndex).toBe(AWAKE_SET);
-    expect(r.type).toBe(DYNAMIC_BODY);
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[r.localIndex]!;
-    expect(sim.transformX).toBe(2);
-    expect(sim.transformY).toBe(3);
-    expect(state.solverSets[AWAKE_SET]!.bodyStates).toHaveLength(1);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_GetType(bodyId)).toBe(state.box2d.b2BodyType.b2_dynamicBody);
+    const pos = state.box2d.b2Body_GetPosition(bodyId);
+    try {
+      expect(pos.x).toBeCloseTo(2);
+      expect(pos.y).toBeCloseTo(3);
+    } finally {
+      pos.delete();
+    }
+    expect(state.box2d.b2Body_IsAwake(bodyId)).toBe(true);
   });
 
-  it("places a static body in the static set with no body state", () => {
+  it("creates a static body with the static type", () => {
     const e = world.entity().set(Body, { type: BodyType.Static });
     world.progress(0, 16);
 
-    expect(record(e.eid).setIndex).toBe(STATIC_SET);
-    expect(record(e.eid).type).toBe(STATIC_BODY);
-    expect(state.solverSets[STATIC_SET]!.bodyStates).toHaveLength(0);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_GetType(bodyId)).toBe(state.box2d.b2BodyType.b2_staticBody);
+    expect(state.box2d.b2Body_IsAwake(bodyId)).toBe(false);
   });
 
-  it("places a kinematic body in the awake set", () => {
+  it("creates a kinematic body with the kinematic type", () => {
     const e = world.entity().set(Body, { type: BodyType.Kinematic });
     world.progress(0, 16);
 
-    expect(record(e.eid).setIndex).toBe(AWAKE_SET);
-    expect(record(e.eid).type).toBe(KINEMATIC_BODY);
+    expect(state.box2d.b2Body_GetType(wasmBodyId(e.eid))).toBe(
+      state.box2d.b2BodyType.b2_kinematicBody
+    );
   });
 
-  it("places a disabled body in the disabled set whatever its type", () => {
+  it("creates a disabled body in the disabled state", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic, enabled: false });
     world.progress(0, 16);
 
-    expect(record(e.eid).setIndex).toBe(DISABLED_SET);
+    expect(state.box2d.b2Body_IsEnabled(wasmBodyId(e.eid))).toBe(false);
   });
 
-  it("reads damping and gravity scale into the sim", () => {
+  it("reads damping and gravity scale into the WASM body", () => {
     const e = world
       .entity()
       .set(Body, { type: BodyType.Dynamic })
@@ -87,18 +90,13 @@ describe("PhysicsBodyLifecycle.enter", () => {
       .set(GravityScale, { value: 2 });
     world.progress(0, 16);
 
-    // These are integration coefficients on the sim — the step reads them but
-    // does not mutate them, so they are stable after a progress.
-    const r = record(e.eid);
-    const sim = state.solverSets[AWAKE_SET]!.bodySims[r.localIndex]!;
-    expect(sim.linearDamping).toBe(0.5);
-    expect(sim.angularDamping).toBe(0.25);
-    expect(sim.gravityScale).toBe(2);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_GetLinearDamping(bodyId)).toBe(0.5);
+    expect(state.box2d.b2Body_GetAngularDamping(bodyId)).toBe(0.25);
+    expect(state.box2d.b2Body_GetGravityScale(bodyId)).toBe(2);
   });
 
-  it("reads initial velocity into the body state", () => {
-    // No mass (invMass 0 until VP-12) and no damping, so the step leaves the
-    // velocity untouched — what we read back is what the lifecycle wrote.
+  it("reads initial velocity into the WASM body", () => {
     const e = world
       .entity()
       .set(Body, { type: BodyType.Dynamic })
@@ -106,170 +104,151 @@ describe("PhysicsBodyLifecycle.enter", () => {
       .set(AngularVelocity, { value: 4 });
     world.progress(0, 16);
 
-    const r = record(e.eid);
-    const bodyState = state.solverSets[AWAKE_SET]!.bodyStates[r.localIndex]!;
-    expect(bodyState.vx).toBe(1);
-    expect(bodyState.vy).toBe(-1);
-    expect(bodyState.omega).toBe(4);
+    const bodyId = wasmBodyId(e.eid);
+    const vel = state.box2d.b2Body_GetLinearVelocity(bodyId);
+    try {
+      expect(vel.x).toBeCloseTo(1);
+      expect(vel.y).toBeCloseTo(-1);
+    } finally {
+      vel.delete();
+    }
+    expect(state.box2d.b2Body_GetAngularVelocity(bodyId)).toBeCloseTo(4);
   });
 });
 
 describe("PhysicsBodyLifecycle.exit", () => {
-  it("destroys the internal body when Body is removed", () => {
+  it("destroys the WASM body when Body is removed", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     world.progress(0, 16);
-    expect(state.bodyByEntity.has(e.eid)).toBe(true);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_IsValid(bodyId)).toBe(true);
 
     e.remove(Body);
     world.progress(16, 16);
 
-    expect(state.bodyByEntity.has(e.eid)).toBe(false);
-    expect(state.solverSets[AWAKE_SET]!.bodySims).toHaveLength(0);
+    expect(state.bodyByEntityWasm.has(e.eid)).toBe(false);
+    expect(state.box2d.b2Body_IsValid(bodyId)).toBe(false);
   });
 
-  it("destroys the internal body when the entity is destroyed", () => {
+  it("destroys the WASM body when the entity is destroyed", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     world.progress(0, 16);
+    const bodyId = wasmBodyId(e.eid);
 
     e.destroy();
     world.progress(16, 16);
 
-    expect(state.bodyByEntity.has(e.eid)).toBe(false);
-    expect(state.solverSets[AWAKE_SET]!.bodySims).toHaveLength(0);
+    expect(state.bodyByEntityWasm.has(e.eid)).toBe(false);
+    expect(state.box2d.b2Body_IsValid(bodyId)).toBe(false);
   });
 });
 
 describe("PhysicsBodyLifecycle.update(Body)", () => {
-  it("moves a body to the disabled set and back on the enabled toggle", () => {
+  it("moves a body to disabled and back on the enabled toggle", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     world.progress(0, 16);
-    expect(record(e.eid).setIndex).toBe(AWAKE_SET);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(true);
 
     e.set(Body, { type: BodyType.Dynamic, enabled: false });
     world.progress(16, 16);
-    expect(record(e.eid).setIndex).toBe(DISABLED_SET);
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(false);
 
     e.set(Body, { type: BodyType.Dynamic, enabled: true });
     world.progress(32, 16);
-    expect(record(e.eid).setIndex).toBe(AWAKE_SET);
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(true);
   });
 
-  it("moves a body between awake and static sets on a type change", () => {
+  it("changes body type from dynamic to static", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     world.progress(0, 16);
-    expect(record(e.eid).setIndex).toBe(AWAKE_SET);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_GetType(bodyId)).toBe(state.box2d.b2BodyType.b2_dynamicBody);
 
     e.set(Body, { type: BodyType.Static });
     world.progress(16, 16);
-    expect(record(e.eid).setIndex).toBe(STATIC_SET);
-    expect(record(e.eid).type).toBe(STATIC_BODY);
+    expect(state.box2d.b2Body_GetType(bodyId)).toBe(state.box2d.b2BodyType.b2_staticBody);
   });
 
-  it("updates the recorded type for a kinematic↔dynamic change without moving sets", () => {
+  it("changes body type from dynamic to kinematic", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     world.progress(0, 16);
 
     e.set(Body, { type: BodyType.Kinematic });
     world.progress(16, 16);
-    expect(record(e.eid).setIndex).toBe(AWAKE_SET);
-    expect(record(e.eid).type).toBe(KINEMATIC_BODY);
+    expect(state.box2d.b2Body_GetType(wasmBodyId(e.eid))).toBe(
+      state.box2d.b2BodyType.b2_kinematicBody
+    );
   });
 });
 
 // ─── Proxy synchronisation on enable / disable / type change ─────────────────
 
-describe("PhysicsBodyLifecycle — body proxy synchronisation", () => {
-  it("disabled body creation: shapes have no proxy (proxyKey = -1)", () => {
-    // Box2D: b2CreateShape skips proxy creation when body is in disabled set.
+describe("PhysicsBodyLifecycle — body proxy synchronisation (WASM)", () => {
+  it("disabled body: shape is invalid in WASM when body is disabled on creation", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic, enabled: false });
     world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
 
-    const bodyHandle = state.bodyByEntity.get(e.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    expect(bodyRec.setIndex).toBe(DISABLED_SET);
-
-    const shapeIndex = bodyRec.shapeHead;
-    expect(shapeIndex).not.toBe(-1); // shape record was created
-    const shape = state.shapes.get(shapeIndex);
-    expect(shape.proxyKey).toBe(-1); // but no proxy
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(false);
+    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
   });
 
-  it("enable after disabled creation: proxies are created for all shapes", () => {
+  it("enable after disabled creation: body becomes enabled and shapes work", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic, enabled: false });
     world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
 
-    // Verify no proxy yet.
-    const bodyHandle = state.bodyByEntity.get(e.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    expect(state.shapes.get(bodyRec.shapeHead).proxyKey).toBe(-1);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(false);
 
-    // Enable the body.
     e.set(Body, { type: BodyType.Dynamic, enabled: true });
     world.progress(16, 16);
 
-    // Now the body is in the awake set and its shape should have a proxy.
-    expect(bodyRec.setIndex).toBe(AWAKE_SET);
-    const shape = state.shapes.get(bodyRec.shapeHead);
-    expect(shape.proxyKey).toBeGreaterThanOrEqual(0);
-    // Proxy should be in the dynamic tree (bodyType = DYNAMIC_BODY = 2).
-    expect(proxyType(shape.proxyKey)).toBe(DYNAMIC_BODY);
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(true);
+    expect(state.box2d.b2Body_IsAwake(bodyId)).toBe(true);
   });
 
-  it("disable after enabled: all shape proxies are destroyed", () => {
+  it("disable after enabled: body becomes disabled", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
 
-    const bodyHandle = state.bodyByEntity.get(e.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const shapeIdx = bodyRec.shapeHead;
-    // Initially has a proxy.
-    expect(state.shapes.get(shapeIdx).proxyKey).toBeGreaterThanOrEqual(0);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(true);
 
-    // Disable.
     e.set(Body, { type: BodyType.Dynamic, enabled: false });
     world.progress(16, 16);
 
-    expect(bodyRec.setIndex).toBe(DISABLED_SET);
-    expect(state.shapes.get(shapeIdx).proxyKey).toBe(-1);
+    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(false);
   });
 
-  it("static→dynamic type change: proxy migrates to the dynamic tree", () => {
+  it("static→dynamic type change: body type is updated in WASM", () => {
     const e = world.entity().set(Body, { type: BodyType.Static });
     world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
 
-    const bodyHandle = state.bodyByEntity.get(e.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const shapeIdx = bodyRec.shapeHead;
-    // Initially in static tree (bodyType = STATIC_BODY = 0).
-    expect(proxyType(state.shapes.get(shapeIdx).proxyKey)).toBe(STATIC_BODY);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_GetType(bodyId)).toBe(state.box2d.b2BodyType.b2_staticBody);
 
-    // Change to dynamic.
     e.set(Body, { type: BodyType.Dynamic });
     world.progress(16, 16);
 
-    expect(bodyRec.type).toBe(DYNAMIC_BODY);
-    // Proxy now in the dynamic tree.
-    expect(proxyType(state.shapes.get(shapeIdx).proxyKey)).toBe(DYNAMIC_BODY);
+    expect(state.box2d.b2Body_GetType(bodyId)).toBe(state.box2d.b2BodyType.b2_dynamicBody);
   });
 
-  it("dynamic→static type change: proxy migrates to the static tree", () => {
+  it("dynamic→static type change: body type is updated in WASM", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
 
-    const bodyHandle = state.bodyByEntity.get(e.eid)!;
-    const bodyRec = state.bodies.get(bodyHandle.index);
-    const shapeIdx = bodyRec.shapeHead;
-    expect(proxyType(state.shapes.get(shapeIdx).proxyKey)).toBe(DYNAMIC_BODY);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_GetType(bodyId)).toBe(state.box2d.b2BodyType.b2_dynamicBody);
 
     e.set(Body, { type: BodyType.Static });
     world.progress(16, 16);
 
-    expect(bodyRec.type).toBe(STATIC_BODY);
-    expect(proxyType(state.shapes.get(shapeIdx).proxyKey)).toBe(STATIC_BODY);
+    expect(state.box2d.b2Body_GetType(bodyId)).toBe(state.box2d.b2BodyType.b2_staticBody);
   });
 });

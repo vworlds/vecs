@@ -1,8 +1,7 @@
 // Runtime event opt-in sync (PhysicsEventOptInSync).
 //
 // Regression for: ContactEvents / HitEvents / SensorEvents added to or removed
-// from a shape AFTER it entered the engine were silently ignored — the engine
-// opt-in flags were latched once in PhysicsShapeLifecycle.enter. These tests
+// from a shape AFTER it entered the engine were silently ignored. These tests
 // drive the documented "add an event component when you want events" contract
 // at runtime, not just at shape creation.
 
@@ -22,7 +21,7 @@ import {
   Sensor,
   SensorEvents,
 } from "../../src/index.js";
-import { getPhysics, PhysicsState } from "../../src/engine/state.js";
+import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 
 const STEP_MS = 1000 / 60;
 
@@ -48,17 +47,8 @@ function step(n = 1): void {
 /** A dynamic 2×2 box body+shape at (x, y). Returns the body and shape entities. */
 function makeBox(x: number, y: number) {
   const body = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x, y });
-  const shapeEnt = world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+  const shapeEnt = world.entity().set(ChildOf, { target: body }).set(Box, { hx: 1, hy: 1 });
   return { body, shapeEnt };
-}
-
-/** The InternalShape backing a single-shape entity. */
-function internalShape(eid: number) {
-  const handle = state.shapeByEntity.get(eid);
-  if (handle === undefined) {
-    throw new Error("shape not in engine");
-  }
-  return state.shapes.records[handle.index]!;
 }
 
 // ─── ContactEvents ────────────────────────────────────────────────────────────
@@ -83,20 +73,20 @@ describe("runtime ContactEvents opt-in", () => {
     expect(events.begin[0]!.other.eid).toBe(b.shapeEnt.eid);
   });
 
-  it("clears the engine flag when ContactEvents is removed", () => {
-    // Overlapping boxes, one opted in at creation.
+  it("clears the WASM contact events flag when ContactEvents is removed", () => {
     const a = makeBox(-0.5, 0);
     const b = makeBox(0.5, 0);
     a.shapeEnt.set(ContactEvents, {});
     step(1);
 
-    // Sanity: opted in on the surviving legacy shape record.
-    expect(internalShape(a.shapeEnt.eid).enableContactEvents).toBe(true);
+    // Sanity: contact events enabled on the WASM shape.
+    const shapeId = state.shapeByEntityWasm.get(a.shapeEnt.eid)!;
+    expect(state.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(true);
 
     a.shapeEnt.remove(ContactEvents); // runtime opt-out
     step(1);
 
-    expect(internalShape(a.shapeEnt.eid).enableContactEvents).toBe(false);
+    expect(state.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(false);
     void b;
   });
 });
@@ -104,18 +94,19 @@ describe("runtime ContactEvents opt-in", () => {
 // ─── HitEvents ──────────────────────────────────────────────────────────────
 
 describe("runtime HitEvents opt-in", () => {
-  it("flips the engine enableHitEvents flag when HitEvents is added then removed", () => {
+  it("flips the WASM enableHitEvents flag when HitEvents is added then removed", () => {
     const a = makeBox(0, 0);
     step(1);
-    expect(internalShape(a.shapeEnt.eid).enableHitEvents).toBe(false);
+    const shapeId = state.shapeByEntityWasm.get(a.shapeEnt.eid)!;
+    expect(state.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(false);
 
     a.shapeEnt.add(HitEvents);
     step(1);
-    expect(internalShape(a.shapeEnt.eid).enableHitEvents).toBe(true);
+    expect(state.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(true);
 
     a.shapeEnt.remove(HitEvents);
     step(1);
-    expect(internalShape(a.shapeEnt.eid).enableHitEvents).toBe(false);
+    expect(state.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(false);
   });
 });
 

@@ -8,12 +8,12 @@ import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { installPhysics } from "../../src/index.js";
-import { getPhysics } from "../../src/engine/state.js";
+import { getPhysics } from "../../src/adapter/state.js";
 
 const STEP_MS = 1000 / 60;
 
 describe("test_world.c::EmptyWorld", () => {
-  it("steps an empty installed world without allocating engine records", () => {
+  it("steps an empty installed world without crashing", () => {
     const world = new World();
     installPhysics(world);
     world.start();
@@ -21,18 +21,13 @@ describe("test_world.c::EmptyWorld", () => {
 
     expect(() => step(world, 32)).not.toThrow();
 
-    expect(state.bodies.records.filter(Boolean)).toHaveLength(0);
-    expect(state.shapes.records.filter(Boolean)).toHaveLength(0);
-    expect(state.contacts.records.filter(Boolean)).toHaveLength(0);
-    expect(state.islands.records.filter(Boolean)).toHaveLength(0);
-    expect(state.graphContactSims).toHaveLength(0);
-    expect(state.solverSets).toHaveLength(3);
-    for (const set of state.solverSets) {
-      expect(set.bodySims).toHaveLength(0);
-      expect(set.bodyStates).toHaveLength(0);
-      expect(set.contactSims).toHaveLength(0);
-      expect(set.islandSims).toHaveLength(0);
-    }
+    // No bodies or shapes were registered.
+    expect(state.bodyByEntityWasm.size).toBe(0);
+    expect(state.shapeByEntityWasm.size).toBe(0);
+    expect(state.entityByBody.size).toBe(0);
+    expect(state.entityByShape.size).toBe(0);
+    // The WASM world is still valid after 32 empty steps.
+    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
   });
 });
 
