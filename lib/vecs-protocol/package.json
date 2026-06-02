@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-protocol",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -12,8 +12,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@vworlds/vecs": "1.0.17",
-    "@vworlds/vecs-wire": "file:../vecs-wire"
+    "@vworlds/vecs": "1.0.18",
+    "@vworlds/vecs-wire": "1.0.18"
   },
   "license": "UNLICENSED"
 }
