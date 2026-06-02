@@ -14,7 +14,7 @@
   "dependencies": {
     "@vworlds/vecs": "1.0.17",
     "@vworlds/vecs-protocol": "file:../vecs-protocol",
-    "@vworlds/vecs-wire": "file:../vecs-wire",
+    "@vworlds/vecs-wire": "1.0.16",
     "@vworlds/dgram-client": "^1.0.7"
   },
   "license": "UNLICENSED"

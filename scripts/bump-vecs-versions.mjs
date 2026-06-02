@@ -9,6 +9,8 @@ const packagePaths = [
   "lib/vecs-wire/package.json",
 ];
 
+const syncedDependencyNames = ["@vworlds/vecs", "@vworlds/vecs-wire"];
+
 const packages = await Promise.all(
   packagePaths.map(async (path) => ({
     path,
@@ -35,8 +37,10 @@ const nextVersion = `${major}.${minor}.${patch + 1}`;
 for (const pkg of packages) {
   pkg.data.version = nextVersion;
 
-  if (pkg.data.dependencies?.["@vworlds/vecs"]) {
-    pkg.data.dependencies["@vworlds/vecs"] = nextVersion;
+  for (const dependencyName of syncedDependencyNames) {
+    if (pkg.data.dependencies?.[dependencyName]) {
+      pkg.data.dependencies[dependencyName] = nextVersion;
+    }
   }
 
   await writeFile(pkg.path, `${JSON.stringify(pkg.data, null, 2)}\n`);

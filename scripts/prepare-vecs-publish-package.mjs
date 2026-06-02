@@ -1,7 +1,8 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
-const internalPackages = ["@vworlds/vecs-protocol", "@vworlds/vecs-wire"];
+const bundledInternalPackages = ["@vworlds/vecs-protocol"];
+const syncedDependencyNames = ["@vworlds/vecs", "@vworlds/vecs-protocol", "@vworlds/vecs-wire"];
 const packageDir = process.argv[2];
 
 if (!packageDir) {
@@ -12,7 +13,9 @@ const packageName = basename(packageDir);
 const packageJsonPath = join(packageDir, "package.json");
 const distDir = join(packageDir, "dist");
 const sourcePackage = JSON.parse(await readFile(packageJsonPath, "utf8"));
-const bundledInternals = internalPackages.filter((name) => sourcePackage.dependencies?.[name]);
+const bundledInternals = bundledInternalPackages.filter(
+  (name) => sourcePackage.dependencies?.[name]
+);
 const dependencies = rewriteDependencies(sourcePackage.dependencies ?? {}, sourcePackage.version);
 
 const publishPackage = {
@@ -46,6 +49,9 @@ const publishPackage = {
 
 await mkdir(distDir, { recursive: true });
 await rm(join(distDir, "vecs"), { recursive: true, force: true });
+if (packageName !== "vecs-wire") {
+  await rm(join(distDir, "vecs-wire"), { recursive: true, force: true });
+}
 
 for (const internalName of bundledInternals) {
   const internalPackageName = internalName.slice("@vworlds/".length);
@@ -81,7 +87,7 @@ function rewriteDependencies(dependencies, version) {
   return Object.fromEntries(
     Object.entries(dependencies).map(([name, range]) => [
       name,
-      name === "@vworlds/vecs" || internalPackages.includes(name) ? version : range,
+      syncedDependencyNames.includes(name) ? version : range,
     ])
   );
 }

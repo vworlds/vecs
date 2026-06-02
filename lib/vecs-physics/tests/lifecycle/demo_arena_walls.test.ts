@@ -43,8 +43,8 @@ describe("demo arena walls", () => {
     const ball = world
       .entity()
       .set(Position, { x: 1.1, y: 4.2 })
-      .set(Body, { type: BodyType.Dynamic });
-    //.set(LinearVelocity, { x: 1.2, y: -1.0 });
+      .set(Body, { type: BodyType.Dynamic })
+      .set(LinearVelocity, { x: 1.2, y: -1.0 });
     world
       .entity()
       .set(ChildOf, { target: ball })
@@ -55,9 +55,6 @@ describe("demo arena walls", () => {
     for (let i = 0; i < 300; i++) {
       now += STEP_MS;
       world.progress(now, STEP_MS);
-      console.log(
-        `Step ${i}: position=(${ball.get(Position)!.x.toFixed(2)}, ${ball.get(Position)!.y.toFixed(2)})`
-      );
     }
 
     const position = ball.get(Position)!;
