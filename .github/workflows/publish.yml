@@ -50,6 +50,7 @@ jobs:
           node scripts/prepare-vecs-publish-package.mjs lib/vecs-client
           node scripts/prepare-vecs-publish-package.mjs lib/vecs-server
           node scripts/prepare-vecs-publish-package.mjs lib/vecs-physics
+          node scripts/prepare-vecs-publish-package.mjs lib/vecs-wire
 
       - name: Push version bump
         run: |
@@ -61,6 +62,11 @@ jobs:
 
       - name: Publish vecs
         run: npm publish ./lib/vecs --access public
+        env:
+          NODE_AUTH_TOKEN: ""
+
+      - name: Publish wire
+        run: npm publish ./lib/vecs-wire/dist --access public
         env:
           NODE_AUTH_TOKEN: ""
 

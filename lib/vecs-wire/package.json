@@ -1,12 +1,12 @@
 {
   "name": "@vworlds/vecs-wire",
   "version": "1.0.16",
-  "private": true,
+  "private": false,
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "build": "tsc --noEmit",
+    "build": "rimraf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
     "test": "vitest run"
