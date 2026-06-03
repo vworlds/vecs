@@ -42,8 +42,6 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
 
 export interface InstallSystemsOptions {
   applyPhase?: string | IPhase;
-  /** @deprecated Client acks are sent by an internal fixed-rate timer. */
-  sendPhase?: string | IPhase;
 }
 
 export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> {
