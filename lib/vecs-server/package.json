@@ -15,7 +15,7 @@
     "@vworlds/vecs": "1.0.19",
     "@vworlds/vecs-protocol": "file:../vecs-protocol",
     "@vworlds/vecs-wire": "1.0.19",
-    "@vworlds/dgram-server": "^1.0.7"
+    "@vworlds/dgram-server": "^1.0.8"
   },
   "license": "UNLICENSED"
 }
