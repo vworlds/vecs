@@ -63,9 +63,8 @@ export class ClientWorld extends NetworkWorld {
   private readonly _ackIntervalMs: number;
   private _input: unknown;
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
-  private _needsBaselineAfterDisconnect = false;
-  private _hasReceivedFullBaseline = false;
-  private _receivingFullBaseline = false;
+  private _baselineApplied = false;
+  private _forceBaselineReset = false;
   private _systemsInstalled = false;
 
   public constructor(options: ClientWorldOptions = {}) {
@@ -175,13 +174,34 @@ export class ClientWorld extends NetworkWorld {
   }
 
   private _pushDiff(sd: StateDiff): void {
+    // A diff with fromFrame === 0 is a full baseline: the complete authoritative
+    // state at sd.toFrame. The server streams these whenever a client falls
+    // outside its history window -- most commonly a backgrounded tab, where the
+    // render loop (and therefore Interpolator.pull) is suspended and acks are
+    // throttled, so the server keeps resending the whole world until the client
+    // catches up.
+    //
+    // Every baseline is self-contained, so the interpolator rebases onto it:
+    // entities the baseline still contains are updated in place (keeping their
+    // identity, so client-side enter effects such as explosion particles are not
+    // re-triggered), while entities and components it no longer contains are
+    // removed. The "reset" event is informational -- applications no longer need
+    // to tear down their world, since the next pull carries the exact transition.
     if (sd.fromFrame === 0) {
-      this._handleFullBaseline(sd);
-    } else {
-      this._receivingFullBaseline = false;
+      // Skip baselines we have already advanced past (duplicates or, with the
+      // unordered transport, stragglers). After a reconnect the server may have
+      // restarted its frame counter, so a forced reset overrides this.
+      if (!this._forceBaselineReset && sd.toFrame <= this._interpolator.version) {
+        return;
+      }
+      this._forceBaselineReset = false;
+      const initial = !this._baselineApplied;
+      this._baselineApplied = true;
+      this._interpolator.rebase(diffFromStateDiff(sd));
+      this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
+      return;
     }
-    const diff = diffFromStateDiff(sd);
-    this._interpolator.push(diff);
+    this._interpolator.push(diffFromStateDiff(sd));
   }
 
   public decodeComponentSnapshot(snapshot: ComponentSnapshot): ComponentInstance {
@@ -219,33 +239,13 @@ export class ClientWorld extends NetworkWorld {
     }
   }
 
-  private _handleFullBaseline(sd: StateDiff): void {
-    if (this._receivingFullBaseline) {
-      return;
-    }
-    if (
-      !this._needsBaselineAfterDisconnect &&
-      this._hasReceivedFullBaseline &&
-      sd.toFrame <= this._interpolator.version
-    ) {
-      return;
-    }
-
-    const initial = !this._hasReceivedFullBaseline;
-    if (!initial) {
-      this._interpolator.reset();
-    }
-    this._needsBaselineAfterDisconnect = false;
-    this._hasReceivedFullBaseline = true;
-    this._receivingFullBaseline = true;
-    this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
-  }
-
   private _handleDisconnect(): void {
     this._stopAckTimer();
-    this._receivingFullBaseline = false;
-    if (this._hasReceivedFullBaseline) {
-      this._needsBaselineAfterDisconnect = true;
+    // A reconnect may land on a server whose frame counter restarted, so the
+    // next baseline can carry a lower frame than the one we last saw. Force the
+    // next baseline to be adopted regardless of its frame number.
+    if (this._baselineApplied) {
+      this._forceBaselineReset = true;
     }
     this.events.emit("disconnect");
   }
