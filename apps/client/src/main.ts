@@ -91,7 +91,7 @@ async function connect(): Promise<void> {
 
     activeSession = session;
     connectionStatus = "Connected";
-    session.onDisconnect(() => handleDisconnect(session));
+    session.events.on("disconnect", () => handleDisconnect(session));
   } catch (err: unknown) {
     if (generation === connectGeneration) {
       scheduleReconnect(`Connection failed: ${formatError(err)}`);

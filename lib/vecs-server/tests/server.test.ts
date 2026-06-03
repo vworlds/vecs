@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ALL_COMPONENTS,
   Client2Server,
@@ -9,6 +9,7 @@ import {
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
 import { Relationship, type Entity, type World } from "@vworlds/vecs";
+import { performance } from "node:perf_hooks";
 import {
   EntityTracker,
   type IEntityTrackerListener,
@@ -364,7 +365,7 @@ describe("ServerWorld", () => {
     expect(position).toMatchObject({ x: 6, y: 6 });
   });
 
-  it("disconnects clients that lag outside the history window", () => {
+  it("resyncs clients that lag outside the history window", () => {
     const world = createWorld();
     const server = world;
     allowAllClientViews(world);
@@ -376,11 +377,53 @@ describe("ServerWorld", () => {
     listener.connect(socket);
 
     world.entity().add(Networked).set(Position, { x: 7, y: 7 });
-    for (let i = 0; i <= HISTORY_LENGTH; i++) {
+    world.progress(0, 16);
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    const sentBeforeLag = socket.sent.length;
+
+    for (let i = 1; i <= HISTORY_LENGTH + 1; i++) {
       world.progress(i * 16, 16);
     }
 
-    expect(socket.closed).toBe(true);
+    expect(socket.closed).toBe(false);
+    expect(socket.sent.length).toBeGreaterThan(sentBeforeLag);
+    const message = decodeLastMessage(socket);
+    const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
+    expect(message.diff?.fromFrame).toBe(0);
+    expect(message.diff?.toFrame).toBe(HISTORY_LENGTH + 1);
+    expect(message.diff?.snapshots).toHaveLength(1);
+    expect(position).toMatchObject({ x: 7, y: 7 });
+  });
+
+  it("disconnects only after the grace period elapses without inbound messages", () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    try {
+      const world = createWorld({ disconnectGraceMs: 10_000 });
+      const server = world;
+      allowAllClientViews(world);
+      const listener = new MockListener();
+      server._attach(listener);
+      server.installSystems(SERVER_PHASES);
+      world.start();
+      const socket = new MemorySocket("client-1");
+      listener.connect(socket);
+
+      world.entity().add(Networked).set(Position, { x: 7, y: 7 });
+      world.progress(0, 16);
+
+      now.mockReturnValue(9_999);
+      for (let i = 1; i <= HISTORY_LENGTH + 1; i++) {
+        world.progress(i * 16, 16);
+      }
+      expect(socket.closed).toBe(false);
+
+      now.mockReturnValue(10_001);
+      world.progress(100_000, 16);
+
+      expect(socket.closed).toBe(true);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("ignores default ack before the first frame is sent", () => {

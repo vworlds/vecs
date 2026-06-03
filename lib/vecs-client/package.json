@@ -12,10 +12,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@vworlds/dgram-client": "^1.0.7",
     "@vworlds/vecs": "1.0.18",
     "@vworlds/vecs-protocol": "file:../vecs-protocol",
     "@vworlds/vecs-wire": "1.0.18",
-    "@vworlds/dgram-client": "^1.0.7"
+    "eventemitter3": "^5.0.4"
   },
   "license": "UNLICENSED"
 }

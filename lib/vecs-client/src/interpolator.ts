@@ -204,6 +204,16 @@ export class Interpolator {
     return sd;
   }
 
+  public reset(): void {
+    this._state.clear();
+    this.bucket.fill(undefined);
+    this.version = -1;
+    this._first = undefined;
+    this._stateVersion = 0;
+    this._tServ = -1;
+    this._lastTime = -1;
+  }
+
   // push takes diffs coming from the wire and incorporates them
   // to the snapshot bucket in the right position:
   public push(diff: Diff): void {

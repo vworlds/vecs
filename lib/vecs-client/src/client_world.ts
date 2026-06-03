@@ -13,20 +13,36 @@ import {
 } from "@vworlds/vecs-protocol";
 import { type ComponentInstance, type IPhase } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
+import { EventEmitter } from "eventemitter3";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
 
 const DEFAULT_CLIENT_LOCAL_ENTITY_ID_START = 10000;
+
+export interface ClientWorldResetEvent {
+  initial: boolean;
+  fromFrame: number;
+  toFrame: number;
+}
+
+export type ClientWorldResetHandler = (event: ClientWorldResetEvent) => void;
+
+export interface ClientWorldEvents {
+  disconnect: () => void;
+  reset: ClientWorldResetHandler;
+}
 
 export interface ClientWorldOptions extends NetworkWorldOptions {
   socket?: VecsSocket;
   encodeBufferSize?: number;
   interpolatorBucketLength?: number;
   serverTickIntervalMs?: number;
+  ackIntervalMs?: number;
 }
 
 export interface InstallSystemsOptions {
   applyPhase?: string | IPhase;
+  /** @deprecated Client acks are sent by an internal fixed-rate timer. */
   sendPhase?: string | IPhase;
 }
 
@@ -40,21 +56,29 @@ export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> 
 }
 
 export class ClientWorld extends NetworkWorld {
+  public readonly events = new EventEmitter<ClientWorldEvents>();
   private _socket: VecsSocket | undefined;
   private readonly _rpc = new SessionRPC();
   private readonly _rpcInbox: RPC[] = [];
   private readonly _interpolator: Interpolator;
   private readonly _encodeBuffer: Uint8Array;
+  private readonly _ackIntervalMs: number;
   private _input: unknown;
+  private _ackTimer: ReturnType<typeof setInterval> | undefined;
+  private _needsBaselineAfterDisconnect = false;
+  private _hasReceivedFullBaseline = false;
+  private _receivingFullBaseline = false;
   private _systemsInstalled = false;
 
   public constructor(options: ClientWorldOptions = {}) {
+    const localEntityIdStart = options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START;
     super({
       ...options,
-      localEntityIdStart: options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START,
+      localEntityIdStart,
       networkEntityReuseWaitFrames: 0,
     });
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
+    this._ackIntervalMs = options.ackIntervalMs ?? 1000 / 30;
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,
@@ -86,6 +110,8 @@ export class ClientWorld extends NetworkWorld {
   public attachSocket(socket: VecsSocket): void {
     this._socket = socket;
     socket.on("receive", (data) => this._receive(data));
+    socket.on("disconnect", () => this._handleDisconnect());
+    this._startAckTimer();
   }
 
   public installSystems(options: InstallSystemsOptions = {}): void {
@@ -94,13 +120,9 @@ export class ClientWorld extends NetworkWorld {
     }
     this._systemsInstalled = true;
     const applyPhase = options.applyPhase ?? "update";
-    const sendPhase = options.sendPhase ?? "update";
     this.system("ClientWorld:Apply")
       .phase(applyPhase)
       .run((now) => this.apply(now));
-    this.system("ClientWorld:Send")
-      .phase(sendPhase)
-      .run(() => this.send());
   }
 
   public setInput(input: unknown): void {
@@ -113,10 +135,6 @@ export class ClientWorld extends NetworkWorld {
 
   public listen(rpcId: number, handler: RPCHandler): void {
     this._rpc.listen(rpcId, handler);
-  }
-
-  public onDisconnect(handler: () => void): void {
-    this._socket?.on("disconnect", handler);
   }
 
   public apply(now: number): void {
@@ -144,6 +162,7 @@ export class ClientWorld extends NetworkWorld {
   }
 
   public close(): void {
+    this._stopAckTimer();
     this._socket?.close();
   }
 
@@ -158,6 +177,11 @@ export class ClientWorld extends NetworkWorld {
   }
 
   private _pushDiff(sd: StateDiff): void {
+    if (sd.fromFrame === 0) {
+      this._handleFullBaseline(sd);
+    } else {
+      this._receivingFullBaseline = false;
+    }
     const diff = diffFromStateDiff(sd);
     this._interpolator.push(diff);
   }
@@ -195,5 +219,52 @@ export class ClientWorld extends NetworkWorld {
     if (this.getNetworkComponent(type) && entity.get(type)) {
       entity.remove(type);
     }
+  }
+
+  private _handleFullBaseline(sd: StateDiff): void {
+    if (this._receivingFullBaseline) {
+      return;
+    }
+    if (
+      !this._needsBaselineAfterDisconnect &&
+      this._hasReceivedFullBaseline &&
+      sd.toFrame <= this._interpolator.version
+    ) {
+      return;
+    }
+
+    const initial = !this._hasReceivedFullBaseline;
+    if (!initial) {
+      this._interpolator.reset();
+    }
+    this._needsBaselineAfterDisconnect = false;
+    this._hasReceivedFullBaseline = true;
+    this._receivingFullBaseline = true;
+    this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
+  }
+
+  private _handleDisconnect(): void {
+    this._stopAckTimer();
+    this._receivingFullBaseline = false;
+    if (this._hasReceivedFullBaseline) {
+      this._needsBaselineAfterDisconnect = true;
+    }
+    this.events.emit("disconnect");
+  }
+
+  private _startAckTimer(): void {
+    if (this._ackTimer !== undefined) {
+      return;
+    }
+    this._ackTimer = setInterval(() => this.send(), this._ackIntervalMs);
+    (this._ackTimer as { unref?: () => void }).unref?.();
+  }
+
+  private _stopAckTimer(): void {
+    if (this._ackTimer === undefined) {
+      return;
+    }
+    clearInterval(this._ackTimer);
+    this._ackTimer = undefined;
   }
 }

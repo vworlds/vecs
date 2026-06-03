@@ -388,3 +388,17 @@ test("does not interpolate entities that only exist in a future frame", () => {
 
   expect(Pos(sd105, B)).toBeUndefined();
 });
+
+test("reset returns the interpolator to its initial state", () => {
+  const ip = newInterpolator(3, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
+  ip.push(s1);
+  ip.pull(100);
+
+  ip.reset();
+
+  expect(ip.version).toBe(-1);
+  expect(ip.bucket).toEqual([undefined, undefined, undefined]);
+  const empty = ip.pull(200);
+  expect(empty).toMatchObject({ from: 0, to: 0, snapshots: [] });
+});
