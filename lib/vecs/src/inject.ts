@@ -109,11 +109,11 @@ export function getInjected(
     if ("down" in term) {
       throw new Error("down injection is only supported in each/forEach");
     }
-    const targetEntity = e.componentBitmask.has(term.target[0])
+    const targetEntity = e.has(term.target[0])
       ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
     term.target[1].forEach((componentEid) => {
-      out[outIndex++] = targetEntity?.componentBitmask.has(componentEid)
+      out[outIndex++] = targetEntity?.has(componentEid)
         ? targetEntity._get(componentEid)
         : undefined;
     });
@@ -143,13 +143,11 @@ export function getInjectedWithSrc(
     if ("down" in term) {
       throw new Error("down injection is only supported in each/forEach");
     }
-    const targetEntity = e.componentBitmask.has(term.target[0])
+    const targetEntity = e.has(term.target[0])
       ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
     term.target[1].forEach((componentEid) => {
-      out[outIndex] = targetEntity?.componentBitmask.has(componentEid)
-        ? targetEntity._get(componentEid)
-        : undefined;
+      out[outIndex] = targetEntity?.has(componentEid) ? targetEntity._get(componentEid) : undefined;
       src[outIndex] = targetEntity;
       outIndex++;
     });
@@ -327,7 +325,7 @@ function fillDownInject(
 ): void {
   componentEids.forEach((componentEid, offset) => {
     const outIndex = slot + offset;
-    out[outIndex] = child.componentBitmask.has(componentEid) ? child._get(componentEid) : undefined;
+    out[outIndex] = child.has(componentEid) ? child._get(componentEid) : undefined;
     if (src) {
       src[outIndex] = child;
     }
@@ -349,11 +347,11 @@ function getInjectedSkippingDown(
       outIndex += term.down[1].length;
       return;
     }
-    const targetEntity = e.componentBitmask.has(term.target[0])
+    const targetEntity = e.has(term.target[0])
       ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
     term.target[1].forEach((componentEid) => {
-      out[outIndex++] = targetEntity?.componentBitmask.has(componentEid)
+      out[outIndex++] = targetEntity?.has(componentEid)
         ? targetEntity._get(componentEid)
         : undefined;
     });
@@ -378,13 +376,11 @@ function getInjectedWithSrcSkippingDown(
       outIndex += term.down[1].length;
       return;
     }
-    const targetEntity = e.componentBitmask.has(term.target[0])
+    const targetEntity = e.has(term.target[0])
       ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
     term.target[1].forEach((componentEid) => {
-      out[outIndex] = targetEntity?.componentBitmask.has(componentEid)
-        ? targetEntity._get(componentEid)
-        : undefined;
+      out[outIndex] = targetEntity?.has(componentEid) ? targetEntity._get(componentEid) : undefined;
       src[outIndex] = targetEntity;
       outIndex++;
     });

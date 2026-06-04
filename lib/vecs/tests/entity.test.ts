@@ -305,17 +305,18 @@ describe("Entity — components", () => {
     expect(e.get(Position)).toBeUndefined();
   });
 
-  it("componentBitmask reflects added/removed components", () => {
+  it("has reflects added/removed components", () => {
     const w = new World();
     w.component(Position);
-    w.component(Velocity);
+    w.component(Velocity, 200);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
-    expect(e.componentBitmask.has(w.entity(Position).eid)).toBe(true);
-    expect(e.componentBitmask.has(w.entity(Velocity).eid)).toBe(true);
+    expect(e.has(Position)).toBe(true);
+    expect(e.has(200)).toBe(true);
+    expect(e.has(w.entity(Velocity))).toBe(true);
     e.remove(Position);
-    expect(e.componentBitmask.has(w.entity(Position).eid)).toBe(false);
+    expect(e.has(Position)).toBe(false);
   });
 
   it("empty reflects whether any components remain", () => {

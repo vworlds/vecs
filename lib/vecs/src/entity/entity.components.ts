@@ -196,6 +196,16 @@ export class Components extends Relationships {
   }
 
   /**
+   * Return `true` when this entity has the referenced component attached.
+   *
+   * @param ref - Component class, numeric component type id, or entity component key.
+   */
+  public has(ref: ComponentRef): boolean {
+    const eid = typeof ref === "number" ? ref : this.world.entity(ref).eid;
+    return this.componentBitmask.has(eid);
+  }
+
+  /**
    * Look up a component on this entity for mutation in deferred mode.
    *
    * When the component is present, this marks the component modified before
