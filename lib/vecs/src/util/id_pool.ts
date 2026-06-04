@@ -2,14 +2,17 @@ export interface IdPoolConfig {
   name: string;
   min: number;
   max?: number;
+  reuseWaitFrames?: number;
 }
+
+export const DEFAULT_ID_REUSE_WAIT_FRAMES = 16;
 
 export class IdPool {
   // Occupancy bitmap: bit `(id - min)` is 1 iff `id` is currently reserved.
   // Stored as a growable plain-number array (V8 keeps these as SMIs / packed
   // double-tagged words, which gives the fastest random-access read/write).
   private _bits: number[] = [];
-  // Number of reserved ids strictly below `_next`. When zero, alloc can skip
+  // Number of reusable ids strictly below `_next`. When zero, alloc can skip
   // the bitmap scan entirely and just hand out the next never-used id.
   private _freeBelowNext = 0;
   // Cached "lowest free id below `_next`", or -1 when not known. The
@@ -23,13 +26,37 @@ export class IdPool {
   // The smallest id never yet handed out by alloc (high-water mark). All ids
   // in `[min, _next)` are either reserved (1 in `_bits`) or free (0).
   private _next: number;
+  // Running count of currently allocated ids (includes ids in wait buckets).
+  private _allocatedCount = 0;
+  // Circular waitlist buckets. Freed ids remain reserved until their bucket is
+  // released by `advanceFrame`, preventing immediate reuse across the network.
+  private readonly _waitBuckets: number[][];
+  private _waitCursor = 0;
 
   public constructor(
     public readonly name: string,
     public readonly min: number,
-    public readonly max: number | undefined
+    public readonly max: number | undefined,
+    public readonly reuseWaitFrames = DEFAULT_ID_REUSE_WAIT_FRAMES
   ) {
+    if (!Number.isSafeInteger(reuseWaitFrames) || reuseWaitFrames < 0) {
+      throw new Error(`Id pool '${name}' reuseWaitFrames must be a non-negative integer`);
+    }
     this._next = min;
+    this._waitBuckets = Array.from({ length: reuseWaitFrames }, () => []);
+  }
+
+  public advanceFrame(): void {
+    if (this.reuseWaitFrames === 0) {
+      return;
+    }
+
+    this._waitCursor = (this._waitCursor + 1) % this.reuseWaitFrames;
+    const bucket = this._waitBuckets[this._waitCursor];
+    for (let i = 0; i < bucket.length; i++) {
+      this._free(bucket[i]);
+    }
+    bucket.length = 0;
   }
 
   public alloc(): number {
@@ -40,6 +67,7 @@ export class IdPool {
       const word = offset >>> 5;
       this._bits[word] = this._bits[word] | (1 << offset);
       this._freeBelowNext--;
+      this._allocatedCount++;
       return cached;
     }
     if (this._freeBelowNext > 0) {
@@ -54,6 +82,7 @@ export class IdPool {
       bits[word] = nw;
       this._minFreeWord = nw === -1 ? word + 1 : word;
       this._freeBelowNext--;
+      this._allocatedCount++;
       return this.min + word * 32 + bit;
     }
     const max = this.max;
@@ -67,6 +96,7 @@ export class IdPool {
       if ((cur & mask) === 0) {
         this._bits[word] = cur | mask;
         this._next = id + 1;
+        this._allocatedCount++;
         return id;
       }
       id++;
@@ -78,35 +108,19 @@ export class IdPool {
     if (!this.owns(id)) {
       throw new Error(`Id ${id} does not belong to pool '${this.name}'`);
     }
-    const offset = id - this.min;
-    const word = offset >>> 5;
-    if (word >= this._bits.length) {
+    if (this.reuseWaitFrames === 0) {
+      this._free(id);
       return;
     }
-    const mask = 1 << offset;
-    const cur = this._bits[word];
-    if ((cur & mask) === 0) {
-      return;
-    }
-    this._bits[word] = cur & ~mask;
-    if (id < this._next) {
-      this._freeBelowNext++;
-      if (word < this._minFreeWord) {
-        this._minFreeWord = word;
-      }
-      // Cache slot: track the lowest free id we've seen. If a lower id was
-      // already cached, push it back into the "anonymous" bitmap pool and
-      // promote `id`. Otherwise, if no lower-than-id is cached, take the
-      // slot.
-      const lowest = this._lowest;
-      if (lowest === -1 || id < lowest) {
-        this._lowest = id;
-      }
-    }
+    this._waitBuckets[this._waitCursor].push(id);
   }
 
   public owns(id: number): boolean {
     return id >= this.min && (this.max === undefined || id <= this.max);
+  }
+
+  public get allocated(): number {
+    return this._allocatedCount;
   }
 
   public peek(): number {
@@ -149,6 +163,7 @@ export class IdPool {
       throw new Error(`Id ${id} is already reserved`);
     }
     this._bits[word] = cur | mask;
+    this._allocatedCount++;
     if (id < this._next) {
       this._freeBelowNext--;
     }
@@ -161,6 +176,34 @@ export class IdPool {
     const bits = this._bits;
     while (bits.length < length) {
       bits.push(0);
+    }
+  }
+
+  private _free(id: number): void {
+    const offset = id - this.min;
+    const word = offset >>> 5;
+    if (word >= this._bits.length) {
+      return;
+    }
+    const mask = 1 << offset;
+    const cur = this._bits[word];
+    if ((cur & mask) === 0) {
+      return;
+    }
+    this._bits[word] = cur & ~mask;
+    this._allocatedCount--;
+    if (id < this._next) {
+      this._freeBelowNext++;
+      if (word < this._minFreeWord) {
+        this._minFreeWord = word;
+      }
+      // Cache slot: track the lowest free id we've seen. If a lower id was
+      // already cached, it stays visible in the bitmap pool and will be found
+      // by the normal free-id scan after the cached id is allocated.
+      const lowest = this._lowest;
+      if (lowest === -1 || id < lowest) {
+        this._lowest = id;
+      }
     }
   }
 }
@@ -191,6 +234,12 @@ export function validateIdPoolConfigs(configs: readonly IdPoolConfig[]): void {
     }
     if (config.min !== expectedMin) {
       throw new Error(`Id pools must cover 1..Infinity without holes`);
+    }
+    if (
+      config.reuseWaitFrames !== undefined &&
+      (!Number.isSafeInteger(config.reuseWaitFrames) || config.reuseWaitFrames < 0)
+    ) {
+      throw new Error(`Id pool '${config.name}' reuseWaitFrames must be a non-negative integer`);
     }
 
     if (config.max === undefined) {

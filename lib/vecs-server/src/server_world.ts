@@ -14,6 +14,7 @@ import {
   type VecsSocket,
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
+import { performance } from "node:perf_hooks";
 import {
   type ComponentInstance,
   type ComponentClass,
@@ -36,7 +37,9 @@ class ServerClientSession {
   public readonly history: History;
   public readonly rpc = new SessionRPC();
   public ackFrame: number;
+  public lastSeenMs = 0;
   public needsFullSnapshot = true;
+  public needsResync = false;
   public socket!: VecsSocket;
   public entity!: Entity;
 
@@ -58,6 +61,7 @@ interface Update {
 export interface ServerWorldOptions extends NetworkWorldOptions {
   name?: string;
   encodeBufferSize?: number;
+  disconnectGraceMs?: number;
 }
 
 export interface InstallSystemsOptions {
@@ -74,8 +78,9 @@ export class ServerWorld extends NetworkWorld {
   private readonly _snapshotCache = new Map<number, EncodedSnapshot>();
   private readonly _trackerCache: TrackerCache;
   private readonly _encodeBuffer: Uint8Array;
+  private readonly _disconnectGraceMs: number;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
-  private _frame = 0;
+  private _frame = 1;
   private _systemsInstalled = false;
 
   public constructor(options: ServerWorldOptions = {}) {
@@ -83,6 +88,7 @@ export class ServerWorld extends NetworkWorld {
     this.name = options.name ?? "main";
     const encodeBufferSize = options.encodeBufferSize ?? 64 * 1024;
     this._encodeBuffer = new Uint8Array(encodeBufferSize);
+    this._disconnectGraceMs = options.disconnectGraceMs ?? 10_000;
     this._trackerCache = new TrackerCache(this);
     this._components = this.networkComponents;
     ensureRegistered(this, Networked);
@@ -148,17 +154,26 @@ export class ServerWorld extends NetworkWorld {
   }
 
   public send(): void {
+    const toFrame = this._frame++;
     if (this._sessions.size === 0) {
       this._updates.clear();
       return;
     }
 
-    const toFrame = this._frame++;
+    const nowMs = performance.now();
     const staleSessions: ServerClientSession[] = [];
 
     this._clients.forEach([View, ServerClientSession], (e, [view, session]) => {
       view._reconcileVisibility();
       view._releaseOldTracker(this._trackerCache);
+
+      if (session.ackFrame < toFrame - HISTORY_LENGTH) {
+        session.needsFullSnapshot = true;
+        session.needsResync = true;
+      }
+      if (session.needsResync) {
+        view._resyncAll();
+      }
 
       const snapshots: EncodedSnapshot[] = [];
       const removed: RemovedComponent[] = [];
@@ -192,20 +207,30 @@ export class ServerWorld extends NetworkWorld {
       });
       session.history.push(latest);
 
-      if (session.ackFrame < session.history.oldestFrame - 1) {
+      if (nowMs - session.lastSeenMs > this._disconnectGraceMs) {
         staleSessions.push(session);
         return;
       }
 
       const rpc = session.rpc.getOutgoing();
-      let diff = session.history.pull(session.ackFrame, toFrame);
-      if (session.needsFullSnapshot && diff.fromFrame !== 0) {
+      let diff: StateDiff;
+      if (session.needsResync) {
         diff = new StateDiff({
           fromFrame: 0,
-          toFrame: diff.toFrame,
-          snapshots: diff.snapshots,
-          removed: diff.removed,
+          toFrame,
+          snapshots: latest.snapshots,
+          removed: latest.removed,
         });
+      } else {
+        diff = session.history.pull(session.ackFrame, toFrame);
+        if (session.needsFullSnapshot && diff.fromFrame !== 0) {
+          diff = new StateDiff({
+            fromFrame: 0,
+            toFrame: diff.toFrame,
+            snapshots: diff.snapshots,
+            removed: diff.removed,
+          });
+        }
       }
 
       if (diff.snapshots.length === 0 && diff.removed.length === 0 && rpc.length === 0) {
@@ -224,6 +249,7 @@ export class ServerWorld extends NetworkWorld {
     const session = new ServerClientSession(this._frame - 1);
     session.socket = socket;
     session.entity = entity;
+    session.lastSeenMs = performance.now();
     entity.attach(session);
     entity.set(NetworkClient, { id: socket.id });
     this._rpcHandlers.forEach((handler, rpcId) => session.rpc.listen(rpcId, handler));
@@ -243,11 +269,13 @@ export class ServerWorld extends NetworkWorld {
   }
 
   private _receive(session: ServerClientSession, data: Uint8Array): void {
+    session.lastSeenMs = performance.now();
     const message = new Decoder(data).read(Client2Server);
     if (message.ackFrame <= session.history.lastFrame) {
       session.ackFrame = Math.max(session.ackFrame, message.ackFrame);
       if (session.ackFrame > session.baseFrame) {
         session.needsFullSnapshot = false;
+        session.needsResync = false;
       }
     }
     if (message.input !== undefined) {

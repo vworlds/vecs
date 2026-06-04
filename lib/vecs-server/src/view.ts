@@ -134,6 +134,11 @@ export class View implements IEntityTrackerListener {
     this._exitedView.clear();
   }
 
+  /** @internal Force every visible entity to be re-sent as a full snapshot. */
+  public _resyncAll(): void {
+    this._visible.forEach((entity) => this._enteredView.add(entity));
+  }
+
   private _setTracker(tracker: IEntityTracker | undefined): void {
     if (this._tracker === tracker) {
       return;

@@ -11,21 +11,39 @@ import {
   type RPCHandler,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
-import { type ComponentInstance, type IPhase } from "@vworlds/vecs";
+import { type ComponentInstance, type IPhase, Query } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
+import { EventEmitter } from "eventemitter3";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
+
+class Networked {}
+
+const DEFAULT_CLIENT_LOCAL_ENTITY_ID_START = 10000;
+
+export interface ClientWorldResetEvent {
+  initial: boolean;
+  fromFrame: number;
+  toFrame: number;
+}
+
+export type ClientWorldResetHandler = (event: ClientWorldResetEvent) => void;
+
+export interface ClientWorldEvents {
+  disconnect: () => void;
+  reset: ClientWorldResetHandler;
+}
 
 export interface ClientWorldOptions extends NetworkWorldOptions {
   socket?: VecsSocket;
   encodeBufferSize?: number;
   interpolatorBucketLength?: number;
   serverTickIntervalMs?: number;
+  ackIntervalMs?: number;
 }
 
 export interface InstallSystemsOptions {
   applyPhase?: string | IPhase;
-  sendPhase?: string | IPhase;
 }
 
 export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> {
@@ -38,17 +56,31 @@ export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> 
 }
 
 export class ClientWorld extends NetworkWorld {
+  public readonly events = new EventEmitter<ClientWorldEvents>();
   private _socket: VecsSocket | undefined;
   private readonly _rpc = new SessionRPC();
   private readonly _rpcInbox: RPC[] = [];
   private readonly _interpolator: Interpolator;
   private readonly _encodeBuffer: Uint8Array;
+  private readonly _ackIntervalMs: number;
+  private readonly _networkedQuery: InstanceType<typeof Query>;
   private _input: unknown;
+  private _ackTimer: ReturnType<typeof setInterval> | undefined;
+  private _baselineApplied = false;
+  private _forceBaselineReset = false;
   private _systemsInstalled = false;
 
   public constructor(options: ClientWorldOptions = {}) {
-    super(options);
+    const localEntityIdStart = options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START;
+    super({
+      ...options,
+      localEntityIdStart,
+      networkEntityReuseWaitFrames: 0,
+    });
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
+    this._ackIntervalMs = options.ackIntervalMs ?? 1000 / 30;
+    this.component(Networked);
+    this._networkedQuery = this.query("ClientWorld:Networked").requires(Networked).track().build();
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,
@@ -80,6 +112,8 @@ export class ClientWorld extends NetworkWorld {
   public attachSocket(socket: VecsSocket): void {
     this._socket = socket;
     socket.on("receive", (data) => this._receive(data));
+    socket.on("disconnect", () => this._handleDisconnect());
+    this._startAckTimer();
   }
 
   public installSystems(options: InstallSystemsOptions = {}): void {
@@ -88,13 +122,9 @@ export class ClientWorld extends NetworkWorld {
     }
     this._systemsInstalled = true;
     const applyPhase = options.applyPhase ?? "update";
-    const sendPhase = options.sendPhase ?? "update";
     this.system("ClientWorld:Apply")
       .phase(applyPhase)
       .run((now) => this.apply(now));
-    this.system("ClientWorld:Send")
-      .phase(sendPhase)
-      .run(() => this.send());
   }
 
   public setInput(input: unknown): void {
@@ -107,10 +137,6 @@ export class ClientWorld extends NetworkWorld {
 
   public listen(rpcId: number, handler: RPCHandler): void {
     this._rpc.listen(rpcId, handler);
-  }
-
-  public onDisconnect(handler: () => void): void {
-    this._socket?.on("disconnect", handler);
   }
 
   public apply(now: number): void {
@@ -138,6 +164,7 @@ export class ClientWorld extends NetworkWorld {
   }
 
   public close(): void {
+    this._stopAckTimer();
     this._socket?.close();
   }
 
@@ -152,8 +179,39 @@ export class ClientWorld extends NetworkWorld {
   }
 
   private _pushDiff(sd: StateDiff): void {
-    const diff = diffFromStateDiff(sd);
-    this._interpolator.push(diff);
+    // A diff with fromFrame === 0 is a full baseline: the complete authoritative
+    // state at sd.toFrame. The server streams these whenever a client falls
+    // outside its history window -- most commonly a backgrounded tab, where the
+    // render loop (and therefore Interpolator.pull) is suspended and acks are
+    // throttled, so the server keeps resending the whole world until the client
+    // catches up.
+    //
+    // A baseline is reset-then-rebuild: every server-owned entity is destroyed
+    // and then recreated from the snapshot. Destroying first is what makes the
+    // rebuild fire each entity's `enter` again, so view systems that attach
+    // client-side state on enter (e.g. spacerocks' Drawable draw statements)
+    // rebuild it. Reconciling in place instead would re-`attach` onto the living
+    // entity, which fires `modified` -- not `enter` -- leaving that client-side
+    // state stale or empty. The teardown runs here, at receive time (synchronous,
+    // outside the deferred apply queue), so the entities are fully gone before
+    // the next apply replays the baseline and recreates them.
+    if (sd.fromFrame === 0) {
+      // Skip baselines we have already advanced past (duplicates or, with the
+      // unordered transport, stragglers). After a reconnect the server may have
+      // restarted its frame counter, so a forced reset overrides this.
+      if (!this._forceBaselineReset && sd.toFrame <= this._interpolator.version) {
+        return;
+      }
+      this._forceBaselineReset = false;
+      const initial = !this._baselineApplied;
+      this._baselineApplied = true;
+      this._destroyNetworkEntities();
+      this._interpolator.reset();
+      this._interpolator.push(diffFromStateDiff(sd));
+      this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
+      return;
+    }
+    this._interpolator.push(diffFromStateDiff(sd));
   }
 
   public decodeComponentSnapshot(snapshot: ComponentSnapshot): ComponentInstance {
@@ -171,12 +229,14 @@ export class ClientWorld extends NetworkWorld {
 
   private _applySnapshot(snapshot: ComponentSnapshot): void {
     const component = this.decodeComponentSnapshot(snapshot);
-    const entity = this.getOrCreateEntity(snapshot.eid);
+    const entity = this.getOrCreateEntity(snapshot.eid, (e) => e.add(Networked));
     entity.attach(component as object);
   }
 
   private _removeComponent(eid: number, type: number): void {
-    const entity = this.entity(eid);
+    // Merged/interpolated client diffs can contain a net removal for an entity
+    // whose create snapshot was compressed away before it materialized locally.
+    const entity = this.getEntity(eid);
     if (!entity) {
       return;
     }
@@ -187,5 +247,39 @@ export class ClientWorld extends NetworkWorld {
     if (this.getNetworkComponent(type) && entity.get(type)) {
       entity.remove(type);
     }
+  }
+
+  // Destroy every network entity so an incoming baseline can recreate them
+  // from scratch (re-firing each entity's `enter`). query.forEach wraps in
+  // beginDefer/endDefer, so destroying inside the callback is safe.
+  private _destroyNetworkEntities(): void {
+    this._networkedQuery.forEach((entity) => entity.destroy());
+  }
+
+  private _handleDisconnect(): void {
+    this._stopAckTimer();
+    // A reconnect may land on a server whose frame counter restarted, so the
+    // next baseline can carry a lower frame than the one we last saw. Force the
+    // next baseline to be adopted regardless of its frame number.
+    if (this._baselineApplied) {
+      this._forceBaselineReset = true;
+    }
+    this.events.emit("disconnect");
+  }
+
+  private _startAckTimer(): void {
+    if (this._ackTimer !== undefined) {
+      return;
+    }
+    this._ackTimer = setInterval(() => this.send(), this._ackIntervalMs);
+    (this._ackTimer as { unref?: () => void }).unref?.();
+  }
+
+  private _stopAckTimer(): void {
+    if (this._ackTimer === undefined) {
+      return;
+    }
+    clearInterval(this._ackTimer);
+    this._ackTimer = undefined;
   }
 }

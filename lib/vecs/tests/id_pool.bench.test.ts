@@ -45,7 +45,7 @@ function bench(name: string, operations: number, callback: () => number): BenchR
 }
 
 function makePool(): IdPool {
-  return new IdPool("bench", POOL_MIN, undefined);
+  return new IdPool("bench", POOL_MIN, undefined, 0);
 }
 
 // Deterministic PRNG so all variants share the same workload.

@@ -8,3 +8,4 @@ dist/tsconfig.tsbuildinfo
 coverage/
 *.tsbuildinfo
 .worktrees/
+.tmp/

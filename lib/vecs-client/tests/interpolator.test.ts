@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { cid_pack } from "@vworlds/vecs-protocol";
+import { ALL_COMPONENTS, cid_pack } from "@vworlds/vecs-protocol";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Diff, Interpolator, merge } from "../src/interpolator.js";
 
@@ -387,4 +387,18 @@ test("does not interpolate entities that only exist in a future frame", () => {
   const sd105 = ip.pull(105);
 
   expect(Pos(sd105, B)).toBeUndefined();
+});
+
+test("reset returns the interpolator to its initial state", () => {
+  const ip = newInterpolator(3, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
+  ip.push(s1);
+  ip.pull(100);
+
+  ip.reset();
+
+  expect(ip.version).toBe(-1);
+  expect(ip.bucket).toEqual([undefined, undefined, undefined]);
+  const empty = ip.pull(200);
+  expect(empty).toMatchObject({ from: 0, to: 0, snapshots: [] });
 });

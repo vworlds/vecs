@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { IdPool } from "../src/util/id_pool.js";
+import { DEFAULT_ID_REUSE_WAIT_FRAMES, IdPool } from "../src/util/id_pool.js";
+
+function advance(pool: IdPool, frames = pool.reuseWaitFrames): void {
+  for (let i = 0; i < frames; i++) {
+    pool.advanceFrame();
+  }
+}
 
 describe("IdPool", () => {
   it("hands out consecutive ids starting from min", () => {
@@ -15,8 +21,24 @@ describe("IdPool", () => {
     expect(pool.alloc()).toBe(1001);
   });
 
-  it("reuses the lowest freed id on alloc", () => {
-    const pool = new IdPool("p", 1, undefined);
+  it("waits before reusing the lowest freed id on alloc", () => {
+    const pool = new IdPool("p", 1, undefined, 2);
+    const a = pool.alloc();
+    const b = pool.alloc();
+    const c = pool.alloc();
+    pool.free(b);
+    pool.free(a);
+    expect(pool.alloc()).toBe(c + 1);
+    pool.advanceFrame();
+    expect(pool.alloc()).toBe(c + 2);
+    pool.advanceFrame();
+    expect(pool.alloc()).toBe(a);
+    expect(pool.alloc()).toBe(b);
+    expect(pool.alloc()).toBe(c + 3);
+  });
+
+  it("reuses freed ids immediately when reuseWaitFrames is zero", () => {
+    const pool = new IdPool("p", 1, undefined, 0);
     const a = pool.alloc();
     const b = pool.alloc();
     const c = pool.alloc();
@@ -27,12 +49,13 @@ describe("IdPool", () => {
     expect(pool.alloc()).toBe(c + 1);
   });
 
-  it("supports free of high id and continues fresh thereafter", () => {
-    const pool = new IdPool("p", 1, undefined);
+  it("supports free of high id and waits before reuse", () => {
+    const pool = new IdPool("p", 1, undefined, 1);
     const ids = [pool.alloc(), pool.alloc(), pool.alloc(), pool.alloc()];
     pool.free(ids[3]);
-    expect(pool.alloc()).toBe(ids[3]);
     expect(pool.alloc()).toBe(ids[3] + 1);
+    pool.advanceFrame();
+    expect(pool.alloc()).toBe(ids[3]);
   });
 
   it("throws on exhaustion when max is set", () => {
@@ -40,6 +63,16 @@ describe("IdPool", () => {
     pool.alloc();
     pool.alloc();
     expect(() => pool.alloc()).toThrow(/exhausted/);
+  });
+
+  it("keeps bounded pools exhausted while freed ids are waiting", () => {
+    const pool = new IdPool("p", 1, 2, 1);
+    const id = pool.alloc();
+    pool.alloc();
+    pool.free(id);
+    expect(() => pool.alloc()).toThrow(/exhausted/);
+    pool.advanceFrame();
+    expect(pool.alloc()).toBe(id);
   });
 
   it("reserve marks an id as taken and is skipped by alloc", () => {
@@ -95,8 +128,8 @@ describe("IdPool", () => {
     expect(pool.peek()).toBe(2);
   });
 
-  it("peeks the lowest freed id", () => {
-    const pool = new IdPool("p", 1, undefined);
+  it("peeks the lowest freed id after it leaves the waitlist", () => {
+    const pool = new IdPool("p", 1, undefined, 1);
     const a = pool.alloc();
     const b = pool.alloc();
     pool.alloc();
@@ -104,15 +137,19 @@ describe("IdPool", () => {
     pool.free(b);
     pool.free(a);
 
+    expect(pool.peek()).toBe(4);
+    pool.advanceFrame();
     expect(pool.peek()).toBe(a);
     expect(pool.alloc()).toBe(a);
     expect(pool.peek()).toBe(b);
   });
 
-  it("free + reserve same id round-trip works", () => {
-    const pool = new IdPool("p", 1, undefined);
+  it("free + reserve same id round-trip works after the wait", () => {
+    const pool = new IdPool("p", 1, undefined, 1);
     const id = pool.alloc();
     pool.free(id);
+    expect(() => pool.reserve(id)).toThrow(/already reserved/);
+    pool.advanceFrame();
     expect(() => pool.reserve(id)).not.toThrow();
     expect(pool.alloc()).toBe(id + 1);
   });
@@ -133,8 +170,8 @@ describe("IdPool", () => {
     expect(pool.alloc()).toBe(5);
   });
 
-  it("returns lowest id across many free/alloc cycles", () => {
-    const pool = new IdPool("p", 1, undefined);
+  it("returns lowest id across many free/alloc cycles after the wait", () => {
+    const pool = new IdPool("p", 1, undefined, 1);
     const ids: number[] = [];
     for (let i = 0; i < 100; i++) {
       ids.push(pool.alloc());
@@ -143,9 +180,64 @@ describe("IdPool", () => {
     pool.free(ids[50]);
     pool.free(ids[10]);
     pool.free(ids[80]);
+    expect(pool.alloc()).toBe(101);
+    pool.advanceFrame();
     expect(pool.alloc()).toBe(ids[10]);
     expect(pool.alloc()).toBe(ids[50]);
     expect(pool.alloc()).toBe(ids[80]);
-    expect(pool.alloc()).toBe(101);
+    expect(pool.alloc()).toBe(102);
+  });
+
+  it("uses the default wait frame count", () => {
+    const pool = new IdPool("p", 1, undefined);
+    const id = pool.alloc();
+    pool.free(id);
+    advance(pool, DEFAULT_ID_REUSE_WAIT_FRAMES - 1);
+    expect(pool.alloc()).toBe(id + 1);
+    pool.advanceFrame();
+    expect(pool.alloc()).toBe(id);
+  });
+
+  it("tracks allocated count across alloc, free, reserve, and advance", () => {
+    const pool = new IdPool("p", 1, undefined, 2);
+    expect(pool.allocated).toBe(0);
+
+    const a = pool.alloc();
+    const b = pool.alloc();
+    expect(pool.allocated).toBe(2);
+
+    pool.free(a);
+    expect(pool.allocated).toBe(2);
+
+    pool.advanceFrame();
+    expect(pool.allocated).toBe(2);
+
+    pool.advanceFrame();
+    expect(pool.allocated).toBe(1);
+
+    pool.alloc();
+    pool.alloc();
+    expect(pool.allocated).toBe(3);
+
+    pool.free(b);
+    expect(pool.allocated).toBe(3);
+
+    advance(pool);
+    expect(pool.allocated).toBe(2);
+
+    pool.reserve(100);
+    expect(pool.allocated).toBe(3);
+  });
+
+  it("allocated count reaches zero when waitlist is drained", () => {
+    const pool = new IdPool("p", 1, undefined, 1);
+    const ids = Array.from({ length: 5 }, () => pool.alloc());
+    expect(pool.allocated).toBe(5);
+    for (const id of ids) {
+      pool.free(id);
+    }
+    expect(pool.allocated).toBe(5);
+    advance(pool);
+    expect(pool.allocated).toBe(0);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ALL_COMPONENTS,
   Client2Server,
@@ -153,6 +153,82 @@ describe("ClientWorld", () => {
     expect(() => world.entity(7)).toThrow();
   });
 
+  it("applies compressed create-then-remove diffs without materializing the entity", () => {
+    const world = createClientWorld({ interpolatorBucketLength: 2, serverTickIntervalMs: 10 });
+    const socket = new MemorySocket("server");
+    const client = world;
+    client.attachSocket(socket);
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 0,
+            snapshots: [posSnapshot(1012, 1, 2)],
+          }),
+        })
+      )
+    );
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            removed: [[1012, 1]],
+          }),
+        })
+      )
+    );
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 1,
+            toFrame: 2,
+          }),
+        })
+      )
+    );
+
+    expect(() => client.apply(0)).not.toThrow();
+    expect(world.getEntity(1012)).toBeUndefined();
+  });
+
+  it("recreates server-owned ids immediately when the server reuses them", () => {
+    const world = createClientWorld({ serverTickIntervalMs: 10 });
+    const entity = world.getOrCreateEntity(1000);
+    entity.set(Position, { x: 1, y: 2 });
+    const socket = new MemorySocket("server");
+    const client = world;
+    client.attachSocket(socket);
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            removed: [[1000, ALL_COMPONENTS]],
+          }),
+        })
+      )
+    );
+    client.apply(0);
+    expect(() => world.entity(1000)).toThrow();
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 1, toFrame: 2, snapshots: [posSnapshot(1000, 9, 9)] }),
+        })
+      )
+    );
+    client.apply(10);
+
+    expect(world.entity(1000).get(Position)).toMatchObject({ x: 9, y: 9 });
+  });
+
   it("acks the highest accepted server frame", () => {
     const client = new ClientWorld();
     const socket = new MemorySocket("server");
@@ -166,13 +242,148 @@ describe("ClientWorld", () => {
     expect(new Decoder(socket.sent[0]).read(Client2Server).ackFrame).toBe(9);
   });
 
+  it("sends acks on an internal interval instead of progress", () => {
+    vi.useFakeTimers();
+    try {
+      const client = new ClientWorld({ ackIntervalMs: 10 });
+      const socket = new MemorySocket("server");
+      client.attachSocket(socket);
+
+      expect(socket.sent).toHaveLength(0);
+      vi.advanceTimersByTime(30);
+
+      expect(socket.sent.length).toBeGreaterThanOrEqual(3);
+      client.close();
+      const sentAfterClose = socket.sent.length;
+      vi.advanceTimersByTime(30);
+      expect(socket.sent).toHaveLength(sentAfterClose);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not install progress-driven sending", () => {
+    const client = new ClientWorld();
+    const socket = new MemorySocket("server");
+    client.attachSocket(socket);
+    client.installSystems();
+    client.start();
+
+    client.progress(0, 16);
+
+    expect(socket.sent).toHaveLength(0);
+    client.close();
+  });
+
+  it("emits reset events so applications can clean up on full baselines", () => {
+    const world = createClientWorld({ serverTickIntervalMs: 10 });
+    world.component(LocalEffect);
+    const socket = new MemorySocket("server");
+    const client = world;
+    client.attachSocket(socket);
+    const resets: Array<{ initial: boolean; fromFrame: number; toFrame: number }> = [];
+    client.events.on("reset", (event) => {
+      resets.push(event);
+      if (!event.initial) {
+        world.getEntity(1001)?.destroy();
+      }
+    });
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(1000, 1, 1), posSnapshot(1001, 2, 2)],
+          }),
+        })
+      )
+    );
+    client.apply(0);
+    const local = world.entity().add(LocalEffect);
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 1,
+            toFrame: 2,
+            snapshots: [posSnapshot(1000, 3, 3)],
+          }),
+        })
+      )
+    );
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 3,
+            snapshots: [posSnapshot(1000, 9, 9)],
+          }),
+        })
+      )
+    );
+    client.apply(10);
+
+    expect(resets).toEqual([
+      { initial: true, fromFrame: 0, toFrame: 1 },
+      { initial: false, fromFrame: 0, toFrame: 3 },
+    ]);
+    expect(world.entity(1000).get(Position)).toMatchObject({ x: 9, y: 9 });
+    expect(world.getEntity(1001)).toBeUndefined();
+    expect(world.getEntity(local.eid)).toBe(local);
+    expect(local.get(LocalEffect)).toBeDefined();
+    client.close();
+  });
+
+  it("emits reset after reconnect even when the new baseline frame is lower", () => {
+    const client = createClientWorld({ serverTickIntervalMs: 10 });
+    const firstSocket = new MemorySocket("server-1");
+    const resets: Array<{ initial: boolean; toFrame: number }> = [];
+    client.events.on("reset", (event) =>
+      resets.push({ initial: event.initial, toFrame: event.toFrame })
+    );
+    client.attachSocket(firstSocket);
+
+    firstSocket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 9, snapshots: [posSnapshot(1000, 1, 1)] }),
+        })
+      )
+    );
+    client.apply(0);
+    firstSocket.close();
+
+    const secondSocket = new MemorySocket("server-2");
+    client.attachSocket(secondSocket);
+    secondSocket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 2, 2)] }),
+        })
+      )
+    );
+    client.apply(10);
+
+    expect(resets).toEqual([
+      { initial: true, toFrame: 9 },
+      { initial: false, toFrame: 1 },
+    ]);
+    expect(client.entity(1000).get(Position)).toMatchObject({ x: 2, y: 2 });
+    client.close();
+  });
+
   it("notifies when the socket disconnects", () => {
     const client = new ClientWorld();
     const socket = new MemorySocket("server");
     client.attachSocket(socket);
     let disconnected = false;
 
-    client.onDisconnect(() => {
+    client.events.on("disconnect", () => {
       disconnected = true;
     });
     socket.close();
@@ -197,14 +408,14 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 3, snapshots: [posSnapshot(7, 3, 3)] }),
+          diff: new StateDiff({ fromFrame: 1, toFrame: 3, snapshots: [posSnapshot(7, 3, 3)] }),
         })
       )
     );
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 2, snapshots: [posSnapshot(7, 2, 2)] }),
+          diff: new StateDiff({ fromFrame: 1, toFrame: 2, snapshots: [posSnapshot(7, 2, 2)] }),
         })
       )
     );

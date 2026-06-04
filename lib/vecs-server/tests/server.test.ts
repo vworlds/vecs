@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ALL_COMPONENTS,
   Client2Server,
@@ -8,7 +8,8 @@ import {
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { type Entity, type World } from "@vworlds/vecs";
+import { Relationship, type Entity, type World } from "@vworlds/vecs";
+import { performance } from "node:perf_hooks";
 import {
   EntityTracker,
   type IEntityTrackerListener,
@@ -36,6 +37,12 @@ class LocalOnly {
 class Velocity {
   public x = 0;
 }
+
+class InCell extends Relationship {}
+
+class CellA {}
+
+class CellB {}
 
 type SocketHandler = (arg?: unknown) => void;
 
@@ -261,7 +268,7 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 30, y: 40 });
     world.progress(0, 16);
-    first.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    first.receive(encodeClient2Server(new Client2Server({ ackFrame: 1 })));
     const firstSentBeforeJoin = first.sent.length;
 
     const late = new MemorySocket("client-2");
@@ -273,7 +280,7 @@ describe("ServerWorld", () => {
     expect(late.sent.length).toBe(1);
     const message = decodeLastMessage(late);
     expect(message.diff?.fromFrame).toBe(0);
-    expect(message.diff?.toFrame).toBe(1);
+    expect(message.diff?.toFrame).toBe(2);
     const position = decodeFirstSnapshotPayload(late.sent[0]);
     expect(position).toMatchObject({ x: 30, y: 40 });
     // existing client must not have received anything as a side-effect of the join
@@ -302,7 +309,7 @@ describe("ServerWorld", () => {
     const message = decodeLastMessage(socket);
     const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
     expect(message.diff?.fromFrame).toBe(0);
-    expect(message.diff?.toFrame).toBe(1);
+    expect(message.diff?.toFrame).toBe(2);
     expect(message.diff?.snapshots).toHaveLength(1);
     expect(position).toMatchObject({ x: 2, y: 2 });
     expect(entity.eid).toBeGreaterThan(0);
@@ -321,14 +328,14 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 3, y: 3 });
     world.progress(0, 16);
-    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 1 })));
     entity.set(Position, { x: 4, y: 4 });
     world.progress(16, 16);
 
     const message = decodeLastMessage(socket);
     const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
-    expect(message.diff?.fromFrame).toBe(0);
-    expect(message.diff?.toFrame).toBe(1);
+    expect(message.diff?.fromFrame).toBe(1);
+    expect(message.diff?.toFrame).toBe(2);
     expect(message.diff?.snapshots).toHaveLength(1);
     expect(position).toMatchObject({ x: 4, y: 4 });
     expect(entity.eid).toBeGreaterThan(0);
@@ -354,11 +361,11 @@ describe("ServerWorld", () => {
     const message = decodeLastMessage(socket);
     const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
     expect(message.diff?.fromFrame).toBe(0);
-    expect(message.diff?.toFrame).toBe(2);
+    expect(message.diff?.toFrame).toBe(3);
     expect(position).toMatchObject({ x: 6, y: 6 });
   });
 
-  it("disconnects clients that lag outside the history window", () => {
+  it("resyncs clients that lag outside the history window", () => {
     const world = createWorld();
     const server = world;
     allowAllClientViews(world);
@@ -370,11 +377,53 @@ describe("ServerWorld", () => {
     listener.connect(socket);
 
     world.entity().add(Networked).set(Position, { x: 7, y: 7 });
-    for (let i = 0; i <= HISTORY_LENGTH; i++) {
+    world.progress(0, 16);
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 1 })));
+    const sentBeforeLag = socket.sent.length;
+
+    for (let i = 1; i <= HISTORY_LENGTH + 1; i++) {
       world.progress(i * 16, 16);
     }
 
-    expect(socket.closed).toBe(true);
+    expect(socket.closed).toBe(false);
+    expect(socket.sent.length).toBeGreaterThan(sentBeforeLag);
+    const message = decodeLastMessage(socket);
+    const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
+    expect(message.diff?.fromFrame).toBe(0);
+    expect(message.diff?.toFrame).toBe(HISTORY_LENGTH + 2);
+    expect(message.diff?.snapshots).toHaveLength(1);
+    expect(position).toMatchObject({ x: 7, y: 7 });
+  });
+
+  it("disconnects only after the grace period elapses without inbound messages", () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    try {
+      const world = createWorld({ disconnectGraceMs: 10_000 });
+      const server = world;
+      allowAllClientViews(world);
+      const listener = new MockListener();
+      server._attach(listener);
+      server.installSystems(SERVER_PHASES);
+      world.start();
+      const socket = new MemorySocket("client-1");
+      listener.connect(socket);
+
+      world.entity().add(Networked).set(Position, { x: 7, y: 7 });
+      world.progress(0, 16);
+
+      now.mockReturnValue(9_999);
+      for (let i = 1; i <= HISTORY_LENGTH + 1; i++) {
+        world.progress(i * 16, 16);
+      }
+      expect(socket.closed).toBe(false);
+
+      now.mockReturnValue(10_001);
+      world.progress(100_000, 16);
+
+      expect(socket.closed).toBe(true);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("ignores default ack before the first frame is sent", () => {
@@ -395,7 +444,7 @@ describe("ServerWorld", () => {
     const message = decodeLastMessage(socket);
     const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
     expect(message.diff?.fromFrame).toBe(0);
-    expect(message.diff?.toFrame).toBe(0);
+    expect(message.diff?.toFrame).toBe(1);
     expect(position).toMatchObject({ x: 8, y: 8 });
   });
 
@@ -1030,6 +1079,50 @@ describe("ServerWorld", () => {
     expect(message.diff!.snapshots).toHaveLength(1);
   });
 
+  it("refreshes set View DSL changes before sending relationship visibility changes", () => {
+    const world = createWorld();
+    world.component(InCell);
+    world.component(CellA);
+    world.component(CellB);
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    server.installSystems(SERVER_PHASES);
+    world.start();
+
+    const cellA = world.entity().add(CellA);
+    const cellB = world.entity().add(CellB);
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).set(InCell, {
+      target: cellA,
+    });
+    const entering = world.entity().add(Networked).set(Position, { x: 2, y: 2 }).set(InCell, {
+      target: cellB,
+    });
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+    const view = getSessionView(server, "client-1");
+    session.entity.set(View, { dsl: { target: [InCell, CellA] } });
+    world.progress(0, 16);
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    const baseline = socket.sent.length;
+
+    entity.set(Position, { x: 3, y: 3 });
+    entity.set(InCell, { target: cellB });
+    session.entity.set(View, { dsl: { target: [InCell, CellB] } });
+    world.progress(16, 16);
+
+    expect(view.tracker.has(entity)).toBe(true);
+    expect(socket.sent.length).toBeGreaterThan(baseline);
+    const message = decodeLastMessage(socket);
+    expect(message.diff!.removed).toEqual([]);
+    const snapshotEids = message.diff!.snapshots.map(
+      (snapshot) => new Decoder(snapshot.bytes).read(ComponentSnapshot).eid
+    );
+    expect(snapshotEids).toContain(entity.eid);
+    expect(snapshotEids).toContain(entering.eid);
+  });
+
   it("queues all networked entities when a client View changes to true", () => {
     const world = createWorld();
     world.component(LocalOnly);
@@ -1048,7 +1141,7 @@ describe("ServerWorld", () => {
 
     session.entity.set(View, { dsl: [LocalOnly] });
     world.progress(0, 16);
-    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 1 })));
     const baseline = socket.sent.length;
 
     session.entity.set(View, { dsl: true });

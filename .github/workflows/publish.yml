@@ -5,6 +5,10 @@ on:
     branches:
       - master
 
+concurrency:
+  group: publish-npm-master
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -12,9 +16,9 @@ jobs:
       id-token: write
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
@@ -31,23 +35,52 @@ jobs:
       - name: Run tests
         run: npm run test
 
-      - name: Bump patch version
-        run: |
-          npm version patch --workspace @vworlds/vecs --no-git-tag-version
+      - name: Bump vecs package versions
+        id: bump
+        run: echo "version=$(node scripts/bump-vecs-versions.mjs)" >> "$GITHUB_OUTPUT"
 
       - name: Update package lock
         run: npm install --package-lock-only --ignore-scripts
 
-      - name: Push version bump
-        run: |
-          git add lib/vecs/package.json package-lock.json
-          git commit -m "chore: bump vecs package [skip ci]"
-          git push
-
       - name: Build
         run: npm run build
 
-      - name: Publish
+      - name: Prepare publish packages
+        run: |
+          node scripts/prepare-vecs-publish-package.mjs lib/vecs-client
+          node scripts/prepare-vecs-publish-package.mjs lib/vecs-server
+          node scripts/prepare-vecs-publish-package.mjs lib/vecs-physics
+          node scripts/prepare-vecs-publish-package.mjs lib/vecs-wire
+
+      - name: Push version bump
+        run: |
+          git add lib/vecs/package.json lib/vecs-client/package.json lib/vecs-physics/package.json lib/vecs-protocol/package.json lib/vecs-server/package.json lib/vecs-wire/package.json package-lock.json
+          git commit -m "chore: bump vecs packages [skip ci]"
+          git pull --rebase origin master
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push origin HEAD:master "v${{ steps.bump.outputs.version }}"
+
+      - name: Publish vecs
         run: npm publish ./lib/vecs --access public
+        env:
+          NODE_AUTH_TOKEN: ""
+
+      - name: Publish wire
+        run: npm publish ./lib/vecs-wire/dist --access public
+        env:
+          NODE_AUTH_TOKEN: ""
+
+      - name: Publish client
+        run: npm publish ./lib/vecs-client/dist --access public
+        env:
+          NODE_AUTH_TOKEN: ""
+
+      - name: Publish server
+        run: npm publish ./lib/vecs-server/dist --access public
+        env:
+          NODE_AUTH_TOKEN: ""
+
+      - name: Publish physics
+        run: npm publish ./lib/vecs-physics/dist --access public
         env:
           NODE_AUTH_TOKEN: ""

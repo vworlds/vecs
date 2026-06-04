@@ -1,0 +1,3 @@
+# these folders are ignored since we are keeping these libraries around only for reference and consulting
+box2d/
+box2d3-wasm/
