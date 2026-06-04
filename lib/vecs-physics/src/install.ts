@@ -1,13 +1,12 @@
 // `installPhysics` — the single entry point that wires the physics engine into a
 // Vecs world. It registers every public component, declares geometry
-// exclusivity, ensures the three physics phases exist, and attaches the private
-// `PhysicsState`. See PLAN.md → _installPhysics Signature_ and
-// _Component registration order_.
+// exclusivity, ensures the three physics phases exist, creates the Box2D world,
+// installs the physics systems (each tagged with `PhysicsSystemTag`), and
+// attaches the private `PhysicsState`. See PLAN.md → _installPhysics Signature_
+// and _Component registration order_.
 //
-// VP-4 is wiring only: no systems are installed and the engine is a no-op. The
-// physics systems (and the `PhysicsSystemTag` marker they carry) land in VP-6.
-// Registration order still matters — Vecs assigns component type ids in
-// registration order, so keeping the order stable keeps ids deterministic.
+// Registration order matters — Vecs assigns component type ids in registration
+// order, so keeping the order stable keeps ids deterministic across installs.
 
 import { type IPhase, type World } from "@vworlds/vecs";
 
