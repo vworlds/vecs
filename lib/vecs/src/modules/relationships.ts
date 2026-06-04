@@ -74,7 +74,7 @@ export class RelationshipsModule extends Module {
         });
 
       world.entities.forEach((entity) => {
-        if (entity.componentBitmask.has(relEid)) {
+        if (entity.has(relEid)) {
           this._cascadeUpdate(entity, relEid, traversable);
         }
       });
@@ -93,7 +93,7 @@ export class RelationshipsModule extends Module {
 
     visited.add(entity);
 
-    if (entity.componentBitmask.has(relEid)) {
+    if (entity.has(relEid)) {
       traversable.depths.set(entity, this._depthOf(entity, relEid, traversable, new Set()));
     } else {
       traversable.depths.delete(entity);
@@ -110,7 +110,7 @@ export class RelationshipsModule extends Module {
     traversable: Traversable,
     visited: Set<Entity>
   ): number {
-    if (!entity.componentBitmask.has(relEid) || visited.has(entity)) {
+    if (!entity.has(relEid) || visited.has(entity)) {
       return 0;
     }
 
