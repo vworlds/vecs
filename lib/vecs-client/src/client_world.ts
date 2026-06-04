@@ -11,11 +11,13 @@ import {
   type RPCHandler,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
-import { type ComponentInstance, type IPhase } from "@vworlds/vecs";
+import { type ComponentInstance, type IPhase, Query } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { EventEmitter } from "eventemitter3";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
 import { worldPath } from "./world_path.js";
+
+class Networked {}
 
 const DEFAULT_CLIENT_LOCAL_ENTITY_ID_START = 10000;
 
@@ -61,6 +63,7 @@ export class ClientWorld extends NetworkWorld {
   private readonly _interpolator: Interpolator;
   private readonly _encodeBuffer: Uint8Array;
   private readonly _ackIntervalMs: number;
+  private readonly _networkedQuery: InstanceType<typeof Query>;
   private _input: unknown;
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
@@ -76,6 +79,8 @@ export class ClientWorld extends NetworkWorld {
     });
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
     this._ackIntervalMs = options.ackIntervalMs ?? 1000 / 30;
+    this.component(Networked);
+    this._networkedQuery = this.query("ClientWorld:Networked").requires(Networked).track().build();
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,
@@ -224,7 +229,7 @@ export class ClientWorld extends NetworkWorld {
 
   private _applySnapshot(snapshot: ComponentSnapshot): void {
     const component = this.decodeComponentSnapshot(snapshot);
-    const entity = this.getOrCreateEntity(snapshot.eid);
+    const entity = this.getOrCreateEntity(snapshot.eid, (e) => e.add(Networked));
     entity.attach(component as object);
   }
 
@@ -244,21 +249,11 @@ export class ClientWorld extends NetworkWorld {
     }
   }
 
-  // Destroy every server-owned entity so an incoming baseline can recreate them
-  // from scratch (re-firing each entity's `enter`). Local entities -- particles,
-  // UI, anything the client spawns past `localEntityIdStart` -- live in a
-  // separate pool and are left alone. Iterating a snapshot of the map keeps the
-  // destroy, which mutates it, safe.
+  // Destroy every network entity so an incoming baseline can recreate them
+  // from scratch (re-firing each entity's `enter`). query.forEach wraps in
+  // beginDefer/endDefer, so destroying inside the callback is safe.
   private _destroyNetworkEntities(): void {
-    const pool = this.pools.find((p) => p.name === "network_entity");
-    if (!pool) {
-      return;
-    }
-    for (const entity of [...this.entities.values()]) {
-      if (entity.eid >= pool.min && (pool.max === undefined || entity.eid <= pool.max)) {
-        entity.destroy();
-      }
-    }
+    this._networkedQuery.forEach((entity) => entity.destroy());
   }
 
   private _handleDisconnect(): void {
