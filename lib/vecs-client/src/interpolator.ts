@@ -214,68 +214,6 @@ export class Interpolator {
     this._lastTime = -1;
   }
 
-  // rebase adopts `baseline` -- a complete-state snapshot the server sends with
-  // fromFrame === 0 -- as the authoritative world state at baseline.to. Instead
-  // of tearing the world down and rebuilding it (which destroys and recreates
-  // every persisting entity, re-firing their enter-side effects), it stages the
-  // minimal transition from the currently rendered state to the baseline:
-  // update/insert everything the baseline carries, and remove only the entities
-  // and components the baseline no longer contains. Any buffered diffs are
-  // dropped -- a full baseline supersedes them.
-  public rebase(baseline: Diff): void {
-    const baselineTypesByEid = new Map<number, Set<number>>();
-    baseline.snapshots.forEach((snapshot) => {
-      let types = baselineTypesByEid.get(snapshot.eid);
-      if (types === undefined) {
-        baselineTypesByEid.set(snapshot.eid, (types = new Set<number>()));
-      }
-      types.add(snapshot.type);
-    });
-
-    const removed: number[] = [];
-    const destroyed = new Set<number>();
-
-    // Honor any removals the baseline carries explicitly (the server folds the
-    // current frame's removals into the resync snapshot).
-    (baseline.removed as number[] | undefined)?.forEach((cid) => {
-      removed.push(cid);
-      const [eid, type] = cid_unpack(cid);
-      if (type === ALL_COMPONENTS) {
-        destroyed.add(eid);
-      }
-    });
-
-    // Remove anything in the currently rendered state the baseline no longer
-    // contains.
-    this._state.forEach((snapshot) => {
-      const baselineTypes = baselineTypesByEid.get(snapshot.eid);
-      if (baselineTypes === undefined) {
-        // The entity is gone from the baseline entirely -- destroy it.
-        if (!destroyed.has(snapshot.eid)) {
-          destroyed.add(snapshot.eid);
-          removed.push(cid_pack(snapshot.eid, ALL_COMPONENTS));
-        }
-        return;
-      }
-      // The entity survives but this particular component is no longer present.
-      if (!baselineTypes.has(snapshot.type)) {
-        removed.push(snapshot.cid);
-      }
-    });
-
-    const transition = new Diff(this._stateVersion, baseline.to);
-    transition.snapshots = baseline.snapshots;
-    if (removed.length > 0) {
-      transition.removed = removed;
-    }
-
-    this.bucket.fill(undefined);
-    this.bucket[0] = transition;
-    this._first = baseline.to;
-    this.version = baseline.to;
-    this._tServ = -1;
-  }
-
   // push takes diffs coming from the wire and incorporates them
   // to the snapshot bucket in the right position:
   public push(diff: Diff): void {

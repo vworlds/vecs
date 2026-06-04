@@ -181,12 +181,15 @@ export class ClientWorld extends NetworkWorld {
     // throttled, so the server keeps resending the whole world until the client
     // catches up.
     //
-    // Every baseline is self-contained, so the interpolator rebases onto it:
-    // entities the baseline still contains are updated in place (keeping their
-    // identity, so client-side enter effects such as explosion particles are not
-    // re-triggered), while entities and components it no longer contains are
-    // removed. The "reset" event is informational -- applications no longer need
-    // to tear down their world, since the next pull carries the exact transition.
+    // A baseline is reset-then-rebuild: every server-owned entity is destroyed
+    // and then recreated from the snapshot. Destroying first is what makes the
+    // rebuild fire each entity's `enter` again, so view systems that attach
+    // client-side state on enter (e.g. spacerocks' Drawable draw statements)
+    // rebuild it. Reconciling in place instead would re-`attach` onto the living
+    // entity, which fires `modified` -- not `enter` -- leaving that client-side
+    // state stale or empty. The teardown runs here, at receive time (synchronous,
+    // outside the deferred apply queue), so the entities are fully gone before
+    // the next apply replays the baseline and recreates them.
     if (sd.fromFrame === 0) {
       // Skip baselines we have already advanced past (duplicates or, with the
       // unordered transport, stragglers). After a reconnect the server may have
@@ -197,7 +200,9 @@ export class ClientWorld extends NetworkWorld {
       this._forceBaselineReset = false;
       const initial = !this._baselineApplied;
       this._baselineApplied = true;
-      this._interpolator.rebase(diffFromStateDiff(sd));
+      this._destroyNetworkEntities();
+      this._interpolator.reset();
+      this._interpolator.push(diffFromStateDiff(sd));
       this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
       return;
     }
@@ -236,6 +241,23 @@ export class ClientWorld extends NetworkWorld {
     }
     if (this.getNetworkComponent(type) && entity.get(type)) {
       entity.remove(type);
+    }
+  }
+
+  // Destroy every server-owned entity so an incoming baseline can recreate them
+  // from scratch (re-firing each entity's `enter`). Local entities -- particles,
+  // UI, anything the client spawns past `localEntityIdStart` -- live in a
+  // separate pool and are left alone. Iterating a snapshot of the map keeps the
+  // destroy, which mutates it, safe.
+  private _destroyNetworkEntities(): void {
+    const pool = this.pools.find((p) => p.name === "network_entity");
+    if (!pool) {
+      return;
+    }
+    for (const entity of [...this.entities.values()]) {
+      if (entity.eid >= pool.min && (pool.max === undefined || entity.eid <= pool.max)) {
+        entity.destroy();
+      }
     }
   }
 

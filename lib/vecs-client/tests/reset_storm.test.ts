@@ -20,12 +20,13 @@ import { ClientWorld } from "../src/index.js";
 // dgram transport vecs uses in production is unordered with maxRetransmits=2,
 // so some of those packets are dropped or reordered.
 //
-// Each baseline is the *complete* authoritative state at its frame. The client
-// rebases onto it: entities it still contains are updated in place, entities and
-// components it no longer contains are removed. Crucially the application is NOT
-// asked to tear its world down -- persisting entities keep their identity, so
-// local-only state (e.g. spawned explosion particles) is preserved and
-// enter-effects are not re-fired.
+// Each baseline is the *complete* authoritative state at its frame, and the
+// client adopts it as reset-then-rebuild: every server-owned entity is destroyed
+// and then recreated from the snapshot. Recreating fires each entity's `enter`
+// again, so view systems that attach client-side state on enter rebuild it -- the
+// behaviour this test pins down. After the storm the world must match the server
+// exactly, and the survivor must have been torn down and rebuilt (its `enter`
+// ran again), not merely updated in place.
 
 class Position {
   @wireType("i32")
@@ -35,11 +36,17 @@ class Position {
   public y = 0;
 }
 
-// A purely local component the server knows nothing about. It must survive a
-// resync, proving the entity it is attached to was updated in place rather than
-// destroyed and recreated.
-class LocalTag {
-  public value = 0;
+// A static networked component -- like spacerocks' Drawable. The server sets it
+// once and never changes it, so normal-play deltas never re-send it; only a full
+// baseline does. The client enriches it on `enter` with `view`, view-only state
+// the server never sends. A baseline rebuild recreates the entity, so `enter`
+// runs again and repopulates `view`; an in-place reconcile re-attaches a fresh
+// Sprite without firing `enter`, leaving `view` empty.
+class Sprite {
+  @wireType("i32")
+  public kind = 0;
+
+  public view: string | undefined = undefined;
 }
 
 const TICK_MS = 1000 / 30;
@@ -96,7 +103,7 @@ class Listener implements VecsSocketListener {
 function createServer(): ServerWorld {
   const server = new ServerWorld({
     name: "main",
-    networkComponents: [Position],
+    networkComponents: [Position, Sprite],
     disconnectGraceMs: 1e9, // keep the session alive across the synchronous run
   });
   server.component(NetworkClient).onSet((entity) => {
@@ -143,21 +150,31 @@ function diffRemoves(packet: Uint8Array, eid: number): boolean {
 }
 
 describe("reset storm (inactive tab)", () => {
-  it("rebases onto baselines without tearing down persisting entities", () => {
+  it("tears down and rebuilds server entities on every baseline, re-firing enter", () => {
     const server = createServer();
     const listener = new Listener();
     server._attach(listener);
 
     const client = new ClientWorld({
-      networkComponents: [Position],
+      networkComponents: [Position, Sprite],
       serverTickIntervalMs: TICK_MS,
       interpolatorBucketLength: 3,
       ackIntervalMs: 1e9, // never auto-fire; the test drives acks via client.send()
     });
-    client.component(LocalTag);
 
-    // The application does NOT clear its world on reset -- the interpolator owns
-    // remote-entity lifecycle. We only count the events.
+    // A view system enriches each entity's Sprite on `enter`. It must run again
+    // whenever a baseline rebuilds the entity, or the enrichment is lost. We
+    // count enters per entity and stamp the (client-only) `view` field.
+    const enters = new Map<number, number>();
+    client
+      .query("view")
+      .requires(Sprite)
+      .enter([Sprite], (entity: Entity, [sprite]: [Sprite]) => {
+        enters.set(entity.eid, (enters.get(entity.eid) ?? 0) + 1);
+        sprite.view = "built";
+      })
+      .build();
+
     let resets = 0;
     client.events.on("reset", () => {
       resets++;
@@ -171,10 +188,10 @@ describe("reset storm (inactive tab)", () => {
     listener.accept(serverEp);
 
     const asteroids = [
-      server.entity().add(Networked).set(Position, { x: 0, y: 10 }),
-      server.entity().add(Networked).set(Position, { x: 0, y: 20 }),
-      server.entity().add(Networked).set(Position, { x: 0, y: 30 }),
-      server.entity().add(Networked).set(Position, { x: 0, y: 40 }),
+      server.entity().add(Networked).set(Position, { x: 0, y: 10 }).set(Sprite, { kind: 1 }),
+      server.entity().add(Networked).set(Position, { x: 0, y: 20 }).set(Sprite, { kind: 1 }),
+      server.entity().add(Networked).set(Position, { x: 0, y: 30 }).set(Sprite, { kind: 1 }),
+      server.entity().add(Networked).set(Position, { x: 0, y: 40 }).set(Sprite, { kind: 1 }),
     ];
     const live = new Set(asteroids);
     const doomed = asteroids[2];
@@ -198,10 +215,10 @@ describe("reset storm (inactive tab)", () => {
       client.send();
     }
     expect(clientState(client).size).toBe(4);
-
-    // Tag a surviving entity with local-only state. If a resync destroys and
-    // recreates it, this tag is lost.
-    client.entity(survivor.eid).add(LocalTag);
+    // The survivor entered the world and a view system built its view.
+    expect(enters.get(survivor.eid)).toBeGreaterThanOrEqual(1);
+    expect((client.entity(survivor.eid).get(Sprite) as Sprite).view).toBe("built");
+    const entersBeforeStorm = enters.get(survivor.eid)!;
 
     // --- tab inactive: no pulls and no acks (a deeply backgrounded tab whose
     // setInterval is frozen too). The server stays in continuous baseline/resync
@@ -236,9 +253,12 @@ describe("reset storm (inactive tab)", () => {
     // though its removal packet was never delivered.
     expect(clientState(client)).toEqual(serverState(live));
     expect(networkEntities(client).some((e) => e.eid === doomed.eid)).toBe(false);
-    // The survivor was updated in place across every baseline, so its local tag
-    // is intact.
-    expect(client.entity(survivor.eid).get(LocalTag)).toBeDefined();
+    // The survivor was torn down and rebuilt across the storm, so its `enter`
+    // ran again beyond the initial entry...
+    expect(enters.get(survivor.eid)!).toBeGreaterThan(entersBeforeStorm);
+    // ...and that rebuild repopulated its client-only view state on the fresh
+    // Sprite -- the regression: an in-place reconcile would leave it empty.
+    expect((client.entity(survivor.eid).get(Sprite) as Sprite).view).toBe("built");
 
     client.close();
   });

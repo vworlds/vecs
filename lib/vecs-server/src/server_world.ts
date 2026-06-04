@@ -80,7 +80,7 @@ export class ServerWorld extends NetworkWorld {
   private readonly _encodeBuffer: Uint8Array;
   private readonly _disconnectGraceMs: number;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
-  private _frame = 0;
+  private _frame = 1;
   private _systemsInstalled = false;
 
   public constructor(options: ServerWorldOptions = {}) {

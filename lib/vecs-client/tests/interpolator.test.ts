@@ -389,46 +389,6 @@ test("does not interpolate entities that only exist in a future frame", () => {
   expect(Pos(sd105, B)).toBeUndefined();
 });
 
-test("rebase adopts a full baseline as a minimal in-place transition", () => {
-  const ip = newInterpolator(3, 10);
-
-  // Render an initial state: A and B, each with Position + Color.
-  ip.push(
-    SD({
-      from: 0,
-      to: 1,
-      snapshots: [
-        ...snap({ id: A, xy: 1, color: "red" }),
-        ...snap({ id: B, xy: 2, color: "blue" }),
-      ],
-    })
-  );
-  ip.pull(100);
-
-  // A complete baseline at frame 5: A survives but loses its Color, C is new,
-  // and B has vanished (the baseline simply omits it -- no removed entry).
-  const baseline = SD({
-    from: 0,
-    to: 5,
-    snapshots: [makePosComponent(A, 9, 9), ...snap({ id: C, xy: 7, color: "green" })],
-  });
-  ip.rebase(baseline);
-
-  const result = ip.pull(200);
-
-  // A is updated in place; C is added.
-  expect(Pos(result, A)).toEqual({ x: 9, y: 9 });
-  expect(Pos(result, C)).toEqual({ x: 7, y: 7 });
-  expect(Color(result, C)).toBe("green");
-  // A's now-absent Color is removed per-component; B is removed wholesale.
-  expect(Color(result, A)).toBeUndefined();
-  expect(result.removed).toContain(CID(A, ColorType));
-  expect(result.removed).toContain(CID(B, ALL_COMPONENTS));
-  // B is gone entirely.
-  expect(Pos(result, B)).toBeUndefined();
-  expect(ip.version).toBe(5);
-});
-
 test("reset returns the interpolator to its initial state", () => {
   const ip = newInterpolator(3, 10);
   const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
