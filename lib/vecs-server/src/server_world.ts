@@ -154,12 +154,12 @@ export class ServerWorld extends NetworkWorld {
   }
 
   public send(): void {
+    const toFrame = this._frame++;
     if (this._sessions.size === 0) {
       this._updates.clear();
       return;
     }
 
-    const toFrame = this._frame++;
     const nowMs = performance.now();
     const staleSessions: ServerClientSession[] = [];
 
