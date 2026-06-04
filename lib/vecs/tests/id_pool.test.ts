@@ -197,4 +197,47 @@ describe("IdPool", () => {
     pool.advanceFrame();
     expect(pool.alloc()).toBe(id);
   });
+
+  it("tracks allocated count across alloc, free, reserve, and advance", () => {
+    const pool = new IdPool("p", 1, undefined, 2);
+    expect(pool.allocated).toBe(0);
+
+    const a = pool.alloc();
+    const b = pool.alloc();
+    expect(pool.allocated).toBe(2);
+
+    pool.free(a);
+    expect(pool.allocated).toBe(2);
+
+    pool.advanceFrame();
+    expect(pool.allocated).toBe(2);
+
+    pool.advanceFrame();
+    expect(pool.allocated).toBe(1);
+
+    pool.alloc();
+    pool.alloc();
+    expect(pool.allocated).toBe(3);
+
+    pool.free(b);
+    expect(pool.allocated).toBe(3);
+
+    advance(pool);
+    expect(pool.allocated).toBe(2);
+
+    pool.reserve(100);
+    expect(pool.allocated).toBe(3);
+  });
+
+  it("allocated count reaches zero when waitlist is drained", () => {
+    const pool = new IdPool("p", 1, undefined, 1);
+    const ids = Array.from({ length: 5 }, () => pool.alloc());
+    expect(pool.allocated).toBe(5);
+    for (const id of ids) {
+      pool.free(id);
+    }
+    expect(pool.allocated).toBe(5);
+    advance(pool);
+    expect(pool.allocated).toBe(0);
+  });
 });

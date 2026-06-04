@@ -26,6 +26,8 @@ export class IdPool {
   // The smallest id never yet handed out by alloc (high-water mark). All ids
   // in `[min, _next)` are either reserved (1 in `_bits`) or free (0).
   private _next: number;
+  // Running count of currently allocated ids (includes ids in wait buckets).
+  private _allocatedCount = 0;
   // Circular waitlist buckets. Freed ids remain reserved until their bucket is
   // released by `advanceFrame`, preventing immediate reuse across the network.
   private readonly _waitBuckets: number[][];
@@ -65,6 +67,7 @@ export class IdPool {
       const word = offset >>> 5;
       this._bits[word] = this._bits[word] | (1 << offset);
       this._freeBelowNext--;
+      this._allocatedCount++;
       return cached;
     }
     if (this._freeBelowNext > 0) {
@@ -79,6 +82,7 @@ export class IdPool {
       bits[word] = nw;
       this._minFreeWord = nw === -1 ? word + 1 : word;
       this._freeBelowNext--;
+      this._allocatedCount++;
       return this.min + word * 32 + bit;
     }
     const max = this.max;
@@ -92,6 +96,7 @@ export class IdPool {
       if ((cur & mask) === 0) {
         this._bits[word] = cur | mask;
         this._next = id + 1;
+        this._allocatedCount++;
         return id;
       }
       id++;
@@ -112,6 +117,10 @@ export class IdPool {
 
   public owns(id: number): boolean {
     return id >= this.min && (this.max === undefined || id <= this.max);
+  }
+
+  public get allocated(): number {
+    return this._allocatedCount;
   }
 
   public peek(): number {
@@ -154,6 +163,7 @@ export class IdPool {
       throw new Error(`Id ${id} is already reserved`);
     }
     this._bits[word] = cur | mask;
+    this._allocatedCount++;
     if (id < this._next) {
       this._freeBelowNext--;
     }
@@ -181,6 +191,7 @@ export class IdPool {
       return;
     }
     this._bits[word] = cur & ~mask;
+    this._allocatedCount--;
     if (id < this._next) {
       this._freeBelowNext++;
       if (word < this._minFreeWord) {
