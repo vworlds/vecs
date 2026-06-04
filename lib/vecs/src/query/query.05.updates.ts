@@ -140,7 +140,7 @@ export class Updates<R extends ComponentType[] = []> extends Callbacks<R> {
         itB.entity = b;
         getInjectedWithSrc(a, inject, resolvedA, itA.src);
         getInjectedWithSrc(b, inject, resolvedB, itB.src);
-        return cb(itA, resolvedA, itB, resolvedB);
+        return cb(itA, resolvedA, itB, resolvedB) || a.eid - b.eid;
       });
     } else {
       const resolvedA = new Array(arity);
@@ -148,7 +148,7 @@ export class Updates<R extends ComponentType[] = []> extends Callbacks<R> {
       this._entities = new OrderedSet<Entity>((a, b) => {
         getInjected(a, inject, false, resolvedA);
         getInjected(b, inject, false, resolvedB);
-        return cb(a, resolvedA, b, resolvedB);
+        return cb(a, resolvedA, b, resolvedB) || a.eid - b.eid;
       });
     }
     return this;
