@@ -1,11 +1,15 @@
 import { BitPtr } from "./util/bitset.js";
 import type { Entity, EntityClass } from "./entity/index.js";
-import { Relationship } from "./relationship.js";
 
 export enum CleanupPolicy {
   Throw = "throw",
   Remove = "remove",
   Delete = "delete",
+}
+
+/** Base class for relationship components that point at another entity. */
+export abstract class Relationship {
+  public target!: Entity;
 }
 
 /** A component instance. Components are plain objects created with a no-arg constructor. */
@@ -140,20 +144,26 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   }
 
   /** @inheritdoc */
-  public onAdd(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
-    (this._onAddHandlers ??= []).unshift(handler);
+  public onAdd<T extends ComponentInstance>(
+    handler: (entity: Entity, c: T) => void
+  ): ComponentMeta {
+    (this._onAddHandlers ??= []).unshift(handler as any);
     return this;
   }
 
   /** @inheritdoc */
-  public onRemove(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
-    (this._onRemoveHandlers ??= []).unshift(handler);
+  public onRemove<T extends ComponentInstance>(
+    handler: (entity: Entity, c: T) => void
+  ): ComponentMeta {
+    (this._onRemoveHandlers ??= []).unshift(handler as any);
     return this;
   }
 
   /** @inheritdoc */
-  public onSet(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
-    (this._onSetHandlers ??= []).unshift(handler);
+  public onSet<T extends ComponentInstance>(
+    handler: (entity: Entity, c: T) => void
+  ): ComponentMeta {
+    (this._onSetHandlers ??= []).unshift(handler as any);
     return this;
   }
 }

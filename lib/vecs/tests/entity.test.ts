@@ -71,9 +71,10 @@ describe("Entity — components", () => {
 
   it("set(typeId, props) works with numeric type ids", () => {
     const w = new World();
-    w.component(Position, 7);
+    const eid = w.peekNextEid("component");
+    w.component(Position, eid);
     const e = w.entity();
-    const pos = e.set(7, {}).get(7);
+    const pos = e.set(eid, {}).get(eid);
     expect(pos).toBeInstanceOf(Position);
   });
 

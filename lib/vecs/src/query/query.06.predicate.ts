@@ -6,7 +6,7 @@ import {
   type FanInjectTuple,
   type MaybeResolvedInjectTuple,
 } from "../inject.js";
-import { ChildOf, SilenceSource } from "../relationship.js";
+import { ChildOf, SilenceSource } from "../modules/relationships.js";
 import { _getGroupedQueryCtor } from "./query.00.base.js";
 import { Updates } from "./query.05.updates.js";
 

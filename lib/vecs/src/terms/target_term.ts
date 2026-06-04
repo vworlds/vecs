@@ -1,4 +1,4 @@
-import { Relationship } from "../relationship.js";
+import { Relationship } from "../component_meta.js";
 import type { QueryDSL } from "../dsl.js";
 import type { Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";

@@ -1,6 +1,5 @@
-import { CleanupPolicy } from "../component_meta.js";
+import { SilenceSource } from "../modules/relationships.js";
 import { Query } from "../query/index.js";
-import { ChildOf, SilenceSource } from "../relationship.js";
 import { System } from "../system.js";
 import { Pipeline } from "./world.pipeline.js";
 import { type WorldOptions } from "./world.base.js";
@@ -32,9 +31,8 @@ import { type WorldOptions } from "./world.base.js";
 export class World extends Pipeline {
   public constructor(options: WorldOptions = {}) {
     super(options);
-    this.component(ChildOf).ownMeta.onDeleteTarget = CleanupPolicy.Delete;
+    this.component(SilenceSource).onRemove((entity) => entity.get(Query)?._clearSilence());
     this.component(Query).onRemove((_entity, query) => query.destroy());
     this.component(System).onRemove((_entity, system) => system.destroy());
-    this.component(SilenceSource).onRemove((entity) => entity.get(Query)?._clearSilence());
   }
 }

@@ -200,10 +200,11 @@ describe("World - entity management", () => {
 
   it("getOrCreateEntity invokes the create callback only on first creation", () => {
     const w = new World();
+    const eid = w.peekNextEid("entity");
     let created = 0;
 
-    w.getOrCreateEntity(7, () => created++);
-    w.getOrCreateEntity(7, () => created++);
+    w.getOrCreateEntity(eid, () => created++);
+    w.getOrCreateEntity(eid, () => created++);
 
     expect(created).toBe(1);
   });

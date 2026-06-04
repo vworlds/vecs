@@ -1,5 +1,9 @@
-import { CleanupPolicy, type ComponentMeta, type ComponentRef } from "../component_meta.js";
-import { Relationship } from "../relationship.js";
+import {
+  CleanupPolicy,
+  Relationship,
+  type ComponentMeta,
+  type ComponentRef,
+} from "../component_meta.js";
 import { ArrayMap } from "../util/array_map.js";
 import { DenseSet } from "../util/dense_set.js";
 import type { Entity } from "./entity.js";
@@ -8,12 +12,28 @@ import { Queries } from "./entity.queries.js";
 export class Relationships extends Queries {
   /** Return this entity's target through relationship `ref`, if present. */
   public parent(ref: ComponentRef): Entity | undefined {
-    return (this._components.get(this.world.entity(ref).eid) as Relationship | undefined)?.target;
+    return this._parent(this.world.entity(ref).eid);
+  }
+
+  /**
+   * @internal Fast parent lookup by relationship eid — skips ref → eid
+   * resolution. Used by the depth tracker and sort comparators.
+   */
+  public _parent(relEid: number): Entity | undefined {
+    return (this._components.get(relEid) as Relationship | undefined)?.target;
   }
 
   /** Return entities targeting this one through relationship `ref`. */
   public children(ref: ComponentRef): ReadonlySet<Entity> {
-    return this._incoming?.get(this.world.entity(ref).eid) ?? Relationships._emptyIncoming;
+    return this._children(this.world.entity(ref).eid);
+  }
+
+  /**
+   * @internal Fast child set lookup by relationship eid — skips ref → eid
+   * resolution. Used by the `source` predicate and fan-out invoker.
+   */
+  public _children(relEid: number): ReadonlySet<Entity> {
+    return this._incoming?.get(relEid) ?? Relationships._emptyIncoming;
   }
 
   /**

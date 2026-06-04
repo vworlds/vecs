@@ -4,6 +4,7 @@ import type { ComponentClass, ComponentInstance, ComponentType } from "./compone
 export {
   CleanupPolicy,
   ComponentMeta,
+  Relationship,
   type ComponentClass,
   type ComponentInstance,
   type ComponentRef,

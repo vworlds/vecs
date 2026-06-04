@@ -5,7 +5,7 @@ import {
   type ComponentType,
 } from "./component.js";
 import { Entity } from "./entity/index.js";
-import { ChildOf } from "./relationship.js";
+import { ChildOf } from "./modules/relationships.js";
 import type { World } from "./world/index.js";
 import { Bitset } from "./util/bitset.js";
 

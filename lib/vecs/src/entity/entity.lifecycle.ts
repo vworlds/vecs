@@ -1,6 +1,6 @@
 import { CleanupPolicy } from "../component_meta.js";
 import type { ComponentMeta } from "../component_meta.js";
-import { Relationship } from "../relationship.js";
+import { Relationship } from "../component_meta.js";
 import { CommandKind } from "../command.js";
 import { Components } from "./entity.components.js";
 import type { Entity } from "./entity.js";

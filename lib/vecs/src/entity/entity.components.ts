@@ -6,7 +6,7 @@ import {
   type ComponentRef,
   type ComponentType,
 } from "../component_meta.js";
-import { Relationship } from "../relationship.js";
+import { Relationship } from "../component_meta.js";
 import { Relationships } from "./entity.relationships.js";
 import type { Entity } from "./entity.js";
 
