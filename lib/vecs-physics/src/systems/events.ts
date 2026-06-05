@@ -24,9 +24,8 @@ export function installEvents(world: World, state: PhysicsState, phase: IPhase):
       const touchedSensor = new Set<number>();
       const touchedHit = new Set<number>();
 
-      publishContactEvents(world, state, touchedContact);
+      publishContactAndHitEvents(world, state, touchedContact, touchedHit);
       publishSensorEvents(world, state, touchedSensor);
-      publishHitEvents(world, state, touchedHit);
 
       markModified(world, touchedContact, ContactEvents);
       markModified(world, touchedSensor, SensorEvents);
@@ -52,13 +51,22 @@ export function installEvents(world: World, state: PhysicsState, phase: IPhase):
     });
 }
 
-function publishContactEvents(world: World, state: PhysicsState, touched: Set<number>): void {
+// Contact begin/end and hit events all come from a single
+// `b2World_GetContactEvents` poll, so fetch the event block once per step and
+// fan begin/end into `touchedContact` and hits into `touchedHit` (PLAN.md ->
+// PhysicsEvents: "poll once per step").
+function publishContactAndHitEvents(
+  world: World,
+  state: PhysicsState,
+  touchedContact: Set<number>,
+  touchedHit: Set<number>
+): void {
   const events = state.box2d.b2World_GetContactEvents(state.worldId);
   try {
     for (let i = 0; i < events.beginCount; i++) {
       const event = events.GetBeginEvent(i);
       try {
-        emitContactEvent(world, state, touched, event, "begin");
+        emitContactEvent(world, state, touchedContact, event, "begin");
       } finally {
         deleteIfPresent(event);
       }
@@ -66,7 +74,16 @@ function publishContactEvents(world: World, state: PhysicsState, touched: Set<nu
 
     for (let i = 0; i < events.endCount; i++) {
       const event = events.GetEndEvent(i);
-      emitContactEvent(world, state, touched, event, "end");
+      emitContactEvent(world, state, touchedContact, event, "end");
+    }
+
+    for (let i = 0; i < events.hitCount; i++) {
+      const event = events.GetHitEvent(i);
+      try {
+        emitHitEvent(world, state, touchedHit, event);
+      } finally {
+        event.delete();
+      }
     }
   } finally {
     events.delete();
@@ -81,22 +98,6 @@ function publishSensorEvents(world: World, state: PhysicsState, touched: Set<num
     }
     for (let i = 0; i < events.endCount; i++) {
       emitSensorEvent(world, state, touched, events.GetEndEvent(i), "end");
-    }
-  } finally {
-    events.delete();
-  }
-}
-
-function publishHitEvents(world: World, state: PhysicsState, touched: Set<number>): void {
-  const events = state.box2d.b2World_GetContactEvents(state.worldId);
-  try {
-    for (let i = 0; i < events.hitCount; i++) {
-      const event = events.GetHitEvent(i);
-      try {
-        emitHitEvent(world, state, touched, event);
-      } finally {
-        event.delete();
-      }
     }
   } finally {
     events.delete();
