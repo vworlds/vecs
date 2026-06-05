@@ -37,7 +37,7 @@ export class Components extends Entities {
    * ```ts
    * world.component(Position);               // register and auto-assign id
    * world.component(Position, 42);           // register with explicit id 42
-   * const meta = world.component(Position).ownMeta; // access metadata
+   * const componentMeta = world.component(Position).meta; // access metadata
    * world.component(Position).name = "Position";
    * world.component("Position");             // look up by name
    * ```
@@ -110,9 +110,9 @@ export class Components extends Entities {
 
   /** Declare a group of mutually exclusive components. */
   public setExclusiveComponents(this: World, ...components: ComponentClass[]): void {
-    const metas = components.map((C) => this.entity(C).ownMeta);
-    for (let i = 0; i < metas.length; i++) {
-      metas[i]._exclusive = metas.filter((_, j) => j !== i);
+    const componentMetas = components.map((C) => this.entity(C).meta);
+    for (let i = 0; i < componentMetas.length; i++) {
+      componentMetas[i]._exclusive = componentMetas.filter((_, j) => j !== i);
     }
   }
 

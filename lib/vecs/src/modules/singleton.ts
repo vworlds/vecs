@@ -28,7 +28,7 @@ export class SingletonModule extends Module {
     this.world.component(Singleton);
 
     this.world.component(Singleton).onAdd((target: Entity): void => {
-      const targetMeta = target.ownMeta;
+      const targetMeta = target.meta;
       if (targetMeta.usageCount !== 0) {
         throw new Error(
           `Cannot make component ${targetMeta.Class.name} singleton; ${targetMeta.usageCount} instance(s) already exist`

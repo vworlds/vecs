@@ -146,11 +146,11 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
     e.components.forEach((c, eid) => {
-      const meta = this.world.entity(eid).ownMeta;
-      if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
+      const componentMeta = this.world.entity(eid).meta;
+      if (this._watchlistBitmask.hasBit(componentMeta.bitPtr)) {
         // Entry-time initialization bypasses the silence filter: an entity
         // introduced by an ignored source must still initialize in this system.
-        this._pushUpdate(e, meta, c);
+        this._pushUpdate(e, componentMeta, c);
       }
     });
   }

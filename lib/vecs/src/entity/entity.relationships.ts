@@ -50,7 +50,7 @@ export class Relationships extends Queries {
       if (!relEntity) {
         return;
       }
-      const policy = relEntity.ownMeta.onDeleteTarget;
+      const policy = relEntity.meta.onDeleteTarget;
       for (const source of [...sources]) {
         if (policy === CleanupPolicy.Delete) {
           // If source is also an in-use component entity with onDelete Throw,

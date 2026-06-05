@@ -15,15 +15,15 @@ export class Lifecycle extends Components {
     if (this._destroyed) {
       return;
     }
-    const ownMeta = this._ownMeta;
+    const entityMeta = this._meta;
     // Mark destroyed up front so a carrier cleanup that re-enters this entity's
     // `_destroy` (possible with exotic relationship topologies under Delete)
     // hits the guard above instead of tearing down twice.
     this._destroyed = true;
-    if (ownMeta) {
-      const selfCarry = this._components.has(ownMeta.eid) ? 1 : 0;
-      if (ownMeta.usageCount > selfCarry) {
-        if (ownMeta.onDelete === CleanupPolicy.Throw) {
+    if (entityMeta) {
+      const selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
+      if (entityMeta.usageCount > selfCarry) {
+        if (entityMeta.onDelete === CleanupPolicy.Throw) {
           // The public `destroy()` already throws when an in-use component is
           // destroyed; reaching here means usage grew between that check and
           // this deferred apply. Abort instead of throwing so a mid-drain
@@ -32,7 +32,7 @@ export class Lifecycle extends Components {
           this._destroyed = false;
           return;
         }
-        this._applyOnDelete(ownMeta, selfCarry);
+        this._applyOnDelete(entityMeta, selfCarry);
       }
     }
 
@@ -40,14 +40,14 @@ export class Lifecycle extends Components {
     this.world._notifyEntityDestroyed(entity);
 
     this._components.forEach((c, eid) => {
-      const meta = this.world.entity(eid).ownMeta;
-      if (meta.isRelationship) {
+      const componentMeta = this.world.entity(eid).meta;
+      if (componentMeta.isRelationship) {
         this._removeIncoming((c as Relationship).target, eid);
       }
-      this.componentBitmask.deleteBit(meta.bitPtr);
+      this.componentBitmask.deleteBit(componentMeta.bitPtr);
       this.world._notifyComponentRemoved(eid, entity);
-      meta._decrementUsage();
-      const removeHandlers = meta._onRemoveHandlers;
+      componentMeta._decrementUsage();
+      const removeHandlers = componentMeta._onRemoveHandlers;
       if (removeHandlers) {
         removeHandlers.forEach((handler) => handler(entity, c));
       }
@@ -60,8 +60,8 @@ export class Lifecycle extends Components {
       this._events.removeAllListeners("destroy");
     }
 
-    if (ownMeta && ownMeta.usageCount === 0 && ownMeta.Class !== Object) {
-      this.world._classRegistry.delete(ownMeta.Class);
+    if (entityMeta && entityMeta.usageCount === 0 && entityMeta.Class !== Object) {
+      this.world._classRegistry.delete(entityMeta.Class);
     }
 
     this.world._unregisterEntity(entity);
@@ -76,11 +76,11 @@ export class Lifecycle extends Components {
    * After destruction the entity must not be used.
    */
   public destroy(): void {
-    const ownMeta = this._ownMeta;
+    const entityMeta = this._meta;
     if (
-      ownMeta &&
-      ownMeta.onDelete === CleanupPolicy.Throw &&
-      ownMeta.usageCount > (this._components.has(ownMeta.eid) ? 1 : 0)
+      entityMeta &&
+      entityMeta.onDelete === CleanupPolicy.Throw &&
+      entityMeta.usageCount > (this._components.has(entityMeta.eid) ? 1 : 0)
     ) {
       throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
     }
@@ -100,22 +100,22 @@ export class Lifecycle extends Components {
   // `onDelete = Throw`, its `_destroy` safe-aborts and it survives still holding
   // this now-destroyed component eid. This is the same exotic policy-interaction
   // class flagged in `_cleanupIncoming`; left for the relationship/query rework.
-  private _applyOnDelete(ownMeta: ComponentMeta, selfCarry: number): void {
-    const ceid = ownMeta.eid;
+  private _applyOnDelete(entityMeta: ComponentMeta, selfCarry: number): void {
+    const ceid = entityMeta.eid;
     const carriers: Lifecycle[] = [];
-    let remaining = ownMeta.usageCount - selfCarry;
+    let remaining = entityMeta.usageCount - selfCarry;
     this.world.entities.forEach((e) => {
       if (remaining > 0 && e !== (this as unknown as Entity) && e._get(ceid) !== undefined) {
         carriers.push(e);
         remaining--;
       }
     });
-    const shouldDelete = ownMeta.onDelete === CleanupPolicy.Delete;
+    const shouldDelete = entityMeta.onDelete === CleanupPolicy.Delete;
     for (const carrier of carriers) {
       if (shouldDelete) {
         carrier._destroy();
       } else {
-        carrier._remove(ownMeta);
+        carrier._remove(entityMeta);
       }
     }
   }

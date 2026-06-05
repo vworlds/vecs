@@ -126,16 +126,16 @@ export class Components extends Relationships {
   public add(entity: Entity): this;
 
   public add(ref: ComponentRef): this {
-    const meta = this.world.entity(ref).ownMeta;
+    const componentMeta = this.world.entity(ref).meta;
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Set,
         entity: this as unknown as Entity,
-        meta,
+        meta: componentMeta,
         props: undefined,
       });
     } else {
-      this._set(meta, undefined);
+      this._set(componentMeta, undefined);
     }
     return this;
   }
@@ -163,16 +163,16 @@ export class Components extends Relationships {
   ): this {
     const ComponentKey = component === undefined ? classOrComponent.constructor : classOrComponent;
     const instance = component ?? classOrComponent;
-    const meta = this.world.entity(ComponentKey as ComponentRef).ownMeta;
+    const componentMeta = this.world.entity(ComponentKey as ComponentRef).meta;
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Attach,
         entity: this as unknown as Entity,
-        meta,
+        meta: componentMeta,
         component: instance,
       });
     } else {
-      this._attach(meta, instance);
+      this._attach(componentMeta, instance);
     }
     return this;
   }
@@ -246,16 +246,16 @@ export class Components extends Relationships {
     if (callback === undefined && !this.world.deferred) {
       throw new Error("Entity.getMut without a callback is only allowed in deferred mode");
     }
-    const meta = this.world.entity(ref).ownMeta;
-    if (meta.isRelationship) {
+    const componentMeta = this.world.entity(ref).meta;
+    if (componentMeta.isRelationship) {
       throw new Error("Entity.getMut cannot mutate Relationship components; retarget with set");
     }
-    const component = this._get(meta.eid);
+    const component = this._get(componentMeta.eid);
     if (!component) {
       return undefined;
     }
     callback?.(component);
-    this._markModified(meta);
+    this._markModified(componentMeta);
     return component;
   }
 
@@ -270,8 +270,8 @@ export class Components extends Relationships {
    * @returns This entity, for chaining.
    */
   public modified(ref: ComponentRef): this {
-    const meta = this.world.entity(ref).ownMeta;
-    return this._markModified(meta);
+    const componentMeta = this.world.entity(ref).meta;
+    return this._markModified(componentMeta);
   }
 
   /** @internal Mark a component changed, coalescing duplicate pending notifications. */
@@ -309,11 +309,15 @@ export class Components extends Relationships {
   public remove(entity: Entity): void;
 
   public remove(ref: ComponentRef): void {
-    const meta = this.world.entity(ref).ownMeta;
+    const componentMeta = this.world.entity(ref).meta;
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Remove, entity: this as unknown as Entity, meta });
+      this.world._enqueue({
+        kind: CommandKind.Remove,
+        entity: this as unknown as Entity,
+        meta: componentMeta,
+      });
     } else {
-      this._remove(meta);
+      this._remove(componentMeta);
     }
   }
 
@@ -343,16 +347,16 @@ export class Components extends Relationships {
   public set(entity: Entity, props: Partial<ComponentInstance>): this;
 
   public set(ref: ComponentRef, props: Partial<ComponentInstance>): this {
-    const meta = this.world.entity(ref).ownMeta;
+    const componentMeta = this.world.entity(ref).meta;
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Set,
         entity: this as unknown as Entity,
-        meta,
+        meta: componentMeta,
         props,
       });
     } else {
-      this._set(meta, props);
+      this._set(componentMeta, props);
     }
     return this;
   }
@@ -420,17 +424,17 @@ export class Components extends Relationships {
   }
 
   public onAdd(handler: (entity: Entity, c: ComponentInstance) => void): this {
-    this.ownMeta.onAdd(handler);
+    this.meta.onAdd(handler);
     return this;
   }
 
   public onRemove(handler: (entity: Entity, c: ComponentInstance) => void): this {
-    this.ownMeta.onRemove(handler);
+    this.meta.onRemove(handler);
     return this;
   }
 
   public onSet(handler: (entity: Entity, c: ComponentInstance) => void): this {
-    this.ownMeta.onSet(handler);
+    this.meta.onSet(handler);
     return this;
   }
 }

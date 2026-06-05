@@ -140,9 +140,9 @@ function _resolveComponentRequirement(component: ComponentRef, world: World): nu
 
 export function _resolveRelationship(ref: ComponentRef, world: World): number {
   const entity = world.entity(ref);
-  const meta = entity.ownMeta;
-  if (!meta.isRelationship) {
-    throw new Error(`Component ${meta.Class.name} is not a Relationship`);
+  const relMeta = entity.meta;
+  if (!relMeta.isRelationship) {
+    throw new Error(`Component ${relMeta.Class.name} is not a Relationship`);
   }
   return entity.eid;
 }

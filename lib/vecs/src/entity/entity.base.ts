@@ -11,7 +11,7 @@ export type EntityEvents = Events<{ destroy(): void }>;
 
 export class Base {
   /** @internal Metadata for this entity when the entity itself is used as a component key. */
-  protected _ownMeta: ComponentMeta | undefined;
+  protected _meta: ComponentMeta | undefined;
 
   /** @internal Maps component eid to component instance. */
   protected _components = new ArrayMap<ComponentInstance>();
@@ -52,7 +52,7 @@ export class Base {
     ownComponentClass?: ComponentType
   ) {
     if (ownComponentClass !== undefined) {
-      this._ownMeta = new ComponentMeta(ownComponentClass, eid);
+      this._meta = new ComponentMeta(ownComponentClass, eid);
     }
   }
 
@@ -91,13 +91,13 @@ export class Base {
   }
 
   /** Metadata for using this entity's eid as a component key. Created lazily for plain entities. */
-  public get ownMeta(): ComponentMeta {
-    return (this._ownMeta ??= new ComponentMeta(Object, this.eid));
+  public get meta(): ComponentMeta {
+    return (this._meta ??= new ComponentMeta(Object, this.eid));
   }
 
   /** Number of live component instances currently attached for this entity's component key. */
   public instanceCount(): number {
-    return this._ownMeta?.usageCount ?? 0;
+    return this._meta?.usageCount ?? 0;
   }
 
   /** Returns `"EntityN"` where N is the entity id. */

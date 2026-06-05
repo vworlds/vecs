@@ -432,7 +432,7 @@ describe("Entity — component entity onDelete", () => {
   it("removes the component from carriers when onDelete is Remove", () => {
     const w = new World();
     const componentEntity = w.component(Position);
-    componentEntity.ownMeta.onDelete = CleanupPolicy.Remove;
+    componentEntity.meta.onDelete = CleanupPolicy.Remove;
     const a = w.entity().add(Position);
     const b = w.entity().add(Position);
 
@@ -449,7 +449,7 @@ describe("Entity — component entity onDelete", () => {
   it("destroys carriers when onDelete is Delete", () => {
     const w = new World();
     const componentEntity = w.component(Position);
-    componentEntity.ownMeta.onDelete = CleanupPolicy.Delete;
+    componentEntity.meta.onDelete = CleanupPolicy.Delete;
     const a = w.entity().add(Position);
     const b = w.entity().add(Position);
 

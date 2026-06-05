@@ -23,7 +23,7 @@ export class RelationshipsModule extends Module {
     const childOf = world.component(ChildOf);
     const traversable = world.component(Traversable);
 
-    childOf.ownMeta.onDeleteTarget = CleanupPolicy.Delete;
+    childOf.meta.onDeleteTarget = CleanupPolicy.Delete;
 
     traversable.onAdd((rel, traversable): void => {
       const relEid = rel.eid;

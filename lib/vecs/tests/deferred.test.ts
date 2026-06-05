@@ -352,7 +352,7 @@ describe("World.defer(fn)", () => {
     {
       const w = new World();
       const componentEntity = w.component(DeferredRemove);
-      componentEntity.ownMeta.onDelete = CleanupPolicy.Remove;
+      componentEntity.meta.onDelete = CleanupPolicy.Remove;
       w.component(Velocity);
       w.start();
       const carrier = w.entity().add(DeferredRemove);
@@ -372,7 +372,7 @@ describe("World.defer(fn)", () => {
     {
       const w = new World();
       const componentEntity = w.component(DeferredDelete);
-      componentEntity.ownMeta.onDelete = CleanupPolicy.Delete;
+      componentEntity.meta.onDelete = CleanupPolicy.Delete;
       w.component(Velocity);
       w.start();
       const carrier = w.entity().add(DeferredDelete);

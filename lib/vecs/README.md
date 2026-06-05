@@ -160,7 +160,7 @@ const positionComponent = world.component(Position);
 world.component(Position, 42);
 
 // Access component metadata (numeric id, cleanup policy, etc.):
-const meta = world.component(Position).ownMeta; // ComponentMeta
+const componentMeta = world.component(Position).meta; // ComponentMeta
 
 // Give the component a name so it can be looked up by string later:
 world.component(Position).name = "Position";
@@ -222,7 +222,7 @@ world.component("Position"); // resolves the same component entity
 
 #### Component entity deletion cleanup
 
-Every component key is backed by a component entity. Destroying that component entity is controlled by `world.component(C).ownMeta.onDelete`:
+Every component key is backed by a component entity. Destroying that component entity is controlled by `world.component(C).meta.onDelete`:
 
 | Policy                 | Meaning                                                                                            |
 | ---------------------- | -------------------------------------------------------------------------------------------------- |
@@ -233,7 +233,7 @@ Every component key is backed by a component entity. Destroying that component e
 ```ts
 import { CleanupPolicy } from "@vworlds/vecs";
 
-world.component(Temporary).ownMeta.onDelete = CleanupPolicy.Remove;
+world.component(Temporary).meta.onDelete = CleanupPolicy.Remove;
 world.component(Temporary).destroy(); // strips Temporary from all carriers
 ```
 
@@ -433,7 +433,7 @@ entity.get(Position) === shared; // true
 | Shared instances possible | `entity.attach(instance)` stores the exact passed object; code should use the entity passed by vecs callbacks. |
 | Manual dirty marking      | After mutating fields directly, call `entity.modified(C)` to notify hooks, queries, and systems.               |
 
-Use `world.component(C).ownMeta` when you need metadata such as the numeric type id or component name. Metadata is world-specific.
+Use `world.component(C).meta` when you need metadata such as the numeric type id or component name. Metadata is world-specific.
 
 ---
 
@@ -495,14 +495,14 @@ item.parent(EquippedBy); // player
 player.children(EquippedBy).has(item); // true
 ```
 
-Relationship target cleanup is controlled by `ownMeta.onDeleteTarget`:
+Relationship target cleanup is controlled by `meta.onDeleteTarget`:
 
 | Policy                 | Meaning                                                                                      |
 | ---------------------- | -------------------------------------------------------------------------------------------- |
 | `CleanupPolicy.Remove` | Default. When a target is destroyed, remove the relationship component from each source.     |
 | `CleanupPolicy.Delete` | When a target is destroyed, destroy each source entity that targets it through the relation. |
 
-`ChildOf` is registered by every `World` and uses `CleanupPolicy.Delete`. Custom relationships default to `Remove`; set `world.component(MyRelationship).ownMeta.onDeleteTarget = CleanupPolicy.Delete` if target deletion should cascade.
+`ChildOf` is registered by every `World` and uses `CleanupPolicy.Delete`. Custom relationships default to `Remove`; set `world.component(MyRelationship).meta.onDeleteTarget = CleanupPolicy.Delete` if target deletion should cascade.
 
 `onDeleteTarget` is independent from `onDelete`: `onDeleteTarget` runs when a relationship target is destroyed, while `onDelete` runs when the relationship component entity itself is destroyed.
 

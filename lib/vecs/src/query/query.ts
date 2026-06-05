@@ -248,7 +248,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public cascade(rel: ComponentRef, compare?: (a: Entity, b: Entity) => number): this {
     this._assertConfigurable();
     const relEntity = this.world.entity(rel);
-    const relMeta = relEntity.ownMeta;
+    const relMeta = relEntity.meta;
     if (!relMeta.isRelationship) {
       throw new Error(`Component ${relMeta.Class.name} is not a Relationship`);
     }
@@ -463,9 +463,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     e._addQueryMembership(this as any);
     this._enterCallback?.(e);
     e.components.forEach((c, eid) => {
-      const meta = this.world.entity(eid).ownMeta;
-      if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
-        this._notifyModified(e, meta, c);
+      const componentMeta = this.world.entity(eid).meta;
+      if (this._watchlistBitmask.hasBit(componentMeta.bitPtr)) {
+        this._notifyModified(e, componentMeta, c);
       }
     });
   }
