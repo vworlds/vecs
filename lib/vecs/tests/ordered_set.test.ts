@@ -59,6 +59,19 @@ describe("OrderedSet", () => {
     expect([...s]).toEqual([1, 3]);
   });
 
+  it("delete removes an object after its sort key changes", () => {
+    type Item = { priority: number; name: string };
+    const s = new OrderedSet<Item>((a, b) => a.priority - b.priority);
+    const a = { priority: 1, name: "a" };
+    const b = { priority: 2, name: "b" };
+    s.add(a).add(b);
+
+    a.priority = 3;
+
+    expect(s.delete(a)).toBe(true);
+    expect([...s]).toEqual([b]);
+  });
+
   it("delete on missing element returns false", () => {
     const s = new OrderedSet<number>(numCmp);
     s.add(1);
