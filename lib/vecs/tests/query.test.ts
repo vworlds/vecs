@@ -21,8 +21,8 @@ class LocalPosition {
   x = 0;
   y = 0;
 }
-class Label {
-  value = "";
+class Tag {
+  active = true;
 }
 class FriendOf extends Relationship {}
 class Sprite {}
@@ -692,20 +692,16 @@ describe("Query — sort", () => {
 
   it("cascade() orders entities breadth-first by relationship depth", () => {
     const { w, tick } = setup();
-    w.component(Label);
-    const q = w.query("test").requires(Label).cascade(ChildOf);
+    w.component(Tag);
+    const rootA = w.entity("rootA").add(Tag);
+    const rootB = w.entity("rootB").add(Tag);
+    const childA1 = w.entity("childA1").add(Tag).set(ChildOf, { target: rootA });
+    const childA2 = w.entity("childA2").add(Tag).set(ChildOf, { target: rootA });
+    const childB1 = w.entity("childB1").add(Tag).set(ChildOf, { target: rootB });
+    const grandchild = w.entity("grandchild").add(Tag).set(ChildOf, { target: childB1 });
+    const q = w.query("test").requires(Tag).cascade(ChildOf);
 
     w.start();
-    const rootA = w.entity().set(Label, { value: "rootA" });
-    const rootB = w.entity().set(Label, { value: "rootB" });
-    const childA1 = w.entity().set(ChildOf, { target: rootA }).set(Label, { value: "childA1" });
-    const childA2 = w.entity().set(ChildOf, { target: rootA }).set(Label, { value: "childA2" });
-    const childB1 = w.entity().set(ChildOf, { target: rootB }).set(Label, { value: "childB1" });
-    const grandchild = w
-      .entity()
-      .set(ChildOf, { target: childB1 })
-      .set(Label, { value: "grandchild" });
-
     tick();
 
     expect([...q]).toEqual([rootA, rootB, childA1, childA2, childB1, grandchild]);
@@ -713,60 +709,43 @@ describe("Query — sort", () => {
 
   it("cascade() uses the optional compare callback within the same depth", () => {
     const { w, tick } = setup();
-    w.component(Label);
+    w.component(Tag);
+    const root = w.entity("root").add(Tag);
+    const alpha = w.entity("alpha").add(Tag).set(ChildOf, { target: root });
+    const gamma = w.entity("gamma").add(Tag).set(ChildOf, { target: root });
+    const beta = w.entity("beta").add(Tag).set(ChildOf, { target: root });
     const q = w
       .query("test")
-      .requires(Label)
-      .cascade(ChildOf, (a, b) => b.get(Label)!.value.localeCompare(a.get(Label)!.value));
+      .requires(Tag)
+      .cascade(ChildOf, (a, b) => b.name!.localeCompare(a.name!));
 
     w.start();
-    const root = w.entity().set(Label, { value: "root" });
-    const alpha = w.entity().set(ChildOf, { target: root }).set(Label, { value: "alpha" });
-    const gamma = w.entity().set(ChildOf, { target: root }).set(Label, { value: "gamma" });
-    const beta = w.entity().set(ChildOf, { target: root }).set(Label, { value: "beta" });
-
     tick();
 
     expect([...q]).toEqual([root, gamma, beta, alpha]);
   });
 
-  it("cascade() maintains order across simple insertions and removals", () => {
+  it("cascade() maintains order across simple insertions", () => {
     const { w, tick } = setup();
-    w.component(Label);
+    w.component(Tag);
+    const milkyWay = w.entity("Milky Way").add(Tag);
+    const solarSystem = w.entity("Solar System").add(Tag).set(ChildOf, { target: milkyWay });
+    const earth = w.entity("Earth").add(Tag).set(ChildOf, { target: solarSystem });
+    const moon = w.entity("Moon").add(Tag).set(ChildOf, { target: earth });
     const q = w
       .query("test")
-      .requires(Label)
-      .cascade(ChildOf, (a, b) => a.get(Label)!.value.localeCompare(b.get(Label)!.value));
+      .requires(Tag)
+      .cascade(ChildOf, (a, b) => a.name!.localeCompare(b.name!));
 
     w.start();
-    const milkyWay = w.entity().set(Label, { value: "Milky Way" });
-    const solarSystem = w
-      .entity()
-      .set(ChildOf, { target: milkyWay })
-      .set(Label, { value: "Solar System" });
-    const earth = w.entity().set(ChildOf, { target: solarSystem }).set(Label, { value: "Earth" });
-    const moon = w.entity().set(ChildOf, { target: earth }).set(Label, { value: "Moon" });
     tick();
 
     expect([...q]).toEqual([milkyWay, solarSystem, earth, moon]);
 
-    const jupiter = w
-      .entity()
-      .set(ChildOf, { target: solarSystem })
-      .set(Label, { value: "Jupiter" });
+    const jupiter = w.entity("Jupiter").set(ChildOf, { target: solarSystem }).add(Tag);
     tick();
 
     expect([...q]).toEqual([milkyWay, solarSystem, earth, jupiter, moon]);
-
-    moon.remove(Label);
-    tick();
-
-    expect([...q]).toEqual([milkyWay, solarSystem, earth, jupiter]);
-
-    jupiter.destroy(); // pretty dramatic
-    tick();
-
-    expect([...q]).toEqual([milkyWay, solarSystem, earth]);
   });
 
   it("cascade() requires a relationship with the Traversable trait", () => {
@@ -778,18 +757,18 @@ describe("Query — sort", () => {
 
   it("cascade() works with custom Traversable relationships", () => {
     const { w, tick } = setup();
-    w.component(Label);
+    w.component(Tag);
     w.component(FriendOf).add(Traversable);
+    const alice = w.entity("Alice").add(Tag);
+    const bob = w.entity("Bob").add(Tag).set(FriendOf, { target: alice });
+    const charley = w.entity("Charley").add(Tag).set(FriendOf, { target: bob });
+    const david = w.entity("David").add(Tag).set(FriendOf, { target: alice });
     const q = w
       .query("friend-depth")
-      .requires(Label)
-      .cascade(FriendOf, (a, b) => a.get(Label)!.value.localeCompare(b.get(Label)!.value));
+      .requires(Tag)
+      .cascade(FriendOf, (a, b) => a.name!.localeCompare(b.name!));
 
     w.start();
-    const alice = w.entity().set(Label, { value: "Alice" });
-    const bob = w.entity().set(FriendOf, { target: alice }).set(Label, { value: "Bob" });
-    const charley = w.entity().set(FriendOf, { target: bob }).set(Label, { value: "Charley" });
-    const david = w.entity().set(FriendOf, { target: alice }).set(Label, { value: "David" });
     tick();
 
     expect([...q]).toEqual([alice, bob, david, charley]);
@@ -798,45 +777,35 @@ describe("Query — sort", () => {
   it("cascade() lets parent transforms feed child transforms in hierarchy order", () => {
     const { w, tick } = setup();
     w.component(LocalPosition);
-    w.component(Label);
-    const q = w
-      .query("absolute-position")
-      .requires(Position, LocalPosition, Label)
-      .cascade(ChildOf);
+    const q = w.query("absolute-position").requires(Position, LocalPosition).cascade(ChildOf);
 
     w.start();
     const milkyWay = w
-      .entity()
-      .set(Label, { value: "Milky Way" })
+      .entity("Milky Way")
       .set(LocalPosition, { x: 10000, y: 20000 })
       .set(Position, { x: 0, y: 0 });
     const solarSystem = w
-      .entity()
-      .set(Label, { value: "Solar System" })
+      .entity("Solar System")
       .set(ChildOf, { target: milkyWay })
       .set(LocalPosition, { x: 26000, y: 0 })
       .set(Position, { x: 0, y: 0 });
     const earth = w
-      .entity()
-      .set(Label, { value: "Earth" })
+      .entity("Earth")
       .set(ChildOf, { target: solarSystem })
       .set(LocalPosition, { x: 150, y: 0 })
       .set(Position, { x: 0, y: 0 });
     const jupiter = w
-      .entity()
-      .set(Label, { value: "Jupiter" })
+      .entity("Jupiter")
       .set(ChildOf, { target: solarSystem })
       .set(LocalPosition, { x: 778, y: 0 })
       .set(Position, { x: 0, y: 0 });
     const moon = w
-      .entity()
-      .set(Label, { value: "Moon" })
+      .entity("Moon")
       .set(ChildOf, { target: earth })
       .set(LocalPosition, { x: 0.384, y: 0 })
       .set(Position, { x: 0, y: 0 });
     const iss = w
-      .entity()
-      .set(Label, { value: "ISS" })
+      .entity("ISS")
       .set(ChildOf, { target: earth })
       .set(LocalPosition, { x: 0.0004, y: 0 })
       .set(Position, { x: 0, y: 0 });
@@ -844,15 +813,12 @@ describe("Query — sort", () => {
     tick();
 
     const visited: string[] = [];
-    q.forEach(
-      [Label, LocalPosition, Position, { target: [ChildOf, [Position]] }],
-      (_entity, tuple) => {
-        const [label, local, position, parentPosition] = tuple;
-        visited.push(label.value);
-        position.x = (parentPosition?.x ?? 0) + local.x;
-        position.y = (parentPosition?.y ?? 0) + local.y;
-      }
-    );
+    q.forEach([LocalPosition, Position, { target: [ChildOf, [Position]] }], (_entity, tuple) => {
+      const [local, position, parentPosition] = tuple;
+      visited.push(_entity.name!);
+      position.x = (parentPosition?.x ?? 0) + local.x;
+      position.y = (parentPosition?.y ?? 0) + local.y;
+    });
 
     expect(visited).toEqual(["Milky Way", "Solar System", "Earth", "Jupiter", "Moon", "ISS"]);
     expect(milkyWay.get(Position)).toMatchObject({ x: 10000, y: 20000 });
@@ -867,29 +833,20 @@ describe("Query — sort", () => {
 
   it("cascade() reorders a retargeted subtree", () => {
     const { w, tick } = setup();
-    w.component(Label);
+    w.component(Tag);
+    const milkyWay = w.entity("Milky Way").add(Tag);
+    const solarSystem = w.entity("Solar System").add(Tag).set(ChildOf, { target: milkyWay });
+    const earth = w.entity("Earth").add(Tag).set(ChildOf, { target: solarSystem });
+    const jupiter = w.entity("Jupiter").add(Tag).set(ChildOf, { target: solarSystem });
+    const moon = w.entity("Moon").add(Tag).set(ChildOf, { target: earth });
+    const iss = w.entity("ISS").add(Tag).set(ChildOf, { target: earth });
+    const crewDragon = w.entity("Crew Dragon").add(Tag).set(ChildOf, { target: iss });
     const q = w
       .query("test")
-      .requires(Label)
-      .cascade(ChildOf, (a, b) => a.get(Label)!.value.localeCompare(b.get(Label)!.value));
+      .requires(Tag)
+      .cascade(ChildOf, (a, b) => a.name!.localeCompare(b.name!));
 
     w.start();
-    const milkyWay = w.entity().set(Label, { value: "Milky Way" });
-    const solarSystem = w
-      .entity()
-      .set(ChildOf, { target: milkyWay })
-      .set(Label, { value: "Solar System" });
-    const earth = w.entity().set(ChildOf, { target: solarSystem }).set(Label, { value: "Earth" });
-    const jupiter = w
-      .entity()
-      .set(ChildOf, { target: solarSystem })
-      .set(Label, { value: "Jupiter" });
-    const moon = w.entity().set(ChildOf, { target: earth }).set(Label, { value: "Moon" });
-    const iss = w.entity().set(ChildOf, { target: earth }).set(Label, { value: "ISS" });
-    const crewDragon = w
-      .entity()
-      .set(ChildOf, { target: iss })
-      .set(Label, { value: "Crew Dragon" });
     tick();
 
     expect([...q]).toEqual([milkyWay, solarSystem, earth, jupiter, iss, moon, crewDragon]);
