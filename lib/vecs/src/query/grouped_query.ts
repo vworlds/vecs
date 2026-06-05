@@ -1,9 +1,4 @@
-import {
-  type ComponentInstance,
-  type ComponentMeta,
-  type ComponentRef,
-  type ComponentType,
-} from "../component.js";
+import { type ComponentInstance, type ComponentRef, type ComponentType } from "../component.js";
 import { _resolveRelationship } from "../dsl.js";
 import { Entity } from "../entity/index.js";
 import {
@@ -87,9 +82,9 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
   }
 
   /** @internal */
-  public override _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
-    super._notifyModified(e, meta, c);
-    this._grouping.refresh(e, meta.eid);
+  public override _notifyModified(e: Entity, eid: number, c: ComponentInstance): void {
+    super._notifyModified(e, eid, c);
+    this._grouping.refresh(e, eid);
   }
 
   /** @internal */

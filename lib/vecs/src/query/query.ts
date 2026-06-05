@@ -1,9 +1,4 @@
-import {
-  type ComponentInstance,
-  type ComponentMeta,
-  type ComponentRef,
-  type ComponentType,
-} from "../component.js";
+import { type ComponentInstance, type ComponentRef, type ComponentType } from "../component.js";
 import { containsDownTerm, type ExtractRequired, type QueryDSL } from "../dsl.js";
 import { Entity } from "../entity/index.js";
 import {
@@ -463,10 +458,10 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     e._addQueryMembership(this as any);
     this._enterCallback?.(e);
     e.components.forEach((c, eid) => {
-      const componentMeta = this.world.entity(eid).meta;
-      if (this._watchlistBitmask.hasBit(componentMeta.bitPtr)) {
-        this._notifyModified(e, componentMeta, c);
+      if (!this._watchlistBitmask.has(eid)) {
+        return;
       }
+      this._notifyModified(e, eid, c);
     });
   }
 
@@ -478,14 +473,14 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   }
 
   /** @internal */
-  public _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
-    if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
+  public _notifyModified(e: Entity, eid: number, c: ComponentInstance): void {
+    if (!this._watchlistBitmask.has(eid)) {
       return;
     }
     if (this._isSourceSilenced()) {
       return;
     }
-    const callback = this._componentUpdateCallbacks.get(meta.eid);
+    const callback = this._componentUpdateCallbacks.get(eid);
     if (callback) {
       callback(e, c);
     }
