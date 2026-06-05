@@ -3,7 +3,7 @@
 // Verifies that MotionLocks and Body.allowFastRotation are correctly
 // propagated into the WASM body and honored by the integrator.
 
-import { World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -39,7 +39,7 @@ function step(n = 1): void {
   }
 }
 
-function wasmBodyId(eid: number) {
+function wasmBodyId(eid: EID) {
   const bodyId = state.bodyByEntityWasm.get(eid);
   if (bodyId === undefined) {
     throw new Error(`missing wasm body for entity ${eid}`);

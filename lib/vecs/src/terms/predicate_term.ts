@@ -1,5 +1,5 @@
 import { _compile, type EntityTestFunc, type QueryDSL } from "../dsl.js";
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
 import { Term } from "./term.js";
 import { WorldTerm } from "./world_term.js";
@@ -13,7 +13,7 @@ import type { getTerm as GetTermFn } from "./build.js";
  * first building — and then having to tear down — the composite child terms.
  */
 export type MergedInfo = {
-  componentEids: ReadonlySet<number>;
+  componentEids: ReadonlySet<EID>;
   dependsOnWorld: boolean;
   containsOnly: boolean;
 };
@@ -167,9 +167,9 @@ export class PredicateTerm extends Term {
 }
 
 /** @internal Deduplicate and sort a `watch` list of component eids. */
-export function normalizeWatch(watch: unknown): number[] {
+export function normalizeWatch(watch: unknown): EID[] {
   if (watch === undefined) {
     return [];
   }
-  return [...new Set((watch instanceof Array ? watch : [watch]) as number[])].sort((a, b) => a - b);
+  return [...new Set((watch instanceof Array ? watch : [watch]) as EID[])].sort((a, b) => a - b);
 }

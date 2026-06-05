@@ -11,7 +11,7 @@ import {
   notifyEntityCreated,
   notifyEntityDestroyed,
 } from "../terms/build.js";
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
 import { ComponentTerm, EmptyTerm, Term, WorldTerm } from "../terms/index.js";
 import { Storage } from "./world.storage.js";
 import type { World } from "./world.js";
@@ -24,7 +24,7 @@ export class Queries extends Storage {
   /** @internal Canonical DSL key -> live term. */
   public readonly _termCache = new Map<string, Term>();
   /** @internal Component eid -> pinned component leaf term. */
-  public readonly _componentTerms = new Map<number, ComponentTerm>();
+  public readonly _componentTerms = new Map<EID, ComponentTerm>();
   /** @internal Pinned false term. */
   public _emptyTerm: EmptyTerm | undefined;
   /** @internal Pinned world term. */
@@ -96,17 +96,17 @@ export class Queries extends Storage {
   }
 
   /** @internal Drive the component leaf for a newly attached component. */
-  public _notifyComponentAdded(ceid: number, entity: Entity): void {
+  public _notifyComponentAdded(ceid: EID, entity: Entity): void {
     notifyComponentAdded(this as unknown as World, ceid, entity);
   }
 
   /** @internal Drive predicate/target refresh for changed component data. */
-  public _notifyComponentChanged(ceid: number, entity: Entity): void {
+  public _notifyComponentChanged(ceid: EID, entity: Entity): void {
     notifyComponentChanged(this as unknown as World, ceid, entity);
   }
 
   /** @internal Drive the component leaf for a detached component. */
-  public _notifyComponentRemoved(ceid: number, entity: Entity): void {
+  public _notifyComponentRemoved(ceid: EID, entity: Entity): void {
     notifyComponentRemoved(this as unknown as World, ceid, entity);
   }
 

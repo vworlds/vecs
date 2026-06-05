@@ -1,6 +1,6 @@
 import { Relationship } from "../component_meta.js";
 import type { QueryDSL } from "../dsl.js";
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
 import { Term, TermEventKind } from "./term.js";
 import type { getTerm as GetTermFn } from "./build.js";
@@ -32,7 +32,7 @@ export class TargetTerm extends Term {
   public constructor(
     world: World,
     key: string,
-    private readonly _relationshipEid: number,
+    private readonly _relationshipEid: EID,
     relationshipTerm: Term,
     private readonly _innerTerm: Term,
     onDestroy: (term: Term) => void
@@ -54,7 +54,7 @@ export class TargetTerm extends Term {
    */
   public static build(
     world: World,
-    relationshipEid: number,
+    relationshipEid: EID,
     innerDSL: QueryDSL,
     key: string,
     getTerm: typeof GetTermFn,

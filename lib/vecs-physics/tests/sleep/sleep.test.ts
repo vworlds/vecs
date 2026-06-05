@@ -1,4 +1,4 @@
-import { World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Position, Sleep, installPhysics } from "../../src/index.js";
@@ -36,7 +36,7 @@ function createDynamicBox(world: World, sleep?: Partial<Sleep>) {
   return body;
 }
 
-function getBodyId(world: World, eid: number): b2BodyId {
+function getBodyId(world: World, eid: EID): b2BodyId {
   const state = getPhysics(world) as PhysicsState;
   const bodyId = state.bodyByEntityWasm.get(eid);
   if (bodyId === undefined) {
@@ -45,17 +45,17 @@ function getBodyId(world: World, eid: number): b2BodyId {
   return bodyId;
 }
 
-function isAwake(world: World, eid: number): boolean {
+function isAwake(world: World, eid: EID): boolean {
   const state = getPhysics(world) as PhysicsState;
   return state.box2d.b2Body_IsAwake(getBodyId(world, eid));
 }
 
-function isSleepEnabled(world: World, eid: number): boolean {
+function isSleepEnabled(world: World, eid: EID): boolean {
   const state = getPhysics(world) as PhysicsState;
   return state.box2d.b2Body_IsSleepEnabled(getBodyId(world, eid));
 }
 
-function sleepThreshold(world: World, eid: number): number {
+function sleepThreshold(world: World, eid: EID): number {
   const state = getPhysics(world) as PhysicsState;
   return state.box2d.b2Body_GetSleepThreshold(getBodyId(world, eid));
 }

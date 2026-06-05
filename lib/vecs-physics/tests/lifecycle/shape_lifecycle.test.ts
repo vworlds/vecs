@@ -1,7 +1,7 @@
 // `PhysicsShapeLifecycle` (VP-11 commit 1): shape creation, destruction,
 // geometry update, chain expansion, and reparenting.
 
-import { World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -42,7 +42,7 @@ function makeShape(parent: ReturnType<World["entity"]>, geom: object = new Box()
     .set(geom.constructor as never, geom);
 }
 
-function hasWasmShape(eid: number): boolean {
+function hasWasmShape(eid: EID): boolean {
   const shapeId = state.shapeByEntityWasm.get(eid);
   if (shapeId === undefined) {
     return false;
@@ -50,7 +50,7 @@ function hasWasmShape(eid: number): boolean {
   return state.box2d.b2Shape_IsValid(shapeId);
 }
 
-function getBodyMass(bodyEid: number): number {
+function getBodyMass(bodyEid: EID): number {
   const bodyId = state.bodyByEntityWasm.get(bodyEid);
   if (bodyId === undefined) {
     return 0;

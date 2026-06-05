@@ -2,7 +2,7 @@
 // Also compares the old linear-scan reverse-id resolution with the M7-13
 // index-keyed map lookup using the same live b2BodyId values.
 
-import { World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 
 import {
   Body,
@@ -100,10 +100,10 @@ export function runManyMovers(): {
 function resolveByLinearScan(
   entries: Array<{
     bodyId: { index1: number; world0: number; generation: number };
-    entityId: number;
+    entityId: EID;
   }>,
   bodyId: { index1: number; world0: number; generation: number }
-): number | undefined {
+): EID | undefined {
   for (const entry of entries) {
     if (
       entry.bodyId.index1 === bodyId.index1 &&

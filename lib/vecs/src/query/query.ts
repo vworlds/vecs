@@ -1,6 +1,6 @@
 import { type ComponentInstance, type ComponentRef, type ComponentType } from "../component.js";
 import { containsDownTerm, type ExtractRequired, type QueryDSL } from "../dsl.js";
-import { Entity } from "../entity/index.js";
+import { Entity, type EID } from "../entity/index.js";
 import {
   forEachInjected,
   Iter,
@@ -64,7 +64,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** @internal `exit` callback (already wraps any injection logic). */
   public _exitCallback: EntityCallback | undefined = undefined;
   /** @internal Component eids the exit callback needs snapshotted before component removal. */
-  public _exitSnapshotTypes: number[] | undefined = undefined;
+  public _exitSnapshotTypes: EID[] | undefined = undefined;
   /** Materialized root term that owns membership for this query. */
   public rootTerm: Term | undefined;
   /** @internal Silence-domain query cache. */
@@ -473,7 +473,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   }
 
   /** @internal */
-  public _notifyModified(e: Entity, ceid: number, c: ComponentInstance): void {
+  public _notifyModified(e: Entity, ceid: EID, c: ComponentInstance): void {
     if (!this._watchlistBitmask.has(ceid)) {
       return;
     }
@@ -550,7 +550,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return q;
   }
 
-  private _reSortCascade(entity: Entity, relEid: number): void {
+  private _reSortCascade(entity: Entity, relEid: EID): void {
     const entities = this._entities;
     if (entities instanceof OrderedSet) {
       entities.reSort(entity);

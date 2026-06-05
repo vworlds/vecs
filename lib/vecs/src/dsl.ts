@@ -1,5 +1,5 @@
 import { type ComponentClass, type ComponentRef, type ComponentType } from "./component.js";
-import { Entity } from "./entity/index.js";
+import { Entity, type EID } from "./entity/index.js";
 import { ChildOf } from "./modules/relationships.js";
 import type { World } from "./world/index.js";
 import { Bitset } from "./util/bitset.js";
@@ -126,7 +126,7 @@ function _asShortestComponentRequirement(components: readonly ComponentRef[]): Q
   return components.length === 1 ? components[0] : components;
 }
 
-function _calculateComponentBitmask(types: readonly number[]): Bitset {
+function _calculateComponentBitmask(types: readonly EID[]): Bitset {
   const bitmask = new Bitset();
   types.forEach((type) => {
     bitmask.add(type);
@@ -134,11 +134,11 @@ function _calculateComponentBitmask(types: readonly number[]): Bitset {
   return bitmask;
 }
 
-function _resolveComponentRequirement(component: ComponentRef, world: World): number {
+function _resolveComponentRequirement(component: ComponentRef, world: World): EID {
   return world.entity(component).eid;
 }
 
-export function _resolveRelationship(ref: ComponentRef, world: World): number {
+export function _resolveRelationship(ref: ComponentRef, world: World): EID {
   const entity = world.entity(ref);
   const relMeta = entity.meta;
   if (!relMeta.isRelationship) {
@@ -147,7 +147,7 @@ export function _resolveRelationship(ref: ComponentRef, world: World): number {
   return entity.eid;
 }
 
-function _resolveChildOfRelationship(world: World): number {
+function _resolveChildOfRelationship(world: World): EID {
   return _resolveRelationship(ChildOf, world);
 }
 
@@ -196,7 +196,7 @@ function _asCanonicalComponentRequirement(
   );
 }
 
-function _componentSortKey(q: QueryDSL): number | undefined {
+function _componentSortKey(q: QueryDSL): EID | undefined {
   if (typeof q === "number") {
     return q;
   }
@@ -204,7 +204,7 @@ function _componentSortKey(q: QueryDSL): number | undefined {
     return q.eid;
   }
   if (q instanceof Array && q.length > 0 && q.every((term) => typeof term === "number")) {
-    return q[0] as number;
+    return q[0] as EID;
   }
   return undefined;
 }
@@ -557,7 +557,7 @@ type _CompileContext = {
 
 function _compileMask(
   context: _CompileContext,
-  components: number[],
+  components: EID[],
   entityRef: string,
   comparison: "hasBitset" | "equal"
 ): string {

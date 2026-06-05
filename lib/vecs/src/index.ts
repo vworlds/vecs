@@ -24,7 +24,7 @@ export {
   type ComponentMeta,
   type ComponentRef,
 } from "./component.js";
-export { Entity, type EntityClass, Identity } from "./entity/index.js";
+export { Entity, type EID, type EntityClass, Identity } from "./entity/index.js";
 export { Module } from "./module.js";
 export { IdentityModule } from "./modules/identity.js";
 export { Singleton, SingletonModule } from "./modules/singleton.js";

@@ -5,7 +5,7 @@ import { Bitset } from "../util/bitset.js";
 import { DenseSet } from "../util/dense_set.js";
 import { Events } from "../util/events.js";
 import type { World } from "../world/index.js";
-import type { Entity } from "./entity.js";
+import type { EID, Entity } from "./entity.js";
 
 export type EntityEvents = Events<{ destroy(): void }>;
 
@@ -48,7 +48,7 @@ export class Base {
     /** World that owns this entity. */
     public readonly world: World,
     /** Unique numeric entity id assigned at creation. */
-    public readonly eid: number,
+    public readonly eid: EID,
     ownComponentClass?: ComponentType
   ) {
     if (ownComponentClass !== undefined) {

@@ -1,5 +1,5 @@
 import { BitPtr } from "./util/bitset.js";
-import type { Entity, EntityClass } from "./entity/index.js";
+import type { EID, Entity, EntityClass } from "./entity/index.js";
 
 export enum CleanupPolicy {
   Throw = "throw",
@@ -24,7 +24,7 @@ export type ComponentType<T extends ComponentInstance = ComponentInstance> = new
 export type ComponentClass<T extends ComponentInstance = ComponentInstance> = new () => T;
 
 /** A component class constructor, component eid, or entity component key. */
-export type ComponentRef = number | ComponentType | EntityClass | Entity;
+export type ComponentRef = EID | ComponentType | EntityClass | Entity;
 
 /**
  * Lifecycle hook for a registered component class. Exposed by
@@ -92,7 +92,7 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** The component class constructor this meta represents. */
   public readonly Class: ComponentType;
   /** Component entity id assigned at registration time. */
-  public readonly eid: number;
+  public readonly eid: EID;
   /** Pre-computed bit-pointer into the entity archetype {@link Bitset}. */
   public readonly bitPtr: BitPtr;
   /** Whether this component is a relationship pointing at another entity. */
@@ -119,7 +119,7 @@ export class ComponentMeta implements Hook<ComponentInstance> {
 
   private _usageCount = 0;
 
-  constructor(Class: ComponentType, ceid: number) {
+  constructor(Class: ComponentType, ceid: EID) {
     this.Class = Class;
     this.eid = ceid;
     this.bitPtr = new BitPtr(ceid);

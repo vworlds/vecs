@@ -1,4 +1,4 @@
-import { type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
+import { type EID, type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
 import { type PhysicsState } from "../adapter/state.js";
@@ -20,9 +20,9 @@ export function installEvents(world: World, state: PhysicsState, phase: IPhase):
     .system("PhysicsEvents")
     .phase(phase)
     .run(() => {
-      const touchedContact = new Set<number>();
-      const touchedSensor = new Set<number>();
-      const touchedHit = new Set<number>();
+      const touchedContact = new Set<EID>();
+      const touchedSensor = new Set<EID>();
+      const touchedHit = new Set<EID>();
 
       publishContactAndHitEvents(world, state, touchedContact, touchedHit);
       publishSensorEvents(world, state, touchedSensor);
@@ -58,8 +58,8 @@ export function installEvents(world: World, state: PhysicsState, phase: IPhase):
 function publishContactAndHitEvents(
   world: World,
   state: PhysicsState,
-  touchedContact: Set<number>,
-  touchedHit: Set<number>
+  touchedContact: Set<EID>,
+  touchedHit: Set<EID>
 ): void {
   const events = state.box2d.b2World_GetContactEvents(state.worldId);
   try {
@@ -90,7 +90,7 @@ function publishContactAndHitEvents(
   }
 }
 
-function publishSensorEvents(world: World, state: PhysicsState, touched: Set<number>): void {
+function publishSensorEvents(world: World, state: PhysicsState, touched: Set<EID>): void {
   const events = state.box2d.b2World_GetSensorEvents(state.worldId);
   try {
     for (let i = 0; i < events.beginCount; i++) {
@@ -107,7 +107,7 @@ function publishSensorEvents(world: World, state: PhysicsState, touched: Set<num
 function emitContactEvent(
   world: World,
   state: PhysicsState,
-  touched: Set<number>,
+  touched: Set<EID>,
   event: ContactBeginEvent | ContactEndEvent,
   kind: "begin" | "end"
 ): void {
@@ -124,7 +124,7 @@ function emitContactEvent(
 function emitSensorEvent(
   world: World,
   state: PhysicsState,
-  touched: Set<number>,
+  touched: Set<EID>,
   event: SensorEvent,
   kind: "begin" | "end"
 ): void {
@@ -155,7 +155,7 @@ function emitSensorEvent(
 function emitHitEvent(
   world: World,
   state: PhysicsState,
-  touched: Set<number>,
+  touched: Set<EID>,
   event: ContactHitEvent
 ): void {
   const entityA = getLiveEntity(world, state.entityByShapeIndex.get(event.shapeIdA.index1));
@@ -169,7 +169,7 @@ function emitHitEvent(
 }
 
 function emitContactToEntity(
-  touched: Set<number>,
+  touched: Set<EID>,
   entity: Entity,
   other: Entity,
   kind: "begin" | "end"
@@ -193,7 +193,7 @@ function emitContactToEntity(
 }
 
 function emitHitToEntity(
-  touched: Set<number>,
+  touched: Set<EID>,
   entity: Entity,
   other: Entity,
   event: ContactHitEvent
@@ -218,7 +218,7 @@ function emitHitToEntity(
   });
 }
 
-function getLiveEntity(world: World, entityId: number | undefined): Entity | undefined {
+function getLiveEntity(world: World, entityId: EID | undefined): Entity | undefined {
   if (entityId === undefined) {
     return undefined;
   }
@@ -232,7 +232,7 @@ function getLiveEntity(world: World, entityId: number | undefined): Entity | und
 
 function markModified<T extends object>(
   world: World,
-  touched: Set<number>,
+  touched: Set<EID>,
   component: new () => T
 ): void {
   for (const entityId of touched) {
@@ -242,8 +242,8 @@ function markModified<T extends object>(
 
 function clearUntouchedContactEvents(
   world: World,
-  previouslyTouched: Set<number>,
-  touched: Set<number>
+  previouslyTouched: Set<EID>,
+  touched: Set<EID>
 ): void {
   for (const entityId of previouslyTouched) {
     if (touched.has(entityId)) {
@@ -259,8 +259,8 @@ function clearUntouchedContactEvents(
 
 function clearUntouchedSensorEvents(
   world: World,
-  previouslyTouched: Set<number>,
-  touched: Set<number>
+  previouslyTouched: Set<EID>,
+  touched: Set<EID>
 ): void {
   for (const entityId of previouslyTouched) {
     if (touched.has(entityId)) {
@@ -276,8 +276,8 @@ function clearUntouchedSensorEvents(
 
 function clearUntouchedHitEvents(
   world: World,
-  previouslyTouched: Set<number>,
-  touched: Set<number>
+  previouslyTouched: Set<EID>,
+  touched: Set<EID>
 ): void {
   for (const entityId of previouslyTouched) {
     if (touched.has(entityId)) {

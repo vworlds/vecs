@@ -7,7 +7,7 @@ import {
   type CID,
 } from "@vworlds/vecs-protocol";
 import { Decoder } from "@vworlds/vecs-wire";
-import { type ComponentInstance } from "@vworlds/vecs";
+import { type ComponentInstance, type EID } from "@vworlds/vecs";
 
 const MAX_LENGTH = 3;
 const POSITION_COMPONENT_TYPE = 1;
@@ -21,12 +21,12 @@ type DecodeComponentSnapshot = (snapshot: ComponentSnapshot) => ComponentInstanc
 type PositionComponent = ComponentInstance & IPosition;
 
 export class ComponentSnapshot {
-  public readonly eid: number;
+  public readonly eid: EID;
   public readonly type: number;
   public payload: Uint8Array | ComponentInstance;
   public readonly cid: CID;
 
-  public constructor(eid: number, type: number, payload: Uint8Array | ComponentInstance) {
+  public constructor(eid: EID, type: number, payload: Uint8Array | ComponentInstance) {
     this.eid = eid;
     this.type = type;
     this.payload = payload;

@@ -6,7 +6,7 @@
 //   - Mass recomputes correctly after type change (via b2Body_GetMass)
 //   - Awake/sleep state is maintained across type changes
 
-import { World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Circle, Position, Sleep, installPhysics } from "../../src/index.js";
@@ -33,7 +33,7 @@ function step(n = 1): void {
   }
 }
 
-function wasmBodyId(eid: number) {
+function wasmBodyId(eid: EID) {
   const bodyId = state.bodyByEntityWasm.get(eid);
   if (bodyId === undefined) {
     throw new Error(`missing wasm body for entity ${eid}`);

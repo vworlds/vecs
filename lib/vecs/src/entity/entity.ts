@@ -3,9 +3,12 @@ import { ChildOf } from "../modules/relationship_types.js";
 import { type World } from "../world/index.js";
 import { IdentityEntity } from "./entity.identity.js";
 
+/** Entity id assigned by a {@link World}. */
+export type EID = number;
+
 export type EntityClass<T extends Entity = Entity> = new (
   world: World,
-  eid: number,
+  eid: EID,
   ownComponentClass?: ComponentType
 ) => T;
 

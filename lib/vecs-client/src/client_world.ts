@@ -11,7 +11,7 @@ import {
   type RPCHandler,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
-import { type ComponentInstance, type IPhase, Query } from "@vworlds/vecs";
+import { type ComponentInstance, type EID, type IPhase, Query } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { EventEmitter } from "eventemitter3";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
@@ -233,7 +233,7 @@ export class ClientWorld extends NetworkWorld {
     entity.attach(component as object);
   }
 
-  private _removeComponent(eid: number, type: number): void {
+  private _removeComponent(eid: EID, type: number): void {
     // Merged/interpolated client diffs can contain a net removal for an entity
     // whose create snapshot was compressed away before it materialized locally.
     const entity = this.getEntity(eid);

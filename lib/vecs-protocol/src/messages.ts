@@ -1,3 +1,4 @@
+import type { EID } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import { cid_pack, cid_unpack } from "./cid.js";
 import { RPC } from "./rpc.js";
@@ -7,7 +8,7 @@ const FIELD_RPC = 2;
 const FIELD_INPUT = 3;
 
 export class ComponentSnapshot implements IEncodable {
-  public eid = 0;
+  public eid: EID = 0;
   public type = 0;
   public payload = new Uint8Array();
 
@@ -35,12 +36,12 @@ export class ComponentSnapshot implements IEncodable {
 export class EncodedSnapshot {
   public constructor(
     public bytes: Uint8Array, // contains an already-encoded ComponentSnapshot
-    public eid = 0,
+    public eid: EID = 0,
     public type = 0
   ) {}
 }
 
-export type RemovedComponent = [eid: number, type: number];
+export type RemovedComponent = [eid: EID, type: number];
 
 export class StateDiff implements IEncodable {
   public toFrame = 0;

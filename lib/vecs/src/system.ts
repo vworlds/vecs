@@ -15,7 +15,7 @@ import {
   type MaybeRequired,
   type QueryDSL,
 } from "./dsl.js";
-import { Entity } from "./entity/index.js";
+import { Entity, type EID } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world/index.js";
 import {
@@ -47,12 +47,12 @@ type _SystemInboxEvent =
   | {
       kind: InboxCommand.Exit;
       entity: Entity;
-      snapshot: Map<number, ComponentInstance> | undefined;
+      snapshot: Map<EID, ComponentInstance> | undefined;
     }
   | {
       kind: InboxCommand.Update;
       entity: Entity;
-      eid: number;
+      eid: EID;
       component: ComponentInstance;
     };
 
@@ -168,9 +168,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       return;
     }
     if (this._exitCallback !== undefined) {
-      let snapshot: Map<number, ComponentInstance> | undefined;
+      let snapshot: Map<EID, ComponentInstance> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
-        snapshot = new Map<number, ComponentInstance>();
+        snapshot = new Map<EID, ComponentInstance>();
         for (const ceid of this._exitSnapshotTypes) {
           const c = e._get(ceid);
           if (c) {
@@ -186,7 +186,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * @internal Routing entry: push an inbox `update` event when the modified
    * component matches the watchlist and its source is not silenced.
    */
-  public override _notifyModified(e: Entity, ceid: number, c: ComponentInstance): void {
+  public override _notifyModified(e: Entity, ceid: EID, c: ComponentInstance): void {
     if (!this._watchlistBitmask.has(ceid)) {
       return;
     }
@@ -200,7 +200,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   }
 
   /** @internal Append an `update` event to the inbox, bypassing the silence filter. */
-  private _pushUpdate(e: Entity, ceid: number, c: ComponentInstance): void {
+  private _pushUpdate(e: Entity, ceid: EID, c: ComponentInstance): void {
     this._inbox.push({ kind: InboxCommand.Update, entity: e, eid: ceid, component: c });
   }
 

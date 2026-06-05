@@ -9,7 +9,7 @@
 // If the upstream box2d3-wasm version bumps, this parity baseline must be
 // re-recorded against the new version.
 
-import { World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Material, Position, installPhysics } from "../../src/index.js";
@@ -43,7 +43,7 @@ function runStackingSnapshot(): string {
 
   // Collect body states from WASM via body events and direct API calls.
   const bodies: Array<{
-    eid: number;
+    eid: EID;
     x: number;
     y: number;
     angle: number;

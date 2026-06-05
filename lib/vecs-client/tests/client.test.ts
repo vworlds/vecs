@@ -9,6 +9,7 @@ import {
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
+import type { EID } from "@vworlds/vecs";
 import { ClientWorld, type ClientWorldOptions } from "../src/index.js";
 
 class Position {
@@ -63,7 +64,7 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
   return encoder.getBuffer();
 }
 
-function makeSnapshot(eid: number, type: number, payload: Uint8Array): EncodedSnapshot {
+function makeSnapshot(eid: EID, type: number, payload: Uint8Array): EncodedSnapshot {
   return new EncodedSnapshot(
     encodeMessage(new ComponentSnapshot({ eid, type, payload })),
     eid,
@@ -71,7 +72,7 @@ function makeSnapshot(eid: number, type: number, payload: Uint8Array): EncodedSn
   );
 }
 
-function posSnapshot(eid: number, x: number, y: number): EncodedSnapshot {
+function posSnapshot(eid: EID, x: number, y: number): EncodedSnapshot {
   const p = new Position();
   p.x = x;
   p.y = y;

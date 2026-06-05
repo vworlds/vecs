@@ -10,7 +10,7 @@
 //   4. Rotation target: converges via shortest arc; near ±π handled correctly.
 //   5. Non-kinematic body with target component is ignored.
 
-import { World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -47,7 +47,7 @@ function step(n = 1): void {
   }
 }
 
-function bodySim(eid: number) {
+function bodySim(eid: EID) {
   return state.bodyByEntityWasm.get(eid)!;
 }
 

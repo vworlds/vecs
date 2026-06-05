@@ -1,5 +1,5 @@
 import { Component, type ComponentClass, type ComponentType } from "../component.js";
-import { Entity, type EntityClass } from "../entity/index.js";
+import { Entity, type EID, type EntityClass } from "../entity/index.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";
 import { type World } from "./world.js";
@@ -45,13 +45,13 @@ export class Components extends Entities {
   public component<T extends ComponentType>(
     this: World,
     ComponentClass: T,
-    ceid?: number
+    ceid?: EID
   ): Component<T>;
   public component(this: World, name: string): Component;
   public component<T extends ComponentType>(
     this: World,
     ComponentClassOrName: T | string,
-    ceid?: number
+    ceid?: EID
   ): Component<T> {
     if (typeof ComponentClassOrName === "string") {
       const entity = this.entity(ComponentClassOrName);
@@ -121,7 +121,7 @@ export class Components extends Entities {
     this: World,
     Constructor: EntityClass<T>,
     ComponentClass: ComponentType,
-    ceid?: number,
+    ceid?: EID,
     pool: IdPool = this._componentPool
   ): T {
     if (ceid === RESERVED_EID) {

@@ -1,5 +1,5 @@
 import { type ComponentInstance, type ComponentRef, type ComponentType } from "./component.js";
-import { Entity } from "./entity/index.js";
+import { Entity, type EID } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import { _resolveRelationship, type MaybeRequired } from "./dsl.js";
 
@@ -14,9 +14,9 @@ export type InjectTuple = readonly InjectElement[];
 export type FanInjectElement = InjectElement | DownInject;
 export type FanInjectTuple = readonly FanInjectElement[];
 export type ResolvedInjectTerm =
-  | number
-  | { target: readonly [number, readonly number[]] }
-  | { down: readonly [number, readonly number[]] };
+  | EID
+  | { target: readonly [EID, readonly EID[]] }
+  | { down: readonly [EID, readonly EID[]] };
 
 /** Resolves the component instance type for one injected component class. */
 type ResolvedComponentInstance<T> = T extends ComponentType ? InstanceType<T> : never;
@@ -94,7 +94,7 @@ export function getInjected(
   inject: readonly ResolvedInjectTerm[],
   requireDirectComponents: boolean,
   out: (ComponentInstance | undefined)[],
-  exitSnapshot?: Map<number, ComponentInstance>
+  exitSnapshot?: Map<EID, ComponentInstance>
 ): void {
   let outIndex = 0;
   inject.forEach((term) => {
@@ -126,7 +126,7 @@ export function getInjectedWithSrc(
   out: (ComponentInstance | undefined)[],
   src: (Entity | undefined)[],
   requireDirectComponents = false,
-  exitSnapshot?: Map<number, ComponentInstance>
+  exitSnapshot?: Map<EID, ComponentInstance>
 ): void {
   let outIndex = 0;
   inject.forEach((term) => {
@@ -154,8 +154,8 @@ export function getInjectedWithSrc(
   });
 }
 
-export function directInjectEids(inject: readonly ResolvedInjectTerm[]): number[] {
-  return inject.filter((term): term is number => typeof term === "number");
+export function directInjectEids(inject: readonly ResolvedInjectTerm[]): EID[] {
+  return inject.filter((term): term is EID => typeof term === "number");
 }
 
 /**
@@ -295,8 +295,8 @@ export function makeInjectedInvoker(
 
 function _findSingleDownInject(
   inject: readonly ResolvedInjectTerm[]
-): { relEid: number; componentEids: readonly number[]; slot: number } | undefined {
-  let found: { relEid: number; componentEids: readonly number[]; slot: number } | undefined;
+): { relEid: EID; componentEids: readonly EID[]; slot: number } | undefined {
+  let found: { relEid: EID; componentEids: readonly EID[]; slot: number } | undefined;
   let slot = 0;
   inject.forEach((term) => {
     if (typeof term === "number") {
@@ -318,7 +318,7 @@ function _findSingleDownInject(
 
 function fillDownInject(
   child: Entity,
-  componentEids: readonly number[],
+  componentEids: readonly EID[],
   slot: number,
   out: (ComponentInstance | undefined)[],
   src?: (Entity | undefined)[]

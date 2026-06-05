@@ -1,5 +1,5 @@
 import { CleanupPolicy } from "../component_meta.js";
-import { type Entity } from "../entity/index.js";
+import { type EID, type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 import { ChildOf, Traversable } from "./relationship_types.js";
 
@@ -55,7 +55,7 @@ export class RelationshipsModule extends Module {
 
   private _cascadeUpdate(
     entity: Entity,
-    relEid: number,
+    relEid: EID,
     traversable: Traversable,
     visited = new Set<Entity>()
   ): void {
@@ -78,7 +78,7 @@ export class RelationshipsModule extends Module {
 
   private _depthOf(
     entity: Entity,
-    relEid: number,
+    relEid: EID,
     traversable: Traversable,
     visited: Set<Entity>
   ): number {

@@ -1,9 +1,9 @@
-import { ArrayMap, Singleton, type Entity, type World } from "@vworlds/vecs";
+import { ArrayMap, Singleton, type EID, type Entity, type World } from "@vworlds/vecs";
 
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
 import { type Box2DModule } from "./runtime.js";
 
-export type EntityId = number;
+export type EntityId = EID;
 export type b2WorldId = ReturnType<Box2DModule["b2CreateWorld"]>;
 export type b2BodyId = ReturnType<Box2DModule["b2CreateBody"]>;
 export type b2ShapeId = ReturnType<Box2DModule["b2CreateCircleShape"]>;
@@ -88,32 +88,32 @@ export class PhysicsState {
   // unused/null-aligned by Box2D, so ArrayMap slot 0 stays empty too. We do not
   // check id generations in hot lookups: correctness comes from clearing each
   // slot on Box2D destruction before Box2D can reuse that index1.
-  public readonly bodyByEntityWasm = new Map<EntityId, b2BodyId>();
-  public readonly entityByBodyIndex = new ArrayMap<EntityId>();
-  public readonly shapeByEntityWasm = new Map<EntityId, b2ShapeId>();
-  public readonly entityByShapeIndex = new ArrayMap<EntityId>();
-  public readonly chainByEntity = new Map<EntityId, b2ChainId>();
+  public readonly bodyByEntityWasm = new Map<EID, b2BodyId>();
+  public readonly entityByBodyIndex = new ArrayMap<EID>();
+  public readonly shapeByEntityWasm = new Map<EID, b2ShapeId>();
+  public readonly entityByShapeIndex = new ArrayMap<EID>();
+  public readonly chainByEntity = new Map<EID, b2ChainId>();
 
   // Shape entity object map: shape eid → Entity object.
   // Used by events.ts to resolve entities for teardown events even after
   // the entity has been removed from the world lookup table.
-  public readonly shapeEntityByEid = new Map<number /* eid */, Entity>();
+  public readonly shapeEntityByEid = new Map<EID, Entity>();
 
   // Bodies whose mass needs recomputing this step (populated by shape lifecycle).
-  public readonly dirtyMassBodies = new Set<EntityId>();
+  public readonly dirtyMassBodies = new Set<EID>();
 
   // Per-step event tracking sets for PhysicsEvents (M7-8 should-fix: moved from
   // closure-local to state so they survive future pause/resume cycles).
   // Populated by PhysicsEvents at the end of each step; persist into the next
   // step to detect which entities stopped receiving events.
-  public readonly prevTouchedContact = new Set<number /* eid */>();
-  public readonly prevTouchedSensor = new Set<number /* eid */>();
-  public readonly prevTouchedHit = new Set<number /* eid */>();
+  public readonly prevTouchedContact = new Set<EID>();
+  public readonly prevTouchedSensor = new Set<EID>();
+  public readonly prevTouchedHit = new Set<EID>();
 
   // EIDs of entities that had Impulse or AngularImpulse set this step.
   // PhysicsImpulseZero walks this set in physics-post to silently zero them.
   // Cleared by PhysicsImpulseZero at the end of each post phase.
-  public readonly impulseEntitiesThisStep = new Set<number /* eid */>();
+  public readonly impulseEntitiesThisStep = new Set<EID>();
 
   // Pending impulses remain wrapper-keyed by invariant: hooks resolve bodyId
   // from bodyByEntityWasm, then get/set with that same stored wrapper, and the

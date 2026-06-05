@@ -1,6 +1,6 @@
 import { CommandKind } from "../command.js";
 import { type ComponentRef } from "../component.js";
-import { Entity, Identity, type EntityClass } from "../entity/index.js";
+import { Entity, Identity, type EID, type EntityClass } from "../entity/index.js";
 import { Deferred } from "./world.deferred.js";
 import type { World } from "./world.js";
 
@@ -8,11 +8,7 @@ const RESERVED_EID = 0;
 
 export class Entities extends Deferred {
   /** Return the entity with id `eid`, creating it if it does not yet exist. */
-  public getOrCreateEntity(
-    this: World,
-    eid: number,
-    onCreateCallback?: (e: Entity) => void
-  ): Entity {
+  public getOrCreateEntity(this: World, eid: EID, onCreateCallback?: (e: Entity) => void): Entity {
     if (eid === RESERVED_EID) {
       throw new Error(`Entity eid ${eid} is reserved`);
     }

@@ -1,6 +1,6 @@
 import { type ComponentInstance, type ComponentRef, type ComponentType } from "../component.js";
 import { _resolveRelationship } from "../dsl.js";
-import { Entity } from "../entity/index.js";
+import { Entity, type EID } from "../entity/index.js";
 import {
   directInjectEids,
   getInjected,
@@ -55,7 +55,7 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
       throw `query '${this.name}' is already grouped`;
     }
     let keyOf: (e: Entity) => unknown;
-    let watchEids: number[];
+    let watchEids: EID[];
     if (typeof arg1 === "function") {
       const components = arg0 as readonly FanInjectElement[];
       const inject = mapInject(this.world, components);
@@ -82,7 +82,7 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
   }
 
   /** @internal */
-  public override _notifyModified(e: Entity, ceid: number, c: ComponentInstance): void {
+  public override _notifyModified(e: Entity, ceid: EID, c: ComponentInstance): void {
     super._notifyModified(e, ceid, c);
     this._grouping.refresh(e, ceid);
   }

@@ -6,7 +6,7 @@
 // component at shape creation (lifecycle reads the initial value), then SET it
 // again with a new value to trigger the update callback.
 
-import { World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -30,11 +30,11 @@ function makeBody(type: BodyType = BodyType.Dynamic) {
   return world.entity().set(Body, { type });
 }
 
-function getBodyMass(eid: number): number {
+function getBodyMass(eid: EID): number {
   return state.box2d.b2Body_GetMass(state.bodyByEntityWasm.get(eid)!);
 }
 
-function getShapeMaterial(shapeEid: number) {
+function getShapeMaterial(shapeEid: EID) {
   const shapeId = state.shapeByEntityWasm.get(shapeEid);
   if (shapeId === undefined) {
     return undefined;

@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { ALL_COMPONENTS, cid_pack } from "@vworlds/vecs-protocol";
+import type { EID } from "@vworlds/vecs";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import { ComponentSnapshot, Diff, Interpolator, merge } from "../src/interpolator.js";
 
@@ -11,7 +12,7 @@ class Position {
   public y = 0;
 }
 
-function CID(eid: number, type: number): number {
+function CID(eid: EID, type: number): number {
   return cid_pack(eid, type);
 }
 
@@ -32,16 +33,16 @@ function encodeColor(color: string): Uint8Array {
   return e.getBuffer();
 }
 
-function makePosComponent(eid: number, x: number, y: number): ComponentSnapshot {
+function makePosComponent(eid: EID, x: number, y: number): ComponentSnapshot {
   return new ComponentSnapshot(eid, PositionType, encodePos(x, y));
 }
 
-function makeColorComponent(eid: number, color: string): ComponentSnapshot {
+function makeColorComponent(eid: EID, color: string): ComponentSnapshot {
   return new ComponentSnapshot(eid, ColorType, encodeColor(color));
 }
 
 // test snapshot generator: returns Position + Color components for one entity
-function snap({ id, xy, color }: { id: number; xy: number; color: string }): ComponentSnapshot[] {
+function snap({ id, xy, color }: { id: EID; xy: number; color: string }): ComponentSnapshot[] {
   return [makePosComponent(id, xy, xy), makeColorComponent(id, color)];
 }
 
@@ -57,7 +58,7 @@ function SD(p: {
   return d;
 }
 
-function Color(sd: Diff, id: number): string | undefined {
+function Color(sd: Diff, id: EID): string | undefined {
   const s = sd.smap.get(CID(id, ColorType));
   if (!s) {
     return undefined;
@@ -68,7 +69,7 @@ function Color(sd: Diff, id: number): string | undefined {
   return new Decoder(s.payload).read_string();
 }
 
-function Pos(sd: Diff, id: number): { x: number; y: number } | undefined {
+function Pos(sd: Diff, id: EID): { x: number; y: number } | undefined {
   const s = sd.smap.get(CID(id, PositionType));
   if (!s) {
     return undefined;

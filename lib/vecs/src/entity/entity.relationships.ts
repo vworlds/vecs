@@ -6,7 +6,7 @@ import {
 } from "../component_meta.js";
 import { ArrayMap } from "../util/array_map.js";
 import { DenseSet } from "../util/dense_set.js";
-import type { Entity } from "./entity.js";
+import type { EID, Entity } from "./entity.js";
 import { Queries } from "./entity.queries.js";
 
 export class Relationships extends Queries {
@@ -26,12 +26,12 @@ export class Relationships extends Queries {
    * @internal Fast child set lookup by relationship eid — skips ref -> eid
    * resolution. Used by the `source` predicate and fan-out invoker.
    */
-  public _childrenByEid(relEid: number): ReadonlySet<Entity> | undefined {
+  public _childrenByEid(relEid: EID): ReadonlySet<Entity> | undefined {
     return this._incoming?.get(relEid);
   }
 
   /** @internal */
-  protected _addIncoming(target: Entity | undefined, relEid: number): void {
+  protected _addIncoming(target: Entity | undefined, relEid: EID): void {
     if (!target || target._destroyed) {
       return;
     }
@@ -65,7 +65,7 @@ export class Relationships extends Queries {
   }
 
   /** @internal */
-  protected _removeIncoming(target: Entity | undefined, relEid: number): void {
+  protected _removeIncoming(target: Entity | undefined, relEid: EID): void {
     const sources = target?._incoming?.get(relEid);
     if (!sources) {
       return;

@@ -47,7 +47,7 @@ import {
   type QueryDSL,
 } from "../dsl.js";
 import type { World } from "../world/index.js";
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
 import { AllTerm } from "./all_term.js";
 import { AnyTerm } from "./any_term.js";
 import { ComponentTerm } from "./component_term.js";
@@ -111,7 +111,7 @@ export function getCachedTerm(world: World, dsl: QueryDSL): Term | undefined {
  * Routes to the corresponding `ComponentTerm` (membership enter) and to the
  * world term (shape change, needed by `only` and merged predicate terms).
  */
-export function notifyComponentAdded(world: World, componentEid: number, entity: Entity): void {
+export function notifyComponentAdded(world: World, componentEid: EID, entity: Entity): void {
   world._componentTerms.get(componentEid)?.componentAdded(entity);
   world._worldTerm?.entityShapeChanged(entity);
 }
@@ -123,7 +123,7 @@ export function notifyComponentAdded(world: World, componentEid: number, entity:
  * Routes only to the `ComponentTerm`'s refresh channel (not shape), which
  * wakes predicate terms watching this component.
  */
-export function notifyComponentChanged(world: World, componentEid: number, entity: Entity): void {
+export function notifyComponentChanged(world: World, componentEid: EID, entity: Entity): void {
   world._componentTerms.get(componentEid)?.componentChanged(entity);
 }
 
@@ -132,7 +132,7 @@ export function notifyComponentChanged(world: World, componentEid: number, entit
  *
  * Routes to the `ComponentTerm` (membership exit) and world term (shape).
  */
-export function notifyComponentRemoved(world: World, componentEid: number, entity: Entity): void {
+export function notifyComponentRemoved(world: World, componentEid: EID, entity: Entity): void {
   world._componentTerms.get(componentEid)?.componentRemoved(entity);
   world._worldTerm?.entityShapeChanged(entity);
 }
@@ -204,7 +204,7 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
   }
   if ("only" in dsl) {
     const components = dsl.only instanceof Array ? dsl.only : [dsl.only];
-    return OnlyTerm.build(world, components as number[], key, getTerm, onDestroy);
+    return OnlyTerm.build(world, components as EID[], key, getTerm, onDestroy);
   }
   if ("test" in dsl) {
     return PredicateTerm.buildPredicate(
@@ -216,7 +216,7 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
     );
   }
   if ("target" in dsl) {
-    return TargetTerm.build(world, dsl.target[0] as number, dsl.target[1], key, getTerm, onDestroy);
+    return TargetTerm.build(world, dsl.target[0] as EID, dsl.target[1], key, getTerm, onDestroy);
   }
   throw new Error("Unrecognized query term");
 }
@@ -229,7 +229,7 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
  * Return the world's singleton `ComponentTerm` for `ceid`, creating it if
  * absent.
  */
-function getComponentTerm(world: World, ceid: number, key: string): ComponentTerm {
+function getComponentTerm(world: World, ceid: EID, key: string): ComponentTerm {
   let term = world._componentTerms.get(ceid);
   if (!term) {
     term = new ComponentTerm(world, key, ceid, (t) => destroyTerm(world, t));
@@ -276,7 +276,7 @@ function destroyTerm(world: World, term: Term): void {
  */
 type DslAnalysis = {
   leafKeys: Set<string>;
-  componentEids: Set<number>;
+  componentEids: Set<EID>;
   dependsOnWorld: boolean;
   containsOnly: boolean;
   containsTarget: boolean;
@@ -347,7 +347,7 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
   }
   if ("only" in dsl) {
     const components = dsl.only instanceof Array ? dsl.only : [dsl.only];
-    const childAnalyses = (components as number[]).map((ceid) => ({
+    const childAnalyses = (components as EID[]).map((ceid) => ({
       leafKeys: new Set([`C:${ceid}`]) as Set<string>,
       componentEids: new Set([ceid]),
       dependsOnWorld: false as boolean,
@@ -385,7 +385,7 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
     ]);
   }
   if ("target" in dsl) {
-    const relEid = dsl.target[0] as number;
+    const relEid = dsl.target[0] as EID;
     return _mergeAnalyses([
       {
         leafKeys: new Set([`C:${relEid}`]) as Set<string>,

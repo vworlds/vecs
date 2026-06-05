@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type as wireType } from "@vworlds/vecs-wire";
-import type { Entity } from "@vworlds/vecs";
+import type { EID, Entity } from "@vworlds/vecs";
 import type { VecsSocket, VecsSocketListener } from "@vworlds/vecs-protocol";
 import { Networked, NetworkClient, ServerWorld, View } from "@vworlds/vecs-server";
 import { ClientWorld } from "../src/index.js";
@@ -219,12 +219,12 @@ function runScenario(seed: number, mode: Mode): { ok: boolean; reason: string } 
     }
   }
 
-  const expected = new Map<number, { x: number; y: number }>();
+  const expected = new Map<EID, { x: number; y: number }>();
   for (const e of live) {
     const p = e.get(Position)!;
     expected.set(e.eid, { x: p.x, y: p.y });
   }
-  const actual = new Map<number, { x: number; y: number }>();
+  const actual = new Map<EID, { x: number; y: number }>();
   for (const e of networkEntities(client)) {
     const p = e.get(Position);
     if (p) {

@@ -1,7 +1,7 @@
 // `PhysicsBodyLifecycle` (VP-6): body create/destroy and WASM body state driven
 // by `Body` enter/exit/update events.
 
-import { World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -28,7 +28,7 @@ beforeEach(() => {
   state = getPhysics(world);
 });
 
-function wasmBodyId(eid: number) {
+function wasmBodyId(eid: EID) {
   const bodyId = state.bodyByEntityWasm.get(eid);
   if (bodyId === undefined) {
     throw new Error(`missing wasm body for entity ${eid}`);

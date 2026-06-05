@@ -18,6 +18,7 @@ import { performance } from "node:perf_hooks";
 import {
   type ComponentInstance,
   type ComponentClass,
+  type EID,
   type Entity,
   type IPhase,
   type System,
@@ -300,11 +301,7 @@ export class ServerWorld extends NetworkWorld {
     });
   }
 
-  private _encodeSnapshot(
-    eid: number,
-    type: number,
-    component: ComponentInstance
-  ): EncodedSnapshot {
+  private _encodeSnapshot(eid: EID, type: number, component: ComponentInstance): EncodedSnapshot {
     const cid = cid_pack(eid, type);
     const cached = this._snapshotCache.get(cid);
     if (cached) {

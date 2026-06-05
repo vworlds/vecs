@@ -1,5 +1,5 @@
 import { type ComponentInstance, type ComponentType } from "../component.js";
-import { Entity } from "../entity/index.js";
+import { Entity, type EID } from "../entity/index.js";
 import {
   directInjectEids,
   getInjected,
@@ -15,7 +15,7 @@ import {
 import { OrderedSet } from "../util/ordered_set.js";
 import { type World } from "../world/index.js";
 
-export type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => void;
+export type EntityCallback = (e: Entity, snapshot?: Map<EID, ComponentInstance>) => void;
 export type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
 export function makeEnterCallback(
@@ -53,7 +53,7 @@ export function makeExitCallback(
   arg0: readonly unknown[] | ((e: Entity) => void) | typeof Entity | typeof Iter,
   arg1?: readonly unknown[] | ((...args: any[]) => void),
   arg2?: (...args: any[]) => void
-): { callback: EntityCallback; snapshotTypes: number[] | undefined } {
+): { callback: EntityCallback; snapshotTypes: EID[] | undefined } {
   if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
     return { callback: arg0 as (e: Entity) => void, snapshotTypes: undefined };
   }
@@ -64,7 +64,7 @@ export function makeExitCallback(
   const snapshotTypes = directInjectEids(inject);
   const arity = injectArity(inject);
   if (useIter) {
-    const callback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
+    const callback = (e: Entity, exitSnapshot?: Map<EID, ComponentInstance>) => {
       const injected = new Array(arity);
       const it = new Iter(arity);
       it.entity = e;
@@ -73,7 +73,7 @@ export function makeExitCallback(
     };
     return { callback, snapshotTypes };
   }
-  const callback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
+  const callback = (e: Entity, exitSnapshot?: Map<EID, ComponentInstance>) => {
     const injected = new Array(arity);
     getInjected(e, inject, true, injected, exitSnapshot);
     cb(e, injected as any);
@@ -120,7 +120,7 @@ export function makeUpdateRegistration<C extends ComponentType>(
   arg1: C | readonly InjectElement[] | ((...args: any[]) => void),
   arg2?: readonly InjectElement[] | ((...args: any[]) => void),
   arg3?: (...args: any[]) => void
-): { componentEid: number; callback: ComponentCallback } {
+): { componentEid: EID; callback: ComponentCallback } {
   const useIter = wantsIter(arg0);
   if (isCursorMarker(arg0)) {
     arg0 = arg1 as C;

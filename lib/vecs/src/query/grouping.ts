@@ -1,4 +1,4 @@
-import { Entity } from "../entity/index.js";
+import { Entity, type EID } from "../entity/index.js";
 import { type World } from "../world/index.js";
 import { Group } from "./group.js";
 
@@ -6,12 +6,12 @@ export class Grouping {
   public readonly groups = new Map<unknown, Group>();
   private readonly _entityKeys = new Map<Entity, unknown>();
   private readonly _keyOf: (e: Entity) => unknown;
-  private readonly _watchEids: Set<number>;
+  private readonly _watchEids: Set<EID>;
   private readonly _world: World;
   private _onGroupEnter: ((group: Group) => void) | undefined;
   private _onGroupExit: ((key: unknown, group: Group) => void) | undefined;
 
-  public constructor(world: World, keyOf: (e: Entity) => unknown, watchEids: Iterable<number>) {
+  public constructor(world: World, keyOf: (e: Entity) => unknown, watchEids: Iterable<EID>) {
     this._world = world;
     this._keyOf = keyOf;
     this._watchEids = new Set(watchEids);
@@ -42,7 +42,7 @@ export class Grouping {
     return this.groups.keys();
   }
 
-  public refresh(e: Entity, ceid: number): void {
+  public refresh(e: Entity, ceid: EID): void {
     if (!this._watchEids.has(ceid)) {
       return;
     }

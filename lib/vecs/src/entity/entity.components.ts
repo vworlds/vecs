@@ -8,7 +8,7 @@ import {
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { Relationships } from "./entity.relationships.js";
-import type { Entity } from "./entity.js";
+import type { EID, Entity } from "./entity.js";
 
 export class Components extends Relationships {
   /**
@@ -34,7 +34,7 @@ export class Components extends Relationships {
    *
    * Faster than {@link get} because no class to type id resolution is needed.
    */
-  public _get(ceid: number): ComponentInstance | undefined {
+  public _get(ceid: EID): ComponentInstance | undefined {
     return this._components.get(ceid);
   }
 
@@ -121,7 +121,7 @@ export class Components extends Relationships {
    * @param type - Numeric component type id.
    * @returns This entity, for chaining.
    */
-  public add(ceid: number): this;
+  public add(ceid: EID): this;
 
   public add(entity: Entity): this;
 
@@ -186,7 +186,7 @@ export class Components extends Relationships {
   public get<C extends ComponentType>(Class: C): Readonly<InstanceType<C>> | undefined;
 
   /** Look up a component by numeric type id as a readonly value. */
-  public get(ceid: number): Readonly<ComponentInstance> | undefined;
+  public get(ceid: EID): Readonly<ComponentInstance> | undefined;
 
   public get(entity: Entity): Readonly<ComponentInstance> | undefined;
 
@@ -224,11 +224,11 @@ export class Components extends Relationships {
   ): Readonly<InstanceType<C>> | undefined;
 
   /** Look up a component by numeric type id for mutation. */
-  public getMut(ceid: number): ComponentInstance | undefined;
+  public getMut(ceid: EID): ComponentInstance | undefined;
 
   /** Look up a component by numeric type id, mutate it in `callback`, then mark it modified. */
   public getMut(
-    ceid: number,
+    ceid: EID,
     callback: (component: ComponentInstance) => void
   ): Readonly<ComponentInstance> | undefined;
 
@@ -304,7 +304,7 @@ export class Components extends Relationships {
    *
    * @param type - Numeric component type id.
    */
-  public remove(ceid: number): void;
+  public remove(ceid: EID): void;
 
   public remove(entity: Entity): void;
 
@@ -342,7 +342,7 @@ export class Components extends Relationships {
    * @param props - Properties to assign onto the component instance.
    * @returns This entity, for chaining.
    */
-  public set(ceid: number, props: Partial<ComponentInstance>): this;
+  public set(ceid: EID, props: Partial<ComponentInstance>): this;
 
   public set(entity: Entity, props: Partial<ComponentInstance>): this;
 
