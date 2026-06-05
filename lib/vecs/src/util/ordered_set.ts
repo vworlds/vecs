@@ -63,6 +63,16 @@ export class OrderedSet<T> implements Set<T> {
     return this;
   }
 
+  /** Remove `value` by identity, then insert it at its current sort position. */
+  public reSort(value: T): this {
+    const i = this._items.indexOf(value);
+    if (i === -1) {
+      return this;
+    }
+    this._items.splice(i, 1);
+    return this.add(value);
+  }
+
   /**
    * Return `true` when an element comparing equal to `value` is in the set.
    *

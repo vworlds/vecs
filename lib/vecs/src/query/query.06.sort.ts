@@ -14,9 +14,9 @@ import {
 } from "../inject.js";
 import { Traversable } from "../modules/relationships.js";
 import { OrderedSet } from "../util/ordered_set.js";
-import { Callbacks } from "./query.04.callbacks.js";
+import { Updates } from "./query.05.updates.js";
 
-export class Sort<R extends ComponentType[] = []> extends Callbacks<R> {
+export class Sort<R extends ComponentType[] = []> extends Updates<R> {
   public cascade(rel: ComponentRef): this;
   public cascade(rel: ComponentRef, compare: (a: Entity, b: Entity) => number): this;
   public cascade(rel: ComponentRef, compare?: (a: Entity, b: Entity) => number): this {
@@ -33,11 +33,15 @@ export class Sort<R extends ComponentType[] = []> extends Callbacks<R> {
     }
 
     const depths = traversable.depths;
-    return this.sort([], (a, _ra, b) => {
+    this.sort([], (a, _ra, b) => {
       const da = depths.get(a) ?? -1;
       const db = depths.get(b) ?? -1;
       return da - db || compare?.(a, b) || 0;
     });
+    this.update(relMeta.Class, (entity) => {
+      this._reSortCascade(entity, relMeta.eid);
+    });
+    return this;
   }
 
   public sort<J extends InjectTuple>(
@@ -103,5 +107,15 @@ export class Sort<R extends ComponentType[] = []> extends Callbacks<R> {
       });
     }
     return this;
+  }
+
+  private _reSortCascade(entity: Entity, relEid: number): void {
+    const entities = this._entities;
+    if (entities instanceof OrderedSet) {
+      entities.reSort(entity);
+    }
+    for (const child of entity._childrenByEid(relEid) ?? []) {
+      this._reSortCascade(child, relEid);
+    }
   }
 }

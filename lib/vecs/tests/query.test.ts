@@ -785,6 +785,31 @@ describe("Query — sort", () => {
     expect(planet.get(Position)).toMatchObject({ x: 1113, y: 1124 });
     expect(satellite.get(Position)).toMatchObject({ x: 1114, y: 1126 });
   });
+
+  it("cascade() reorders a retargeted subtree", () => {
+    const { w, tick } = setup();
+    w.component(Label);
+    const q = w
+      .query("test")
+      .requires(Label)
+      .cascade(ChildOf, (a, b) => a.get(Label)!.value.localeCompare(b.get(Label)!.value));
+
+    w.start();
+    const galaxy = w.entity().set(Label, { value: "Galaxy" });
+    const earth = w.entity().set(ChildOf, { target: galaxy }).set(Label, { value: "Earth" });
+    const moon = w.entity().set(ChildOf, { target: earth }).set(Label, { value: "Moon" });
+    const ship = w.entity().set(ChildOf, { target: earth }).set(Label, { value: "Zephyr" });
+    const station = w.entity().set(ChildOf, { target: moon }).set(Label, { value: "AlphaStation" });
+    const probe = w.entity().set(ChildOf, { target: ship }).set(Label, { value: "Probe" });
+    tick();
+
+    expect([...q]).toEqual([galaxy, earth, moon, ship, station, probe]);
+
+    ship.set(ChildOf, { target: moon });
+    tick();
+
+    expect([...q]).toEqual([galaxy, earth, moon, station, ship, probe]);
+  });
 });
 
 describe("Query — destroy", () => {

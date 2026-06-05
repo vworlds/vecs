@@ -8,10 +8,10 @@ import {
 } from "../inject.js";
 import { ChildOf, SilenceSource } from "../modules/relationships.js";
 import { _getGroupedQueryCtor } from "./query.00.base.js";
-import { Updates } from "./query.06.updates.js";
+import { Sort } from "./query.06.sort.js";
 import type { GroupedQuery, Query } from "./query.js";
 
-export class Predicate<R extends ComponentType[] = []> extends Updates<R> {
+export class Predicate<R extends ComponentType[] = []> extends Sort<R> {
   public query<const Q extends QueryDSL>(q: Q): Query<ExtractRequired<Q>>;
   public query<const T extends ComponentType[]>(
     q: QueryDSL,

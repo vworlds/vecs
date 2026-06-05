@@ -35,6 +35,21 @@ describe("OrderedSet", () => {
     expect([...s]).toEqual([5, 10, 20, 30]);
   });
 
+  it("reSort moves an existing object after its sort key changes", () => {
+    type Item = { priority: number; name: string };
+    const s = new OrderedSet<Item>(
+      (a, b) => a.priority - b.priority || a.name.localeCompare(b.name)
+    );
+    const a = { priority: 1, name: "a" };
+    const b = { priority: 2, name: "b" };
+    const c = { priority: 3, name: "c" };
+    s.add(a).add(b).add(c);
+
+    a.priority = 4;
+    expect(s.reSort(a)).toBe(s);
+    expect([...s].map((item) => item.name)).toEqual(["b", "c", "a"]);
+  });
+
   it("delete removes existing element and returns true", () => {
     const s = new OrderedSet<number>(numCmp);
     s.add(1).add(2).add(3);

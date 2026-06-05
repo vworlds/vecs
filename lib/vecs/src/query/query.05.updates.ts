@@ -12,9 +12,9 @@ import {
   type InjectTuple,
   type MaybeResolvedInjectTuple,
 } from "../inject.js";
-import { Sort } from "./query.05.sort.js";
+import { Callbacks } from "./query.04.callbacks.js";
 
-export class Updates<R extends ComponentType[] = []> extends Sort<R> {
+export class Updates<R extends ComponentType[] = []> extends Callbacks<R> {
   public update<C extends ComponentType>(
     ComponentClass: C,
     callback: (e: Entity, c: InstanceType<C>) => void
