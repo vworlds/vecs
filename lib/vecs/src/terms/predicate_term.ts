@@ -86,7 +86,7 @@ export class PredicateTerm extends Term {
   ): PredicateTerm {
     const watch = normalizeWatch(dsl.watch);
     const worldTerm = getTerm(world, true);
-    const watchedTerms = watch.map((eid) => getTerm(world, eid));
+    const watchedTerms = watch.map((ceid) => getTerm(world, ceid));
     return new PredicateTerm(
       world,
       key,
@@ -126,7 +126,7 @@ export class PredicateTerm extends Term {
   ): PredicateTerm {
     const predicate = _compile(world, dsl);
     const worldTerm = info.dependsOnWorld ? getTerm(world, true) : undefined;
-    const watchedTerms = [...info.componentEids].map((eid) => getTerm(world, eid));
+    const watchedTerms = [...info.componentEids].map((ceid) => getTerm(world, ceid));
     return new PredicateTerm(
       world,
       key,

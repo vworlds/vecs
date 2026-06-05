@@ -39,13 +39,13 @@ export class Lifecycle extends Components {
     const entity = this as unknown as Entity;
     this.world._notifyEntityDestroyed(entity);
 
-    this._components.forEach((c, eid) => {
-      const componentMeta = this.world.entity(eid).meta;
+    this._components.forEach((c, ceid) => {
+      const componentMeta = this.world.entity(ceid).meta;
       if (componentMeta.isRelationship) {
-        this._removeIncoming((c as Relationship).target, eid);
+        this._removeIncoming((c as Relationship).target, ceid);
       }
       this.componentBitmask.deleteBit(componentMeta.bitPtr);
-      this.world._notifyComponentRemoved(eid, entity);
+      this.world._notifyComponentRemoved(ceid, entity);
       componentMeta._decrementUsage();
       const removeHandlers = componentMeta._onRemoveHandlers;
       if (removeHandlers) {

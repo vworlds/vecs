@@ -457,11 +457,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     this._entities?.add(e);
     e._addQueryMembership(this as any);
     this._enterCallback?.(e);
-    e.components.forEach((c, eid) => {
-      if (!this._watchlistBitmask.has(eid)) {
+    e.components.forEach((c, ceid) => {
+      if (!this._watchlistBitmask.has(ceid)) {
         return;
       }
-      this._notifyModified(e, eid, c);
+      this._notifyModified(e, ceid, c);
     });
   }
 
@@ -473,14 +473,14 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   }
 
   /** @internal */
-  public _notifyModified(e: Entity, eid: number, c: ComponentInstance): void {
-    if (!this._watchlistBitmask.has(eid)) {
+  public _notifyModified(e: Entity, ceid: number, c: ComponentInstance): void {
+    if (!this._watchlistBitmask.has(ceid)) {
       return;
     }
     if (this._isSourceSilenced()) {
       return;
     }
-    const callback = this._componentUpdateCallbacks.get(eid);
+    const callback = this._componentUpdateCallbacks.get(ceid);
     if (callback) {
       callback(e, c);
     }

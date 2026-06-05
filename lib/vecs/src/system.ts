@@ -145,13 +145,13 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     if (this._enterCallback !== undefined) {
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
-    e.components.forEach((c, eid) => {
-      if (!this._watchlistBitmask.has(eid)) {
+    e.components.forEach((c, ceid) => {
+      if (!this._watchlistBitmask.has(ceid)) {
         return;
       }
       // Entry-time initialization bypasses the silence filter: an entity
       // introduced by an ignored source must still initialize in this system.
-      this._pushUpdate(e, eid, c);
+      this._pushUpdate(e, ceid, c);
     });
   }
 
@@ -171,10 +171,10 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       let snapshot: Map<number, ComponentInstance> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
         snapshot = new Map<number, ComponentInstance>();
-        for (const eid of this._exitSnapshotTypes) {
-          const c = e._get(eid);
+        for (const ceid of this._exitSnapshotTypes) {
+          const c = e._get(ceid);
           if (c) {
-            snapshot.set(eid, c);
+            snapshot.set(ceid, c);
           }
         }
       }
@@ -186,8 +186,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * @internal Routing entry: push an inbox `update` event when the modified
    * component matches the watchlist and its source is not silenced.
    */
-  public override _notifyModified(e: Entity, eid: number, c: ComponentInstance): void {
-    if (!this._watchlistBitmask.has(eid)) {
+  public override _notifyModified(e: Entity, ceid: number, c: ComponentInstance): void {
+    if (!this._watchlistBitmask.has(ceid)) {
       return;
     }
     if (!this._enabled) {
@@ -196,12 +196,12 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     if (this._isSourceSilenced()) {
       return;
     }
-    this._pushUpdate(e, eid, c);
+    this._pushUpdate(e, ceid, c);
   }
 
   /** @internal Append an `update` event to the inbox, bypassing the silence filter. */
-  private _pushUpdate(e: Entity, eid: number, c: ComponentInstance): void {
-    this._inbox.push({ kind: InboxCommand.Update, entity: e, eid, component: c });
+  private _pushUpdate(e: Entity, ceid: number, c: ComponentInstance): void {
+    this._inbox.push({ kind: InboxCommand.Update, entity: e, eid: ceid, component: c });
   }
 
   /**

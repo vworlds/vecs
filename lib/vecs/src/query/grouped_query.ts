@@ -73,8 +73,8 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
       watchEids = [relEid];
       this._composeGroupMembership([arg0 as ComponentRef]);
     }
-    for (const eid of watchEids) {
-      this._watchlistBitmask.add(eid);
+    for (const ceid of watchEids) {
+      this._watchlistBitmask.add(ceid);
     }
     this.track();
     this._grouping = new Grouping(this.world, keyOf, watchEids);
@@ -82,9 +82,9 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
   }
 
   /** @internal */
-  public override _notifyModified(e: Entity, eid: number, c: ComponentInstance): void {
-    super._notifyModified(e, eid, c);
-    this._grouping.refresh(e, eid);
+  public override _notifyModified(e: Entity, ceid: number, c: ComponentInstance): void {
+    super._notifyModified(e, ceid, c);
+    this._grouping.refresh(e, ceid);
   }
 
   /** @internal */

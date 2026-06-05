@@ -96,18 +96,18 @@ export class Queries extends Storage {
   }
 
   /** @internal Drive the component leaf for a newly attached component. */
-  public _notifyComponentAdded(eid: number, entity: Entity): void {
-    notifyComponentAdded(this as unknown as World, eid, entity);
+  public _notifyComponentAdded(ceid: number, entity: Entity): void {
+    notifyComponentAdded(this as unknown as World, ceid, entity);
   }
 
   /** @internal Drive predicate/target refresh for changed component data. */
-  public _notifyComponentChanged(eid: number, entity: Entity): void {
-    notifyComponentChanged(this as unknown as World, eid, entity);
+  public _notifyComponentChanged(ceid: number, entity: Entity): void {
+    notifyComponentChanged(this as unknown as World, ceid, entity);
   }
 
   /** @internal Drive the component leaf for a detached component. */
-  public _notifyComponentRemoved(eid: number, entity: Entity): void {
-    notifyComponentRemoved(this as unknown as World, eid, entity);
+  public _notifyComponentRemoved(ceid: number, entity: Entity): void {
+    notifyComponentRemoved(this as unknown as World, ceid, entity);
   }
 
   /** @internal Drive the world leaf for a created entity. */

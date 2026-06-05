@@ -34,8 +34,8 @@ export class Components extends Relationships {
    *
    * Faster than {@link get} because no class to type id resolution is needed.
    */
-  public _get(eid: number): ComponentInstance | undefined {
-    return this._components.get(eid);
+  public _get(ceid: number): ComponentInstance | undefined {
+    return this._components.get(ceid);
   }
 
   /**
@@ -121,7 +121,7 @@ export class Components extends Relationships {
    * @param type - Numeric component type id.
    * @returns This entity, for chaining.
    */
-  public add(eid: number): this;
+  public add(ceid: number): this;
 
   public add(entity: Entity): this;
 
@@ -186,13 +186,13 @@ export class Components extends Relationships {
   public get<C extends ComponentType>(Class: C): Readonly<InstanceType<C>> | undefined;
 
   /** Look up a component by numeric type id as a readonly value. */
-  public get(eid: number): Readonly<ComponentInstance> | undefined;
+  public get(ceid: number): Readonly<ComponentInstance> | undefined;
 
   public get(entity: Entity): Readonly<ComponentInstance> | undefined;
 
   public get(ref: ComponentRef): Readonly<ComponentInstance> | undefined {
-    const eid = this.world.entity(ref).eid;
-    return this._get(eid);
+    const ceid = this.world.entity(ref).eid;
+    return this._get(ceid);
   }
 
   /**
@@ -201,8 +201,8 @@ export class Components extends Relationships {
    * @param ref - Component class, numeric component type id, or entity component key.
    */
   public has(ref: ComponentRef): boolean {
-    const eid = typeof ref === "number" ? ref : this.world.entity(ref).eid;
-    return this.componentBitmask.has(eid);
+    const ceid = typeof ref === "number" ? ref : this.world.entity(ref).eid;
+    return this.componentBitmask.has(ceid);
   }
 
   /**
@@ -224,11 +224,11 @@ export class Components extends Relationships {
   ): Readonly<InstanceType<C>> | undefined;
 
   /** Look up a component by numeric type id for mutation. */
-  public getMut(eid: number): ComponentInstance | undefined;
+  public getMut(ceid: number): ComponentInstance | undefined;
 
   /** Look up a component by numeric type id, mutate it in `callback`, then mark it modified. */
   public getMut(
-    eid: number,
+    ceid: number,
     callback: (component: ComponentInstance) => void
   ): Readonly<ComponentInstance> | undefined;
 
@@ -304,7 +304,7 @@ export class Components extends Relationships {
    *
    * @param type - Numeric component type id.
    */
-  public remove(eid: number): void;
+  public remove(ceid: number): void;
 
   public remove(entity: Entity): void;
 
@@ -342,7 +342,7 @@ export class Components extends Relationships {
    * @param props - Properties to assign onto the component instance.
    * @returns This entity, for chaining.
    */
-  public set(eid: number, props: Partial<ComponentInstance>): this;
+  public set(ceid: number, props: Partial<ComponentInstance>): this;
 
   public set(entity: Entity, props: Partial<ComponentInstance>): this;
 

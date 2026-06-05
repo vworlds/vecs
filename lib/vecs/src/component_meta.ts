@@ -119,10 +119,10 @@ export class ComponentMeta implements Hook<ComponentInstance> {
 
   private _usageCount = 0;
 
-  constructor(Class: ComponentType, eid: number) {
+  constructor(Class: ComponentType, ceid: number) {
     this.Class = Class;
-    this.eid = eid;
-    this.bitPtr = new BitPtr(eid);
+    this.eid = ceid;
+    this.bitPtr = new BitPtr(ceid);
     this.isRelationship = Class.prototype instanceof Relationship;
   }
 

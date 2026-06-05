@@ -226,14 +226,14 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
 // ---------------------------------------------------------------------------
 
 /**
- * Return the world's singleton `ComponentTerm` for `eid`, creating it if
+ * Return the world's singleton `ComponentTerm` for `ceid`, creating it if
  * absent.
  */
-function getComponentTerm(world: World, eid: number, key: string): ComponentTerm {
-  let term = world._componentTerms.get(eid);
+function getComponentTerm(world: World, ceid: number, key: string): ComponentTerm {
+  let term = world._componentTerms.get(ceid);
   if (!term) {
-    term = new ComponentTerm(world, key, eid, (t) => destroyTerm(world, t));
-    world._componentTerms.set(eid, term);
+    term = new ComponentTerm(world, key, ceid, (t) => destroyTerm(world, t));
+    world._componentTerms.set(ceid, term);
   }
   return term;
 }
@@ -347,9 +347,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
   }
   if ("only" in dsl) {
     const components = dsl.only instanceof Array ? dsl.only : [dsl.only];
-    const childAnalyses = (components as number[]).map((eid) => ({
-      leafKeys: new Set([`C:${eid}`]) as Set<string>,
-      componentEids: new Set([eid]),
+    const childAnalyses = (components as number[]).map((ceid) => ({
+      leafKeys: new Set([`C:${ceid}`]) as Set<string>,
+      componentEids: new Set([ceid]),
       dependsOnWorld: false as boolean,
       containsOnly: false as boolean,
       containsTarget: false as boolean,
@@ -375,9 +375,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         containsOnly: false,
         containsTarget: false,
       },
-      ...watch.map((eid) => ({
-        leafKeys: new Set([`C:${eid}`]) as Set<string>,
-        componentEids: new Set([eid]),
+      ...watch.map((ceid) => ({
+        leafKeys: new Set([`C:${ceid}`]) as Set<string>,
+        componentEids: new Set([ceid]),
         dependsOnWorld: false as boolean,
         containsOnly: false as boolean,
         containsTarget: false as boolean,
@@ -423,7 +423,7 @@ function _mergeAnalyses(analyses: DslAnalysis[]): DslAnalysis {
   };
   for (const a of analyses) {
     a.leafKeys.forEach((k) => merged.leafKeys.add(k));
-    a.componentEids.forEach((eid) => merged.componentEids.add(eid));
+    a.componentEids.forEach((ceid) => merged.componentEids.add(ceid));
     merged.dependsOnWorld ||= a.dependsOnWorld;
     merged.containsOnly ||= a.containsOnly;
     merged.containsTarget ||= a.containsTarget;

@@ -42,8 +42,8 @@ export class Grouping {
     return this.groups.keys();
   }
 
-  public refresh(e: Entity, eid: number): void {
-    if (!this._watchEids.has(eid)) {
+  public refresh(e: Entity, ceid: number): void {
+    if (!this._watchEids.has(ceid)) {
       return;
     }
     this._assign(e, this._keyOf(e));
