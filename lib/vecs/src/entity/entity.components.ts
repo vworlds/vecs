@@ -419,18 +419,18 @@ export class Components extends Relationships {
     }
   }
 
-  public onAdd<T extends ComponentInstance>(handler: (entity: Entity, c: T) => void): this {
-    this.ownMeta.onAdd(handler as (entity: Entity, c: ComponentInstance) => void);
+  public onAdd(handler: (entity: Entity, c: ComponentInstance) => void): this {
+    this.ownMeta.onAdd(handler);
     return this;
   }
 
-  public onRemove<T extends ComponentInstance>(handler: (entity: Entity, c: T) => void): this {
-    this.ownMeta.onRemove(handler as (entity: Entity, c: ComponentInstance) => void);
+  public onRemove(handler: (entity: Entity, c: ComponentInstance) => void): this {
+    this.ownMeta.onRemove(handler);
     return this;
   }
 
-  public onSet<T extends ComponentInstance>(handler: (entity: Entity, c: T) => void): this {
-    this.ownMeta.onSet(handler as (entity: Entity, c: ComponentInstance) => void);
+  public onSet(handler: (entity: Entity, c: ComponentInstance) => void): this {
+    this.ownMeta.onSet(handler);
     return this;
   }
 }

@@ -144,26 +144,20 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   }
 
   /** @inheritdoc */
-  public onAdd<T extends ComponentInstance>(
-    handler: (entity: Entity, c: T) => void
-  ): ComponentMeta {
-    (this._onAddHandlers ??= []).unshift(handler as any);
+  public onAdd(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
+    (this._onAddHandlers ??= []).unshift(handler);
     return this;
   }
 
   /** @inheritdoc */
-  public onRemove<T extends ComponentInstance>(
-    handler: (entity: Entity, c: T) => void
-  ): ComponentMeta {
-    (this._onRemoveHandlers ??= []).unshift(handler as any);
+  public onRemove(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
+    (this._onRemoveHandlers ??= []).unshift(handler);
     return this;
   }
 
   /** @inheritdoc */
-  public onSet<T extends ComponentInstance>(
-    handler: (entity: Entity, c: T) => void
-  ): ComponentMeta {
-    (this._onSetHandlers ??= []).unshift(handler as any);
+  public onSet(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
+    (this._onSetHandlers ??= []).unshift(handler);
     return this;
   }
 }
