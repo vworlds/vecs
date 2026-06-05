@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Query, World } from "../src/index.js";
+import { Query, World, type GroupedQuery } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -12,6 +12,17 @@ class Velocity {
 class Sprite {}
 class Container {}
 class QueryTrait {}
+
+type IsAny<T> = 0 extends 1 & T ? true : false;
+type IsEqual<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? (<T>() => T extends B ? 1 : 2) extends <T>() => T extends A ? 1 : 2
+      ? true
+      : false
+    : false;
+type IsNotAny<T> = IsAny<T> extends true ? false : true;
+
+function assertType<T extends true>(): void {}
 
 function setup() {
   const w = new World();
@@ -29,6 +40,46 @@ function setup() {
     tick: () => w.progress(0, 0),
   };
 }
+
+describe("Query — typing", () => {
+  it("preserves refined query types through builder methods", () => {
+    const { w } = setup();
+
+    const typedRequired = w.query("typed-required").requires(Position, Velocity);
+    assertType<IsNotAny<typeof typedRequired>>();
+    assertType<IsEqual<typeof typedRequired, Query<[typeof Position, typeof Velocity]>>>();
+
+    if (false) {
+      const typedForEach = typedRequired.forEach([Position, Velocity], (_e, [p, v]) => {
+        assertType<IsNotAny<typeof p>>();
+        assertType<IsEqual<typeof p, Position>>();
+        assertType<IsEqual<typeof v, Velocity>>();
+      });
+      assertType<IsEqual<typeof typedForEach, Query<[typeof Position, typeof Velocity]>>>();
+    }
+
+    const typedQuery = w.query("typed-query").query({ all: [Position, Velocity] });
+    assertType<IsNotAny<typeof typedQuery>>();
+    assertType<IsEqual<typeof typedQuery, Query<[typeof Position, typeof Velocity]>>>();
+
+    if (false) {
+      typedQuery.update(Position, [Velocity], (_e, p, [v]) => {
+        assertType<IsEqual<typeof p, Position>>();
+        assertType<IsEqual<typeof v, Velocity>>();
+      });
+    }
+
+    const typedGrouped = typedRequired.groupBy([Position], (_e, [p]) => {
+      assertType<IsEqual<typeof p, Position>>();
+      return p.x;
+    });
+    assertType<IsNotAny<typeof typedGrouped>>();
+    assertType<
+      IsEqual<typeof typedGrouped, GroupedQuery<number, [typeof Position, typeof Velocity]>>
+    >();
+    expect(typedGrouped.groupCount).toBe(0);
+  });
+});
 
 describe("Query — construction", () => {
   it("world.query() tracks entities by default once built", () => {
@@ -462,6 +513,13 @@ describe("Query — entity tracking via world pipeline", () => {
       sum += p.x + v.vx; // non-null — both in requires()
     });
     expect(sum).toBe(7);
+  });
+
+  it("forEach returns the query for chaining", () => {
+    const { w } = setup();
+    const q = w.query("test").requires(Position);
+    expect(q.forEach(() => {})).toBe(q);
+    expect(q.forEach([Position], () => {})).toBe(q);
   });
 
   it("forEach with injection yields undefined for components not in requires", () => {

@@ -9,7 +9,7 @@ import {
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
 import { SOURCE_TRACKED_QUERY_ERROR, Query, type MaybeRequired } from "./query/index.js";
-import { containsDownTerm, type QueryDSL } from "./dsl.js";
+import { containsDownTerm, type ExtractRequired, type QueryDSL } from "./dsl.js";
 import { Entity } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world/index.js";
@@ -503,12 +503,18 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *   entity (type hint only — not validated at runtime).
    * @returns This system, retyped with the guaranteed tuple as its `R`.
    */
-  public override query<T extends ComponentType[] = []>(
+  public override query<const Q extends QueryDSL>(q: Q): System<ExtractRequired<Q>>;
+  public override query<const T extends ComponentType[]>(
     q: QueryDSL,
-    _guaranteed?: readonly [...T]
-  ): System<T> {
-    super.query(q, _guaranteed);
-    return this as unknown as System<T>;
+    _guaranteed: readonly [...T]
+  ): System<T>;
+  public override query(q: QueryDSL, _guaranteed?: readonly ComponentType[]): System<any> {
+    if (_guaranteed === undefined) {
+      super.query(q);
+    } else {
+      super.query(q, _guaranteed);
+    }
+    return this as unknown as System<any>;
   }
 
   /**
@@ -522,7 +528,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * @param components - Component classes to require.
    * @returns This system, retyped with the required tuple as its `R`.
    */
-  public override requires<T extends ComponentType[]>(...components: [...T]): System<T> {
+  public override requires<const T extends ComponentType[]>(...components: [...T]): System<T> {
     super.requires(...components);
     return this as unknown as System<T>;
   }

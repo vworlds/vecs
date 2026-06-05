@@ -31,23 +31,24 @@ export class Group<K = unknown, R extends ComponentType[] = []> {
     return this._entities[Symbol.iterator]();
   }
 
-  public forEach(callback: (e: Entity) => void): void;
+  public forEach(callback: (e: Entity) => void): this;
   public forEach<J extends FanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): void;
+  ): this;
   public forEach<J extends FanInjectTuple>(
     cursor: typeof Entity,
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): void;
+  ): this;
   public forEach<J extends FanInjectTuple>(
     cursor: typeof Iter,
     components: readonly [...J],
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): void;
-  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): void {
+  ): this;
+  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
     forEachInjected(this._world, this._entities, arg0, arg1, arg2);
+    return this;
   }
 
   /** @internal */

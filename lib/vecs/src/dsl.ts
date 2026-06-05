@@ -1,9 +1,4 @@
-import {
-  type ComponentClass,
-  type ComponentRef,
-  type ComponentRefArray,
-  type ComponentType,
-} from "./component.js";
+import { type ComponentClass, type ComponentRef, type ComponentType } from "./component.js";
 import { Entity } from "./entity/index.js";
 import { ChildOf } from "./modules/relationships.js";
 import type { World } from "./world/index.js";
@@ -42,17 +37,17 @@ export type EntityTestFunc = (e: Entity) => boolean;
 export type QueryDSL =
   | true
   | false
-  | ComponentRefArray
+  | readonly ComponentRef[]
   | ComponentRef
   | { all: readonly QueryDSL[] }
   | { any: readonly QueryDSL[] }
   | { not: QueryDSL }
-  | { only: ComponentRefArray | ComponentRef }
+  | { only: readonly ComponentRef[] | ComponentRef }
   | { target: readonly [ComponentRef, QueryDSL] }
   | { source: readonly [ComponentRef, QueryDSL] }
   | { parent: QueryDSL }
   | { children: QueryDSL }
-  | { test: EntityTestFunc; watch?: ComponentRefArray | ComponentRef };
+  | { test: EntityTestFunc; watch?: readonly ComponentRef[] | ComponentRef };
 
 /**
  * Resolve component nullability based on what was declared in `requires` (or
@@ -88,7 +83,7 @@ export type MaybeRequired<C, R extends ComponentType[]> = C extends ComponentTyp
 export type ExtractRequired<Q> = Q extends ComponentType
   ? [Q]
   : Q extends readonly ComponentType[]
-    ? Q
+    ? [...Q]
     : Q extends { only: infer H }
       ? ExtractRequired<H>
       : Q extends { all: infer A extends readonly QueryDSL[] }
@@ -108,7 +103,7 @@ function _isClassConstructor(value: QueryDSL): value is ComponentClass {
   );
 }
 
-function _componentRequirements(q: QueryDSL): ComponentRefArray | undefined {
+function _componentRequirements(q: QueryDSL): readonly ComponentRef[] | undefined {
   if (typeof q === "number" || q instanceof Entity) {
     return [q];
   }
@@ -124,7 +119,7 @@ function _componentRequirements(q: QueryDSL): ComponentRefArray | undefined {
   return undefined;
 }
 
-function _asShortestComponentRequirement(components: ComponentRefArray): QueryDSL {
+function _asShortestComponentRequirement(components: readonly ComponentRef[]): QueryDSL {
   if (components.length === 0) {
     return true;
   }
@@ -167,7 +162,7 @@ function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL 
   return world.entity(component).eid;
 }
 
-function _sortComponentRequirements(components: ComponentRefArray): ComponentRefArray {
+function _sortComponentRequirements(components: readonly ComponentRef[]): ComponentRef[] {
   return [...components].sort((a, b) => {
     const aEid = typeof a === "number" ? a : a instanceof Entity ? a.eid : undefined;
     const bEid = typeof b === "number" ? b : b instanceof Entity ? b.eid : undefined;
@@ -185,12 +180,15 @@ function _sortComponentRequirements(components: ComponentRefArray): ComponentRef
 }
 
 function _asShortestHasOnlyRequirement(
-  components: ComponentRefArray
-): ComponentRefArray | ComponentRef {
+  components: readonly ComponentRef[]
+): readonly ComponentRef[] | ComponentRef {
   return components.length === 1 ? components[0] : components;
 }
 
-function _asCanonicalComponentRequirement(components: ComponentRefArray, world: World): QueryDSL {
+function _asCanonicalComponentRequirement(
+  components: readonly ComponentRef[],
+  world: World
+): QueryDSL {
   return _asShortestComponentRequirement(
     _sortComponentRequirements(
       components.map((component) => _resolveComponentRequirement(component, world))
@@ -404,7 +402,7 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
       }
     }
 
-    const componentRequirements: ComponentRefArray = [];
+    const componentRequirements: ComponentRef[] = [];
     const otherTerms: QueryDSL[] = [];
     for (const term of simplifiedTerms) {
       const requirements = _componentRequirements(term);

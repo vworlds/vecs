@@ -55,6 +55,15 @@ describe("Filter — entity-only forEach", () => {
     expect(after).not.toContain(e);
   });
 
+  it("forEach returns the filter for chaining", () => {
+    const { w } = setup();
+    const f = w.filter([Position]);
+    w.entity().add(Position);
+
+    expect(f.forEach(() => {})).toBe(f);
+    expect(f.forEach([Position], () => {})).toBe(f);
+  });
+
   it("works with test DSL", () => {
     const { w } = setup();
     const e = w.entity();

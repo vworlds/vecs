@@ -161,6 +161,23 @@ describe("Query.groupBy — value grouping", () => {
     byCell.group(1)?.forEach([Position], (_e, [pos]) => seen.push(pos!.x));
     expect(seen.sort((p, q) => p - q)).toEqual([120, 180]);
   });
+
+  it("Group.forEach returns the group for chaining", () => {
+    const { w, tick } = setup();
+    const byCell = w
+      .query("byCell")
+      .requires(Position)
+      .groupBy([Position], (_e, [pos]) => cellOf(pos));
+    byCell.build();
+    w.start();
+
+    w.entity().set(Position, { x: 120 });
+    tick();
+
+    const group = byCell.group(1)!;
+    expect(group.forEach(() => {})).toBe(group);
+    expect(group.forEach([Position], () => {})).toBe(group);
+  });
 });
 
 describe("Query.groupBy — relationship grouping", () => {

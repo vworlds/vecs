@@ -70,8 +70,8 @@ export class Queries extends Storage {
   }
 
   /** Create a non-reactive {@link Filter} that matches entities satisfying `q`. */
-  public filter<Q extends QueryDSL>(this: World, q: Q): Filter<ExtractRequired<Q>>;
-  public filter<T extends ComponentType[]>(
+  public filter<const Q extends QueryDSL>(this: World, q: Q): Filter<ExtractRequired<Q>>;
+  public filter<const T extends ComponentType[]>(
     this: World,
     q: QueryDSL,
     _guaranteed: readonly [...T]
