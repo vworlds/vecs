@@ -1,4 +1,4 @@
-import { type ComponentType } from "../component.js";
+import { type ComponentRef, type ComponentType } from "../component.js";
 import { Entity } from "../entity/index.js";
 import {
   getInjected,
@@ -12,10 +12,34 @@ import {
   type InjectTuple,
   type MaybeResolvedInjectTuple,
 } from "../inject.js";
+import { Traversable } from "../modules/relationships.js";
 import { OrderedSet } from "../util/ordered_set.js";
 import { Callbacks } from "./query.04.callbacks.js";
 
 export class Sort<R extends ComponentType[] = []> extends Callbacks<R> {
+  public cascade(rel: ComponentRef): this;
+  public cascade(rel: ComponentRef, compare: (a: Entity, b: Entity) => number): this;
+  public cascade(rel: ComponentRef, compare?: (a: Entity, b: Entity) => number): this {
+    this._assertConfigurable();
+    const relEntity = this.world.entity(rel);
+    const relMeta = relEntity.ownMeta;
+    if (!relMeta.isRelationship) {
+      throw new Error(`Component ${relMeta.Class.name} is not a Relationship`);
+    }
+
+    const traversable = relEntity.get(Traversable);
+    if (!traversable) {
+      throw new Error(`Relationship ${relMeta.Class.name} does not have the Traversable trait`);
+    }
+
+    const depths = traversable.depths;
+    return this.sort([], (a, _ra, b) => {
+      const da = depths.get(a) ?? -1;
+      const db = depths.get(b) ?? -1;
+      return da - db || compare?.(a, b) || 0;
+    });
+  }
+
   public sort<J extends InjectTuple>(
     components: readonly [...J],
     compare: (

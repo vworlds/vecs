@@ -50,11 +50,12 @@ export class Traversable {
 export class RelationshipsModule extends Module {
   public init(): void {
     const world = this.world;
+    const childOf = world.component(ChildOf);
+    const traversable = world.component(Traversable);
 
-    world.component(ChildOf).ownMeta.onDeleteTarget = CleanupPolicy.Delete;
-    world.component(Traversable);
+    childOf.ownMeta.onDeleteTarget = CleanupPolicy.Delete;
 
-    world.component(Traversable).onAdd((rel, traversable): void => {
+    traversable.onAdd((rel, traversable): void => {
       const relEid = rel.eid;
 
       rel
@@ -78,6 +79,8 @@ export class RelationshipsModule extends Module {
         }
       });
     });
+
+    childOf.add(Traversable);
   }
 
   private _cascadeUpdate(

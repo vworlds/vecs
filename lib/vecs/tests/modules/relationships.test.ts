@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Relationship, Traversable, World } from "../../src/index.js";
+import { ChildOf, Relationship, Traversable, World } from "../../src/index.js";
 
 class ParentOf extends Relationship {}
 
@@ -11,6 +11,11 @@ function depthOf(w: World, entity: unknown): number | undefined {
 }
 
 describe("RelationshipsModule", () => {
+  it("marks ChildOf as Traversable by default", () => {
+    const w = new World();
+    expect(w.entity(ChildOf).get(Traversable)).toBeInstanceOf(Traversable);
+  });
+
   it("is not tracked for entities without the relationship", () => {
     const w = new World();
     w.component(ParentOf).add(Traversable);

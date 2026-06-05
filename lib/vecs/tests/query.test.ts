@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Query, World, type GroupedQuery } from "../src/index.js";
+import { ChildOf, Query, SilenceSource, World, type GroupedQuery } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -8,6 +8,13 @@ class Position {
 class Velocity {
   vx = 0;
   vy = 0;
+}
+class LocalPosition {
+  x = 0;
+  y = 0;
+}
+class Label {
+  value = "";
 }
 class Sprite {}
 class Container {}
@@ -672,6 +679,111 @@ describe("Query — sort", () => {
     const { w } = setup();
     const q = w.query("test").requires(Position);
     expect(q.sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x)).toBe(q);
+  });
+
+  it("cascade() orders entities breadth-first by relationship depth", () => {
+    const { w, tick } = setup();
+    w.component(Label);
+    const q = w.query("test").requires(Label).cascade(ChildOf);
+
+    w.start();
+    const rootA = w.entity().set(Label, { value: "rootA" });
+    const rootB = w.entity().set(Label, { value: "rootB" });
+    const childA1 = w.entity().set(ChildOf, { target: rootA }).set(Label, { value: "childA1" });
+    const childA2 = w.entity().set(ChildOf, { target: rootA }).set(Label, { value: "childA2" });
+    const childB1 = w.entity().set(ChildOf, { target: rootB }).set(Label, { value: "childB1" });
+    const grandchild = w
+      .entity()
+      .set(ChildOf, { target: childB1 })
+      .set(Label, { value: "grandchild" });
+
+    tick();
+
+    expect([...q]).toEqual([rootA, rootB, childA1, childA2, childB1, grandchild]);
+  });
+
+  it("cascade() uses the optional compare callback within the same depth", () => {
+    const { w, tick } = setup();
+    w.component(Label);
+    const q = w
+      .query("test")
+      .requires(Label)
+      .cascade(ChildOf, (a, b) => b.get(Label)!.value.localeCompare(a.get(Label)!.value));
+
+    w.start();
+    const root = w.entity().set(Label, { value: "root" });
+    const alpha = w.entity().set(ChildOf, { target: root }).set(Label, { value: "alpha" });
+    const gamma = w.entity().set(ChildOf, { target: root }).set(Label, { value: "gamma" });
+    const beta = w.entity().set(ChildOf, { target: root }).set(Label, { value: "beta" });
+
+    tick();
+
+    expect([...q]).toEqual([root, gamma, beta, alpha]);
+  });
+
+  it("cascade() requires a relationship with the Traversable trait", () => {
+    const { w } = setup();
+
+    expect(() => w.query("not-a-relationship").cascade(Position)).toThrow(/Relationship/);
+    expect(() => w.query("not-traversable").cascade(SilenceSource)).toThrow(/Traversable/);
+  });
+
+  it("cascade() lets parent transforms feed child transforms in hierarchy order", () => {
+    const { w, tick } = setup();
+    w.component(LocalPosition);
+    w.component(Label);
+    const q = w.query("absolute-position").requires(Position, LocalPosition).cascade(ChildOf);
+
+    w.start();
+    const universe = w
+      .entity()
+      .set(Label, { value: "Universe" })
+      .set(LocalPosition, { x: 1000, y: 1000 })
+      .set(Position, { x: 0, y: 0 });
+    const galaxy = w
+      .entity()
+      .set(Label, { value: "Galaxy" })
+      .set(ChildOf, { target: universe })
+      .set(LocalPosition, { x: 100, y: 100 })
+      .set(Position, { x: 0, y: 0 });
+    const solarSystem = w
+      .entity()
+      .set(Label, { value: "Solar System" })
+      .set(ChildOf, { target: galaxy })
+      .set(LocalPosition, { x: 10, y: 20 })
+      .set(Position, { x: 0, y: 0 });
+    const planet = w
+      .entity()
+      .set(Label, { value: "Planet" })
+      .set(ChildOf, { target: solarSystem })
+      .set(LocalPosition, { x: 3, y: 4 })
+      .set(Position, { x: 0, y: 0 });
+    const satellite = w
+      .entity()
+      .set(Label, { value: "Satellite" })
+      .set(ChildOf, { target: planet })
+      .set(LocalPosition, { x: 1, y: 2 })
+      .set(Position, { x: 0, y: 0 });
+
+    tick();
+
+    const visited: string[] = [];
+    q.forEach((entity) => {
+      visited.push(entity.get(Label)!.value);
+      const local = entity.get(LocalPosition)!;
+      const parentPosition = entity.parent(ChildOf)?.get(Position);
+      entity.getMut(Position, (position) => {
+        position.x = (parentPosition?.x ?? 0) + local.x;
+        position.y = (parentPosition?.y ?? 0) + local.y;
+      });
+    });
+
+    expect(visited).toEqual(["Universe", "Galaxy", "Solar System", "Planet", "Satellite"]);
+    expect(universe.get(Position)).toMatchObject({ x: 1000, y: 1000 });
+    expect(galaxy.get(Position)).toMatchObject({ x: 1100, y: 1100 });
+    expect(solarSystem.get(Position)).toMatchObject({ x: 1110, y: 1120 });
+    expect(planet.get(Position)).toMatchObject({ x: 1113, y: 1124 });
+    expect(satellite.get(Position)).toMatchObject({ x: 1114, y: 1126 });
   });
 });
 
