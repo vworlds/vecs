@@ -54,7 +54,7 @@ export class RelationshipsModule extends Module {
     world.component(ChildOf).ownMeta.onDeleteTarget = CleanupPolicy.Delete;
     world.component(Traversable);
 
-    world.component(Traversable).onAdd((rel: Entity, traversable: Traversable): void => {
+    world.component(Traversable).onAdd((rel, traversable): void => {
       const relEid = rel.eid;
 
       rel
