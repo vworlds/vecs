@@ -47,6 +47,23 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
     state.box2d.b2Body_SetBullet(bodyId, body.bullet);
   });
 
+  system.update(Damping, (entity, damping) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId === undefined) {
+      return;
+    }
+    state.box2d.b2Body_SetLinearDamping(bodyId, damping.linear);
+    state.box2d.b2Body_SetAngularDamping(bodyId, damping.angular);
+  });
+
+  system.update(GravityScale, (entity, gravityScale) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId === undefined) {
+      return;
+    }
+    state.box2d.b2Body_SetGravityScale(bodyId, gravityScale.value);
+  });
+
   system.update(MotionLocks, (entity, locks) => {
     const bodyId = state.bodyByEntityWasm.get(entity.eid);
     if (bodyId === undefined) {
