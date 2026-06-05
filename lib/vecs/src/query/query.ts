@@ -4,23 +4,11 @@ import {
   type ComponentRef,
   type ComponentType,
 } from "../component.js";
-import {
-  _resolveRelationship,
-  containsDownTerm,
-  type ExtractRequired,
-  type QueryDSL,
-} from "../dsl.js";
+import { containsDownTerm, type ExtractRequired, type QueryDSL } from "../dsl.js";
 import { Entity } from "../entity/index.js";
 import {
-  directInjectEids,
   forEachInjected,
-  getInjected,
-  getInjectedWithSrc,
-  injectArity,
-  isCursorMarker,
   Iter,
-  mapInject,
-  wantsIter,
   type FanInjectElement,
   type FanInjectTuple,
   type InjectElement,
@@ -34,15 +22,19 @@ import { ArrayMap } from "../util/array_map.js";
 import { Bitset } from "../util/bitset.js";
 import { OrderedSet } from "../util/ordered_set.js";
 import { type World } from "../world/index.js";
-
-export const SOURCE_TRACKED_QUERY_ERROR =
-  "source/children is not supported in a tracked query; use world.filter(...)";
+import {
+  makeEnterCallback,
+  makeExitCallback,
+  makeSortedEntitySet,
+  makeUpdateRegistration,
+  type ComponentCallback,
+  type EntityCallback,
+} from "./callbacks.js";
+import { SOURCE_TRACKED_QUERY_ERROR } from "./constants.js";
+import { getGroupedQueryPrototype } from "./grouped_query_registry.js";
+import { type GroupedQuery } from "./grouped_query.js";
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
-const EMPTY_GROUPS: ReadonlyMap<unknown, Group> = new Map();
-
-type EntityCallback = (e: Entity, snapshot?: Map<number, ComponentInstance>) => void;
-type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
@@ -258,30 +250,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg2?: Function
   ): this {
     this._assertConfigurable();
-    if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
-      this._enterCallback = arg0 as (e: Entity) => void;
-      return this;
-    }
-    const useIter = wantsIter(arg0);
-    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
-    const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (eOrIt: unknown, injected: unknown) => void;
-    const inject = mapInject(this.world, components);
-    const arity = injectArity(inject);
-    if (useIter) {
-      this._enterCallback = (e: Entity) => {
-        const injected = new Array(arity);
-        const it = new Iter(arity);
-        it.entity = e;
-        getInjectedWithSrc(e, inject, injected, it.src, true);
-        cb(it, injected as any);
-      };
-    } else {
-      this._enterCallback = (e: Entity) => {
-        const injected = new Array(arity);
-        getInjected(e, inject, true, injected);
-        cb(e, injected as any);
-      };
-    }
+    this._enterCallback = makeEnterCallback(this.world, arg0, arg1, arg2);
     return this;
   }
 
@@ -313,32 +282,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg2?: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
-      this._exitCallback = arg0 as (e: Entity) => void;
-      this._exitSnapshotTypes = undefined;
-      return this;
-    }
-    const useIter = wantsIter(arg0);
-    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
-    const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (eOrIt: unknown, injected: unknown) => void;
-    const inject = mapInject(this.world, components);
-    this._exitSnapshotTypes = directInjectEids(inject);
-    const arity = injectArity(inject);
-    if (useIter) {
-      this._exitCallback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
-        const injected = new Array(arity);
-        const it = new Iter(arity);
-        it.entity = e;
-        getInjectedWithSrc(e, inject, injected, it.src, true, exitSnapshot);
-        cb(it, injected as any);
-      };
-    } else {
-      this._exitCallback = (e: Entity, exitSnapshot?: Map<number, ComponentInstance>) => {
-        const injected = new Array(arity);
-        getInjected(e, inject, true, injected, exitSnapshot);
-        cb(e, injected as any);
-      };
-    }
+    const exit = makeExitCallback(this.world, arg0, arg1, arg2);
+    this._exitCallback = exit.callback;
+    this._exitSnapshotTypes = exit.snapshotTypes;
     return this;
   }
 
@@ -372,7 +318,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg1?: (e: Entity, resolved: any) => any
   ): GroupedQuery<unknown, R> {
     this._assertConfigurable();
-    Object.setPrototypeOf(this, GroupedQuery.prototype);
+    Object.setPrototypeOf(this, getGroupedQueryPrototype());
     return (this as any)._initialize(arg0, arg1);
   }
 
@@ -468,33 +414,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg2?: Function
   ): this {
     this._assertConfigurable();
-    const useIter = wantsIter(arg0);
-    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
-    const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (...args: unknown[]) => number;
-    const inject = mapInject(this.world, components);
-    const arity = injectArity(inject);
     this._tracking = true;
-    if (useIter) {
-      const itA = new Iter(arity);
-      const itB = new Iter(arity);
-      const resolvedA = new Array(arity);
-      const resolvedB = new Array(arity);
-      this._entities = new OrderedSet<Entity>((a, b) => {
-        itA.entity = a;
-        itB.entity = b;
-        getInjectedWithSrc(a, inject, resolvedA, itA.src);
-        getInjectedWithSrc(b, inject, resolvedB, itB.src);
-        return cb(itA, resolvedA, itB, resolvedB) || a.eid - b.eid;
-      });
-    } else {
-      const resolvedA = new Array(arity);
-      const resolvedB = new Array(arity);
-      this._entities = new OrderedSet<Entity>((a, b) => {
-        getInjected(a, inject, false, resolvedA);
-        getInjected(b, inject, false, resolvedB);
-        return cb(a, resolvedA, b, resolvedB) || a.eid - b.eid;
-      });
-    }
+    this._entities = makeSortedEntitySet(this.world, arg0, arg1, arg2);
     return this;
   }
 
@@ -548,39 +469,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg3?: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const useIter = wantsIter(arg0);
-    if (isCursorMarker(arg0)) {
-      arg0 = arg1 as C;
-      arg1 = arg2 as readonly InjectElement[];
-      arg2 = arg3 as (...args: any[]) => void;
-    }
-    const ComponentClass = arg0 as C;
-    const componentEid = this.world.entity(ComponentClass).eid;
-    if (typeof arg1 === "function") {
-      const callback = arg1 as (...args: any[]) => void;
-      this._componentUpdateCallbacks.set(componentEid, callback);
-    } else {
-      const components = arg1 as readonly InjectElement[];
-      const callback = arg2 as (...args: any[]) => void;
-      const inject = mapInject(this.world, components);
-      const arity = injectArity(inject);
-      const injected = new Array(arity);
-      if (useIter) {
-        const it = new Iter(arity);
-        const cb = (e: Entity, c: ComponentInstance) => {
-          it.entity = e;
-          getInjectedWithSrc(e, inject, injected, it.src);
-          callback(it, c as InstanceType<C>, injected as any);
-        };
-        this._componentUpdateCallbacks.set(componentEid, cb);
-      } else {
-        const cb = (e: Entity, c: ComponentInstance) => {
-          getInjected(e, inject, false, injected);
-          callback(e, c as InstanceType<C>, injected as any);
-        };
-        this._componentUpdateCallbacks.set(componentEid, cb);
-      }
-    }
+    const { componentEid, callback } = makeUpdateRegistration(this.world, arg0, arg1, arg2, arg3);
+    this._componentUpdateCallbacks.set(componentEid, callback);
     this._watchlistBitmask.add(componentEid);
     if (!this._hasExplicitQuery) {
       this._dsl = this._watchlistBitmask.indices();
@@ -645,277 +535,5 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     for (const child of entity._childrenByEid(relEid) ?? []) {
       this._reSortCascade(child, relEid);
     }
-  }
-}
-
-export class Group<K = unknown, R extends ComponentType[] = []> {
-  public readonly key: K;
-  private readonly _entities = new Set<Entity>();
-  private readonly _world: World;
-
-  public constructor(world: World, key: K) {
-    this._world = world;
-    this.key = key;
-  }
-
-  public get count(): number {
-    return this._entities.size;
-  }
-
-  public [Symbol.iterator](): IterableIterator<Entity> {
-    return this._entities[Symbol.iterator]();
-  }
-
-  public forEach(callback: (e: Entity) => void): this;
-  public forEach<J extends FanInjectTuple>(
-    components: readonly [...J],
-    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): this;
-  public forEach<J extends FanInjectTuple>(
-    cursor: typeof Entity,
-    components: readonly [...J],
-    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): this;
-  public forEach<J extends FanInjectTuple>(
-    cursor: typeof Iter,
-    components: readonly [...J],
-    callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): this;
-  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
-    forEachInjected(this._world, this._entities, arg0, arg1, arg2);
-    return this;
-  }
-
-  public has(e: Entity): boolean {
-    return this._entities.has(e);
-  }
-
-  /** @internal */
-  public _add(e: Entity): void {
-    this._entities.add(e);
-  }
-
-  /** @internal */
-  public _remove(e: Entity): boolean {
-    this._entities.delete(e);
-    return this._entities.size === 0;
-  }
-}
-
-export class Grouping {
-  public readonly groups = new Map<unknown, Group>();
-  private readonly _entityKeys = new Map<Entity, unknown>();
-  private readonly _keyOf: (e: Entity) => unknown;
-  private readonly _watchEids: Set<number>;
-  private readonly _world: World;
-  private _onGroupEnter: ((group: Group) => void) | undefined;
-  private _onGroupExit: ((key: unknown, group: Group) => void) | undefined;
-
-  public constructor(world: World, keyOf: (e: Entity) => unknown, watchEids: Iterable<number>) {
-    this._world = world;
-    this._keyOf = keyOf;
-    this._watchEids = new Set(watchEids);
-  }
-
-  public clear(): void {
-    this.groups.clear();
-    this._entityKeys.clear();
-  }
-
-  public enter(e: Entity): void {
-    this._assign(e, this._keyOf(e));
-  }
-
-  public exit(e: Entity): void {
-    const key = this._entityKeys.get(e);
-    if (key !== undefined) {
-      this._removeFromBucket(e, key);
-    }
-    this._entityKeys.delete(e);
-  }
-
-  public get(key: unknown): Group | undefined {
-    return this.groups.get(key);
-  }
-
-  public keys(): IterableIterator<unknown> {
-    return this.groups.keys();
-  }
-
-  public refresh(e: Entity, eid: number): void {
-    if (!this._watchEids.has(eid)) {
-      return;
-    }
-    this._assign(e, this._keyOf(e));
-  }
-
-  public setOnGroupEnter(callback: (group: Group) => void): void {
-    this._onGroupEnter = callback;
-  }
-
-  public setOnGroupExit(callback: (key: unknown, group: Group) => void): void {
-    this._onGroupExit = callback;
-  }
-
-  private _addToBucket(e: Entity, key: unknown): void {
-    let group = this.groups.get(key);
-    if (group === undefined) {
-      group = new Group(this._world, key);
-      this.groups.set(key, group);
-      group._add(e);
-      this._onGroupEnter?.(group);
-      return;
-    }
-    group._add(e);
-  }
-
-  private _assign(e: Entity, newKey: unknown): void {
-    const oldKey = this._entityKeys.get(e);
-    if (oldKey === newKey) {
-      return;
-    }
-    if (oldKey !== undefined) {
-      this._removeFromBucket(e, oldKey);
-    }
-    if (newKey === undefined) {
-      this._entityKeys.delete(e);
-      return;
-    }
-    this._addToBucket(e, newKey);
-    this._entityKeys.set(e, newKey);
-  }
-
-  private _removeFromBucket(e: Entity, key: unknown): void {
-    const group = this.groups.get(key);
-    if (group === undefined) {
-      return;
-    }
-    if (group._remove(e)) {
-      this.groups.delete(key);
-      this._onGroupExit?.(key, group);
-    }
-  }
-}
-
-/**
- * A {@link Query} that has been partitioned by {@link Query.groupBy}. Adds the
- * typed group-accessor surface ({@link group}, {@link groups}, etc.) on top of
- * the query's usual reactive membership.
- *
- * `GroupedQuery` lives in the query module alongside `Query`. Instances are
- * created lazily by {@link Query.groupBy} via `Object.setPrototypeOf`.
- *
- * @typeParam K - The grouping key type produced by the key function (or the
- *   relationship target entity, for the relationship form).
- * @typeParam R - Component classes guaranteed present on every matched entity.
- */
-export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Query<R> {
-  private _grouping!: Grouping;
-
-  public get groupCount(): number {
-    return this._grouping?.groups.size ?? 0;
-  }
-
-  /** @internal */
-  public override _enter(e: Entity): void {
-    this._grouping.enter(e);
-    super._enter(e);
-  }
-
-  /** @internal */
-  public override _exit(e: Entity): void {
-    super._exit(e);
-    this._grouping.exit(e);
-  }
-
-  /** @internal */
-  public _initialize(
-    arg0: readonly FanInjectElement[] | ComponentRef,
-    arg1?: (e: Entity, resolved: any) => any
-  ): this {
-    if (this._grouping !== undefined) {
-      throw `query '${this.name}' is already grouped`;
-    }
-    let keyOf: (e: Entity) => unknown;
-    let watchEids: number[];
-    if (typeof arg1 === "function") {
-      const components = arg0 as readonly FanInjectElement[];
-      const inject = mapInject(this.world, components);
-      const arity = injectArity(inject);
-      const resolved = new Array(arity);
-      keyOf = (e: Entity) => {
-        getInjected(e, inject, false, resolved);
-        return arg1(e, resolved);
-      };
-      watchEids = directInjectEids(inject);
-      this._composeGroupMembership(components);
-    } else {
-      const relEid = _resolveRelationship(arg0 as ComponentRef, this.world);
-      keyOf = (e: Entity) => e.parent(relEid);
-      watchEids = [relEid];
-      this._composeGroupMembership([arg0 as ComponentRef]);
-    }
-    for (const eid of watchEids) {
-      this._watchlistBitmask.add(eid);
-    }
-    this.track();
-    this._grouping = new Grouping(this.world, keyOf, watchEids);
-    return this;
-  }
-
-  /** @internal */
-  public override _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
-    super._notifyModified(e, meta, c);
-    this._grouping.refresh(e, meta.eid);
-  }
-
-  /** @internal */
-  public override _watchesUpdates(): boolean {
-    return super._watchesUpdates() || true;
-  }
-
-  public override destroy(): void {
-    this._grouping?.clear();
-    this._grouping = undefined!;
-    super.destroy();
-  }
-
-  public group(key: K): Group<K, R> | undefined {
-    return this._grouping?.get(key) as Group<K, R> | undefined;
-  }
-
-  public groups(): IterableIterator<Group<K, R>> {
-    return (this._grouping?.groups.values() ?? EMPTY_GROUPS.values()) as IterableIterator<
-      Group<K, R>
-    >;
-  }
-
-  public groupKeys(): IterableIterator<K> {
-    return (this._grouping?.keys() ?? EMPTY_GROUPS.keys()) as IterableIterator<K>;
-  }
-
-  public onGroupEnter(callback: (group: Group<K, R>) => void): this {
-    this._assertConfigurable();
-    this._grouping?.setOnGroupEnter(callback as (group: Group) => void);
-    return this;
-  }
-
-  public onGroupExit(callback: (key: K, group: Group<K, R>) => void): this {
-    this._assertConfigurable();
-    this._grouping?.setOnGroupExit(callback as (key: unknown, group: Group) => void);
-    return this;
-  }
-
-  private _composeGroupMembership(refs: readonly unknown[]): void {
-    const componentRefs = refs.filter(
-      (ref): ref is ComponentRef =>
-        typeof ref === "number" || typeof ref === "function" || ref instanceof Entity
-    );
-    if (componentRefs.length === 0) {
-      return;
-    }
-    const existing: any = this._dsl ?? true;
-    this._dsl = { all: [existing, ...componentRefs] };
-    this._hasExplicitQuery = true;
   }
 }
