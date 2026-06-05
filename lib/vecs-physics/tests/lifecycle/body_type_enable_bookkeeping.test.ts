@@ -6,7 +6,7 @@
 //   - Mass recomputes correctly after type change (via b2Body_GetMass)
 //   - Awake/sleep state is maintained across type changes
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Circle, Position, Sleep, installPhysics } from "../../src/index.js";
@@ -109,7 +109,7 @@ describe("WASM body type on type change", () => {
 describe("mass recompute on type change", () => {
   it("static→dynamic: mass becomes non-zero from shapes", () => {
     const e = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 5 });
-    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 1, hy: 1 });
+    world.entity().childOf(e).set(Box, { hx: 1, hy: 1 });
 
     step(); // static: mass is 0
 
@@ -124,7 +124,7 @@ describe("mass recompute on type change", () => {
 
   it("dynamic→static: mass becomes 0 (static infinite mass)", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x: 0, y: 5 });
-    world.entity().set(ChildOf, { target: e }).set(Circle, { radius: 1 });
+    world.entity().childOf(e).set(Circle, { radius: 1 });
 
     step();
 
@@ -196,7 +196,7 @@ describe("WASM enabled/awake state on type/enable transitions", () => {
 describe("contact teardown on body type/disable changes", () => {
   function makeGround() {
     const g = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -10 });
-    world.entity().set(ChildOf, { target: g }).set(Box, { hx: 50, hy: 10 });
+    world.entity().childOf(g).set(Box, { hx: 50, hy: 10 });
   }
 
   it("disabling a shaped body updates the WASM body without crashing", () => {
@@ -205,7 +205,7 @@ describe("contact teardown on body type/disable changes", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    world.entity().set(ChildOf, { target: body }).set(Box, { hx: 1, hy: 1 });
+    world.entity().childOf(body).set(Box, { hx: 1, hy: 1 });
 
     step(5); // create contacts
 
@@ -222,7 +222,7 @@ describe("contact teardown on body type/disable changes", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    world.entity().set(ChildOf, { target: body }).set(Box, { hx: 1, hy: 1 });
+    world.entity().childOf(body).set(Box, { hx: 1, hy: 1 });
 
     step(5);
 

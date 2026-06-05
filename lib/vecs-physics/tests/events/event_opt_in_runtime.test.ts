@@ -5,7 +5,7 @@
 // drive the documented "add an event component when you want events" contract
 // at runtime, not just at shape creation.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -47,7 +47,7 @@ function step(n = 1): void {
 /** A dynamic 2×2 box body+shape at (x, y). Returns the body and shape entities. */
 function makeBox(x: number, y: number) {
   const body = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x, y });
-  const shapeEnt = world.entity().set(ChildOf, { target: body }).set(Box, { hx: 1, hy: 1 });
+  const shapeEnt = world.entity().childOf(body).set(Box, { hx: 1, hy: 1 });
   return { body, shapeEnt };
 }
 
@@ -122,7 +122,7 @@ describe("runtime SensorEvents opt-in", () => {
       .set(Position, { x: 0, y: 0 });
     const sensorShape = world
       .entity()
-      .set(ChildOf, { target: sensorBody })
+      .childOf(sensorBody)
       .set(Box, { hx: 1, hy: 1 })
       .add(Sensor)
       .add(SensorEvents);
@@ -132,10 +132,7 @@ describe("runtime SensorEvents opt-in", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .add(GravityScale); // 0 scale → stays overlapping
-    const visitorShape = world
-      .entity()
-      .set(ChildOf, { target: visitorBody })
-      .set(Circle, { radius: 0.4 });
+    const visitorShape = world.entity().childOf(visitorBody).set(Circle, { radius: 0.4 });
 
     step(1);
     // Visitor not opted in → no detection.

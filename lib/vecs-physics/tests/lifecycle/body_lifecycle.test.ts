@@ -1,7 +1,7 @@
 // `PhysicsBodyLifecycle` (VP-6): body create/destroy and WASM body state driven
 // by `Body` enter/exit/update events.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -206,7 +206,7 @@ describe("PhysicsBodyLifecycle.update(Body)", () => {
 describe("PhysicsBodyLifecycle — body proxy synchronisation (WASM)", () => {
   it("disabled body: shape is invalid in WASM when body is disabled on creation", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic, enabled: false });
-    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
+    world.entity().childOf(e).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
 
     const bodyId = wasmBodyId(e.eid);
@@ -216,7 +216,7 @@ describe("PhysicsBodyLifecycle — body proxy synchronisation (WASM)", () => {
 
   it("enable after disabled creation: body becomes enabled and shapes work", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic, enabled: false });
-    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
+    world.entity().childOf(e).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
 
     const bodyId = wasmBodyId(e.eid);
@@ -231,7 +231,7 @@ describe("PhysicsBodyLifecycle — body proxy synchronisation (WASM)", () => {
 
   it("disable after enabled: body becomes disabled", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
-    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
+    world.entity().childOf(e).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
 
     const bodyId = wasmBodyId(e.eid);
@@ -245,7 +245,7 @@ describe("PhysicsBodyLifecycle — body proxy synchronisation (WASM)", () => {
 
   it("static→dynamic type change: body type is updated in WASM", () => {
     const e = world.entity().set(Body, { type: BodyType.Static });
-    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
+    world.entity().childOf(e).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
 
     const bodyId = wasmBodyId(e.eid);
@@ -259,7 +259,7 @@ describe("PhysicsBodyLifecycle — body proxy synchronisation (WASM)", () => {
 
   it("dynamic→static type change: body type is updated in WASM", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
-    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
+    world.entity().childOf(e).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
 
     const bodyId = wasmBodyId(e.eid);

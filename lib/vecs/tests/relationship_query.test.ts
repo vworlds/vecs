@@ -356,8 +356,8 @@ describe("Relationship queries", () => {
   it("source filter matches parents with a qualifying child", () => {
     const { w } = setup();
     const parent = w.entity();
-    const child1 = w.entity().set(ChildOf, { target: parent }).add(Position);
-    const child2 = w.entity().set(ChildOf, { target: parent });
+    const child1 = w.entity().childOf(parent).add(Position);
+    const child2 = w.entity().childOf(parent);
 
     const seen: unknown[] = [];
     w.filter({ source: [ChildOf, Position] }).forEach((e) => seen.push(e));
@@ -405,8 +405,8 @@ describe("Relationship queries", () => {
   it("down injection fires once per child with each/forEach/Filter.forEach", () => {
     const { w } = setup();
     const parent = w.entity().add(Body);
-    const child1 = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 1 });
-    const child2 = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 2 });
+    const child1 = w.entity().childOf(parent).set(Position, { x: 1 });
+    const child2 = w.entity().childOf(parent).set(Position, { x: 2 });
     const body = parent.get(Body);
 
     const q = w.query("inject").requires(Body).build();
@@ -443,7 +443,7 @@ describe("Relationship queries", () => {
       .each([Body, { down: [ChildOf, [Position]] }] as any, cb);
     w.start();
     const parent = w.entity().add(Body);
-    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 3 });
+    const child = w.entity().childOf(parent).set(Position, { x: 3 });
     const pos = child.get(Position);
 
     w.progress(0, 0);
@@ -454,7 +454,7 @@ describe("Relationship queries", () => {
   it("down injection with Iter sets entity to parent and src to child", () => {
     const { w } = setup();
     const parent = w.entity().add(Body);
-    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 5 });
+    const child = w.entity().childOf(parent).set(Position, { x: 5 });
     const results: { entity: any; src: any }[] = [];
     w.filter(Body).forEach(
       Iter,
@@ -477,7 +477,7 @@ describe("Relationship queries", () => {
     });
     expect(count).toBe(0);
 
-    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    const child = w.entity().childOf(parent).set(Position, { x: 7 });
     count = 0;
     w.filter(Body).forEach([Body, { down: [ChildOf, [Position]] }] as any, () => {
       count++;
@@ -495,7 +495,7 @@ describe("Relationship queries", () => {
   it("down injection slots correctly when down is not last (middle)", () => {
     const { w } = setup();
     const parent = w.entity().add(Body).set(Velocity, { vx: 10 });
-    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    const child = w.entity().childOf(parent).set(Position, { x: 7 });
     const body = parent.get(Body);
     const vel = parent.get(Velocity);
     const pos = child.get(Position);
@@ -513,7 +513,7 @@ describe("Relationship queries", () => {
   it("down injection slots correctly when down is first", () => {
     const { w } = setup();
     const parent = w.entity().add(Body).set(Velocity, { vx: 10 });
-    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    const child = w.entity().childOf(parent).set(Position, { x: 7 });
     const body = parent.get(Body);
     const vel = parent.get(Velocity);
     const pos = child.get(Position);
@@ -531,7 +531,7 @@ describe("Relationship queries", () => {
   it("down injection not-last with Iter sets src correctly", () => {
     const { w } = setup();
     const parent = w.entity().add(Body).set(Velocity, { vx: 10 });
-    const child = w.entity().set(ChildOf, { target: parent }).set(Position, { x: 7 });
+    const child = w.entity().childOf(parent).set(Position, { x: 7 });
     const results: { src: any[] }[] = [];
     w.filter(Body).forEach(
       Iter,

@@ -8,13 +8,7 @@ import {
   VecsListener,
   View,
 } from "@vworlds/vecs-server";
-import {
-  ChildOf,
-  type ComponentClass,
-  type Entity,
-  type QueryDSL,
-  Relationship,
-} from "@vworlds/vecs";
+import { type ComponentClass, type Entity, type QueryDSL, Relationship } from "@vworlds/vecs";
 import {
   Body,
   BodyType,
@@ -304,7 +298,7 @@ function spawnBall(x?: number, y?: number): void {
 
   world
     .entity()
-    .set(ChildOf, { target: body })
+    .childOf(body)
     .set(Circle, { radius: demoUnitsToMeters(BALL_RADIUS) })
     .set(Material, { friction: 0.6, restitution: 0.7 });
 }
@@ -318,7 +312,7 @@ function createPhysicsWalls(): void {
   // orient every wall normal inward toward the play area.
   world
     .entity()
-    .set(ChildOf, { target: walls })
+    .childOf(walls)
     .set(Chain, {
       points: [
         toPhysicsPoint({ x: WIDTH, y: HEIGHT }),

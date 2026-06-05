@@ -995,7 +995,7 @@ describe("Term — TargetTerm", () => {
   it("parent is sugar over target(ChildOf, inner)", () => {
     const w = setup();
     const child = w.entity();
-    const parent = w.entity().set(ChildOf, { target: child });
+    const parent = w.entity().childOf(child);
 
     const term = w.getTerm({ parent: Position });
     expect(term.has(parent)).toBe(false);

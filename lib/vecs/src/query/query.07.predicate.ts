@@ -6,7 +6,7 @@ import {
   type FanInjectTuple,
   type MaybeResolvedInjectTuple,
 } from "../inject.js";
-import { ChildOf, SilenceSource } from "../modules/relationships.js";
+import { SilenceSource } from "../modules/relationships.js";
 import { _getGroupedQueryCtor } from "./query.00.base.js";
 import { Sort } from "./query.06.sort.js";
 import type { GroupedQuery, Query } from "./query.js";
@@ -42,7 +42,7 @@ export class Predicate<R extends ComponentType[] = []> extends Sort<R> {
 
   private _buildSilenceQuery(dsl: QueryDSL): Query {
     const q = this.world.query(`${this.name}:silence`).query(dsl);
-    q.entity.set(ChildOf, { target: this.entity });
+    q.entity.childOf(this.entity);
     return q;
   }
 

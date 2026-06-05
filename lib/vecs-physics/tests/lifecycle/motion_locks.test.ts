@@ -3,7 +3,7 @@
 // Verifies that MotionLocks and Body.allowFastRotation are correctly
 // propagated into the WASM body and honored by the integrator.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -122,7 +122,7 @@ describe("integrator honours MotionLocks", () => {
       .set(Position, { x: 0, y: 5 })
       .set(LinearVelocity, { x: 0, y: 0 })
       .set(MotionLocks, { x: false, y: true, rotation: false });
-    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 1, hy: 1 });
+    world.entity().childOf(e).set(Box, { hx: 1, hy: 1 });
 
     step(10);
 
@@ -140,7 +140,7 @@ describe("integrator honours MotionLocks", () => {
       .set(Position, { x: 0, y: 5 })
       .set(LinearVelocity, { x: 5, y: 0 }) // initial horizontal velocity
       .set(MotionLocks, { x: true, y: false, rotation: false });
-    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 1, hy: 1 });
+    world.entity().childOf(e).set(Box, { hx: 1, hy: 1 });
 
     step(10);
 
@@ -156,7 +156,7 @@ describe("integrator honours MotionLocks", () => {
       .set(Position, { x: 0, y: 5 })
       .set(AngularVelocity, { value: 5 }) // initial angular velocity
       .set(MotionLocks, { x: false, y: false, rotation: true });
-    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 1, hy: 1 });
+    world.entity().childOf(e).set(Box, { hx: 1, hy: 1 });
 
     step(10);
 

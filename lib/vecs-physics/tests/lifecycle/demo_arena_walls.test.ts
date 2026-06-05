@@ -1,4 +1,4 @@
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -28,7 +28,7 @@ describe("demo arena walls", () => {
     });
     world
       .entity()
-      .set(ChildOf, { target: walls })
+      .childOf(walls)
       .set(Chain, {
         points: [
           { x: WIDTH, y: 0 },
@@ -47,7 +47,7 @@ describe("demo arena walls", () => {
       .set(LinearVelocity, { x: 1.2, y: -1.0 });
     world
       .entity()
-      .set(ChildOf, { target: ball })
+      .childOf(ball)
       .set(Circle, { radius: RADIUS })
       .set(Material, { friction: 0.6, restitution: 0.7 });
 

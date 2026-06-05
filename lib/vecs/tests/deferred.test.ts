@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ChildOf, CleanupPolicy, World } from "../src/index.js";
+import { CleanupPolicy, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -274,7 +274,7 @@ describe("Deferred mode — parent destruction", () => {
     const parent = w.entity();
     parentEid = parent.eid;
     const child = w.entity();
-    child.set(ChildOf, { target: parent });
+    child.childOf(parent);
     child.add(Position);
     tick(); // settle enter
     parent.destroy();

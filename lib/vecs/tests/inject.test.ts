@@ -592,7 +592,7 @@ describe("Iter cursor", () => {
         });
       w.start();
       const parent = w.entity().add(Position);
-      w.entity().set(ChildOf, { target: parent });
+      w.entity().childOf(parent);
       w.progress(0, 0);
       expect(srcs).toEqual([parent]);
     });

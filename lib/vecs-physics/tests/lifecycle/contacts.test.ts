@@ -3,7 +3,7 @@
 // (per PLAN: "assert geometric properties for longer runs"), not exact
 // transforms — the HelloWorld parity gate pins the exact resting transform.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -35,13 +35,13 @@ function makeGround(): void {
     .entity()
     .set(Body, { type: BodyType.Static })
     .set(Position, { x: 0, y: -10 });
-  world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 20 });
+  world.entity().childOf(ground).set(Box, { width: 100, height: 20 });
 }
 
 /** A dynamic unit box (half-extents 1×1) at `(x, y)` with the given material. */
 function makeBox(x: number, y: number, mat?: { density?: number; restitution?: number }) {
   const e = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x, y });
-  const shape = world.entity().set(ChildOf, { target: e }).set(Box, { width: 2, height: 2 });
+  const shape = world.entity().childOf(e).set(Box, { width: 2, height: 2 });
   if (mat) {
     shape.set(Material, { density: mat.density ?? 1, restitution: mat.restitution ?? 0 });
   }

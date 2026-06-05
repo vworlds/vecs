@@ -2,7 +2,7 @@
 // Also compares the old linear-scan reverse-id resolution with the M7-13
 // index-keyed map lookup using the same live b2BodyId values.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 
 import {
   Body,
@@ -45,11 +45,7 @@ export function runManyMovers(): {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x, y })
       .set(LinearVelocity, { x: speed, y: 0.25 });
-    world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Box, { hx: 0.1, hy: 0.1 })
-      .set(Material, { density: 1 });
+    world.entity().childOf(body).set(Box, { hx: 0.1, hy: 0.1 }).set(Material, { density: 1 });
   }
 
   world.progress(DT_MS, DT_MS);

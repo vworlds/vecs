@@ -17,7 +17,7 @@
 //   8. Silent impulse zeroing: Impulse is {x:0,y:0} after step, no update fired.
 //   9. AngularImpulse accumulation + silent zero.
 
-import { ChildOf, type Entity, World } from "@vworlds/vecs";
+import { type Entity, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -57,7 +57,7 @@ function step(world: World, n: number, now: number): number {
 }
 
 function attachUnitBox(world: World, body: Entity): void {
-  world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+  world.entity().childOf(body).set(Box, { hx: 0.5, hy: 0.5 });
 }
 
 // ─── 1. Force persistence ─────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ describe("PhysicsForceGather — force on child entity", () => {
     now = step(world, 1, now);
 
     // Force component lives on a child entity (not the body entity itself).
-    const childE = world.entity().set(ChildOf, { target: bodyE }).set(Force, { x: 5, y: 0 });
+    const childE = world.entity().childOf(bodyE).set(Force, { x: 5, y: 0 });
 
     // The child force is resolved to the parent body each step.
     now = step(world, 1, now);
@@ -159,8 +159,8 @@ describe("PhysicsForceGather — force on child entity", () => {
     now = step(world, 1, now);
 
     // Two separate child entities each carrying a Force.
-    world.entity().set(ChildOf, { target: bodyE }).set(Force, { x: 3, y: 0 });
-    world.entity().set(ChildOf, { target: bodyE }).set(Force, { x: 7, y: 0 });
+    world.entity().childOf(bodyE).set(Force, { x: 3, y: 0 });
+    world.entity().childOf(bodyE).set(Force, { x: 7, y: 0 });
 
     now = step(world, 1, now);
     // 3 + 7 = 10 N → vx = 10·DT
@@ -183,8 +183,8 @@ describe("PhysicsForceGather — immediate-parent rule", () => {
       .set(LinearVelocity, { x: 0, y: 0 });
     attachUnitBox(world, bodyE);
 
-    const childE = world.entity().set(ChildOf, { target: bodyE });
-    world.entity().set(ChildOf, { target: childE }).set(Force, { x: 999, y: 0 });
+    const childE = world.entity().childOf(bodyE);
+    world.entity().childOf(childE).set(Force, { x: 999, y: 0 });
 
     now = step(world, 1, now);
     now = step(world, 1, now);
@@ -262,7 +262,7 @@ describe("PhysicsImpulseAccumulate — accumulation", () => {
     now = step(world, 1, now);
 
     // Impulse on a child entity.
-    const childE = world.entity().set(ChildOf, { target: bodyE }).set(Impulse, { x: 5, y: 0 });
+    const childE = world.entity().childOf(bodyE).set(Impulse, { x: 5, y: 0 });
 
     now = step(world, 1, now);
     expect(bodyE.get(LinearVelocity)!.x).toBeCloseTo(5, 5);

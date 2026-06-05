@@ -376,8 +376,8 @@ describe("Entity — lifecycle and relationships", () => {
     const parent = env.w.entity();
     const child = env.w.entity();
     const grandchild = env.w.entity();
-    child.set(ChildOf, { target: parent });
-    grandchild.set(ChildOf, { target: child });
+    child.childOf(parent);
+    grandchild.childOf(child);
 
     const childDestroyed = vi.fn();
     child.events.on("destroy", childDestroyed);
@@ -492,7 +492,7 @@ describe("Entity — relationship navigation", () => {
     const w = new World();
     const parent = w.entity();
     const child = w.entity();
-    child.set(ChildOf, { target: parent });
+    expect(child.childOf(parent)).toBe(child);
     expect(child.parent(ChildOf)).toBe(parent);
     expect(parent.children(ChildOf).has(child)).toBe(true);
   });
@@ -501,19 +501,19 @@ describe("Entity — relationship navigation", () => {
     const w = new World();
     const parent = w.entity();
     const child = w.entity();
-    child.set(ChildOf, { target: parent });
+    child.childOf(parent);
     child.remove(ChildOf);
     expect(child.parent(ChildOf)).toBeUndefined();
     expect(parent.children(ChildOf).has(child)).toBe(false);
   });
 
-  it("set(ChildOf) moves child from old parent to new parent", () => {
+  it("childOf moves child from old parent to new parent", () => {
     const w = new World();
     const p1 = w.entity();
     const p2 = w.entity();
     const child = w.entity();
-    child.set(ChildOf, { target: p1 });
-    child.set(ChildOf, { target: p2 });
+    child.childOf(p1);
+    child.childOf(p2);
     expect(child.parent(ChildOf)).toBe(p2);
     expect(p1.children(ChildOf).has(child)).toBe(false);
     expect(p2.children(ChildOf).has(child)).toBe(true);
@@ -523,7 +523,7 @@ describe("Entity — relationship navigation", () => {
     const w = new World();
     const p1 = w.entity();
     const p2 = w.entity();
-    const child = w.entity().set(ChildOf, { target: p1 });
+    const child = w.entity().childOf(p1);
     const mutate = vi.fn((rel: ChildOf) => {
       rel.target = p2;
     });
@@ -539,18 +539,18 @@ describe("Entity — relationship navigation", () => {
   it("source destroy cleans the target's incoming set", () => {
     const w = new World();
     const parent = w.entity();
-    const child = w.entity().set(ChildOf, { target: parent });
+    const child = w.entity().childOf(parent);
     child.destroy();
     expect(parent.children(ChildOf).has(child)).toBe(false);
   });
 
-  it("set(ChildOf) in deferred mode is not visible until queue drains", () => {
+  it("childOf in deferred mode is not visible until queue drains", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
     const parent = env.w.entity();
     const child = env.w.entity();
     env.w.beginDefer();
-    child.set(ChildOf, { target: parent });
+    child.childOf(parent);
     expect(child.parent(ChildOf)).toBeUndefined();
     expect(parent.children(ChildOf).has(child)).toBe(false);
     env.w.endDefer();

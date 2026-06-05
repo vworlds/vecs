@@ -13,7 +13,7 @@
 //   - array-clearing: HitEvents.hits cleared when no event fires this step (silent)
 //   - both shapes with HitEvents each get the event with correct `other`
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -63,7 +63,7 @@ describe("hit event opt-in", () => {
       .set(Position, { x: 0, y: 0 });
     const wallShape = world
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -73,7 +73,7 @@ describe("hit event opt-in", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 3, y: 0 })
       .set(LinearVelocity, { x: -10, y: 0 });
-    world.entity().set(ChildOf, { target: movingBody }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(movingBody).set(Box, { width: 2, height: 2 });
 
     // Run until first contact.
     let hitEventFound = false;
@@ -96,14 +96,14 @@ describe("hit event opt-in", () => {
       .entity()
       .set(Body, { type: BodyType.Static })
       .set(Position, { x: 0, y: 0 });
-    world.entity().set(ChildOf, { target: wallBody }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(wallBody).set(Box, { width: 2, height: 2 });
 
     const movingBody = world
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 3, y: 0 })
       .set(LinearVelocity, { x: -10, y: 0 });
-    world.entity().set(ChildOf, { target: movingBody }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(movingBody).set(Box, { width: 2, height: 2 });
 
     // Run enough steps to cover the impact — no HitEvents to check, just ensure
     // nothing crashes and no spurious component is written.
@@ -123,7 +123,7 @@ describe("hit event opt-in", () => {
       .entity()
       .set(Body, { type: BodyType.Static })
       .set(Position, { x: 0, y: 0 });
-    world.entity().set(ChildOf, { target: wallBody }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(wallBody).set(Box, { width: 2, height: 2 });
 
     // Moving body — has HitEvents.
     const movingBody = world
@@ -133,7 +133,7 @@ describe("hit event opt-in", () => {
       .set(LinearVelocity, { x: -10, y: 0 });
     const movingShape = world
       .entity()
-      .set(ChildOf, { target: movingBody })
+      .childOf(movingBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -163,7 +163,7 @@ describe("hit event threshold", () => {
       .set(Position, { x: 0, y: 0 });
     const wallShape = world
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -172,7 +172,7 @@ describe("hit event threshold", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 3, y: 0 })
       .set(LinearVelocity, { x: -10, y: 0 });
-    world.entity().set(ChildOf, { target: movingBody }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(movingBody).set(Box, { width: 2, height: 2 });
 
     let hitEventFound = false;
     for (let i = 0; i < 200; i++) {
@@ -202,7 +202,7 @@ describe("hit event threshold", () => {
       .set(Position, { x: 0, y: 0 });
     const groundShape = world
       .entity()
-      .set(ChildOf, { target: groundBody })
+      .childOf(groundBody)
       .set(Box, { width: 20, height: 0.2 })
       .add(HitEvents);
 
@@ -211,7 +211,7 @@ describe("hit event threshold", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.6 });
-    world.entity().set(ChildOf, { target: fallingBody }).set(Box, { width: 1, height: 1 });
+    world.entity().childOf(fallingBody).set(Box, { width: 1, height: 1 });
 
     let hitEventFound = false;
     for (let i = 0; i < 60; i++) {
@@ -236,7 +236,7 @@ describe("hit event threshold", () => {
       .set(Position, { x: 0, y: 0 });
     const wallShape = world
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -245,7 +245,7 @@ describe("hit event threshold", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 3, y: 0 })
       .set(LinearVelocity, { x: -10, y: 0 });
-    world.entity().set(ChildOf, { target: movingBody }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(movingBody).set(Box, { width: 2, height: 2 });
 
     for (let i = 0; i < 200; i++) {
       step(world);
@@ -272,7 +272,7 @@ describe("hit event payload", () => {
       .set(Position, { x: 0, y: 0 });
     const wallShape = world
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -281,7 +281,7 @@ describe("hit event payload", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 3, y: 0 })
       .set(LinearVelocity, { x: -10, y: 0 });
-    world.entity().set(ChildOf, { target: movingBody }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(movingBody).set(Box, { width: 2, height: 2 });
 
     for (let i = 0; i < 200; i++) {
       step(world);
@@ -309,7 +309,7 @@ describe("hit event payload", () => {
       .set(Position, { x: 0, y: 0 });
     const wallShape = world
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -318,7 +318,7 @@ describe("hit event payload", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 3, y: 0 })
       .set(LinearVelocity, { x: -10, y: 0 });
-    world.entity().set(ChildOf, { target: movingBody }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(movingBody).set(Box, { width: 2, height: 2 });
 
     for (let i = 0; i < 200; i++) {
       step(world);
@@ -346,7 +346,7 @@ describe("hit event payload", () => {
       .set(Position, { x: 0, y: 0 });
     const wallShape = world
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -355,10 +355,7 @@ describe("hit event payload", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 3, y: 0 })
       .set(LinearVelocity, { x: -10, y: 0 });
-    const movingShape = world
-      .entity()
-      .set(ChildOf, { target: movingBody })
-      .set(Box, { width: 2, height: 2 });
+    const movingShape = world.entity().childOf(movingBody).set(Box, { width: 2, height: 2 });
 
     for (let i = 0; i < 200; i++) {
       step(world);
@@ -386,7 +383,7 @@ describe("both shapes receive HitEvents when both opt in", () => {
       .set(Position, { x: 0, y: 0 });
     const wallShape = world
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -397,7 +394,7 @@ describe("both shapes receive HitEvents when both opt in", () => {
       .set(LinearVelocity, { x: -10, y: 0 });
     const movingShape = world
       .entity()
-      .set(ChildOf, { target: movingBody })
+      .childOf(movingBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -431,7 +428,7 @@ describe("HitEvents.hits cleared silently when no events", () => {
       .set(Position, { x: 0, y: 0 });
     const wallShape = world
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -440,7 +437,7 @@ describe("HitEvents.hits cleared silently when no events", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 3, y: 0 })
       .set(LinearVelocity, { x: -10, y: 0 });
-    world.entity().set(ChildOf, { target: movingBody }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(movingBody).set(Box, { width: 2, height: 2 });
 
     // Run until first hit event.
     let hitStep = -1;

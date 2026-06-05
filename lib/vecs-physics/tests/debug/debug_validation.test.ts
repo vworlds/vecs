@@ -19,7 +19,7 @@
 //   Test sink: uses the injectable WarnSink on WarnDedupe (via PhysicsOptions.debugSink)
 //   instead of spying on console.warn.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -98,7 +98,7 @@ describe("shape-without-parent-body", () => {
 
   it("warns once when the immediate parent lacks Body", () => {
     const container = world.entity();
-    world.entity().set(ChildOf, { target: container }).set(Box, { hx: 0.5, hy: 0.5 });
+    world.entity().childOf(container).set(Box, { hx: 0.5, hy: 0.5 });
     step();
     expect(messages.filter((m) => m.includes("shape-without-parent-body"))).toHaveLength(1);
   });
@@ -145,14 +145,14 @@ describe("shape-without-parent-body", () => {
 
     // Fix: give the shape a proper Body parent.
     const bodyEnt = world.entity().set(Body, { type: BodyType.Static });
-    shape.set(ChildOf, { target: bodyEnt });
+    shape.childOf(bodyEnt);
 
     step(5); // Should not warn now.
     expect(messages.filter((m) => m.includes("shape-without-parent-body"))).toHaveLength(1); // still only 1
 
     // Re-break: move to a non-body parent.
     const container = world.entity();
-    shape.set(ChildOf, { target: container });
+    shape.childOf(container);
 
     step(); // Should warn again now that the structure is bad again.
     expect(messages.filter((m) => m.includes("shape-without-parent-body"))).toHaveLength(2);
@@ -170,22 +170,14 @@ describe("dynamic-body-without-density", () => {
 
   it("warns when all non-sensor shapes have density 0", () => {
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
-    world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Box, { hx: 0.5, hy: 0.5 })
-      .set(Material, { density: 0 });
+    world.entity().childOf(body).set(Box, { hx: 0.5, hy: 0.5 }).set(Material, { density: 0 });
     step();
     expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(1);
   });
 
   it("dedupes when the WASM mass check and structural check both fire in one step", () => {
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
-    world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Box, { hx: 0.5, hy: 0.5 })
-      .set(Material, { density: 0 });
+    world.entity().childOf(body).set(Box, { hx: 0.5, hy: 0.5 }).set(Material, { density: 0 });
 
     step();
 
@@ -194,18 +186,14 @@ describe("dynamic-body-without-density", () => {
 
   it("does NOT warn when default Material (density 1) is used", () => {
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
-    world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+    world.entity().childOf(body).set(Box, { hx: 0.5, hy: 0.5 });
     step();
     expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(0);
   });
 
   it("does NOT warn when a non-sensor shape has explicit positive density", () => {
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
-    world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Box, { hx: 0.5, hy: 0.5 })
-      .set(Material, { density: 2 });
+    world.entity().childOf(body).set(Box, { hx: 0.5, hy: 0.5 }).set(Material, { density: 2 });
     step();
     expect(messages.filter((m) => m.includes("dynamic-body-without-density"))).toHaveLength(0);
   });
@@ -228,7 +216,7 @@ describe("dynamic-body-without-density", () => {
     // (b2UpdateBodyMassData skips only density === 0, not isSensor shapes).
     world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Circle, { radius: 0.5 })
       .add(Sensor)
       .set(Material, { density: 1 });
@@ -240,7 +228,7 @@ describe("dynamic-body-without-density", () => {
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
     world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Circle, { radius: 0.5 })
       .add(Sensor)
       .set(Material, { density: 0 });
@@ -252,7 +240,7 @@ describe("dynamic-body-without-density", () => {
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { hx: 0.5, hy: 0.5 })
       .set(Material, { density: 0 });
     step(); // density 0 → warns once
@@ -579,7 +567,7 @@ describe("shape-position-on-body", () => {
     const body = world.entity().set(Body, { type: BodyType.Static });
     world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { hx: 0.5, hy: 0.5 })
       .set(ShapePosition, { x: 0, y: -0.25 });
     step();

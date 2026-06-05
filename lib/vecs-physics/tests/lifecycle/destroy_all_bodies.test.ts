@@ -3,7 +3,7 @@
 // Builds bodies and shapes, lets contacts form, destroys every shape/body in one
 // frame, and verifies the WASM world is still valid with no registered entities.
 
-import { type Entity, ChildOf, World } from "@vworlds/vecs";
+import { type Entity, World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Material, Position, installPhysics } from "../../src/index.js";
@@ -52,7 +52,7 @@ function makeContactingWorld(world: World): { bodies: Entity[]; shapes: Entity[]
     .set(Position, { x: 0, y: -10 });
   const groundShape = world
     .entity()
-    .set(ChildOf, { target: ground })
+    .childOf(ground)
     .set(Box, { hx: 50, hy: 10 })
     .set(Material, { friction: 0.6, density: 0 });
   bodies.push(ground);
@@ -65,7 +65,7 @@ function makeContactingWorld(world: World): { bodies: Entity[]; shapes: Entity[]
       .set(Position, { x: i * 1.5 - 5.25, y: 0.5 });
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { hx: 0.75, hy: 0.75 })
       .set(Material, { density: 1, friction: 0.3 });
     bodies.push(body);

@@ -695,10 +695,10 @@ describe("Query — sort", () => {
     w.component(Tag);
     const rootA = w.entity("rootA").add(Tag);
     const rootB = w.entity("rootB").add(Tag);
-    const childA1 = w.entity("childA1").add(Tag).set(ChildOf, { target: rootA });
-    const childA2 = w.entity("childA2").add(Tag).set(ChildOf, { target: rootA });
-    const childB1 = w.entity("childB1").add(Tag).set(ChildOf, { target: rootB });
-    const grandchild = w.entity("grandchild").add(Tag).set(ChildOf, { target: childB1 });
+    const childA1 = w.entity("childA1").add(Tag).childOf(rootA);
+    const childA2 = w.entity("childA2").add(Tag).childOf(rootA);
+    const childB1 = w.entity("childB1").add(Tag).childOf(rootB);
+    const grandchild = w.entity("grandchild").add(Tag).childOf(childB1);
     const q = w.query("test").requires(Tag).cascade(ChildOf);
 
     w.start();
@@ -711,9 +711,9 @@ describe("Query — sort", () => {
     const { w, tick } = setup();
     w.component(Tag);
     const root = w.entity("root").add(Tag);
-    const alpha = w.entity("alpha").add(Tag).set(ChildOf, { target: root });
-    const gamma = w.entity("gamma").add(Tag).set(ChildOf, { target: root });
-    const beta = w.entity("beta").add(Tag).set(ChildOf, { target: root });
+    const alpha = w.entity("alpha").add(Tag).childOf(root);
+    const gamma = w.entity("gamma").add(Tag).childOf(root);
+    const beta = w.entity("beta").add(Tag).childOf(root);
     const q = w
       .query("test")
       .requires(Tag)
@@ -729,9 +729,9 @@ describe("Query — sort", () => {
     const { w, tick } = setup();
     w.component(Tag);
     const milkyWay = w.entity("Milky Way").add(Tag);
-    const solarSystem = w.entity("Solar System").add(Tag).set(ChildOf, { target: milkyWay });
-    const earth = w.entity("Earth").add(Tag).set(ChildOf, { target: solarSystem });
-    const moon = w.entity("Moon").add(Tag).set(ChildOf, { target: earth });
+    const solarSystem = w.entity("Solar System").add(Tag).childOf(milkyWay);
+    const earth = w.entity("Earth").add(Tag).childOf(solarSystem);
+    const moon = w.entity("Moon").add(Tag).childOf(earth);
     const q = w
       .query("test")
       .requires(Tag)
@@ -742,7 +742,7 @@ describe("Query — sort", () => {
 
     expect([...q]).toEqual([milkyWay, solarSystem, earth, moon]);
 
-    const jupiter = w.entity("Jupiter").set(ChildOf, { target: solarSystem }).add(Tag);
+    const jupiter = w.entity("Jupiter").childOf(solarSystem).add(Tag);
     tick();
 
     expect([...q]).toEqual([milkyWay, solarSystem, earth, jupiter, moon]);
@@ -786,39 +786,41 @@ describe("Query — sort", () => {
       .set(Position, { x: 0, y: 0 });
     const solarSystem = w
       .entity("Solar System")
-      .set(ChildOf, { target: milkyWay })
+      .childOf(milkyWay)
       .set(LocalPosition, { x: 26000, y: 0 })
       .set(Position, { x: 0, y: 0 });
     const earth = w
       .entity("Earth")
-      .set(ChildOf, { target: solarSystem })
+      .childOf(solarSystem)
       .set(LocalPosition, { x: 150, y: 0 })
       .set(Position, { x: 0, y: 0 });
     const jupiter = w
       .entity("Jupiter")
-      .set(ChildOf, { target: solarSystem })
+      .childOf(solarSystem)
       .set(LocalPosition, { x: 778, y: 0 })
       .set(Position, { x: 0, y: 0 });
     const moon = w
       .entity("Moon")
-      .set(ChildOf, { target: earth })
+      .childOf(earth)
       .set(LocalPosition, { x: 0.384, y: 0 })
       .set(Position, { x: 0, y: 0 });
     const iss = w
       .entity("ISS")
-      .set(ChildOf, { target: earth })
+      .childOf(earth)
       .set(LocalPosition, { x: 0.0004, y: 0 })
       .set(Position, { x: 0, y: 0 });
 
     tick();
 
     const visited: string[] = [];
-    q.forEach([LocalPosition, Position, { target: [ChildOf, [Position]] }], (_entity, tuple) => {
-      const [local, position, parentPosition] = tuple;
-      visited.push(_entity.name!);
-      position.x = (parentPosition?.x ?? 0) + local.x;
-      position.y = (parentPosition?.y ?? 0) + local.y;
-    });
+    q.forEach(
+      [LocalPosition, Position, { target: [ChildOf, [Position]] }],
+      (e, [local, position, parentPosition]) => {
+        visited.push(e.name!);
+        position.x = (parentPosition?.x ?? 0) + local.x;
+        position.y = (parentPosition?.y ?? 0) + local.y;
+      }
+    );
 
     expect(visited).toEqual(["Milky Way", "Solar System", "Earth", "Jupiter", "Moon", "ISS"]);
     expect(milkyWay.get(Position)).toMatchObject({ x: 10000, y: 20000 });
@@ -835,12 +837,12 @@ describe("Query — sort", () => {
     const { w, tick } = setup();
     w.component(Tag);
     const milkyWay = w.entity("Milky Way").add(Tag);
-    const solarSystem = w.entity("Solar System").add(Tag).set(ChildOf, { target: milkyWay });
-    const earth = w.entity("Earth").add(Tag).set(ChildOf, { target: solarSystem });
-    const jupiter = w.entity("Jupiter").add(Tag).set(ChildOf, { target: solarSystem });
-    const moon = w.entity("Moon").add(Tag).set(ChildOf, { target: earth });
-    const iss = w.entity("ISS").add(Tag).set(ChildOf, { target: earth });
-    const crewDragon = w.entity("Crew Dragon").add(Tag).set(ChildOf, { target: iss });
+    const solarSystem = w.entity("Solar System").add(Tag).childOf(milkyWay);
+    const earth = w.entity("Earth").add(Tag).childOf(solarSystem);
+    const jupiter = w.entity("Jupiter").add(Tag).childOf(solarSystem);
+    const moon = w.entity("Moon").add(Tag).childOf(earth);
+    const iss = w.entity("ISS").add(Tag).childOf(earth);
+    const crewDragon = w.entity("Crew Dragon").add(Tag).childOf(iss);
     const q = w
       .query("test")
       .requires(Tag)
@@ -851,7 +853,7 @@ describe("Query — sort", () => {
 
     expect([...q]).toEqual([milkyWay, solarSystem, earth, jupiter, iss, moon, crewDragon]);
 
-    iss.set(ChildOf, { target: moon });
+    iss.childOf(moon);
     tick();
 
     expect([...q]).toEqual([milkyWay, solarSystem, earth, jupiter, moon, iss, crewDragon]);

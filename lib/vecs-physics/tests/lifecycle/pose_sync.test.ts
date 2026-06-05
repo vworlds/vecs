@@ -1,4 +1,4 @@
-import { ChildOf, Entity, World } from "@vworlds/vecs";
+import { Entity, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -158,7 +158,7 @@ describe("PhysicsPoseSyncOut (engine -> user)", () => {
 describe("body transform updates attached shapes", () => {
   it("Position teleport moves the attached shape AABB without recreating the shape", () => {
     const body = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
-    const shape = world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+    const shape = world.entity().childOf(body).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
     const shapeId = state.shapeByEntityWasm.get(shape.eid);
 

@@ -1,6 +1,6 @@
 // See docs/events.md for the full sensor event model.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import {
   Body,
   BodyType,
@@ -30,7 +30,7 @@ world.start();
 const zoneBody = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
 const zoneShape = world
   .entity()
-  .set(ChildOf, { target: zoneBody })
+  .childOf(zoneBody)
   .set(Box, { hx: 1, hy: 1 })
   .add(Sensor)
   .add(SensorEvents);
@@ -41,11 +41,7 @@ const mover = world
   .set(Position, { x: -3, y: 0 })
   .set(LinearVelocity, { x: 3, y: 0 })
   .set(Tint, { value: "blue" });
-const moverShape = world
-  .entity()
-  .set(ChildOf, { target: mover })
-  .set(Circle, { radius: 0.25 })
-  .add(SensorEvents);
+const moverShape = world.entity().childOf(mover).set(Circle, { radius: 0.25 }).add(SensorEvents);
 
 let now = 0;
 

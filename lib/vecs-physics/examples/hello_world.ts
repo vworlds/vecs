@@ -1,6 +1,6 @@
 // See docs/getting-started.md for setup and the full falling-box walkthrough.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import {
   Body,
   BodyType,
@@ -21,7 +21,7 @@ installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 60, subSte
 world.start();
 
 const ground = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -1 });
-world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 2 });
+world.entity().childOf(ground).set(Box, { width: 100, height: 2 });
 
 const box = world
   .entity()
@@ -30,7 +30,7 @@ const box = world
   .add(LinearVelocity);
 world
   .entity()
-  .set(ChildOf, { target: box })
+  .childOf(box)
   .set(Box, { width: 1, height: 1 })
   .set(Material, { density: 1, friction: 0.3 });
 

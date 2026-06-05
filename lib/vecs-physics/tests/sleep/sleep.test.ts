@@ -1,4 +1,4 @@
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Position, Sleep, installPhysics } from "../../src/index.js";
@@ -32,7 +32,7 @@ function createDynamicBox(world: World, sleep?: Partial<Sleep>) {
   if (sleep !== undefined) {
     body.set(Sleep, sleep);
   }
-  world.entity().set(ChildOf, { target: body }).set(Box, { width: 1, height: 1 });
+  world.entity().childOf(body).set(Box, { width: 1, height: 1 });
   return body;
 }
 

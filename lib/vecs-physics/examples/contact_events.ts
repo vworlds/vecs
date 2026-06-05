@@ -1,6 +1,6 @@
 // See docs/events.md for contact begin/end events.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import {
   Body,
   BodyType,
@@ -23,14 +23,14 @@ world.start();
 const ground = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -0.5 });
 const groundShape = world
   .entity()
-  .set(ChildOf, { target: ground })
+  .childOf(ground)
   .set(Box, { width: 8, height: 1 })
   .add(ContactEvents);
 
 const lower = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x: 0, y: 1.2 });
 const lowerShape = world
   .entity()
-  .set(ChildOf, { target: lower })
+  .childOf(lower)
   .set(Box, { width: 1, height: 1 })
   .set(Material, { density: 1, friction: 0.6 })
   .add(ContactEvents);
@@ -38,7 +38,7 @@ const lowerShape = world
 const upper = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x: 0, y: 2.4 });
 const upperShape = world
   .entity()
-  .set(ChildOf, { target: upper })
+  .childOf(upper)
   .set(Box, { width: 1, height: 1 })
   .set(Material, { density: 1, friction: 0.6 })
   .add(ContactEvents);

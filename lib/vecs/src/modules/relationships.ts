@@ -1,39 +1,9 @@
-import { CleanupPolicy, Relationship } from "../component_meta.js";
+import { CleanupPolicy } from "../component_meta.js";
 import { type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
+import { ChildOf, Traversable } from "./relationship_types.js";
 
-/** Built-in parent-child relationship. */
-export class ChildOf extends Relationship {}
-
-/**
- * Built-in relationship marking a feedback **silence domain** for a query
- * or system.
- *
- * When a query carries a `SilenceSource` pointing at a query entity, it
- * ignores `update` notifications whose originating entity (the system
- * that wrote the component) is a member of that query. Configure it through
- * {@link Query.ignoreSource}.
- */
-export class SilenceSource extends Relationship {}
-
-/**
- * Marker component used to tag a relationship component as traversable.
- *
- * Attach to a relationship-component entity (e.g. `ChildOf`) to enable
- * automatic depth tracking: every entity carrying the tagged relationship
- * gets a depth entry whose value is the number of hops to the nearest root
- * (zero for roots).
- *
- * ```ts
- * world.component(ChildOf).add(Traversable);
- * ```
- *
- * The depth map is maintained reactively by {@link RelationshipsModule}.
- */
-export class Traversable {
-  /** Entity → depth (hops to root, 0-based). */
-  depths = new Map<Entity, number>();
-}
+export { ChildOf, SilenceSource, Traversable } from "./relationship_types.js";
 
 /**
  * Built-in world module that registers the `ChildOf` relationship and

@@ -5,7 +5,7 @@
 //
 // Upstream source: box2d/test/test_world.c::DeferredMassFlagSyncTest
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { Body, BodyType, Circle, Sensor, installPhysics } from "../../src/index.js";
@@ -36,7 +36,7 @@ describe("DeferredMassFlagSyncTest (golden from box2d/test/test_world.c)", () =>
     expect(state.box2d.b2Body_GetMass(bodyId)).toBe(0);
 
     // Add a circle shape (r=0.5) as a child.
-    world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 0.5 });
+    world.entity().childOf(bodyEnt).set(Circle, { radius: 0.5 });
 
     // Frame 2: shape creation updates Box2D mass immediately.
     world.progress(16, 16);
@@ -57,7 +57,7 @@ describe("PhysicsMassRecompute", () => {
   it("clears dirtyMassBodies and writes mass after explicit recompute", () => {
     const state = getPhysics(world);
     const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
-    const shapeEnt = world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 });
+    const shapeEnt = world.entity().childOf(bodyEnt).set(Circle, { radius: 1 });
 
     world.progress(0, 16);
     const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
@@ -78,7 +78,7 @@ describe("PhysicsMassRecompute", () => {
   it("does not explicitly recompute mass for body without dirtyMassBodies", () => {
     const state = getPhysics(world);
     const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
-    const shapeEnt = world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 });
+    const shapeEnt = world.entity().childOf(bodyEnt).set(Circle, { radius: 1 });
 
     world.progress(0, 16);
     const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
@@ -96,7 +96,7 @@ describe("PhysicsMassRecompute", () => {
   it("static body: invMass stays 0 even with shapes", () => {
     const state = getPhysics(world);
     const bodyEnt = world.entity().set(Body, { type: BodyType.Static });
-    world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 });
+    world.entity().childOf(bodyEnt).set(Circle, { radius: 1 });
 
     world.progress(0, 16);
     const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
@@ -119,7 +119,7 @@ describe("PhysicsMassRecompute", () => {
   it("removing a shape re-marks massDirty and triggers recompute on next step", () => {
     const state = getPhysics(world);
     const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
-    const shapeEnt = world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 });
+    const shapeEnt = world.entity().childOf(bodyEnt).set(Circle, { radius: 1 });
 
     // Frame 1: shape created, mass computed.
     world.progress(0, 16);
@@ -144,7 +144,7 @@ describe("PhysicsMassRecompute", () => {
     // Before this fix the port skipped sensors, giving invMass=0 (infinite mass).
     const state = getPhysics(world);
     const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
-    world.entity().set(ChildOf, { target: bodyEnt }).set(Circle, { radius: 1 }).add(Sensor);
+    world.entity().childOf(bodyEnt).set(Circle, { radius: 1 }).add(Sensor);
 
     world.progress(0, 16);
 
