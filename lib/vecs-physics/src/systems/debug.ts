@@ -38,7 +38,7 @@
 //   - Does NOT modify any engine state — read-only pass.
 //
 // Upstream docs: docs/debug-validation.md.
-// Re-uses: validateHull / computeHull from engine/geometry.ts.
+// Polygon validity is checked via b2ComputeHull (box2d3-wasm); see isValidPolygon.
 
 import {
   ChildOf,
