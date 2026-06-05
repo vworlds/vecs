@@ -54,11 +54,10 @@ export class RelationshipsModule extends Module {
     world.component(ChildOf).ownMeta.onDeleteTarget = CleanupPolicy.Delete;
     world.component(Traversable);
 
-    world.component(Traversable).onAdd((target: Entity, traversable: Traversable): void => {
-      const relMeta = target.ownMeta!;
-      const relEid = relMeta.eid;
+    world.component(Traversable).onAdd((rel: Entity, traversable: Traversable): void => {
+      const relEid = rel.eid;
 
-      relMeta
+      rel
         .onAdd((entity: Entity) => {
           this._cascadeUpdate(entity, relEid, traversable);
         })
@@ -116,7 +115,7 @@ export class RelationshipsModule extends Module {
 
     visited.add(entity);
 
-    const parent = entity._parent(relEid);
+    const parent = entity.parent(relEid);
     if (!parent) {
       return 0;
     }

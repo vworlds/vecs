@@ -11,28 +11,14 @@ import { Queries } from "./entity.queries.js";
 
 export class Relationships extends Queries {
   /** Return this entity's target through relationship `ref`, if present. */
-  public parent(ref: ComponentRef): Entity | undefined {
-    return this._parent(this.world.entity(ref).eid);
-  }
-
-  /**
-   * @internal Fast parent lookup by relationship eid — skips ref → eid
-   * resolution. Used by the depth tracker and sort comparators.
-   */
-  public _parent(relEid: number): Entity | undefined {
+  public parent(rel: ComponentRef): Entity | undefined {
+    const relEid = typeof rel === "number" ? rel : this.world.entity(rel).eid;
     return (this._components.get(relEid) as Relationship | undefined)?.target;
   }
 
   /** Return entities targeting this one through relationship `ref`. */
   public children(ref: ComponentRef): ReadonlySet<Entity> {
-    return this._children(this.world.entity(ref).eid);
-  }
-
-  /**
-   * @internal Fast child set lookup by relationship eid — skips ref → eid
-   * resolution. Used by the `source` predicate and fan-out invoker.
-   */
-  public _children(relEid: number): ReadonlySet<Entity> {
+    const relEid = typeof ref === "number" ? ref : this.world.entity(ref).eid;
     return this._incoming?.get(relEid) ?? Relationships._emptyIncoming;
   }
 

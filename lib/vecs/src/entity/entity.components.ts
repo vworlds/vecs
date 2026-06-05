@@ -418,4 +418,19 @@ export class Components extends Relationships {
       this.world._notifyComponentAdded(meta.eid, this as unknown as Entity);
     }
   }
+
+  public onAdd<T extends ComponentInstance>(handler: (entity: Entity, c: T) => void): this {
+    this.ownMeta.onAdd(handler as (entity: Entity, c: ComponentInstance) => void);
+    return this;
+  }
+
+  public onRemove<T extends ComponentInstance>(handler: (entity: Entity, c: T) => void): this {
+    this.ownMeta.onRemove(handler as (entity: Entity, c: ComponentInstance) => void);
+    return this;
+  }
+
+  public onSet<T extends ComponentInstance>(handler: (entity: Entity, c: T) => void): this {
+    this.ownMeta.onSet(handler as (entity: Entity, c: ComponentInstance) => void);
+    return this;
+  }
 }
