@@ -4,7 +4,7 @@
 //
 // These are plain data classes: every field is initialised on the class body so
 // `new C()` yields a valid, default-shaped instance (the Vecs zero-arg
-// contract). No imports from engine/ or systems/ — components are pure data.
+// contract). No imports from systems/ or adapter/ — components are pure data.
 
 /** Simulation behaviour of a {@link Body}. */
 export enum BodyType {

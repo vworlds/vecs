@@ -103,11 +103,10 @@ function destroyShapeForEntity(
 ): void {
   const chainId = state.chainByEntity.get(entity.eid);
   if (chainId !== undefined) {
-    const parentBodyExists = parentBodyStillExists(state, entity);
-    if (!allowCascadeSkip || parentBodyExists || state.box2d.b2Chain_IsValid(chainId)) {
-      if (state.box2d.b2Chain_IsValid(chainId)) {
-        state.box2d.b2DestroyChain(chainId);
-      }
+    // b2Chain_IsValid already returns false when the parent body was destroyed
+    // and Box2D cascaded the chain, so it is the only guard the destroy needs.
+    if (state.box2d.b2Chain_IsValid(chainId)) {
+      state.box2d.b2DestroyChain(chainId);
     }
     state.chainByEntity.delete(entity.eid);
     markParentBodyMassDirty(state, entity);

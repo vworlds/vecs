@@ -201,6 +201,36 @@ describe("PhysicsBodyLifecycle.update(Body)", () => {
   });
 });
 
+describe("PhysicsBodyLifecycle.update(Damping/GravityScale)", () => {
+  it("propagates a Damping change to the WASM body after enter", () => {
+    // Damping present at enter (seeded), then changed (fires update handler).
+    const e = world
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Damping, { linear: 0, angular: 0 });
+    world.progress(0, 16);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_GetLinearDamping(bodyId)).toBe(0);
+    expect(state.box2d.b2Body_GetAngularDamping(bodyId)).toBe(0);
+
+    e.set(Damping, { linear: 0.5, angular: 0.25 });
+    world.progress(16, 16);
+    expect(state.box2d.b2Body_GetLinearDamping(bodyId)).toBe(0.5);
+    expect(state.box2d.b2Body_GetAngularDamping(bodyId)).toBe(0.25);
+  });
+
+  it("propagates a GravityScale change to the WASM body after enter", () => {
+    const e = world.entity().set(Body, { type: BodyType.Dynamic }).set(GravityScale, { value: 1 });
+    world.progress(0, 16);
+    const bodyId = wasmBodyId(e.eid);
+    expect(state.box2d.b2Body_GetGravityScale(bodyId)).toBe(1);
+
+    e.set(GravityScale, { value: -0.25 });
+    world.progress(16, 16);
+    expect(state.box2d.b2Body_GetGravityScale(bodyId)).toBe(-0.25);
+  });
+});
+
 // ─── Proxy synchronisation on enable / disable / type change ─────────────────
 
 describe("PhysicsBodyLifecycle — body proxy synchronisation (WASM)", () => {
