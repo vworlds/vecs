@@ -315,8 +315,8 @@ describe("Iter cursor", () => {
     });
   });
 
-  describe("Query.sort", () => {
-    it("Iter cursor in sort comparator passes resolved tuples", () => {
+  describe("Query.orderBy", () => {
+    it("Iter cursor in orderBy comparator passes resolved tuples", () => {
       const w = new World();
       w.component(Position);
       w.entity().add(Position).set(Position, { x: 2 });
@@ -324,7 +324,7 @@ describe("Iter cursor", () => {
       const q = w
         .query("q")
         .requires(Position)
-        .sort(Iter, [Position], (_a, [posA], _b, [posB]) => posA.x - posB.x)
+        .orderBy(Iter, [Position], (_a, [posA], _b, [posB]) => posA.x - posB.x)
         .build();
       const order = [...q];
       expect(order[0].get(Position)!.x).toBe(1);
@@ -400,8 +400,8 @@ describe("Iter cursor", () => {
     });
   });
 
-  describe("System.sort", () => {
-    it("Iter cursor in system sort comparator passes resolved tuples", () => {
+  describe("System.orderBy", () => {
+    it("Iter cursor in system orderBy comparator passes resolved tuples", () => {
       const w = new World();
       w.component(Position);
       const phase = w.addPhase("tick");
@@ -411,7 +411,7 @@ describe("Iter cursor", () => {
         .system("sys")
         .phase(phase)
         .requires(Position)
-        .sort(Iter, [Position], (_a, [posA], _b, [posB]) => posA.x - posB.x);
+        .orderBy(Iter, [Position], (_a, [posA], _b, [posB]) => posA.x - posB.x);
       w.start();
       const order = [...sys];
       expect(order[0].get(Position)!.x).toBe(1);
@@ -495,13 +495,13 @@ describe("Iter cursor", () => {
       expect(cb).toHaveBeenCalledWith(e, pos, [vel]);
     });
 
-    it("explicit Entity marker works with sort", () => {
+    it("explicit Entity marker works with orderBy", () => {
       const w = new World();
       w.component(Position);
       const cb = vi.fn(() => 0);
       w.entity().add(Position).set(Position, { x: 2 });
       w.entity().add(Position).set(Position, { x: 1 });
-      w.query("q").requires(Position).sort(Entity, [Position], cb).build();
+      w.query("q").requires(Position).orderBy(Entity, [Position], cb).build();
       expect(cb).toHaveBeenCalled();
     });
   });

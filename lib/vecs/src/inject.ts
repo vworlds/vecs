@@ -160,7 +160,7 @@ export function directInjectEids(inject: readonly ResolvedInjectTerm[]): EID[] {
 
 /**
  * Per-iteration cursor passed to `each` / `forEach` / `enter` / `exit` /
- * `update` / `sort` callbacks when the caller opts in by passing `Iter` as
+ * `update` / `orderBy` callbacks when the caller opts in by passing `Iter` as
  * the first argument:
  *
  * ```ts

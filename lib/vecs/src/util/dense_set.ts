@@ -7,7 +7,7 @@
  * slot and pops — both O(1) and without the tombstone slots a churned native
  * `Set` accumulates. The swap means iteration order is **not** insertion order
  * after a deletion; that is fine for query membership, whose order is
- * unspecified unless `Query.sort` is used (which keeps an {@link OrderedSet}
+ * unspecified unless `Query.orderBy` is used (which keeps an {@link OrderedSet}
  * instead).
  *
  * @internal Used only inside the package.

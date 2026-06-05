@@ -51,7 +51,7 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  *
  * @typeParam R - Component classes guaranteed present on every matched entity
  *   (declared via {@link requires} or the `_guaranteed` hint of {@link where}).
- *   Components in `R` appear as non-nullable in {@link sort}, {@link forEach},
+ *   Components in `R` appear as non-nullable in {@link orderBy}, {@link forEach},
  *   and {@link update} callback tuples.
  */
 export class Query<R extends ComponentType[] = []> implements TermConsumer {
@@ -198,7 +198,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return this;
   }
 
-  public sort<J extends InjectTuple>(
+  public orderBy<J extends InjectTuple>(
     components: readonly [...J],
     compare: (
       entityA: Entity,
@@ -207,7 +207,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       b: MaybeResolvedInjectTuple<J, R>
     ) => number
   ): this;
-  public sort<J extends InjectTuple>(
+  public orderBy<J extends InjectTuple>(
     cursor: typeof Entity,
     components: readonly [...J],
     compare: (
@@ -217,7 +217,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       b: MaybeResolvedInjectTuple<J, R>
     ) => number
   ): this;
-  public sort<J extends InjectTuple>(
+  public orderBy<J extends InjectTuple>(
     cursor: typeof Iter,
     components: readonly [...J],
     compare: (
@@ -227,7 +227,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       bResolved: MaybeResolvedInjectTuple<J, R>
     ) => number
   ): this;
-  public sort(
+  public orderBy(
     arg0: readonly InjectElement[] | typeof Entity | typeof Iter,
     arg1?: readonly InjectElement[] | Function,
     arg2?: Function
@@ -254,7 +254,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     }
 
     const depths = traversable.depths;
-    this.sort([], (a, _ra, b) => {
+    this.orderBy([], (a, _ra, b) => {
       const da = depths.get(a) ?? -1;
       const db = depths.get(b) ?? -1;
       return da - db || compare?.(a, b) || 0;

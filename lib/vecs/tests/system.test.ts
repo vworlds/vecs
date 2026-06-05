@@ -641,20 +641,20 @@ describe("System — each", () => {
   });
 });
 
-describe("System — sort", () => {
-  it("sort() returns this for chaining", () => {
+describe("System — orderBy", () => {
+  it("orderBy() returns this for chaining", () => {
     const { w } = setup();
     const sys = w.system("test").requires(Position);
-    expect(sys.sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x)).toBe(sys);
+    expect(sys.orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x)).toBe(sys);
   });
 
-  it("sort() implies track()", () => {
+  it("orderBy() implies track()", () => {
     const { w, phase } = setup();
     const sys = w
       .system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
     const e = w.entity();
     e.set(Position, { x: 5 });
@@ -668,7 +668,7 @@ describe("System — sort", () => {
       .system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
 
     const e1 = w.entity();
@@ -691,7 +691,7 @@ describe("System — sort", () => {
     w.system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x)
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x)
       .each([Position], (_e, [pos]) => visited.push(pos.x));
     w.start();
 
@@ -717,7 +717,7 @@ describe("System — sort", () => {
       .system("test")
       .phase(phase)
       .requires(Position)
-      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
 
     const e1 = w.entity();
@@ -734,13 +734,13 @@ describe("System — sort", () => {
     expect([...sys]).toEqual([e2]);
   });
 
-  it("sort with multiple components passes tuples to compare", () => {
+  it("orderBy with multiple components passes tuples to compare", () => {
     const { w, phase } = setup();
     const sys = w
       .system("test")
       .phase(phase)
       .requires(Position, Velocity)
-      .sort(
+      .orderBy(
         [Position, Velocity],
         (_eA, [posA, velA], _eB, [posB, velB]) => posA.x + velA.vx - (posB.x + velB.vx)
       );

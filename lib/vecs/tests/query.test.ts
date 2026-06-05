@@ -629,13 +629,13 @@ describe("Query — enter/exit callbacks", () => {
   });
 });
 
-describe("Query — sort", () => {
-  it("sort() orders entities by the comparator", () => {
+describe("Query — orderBy", () => {
+  it("orderBy() orders entities by the comparator", () => {
     const { w, tick } = setup();
     const q = w
       .query("test")
       .requires(Position)
-      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
     const e1 = w.entity();
     e1.set(Position, { x: 30 });
@@ -652,7 +652,7 @@ describe("Query — sort", () => {
     const q = w
       .query("test")
       .requires(Position)
-      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
     const e1 = w.entity();
     e1.set(Position, { x: 30 });
@@ -671,7 +671,7 @@ describe("Query — sort", () => {
     const q = w
       .query("test")
       .requires(Position)
-      .sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
     w.start();
     const e1 = w.entity();
     e1.set(Position, { x: 10 });
@@ -684,10 +684,10 @@ describe("Query — sort", () => {
     expect([...q]).toEqual([e2]);
   });
 
-  it("sort() returns the query for chaining", () => {
+  it("orderBy() returns the query for chaining", () => {
     const { w } = setup();
     const q = w.query("test").requires(Position);
-    expect(q.sort([Position], (_eA, [a], _eB, [b]) => a.x - b.x)).toBe(q);
+    expect(q.orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x)).toBe(q);
   });
 
   it("cascade() orders entities breadth-first by relationship depth", () => {

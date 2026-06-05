@@ -596,7 +596,7 @@ Lowercase `down` is allowed only in `forEach` and system `each`, where fan-out h
 
 #### Iter cursor
 
-Pass `Iter` as the first argument to `each`, `forEach`, `enter`, `exit`, `update`, or `sort` to receive a reusable cursor object instead of the bare entity. The cursor exposes:
+Pass `Iter` as the first argument to `each`, `forEach`, `enter`, `exit`, `update`, or `orderBy` to receive a reusable cursor object instead of the bare entity. The cursor exposes:
 
 - `it.entity` — the visited entity.
 - `it.src` — a same-length array of source entities: the visited entity for a directly-injected component, the relationship target for a `target`-injected one, or the specific child for a `down`-injected one.
@@ -611,11 +611,11 @@ system.each(Iter, [Body, { target: [ChildOf, [Position]] }], (it, [body, pos]) =
 
 When `Iter` is **not** requested, the original code path runs with zero per-entity overhead. Dispatch to the cursor or non-cursor path happens once at setup time — not per entity. A single `Iter` instance is mutated before each callback; read what you need inside the callback but do not retain the cursor or its `src` array across callbacks.
 
-`enter` and `exit` allocate a fresh `Iter` per event (they fire reentrantly during command routing). `each` / `forEach` / `update` reuse a single `Iter` instance for the whole pass; `sort` reuses two (one per side of the comparison). Because a plain `Query.update` callback fires synchronously during command routing, a nested mutation triggered from inside it can re-enter `update` and overwrite that reused cursor and tuple mid-callback — snapshot any `it`, `it.src`, or tuple values you need before triggering further mutations.
+`enter` and `exit` allocate a fresh `Iter` per event (they fire reentrantly during command routing). `each` / `forEach` / `update` reuse a single `Iter` instance for the whole pass; `orderBy` reuses two (one per side of the comparison). Because a plain `Query.update` callback fires synchronously during command routing, a nested mutation triggered from inside it can re-enter `update` and overwrite that reused cursor and tuple mid-callback — snapshot any `it`, `it.src`, or tuple values you need before triggering further mutations.
 
 Class-valued query terms are components. Register component classes before using them in a `QueryDSL`; an unregistered class throws. Use `{ test: fn }` for arbitrary predicate functions.
 
-**Type inference.** `requires()` records the listed classes as a type parameter `R` on the system. Callbacks in `.sort()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `where()` expressions the type system can't introspect, supply a `_guaranteed` second argument:
+**Type inference.** `requires()` records the listed classes as a type parameter `R` on the system. Callbacks in `.orderBy()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `where()` expressions the type system can't introspect, supply a `_guaranteed` second argument:
 
 ```ts
 .where({ all: [Position, Velocity] }, [Position, Velocity])
@@ -677,7 +677,7 @@ Fires every tick for **every tracked entity**, regardless of whether anything ch
 });
 ```
 
-#### `.sort(components, compare)`
+#### `.orderBy(components, compare)`
 
 Store matched entities in a custom order determined by `compare`. Implies `.track()`. Iterating the system, `forEach`, and `each` walks entities in sorted order.
 
@@ -685,13 +685,13 @@ Store matched entities in a custom order determined by `compare`. Implies `.trac
 world
   .system("Render")
   .requires(Position, Sprite)
-  .sort([Position], (_entityA, [posA], _entityB, [posB]) => posA.z - posB.z)
+  .orderBy([Position], (_entityA, [posA], _entityB, [posB]) => posA.z - posB.z)
   .each([Position, Sprite], (e, [pos, sprite]) => sprite.draw(pos.x, pos.y));
 ```
 
 #### `.track()`
 
-Enable entity tracking without an `each` callback — exposes matched entities via `system.count`, `system.has(e)`, and direct iteration. `each` and `sort` imply `track` automatically. When called after `world.start()`, immediately backfills existing matched entities.
+Enable entity tracking without an `each` callback — exposes matched entities via `system.count`, `system.has(e)`, and direct iteration. `each` and `orderBy` imply `track` automatically. When called after `world.start()`, immediately backfills existing matched entities.
 
 #### `.run(callback)`
 
@@ -733,7 +733,7 @@ Permanently remove this system from the world. Calls `disable()` first (clearing
 const projectiles = world
   .query("Projectiles")
   .requires(Position, Velocity)
-  .sort([Position], (_entityA, [a], _entityB, [b]) => a.z - b.z)
+  .orderBy([Position], (_entityA, [a], _entityB, [b]) => a.z - b.z)
   .enter([Position], (e, [pos]) => {
     pos.x = spawnX;
   });
@@ -752,7 +752,7 @@ console.log(projectiles.count, "active projectiles");
 | `.enter(callback)` / `.enter(inject, callback)`         | Fires when an entity joins the query.                                                               |
 | `.exit(callback)` / `.exit(inject, callback)`           | Fires when an entity leaves the query.                                                              |
 | `.update(C, callback)` / `.update(C, inject, callback)` | Fires when `C` is modified on a tracked entity. Callback receives `(entity, component, injected?)`. |
-| `.sort(components, compare)`                            | Store matched entities in sorted order. Comparator receives `(entityA, tupleA, entityB, tupleB)`.   |
+| `.orderBy(components, compare)`                         | Store matched entities in sorted order. Comparator receives `(entityA, tupleA, entityB, tupleB)`.   |
 | `.track()`                                              | Enable tracking. Backfills when called after `start()`.                                             |
 | `.belongs(e)`                                           | Returns `true` if the entity satisfies the predicate.                                               |
 | `.count`                                                | Number of currently tracked entities.                                                               |

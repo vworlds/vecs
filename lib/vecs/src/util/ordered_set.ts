@@ -6,7 +6,7 @@
  * search) plus the cost of an array splice on `add`. Removal uses identity
  * lookup because sorted values may be mutable.
  *
- * Used by `Query.sort` to keep matched entities in a user-defined order so
+ * Used by `Query.orderBy` to keep matched entities in a user-defined order so
  * iteration in `forEach` and `each` walks them sorted.
  *
  * @internal Used only inside the package.

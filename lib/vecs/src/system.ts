@@ -81,12 +81,12 @@ type _SystemInboxEvent =
  *
  * ### Component injection and type inference
  *
- * `enter`, `exit`, `update`, `each`, and `sort` accept an array of component
+ * `enter`, `exit`, `update`, `each`, and `orderBy` accept an array of component
  * classes resolved from the entity and passed as a typed tuple to the
  * callback.
  *
  * Components declared via {@link requires} (or the `_guaranteed` argument of
- * {@link query}) are tracked as the type parameter `R`. Inside `sort`,
+ * {@link query}) are tracked as the type parameter `R`. Inside `orderBy`,
  * `each`, and `update` injection callbacks they are non-nullable; any other
  * component remains `Type | undefined`.
  *
@@ -527,7 +527,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * of the listed component types.
    *
    * Equivalent to `where(components)`. The listed components are also
-   * recorded in the type parameter `R`, so {@link sort}, {@link each}, and
+   * recorded in the type parameter `R`, so {@link orderBy}, {@link each}, and
    * {@link update} callbacks treat them as non-nullable.
    *
    * @param components - Component classes to require.
