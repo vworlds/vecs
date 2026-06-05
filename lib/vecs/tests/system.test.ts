@@ -171,6 +171,38 @@ describe("System — enter / exit / update", () => {
     w.progress(0, 0);
     expect(exit.mock.calls[0][0]).toBe(e);
   });
+
+  it("sets changed when an entity enters the system", () => {
+    const { w, phase } = setup();
+    const sys = w.system("test").phase(phase).requires(Position).track();
+    w.start();
+
+    expect(sys.changed).toBe(false);
+    const e = w.entity();
+    e.add(Position);
+    w.progress(0, 0);
+
+    expect(sys.changed).toBe(true);
+  });
+
+  it("sets changed when a watched component is modified", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .requires(Position)
+      .update(Position, () => {});
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    w.progress(0, 0);
+    sys.changed = false;
+
+    e.modified(Position);
+    w.progress(0, 0);
+
+    expect(sys.changed).toBe(true);
+  });
 });
 
 describe("System — phases", () => {

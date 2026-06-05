@@ -137,6 +137,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * translate root-term membership events into inbox commands here.
    */
   public override _enter(e: Entity): void {
+    this.changed = true;
     this._entities?.add(e);
     e._addQueryMembership(this);
     if (!this._enabled) {
@@ -162,6 +163,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * resolvable after the underlying components are removed.
    */
   public override _exit(e: Entity): void {
+    this.changed = true;
     this._entities?.delete(e);
     e._removeQueryMembership(this);
     if (!this._enabled) {
@@ -196,6 +198,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     if (this._isSourceSilenced()) {
       return;
     }
+    this.changed = true;
     this._pushUpdate(e, ceid, c);
   }
 

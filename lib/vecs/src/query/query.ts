@@ -55,6 +55,8 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  *   and {@link update} callback tuples.
  */
 export class Query<R extends ComponentType[] = []> implements TermConsumer {
+  /** True when membership or watched component data changed since the last reset. */
+  public changed = false;
   /** @internal DSL predicate used to build the root membership term. */
   public _dsl: QueryDSL | undefined = undefined;
   /** Entity that stores this query as a component and carries query traits. */
@@ -160,6 +162,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
   public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
+    this.changed = false;
     forEachInjected(this.world, this._matchedEntities(), arg0, arg1, arg2);
     return this;
   }
@@ -454,6 +457,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
 
   /** @internal */
   public _enter(e: Entity): void {
+    this.changed = true;
     this._entities?.add(e);
     e._addQueryMembership(this as any);
     this._enterCallback?.(e);
@@ -467,6 +471,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
 
   /** @internal */
   public _exit(e: Entity): void {
+    this.changed = true;
     this._exitCallback?.(e);
     this._entities?.delete(e);
     e._removeQueryMembership(this as any);
@@ -480,6 +485,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     if (this._isSourceSilenced()) {
       return;
     }
+    this.changed = true;
     const callback = this._componentUpdateCallbacks.get(ceid);
     if (callback) {
       callback(e, c);

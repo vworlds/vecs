@@ -275,6 +275,66 @@ describe("Query — update watchlist predicate", () => {
   });
 });
 
+describe("Query — changed flag", () => {
+  it("starts false and becomes true when an entity enters", () => {
+    const { w, tick } = setup();
+    const q = w.query("changed").requires(Position).build();
+    w.start();
+
+    expect(q.changed).toBe(false);
+    const e = w.entity();
+    e.add(Position);
+    tick();
+
+    expect(q.changed).toBe(true);
+    expect(q.has(e)).toBe(true);
+  });
+
+  it("can be cleared manually and becomes true when an entity exits", () => {
+    const { w, tick } = setup();
+    const q = w.query("changed").requires(Position).build();
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    tick();
+    q.changed = false;
+
+    e.remove(Position);
+    tick();
+
+    expect(q.changed).toBe(true);
+  });
+
+  it("becomes true when a watched component is modified", () => {
+    const { w, tick } = setup();
+    const q = w
+      .query("changed")
+      .requires(Position)
+      .update(Position, () => {})
+      .build();
+    w.start();
+    const e = w.entity();
+    e.add(Position);
+    tick();
+    q.changed = false;
+
+    e.modified(Position);
+    tick();
+    expect(q.changed).toBe(true);
+  });
+
+  it("is cleared automatically by forEach", () => {
+    const { w, tick } = setup();
+    const q = w.query("changed").requires(Position).build();
+    w.start();
+    w.entity().add(Position);
+    tick();
+
+    q.forEach(() => {});
+    expect(q.changed).toBe(false);
+  });
+});
+
 describe("Query — component routing index", () => {
   it("does not reevaluate simple queries when unrelated components change", () => {
     const { w, tick } = setup();
