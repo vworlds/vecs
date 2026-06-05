@@ -7,7 +7,7 @@ import {
   type MaybeResolvedInjectTuple,
 } from "../inject.js";
 import { type World } from "../world/index.js";
-import { Predicate } from "./query.06.predicate.js";
+import { Predicate } from "./query.07.predicate.js";
 
 export class Group<K = unknown, R extends ComponentType[] = []> {
   public readonly key: K;

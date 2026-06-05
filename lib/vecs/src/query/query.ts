@@ -15,8 +15,8 @@ import {
 } from "../inject.js";
 import { type World } from "../world/index.js";
 import { _setGroupedQueryCtor } from "./query.00.base.js";
-import { Group, Grouping } from "./query.07.groups.js";
-import { Groups } from "./query.07.groups.js";
+import { Group, Grouping } from "./query.08.groups.js";
+import { Groups } from "./query.08.groups.js";
 
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}

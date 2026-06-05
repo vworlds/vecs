@@ -8,7 +8,7 @@ import {
 } from "../inject.js";
 import { ChildOf, SilenceSource } from "../modules/relationships.js";
 import { _getGroupedQueryCtor } from "./query.00.base.js";
-import { Updates } from "./query.05.updates.js";
+import { Updates } from "./query.06.updates.js";
 
 export class Predicate<R extends ComponentType[] = []> extends Updates<R> {
   public query<T extends ComponentType[] = []>(q: QueryDSL, _guaranteed?: readonly [...T]): any {
