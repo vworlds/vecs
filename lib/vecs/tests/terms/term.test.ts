@@ -884,7 +884,7 @@ describe("Term — update channel bypasses the tree", () => {
     w.component(Unrelated);
     const cb = vi.fn();
     w.query("not-vel")
-      .query({ all: [Position, { not: Velocity }] })
+      .where({ all: [Position, { not: Velocity }] })
       .update(Position, cb)
       .build();
     w.start();

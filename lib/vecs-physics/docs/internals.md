@@ -217,7 +217,7 @@ This lets normal Vecs systems react after physics:
 ```ts
 world
   .system("ReactToContacts")
-  .query(ContactEvents)
+  .where(ContactEvents)
   .update(ContactEvents, (shape, events) => {
     for (const event of events.begin) {
       // event.other is the other shape entity

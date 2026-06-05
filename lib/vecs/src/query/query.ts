@@ -50,7 +50,7 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  * you want a reactive entity set without pipeline integration.
  *
  * @typeParam R - Component classes guaranteed present on every matched entity
- *   (declared via {@link requires} or the `_guaranteed` hint of {@link query}).
+ *   (declared via {@link requires} or the `_guaranteed` hint of {@link where}).
  *   Components in `R` appear as non-nullable in {@link sort}, {@link forEach},
  *   and {@link update} callback tuples.
  */
@@ -80,7 +80,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   protected _destroyed = false;
   /** @internal Sorted projection. Unsorted membership is read from `rootTerm`. */
   protected _entities: Set<Entity> | undefined;
-  /** @internal `true` once `query` or `requires` has set an explicit predicate. */
+  /** @internal `true` once `where` or `requires` has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
   /** @internal Per-component-eid `update` callbacks. */
   protected _componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
@@ -175,12 +175,12 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * how that membership is tracked, ordered, grouped, or source-filtered.
    */
 
-  public query<const Q extends QueryDSL>(q: Q): Query<ExtractRequired<Q>>;
-  public query<const T extends ComponentType[]>(
+  public where<const Q extends QueryDSL>(q: Q): Query<ExtractRequired<Q>>;
+  public where<const T extends ComponentType[]>(
     q: QueryDSL,
     _guaranteed: readonly [...T]
   ): Query<T>;
-  public query(q: QueryDSL, _guaranteed?: readonly ComponentType[]): Query<any> {
+  public where(q: QueryDSL, _guaranteed?: readonly ComponentType[]): Query<any> {
     this._assertConfigurable();
     this._dsl = q;
     this._hasExplicitQuery = true;
@@ -188,7 +188,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   }
 
   public requires<const T extends ComponentType[]>(...components: [...T]): Query<T> {
-    this.query(components);
+    this.where(components);
     return this as unknown as Query<T>;
   }
 
@@ -545,7 +545,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   }
 
   private _buildSilenceQuery(dsl: QueryDSL): Query {
-    const q = this.world.query(`${this.name}:silence`).query(dsl);
+    const q = this.world.query(`${this.name}:silence`).where(dsl);
     q.entity.childOf(this.entity);
     return q;
   }

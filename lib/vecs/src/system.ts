@@ -497,36 +497,36 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * Set the entity-membership predicate using a {@link QueryDSL} expression.
    *
    * Replaces any implicit query derived from `update` watchlists and any
-   * previous `requires` call. After calling `query`, watchlist auto-expansion
+   * previous `requires` call. After calling `where`, watchlist auto-expansion
    * via `update` is disabled.
    *
    * The optional `_guaranteed` tuple is a pure type-level hint — see
-   * {@link Query.query} for details.
+   * {@link Query.where} for details.
    *
    * @param q - Query expression.
    * @param _guaranteed - Component classes guaranteed present on every matched
    *   entity (type hint only — not validated at runtime).
    * @returns This system, retyped with the guaranteed tuple as its `R`.
    */
-  public override query<const Q extends QueryDSL>(q: Q): System<ExtractRequired<Q>>;
-  public override query<const T extends ComponentType[]>(
+  public override where<const Q extends QueryDSL>(q: Q): System<ExtractRequired<Q>>;
+  public override where<const T extends ComponentType[]>(
     q: QueryDSL,
     _guaranteed: readonly [...T]
   ): System<T>;
-  public override query(q: QueryDSL, _guaranteed?: readonly ComponentType[]): System<any> {
+  public override where(q: QueryDSL, _guaranteed?: readonly ComponentType[]): System<any> {
     if (_guaranteed === undefined) {
-      super.query(q);
+      super.where(q);
     } else {
-      super.query(q, _guaranteed);
+      super.where(q, _guaranteed);
     }
     return this as unknown as System<any>;
   }
 
   /**
-   * Shorthand for `query([...components])` — tracks entities that have **all**
+   * Shorthand for `where([...components])` — tracks entities that have **all**
    * of the listed component types.
    *
-   * Equivalent to `query(components)`. The listed components are also
+   * Equivalent to `where(components)`. The listed components are also
    * recorded in the type parameter `R`, so {@link sort}, {@link each}, and
    * {@link update} callbacks treat them as non-nullable.
    *

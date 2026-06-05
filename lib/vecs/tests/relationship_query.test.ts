@@ -30,7 +30,7 @@ describe("Relationship queries", () => {
     const miss = w.entity().set(FriendOf, { target: w.entity() });
     const q = w
       .query("friends")
-      .query({ target: [FriendOf, Position] })
+      .where({ target: [FriendOf, Position] })
       .build();
 
     expect(q.belongs(candidate)).toBe(true);
@@ -48,7 +48,7 @@ describe("Relationship queries", () => {
     const candidate = w.entity().set(FriendOf, { target });
     const q = w
       .query("friends")
-      .query({ target: [FriendOf, Position] })
+      .where({ target: [FriendOf, Position] })
       .build();
 
     expect(q.has(candidate)).toBe(false);
@@ -65,7 +65,7 @@ describe("Relationship queries", () => {
     const candidate = w.entity().set(FriendOf, { target: first });
     const q = w
       .query("friends")
-      .query({ target: [FriendOf, Position] })
+      .where({ target: [FriendOf, Position] })
       .build();
 
     expect(q.has(candidate)).toBe(true);
@@ -88,7 +88,7 @@ describe("Relationship queries", () => {
     const child = w.entity().set(FriendOf, { target: parent });
     const q = w
       .query("nested")
-      .query({ target: [FriendOf, { target: [FriendOf, Tag] }] })
+      .where({ target: [FriendOf, { target: [FriendOf, Tag] }] })
       .build();
 
     expect(q.has(child)).toBe(false);
@@ -104,7 +104,7 @@ describe("Relationship queries", () => {
     const candidate = w.entity().set(FriendOf, { target });
     const q = w
       .query("body-friends")
-      .query({ all: [Body, { target: [FriendOf, Position] }] })
+      .where({ all: [Body, { target: [FriendOf, Position] }] })
       .build();
 
     expect(q.has(candidate)).toBe(false);
@@ -138,14 +138,14 @@ describe("Relationship queries", () => {
     expect(() => {
       const { w } = setup();
       w.query("down")
-        .query({ source: [FriendOf, Position] })
+        .where({ source: [FriendOf, Position] })
         .build();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
     expect(() => {
       const { w } = setup();
       w.query("nested-down")
-        .query({ target: [FriendOf, { source: [FriendOf, Position] }] })
+        .where({ target: [FriendOf, { source: [FriendOf, Position] }] })
         .build();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
@@ -153,7 +153,7 @@ describe("Relationship queries", () => {
       const { w, phase } = setup();
       w.system("system-down")
         .phase(phase)
-        .query({ source: [FriendOf, Position] });
+        .where({ source: [FriendOf, Position] });
       w.start();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
@@ -161,7 +161,7 @@ describe("Relationship queries", () => {
       const { w, phase } = setup();
       w.system("system-each-down")
         .phase(phase)
-        .query({ source: [FriendOf, Position] })
+        .where({ source: [FriendOf, Position] })
         .each([Body], () => {});
       w.start();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
@@ -307,7 +307,7 @@ describe("Relationship queries", () => {
     const enter = vi.fn();
     const exit = vi.fn();
     w.query("events")
-      .query({ target: [FriendOf, Position] })
+      .where({ target: [FriendOf, Position] })
       .enter([{ target: [FriendOf, [Position]] }], enter)
       .exit([{ target: [FriendOf, [Position]] }], exit)
       .build();
@@ -323,7 +323,7 @@ describe("Relationship queries", () => {
     const cb = vi.fn();
     w.system("system-up")
       .phase(phase)
-      .query({ target: [FriendOf, Position] })
+      .where({ target: [FriendOf, Position] })
       .each([{ target: [FriendOf, [Position, Velocity]] }], cb);
     w.start();
     const target = w.entity().set(Position, { x: 3 });
@@ -345,7 +345,7 @@ describe("Relationship queries", () => {
 
     const q = w
       .query("outer")
-      .query({ target: [FriendOf, Position] })
+      .where({ target: [FriendOf, Position] })
       .build();
 
     expect(w.queries).toEqual([q]);
@@ -378,7 +378,7 @@ describe("Relationship queries", () => {
     const { w } = setup();
     expect(() => {
       w.query("bad")
-        .query({ source: [ChildOf, Position] })
+        .where({ source: [ChildOf, Position] })
         .build();
     }).toThrow("source/children is not supported in a tracked query");
   });
@@ -387,7 +387,7 @@ describe("Relationship queries", () => {
     const { w } = setup();
     expect(() => {
       w.system("bad-sys")
-        .query({ source: [ChildOf, Position] })
+        .where({ source: [ChildOf, Position] })
         .track()
         .build();
     }).toThrow("source/children is not supported in a tracked query");
@@ -397,7 +397,7 @@ describe("Relationship queries", () => {
     const { w } = setup();
     expect(() => {
       w.query("nested-down")
-        .query({ target: [FriendOf, { source: [ChildOf, Position] }] })
+        .where({ target: [FriendOf, { source: [ChildOf, Position] }] })
         .build();
     }).toThrow("source/children is not supported in a tracked query");
   });

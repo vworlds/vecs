@@ -20,11 +20,11 @@ export type EntityTestFunc = (e: Entity) => boolean;
  *
  * ```ts
  * // Position and either Sprite or Container:
- * world.system("render").query({
+ * world.system("render").where({
  *   all: [Position, { any: [Sprite, Container] }],
  * });
  *
- * Short forms recognized by `query` / `filter`:
+ * Short forms recognized by `where` / `filter`:
  * - `true` matches all entities; `false` matches no entities.
  * - A registered component class or numeric type id matches entities with that component.
  * - An array `[A, B]` matches entities with all listed components.

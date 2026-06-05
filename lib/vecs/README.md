@@ -145,7 +145,7 @@ const world = new World();
 
 #### Component registration
 
-Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `requires`, `query`, `filter`, hook registration, or `setExclusiveComponents`.
+Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `requires`, `where`, `filter`, hook registration, or `setExclusiveComponents`.
 
 ```ts
 class Position {
@@ -511,8 +511,8 @@ Retarget relationships with `entity.set(RelationshipClass, { target })`. `entity
 Relationship queries use `target` to follow a relationship from the candidate entity to its target and test that target with another DSL expression. Use `parent` for the built-in `ChildOf` hierarchy:
 
 ```ts
-world.query("body-friends").query({ all: [Body, { target: [FriendOf, [Position, Velocity]] }] });
-world.query("positioned-children").query({ all: [Position, { parent: Body }] });
+world.query("body-friends").where({ all: [Body, { target: [FriendOf, [Position, Velocity]] }] });
+world.query("positioned-children").where({ all: [Position, { parent: Body }] });
 ```
 
 Tracked queries stay live when either side changes. Adding or removing `FriendOf` on the candidate re-routes the candidate normally; adding or removing `Position` / `Velocity` on the target also refreshes every candidate that points at that target. Nested `target` works the same way across multiple hops.
@@ -547,17 +547,17 @@ Two details matter:
 
 Systems are created via `world.system(name)` and configured through a fluent builder. Every method returns `this` for chaining. `System` extends `Query`, so the membership / enter / exit / update / sort APIs are shared.
 
-#### `.requires(...components)` and `.query(q)`
+#### `.requires(...components)` and `.where(q)`
 
 Declare which entities the system tracks.
 
 ```ts
 .requires(Position, Velocity)                                      // shorthand for [Position, Velocity]
-.query([Position, Velocity])                                       // explicit component list
-.query({ all: [Position, { any: [Sprite, Container] }] })          // compound
-.query({ not: Invisible })
-.query({ target: [FriendOf, Position] })                           // relationship target has Position
-.query({ parent: Body })                                           // ChildOf target has Body
+.where([Position, Velocity])                                       // explicit component list
+.where({ all: [Position, { any: [Sprite, Container] }] })          // compound
+.where({ not: Invisible })
+.where({ target: [FriendOf, Position] })                           // relationship target has Position
+.where({ parent: Body })                                           // ChildOf target has Body
 ```
 
 **Query operators:**
@@ -583,7 +583,7 @@ Component injection also supports lowercase relationship markers. `target` works
 ```ts
 world
   .query("friends")
-  .query({ target: [FriendOf, Position] })
+  .where({ target: [FriendOf, Position] })
   .forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (e, [body, pos, vel]) => {
     // body is from e; pos and vel are from e.parent(FriendOf)
     // target-side injected components are undefined if the target is absent or lacks them.
@@ -615,10 +615,10 @@ When `Iter` is **not** requested, the original code path runs with zero per-enti
 
 Class-valued query terms are components. Register component classes before using them in a `QueryDSL`; an unregistered class throws. Use `{ test: fn }` for arbitrary predicate functions.
 
-**Type inference.** `requires()` records the listed classes as a type parameter `R` on the system. Callbacks in `.sort()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `query()` expressions the type system can't introspect, supply a `_guaranteed` second argument:
+**Type inference.** `requires()` records the listed classes as a type parameter `R` on the system. Callbacks in `.sort()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `where()` expressions the type system can't introspect, supply a `_guaranteed` second argument:
 
 ```ts
-.query({ all: [Position, Velocity] }, [Position, Velocity])
+.where({ all: [Position, Velocity] }, [Position, Velocity])
 .each([Position, Velocity], (e, [pos, vel]) => {
   pos.x += vel.vx; // pos and vel are non-null
 });
@@ -664,7 +664,7 @@ Fires when `entity.modified(ComponentClass)` is called for the watched component
 });
 ```
 
-If `query()` has not been called, `update` automatically expands the implicit component predicate to require the watched component.
+If `where()` has not been called, `update` automatically expands the implicit component predicate to require the watched component.
 
 #### `.each(components, callback)`
 
@@ -748,7 +748,7 @@ console.log(projectiles.count, "active projectiles");
 | Method                                                  | Description                                                                                         |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `.requires(...components)`                              | Set the membership predicate to require all listed components and start tracking.                   |
-| `.query(expr, _guaranteed?)`                            | Set the membership predicate using a `QueryDSL` expression.                                         |
+| `.where(expr, _guaranteed?)`                            | Set the membership predicate using a `QueryDSL` expression.                                         |
 | `.enter(callback)` / `.enter(inject, callback)`         | Fires when an entity joins the query.                                                               |
 | `.exit(callback)` / `.exit(inject, callback)`           | Fires when an entity leaves the query.                                                              |
 | `.update(C, callback)` / `.update(C, inject, callback)` | Fires when `C` is modified on a tracked entity. Callback receives `(entity, component, injected?)`. |

@@ -106,7 +106,7 @@ world
 
 world
   .system("CheckpointTriggers")
-  .query({ all: [Checkpoint, SensorEvents] })
+  .where({ all: [Checkpoint, SensorEvents] })
   .update(SensorEvents, (checkpointShape, events) => {
     for (const event of events.begin) {
       const otherBody = event.other.parent(ChildOf);
@@ -162,7 +162,7 @@ class Health {
 
 world
   .system("ImpactDamage")
-  .query({ all: [{ parent: Health }, HitEvents] })
+  .where({ all: [{ parent: Health }, HitEvents] })
   .update(HitEvents, (shape, events) => {
     const body = shape.parent(ChildOf);
     const health = body?.getMut(Health);
@@ -212,7 +212,7 @@ Only contact-listening shapes whose parent body is a player:
 ```ts
 world
   .system("PlayerContacts")
-  .query({ all: [{ parent: Player }, ContactEvents] })
+  .where({ all: [{ parent: Player }, ContactEvents] })
   .update(ContactEvents, (shape, events) => {
     // shape belongs to a body with Player
   });

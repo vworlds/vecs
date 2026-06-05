@@ -308,7 +308,7 @@ describe("System — phases", () => {
     w.system("create broken query")
       .phase(phase)
       .run(() => {
-        w.query("broken").query({ BROKEN: [] } as unknown as QueryDSL);
+        w.query("broken").where({ BROKEN: [] } as unknown as QueryDSL);
       });
     w.system("must not run").phase(phase).run(nextSystem);
 
@@ -384,15 +384,15 @@ describe("System — phases", () => {
 });
 
 describe("System — query interaction with update watchlist", () => {
-  it("query() overrides any prior implicit watchlist query", () => {
+  it("where() overrides any prior implicit watchlist query", () => {
     const { w, phase } = setup();
     const cb = vi.fn();
     // update would normally add Position to the implicit query;
-    // a subsequent query() should fully replace it.
+    // a subsequent where() should fully replace it.
     w.system("test")
       .phase(phase)
       .update(Position, () => {})
-      .query(Velocity)
+      .where(Velocity)
       .enter(cb);
     w.start();
 

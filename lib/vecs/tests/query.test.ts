@@ -74,7 +74,7 @@ describe("Query — typing", () => {
       assertType<IsEqual<typeof typedForEach, Query<[typeof Position, typeof Velocity]>>>();
     }
 
-    const typedQuery = w.query("typed-query").query({ all: [Position, Velocity] });
+    const typedQuery = w.query("typed-query").where({ all: [Position, Velocity] });
     assertType<IsNotAny<typeof typedQuery>>();
     assertType<IsEqual<typeof typedQuery, Query<[typeof Position, typeof Velocity]>>>();
 
@@ -210,7 +210,7 @@ describe("Query — construction", () => {
   it("can query query entities by traits", () => {
     const { w } = setup();
     w.component(QueryTrait);
-    const tagged = w.query("tagged-query").query(false).build();
+    const tagged = w.query("tagged-query").where(false).build();
     tagged.entity.add(QueryTrait);
 
     const q = w.query("query-traits").requires(Query, QueryTrait).build();
@@ -218,7 +218,7 @@ describe("Query — construction", () => {
     expect(q.has(tagged.entity)).toBe(true);
   });
 
-  it("matches nothing until requires(), query(), or update() sets a predicate", () => {
+  it("matches nothing until requires(), where(), or update() sets a predicate", () => {
     const { w, tick } = setup();
     const q = w.query("empty");
     w.start();
@@ -293,7 +293,7 @@ describe("Query — component routing index", () => {
   it("matches entity refs used as typeless component keys", () => {
     const { w, tick } = setup();
     const key = w.entity();
-    const q = w.query("tagged").query(key).build();
+    const q = w.query("tagged").where(key).build();
     const e = w.entity();
 
     e.add(key);
@@ -305,7 +305,7 @@ describe("Query — component routing index", () => {
   it("reindexes a query when its predicate is replaced", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);
-    q.query(Velocity);
+    q.where(Velocity);
     const belongs = vi.spyOn(q, "belongs");
     w.start();
     belongs.mockClear();
@@ -354,7 +354,7 @@ describe("Query — predicates (belongs)", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ only: [Position] })
+      .where({ only: [Position] })
       .build();
     const a = w.entity();
     a.add(Position);
@@ -369,7 +369,7 @@ describe("Query — predicates (belongs)", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ all: [Position, Velocity] })
+      .where({ all: [Position, Velocity] })
       .build();
     const a = w.entity();
     a.add(Position);
@@ -384,7 +384,7 @@ describe("Query — predicates (belongs)", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ any: [Sprite, Container] })
+      .where({ any: [Sprite, Container] })
       .build();
     const a = w.entity();
     a.add(Sprite);
@@ -401,7 +401,7 @@ describe("Query — predicates (belongs)", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ all: [Position, { not: Velocity }] })
+      .where({ all: [Position, { not: Velocity }] })
       .build();
     const a = w.entity();
     a.add(Position);
@@ -416,7 +416,7 @@ describe("Query — predicates (belongs)", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ test: (e) => e.eid === 77 })
+      .where({ test: (e) => e.eid === 77 })
       .build();
     const seven = w.getOrCreateEntity(77);
     const three = w.getOrCreateEntity(3);
@@ -426,7 +426,7 @@ describe("Query — predicates (belongs)", () => {
 
   it("a single class matches entities with that component", () => {
     const { w } = setup();
-    const q = w.query("test").query(Position).build();
+    const q = w.query("test").where(Position).build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -437,7 +437,7 @@ describe("Query — predicates (belongs)", () => {
 
   it("an array matches entities with all listed components", () => {
     const { w } = setup();
-    const q = w.query("test").query([Position, Velocity]).build();
+    const q = w.query("test").where([Position, Velocity]).build();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -451,7 +451,7 @@ describe("Query — predicates (belongs)", () => {
     const { w } = setup();
     const q = w
       .query("test")
-      .query({ all: [Position, Velocity] })
+      .where({ all: [Position, Velocity] })
       .build();
     const e = w.entity();
     e.add(Position);
@@ -948,7 +948,7 @@ describe("Query — not predicate routing", () => {
     const enter = vi.fn();
     // Matches entities that have Position but not Velocity.
     w.query("test")
-      .query({ all: [Position, { not: Velocity }] })
+      .where({ all: [Position, { not: Velocity }] })
       .enter(enter);
     w.start();
     const e = w.entity();
@@ -966,7 +966,7 @@ describe("Query — not predicate routing", () => {
     const { w, tick } = setup();
     const exit = vi.fn();
     w.query("test")
-      .query({ all: [Position, { not: Velocity }] })
+      .where({ all: [Position, { not: Velocity }] })
       .exit(exit);
     w.start();
     const e = w.entity();
@@ -981,7 +981,7 @@ describe("Query — not predicate routing", () => {
     const { w, tick } = setup();
     const events: string[] = [];
     w.query("test")
-      .query({ all: [Position, { not: Velocity }] })
+      .where({ all: [Position, { not: Velocity }] })
       .enter(() => events.push("enter"))
       .exit(() => events.push("exit"));
     w.start();
@@ -998,7 +998,7 @@ describe("Query — not predicate routing", () => {
   it("plain not query: entity enters on creation and when the excluded component is removed", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
-    w.query("test").query({ not: Velocity }).enter(enter);
+    w.query("test").where({ not: Velocity }).enter(enter);
     w.start();
     enter.mockClear();
     const e = w.entity();
@@ -1017,7 +1017,7 @@ describe("Query — not predicate routing", () => {
     const phase = w.addPhase("p2");
     w.system("test")
       .phase(phase)
-      .query({ all: [Position, { not: Velocity }] })
+      .where({ all: [Position, { not: Velocity }] })
       .enter(enter);
     w.start();
     const e = w.entity();

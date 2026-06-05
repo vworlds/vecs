@@ -531,7 +531,7 @@ Systems can react normally with Vecs update handlers.
 ```ts
 world
   .system("DamagePlayers")
-  .query({ all: [{ parent: Player }, ContactEvents] })
+  .where({ all: [{ parent: Player }, ContactEvents] })
   .update(ContactEvents, (shapeEntity, events) => {
     for (const event of events.begin) {
       // event.other is the other shape entity

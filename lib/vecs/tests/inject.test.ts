@@ -76,7 +76,7 @@ describe("Iter cursor", () => {
       const srcs: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .query({ target: [FriendOf, Position] })
+        .where({ target: [FriendOf, Position] })
         .each(Iter, [{ target: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
         });
@@ -96,7 +96,7 @@ describe("Iter cursor", () => {
       const srcs: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .query({ target: [FriendOf, Position] })
+        .where({ target: [FriendOf, Position] })
         .each(Iter, [{ target: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
         });
@@ -539,7 +539,7 @@ describe("Iter cursor", () => {
       const entered: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .query({ target: [FriendOf, Position] })
+        .where({ target: [FriendOf, Position] })
         .enter(Iter, [{ target: [FriendOf, [Position]] }], (it, [pos]) => {
           entered.push({ entity: it.entity, src: it.src[0], pos });
         });
@@ -560,7 +560,7 @@ describe("Iter cursor", () => {
       const exited: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .query({ target: [FriendOf, Position] })
+        .where({ target: [FriendOf, Position] })
         .exit(Iter, [{ target: [FriendOf, [Position]] }], (it, [pos]) => {
           exited.push({ entity: it.entity, src: it.src[0], pos });
         });
@@ -586,7 +586,7 @@ describe("Iter cursor", () => {
       const srcs: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .query({ target: [ChildOf, Position] })
+        .where({ target: [ChildOf, Position] })
         .each(Iter, [{ target: [ChildOf, [Position]] }], (it) => {
           srcs.push(it.src[0]);
         });
