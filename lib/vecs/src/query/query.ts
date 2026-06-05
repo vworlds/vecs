@@ -105,6 +105,13 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     }
   }
 
+  /* -------------------------------------------------------------------------
+   * Identity And Membership Views
+   * -------------------------------------------------------------------------
+   * Read-only accessors over the backing entity and current matched set. These
+   * methods do not change query configuration or world registration state.
+   */
+
   /** `true` once this query has been registered with its world. */
   public get built(): boolean {
     return this._built;
@@ -135,15 +142,105 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return this.rootTerm?.has(e) ?? false;
   }
 
-  public build(): this {
-    if (this.built) {
-      return this;
+  public has(e: Entity): boolean {
+    if (!this._tracking) {
+      return false;
     }
-    if (this.world.deferred) {
-      this.world._addUnbuiltQuery(this as any);
-      return this;
-    }
-    return this._build();
+    return this._entities?.has(e) ?? this.rootTerm?.has(e) ?? false;
+  }
+
+  public forEach(callback: (e: Entity) => void): this;
+  public forEach<J extends FanInjectTuple>(
+    components: readonly [...J],
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+  public forEach<J extends FanInjectTuple>(
+    cursor: typeof Entity,
+    components: readonly [...J],
+    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+  public forEach<J extends FanInjectTuple>(
+    cursor: typeof Iter,
+    components: readonly [...J],
+    callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
+    forEachInjected(this.world, this._matchedEntities(), arg0, arg1, arg2);
+    return this;
+  }
+
+  public toString(): string {
+    return this.name ?? "";
+  }
+
+  /* -------------------------------------------------------------------------
+   * Predicate And Membership Configuration
+   * -------------------------------------------------------------------------
+   * Fluent builder methods that decide which entities belong to the query and
+   * how that membership is tracked, ordered, grouped, or source-filtered.
+   */
+
+  public query<const Q extends QueryDSL>(q: Q): Query<ExtractRequired<Q>>;
+  public query<const T extends ComponentType[]>(
+    q: QueryDSL,
+    _guaranteed: readonly [...T]
+  ): Query<T>;
+  public query(q: QueryDSL, _guaranteed?: readonly ComponentType[]): Query<any> {
+    this._assertConfigurable();
+    this._dsl = q;
+    this._hasExplicitQuery = true;
+    return this as unknown as Query<any>;
+  }
+
+  public requires<const T extends ComponentType[]>(...components: [...T]): Query<T> {
+    this.query(components);
+    return this as unknown as Query<T>;
+  }
+
+  public track(): this {
+    this._assertConfigurable();
+    this._tracking = true;
+    return this;
+  }
+
+  public sort<J extends InjectTuple>(
+    components: readonly [...J],
+    compare: (
+      entityA: Entity,
+      a: MaybeResolvedInjectTuple<J, R>,
+      entityB: Entity,
+      b: MaybeResolvedInjectTuple<J, R>
+    ) => number
+  ): this;
+  public sort<J extends InjectTuple>(
+    cursor: typeof Entity,
+    components: readonly [...J],
+    compare: (
+      entityA: Entity,
+      a: MaybeResolvedInjectTuple<J, R>,
+      entityB: Entity,
+      b: MaybeResolvedInjectTuple<J, R>
+    ) => number
+  ): this;
+  public sort<J extends InjectTuple>(
+    cursor: typeof Iter,
+    components: readonly [...J],
+    compare: (
+      a: Iter,
+      aResolved: MaybeResolvedInjectTuple<J, R>,
+      b: Iter,
+      bResolved: MaybeResolvedInjectTuple<J, R>
+    ) => number
+  ): this;
+  public sort(
+    arg0: readonly InjectElement[] | typeof Entity | typeof Iter,
+    arg1?: readonly InjectElement[] | Function,
+    arg2?: Function
+  ): this {
+    this._assertConfigurable();
+    this._tracking = true;
+    this._entities = makeSortedEntitySet(this.world, arg0, arg1, arg2);
+    return this;
   }
 
   public cascade(rel: ComponentRef): this;
@@ -171,6 +268,150 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       this._reSortCascade(entity, relMeta.eid);
     });
     return this;
+  }
+
+  public groupBy<K, J extends FanInjectTuple>(
+    components: readonly [...J],
+    key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
+  ): GroupedQuery<K, R>;
+  public groupBy(relationship: ComponentRef): GroupedQuery<Entity, R>;
+  public groupBy(
+    arg0: readonly FanInjectElement[] | ComponentRef,
+    arg1?: (e: Entity, resolved: any) => any
+  ): GroupedQuery<unknown, R> {
+    this._assertConfigurable();
+    Object.setPrototypeOf(this, getGroupedQueryPrototype());
+    return (this as any)._initialize(arg0, arg1);
+  }
+
+  public ignoreSource(source: QueryDSL | Query): this {
+    this._assertConfigurable();
+    const query =
+      typeof source === "object" && !Array.isArray(source) && "entity" in source
+        ? source
+        : this._buildSilenceQuery(source);
+    this.entity.set(SilenceSource, { target: query.entity });
+    this._silenceQuery = query;
+    return this;
+  }
+
+  /* -------------------------------------------------------------------------
+   * Reactive Callback Configuration
+   * -------------------------------------------------------------------------
+   * Fluent builder methods that install user callbacks for membership entry,
+   * membership exit, and watched component updates.
+   */
+
+  public enter<J extends InjectTuple>(
+    inject: readonly [...J],
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+  public enter<J extends InjectTuple>(
+    cursor: typeof Entity,
+    inject: readonly [...J],
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+  public enter<J extends InjectTuple>(
+    cursor: typeof Iter,
+    inject: readonly [...J],
+    callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+  public enter(callback: (e: Entity) => void): this;
+  public enter<J extends InjectTuple>(
+    arg0: InjectTuple | ((e: Entity) => void) | typeof Entity | typeof Iter,
+    arg1?: InjectTuple | Function,
+    arg2?: Function
+  ): this {
+    this._assertConfigurable();
+    this._enterCallback = makeEnterCallback(this.world, arg0, arg1, arg2);
+    return this;
+  }
+
+  public exit<J extends InjectTuple>(
+    inject: readonly [...J],
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+  public exit<J extends InjectTuple>(
+    cursor: typeof Entity,
+    inject: readonly [...J],
+    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+  public exit<J extends InjectTuple>(
+    cursor: typeof Iter,
+    inject: readonly [...J],
+    callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
+  ): this;
+  public exit(callback: (e: Entity) => void): this;
+  public exit<J extends InjectTuple>(
+    arg0: readonly [...J] | ((e: Entity) => void) | typeof Entity | typeof Iter,
+    arg1?: readonly [...J] | ((...args: any[]) => void),
+    arg2?: (...args: any[]) => void
+  ): this {
+    this._assertConfigurable();
+    const exit = makeExitCallback(this.world, arg0, arg1, arg2);
+    this._exitCallback = exit.callback;
+    this._exitSnapshotTypes = exit.snapshotTypes;
+    return this;
+  }
+
+  public update<C extends ComponentType>(
+    ComponentClass: C,
+    callback: (e: Entity, c: InstanceType<C>) => void
+  ): this;
+  public update<C extends ComponentType, J extends InjectTuple>(
+    ComponentClass: C,
+    inject: readonly [...J],
+    callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+  public update<C extends ComponentType, J extends InjectTuple>(
+    cursor: typeof Entity,
+    ComponentClass: C,
+    inject: readonly [...J],
+    callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+  public update<C extends ComponentType>(
+    cursor: typeof Entity,
+    ComponentClass: C,
+    callback: (e: Entity, c: InstanceType<C>) => void
+  ): this;
+  public update<C extends ComponentType, J extends InjectTuple>(
+    cursor: typeof Iter,
+    ComponentClass: C,
+    inject: readonly [...J],
+    callback: (it: Iter, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
+  ): this;
+  public update<C extends ComponentType>(
+    arg0: C | typeof Entity | typeof Iter,
+    arg1: C | readonly InjectElement[] | ((...args: any[]) => void),
+    arg2?: readonly InjectElement[] | ((...args: any[]) => void),
+    arg3?: (...args: any[]) => void
+  ): this {
+    this._assertConfigurable();
+    const { componentEid, callback } = makeUpdateRegistration(this.world, arg0, arg1, arg2, arg3);
+    this._componentUpdateCallbacks.set(componentEid, callback);
+    this._watchlistBitmask.add(componentEid);
+    if (!this._hasExplicitQuery) {
+      this._dsl = this._watchlistBitmask.indices();
+    }
+    return this;
+  }
+
+  /* -------------------------------------------------------------------------
+   * World Registration And Routing Hooks
+   * -------------------------------------------------------------------------
+   * Public internals called by World, terms, and System subclasses to register,
+   * destroy, and route membership/update events through the query.
+   */
+
+  public build(): this {
+    if (this.built) {
+      return this;
+    }
+    if (this.world.deferred) {
+      this.world._addUnbuiltQuery(this as any);
+      return this;
+    }
+    return this._build();
   }
 
   /** @internal */
@@ -229,115 +470,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     });
   }
 
-  public enter<J extends InjectTuple>(
-    inject: readonly [...J],
-    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
-  ): this;
-  public enter<J extends InjectTuple>(
-    cursor: typeof Entity,
-    inject: readonly [...J],
-    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
-  ): this;
-  public enter<J extends InjectTuple>(
-    cursor: typeof Iter,
-    inject: readonly [...J],
-    callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
-  ): this;
-  public enter(callback: (e: Entity) => void): this;
-  public enter<J extends InjectTuple>(
-    arg0: InjectTuple | ((e: Entity) => void) | typeof Entity | typeof Iter,
-    arg1?: InjectTuple | Function,
-    arg2?: Function
-  ): this {
-    this._assertConfigurable();
-    this._enterCallback = makeEnterCallback(this.world, arg0, arg1, arg2);
-    return this;
-  }
-
   /** @internal */
   public _exit(e: Entity): void {
     this._exitCallback?.(e);
     this._entities?.delete(e);
     e._removeQueryMembership(this as any);
-  }
-
-  public exit<J extends InjectTuple>(
-    inject: readonly [...J],
-    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
-  ): this;
-  public exit<J extends InjectTuple>(
-    cursor: typeof Entity,
-    inject: readonly [...J],
-    callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
-  ): this;
-  public exit<J extends InjectTuple>(
-    cursor: typeof Iter,
-    inject: readonly [...J],
-    callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
-  ): this;
-  public exit(callback: (e: Entity) => void): this;
-  public exit<J extends InjectTuple>(
-    arg0: readonly [...J] | ((e: Entity) => void) | typeof Entity | typeof Iter,
-    arg1?: readonly [...J] | ((...args: any[]) => void),
-    arg2?: (...args: any[]) => void
-  ): this {
-    this._assertConfigurable();
-    const exit = makeExitCallback(this.world, arg0, arg1, arg2);
-    this._exitCallback = exit.callback;
-    this._exitSnapshotTypes = exit.snapshotTypes;
-    return this;
-  }
-
-  public forEach(callback: (e: Entity) => void): this;
-  public forEach<J extends FanInjectTuple>(
-    components: readonly [...J],
-    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): this;
-  public forEach<J extends FanInjectTuple>(
-    cursor: typeof Entity,
-    components: readonly [...J],
-    callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): this;
-  public forEach<J extends FanInjectTuple>(
-    cursor: typeof Iter,
-    components: readonly [...J],
-    callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): this;
-  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
-    forEachInjected(this.world, this._matchedEntities(), arg0, arg1, arg2);
-    return this;
-  }
-
-  public groupBy<K, J extends FanInjectTuple>(
-    components: readonly [...J],
-    key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
-  ): GroupedQuery<K, R>;
-  public groupBy(relationship: ComponentRef): GroupedQuery<Entity, R>;
-  public groupBy(
-    arg0: readonly FanInjectElement[] | ComponentRef,
-    arg1?: (e: Entity, resolved: any) => any
-  ): GroupedQuery<unknown, R> {
-    this._assertConfigurable();
-    Object.setPrototypeOf(this, getGroupedQueryPrototype());
-    return (this as any)._initialize(arg0, arg1);
-  }
-
-  public has(e: Entity): boolean {
-    if (!this._tracking) {
-      return false;
-    }
-    return this._entities?.has(e) ?? this.rootTerm?.has(e) ?? false;
-  }
-
-  public ignoreSource(source: QueryDSL | Query): this {
-    this._assertConfigurable();
-    const query =
-      typeof source === "object" && !Array.isArray(source) && "entity" in source
-        ? source
-        : this._buildSilenceQuery(source);
-    this.entity.set(SilenceSource, { target: query.entity });
-    this._silenceQuery = query;
-    return this;
   }
 
   /** @internal */
@@ -362,120 +499,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     }
   }
 
-  public query<const Q extends QueryDSL>(q: Q): Query<ExtractRequired<Q>>;
-  public query<const T extends ComponentType[]>(
-    q: QueryDSL,
-    _guaranteed: readonly [...T]
-  ): Query<T>;
-  public query(q: QueryDSL, _guaranteed?: readonly ComponentType[]): Query<any> {
-    this._assertConfigurable();
-    this._dsl = q;
-    this._hasExplicitQuery = true;
-    return this as unknown as Query<any>;
-  }
-
-  public requires<const T extends ComponentType[]>(...components: [...T]): Query<T> {
-    this.query(components);
-    return this as unknown as Query<T>;
-  }
-
-  public sort<J extends InjectTuple>(
-    components: readonly [...J],
-    compare: (
-      entityA: Entity,
-      a: MaybeResolvedInjectTuple<J, R>,
-      entityB: Entity,
-      b: MaybeResolvedInjectTuple<J, R>
-    ) => number
-  ): this;
-  public sort<J extends InjectTuple>(
-    cursor: typeof Entity,
-    components: readonly [...J],
-    compare: (
-      entityA: Entity,
-      a: MaybeResolvedInjectTuple<J, R>,
-      entityB: Entity,
-      b: MaybeResolvedInjectTuple<J, R>
-    ) => number
-  ): this;
-  public sort<J extends InjectTuple>(
-    cursor: typeof Iter,
-    components: readonly [...J],
-    compare: (
-      a: Iter,
-      aResolved: MaybeResolvedInjectTuple<J, R>,
-      b: Iter,
-      bResolved: MaybeResolvedInjectTuple<J, R>
-    ) => number
-  ): this;
-  public sort(
-    arg0: readonly InjectElement[] | typeof Entity | typeof Iter,
-    arg1?: readonly InjectElement[] | Function,
-    arg2?: Function
-  ): this {
-    this._assertConfigurable();
-    this._tracking = true;
-    this._entities = makeSortedEntitySet(this.world, arg0, arg1, arg2);
-    return this;
-  }
-
-  public toString(): string {
-    return this.name ?? "";
-  }
-
-  public track(): this {
-    this._assertConfigurable();
-    this._tracking = true;
-    return this;
-  }
-
   /** @internal */
   public _unsubscribeRootTerm(): void {
     this._unsubscribeTerm?.();
     this._unsubscribeTerm = undefined;
     this.rootTerm = undefined;
-  }
-
-  public update<C extends ComponentType>(
-    ComponentClass: C,
-    callback: (e: Entity, c: InstanceType<C>) => void
-  ): this;
-  public update<C extends ComponentType, J extends InjectTuple>(
-    ComponentClass: C,
-    inject: readonly [...J],
-    callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
-  ): this;
-  public update<C extends ComponentType, J extends InjectTuple>(
-    cursor: typeof Entity,
-    ComponentClass: C,
-    inject: readonly [...J],
-    callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
-  ): this;
-  public update<C extends ComponentType>(
-    cursor: typeof Entity,
-    ComponentClass: C,
-    callback: (e: Entity, c: InstanceType<C>) => void
-  ): this;
-  public update<C extends ComponentType, J extends InjectTuple>(
-    cursor: typeof Iter,
-    ComponentClass: C,
-    inject: readonly [...J],
-    callback: (it: Iter, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
-  ): this;
-  public update<C extends ComponentType>(
-    arg0: C | typeof Entity | typeof Iter,
-    arg1: C | readonly InjectElement[] | ((...args: any[]) => void),
-    arg2?: readonly InjectElement[] | ((...args: any[]) => void),
-    arg3?: (...args: any[]) => void
-  ): this {
-    this._assertConfigurable();
-    const { componentEid, callback } = makeUpdateRegistration(this.world, arg0, arg1, arg2, arg3);
-    this._componentUpdateCallbacks.set(componentEid, callback);
-    this._watchlistBitmask.add(componentEid);
-    if (!this._hasExplicitQuery) {
-      this._dsl = this._watchlistBitmask.indices();
-    }
-    return this;
   }
 
   /** @internal */
