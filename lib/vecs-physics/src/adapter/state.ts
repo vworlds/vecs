@@ -65,7 +65,6 @@ export function hasPhysics(world: World): boolean {
 export class PhysicsState {
   public worldId!: b2WorldId;
   public readonly box2d: Box2DModule;
-  public readonly options: ResolvedPhysicsOptions;
 
   // Resolved configuration (flattened from PhysicsOptions).
   public readonly gravityX: number;
@@ -131,7 +130,6 @@ export class PhysicsState {
 
   public constructor(box2d: Box2DModule, options: ResolvedPhysicsOptions, warnSink?: WarnSink) {
     this.box2d = box2d;
-    this.options = options;
     this.gravityX = options.gravityX;
     this.gravityY = options.gravityY;
     this.fixedTimeStep = options.fixedTimeStep;
