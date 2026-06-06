@@ -39,6 +39,16 @@ describe("Entity — components", () => {
     expect(pos).toBeInstanceOf(Position);
   });
 
+  it("get(typeId) for an unattached numeric id returns undefined, like has", () => {
+    const w = new World();
+    w.component(Position, 50);
+    const e = w.entity();
+    // 51 is not a registered component entity; get must not throw and must
+    // agree with has (both report "not attached").
+    expect(e.get(51)).toBeUndefined();
+    expect(e.has(51)).toBe(false);
+  });
+
   it("set returns the entity for chaining", () => {
     const w = new World();
     w.component(Position);
