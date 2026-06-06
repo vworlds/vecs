@@ -65,8 +65,18 @@ export class TargetTerm extends Term {
     return new TargetTerm(world, key, relationshipEid, relationshipTerm, innerTerm, onDestroy);
   }
 
+  /** @internal Fan-out child membership event handler. See {@link _fanOut}. */
+  protected override _onChildEvent(_kind: TermEventKind, entity: Entity, child: Term): void {
+    this._fanOut(entity, child);
+  }
+
+  /** @internal Fan-out child refresh handler. See {@link _fanOut}. */
+  protected override _onChildRefresh(entity: Entity, child: Term): void {
+    this._fanOut(entity, child);
+  }
+
   /**
-   * @internal Fan-out child membership event handler.
+   * @internal Shared fan-out logic for child membership and refresh events.
    *
    * When the relationship component is added/removed from `entity`
    * (`child === children[0]`), re-evaluate that entity directly. When the
@@ -74,27 +84,12 @@ export class TargetTerm extends Term {
    * every source entity that points at that target via the relationship and
    * re-evaluate each one.
    */
-  protected override _onChildEvent(_kind: TermEventKind, entity: Entity, child: Term): void {
+  private _fanOut(entity: Entity, child: Term): void {
     if (child === this._children[0]) {
       this._sync(entity);
       return;
     }
-    entity.children(this._relationshipEid).forEach((source) => this._sync(source));
-  }
-
-  /**
-   * @internal Fan-out child refresh handler.
-   *
-   * Mirrors `_onChildEvent`: a data/shape change on the relationship component
-   * or the inner term may alter whether a source entity matches, so the same
-   * fan-out logic applies.
-   */
-  protected override _onChildRefresh(entity: Entity, child: Term): void {
-    if (child === this._children[0]) {
-      this._sync(entity);
-      return;
-    }
-    entity.children(this._relationshipEid).forEach((source) => this._sync(source));
+    entity._childrenByEid(this._relationshipEid)?.forEach((source) => this._sync(source));
   }
 
   /** @internal */
