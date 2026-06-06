@@ -191,7 +191,7 @@ export class Components extends Relationships {
   public get(entity: Entity): Readonly<ComponentInstance> | undefined;
 
   public get(ref: ComponentRef): Readonly<ComponentInstance> | undefined {
-    const ceid = this.world.entity(ref).eid;
+    const ceid = typeof ref === "number" ? ref : this.world.entity(ref).eid;
     return this._get(ceid);
   }
 
