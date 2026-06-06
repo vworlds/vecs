@@ -182,9 +182,10 @@ export class Iter {
 
   /**
    * Source entity for each injected component, in the same order as the
-   * resolved tuple: the visited entity for a directly-injected component, or
-   * the relationship target for a `target`-injected one (`undefined` when the
-   * entity has no such relationship or target).
+   * resolved tuple: the visited entity for a directly-injected component, the
+   * relationship target for a `target`-injected one, or the specific child for
+   * a `down`-injected one (`undefined` when the entity has no such relationship,
+   * target, or — for `down` — when the slot is unfilled).
    */
   public readonly src: (Entity | undefined)[];
 

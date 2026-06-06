@@ -24,7 +24,7 @@ export type MergedInfo = {
  * - **Plain predicate** (`kind === "predicate"`): wraps a user-supplied
  *   `{ test, watch }` DSL node. The predicate is evaluated whenever a watched
  *   component changes; membership requires the world leaf to include the entity
- *   (i.e. it is not destroyed and not a `Component` instance).
+ *   (i.e. it has not been destroyed).
  *
  * - **Merged / diamond-collapsed** (`kind === "merged"`): wraps a compiled
  *   predicate for an `all`/`any` subtree that was detected to contain a

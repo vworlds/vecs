@@ -69,10 +69,13 @@ export interface Hook<C extends ComponentInstance = ComponentInstance> {
   onRemove(handler: (entity: Entity, c: C) => void): Hook<C>;
 
   /**
-   * Register a handler invoked when a component's data has been marked as
-   * changed (`entity.modified(C)`), and when
-   * `entity.set(C, props)` is called on an entity that already has the
-   * component.
+   * Register a handler invoked when a component's data is set or modified.
+   *
+   * Fires when:
+   * - `entity.set(C, props)` applies data to the component.
+   * - `entity.attach(instance)` stores an existing instance.
+   * - `entity.modified(C)` is called after in-place mutation.
+   * - A system's `getMut(C)` marks the component dirty.
    *
    * @param handler - Receives the entity and component instance whose data changed.
    * @returns This hook, for chaining.

@@ -9,10 +9,15 @@ export { ChildOf, SilenceSource, Traversable } from "./relationship_types.js";
  * Built-in world module that registers the `ChildOf` relationship and
  * maintains depth tracking for traversable relationships.
  *
- * Registered automatically by every {@link World}. When a relationship
- * component entity has `Traversable` attached, the module installs `onAdd`,
- * `onSet`, and `onRemove` hooks on that relationship so that every entity's
- * depth is updated when the relationship is added, retargeted, or removed.
+ * Registered automatically by every {@link World}. It sets `ChildOf`'s
+ * `onDeleteTarget` cleanup policy to {@link CleanupPolicy.Delete}, so
+ * destroying a parent recursively destroys the children that target it through
+ * `ChildOf` (custom relationships default to `Remove`).
+ *
+ * When a relationship component entity has `Traversable` attached, the module
+ * installs `onAdd`, `onSet`, and `onRemove` hooks on that relationship so that
+ * every entity's depth is updated when the relationship is added, retargeted,
+ * or removed.
  *
  * Depth is computed by walking `entity.parent(relEid)` to the root. When an
  * entity's depth changes, every descendant is recursively recomputed.
