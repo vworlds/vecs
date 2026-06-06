@@ -78,6 +78,17 @@ describe("Query — typing", () => {
     assertType<IsNotAny<typeof typedQuery>>();
     assertType<IsEqual<typeof typedQuery, Query<[typeof Position, typeof Velocity]>>>();
 
+    const typedMergedQuery = w.query("typed-merged-query").where(Position, {
+      with: { any: [Velocity, Sprite] },
+      hint: [Velocity],
+    });
+    assertType<IsNotAny<typeof typedMergedQuery>>();
+    assertType<IsEqual<typeof typedMergedQuery, Query<[typeof Position, typeof Velocity]>>>();
+
+    const typedRepeatedQuery = w.query("typed-repeated-query").where(Position).where(Velocity);
+    assertType<IsNotAny<typeof typedRepeatedQuery>>();
+    assertType<IsEqual<typeof typedRepeatedQuery, Query<[typeof Position, typeof Velocity]>>>();
+
     if (false) {
       typedQuery.update(Position, [Velocity], (_e, p, [v]) => {
         assertType<IsEqual<typeof p, Position>>();
@@ -362,7 +373,7 @@ describe("Query — component routing index", () => {
     expect(q.has(e)).toBe(true);
   });
 
-  it("reindexes a query when its predicate is replaced", () => {
+  it("reindexes a query when another predicate is added", () => {
     const { w, tick } = setup();
     const q = w.query("test").requires(Position);
     q.where(Velocity);
@@ -379,7 +390,14 @@ describe("Query — component routing index", () => {
     velocityOnly.add(Velocity);
     tick();
     expect(belongs).not.toHaveBeenCalled();
-    expect(q.has(velocityOnly)).toBe(true);
+    expect(q.has(velocityOnly)).toBe(false);
+
+    const positionVelocity = w.entity();
+    positionVelocity.add(Position);
+    positionVelocity.add(Velocity);
+    tick();
+    expect(belongs).not.toHaveBeenCalled();
+    expect(q.has(positionVelocity)).toBe(true);
   });
 
   it("destroy removes a query from the routing index", () => {
@@ -438,6 +456,41 @@ describe("Query — predicates (belongs)", () => {
     b.add(Velocity);
     expect(q.belongs(a)).toBe(false);
     expect(q.belongs(b)).toBe(true);
+  });
+
+  it("where merges multiple specs with all", () => {
+    const { w } = setup();
+    const q = w
+      .query("test")
+      .where(Position, { with: { any: [Velocity, Sprite] } })
+      .build();
+    const positionOnly = w.entity().add(Position);
+    const velocityOnly = w.entity().add(Velocity);
+    const positionVelocity = w.entity().add(Position).add(Velocity);
+    const positionSprite = w.entity().add(Position).add(Sprite);
+
+    expect(q.belongs(positionOnly)).toBe(false);
+    expect(q.belongs(velocityOnly)).toBe(false);
+    expect(q.belongs(positionVelocity)).toBe(true);
+    expect(q.belongs(positionSprite)).toBe(true);
+  });
+
+  it("repeated where calls merge with all", () => {
+    const { w } = setup();
+    const q = w
+      .query("test")
+      .where(Position)
+      .where({ any: [Velocity, Sprite] })
+      .build();
+    const positionOnly = w.entity().add(Position);
+    const velocityOnly = w.entity().add(Velocity);
+    const positionVelocity = w.entity().add(Position).add(Velocity);
+    const positionSprite = w.entity().add(Position).add(Sprite);
+
+    expect(q.belongs(positionOnly)).toBe(false);
+    expect(q.belongs(velocityOnly)).toBe(false);
+    expect(q.belongs(positionVelocity)).toBe(true);
+    expect(q.belongs(positionSprite)).toBe(true);
   });
 
   it("any matches if any branch is satisfied", () => {
@@ -832,6 +885,49 @@ describe("Query — orderBy", () => {
     tick();
 
     expect([...q]).toEqual([alice, bob, david, charley]);
+  });
+
+  it("where() uses the last cascade from multiple specs", () => {
+    const { w, tick } = setup();
+    w.component(Tag);
+    w.component(FriendOf).add(Traversable);
+
+    const charley = w.entity("Charley").add(Tag);
+    const bob = w.entity("Bob").add(Tag);
+    const alice = w.entity("Alice").add(Tag);
+    bob.set(FriendOf, { target: alice });
+    charley.set(FriendOf, { target: bob });
+
+    const q = w
+      .query("cascade-precedence")
+      .where({ with: Tag, cascade: ChildOf }, { with: true, cascade: FriendOf });
+
+    w.start();
+    tick();
+
+    expect([...q]).toEqual([alice, bob, charley]);
+  });
+
+  it("repeated where calls use the last cascade", () => {
+    const { w, tick } = setup();
+    w.component(Tag);
+    w.component(FriendOf).add(Traversable);
+
+    const charley = w.entity("Charley").add(Tag);
+    const bob = w.entity("Bob").add(Tag);
+    const alice = w.entity("Alice").add(Tag);
+    bob.set(FriendOf, { target: alice });
+    charley.set(FriendOf, { target: bob });
+
+    const q = w
+      .query("cascade-precedence-repeated")
+      .where({ with: Tag, cascade: ChildOf })
+      .where({ with: true, cascade: FriendOf });
+
+    w.start();
+    tick();
+
+    expect([...q]).toEqual([alice, bob, charley]);
   });
 
   it("cascade() lets parent transforms feed child transforms in hierarchy order", () => {

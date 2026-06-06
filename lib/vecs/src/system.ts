@@ -11,7 +11,7 @@ import {
 import { SOURCE_TRACKED_QUERY_ERROR, Query } from "./query/index.js";
 import {
   containsDownTerm,
-  type ExtractSpecRequired,
+  type ExtractSpecsRequired,
   type MaybeRequired,
   type QueryDSL,
   type QuerySpec,
@@ -512,8 +512,10 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *   entity (type hint only — not validated at runtime).
    * @returns This system, retyped with the guaranteed tuple as its `R`.
    */
-  public override where<const S extends QuerySpec>(spec: S): System<ExtractSpecRequired<S>> {
-    super.where(spec);
+  public override where<const S extends readonly QuerySpec[]>(
+    ...specs: [...S]
+  ): System<[...R, ...ExtractSpecsRequired<S>]> {
+    super.where(...specs);
     return this as unknown as System<any>;
   }
 
@@ -528,9 +530,11 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * @param components - Component classes to require.
    * @returns This system, retyped with the required tuple as its `R`.
    */
-  public override requires<const T extends ComponentType[]>(...components: [...T]): System<T> {
+  public override requires<const T extends ComponentType[]>(
+    ...components: [...T]
+  ): System<[...R, ...T]> {
     super.requires(...components);
-    return this as unknown as System<T>;
+    return this as unknown as System<[...R, ...T]>;
   }
 
   /**

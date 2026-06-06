@@ -2,7 +2,7 @@ import { type ComponentInstance, type ComponentRef, type ComponentType } from ".
 import {
   containsDownTerm,
   isQueryConfig,
-  type ExtractSpecRequired,
+  type ExtractSpecsRequired,
   type QueryDSL,
   type QuerySpec,
 } from "../dsl.js";
@@ -184,23 +184,35 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * how that membership is tracked, ordered, grouped, or source-filtered.
    */
 
-  public where<const S extends QuerySpec>(spec: S): Query<ExtractSpecRequired<S>> {
+  public where<const S extends readonly QuerySpec[]>(
+    ...specs: [...S]
+  ): Query<[...R, ...ExtractSpecsRequired<S>]> {
     this._assertConfigurable();
-    if (isQueryConfig(spec)) {
-      this._dsl = spec.with;
-      if (spec.cascade !== undefined) {
-        this.cascade(spec.cascade);
+    const terms: QueryDSL[] = [];
+    let cascade: ComponentRef | undefined;
+
+    for (const spec of specs) {
+      if (isQueryConfig(spec)) {
+        terms.push(spec.with);
+        if (spec.cascade !== undefined) {
+          cascade = spec.cascade;
+        }
+      } else {
+        terms.push(spec);
       }
-    } else {
-      this._dsl = spec;
     }
+
+    this._dsl = this._dsl === undefined ? { all: terms } : { all: [this._dsl, ...terms] };
     this._hasExplicitQuery = true;
+    if (cascade !== undefined) {
+      this.cascade(cascade);
+    }
     return this as unknown as Query<any>;
   }
 
-  public requires<const T extends ComponentType[]>(...components: [...T]): Query<T> {
+  public requires<const T extends ComponentType[]>(...components: [...T]): Query<[...R, ...T]> {
     this.where(components);
-    return this as unknown as Query<T>;
+    return this as unknown as Query<[...R, ...T]>;
   }
 
   public track(): this {

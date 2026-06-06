@@ -104,6 +104,13 @@ export type ExtractSpecRequired<S> = S extends {
       ? ExtractRequired<S>
       : [];
 
+export type ExtractSpecsRequired<S> = S extends readonly [
+  infer First extends QuerySpec,
+  ...infer Rest extends readonly QuerySpec[],
+]
+  ? [...ExtractSpecRequired<First>, ...ExtractSpecsRequired<Rest>]
+  : [];
+
 /**
  * Resolve component nullability based on what was declared in `requires` (or
  * the `_guaranteed` hint).
