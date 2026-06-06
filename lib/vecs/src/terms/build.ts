@@ -95,7 +95,9 @@ export function getTerm(world: World, dsl: QueryDSL): Term {
 /**
  * Return the cached term for `dsl` without creating one if absent.
  *
- * Useful for introspection and testing; does not simplify the DSL.
+ * Useful for introspection and testing. It canonicalizes `dsl` (via the same
+ * simplify + cache-key path as {@link getTerm}) to look the term up, but never
+ * creates one.
  *
  * @param world - Owning world.
  * @param dsl - Query DSL expression to look up.
@@ -141,7 +143,8 @@ export function notifyComponentRemoved(world: World, componentEid: EID, entity: 
  * Notify the term graph that a new entity was created.
  *
  * The world term evaluates the entity immediately and emits an enter event if
- * it qualifies (i.e. it is not a `Component` instance).
+ * it qualifies (any live, non-destroyed entity — component-definition entities
+ * included, so they are picked up reactively like ordinary entities).
  */
 export function notifyEntityCreated(world: World, entity: Entity): void {
   world._worldTerm?.entityCreated(entity);

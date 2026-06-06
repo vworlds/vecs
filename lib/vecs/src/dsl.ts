@@ -138,6 +138,8 @@ export type MaybeRequired<C, R extends ComponentType[]> = C extends ComponentTyp
  * - `{ only: ... }` → recurse into the payload
  * - `{ all: [q1, q2, ...] }` → concatenate each branch's extraction
  * - `{ any: ... }` / `{ not: ... }` / `{ test: ... }` → `[]` (no guarantee)
+ * - `{ target: ... }` / `{ source: ... }` / `{ parent: ... }` / `{ children: ... }`
+ *   → `[]` (relationship operators guarantee no component on the candidate)
  * - numeric type id → `[]` (opaque)
  *
  * @typeParam Q - Query expression to analyse.
