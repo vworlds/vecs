@@ -525,6 +525,19 @@ describe("Query — predicates (belongs)", () => {
     expect(q.belongs(b)).toBe(false);
   });
 
+  it("without adds a negated predicate", () => {
+    const { w } = setup();
+    const q = w.query("test").with(Position).without(Velocity).build();
+    const a = w.entity();
+    a.add(Position);
+    const b = w.entity();
+    b.add(Position);
+    b.add(Velocity);
+
+    expect(q.belongs(a)).toBe(true);
+    expect(q.belongs(b)).toBe(false);
+  });
+
   it("an EntityTestFunc can be passed with test", () => {
     const { w } = setup();
     const q = w

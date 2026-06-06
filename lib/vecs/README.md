@@ -558,6 +558,7 @@ Declare which entities the system tracks.
 .with([Position, Velocity])                                       // array shorthand
 .with({ all: [Position, { any: [Sprite, Container] }] })          // compound
 .with({ not: Invisible })
+.without(Invisible)                                               // shorthand for .with({ not: Invisible })
 .with({ target: [FriendOf, Position] })                           // relationship target has Position
 .with({ parent: Body })                                           // ChildOf target has Body
 ```
@@ -750,6 +751,7 @@ console.log(projectiles.count, "active projectiles");
 | Method                                                  | Description                                                                                         |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `.with(...specs)`                                       | Add membership predicates using `QuerySpec` expressions.                                            |
+| `.without(dsl)`                                         | Add a negated membership predicate; shorthand for `.with({ not: dsl })`.                            |
 | `.enter(callback)` / `.enter(inject, callback)`         | Fires when an entity joins the query.                                                               |
 | `.exit(callback)` / `.exit(inject, callback)`           | Fires when an entity leaves the query.                                                              |
 | `.update(C, callback)` / `.update(C, inject, callback)` | Fires when `C` is modified on a tracked entity. Callback receives `(entity, component, injected?)`. |

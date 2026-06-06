@@ -210,6 +210,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return this as unknown as Query<any>;
   }
 
+  public without(dsl: QueryDSL): this {
+    this.with({ not: dsl });
+    return this;
+  }
+
   public track(): this {
     this._assertConfigurable();
     this._tracking = true;
