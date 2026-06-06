@@ -52,7 +52,7 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
     arg1?: (e: Entity, resolved: any) => any
   ): this {
     if (this._grouping !== undefined) {
-      throw `query '${this.name}' is already grouped`;
+      throw new Error(`query '${this.name}' is already grouped`);
     }
     let keyOf: (e: Entity) => unknown;
     let watchEids: EID[];
@@ -87,9 +87,14 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
     this._grouping.refresh(e, ceid);
   }
 
-  /** @internal */
+  /**
+   * @internal A grouped query always reacts to component changes: a watched
+   * component changing can re-key an entity into a different group, so the
+   * host entity must register it in `_queries` regardless of whether a user
+   * `update` callback is present.
+   */
   public override _watchesUpdates(): boolean {
-    return super._watchesUpdates() || true;
+    return true;
   }
 
   public override destroy(): void {
