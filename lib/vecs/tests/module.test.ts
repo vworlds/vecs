@@ -24,6 +24,7 @@ describe("World.module", () => {
     expect(mod.eid).toBe(nextModuleEid);
     expect(world.entity(mod.eid)).toBe(mod);
     expect(mod.meta.eid).toBe(mod.eid);
+    expect(mod.meta.Class).toBe(TestModule);
     expect(mod.initCalls).toBe(1);
   });
 
