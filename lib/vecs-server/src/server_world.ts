@@ -125,7 +125,7 @@ export class ServerWorld extends NetworkWorld {
 
     this._clients = this.system(`ServerWorld:${this.name}:View`)
       .phase(collectPhase)
-      .requires(View, ServerClientSession)
+      .with(View, ServerClientSession)
       .update(View, [ServerClientSession], (_entity, view, [_session]) => {
         view._refreshTracker(this._trackerCache);
       })
@@ -137,7 +137,7 @@ export class ServerWorld extends NetworkWorld {
     this._components.forEach((registered) => {
       this.system(`ServerWorld:${this.name}:${registered.Class.name}`)
         .phase(collectPhase)
-        .requires(Networked, registered.Class)
+        .with(Networked, registered.Class)
         .update(registered.Class, (entity, component) => {
           this._snapshotCache.delete(cid_pack(entity.eid, registered.type));
           this._record(entity, registered.type, component);

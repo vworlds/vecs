@@ -30,7 +30,7 @@ describe("Query.groupBy — value grouping", () => {
     const { w, tick } = setup();
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
     w.start();
@@ -53,7 +53,7 @@ describe("Query.groupBy — value grouping", () => {
     const { w, tick } = setup();
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
     w.start();
@@ -72,7 +72,7 @@ describe("Query.groupBy — value grouping", () => {
     const { w, tick } = setup();
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
     w.start();
@@ -93,7 +93,7 @@ describe("Query.groupBy — value grouping", () => {
     const exited: number[] = [];
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos))
       .onGroupEnter((group) => entered.push(group.key))
       .onGroupExit((key) => exited.push(key as number));
@@ -114,7 +114,7 @@ describe("Query.groupBy — value grouping", () => {
     const { w, tick } = setup();
     const byTeam = w
       .query("byTeam")
-      .requires(Team)
+      .with(Team)
       .groupBy([Team], (_e, [team]) => team.id);
     byTeam.build();
     w.start();
@@ -137,7 +137,7 @@ describe("Query.groupBy — value grouping", () => {
 
     const byCell = w
       .query("late")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
 
@@ -148,7 +148,7 @@ describe("Query.groupBy — value grouping", () => {
     const { w, tick } = setup();
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
     w.start();
@@ -166,7 +166,7 @@ describe("Query.groupBy — value grouping", () => {
     const { w, tick } = setup();
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
     w.start();
@@ -241,7 +241,7 @@ describe("Query.groupBy — non-grouped queries", () => {
     const { w } = setup();
     const q = w
       .query("gq")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     q.build();
     expect(typeof q.groupCount).toBe("number");
@@ -252,7 +252,7 @@ describe("Query.groupBy — non-grouped queries", () => {
 
   it("throws when grouping twice", () => {
     const { w } = setup();
-    const q = w.query("twice").requires(Position);
+    const q = w.query("twice").with(Position);
     q.groupBy([Position], (_e, [pos]) => cellOf(pos));
     expect(() => q.groupBy([Position], (_e, [pos]) => cellOf(pos))).toThrow();
   });

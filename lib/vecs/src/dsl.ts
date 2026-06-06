@@ -20,11 +20,11 @@ export type EntityTestFunc = (e: Entity) => boolean;
  *
  * ```ts
  * // Position and either Sprite or Container:
- * world.system("render").where({
+ * world.system("render").with({
  *   all: [Position, { any: [Sprite, Container] }],
  * });
  *
- * Short forms recognized by `where` / `filter`:
+ * Short forms recognized by `with` / `filter`:
  * - `true` matches all entities; `false` matches no entities.
  * - A registered component class or numeric type id matches entities with that component.
  * - An array `[A, B]` matches entities with all listed components.
@@ -112,8 +112,8 @@ export type ExtractSpecsRequired<S> = S extends readonly [
   : [];
 
 /**
- * Resolve component nullability based on what was declared in `requires` (or
- * the `_guaranteed` hint).
+ * Resolve component nullability based on what was declared in `with` or a
+ * {@link QueryConfig} `hint`.
  *
  * Components in `R` resolve to `InstanceType<C>`; every other component class
  * resolves to `InstanceType<C> | undefined`.

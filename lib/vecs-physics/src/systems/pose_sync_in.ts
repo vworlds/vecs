@@ -4,7 +4,7 @@ import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "../co
 import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 
 export function installPoseSyncIn(world: World, state: PhysicsState, phase: IPhase): System {
-  const system = world.system("PhysicsPoseSyncIn").requires(Body).phase(phase);
+  const system = world.system("PhysicsPoseSyncIn").with(Body).phase(phase);
 
   system.ignoreSource([PhysicsSystemTag]);
 

@@ -287,7 +287,7 @@ describe("PhysicsImpulseZero — silent zero", () => {
     // trigger `modified`, so the watcher sees only the user sets, not the zero.
     world
       .system("ImpulseWatcher")
-      .where({ any: [Impulse] })
+      .with({ any: [Impulse] })
       .update(Impulse, () => {
         modifiedCount++;
       });
@@ -333,7 +333,7 @@ describe("PhysicsImpulseZero — silent zero", () => {
     let modifiedCount = 0;
     world
       .system("AngImpulseWatcher")
-      .where({ any: [AngularImpulse] })
+      .with({ any: [AngularImpulse] })
       .update(AngularImpulse, () => {
         modifiedCount++;
       });

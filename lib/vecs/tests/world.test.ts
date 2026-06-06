@@ -285,7 +285,7 @@ describe("World - components", () => {
     expect(() => e.add(A)).toThrow();
     expect(() => e.set(A, {})).toThrow();
     expect(() => e.modified(A)).toThrow();
-    expect(() => w.system("test").requires(A)._build()).toThrow();
+    expect(() => w.system("test").with(A)._build()).toThrow();
   });
 
   it("gets component-owned instances", () => {

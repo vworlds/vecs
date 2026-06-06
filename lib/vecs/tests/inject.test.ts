@@ -20,7 +20,7 @@ describe("Iter cursor", () => {
       const cursors: Iter[] = [];
       w.system("sys")
         .phase(phase)
-        .requires(Position)
+        .with(Position)
         .each(Iter, [Position, Velocity], (it) => {
           cursors.push(it);
         });
@@ -39,7 +39,7 @@ describe("Iter cursor", () => {
       const seen: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .requires(Position)
+        .with(Position)
         .each(Iter, [Position], (it) => {
           seen.push(it.entity);
         });
@@ -57,7 +57,7 @@ describe("Iter cursor", () => {
       const srcs: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .requires(Position)
+        .with(Position)
         .each(Iter, [Position], (it) => {
           srcs.push(it.src[0]);
         });
@@ -76,7 +76,7 @@ describe("Iter cursor", () => {
       const srcs: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .where({ target: [FriendOf, Position] })
+        .with({ target: [FriendOf, Position] })
         .each(Iter, [{ target: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
         });
@@ -96,7 +96,7 @@ describe("Iter cursor", () => {
       const srcs: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .where({ target: [FriendOf, Position] })
+        .with({ target: [FriendOf, Position] })
         .each(Iter, [{ target: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
         });
@@ -117,7 +117,7 @@ describe("Iter cursor", () => {
       const src = vi.fn();
       w.system("sys")
         .phase(phase)
-        .requires(Tag2)
+        .with(Tag2)
         .each(Iter, [{ target: [FriendOf, [Position]] }], (it) => src(it.src[0]));
       w.start();
       w.entity().add(Tag2);
@@ -131,7 +131,7 @@ describe("Iter cursor", () => {
       const w = new World();
       w.component(Position);
       const cursors: Iter[] = [];
-      const q = w.query("q").requires(Position).build();
+      const q = w.query("q").with(Position).build();
       w.entity().add(Position);
       w.entity().add(Position);
       q.forEach(Iter, [Position], (it) => cursors.push(it));
@@ -142,7 +142,7 @@ describe("Iter cursor", () => {
     it("iterates with Iter cursor", () => {
       const w = new World();
       w.component(Position);
-      const q = w.query("q").requires(Position).build();
+      const q = w.query("q").with(Position).build();
       const e = w.entity().add(Position);
       const seen: unknown[] = [];
       q.forEach(Iter, [Position], (it) => seen.push([it.entity, it.src[0]]));
@@ -179,7 +179,7 @@ describe("Iter cursor", () => {
       const w = new World();
       w.component(Position);
       const cb = vi.fn();
-      const q = w.query("q").requires(Position).enter(Iter, [Position], cb);
+      const q = w.query("q").with(Position).enter(Iter, [Position], cb);
       const e = w.entity().add(Position);
       const pos = e.get(Position);
       q.build();
@@ -196,7 +196,7 @@ describe("Iter cursor", () => {
       const iters: Iter[] = [];
       const q = w
         .query("q")
-        .requires(Position)
+        .with(Position)
         .enter(Iter, [Position], (it) => {
           iters.push(it);
           if (iters.length === 1) {
@@ -216,7 +216,7 @@ describe("Iter cursor", () => {
       const w = new World();
       w.component(Position);
       w.component(Velocity);
-      const q = w.query("q").requires(Position);
+      const q = w.query("q").with(Position);
       q.enter(Iter, [Position, Velocity], () => {});
       expect(() => {
         w.entity().add(Position);
@@ -230,7 +230,7 @@ describe("Iter cursor", () => {
       const w = new World();
       w.component(Position);
       const cb = vi.fn();
-      const q = w.query("q").requires(Position).exit(Iter, [Position], cb).build();
+      const q = w.query("q").with(Position).exit(Iter, [Position], cb).build();
       const e = w.entity().add(Position);
       const pos = e.get(Position);
       e.remove(Position);
@@ -247,7 +247,7 @@ describe("Iter cursor", () => {
       const iters: Iter[] = [];
       const q = w
         .query("q")
-        .requires(Position)
+        .with(Position)
         .exit(Iter, [Position], (it) => {
           iters.push(it);
         })
@@ -264,7 +264,7 @@ describe("Iter cursor", () => {
       const w = new World();
       w.component(Position);
       const cb = vi.fn();
-      const q = w.query("q").requires(Position).exit(Iter, [Position], cb).build();
+      const q = w.query("q").with(Position).exit(Iter, [Position], cb).build();
       const e = w.entity().add(Position);
       const pos = e.get(Position);
       e.remove(Position);
@@ -281,7 +281,7 @@ describe("Iter cursor", () => {
       const cb = vi.fn();
       const q = w
         .query("q")
-        .requires(Position, Velocity)
+        .with(Position, Velocity)
         .update(Iter, Position, [Velocity], cb as any)
         .build();
       const e = w.entity().add(Position).add(Velocity);
@@ -303,7 +303,7 @@ describe("Iter cursor", () => {
       const iters: Iter[] = [];
       const q = w
         .query("q")
-        .requires(Position)
+        .with(Position)
         .update(Iter, Position, [Position], ((it: Iter) => iters.push(it)) as any)
         .build();
       const e = w.entity().add(Position);
@@ -323,7 +323,7 @@ describe("Iter cursor", () => {
       w.entity().add(Position).set(Position, { x: 1 });
       const q = w
         .query("q")
-        .requires(Position)
+        .with(Position)
         .orderBy(Iter, [Position], (_a, [posA], _b, [posB]) => posA.x - posB.x)
         .build();
       const order = [...q];
@@ -338,7 +338,7 @@ describe("Iter cursor", () => {
       w.component(Position);
       const phase = w.addPhase("tick");
       const cb = vi.fn();
-      w.system("sys").phase(phase).requires(Position).enter(Iter, [Position], cb);
+      w.system("sys").phase(phase).with(Position).enter(Iter, [Position], cb);
       w.start();
       const e = w.entity().add(Position);
       const pos = e.get(Position);
@@ -357,7 +357,7 @@ describe("Iter cursor", () => {
       w.component(Position);
       const phase = w.addPhase("tick");
       const cb = vi.fn();
-      w.system("sys").phase(phase).requires(Position).exit(Iter, [Position], cb);
+      w.system("sys").phase(phase).with(Position).exit(Iter, [Position], cb);
       w.start();
       const e = w.entity().add(Position);
       w.progress(0, 0);
@@ -381,7 +381,7 @@ describe("Iter cursor", () => {
       const cb = vi.fn();
       w.system("sys")
         .phase(phase)
-        .requires(Position)
+        .with(Position)
         .update(Iter, Position, [Velocity], cb as any);
       w.start();
       const e = w.entity().add(Position).add(Velocity);
@@ -410,7 +410,7 @@ describe("Iter cursor", () => {
       const sys = w
         .system("sys")
         .phase(phase)
-        .requires(Position)
+        .with(Position)
         .orderBy(Iter, [Position], (_a, [posA], _b, [posB]) => posA.x - posB.x);
       w.start();
       const order = [...sys];
@@ -426,8 +426,8 @@ describe("Iter cursor", () => {
       const phase = w.addPhase("tick");
       const bare = vi.fn();
       const explicit = vi.fn();
-      w.system("a").phase(phase).requires(Position).each([Position], bare);
-      w.system("b").phase(phase).requires(Position).each(Entity, [Position], explicit);
+      w.system("a").phase(phase).with(Position).each([Position], bare);
+      w.system("b").phase(phase).with(Position).each(Entity, [Position], explicit);
       w.start();
       const e = w.entity().add(Position);
       const pos = e.get(Position);
@@ -442,8 +442,8 @@ describe("Iter cursor", () => {
       const bareCb = vi.fn();
       const entityCb = vi.fn();
       w.entity().add(Position);
-      w.query("a").requires(Position).enter([Position], bareCb).build();
-      w.query("b").requires(Position).enter(Entity, [Position], entityCb).build();
+      w.query("a").with(Position).enter([Position], bareCb).build();
+      w.query("b").with(Position).enter(Entity, [Position], entityCb).build();
       expect(bareCb).toHaveBeenCalledTimes(1);
       expect(entityCb).toHaveBeenCalledTimes(1);
       expect(bareCb.mock.calls[0][0] === entityCb.mock.calls[0][0]).toBe(true);
@@ -456,8 +456,8 @@ describe("Iter cursor", () => {
       const bareCb = vi.fn();
       const entityCb = vi.fn();
       const e = w.entity().add(Position);
-      w.query("a").requires(Position).exit([Position], bareCb).build();
-      w.query("b").requires(Position).exit(Entity, [Position], entityCb).build();
+      w.query("a").with(Position).exit([Position], bareCb).build();
+      w.query("b").with(Position).exit(Entity, [Position], entityCb).build();
       e.remove(Position);
       expect(bareCb.mock.calls[0][0] === entityCb.mock.calls[0][0]).toBe(true);
       expect(bareCb.mock.calls[0][1]).toEqual(entityCb.mock.calls[0][1]);
@@ -468,7 +468,7 @@ describe("Iter cursor", () => {
       w.component(Position);
       const bareCb = vi.fn();
       const entityCb = vi.fn();
-      const q = w.query("q").requires(Position).build();
+      const q = w.query("q").with(Position).build();
       const e = w.entity().add(Position);
       q.forEach([Position], bareCb);
       q.forEach(Entity, [Position], entityCb);
@@ -483,7 +483,7 @@ describe("Iter cursor", () => {
       const cb = vi.fn();
       const q = w
         .query("q")
-        .requires(Position, Velocity)
+        .with(Position, Velocity)
         .update(Entity, Position, [Velocity], cb)
         .build();
       const e = w.entity().add(Position).add(Velocity);
@@ -501,7 +501,7 @@ describe("Iter cursor", () => {
       const cb = vi.fn(() => 0);
       w.entity().add(Position).set(Position, { x: 2 });
       w.entity().add(Position).set(Position, { x: 1 });
-      w.query("q").requires(Position).orderBy(Entity, [Position], cb).build();
+      w.query("q").with(Position).orderBy(Entity, [Position], cb).build();
       expect(cb).toHaveBeenCalled();
     });
   });
@@ -539,7 +539,7 @@ describe("Iter cursor", () => {
       const entered: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .where({ target: [FriendOf, Position] })
+        .with({ target: [FriendOf, Position] })
         .enter(Iter, [{ target: [FriendOf, [Position]] }], (it, [pos]) => {
           entered.push({ entity: it.entity, src: it.src[0], pos });
         });
@@ -560,7 +560,7 @@ describe("Iter cursor", () => {
       const exited: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .where({ target: [FriendOf, Position] })
+        .with({ target: [FriendOf, Position] })
         .exit(Iter, [{ target: [FriendOf, [Position]] }], (it, [pos]) => {
           exited.push({ entity: it.entity, src: it.src[0], pos });
         });
@@ -586,7 +586,7 @@ describe("Iter cursor", () => {
       const srcs: unknown[] = [];
       w.system("sys")
         .phase(phase)
-        .where({ target: [ChildOf, Position] })
+        .with({ target: [ChildOf, Position] })
         .each(Iter, [{ target: [ChildOf, [Position]] }], (it) => {
           srcs.push(it.src[0]);
         });

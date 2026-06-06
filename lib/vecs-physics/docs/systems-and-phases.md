@@ -151,7 +151,7 @@ installPhysics(world, {
 world
   .system("ApplyPlayerInput")
   .phase(input)
-  .requires(PlayerInput, Body)
+  .with(PlayerInput, Body)
   .update(PlayerInput, (entity, input) => {
     if (input.jumpPressed) {
       entity.set(Impulse, { x: 0, y: 8 });
@@ -295,7 +295,7 @@ Input should usually run before physics.
 world
   .system("Jump")
   .phase("input")
-  .requires(PlayerInput, Body)
+  .with(PlayerInput, Body)
   .update(PlayerInput, (entity, input) => {
     if (input.jumpPressed) {
       entity.set(Impulse, { x: 0, y: 8 });
@@ -313,7 +313,7 @@ Rendering should read positions after physics.
 world
   .system("RenderSprites")
   .phase("render")
-  .requires(Position, Sprite)
+  .with(Position, Sprite)
   .each([Position, Rotation, Sprite], (_entity, [position, rotation, sprite]) => {
     sprite.x = position.x;
     sprite.y = position.y;

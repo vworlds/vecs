@@ -461,7 +461,7 @@ describe("ServerWorld", () => {
     };
     world
       .system("track-clients")
-      .requires(Networked, NetworkClient)
+      .with(Networked, NetworkClient)
       .enter([NetworkClient], (e, [client]) => {
         seen.connected.push(e.eid);
         expect(client?.id).toMatch(/client-/);
@@ -508,7 +508,7 @@ describe("ServerWorld", () => {
     let observed: unknown = null;
     world
       .system("read-input")
-      .requires(Networked, NetworkInput)
+      .with(Networked, NetworkInput)
       .update(NetworkInput, (_e, ni) => {
         observed = ni.input;
       });

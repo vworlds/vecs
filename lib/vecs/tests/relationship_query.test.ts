@@ -30,7 +30,7 @@ describe("Relationship queries", () => {
     const miss = w.entity().set(FriendOf, { target: w.entity() });
     const q = w
       .query("friends")
-      .where({ target: [FriendOf, Position] })
+      .with({ target: [FriendOf, Position] })
       .build();
 
     expect(q.belongs(candidate)).toBe(true);
@@ -48,7 +48,7 @@ describe("Relationship queries", () => {
     const candidate = w.entity().set(FriendOf, { target });
     const q = w
       .query("friends")
-      .where({ target: [FriendOf, Position] })
+      .with({ target: [FriendOf, Position] })
       .build();
 
     expect(q.has(candidate)).toBe(false);
@@ -65,7 +65,7 @@ describe("Relationship queries", () => {
     const candidate = w.entity().set(FriendOf, { target: first });
     const q = w
       .query("friends")
-      .where({ target: [FriendOf, Position] })
+      .with({ target: [FriendOf, Position] })
       .build();
 
     expect(q.has(candidate)).toBe(true);
@@ -88,7 +88,7 @@ describe("Relationship queries", () => {
     const child = w.entity().set(FriendOf, { target: parent });
     const q = w
       .query("nested")
-      .where({ target: [FriendOf, { target: [FriendOf, Tag] }] })
+      .with({ target: [FriendOf, { target: [FriendOf, Tag] }] })
       .build();
 
     expect(q.has(child)).toBe(false);
@@ -104,7 +104,7 @@ describe("Relationship queries", () => {
     const candidate = w.entity().set(FriendOf, { target });
     const q = w
       .query("body-friends")
-      .where({ all: [Body, { target: [FriendOf, Position] }] })
+      .with({ all: [Body, { target: [FriendOf, Position] }] })
       .build();
 
     expect(q.has(candidate)).toBe(false);
@@ -138,14 +138,14 @@ describe("Relationship queries", () => {
     expect(() => {
       const { w } = setup();
       w.query("down")
-        .where({ source: [FriendOf, Position] })
+        .with({ source: [FriendOf, Position] })
         .build();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
     expect(() => {
       const { w } = setup();
       w.query("nested-down")
-        .where({ target: [FriendOf, { source: [FriendOf, Position] }] })
+        .with({ target: [FriendOf, { source: [FriendOf, Position] }] })
         .build();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
@@ -153,7 +153,7 @@ describe("Relationship queries", () => {
       const { w, phase } = setup();
       w.system("system-down")
         .phase(phase)
-        .where({ source: [FriendOf, Position] });
+        .with({ source: [FriendOf, Position] });
       w.start();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
@@ -161,7 +161,7 @@ describe("Relationship queries", () => {
       const { w, phase } = setup();
       w.system("system-each-down")
         .phase(phase)
-        .where({ source: [FriendOf, Position] })
+        .with({ source: [FriendOf, Position] })
         .each([Body], () => {});
       w.start();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
@@ -173,7 +173,7 @@ describe("Relationship queries", () => {
     const candidate = w.entity().add(Body).set(FriendOf, { target });
     const body = candidate.get(Body)!;
     const pos = target.get(Position)!;
-    const q = w.query("inject").requires(Body).build();
+    const q = w.query("inject").with(Body).build();
 
     const queryTuples: unknown[][] = [];
     q.forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (_e, tuple) => {
@@ -198,7 +198,7 @@ describe("Relationship queries", () => {
     const childWithVelocity = w.entity().set(FriendOf, { target: parent }).add(Velocity);
     const pos = childWithPosition.get(Position)!;
     const vel = childWithVelocity.get(Velocity)!;
-    const q = w.query("down-inject").requires(Body).build();
+    const q = w.query("down-inject").with(Body).build();
 
     const queryEntities: unknown[] = [];
     const queryTuples: unknown[][] = [];
@@ -235,7 +235,7 @@ describe("Relationship queries", () => {
     const { w } = setup();
     const parent = w.entity().add(Body);
     const child = w.entity().set(FriendOf, { target: parent }).add(Position);
-    const q = w.query("down-iter").requires(Body).build();
+    const q = w.query("down-iter").with(Body).build();
     const seen: unknown[][] = [];
 
     q.forEach(Iter, [Body, { down: [FriendOf, [Position, Velocity]] }], (it, tuple) => {
@@ -252,7 +252,7 @@ describe("Relationship queries", () => {
     const target = w.entity().add(Velocity);
     const parent = w.entity().add(Body).set(FriendOf, { target });
     const child = w.entity().set(FriendOf, { target: parent }).add(Position);
-    const q = w.query("up-down-iter").requires(Body).build();
+    const q = w.query("up-down-iter").with(Body).build();
     const seen: unknown[][] = [];
 
     q.forEach(
@@ -273,7 +273,7 @@ describe("Relationship queries", () => {
     const cb = vi.fn();
     w.system("system-down")
       .phase(phase)
-      .requires(Body)
+      .with(Body)
       .each([{ down: [FriendOf, [Position, Velocity]] }], cb);
     w.start();
     const parent = w.entity().add(Body);
@@ -286,7 +286,7 @@ describe("Relationship queries", () => {
 
   it("rejects multiple down injections for query and filter iteration", () => {
     const { w } = setup();
-    const q = w.query("multi-down").requires(Body).build();
+    const q = w.query("multi-down").with(Body).build();
 
     expect(() => {
       q.forEach([{ down: [FriendOf, [Position]] }, { down: [FriendOf, [Velocity]] }], () => {});
@@ -307,7 +307,7 @@ describe("Relationship queries", () => {
     const enter = vi.fn();
     const exit = vi.fn();
     w.query("events")
-      .where({ target: [FriendOf, Position] })
+      .with({ target: [FriendOf, Position] })
       .enter([{ target: [FriendOf, [Position]] }], enter)
       .exit([{ target: [FriendOf, [Position]] }], exit)
       .build();
@@ -323,7 +323,7 @@ describe("Relationship queries", () => {
     const cb = vi.fn();
     w.system("system-up")
       .phase(phase)
-      .where({ target: [FriendOf, Position] })
+      .with({ target: [FriendOf, Position] })
       .each([{ target: [FriendOf, [Position, Velocity]] }], cb);
     w.start();
     const target = w.entity().set(Position, { x: 3 });
@@ -337,7 +337,7 @@ describe("Relationship queries", () => {
 
   it("target queries do not register hidden subqueries", () => {
     const { w } = setup();
-    const plain = w.query("plain").requires(Body).build();
+    const plain = w.query("plain").with(Body).build();
     const publicQueries = w.queries;
 
     expect(w.queries).toBe(publicQueries);
@@ -345,7 +345,7 @@ describe("Relationship queries", () => {
 
     const q = w
       .query("outer")
-      .where({ target: [FriendOf, Position] })
+      .with({ target: [FriendOf, Position] })
       .build();
 
     expect(w.queries).toEqual([q]);
@@ -378,7 +378,7 @@ describe("Relationship queries", () => {
     const { w } = setup();
     expect(() => {
       w.query("bad")
-        .where({ source: [ChildOf, Position] })
+        .with({ source: [ChildOf, Position] })
         .build();
     }).toThrow("source/children is not supported in a tracked query");
   });
@@ -387,7 +387,7 @@ describe("Relationship queries", () => {
     const { w } = setup();
     expect(() => {
       w.system("bad-sys")
-        .where({ source: [ChildOf, Position] })
+        .with({ source: [ChildOf, Position] })
         .track()
         .build();
     }).toThrow("source/children is not supported in a tracked query");
@@ -397,7 +397,7 @@ describe("Relationship queries", () => {
     const { w } = setup();
     expect(() => {
       w.query("nested-down")
-        .where({ target: [FriendOf, { source: [ChildOf, Position] }] })
+        .with({ target: [FriendOf, { source: [ChildOf, Position] }] })
         .build();
     }).toThrow("source/children is not supported in a tracked query");
   });
@@ -409,7 +409,7 @@ describe("Relationship queries", () => {
     const child2 = w.entity().childOf(parent).set(Position, { x: 2 });
     const body = parent.get(Body);
 
-    const q = w.query("inject").requires(Body).build();
+    const q = w.query("inject").with(Body).build();
     const queryResults: [number | undefined][] = [];
     q.forEach([Body, { down: [ChildOf, [Position]] }] as any, (_e: any, tuple: any) => {
       queryResults.push([tuple[1]?.x]);
@@ -439,7 +439,7 @@ describe("Relationship queries", () => {
     const cb = vi.fn();
     w.system("sys-down")
       .phase(phase)
-      .requires(Body)
+      .with(Body)
       .each([Body, { down: [ChildOf, [Position]] }] as any, cb);
     w.start();
     const parent = w.entity().add(Body);

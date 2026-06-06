@@ -14,7 +14,7 @@ export function installMaterialFilterSync(
 ): System {
   const system = world
     .system("PhysicsMaterialFilterSync")
-    .where({ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] })
+    .with({ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] })
     .phase(phase);
 
   system.update(Material, (entity, material) => {

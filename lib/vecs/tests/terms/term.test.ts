@@ -634,7 +634,7 @@ describe("Term — MergedPredicateTerm (diamond breaking)", () => {
 describe("Term — integration with existing Query public API", () => {
   it("Query delegates membership to root term", () => {
     const { w, tick } = setupWithFlush();
-    const q = w.query("test").requires(Position).build();
+    const q = w.query("test").with(Position).build();
     w.start();
     const e = w.entity();
     e.add(Position);
@@ -649,7 +649,7 @@ describe("Term — integration with existing Query public API", () => {
 
   it("Query uses root term for belongs()", () => {
     const w = setup();
-    const q = w.query("test").requires(Position, Velocity).build();
+    const q = w.query("test").with(Position, Velocity).build();
     const e = w.entity();
     e.add(Position);
     expect(q.belongs(e)).toBe(false);
@@ -661,7 +661,7 @@ describe("Term — integration with existing Query public API", () => {
     const { w, tick } = setupWithFlush();
     const enter = vi.fn();
     const exit = vi.fn();
-    w.query("test").requires(Position).enter(enter).exit(exit);
+    w.query("test").with(Position).enter(enter).exit(exit);
     w.start();
 
     const e = w.entity();
@@ -676,7 +676,7 @@ describe("Term — integration with existing Query public API", () => {
   it("Query update callbacks fire via slim update channel", () => {
     const { w, tick } = setupWithFlush();
     const update = vi.fn();
-    w.query("test").requires(Position).update(Position, update);
+    w.query("test").with(Position).update(Position, update);
     w.start();
 
     const e = w.entity();
@@ -692,7 +692,7 @@ describe("Term — integration with existing Query public API", () => {
     const { w, tick } = setupWithFlush();
     const enter = vi.fn();
     const phase = w.addPhase("sys");
-    w.system("test").phase(phase).requires(Position).enter(enter);
+    w.system("test").phase(phase).with(Position).enter(enter);
     w.start();
 
     const e = w.entity();
@@ -705,7 +705,7 @@ describe("Term — integration with existing Query public API", () => {
     const { w } = setupWithFlush();
     const phase = w.addPhase("p2");
     const update = vi.fn();
-    w.system("test").phase(phase).requires(Position).update(Position, update);
+    w.system("test").phase(phase).with(Position).update(Position, update);
     w.start();
 
     const e = w.entity();
@@ -719,7 +719,7 @@ describe("Term — integration with existing Query public API", () => {
 
   it("Filter reuses a cached term if one exists", () => {
     const w = setup();
-    const q = w.query("test").requires(Position).build();
+    const q = w.query("test").with(Position).build();
     const term = q.rootTerm!;
     const f = w.filter(Position);
     expect(f.rootTerm).toBe(term);
@@ -729,14 +729,14 @@ describe("Term — integration with existing Query public API", () => {
     const w = setup();
     const f = w.filter(Position);
     expect(f.rootTerm).toBeUndefined();
-    const q = w.query("test").requires(Position).build();
+    const q = w.query("test").with(Position).build();
     expect(f.rootTerm).toBe(q.rootTerm);
   });
 
   it("Filter falls back to scanning after a cached composite term is destroyed", () => {
     const w = setup();
     const e = w.entity().add(Position).add(Velocity);
-    const q = w.query("test").requires(Position, Velocity).build();
+    const q = w.query("test").with(Position, Velocity).build();
     const f = w.filter([Position, Velocity]);
     expect(f.rootTerm).toBe(q.rootTerm);
 
@@ -762,7 +762,7 @@ describe("Term — integration with existing Query public API", () => {
 describe("Term — entity no longer carries full query membership set", () => {
   it("unsorted queries read membership from the root term without a parallel entity set", () => {
     const w = setup();
-    const q = w.query("q").requires(Position).build();
+    const q = w.query("q").with(Position).build();
     expect((q as any)._entities).toBeUndefined();
 
     const e = w.entity().add(Position);
@@ -773,9 +773,9 @@ describe("Term — entity no longer carries full query membership set", () => {
 
   it("entity._queries holds only the slim update set, not every matching query", () => {
     const w = setup();
-    w.query("q1").requires(Position).build();
-    w.query("q2").requires(Position).build();
-    w.query("q3").requires(Position).build();
+    w.query("q1").with(Position).build();
+    w.query("q2").with(Position).build();
+    w.query("q3").with(Position).build();
     const e = w.entity();
     e.add(Position);
     // No update callbacks registered, so the slim per-entity set is empty.
@@ -822,11 +822,7 @@ describe("Term — update channel bypasses the tree", () => {
     const { w, tick } = setupWithFlush();
     const updatePos = vi.fn();
     const updateVel = vi.fn();
-    w.query("test")
-      .requires(Position)
-      .update(Position, updatePos)
-      .update(Velocity, updateVel)
-      .build();
+    w.query("test").with(Position).update(Position, updatePos).update(Velocity, updateVel).build();
     w.start();
 
     const e = w.entity();
@@ -844,7 +840,7 @@ describe("Term — update channel bypasses the tree", () => {
   it("modified(C) does not fire for components not on the watchlist", () => {
     const { w, tick } = setupWithFlush();
     const updateVel = vi.fn();
-    w.query("test").requires(Position).update(Velocity, updateVel).build();
+    w.query("test").with(Position).update(Velocity, updateVel).build();
     w.start();
 
     const e = w.entity();
@@ -862,7 +858,7 @@ describe("Term — update channel bypasses the tree", () => {
     enter.mockClear();
 
     const updateCb = vi.fn();
-    w.query("test").requires(Position).update(Position, updateCb).build();
+    w.query("test").with(Position).update(Position, updateCb).build();
     w.start();
 
     const e = w.entity();
@@ -884,7 +880,7 @@ describe("Term — update channel bypasses the tree", () => {
     w.component(Unrelated);
     const cb = vi.fn();
     w.query("not-vel")
-      .where({ all: [Position, { not: Velocity }] })
+      .with({ all: [Position, { not: Velocity }] })
       .update(Position, cb)
       .build();
     w.start();
@@ -1063,7 +1059,7 @@ describe("Term — consumer-count lifetime", () => {
 
   it("a Query retains its composite root; destroying the Query frees it", () => {
     const w = setup();
-    const q = w.query("test").requires(Position, Velocity).build();
+    const q = w.query("test").with(Position, Velocity).build();
     const root = q.rootTerm!;
     expect(root).toBeDefined();
     q.destroy();
@@ -1081,8 +1077,8 @@ describe("Term — targeted-update regression", () => {
     const posOnlyUpdate = vi.fn();
     const velOnlyUpdate = vi.fn();
 
-    w.query("posOnly").requires(Position).update(Position, posOnlyUpdate).build();
-    w.query("velOnly").requires(Velocity).update(Velocity, velOnlyUpdate).build();
+    w.query("posOnly").with(Position).update(Position, posOnlyUpdate).build();
+    w.query("velOnly").with(Velocity).update(Velocity, velOnlyUpdate).build();
     w.start();
 
     const e = w.entity();
@@ -1112,7 +1108,7 @@ describe("Term — exit snapshots are a query/system-layer concern", () => {
   it("Query exit callback receives removed component data as a positional tuple", () => {
     const { w, tick } = setupWithFlush();
     const exit = vi.fn();
-    w.query("test").requires(Position).exit([Position], exit).build();
+    w.query("test").with(Position).exit([Position], exit).build();
     w.start();
 
     const e = w.entity();
@@ -1126,7 +1122,7 @@ describe("Term — exit snapshots are a query/system-layer concern", () => {
   it("Query exit on destroy captures the snapshot before storage deletion", () => {
     const { w, tick } = setupWithFlush();
     const exit = vi.fn();
-    w.query("test").requires(Position, Velocity).exit([Position, Velocity], exit).build();
+    w.query("test").with(Position, Velocity).exit([Position, Velocity], exit).build();
     w.start();
 
     const e = w.entity();
@@ -1144,7 +1140,7 @@ describe("Term — exit snapshots are a query/system-layer concern", () => {
     const { w } = setupWithFlush();
     const phase = w.addPhase("exitsys");
     const exit = vi.fn();
-    w.system("exitsys-test").phase(phase).requires(Position).exit([Position], exit);
+    w.system("exitsys-test").phase(phase).with(Position).exit([Position], exit);
     w.start();
 
     const e = w.entity();

@@ -14,7 +14,7 @@ const MAX_POLYGON_VERTICES = 8;
 export function installShapeLifecycle(world: World, state: PhysicsState, phase: IPhase): System {
   const system = world
     .system("PhysicsShapeLifecycle")
-    .where({ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] })
+    .with({ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] })
     .phase(phase);
 
   system.enter((entity) => {

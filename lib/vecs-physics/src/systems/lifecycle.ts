@@ -14,7 +14,7 @@ import { type b2BodyId, type PhysicsState } from "../adapter/state.js";
 import { withAllocated } from "../adapter/disposal.js";
 
 export function installBodyLifecycle(world: World, state: PhysicsState, phase: IPhase): System {
-  const system = world.system("PhysicsBodyLifecycle").requires(Body).phase(phase);
+  const system = world.system("PhysicsBodyLifecycle").with(Body).phase(phase);
 
   system.enter((entity) => {
     const body = entity.get(Body)!;

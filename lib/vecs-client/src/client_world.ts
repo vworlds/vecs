@@ -80,7 +80,7 @@ export class ClientWorld extends NetworkWorld {
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
     this._ackIntervalMs = options.ackIntervalMs ?? 1000 / 30;
     this.component(Networked);
-    this._networkedQuery = this.query("ClientWorld:Networked").requires(Networked).track().build();
+    this._networkedQuery = this.query("ClientWorld:Networked").with(Networked).track().build();
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,

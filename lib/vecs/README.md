@@ -74,7 +74,7 @@ const cleanup: IPhase = world.addPhase("cleanup");
 world
   .system("Move")
   .phase(update)
-  .requires(Position, Velocity)
+  .with(Position, Velocity)
   .each([Position, Velocity], (e, [pos, vel]) => {
     pos.x += vel.vx;
     pos.y += vel.vy;
@@ -85,7 +85,7 @@ world
 world
   .system("Health")
   .phase(cleanup)
-  .requires(Health)
+  .with(Health)
   .update(Health, (entity, health) => {
     if (health.hp <= 0) {
       entity.destroy();
@@ -145,7 +145,7 @@ const world = new World();
 
 #### Component registration
 
-Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `requires`, `where`, `filter`, hook registration, or `setExclusiveComponents`.
+Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `with`, `filter`, hook registration, or `setExclusiveComponents`.
 
 ```ts
 class Position {
@@ -280,7 +280,7 @@ Systems with no explicit phase are placed in the built-in `"update"` phase.
 world
   .system("MySystem")
   .phase("update")
-  .requires(A, B)
+  .with(A, B)
   .enter(...)
   .update(...)
   .each(...)
@@ -353,7 +353,7 @@ Tick source objects and systems can both be used as sources. Disabling a source 
 ```ts
 const enemies = world
   .query("Enemies")
-  .requires(Enemy, Health)
+  .with(Enemy, Health)
   .enter((e) => console.log("enemy spawned", e.eid));
 
 world.start();
@@ -513,8 +513,8 @@ Retarget relationships with `entity.set(RelationshipClass, { target })`. `entity
 Relationship queries use `target` to follow a relationship from the candidate entity to its target and test that target with another DSL expression. Use `parent` for the built-in `ChildOf` hierarchy:
 
 ```ts
-world.query("body-friends").where({ all: [Body, { target: [FriendOf, [Position, Velocity]] }] });
-world.query("positioned-children").where({ all: [Position, { parent: Body }] });
+world.query("body-friends").with({ all: [Body, { target: [FriendOf, [Position, Velocity]] }] });
+world.query("positioned-children").with({ all: [Position, { parent: Body }] });
 ```
 
 Tracked queries stay live when either side changes. Adding or removing `FriendOf` on the candidate re-routes the candidate normally; adding or removing `Position` / `Velocity` on the target also refreshes every candidate that points at that target. Nested `target` works the same way across multiple hops.
@@ -532,7 +532,7 @@ Component injection supports lowercase `down` in `forEach` and system `each` inj
 ```ts
 world
   .query("parents")
-  .requires(Body)
+  .with(Body)
   .forEach([Body, { down: [ChildOf, [Position]] }], (parent, [body, childPos]) => {
     // One call per ChildOf child of parent. childPos is undefined when that child lacks Position.
   });
@@ -549,17 +549,17 @@ Two details matter:
 
 Systems are created via `world.system(name)` and configured through a fluent builder. Every method returns `this` for chaining. `System` extends `Query`, so the membership / enter / exit / update / sort APIs are shared.
 
-#### `.requires(...components)` and `.where(q)`
+#### `.with(...specs)`
 
 Declare which entities the system tracks.
 
 ```ts
-.requires(Position, Velocity)                                      // shorthand for [Position, Velocity]
-.where([Position, Velocity])                                       // explicit component list
-.where({ all: [Position, { any: [Sprite, Container] }] })          // compound
-.where({ not: Invisible })
-.where({ target: [FriendOf, Position] })                           // relationship target has Position
-.where({ parent: Body })                                           // ChildOf target has Body
+.with(Position, Velocity)                                         // explicit component list
+.with([Position, Velocity])                                       // array shorthand
+.with({ all: [Position, { any: [Sprite, Container] }] })          // compound
+.with({ not: Invisible })
+.with({ target: [FriendOf, Position] })                           // relationship target has Position
+.with({ parent: Body })                                           // ChildOf target has Body
 ```
 
 **Query operators:**
@@ -585,7 +585,7 @@ Component injection also supports lowercase relationship markers. `target` works
 ```ts
 world
   .query("friends")
-  .where({ target: [FriendOf, Position] })
+  .with({ target: [FriendOf, Position] })
   .forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (e, [body, pos, vel]) => {
     // body is from e; pos and vel are from e.parent(FriendOf)
     // target-side injected components are undefined if the target is absent or lacks them.
@@ -617,10 +617,10 @@ When `Iter` is **not** requested, the original code path runs with zero per-enti
 
 Class-valued query terms are components. Register component classes before using them in a `QueryDSL`; an unregistered class throws. Use `{ test: fn }` for arbitrary predicate functions.
 
-**Type inference.** `requires()` records the listed classes as a type parameter `R` on the system. Callbacks in `.orderBy()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `where()` expressions the type system can't introspect, supply a `hint` field:
+**Type inference.** `with()` records inferrable component classes as a type parameter `R` on the system. Callbacks in `.orderBy()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `with()` expressions the type system can't introspect, supply a `hint` field:
 
 ```ts
-.where({ with: { all: [Position, Velocity] }, hint: [Position, Velocity] })
+.with({ with: { all: [Position, Velocity] }, hint: [Position, Velocity] })
 .each([Position, Velocity], (e, [pos, vel]) => {
   pos.x += vel.vx; // pos and vel are non-null
 });
@@ -666,14 +666,14 @@ Fires when `entity.modified(ComponentClass)` is called for the watched component
 });
 ```
 
-If `where()` has not been called, `update` automatically expands the implicit component predicate to require the watched component.
+If `with()` has not been called, `update` automatically expands the implicit component predicate to require the watched component.
 
 #### `.each(components, callback)`
 
 Fires every tick for **every tracked entity**, regardless of whether anything changed. Use it for per-entity logic that must run every frame. Implies `.track()`. Only one `each` per system.
 
 ```ts
-.requires(Position, Velocity)
+.with(Position, Velocity)
 .each([Position, Velocity], (e, [pos, vel]) => {
   pos.x += vel.vx;
 });
@@ -686,7 +686,7 @@ Store matched entities in a custom order determined by `compare`. Implies `.trac
 ```ts
 world
   .system("Render")
-  .requires(Position, Sprite)
+  .with(Position, Sprite)
   .orderBy([Position], (_entityA, [posA], _entityB, [posB]) => posA.z - posB.z)
   .each([Position, Sprite], (e, [pos, sprite]) => sprite.draw(pos.x, pos.y));
 ```
@@ -710,7 +710,7 @@ Fires every tick when the system's phase runs, regardless of entity state. Use f
 Pause and resume a system at runtime. While disabled the system is effectively invisible: the inbox is cleared immediately, any new `enter`, `exit`, or `update` events are silently dropped, `run` and `each` callbacks do not fire, and the system skips its `_run` entirely. Entity membership in the underlying query is still maintained, so the tracked set remains correct and the system resumes cleanly when re-enabled. Events that occurred while the system was disabled are **not** replayed.
 
 ```ts
-const ai = world.system("AI").requires(Enemy).run(tickAI);
+const ai = world.system("AI").with(Enemy).run(tickAI);
 
 // Pause AI processing during a cutscene:
 ai.disable();
@@ -734,7 +734,7 @@ Permanently remove this system from the world. Calls `disable()` first (clearing
 ```ts
 const projectiles = world
   .query("Projectiles")
-  .requires(Position, Velocity)
+  .with(Position, Velocity)
   .orderBy([Position], (_entityA, [a], _entityB, [b]) => a.z - b.z)
   .enter([Position], (e, [pos]) => {
     pos.x = spawnX;
@@ -749,8 +749,7 @@ console.log(projectiles.count, "active projectiles");
 
 | Method                                                  | Description                                                                                         |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `.requires(...components)`                              | Set the membership predicate to require all listed components and start tracking.                   |
-| `.where(expr, _guaranteed?)`                            | Set the membership predicate using a `QueryDSL` expression.                                         |
+| `.with(...specs)`                                       | Add membership predicates using `QuerySpec` expressions.                                            |
 | `.enter(callback)` / `.enter(inject, callback)`         | Fires when an entity joins the query.                                                               |
 | `.exit(callback)` / `.exit(inject, callback)`           | Fires when an entity leaves the query.                                                              |
 | `.update(C, callback)` / `.update(C, inject, callback)` | Fires when `C` is modified on a tracked entity. Callback receives `(entity, component, injected?)`. |
@@ -769,7 +768,7 @@ console.log(projectiles.count, "active projectiles");
 `destroy()` permanently removes a standalone query from the world. Entity references are silently purged (no `exit` callbacks fire), the tracked set is cleared, and the `world` reference is set to `undefined`. Any further use of the object is **undefined behavior**.
 
 ```ts
-const q = world.query("Temporary").requires(Position);
+const q = world.query("Temporary").with(Position);
 // ... use q.count, q.has(e), or iterate q ...
 q.destroy();
 ```

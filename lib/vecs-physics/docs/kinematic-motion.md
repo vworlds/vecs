@@ -89,7 +89,7 @@ world.component(MovingPlatform);
 
 world
   .system("MovePlatforms")
-  .requires(MovingPlatform, Position, KinematicTargetPosition)
+  .with(MovingPlatform, Position, KinematicTargetPosition)
   .each(
     [MovingPlatform, Position, KinematicTargetPosition],
     (entity, [platform, position, target]) => {

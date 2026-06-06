@@ -35,7 +35,7 @@ describe("Query.ignoreSource source attribution", () => {
     // The reader ignores any update that originated from a Tag-bearing system.
     world
       .system("Reader")
-      .requires(Value)
+      .with(Value)
       .phase("read")
       .ignoreSource([Tag])
       .update(Value, () => {

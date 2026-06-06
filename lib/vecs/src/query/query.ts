@@ -56,7 +56,7 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  * you want a reactive entity set without pipeline integration.
  *
  * @typeParam R - Component classes guaranteed present on every matched entity
- *   (declared via {@link requires} or the `_guaranteed` hint of {@link where}).
+ *   (declared via {@link with} or the `hint` field of a {@link QueryConfig}).
  *   Components in `R` appear as non-nullable in {@link orderBy}, {@link forEach},
  *   and {@link update} callback tuples.
  */
@@ -88,7 +88,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   protected _destroyed = false;
   /** @internal Sorted projection. Unsorted membership is read from `rootTerm`. */
   protected _entities: Set<Entity> | undefined;
-  /** @internal `true` once `where` or `requires` has set an explicit predicate. */
+  /** @internal `true` once `with` has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
   /** @internal Per-component-eid `update` callbacks. */
   protected _componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
@@ -184,7 +184,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * how that membership is tracked, ordered, grouped, or source-filtered.
    */
 
-  public where<const S extends readonly QuerySpec[]>(
+  public with<const S extends readonly QuerySpec[]>(
     ...specs: [...S]
   ): Query<[...R, ...ExtractSpecsRequired<S>]> {
     this._assertConfigurable();
@@ -208,11 +208,6 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       this.cascade(cascade);
     }
     return this as unknown as Query<any>;
-  }
-
-  public requires<const T extends ComponentType[]>(...components: [...T]): Query<[...R, ...T]> {
-    this.where(components);
-    return this as unknown as Query<[...R, ...T]>;
   }
 
   public track(): this {
@@ -571,7 +566,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   }
 
   private _buildSilenceQuery(dsl: QueryDSL): Query {
-    const q = this.world.query(`${this.name}:silence`).where(dsl);
+    const q = this.world.query(`${this.name}:silence`).with(dsl);
     q.entity.childOf(this.entity);
     return q;
   }

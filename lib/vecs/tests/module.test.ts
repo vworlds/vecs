@@ -100,7 +100,7 @@ describe("World.module", () => {
         this.world.component(Position);
         this.world
           .system("TrackPosition")
-          .requires(Position)
+          .with(Position)
           .enter((entity) => {
             this.entered.push(entity.eid);
           });

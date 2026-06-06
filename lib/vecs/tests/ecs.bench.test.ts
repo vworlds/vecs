@@ -301,7 +301,7 @@ function cases(): BenchCase[] {
         // let a backfill re-read entities in creation order, undoing the
         // scramble and measuring cache-friendly creation-order iteration.
         const w = world();
-        const q = w.query("single").requires(PositionComponent).build();
+        const q = w.query("single").with(PositionComponent).build();
         const items = createSingleComponents(w, entities);
         scrambleStorage(w, items);
         return () => iterateOne(q, entities);
@@ -313,7 +313,7 @@ function cases(): BenchCase[] {
       operations: (entities) => entities,
       makeRound: (entities) => {
         const w = world();
-        const q = w.query("two").requires(PositionComponent, VelocityComponent).build();
+        const q = w.query("two").with(PositionComponent, VelocityComponent).build();
         const items = createMinimalComponents(w, entities);
         scrambleStorage(w, items);
         return () => iterateTwo(q, entities);
@@ -327,7 +327,7 @@ function cases(): BenchCase[] {
         const w = world();
         const q = w
           .query("three")
-          .requires(PositionComponent, VelocityComponent, DataComponent)
+          .with(PositionComponent, VelocityComponent, DataComponent)
           .build();
         const items = createMixedComponents(w, entities);
         scrambleStorage(w, items);
@@ -341,9 +341,9 @@ function cases(): BenchCase[] {
       makeRound: (entities) => {
         const w = world();
         let checksum = 0;
-        const q = w.query("event-src").requires(PositionComponent, VelocityComponent).build();
+        const q = w.query("event-src").with(PositionComponent, VelocityComponent).build();
         w.query("events")
-          .requires(EmptyComponent)
+          .with(EmptyComponent)
           .update(
             EmptyComponent,
             [PositionComponent, VelocityComponent],
@@ -371,7 +371,7 @@ function cases(): BenchCase[] {
       operations: (entities) => entities,
       makeRound: (entities) => {
         const w = world();
-        const q = w.query("event-src").requires(PositionComponent, VelocityComponent).build();
+        const q = w.query("event-src").with(PositionComponent, VelocityComponent).build();
         const items = createMixedComponents(w, entities);
         scrambleStorage(w, items);
         return () => {
@@ -416,15 +416,15 @@ function bench(
 
 function application(complex: boolean): { w: World; positionQuery: Query } {
   const w = world();
-  const positionQuery = w.query("checksum").requires(PositionComponent).build();
+  const positionQuery = w.query("checksum").with(PositionComponent).build();
 
   w.system("MovementSystem")
-    .requires(PositionComponent, VelocityComponent)
+    .with(PositionComponent, VelocityComponent)
     .each([PositionComponent, VelocityComponent], (_e, [position, direction]) => {
       updatePosition(position, direction, 1 / 60);
     });
   w.system("DataSystem")
-    .requires(DataComponent)
+    .with(DataComponent)
     .each([DataComponent], (_e, [data]) => {
       updateData(data, 1 / 60);
     });
@@ -432,7 +432,7 @@ function application(complex: boolean): { w: World; positionQuery: Query } {
   if (complex) {
     const frameBuffer = new FrameBuffer(320, 240);
     w.system("MoreComplexSystem")
-      .requires(PositionComponent, VelocityComponent, DataComponent)
+      .with(PositionComponent, VelocityComponent, DataComponent)
       .each(
         [PositionComponent, VelocityComponent, DataComponent],
         (_e, [position, direction, data]) => {
@@ -440,22 +440,22 @@ function application(complex: boolean): { w: World; positionQuery: Query } {
         }
       );
     w.system("HealthSystem")
-      .requires(HealthComponent)
+      .with(HealthComponent)
       .each([HealthComponent], (_e, [health]) => {
         updateHealth(health);
       });
     w.system("DamageSystem")
-      .requires(HealthComponent, DamageComponent)
+      .with(HealthComponent, DamageComponent)
       .each([HealthComponent, DamageComponent], (_e, [health, damage]) => {
         updateDamage(health, damage);
       });
     w.system("SpriteSystem")
-      .requires(SpriteComponent, PlayerComponent, HealthComponent)
+      .with(SpriteComponent, PlayerComponent, HealthComponent)
       .each([SpriteComponent, PlayerComponent, HealthComponent], (_e, [sprite, player, health]) => {
         updateSprite(sprite, player, health);
       });
     w.system("RenderSystem")
-      .requires(PositionComponent, SpriteComponent)
+      .with(PositionComponent, SpriteComponent)
       .each([PositionComponent, SpriteComponent], (_e, [position, sprite]) => {
         frameBuffer.draw(position.x, position.y, sprite.character.charCodeAt(0));
       });

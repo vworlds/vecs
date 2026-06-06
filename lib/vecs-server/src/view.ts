@@ -184,7 +184,7 @@ export class EntityTracker extends Query implements IEntityTracker {
     public readonly dsl: QueryDSL
   ) {
     super(`View:${getDSLKey(dsl, world)}`, world);
-    this.where(dsl);
+    this.with(dsl);
   }
 
   public addRef(): void {

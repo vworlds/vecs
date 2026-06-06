@@ -168,7 +168,7 @@ describe("reset storm (inactive tab)", () => {
     const enters = new Map<EID, number>();
     client
       .query("view")
-      .requires(Sprite)
+      .with(Sprite)
       .enter([Sprite], (entity: Entity, [sprite]: [Sprite]) => {
         enters.set(entity.eid, (enters.get(entity.eid) ?? 0) + 1);
         sprite.view = "built";
