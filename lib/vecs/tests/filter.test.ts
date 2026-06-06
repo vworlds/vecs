@@ -154,9 +154,12 @@ describe("Filter — forEach with injection", () => {
     e.set(Position, { x: 7 });
 
     let result = 0;
-    w.filter({ any: [Position, Velocity] }, [Position]).forEach([Position], (_e, [p]) => {
-      result += p.x; // p is Position (not Position | undefined)
-    });
+    w.filter({ with: { any: [Position, Velocity] }, hint: [Position] }).forEach(
+      [Position],
+      (_e, [p]) => {
+        result += p.x; // p is Position (not Position | undefined)
+      }
+    );
 
     expect(result).toBe(7);
   });

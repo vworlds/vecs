@@ -1,5 +1,6 @@
 import { type ComponentType } from "../component.js";
-import { type ExtractRequired, type QueryDSL } from "../dsl.js";
+import { isQueryConfig, type ExtractSpecRequired, type QueryDSL, type QuerySpec } from "../dsl.js";
+import type { EID, Entity } from "../entity/index.js";
 import { Filter } from "../filter.js";
 import { Query } from "../query/index.js";
 import {
@@ -11,7 +12,6 @@ import {
   notifyEntityCreated,
   notifyEntityDestroyed,
 } from "../terms/build.js";
-import type { EID, Entity } from "../entity/index.js";
 import { ComponentTerm, EmptyTerm, Term, WorldTerm } from "../terms/index.js";
 import { Storage } from "./world.storage.js";
 import type { World } from "./world.js";
@@ -69,15 +69,10 @@ export class Queries extends Storage {
     this._unbuiltQueries.delete(q);
   }
 
-  /** Create a non-reactive {@link Filter} that matches entities satisfying `q`. */
-  public filter<const Q extends QueryDSL>(this: World, q: Q): Filter<ExtractRequired<Q>>;
-  public filter<const T extends ComponentType[]>(
-    this: World,
-    q: QueryDSL,
-    _guaranteed: readonly [...T]
-  ): Filter<T>;
-  public filter(this: World, q: QueryDSL, _guaranteed?: readonly ComponentType[]): Filter<any> {
-    return new Filter(this, q);
+  /** Create a non-reactive {@link Filter} that matches entities satisfying `spec`. */
+  public filter<const S extends QuerySpec>(this: World, spec: S): Filter<ExtractSpecRequired<S>> {
+    const dsl: QueryDSL = isQueryConfig(spec) ? spec.with : (spec as QueryDSL);
+    return new Filter(this, dsl);
   }
 
   /** Create and return a standalone {@link Query}, ready for fluent configuration. */

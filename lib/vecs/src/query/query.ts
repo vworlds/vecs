@@ -1,5 +1,11 @@
 import { type ComponentInstance, type ComponentRef, type ComponentType } from "../component.js";
-import { containsDownTerm, type ExtractRequired, type QueryDSL } from "../dsl.js";
+import {
+  containsDownTerm,
+  isQueryConfig,
+  type ExtractSpecRequired,
+  type QueryDSL,
+  type QuerySpec,
+} from "../dsl.js";
 import { Entity, type EID } from "../entity/index.js";
 import {
   forEachInjected,
@@ -178,14 +184,16 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * how that membership is tracked, ordered, grouped, or source-filtered.
    */
 
-  public where<const Q extends QueryDSL>(q: Q): Query<ExtractRequired<Q>>;
-  public where<const T extends ComponentType[]>(
-    q: QueryDSL,
-    _guaranteed: readonly [...T]
-  ): Query<T>;
-  public where(q: QueryDSL, _guaranteed?: readonly ComponentType[]): Query<any> {
+  public where<const S extends QuerySpec>(spec: S): Query<ExtractSpecRequired<S>> {
     this._assertConfigurable();
-    this._dsl = q;
+    if (isQueryConfig(spec)) {
+      this._dsl = spec.with;
+      if (spec.cascade !== undefined) {
+        this.cascade(spec.cascade);
+      }
+    } else {
+      this._dsl = spec;
+    }
     this._hasExplicitQuery = true;
     return this as unknown as Query<any>;
   }

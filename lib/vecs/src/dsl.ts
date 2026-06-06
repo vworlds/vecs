@@ -50,6 +50,61 @@ export type QueryDSL =
   | { test: EntityTestFunc; watch?: readonly ComponentRef[] | ComponentRef };
 
 /**
+ * A complete query specification combining a membership predicate with optional
+ * ordering and type hints.
+ *
+ * A bare {@link QueryDSL} value is the simplest form. For ordering or type hints
+ * use the object form:
+ *
+ * ```ts
+ * // Entities with Position and Velocity, traversed in ChildOf depth order:
+ * { with: [Position, Velocity], cascade: ChildOf }
+ *
+ * // With an explicit type hint for opaque DSL expressions:
+ * { with: { any: [Position, Velocity] }, hint: [Position] }
+ * ```
+ *
+ * - `with` — the membership predicate (required).
+ * - `cascade` — a traversable relationship to order by depth-first (optional).
+ * - `hint` — component classes guaranteed present, for type inference (optional,
+ *   type-only, not validated at runtime).
+ */
+export type QueryConfig = {
+  with: QueryDSL;
+  cascade?: ComponentRef;
+  hint?: readonly ComponentType[];
+};
+
+export type QuerySpec = QueryDSL | QueryConfig;
+
+export function isQueryConfig(spec: QuerySpec): spec is QueryConfig {
+  return (
+    typeof spec === "object" &&
+    spec !== null &&
+    !Array.isArray(spec) &&
+    !(spec instanceof Entity) &&
+    "with" in spec
+  );
+}
+
+/**
+ * Extract the component classes guaranteed present from a {@link QuerySpec}.
+ *
+ * For a bare {@link QueryDSL} this delegates to {@link ExtractRequired}. For the
+ * object form, components from `with` are merged with those from `hint`.
+ */
+export type ExtractSpecRequired<S> = S extends {
+  with: infer Q;
+  hint: infer H extends readonly ComponentType[];
+}
+  ? [...ExtractRequired<Q>, ...H]
+  : S extends { with: infer Q }
+    ? ExtractRequired<Q>
+    : S extends QueryDSL
+      ? ExtractRequired<S>
+      : [];
+
+/**
  * Resolve component nullability based on what was declared in `requires` (or
  * the `_guaranteed` hint).
  *

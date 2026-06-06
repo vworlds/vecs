@@ -11,9 +11,10 @@ import {
 import { SOURCE_TRACKED_QUERY_ERROR, Query } from "./query/index.js";
 import {
   containsDownTerm,
-  type ExtractRequired,
+  type ExtractSpecRequired,
   type MaybeRequired,
   type QueryDSL,
+  type QuerySpec,
 } from "./dsl.js";
 import { Entity, type EID } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
@@ -511,17 +512,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *   entity (type hint only — not validated at runtime).
    * @returns This system, retyped with the guaranteed tuple as its `R`.
    */
-  public override where<const Q extends QueryDSL>(q: Q): System<ExtractRequired<Q>>;
-  public override where<const T extends ComponentType[]>(
-    q: QueryDSL,
-    _guaranteed: readonly [...T]
-  ): System<T>;
-  public override where(q: QueryDSL, _guaranteed?: readonly ComponentType[]): System<any> {
-    if (_guaranteed === undefined) {
-      super.where(q);
-    } else {
-      super.where(q, _guaranteed);
-    }
+  public override where<const S extends QuerySpec>(spec: S): System<ExtractSpecRequired<S>> {
+    super.where(spec);
     return this as unknown as System<any>;
   }
 

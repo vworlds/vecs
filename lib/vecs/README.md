@@ -380,7 +380,9 @@ world.filter({ all: [Position, Velocity] }).forEach([Position, Velocity], (e, [p
 });
 
 // Manual hint for queries the type extractor can't see through:
-world.filter({ any: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
+world
+  .filter({ with: { any: [Position, Velocity] }, hint: [Position] })
+  .forEach([Position], (e, [pos]) => pos.x);
 ```
 
 A `Filter` requires no name, no `world.start()`, and no `destroy()` — create it anywhere and discard freely.
@@ -615,10 +617,10 @@ When `Iter` is **not** requested, the original code path runs with zero per-enti
 
 Class-valued query terms are components. Register component classes before using them in a `QueryDSL`; an unregistered class throws. Use `{ test: fn }` for arbitrary predicate functions.
 
-**Type inference.** `requires()` records the listed classes as a type parameter `R` on the system. Callbacks in `.orderBy()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `where()` expressions the type system can't introspect, supply a `_guaranteed` second argument:
+**Type inference.** `requires()` records the listed classes as a type parameter `R` on the system. Callbacks in `.orderBy()`, `.each()`, and `.update()` injection treat those components as non-nullable — no `!` needed. For complex `where()` expressions the type system can't introspect, supply a `hint` field:
 
 ```ts
-.where({ all: [Position, Velocity] }, [Position, Velocity])
+.where({ with: { all: [Position, Velocity] }, hint: [Position, Velocity] })
 .each([Position, Velocity], (e, [pos, vel]) => {
   pos.x += vel.vx; // pos and vel are non-null
 });
@@ -791,14 +793,14 @@ const f = world.filter([Position, Velocity]);
 
 `forEach` runs inside a deferred scope, so mutations made by the callback are batched and become visible after iteration finishes.
 
-**Type inference.** Component classes the type system can extract from the DSL (plain component classes, plain arrays, `only`, and `all` of those) are non-nullable in the callback tuple. For the rest, supply a `_guaranteed` second argument to `world.filter()`:
+**Type inference.** Component classes the type system can extract from the DSL (plain component classes, plain arrays, `only`, and `all` of those) are non-nullable in the callback tuple. For the rest, supply a `hint` field:
 
 ```ts
 // Auto-deduced — both non-null:
 world.filter([Position, Velocity]).forEach([Position, Velocity], (e, [pos, vel]) => { ... });
 
 // Manual hint for any / not / test:
-world.filter({ any: [Position, Velocity] }, [Position]).forEach([Position], (e, [pos]) => pos.x);
+world.filter({ with: { any: [Position, Velocity] }, hint: [Position] }).forEach([Position], (e, [pos]) => pos.x);
 ```
 
 A `Filter` holds no tracked set, makes no registration calls, and needs no `destroy()`.
