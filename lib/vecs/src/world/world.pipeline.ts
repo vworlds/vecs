@@ -108,7 +108,7 @@ export class Pipeline extends Modules {
       if (!(q instanceof System)) {
         return;
       }
-      let phase = q._phase as Phase | undefined;
+      let phase: string | Phase | undefined = q._phase;
       if (typeof phase === "string") {
         phase = this._pipeline.get(phase);
       }
