@@ -13,13 +13,6 @@ export class Queries extends Base {
   }
 
   /**
-   * @internal Return `true` when this entity is currently tracked by `q`.
-   */
-  public _isInQuery(q: Query): boolean {
-    return this._queries.has(q);
-  }
-
-  /**
    * @internal Forget query `q` without firing exit callbacks. Called by
    * {@link World} when a {@link Query.destroy} sweeps every entity.
    */

@@ -1,5 +1,5 @@
 import { Entity } from "./entity/index.js";
-import type { ComponentClass, ComponentInstance, ComponentType } from "./component_meta.js";
+import type { ComponentInstance, ComponentType } from "./component_meta.js";
 
 export {
   CleanupPolicy,

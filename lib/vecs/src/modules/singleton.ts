@@ -25,8 +25,6 @@ export class Singleton {}
  */
 export class SingletonModule extends Module {
   public init(): void {
-    this.world.component(Singleton);
-
     this.world.component(Singleton).onAdd((target: Entity): void => {
       const targetMeta = target.meta;
       if (targetMeta.usageCount !== 0) {
