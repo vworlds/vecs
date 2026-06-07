@@ -203,6 +203,25 @@ describe("System — enter / exit / update", () => {
 
     expect(sys.changed).toBe(true);
   });
+
+  it("each does not consume the changed flag", () => {
+    const { w, phase } = setup();
+    const sys = w
+      .system("test")
+      .phase(phase)
+      .with(Position)
+      .each([Position], () => {});
+    w.start();
+
+    const e = w.entity();
+    e.add(Position);
+    w.progress(0, 0);
+
+    // The entity entered this tick. `each` iterated the system on the same
+    // tick, but iterating for `each` must not reset `changed` the way a manual
+    // `forEach` does.
+    expect(sys.changed).toBe(true);
+  });
 });
 
 describe("System — phases", () => {

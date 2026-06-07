@@ -263,7 +263,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       }
 
       if (this._eachCallback) {
-        this.forEach(this._eachCallback);
+        this._forEach(this._eachCallback);
       }
     });
   }
