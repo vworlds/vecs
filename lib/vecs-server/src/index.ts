@@ -6,4 +6,4 @@ export type { ServerWorldOptions } from "./server_world.js";
 export type { InstallSystemsOptions } from "./server_world.js";
 export { EntityTracker, TrackerCache, View } from "./view.js";
 export type { IEntityTracker, IEntityTrackerListener } from "./view.js";
-export { worldPath } from "./world_path.js";
+export { worldPath } from "@vworlds/vecs-protocol";

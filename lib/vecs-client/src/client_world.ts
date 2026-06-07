@@ -10,12 +10,12 @@ import {
   type NetworkWorldOptions,
   type RPCHandler,
   type VecsSocket,
+  worldPath,
 } from "@vworlds/vecs-protocol";
 import { type ComponentInstance, type EID, type IPhase, Query } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { EventEmitter } from "eventemitter3";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
-import { worldPath } from "./world_path.js";
 
 class Networked {}
 
