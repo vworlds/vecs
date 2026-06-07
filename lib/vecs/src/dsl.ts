@@ -220,7 +220,7 @@ function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL 
 }
 
 function _sortComponentRequirements(components: readonly ComponentRef[]): ComponentRef[] {
-  return [...components].sort((a, b) => {
+  const sorted = [...components].sort((a, b) => {
     const aEid = typeof a === "number" ? a : a instanceof Entity ? a.eid : undefined;
     const bEid = typeof b === "number" ? b : b instanceof Entity ? b.eid : undefined;
     if (aEid !== undefined && bEid !== undefined) {
@@ -234,6 +234,24 @@ function _sortComponentRequirements(components: readonly ComponentRef[]): Compon
     }
     return 0;
   });
+  const deduped: ComponentRef[] = [];
+  let previousEid: EID | undefined;
+  for (const component of sorted) {
+    const eid =
+      typeof component === "number"
+        ? component
+        : component instanceof Entity
+          ? component.eid
+          : undefined;
+    if (eid !== undefined) {
+      if (eid === previousEid) {
+        continue;
+      }
+      previousEid = eid;
+    }
+    deduped.push(component);
+  }
+  return deduped;
 }
 
 function _asShortestHasOnlyRequirement(
@@ -315,10 +333,6 @@ function _termSortKey(q: QueryDSL): string {
   return `4:${q.only instanceof Array ? q.only.map(_termSortKey).join(",") : _termSortKey(q.only)}`;
 }
 
-function _sortCommutativeTerms(terms: QueryDSL[]): QueryDSL[] {
-  return [...terms].sort((a, b) => _termSortKey(a).localeCompare(_termSortKey(b)));
-}
-
 const _dslFunctionIds = new WeakMap<EntityTestFunc, number>();
 let _nextDSLFunctionId = 1;
 
@@ -374,6 +388,20 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
   throw new Error("Unrecognized query term");
 }
 
+function _sortCommutativeTerms(terms: QueryDSL[]): QueryDSL[] {
+  const sorted = [...terms].sort((a, b) => _termSortKey(a).localeCompare(_termSortKey(b)));
+  const deduped: QueryDSL[] = [];
+  let previousTerm: QueryDSL | undefined;
+  for (const term of sorted) {
+    if (previousTerm !== undefined && term === previousTerm) {
+      continue;
+    }
+    previousTerm = term;
+    deduped.push(term);
+  }
+  return deduped;
+}
+
 function _fnv1a32(input: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
@@ -390,9 +418,9 @@ function _fnv1a32(input: string): number {
  *
  * The simplifier resolves component classes to numeric type ids, flattens
  * associative operators, removes boolean identities, unwraps singleton
- * operators, sorts commutative expressions, and coalesces positive component
- * requirements into the DSL's array shorthand. Explicit `{ test }` predicates
- * are preserved as predicates.
+ * operators, sorts commutative expressions, deduplicates component
+ * requirements, and coalesces positive component requirements into the DSL's
+ * array shorthand. Explicit `{ test }` predicates are preserved as predicates.
  */
 export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
   if (typeof q === "boolean") {

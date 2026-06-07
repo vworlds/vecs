@@ -104,6 +104,22 @@ describe("Query DSL simplification", () => {
     expect(simplifyQueryDSL({ only: [1] }, world)).toEqual({ only: 1 });
   });
 
+  it("deduplicates sorted component requirements", () => {
+    const world = registeredWorld();
+
+    expect(simplifyQueryDSL([Velocity, Position, Position], world)).toEqual([10, 11]);
+    expect(simplifyQueryDSL({ all: [Position, Velocity, Position] }, world)).toEqual([10, 11]);
+    expect(simplifyQueryDSL({ any: [Velocity, Position, Velocity] }, world)).toEqual({
+      any: [10, 11],
+    });
+    expect(simplifyQueryDSL({ only: [Velocity, Position, Velocity] }, world)).toEqual({
+      only: [10, 11],
+    });
+    expect(getDSLKey({ all: [Position, Velocity, Position] }, world)).toBe(
+      getDSLKey({ all: [Position, Velocity] }, world)
+    );
+  });
+
   it("converts component classes to sorted numeric requirements when world is supplied", () => {
     const world = registeredWorld();
 

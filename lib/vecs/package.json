@@ -24,7 +24,7 @@
     "test:watch": "vitest",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
     "typecheck": "tsc --noEmit",
-    "format:check": "prettier --check \"**/*.{ts,md}\""
+    "format:check": "prettier --check \"**/*.{ts,md}\" --ignore-path ../../.prettierignore"
   },
   "dependencies": {
     "eventemitter3": "^4.0.7"
