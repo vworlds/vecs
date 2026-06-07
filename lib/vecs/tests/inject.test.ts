@@ -16,10 +16,8 @@ describe("Iter cursor", () => {
       const w = new World();
       w.component(Position);
       w.component(Velocity);
-      const phase = w.addPhase("tick");
       const cursors: Iter[] = [];
       w.system("sys")
-        .phase(phase)
         .with(Position)
         .each(Iter, [Position, Velocity], (it) => {
           cursors.push(it);
@@ -35,10 +33,8 @@ describe("Iter cursor", () => {
     it("it.entity is the visited entity", () => {
       const w = new World();
       w.component(Position);
-      const phase = w.addPhase("tick");
       const seen: unknown[] = [];
       w.system("sys")
-        .phase(phase)
         .with(Position)
         .each(Iter, [Position], (it) => {
           seen.push(it.entity);
@@ -53,10 +49,8 @@ describe("Iter cursor", () => {
     it("it.src[0] is the entity for a direct component", () => {
       const w = new World();
       w.component(Position);
-      const phase = w.addPhase("tick");
       const srcs: unknown[] = [];
       w.system("sys")
-        .phase(phase)
         .with(Position)
         .each(Iter, [Position], (it) => {
           srcs.push(it.src[0]);
@@ -72,10 +66,8 @@ describe("Iter cursor", () => {
       w.component(Position);
       w.component(Tag);
       w.component(FriendOf);
-      const phase = w.addPhase("tick");
       const srcs: unknown[] = [];
       w.system("sys")
-        .phase(phase)
         .with({ target: [FriendOf, Position] })
         .each(Iter, [{ target: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
@@ -92,10 +84,8 @@ describe("Iter cursor", () => {
       w.component(Position);
       w.component(Tag);
       w.component(FriendOf);
-      const phase = w.addPhase("tick");
       const srcs: unknown[] = [];
       w.system("sys")
-        .phase(phase)
         .with({ target: [FriendOf, Position] })
         .each(Iter, [{ target: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
@@ -113,10 +103,8 @@ describe("Iter cursor", () => {
       w.component(Tag2);
       w.component(Position);
       w.component(FriendOf);
-      const phase = w.addPhase("tick");
       const src = vi.fn();
       w.system("sys")
-        .phase(phase)
         .with(Tag2)
         .each(Iter, [{ target: [FriendOf, [Position]] }], (it) => src(it.src[0]));
       w.start();
@@ -336,9 +324,8 @@ describe("Iter cursor", () => {
     it("Iter cursor fires through system inbox", () => {
       const w = new World();
       w.component(Position);
-      const phase = w.addPhase("tick");
       const cb = vi.fn();
-      w.system("sys").phase(phase).with(Position).enter(Iter, [Position], cb);
+      w.system("sys").with(Position).enter(Iter, [Position], cb);
       w.start();
       const e = w.entity().add(Position);
       const pos = e.get(Position);
@@ -355,9 +342,8 @@ describe("Iter cursor", () => {
     it("Iter cursor fires through system inbox", () => {
       const w = new World();
       w.component(Position);
-      const phase = w.addPhase("tick");
       const cb = vi.fn();
-      w.system("sys").phase(phase).with(Position).exit(Iter, [Position], cb);
+      w.system("sys").with(Position).exit(Iter, [Position], cb);
       w.start();
       const e = w.entity().add(Position);
       w.progress(0, 0);
@@ -377,10 +363,8 @@ describe("Iter cursor", () => {
       const w = new World();
       w.component(Position);
       w.component(Velocity);
-      const phase = w.addPhase("tick");
       const cb = vi.fn();
       w.system("sys")
-        .phase(phase)
         .with(Position)
         .update(Iter, Position, [Velocity], cb as any);
       w.start();
@@ -404,12 +388,10 @@ describe("Iter cursor", () => {
     it("Iter cursor in system orderBy comparator passes resolved tuples", () => {
       const w = new World();
       w.component(Position);
-      const phase = w.addPhase("tick");
       w.entity().add(Position).set(Position, { x: 2 });
       w.entity().add(Position).set(Position, { x: 1 });
       const sys = w
         .system("sys")
-        .phase(phase)
         .with(Position)
         .orderBy(Iter, [Position], (_a, [posA], _b, [posB]) => posA.x - posB.x);
       w.start();
@@ -423,11 +405,10 @@ describe("Iter cursor", () => {
     it("bare each and explicit Entity each produce identical results", () => {
       const w = new World();
       w.component(Position);
-      const phase = w.addPhase("tick");
       const bare = vi.fn();
       const explicit = vi.fn();
-      w.system("a").phase(phase).with(Position).each([Position], bare);
-      w.system("b").phase(phase).with(Position).each(Entity, [Position], explicit);
+      w.system("a").with(Position).each([Position], bare);
+      w.system("b").with(Position).each(Entity, [Position], explicit);
       w.start();
       const e = w.entity().add(Position);
       const pos = e.get(Position);
@@ -535,10 +516,8 @@ describe("Iter cursor", () => {
       const w = new World();
       w.component(Position);
       w.component(FriendOf);
-      const phase = w.addPhase("tick");
       const entered: unknown[] = [];
       w.system("sys")
-        .phase(phase)
         .with({ target: [FriendOf, Position] })
         .enter(Iter, [{ target: [FriendOf, [Position]] }], (it, [pos]) => {
           entered.push({ entity: it.entity, src: it.src[0], pos });
@@ -556,10 +535,8 @@ describe("Iter cursor", () => {
       const w = new World();
       w.component(Position);
       w.component(FriendOf);
-      const phase = w.addPhase("tick");
       const exited: unknown[] = [];
       w.system("sys")
-        .phase(phase)
         .with({ target: [FriendOf, Position] })
         .exit(Iter, [{ target: [FriendOf, [Position]] }], (it, [pos]) => {
           exited.push({ entity: it.entity, src: it.src[0], pos });
@@ -582,10 +559,8 @@ describe("Iter cursor", () => {
     it("System.each Iter cursor with ChildOf target injection", () => {
       const w = new World();
       w.component(Position);
-      const phase = w.addPhase("tick");
       const srcs: unknown[] = [];
       w.system("sys")
-        .phase(phase)
         .with({ target: [ChildOf, Position] })
         .each(Iter, [{ target: [ChildOf, [Position]] }], (it) => {
           srcs.push(it.src[0]);

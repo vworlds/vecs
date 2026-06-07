@@ -5,7 +5,7 @@
 // a Vecs-side change to the semantics is caught here rather than in opaque
 // pose-sync behaviour.
 
-import { World } from "@vworlds/vecs";
+import { DependsOn, Phase, World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 class Value {
@@ -18,29 +18,27 @@ describe("Query.ignoreSource source attribution", () => {
     const world = new World();
     world.component(Value);
     world.component(Tag);
-    world.addPhase("write");
-    world.addPhase("read");
+    const writePhase = world.entity("write").add(Phase);
+    const readPhase = world.entity("read").add(Phase).set(DependsOn, { target: writePhase });
 
     let readerCount = 0;
 
     // A tagged system that rewrites Value every frame — the "engine write-back".
-    const writer = world
-      .system("Writer")
-      .phase("write")
-      .run(() => {
-        target.set(Value, { n: target.get(Value)!.n + 1 });
-      });
+    const writer = world.system("Writer").run(() => {
+      target.set(Value, { n: target.get(Value)!.n + 1 });
+    });
+    writer.phase(writePhase);
     writer.entity.add(Tag);
 
     // The reader ignores any update that originated from a Tag-bearing system.
-    world
+    const reader = world
       .system("Reader")
       .with(Value)
-      .phase("read")
       .ignoreSource([Tag])
       .update(Value, () => {
         readerCount++;
       });
+    reader.phase(readPhase);
 
     world.start();
 

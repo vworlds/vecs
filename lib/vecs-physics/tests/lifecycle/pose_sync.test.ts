@@ -1,4 +1,4 @@
-import { Entity, World } from "@vworlds/vecs";
+import { DependsOn, Entity, Phase, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -189,18 +189,21 @@ describe("pose-sync feedback suppression", () => {
   it("delivers the engine write-back to a non-physics user system", () => {
     const userWorld = new World();
     installPhysics(userWorld, { gravity: { x: 0, y: 0 } });
-    userWorld.addPhase("render");
+    const render = userWorld
+      .entity("render")
+      .add(Phase)
+      .set(DependsOn, { target: userWorld.entity("physics-post") });
 
     let lastSeenX: number | undefined;
     let count = 0;
-    userWorld
+    const renderSystem = userWorld
       .system("UserRender")
       .with(Body)
-      .phase("render")
       .update(Position, (_entity, position) => {
         lastSeenX = position.x;
         count++;
       });
+    renderSystem.phase(render);
 
     userWorld.start();
     const userState = getPhysics(userWorld) as PhysicsState;

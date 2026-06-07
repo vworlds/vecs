@@ -1,4 +1,4 @@
-import { type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type System, type World } from "@vworlds/vecs";
 
 import {
   AngularVelocity,
@@ -13,7 +13,7 @@ import { type Box2DModule } from "../adapter/runtime.js";
 import { type b2BodyId, type PhysicsState } from "../adapter/state.js";
 import { withAllocated } from "../adapter/disposal.js";
 
-export function installBodyLifecycle(world: World, state: PhysicsState, phase: IPhase): System {
+export function installBodyLifecycle(world: World, state: PhysicsState, phase: Entity): System {
   const system = world.system("PhysicsBodyLifecycle").with(Body).phase(phase);
 
   system.enter((entity) => {

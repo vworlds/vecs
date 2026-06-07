@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { Component, DEFAULT_ID_REUSE_WAIT_FRAMES, Module, World } from "../src/index.js";
+import {
+  BUILTIN_PIPELINE_PHASES,
+  Component,
+  DEFAULT_ID_REUSE_WAIT_FRAMES,
+  DependsOn,
+  Module,
+  Phase,
+  World,
+} from "../src/index.js";
+import { makePhase } from "./_helpers.js";
 
 class A {}
 class B {}
@@ -23,7 +32,7 @@ describe("World - id pools", () => {
     expect(nextComponentEid).toBeLessThanOrEqual(899);
     expect(nextModuleEid).toBeGreaterThanOrEqual(900);
     expect(nextModuleEid).toBeLessThanOrEqual(999);
-    expect(nextEntityEid).toBe(1000);
+    expect(nextEntityEid).toBeGreaterThanOrEqual(1000);
     expect(w.component(A).eid).toBe(nextComponentEid);
     expect(w.module(TestModule).eid).toBe(nextModuleEid);
     expect(w.entity().eid).toBe(nextEntityEid);
@@ -63,7 +72,7 @@ describe("World - id pools", () => {
     expect(nextComponentEid).toBeLessThanOrEqual(899);
     expect(nextModuleEid).toBeGreaterThanOrEqual(900);
     expect(nextModuleEid).toBeLessThanOrEqual(999);
-    expect(nextEntityEid).toBe(1000);
+    expect(nextEntityEid).toBeGreaterThanOrEqual(1000);
     expect(w.component(A).eid).toBe(nextComponentEid);
     expect(w.module(TestModule).eid).toBe(nextModuleEid);
     expect(w.entity().eid).toBe(nextEntityEid);
@@ -138,17 +147,18 @@ describe("World - id pools", () => {
 
   it("returns destroyed ids to their pools after the reuse wait", () => {
     const w = new World();
+    const nextEntityEid = w.peekNextEid("entity");
     const a = w.entity();
     const b = w.entity();
 
     a.destroy();
 
-    expect(w.entity().eid).toBe(1002);
+    expect(w.entity().eid).toBe(nextEntityEid + 2);
     for (let i = 0; i < DEFAULT_ID_REUSE_WAIT_FRAMES; i++) {
       w.progress(0, 0);
     }
     expect(w.entity().eid).toBe(a.eid);
-    expect(b.eid).toBe(1001);
+    expect(b.eid).toBe(nextEntityEid + 1);
   });
 });
 
@@ -237,9 +247,10 @@ describe("World - components", () => {
 
   it("reserves explicit component eids in any pool", () => {
     const w = new World();
+    const nextEntityEid = w.peekNextEid("entity");
 
     expect(w.component(A, 1200).eid).toBe(1200);
-    expect(w.entity().eid).toBe(1000);
+    expect(w.entity().eid).toBe(nextEntityEid);
   });
 
   it("is idempotent for the same class and same eid", () => {
@@ -306,13 +317,23 @@ describe("World - components", () => {
   });
 });
 
-describe("World - phases", () => {
-  it("addPhase returns an IPhase keyed by name", () => {
+describe("World - pipeline", () => {
+  it("creates namespaced built-in phase entities", () => {
     const w = new World();
-    const p = w.addPhase("preupdate");
 
-    expect(p.name).toBe("preupdate");
-    expect(p.world).toBe(w);
+    for (const name of BUILTIN_PIPELINE_PHASES) {
+      expect(w.entity(name).has(Phase)).toBe(true);
+    }
+  });
+
+  it("chains built-in phases with DependsOn", () => {
+    const w = new World();
+
+    for (let i = 1; i < BUILTIN_PIPELINE_PHASES.length; i++) {
+      expect(w.entity(BUILTIN_PIPELINE_PHASES[i]).parent(DependsOn)).toBe(
+        w.entity(BUILTIN_PIPELINE_PHASES[i - 1])
+      );
+    }
   });
 
   it("component returns the same component entity after registration is disabled", () => {
@@ -323,12 +344,12 @@ describe("World - phases", () => {
     expect(w.component(A)).toBe(w.component(A));
   });
 
-  it("progress runs all phases in insertion order", () => {
+  it("progress runs systems in dependency order", () => {
     const w = new World();
     const order: string[] = [];
-    const pre = w.addPhase("pre");
-    const update = w.addPhase("update");
-    const post = w.addPhase("post");
+    const pre = makePhase(w, "pre");
+    const update = makePhase(w, "update", pre);
+    const post = makePhase(w, "post", update);
 
     w.system("s1")
       .phase(pre)
@@ -343,13 +364,6 @@ describe("World - phases", () => {
     w.progress(0, 16);
 
     expect(order).toEqual(["pre", "update", "post"]);
-  });
-
-  it("runPhase outside a frame throws", () => {
-    const w = new World();
-    const phase = w.addPhase("update");
-
-    expect(() => w.runPhase(phase, 0, 16)).toThrow();
   });
 
   it("beginFrame without prior endFrame throws", () => {

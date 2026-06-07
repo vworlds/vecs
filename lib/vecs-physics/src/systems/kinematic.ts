@@ -1,10 +1,10 @@
-import { type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type System, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { KinematicTargetPosition, KinematicTargetRotation } from "../components/target.js";
 import { type PhysicsState, type b2BodyId } from "../adapter/state.js";
 
-export function installKinematicTargets(world: World, state: PhysicsState, phase: IPhase): System {
+export function installKinematicTargets(world: World, state: PhysicsState, phase: Entity): System {
   const targetFilter = world.filter({
     all: [Body, { any: [KinematicTargetPosition, KinematicTargetRotation] }],
   });

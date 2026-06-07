@@ -19,10 +19,8 @@ function setup() {
   w.component(Velocity);
   w.component(Walking);
   w.component(Running);
-  const phase = w.addPhase("p");
   return {
     w,
-    phase,
     tick(now = 0, delta = 0) {
       w.progress(now, delta);
     },
@@ -31,31 +29,27 @@ function setup() {
 
 describe("Deferred mode — data-layer visibility", () => {
   it("entity.get(C) returns undefined after entity.add(C) inside a system", () => {
-    const { w, phase, tick } = setup();
+    const { w, tick } = setup();
     const observed: any[] = [];
-    w.system("test")
-      .phase(phase)
-      .run(() => {
-        const e = w.entity();
-        e.add(Position);
-        observed.push(e.get(Position));
-      });
+    w.system("test").run(() => {
+      const e = w.entity();
+      e.add(Position);
+      observed.push(e.get(Position));
+    });
     w.start();
     tick();
     expect(observed[0]).toBeUndefined();
   });
 
   it("entity.get(C) returns the previous value after entity.set(C, props) inside a system", () => {
-    const { w, phase, tick } = setup();
+    const { w, tick } = setup();
     const observed: number[] = [];
     let target: any;
-    w.system("test")
-      .phase(phase)
-      .run(() => {
-        target.set(Position, { x: 999 });
-        // Defer mode: the new props haven't been applied yet.
-        observed.push(target.get(Position).x);
-      });
+    w.system("test").run(() => {
+      target.set(Position, { x: 999 });
+      // Defer mode: the new props haven't been applied yet.
+      observed.push(target.get(Position).x);
+    });
     target = w.entity();
     target.set(Position, { x: 7 });
     w.start();
@@ -64,15 +58,13 @@ describe("Deferred mode — data-layer visibility", () => {
   });
 
   it("entity.get(C) still returns the component after entity.remove(C) inside a system", () => {
-    const { w, phase, tick } = setup();
+    const { w, tick } = setup();
     const observed: any[] = [];
     let target: any;
-    w.system("test")
-      .phase(phase)
-      .run(() => {
-        target.remove(Position);
-        observed.push(target.get(Position));
-      });
+    w.system("test").run(() => {
+      target.remove(Position);
+      observed.push(target.get(Position));
+    });
     target = w.entity();
     target.add(Position);
     const pos = target.get(Position);
@@ -206,10 +198,9 @@ describe("Deferred mode — Query dispatches enter/exit/update immediately", () 
 
 describe("Deferred mode — System inbox ordering", () => {
   it("system inbox replays enter -> exit -> enter in arrival order", () => {
-    const { w, phase, tick } = setup();
+    const { w, tick } = setup();
     const events: string[] = [];
     w.system("test")
-      .phase(phase)
       .with(Position)
       .enter((e) => events.push(`enter ${e.eid}`))
       .exit((e) => events.push(`exit ${e.eid}`));
@@ -260,11 +251,10 @@ describe("Deferred mode — exclusive replacement", () => {
 
 describe("Deferred mode — parent destruction", () => {
   it("child's exit observes parent already removed from world.entities", () => {
-    const { w, phase, tick } = setup();
+    const { w, tick } = setup();
     let observedParentId: number | undefined;
     let parentEid = -1;
     w.system("test")
-      .phase(phase)
       .with(Position)
       .exit((e) => {
         observedParentId = w.getEntity(parentEid)?.eid;

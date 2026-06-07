@@ -16,13 +16,13 @@ installPhysics(world, {
 });
 ```
 
-By default, `installPhysics` registers physics components, configures shape exclusivity, creates physics phases, and installs internal systems. Advanced users can pass custom phases or phase names to place physics inside an existing pipeline.
+By default, `installPhysics` registers physics components, configures shape exclusivity, creates physics phases, and installs internal systems. Advanced users can pass custom phase entities or phase names to place physics inside an existing pipeline.
 
 `vecs-physics` assumes the `delta` passed to `world.progress(now, delta)` is fixed. It does not run a catch-up accumulator by default.
 
 ## Core Concepts
 
-Vecs runs systems inside named phases. Phases run in registration order, and systems inside a phase run in system registration order.
+Vecs runs systems through a query-driven pipeline. Systems default to `vecs::OnUpdate`; call `system.phase(phaseNameOrEntity)` only when a system must run somewhere else. Systems tied to the same phase run in entity id order, which normally matches creation order.
 
 Physics needs several ordered steps:
 
@@ -60,7 +60,9 @@ Use the default setup when you do not need special ordering around physics.
 
 ## Default Phases
 
-By default, `installPhysics` creates and uses three phases:
+Vecs creates these built-in pipeline anchors: `vecs::OnLoad`, `vecs::PostLoad`, `vecs::PreUpdate`, `vecs::OnUpdate`, `vecs::OnValidate`, `vecs::PostUpdate`, `vecs::PreStore`, and `vecs::OnStore`.
+
+By default, `installPhysics` creates and uses three additional phase entities ordered after `vecs::OnUpdate`:
 
 | Phase          | Purpose                                         |
 | -------------- | ----------------------------------------------- |
@@ -68,32 +70,27 @@ By default, `installPhysics` creates and uses three phases:
 | `physics-step` | Step the simulation.                            |
 | `physics-post` | Write results and events back to ECS.           |
 
-Conceptually, the default frame looks like this:
+Conceptually, the default frame is driven by the world's pipeline query:
 
 ```ts
-world.beginFrame(delta);
-try {
-  world.runPhase(physicsPre, now, delta);
-  world.runPhase(physicsStep, now, delta);
-  world.runPhase(physicsPost, now, delta);
-} finally {
-  world.endFrame();
-}
+world.progress(now, delta);
 ```
 
-Most projects can use `world.progress(now, delta)` and let Vecs run phases in registration order.
+Most projects can use `world.progress(now, delta)` and let Vecs run systems in dependency order.
 
 ## Custom Phase Placement
 
-If your app already has phases, pass phase names or phase objects to `installPhysics`.
+If your app already has phase entities, pass phase names or entities to `installPhysics`. Use the built-in anchors for common app work: input and gameplay systems usually stay in the default `vecs::OnUpdate`, while systems that need final physics results should target `physics-post` or a custom phase after it.
 
 ```ts
-const input = world.addPhase("input");
-const gameplay = world.addPhase("gameplay");
-const physicsPre = world.addPhase("physics-pre");
-const physicsStep = world.addPhase("physics-step");
-const physicsPost = world.addPhase("physics-post");
-const render = world.addPhase("render");
+const gameplay = world
+  .entity("gameplay")
+  .add(Phase)
+  .set(DependsOn, { target: world.entity(ON_UPDATE) });
+const physicsPre = world.entity("physics-pre").add(Phase).set(DependsOn, { target: gameplay });
+const physicsStep = world.entity("physics-step").add(Phase).set(DependsOn, { target: physicsPre });
+const physicsPost = world.entity("physics-post").add(Phase).set(DependsOn, { target: physicsStep });
+const render = world.entity("render").add(Phase).set(DependsOn, { target: physicsPost });
 
 installPhysics(world, {
   preStepPhase: physicsPre,
@@ -119,7 +116,7 @@ Use custom placement when input, gameplay, camera, animation, networking, or ren
 A common game loop looks like this:
 
 ```text
-input -> gameplay -> physics-pre -> physics-step -> physics-post -> render
+vecs::PreUpdate -> vecs::OnUpdate -> physics-pre -> physics-step -> physics-post -> render
 ```
 
 In this layout:
@@ -133,12 +130,14 @@ In this layout:
 Example:
 
 ```ts
-const input = world.addPhase("input");
-const gameplay = world.addPhase("gameplay");
-const physicsPre = world.addPhase("physics-pre");
-const physicsStep = world.addPhase("physics-step");
-const physicsPost = world.addPhase("physics-post");
-const render = world.addPhase("render");
+const gameplay = world
+  .entity("gameplay")
+  .add(Phase)
+  .set(DependsOn, { target: world.entity(ON_UPDATE) });
+const physicsPre = world.entity("physics-pre").add(Phase).set(DependsOn, { target: gameplay });
+const physicsStep = world.entity("physics-step").add(Phase).set(DependsOn, { target: physicsPre });
+const physicsPost = world.entity("physics-post").add(Phase).set(DependsOn, { target: physicsStep });
+const render = world.entity("render").add(Phase).set(DependsOn, { target: physicsPost });
 
 installPhysics(world, {
   preStepPhase: physicsPre,
@@ -148,9 +147,8 @@ installPhysics(world, {
   subSteps: 4,
 });
 
-world
+const inputSystem = world
   .system("ApplyPlayerInput")
-  .phase(input)
   .with(PlayerInput, Body)
   .update(PlayerInput, (entity, input) => {
     if (input.jumpPressed) {
@@ -158,7 +156,7 @@ world
     }
   });
 
-world
+const contactSystem = world
   .system("ReactToContacts")
   .phase(physicsPost)
   .update(ContactEvents, (shapeEntity, events) => {
@@ -265,25 +263,9 @@ After stepping, physics writes results back to ECS:
 
 Run gameplay systems that react to final physics results after `physics-post`.
 
-## Manual Phase Driving
+## Pipeline Driving
 
-If you manually drive phases, keep physics phases in order.
-
-```ts
-world.beginFrame(1000 / 60);
-try {
-  world.runPhase(input, now, 1000 / 60);
-  world.runPhase(gameplay, now, 1000 / 60);
-  world.runPhase(physicsPre, now, 1000 / 60);
-  world.runPhase(physicsStep, now, 1000 / 60);
-  world.runPhase(physicsPost, now, 1000 / 60);
-  world.runPhase(render, now, 1000 / 60);
-} finally {
-  world.endFrame();
-}
-```
-
-Do not run `physics-step` without `physics-pre`, and do not read physics results before `physics-post`.
+Keep phase entities ordered through `DependsOn`, place systems with `.phase(...)` when they need a non-default phase, and drive the frame with `world.progress(now, delta)`. Do not place `physics-step` before `physics-pre`, and do not read physics results before `physics-post`.
 
 ## Common Use Cases
 
@@ -292,9 +274,8 @@ Do not run `physics-step` without `physics-pre`, and do not read physics results
 Input should usually run before physics.
 
 ```ts
-world
+const jump = world
   .system("Jump")
-  .phase("input")
   .with(PlayerInput, Body)
   .update(PlayerInput, (entity, input) => {
     if (input.jumpPressed) {
@@ -303,16 +284,16 @@ world
   });
 ```
 
-The impulse is queued and applied before the next physics step.
+The impulse is queued from the default `vecs::OnUpdate` phase and applied before the next physics step.
 
 ### Render Final Positions
 
 Rendering should read positions after physics.
 
 ```ts
-world
+const renderSprites = world
   .system("RenderSprites")
-  .phase("render")
+  .phase("physics-post")
   .with(Position, Sprite)
   .each([Position, Rotation, Sprite], (_entity, [position, rotation, sprite]) => {
     sprite.x = position.x;
@@ -321,14 +302,14 @@ world
   });
 ```
 
-Place `render` after `physics-post` so sprites see final simulated positions.
+Place render systems at `physics-post` or a custom render phase after it so sprites see final simulated positions.
 
 ### React To Contacts
 
 Contact reactions should run after physics has published events.
 
 ```ts
-world
+const damage = world
   .system("DamageOnHit")
   .phase("physics-post")
   .update(ContactEvents, (shapeEntity, events) => {

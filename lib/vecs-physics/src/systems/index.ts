@@ -22,7 +22,7 @@
 //   2. PhysicsEvents       — fan raw event arrays out to ContactEvents/SensorEvents/HitEvents (VP-21b)
 //   3. PhysicsImpulseZero  — silently zero consumed Impulse/AngularImpulse (VP-19)
 
-import { type IPhase, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 
 import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 import { installDebugValidation } from "./debug.js";
@@ -43,9 +43,9 @@ import { installStep } from "./step.js";
 
 /** The three phases the physics systems split across. */
 export interface PhysicsPhases {
-  preStep: IPhase;
-  step: IPhase;
-  postStep: IPhase;
+  preStep: Entity;
+  step: Entity;
+  postStep: Entity;
 }
 
 /** Options forwarded to {@link installPhysicsSystems} from {@link installPhysics}. */

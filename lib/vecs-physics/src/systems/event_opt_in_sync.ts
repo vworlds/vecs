@@ -1,11 +1,11 @@
-import { type EID, type IPhase, type System, type World } from "@vworlds/vecs";
+import { type EID, type Entity, type System, type World } from "@vworlds/vecs";
 
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
 import { type b2ShapeId, type PhysicsState } from "../adapter/state.js";
 
 type EventFlag = "contact" | "hit" | "sensor";
 
-export function installEventOptInSync(world: World, state: PhysicsState, phase: IPhase): System {
+export function installEventOptInSync(world: World, state: PhysicsState, phase: Entity): System {
   world
     .component(ContactEvents)
     .onAdd((entity) => setEventFlag(state, entity.eid, "contact", true));

@@ -1,4 +1,4 @@
-import { ChildOf, type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
+import { ChildOf, type Entity, type System, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
@@ -11,7 +11,7 @@ import { withAllocated } from "../adapter/disposal.js";
 
 const MAX_POLYGON_VERTICES = 8;
 
-export function installShapeLifecycle(world: World, state: PhysicsState, phase: IPhase): System {
+export function installShapeLifecycle(world: World, state: PhysicsState, phase: Entity): System {
   const system = world
     .system("PhysicsShapeLifecycle")
     .with({ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] })

@@ -17,17 +17,15 @@ function setup() {
   w.component(Position);
   w.component(Velocity);
   w.component(Physics);
-  const phase = w.addPhase("p");
-  return { w, phase };
+  return { w };
 }
 
 describe("Query.ignoreSource — silencing feedback loops", () => {
   it("on a system, silences its own writeback", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const cb = vi.fn();
     const damp = w
       .system("Damp")
-      .phase(phase)
       .with(Position)
       .ignoreSource([Physics])
       .update(Position, (e) => {
@@ -54,10 +52,9 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
   });
 
   it("without silencing, a self-writeback re-fires every frame", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const cb = vi.fn();
     w.system("Damp")
-      .phase(phase)
       .with(Position)
       .update(Position, (e) => {
         cb();
@@ -75,16 +72,14 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
   });
 
   it("silences a later writeback system but still reacts to external writes", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const readCb = vi.fn();
     w.system("Read")
-      .phase(phase)
       .with(Position)
       .ignoreSource([Physics])
       .update(Position, () => readCb());
     const write = w
       .system("Write")
-      .phase(phase)
       .with(Position)
       .each([Position], (e) => {
         e.getMut(Position, (p) => {
@@ -109,16 +104,14 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
   });
 
   it("updates from sources outside the domain still wake the query", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const readCb = vi.fn();
     w.system("Read")
-      .phase(phase)
       .with(Position)
       .ignoreSource([Physics])
       .update(Position, () => readCb());
     // Not tagged Physics -> outside the silenced domain.
     w.system("Other")
-      .phase(phase)
       .with(Position)
       .each([Position], (e) => {
         e.getMut(Position, (p) => {
@@ -135,21 +128,17 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
   });
 
   it("does not silence entry-time initialization from an ignored source", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const readCb = vi.fn();
     let created: Entity | undefined;
     // Writer is in the silenced domain and introduces a matching entity.
-    const writer = w
-      .system("Writer")
-      .phase(phase)
-      .run(() => {
-        if (!created) {
-          created = w.entity().add(Position);
-        }
-      });
+    const writer = w.system("Writer").run(() => {
+      if (!created) {
+        created = w.entity().add(Position);
+      }
+    });
     writer.entity.add(Physics);
     w.system("Read")
-      .phase(phase)
       .with(Position)
       .ignoreSource([Physics])
       .update(Position, (e) => readCb(e));
@@ -161,10 +150,9 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
   });
 
   it("destroys the inline silence query with the parent query", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const read = w
       .system("Read")
-      .phase(phase)
       .with(Position)
       .ignoreSource([Physics])
       .update(Position, () => {});
@@ -179,7 +167,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
   });
 
   it("silences update callbacks on a plain query", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const cb = vi.fn();
     const rq = w
       .query("ReadQ")
@@ -187,16 +175,13 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .ignoreSource([Physics])
       .update(Position, () => cb());
 
-    const writer = w
-      .system("Writer")
-      .phase(phase)
-      .run(() => {
-        const e = w.entity();
-        e.add(Position);
-        e.getMut(Position, (p) => {
-          p.x = 1;
-        });
+    const writer = w.system("Writer").run(() => {
+      const e = w.entity();
+      e.add(Position);
+      e.getMut(Position, (p) => {
+        p.x = 1;
       });
+    });
     writer.entity.add(Physics);
     w.start();
 
@@ -232,19 +217,17 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
   });
 
   it("accepts an existing query as the silence domain", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const domain = w.query("Domain").with(Physics);
 
     const cb = vi.fn();
     w.system("Read")
-      .phase(phase)
       .with(Position)
       .ignoreSource(domain)
       .update(Position, () => cb());
 
     const writer = w
       .system("Writer")
-      .phase(phase)
       .with(Position)
       .each([Position], (e) => {
         e.getMut(Position, (p) => {

@@ -1,4 +1,4 @@
-import { type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type System, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
@@ -10,7 +10,7 @@ import { recreateShapeForEntity } from "./shape_lifecycle.js";
 export function installMaterialFilterSync(
   world: World,
   state: PhysicsState,
-  phase: IPhase
+  phase: Entity
 ): System {
   const system = world
     .system("PhysicsMaterialFilterSync")

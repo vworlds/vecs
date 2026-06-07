@@ -15,11 +15,8 @@ function setup() {
   w.component(Position);
   w.component(Team);
   w.component(InZone);
-  const phase = w.addPhase("p");
   // Dummy system ensures progress() always flushes queued archetype changes.
-  w.system("__flush__")
-    .phase(phase)
-    .run(() => {});
+  w.system("__flush__").run(() => {});
   return { w, tick: () => w.progress(0, 0) };
 }
 
@@ -73,8 +70,6 @@ describe("Query.groupBy — value grouping", () => {
     const w = new World();
     w.component(Team);
     w.component(Marker);
-    const phase = w.addPhase("p");
-
     const byTeam = w
       .query("byTeam")
       .with(Team)
@@ -85,7 +80,6 @@ describe("Query.groupBy — value grouping", () => {
     // Writer is inside the silenced domain and rewrites Team.id every tick.
     const writer = w
       .system("Writer")
-      .phase(phase)
       .with(Team)
       .each([Team], (e) => {
         e.getMut(Team, (t) => {

@@ -31,10 +31,7 @@ function setup() {
 
 function setupWithFlush() {
   const w = setup();
-  const phase = w.addPhase("p");
-  w.system("__flush__")
-    .phase(phase)
-    .run(() => {});
+  w.system("__flush__").run(() => {});
   return { w, tick: () => w.progress(0, 0) };
 }
 
@@ -691,8 +688,7 @@ describe("Term — integration with existing Query public API", () => {
   it("System receives enter events via term propagation", () => {
     const { w, tick } = setupWithFlush();
     const enter = vi.fn();
-    const phase = w.addPhase("sys");
-    w.system("test").phase(phase).with(Position).enter(enter);
+    w.system("test").with(Position).enter(enter);
     w.start();
 
     const e = w.entity();
@@ -703,9 +699,8 @@ describe("Term — integration with existing Query public API", () => {
 
   it("System update fires on modified()", () => {
     const { w } = setupWithFlush();
-    const phase = w.addPhase("p2");
     const update = vi.fn();
-    w.system("test").phase(phase).with(Position).update(Position, update);
+    w.system("test").with(Position).update(Position, update);
     w.start();
 
     const e = w.entity();
@@ -1138,9 +1133,8 @@ describe("Term — exit snapshots are a query/system-layer concern", () => {
   // a captured snapshot, since exits are replayed after storage is deleted.
   it("System exit callback receives removed component data via the inbox", () => {
     const { w } = setupWithFlush();
-    const phase = w.addPhase("exitsys");
     const exit = vi.fn();
-    w.system("exitsys-test").phase(phase).with(Position).exit([Position], exit);
+    w.system("exitsys-test").with(Position).exit([Position], exit);
     w.start();
 
     const e = w.entity();

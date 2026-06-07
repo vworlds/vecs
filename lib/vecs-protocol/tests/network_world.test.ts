@@ -22,12 +22,13 @@ describe("NetworkWorld", () => {
       localEntityIdStart: 100_000,
     });
     const nextLocalComponentEid = world.peekNextEid("component");
+    const nextLocalEntityEid = world.peekNextEid("entity");
 
     expect(nextLocalComponentEid).toBeGreaterThanOrEqual(world.localComponentMin);
     expect(world.component(LocalOnly).eid).toBe(nextLocalComponentEid);
     expect(world.pools).toContainEqual({ name: "module", min: 900, max: 999 });
     expect(world.getOrCreateEntity(1000).eid).toBe(1000);
-    expect(world.entity().eid).toBe(100_000);
+    expect(world.entity().eid).toBe(nextLocalEntityEid);
   });
 
   it("requires every NetworkWorld to use the same local component minimum", () => {

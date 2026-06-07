@@ -18,7 +18,8 @@ import {
   type QuerySpec,
 } from "./dsl.js";
 import { Entity, type EID } from "./entity/index.js";
-import { Phase, type IPhase } from "./phase.js";
+import { ON_UPDATE, Phase } from "./modules/pipeline.js";
+import { DependsOn } from "./modules/relationships.js";
 import { type World } from "./world/index.js";
 import {
   ALWAYS_TICK_SOURCE,
@@ -66,7 +67,6 @@ type _SystemInboxEvent =
  * ```ts
  * world.system("Move")
  *   .with(Position, Velocity)       // track entities with both components
- *   .phase("update")
  *   .enter([Position], (e, [pos]) => { pos.x = 0; })
  *   .update(Position, (e, pos) => { pos.x += pos.vx; })
  *   .exit((e) => { console.log("entity left", e.eid); });
@@ -74,7 +74,7 @@ type _SystemInboxEvent =
  *
  * Every builder method returns `this` for chaining. After registering systems
  * call {@link World.start} once, then drive the loop with
- * {@link World.runPhase} or {@link World.progress}.
+ * {@link World.progress}.
  *
  * Internally each system holds a single ordered **inbox** of routed events
  * (`enter`, `exit`, `update`). The world appends to it during command-queue
@@ -102,9 +102,6 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   /** @internal Callback registered via {@link each}, fired per tracked entity every tick. */
   protected _eachCallback: ((e: Entity) => void) | undefined;
 
-  /** @internal Phase reference / name; resolved by `World.start`. */
-  public _phase: string | Phase | undefined;
-
   /** @internal Whether this system processes events and runs callbacks. */
   private _enabled = true;
   /** @internal Cadence source for this system. Defaults to every frame. */
@@ -113,6 +110,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   constructor(name: string, world: World) {
     super(name, world, false);
     this.entity.attach(System, this);
+    this.phase(ON_UPDATE);
   }
 
   /** @internal Reject non-reactive source/children terms before registering this system. */
@@ -289,11 +287,21 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this._tickSource._register(world);
   }
 
+  /** Place this system after a phase entity in the world pipeline. */
+  public phase(phase: Entity | string): this {
+    this._assertConfigurable();
+    const target = (
+      typeof phase === "string" ? this.world.entity(phase) : this.world.entity(phase)
+    ).add(Phase);
+    this.entity.set(DependsOn, { target });
+    return this;
+  }
+
   /**
    * Run this system at a fixed interval, expressed in seconds.
    *
-   * This is seconds, unlike `World.beginFrame`, `World.progress`, and
-   * `runPhase`, which receive millisecond deltas. Calling `interval` replaces
+   * This is seconds, unlike `World.beginFrame` and `World.progress`, which
+   * receive millisecond deltas. Calling `interval` replaces
    * the current cadence source with an {@link IntervalTickSource}. When this
    * system has a cadence source, the `delta` passed to {@link run} is the
    * accumulated milliseconds since the previous fire, not the per-frame delta.
@@ -370,32 +378,6 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   private _setTickSource(source: ITickSource): void {
     this._tickSource = source;
     source._register(this.world);
-  }
-
-  /**
-   * Assign this system to a pipeline phase.
-   *
-   * Pass either a phase name (resolved at {@link World.start}) or an
-   * {@link IPhase} reference returned from {@link World.addPhase}. Systems
-   * with no explicit phase fall into the built-in `"update"` phase.
-   *
-   * @param p - Phase name or `IPhase` reference.
-   * @returns This system, for chaining.
-   * @throws When the phase reference is not a `Phase`, or belongs to a
-   *   different world.
-   */
-  public phase(p: string | IPhase): this {
-    this._assertConfigurable();
-    if (typeof p !== "string") {
-      if (!(p instanceof Phase)) {
-        throw new Error("Invalid Phase object");
-      }
-      if (p.world !== this.world) {
-        throw new Error("Phase does not belong to this system's world");
-      }
-    }
-    this._phase = p;
-    return this;
   }
 
   /**

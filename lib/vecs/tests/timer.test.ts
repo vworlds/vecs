@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { IntervalTickSource, RateTickSource, World } from "../src/index.js";
+import { makePhase } from "./_helpers.js";
 
 class Position {}
 
@@ -20,9 +21,9 @@ class CountingIntervalTickSource extends IntervalTickSource {
 function setup() {
   const world = new World();
   world.component(Position);
-  const phase = world.addPhase("update");
+  world.setPipeline(true);
   const tick = (now: number, delta: number) => world.progress(now, delta);
-  return { world, phase, tick };
+  return { world, tick };
 }
 
 describe("Timers and tick sources", () => {
@@ -246,8 +247,8 @@ describe("Timers and tick sources", () => {
 
   it("evaluates a shared source once per progress call across phases", () => {
     const world = new World();
-    const a = world.addPhase("a");
-    const b = world.addPhase("b");
+    const a = makePhase(world, "a");
+    const b = makePhase(world, "b");
     const source = new CountingIntervalTickSource(1);
     world
       .system("a")

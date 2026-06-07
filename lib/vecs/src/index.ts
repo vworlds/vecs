@@ -14,7 +14,7 @@ export type {
 } from "./inject.js";
 export { DEFAULT_POOLS, World, type WorldOptions } from "./world/index.js";
 export { Filter } from "./filter.js";
-export { ChildOf, SilenceSource } from "./modules/relationships.js";
+export { ChildOf, DependsOn, SilenceSource } from "./modules/relationships.js";
 export {
   CleanupPolicy,
   Component,
@@ -29,7 +29,19 @@ export { Module } from "./module.js";
 export { IdentityModule } from "./modules/identity.js";
 export { Singleton, SingletonModule } from "./modules/singleton.js";
 export { Traversable, RelationshipsModule } from "./modules/relationships.js";
-export { type IPhase } from "./phase.js";
+export {
+  BUILTIN_PIPELINE_PHASES,
+  ON_LOAD,
+  ON_STORE,
+  ON_UPDATE,
+  ON_VALIDATE,
+  POST_LOAD,
+  POST_UPDATE,
+  PRE_STORE,
+  PRE_UPDATE,
+  Phase,
+  PipelineModule,
+} from "./modules/pipeline.js";
 export { getDSLKey } from "./dsl.js";
 export { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
 export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";

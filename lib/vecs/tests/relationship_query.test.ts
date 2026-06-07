@@ -19,7 +19,7 @@ function setup() {
   w.component(Tag);
   w.component(FriendOf);
   w.component(ChildOf);
-  return { w, phase: w.addPhase("p") };
+  return { w };
 }
 
 describe("Relationship queries", () => {
@@ -150,17 +150,14 @@ describe("Relationship queries", () => {
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
     expect(() => {
-      const { w, phase } = setup();
-      w.system("system-down")
-        .phase(phase)
-        .with({ source: [FriendOf, Position] });
+      const { w } = setup();
+      w.system("system-down").with({ source: [FriendOf, Position] });
       w.start();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
     expect(() => {
-      const { w, phase } = setup();
+      const { w } = setup();
       w.system("system-each-down")
-        .phase(phase)
         .with({ source: [FriendOf, Position] })
         .each([Body], () => {});
       w.start();
@@ -269,10 +266,9 @@ describe("Relationship queries", () => {
   });
 
   it("fans out down injection for system each", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const cb = vi.fn();
     w.system("system-down")
-      .phase(phase)
       .with(Body)
       .each([{ down: [FriendOf, [Position, Velocity]] }], cb);
     w.start();
@@ -319,10 +315,9 @@ describe("Relationship queries", () => {
   });
 
   it("flattens target injection for system each", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const cb = vi.fn();
     w.system("system-up")
-      .phase(phase)
       .with({ target: [FriendOf, Position] })
       .each([{ target: [FriendOf, [Position, Velocity]] }], cb);
     w.start();
@@ -348,9 +343,10 @@ describe("Relationship queries", () => {
       .with({ target: [FriendOf, Position] })
       .build();
 
-    expect(w.queries).toEqual([q]);
+    expect(w.queries).toContain(q);
+    expect(w.queries.some((query) => query !== q && query.name?.startsWith("outer"))).toBe(false);
     q.destroy();
-    expect(w.queries).toEqual([]);
+    expect(w.queries).not.toContain(q);
   });
 
   it("source filter matches parents with a qualifying child", () => {
@@ -435,10 +431,9 @@ describe("Relationship queries", () => {
   });
 
   it("down injection in system each fires per child", () => {
-    const { w, phase } = setup();
+    const { w } = setup();
     const cb = vi.fn();
     w.system("sys-down")
-      .phase(phase)
       .with(Body)
       .each([Body, { down: [ChildOf, [Position]] }] as any, cb);
     w.start();

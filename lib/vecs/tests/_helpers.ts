@@ -1,16 +1,15 @@
-import { World } from "../src/index.js";
-import type { IPhase } from "../src/phase.js";
+import { DependsOn, Phase, World, type Entity } from "../src/index.js";
 
 /**
- * Build a world with a single phase that has at least one (no-op) system,
- * so that calling `tick()` always flushes archetype changes.
+ * Build a world with a single phase entity that has at least one (no-op)
+ * system, so that calling `tick()` always flushes archetype changes.
  *
  * Returns the world, the phase, and a `tick()` shorthand.
  */
 export function makeWorldWithFlushPhase(name = "p") {
   const w = new World();
-  const phase = w.addPhase(name);
-  // dummy system on this phase guarantees runPhase(phase) calls updateArchetypes.
+  const phase = makePhase(w, name);
+  // dummy system on this phase guarantees progress() has something to run.
   w.system("__flush__")
     .phase(phase)
     .run(() => {});
@@ -18,20 +17,23 @@ export function makeWorldWithFlushPhase(name = "p") {
     w,
     phase,
     tick(now = 0, delta = 0) {
-      w.beginFrame(delta);
-      try {
-        w.runPhase(phase, now, delta);
-      } finally {
-        w.endFrame();
-      }
+      w.progress(now, delta);
     },
     start() {
       w.start();
     },
   } as {
     w: World;
-    phase: IPhase;
+    phase: Entity;
     tick: (now?: number, delta?: number) => void;
     start: () => void;
   };
+}
+
+export function makePhase(world: World, name: string, dependsOn?: Entity): Entity {
+  const phase = world.entity(name).add(Phase);
+  if (dependsOn) {
+    phase.set(DependsOn, { target: dependsOn });
+  }
+  return phase;
 }

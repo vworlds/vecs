@@ -111,12 +111,9 @@ cellTagComponents.forEach((CellTag) => {
   world.component(CellTag);
 });
 
-// The demo already has update/collect/send phases. Let installPhysics create its
-// default physics-* phases after update so gameplay writes happen before the step
-// and network collection observes post-physics sync.
-world.addPhase("update");
 await preloadPhysics();
 installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 });
+const physicsPost = world.entity("physics-post");
 
 // One anchor entity per grid cell. Moving entities relate to these via InCell;
 // the per-cell View DSL targets each anchor's tag.
@@ -145,7 +142,7 @@ const occupancyByCell = world.query("OccupancyByCell").with(Networked, Position)
 var selected: Entity | undefined = undefined;
 world
   .system("SyncPhysicsBalls")
-  .phase("physics-post")
+  .phase(physicsPost)
   .with(Networked, Ball, Position, PhysicsPosition)
   .each([Position, PhysicsPosition, Ball], (entity, [position, physicsPosition, ball]) => {
     // Keep the wire-typed demo Position as the client protocol and adapt from
@@ -218,21 +215,19 @@ world
 // and no exclusive-component bookkeeping.
 world
   .system("AssignCells")
-  .phase("physics-post")
+  .phase(physicsPost)
   .with(Networked, Position)
   .enter([Position], (entity, [position]) => assignCell(entity, position))
   .update(Position, (entity, position) => assignCell(entity, position));
 
 world
   .system("UpdatePlayerViews")
-  .phase("physics-post")
+  .phase(physicsPost)
   .with(Networked, NetworkClient, Position, View)
   .enter([Position, View], (entity, [position, view]) => updatePlayerView(entity, position, view))
   .update(Position, [View], (entity, position, [view]) => updatePlayerView(entity, position, view));
 
-world.addPhase("collect");
-world.addPhase("send");
-server.installSystems({ collectPhase: "collect", sendPhase: "send" });
+server.installSystems();
 world.start();
 
 createPhysicsWalls();

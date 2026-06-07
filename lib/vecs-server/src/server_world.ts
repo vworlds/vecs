@@ -20,7 +20,9 @@ import {
   type ComponentClass,
   type EID,
   type Entity,
-  type IPhase,
+  ON_STORE,
+  Phase,
+  PRE_STORE,
   type System,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
@@ -66,8 +68,8 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
 }
 
 export interface InstallSystemsOptions {
-  collectPhase: string | IPhase;
-  sendPhase: string | IPhase;
+  collectPhase?: string | Entity;
+  sendPhase?: string | Entity;
 }
 
 export class ServerWorld extends NetworkWorld {
@@ -109,12 +111,13 @@ export class ServerWorld extends NetworkWorld {
     this._sessions.forEach((session) => session.rpc.listen(rpcId, handler));
   }
 
-  public installSystems(options: InstallSystemsOptions): void {
+  public installSystems(options: InstallSystemsOptions = {}): void {
     if (this._systemsInstalled) {
       return;
     }
     this._systemsInstalled = true;
-    const { collectPhase, sendPhase } = options;
+    const collectPhase = this._phaseTarget(options.collectPhase ?? PRE_STORE);
+    const sendPhase = this._phaseTarget(options.sendPhase ?? ON_STORE);
 
     this.component(Networked).onRemove((entity) => {
       this._record(entity, ALL_COMPONENTS, undefined);
@@ -133,7 +136,6 @@ export class ServerWorld extends NetworkWorld {
         view._releaseTrackers(this._trackerCache);
       })
       .track();
-
     this._components.forEach((registered) => {
       this.system(`ServerWorld:${this.name}:${registered.Class.name}`)
         .phase(collectPhase)
@@ -289,6 +291,10 @@ export class ServerWorld extends NetworkWorld {
 
   private _record(entity: Entity, type: number, component: ComponentInstance | undefined): void {
     this._updates.set(cid_pack(entity.eid, type), { entity, type, component });
+  }
+
+  private _phaseTarget(phase: string | Entity): Entity {
+    return (typeof phase === "string" ? this.entity(phase) : this.entity(phase)).add(Phase);
   }
 
   private _pushEntitySnapshots(entity: Entity, snapshots: EncodedSnapshot[]): void {

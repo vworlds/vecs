@@ -1,9 +1,9 @@
-import { type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type System, type World } from "@vworlds/vecs";
 
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "../components/body.js";
 import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 
-export function installPoseSyncIn(world: World, state: PhysicsState, phase: IPhase): System {
+export function installPoseSyncIn(world: World, state: PhysicsState, phase: Entity): System {
   const system = world.system("PhysicsPoseSyncIn").with(Body).phase(phase);
 
   system.ignoreSource([PhysicsSystemTag]);

@@ -1,4 +1,4 @@
-import { type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type System, type World } from "@vworlds/vecs";
 
 import {
   AngularVelocity,
@@ -10,7 +10,7 @@ import {
 } from "../components/body.js";
 import { type PhysicsState } from "../adapter/state.js";
 
-export function installPoseSyncOut(world: World, state: PhysicsState, phase: IPhase): System {
+export function installPoseSyncOut(world: World, state: PhysicsState, phase: Entity): System {
   return world
     .system("PhysicsPoseSyncOut")
     .phase(phase)

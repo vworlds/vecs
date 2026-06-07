@@ -8,7 +8,7 @@ import {
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { Relationship, type Entity, type World } from "@vworlds/vecs";
+import { Relationship, type Entity, type System, type World } from "@vworlds/vecs";
 import { performance } from "node:perf_hooks";
 import {
   EntityTracker,
@@ -147,6 +147,10 @@ function allowAllClientViews(world: World): void {
 }
 
 const SERVER_PHASES = { collectPhase: "update", sendPhase: "update" } as const;
+
+function inServerPhase<T extends System>(system: T): T {
+  return system.phase(SERVER_PHASES.collectPhase);
+}
 
 function createWorld(options: ServerWorldOptions = {}): ServerWorld {
   return new ServerWorld({ name: "main", networkComponents: [Position], ...options });
@@ -459,8 +463,7 @@ describe("ServerWorld", () => {
       connected: [],
       disconnected: [],
     };
-    world
-      .system("track-clients")
+    inServerPhase(world.system("track-clients"))
       .with(Networked, NetworkClient)
       .enter([NetworkClient], (e, [client]) => {
         seen.connected.push(e.eid);
@@ -506,8 +509,7 @@ describe("ServerWorld", () => {
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
     let observed: unknown = null;
-    world
-      .system("read-input")
+    inServerPhase(world.system("read-input"))
       .with(Networked, NetworkInput)
       .update(NetworkInput, (_e, ni) => {
         observed = ni.input;
@@ -785,11 +787,11 @@ describe("ServerWorld", () => {
     let viewer: ReturnType<World["entity"]>;
     let observed = false;
 
-    world.system("set-view").run(() => {
+    inServerPhase(world.system("set-view")).run(() => {
       viewer!.set(View, { dsl: [Position] });
     });
     server.installSystems(SERVER_PHASES);
-    world.system("read-view").run(() => {
+    inServerPhase(world.system("read-view")).run(() => {
       observed = viewer!.get(View)?.tracker.has(target!) === true;
     });
     world.start();

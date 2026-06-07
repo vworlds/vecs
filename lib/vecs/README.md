@@ -14,20 +14,20 @@ yarn add @vworlds/vecs
 
 | Concept                  | What it is                                                                      |
 | ------------------------ | ------------------------------------------------------------------------------- |
-| **World**                | Central container. Owns every entity, query, system, and pipeline phase.        |
+| **World**                | Central container. Owns every entity, query, system, and flat system pipeline.  |
 | **Component**            | A registered plain data class with a no-argument constructor.                   |
 | **Entity**               | A numeric id with a set of components. Created via the world.                   |
 | **Query**                | A reactive, always-up-to-date set of entities matching a predicate.             |
-| **System**               | A `Query` with phase placement and per-tick logic (`update`, `each`, `run`).    |
+| **System**               | A `Query` with per-tick logic (`update`, `each`, `run`).                        |
 | **Filter**               | A non-reactive, one-shot scan: walks all world entities on each `forEach` call. |
 | **Hook**                 | Lightweight `onAdd` / `onRemove` / `onSet` callbacks per component class.       |
-| **Phase**                | Named ordered bucket of systems within the update pipeline.                     |
+| **Phase**                | Marker component for entities used as pipeline ordering anchors.                |
 | **Exclusive components** | A group of components where at most one may exist on any entity at a time.      |
 
 ### Lifecycle in brief
 
 ```
-world.component() × N  →  addPhase() / system() / query() × N  →  start()  →  progress() every frame
+world.component() × N  →  system() / query() × N  →  start()  →  progress() every frame
 ```
 
 Components must be registered before they are used as component classes. After `start()`, component registration is disabled. Systems and queries can still be created — standalone queries backfill existing matched entities immediately.
@@ -37,7 +37,7 @@ Components must be registered before they are used as component classes. After `
 ## Example
 
 ```ts
-import { World, type IPhase } from "@vworlds/vecs";
+import { DependsOn, ON_UPDATE, Phase, World } from "@vworlds/vecs";
 
 // ─── Components ────────────────────────────────────────────────────────────
 
@@ -63,17 +63,16 @@ world.component(Position);
 world.component(Velocity);
 world.component(Health);
 
-// ─── Phases ────────────────────────────────────────────────────────────────
+// ─── Pipeline anchors ──────────────────────────────────────────────────────
 
-const update: IPhase = world.addPhase("update");
-const cleanup: IPhase = world.addPhase("cleanup");
+const update = world.entity(ON_UPDATE);
+const cleanup = world.entity("cleanup").add(Phase).set(DependsOn, { target: update });
 
 // ─── Systems ───────────────────────────────────────────────────────────────
 
 // MoveSystem: integrates Velocity into Position every tick.
 world
   .system("Move")
-  .phase(update)
   .with(Position, Velocity)
   .each([Position, Velocity], (e, [pos, vel]) => {
     pos.x += vel.vx;
@@ -101,7 +100,7 @@ world
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 
-world.start(); // freeze registration, distribute systems into phases
+world.start(); // freeze registration and prepare the pipeline
 
 // ─── Spawn entities ────────────────────────────────────────────────────────
 
@@ -251,35 +250,27 @@ world
 
 `onAdd` fires when the component is first attached. `onRemove` fires when it is removed (or the entity is destroyed). `onSet` fires whenever `entity.modified(C)` is called, when `entity.set(C, props)` applies data, and when `entity.attach(instance)` stores an existing instance. Hook callbacks receive the owning entity because component instances do not carry entity references.
 
-#### Phases
+#### Pipeline
 
 ```ts
-const preUpdate = world.addPhase("preupdate");
-const update = world.addPhase("update");
-const send = world.addPhase("send");
+const update = world.entity("vecs::OnUpdate");
+const send = world.entity("send").add(Phase).set(DependsOn, { target: update });
 
-// Drive every phase in registration order:
+world.system("Send").phase(send).run(sendPackets);
+
+// Drive every system returned by the pipeline query:
 world.progress(now, delta);
-
-// ...or run individual phases manually:
-world.beginFrame(delta); // one numeric arg: ms since last frame
-try {
-  world.runPhase(preUpdate, now, delta);
-  world.runPhase(update, now, delta);
-  world.runPhase(send, now, delta);
-} finally {
-  world.endFrame();
-}
 ```
 
-Systems with no explicit phase are placed in the built-in `"update"` phase.
+Systems default to `vecs::OnUpdate`; call `.phase(...)` only when a system needs another pipeline anchor. The default pipeline query matches systems whose backing entity `DependsOn` a `Phase`, ordered by the `DependsOn` cascade. Built-in phase entity names are namespaced: `vecs::OnLoad`, `vecs::PostLoad`, `vecs::PreUpdate`, `vecs::OnUpdate`, `vecs::OnValidate`, `vecs::PostUpdate`, `vecs::PreStore`, and `vecs::OnStore`.
+
+Use `world.setPipeline(spec)` to replace the default. `World` appends `System` to the query, so the query result is always flattened to systems.
 
 #### Systems
 
 ```ts
 world
   .system("MySystem")
-  .phase("update")
   .with(A, B)
   .enter(...)
   .update(...)
@@ -627,15 +618,6 @@ Class-valued query terms are components. Register component classes before using
 });
 ```
 
-#### `.phase(p)`
-
-Assign the system to a phase by name or `IPhase` reference. Default phase is `"update"`.
-
-```ts
-.phase("preupdate")
-.phase(myPhase)
-```
-
 #### `.enter(callback)` / `.enter(inject, callback)`
 
 Fires once when an entity first matches the system.
@@ -698,7 +680,7 @@ Enable entity tracking without an `each` callback — exposes matched entities v
 
 #### `.run(callback)`
 
-Fires every tick when the system's phase runs, regardless of entity state. Use for polling, network I/O, timers, etc.
+Fires every tick when the system runs in the pipeline, regardless of entity state. Use for polling, network I/O, timers, etc.
 
 ```ts
 .run((now, delta) => {
@@ -724,13 +706,13 @@ Both methods return `this` for chaining and are idempotent (calling `disable()` 
 
 #### `.destroy()`
 
-Permanently remove this system from the world. Calls `disable()` first (clearing the inbox), then removes the system from its phase and unregisters its backing entity. No `exit` callbacks fire. Use a standalone `Query` if you need a temporary reactive set that can be destroyed mid-session.
+Permanently remove this system from the world. Calls `disable()` first (clearing the inbox), then unregisters its backing entity. No `exit` callbacks fire. Use a standalone `Query` if you need a temporary reactive set that can be destroyed mid-session.
 
 ---
 
 ### `Query`
 
-`world.query(name)` returns a standalone reactive entity set, configured through the same builder API as `System`. It has no phase and no per-tick callbacks.
+`world.query(name)` returns a standalone reactive entity set, configured through the same builder API as `System`. It has no per-tick callbacks.
 
 ```ts
 const projectiles = world
@@ -775,7 +757,7 @@ const q = world.query("Temporary").with(Position);
 q.destroy();
 ```
 
-`System` shares the same DSL, callback, sorting, and tracking machinery — `System` extends `Query` and adds phase placement, `run`, `each`, and an inbox replayed on every tick.
+`System` shares the same DSL, callback, sorting, and tracking machinery — `System` extends `Query` and adds `run`, `each`, and an inbox replayed on every tick.
 
 ---
 

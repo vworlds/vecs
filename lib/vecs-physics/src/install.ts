@@ -8,7 +8,7 @@
 // Registration order matters — Vecs assigns component type ids in registration
 // order, so keeping the order stable keeps ids deterministic across installs.
 
-import { type IPhase, type World } from "@vworlds/vecs";
+import { DependsOn, ON_UPDATE, Phase, type Entity, type World } from "@vworlds/vecs";
 
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "./components/body.js";
 import { Damping, GravityScale, MotionLocks, Sleep } from "./components/body_tuning.js";
@@ -42,10 +42,10 @@ export type PhysicsOptions = {
    * Primarily for tests; defaults to `console.warn`. */
   debugSink?: (message: string) => void;
 
-  // Optional phase placement. Either pass an IPhase or a name (created if missing).
-  preStepPhase?: IPhase | string;
-  stepPhase?: IPhase | string;
-  postStepPhase?: IPhase | string;
+  // Optional phase placement. Either pass an entity or a name (created if missing).
+  preStepPhase?: Entity | string;
+  stepPhase?: Entity | string;
+  postStepPhase?: Entity | string;
 
   // Optional thresholds and tunables, all with Box2D-aligned defaults.
   restitutionThreshold?: number; // m/s, default 1.0
@@ -118,10 +118,13 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
   // 3. Geometry components are mutually exclusive: an entity holds at most one.
   world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);
 
-  // 4. Ensure the three physics phases exist (created if missing).
+  // 4. Ensure the three physics phase entities exist and are ordered after update.
   const preStep = resolvePhase(world, opts.preStepPhase, DEFAULT_PRE_STEP_PHASE);
   const step = resolvePhase(world, opts.stepPhase, DEFAULT_STEP_PHASE);
   const postStep = resolvePhase(world, opts.postStepPhase, DEFAULT_POST_STEP_PHASE);
+  orderPhase(preStep, world.entity(ON_UPDATE));
+  orderPhase(step, preStep);
+  orderPhase(postStep, step);
 
   // 5. Allocate WASM state, create the Box2D world, install the systems (bound
   //    to it), then attach it.
@@ -167,18 +170,20 @@ function createWorldId(
   });
 }
 
-/** Resolve a phase placement option to a concrete phase. An `IPhase` is used
- * as-is; a name (or the default name) is looked up and created if missing. */
+/** Resolve a phase placement option to a concrete phase entity. */
 function resolvePhase(
   world: World,
-  given: IPhase | string | undefined,
+  given: Entity | string | undefined,
   defaultName: string
-): IPhase {
-  if (given !== undefined && typeof given !== "string") {
-    return given;
-  }
-  const name = given ?? defaultName;
-  return world._pipeline.get(name) ?? world.addPhase(name);
+): Entity {
+  const phase =
+    typeof given === "string" || given === undefined ? world.entity(given ?? defaultName) : given;
+  phase.add(Phase);
+  return phase;
+}
+
+function orderPhase(phase: Entity, target: Entity): void {
+  phase.set(DependsOn, { target });
 }
 
 /** Apply Box2D-aligned defaults to `opts`. */

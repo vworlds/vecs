@@ -1,4 +1,4 @@
-import { World } from "@vworlds/vecs";
+import { DependsOn, Phase, World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -94,24 +94,26 @@ describe("installPhysics", () => {
   it("creates the three default physics phases", () => {
     const world = new World();
     installPhysics(world);
-    expect(world._pipeline.has("physics-pre")).toBe(true);
-    expect(world._pipeline.has("physics-step")).toBe(true);
-    expect(world._pipeline.has("physics-post")).toBe(true);
+    expect(world.entity("physics-pre").has(Phase)).toBe(true);
+    expect(world.entity("physics-step").has(Phase)).toBe(true);
+    expect(world.entity("physics-post").has(Phase)).toBe(true);
+    expect(world.entity("physics-step").parent(DependsOn)).toBe(world.entity("physics-pre"));
+    expect(world.entity("physics-post").parent(DependsOn)).toBe(world.entity("physics-step"));
   });
 
   it("reuses an existing phase passed by name and creates it under that name", () => {
     const world = new World();
-    const input = world.addPhase("input");
+    const input = world.entity("input").add(Phase);
     installPhysics(world, { preStepPhase: "input", stepPhase: "sim" });
     // Existing "input" phase is reused, not duplicated.
-    expect(world._pipeline.get("input")).toBe(input);
+    expect(world.entity("input")).toBe(input);
     // A new name is created.
-    expect(world._pipeline.has("sim")).toBe(true);
+    expect(world.entity("sim").has(Phase)).toBe(true);
     // The default pre/step names are not created when overridden.
-    expect(world._pipeline.has("physics-pre")).toBe(false);
-    expect(world._pipeline.has("physics-step")).toBe(false);
+    expect(world.getEntity("physics-pre")).toBeUndefined();
+    expect(world.getEntity("physics-step")).toBeUndefined();
     // The non-overridden phase still defaults.
-    expect(world._pipeline.has("physics-post")).toBe(true);
+    expect(world.entity("physics-post").has(Phase)).toBe(true);
   });
 
   it("attaches a PhysicsState reachable via getPhysics, with resolved defaults", () => {

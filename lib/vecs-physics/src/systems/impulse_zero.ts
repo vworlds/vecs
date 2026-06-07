@@ -1,9 +1,9 @@
-import { type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type System, type World } from "@vworlds/vecs";
 
 import { AngularImpulse, Impulse } from "../components/force.js";
 import { type PhysicsState } from "../adapter/state.js";
 
-export function installImpulseZero(world: World, state: PhysicsState, phase: IPhase): System {
+export function installImpulseZero(world: World, state: PhysicsState, phase: Entity): System {
   return world
     .system("PhysicsImpulseZero")
     .phase(phase)

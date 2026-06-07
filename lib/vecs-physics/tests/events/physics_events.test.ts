@@ -144,9 +144,11 @@ describe("empty step is silent", () => {
     });
 
     let modifiedCount = 0;
-    w.system("WatcherContact").update(ContactEvents, () => {
-      modifiedCount++;
-    });
+    w.system("WatcherContact")
+      .phase("physics-post")
+      .update(ContactEvents, () => {
+        modifiedCount++;
+      });
 
     w.start();
     let n2 = 0;

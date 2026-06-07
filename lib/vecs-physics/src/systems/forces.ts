@@ -1,10 +1,10 @@
-import { type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type System, type World } from "@vworlds/vecs";
 
 import { Force, Torque } from "../components/force.js";
 import { type PhysicsState } from "../adapter/state.js";
 import { resolveBodyId } from "../util/resolve_body.js";
 
-export function installForceGather(world: World, state: PhysicsState, phase: IPhase): System {
+export function installForceGather(world: World, state: PhysicsState, phase: Entity): System {
   const forceFilter = world.filter({ any: [Force, Torque] });
 
   return world

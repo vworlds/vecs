@@ -21,9 +21,9 @@ export const enum CommandKind {
  * {@link World} during command-queue processing.
  *
  * In deferred mode the command is appended to `World`'s queue and applied at a
- * well-defined boundary (after each system run, on `flush()`, on the next
- * `runPhase`, etc.). Outside deferred mode the corresponding underscore-prefixed
- * `Entity` method is invoked inline.
+ * well-defined boundary (after each system run, on `flush()`, etc.). Outside
+ * deferred mode the corresponding underscore-prefixed `Entity` method is
+ * invoked inline.
  *
  * @internal
  */

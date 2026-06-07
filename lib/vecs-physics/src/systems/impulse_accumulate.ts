@@ -1,4 +1,4 @@
-import { type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type System, type World } from "@vworlds/vecs";
 
 import { AngularImpulse, Impulse } from "../components/force.js";
 import { type b2BodyId, type PhysicsState } from "../adapter/state.js";
@@ -7,7 +7,7 @@ import { resolveBodyId } from "../util/resolve_body.js";
 type LinearImpulseAccumulator = { x: number; y: number; wake: boolean };
 type AngularImpulseAccumulator = { value: number; wake: boolean };
 
-export function installImpulseAccumulate(world: World, state: PhysicsState, phase: IPhase): System {
+export function installImpulseAccumulate(world: World, state: PhysicsState, phase: Entity): System {
   return world
     .system("PhysicsImpulseAccumulate")
     .phase(phase)

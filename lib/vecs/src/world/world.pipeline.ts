@@ -1,14 +1,18 @@
-import { IPhase, Phase } from "../phase.js";
+import { type QuerySpec } from "../dsl.js";
+import { type Entity } from "../entity/index.js";
+import { Query } from "../query/index.js";
 import { System } from "../system.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "../timer.js";
 import type { WorldOptions } from "./world.base.js";
 import { Modules } from "./world.modules.js";
 
 export class Pipeline extends Modules {
-  /** @internal `true` once {@link start} has prepared the phase pipeline. */
+  /** @internal `true` once {@link start} has prepared the world for frames. */
   protected _started = false;
-  /** @internal Phase name -> phase. Insertion-ordered, matches pipeline execution order. */
-  public _pipeline = new Map<string, Phase>();
+  /** @internal Flat system execution pipeline, rebuilt from `_pipelineQuery`. */
+  public _pipeline: System[] = [];
+  /** @internal Query whose ordered result defines the system pipeline. */
+  protected _pipelineQuery: Query<[typeof System]> | undefined;
   /** @internal World-owned tick sources evaluated once per frame. */
   protected _tickSources: Set<ITickSource> = new Set();
   /** @internal Monotonic frame id used to memoize tick-source evaluation. */
@@ -17,13 +21,6 @@ export class Pipeline extends Modules {
   public constructor(options: WorldOptions = {}) {
     super(options);
     this._tickSources.add(ALWAYS_TICK_SOURCE);
-  }
-
-  /** Add a named phase to the update pipeline. */
-  public addPhase(name: string): IPhase {
-    const phase = new Phase(name, this);
-    this._pipeline.set(name, phase);
-    return phase;
   }
 
   /** Open a new frame and evaluate every registered tick source once. */
@@ -35,6 +32,7 @@ export class Pipeline extends Modules {
     this._frameCounter++;
     this._advanceIdPoolFrame();
     this.flush();
+    this._refreshPipelineIfChanged();
     this._tickSources.forEach((t) => t._evalTick(delta, this._frameCounter));
   }
 
@@ -46,27 +44,14 @@ export class Pipeline extends Modules {
     this._frameInProgress = false;
   }
 
-  /** Run every phase in the pipeline in registration order. */
+  /** Run every system in the pipeline query order. */
   public progress(now: number, delta: number): void {
     this.beginFrame(delta);
     try {
-      this._pipeline.forEach((phase) => {
-        this.runPhase(phase, now, delta);
-      });
+      this._pipeline.forEach((system) => this._runPipelineSystem(system, now, delta));
     } finally {
       this.endFrame();
     }
-  }
-
-  /** Execute every system in `phase` within the current frame. */
-  public runPhase(phase: IPhase, now: number, delta: number): void {
-    if (!this._frameInProgress) {
-      throw new Error("runPhase() called outside a frame — call beginFrame() first");
-    }
-    this.flush();
-    (phase as Phase).systems.forEach((s) => {
-      s._run(now, delta);
-    });
   }
 
   /** Freeze component registration and prepare the world for running. */
@@ -74,7 +59,15 @@ export class Pipeline extends Modules {
     this._buildPendingQueries();
     this._componentRegistrationDisabled = true;
     this._started = true;
-    this._reindexSystems();
+  }
+
+  /** Define the query whose ordered results become this world's system pipeline. */
+  public setPipeline<const S extends QuerySpec>(spec: S): Query<[typeof System]> {
+    this._pipelineQuery?.destroy();
+    const query = this.query("vecs::Pipeline").with(spec).with(System).track();
+    this._pipelineQuery = query as Query<[typeof System]>;
+    this._pipeline.length = 0;
+    return this._pipelineQuery;
   }
 
   /** Create and return a new {@link System}, ready for fluent configuration. */
@@ -90,30 +83,23 @@ export class Pipeline extends Modules {
     this._tickSources.add(t);
   }
 
-  /** @internal Distribute every registered system into its phase's `systems` list. */
-  protected _reindexSystems(): void {
-    let _defaultPhase = this._pipeline.get("update");
-    if (!_defaultPhase) {
-      _defaultPhase = new Phase("update", this);
-      this._pipeline.set(_defaultPhase.name, _defaultPhase);
+  /** @internal Rebuild the flat pipeline when its query changed. */
+  protected _refreshPipelineIfChanged(): void {
+    if (!this._pipelineQuery || !this._pipelineQuery.changed) {
+      return;
     }
-
-    const defaultPhase = _defaultPhase;
-
-    this._pipeline.forEach((phase) => {
-      phase.systems.length = 0;
-    });
-
-    this._queries.forEach((q) => {
-      if (!(q instanceof System)) {
-        return;
+    const systems: System[] = [];
+    this._pipelineQuery.forEach([System], (entity: Entity, [system]) => {
+      if (system !== undefined && system.entity === entity) {
+        systems.push(system);
       }
-      let phase = q._phase as Phase | undefined;
-      if (typeof phase === "string") {
-        phase = this._pipeline.get(phase);
-      }
-      phase = phase || defaultPhase;
-      phase.systems.push(q);
     });
+    this._pipeline = systems;
+  }
+
+  /** @internal Run one pipeline system and flush before the next one. */
+  protected _runPipelineSystem(system: System, now: number, delta: number): void {
+    this.flush();
+    system._run(now, delta);
   }
 }

@@ -109,7 +109,7 @@ function createServer(): ServerWorld {
   server.component(NetworkClient).onSet((entity) => {
     entity.set(View, { dsl: true }); // every client sees every networked entity
   });
-  server.installSystems({ collectPhase: "update", sendPhase: "update" });
+  server.installSystems();
   server.start();
   return server;
 }

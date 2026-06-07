@@ -1,4 +1,8 @@
 import { SilenceSource } from "../modules/relationships.js";
+import { IdentityModule } from "../modules/identity.js";
+import { PipelineModule } from "../modules/pipeline.js";
+import { RelationshipsModule } from "../modules/relationships.js";
+import { SingletonModule } from "../modules/singleton.js";
 import { Query } from "../query/index.js";
 import { System } from "../system.js";
 import { Pipeline } from "./world.pipeline.js";
@@ -12,12 +16,11 @@ import { type WorldOptions } from "./world.base.js";
  *
  * 1. **Register components** — call {@link component} for every component
  *    class you plan to use.
- * 2. **Build the pipeline** — {@link addPhase} for every named phase, then
- *    {@link system} / {@link query} for each processor.
+ * 2. **Build the pipeline** — attach systems to phase entities with
+ *    `DependsOn`, or call {@link setPipeline} with a custom query spec.
  * 3. **Start** — call {@link start} to freeze component registration and
- *    distribute systems into their phases.
- * 4. **Run loop** — call {@link runPhase} per phase or {@link progress} for
- *    every phase, once per frame.
+ *    build pending queries.
+ * 4. **Run loop** — call {@link progress} once per frame.
  *
  * ## Deferred mode
  *
@@ -34,5 +37,8 @@ export class World extends Pipeline {
     this.component(SilenceSource).onRemove((entity) => entity.get(Query)?._clearSilence());
     this.component(Query).onRemove((_entity, query) => query.destroy());
     this.component(System).onRemove((_entity, system) => system.destroy());
+    [IdentityModule, SingletonModule, RelationshipsModule, PipelineModule].forEach((mod) =>
+      this.module(mod)
+    );
   }
 }

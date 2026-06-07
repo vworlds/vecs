@@ -46,11 +46,8 @@ function setup() {
   w.component(Velocity);
   w.component(Sprite);
   w.component(Container);
-  const phase = w.addPhase("p");
-  // dummy system ensures runPhase always flushes archetype changes
-  w.system("__flush__")
-    .phase(phase)
-    .run(() => {});
+  // dummy system ensures progress always flushes archetype changes
+  w.system("__flush__").run(() => {});
   return {
     w,
     tick: () => w.progress(0, 0),
@@ -1183,9 +1180,7 @@ describe("Query — not predicate routing", () => {
   it("system receives enter inbox event when not-excluded component is removed", () => {
     const { w } = setup();
     const enter = vi.fn();
-    const phase = w.addPhase("p2");
     w.system("test")
-      .phase(phase)
       .with({ all: [Position, { not: Velocity }] })
       .enter(enter);
     w.start();

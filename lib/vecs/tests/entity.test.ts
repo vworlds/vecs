@@ -300,9 +300,9 @@ describe("Entity — components", () => {
 
   it("getMut(typeId) works with numeric type ids", () => {
     const w = new World();
-    w.component(Position, 8);
+    w.component(Position, 808);
     const e = w.entity();
-    const pos = e.add(8).getMut(8, (value) => Object.assign(value, { x: 4 }));
+    const pos = e.add(808).getMut(808, (value) => Object.assign(value, { x: 4 }));
     expect(pos).toBeInstanceOf(Position);
     expect((pos as Position | undefined)?.x).toBe(4);
   });

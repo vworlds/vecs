@@ -12,7 +12,14 @@ import {
   type VecsSocket,
   worldPath,
 } from "@vworlds/vecs-protocol";
-import { type ComponentInstance, type EID, type IPhase, Query } from "@vworlds/vecs";
+import {
+  ON_UPDATE,
+  Phase,
+  type ComponentInstance,
+  type EID,
+  type Entity,
+  Query,
+} from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { EventEmitter } from "eventemitter3";
 import {
@@ -55,7 +62,7 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
 }
 
 export interface InstallSystemsOptions {
-  applyPhase?: string | IPhase;
+  applyPhase?: string | Entity;
 }
 
 export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> {
@@ -134,7 +141,7 @@ export class ClientWorld extends NetworkWorld {
       return;
     }
     this._systemsInstalled = true;
-    const applyPhase = options.applyPhase ?? "update";
+    const applyPhase = this._phaseTarget(options.applyPhase ?? ON_UPDATE);
     this.system("ClientWorld:Apply")
       .phase(applyPhase)
       .run((now) => this.apply(now));
@@ -278,6 +285,10 @@ export class ClientWorld extends NetworkWorld {
       this._forceBaselineReset = true;
     }
     this.events.emit("disconnect");
+  }
+
+  private _phaseTarget(phase: string | Entity): Entity {
+    return (typeof phase === "string" ? this.entity(phase) : this.entity(phase)).add(Phase);
   }
 
   private _startAckTimer(): void {

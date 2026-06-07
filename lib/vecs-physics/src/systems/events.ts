@@ -1,4 +1,4 @@
-import { type EID, type Entity, type IPhase, type System, type World } from "@vworlds/vecs";
+import { type EID, type Entity, type System, type World } from "@vworlds/vecs";
 
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
 import { type PhysicsState } from "../adapter/state.js";
@@ -15,7 +15,7 @@ type ContactHitEvent = ReturnType<
 >;
 type SensorEvent = ReturnType<ReturnType<Box2DModule["b2World_GetSensorEvents"]>["GetBeginEvent"]>;
 
-export function installEvents(world: World, state: PhysicsState, phase: IPhase): System {
+export function installEvents(world: World, state: PhysicsState, phase: Entity): System {
   return world
     .system("PhysicsEvents")
     .phase(phase)

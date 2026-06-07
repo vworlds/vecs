@@ -136,10 +136,10 @@ export type PhysicsOptions = {
   debug?: boolean; // default false
   debugSink?: (message: string) => void; // default console.warn
 
-  // Optional phase placement. IPhase or a name (created if missing).
-  preStepPhase?: import("@vworlds/vecs").IPhase | string;
-  stepPhase?: import("@vworlds/vecs").IPhase | string;
-  postStepPhase?: import("@vworlds/vecs").IPhase | string;
+  // Optional phase placement. Entity or a name (created if missing).
+  preStepPhase?: import("@vworlds/vecs").Entity | string;
+  stepPhase?: import("@vworlds/vecs").Entity | string;
+  postStepPhase?: import("@vworlds/vecs").Entity | string;
 
   // Optional thresholds and tunables, all Box2D-aligned defaults.
   restitutionThreshold?: number; // m/s, default 1.0

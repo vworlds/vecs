@@ -3,7 +3,7 @@ import { type EID, type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 import { ChildOf, Traversable } from "./relationship_types.js";
 
-export { ChildOf, SilenceSource, Traversable } from "./relationship_types.js";
+export { ChildOf, DependsOn, SilenceSource, Traversable } from "./relationship_types.js";
 
 /**
  * Built-in world module that registers the `ChildOf` relationship and

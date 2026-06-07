@@ -4,6 +4,9 @@ import { type Entity } from "../entity/index.js";
 /** Built-in parent-child relationship. */
 export class ChildOf extends Relationship {}
 
+/** Built-in pipeline ordering relationship. */
+export class DependsOn extends Relationship {}
+
 /**
  * Built-in relationship marking a feedback **silence domain** for a query
  * or system.

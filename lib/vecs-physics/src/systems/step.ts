@@ -1,8 +1,8 @@
-import { type IPhase, type System, type World } from "@vworlds/vecs";
+import { type Entity, type System, type World } from "@vworlds/vecs";
 
 import { type PhysicsState } from "../adapter/state.js";
 
-export function installStep(world: World, state: PhysicsState, phase: IPhase): System {
+export function installStep(world: World, state: PhysicsState, phase: Entity): System {
   return world
     .system("PhysicsStep")
     .phase(phase)
