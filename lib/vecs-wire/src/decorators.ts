@@ -107,7 +107,7 @@ function compileWireType(C: DecoratedConstructor): void {
   const decodeLines: string[] = ["const value = new C();"];
 
   fields.forEach((field, index) => {
-    emitEncodeField(encodeLines, field, index, nestedTypes);
+    emitEncodeField(encodeLines, field, index);
     emitDecodeField(decodeLines, field, index, nestedTypes);
   });
   decodeLines.push("return value;");
@@ -130,12 +130,7 @@ function compileWireType(C: DecoratedConstructor): void {
   compiledConstructors.add(C);
 }
 
-function emitEncodeField(
-  lines: string[],
-  field: IWireField,
-  index: number,
-  nestedTypes: WireConstructor[]
-): void {
+function emitEncodeField(lines: string[], field: IWireField, index: number): void {
   const access = `this[${JSON.stringify(field.key)}]`;
 
   if (isArraySpec(field.spec)) {
@@ -146,12 +141,12 @@ function emitEncodeField(
     );
     lines.push(`encoder.write_u32(${valueName}.length);`);
     lines.push(`for (let i${index} = 0; i${index} < ${valueName}.length; i${index}++) {`);
-    lines.push(emitEncodeValue(`${valueName}[i${index}]`, field.spec[0], nestedTypes));
+    lines.push(emitEncodeValue(`${valueName}[i${index}]`, field.spec[0]));
     lines.push("}");
     return;
   }
 
-  lines.push(emitEncodeValue(access, field.spec, nestedTypes));
+  lines.push(emitEncodeValue(access, field.spec));
 }
 
 function emitDecodeField(
@@ -177,11 +172,7 @@ function emitDecodeField(
   lines.push(`${access} = ${emitDecodeValue(field.spec, nestedTypes)};`);
 }
 
-function emitEncodeValue(
-  valueExpr: string,
-  spec: WireScalarType | WireConstructor,
-  nestedTypes: WireConstructor[]
-): string {
+function emitEncodeValue(valueExpr: string, spec: WireScalarType | WireConstructor): string {
   if (isScalarSpec(spec)) {
     return `encoder.${scalarMethods[spec].write}(${valueExpr});`;
   }
