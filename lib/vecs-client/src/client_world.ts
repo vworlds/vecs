@@ -15,7 +15,12 @@ import {
 import { type ComponentInstance, type EID, type IPhase, Query } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { EventEmitter } from "eventemitter3";
-import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
+import {
+  ComponentSnapshot,
+  Interpolator,
+  diffFromStateDiff,
+  type ComponentLerp,
+} from "./interpolator.js";
 
 class Networked {}
 
@@ -40,6 +45,13 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
   interpolatorBucketLength?: number;
   serverTickIntervalMs?: number;
   ackIntervalMs?: number;
+  /**
+   * Component types to interpolate between server frames, keyed by component
+   * type id, with the function used to blend each one. Types without an entry
+   * are snapped to their latest received value. Defaults to interpolating the
+   * first network component (type 1) as a 2D position via `lerpPosition`.
+   */
+  interpolators?: Iterable<readonly [number, ComponentLerp]>;
 }
 
 export interface InstallSystemsOptions {
@@ -84,7 +96,8 @@ export class ClientWorld extends NetworkWorld {
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,
-      (snapshot) => this.decodeComponentSnapshot(snapshot)
+      (snapshot) => this.decodeComponentSnapshot(snapshot),
+      options.interpolators
     );
 
     if (options.socket) {

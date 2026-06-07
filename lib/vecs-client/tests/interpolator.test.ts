@@ -2,7 +2,13 @@ import { expect, test } from "vitest";
 import { ALL_COMPONENTS, cid_pack } from "@vworlds/vecs-protocol";
 import type { EID } from "@vworlds/vecs";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
-import { ComponentSnapshot, Diff, Interpolator, merge } from "../src/interpolator.js";
+import {
+  ComponentSnapshot,
+  Diff,
+  Interpolator,
+  merge,
+  type ComponentLerp,
+} from "../src/interpolator.js";
 
 const PositionType = 1;
 const ColorType = 6;
@@ -388,6 +394,43 @@ test("does not interpolate entities that only exist in a future frame", () => {
   const sd105 = ip.pull(105);
 
   expect(Pos(sd105, B)).toBeUndefined();
+});
+
+test("interpolates using a custom lerp supplied via config", () => {
+  const alphas: number[] = [];
+  // A custom lerp that records the alpha it is called with and snaps to target.
+  const snapToTarget: ComponentLerp = (_source, target, alpha) => {
+    alphas.push(alpha);
+    return target;
+  };
+  const ip = new Interpolator(3, 10, decodePosition, [[PositionType, snapToTarget]]);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
+  const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 10, 20)] });
+
+  ip.push(s1);
+  ip.push(s2);
+
+  ip.pull(100);
+  const sd105 = ip.pull(105);
+
+  // The custom lerp ran (default lerpPosition would have produced {5,10}).
+  expect(alphas.length).toBeGreaterThan(0);
+  expect(Pos(sd105, A)).toEqual({ x: 10, y: 20 });
+});
+
+test("does not emit interpolated frames for types without a configured lerp", () => {
+  const ip = new Interpolator(3, 10, decodePosition, []);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
+  const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 10, 20)] });
+
+  ip.push(s1);
+  ip.push(s2);
+
+  ip.pull(100);
+  const sd105 = ip.pull(105);
+
+  // With no lerp registered, the in-between pull produces no fake frame for A.
+  expect(Pos(sd105, A)).toBeUndefined();
 });
 
 test("reset returns the interpolator to its initial state", () => {
