@@ -49,9 +49,9 @@ export class ComponentSnapshot {
 // A Diff carries the component snapshots and removals for a frame range. It
 // keeps two views of the same snapshots: `snapshots` (an ordered array, the
 // form decoded from the wire and consumed by callers) and `smap` (a cid-keyed
-// map, used for fast lookup and overwrite during merge/interpolation). `smap`
-// is built lazily from `snapshots` on first access; after mutating the map,
-// call `updateSnapshotsFromMap` (or assign `smap`) to resync the array.
+// map, used for fast lookup and overwrite during merge). `smap` is built
+// lazily from `snapshots` on first access. Use `getSnapshot`/`upsertSnapshot`
+// when keyed access should preserve the current representation.
 export class Diff {
   public snapshots: ComponentSnapshot[] = [];
   private _smap: Map<number, ComponentSnapshot> | undefined;
@@ -74,6 +74,27 @@ export class Diff {
   public set smap(v: Map<number, ComponentSnapshot>) {
     this._smap = v;
     this.updateSnapshotsFromMap();
+  }
+
+  public getSnapshot(cid: CID): ComponentSnapshot | undefined {
+    if (this._smap) {
+      return this._smap.get(cid);
+    }
+    return this.snapshots.find((snapshot) => snapshot.cid === cid);
+  }
+
+  public upsertSnapshot(snapshot: ComponentSnapshot): void {
+    if (this._smap) {
+      this._smap.set(snapshot.cid, snapshot);
+      this.updateSnapshotsFromMap();
+      return;
+    }
+    const index = this.snapshots.findIndex((existing) => existing.cid === snapshot.cid);
+    if (index === -1) {
+      this.snapshots.push(snapshot);
+      return;
+    }
+    this.snapshots[index] = snapshot;
   }
 
   public updateSnapshotsFromMap(): void {
@@ -326,31 +347,26 @@ export class DiffBuffer {
       return;
     }
     const alpha = end === start ? 1 : (now - start) / (end - start);
-    let mutated = false;
     target.snapshots.forEach((targetSnapshot) => {
       const interpolate = this._componentInterpolators.get(targetSnapshot.type);
       if (!interpolate) {
         return;
       }
-      const sourceSnapshot = sd.smap.get(targetSnapshot.cid) ?? this._state.get(targetSnapshot.cid);
+      const sourceSnapshot =
+        sd.getSnapshot(targetSnapshot.cid) ?? this._state.get(targetSnapshot.cid);
       if (!sourceSnapshot) {
         return;
       }
       const source = this._decodeSnapshot(sourceSnapshot);
       const targetComponent = this._decodeSnapshot(targetSnapshot);
-      sd.smap.set(
-        targetSnapshot.cid,
+      sd.upsertSnapshot(
         new ComponentSnapshot(
           targetSnapshot.eid,
           targetSnapshot.type,
           interpolate(source, targetComponent, alpha)
         )
       );
-      mutated = true;
     });
-    if (mutated) {
-      sd.updateSnapshotsFromMap();
-    }
   }
 }
 

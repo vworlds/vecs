@@ -64,6 +64,10 @@ function SD(p: {
   return d;
 }
 
+function hasMaterializedSnapshotMap(diff: Diff): boolean {
+  return (diff as unknown as { _smap?: Map<number, ComponentSnapshot> })._smap !== undefined;
+}
+
 function Color(sd: Diff, id: EID): string | undefined {
   const s = sd.smap.get(CID(id, ColorType));
   if (!s) {
@@ -366,6 +370,45 @@ test("merge-remove-readd", () => {
   expect(ip.pull(120)).toMatchObject(sd5);
 });
 
+test("Diff.getSnapshot works before and after smap materialization", () => {
+  const position = makePosComponent(A, 0, 0);
+  const color = makeColorComponent(A, "red");
+  const sd = SD({ from: 0, to: 1, snapshots: [position, color] });
+
+  expect(sd.getSnapshot(position.cid)).toBe(position);
+  expect(sd.getSnapshot(CID(B, PositionType))).toBeUndefined();
+  expect(hasMaterializedSnapshotMap(sd)).toBe(false);
+
+  expect(sd.smap.get(color.cid)).toBe(color);
+  expect(sd.getSnapshot(color.cid)).toBe(color);
+});
+
+test("Diff.upsertSnapshot replaces and appends without materializing smap", () => {
+  const original = makePosComponent(A, 0, 0);
+  const replacement = makePosComponent(A, 5, 5);
+  const added = makeColorComponent(A, "red");
+  const sd = SD({ from: 0, to: 1, snapshots: [original] });
+
+  sd.upsertSnapshot(replacement);
+  expect(sd.snapshots).toEqual([replacement]);
+
+  sd.upsertSnapshot(added);
+  expect(sd.snapshots).toEqual([replacement, added]);
+  expect(hasMaterializedSnapshotMap(sd)).toBe(false);
+});
+
+test("Diff.upsertSnapshot keeps materialized smap and snapshots in sync", () => {
+  const original = makePosComponent(A, 0, 0);
+  const replacement = makePosComponent(A, 5, 5);
+  const sd = SD({ from: 0, to: 1, snapshots: [original] });
+
+  expect(sd.smap.get(original.cid)).toBe(original);
+  sd.upsertSnapshot(replacement);
+
+  expect(sd.smap.get(replacement.cid)).toBe(replacement);
+  expect(sd.snapshots).toEqual([replacement]);
+});
+
 test("interpolated snapshots carry Position instances as payload", () => {
   const ip = newDiffBuffer(3, 10);
   const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
@@ -376,8 +419,9 @@ test("interpolated snapshots carry Position instances as payload", () => {
 
   ip.pull(100);
   const sd105 = ip.pull(105);
-  const snapshot = sd105.smap.get(CID(A, PositionType));
+  const snapshot = sd105.getSnapshot(CID(A, PositionType));
 
+  expect(hasMaterializedSnapshotMap(sd105)).toBe(false);
   expect(snapshot?.payload).toBeInstanceOf(Position);
   expect(Pos(sd105, A)).toEqual({ x: 5, y: 10 });
 });
