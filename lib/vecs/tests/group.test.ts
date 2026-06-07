@@ -68,6 +68,49 @@ describe("Query.groupBy — value grouping", () => {
     expect(byCell.group(3)?.has(e)).toBe(true);
   });
 
+  it("does not re-key a group when the modifying source is silenced", () => {
+    class Marker {}
+    const w = new World();
+    w.component(Team);
+    w.component(Marker);
+    const phase = w.addPhase("p");
+
+    const byTeam = w
+      .query("byTeam")
+      .with(Team)
+      .ignoreSource([Marker])
+      .groupBy([Team], (_e, [team]) => team.id);
+    byTeam.build();
+
+    // Writer is inside the silenced domain and rewrites Team.id every tick.
+    const writer = w
+      .system("Writer")
+      .phase(phase)
+      .with(Team)
+      .each([Team], (e) => {
+        e.getMut(Team, (t) => {
+          t.id = 1;
+        });
+      });
+    writer.entity.add(Marker);
+    w.start();
+
+    const e = w.entity().set(Team, { id: 0 });
+    w.progress(0, 0); // enters group 0; writer's silenced write must not re-key
+    w.progress(0, 0);
+
+    expect(byTeam.group(0)?.has(e)).toBe(true);
+    expect(byTeam.group(1)).toBeUndefined();
+
+    // An external (unsourced) write still re-keys the entity.
+    e.getMut(Team, (t) => {
+      t.id = 2;
+    });
+    w.flush();
+    expect(byTeam.group(0)).toBeUndefined();
+    expect(byTeam.group(2)?.has(e)).toBe(true);
+  });
+
   it("drops a bucket and removes a member when it leaves the query", () => {
     const { w, tick } = setup();
     const byCell = w

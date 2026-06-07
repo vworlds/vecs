@@ -84,6 +84,12 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
   /** @internal */
   public override _notifyModified(e: Entity, ceid: EID, c: ComponentInstance): void {
     super._notifyModified(e, ceid, c);
+    // A mutation routed from a silenced source must be invisible to the query,
+    // including its group membership: re-keying here would leak the silenced
+    // write through `group(...)`. Mirror the base early-return.
+    if (this._isSourceSilenced()) {
+      return;
+    }
     this._grouping.refresh(e, ceid);
   }
 
