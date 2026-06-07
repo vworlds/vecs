@@ -46,6 +46,12 @@ export class ComponentSnapshot {
   }
 }
 
+// A Diff carries the component snapshots and removals for a frame range. It
+// keeps two views of the same snapshots: `snapshots` (an ordered array, the
+// form decoded from the wire and consumed by callers) and `smap` (a cid-keyed
+// map, used for fast lookup and overwrite during merge/interpolation). `smap`
+// is built lazily from `snapshots` on first access; after mutating the map,
+// call `updateSnapshotsFromMap` (or assign `smap`) to resync the array.
 export class Diff {
   public snapshots: ComponentSnapshot[] = [];
   private _smap: Map<number, ComponentSnapshot> | undefined;
@@ -189,8 +195,10 @@ export class DiffBuffer {
       i < this.bucket.length && now >= this._tServ;
       i++, this._tServ += this.server_tick_interval
     ) {
-      // take snapshot on bucket[0] and merge it on to the result:
-      sd = merge(sd, this.bucket[0], false);
+      // take snapshot on bucket[0] and merge it on to the result. sd is owned
+      // exclusively by this pull(), so fold each frame in place to avoid copying
+      // the snapshot map on every iteration.
+      sd = merge(sd, this.bucket[0], false, true);
       interpolationStart = this._tServ;
       this._pop(); //remove bucket[0] and shift contents to the left
     }
@@ -380,10 +388,36 @@ function addToSet<T>(set: Set<T>, data: Iterable<T> | undefined): void {
 }
 
 // merge returns the result of merging Diff b on to a.
-export function merge(a: Diff | undefined, b: Diff, check?: boolean): Diff;
-export function merge(a: Diff, b: Diff | undefined, check?: boolean): Diff;
-export function merge(a: Diff | undefined, b: Diff | undefined, check?: boolean): Diff | undefined;
-export function merge(a: Diff | undefined, b: Diff | undefined, check = true): Diff | undefined {
+//
+// When `mutateAccumulator` is true the caller asserts it exclusively owns `a`
+// (a fresh accumulator), letting merge fold `b` into `a` in place. This skips
+// the defensive copy of a's snapshot map, which otherwise allocates and rehashes
+// the whole map on every step of the pull() catch-up loop. The default keeps
+// merge pure: `a` and `b` are left untouched and a new Diff is returned.
+export function merge(
+  a: Diff | undefined,
+  b: Diff,
+  check?: boolean,
+  mutateAccumulator?: boolean
+): Diff;
+export function merge(
+  a: Diff,
+  b: Diff | undefined,
+  check?: boolean,
+  mutateAccumulator?: boolean
+): Diff;
+export function merge(
+  a: Diff | undefined,
+  b: Diff | undefined,
+  check?: boolean,
+  mutateAccumulator?: boolean
+): Diff | undefined;
+export function merge(
+  a: Diff | undefined,
+  b: Diff | undefined,
+  check = true,
+  mutateAccumulator = false
+): Diff | undefined {
   if (!a) {
     return b;
   }
@@ -397,13 +431,12 @@ export function merge(a: Diff | undefined, b: Diff | undefined, check = true): D
     // incremented version counter on its own.
     throw new Error("cannot merge snapshots");
   }
-  const m = new Diff(a.from, b.to, undefined);
 
   const removed = new Set<number>();
   addToSet(removed, a.removed as number[] | undefined);
   addToSet(removed, b.removed as number[] | undefined);
 
-  const as = new Map(a.smap);
+  const as = mutateAccumulator ? a.smap : new Map(a.smap);
   const bs = b.smap;
   bs.forEach((s) => {
     as.set(s.cid, s);
@@ -411,9 +444,9 @@ export function merge(a: Diff | undefined, b: Diff | undefined, check = true): D
   });
   removed.forEach((r) => as.delete(r));
 
-  if (removed.size) {
-    m.removed = [...removed];
-  }
+  const m = mutateAccumulator ? a : new Diff(a.from, b.to, undefined);
+  m.to = b.to;
+  m.removed = removed.size ? [...removed] : undefined;
   m.smap = as;
 
   return m;

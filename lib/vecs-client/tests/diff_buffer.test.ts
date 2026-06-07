@@ -396,6 +396,29 @@ test("does not interpolate entities that only exist in a future frame", () => {
   expect(Pos(sd105, B)).toBeUndefined();
 });
 
+test("in-place catch-up merge matches a pure merge of the consumed frames", () => {
+  // Forces pull() to fold multiple frames in one catch-up pass, exercising the
+  // in-place accumulation path, and checks it produces the same result as the
+  // pure (copying) merge of those frames.
+  const ip = newDiffBuffer(4, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 0, color: "red" }) });
+  const s2 = SD({ from: 1, to: 2, snapshots: snap({ id: B, xy: 5, color: "blue" }) });
+  const s3 = SD({ from: 2, to: 3, snapshots: snap({ id: C, xy: 7, color: "green" }) });
+
+  ip.push(s1);
+  ip.push(s2);
+  ip.push(s3);
+
+  ip.pull(100); // consume s1 and initialize server time
+  const pulled = ip.pull(140); // consume s2 and s3 in one catch-up pass
+
+  const folded = merge(merge(new Diff(1, 1), s2, false), s3, false);
+  expect(sortSnapshots(pulled.snapshots)).toEqual(sortSnapshots(folded.snapshots));
+  expect(pulled.removed ?? []).toEqual(folded.removed ?? []);
+  expect(pulled.from).toBe(1);
+  expect(pulled.to).toBe(3);
+});
+
 test("interpolates using a custom component interpolator supplied via config", () => {
   const alphas: number[] = [];
   // A custom interpolator that records the alpha it is called with and snaps to target.
