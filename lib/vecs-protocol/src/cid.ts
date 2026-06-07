@@ -35,14 +35,12 @@ export function getLocalComponentMin(): number {
 
 /** Configure the local component type range before constructing networked worlds. */
 export function setLocalComponentMin(value: number): void {
+  validateLocalComponentMin(value);
   LOCAL_COMPONENT_MIN = value;
-  if (isAlignedLocalComponentMin(value)) {
-    getLocalComponentMin();
-    componentTypeMask = LOCAL_COMPONENT_MIN - 1;
-    componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
-    MAX_ENTITY_ID = 2 ** (32 - componentTypeShift) - 1;
-    MAX_COMPONENT_TYPE = componentTypeMask;
-  }
+  componentTypeMask = value - 1;
+  componentTypeShift = Math.log2(value);
+  MAX_ENTITY_ID = 2 ** (32 - componentTypeShift) - 1;
+  MAX_COMPONENT_TYPE = componentTypeMask;
 }
 
 /** Pack an entity id and component type id into a uint32 component id. */

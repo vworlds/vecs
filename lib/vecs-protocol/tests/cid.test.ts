@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { ALL_COMPONENTS, cid_pack, cid_unpack, setLocalComponentMin } from "../src/cid.js";
+import {
+  ALL_COMPONENTS,
+  cid_pack,
+  cid_unpack,
+  getLocalComponentMin,
+  setLocalComponentMin,
+} from "../src/cid.js";
 
 describe("cid_pack", () => {
   beforeEach(() => {
@@ -103,5 +109,31 @@ describe("cid_pack", () => {
     expect(eid).toBe(maxEid);
     expect(type).toBe(1);
     expect(() => cid_pack(maxEid + 1, 0)).toThrow(/exceeds maximum/);
+  });
+});
+
+describe("setLocalComponentMin", () => {
+  beforeEach(() => {
+    setLocalComponentMin(256);
+  });
+
+  it("rejects a non power-of-two value", () => {
+    expect(() => setLocalComponentMin(3)).toThrow(/power-of-two/);
+  });
+
+  it("rejects values below 2", () => {
+    expect(() => setLocalComponentMin(1)).toThrow(/power-of-two/);
+  });
+
+  it("rejects misaligned values without leaving the module half-updated", () => {
+    // Previously the value was assigned before the alignment check, so a
+    // rejected value left LOCAL_COMPONENT_MIN out of sync with the derived
+    // shift/mask and the next getLocalComponentMin() call threw. The setter is
+    // now atomic: it validates first and only then updates any state.
+    expect(() => setLocalComponentMin(3)).toThrow();
+    expect(() => getLocalComponentMin()).not.toThrow();
+    expect(getLocalComponentMin()).toBe(256);
+    const cid = cid_pack(16777215, 255);
+    expect(cid_unpack(cid)).toEqual([16777215, 255]);
   });
 });
