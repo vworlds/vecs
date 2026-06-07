@@ -181,6 +181,24 @@ describe("Encoder", () => {
       fallback: null,
     });
   });
+
+  it("round trips a non-empty Uint8Array any value", () => {
+    const bytes = Uint8Array.from([1, 2, 3, 4]);
+    expect(roundTripAny(bytes)).toStrictEqual(bytes);
+  });
+
+  it("round trips an empty Uint8Array any value without corrupting the stream", () => {
+    // An empty Uint8Array used to encode as TagSize(binary, 0). Size 0 is the
+    // sentinel for "extended size follows", so the decoder consumed bytes from
+    // the next value. Encoding via empty_binary keeps the stream self-framing.
+    const encoder = createEncoder();
+    encoder.write_any(new Uint8Array(0));
+    encoder.write_any(42);
+
+    const decoder = new Decoder(encoder.getBuffer());
+    expect(decoder.read_any()).toStrictEqual(new Uint8Array(0));
+    expect(decoder.read_any()).toBe(42);
+  });
 });
 
 describe("Encoder with custom types", () => {

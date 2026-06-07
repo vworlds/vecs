@@ -233,8 +233,12 @@ export class Encoder {
         if (value === null) {
           this.write(new TagSize(AnyType.null, 1));
         } else if (value instanceof Uint8Array) {
-          this.write(new TagSize(AnyType.binary, value.length));
-          this._write_buffer_raw(value);
+          if (value.length === 0) {
+            this.write(new TagSize(AnyType.empty_binary, 1));
+          } else {
+            this.write(new TagSize(AnyType.binary, value.length));
+            this._write_buffer_raw(value);
+          }
         } else if (Array.isArray(value)) {
           if (value.length === 0) {
             this.write(new TagSize(AnyType.empty_array, 1));
