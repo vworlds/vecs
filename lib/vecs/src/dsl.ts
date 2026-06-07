@@ -1,11 +1,6 @@
-import {
-  type ComponentClass,
-  type ComponentRef,
-  type ComponentRefArray,
-  type ComponentType,
-} from "./component.js";
-import { Entity } from "./entity/index.js";
-import { ChildOf } from "./relationship.js";
+import { type ComponentClass, type ComponentRef, type ComponentType } from "./component.js";
+import { Entity, type EID } from "./entity/index.js";
+import { ChildOf } from "./modules/relationships.js";
 import type { World } from "./world/index.js";
 import { Bitset } from "./util/bitset.js";
 
@@ -25,11 +20,11 @@ export type EntityTestFunc = (e: Entity) => boolean;
  *
  * ```ts
  * // Position and either Sprite or Container:
- * world.system("render").query({
+ * world.system("render").with({
  *   all: [Position, { any: [Sprite, Container] }],
  * });
  *
- * Short forms recognized by `query` / `filter`:
+ * Short forms recognized by `with` / `filter`:
  * - `true` matches all entities; `false` matches no entities.
  * - A registered component class or numeric type id matches entities with that component.
  * - An array `[A, B]` matches entities with all listed components.
@@ -42,21 +37,83 @@ export type EntityTestFunc = (e: Entity) => boolean;
 export type QueryDSL =
   | true
   | false
-  | ComponentRefArray
+  | readonly ComponentRef[]
   | ComponentRef
   | { all: readonly QueryDSL[] }
   | { any: readonly QueryDSL[] }
   | { not: QueryDSL }
-  | { only: ComponentRefArray | ComponentRef }
+  | { only: readonly ComponentRef[] | ComponentRef }
   | { target: readonly [ComponentRef, QueryDSL] }
   | { source: readonly [ComponentRef, QueryDSL] }
   | { parent: QueryDSL }
   | { children: QueryDSL }
-  | { test: EntityTestFunc; watch?: ComponentRefArray | ComponentRef };
+  | { test: EntityTestFunc; watch?: readonly ComponentRef[] | ComponentRef };
 
 /**
- * Resolve component nullability based on what was declared in `requires` (or
- * the `_guaranteed` hint).
+ * A complete query specification combining a membership predicate with optional
+ * ordering and type hints.
+ *
+ * A bare {@link QueryDSL} value is the simplest form. For ordering or type hints
+ * use the object form:
+ *
+ * ```ts
+ * // Entities with Position and Velocity, traversed in ChildOf depth order:
+ * { with: [Position, Velocity], cascade: ChildOf }
+ *
+ * // With an explicit type hint for opaque DSL expressions:
+ * { with: { any: [Position, Velocity] }, hint: [Position] }
+ * ```
+ *
+ * - `with` — the membership predicate (required).
+ * - `cascade` — a traversable relationship to order by depth-first (optional).
+ * - `hint` — component classes guaranteed present, for type inference (optional,
+ *   type-only, not validated at runtime).
+ */
+export type QueryConfig = {
+  with: QueryDSL;
+  cascade?: ComponentRef;
+  hint?: readonly ComponentType[];
+};
+
+export type QuerySpec = QueryDSL | QueryConfig;
+
+export function isQueryConfig(spec: QuerySpec): spec is QueryConfig {
+  return (
+    typeof spec === "object" &&
+    spec !== null &&
+    !Array.isArray(spec) &&
+    !(spec instanceof Entity) &&
+    "with" in spec
+  );
+}
+
+/**
+ * Extract the component classes guaranteed present from a {@link QuerySpec}.
+ *
+ * For a bare {@link QueryDSL} this delegates to {@link ExtractRequired}. For the
+ * object form, components from `with` are merged with those from `hint`.
+ */
+export type ExtractSpecRequired<S> = S extends {
+  with: infer Q;
+  hint: infer H extends readonly ComponentType[];
+}
+  ? [...ExtractRequired<Q>, ...H]
+  : S extends { with: infer Q }
+    ? ExtractRequired<Q>
+    : S extends QueryDSL
+      ? ExtractRequired<S>
+      : [];
+
+export type ExtractSpecsRequired<S> = S extends readonly [
+  infer First extends QuerySpec,
+  ...infer Rest extends readonly QuerySpec[],
+]
+  ? [...ExtractSpecRequired<First>, ...ExtractSpecsRequired<Rest>]
+  : [];
+
+/**
+ * Resolve component nullability based on what was declared in `with` or a
+ * {@link QueryConfig} `hint`.
  *
  * Components in `R` resolve to `InstanceType<C>`; every other component class
  * resolves to `InstanceType<C> | undefined`.
@@ -81,6 +138,8 @@ export type MaybeRequired<C, R extends ComponentType[]> = C extends ComponentTyp
  * - `{ only: ... }` → recurse into the payload
  * - `{ all: [q1, q2, ...] }` → concatenate each branch's extraction
  * - `{ any: ... }` / `{ not: ... }` / `{ test: ... }` → `[]` (no guarantee)
+ * - `{ target: ... }` / `{ source: ... }` / `{ parent: ... }` / `{ children: ... }`
+ *   → `[]` (relationship operators guarantee no component on the candidate)
  * - numeric type id → `[]` (opaque)
  *
  * @typeParam Q - Query expression to analyse.
@@ -88,7 +147,7 @@ export type MaybeRequired<C, R extends ComponentType[]> = C extends ComponentTyp
 export type ExtractRequired<Q> = Q extends ComponentType
   ? [Q]
   : Q extends readonly ComponentType[]
-    ? Q
+    ? [...Q]
     : Q extends { only: infer H }
       ? ExtractRequired<H>
       : Q extends { all: infer A extends readonly QueryDSL[] }
@@ -102,18 +161,11 @@ type _ExtractAndChain<A extends readonly QueryDSL[]> = A extends readonly [
   ? [...ExtractRequired<First>, ..._ExtractAndChain<Rest>]
   : [];
 
-function _isClassConstructor(value: QueryDSL): value is ComponentClass {
-  return (
-    typeof value === "function" && Function.prototype.toString.call(value).startsWith("class ")
-  );
-}
-
-function _componentRequirements(q: QueryDSL): ComponentRefArray | undefined {
+// Only ever called on simplified `all` subterms (see `simplifyQueryDSL`), where
+// component classes and `Entity` instances have already been resolved to numeric
+// eids — so a bare class never reaches here and no constructor check is needed.
+function _componentRequirements(q: QueryDSL): readonly ComponentRef[] | undefined {
   if (typeof q === "number" || q instanceof Entity) {
-    return [q];
-  }
-
-  if (_isClassConstructor(q)) {
     return [q];
   }
 
@@ -124,14 +176,14 @@ function _componentRequirements(q: QueryDSL): ComponentRefArray | undefined {
   return undefined;
 }
 
-function _asShortestComponentRequirement(components: ComponentRefArray): QueryDSL {
+function _asShortestComponentRequirement(components: readonly ComponentRef[]): QueryDSL {
   if (components.length === 0) {
     return true;
   }
   return components.length === 1 ? components[0] : components;
 }
 
-function _calculateComponentBitmask(types: readonly number[]): Bitset {
+function _calculateComponentBitmask(types: readonly EID[]): Bitset {
   const bitmask = new Bitset();
   types.forEach((type) => {
     bitmask.add(type);
@@ -139,20 +191,20 @@ function _calculateComponentBitmask(types: readonly number[]): Bitset {
   return bitmask;
 }
 
-function _resolveComponentRequirement(component: ComponentRef, world: World): number {
+function _resolveComponentRequirement(component: ComponentRef, world: World): EID {
   return world.entity(component).eid;
 }
 
-export function _resolveRelationship(ref: ComponentRef, world: World): number {
+export function _resolveRelationship(ref: ComponentRef, world: World): EID {
   const entity = world.entity(ref);
-  const meta = entity.ownMeta;
-  if (!meta.isRelationship) {
-    throw new Error(`Component ${meta.Class.name} is not a Relationship`);
+  const relMeta = entity.meta;
+  if (!relMeta.isRelationship) {
+    throw new Error(`Component ${relMeta.Class.name} is not a Relationship`);
   }
   return entity.eid;
 }
 
-function _resolveChildOfRelationship(world: World): number {
+function _resolveChildOfRelationship(world: World): EID {
   return _resolveRelationship(ChildOf, world);
 }
 
@@ -167,7 +219,7 @@ function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL 
   return world.entity(component).eid;
 }
 
-function _sortComponentRequirements(components: ComponentRefArray): ComponentRefArray {
+function _sortComponentRequirements(components: readonly ComponentRef[]): ComponentRef[] {
   return [...components].sort((a, b) => {
     const aEid = typeof a === "number" ? a : a instanceof Entity ? a.eid : undefined;
     const bEid = typeof b === "number" ? b : b instanceof Entity ? b.eid : undefined;
@@ -185,12 +237,15 @@ function _sortComponentRequirements(components: ComponentRefArray): ComponentRef
 }
 
 function _asShortestHasOnlyRequirement(
-  components: ComponentRefArray
-): ComponentRefArray | ComponentRef {
+  components: readonly ComponentRef[]
+): readonly ComponentRef[] | ComponentRef {
   return components.length === 1 ? components[0] : components;
 }
 
-function _asCanonicalComponentRequirement(components: ComponentRefArray, world: World): QueryDSL {
+function _asCanonicalComponentRequirement(
+  components: readonly ComponentRef[],
+  world: World
+): QueryDSL {
   return _asShortestComponentRequirement(
     _sortComponentRequirements(
       components.map((component) => _resolveComponentRequirement(component, world))
@@ -198,7 +253,7 @@ function _asCanonicalComponentRequirement(components: ComponentRefArray, world: 
   );
 }
 
-function _componentSortKey(q: QueryDSL): number | undefined {
+function _componentSortKey(q: QueryDSL): EID | undefined {
   if (typeof q === "number") {
     return q;
   }
@@ -206,7 +261,7 @@ function _componentSortKey(q: QueryDSL): number | undefined {
     return q.eid;
   }
   if (q instanceof Array && q.length > 0 && q.every((term) => typeof term === "number")) {
-    return q[0] as number;
+    return q[0] as EID;
   }
   return undefined;
 }
@@ -276,17 +331,17 @@ function _getDSLFunctionId(func: EntityTestFunc): number {
   return id;
 }
 
+// Operates exclusively on the output of `simplifyQueryDSL` (both call sites and
+// every recursive call pass simplified nodes). Simplification resolves bare
+// classes and `Entity` instances to numeric eids, rewrites `parent` / `children`
+// to `target` / `source`, and resolves relationship keys to numbers — so the
+// raw-form branches for those shapes are unreachable here and are intentionally
+// absent. Any unsimplified node falls through to the final throw.
 function _canonicalDSLKey(q: QueryDSL): unknown {
   if (typeof q === "boolean") {
     return ["BOOL", q];
   }
   if (typeof q === "number") {
-    return ["HAS", q];
-  }
-  if (q instanceof Entity) {
-    return ["HAS", q.eid];
-  }
-  if (typeof q === "function") {
     return ["HAS", q];
   }
   if (q instanceof Array) {
@@ -305,24 +360,10 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
     return ["NOT", _canonicalDSLKey(q.not)];
   }
   if ("target" in q) {
-    return [
-      "TARGET",
-      q.target[0] instanceof Entity ? q.target[0].eid : q.target[0],
-      _canonicalDSLKey(q.target[1]),
-    ];
+    return ["TARGET", q.target[0], _canonicalDSLKey(q.target[1])];
   }
   if ("source" in q) {
-    return [
-      "SOURCE",
-      q.source[0] instanceof Entity ? q.source[0].eid : q.source[0],
-      _canonicalDSLKey(q.source[1]),
-    ];
-  }
-  if ("parent" in q) {
-    return ["PARENT", _canonicalDSLKey(q.parent)];
-  }
-  if ("children" in q) {
-    return ["CHILDREN", _canonicalDSLKey(q.children)];
+    return ["SOURCE", q.source[0], _canonicalDSLKey(q.source[1])];
   }
   if ("test" in q) {
     if (q.watch === undefined) {
@@ -404,7 +445,7 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
       }
     }
 
-    const componentRequirements: ComponentRefArray = [];
+    const componentRequirements: ComponentRef[] = [];
     const otherTerms: QueryDSL[] = [];
     for (const term of simplifiedTerms) {
       const requirements = _componentRequirements(term);
@@ -559,7 +600,7 @@ type _CompileContext = {
 
 function _compileMask(
   context: _CompileContext,
-  components: number[],
+  components: EID[],
   entityRef: string,
   comparison: "hasBitset" | "equal"
 ): string {

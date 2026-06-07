@@ -4,7 +4,7 @@
 // 100 circles dropped in a 10×10 grid, each with a unique radius (0.3–0.5).
 // Run 300 steps at 1/60 s. The circles pile up at the bottom.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 
 import { Body, BodyType, Circle, installPhysics, Material, Position } from "../../src/index.js";
 
@@ -26,7 +26,7 @@ export function runFallingBalls(): { totalMs: number; msPerStep: number; steps: 
   const floor = world.entity().set(Body, { type: BodyType.Static });
   world
     .entity()
-    .set(ChildOf, { target: floor })
+    .childOf(floor)
     .set(Circle, { radius: 30 }) // large circle as floor
     .set(Material, { friction: 0.3, density: 0 });
   // Place floor circle so its top is at y=0.
@@ -41,7 +41,7 @@ export function runFallingBalls(): { totalMs: number; msPerStep: number; steps: 
       const body = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x, y });
       world
         .entity()
-        .set(ChildOf, { target: body })
+        .childOf(body)
         .set(Circle, { radius })
         .set(Material, { friction: 0.2, density: 1 });
     }

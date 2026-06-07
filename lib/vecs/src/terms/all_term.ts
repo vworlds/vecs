@@ -2,7 +2,7 @@ import type { QueryDSL } from "../dsl.js";
 import type { Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
 import { Term } from "./term.js";
-import { PredicateTerm, type MergedInfo } from "./predicate_term.js";
+import { buildCompositeTerm, type CompositePrecheck } from "./composite_build.js";
 import type { getTerm as GetTermFn } from "./build.js";
 
 /**
@@ -42,19 +42,19 @@ export class AllTerm extends Term {
     key: string,
     originalDSL: QueryDSL,
     getTerm: typeof GetTermFn,
-    precheck: (terms: readonly QueryDSL[]) => {
-      hasDiamond: boolean;
-      containsTarget: boolean;
-      info: MergedInfo;
-    },
+    precheck: CompositePrecheck,
     onDestroy: (term: Term) => void
   ): Term {
-    const checked = precheck(terms);
-    if (checked.hasDiamond && !checked.containsTarget) {
-      return PredicateTerm.buildMerged(world, originalDSL, key, checked.info, getTerm, onDestroy);
-    }
-    const children = terms.map((dsl) => getTerm(world, dsl));
-    return new AllTerm(world, key, children, onDestroy);
+    return buildCompositeTerm(
+      AllTerm,
+      world,
+      terms,
+      key,
+      originalDSL,
+      getTerm,
+      precheck,
+      onDestroy
+    );
   }
 
   /** @internal */

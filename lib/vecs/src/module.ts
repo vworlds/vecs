@@ -1,5 +1,4 @@
 import { Component } from "./component.js";
-import { type World } from "./world/index.js";
 
 /**
  * Base class for built-in world modules.
@@ -12,10 +11,6 @@ import { type World } from "./world/index.js";
  * created and initialised by the world internally.
  */
 export abstract class Module extends Component {
-  constructor(world: World, eid: number) {
-    super(world, eid);
-  }
-
   /**
    * Initialise this module.
    *

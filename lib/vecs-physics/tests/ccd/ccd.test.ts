@@ -8,7 +8,7 @@
 //   4. Bullet-vs-bullet skip — two bullet bodies do not TOI-resolve against each other.
 //   5. No regression — HelloWorld still passes with CCD enabled (the default).
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -92,7 +92,7 @@ describe("Bullet no-tunnel gate (VP-24 milestone physical gate)", () => {
     const wall = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     world
       .entity()
-      .set(ChildOf, { target: wall })
+      .childOf(wall)
       .set(Box, { hx: 0.25, hy: 5 })
       .set(Material, { density: 1, friction: 0 });
 
@@ -103,7 +103,7 @@ describe("Bullet no-tunnel gate (VP-24 milestone physical gate)", () => {
       .set(GravityScale, { value: 0 });
     world
       .entity()
-      .set(ChildOf, { target: bullet })
+      .childOf(bullet)
       .set(Circle, { radius: 0.2 })
       .set(Material, { density: 1, friction: 0 });
     bullet.set(LinearVelocity, { x: -20, y: 0 });
@@ -126,7 +126,7 @@ describe("Bullet no-tunnel gate (VP-24 milestone physical gate)", () => {
     const wall = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     world
       .entity()
-      .set(ChildOf, { target: wall })
+      .childOf(wall)
       .set(Box, { hx: 0.01, hy: 2 })
       .set(Material, { density: 1, friction: 0 });
 
@@ -137,7 +137,7 @@ describe("Bullet no-tunnel gate (VP-24 milestone physical gate)", () => {
       .set(GravityScale, { value: 0 });
     world
       .entity()
-      .set(ChildOf, { target: bullet })
+      .childOf(bullet)
       .set(Circle, { radius: 0.05 })
       .set(Material, { density: 1, friction: 0 });
     bullet.set(LinearVelocity, { x: -100, y: 0 });
@@ -163,7 +163,7 @@ describe("Fast non-bullet body CCD", () => {
     const wall = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     world
       .entity()
-      .set(ChildOf, { target: wall })
+      .childOf(wall)
       .set(Box, { hx: 0.05, hy: 5 })
       .set(Material, { density: 1, friction: 0 });
 
@@ -174,7 +174,7 @@ describe("Fast non-bullet body CCD", () => {
       .set(GravityScale, { value: 0 });
     world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { hx: 0.25, hy: 0.25 })
       .set(Material, { density: 1, friction: 0 });
     body.set(LinearVelocity, { x: -15, y: 0 });
@@ -205,7 +205,7 @@ describe("Bullet-vs-bullet skip (solver.c:227-230)", () => {
       .set(GravityScale, { value: 0 });
     world
       .entity()
-      .set(ChildOf, { target: bulletA })
+      .childOf(bulletA)
       .set(Circle, { radius: 0.1 })
       .set(Material, { density: 1, friction: 0 });
     bulletA.set(LinearVelocity, { x: 20, y: 0 });
@@ -217,7 +217,7 @@ describe("Bullet-vs-bullet skip (solver.c:227-230)", () => {
       .set(GravityScale, { value: 0 });
     world
       .entity()
-      .set(ChildOf, { target: bulletB })
+      .childOf(bulletB)
       .set(Circle, { radius: 0.1 })
       .set(Material, { density: 1, friction: 0 });
     bulletB.set(LinearVelocity, { x: -20, y: 0 });
@@ -250,7 +250,7 @@ describe("HelloWorld parity with CCD enabled (no regression)", () => {
       .entity()
       .set(Body, { type: BodyType.Static })
       .set(Position, { x: 0, y: -10 });
-    world.entity().set(ChildOf, { target: ground }).set(Box, { hx: 50, hy: 10 });
+    world.entity().childOf(ground).set(Box, { hx: 50, hy: 10 });
 
     const bodyEntity = world
       .entity()
@@ -258,7 +258,7 @@ describe("HelloWorld parity with CCD enabled (no regression)", () => {
       .set(Position, { x: 0, y: 4 });
     world
       .entity()
-      .set(ChildOf, { target: bodyEntity })
+      .childOf(bodyEntity)
       .set(Box, { hx: 1, hy: 1 })
       .set(Material, { density: 1, friction: 0.3 });
 

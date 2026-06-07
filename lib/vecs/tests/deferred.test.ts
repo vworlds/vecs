@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ChildOf, CleanupPolicy, World } from "../src/index.js";
+import { CleanupPolicy, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -184,7 +184,7 @@ describe("Deferred mode — Query dispatches enter/exit/update immediately", () 
   it("Query.enter callback fires during world queue processing", () => {
     const { w } = setup();
     const enter = vi.fn();
-    w.query("q").requires(Position).enter(enter);
+    w.query("q").with(Position).enter(enter);
     w.start();
     const e = w.entity();
     e.add(Position);
@@ -210,7 +210,7 @@ describe("Deferred mode — System inbox ordering", () => {
     const events: string[] = [];
     w.system("test")
       .phase(phase)
-      .requires(Position)
+      .with(Position)
       .enter((e) => events.push(`enter ${e.eid}`))
       .exit((e) => events.push(`exit ${e.eid}`));
     w.start();
@@ -265,7 +265,7 @@ describe("Deferred mode — parent destruction", () => {
     let parentEid = -1;
     w.system("test")
       .phase(phase)
-      .requires(Position)
+      .with(Position)
       .exit((e) => {
         observedParentId = w.getEntity(parentEid)?.eid;
         // Parent was destroyed before this child's exit fires (top-down).
@@ -274,7 +274,7 @@ describe("Deferred mode — parent destruction", () => {
     const parent = w.entity();
     parentEid = parent.eid;
     const child = w.entity();
-    child.set(ChildOf, { target: parent });
+    child.childOf(parent);
     child.add(Position);
     tick(); // settle enter
     parent.destroy();
@@ -352,7 +352,7 @@ describe("World.defer(fn)", () => {
     {
       const w = new World();
       const componentEntity = w.component(DeferredRemove);
-      componentEntity.ownMeta.onDelete = CleanupPolicy.Remove;
+      componentEntity.meta.onDelete = CleanupPolicy.Remove;
       w.component(Velocity);
       w.start();
       const carrier = w.entity().add(DeferredRemove);
@@ -372,7 +372,7 @@ describe("World.defer(fn)", () => {
     {
       const w = new World();
       const componentEntity = w.component(DeferredDelete);
-      componentEntity.ownMeta.onDelete = CleanupPolicy.Delete;
+      componentEntity.meta.onDelete = CleanupPolicy.Delete;
       w.component(Velocity);
       w.start();
       const carrier = w.entity().add(DeferredDelete);
@@ -398,7 +398,7 @@ describe("Deferred mode — forEach nesting", () => {
     a.add(Position);
     const b = w.entity();
     b.add(Position);
-    const q = w.query("q").requires(Position).build();
+    const q = w.query("q").with(Position).build();
     let seen = 0;
     q.forEach((e) => {
       seen++;

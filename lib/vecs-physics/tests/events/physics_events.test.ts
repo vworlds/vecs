@@ -21,7 +21,7 @@
 //   6. Array-identity: the user's events.begin array reference is stable across
 //      a clear (clear-in-place, not reassigned).
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -73,7 +73,7 @@ function step(n = 1): void {
 /** A static 2×2 box at (x, y) with optional ContactEvents. */
 function makeStaticBox(x: number, y: number, withContactEvents = false) {
   const body = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x, y });
-  const shapeEnt = world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+  const shapeEnt = world.entity().childOf(body).set(Box, { width: 2, height: 2 });
   if (withContactEvents) {
     shapeEnt.add(ContactEvents);
   }
@@ -87,7 +87,7 @@ function makeDynamicBox(x: number, y: number, withContactEvents = false) {
     .set(Body, { type: BodyType.Dynamic })
     .set(Position, { x, y })
     .add(GravityScale);
-  const shapeEnt = world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+  const shapeEnt = world.entity().childOf(body).set(Box, { width: 2, height: 2 });
   if (withContactEvents) {
     shapeEnt.add(ContactEvents);
   }
@@ -157,18 +157,14 @@ describe("empty step is silent", () => {
 
     // Place two overlapping boxes. Only shapeA has ContactEvents.
     const bodyA = w.entity().set(Body, { type: BodyType.Static }).set(Position, { x: -0.5, y: 0 });
-    const shapeA = w
-      .entity()
-      .set(ChildOf, { target: bodyA })
-      .set(Box, { width: 2, height: 2 })
-      .add(ContactEvents);
+    const shapeA = w.entity().childOf(bodyA).set(Box, { width: 2, height: 2 }).add(ContactEvents);
 
     const bodyB = w
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0.5, y: 0 })
       .add(GravityScale);
-    w.entity().set(ChildOf, { target: bodyB }).set(Box, { width: 2, height: 2 });
+    w.entity().childOf(bodyB).set(Box, { width: 2, height: 2 });
 
     // Step 1: contact begin fires. The watcher fires at entry-time AND on
     // modified(ContactEvents). We reset after step 1.
@@ -238,7 +234,7 @@ describe("begin/end lifecycle", () => {
       .set(Position, { x: 0, y: 0 });
     const floorShape = floorWorld
       .entity()
-      .set(ChildOf, { target: floorBody })
+      .childOf(floorBody)
       .set(Box, { width: 40, height: 1 })
       .add(ContactEvents);
 
@@ -247,11 +243,7 @@ describe("begin/end lifecycle", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 2 });
-    floorWorld
-      .entity()
-      .set(ChildOf, { target: boxBody })
-      .set(Box, { width: 1, height: 1 })
-      .add(ContactEvents);
+    floorWorld.entity().childOf(boxBody).set(Box, { width: 1, height: 1 }).add(ContactEvents);
 
     // Step until the box rests (contact starts and stays touching).
     let touchingStep = -1;
@@ -297,7 +289,7 @@ describe("sensor delivery", () => {
       .set(Position, { x: 0, y: 0 });
     const zoneShape = world
       .entity()
-      .set(ChildOf, { target: zoneBody })
+      .childOf(zoneBody)
       .set(Box, { width: 4, height: 4 })
       .add(Sensor)
       .add(SensorEvents);
@@ -311,7 +303,7 @@ describe("sensor delivery", () => {
       .add(GravityScale);
     const visitorShape = world
       .entity()
-      .set(ChildOf, { target: visitorBody })
+      .childOf(visitorBody)
       .set(Circle, { radius: 0.1 })
       .add(SensorEvents);
 
@@ -335,7 +327,7 @@ describe("sensor delivery", () => {
       .set(Position, { x: 0, y: 0 });
     world
       .entity()
-      .set(ChildOf, { target: zoneBody })
+      .childOf(zoneBody)
       .set(Box, { width: 4, height: 4 })
       .add(Sensor)
       .add(SensorEvents);
@@ -348,7 +340,7 @@ describe("sensor delivery", () => {
       .add(GravityScale);
     const visitorShape = world
       .entity()
-      .set(ChildOf, { target: visitorBody })
+      .childOf(visitorBody)
       .set(Circle, { radius: 0.1 })
       .add(SensorEvents); // opted in but not a sensor
 
@@ -383,7 +375,7 @@ describe("hit event delivery", () => {
       .set(Position, { x: 0, y: 0 });
     const wallShape = world2
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -394,7 +386,7 @@ describe("hit event delivery", () => {
       .set(LinearVelocity, { x: -10, y: 0 });
     const movingShape = world2
       .entity()
-      .set(ChildOf, { target: movingBody })
+      .childOf(movingBody)
       .set(Box, { width: 2, height: 2 })
       .add(HitEvents);
 
@@ -436,7 +428,7 @@ describe("hit event delivery", () => {
       .set(Position, { x: 0, y: 0 });
     const groundShape = world3
       .entity()
-      .set(ChildOf, { target: groundBody })
+      .childOf(groundBody)
       .set(Box, { width: 20, height: 0.2 })
       .add(HitEvents);
 
@@ -445,7 +437,7 @@ describe("hit event delivery", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.6 });
-    world3.entity().set(ChildOf, { target: fallingBody }).set(Box, { width: 1, height: 1 });
+    world3.entity().childOf(fallingBody).set(Box, { width: 1, height: 1 });
 
     for (let i = 0; i < 60; i++) {
       now3 += STEP_MS;
@@ -487,7 +479,7 @@ describe("array-identity: clear-in-place", () => {
       .set(Position, { x: 0, y: 0 });
     const zoneShape = world
       .entity()
-      .set(ChildOf, { target: zoneBody })
+      .childOf(zoneBody)
       .set(Box, { width: 4, height: 4 })
       .add(Sensor)
       .add(SensorEvents);
@@ -498,11 +490,7 @@ describe("array-identity: clear-in-place", () => {
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 20, y: 0 }) // exits zone within ~12 steps
       .add(GravityScale);
-    world
-      .entity()
-      .set(ChildOf, { target: visitorBody })
-      .set(Circle, { radius: 0.1 })
-      .add(SensorEvents);
+    world.entity().childOf(visitorBody).set(Circle, { radius: 0.1 }).add(SensorEvents);
 
     step(1); // begin event fires
 

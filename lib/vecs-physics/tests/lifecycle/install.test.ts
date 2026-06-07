@@ -82,11 +82,11 @@ describe("installPhysics", () => {
     const world = new World();
     installPhysics(world);
     for (const C of GEOMETRY) {
-      const meta = world.component(C).ownMeta;
-      const others = GEOMETRY.filter((G) => G !== C).map((G) => world.component(G).ownMeta);
-      expect(meta._exclusive).not.toContain(meta);
+      const componentMeta = world.component(C).meta;
+      const others = GEOMETRY.filter((G) => G !== C).map((G) => world.component(G).meta);
+      expect(componentMeta._exclusive).not.toContain(componentMeta);
       for (const otherMeta of others) {
-        expect(meta._exclusive).toContain(otherMeta);
+        expect(componentMeta._exclusive).toContain(otherMeta);
       }
     }
   });

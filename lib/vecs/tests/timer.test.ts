@@ -136,7 +136,7 @@ describe("Timers and tick sources", () => {
   it("inbox events accumulate until the next tick frame", () => {
     const { world, tick } = setup();
     const enter = vi.fn();
-    world.system("slow").requires(Position).interval(1).enter(enter);
+    world.system("slow").with(Position).interval(1).enter(enter);
     world.start();
 
     const entity = world.entity();

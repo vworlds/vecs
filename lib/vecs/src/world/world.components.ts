@@ -1,5 +1,5 @@
 import { Component, type ComponentClass, type ComponentType } from "../component.js";
-import { Entity, type EntityClass } from "../entity/index.js";
+import { Entity, type EID, type EntityClass } from "../entity/index.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";
 import { type World } from "./world.js";
@@ -19,7 +19,7 @@ export class Components extends Entities {
    * Subsequent calls with the same class return the same entity. The same class
    * may be registered independently in multiple worlds.
    *
-   * Pass an explicit numeric `eid` to pin the component to a server-assigned
+   * Pass an explicit numeric `ceid` to pin the component to a server-assigned
    * stable id instead of auto-allocating one.
    *
    * Passing a **string** resolves an already-registered component entity by
@@ -30,14 +30,14 @@ export class Components extends Entities {
    * new class throws.
    *
    * @param ComponentClass - The component class to register or retrieve.
-   * @param eid - Optional explicit numeric entity id.
+   * @param ceid - Optional explicit numeric component entity id.
    * @returns The `Component` entity for the given class.
    *
    * @example
    * ```ts
    * world.component(Position);               // register and auto-assign id
    * world.component(Position, 42);           // register with explicit id 42
-   * const meta = world.component(Position).ownMeta; // access metadata
+   * const componentMeta = world.component(Position).meta; // access metadata
    * world.component(Position).name = "Position";
    * world.component("Position");             // look up by name
    * ```
@@ -45,13 +45,13 @@ export class Components extends Entities {
   public component<T extends ComponentType>(
     this: World,
     ComponentClass: T,
-    eid?: number
+    ceid?: EID
   ): Component<T>;
   public component(this: World, name: string): Component;
   public component<T extends ComponentType>(
     this: World,
     ComponentClassOrName: T | string,
-    eid?: number
+    ceid?: EID
   ): Component<T> {
     if (typeof ComponentClassOrName === "string") {
       const entity = this.entity(ComponentClassOrName);
@@ -63,7 +63,7 @@ export class Components extends Entities {
       return entity as unknown as Component<T>;
     }
 
-    return this._component<Component<T>>(Component, ComponentClassOrName, eid);
+    return this._component<Component<T>>(Component, ComponentClassOrName, ceid);
   }
 
   /** Prevent any further calls to {@link component}. */
@@ -110,9 +110,9 @@ export class Components extends Entities {
 
   /** Declare a group of mutually exclusive components. */
   public setExclusiveComponents(this: World, ...components: ComponentClass[]): void {
-    const metas = components.map((C) => this.entity(C).ownMeta);
-    for (let i = 0; i < metas.length; i++) {
-      metas[i]._exclusive = metas.filter((_, j) => j !== i);
+    const componentMetas = components.map((C) => this.entity(C).meta);
+    for (let i = 0; i < componentMetas.length; i++) {
+      componentMetas[i]._exclusive = componentMetas.filter((_, j) => j !== i);
     }
   }
 
@@ -121,16 +121,16 @@ export class Components extends Entities {
     this: World,
     Constructor: EntityClass<T>,
     ComponentClass: ComponentType,
-    eid?: number,
+    ceid?: EID,
     pool: IdPool = this._componentPool
   ): T {
-    if (eid === RESERVED_EID) {
-      throw new Error(`Component eid ${eid} is reserved`);
+    if (ceid === RESERVED_EID) {
+      throw new Error(`Component eid ${ceid} is reserved`);
     }
 
     const existingComponent = this._classRegistry.get(ComponentClass) as T | undefined;
     if (existingComponent) {
-      if (eid === undefined || eid === existingComponent.eid) {
+      if (ceid === undefined || ceid === existingComponent.eid) {
         return existingComponent;
       }
       throw new Error(
@@ -140,16 +140,16 @@ export class Components extends Entities {
     if (this._componentRegistrationDisabled) {
       throw new Error("World component registration is disabled");
     }
-    if (eid === undefined) {
-      eid = pool.alloc();
+    if (ceid === undefined) {
+      ceid = pool.alloc();
     } else {
-      if (this._entities.has(eid)) {
-        throw new Error(`Entity id ${eid} is already taken`);
+      if (this._entities.has(ceid)) {
+        throw new Error(`Entity id ${ceid} is already taken`);
       }
-      this._reserveEid(eid);
+      this._reserveEid(ceid);
     }
-    const component = new Constructor(this, eid, ComponentClass);
-    this._entities.set(eid, component);
+    const component = new Constructor(this, ceid, ComponentClass);
+    this._entities.set(ceid, component);
     this._classRegistry.set(ComponentClass, component);
     // Component-definition entities are first-class entities: notify so any
     // live world-rooted query/term picks them up reactively (reflection),

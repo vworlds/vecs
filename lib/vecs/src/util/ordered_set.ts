@@ -3,9 +3,10 @@
  * insertion order.
  *
  * Backed by a sorted array. Insertions and lookups are `O(log n)` (binary
- * search) plus the cost of an array splice on `add` / `delete`.
+ * search) plus the cost of an array splice on `add`. Removal uses identity
+ * lookup because sorted values may be mutable.
  *
- * Used by `Query.sort` to keep matched entities in a user-defined order so
+ * Used by `Query.orderBy` to keep matched entities in a user-defined order so
  * iteration in `forEach` and `each` walks them sorted.
  *
  * @internal Used only inside the package.
@@ -63,6 +64,16 @@ export class OrderedSet<T> implements Set<T> {
     return this;
   }
 
+  /** Remove `value` by identity, then insert it at its current sort position. */
+  public reSort(value: T): this {
+    const i = this._items.indexOf(value);
+    if (i === -1) {
+      return this;
+    }
+    this._items.splice(i, 1);
+    return this.add(value);
+  }
+
   /**
    * Return `true` when an element comparing equal to `value` is in the set.
    *
@@ -73,15 +84,10 @@ export class OrderedSet<T> implements Set<T> {
     return i < this._items.length && this._compare(this._items[i], value) === 0;
   }
 
-  /**
-   * Remove the element comparing equal to `value`. Returns `true` if an
-   * element was removed.
-   *
-   * @param value - Element to remove.
-   */
+  /** Remove `value` by identity. Returns `true` if an element was removed. */
   public delete(value: T): boolean {
-    const i = this._bisect(value);
-    if (i < this._items.length && this._compare(this._items[i], value) === 0) {
+    const i = this._items.indexOf(value);
+    if (i !== -1) {
       this._items.splice(i, 1);
       return true;
     }

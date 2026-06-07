@@ -3,7 +3,7 @@
 // Verifies that destroying a shape or body entity while contacts exist does not
 // crash `collide()` on the next step and that contacts are cleaned up correctly.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Circle, Position, installPhysics } from "../../src/index.js";
@@ -35,7 +35,7 @@ function makeGround() {
     .entity()
     .set(Body, { type: BodyType.Static })
     .set(Position, { x: 0, y: -10 });
-  world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 20 });
+  world.entity().childOf(ground).set(Box, { width: 100, height: 20 });
   return ground;
 }
 
@@ -47,7 +47,7 @@ describe("contact teardown on shape destruction", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 }); // low enough to touch ground immediately
-    const shape = world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+    const shape = world.entity().childOf(body).set(Box, { width: 2, height: 2 });
 
     // Step to create contacts (box should land on the ground).
     step(5);
@@ -65,7 +65,7 @@ describe("contact teardown on shape destruction", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    const shape = world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+    const shape = world.entity().childOf(body).set(Box, { width: 2, height: 2 });
 
     step(5);
 
@@ -83,7 +83,7 @@ describe("contact teardown on shape destruction", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    const shape = world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+    const shape = world.entity().childOf(body).set(Box, { width: 2, height: 2 });
 
     step(5);
 
@@ -101,7 +101,7 @@ describe("contact teardown on body destruction", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(body).set(Box, { width: 2, height: 2 });
 
     step(5);
 
@@ -115,7 +115,7 @@ describe("contact teardown on body destruction", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(body).set(Box, { width: 2, height: 2 });
 
     step(5);
 
@@ -134,7 +134,7 @@ describe("contact teardown on body destruction", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+    world.entity().childOf(body).set(Box, { width: 2, height: 2 });
 
     step(5);
 
@@ -156,12 +156,12 @@ describe("contact teardown on shape reparent", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 10, y: 5 }); // far away, no contacts
-    const shape = world.entity().set(ChildOf, { target: bodyA }).set(Circle, { radius: 1 });
+    const shape = world.entity().childOf(bodyA).set(Circle, { radius: 1 });
 
     step(5);
 
     // Reparent the shape to bodyB.
-    shape.set(ChildOf, { target: bodyB });
+    shape.childOf(bodyB);
     expect(() => step(1)).not.toThrow();
   });
 });

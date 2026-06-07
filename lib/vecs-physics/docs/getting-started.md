@@ -140,7 +140,7 @@ const playerShape = world
 
 world
   .system("LogContacts")
-  .requires(ContactEvents)
+  .with(ContactEvents)
   .update(ContactEvents, (shapeEntity, events) => {
     for (const event of events.begin) {
       console.log("contact with shape", event.other.eid);

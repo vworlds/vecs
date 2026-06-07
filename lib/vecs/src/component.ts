@@ -1,9 +1,10 @@
 import { Entity } from "./entity/index.js";
-import type { ComponentClass, ComponentInstance, ComponentType } from "./component_meta.js";
+import type { ComponentInstance, ComponentType } from "./component_meta.js";
 
 export {
   CleanupPolicy,
   ComponentMeta,
+  Relationship,
   type ComponentClass,
   type ComponentInstance,
   type ComponentRef,
@@ -29,8 +30,10 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * world.component(Sprite).onAdd((entity, sprite) => sprite.initialize(scene));
    * ```
    */
-  public onAdd(handler: (entity: Entity, c: InstanceType<T>) => void): this {
-    this.ownMeta.onAdd(handler as (entity: Entity, c: ComponentInstance) => void);
+  public override onAdd(handler: (entity: Entity, c: InstanceType<T>) => void): this;
+  public override onAdd(handler: (entity: Entity, c: ComponentInstance) => void): this;
+  public override onAdd(handler: (entity: Entity, c: any) => void): this {
+    super.onAdd(handler as (entity: Entity, c: ComponentInstance) => void);
     return this;
   }
 
@@ -50,8 +53,10 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * world.component(Sprite).onRemove((entity, sprite) => sprite.destroy(scene));
    * ```
    */
-  public onRemove(handler: (entity: Entity, c: InstanceType<T>) => void): this {
-    this.ownMeta.onRemove(handler as (entity: Entity, c: ComponentInstance) => void);
+  public override onRemove(handler: (entity: Entity, c: InstanceType<T>) => void): this;
+  public override onRemove(handler: (entity: Entity, c: ComponentInstance) => void): this;
+  public override onRemove(handler: (entity: Entity, c: any) => void): this {
+    super.onRemove(handler as (entity: Entity, c: ComponentInstance) => void);
     return this;
   }
 
@@ -77,8 +82,10 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * world.component(Transform).onSet((entity, t) => renderer.syncTransform(entity.eid, t));
    * ```
    */
-  public onSet(handler: (entity: Entity, c: InstanceType<T>) => void): this {
-    this.ownMeta.onSet(handler as (entity: Entity, c: ComponentInstance) => void);
+  public override onSet(handler: (entity: Entity, c: InstanceType<T>) => void): this;
+  public override onSet(handler: (entity: Entity, c: ComponentInstance) => void): this;
+  public override onSet(handler: (entity: Entity, c: any) => void): this {
+    super.onSet(handler as (entity: Entity, c: ComponentInstance) => void);
     return this;
   }
 }

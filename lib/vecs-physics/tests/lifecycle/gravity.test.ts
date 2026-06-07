@@ -2,7 +2,7 @@
 // (lifecycle → step → pose write-back) and matches the analytic free-fall
 // solution pos.y = y0 - 0.5·g·t². No contacts yet.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, LinearVelocity, Position, installPhysics } from "../../src/index.js";
@@ -21,7 +21,7 @@ describe("free fall under gravity", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 4 })
       .set(LinearVelocity, { x: 0, y: 0 });
-    world.entity().set(ChildOf, { target: e }).set(Box, { hx: 0.5, hy: 0.5 });
+    world.entity().childOf(e).set(Box, { hx: 0.5, hy: 0.5 });
 
     // Frame 1 creates the body and its shape; subsequent frames free-fall under box2d3-wasm 5.2.0.
     world.progress(0, DT * 1000);

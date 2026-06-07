@@ -1,4 +1,4 @@
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
 import { Term } from "./term.js";
 import { WorldTerm } from "./world_term.js";
@@ -27,7 +27,7 @@ export class OnlyTerm extends Term {
     key: string,
     allTerm: Term,
     worldTerm: Term,
-    private readonly _componentEids: readonly number[],
+    private readonly _componentEids: readonly EID[],
     onDestroy: (term: Term) => void
   ) {
     super(world, key, "only", false, onDestroy);
@@ -50,13 +50,13 @@ export class OnlyTerm extends Term {
    */
   public static build(
     world: World,
-    componentEids: readonly number[],
+    componentEids: readonly EID[],
     key: string,
     getTerm: typeof GetTermFn,
     onDestroy: (term: Term) => void
   ): OnlyTerm {
     // Build the inner all-term for the component set, then the world leaf.
-    const allTerm = getTerm(world, componentEids as number[]);
+    const allTerm = getTerm(world, componentEids as EID[]);
     const worldTerm = getTerm(world, true);
     return new OnlyTerm(world, key, allTerm, worldTerm, componentEids, onDestroy);
   }

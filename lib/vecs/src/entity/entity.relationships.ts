@@ -1,31 +1,37 @@
-import { CleanupPolicy, type ComponentMeta, type ComponentRef } from "../component_meta.js";
-import { Relationship } from "../relationship.js";
+import {
+  CleanupPolicy,
+  Relationship,
+  type ComponentMeta,
+  type ComponentRef,
+} from "../component_meta.js";
 import { ArrayMap } from "../util/array_map.js";
 import { DenseSet } from "../util/dense_set.js";
-import type { Entity } from "./entity.js";
+import type { EID, Entity } from "./entity.js";
 import { Queries } from "./entity.queries.js";
 
 export class Relationships extends Queries {
   /** Return this entity's target through relationship `ref`, if present. */
-  public parent(ref: ComponentRef): Entity | undefined {
-    return (this._components.get(this.world.entity(ref).eid) as Relationship | undefined)?.target;
+  public parent(rel: ComponentRef): Entity | undefined {
+    const relEid = typeof rel === "number" ? rel : this.world.entity(rel).eid;
+    return (this._components.get(relEid) as Relationship | undefined)?.target;
   }
 
   /** Return entities targeting this one through relationship `ref`. */
   public children(ref: ComponentRef): ReadonlySet<Entity> {
-    return this._incoming?.get(this.world.entity(ref).eid) ?? Relationships._emptyIncoming;
+    const relEid = typeof ref === "number" ? ref : this.world.entity(ref).eid;
+    return this._incoming?.get(relEid) ?? Relationships._emptyIncoming;
   }
 
   /**
    * @internal Fast child set lookup by relationship eid — skips ref -> eid
    * resolution. Used by the `source` predicate and fan-out invoker.
    */
-  public _childrenByEid(relEid: number): ReadonlySet<Entity> | undefined {
+  public _childrenByEid(relEid: EID): ReadonlySet<Entity> | undefined {
     return this._incoming?.get(relEid);
   }
 
   /** @internal */
-  protected _addIncoming(target: Entity | undefined, relEid: number): void {
+  protected _addIncoming(target: Entity | undefined, relEid: EID): void {
     if (!target || target._destroyed) {
       return;
     }
@@ -44,7 +50,7 @@ export class Relationships extends Queries {
       if (!relEntity) {
         return;
       }
-      const policy = relEntity.ownMeta.onDeleteTarget;
+      const policy = relEntity.meta.onDeleteTarget;
       for (const source of [...sources]) {
         if (policy === CleanupPolicy.Delete) {
           // If source is also an in-use component entity with onDelete Throw,
@@ -59,7 +65,7 @@ export class Relationships extends Queries {
   }
 
   /** @internal */
-  protected _removeIncoming(target: Entity | undefined, relEid: number): void {
+  protected _removeIncoming(target: Entity | undefined, relEid: EID): void {
     const sources = target?._incoming?.get(relEid);
     if (!sources) {
       return;

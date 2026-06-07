@@ -20,7 +20,7 @@
 //   divergent at sharp endpoint turns.  This test uses a LOOP chain to avoid
 //   the open-chain endpoint-ghost caveat and get a clean result.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -66,7 +66,7 @@ function makeChainGround(world: World): void {
     .set(Position, { x: 0, y: 0 });
   world
     .entity()
-    .set(ChildOf, { target: groundBody })
+    .childOf(groundBody)
     .set(Chain, {
       points: [
         { x: 5, y: 0 },
@@ -93,7 +93,7 @@ describe("ChainSegmentShapeTest — one-sided collision (port of box2d test_worl
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 2 });
-    world.entity().set(ChildOf, { target: ballBody }).set(Circle, { radius: 0.5 });
+    world.entity().childOf(ballBody).set(Circle, { radius: 0.5 });
 
     const now = { value: 0 };
     step(world, 120, now);
@@ -118,7 +118,7 @@ describe("ChainSegmentShapeTest — one-sided collision (port of box2d test_worl
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 2 });
-    world.entity().set(ChildOf, { target: ballBody }).set(Circle, { radius: 0.5 });
+    world.entity().childOf(ballBody).set(Circle, { radius: 0.5 });
 
     const now = { value: 0 };
     // Settle.
@@ -159,7 +159,7 @@ describe("ChainSegmentShapeTest — one-sided collision (port of box2d test_worl
       .set(Position, { x: 0, y: 0 });
     noGravWorld
       .entity()
-      .set(ChildOf, { target: groundBody })
+      .childOf(groundBody)
       .set(Chain, {
         points: [
           { x: 5, y: 0 },
@@ -176,7 +176,7 @@ describe("ChainSegmentShapeTest — one-sided collision (port of box2d test_worl
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: -0.5 })
       .set(LinearVelocity, { x: 0, y: 5 });
-    noGravWorld.entity().set(ChildOf, { target: ballBody }).set(Circle, { radius: 0.25 });
+    noGravWorld.entity().childOf(ballBody).set(Circle, { radius: 0.25 });
 
     // Run enough steps for the ball to travel through the chain and above it.
     // At 5 m/s over 0.5 s (30 steps at 1/60), the ball travels ~2.5 m upward,

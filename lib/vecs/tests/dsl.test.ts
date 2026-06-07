@@ -245,8 +245,8 @@ describe("Query DSL compilation", () => {
   function entityWithComponents(world: World, typeIds: number[]): Entity {
     const e = world.entity();
     for (const t of typeIds) {
-      const meta = world.entity(t)!.ownMeta;
-      e.componentBitmask.addBit(meta.bitPtr);
+      const componentMeta = world.entity(t)!.meta;
+      e.componentBitmask.addBit(componentMeta.bitPtr);
     }
     return e;
   }

@@ -2,12 +2,14 @@
 // until it is re-armed, so a persistent structural problem logs once rather
 // than every step. Re-arming lets a fixed-then-rebroken structure warn again.
 
+import type { EID } from "@vworlds/vecs";
+
 /** Receives a fully formatted warning line. Defaults to `console.warn`. */
 export type WarnSink = (message: string) => void;
 
 export class WarnDedupe {
   /** entity eid -> set of issue codes already warned for that entity. */
-  private readonly _warned = new Map<number, Set<string>>();
+  private readonly _warned = new Map<EID, Set<string>>();
 
   private readonly _sink: WarnSink;
 
@@ -21,7 +23,7 @@ export class WarnDedupe {
    * @returns `true` if the warning was emitted (first occurrence), `false` if
    *   it was suppressed as a duplicate.
    */
-  public warnOnce(eid: number, code: string, message: string): boolean {
+  public warnOnce(eid: EID, code: string, message: string): boolean {
     let codes = this._warned.get(eid);
     if (codes === undefined) {
       codes = new Set();
@@ -36,12 +38,12 @@ export class WarnDedupe {
   }
 
   /** Re-arm a `(eid, code)` pair so its next {@link warnOnce} emits again. */
-  public rearm(eid: number, code: string): void {
+  public rearm(eid: EID, code: string): void {
     this._warned.get(eid)?.delete(code);
   }
 
   /** True when `(eid, code)` has been warned and not since re-armed. */
-  public has(eid: number, code: string): boolean {
+  public has(eid: EID, code: string): boolean {
     return this._warned.get(eid)?.has(code) ?? false;
   }
 

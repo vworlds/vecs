@@ -1,4 +1,4 @@
-import { type IPhase, type System, type World } from "@vworlds/vecs";
+import { type EID, type IPhase, type System, type World } from "@vworlds/vecs";
 
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
 import { type b2ShapeId, type PhysicsState } from "../adapter/state.js";
@@ -29,12 +29,7 @@ export function installEventOptInSync(world: World, state: PhysicsState, phase: 
     });
 }
 
-function setEventFlag(
-  state: PhysicsState,
-  entityId: number,
-  flag: EventFlag,
-  enabled: boolean
-): void {
+function setEventFlag(state: PhysicsState, entityId: EID, flag: EventFlag, enabled: boolean): void {
   const shapeId = state.shapeByEntityWasm.get(entityId);
   if (shapeId !== undefined) {
     applyEventFlag(state, shapeId, flag, enabled);

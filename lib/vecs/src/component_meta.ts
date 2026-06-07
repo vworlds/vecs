@@ -1,11 +1,15 @@
 import { BitPtr } from "./util/bitset.js";
-import type { Entity, EntityClass } from "./entity/index.js";
-import { Relationship } from "./relationship.js";
+import type { EID, Entity, EntityClass } from "./entity/index.js";
 
 export enum CleanupPolicy {
   Throw = "throw",
   Remove = "remove",
   Delete = "delete",
+}
+
+/** Base class for relationship components that point at another entity. */
+export abstract class Relationship {
+  public target!: Entity;
 }
 
 /** A component instance. Components are plain objects created with a no-arg constructor. */
@@ -20,7 +24,7 @@ export type ComponentType<T extends ComponentInstance = ComponentInstance> = new
 export type ComponentClass<T extends ComponentInstance = ComponentInstance> = new () => T;
 
 /** A component class constructor, component eid, or entity component key. */
-export type ComponentRef = number | ComponentType | EntityClass | Entity;
+export type ComponentRef = EID | ComponentType | EntityClass | Entity;
 
 /**
  * Lifecycle hook for a registered component class. Exposed by
@@ -65,10 +69,13 @@ export interface Hook<C extends ComponentInstance = ComponentInstance> {
   onRemove(handler: (entity: Entity, c: C) => void): Hook<C>;
 
   /**
-   * Register a handler invoked when a component's data has been marked as
-   * changed (`entity.modified(C)`), and when
-   * `entity.set(C, props)` is called on an entity that already has the
-   * component.
+   * Register a handler invoked when a component's data is set or modified.
+   *
+   * Fires when:
+   * - `entity.set(C, props)` applies data to the component.
+   * - `entity.attach(instance)` stores an existing instance.
+   * - `entity.modified(C)` is called after in-place mutation.
+   * - A system's `getMut(C)` marks the component dirty.
    *
    * @param handler - Receives the entity and component instance whose data changed.
    * @returns This hook, for chaining.
@@ -88,7 +95,7 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** The component class constructor this meta represents. */
   public readonly Class: ComponentType;
   /** Component entity id assigned at registration time. */
-  public readonly eid: number;
+  public readonly eid: EID;
   /** Pre-computed bit-pointer into the entity archetype {@link Bitset}. */
   public readonly bitPtr: BitPtr;
   /** Whether this component is a relationship pointing at another entity. */
@@ -115,10 +122,10 @@ export class ComponentMeta implements Hook<ComponentInstance> {
 
   private _usageCount = 0;
 
-  constructor(Class: ComponentType, eid: number) {
+  constructor(Class: ComponentType, ceid: EID) {
     this.Class = Class;
-    this.eid = eid;
-    this.bitPtr = new BitPtr(eid);
+    this.eid = ceid;
+    this.bitPtr = new BitPtr(ceid);
     this.isRelationship = Class.prototype instanceof Relationship;
   }
 

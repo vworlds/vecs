@@ -1,7 +1,7 @@
 // `PhysicsShapeLifecycle` (VP-11 commit 1): shape creation, destruction,
 // geometry update, chain expansion, and reparenting.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -38,11 +38,11 @@ function makeBody(type: BodyType = BodyType.Dynamic) {
 function makeShape(parent: ReturnType<World["entity"]>, geom: object = new Box()) {
   return world
     .entity()
-    .set(ChildOf, { target: parent })
+    .childOf(parent)
     .set(geom.constructor as never, geom);
 }
 
-function hasWasmShape(eid: number): boolean {
+function hasWasmShape(eid: EID): boolean {
   const shapeId = state.shapeByEntityWasm.get(eid);
   if (shapeId === undefined) {
     return false;
@@ -50,7 +50,7 @@ function hasWasmShape(eid: number): boolean {
   return state.box2d.b2Shape_IsValid(shapeId);
 }
 
-function getBodyMass(bodyEid: number): number {
+function getBodyMass(bodyEid: EID): number {
   const bodyId = state.bodyByEntityWasm.get(bodyEid);
   if (bodyId === undefined) {
     return 0;
@@ -90,7 +90,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
 
   it("creates a Circle WASM shape from the Circle component", () => {
     const body = makeBody();
-    const shape = world.entity().set(ChildOf, { target: body }).set(Circle, { radius: 2 });
+    const shape = world.entity().childOf(body).set(Circle, { radius: 2 });
     world.progress(0, 16);
 
     expect(hasWasmShape(shape.eid)).toBe(true);
@@ -100,7 +100,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const body = makeBody();
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Capsule, { x1: -1, y1: 0, x2: 1, y2: 0, radius: 0.5 });
     world.progress(0, 16);
 
@@ -109,10 +109,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
 
   it("creates a Segment WASM shape from the Segment component", () => {
     const body = makeBody();
-    const shape = world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Segment, { x1: -1, y1: 0, x2: 1, y2: 0 });
+    const shape = world.entity().childOf(body).set(Segment, { x1: -1, y1: 0, x2: 1, y2: 0 });
     world.progress(0, 16);
 
     expect(hasWasmShape(shape.eid)).toBe(true);
@@ -122,7 +119,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const body = makeBody(BodyType.Static);
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Polygon, {
         vertices: [
           { x: -1, y: -1 },
@@ -154,7 +151,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
 
   it("reads explicit Material values when present", () => {
     const body = makeBody();
-    const shape = world.entity().set(ChildOf, { target: body }).add(Box).set(Material, {
+    const shape = world.entity().childOf(body).add(Box).set(Material, {
       density: 2,
       friction: 0.4,
       restitution: 0.5,
@@ -195,7 +192,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const body = makeBody();
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .add(Box)
       .set(CollisionFilter, { categoryBits: 0x4, maskBits: 0x3, groupIndex: -1 });
     world.progress(0, 16);
@@ -222,7 +219,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
 
   it("marks sensor=true when Sensor component is present", () => {
     const body = makeBody();
-    const shape = world.entity().set(ChildOf, { target: body }).add(Box).add(Sensor);
+    const shape = world.entity().childOf(body).add(Box).add(Sensor);
     world.progress(0, 16);
 
     const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
@@ -231,7 +228,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
 
   it("enables contact events when ContactEvents is present", () => {
     const body = makeBody();
-    const shape = world.entity().set(ChildOf, { target: body }).add(Box).add(ContactEvents);
+    const shape = world.entity().childOf(body).add(Box).add(ContactEvents);
     world.progress(0, 16);
 
     const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
@@ -244,7 +241,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const body = makeBody();
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .add(Box)
       .add(ContactEvents)
       .add(HitEvents)
@@ -260,7 +257,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
   it("uses the world AABB (body transform composed with local pose)", () => {
     // Place body at (10, 0), shape at identity local pose → AABB center near (10, 0).
     const body = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 10, y: 0 });
-    const shape = world.entity().set(ChildOf, { target: body }).add(Box);
+    const shape = world.entity().childOf(body).add(Box);
     world.progress(0, 16);
 
     const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
@@ -277,7 +274,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const body = world.entity().set(Body, { type: BodyType.Static });
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { hx: 0.5, hy: 0.5 })
       .set(ShapePosition, { x: 5, y: 0 });
     world.progress(0, 16);
@@ -296,7 +293,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     const body = world.entity().set(Body, { type: BodyType.Static });
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { hx: 1, hy: 0.1 })
       .set(ShapeRotation, { angle: Math.PI / 2 });
     world.progress(0, 16);
@@ -315,8 +312,8 @@ describe("PhysicsShapeLifecycle.enter", () => {
 
   it("does NOT create a shape for geometry on a grandchild (immediate-parent rule)", () => {
     const grandparent = makeBody();
-    const middleChild = world.entity().set(ChildOf, { target: grandparent });
-    const grandchild = world.entity().set(ChildOf, { target: middleChild }).add(Box);
+    const middleChild = world.entity().childOf(grandparent);
+    const grandchild = world.entity().childOf(middleChild).add(Box);
     world.progress(0, 16);
 
     expect(state.shapeByEntityWasm.has(grandchild.eid)).toBe(false);
@@ -334,7 +331,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
 
   it("works when shape is created before body starts (shape-then-body order)", () => {
     const bodyEntity = world.entity();
-    const shape = world.entity().set(ChildOf, { target: bodyEntity }).add(Box);
+    const shape = world.entity().childOf(bodyEntity).add(Box);
     world.progress(0, 16);
     // body doesn't have Body yet — no shape
     expect(state.shapeByEntityWasm.has(shape.eid)).toBe(false);
@@ -352,7 +349,7 @@ describe("PhysicsShapeLifecycle — Chain shapes", () => {
     const body = makeBody(BodyType.Static);
     const chain = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Chain, {
         points: [
           { x: 0, y: 0 },
@@ -373,7 +370,7 @@ describe("PhysicsShapeLifecycle — Chain shapes", () => {
     const body = makeBody(BodyType.Static);
     const chain = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Chain, {
         points: [
           { x: 0, y: 0 },
@@ -438,7 +435,7 @@ describe("PhysicsShapeLifecycle.exit", () => {
     const body = makeBody(BodyType.Static);
     const chain = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Chain, {
         points: [
           { x: 0, y: 0 },
@@ -548,7 +545,7 @@ describe("PhysicsShapeLifecycle — reparenting", () => {
     const massBefore = getBodyMass(bodyA.eid);
     expect(massBefore).toBeGreaterThan(0);
 
-    shape.set(ChildOf, { target: bodyB });
+    shape.childOf(bodyB);
     world.progress(16, 16);
 
     // bodyA has no more shapes → mass becomes 0.
@@ -565,7 +562,7 @@ describe("PhysicsShapeLifecycle — reparenting", () => {
 
     expect(state.dirtyMassBodies.size).toBe(0);
 
-    shape.set(ChildOf, { target: bodyB });
+    shape.childOf(bodyB);
     world.progress(16, 16);
 
     // PhysicsMassRecompute should have cleared dirtyMassBodies.
@@ -578,10 +575,7 @@ describe("PhysicsShapeLifecycle — reparenting", () => {
 describe("degenerate capsule/segment rejection (Box2D parity)", () => {
   it("zero-length Capsule is not registered as a WASM shape (skipped at creation)", () => {
     const body = makeBody();
-    const e = world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Capsule, { x1: 0, y1: 0, x2: 0, y2: 0, radius: 1 });
+    const e = world.entity().childOf(body).set(Capsule, { x1: 0, y1: 0, x2: 0, y2: 0, radius: 1 });
     world.progress(0, 16);
 
     expect(state.shapeByEntityWasm.has(e.eid)).toBe(false);
@@ -592,7 +586,7 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
     const tinyDelta = LINEAR_SLOP * 0.5;
     const e = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Capsule, { x1: 0, y1: 0, x2: tinyDelta, y2: 0, radius: 1 });
     world.progress(0, 16);
 
@@ -603,7 +597,7 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
     const body = makeBody();
     const e = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Capsule, { x1: -1, y1: 0, x2: 1, y2: 0, radius: 0.5 });
     world.progress(0, 16);
 
@@ -612,10 +606,7 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
 
   it("zero-length Segment is not registered", () => {
     const body = makeBody();
-    const e = world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Segment, { x1: 5, y1: 5, x2: 5, y2: 5 });
+    const e = world.entity().childOf(body).set(Segment, { x1: 5, y1: 5, x2: 5, y2: 5 });
     world.progress(0, 16);
 
     expect(state.shapeByEntityWasm.has(e.eid)).toBe(false);
@@ -625,7 +616,7 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
     const body = makeBody();
     const e = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Capsule, { x1: -1, y1: 0, x2: 1, y2: 0, radius: 0.5 });
     world.progress(0, 16);
 
@@ -643,10 +634,7 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
 
   it("degenerate Segment update is ignored; old valid shape is preserved", () => {
     const body = makeBody();
-    const e = world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Segment, { x1: -2, y1: 0, x2: 2, y2: 0 });
+    const e = world.entity().childOf(body).set(Segment, { x1: -2, y1: 0, x2: 2, y2: 0 });
     world.progress(0, 16);
 
     const originalShapeId = state.shapeByEntityWasm.get(e.eid)!;

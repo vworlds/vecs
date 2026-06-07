@@ -1,4 +1,10 @@
-import { World, type ComponentClass, type IdPoolConfig, type WorldOptions } from "@vworlds/vecs";
+import {
+  World,
+  type ComponentClass,
+  type EID,
+  type IdPoolConfig,
+  type WorldOptions,
+} from "@vworlds/vecs";
 import { cid_pack, setLocalComponentMin } from "./cid.js";
 
 const DEFAULT_ENTITY_ID_START = 1000;
@@ -12,8 +18,8 @@ export interface RegisteredNetworkComponent {
 
 export interface NetworkWorldOptions extends Omit<WorldOptions, "idPools"> {
   networkComponents?: readonly ComponentClass[];
-  entityIdStart?: number;
-  localEntityIdStart?: number;
+  entityIdStart?: EID;
+  localEntityIdStart?: EID;
   networkEntityReuseWaitFrames?: number;
 }
 
@@ -120,7 +126,7 @@ function nextPowerOfTwo(value: number): number {
   return power;
 }
 
-function validateEntityStart(name: string, value: number): void {
+function validateEntityStart(name: string, value: EID): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive safe integer`);
   }

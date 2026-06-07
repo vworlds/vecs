@@ -1,5 +1,5 @@
 import { _compile, type EntityTestFunc, type QueryDSL } from "../dsl.js";
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
 import { Term } from "./term.js";
 import { WorldTerm } from "./world_term.js";
@@ -13,7 +13,7 @@ import type { getTerm as GetTermFn } from "./build.js";
  * first building — and then having to tear down — the composite child terms.
  */
 export type MergedInfo = {
-  componentEids: ReadonlySet<number>;
+  componentEids: ReadonlySet<EID>;
   dependsOnWorld: boolean;
   containsOnly: boolean;
 };
@@ -24,7 +24,7 @@ export type MergedInfo = {
  * - **Plain predicate** (`kind === "predicate"`): wraps a user-supplied
  *   `{ test, watch }` DSL node. The predicate is evaluated whenever a watched
  *   component changes; membership requires the world leaf to include the entity
- *   (i.e. it is not destroyed and not a `Component` instance).
+ *   (i.e. it has not been destroyed).
  *
  * - **Merged / diamond-collapsed** (`kind === "merged"`): wraps a compiled
  *   predicate for an `all`/`any` subtree that was detected to contain a
@@ -86,7 +86,7 @@ export class PredicateTerm extends Term {
   ): PredicateTerm {
     const watch = normalizeWatch(dsl.watch);
     const worldTerm = getTerm(world, true);
-    const watchedTerms = watch.map((eid) => getTerm(world, eid));
+    const watchedTerms = watch.map((ceid) => getTerm(world, ceid));
     return new PredicateTerm(
       world,
       key,
@@ -126,7 +126,7 @@ export class PredicateTerm extends Term {
   ): PredicateTerm {
     const predicate = _compile(world, dsl);
     const worldTerm = info.dependsOnWorld ? getTerm(world, true) : undefined;
-    const watchedTerms = [...info.componentEids].map((eid) => getTerm(world, eid));
+    const watchedTerms = [...info.componentEids].map((ceid) => getTerm(world, ceid));
     return new PredicateTerm(
       world,
       key,
@@ -167,9 +167,9 @@ export class PredicateTerm extends Term {
 }
 
 /** @internal Deduplicate and sort a `watch` list of component eids. */
-export function normalizeWatch(watch: unknown): number[] {
+export function normalizeWatch(watch: unknown): EID[] {
   if (watch === undefined) {
     return [];
   }
-  return [...new Set((watch instanceof Array ? watch : [watch]) as number[])].sort((a, b) => a - b);
+  return [...new Set((watch instanceof Array ? watch : [watch]) as EID[])].sort((a, b) => a - b);
 }

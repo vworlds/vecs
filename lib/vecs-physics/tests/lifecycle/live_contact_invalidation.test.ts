@@ -3,7 +3,7 @@
 // Verifies that live mutations (filter change, geometry rebuild, type change)
 // correctly destroy stale contacts and allow the pair to re-evaluate.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -40,7 +40,7 @@ function step(n = 1): void {
 
 function makeGround() {
   const g = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -10 });
-  world.entity().set(ChildOf, { target: g }).set(Box, { width: 100, height: 20 });
+  world.entity().childOf(g).set(Box, { width: 100, height: 20 });
   return g;
 }
 
@@ -55,7 +55,7 @@ describe("contact invalidation on CollisionFilter change", () => {
       .set(Position, { x: 0, y: 0.5 });
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { width: 2, height: 2 })
       .set(CollisionFilter, { categoryBits: 0x1, maskBits: 0xffffffff, groupIndex: 0 });
 
@@ -72,7 +72,7 @@ describe("contact invalidation on CollisionFilter change", () => {
 
   it("filter change does not crash when no contacts exist", () => {
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
-    const shape = world.entity().set(ChildOf, { target: body }).set(Circle, { radius: 1 });
+    const shape = world.entity().childOf(body).set(Circle, { radius: 1 });
     step();
 
     expect(() => {
@@ -91,7 +91,7 @@ describe("contact invalidation on geometry update", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    const shape = world.entity().set(ChildOf, { target: body }).set(Box, { width: 2, height: 2 });
+    const shape = world.entity().childOf(body).set(Box, { width: 2, height: 2 });
 
     step(5); // contacts created
 
@@ -110,7 +110,7 @@ describe("contact invalidation on geometry update", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    const shape = world.entity().set(ChildOf, { target: body }).set(Circle, { radius: 1 });
+    const shape = world.entity().childOf(body).set(Circle, { radius: 1 });
 
     step(5);
 

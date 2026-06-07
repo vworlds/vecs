@@ -6,7 +6,7 @@
 // component at shape creation (lifecycle reads the initial value), then SET it
 // again with a new value to trigger the update callback.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -30,11 +30,11 @@ function makeBody(type: BodyType = BodyType.Dynamic) {
   return world.entity().set(Body, { type });
 }
 
-function getBodyMass(eid: number): number {
+function getBodyMass(eid: EID): number {
   return state.box2d.b2Body_GetMass(state.bodyByEntityWasm.get(eid)!);
 }
 
-function getShapeMaterial(shapeEid: number) {
+function getShapeMaterial(shapeEid: EID) {
   const shapeId = state.shapeByEntityWasm.get(shapeEid);
   if (shapeId === undefined) {
     return undefined;
@@ -69,7 +69,7 @@ function getShapeFilter(shapeEid: number) {
 function makeChainShape(body: ReturnType<typeof makeBody>) {
   return world
     .entity()
-    .set(ChildOf, { target: body })
+    .childOf(body)
     .set(Chain, {
       points: [
         { x: -1, y: 0 },
@@ -94,7 +94,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
   it("copies material fields to the WASM shape when Material is updated", () => {
     const body = makeBody();
     // Create shape with initial Material.
-    const shape = world.entity().set(ChildOf, { target: body }).add(Box).set(Material, {
+    const shape = world.entity().childOf(body).add(Box).set(Material, {
       density: 1,
       friction: 0.6,
       restitution: 0,
@@ -126,7 +126,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
 
   it("marks body massDirty when density changes on a dynamic body", () => {
     const body = makeBody(BodyType.Dynamic);
-    const shape = world.entity().set(ChildOf, { target: body }).add(Box).set(Material, {
+    const shape = world.entity().childOf(body).add(Box).set(Material, {
       density: 1,
       friction: 0.6,
       restitution: 0,
@@ -157,18 +157,14 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
 
   it("does NOT recompute mass when only friction changes on a dynamic body", () => {
     const body = makeBody(BodyType.Dynamic);
-    const shape = world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Circle, { radius: 1 })
-      .set(Material, {
-        density: 1,
-        friction: 0.3,
-        restitution: 0,
-        rollingResistance: 0,
-        tangentSpeed: 0,
-        userMaterialId: 0,
-      });
+    const shape = world.entity().childOf(body).set(Circle, { radius: 1 }).set(Material, {
+      density: 1,
+      friction: 0.3,
+      restitution: 0,
+      rollingResistance: 0,
+      tangentSpeed: 0,
+      userMaterialId: 0,
+    });
     world.progress(0, 16);
 
     // box2d3-wasm@5.2.0 baseline: mass = density * pi * r^2.
@@ -193,18 +189,14 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
 
   it("recomputes mass when density changes on a dynamic body (density 1 → 5)", () => {
     const body = makeBody(BodyType.Dynamic);
-    const shape = world
-      .entity()
-      .set(ChildOf, { target: body })
-      .set(Circle, { radius: 1 })
-      .set(Material, {
-        density: 1,
-        friction: 0.6,
-        restitution: 0,
-        rollingResistance: 0,
-        tangentSpeed: 0,
-        userMaterialId: 0,
-      });
+    const shape = world.entity().childOf(body).set(Circle, { radius: 1 }).set(Material, {
+      density: 1,
+      friction: 0.6,
+      restitution: 0,
+      rollingResistance: 0,
+      tangentSpeed: 0,
+      userMaterialId: 0,
+    });
     world.progress(0, 16);
 
     expect(getBodyMass(body.eid)).toBeCloseTo(PI, 6);
@@ -228,7 +220,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
 
   it("does NOT trigger mass recompute for Material changes on a static body", () => {
     const body = makeBody(BodyType.Static);
-    const shape = world.entity().set(ChildOf, { target: body }).add(Box).set(Material, {
+    const shape = world.entity().childOf(body).add(Box).set(Material, {
       density: 1,
       friction: 0.6,
       restitution: 0,
@@ -295,7 +287,7 @@ describe("PhysicsMaterialFilterSync.update(CollisionFilter)", () => {
     // Create shape with initial filter.
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .add(Box)
       .set(CollisionFilter, { categoryBits: 1, maskBits: 0xffffffff, groupIndex: 0 });
     world.progress(0, 16);

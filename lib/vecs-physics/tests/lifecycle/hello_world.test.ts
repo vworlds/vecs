@@ -8,7 +8,7 @@
 // Ground top is at y = 0 (static body at y=-10, box half-height 10), so a box
 // with half-height 1 rests with its centre at y = 1.0.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -35,7 +35,7 @@ describe("HelloWorld (M3 parity gate)", () => {
       .entity()
       .set(Body, { type: BodyType.Static })
       .set(Position, { x: 0, y: -10 });
-    world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 20 });
+    world.entity().childOf(ground).set(Box, { width: 100, height: 20 });
 
     // Dynamic: body at (0, 4) with a child Box of half-extents (1, 1), density 1,
     // friction 0.3.
@@ -45,7 +45,7 @@ describe("HelloWorld (M3 parity gate)", () => {
       .set(Position, { x: 0, y: 4 });
     world
       .entity()
-      .set(ChildOf, { target: bodyEntity })
+      .childOf(bodyEntity)
       .set(Box, { width: 2, height: 2 })
       .set(Material, { density: 1, friction: 0.3 });
 

@@ -118,7 +118,7 @@ async function createSession(): Promise<Session> {
 function installRenderSystems(world: ClientWorld): void {
   world
     .system("RenderBalls")
-    .requires(Position, Ball, Color)
+    .with(Position, Ball, Color)
     .each([Position, Ball, Color], (_entity, [position, ball, color]) => {
       context.beginPath();
       context.arc(position.x, position.y, ball.radius, 0, Math.PI * 2);
@@ -131,7 +131,7 @@ function installRenderSystems(world: ClientWorld): void {
 
   world
     .system("RenderPlayers")
-    .requires(Position, Player)
+    .with(Position, Player)
     .each([Position, Player], (_entity, [position, player]) => {
       context.fillStyle = "#facc15";
       context.fillRect(position.x, position.y, PLAYER_SIZE, PLAYER_SIZE);

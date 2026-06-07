@@ -4,7 +4,7 @@
 // Body.enabled must still destroy contacts on disable and recreate them on
 // re-enable without leaks.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Position, installPhysics } from "../../src/index.js";
@@ -25,7 +25,7 @@ describe("test_world.c::EnableContactRecyclingTest", () => {
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0.5 });
-    world.entity().set(ChildOf, { target: body }).set(Box, { hx: 1, hy: 1 });
+    world.entity().childOf(body).set(Box, { hx: 1, hy: 1 });
 
     step(5);
     const bodyId = state.bodyByEntityWasm.get(body.eid)!;
@@ -54,7 +54,7 @@ function makeGround(world: World): void {
     .entity()
     .set(Body, { type: BodyType.Static })
     .set(Position, { x: 0, y: -10 });
-  world.entity().set(ChildOf, { target: ground }).set(Box, { hx: 50, hy: 10 });
+  world.entity().childOf(ground).set(Box, { hx: 50, hy: 10 });
 }
 
 function makeStepper(world: World): (count: number) => void {

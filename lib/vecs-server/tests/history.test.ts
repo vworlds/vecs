@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ALL_COMPONENTS, EncodedSnapshot, StateDiff } from "@vworlds/vecs-protocol";
+import type { EID } from "@vworlds/vecs";
+import {
+  ALL_COMPONENTS,
+  EncodedSnapshot,
+  StateDiff,
+  type RemovedComponent,
+} from "@vworlds/vecs-protocol";
 import { HISTORY_LENGTH, History } from "../src/history.js";
 
 function diff(toFrame: number): StateDiff {
@@ -13,14 +19,14 @@ function diff(toFrame: number): StateDiff {
   });
 }
 
-function snapshot(eid: number, type: number, value = type): EncodedSnapshot {
+function snapshot(eid: EID, type: number, value = type): EncodedSnapshot {
   return new EncodedSnapshot(new Uint8Array([eid, type, value]), eid, type);
 }
 
 function stateDiff(
   toFrame: number,
   snapshots: EncodedSnapshot[] = [],
-  removed: [eid: number, type: number][] = []
+  removed: RemovedComponent[] = []
 ): StateDiff {
   return new StateDiff({ fromFrame: toFrame - 1, toFrame, snapshots, removed });
 }

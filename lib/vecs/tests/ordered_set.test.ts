@@ -35,6 +35,21 @@ describe("OrderedSet", () => {
     expect([...s]).toEqual([5, 10, 20, 30]);
   });
 
+  it("reSort moves an existing object after its sort key changes", () => {
+    type Item = { priority: number; name: string };
+    const s = new OrderedSet<Item>(
+      (a, b) => a.priority - b.priority || a.name.localeCompare(b.name)
+    );
+    const a = { priority: 1, name: "a" };
+    const b = { priority: 2, name: "b" };
+    const c = { priority: 3, name: "c" };
+    s.add(a).add(b).add(c);
+
+    a.priority = 4;
+    expect(s.reSort(a)).toBe(s);
+    expect([...s].map((item) => item.name)).toEqual(["b", "c", "a"]);
+  });
+
   it("delete removes existing element and returns true", () => {
     const s = new OrderedSet<number>(numCmp);
     s.add(1).add(2).add(3);
@@ -42,6 +57,19 @@ describe("OrderedSet", () => {
     expect(s.has(2)).toBe(false);
     expect(s.size).toBe(2);
     expect([...s]).toEqual([1, 3]);
+  });
+
+  it("delete removes an object after its sort key changes", () => {
+    type Item = { priority: number; name: string };
+    const s = new OrderedSet<Item>((a, b) => a.priority - b.priority);
+    const a = { priority: 1, name: "a" };
+    const b = { priority: 2, name: "b" };
+    s.add(a).add(b);
+
+    a.priority = 3;
+
+    expect(s.delete(a)).toBe(true);
+    expect([...s]).toEqual([b]);
   });
 
   it("delete on missing element returns false", () => {

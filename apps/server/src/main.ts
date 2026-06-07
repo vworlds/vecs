@@ -8,13 +8,7 @@ import {
   VecsListener,
   View,
 } from "@vworlds/vecs-server";
-import {
-  ChildOf,
-  type ComponentClass,
-  type Entity,
-  type QueryDSL,
-  Relationship,
-} from "@vworlds/vecs";
+import { type ComponentClass, type Entity, type QueryDSL, Relationship } from "@vworlds/vecs";
 import {
   Body,
   BodyType,
@@ -140,22 +134,19 @@ world.component(NetworkClient).onSet((entity) => {
 // per-cell candidate set instead of scanning every ball.
 const ballsByCell = world
   .query("BallsByCell")
-  .requires(Networked, Ball, Position)
+  .with(Networked, Ball, Position)
   .groupBy([Position], (_entity: Entity, [position]: [Position]) => getGridCellIndex(position));
 
 // Interest index: every networked entity bucketed by the cell entity it points
 // at via InCell. Keyed by the cell anchor entity (the relationship target), so
 // it stays correct purely from relationship retargeting.
-const occupancyByCell = world
-  .query("OccupancyByCell")
-  .requires(Networked, Position)
-  .groupBy(InCell);
+const occupancyByCell = world.query("OccupancyByCell").with(Networked, Position).groupBy(InCell);
 
 var selected: Entity | undefined = undefined;
 world
   .system("SyncPhysicsBalls")
   .phase("physics-post")
-  .requires(Networked, Ball, Position, PhysicsPosition)
+  .with(Networked, Ball, Position, PhysicsPosition)
   .each([Position, PhysicsPosition, Ball], (entity, [position, physicsPosition, ball]) => {
     // Keep the wire-typed demo Position as the client protocol and adapt from
     // vecs-physics Position post-step instead of decorating external classes.
@@ -169,7 +160,7 @@ world
 
 world
   .system("SpawnPlayers")
-  .requires(Networked, NetworkClient)
+  .with(Networked, NetworkClient)
   .enter((entity) => {
     const playerIndex = playerSpawnIndex++;
     entity.set(Position, {
@@ -181,7 +172,7 @@ world
 
 world
   .system("MovePlayers")
-  .requires(Networked, NetworkClient, NetworkInput, Player, Position)
+  .with(Networked, NetworkClient, NetworkInput, Player, Position)
   .each([NetworkInput, Player, Position], (entity, [networkInput, player, position]) => {
     const input = normalizeInput(networkInput.input);
     syncViewAll(entity, input.viewAll === true);
@@ -228,14 +219,14 @@ world
 world
   .system("AssignCells")
   .phase("physics-post")
-  .requires(Networked, Position)
+  .with(Networked, Position)
   .enter([Position], (entity, [position]) => assignCell(entity, position))
   .update(Position, (entity, position) => assignCell(entity, position));
 
 world
   .system("UpdatePlayerViews")
   .phase("physics-post")
-  .requires(Networked, NetworkClient, Position, View)
+  .with(Networked, NetworkClient, Position, View)
   .enter([Position, View], (entity, [position, view]) => updatePlayerView(entity, position, view))
   .update(Position, [View], (entity, position, [view]) => updatePlayerView(entity, position, view));
 
@@ -304,7 +295,7 @@ function spawnBall(x?: number, y?: number): void {
 
   world
     .entity()
-    .set(ChildOf, { target: body })
+    .childOf(body)
     .set(Circle, { radius: demoUnitsToMeters(BALL_RADIUS) })
     .set(Material, { friction: 0.6, restitution: 0.7 });
 }
@@ -318,7 +309,7 @@ function createPhysicsWalls(): void {
   // orient every wall normal inward toward the play area.
   world
     .entity()
-    .set(ChildOf, { target: walls })
+    .childOf(walls)
     .set(Chain, {
       points: [
         toPhysicsPoint({ x: WIDTH, y: HEIGHT }),

@@ -18,6 +18,7 @@ import { performance } from "node:perf_hooks";
 import {
   type ComponentInstance,
   type ComponentClass,
+  type EID,
   type Entity,
   type IPhase,
   type System,
@@ -80,7 +81,7 @@ export class ServerWorld extends NetworkWorld {
   private readonly _encodeBuffer: Uint8Array;
   private readonly _disconnectGraceMs: number;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
-  private _frame = 0;
+  private _frame = 1;
   private _systemsInstalled = false;
 
   public constructor(options: ServerWorldOptions = {}) {
@@ -124,7 +125,7 @@ export class ServerWorld extends NetworkWorld {
 
     this._clients = this.system(`ServerWorld:${this.name}:View`)
       .phase(collectPhase)
-      .requires(View, ServerClientSession)
+      .with(View, ServerClientSession)
       .update(View, [ServerClientSession], (_entity, view, [_session]) => {
         view._refreshTracker(this._trackerCache);
       })
@@ -136,7 +137,7 @@ export class ServerWorld extends NetworkWorld {
     this._components.forEach((registered) => {
       this.system(`ServerWorld:${this.name}:${registered.Class.name}`)
         .phase(collectPhase)
-        .requires(Networked, registered.Class)
+        .with(Networked, registered.Class)
         .update(registered.Class, (entity, component) => {
           this._snapshotCache.delete(cid_pack(entity.eid, registered.type));
           this._record(entity, registered.type, component);
@@ -154,12 +155,12 @@ export class ServerWorld extends NetworkWorld {
   }
 
   public send(): void {
+    const toFrame = this._frame++;
     if (this._sessions.size === 0) {
       this._updates.clear();
       return;
     }
 
-    const toFrame = this._frame++;
     const nowMs = performance.now();
     const staleSessions: ServerClientSession[] = [];
 
@@ -300,11 +301,7 @@ export class ServerWorld extends NetworkWorld {
     });
   }
 
-  private _encodeSnapshot(
-    eid: number,
-    type: number,
-    component: ComponentInstance
-  ): EncodedSnapshot {
+  private _encodeSnapshot(eid: EID, type: number, component: ComponentInstance): EncodedSnapshot {
     const cid = cid_pack(eid, type);
     const cached = this._snapshotCache.get(cid);
     if (cached) {

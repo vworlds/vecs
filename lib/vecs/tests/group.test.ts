@@ -30,7 +30,7 @@ describe("Query.groupBy — value grouping", () => {
     const { w, tick } = setup();
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
     w.start();
@@ -53,7 +53,7 @@ describe("Query.groupBy — value grouping", () => {
     const { w, tick } = setup();
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
     w.start();
@@ -68,11 +68,54 @@ describe("Query.groupBy — value grouping", () => {
     expect(byCell.group(3)?.has(e)).toBe(true);
   });
 
+  it("does not re-key a group when the modifying source is silenced", () => {
+    class Marker {}
+    const w = new World();
+    w.component(Team);
+    w.component(Marker);
+    const phase = w.addPhase("p");
+
+    const byTeam = w
+      .query("byTeam")
+      .with(Team)
+      .ignoreSource([Marker])
+      .groupBy([Team], (_e, [team]) => team.id);
+    byTeam.build();
+
+    // Writer is inside the silenced domain and rewrites Team.id every tick.
+    const writer = w
+      .system("Writer")
+      .phase(phase)
+      .with(Team)
+      .each([Team], (e) => {
+        e.getMut(Team, (t) => {
+          t.id = 1;
+        });
+      });
+    writer.entity.add(Marker);
+    w.start();
+
+    const e = w.entity().set(Team, { id: 0 });
+    w.progress(0, 0); // enters group 0; writer's silenced write must not re-key
+    w.progress(0, 0);
+
+    expect(byTeam.group(0)?.has(e)).toBe(true);
+    expect(byTeam.group(1)).toBeUndefined();
+
+    // An external (unsourced) write still re-keys the entity.
+    e.getMut(Team, (t) => {
+      t.id = 2;
+    });
+    w.flush();
+    expect(byTeam.group(0)).toBeUndefined();
+    expect(byTeam.group(2)?.has(e)).toBe(true);
+  });
+
   it("drops a bucket and removes a member when it leaves the query", () => {
     const { w, tick } = setup();
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
     w.start();
@@ -93,7 +136,7 @@ describe("Query.groupBy — value grouping", () => {
     const exited: number[] = [];
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos))
       .onGroupEnter((group) => entered.push(group.key))
       .onGroupExit((key) => exited.push(key as number));
@@ -114,7 +157,7 @@ describe("Query.groupBy — value grouping", () => {
     const { w, tick } = setup();
     const byTeam = w
       .query("byTeam")
-      .requires(Team)
+      .with(Team)
       .groupBy([Team], (_e, [team]) => team.id);
     byTeam.build();
     w.start();
@@ -137,7 +180,7 @@ describe("Query.groupBy — value grouping", () => {
 
     const byCell = w
       .query("late")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
 
@@ -148,7 +191,7 @@ describe("Query.groupBy — value grouping", () => {
     const { w, tick } = setup();
     const byCell = w
       .query("byCell")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
     w.start();
@@ -160,6 +203,23 @@ describe("Query.groupBy — value grouping", () => {
     const seen: number[] = [];
     byCell.group(1)?.forEach([Position], (_e, [pos]) => seen.push(pos!.x));
     expect(seen.sort((p, q) => p - q)).toEqual([120, 180]);
+  });
+
+  it("Group.forEach returns the group for chaining", () => {
+    const { w, tick } = setup();
+    const byCell = w
+      .query("byCell")
+      .with(Position)
+      .groupBy([Position], (_e, [pos]) => cellOf(pos));
+    byCell.build();
+    w.start();
+
+    w.entity().set(Position, { x: 120 });
+    tick();
+
+    const group = byCell.group(1)!;
+    expect(group.forEach(() => {})).toBe(group);
+    expect(group.forEach([Position], () => {})).toBe(group);
   });
 });
 
@@ -224,7 +284,7 @@ describe("Query.groupBy — non-grouped queries", () => {
     const { w } = setup();
     const q = w
       .query("gq")
-      .requires(Position)
+      .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     q.build();
     expect(typeof q.groupCount).toBe("number");
@@ -235,7 +295,7 @@ describe("Query.groupBy — non-grouped queries", () => {
 
   it("throws when grouping twice", () => {
     const { w } = setup();
-    const q = w.query("twice").requires(Position);
+    const q = w.query("twice").with(Position);
     q.groupBy([Position], (_e, [pos]) => cellOf(pos));
     expect(() => q.groupBy([Position], (_e, [pos]) => cellOf(pos))).toThrow();
   });

@@ -19,7 +19,7 @@
 // (sloping downward to the right) with a thin flat Box shape.  A dynamic box
 // is placed just above the ramp surface on the uphill side.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -59,7 +59,7 @@ function makeRamp(world: World): void {
     .set(Body, { type: BodyType.Static })
     .set(Position, { x: 0, y: 0 })
     .set(Rotation, { angle: -RAMP_ANGLE });
-  world.entity().set(ChildOf, { target: rampBody }).set(Box, { hx: 8, hy: 0.25 });
+  world.entity().childOf(rampBody).set(Box, { hx: 8, hy: 0.25 });
 }
 
 /**
@@ -86,7 +86,7 @@ function makeDynamicBox(world: World, friction: number) {
     .set(LinearVelocity, { x: 0, y: 0 });
   world
     .entity()
-    .set(ChildOf, { target: body })
+    .childOf(body)
     .set(Box, { hx: 0.4, hy: 0.4 })
     .set(Material, { density: 1, friction });
   return body;

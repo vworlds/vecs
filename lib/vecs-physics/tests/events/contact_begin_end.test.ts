@@ -5,7 +5,7 @@
 // The raw contactBeginEvents / contactEndEvents arrays on PhysicsState were
 // engine-internal; they have been removed in M7-10.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, ContactEvents, Position, installPhysics } from "../../src/index.js";
@@ -32,7 +32,7 @@ function step(n = 1): void {
 /** A dynamic 2×2 box at (x, y) with optional ContactEvents. */
 function makeBox(x: number, y: number, withEvents = false) {
   const body = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x, y });
-  const shapeEnt = world.entity().set(ChildOf, { target: body }).set(Box, { hx: 1, hy: 1 });
+  const shapeEnt = world.entity().childOf(body).set(Box, { hx: 1, hy: 1 });
   if (withEvents) {
     shapeEnt.set(ContactEvents, {});
   }

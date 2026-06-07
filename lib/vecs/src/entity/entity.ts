@@ -1,10 +1,14 @@
 import { type ComponentType } from "../component_meta.js";
+import { ChildOf } from "../modules/relationship_types.js";
 import { type World } from "../world/index.js";
 import { IdentityEntity } from "./entity.identity.js";
 
+/** Entity id assigned by a {@link World}. */
+export type EID = number;
+
 export type EntityClass<T extends Entity = Entity> = new (
   world: World,
-  eid: number,
+  eid: EID,
   ownComponentClass?: ComponentType
 ) => T;
 
@@ -37,4 +41,9 @@ export type EntityClass<T extends Entity = Entity> = new (
  * Outside deferred mode the same calls execute inline and mutations are
  * visible immediately.
  */
-export class Entity extends IdentityEntity {}
+export class Entity extends IdentityEntity {
+  /** Attach this entity to `parent` through the built-in `ChildOf` relationship. */
+  public childOf(parent: Entity): this {
+    return this.set(ChildOf, { target: parent });
+  }
+}

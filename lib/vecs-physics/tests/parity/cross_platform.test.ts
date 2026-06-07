@@ -9,7 +9,7 @@
 // If the upstream box2d3-wasm version bumps, this parity baseline must be
 // re-recorded against the new version.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World, type EID } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Material, Position, installPhysics } from "../../src/index.js";
@@ -43,7 +43,7 @@ function runStackingSnapshot(): string {
 
   // Collect body states from WASM via body events and direct API calls.
   const bodies: Array<{
-    eid: number;
+    eid: EID;
     x: number;
     y: number;
     angle: number;
@@ -87,7 +87,7 @@ function makeGround(world: World): void {
   const ground = world.entity().set(Body, { type: BodyType.Static });
   world
     .entity()
-    .set(ChildOf, { target: ground })
+    .childOf(ground)
     .set(Box, { hx: 50, hy: 1 })
     .set(Material, { friction: 0.6, density: 0 });
 }
@@ -104,7 +104,7 @@ function makeStack(world: World): void {
       const body = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x, y });
       world
         .entity()
-        .set(ChildOf, { target: body })
+        .childOf(body)
         .set(Box, { hx: boxHalfSize, hy: boxHalfSize })
         .set(Material, { friction: 0.3, density: 1 });
     }

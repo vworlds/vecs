@@ -1,3 +1,4 @@
+import type { EID } from "../entity/index.js";
 import { IdPool, type IdPoolConfig, validateIdPoolConfigs } from "../util/id_pool.js";
 import { Base, type WorldOptions } from "./world.base.js";
 
@@ -39,7 +40,7 @@ export class Pools extends Base {
   }
 
   /** Return the id that the named pool will allocate next without reserving it. */
-  public peekNextEid(poolName: string): number {
+  public peekNextEid(poolName: string): EID {
     return this._poolByName(poolName).peek();
   }
 
@@ -65,7 +66,7 @@ export class Pools extends Base {
   }
 
   /** @internal Return the pool that owns `eid`. */
-  protected _poolFor(eid: number): IdPool {
+  protected _poolFor(eid: EID): IdPool {
     if (eid === RESERVED_EID) {
       throw new Error(`Eid ${eid} is reserved`);
     }
@@ -77,7 +78,7 @@ export class Pools extends Base {
   }
 
   /** @internal Reserve an externally assigned id in its owning pool. */
-  protected _reserveEid(eid: number): void {
+  protected _reserveEid(eid: EID): void {
     this._poolFor(eid).reserve(eid);
   }
 }

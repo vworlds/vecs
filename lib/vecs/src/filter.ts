@@ -69,7 +69,7 @@ export class Filter<R extends ComponentType[] = []> {
    *
    * @param callback - Receives only the matching entity.
    */
-  public forEach(callback: (e: Entity) => void): void;
+  public forEach(callback: (e: Entity) => void): this;
 
   /**
    * Walk all current world entities, call `callback` for each one that
@@ -89,7 +89,7 @@ export class Filter<R extends ComponentType[] = []> {
   public forEach<J extends FanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): void;
+  ): this;
 
   /**
    * As above, but pass `Entity` first to make the entity-first signature
@@ -99,29 +99,29 @@ export class Filter<R extends ComponentType[] = []> {
     cursor: typeof Entity,
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): void;
+  ): this;
 
   /**
    * As above, but pass `Iter` first to receive a reused {@link Iter}
    * cursor instead of the bare entity. The cursor exposes the visited entity
    * (`it.entity`) and, in `it.src`, the source entity each resolved component
-   * was read from (the visited entity for direct components, the relationship
-   * target for `up`-injected ones).
+   * was read from (the visited entity for direct components, the
+   * relationship's target entity for ones injected via `target`).
    */
   public forEach<J extends FanInjectTuple>(
     cursor: typeof Iter,
     components: readonly [...J],
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
-  ): void;
+  ): this;
 
-  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): void {
+  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
     // Bare `forEach(callback)`: a function that is not a cursor marker.
     if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
       const callback = arg0 as (e: Entity) => void;
       this.world.defer(() => {
         this._forEachMatch(callback);
       });
-      return;
+      return this;
     }
     const useIter = wantsIter(arg0);
     const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
@@ -133,6 +133,7 @@ export class Filter<R extends ComponentType[] = []> {
       const invoke = makeInjectedInvoker(this.world, components, useIter, callback);
       this._forEachMatch(invoke);
     });
+    return this;
   }
 
   private _forEachMatch(callback: (e: Entity) => void): void {

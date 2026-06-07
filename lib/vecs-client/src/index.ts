@@ -5,4 +5,4 @@ export type {
   DgramConnectOptions,
   InstallSystemsOptions,
 } from "./client_world.js";
-export { worldPath } from "./world_path.js";
+export { worldPath } from "@vworlds/vecs-protocol";

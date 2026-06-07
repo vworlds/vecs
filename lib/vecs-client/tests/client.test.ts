@@ -9,6 +9,7 @@ import {
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
+import type { EID } from "@vworlds/vecs";
 import { ClientWorld, type ClientWorldOptions } from "../src/index.js";
 
 class Position {
@@ -63,7 +64,7 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
   return encoder.getBuffer();
 }
 
-function makeSnapshot(eid: number, type: number, payload: Uint8Array): EncodedSnapshot {
+function makeSnapshot(eid: EID, type: number, payload: Uint8Array): EncodedSnapshot {
   return new EncodedSnapshot(
     encodeMessage(new ComponentSnapshot({ eid, type, payload })),
     eid,
@@ -71,7 +72,7 @@ function makeSnapshot(eid: number, type: number, payload: Uint8Array): EncodedSn
   );
 }
 
-function posSnapshot(eid: number, x: number, y: number): EncodedSnapshot {
+function posSnapshot(eid: EID, x: number, y: number): EncodedSnapshot {
   const p = new Position();
   p.x = x;
   p.y = y;
@@ -92,20 +93,20 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(7, 4, 8)] }),
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 4, 8)] }),
         })
       )
     );
 
     client.apply(0);
 
-    expect(world.entity(7).get(Position)).toMatchObject({ x: 4, y: 8 });
+    expect(world.entity(1000).get(Position)).toMatchObject({ x: 4, y: 8 });
   });
 
   it("keeps server entities after their last synchronized component is removed", () => {
     const world = createClientWorld({ serverTickIntervalMs: 10 });
     world.component(LocalEffect);
-    const entity = world.getOrCreateEntity(7);
+    const entity = world.getOrCreateEntity(1000);
     entity.set(Position, { x: 1, y: 2 }).add(LocalEffect);
     const socket = new MemorySocket("server");
     const client = world;
@@ -117,14 +118,14 @@ describe("ClientWorld", () => {
           diff: new StateDiff({
             fromFrame: 0,
             toFrame: 2,
-            removed: [[7, 1]],
+            removed: [[1000, 1]],
           }),
         })
       )
     );
     client.apply(0);
 
-    expect(world.entity(7)).toBe(entity);
+    expect(world.entity(1000)).toBe(entity);
     expect(entity.get(Position)).toBeUndefined();
     expect(entity.get(LocalEffect)).toBeDefined();
   });
@@ -132,7 +133,7 @@ describe("ClientWorld", () => {
   it("destroys server entities when the destruction component is removed", () => {
     const world = createClientWorld({ serverTickIntervalMs: 10 });
     world.component(LocalEffect);
-    const entity = world.getOrCreateEntity(7);
+    const entity = world.getOrCreateEntity(1000);
     entity.set(Position, { x: 1, y: 2 }).add(LocalEffect);
     const socket = new MemorySocket("server");
     const client = world;
@@ -143,14 +144,14 @@ describe("ClientWorld", () => {
           diff: new StateDiff({
             fromFrame: 0,
             toFrame: 2,
-            removed: [[7, ALL_COMPONENTS]],
+            removed: [[1000, ALL_COMPONENTS]],
           }),
         })
       )
     );
     client.apply(0);
 
-    expect(() => world.entity(7)).toThrow();
+    expect(() => world.entity(1000)).toThrow();
   });
 
   it("applies compressed create-then-remove diffs without materializing the entity", () => {

@@ -200,10 +200,11 @@ describe("World - entity management", () => {
 
   it("getOrCreateEntity invokes the create callback only on first creation", () => {
     const w = new World();
+    const eid = w.peekNextEid("entity");
     let created = 0;
 
-    w.getOrCreateEntity(7, () => created++);
-    w.getOrCreateEntity(7, () => created++);
+    w.getOrCreateEntity(eid, () => created++);
+    w.getOrCreateEntity(eid, () => created++);
 
     expect(created).toBe(1);
   });
@@ -231,7 +232,7 @@ describe("World - components", () => {
 
     expect(component).toBeInstanceOf(Component);
     expect(w.entity(component.eid)).toBe(component);
-    expect(component.ownMeta.eid).toBe(component.eid);
+    expect(component.meta.eid).toBe(component.eid);
   });
 
   it("reserves explicit component eids in any pool", () => {
@@ -266,8 +267,8 @@ describe("World - components", () => {
     const w = new World();
     const e = w.entity();
 
-    expect(e.ownMeta.Class).toBe(Object);
-    expect(e.ownMeta.eid).toBe(e.eid);
+    expect(e.meta.Class).toBe(Object);
+    expect(e.meta.eid).toBe(e.eid);
   });
 
   it("throws for missing numeric component refs", () => {
@@ -284,14 +285,14 @@ describe("World - components", () => {
     expect(() => e.add(A)).toThrow();
     expect(() => e.set(A, {})).toThrow();
     expect(() => e.modified(A)).toThrow();
-    expect(() => w.system("test").requires(A)._build()).toThrow();
+    expect(() => w.system("test").with(A)._build()).toThrow();
   });
 
   it("gets component-owned instances", () => {
     const w = new World();
 
     expect(w.get(Settings)).toBeUndefined();
-    expect(w.component(Settings).ownMeta.Class).toBe(Settings);
+    expect(w.component(Settings).meta.Class).toBe(Settings);
   });
 
   it("sets component-owned instances", () => {

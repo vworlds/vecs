@@ -13,7 +13,7 @@
 //   - Two overlapping sensors detect each other as visitors.
 //   - Begin then end as a body enters then leaves the sensor region.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -58,11 +58,7 @@ describe("TestSensor parity (box2d test_world.c:329-395)", () => {
       .entity()
       .set(Body, { type: BodyType.Static })
       .set(Position, { x: 1.5, y: 11 });
-    world
-      .entity()
-      .set(ChildOf, { target: wallBody })
-      .set(Box, { hx: 0.5, hy: 10 })
-      .add(SensorEvents);
+    world.entity().childOf(wallBody).set(Box, { hx: 0.5, hy: 10 }).add(SensorEvents);
 
     const bulletBody = world
       .entity()
@@ -72,7 +68,7 @@ describe("TestSensor parity (box2d test_world.c:329-395)", () => {
       .add(GravityScale);
     const bulletShapeEntity = world
       .entity()
-      .set(ChildOf, { target: bulletBody })
+      .childOf(bulletBody)
       .set(Circle, { radius: 0.1 })
       .add(Sensor)
       .add(SensorEvents);
@@ -117,7 +113,7 @@ describe("TestSensor parity (box2d test_world.c:329-395)", () => {
       .set(Position, { x: 1.5, y: 11 });
     const wallShapeEntity = world
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { hx: 0.5, hy: 10 })
       .add(SensorEvents);
 
@@ -129,7 +125,7 @@ describe("TestSensor parity (box2d test_world.c:329-395)", () => {
       .add(GravityScale);
     const bulletShapeEntity = world
       .entity()
-      .set(ChildOf, { target: bulletBody })
+      .childOf(bulletBody)
       .set(Circle, { radius: 0.1 })
       .add(Sensor)
       .add(SensorEvents);
@@ -165,7 +161,7 @@ describe("sensor opt-in (enableSensorEvents required on both shapes)", () => {
       .set(Position, { x: 0, y: 0 });
     const wallShapeEntity = world
       .entity()
-      .set(ChildOf, { target: wallBody })
+      .childOf(wallBody)
       .set(Box, { hx: 1, hy: 1 })
       .add(SensorEvents);
 
@@ -174,7 +170,7 @@ describe("sensor opt-in (enableSensorEvents required on both shapes)", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 0, y: 0 })
       .add(GravityScale);
-    world.entity().set(ChildOf, { target: bulletBody }).set(Circle, { radius: 0.1 }).add(Sensor);
+    world.entity().childOf(bulletBody).set(Circle, { radius: 0.1 }).add(Sensor);
     // NO SensorEvents on the sensor shape.
 
     step(world);
@@ -192,7 +188,7 @@ describe("sensor opt-in (enableSensorEvents required on both shapes)", () => {
       .entity()
       .set(Body, { type: BodyType.Static })
       .set(Position, { x: 0, y: 0 });
-    world.entity().set(ChildOf, { target: wallBody }).set(Box, { hx: 1, hy: 1 });
+    world.entity().childOf(wallBody).set(Box, { hx: 1, hy: 1 });
     // NO SensorEvents on the visitor.
 
     const bulletBody = world
@@ -202,7 +198,7 @@ describe("sensor opt-in (enableSensorEvents required on both shapes)", () => {
       .add(GravityScale);
     const bulletShape = world
       .entity()
-      .set(ChildOf, { target: bulletBody })
+      .childOf(bulletBody)
       .set(Circle, { radius: 0.1 })
       .add(Sensor)
       .add(SensorEvents);
@@ -221,7 +217,7 @@ describe("sensor opt-in (enableSensorEvents required on both shapes)", () => {
       .entity()
       .set(Body, { type: BodyType.Static })
       .set(Position, { x: 0, y: 0 });
-    world.entity().set(ChildOf, { target: wallBody }).set(Box, { hx: 1, hy: 1 }).add(SensorEvents);
+    world.entity().childOf(wallBody).set(Box, { hx: 1, hy: 1 }).add(SensorEvents);
 
     const bulletBody = world
       .entity()
@@ -230,7 +226,7 @@ describe("sensor opt-in (enableSensorEvents required on both shapes)", () => {
       .add(GravityScale);
     const bulletShape = world
       .entity()
-      .set(ChildOf, { target: bulletBody })
+      .childOf(bulletBody)
       .set(Circle, { radius: 0.1 })
       .add(Sensor)
       .add(SensorEvents);
@@ -253,11 +249,11 @@ describe("same-body rejection", () => {
       .add(GravityScale);
     const sensorShape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Circle, { radius: 0.5 })
       .add(Sensor)
       .add(SensorEvents);
-    world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 }).add(SensorEvents);
+    world.entity().childOf(body).set(Box, { hx: 0.5, hy: 0.5 }).add(SensorEvents);
 
     step(world);
     step(world);
@@ -279,7 +275,7 @@ describe("self-detection prevention", () => {
       .add(GravityScale);
     const sensorShape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Circle, { radius: 0.5 })
       .add(Sensor)
       .add(SensorEvents);
@@ -301,7 +297,7 @@ describe("sensor-vs-sensor", () => {
     const bodyA = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     const shapeA = world
       .entity()
-      .set(ChildOf, { target: bodyA })
+      .childOf(bodyA)
       .set(Circle, { radius: 0.5 })
       .add(Sensor)
       .add(SensorEvents);
@@ -313,7 +309,7 @@ describe("sensor-vs-sensor", () => {
       .add(GravityScale);
     const shapeB = world
       .entity()
-      .set(ChildOf, { target: bodyB })
+      .childOf(bodyB)
       .set(Circle, { radius: 0.5 })
       .add(Sensor)
       .add(SensorEvents);
@@ -338,7 +334,7 @@ describe("begin then end as body enters and leaves sensor", () => {
       .set(Position, { x: 0, y: 0 });
     const zoneShape = world
       .entity()
-      .set(ChildOf, { target: zoneBody })
+      .childOf(zoneBody)
       .set(Box, { hx: 1, hy: 1 })
       .add(Sensor)
       .add(SensorEvents);
@@ -349,11 +345,7 @@ describe("begin then end as body enters and leaves sensor", () => {
       .set(Position, { x: 0, y: 0 })
       .set(LinearVelocity, { x: 10, y: 0 })
       .add(GravityScale);
-    world
-      .entity()
-      .set(ChildOf, { target: movingBody })
-      .set(Circle, { radius: 0.1 })
-      .add(SensorEvents);
+    world.entity().childOf(movingBody).set(Circle, { radius: 0.1 }).add(SensorEvents);
 
     let beginStep = -1;
     let endStep = -1;

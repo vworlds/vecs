@@ -47,7 +47,7 @@ import {
   type QueryDSL,
 } from "../dsl.js";
 import type { World } from "../world/index.js";
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
 import { AllTerm } from "./all_term.js";
 import { AnyTerm } from "./any_term.js";
 import { ComponentTerm } from "./component_term.js";
@@ -95,7 +95,9 @@ export function getTerm(world: World, dsl: QueryDSL): Term {
 /**
  * Return the cached term for `dsl` without creating one if absent.
  *
- * Useful for introspection and testing; does not simplify the DSL.
+ * Useful for introspection and testing. It canonicalizes `dsl` (via the same
+ * simplify + cache-key path as {@link getTerm}) to look the term up, but never
+ * creates one.
  *
  * @param world - Owning world.
  * @param dsl - Query DSL expression to look up.
@@ -111,7 +113,7 @@ export function getCachedTerm(world: World, dsl: QueryDSL): Term | undefined {
  * Routes to the corresponding `ComponentTerm` (membership enter) and to the
  * world term (shape change, needed by `only` and merged predicate terms).
  */
-export function notifyComponentAdded(world: World, componentEid: number, entity: Entity): void {
+export function notifyComponentAdded(world: World, componentEid: EID, entity: Entity): void {
   world._componentTerms.get(componentEid)?.componentAdded(entity);
   world._worldTerm?.entityShapeChanged(entity);
 }
@@ -123,7 +125,7 @@ export function notifyComponentAdded(world: World, componentEid: number, entity:
  * Routes only to the `ComponentTerm`'s refresh channel (not shape), which
  * wakes predicate terms watching this component.
  */
-export function notifyComponentChanged(world: World, componentEid: number, entity: Entity): void {
+export function notifyComponentChanged(world: World, componentEid: EID, entity: Entity): void {
   world._componentTerms.get(componentEid)?.componentChanged(entity);
 }
 
@@ -132,7 +134,7 @@ export function notifyComponentChanged(world: World, componentEid: number, entit
  *
  * Routes to the `ComponentTerm` (membership exit) and world term (shape).
  */
-export function notifyComponentRemoved(world: World, componentEid: number, entity: Entity): void {
+export function notifyComponentRemoved(world: World, componentEid: EID, entity: Entity): void {
   world._componentTerms.get(componentEid)?.componentRemoved(entity);
   world._worldTerm?.entityShapeChanged(entity);
 }
@@ -141,7 +143,8 @@ export function notifyComponentRemoved(world: World, componentEid: number, entit
  * Notify the term graph that a new entity was created.
  *
  * The world term evaluates the entity immediately and emits an enter event if
- * it qualifies (i.e. it is not a `Component` instance).
+ * it qualifies (any live, non-destroyed entity — component-definition entities
+ * included, so they are picked up reactively like ordinary entities).
  */
 export function notifyEntityCreated(world: World, entity: Entity): void {
   world._worldTerm?.entityCreated(entity);
@@ -204,7 +207,7 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
   }
   if ("only" in dsl) {
     const components = dsl.only instanceof Array ? dsl.only : [dsl.only];
-    return OnlyTerm.build(world, components as number[], key, getTerm, onDestroy);
+    return OnlyTerm.build(world, components as EID[], key, getTerm, onDestroy);
   }
   if ("test" in dsl) {
     return PredicateTerm.buildPredicate(
@@ -216,7 +219,7 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
     );
   }
   if ("target" in dsl) {
-    return TargetTerm.build(world, dsl.target[0] as number, dsl.target[1], key, getTerm, onDestroy);
+    return TargetTerm.build(world, dsl.target[0] as EID, dsl.target[1], key, getTerm, onDestroy);
   }
   throw new Error("Unrecognized query term");
 }
@@ -226,14 +229,14 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
 // ---------------------------------------------------------------------------
 
 /**
- * Return the world's singleton `ComponentTerm` for `eid`, creating it if
+ * Return the world's singleton `ComponentTerm` for `ceid`, creating it if
  * absent.
  */
-function getComponentTerm(world: World, eid: number, key: string): ComponentTerm {
-  let term = world._componentTerms.get(eid);
+function getComponentTerm(world: World, ceid: EID, key: string): ComponentTerm {
+  let term = world._componentTerms.get(ceid);
   if (!term) {
-    term = new ComponentTerm(world, key, eid, (t) => destroyTerm(world, t));
-    world._componentTerms.set(eid, term);
+    term = new ComponentTerm(world, key, ceid, (t) => destroyTerm(world, t));
+    world._componentTerms.set(ceid, term);
   }
   return term;
 }
@@ -276,7 +279,7 @@ function destroyTerm(world: World, term: Term): void {
  */
 type DslAnalysis = {
   leafKeys: Set<string>;
-  componentEids: Set<number>;
+  componentEids: Set<EID>;
   dependsOnWorld: boolean;
   containsOnly: boolean;
   containsTarget: boolean;
@@ -347,9 +350,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
   }
   if ("only" in dsl) {
     const components = dsl.only instanceof Array ? dsl.only : [dsl.only];
-    const childAnalyses = (components as number[]).map((eid) => ({
-      leafKeys: new Set([`C:${eid}`]) as Set<string>,
-      componentEids: new Set([eid]),
+    const childAnalyses = (components as EID[]).map((ceid) => ({
+      leafKeys: new Set([`C:${ceid}`]) as Set<string>,
+      componentEids: new Set([ceid]),
       dependsOnWorld: false as boolean,
       containsOnly: false as boolean,
       containsTarget: false as boolean,
@@ -375,9 +378,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         containsOnly: false,
         containsTarget: false,
       },
-      ...watch.map((eid) => ({
-        leafKeys: new Set([`C:${eid}`]) as Set<string>,
-        componentEids: new Set([eid]),
+      ...watch.map((ceid) => ({
+        leafKeys: new Set([`C:${ceid}`]) as Set<string>,
+        componentEids: new Set([ceid]),
         dependsOnWorld: false as boolean,
         containsOnly: false as boolean,
         containsTarget: false as boolean,
@@ -385,7 +388,7 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
     ]);
   }
   if ("target" in dsl) {
-    const relEid = dsl.target[0] as number;
+    const relEid = dsl.target[0] as EID;
     return _mergeAnalyses([
       {
         leafKeys: new Set([`C:${relEid}`]) as Set<string>,
@@ -423,7 +426,7 @@ function _mergeAnalyses(analyses: DslAnalysis[]): DslAnalysis {
   };
   for (const a of analyses) {
     a.leafKeys.forEach((k) => merged.leafKeys.add(k));
-    a.componentEids.forEach((eid) => merged.componentEids.add(eid));
+    a.componentEids.forEach((ceid) => merged.componentEids.add(ceid));
     merged.dependsOnWorld ||= a.dependsOnWorld;
     merged.containsOnly ||= a.containsOnly;
     merged.containsTarget ||= a.containsTarget;

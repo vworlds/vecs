@@ -1,3 +1,5 @@
+import type { EID } from "@vworlds/vecs";
+
 /** A component id packs an entity id and component type id into a uint32. */
 export type CID = number;
 
@@ -33,18 +35,16 @@ export function getLocalComponentMin(): number {
 
 /** Configure the local component type range before constructing networked worlds. */
 export function setLocalComponentMin(value: number): void {
+  validateLocalComponentMin(value);
   LOCAL_COMPONENT_MIN = value;
-  if (isAlignedLocalComponentMin(value)) {
-    getLocalComponentMin();
-    componentTypeMask = LOCAL_COMPONENT_MIN - 1;
-    componentTypeShift = Math.log2(LOCAL_COMPONENT_MIN);
-    MAX_ENTITY_ID = 2 ** (32 - componentTypeShift) - 1;
-    MAX_COMPONENT_TYPE = componentTypeMask;
-  }
+  componentTypeMask = value - 1;
+  componentTypeShift = Math.log2(value);
+  MAX_ENTITY_ID = 2 ** (32 - componentTypeShift) - 1;
+  MAX_COMPONENT_TYPE = componentTypeMask;
 }
 
 /** Pack an entity id and component type id into a uint32 component id. */
-export function cid_pack(eid: number, type: number): CID {
+export function cid_pack(eid: EID, type: number): CID {
   if (eid < 0) {
     throw new Error(`cid_pack: entity id must be non-negative, got ${eid}`);
   }
@@ -71,6 +71,6 @@ export function cid_pack(eid: number, type: number): CID {
 }
 
 /** Unpack a uint32 component id into [entity id, component type id]. */
-export function cid_unpack(cid: CID): [eid: number, type: number] {
+export function cid_unpack(cid: CID): [eid: EID, type: number] {
   return [cid >>> componentTypeShift, cid & componentTypeMask];
 }

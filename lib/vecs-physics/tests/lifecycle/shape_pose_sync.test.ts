@@ -6,7 +6,7 @@
 // ShapePosition/ShapeRotation at shape creation (lifecycle reads the initial
 // value), then SET them again with new values to trigger the update callback.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -55,7 +55,7 @@ describe("PhysicsShapePoseSync.update(ShapePosition)", () => {
     const body = makeBody();
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { hx: 0.5, hy: 0.5 })
       .set(ShapePosition, { x: 0, y: 0 });
     world.progress(0, 16);
@@ -78,7 +78,7 @@ describe("PhysicsShapePoseSync.update(ShapePosition)", () => {
     const body = makeBody();
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { hx: 0.5, hy: 0.5 })
       .set(ShapePosition, { x: 0, y: 0 });
     world.progress(0, 16);
@@ -97,7 +97,7 @@ describe("PhysicsShapePoseSync.update(ShapeRotation)", () => {
     const body = makeBody();
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { hx: 1, hy: 0.1 })
       .set(ShapeRotation, { angle: 0 });
     world.progress(0, 16);
@@ -126,7 +126,7 @@ describe("PhysicsShapePoseSync marks body massDirty on local pose change", () =>
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
     const shape = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Circle, { radius: 1 })
       .set(ShapePosition, { x: 0, y: 0 });
     world.progress(0, 16);
@@ -158,7 +158,7 @@ describe("PhysicsShapePoseSync marks body massDirty on local pose change", () =>
     const body = world.entity().set(Body, { type: BodyType.Dynamic });
     const shapeEntity = world
       .entity()
-      .set(ChildOf, { target: body })
+      .childOf(body)
       .set(Box, { hx: 0.5, hy: 0.5 })
       .set(ShapeRotation, { angle: 0 });
     world.progress(0, 16);

@@ -10,12 +10,14 @@ import {
   type NetworkWorldOptions,
   type RPCHandler,
   type VecsSocket,
+  worldPath,
 } from "@vworlds/vecs-protocol";
-import { type ComponentInstance, type IPhase } from "@vworlds/vecs";
+import { type ComponentInstance, type EID, type IPhase, Query } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { EventEmitter } from "eventemitter3";
 import { ComponentSnapshot, Interpolator, diffFromStateDiff } from "./interpolator.js";
-import { worldPath } from "./world_path.js";
+
+class Networked {}
 
 const DEFAULT_CLIENT_LOCAL_ENTITY_ID_START = 10000;
 
@@ -61,11 +63,11 @@ export class ClientWorld extends NetworkWorld {
   private readonly _interpolator: Interpolator;
   private readonly _encodeBuffer: Uint8Array;
   private readonly _ackIntervalMs: number;
+  private readonly _networkedQuery: InstanceType<typeof Query>;
   private _input: unknown;
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
-  private _needsBaselineAfterDisconnect = false;
-  private _hasReceivedFullBaseline = false;
-  private _receivingFullBaseline = false;
+  private _baselineApplied = false;
+  private _forceBaselineReset = false;
   private _systemsInstalled = false;
 
   public constructor(options: ClientWorldOptions = {}) {
@@ -77,6 +79,8 @@ export class ClientWorld extends NetworkWorld {
     });
     this._encodeBuffer = new Uint8Array(options.encodeBufferSize ?? 64 * 1024);
     this._ackIntervalMs = options.ackIntervalMs ?? 1000 / 30;
+    this.component(Networked);
+    this._networkedQuery = this.query("ClientWorld:Networked").with(Networked).track().build();
     this._interpolator = new Interpolator(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,
@@ -175,13 +179,39 @@ export class ClientWorld extends NetworkWorld {
   }
 
   private _pushDiff(sd: StateDiff): void {
+    // A diff with fromFrame === 0 is a full baseline: the complete authoritative
+    // state at sd.toFrame. The server streams these whenever a client falls
+    // outside its history window -- most commonly a backgrounded tab, where the
+    // render loop (and therefore Interpolator.pull) is suspended and acks are
+    // throttled, so the server keeps resending the whole world until the client
+    // catches up.
+    //
+    // A baseline is reset-then-rebuild: every server-owned entity is destroyed
+    // and then recreated from the snapshot. Destroying first is what makes the
+    // rebuild fire each entity's `enter` again, so view systems that attach
+    // client-side state on enter (e.g. spacerocks' Drawable draw statements)
+    // rebuild it. Reconciling in place instead would re-`attach` onto the living
+    // entity, which fires `modified` -- not `enter` -- leaving that client-side
+    // state stale or empty. The teardown runs here, at receive time (synchronous,
+    // outside the deferred apply queue), so the entities are fully gone before
+    // the next apply replays the baseline and recreates them.
     if (sd.fromFrame === 0) {
-      this._handleFullBaseline(sd);
-    } else {
-      this._receivingFullBaseline = false;
+      // Skip baselines we have already advanced past (duplicates or, with the
+      // unordered transport, stragglers). After a reconnect the server may have
+      // restarted its frame counter, so a forced reset overrides this.
+      if (!this._forceBaselineReset && sd.toFrame <= this._interpolator.version) {
+        return;
+      }
+      this._forceBaselineReset = false;
+      const initial = !this._baselineApplied;
+      this._baselineApplied = true;
+      this._destroyNetworkEntities();
+      this._interpolator.reset();
+      this._interpolator.push(diffFromStateDiff(sd));
+      this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
+      return;
     }
-    const diff = diffFromStateDiff(sd);
-    this._interpolator.push(diff);
+    this._interpolator.push(diffFromStateDiff(sd));
   }
 
   public decodeComponentSnapshot(snapshot: ComponentSnapshot): ComponentInstance {
@@ -199,11 +229,11 @@ export class ClientWorld extends NetworkWorld {
 
   private _applySnapshot(snapshot: ComponentSnapshot): void {
     const component = this.decodeComponentSnapshot(snapshot);
-    const entity = this.getOrCreateEntity(snapshot.eid);
+    const entity = this.getOrCreateEntity(snapshot.eid, (e) => e.add(Networked));
     entity.attach(component as object);
   }
 
-  private _removeComponent(eid: number, type: number): void {
+  private _removeComponent(eid: EID, type: number): void {
     // Merged/interpolated client diffs can contain a net removal for an entity
     // whose create snapshot was compressed away before it materialized locally.
     const entity = this.getEntity(eid);
@@ -219,33 +249,20 @@ export class ClientWorld extends NetworkWorld {
     }
   }
 
-  private _handleFullBaseline(sd: StateDiff): void {
-    if (this._receivingFullBaseline) {
-      return;
-    }
-    if (
-      !this._needsBaselineAfterDisconnect &&
-      this._hasReceivedFullBaseline &&
-      sd.toFrame <= this._interpolator.version
-    ) {
-      return;
-    }
-
-    const initial = !this._hasReceivedFullBaseline;
-    if (!initial) {
-      this._interpolator.reset();
-    }
-    this._needsBaselineAfterDisconnect = false;
-    this._hasReceivedFullBaseline = true;
-    this._receivingFullBaseline = true;
-    this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
+  // Destroy every network entity so an incoming baseline can recreate them
+  // from scratch (re-firing each entity's `enter`). query.forEach wraps in
+  // beginDefer/endDefer, so destroying inside the callback is safe.
+  private _destroyNetworkEntities(): void {
+    this._networkedQuery.forEach((entity) => entity.destroy());
   }
 
   private _handleDisconnect(): void {
     this._stopAckTimer();
-    this._receivingFullBaseline = false;
-    if (this._hasReceivedFullBaseline) {
-      this._needsBaselineAfterDisconnect = true;
+    // A reconnect may land on a server whose frame counter restarted, so the
+    // next baseline can carry a lower frame than the one we last saw. Force the
+    // next baseline to be adopted regardless of its frame number.
+    if (this._baselineApplied) {
+      this._forceBaselineReset = true;
     }
     this.events.emit("disconnect");
   }

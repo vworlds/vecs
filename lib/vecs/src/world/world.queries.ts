@@ -1,5 +1,6 @@
 import { type ComponentType } from "../component.js";
-import { type ExtractRequired, type QueryDSL } from "../dsl.js";
+import { isQueryConfig, type ExtractSpecRequired, type QueryDSL, type QuerySpec } from "../dsl.js";
+import type { EID, Entity } from "../entity/index.js";
 import { Filter } from "../filter.js";
 import { Query } from "../query/index.js";
 import {
@@ -11,7 +12,6 @@ import {
   notifyEntityCreated,
   notifyEntityDestroyed,
 } from "../terms/build.js";
-import type { Entity } from "../entity/index.js";
 import { ComponentTerm, EmptyTerm, Term, WorldTerm } from "../terms/index.js";
 import { Storage } from "./world.storage.js";
 import type { World } from "./world.js";
@@ -24,7 +24,7 @@ export class Queries extends Storage {
   /** @internal Canonical DSL key -> live term. */
   public readonly _termCache = new Map<string, Term>();
   /** @internal Component eid -> pinned component leaf term. */
-  public readonly _componentTerms = new Map<number, ComponentTerm>();
+  public readonly _componentTerms = new Map<EID, ComponentTerm>();
   /** @internal Pinned false term. */
   public _emptyTerm: EmptyTerm | undefined;
   /** @internal Pinned world term. */
@@ -69,15 +69,10 @@ export class Queries extends Storage {
     this._unbuiltQueries.delete(q);
   }
 
-  /** Create a non-reactive {@link Filter} that matches entities satisfying `q`. */
-  public filter<Q extends QueryDSL>(this: World, q: Q): Filter<ExtractRequired<Q>>;
-  public filter<T extends ComponentType[]>(
-    this: World,
-    q: QueryDSL,
-    _guaranteed: readonly [...T]
-  ): Filter<T>;
-  public filter(this: World, q: QueryDSL, _guaranteed?: readonly ComponentType[]): Filter<any> {
-    return new Filter(this, q);
+  /** Create a non-reactive {@link Filter} that matches entities satisfying `spec`. */
+  public filter<const S extends QuerySpec>(this: World, spec: S): Filter<ExtractSpecRequired<S>> {
+    const dsl: QueryDSL = isQueryConfig(spec) ? spec.with : (spec as QueryDSL);
+    return new Filter(this, dsl);
   }
 
   /** Create and return a standalone {@link Query}, ready for fluent configuration. */
@@ -96,18 +91,18 @@ export class Queries extends Storage {
   }
 
   /** @internal Drive the component leaf for a newly attached component. */
-  public _notifyComponentAdded(eid: number, entity: Entity): void {
-    notifyComponentAdded(this as unknown as World, eid, entity);
+  public _notifyComponentAdded(ceid: EID, entity: Entity): void {
+    notifyComponentAdded(this as unknown as World, ceid, entity);
   }
 
   /** @internal Drive predicate/target refresh for changed component data. */
-  public _notifyComponentChanged(eid: number, entity: Entity): void {
-    notifyComponentChanged(this as unknown as World, eid, entity);
+  public _notifyComponentChanged(ceid: EID, entity: Entity): void {
+    notifyComponentChanged(this as unknown as World, ceid, entity);
   }
 
   /** @internal Drive the component leaf for a detached component. */
-  public _notifyComponentRemoved(eid: number, entity: Entity): void {
-    notifyComponentRemoved(this as unknown as World, eid, entity);
+  public _notifyComponentRemoved(ceid: EID, entity: Entity): void {
+    notifyComponentRemoved(this as unknown as World, ceid, entity);
   }
 
   /** @internal Drive the world leaf for a created entity. */

@@ -38,10 +38,11 @@
 //   - Does NOT modify any engine state — read-only pass.
 //
 // Upstream docs: docs/debug-validation.md.
-// Re-uses: validateHull / computeHull from engine/geometry.ts.
+// Polygon validity is checked via b2ComputeHull (box2d3-wasm); see isValidPolygon.
 
 import {
   ChildOf,
+  type EID,
   type Entity,
   type Filter,
   type IPhase,
@@ -90,7 +91,7 @@ export function installDebugValidation(world: World, state: PhysicsState, phase:
   // Track body-pose entities seen in the previous step so we can rearm those
   // that leave the filter (ShapePosition/ShapeRotation removed). Re-entry into
   // the filter will then produce a fresh warning, completing the re-arm cycle.
-  const prevBodyPoseEids = new Set<number>();
+  const prevBodyPoseEids = new Set<EID>();
 
   return world
     .system("PhysicsDebugValidation")
@@ -112,7 +113,7 @@ export function installDebugValidation(world: World, state: PhysicsState, phase:
  *   - position-on-shape-entity  (code 6) */
 function _validateGeomEntities(state: PhysicsState, geomFilter: Filter, dedupe: WarnDedupe): void {
   geomFilter.forEach((e) => {
-    const eid: number = e.eid;
+    const eid: EID = e.eid;
 
     // ── shape-without-parent-body (code 1) ───────────────────────────────────
     const parent = e.parent(ChildOf);
@@ -184,14 +185,14 @@ function _validateGeomEntities(state: PhysicsState, geomFilter: Filter, dedupe: 
  * dependency on PhysicsState internals. */
 function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: WarnDedupe): void {
   // Build a map: body-eid → list of geometry child entities (per this step).
-  const geomChildrenByBody = new Map<number, Entity[]>();
+  const geomChildrenByBody = new Map<EID, Entity[]>();
 
   geomFilter.forEach((e) => {
     const parent = e.parent(ChildOf);
     if (parent === undefined || parent.get(Body) === undefined) {
       return;
     }
-    const bodyEid: number = parent.eid;
+    const bodyEid: EID = parent.eid;
     let list = geomChildrenByBody.get(bodyEid);
     if (list === undefined) {
       list = [];
@@ -202,7 +203,7 @@ function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: W
 
   // Walk every body entity and check dynamic-body-without-density.
   bodyFilter.forEach((e) => {
-    const eid: number = e.eid;
+    const eid: EID = e.eid;
     const body = e.get(Body) as Body;
 
     if (body.type !== BodyType.Dynamic) {
@@ -254,13 +255,13 @@ function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: W
  * into the filter produces a fresh warning if the issue recurs. */
 function _validateBodyShapePositionEntities(
   bodyPoseFilter: Filter,
-  prevBodyPoseEids: Set<number>,
+  prevBodyPoseEids: Set<EID>,
   dedupe: WarnDedupe
 ): void {
-  const currentEids = new Set<number>();
+  const currentEids = new Set<EID>();
 
   bodyPoseFilter.forEach((e) => {
-    const eid: number = e.eid;
+    const eid: EID = e.eid;
     currentEids.add(eid);
 
     const hasShapePos = e.get(ShapePosition) !== undefined;
@@ -329,7 +330,7 @@ function isValidPolygon(
 
 function _validateForceEntities(forceFilter: Filter, dedupe: WarnDedupe): void {
   forceFilter.forEach((e) => {
-    const eid = e.eid;
+    const eid: EID = e.eid;
     const parent = e.parent(ChildOf);
     const hasTarget =
       e.get(Body) !== undefined || (parent !== undefined && parent.get(Body) !== undefined);

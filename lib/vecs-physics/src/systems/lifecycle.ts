@@ -14,7 +14,7 @@ import { type b2BodyId, type PhysicsState } from "../adapter/state.js";
 import { withAllocated } from "../adapter/disposal.js";
 
 export function installBodyLifecycle(world: World, state: PhysicsState, phase: IPhase): System {
-  const system = world.system("PhysicsBodyLifecycle").requires(Body).phase(phase);
+  const system = world.system("PhysicsBodyLifecycle").with(Body).phase(phase);
 
   system.enter((entity) => {
     const body = entity.get(Body)!;
@@ -45,6 +45,23 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: I
       state.box2d.b2Body_Disable(bodyId);
     }
     state.box2d.b2Body_SetBullet(bodyId, body.bullet);
+  });
+
+  system.update(Damping, (entity, damping) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId === undefined) {
+      return;
+    }
+    state.box2d.b2Body_SetLinearDamping(bodyId, damping.linear);
+    state.box2d.b2Body_SetAngularDamping(bodyId, damping.angular);
+  });
+
+  system.update(GravityScale, (entity, gravityScale) => {
+    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    if (bodyId === undefined) {
+      return;
+    }
+    state.box2d.b2Body_SetGravityScale(bodyId, gravityScale.value);
   });
 
   system.update(MotionLocks, (entity, locks) => {

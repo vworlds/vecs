@@ -39,6 +39,16 @@ describe("Entity — components", () => {
     expect(pos).toBeInstanceOf(Position);
   });
 
+  it("get(typeId) for an unattached numeric id returns undefined, like has", () => {
+    const w = new World();
+    w.component(Position, 50);
+    const e = w.entity();
+    // 51 is not a registered component entity; get must not throw and must
+    // agree with has (both report "not attached").
+    expect(e.get(51)).toBeUndefined();
+    expect(e.has(51)).toBe(false);
+  });
+
   it("set returns the entity for chaining", () => {
     const w = new World();
     w.component(Position);
@@ -71,9 +81,10 @@ describe("Entity — components", () => {
 
   it("set(typeId, props) works with numeric type ids", () => {
     const w = new World();
-    w.component(Position, 7);
+    const ceid = w.peekNextEid("component");
+    w.component(Position, ceid);
     const e = w.entity();
-    const pos = e.set(7, {}).get(7);
+    const pos = e.set(ceid, {}).get(ceid);
     expect(pos).toBeInstanceOf(Position);
   });
 
@@ -305,17 +316,18 @@ describe("Entity — components", () => {
     expect(e.get(Position)).toBeUndefined();
   });
 
-  it("componentBitmask reflects added/removed components", () => {
+  it("has reflects added/removed components", () => {
     const w = new World();
     w.component(Position);
-    w.component(Velocity);
+    w.component(Velocity, 200);
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
-    expect(e.componentBitmask.has(w.entity(Position).eid)).toBe(true);
-    expect(e.componentBitmask.has(w.entity(Velocity).eid)).toBe(true);
+    expect(e.has(Position)).toBe(true);
+    expect(e.has(200)).toBe(true);
+    expect(e.has(w.entity(Velocity))).toBe(true);
     e.remove(Position);
-    expect(e.componentBitmask.has(w.entity(Position).eid)).toBe(false);
+    expect(e.has(Position)).toBe(false);
   });
 
   it("empty reflects whether any components remain", () => {
@@ -374,8 +386,8 @@ describe("Entity — lifecycle and relationships", () => {
     const parent = env.w.entity();
     const child = env.w.entity();
     const grandchild = env.w.entity();
-    child.set(ChildOf, { target: parent });
-    grandchild.set(ChildOf, { target: child });
+    child.childOf(parent);
+    grandchild.childOf(child);
 
     const childDestroyed = vi.fn();
     child.events.on("destroy", childDestroyed);
@@ -430,7 +442,7 @@ describe("Entity — component entity onDelete", () => {
   it("removes the component from carriers when onDelete is Remove", () => {
     const w = new World();
     const componentEntity = w.component(Position);
-    componentEntity.ownMeta.onDelete = CleanupPolicy.Remove;
+    componentEntity.meta.onDelete = CleanupPolicy.Remove;
     const a = w.entity().add(Position);
     const b = w.entity().add(Position);
 
@@ -447,7 +459,7 @@ describe("Entity — component entity onDelete", () => {
   it("destroys carriers when onDelete is Delete", () => {
     const w = new World();
     const componentEntity = w.component(Position);
-    componentEntity.ownMeta.onDelete = CleanupPolicy.Delete;
+    componentEntity.meta.onDelete = CleanupPolicy.Delete;
     const a = w.entity().add(Position);
     const b = w.entity().add(Position);
 
@@ -490,7 +502,7 @@ describe("Entity — relationship navigation", () => {
     const w = new World();
     const parent = w.entity();
     const child = w.entity();
-    child.set(ChildOf, { target: parent });
+    expect(child.childOf(parent)).toBe(child);
     expect(child.parent(ChildOf)).toBe(parent);
     expect(parent.children(ChildOf).has(child)).toBe(true);
   });
@@ -499,19 +511,19 @@ describe("Entity — relationship navigation", () => {
     const w = new World();
     const parent = w.entity();
     const child = w.entity();
-    child.set(ChildOf, { target: parent });
+    child.childOf(parent);
     child.remove(ChildOf);
     expect(child.parent(ChildOf)).toBeUndefined();
     expect(parent.children(ChildOf).has(child)).toBe(false);
   });
 
-  it("set(ChildOf) moves child from old parent to new parent", () => {
+  it("childOf moves child from old parent to new parent", () => {
     const w = new World();
     const p1 = w.entity();
     const p2 = w.entity();
     const child = w.entity();
-    child.set(ChildOf, { target: p1 });
-    child.set(ChildOf, { target: p2 });
+    child.childOf(p1);
+    child.childOf(p2);
     expect(child.parent(ChildOf)).toBe(p2);
     expect(p1.children(ChildOf).has(child)).toBe(false);
     expect(p2.children(ChildOf).has(child)).toBe(true);
@@ -521,7 +533,7 @@ describe("Entity — relationship navigation", () => {
     const w = new World();
     const p1 = w.entity();
     const p2 = w.entity();
-    const child = w.entity().set(ChildOf, { target: p1 });
+    const child = w.entity().childOf(p1);
     const mutate = vi.fn((rel: ChildOf) => {
       rel.target = p2;
     });
@@ -537,18 +549,18 @@ describe("Entity — relationship navigation", () => {
   it("source destroy cleans the target's incoming set", () => {
     const w = new World();
     const parent = w.entity();
-    const child = w.entity().set(ChildOf, { target: parent });
+    const child = w.entity().childOf(parent);
     child.destroy();
     expect(parent.children(ChildOf).has(child)).toBe(false);
   });
 
-  it("set(ChildOf) in deferred mode is not visible until queue drains", () => {
+  it("childOf in deferred mode is not visible until queue drains", () => {
     const env = makeWorldWithFlushPhase();
     env.start();
     const parent = env.w.entity();
     const child = env.w.entity();
     env.w.beginDefer();
-    child.set(ChildOf, { target: parent });
+    child.childOf(parent);
     expect(child.parent(ChildOf)).toBeUndefined();
     expect(parent.children(ChildOf).has(child)).toBe(false);
     env.w.endDefer();

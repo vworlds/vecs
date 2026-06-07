@@ -1,4 +1,4 @@
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
 import { Term } from "./term.js";
 
@@ -23,7 +23,7 @@ export class ComponentTerm extends Term {
   public constructor(
     world: World,
     key: string,
-    public readonly componentEid: number,
+    public readonly componentEid: EID,
     onDestroy: (term: Term) => void
   ) {
     super(world, key, "component", true, onDestroy);

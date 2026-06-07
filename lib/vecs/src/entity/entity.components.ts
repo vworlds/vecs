@@ -6,9 +6,9 @@ import {
   type ComponentRef,
   type ComponentType,
 } from "../component_meta.js";
-import { Relationship } from "../relationship.js";
+import { Relationship } from "../component_meta.js";
 import { Relationships } from "./entity.relationships.js";
-import type { Entity } from "./entity.js";
+import type { EID, Entity } from "./entity.js";
 
 export class Components extends Relationships {
   /**
@@ -34,8 +34,8 @@ export class Components extends Relationships {
    *
    * Faster than {@link get} because no class to type id resolution is needed.
    */
-  public _get(eid: number): ComponentInstance | undefined {
-    return this._components.get(eid);
+  public _get(ceid: EID): ComponentInstance | undefined {
+    return this._components.get(ceid);
   }
 
   /**
@@ -121,21 +121,21 @@ export class Components extends Relationships {
    * @param type - Numeric component type id.
    * @returns This entity, for chaining.
    */
-  public add(eid: number): this;
+  public add(ceid: EID): this;
 
   public add(entity: Entity): this;
 
   public add(ref: ComponentRef): this {
-    const meta = this.world.entity(ref).ownMeta;
+    const componentMeta = this.world.entity(ref).meta;
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Set,
         entity: this as unknown as Entity,
-        meta,
+        meta: componentMeta,
         props: undefined,
       });
     } else {
-      this._set(meta, undefined);
+      this._set(componentMeta, undefined);
     }
     return this;
   }
@@ -163,16 +163,16 @@ export class Components extends Relationships {
   ): this {
     const ComponentKey = component === undefined ? classOrComponent.constructor : classOrComponent;
     const instance = component ?? classOrComponent;
-    const meta = this.world.entity(ComponentKey as ComponentRef).ownMeta;
+    const componentMeta = this.world.entity(ComponentKey as ComponentRef).meta;
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Attach,
         entity: this as unknown as Entity,
-        meta,
+        meta: componentMeta,
         component: instance,
       });
     } else {
-      this._attach(meta, instance);
+      this._attach(componentMeta, instance);
     }
     return this;
   }
@@ -186,13 +186,23 @@ export class Components extends Relationships {
   public get<C extends ComponentType>(Class: C): Readonly<InstanceType<C>> | undefined;
 
   /** Look up a component by numeric type id as a readonly value. */
-  public get(eid: number): Readonly<ComponentInstance> | undefined;
+  public get(ceid: EID): Readonly<ComponentInstance> | undefined;
 
   public get(entity: Entity): Readonly<ComponentInstance> | undefined;
 
   public get(ref: ComponentRef): Readonly<ComponentInstance> | undefined {
-    const eid = this.world.entity(ref).eid;
-    return this._get(eid);
+    const ceid = typeof ref === "number" ? ref : this.world.entity(ref).eid;
+    return this._get(ceid);
+  }
+
+  /**
+   * Return `true` when this entity has the referenced component attached.
+   *
+   * @param ref - Component class, numeric component type id, or entity component key.
+   */
+  public has(ref: ComponentRef): boolean {
+    const ceid = typeof ref === "number" ? ref : this.world.entity(ref).eid;
+    return this.componentBitmask.has(ceid);
   }
 
   /**
@@ -214,11 +224,11 @@ export class Components extends Relationships {
   ): Readonly<InstanceType<C>> | undefined;
 
   /** Look up a component by numeric type id for mutation. */
-  public getMut(eid: number): ComponentInstance | undefined;
+  public getMut(ceid: EID): ComponentInstance | undefined;
 
   /** Look up a component by numeric type id, mutate it in `callback`, then mark it modified. */
   public getMut(
-    eid: number,
+    ceid: EID,
     callback: (component: ComponentInstance) => void
   ): Readonly<ComponentInstance> | undefined;
 
@@ -236,16 +246,16 @@ export class Components extends Relationships {
     if (callback === undefined && !this.world.deferred) {
       throw new Error("Entity.getMut without a callback is only allowed in deferred mode");
     }
-    const meta = this.world.entity(ref).ownMeta;
-    if (meta.isRelationship) {
+    const componentMeta = this.world.entity(ref).meta;
+    if (componentMeta.isRelationship) {
       throw new Error("Entity.getMut cannot mutate Relationship components; retarget with set");
     }
-    const component = this._get(meta.eid);
+    const component = this._get(componentMeta.eid);
     if (!component) {
       return undefined;
     }
     callback?.(component);
-    this._markModified(meta);
+    this._markModified(componentMeta);
     return component;
   }
 
@@ -260,8 +270,8 @@ export class Components extends Relationships {
    * @returns This entity, for chaining.
    */
   public modified(ref: ComponentRef): this {
-    const meta = this.world.entity(ref).ownMeta;
-    return this._markModified(meta);
+    const componentMeta = this.world.entity(ref).meta;
+    return this._markModified(componentMeta);
   }
 
   /** @internal Mark a component changed, coalescing duplicate pending notifications. */
@@ -294,16 +304,20 @@ export class Components extends Relationships {
    *
    * @param type - Numeric component type id.
    */
-  public remove(eid: number): void;
+  public remove(ceid: EID): void;
 
   public remove(entity: Entity): void;
 
   public remove(ref: ComponentRef): void {
-    const meta = this.world.entity(ref).ownMeta;
+    const componentMeta = this.world.entity(ref).meta;
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Remove, entity: this as unknown as Entity, meta });
+      this.world._enqueue({
+        kind: CommandKind.Remove,
+        entity: this as unknown as Entity,
+        meta: componentMeta,
+      });
     } else {
-      this._remove(meta);
+      this._remove(componentMeta);
     }
   }
 
@@ -328,21 +342,21 @@ export class Components extends Relationships {
    * @param props - Properties to assign onto the component instance.
    * @returns This entity, for chaining.
    */
-  public set(eid: number, props: Partial<ComponentInstance>): this;
+  public set(ceid: EID, props: Partial<ComponentInstance>): this;
 
   public set(entity: Entity, props: Partial<ComponentInstance>): this;
 
   public set(ref: ComponentRef, props: Partial<ComponentInstance>): this {
-    const meta = this.world.entity(ref).ownMeta;
+    const componentMeta = this.world.entity(ref).meta;
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Set,
         entity: this as unknown as Entity,
-        meta,
+        meta: componentMeta,
         props,
       });
     } else {
-      this._set(meta, props);
+      this._set(componentMeta, props);
     }
     return this;
   }
@@ -378,7 +392,9 @@ export class Components extends Relationships {
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (isUpdate) {
       this.world._notifyComponentChanged(meta.eid, this as unknown as Entity);
-      this._queries.forEach((q) => q._notifyModified(this as unknown as Entity, meta, instance));
+      this._queries.forEach((q) =>
+        q._notifyModified(this as unknown as Entity, meta.eid, instance)
+      );
     }
   }
 
@@ -407,5 +423,20 @@ export class Components extends Relationships {
     if (!existing) {
       this.world._notifyComponentAdded(meta.eid, this as unknown as Entity);
     }
+  }
+
+  public onAdd(handler: (entity: Entity, c: ComponentInstance) => void): this {
+    this.meta.onAdd(handler);
+    return this;
+  }
+
+  public onRemove(handler: (entity: Entity, c: ComponentInstance) => void): this {
+    this.meta.onRemove(handler);
+    return this;
+  }
+
+  public onSet(handler: (entity: Entity, c: ComponentInstance) => void): this {
+    this.meta.onSet(handler);
+    return this;
   }
 }

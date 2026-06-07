@@ -1,15 +1,7 @@
-export { Query, GroupedQuery } from "./query.js";
-export { Group, Grouping } from "./query.07.groups.js";
-export { _setGroupedQueryCtor, SOURCE_TRACKED_QUERY_ERROR } from "./query.00.base.js";
-export type { EntityTestFunc, MaybeRequired, QueryDSL } from "../dsl.js";
-export { Iter } from "../inject.js";
-export type {
-  DownInject,
-  FanInjectElement,
-  FanInjectTuple,
-  InjectElement,
-  InjectTuple,
-  MaybeResolvedInjectTuple,
-  RequiredResolvedInjectTuple,
-  UpInject,
-} from "../inject.js";
+import "./grouped_query.js";
+
+export { SOURCE_TRACKED_QUERY_ERROR } from "./constants.js";
+export { Group } from "./group.js";
+export { GroupedQuery } from "./grouped_query.js";
+export { Grouping } from "./grouping.js";
+export { Query } from "./query.js";

@@ -1,4 +1,4 @@
-import { ChildOf, type Entity, World } from "@vworlds/vecs";
+import { type Entity, World } from "@vworlds/vecs";
 
 import {
   AngularImpulse,
@@ -190,7 +190,7 @@ function addShape(
 ): Entity {
   const shape = world
     .entity()
-    .set(ChildOf, { target: body })
+    .childOf(body)
     .set(Material, randomMaterial(rng, bodyType))
     .set(CollisionFilter, randomFilter(rng));
 
@@ -240,21 +240,21 @@ function addShape(
 
 function addStaticBoundaries(world: World, bodies: Entity[]): void {
   const ground = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -3 });
-  world.entity().set(ChildOf, { target: ground }).set(Box, { hx: 12, hy: 0.5 });
+  world.entity().childOf(ground).set(Box, { hx: 12, hy: 0.5 });
   bodies.push(ground);
 
   const leftWall = world
     .entity()
     .set(Body, { type: BodyType.Static })
     .set(Position, { x: -8, y: 2 });
-  world.entity().set(ChildOf, { target: leftWall }).set(Segment, { x1: 0, x2: 0, y1: -5, y2: 5 });
+  world.entity().childOf(leftWall).set(Segment, { x1: 0, x2: 0, y1: -5, y2: 5 });
   bodies.push(leftWall);
 
   const rightWall = world
     .entity()
     .set(Body, { type: BodyType.Static })
     .set(Position, { x: 8, y: 2 });
-  world.entity().set(ChildOf, { target: rightWall }).set(Segment, { x1: 0, x2: 0, y1: -5, y2: 5 });
+  world.entity().childOf(rightWall).set(Segment, { x1: 0, x2: 0, y1: -5, y2: 5 });
   bodies.push(rightWall);
 }
 

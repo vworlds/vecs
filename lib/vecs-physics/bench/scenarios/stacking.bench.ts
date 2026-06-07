@@ -8,7 +8,7 @@
 //
 // Output: total scene time (ms) and ms/step.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { World } from "@vworlds/vecs";
 
 import {
   Body,
@@ -38,7 +38,7 @@ export function runStacking(): { totalMs: number; msPerStep: number; steps: numb
   const ground = world.entity().set(Body, { type: BodyType.Static });
   world
     .entity()
-    .set(ChildOf, { target: ground })
+    .childOf(ground)
     .set(Box, { hx: 50, hy: 1 })
     .set(Material, { friction: 0.6, density: 0 });
 
@@ -54,7 +54,7 @@ export function runStacking(): { totalMs: number; msPerStep: number; steps: numb
       const body = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x, y });
       world
         .entity()
-        .set(ChildOf, { target: body })
+        .childOf(body)
         .set(Box, { hx: boxHalfSize, hy: boxHalfSize })
         .set(Material, { friction: 0.3, density: 1 });
     }

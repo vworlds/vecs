@@ -1,4 +1,4 @@
-import { type ComponentInstance, type ComponentMeta, type ComponentType } from "./component.js";
+import { type ComponentInstance, type ComponentType } from "./component.js";
 import {
   isCursorMarker,
   Iter,
@@ -8,9 +8,16 @@ import {
   type FanInjectTuple,
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
-import { SOURCE_TRACKED_QUERY_ERROR, Query, type MaybeRequired } from "./query/index.js";
-import { containsDownTerm, type QueryDSL } from "./dsl.js";
-import { Entity } from "./entity/index.js";
+import { SOURCE_TRACKED_QUERY_ERROR, Query } from "./query/index.js";
+import {
+  containsDownTerm,
+  type ExtractSpecsRequired,
+  type MaybeRequired,
+  type QueryConfig,
+  type QueryDSL,
+  type QuerySpec,
+} from "./dsl.js";
+import { Entity, type EID } from "./entity/index.js";
 import { Phase, type IPhase } from "./phase.js";
 import { type World } from "./world/index.js";
 import {
@@ -42,12 +49,12 @@ type _SystemInboxEvent =
   | {
       kind: InboxCommand.Exit;
       entity: Entity;
-      snapshot: Map<number, ComponentInstance> | undefined;
+      snapshot: Map<EID, ComponentInstance> | undefined;
     }
   | {
       kind: InboxCommand.Update;
       entity: Entity;
-      meta: ComponentMeta;
+      eid: EID;
       component: ComponentInstance;
     };
 
@@ -58,7 +65,7 @@ type _SystemInboxEvent =
  *
  * ```ts
  * world.system("Move")
- *   .requires(Position, Velocity)       // track entities with both components
+ *   .with(Position, Velocity)       // track entities with both components
  *   .phase("update")
  *   .enter([Position], (e, [pos]) => { pos.x = 0; })
  *   .update(Position, (e, pos) => { pos.x += pos.vx; })
@@ -76,12 +83,12 @@ type _SystemInboxEvent =
  *
  * ### Component injection and type inference
  *
- * `enter`, `exit`, `update`, `each`, and `sort` accept an array of component
+ * `enter`, `exit`, `update`, `each`, and `orderBy` accept an array of component
  * classes resolved from the entity and passed as a typed tuple to the
  * callback.
  *
- * Components declared via {@link requires} (or the `_guaranteed` argument of
- * {@link query}) are tracked as the type parameter `R`. Inside `sort`,
+ * Components declared via {@link with} (or the `hint` field of a
+ * {@link QueryConfig}) are tracked as the type parameter `R`. Inside `orderBy`,
  * `each`, and `update` injection callbacks they are non-nullable; any other
  * component remains `Type | undefined`.
  *
@@ -132,6 +139,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * translate root-term membership events into inbox commands here.
    */
   public override _enter(e: Entity): void {
+    this.changed = true;
     this._entities?.add(e);
     e._addQueryMembership(this);
     if (!this._enabled) {
@@ -140,13 +148,13 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     if (this._enterCallback !== undefined) {
       this._inbox.push({ kind: InboxCommand.Enter, entity: e });
     }
-    e.components.forEach((c, eid) => {
-      const meta = this.world.entity(eid).ownMeta;
-      if (this._watchlistBitmask.hasBit(meta.bitPtr)) {
-        // Entry-time initialization bypasses the silence filter: an entity
-        // introduced by an ignored source must still initialize in this system.
-        this._pushUpdate(e, meta, c);
+    e.components.forEach((c, ceid) => {
+      if (!this._watchlistBitmask.has(ceid)) {
+        return;
       }
+      // Entry-time initialization bypasses the silence filter: an entity
+      // introduced by an ignored source must still initialize in this system.
+      this._pushUpdate(e, ceid, c);
     });
   }
 
@@ -157,19 +165,20 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * resolvable after the underlying components are removed.
    */
   public override _exit(e: Entity): void {
+    this.changed = true;
     this._entities?.delete(e);
     e._removeQueryMembership(this);
     if (!this._enabled) {
       return;
     }
     if (this._exitCallback !== undefined) {
-      let snapshot: Map<number, ComponentInstance> | undefined;
+      let snapshot: Map<EID, ComponentInstance> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
-        snapshot = new Map<number, ComponentInstance>();
-        for (const eid of this._exitSnapshotTypes) {
-          const c = e._get(eid);
+        snapshot = new Map<EID, ComponentInstance>();
+        for (const ceid of this._exitSnapshotTypes) {
+          const c = e._get(ceid);
           if (c) {
-            snapshot.set(eid, c);
+            snapshot.set(ceid, c);
           }
         }
       }
@@ -181,8 +190,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * @internal Routing entry: push an inbox `update` event when the modified
    * component matches the watchlist and its source is not silenced.
    */
-  public override _notifyModified(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
-    if (!this._watchlistBitmask.hasBit(meta.bitPtr)) {
+  public override _notifyModified(e: Entity, ceid: EID, c: ComponentInstance): void {
+    if (!this._watchlistBitmask.has(ceid)) {
       return;
     }
     if (!this._enabled) {
@@ -191,12 +200,13 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     if (this._isSourceSilenced()) {
       return;
     }
-    this._pushUpdate(e, meta, c);
+    this.changed = true;
+    this._pushUpdate(e, ceid, c);
   }
 
   /** @internal Append an `update` event to the inbox, bypassing the silence filter. */
-  private _pushUpdate(e: Entity, meta: ComponentMeta, c: ComponentInstance): void {
-    this._inbox.push({ kind: InboxCommand.Update, entity: e, meta, component: c });
+  private _pushUpdate(e: Entity, ceid: EID, c: ComponentInstance): void {
+    this._inbox.push({ kind: InboxCommand.Update, entity: e, eid: ceid, component: c });
   }
 
   /**
@@ -239,7 +249,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
             this._exitCallback!(event.entity, event.snapshot);
             break;
           case InboxCommand.Update:
-            const callback = this._componentUpdateCallbacks.get(event.meta.eid);
+            const callback = this._componentUpdateCallbacks.get(event.eid);
             if (callback) {
               callback(event.entity, event.component);
             }
@@ -253,7 +263,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       }
 
       if (this._eachCallback) {
-        this.forEach(this._eachCallback);
+        this._forEach(this._eachCallback);
       }
     });
   }
@@ -413,11 +423,11 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *
    * Unlike {@link update} (which only fires when `entity.modified(C)` is
    * called), `each` fires every tick the system runs, once per tracked entity.
-   * Components declared via {@link requires} are non-nullable in the resolved
+   * Components declared via {@link with} are non-nullable in the resolved
    * tuple; any other component class may be `undefined` if the entity lacks it.
    *
    * `each` does **not** modify the system's query — define membership with
-   * {@link requires} or {@link query} as usual. It does, however, implicitly
+   * {@link with} as usual. It does, however, implicitly
    * enable {@link track}, so matched entities are exposed via {@link count},
    * {@link has}, iteration, and {@link forEach}.
    *
@@ -430,14 +440,14 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *
    * @param components - Component classes to resolve from each entity.
    * @param callback - Receives the entity and a tuple of resolved component
-   *   instances (`undefined` for any not covered by {@link requires}).
+   *   instances (`undefined` for any not covered by {@link with}).
    * @returns This system, for chaining.
    * @throws When `each` has already been registered on this system.
    *
    * @example
    * ```ts
    * world.system("Move")
-   *   .requires(Position, Velocity)
+   *   .with(Position, Velocity)
    *   .each([Position, Velocity], (e, [pos, vel]) => {
    *     pos.x += vel.vx;
    *     pos.y += vel.vy;
@@ -464,7 +474,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * cursor instead of the bare entity. The cursor exposes the visited entity
    * (`it.entity`) and, in `it.src`, the source entity each resolved component
    * was read from (the visited entity for direct components, the relationship
-   * target for `up`-injected ones).
+   * target for `target`-injected ones).
    */
   public each<J extends FanInjectTuple>(
     cursor: typeof Iter,
@@ -489,42 +499,21 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   }
 
   /**
-   * Set the entity-membership predicate using a {@link QueryDSL} expression.
+   * Add entity-membership predicates using {@link QuerySpec} expressions.
    *
-   * Replaces any implicit query derived from `update` watchlists and any
-   * previous `requires` call. After calling `query`, watchlist auto-expansion
-   * via `update` is disabled.
+   * Merges with any existing predicate using `all`. After calling `with`,
+   * watchlist auto-expansion via `update` is disabled.
    *
-   * The optional `_guaranteed` tuple is a pure type-level hint — see
-   * {@link Query.query} for details.
+   * `hint` fields are pure type-level hints — see {@link Query.with} for details.
    *
-   * @param q - Query expression.
-   * @param _guaranteed - Component classes guaranteed present on every matched
-   *   entity (type hint only — not validated at runtime).
-   * @returns This system, retyped with the guaranteed tuple as its `R`.
+   * @param specs - Query specifications to add.
+   * @returns This system, retyped with the guaranteed components added to `R`.
    */
-  public override query<T extends ComponentType[] = []>(
-    q: QueryDSL,
-    _guaranteed?: readonly [...T]
-  ): System<T> {
-    super.query(q, _guaranteed);
-    return this as unknown as System<T>;
-  }
-
-  /**
-   * Shorthand for `query([...components])` — tracks entities that have **all**
-   * of the listed component types.
-   *
-   * Equivalent to `query(components)`. The listed components are also
-   * recorded in the type parameter `R`, so {@link sort}, {@link each}, and
-   * {@link update} callbacks treat them as non-nullable.
-   *
-   * @param components - Component classes to require.
-   * @returns This system, retyped with the required tuple as its `R`.
-   */
-  public override requires<T extends ComponentType[]>(...components: [...T]): System<T> {
-    super.requires(...components);
-    return this as unknown as System<T>;
+  public override with<const S extends readonly QuerySpec[]>(
+    ...specs: [...S]
+  ): System<[...R, ...ExtractSpecsRequired<S>]> {
+    super.with(...specs);
+    return this as unknown as System<any>;
   }
 
   /**
@@ -555,7 +544,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *
    * @example
    * ```ts
-   * const sys = world.system("AI").requires(Enemy).run(runAI);
+   * const sys = world.system("AI").with(Enemy).run(runAI);
    * // Pause AI processing during a cutscene:
    * sys.disable();
    * // Resume:

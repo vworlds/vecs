@@ -1,6 +1,5 @@
-import { type VecsSocketListener } from "@vworlds/vecs-protocol";
+import { type VecsSocketListener, worldPath } from "@vworlds/vecs-protocol";
 import { ServerWorld } from "./server_world.js";
-import { worldPath } from "./world_path.js";
 
 export interface VecsListenerOptions {
   apiBasePath?: string;
