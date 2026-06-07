@@ -161,18 +161,11 @@ type _ExtractAndChain<A extends readonly QueryDSL[]> = A extends readonly [
   ? [...ExtractRequired<First>, ..._ExtractAndChain<Rest>]
   : [];
 
-function _isClassConstructor(value: QueryDSL): value is ComponentClass {
-  return (
-    typeof value === "function" && Function.prototype.toString.call(value).startsWith("class ")
-  );
-}
-
+// Only ever called on simplified `all` subterms (see `simplifyQueryDSL`), where
+// component classes and `Entity` instances have already been resolved to numeric
+// eids — so a bare class never reaches here and no constructor check is needed.
 function _componentRequirements(q: QueryDSL): readonly ComponentRef[] | undefined {
   if (typeof q === "number" || q instanceof Entity) {
-    return [q];
-  }
-
-  if (_isClassConstructor(q)) {
     return [q];
   }
 
@@ -338,17 +331,17 @@ function _getDSLFunctionId(func: EntityTestFunc): number {
   return id;
 }
 
+// Operates exclusively on the output of `simplifyQueryDSL` (both call sites and
+// every recursive call pass simplified nodes). Simplification resolves bare
+// classes and `Entity` instances to numeric eids, rewrites `parent` / `children`
+// to `target` / `source`, and resolves relationship keys to numbers — so the
+// raw-form branches for those shapes are unreachable here and are intentionally
+// absent. Any unsimplified node falls through to the final throw.
 function _canonicalDSLKey(q: QueryDSL): unknown {
   if (typeof q === "boolean") {
     return ["BOOL", q];
   }
   if (typeof q === "number") {
-    return ["HAS", q];
-  }
-  if (q instanceof Entity) {
-    return ["HAS", q.eid];
-  }
-  if (typeof q === "function") {
     return ["HAS", q];
   }
   if (q instanceof Array) {
@@ -367,24 +360,10 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
     return ["NOT", _canonicalDSLKey(q.not)];
   }
   if ("target" in q) {
-    return [
-      "TARGET",
-      q.target[0] instanceof Entity ? q.target[0].eid : q.target[0],
-      _canonicalDSLKey(q.target[1]),
-    ];
+    return ["TARGET", q.target[0], _canonicalDSLKey(q.target[1])];
   }
   if ("source" in q) {
-    return [
-      "SOURCE",
-      q.source[0] instanceof Entity ? q.source[0].eid : q.source[0],
-      _canonicalDSLKey(q.source[1]),
-    ];
-  }
-  if ("parent" in q) {
-    return ["PARENT", _canonicalDSLKey(q.parent)];
-  }
-  if ("children" in q) {
-    return ["CHILDREN", _canonicalDSLKey(q.children)];
+    return ["SOURCE", q.source[0], _canonicalDSLKey(q.source[1])];
   }
   if ("test" in q) {
     if (q.watch === undefined) {
