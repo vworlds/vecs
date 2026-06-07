@@ -169,8 +169,18 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   ): this;
   public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
     this.changed = false;
-    forEachInjected(this.world, this._matchedEntities(), arg0, arg1, arg2);
+    this._forEach(arg0, arg1, arg2);
     return this;
+  }
+
+  /**
+   * @internal Iterate the matched entities with injection, **without**
+   * consuming the {@link changed} flag. Used by `System.each`, which runs every
+   * tick and must not reset `changed` (that flag tracks whether membership or
+   * watched data changed since the caller last read it).
+   */
+  protected _forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): void {
+    forEachInjected(this.world, this._matchedEntities(), arg0, arg1, arg2);
   }
 
   public toString(): string {
