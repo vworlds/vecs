@@ -13,7 +13,7 @@ When fixing a bug, add a regression test that fails before the fix and passes af
 - `lib/vecs-wire/tests/` for encoder, decoder, and `@type` decorator round-trips.
 - `lib/vecs-protocol/tests/` for `Server2Client` / `Client2Server` / `StateDiff` / `RPC` round-trips.
 - `lib/vecs-server/tests/` for `VecsServer` and `VecsListener` behavior, mocking `VecsSocket` / `VecsSocketListener`.
-- `lib/vecs-client/tests/` for `VecsClient` and `Interpolator` behavior, mocking `VecsSocket`.
+- `lib/vecs-client/tests/` for `VecsClient` and `DiffBuffer` behavior, mocking `VecsSocket`.
 
 Mirror the source hierarchy when a package has scoped subdirectories. Put tests for code under `src/<area>/` in `tests/<area>/`, with one focused test file per source module. Keep cross-cutting API behavior in the nearest top-level test file instead of mixing it into area-specific tests.
 

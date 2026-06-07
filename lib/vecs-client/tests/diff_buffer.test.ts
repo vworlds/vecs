@@ -5,10 +5,10 @@ import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import {
   ComponentSnapshot,
   Diff,
-  Interpolator,
+  DiffBuffer,
   merge,
-  type ComponentLerp,
-} from "../src/interpolator.js";
+  type ComponentInterpolator,
+} from "../src/diff_buffer.js";
 
 const PositionType = 1;
 const ColorType = 6;
@@ -100,8 +100,8 @@ function decodePosition(snapshot: ComponentSnapshot): Position {
   return position;
 }
 
-function newInterpolator(maxLength: number, serverTickInterval: number): Interpolator {
-  return new Interpolator(maxLength, serverTickInterval, decodePosition);
+function newDiffBuffer(maxLength: number, serverTickInterval: number): DiffBuffer {
+  return new DiffBuffer(maxLength, serverTickInterval, decodePosition);
 }
 
 const A = 1;
@@ -111,7 +111,7 @@ const D = 4;
 
 test("reorder", () => {
   const MAX_LENGTH = 4;
-  let ip = newInterpolator(MAX_LENGTH, 10);
+  let ip = newDiffBuffer(MAX_LENGTH, 10);
   const s0 = SD({ from: 0, to: 0, snapshots: snap({ id: A, xy: 0, color: "red" }) });
   const s1 = SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) });
   const s2 = SD({ from: 0, to: 2, snapshots: snap({ id: A, xy: 2, color: "red" }) });
@@ -130,7 +130,7 @@ test("reorder", () => {
 
   // Try again, but this case s2 arrives first. When the bucket is empty,
   // the first diff received is taken as starting point
-  ip = newInterpolator(MAX_LENGTH, 10);
+  ip = newDiffBuffer(MAX_LENGTH, 10);
   ip.push(s2); // taken as starting reference and placed in bucket[0]
   ip.push(s0); // will be discarded as too old
   ip.push(s3); // will be placed in bucket[1]
@@ -166,7 +166,7 @@ test("reorder", () => {
 
 test("pull steps through buffered frames with interpolated position frames", () => {
   const MAX_LENGTH = 4;
-  const ip = newInterpolator(MAX_LENGTH, 10);
+  const ip = newDiffBuffer(MAX_LENGTH, 10);
 
   const A1 = snap({ id: A, xy: 0, color: "red" });
   const B1 = snap({ id: B, xy: 5, color: "blue" });
@@ -236,7 +236,7 @@ test("merge-add", () => {
   // test merging two diffs that refer to different entities; the resulting
   // merge contains both entities
   const MAX_LENGTH = 2;
-  const ip = newInterpolator(MAX_LENGTH, 10);
+  const ip = newDiffBuffer(MAX_LENGTH, 10);
 
   const A1 = snap({ id: A, xy: 0, color: "red" });
   const B2 = snap({ id: B, xy: 5, color: "blue" });
@@ -267,7 +267,7 @@ test("merge-replace", () => {
   // test merging when the newer diff has a more updated version of the same
   // entity. The newer diff must prevail.
   const MAX_LENGTH = 2;
-  const ip = newInterpolator(MAX_LENGTH, 10);
+  const ip = newDiffBuffer(MAX_LENGTH, 10);
 
   const A1 = snap({ id: A, xy: 0, color: "red" });
   const A2 = snap({ id: A, xy: 5, color: "blue" });
@@ -314,7 +314,7 @@ test("merge-remove", () => {
   // created before. Must cancel previous snapshots of that component and keep
   // a removed entry so the client state catches up.
   const MAX_LENGTH = 2;
-  const ip = newInterpolator(MAX_LENGTH, 10);
+  const ip = newDiffBuffer(MAX_LENGTH, 10);
 
   const { sd1, sd2, sd3 } = createMergeRemoveDiffs();
 
@@ -340,7 +340,7 @@ test("merge-remove-readd", () => {
   // created before, then that component reappears. Must cancel the intermediate
   // "removed" entry.
   const MAX_LENGTH = 2;
-  const ip = newInterpolator(MAX_LENGTH, 10);
+  const ip = newDiffBuffer(MAX_LENGTH, 10);
   const A4 = snap({ id: A, xy: 0, color: "orange" });
 
   const { C3, sd1, sd2, sd3 } = createMergeRemoveDiffs();
@@ -367,7 +367,7 @@ test("merge-remove-readd", () => {
 });
 
 test("interpolated snapshots carry Position instances as payload", () => {
-  const ip = newInterpolator(3, 10);
+  const ip = newDiffBuffer(3, 10);
   const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
   const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 10, 20)] });
 
@@ -383,7 +383,7 @@ test("interpolated snapshots carry Position instances as payload", () => {
 });
 
 test("does not interpolate entities that only exist in a future frame", () => {
-  const ip = newInterpolator(3, 10);
+  const ip = newDiffBuffer(3, 10);
   const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
   const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(B, 10, 20)] });
 
@@ -396,14 +396,14 @@ test("does not interpolate entities that only exist in a future frame", () => {
   expect(Pos(sd105, B)).toBeUndefined();
 });
 
-test("interpolates using a custom lerp supplied via config", () => {
+test("interpolates using a custom component interpolator supplied via config", () => {
   const alphas: number[] = [];
-  // A custom lerp that records the alpha it is called with and snaps to target.
-  const snapToTarget: ComponentLerp = (_source, target, alpha) => {
+  // A custom interpolator that records the alpha it is called with and snaps to target.
+  const snapToTarget: ComponentInterpolator = (_source, target, alpha) => {
     alphas.push(alpha);
     return target;
   };
-  const ip = new Interpolator(3, 10, decodePosition, [[PositionType, snapToTarget]]);
+  const ip = new DiffBuffer(3, 10, decodePosition, [[PositionType, snapToTarget]]);
   const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
   const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 10, 20)] });
 
@@ -413,13 +413,13 @@ test("interpolates using a custom lerp supplied via config", () => {
   ip.pull(100);
   const sd105 = ip.pull(105);
 
-  // The custom lerp ran (default lerpPosition would have produced {5,10}).
+  // The custom interpolator ran (default interpolatePosition would have produced {5,10}).
   expect(alphas.length).toBeGreaterThan(0);
   expect(Pos(sd105, A)).toEqual({ x: 10, y: 20 });
 });
 
-test("does not emit interpolated frames for types without a configured lerp", () => {
-  const ip = new Interpolator(3, 10, decodePosition, []);
+test("does not emit interpolated frames for types without a configured interpolator", () => {
+  const ip = new DiffBuffer(3, 10, decodePosition, []);
   const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
   const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 10, 20)] });
 
@@ -429,12 +429,12 @@ test("does not emit interpolated frames for types without a configured lerp", ()
   ip.pull(100);
   const sd105 = ip.pull(105);
 
-  // With no lerp registered, the in-between pull produces no fake frame for A.
+  // With no interpolator registered, the in-between pull produces no fake frame for A.
   expect(Pos(sd105, A)).toBeUndefined();
 });
 
 test("reset returns the interpolator to its initial state", () => {
-  const ip = newInterpolator(3, 10);
+  const ip = newDiffBuffer(3, 10);
   const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
   ip.push(s1);
   ip.pull(100);

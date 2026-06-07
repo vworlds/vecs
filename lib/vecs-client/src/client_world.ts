@@ -17,10 +17,10 @@ import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { EventEmitter } from "eventemitter3";
 import {
   ComponentSnapshot,
-  Interpolator,
+  DiffBuffer,
   diffFromStateDiff,
-  type ComponentLerp,
-} from "./interpolator.js";
+  type ComponentInterpolator,
+} from "./diff_buffer.js";
 
 class Networked {}
 
@@ -49,9 +49,9 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
    * Component types to interpolate between server frames, keyed by component
    * type id, with the function used to blend each one. Types without an entry
    * are snapped to their latest received value. Defaults to interpolating the
-   * first network component (type 1) as a 2D position via `lerpPosition`.
+   * first network component (type 1) as a 2D position via `interpolatePosition`.
    */
-  interpolators?: Iterable<readonly [number, ComponentLerp]>;
+  interpolators?: Iterable<readonly [number, ComponentInterpolator]>;
 }
 
 export interface InstallSystemsOptions {
@@ -72,7 +72,7 @@ export class ClientWorld extends NetworkWorld {
   private _socket: VecsSocket | undefined;
   private readonly _rpc = new SessionRPC();
   private readonly _rpcInbox: RPC[] = [];
-  private readonly _interpolator: Interpolator;
+  private readonly _diffBuffer: DiffBuffer;
   private readonly _encodeBuffer: Uint8Array;
   private readonly _ackIntervalMs: number;
   private readonly _networkedQuery: InstanceType<typeof Query>;
@@ -93,7 +93,7 @@ export class ClientWorld extends NetworkWorld {
     this._ackIntervalMs = options.ackIntervalMs ?? 1000 / 30;
     this.component(Networked);
     this._networkedQuery = this.query("ClientWorld:Networked").with(Networked).track().build();
-    this._interpolator = new Interpolator(
+    this._diffBuffer = new DiffBuffer(
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,
       (snapshot) => this.decodeComponentSnapshot(snapshot),
@@ -157,7 +157,7 @@ export class ClientWorld extends NetworkWorld {
       const incoming = this._rpcInbox.splice(0);
       this._rpc.process(incoming);
     }
-    const diff = this._interpolator.pull(now);
+    const diff = this._diffBuffer.pull(now);
     diff.snapshots.forEach((snapshot) => this._applySnapshot(snapshot));
     (diff.removed as number[] | undefined)?.forEach((key) => {
       const [eid, type] = cid_unpack(key);
@@ -170,7 +170,7 @@ export class ClientWorld extends NetworkWorld {
       return;
     }
     const rpc = this._rpc.getOutgoing();
-    const ackFrame = this._interpolator.version < 0 ? 0 : this._interpolator.version;
+    const ackFrame = this._diffBuffer.version < 0 ? 0 : this._diffBuffer.version;
     const encoder = new Encoder(this._encodeBuffer);
     encoder.write(new Client2Server({ ackFrame, input: this._input, rpc }));
     this._socket.send(encoder.getBuffer());
@@ -195,7 +195,7 @@ export class ClientWorld extends NetworkWorld {
     // A diff with fromFrame === 0 is a full baseline: the complete authoritative
     // state at sd.toFrame. The server streams these whenever a client falls
     // outside its history window -- most commonly a backgrounded tab, where the
-    // render loop (and therefore Interpolator.pull) is suspended and acks are
+    // render loop (and therefore DiffBuffer.pull) is suspended and acks are
     // throttled, so the server keeps resending the whole world until the client
     // catches up.
     //
@@ -212,19 +212,19 @@ export class ClientWorld extends NetworkWorld {
       // Skip baselines we have already advanced past (duplicates or, with the
       // unordered transport, stragglers). After a reconnect the server may have
       // restarted its frame counter, so a forced reset overrides this.
-      if (!this._forceBaselineReset && sd.toFrame <= this._interpolator.version) {
+      if (!this._forceBaselineReset && sd.toFrame <= this._diffBuffer.version) {
         return;
       }
       this._forceBaselineReset = false;
       const initial = !this._baselineApplied;
       this._baselineApplied = true;
       this._destroyNetworkEntities();
-      this._interpolator.reset();
-      this._interpolator.push(diffFromStateDiff(sd));
+      this._diffBuffer.reset();
+      this._diffBuffer.push(diffFromStateDiff(sd));
       this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
       return;
     }
-    this._interpolator.push(diffFromStateDiff(sd));
+    this._diffBuffer.push(diffFromStateDiff(sd));
   }
 
   public decodeComponentSnapshot(snapshot: ComponentSnapshot): ComponentInstance {

@@ -26,7 +26,7 @@ type PositionComponent = ComponentInstance & IPosition;
  * source value and 1 the target value. The returned value should be a fresh
  * component instance; inputs must not be mutated.
  */
-export type ComponentLerp = (
+export type ComponentInterpolator = (
   source: ComponentInstance,
   target: ComponentInstance,
   alpha: number
@@ -85,7 +85,7 @@ export function diffFromStateDiff(sd: StateDiff): Diff {
   return d;
 }
 
-export class Interpolator {
+export class DiffBuffer {
   // state contains the state the game is currently rendering.
   private _state = new Map<number, ComponentSnapshot>();
   private _stateVersion: number = 0;
@@ -108,21 +108,24 @@ export class Interpolator {
   // the moving interpolation baseline when pull() is called before tServ.
   private _lastTime = -1;
 
-  // lerps maps a component type id to the function used to blend it between
-  // server frames. Types without an entry are snapped to their latest value.
-  private readonly _lerps: Map<number, ComponentLerp>;
+  // componentInterpolators maps a component type id to the function used to
+  // blend it between server frames. Types without an entry are snapped to their
+  // latest value.
+  private readonly _componentInterpolators: Map<number, ComponentInterpolator>;
 
   public constructor(
     private max_length: number = MAX_LENGTH, // max bucket length
     private server_tick_interval: number = 1000 / 60, // server tick interval FPS configuration
     private readonly _decodeComponentSnapshot?: DecodeComponentSnapshot,
-    lerps: Iterable<readonly [number, ComponentLerp]> = [[POSITION_COMPONENT_TYPE, lerpPosition]]
+    componentInterpolators: Iterable<readonly [number, ComponentInterpolator]> = [
+      [POSITION_COMPONENT_TYPE, interpolatePosition],
+    ]
   ) {
     if (max_length < 2) {
       throw new Error("minimum interpolation bucket length is 2");
     }
     this.bucket = Array(this.max_length).fill(undefined);
-    this._lerps = new Map(lerps);
+    this._componentInterpolators = new Map(componentInterpolators);
   }
 
   private _updateState(sd: Diff): void {
@@ -172,8 +175,8 @@ export class Interpolator {
       this._tServ = now;
     }
 
-    // lerpStart is the timestamp of the currently visualized state.
-    let lerpStart = this._lastTime;
+    // interpolationStart is the timestamp of the currently visualized state.
+    let interpolationStart = this._lastTime;
 
     // The following loop will incorporate (merge) into the
     // proposed diff (sd) as many snapshots from the bucket
@@ -188,7 +191,7 @@ export class Interpolator {
     ) {
       // take snapshot on bucket[0] and merge it on to the result:
       sd = merge(sd, this.bucket[0], false);
-      lerpStart = this._tServ;
+      interpolationStart = this._tServ;
       this._pop(); //remove bucket[0] and shift contents to the left
     }
 
@@ -209,7 +212,7 @@ export class Interpolator {
     // callers can render fake frames between server ticks.
     const target = this.bucket[0];
     if (target) {
-      this._interpolate(sd, target, lerpStart, this._tServ, now);
+      this._interpolate(sd, target, interpolationStart, this._tServ, now);
       this._first = target.to;
     } else {
       this._first = undefined;
@@ -311,14 +314,14 @@ export class Interpolator {
   }
 
   private _interpolate(sd: Diff, target: Diff, start: number, end: number, now: number): void {
-    if (this._lerps.size === 0) {
+    if (this._componentInterpolators.size === 0) {
       return;
     }
     const alpha = end === start ? 1 : (now - start) / (end - start);
     let mutated = false;
     target.snapshots.forEach((targetSnapshot) => {
-      const lerp = this._lerps.get(targetSnapshot.type);
-      if (!lerp) {
+      const interpolate = this._componentInterpolators.get(targetSnapshot.type);
+      if (!interpolate) {
         return;
       }
       const sourceSnapshot = sd.smap.get(targetSnapshot.cid) ?? this._state.get(targetSnapshot.cid);
@@ -332,7 +335,7 @@ export class Interpolator {
         new ComponentSnapshot(
           targetSnapshot.eid,
           targetSnapshot.type,
-          lerp(source, targetComponent, alpha)
+          interpolate(source, targetComponent, alpha)
         )
       );
       mutated = true;
@@ -349,11 +352,11 @@ function isPosition(component: ComponentInstance): component is PositionComponen
 }
 
 /**
- * Default {@link ComponentLerp} for 2D point components: linearly interpolates
- * the `x` and `y` fields. Exported so callers can interpolate their own
- * position-like components without reimplementing the math.
+ * Default {@link ComponentInterpolator} for 2D point components: linearly
+ * interpolates the `x` and `y` fields. Exported so callers can interpolate
+ * their own position-like components without reimplementing the math.
  */
-export const lerpPosition: ComponentLerp = (source, target, alpha) => {
+export const interpolatePosition: ComponentInterpolator = (source, target, alpha) => {
   if (!isPosition(source) || !isPosition(target)) {
     throw new Error(`Component type ${POSITION_COMPONENT_TYPE} must satisfy IPosition`);
   }

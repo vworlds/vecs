@@ -13,7 +13,7 @@ import { ClientWorld } from "../src/index.js";
 // Regression coverage for the "inactive tab" reset storm.
 //
 // When a browser tab goes inactive its requestAnimationFrame loop stops (so
-// ClientWorld.apply / Interpolator.pull never runs) and its ack setInterval is
+// ClientWorld.apply / DiffBuffer.pull never runs) and its ack setInterval is
 // throttled to ~1Hz. The server stops seeing acks, decides the client has
 // fallen outside its history window, and streams full baselines
 // (StateDiff.fromFrame === 0) every frame until the client catches up. The
