@@ -124,6 +124,27 @@ describe("Deferred mode — entity creation", () => {
     expect(w.entity(e.eid)).toBe(e);
   });
 
+  it("getOrCreateEntity inside a deferred block does not appear until drain", () => {
+    const { w } = setup();
+    w.start();
+    w.beginDefer();
+    const e = w.getOrCreateEntity(1234);
+    expect(() => w.entity(e.eid)).toThrow(); // not registered until drain
+    w.endDefer();
+    expect(w.entity(e.eid)).toBe(e);
+  });
+
+  it("getOrCreateEntity runs its onCreate callback at drain in deferred mode", () => {
+    const { w } = setup();
+    w.start();
+    const seen: number[] = [];
+    w.beginDefer();
+    const e = w.getOrCreateEntity(1234, (created) => seen.push(created.eid));
+    expect(seen).toEqual([]); // deferred until drain
+    w.endDefer();
+    expect(seen).toEqual([e.eid]);
+  });
+
   it("world.entity() inside a Filter.forEach is not visited by the same iteration", () => {
     const { w } = setup();
     const a = w.entity();

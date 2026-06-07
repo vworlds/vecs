@@ -39,7 +39,12 @@ export type Command = CommandBody & {
 
 /** @internal The discriminated payload of a {@link Command}, without provenance. */
 type CommandBody =
-  | { kind: CommandKind.CreateEntity; entity: Entity }
+  | {
+      kind: CommandKind.CreateEntity;
+      entity: Entity;
+      /** Optional callback run once the entity is registered (used by `getOrCreateEntity`). */
+      onCreate?: (entity: Entity) => void;
+    }
   | {
       kind: CommandKind.Set;
       entity: Entity;

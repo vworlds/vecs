@@ -56,6 +56,7 @@ export class Deferred extends Queries {
       case CommandKind.CreateEntity:
         this._entities.set(cmd.entity.eid, cmd.entity);
         this._notifyEntityCreated(cmd.entity);
+        cmd.onCreate?.(cmd.entity);
         return;
       case CommandKind.Set:
         cmd.entity._set(cmd.meta, cmd.props);

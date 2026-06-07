@@ -16,10 +16,15 @@ export class Entities extends Deferred {
     if (!e) {
       this._reserveEid(eid);
       e = new Entity(this, eid);
-      this._entities.set(eid, e);
-      this._notifyEntityCreated(e);
-      if (onCreateCallback) {
-        onCreateCallback(e);
+      if (this.deferred) {
+        // Mirror `_entity`: in deferred mode the entity is not registered or
+        // made visible to queries until the queue drains. The reservation above
+        // still happens eagerly so the id cannot be handed out again meanwhile.
+        this._enqueue({ kind: CommandKind.CreateEntity, entity: e, onCreate: onCreateCallback });
+      } else {
+        this._entities.set(eid, e);
+        this._notifyEntityCreated(e);
+        onCreateCallback?.(e);
       }
     }
     return e;
