@@ -24,21 +24,23 @@ describe("Query.ignoreSource source attribution", () => {
     let readerCount = 0;
 
     // A tagged system that rewrites Value every frame — the "engine write-back".
-    const writer = world.system("Writer").run(() => {
-      target.set(Value, { n: target.get(Value)!.n + 1 });
-    });
-    writer.phase(writePhase);
+    const writer = world
+      .system("Writer")
+      .phase(writePhase)
+      .run(() => {
+        target.set(Value, { n: target.get(Value)!.n + 1 });
+      });
     writer.entity.add(Tag);
 
     // The reader ignores any update that originated from a Tag-bearing system.
-    const reader = world
+    world
       .system("Reader")
       .with(Value)
+      .phase(readPhase)
       .ignoreSource([Tag])
       .update(Value, () => {
         readerCount++;
       });
-    reader.phase(readPhase);
 
     world.start();
 

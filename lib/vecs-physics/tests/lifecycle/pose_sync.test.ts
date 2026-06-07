@@ -196,14 +196,14 @@ describe("pose-sync feedback suppression", () => {
 
     let lastSeenX: number | undefined;
     let count = 0;
-    const renderSystem = userWorld
+    userWorld
       .system("UserRender")
       .with(Body)
+      .phase(render)
       .update(Position, (_entity, position) => {
         lastSeenX = position.x;
         count++;
       });
-    renderSystem.phase(render);
 
     userWorld.start();
     const userState = getPhysics(userWorld) as PhysicsState;

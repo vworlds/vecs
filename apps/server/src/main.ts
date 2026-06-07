@@ -142,8 +142,8 @@ const occupancyByCell = world.query("OccupancyByCell").with(Networked, Position)
 var selected: Entity | undefined = undefined;
 world
   .system("SyncPhysicsBalls")
-  .phase(physicsPost)
   .with(Networked, Ball, Position, PhysicsPosition)
+  .phase(physicsPost)
   .each([Position, PhysicsPosition, Ball], (entity, [position, physicsPosition, ball]) => {
     // Keep the wire-typed demo Position as the client protocol and adapt from
     // vecs-physics Position post-step instead of decorating external classes.
@@ -215,15 +215,15 @@ world
 // and no exclusive-component bookkeeping.
 world
   .system("AssignCells")
-  .phase(physicsPost)
   .with(Networked, Position)
+  .phase(physicsPost)
   .enter([Position], (entity, [position]) => assignCell(entity, position))
   .update(Position, (entity, position) => assignCell(entity, position));
 
 world
   .system("UpdatePlayerViews")
-  .phase(physicsPost)
   .with(Networked, NetworkClient, Position, View)
+  .phase(physicsPost)
   .enter([Position, View], (entity, [position, view]) => updatePlayerView(entity, position, view))
   .update(Position, [View], (entity, position, [view]) => updatePlayerView(entity, position, view));
 

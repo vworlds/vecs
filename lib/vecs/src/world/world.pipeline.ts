@@ -48,7 +48,10 @@ export class Pipeline extends Modules {
   public progress(now: number, delta: number): void {
     this.beginFrame(delta);
     try {
-      this._pipeline.forEach((system) => this._runPipelineSystem(system, now, delta));
+      for (const system of this._pipeline) {
+        this.flush();
+        system._run(now, delta);
+      }
     } finally {
       this.endFrame();
     }
@@ -95,11 +98,5 @@ export class Pipeline extends Modules {
       }
     });
     this._pipeline = systems;
-  }
-
-  /** @internal Run one pipeline system and flush before the next one. */
-  protected _runPipelineSystem(system: System, now: number, delta: number): void {
-    this.flush();
-    system._run(now, delta);
   }
 }
