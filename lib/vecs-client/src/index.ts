@@ -1,4 +1,5 @@
-export { ComponentSnapshot, Diff, Interpolator } from "./interpolator.js";
+export { ComponentSnapshot, Diff, Interpolator, lerpPosition } from "./interpolator.js";
+export type { ComponentLerp, IPosition } from "./interpolator.js";
 export { ClientWorld } from "./client_world.js";
 export type {
   ClientWorldOptions,

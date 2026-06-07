@@ -20,6 +20,18 @@ export interface IPosition {
 type DecodeComponentSnapshot = (snapshot: ComponentSnapshot) => ComponentInstance;
 type PositionComponent = ComponentInstance & IPosition;
 
+/**
+ * Blends a source and target component toward render time. `alpha` is the
+ * normalized interpolation factor in the range [0, 1], where 0 returns the
+ * source value and 1 the target value. The returned value should be a fresh
+ * component instance; inputs must not be mutated.
+ */
+export type ComponentLerp = (
+  source: ComponentInstance,
+  target: ComponentInstance,
+  alpha: number
+) => ComponentInstance;
+
 export class ComponentSnapshot {
   public readonly eid: EID;
   public readonly type: number;
@@ -96,15 +108,21 @@ export class Interpolator {
   // the moving interpolation baseline when pull() is called before tServ.
   private _lastTime = -1;
 
+  // lerps maps a component type id to the function used to blend it between
+  // server frames. Types without an entry are snapped to their latest value.
+  private readonly _lerps: Map<number, ComponentLerp>;
+
   public constructor(
     private max_length: number = MAX_LENGTH, // max bucket length
     private server_tick_interval: number = 1000 / 60, // server tick interval FPS configuration
-    private readonly _decodeComponentSnapshot?: DecodeComponentSnapshot
+    private readonly _decodeComponentSnapshot?: DecodeComponentSnapshot,
+    lerps: Iterable<readonly [number, ComponentLerp]> = [[POSITION_COMPONENT_TYPE, lerpPosition]]
   ) {
     if (max_length < 2) {
       throw new Error("minimum interpolation bucket length is 2");
     }
     this.bucket = Array(this.max_length).fill(undefined);
+    this._lerps = new Map(lerps);
   }
 
   private _updateState(sd: Diff): void {
@@ -191,7 +209,7 @@ export class Interpolator {
     // callers can render fake frames between server ticks.
     const target = this.bucket[0];
     if (target) {
-      this._interpolatePositions(sd, target, lerpStart, this._tServ, now);
+      this._interpolate(sd, target, lerpStart, this._tServ, now);
       this._first = target.to;
     } else {
       this._first = undefined;
@@ -282,47 +300,46 @@ export class Interpolator {
     }
   }
 
-  private _decodePositionSnapshot(snapshot: ComponentSnapshot): PositionComponent {
+  private _decodeSnapshot(snapshot: ComponentSnapshot): ComponentInstance {
     if (!(snapshot.payload instanceof Uint8Array)) {
-      if (!isPosition(snapshot.payload)) {
-        throw new Error(`Component type ${POSITION_COMPONENT_TYPE} must satisfy IPosition`);
-      }
       return snapshot.payload;
     }
     if (!this._decodeComponentSnapshot) {
-      throw new Error("Position interpolation requires a component snapshot decoder");
+      throw new Error("Component interpolation requires a component snapshot decoder");
     }
-    const component = this._decodeComponentSnapshot(snapshot);
-    if (!isPosition(component)) {
-      throw new Error(`Component type ${POSITION_COMPONENT_TYPE} must satisfy IPosition`);
-    }
-    return component;
+    return this._decodeComponentSnapshot(snapshot);
   }
 
-  private _interpolatePositions(
-    sd: Diff,
-    target: Diff,
-    start: number,
-    end: number,
-    now: number
-  ): void {
+  private _interpolate(sd: Diff, target: Diff, start: number, end: number, now: number): void {
+    if (this._lerps.size === 0) {
+      return;
+    }
+    const alpha = end === start ? 1 : (now - start) / (end - start);
+    let mutated = false;
     target.snapshots.forEach((targetSnapshot) => {
-      if (targetSnapshot.type !== POSITION_COMPONENT_TYPE) {
+      const lerp = this._lerps.get(targetSnapshot.type);
+      if (!lerp) {
         return;
       }
       const sourceSnapshot = sd.smap.get(targetSnapshot.cid) ?? this._state.get(targetSnapshot.cid);
       if (!sourceSnapshot) {
         return;
       }
-      const sourcePosition = this._decodePositionSnapshot(sourceSnapshot);
-      const targetPosition = this._decodePositionSnapshot(targetSnapshot);
-      const position = lerp(sourcePosition, targetPosition, start, end, now);
+      const source = this._decodeSnapshot(sourceSnapshot);
+      const targetComponent = this._decodeSnapshot(targetSnapshot);
       sd.smap.set(
         targetSnapshot.cid,
-        new ComponentSnapshot(targetSnapshot.eid, POSITION_COMPONENT_TYPE, position)
+        new ComponentSnapshot(
+          targetSnapshot.eid,
+          targetSnapshot.type,
+          lerp(source, targetComponent, alpha)
+        )
       );
+      mutated = true;
     });
-    sd.updateSnapshotsFromMap();
+    if (mutated) {
+      sd.updateSnapshotsFromMap();
+    }
   }
 }
 
@@ -331,22 +348,23 @@ function isPosition(component: ComponentInstance): component is PositionComponen
   return typeof candidate.x === "number" && typeof candidate.y === "number";
 }
 
-function lerp(
-  a: PositionComponent,
-  b: PositionComponent,
-  start: number,
-  end: number,
-  t: number
-): ComponentInstance {
-  if (end === start) {
-    return b;
+/**
+ * Default {@link ComponentLerp} for 2D point components: linearly interpolates
+ * the `x` and `y` fields. Exported so callers can interpolate their own
+ * position-like components without reimplementing the math.
+ */
+export const lerpPosition: ComponentLerp = (source, target, alpha) => {
+  if (!isPosition(source) || !isPosition(target)) {
+    throw new Error(`Component type ${POSITION_COMPONENT_TYPE} must satisfy IPosition`);
   }
-  const d = end - start;
-  const position = new (b.constructor as new () => ComponentInstance & { x: number; y: number })();
-  position.x = a.x + ((b.x - a.x) / d) * (t - start);
-  position.y = a.y + ((b.y - a.y) / d) * (t - start);
-  return position;
-}
+  const result = new (target.constructor as new () => ComponentInstance & {
+    x: number;
+    y: number;
+  })();
+  result.x = source.x + (target.x - source.x) * alpha;
+  result.y = source.y + (target.y - source.y) * alpha;
+  return result;
+};
 
 // helper function to add items to a set
 function addToSet<T>(set: Set<T>, data: Iterable<T> | undefined): void {
