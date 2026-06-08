@@ -87,7 +87,6 @@ function createServer(): ServerWorld {
   });
   server.component(NetworkClient).onSet((entity) => entity.set(View, { dsl: true }));
   server.installSystems();
-  server.start();
   return server;
 }
 

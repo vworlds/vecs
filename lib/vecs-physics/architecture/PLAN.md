@@ -159,8 +159,7 @@ Canonical bootstrap:
 
 ```ts
 await preloadPhysics(); // once per process; cached
-installPhysics(world, opts); // before world.start()
-world.start();
+installPhysics(world, opts);
 ```
 
 `installPhysics` must:
@@ -173,7 +172,7 @@ world.start();
 5. Install the physics systems (listed under **System and phase pipeline**).
 6. Allocate `PhysicsState` (holds the `b2WorldId` and entity↔ID maps) and
    bind it to the world via the `PhysicsRoot` singleton.
-7. Throw if called after `world.start()` or twice on the same world.
+7. Throw if called twice on the same world.
 
 ### Authoritative component defaults
 

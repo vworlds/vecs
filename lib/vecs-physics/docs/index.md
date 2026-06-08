@@ -17,8 +17,6 @@ installPhysics(world, {
   fixedTimeStep: 1 / 60,
   subSteps: 4,
 });
-
-world.start();
 ```
 
 ## Documentation
@@ -95,14 +93,12 @@ world
   .set(Material, { density: 1, friction: 0.6 })
   .add(ContactEvents);
 
-world.start();
-
 world.progress(performance.now(), 1000 / 60);
 ```
 
 ## Installation And Setup
 
-Preload the WASM runtime once, then install physics before `world.start()`.
+Preload the WASM runtime once, then install physics into a world. Installed systems enter the pipeline the next time `world.progress()` runs.
 
 ```ts
 await preloadPhysics();

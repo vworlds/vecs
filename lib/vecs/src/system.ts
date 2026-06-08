@@ -72,9 +72,8 @@ type _SystemInboxEvent =
  *   .exit((e) => { console.log("entity left", e.eid); });
  * ```
  *
- * Every builder method returns `this` for chaining. After registering systems
- * call {@link World.start} once, then drive the loop with
- * {@link World.progress}.
+ * Every builder method returns `this` for chaining. Systems are inserted into
+ * the world's pipeline the next time {@link World.progress} runs.
  *
  * Internally each system holds a single ordered **inbox** of routed events
  * (`enter`, `exit`, `update`). The world appends to it during command-queue

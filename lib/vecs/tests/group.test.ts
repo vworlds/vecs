@@ -28,7 +28,6 @@ describe("Query.groupBy — value grouping", () => {
       .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
-    w.start();
 
     const a = w.entity().set(Position, { x: 10 });
     const b = w.entity().set(Position, { x: 40 });
@@ -51,7 +50,6 @@ describe("Query.groupBy — value grouping", () => {
       .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
-    w.start();
 
     const e = w.entity().set(Position, { x: 10 });
     tick();
@@ -85,7 +83,6 @@ describe("Query.groupBy — value grouping", () => {
         });
       });
     writer.entity.add(Marker);
-    w.start();
 
     const e = w.entity().set(Team, { id: 0 });
     w.progress(0, 0); // enters group 0; writer's silenced write must not re-key
@@ -110,7 +107,6 @@ describe("Query.groupBy — value grouping", () => {
       .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
-    w.start();
 
     const e = w.entity().set(Position, { x: 150 });
     tick();
@@ -133,7 +129,6 @@ describe("Query.groupBy — value grouping", () => {
       .onGroupEnter((group) => entered.push(group.key))
       .onGroupExit((key) => exited.push(key as number));
     byCell.build();
-    w.start();
 
     const e = w.entity().set(Position, { x: 10 });
     tick();
@@ -152,7 +147,6 @@ describe("Query.groupBy — value grouping", () => {
       .with(Team)
       .groupBy([Team], (_e, [team]) => team.id);
     byTeam.build();
-    w.start();
 
     const e = w.entity().set(Team, { id: 7 });
     tick();
@@ -164,9 +158,8 @@ describe("Query.groupBy — value grouping", () => {
     expect(byTeam.group(9)?.has(e)).toBe(true);
   });
 
-  it("backfills existing entities when grouping is built after start", () => {
+  it("backfills existing entities when grouping is built after progress", () => {
     const { w, tick } = setup();
-    w.start();
     const e = w.entity().set(Position, { x: 130 });
     tick();
 
@@ -186,7 +179,6 @@ describe("Query.groupBy — value grouping", () => {
       .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
-    w.start();
 
     w.entity().set(Position, { x: 120 });
     w.entity().set(Position, { x: 180 });
@@ -204,7 +196,6 @@ describe("Query.groupBy — value grouping", () => {
       .with(Position)
       .groupBy([Position], (_e, [pos]) => cellOf(pos));
     byCell.build();
-    w.start();
 
     w.entity().set(Position, { x: 120 });
     tick();
@@ -222,7 +213,6 @@ describe("Query.groupBy — relationship grouping", () => {
     const zoneB = w.entity();
     const byZone = w.query("byZone").groupBy(InZone);
     byZone.build();
-    w.start();
 
     const a = w.entity().set(InZone, { target: zoneA });
     const b = w.entity().set(InZone, { target: zoneA });
@@ -242,7 +232,6 @@ describe("Query.groupBy — relationship grouping", () => {
     const zoneB = w.entity();
     const byZone = w.query("byZone").groupBy(InZone);
     byZone.build();
-    w.start();
 
     const e = w.entity().set(InZone, { target: zoneA });
     tick();
@@ -259,7 +248,6 @@ describe("Query.groupBy — relationship grouping", () => {
     const zoneA = w.entity();
     const byZone = w.query("byZone").groupBy(InZone);
     byZone.build();
-    w.start();
 
     const e = w.entity().set(InZone, { target: zoneA });
     tick();

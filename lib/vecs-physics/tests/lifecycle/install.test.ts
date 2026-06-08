@@ -160,11 +160,9 @@ describe("installPhysics", () => {
     expect(state.enableSleep).toBe(false);
   });
 
-  it("lets the world start without errors after install", () => {
+  it("keeps physics state reachable after install", () => {
     const world = new World();
     installPhysics(world);
-    expect(() => world.start()).not.toThrow();
-    // State is still reachable after start.
     expect(getPhysics(world).worldId).toBeDefined();
   });
 
@@ -174,9 +172,10 @@ describe("installPhysics", () => {
     expect(() => installPhysics(world)).toThrow(/already been called/);
   });
 
-  it("throws if installed after world.start()", () => {
+  it("can install after the world has already progressed", () => {
     const world = new World();
-    world.start();
-    expect(() => installPhysics(world)).toThrow(/before world\.start/);
+    world.progress(0, 0);
+
+    expect(() => installPhysics(world)).not.toThrow();
   });
 });

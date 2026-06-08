@@ -110,7 +110,6 @@ describe("World.module", () => {
 
     const world = new World();
     const mod = world.module(GameplayModule);
-    world.start();
 
     const entity = world.entity().add(Position);
     world.progress(0, 0);
@@ -118,7 +117,7 @@ describe("World.module", () => {
     expect(mod.entered).toEqual([entity.eid]);
   });
 
-  it("can register modules after start", () => {
+  it("can register modules anytime", () => {
     class TestModule extends Module {
       public init(): void {
         this.world.component(Position);
@@ -126,7 +125,6 @@ describe("World.module", () => {
     }
 
     const world = new World();
-    world.start();
 
     const mod = world.module(TestModule);
 

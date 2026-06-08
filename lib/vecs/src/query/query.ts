@@ -551,7 +551,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
 
   /** @internal */
   protected _backfill(): void {
-    if (!this._tracking || !this.rootTerm) {
+    if (!this.rootTerm || !this._needsBackfill()) {
       return;
     }
     this.world.defer(() => {
@@ -564,6 +564,16 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** @internal Whether this object has enough configuration to enter the world. */
   protected _isBuildable(): boolean {
     return this._dsl !== undefined;
+  }
+
+  /** @internal Whether build-time matches are observable and need routing. */
+  protected _needsBackfill(): boolean {
+    return (
+      this._tracking ||
+      this._enterCallback !== undefined ||
+      this._exitCallback !== undefined ||
+      this._watchesUpdates()
+    );
   }
 
   /** @internal */

@@ -27,10 +27,10 @@ yarn add @vworlds/vecs
 ### Lifecycle in brief
 
 ```
-world.component() / system() / query() × N  →  start()  →  progress() every frame
+world.component() / system() / query() × N  →  progress() every frame
 ```
 
-Components must be registered before they are used as component classes, and they may be registered before or after `start()`. Systems must be added before `start()`; standalone queries can still be created later and backfill existing matched entities immediately.
+Components must be registered before they are used as component classes. Components, systems, and standalone queries can be created at any time. Newly-created systems are inserted into the pipeline the next time `world.progress()` runs; standalone queries backfill existing matched entities immediately.
 
 ---
 
@@ -98,10 +98,6 @@ world
   .onAdd((entity, h) => console.log(`entity ${entity.eid} spawned with hp=${h.hp}`))
   .onRemove((entity) => console.log(`entity ${entity.eid} died`));
 
-// ─── Start ─────────────────────────────────────────────────────────────────
-
-world.start(); // build pending queries and prepare the pipeline
-
 // ─── Spawn entities ────────────────────────────────────────────────────────
 
 world.entity().set(Position, { x: 0, y: 0 }).set(Velocity, { vx: 5, vy: 0 }).set(Health, { hp: 3 });
@@ -144,7 +140,7 @@ const world = new World();
 
 #### Component registration
 
-Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `with`, `filter`, hook registration, or `setExclusiveComponents`. Registration can happen before or after `world.start()`.
+Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `with`, `filter`, hook registration, or `setExclusiveComponents`. Registration can happen at any time.
 
 ```ts
 class Position {
@@ -188,7 +184,7 @@ e.add(Walking);
 e.add(Running); // Walking is automatically removed first
 ```
 
-Each call defines one independent group. A component may belong to at most one group; calling `setExclusiveComponents` again with the same class overwrites its group. Safe to call before or after `world.start()`.
+Each call defines one independent group. A component may belong to at most one group; calling `setExclusiveComponents` again with the same class overwrites its group. Safe to call at any time.
 
 #### Entity management
 
@@ -347,11 +343,10 @@ const enemies = world
   .with(Enemy, Health)
   .enter((e) => console.log("enemy spawned", e.eid));
 
-world.start();
 // enemies.count and query iteration are kept up-to-date automatically.
 
-// Standalone queries can also be created after start(); existing matched
-// entities are backfilled immediately.
+// Standalone queries can also be created later; existing matched entities are
+// backfilled immediately.
 ```
 
 #### Filters
@@ -376,13 +371,11 @@ world
   .forEach([Position], (e, [pos]) => pos.x);
 ```
 
-A `Filter` requires no name, no `world.start()`, and no `destroy()` — create it anywhere and discard freely.
+A `Filter` requires no name and no `destroy()` — create it anywhere and discard freely.
 
 #### Pipeline control
 
 ```ts
-world.start();                         // build pending queries, distribute systems
-
 world.flush();                         // drain queued top-level mutations
 world.defer(() => { ... });            // run a block in deferred mode
 world.beginDefer();                    // pair with endDefer() for finer scoping
@@ -685,7 +678,7 @@ world
 
 #### `.track()`
 
-Enable entity tracking without an `each` callback — exposes matched entities via `system.count`, `system.has(e)`, and direct iteration. `each` and `orderBy` imply `track` automatically. When called after `world.start()`, immediately backfills existing matched entities.
+Enable entity tracking without an `each` callback — exposes matched entities via `system.count`, `system.has(e)`, and direct iteration. `each` and `orderBy` imply `track` automatically. Backfills existing matched entities when the system is built.
 
 #### `.run(callback)`
 
@@ -732,8 +725,6 @@ const projectiles = world
     pos.x = spawnX;
   });
 
-world.start();
-
 projectiles.forEach((e) => { ... });
 for (const e of projectiles) { ... }
 console.log(projectiles.count, "active projectiles");
@@ -747,7 +738,7 @@ console.log(projectiles.count, "active projectiles");
 | `.exit(callback)` / `.exit(inject, callback)`           | Fires when an entity leaves the query.                                                              |
 | `.update(C, callback)` / `.update(C, inject, callback)` | Fires when `C` is modified on a tracked entity. Callback receives `(entity, component, injected?)`. |
 | `.orderBy(components, compare)`                         | Store matched entities in sorted order. Comparator receives `(entityA, tupleA, entityB, tupleB)`.   |
-| `.track()`                                              | Enable tracking. Backfills when called after `start()`.                                             |
+| `.track()`                                              | Enable tracking. Backfills existing matches when the query is built.                                |
 | `.belongs(e)`                                           | Returns `true` if the entity satisfies the predicate.                                               |
 | `.count`                                                | Number of currently tracked entities.                                                               |
 | `.has(e)`                                               | Returns `true` if the entity is currently tracked.                                                  |

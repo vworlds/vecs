@@ -268,7 +268,6 @@ describe("ClientWorld", () => {
     const socket = new MemorySocket("server");
     client.attachSocket(socket);
     client.installSystems();
-    client.start();
 
     client.progress(0, 16);
 

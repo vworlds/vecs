@@ -21,7 +21,6 @@ describe("demo arena walls", () => {
   it("keeps a falling ball inside the loop-chain arena", () => {
     const world = new World();
     installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 30, subSteps: 4 });
-    world.start();
 
     const walls = world.entity().set(Position, { x: 0, y: 0 }).set(Body, {
       type: BodyType.Static,

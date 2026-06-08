@@ -199,7 +199,6 @@ describe("Entity — components", () => {
   it("attach works in deferred mode", () => {
     const w = new World();
     w.component(Position);
-    w.start();
     const e = w.entity();
     const pos = new Position();
     w.beginDefer();
@@ -212,7 +211,6 @@ describe("Entity — components", () => {
   it("set marks a new component as modified", () => {
     const w = new World();
     w.component(Position);
-    w.start();
     const onSet = vi.fn();
     w.component(Position).onSet(onSet);
     const e = w.entity();
@@ -224,7 +222,6 @@ describe("Entity — components", () => {
   it("set marks an already-present component as modified", () => {
     const w = new World();
     w.component(Position);
-    w.start();
     const onSet = vi.fn();
     w.component(Position).onSet(onSet);
     const e = w.entity();
@@ -362,7 +359,6 @@ describe("Entity — components", () => {
 describe("Entity — lifecycle and relationships", () => {
   it("destroy emits the 'destroy' event", () => {
     const w = new World();
-    w.start();
     const e = w.entity();
     const cb = vi.fn();
     e.events.on("destroy", cb);
@@ -373,7 +369,6 @@ describe("Entity — lifecycle and relationships", () => {
 
   it("destroy removes the entity from the world map", () => {
     const w = new World();
-    w.start();
     const e = w.entity();
     e.destroy();
     expect(() => w.entity(e.eid)).toThrow();
@@ -381,7 +376,6 @@ describe("Entity — lifecycle and relationships", () => {
 
   it("destroy cascades through ChildOf relationships", () => {
     const w = new World();
-    w.start();
     const parent = w.entity();
     const child = w.entity();
     const grandchild = w.entity();
@@ -401,7 +395,6 @@ describe("Entity — lifecycle and relationships", () => {
   it("default relationship cleanup removes the component when the target is destroyed", () => {
     const w = new World();
     w.component(FriendOf);
-    w.start();
     const target = w.entity();
     const source = w.entity().set(FriendOf, { target });
 
@@ -415,7 +408,6 @@ describe("Entity — lifecycle and relationships", () => {
 
   it("destroy is re-entrant safe", () => {
     const w = new World();
-    w.start();
     const e = w.entity();
     const cb = vi.fn(() => e.destroy());
     e.events.on("destroy", cb);
@@ -555,7 +547,6 @@ describe("Entity — relationship navigation", () => {
 
   it("childOf in deferred mode is not visible until queue drains", () => {
     const w = new World();
-    w.start();
     const parent = w.entity();
     const child = w.entity();
     w.beginDefer();

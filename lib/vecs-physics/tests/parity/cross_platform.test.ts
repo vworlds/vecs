@@ -33,7 +33,6 @@ function runStackingSnapshot(): string {
     fixedTimeStep: 1 / 60,
     subSteps: 4,
   });
-  world.start();
 
   makeGround(world);
   makeStack(world);

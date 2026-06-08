@@ -22,7 +22,6 @@ describe("Iter cursor", () => {
         .each(Iter, [Position, Velocity], (it) => {
           cursors.push(it);
         });
-      w.start();
       w.entity().add(Position).add(Velocity);
       w.entity().add(Position);
       w.progress(0, 0);
@@ -39,7 +38,6 @@ describe("Iter cursor", () => {
         .each(Iter, [Position], (it) => {
           seen.push(it.entity);
         });
-      w.start();
       const e1 = w.entity().add(Position);
       const e2 = w.entity().add(Position);
       w.progress(0, 0);
@@ -55,7 +53,6 @@ describe("Iter cursor", () => {
         .each(Iter, [Position], (it) => {
           srcs.push(it.src[0]);
         });
-      w.start();
       const e = w.entity().add(Position);
       w.progress(0, 0);
       expect(srcs).toEqual([e]);
@@ -72,7 +69,6 @@ describe("Iter cursor", () => {
         .each(Iter, [{ target: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
         });
-      w.start();
       const target = w.entity().add(Position);
       w.entity().set(FriendOf, { target });
       w.progress(0, 0);
@@ -90,7 +86,6 @@ describe("Iter cursor", () => {
         .each(Iter, [{ target: [FriendOf, [Position, Tag]] }], (it) => {
           srcs.push([it.src[0], it.src[1]]);
         });
-      w.start();
       const target = w.entity().add(Position);
       w.entity().set(FriendOf, { target });
       w.progress(0, 0);
@@ -107,7 +102,6 @@ describe("Iter cursor", () => {
       w.system("sys")
         .with(Tag2)
         .each(Iter, [{ target: [FriendOf, [Position]] }], (it) => src(it.src[0]));
-      w.start();
       w.entity().add(Tag2);
       w.progress(0, 0);
       expect(src).toHaveBeenCalledWith(undefined);
@@ -326,7 +320,6 @@ describe("Iter cursor", () => {
       w.component(Position);
       const cb = vi.fn();
       w.system("sys").with(Position).enter(Iter, [Position], cb);
-      w.start();
       const e = w.entity().add(Position);
       const pos = e.get(Position);
       w.progress(0, 0);
@@ -344,7 +337,6 @@ describe("Iter cursor", () => {
       w.component(Position);
       const cb = vi.fn();
       w.system("sys").with(Position).exit(Iter, [Position], cb);
-      w.start();
       const e = w.entity().add(Position);
       w.progress(0, 0);
       const pos = e.get(Position);
@@ -367,7 +359,6 @@ describe("Iter cursor", () => {
       w.system("sys")
         .with(Position)
         .update(Iter, Position, [Velocity], cb as any);
-      w.start();
       const e = w.entity().add(Position).add(Velocity);
       w.progress(0, 0);
       cb.mockClear();
@@ -394,7 +385,7 @@ describe("Iter cursor", () => {
         .system("sys")
         .with(Position)
         .orderBy(Iter, [Position], (_a, [posA], _b, [posB]) => posA.x - posB.x);
-      w.start();
+      w.progress(0, 0);
       const order = [...sys];
       expect(order[0].get(Position)!.x).toBe(1);
       expect(order[1].get(Position)!.x).toBe(2);
@@ -409,7 +400,6 @@ describe("Iter cursor", () => {
       const explicit = vi.fn();
       w.system("a").with(Position).each([Position], bare);
       w.system("b").with(Position).each(Entity, [Position], explicit);
-      w.start();
       const e = w.entity().add(Position);
       const pos = e.get(Position);
       w.progress(0, 0);
@@ -522,7 +512,6 @@ describe("Iter cursor", () => {
         .enter(Iter, [{ target: [FriendOf, [Position]] }], (it, [pos]) => {
           entered.push({ entity: it.entity, src: it.src[0], pos });
         });
-      w.start();
       const target = w.entity().add(Position);
       w.entity().set(FriendOf, { target });
       w.progress(0, 0);
@@ -541,7 +530,6 @@ describe("Iter cursor", () => {
         .exit(Iter, [{ target: [FriendOf, [Position]] }], (it, [pos]) => {
           exited.push({ entity: it.entity, src: it.src[0], pos });
         });
-      w.start();
       const target = w.entity().add(Position);
       const candidate = w.entity().set(FriendOf, { target });
       w.progress(0, 0);
@@ -565,7 +553,6 @@ describe("Iter cursor", () => {
         .each(Iter, [{ target: [ChildOf, [Position]] }], (it) => {
           srcs.push(it.src[0]);
         });
-      w.start();
       const parent = w.entity().add(Position);
       w.entity().childOf(parent);
       w.progress(0, 0);

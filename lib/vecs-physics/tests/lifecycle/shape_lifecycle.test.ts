@@ -61,7 +61,6 @@ function getBodyMass(bodyEid: EID): number {
 beforeEach(() => {
   world = new World();
   installPhysics(world);
-  world.start();
   state = getPhysics(world);
 });
 

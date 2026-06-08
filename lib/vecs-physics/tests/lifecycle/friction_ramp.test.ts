@@ -100,7 +100,6 @@ describe("Friction ramp (M4 closeout parity gate)", () => {
     // → static friction holds → box comes to rest on the ramp.
     const world = new World();
     installPhysics(world, { gravity: { x: 0, y: -10 } });
-    world.start();
 
     makeRamp(world);
     const body = makeDynamicBox(world, 0.6);
@@ -127,7 +126,6 @@ describe("Friction ramp (M4 closeout parity gate)", () => {
   it("high friction box is stable on the ramp over 180 additional steps", () => {
     const world = new World();
     installPhysics(world, { gravity: { x: 0, y: -10 } });
-    world.start();
 
     makeRamp(world);
     const body = makeDynamicBox(world, 0.6);
@@ -154,7 +152,6 @@ describe("Friction ramp (M4 closeout parity gate)", () => {
     // μ_mix = sqrt(0 * 0.6) = 0 → no friction → box slides under gravity.
     const world = new World();
     installPhysics(world, { gravity: { x: 0, y: -10 } });
-    world.start();
 
     makeRamp(world);
     const body = makeDynamicBox(world, 0);
@@ -179,13 +176,11 @@ describe("Friction ramp (M4 closeout parity gate)", () => {
     // Side-by-side comparison to confirm the friction mixing rule has observable effect.
     const worldHigh = new World();
     installPhysics(worldHigh, { gravity: { x: 0, y: -10 } });
-    worldHigh.start();
     makeRamp(worldHigh);
     const highBody = makeDynamicBox(worldHigh, 0.6);
 
     const worldZero = new World();
     installPhysics(worldZero, { gravity: { x: 0, y: -10 } });
-    worldZero.start();
     makeRamp(worldZero);
     const zeroBody = makeDynamicBox(worldZero, 0);
 

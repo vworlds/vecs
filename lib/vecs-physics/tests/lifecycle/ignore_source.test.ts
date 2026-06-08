@@ -42,8 +42,6 @@ describe("Query.ignoreSource source attribution", () => {
         readerCount++;
       });
 
-    world.start();
-
     const target = world.entity().set(Value, { n: 0 });
 
     // Frame 1: the entity enters the reader's query. Entry-time initialization

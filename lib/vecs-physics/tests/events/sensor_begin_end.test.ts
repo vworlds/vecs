@@ -38,7 +38,6 @@ function makeWorld(gravityY = 0) {
     gravity: { x: 0, y: gravityY },
     subSteps: 4,
   });
-  world.start();
   return world;
 }
 

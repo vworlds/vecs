@@ -107,7 +107,6 @@ describe("Query — construction", () => {
   it("world.query() tracks entities by default once built", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position).build();
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -117,7 +116,6 @@ describe("Query — construction", () => {
   it("counts tracked entities", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position).build();
-    w.start();
 
     const position = w.entity().add(Position);
     w.entity().add(Velocity);
@@ -129,9 +127,8 @@ describe("Query — construction", () => {
     expect(q.count).toBe(0);
   });
 
-  it("can be built after start() and immediately backfills existing entities", () => {
+  it("can be built after progress and immediately backfills existing entities", () => {
     const { w, tick } = setup();
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick(); // flush archetype so e is "settled"
@@ -149,7 +146,6 @@ describe("Query — construction", () => {
 
   it("build() leaves queries pending until deferred flush", () => {
     const { w } = setup();
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -179,7 +175,6 @@ describe("Query — construction", () => {
 
   it("auto-builds unbuilt queries before a frame", () => {
     const { w } = setup();
-    w.start();
     const e = w.entity();
     e.add(Position);
     const q = w.query("late").with(Position);
@@ -227,7 +222,6 @@ describe("Query — construction", () => {
   it("matches nothing until with() or update() sets a predicate", () => {
     const { w, tick } = setup();
     const q = w.query("empty");
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -246,7 +240,6 @@ describe("Query — construction", () => {
 describe("Query — update watchlist predicate", () => {
   it("update-only queries backfill existing entities after installing the watchlist predicate", () => {
     const { w, tick } = setup();
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     tick();
@@ -261,7 +254,6 @@ describe("Query — update watchlist predicate", () => {
 
   it("multiple update() calls before build() combine into the implicit predicate", () => {
     const { w, tick } = setup();
-    w.start();
     const e = w.entity();
     e.add(Position);
     e.add(Velocity);
@@ -285,7 +277,6 @@ describe("Query — changed flag", () => {
   it("starts false and becomes true when an entity enters", () => {
     const { w, tick } = setup();
     const q = w.query("changed").with(Position).build();
-    w.start();
 
     expect(q.changed).toBe(false);
     const e = w.entity();
@@ -299,7 +290,6 @@ describe("Query — changed flag", () => {
   it("can be cleared manually and becomes true when an entity exits", () => {
     const { w, tick } = setup();
     const q = w.query("changed").with(Position).build();
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -318,7 +308,6 @@ describe("Query — changed flag", () => {
       .with(Position)
       .update(Position, () => {})
       .build();
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -332,7 +321,6 @@ describe("Query — changed flag", () => {
   it("is cleared automatically by forEach", () => {
     const { w, tick } = setup();
     const q = w.query("changed").with(Position).build();
-    w.start();
     w.entity().add(Position);
     tick();
 
@@ -346,7 +334,6 @@ describe("Query — component routing index", () => {
     const { w, tick } = setup();
     const q = w.query("velocity").with(Velocity);
     const belongs = vi.spyOn(q, "belongs");
-    w.start();
     belongs.mockClear();
 
     const e = w.entity();
@@ -373,7 +360,6 @@ describe("Query — component routing index", () => {
     const q = w.query("test").with(Position);
     q.with(Velocity);
     const belongs = vi.spyOn(q, "belongs");
-    w.start();
     belongs.mockClear();
 
     const positionOnly = w.entity();
@@ -398,7 +384,6 @@ describe("Query — component routing index", () => {
   it("destroy removes a query from the routing index", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position);
-    w.start();
     q.destroy();
     const belongs = vi.spyOn(q, "belongs");
 
@@ -585,7 +570,6 @@ describe("Query — entity tracking via world pipeline", () => {
   it("entity enters query when it gains the required components", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position);
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -596,7 +580,6 @@ describe("Query — entity tracking via world pipeline", () => {
   it("entity exits query when it loses a required component", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position);
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -608,7 +591,6 @@ describe("Query — entity tracking via world pipeline", () => {
   it("forEach (entity-only) iterates all matched entities", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position);
-    w.start();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -624,7 +606,6 @@ describe("Query — entity tracking via world pipeline", () => {
   it("is directly iterable", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position);
-    w.start();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -640,7 +621,6 @@ describe("Query — entity tracking via world pipeline", () => {
   it("forEach with injection resolves components for each entity", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position, Velocity);
-    w.start();
     const e = w.entity();
     e.set(Position, { x: 3 });
     e.set(Velocity, { vx: 4 });
@@ -662,7 +642,6 @@ describe("Query — entity tracking via world pipeline", () => {
   it("forEach with injection yields undefined for components not in with", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position);
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -676,7 +655,6 @@ describe("Query — entity tracking via world pipeline", () => {
   it("destroyed entity is removed from the query", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position);
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -692,7 +670,6 @@ describe("Query — enter/exit callbacks", () => {
     const { w, tick } = setup();
     const cb = vi.fn();
     w.query("test").with(Position).enter(cb);
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -703,7 +680,6 @@ describe("Query — enter/exit callbacks", () => {
     const { w, tick } = setup();
     const cb = vi.fn();
     w.query("test").with(Position, Velocity).enter([Position, Velocity], cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity).get(Velocity)!;
@@ -715,7 +691,6 @@ describe("Query — enter/exit callbacks", () => {
     const { w, tick } = setup();
     const cb = vi.fn();
     w.query("test").with(Position).exit(cb);
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -728,7 +703,6 @@ describe("Query — enter/exit callbacks", () => {
     const { w, tick } = setup();
     const cb = vi.fn();
     w.query("test").with(Position).exit([Position], cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     tick();
@@ -757,7 +731,6 @@ describe("Query — orderBy", () => {
       .query("test")
       .with(Position)
       .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
-    w.start();
     const e1 = w.entity();
     e1.set(Position, { x: 30 });
     const e2 = w.entity();
@@ -774,7 +747,6 @@ describe("Query — orderBy", () => {
       .query("test")
       .with(Position)
       .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
-    w.start();
     const e1 = w.entity();
     e1.set(Position, { x: 30 });
     const e2 = w.entity();
@@ -793,7 +765,6 @@ describe("Query — orderBy", () => {
       .query("test")
       .with(Position)
       .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
-    w.start();
     const e1 = w.entity();
     e1.set(Position, { x: 10 });
     const e2 = w.entity();
@@ -821,8 +792,6 @@ describe("Query — orderBy", () => {
     const childB1 = w.entity("childB1").add(Tag).childOf(rootB);
     const grandchild = w.entity("grandchild").add(Tag).childOf(childB1);
     const q = w.query("test").with(Tag).cascade(ChildOf);
-
-    w.start();
     tick();
 
     expect([...q]).toEqual([rootA, rootB, childA1, childA2, childB1, grandchild]);
@@ -839,8 +808,6 @@ describe("Query — orderBy", () => {
       .query("test")
       .with(Tag)
       .cascade(ChildOf, (a, b) => b.name!.localeCompare(a.name!));
-
-    w.start();
     tick();
 
     expect([...q]).toEqual([root, gamma, beta, alpha]);
@@ -857,8 +824,6 @@ describe("Query — orderBy", () => {
       .query("test")
       .with(Tag)
       .cascade(ChildOf, (a, b) => a.name!.localeCompare(b.name!));
-
-    w.start();
     tick();
 
     expect([...q]).toEqual([milkyWay, solarSystem, earth, moon]);
@@ -888,8 +853,6 @@ describe("Query — orderBy", () => {
       .query("friend-depth")
       .with(Tag)
       .cascade(FriendOf, (a, b) => a.name!.localeCompare(b.name!));
-
-    w.start();
     tick();
 
     expect([...q]).toEqual([alice, bob, david, charley]);
@@ -909,8 +872,6 @@ describe("Query — orderBy", () => {
     const q = w
       .query("cascade-precedence")
       .with({ with: Tag, cascade: ChildOf }, { with: true, cascade: FriendOf });
-
-    w.start();
     tick();
 
     expect([...q]).toEqual([alice, bob, charley]);
@@ -931,8 +892,6 @@ describe("Query — orderBy", () => {
       .query("cascade-precedence-repeated")
       .with({ with: Tag, cascade: ChildOf })
       .with({ with: true, cascade: FriendOf });
-
-    w.start();
     tick();
 
     expect([...q]).toEqual([alice, bob, charley]);
@@ -942,8 +901,6 @@ describe("Query — orderBy", () => {
     const { w, tick } = setup();
     w.component(LocalPosition);
     const q = w.query("absolute-position").with(Position, LocalPosition).cascade(ChildOf);
-
-    w.start();
     const milkyWay = w
       .entity("Milky Way")
       .set(LocalPosition, { x: 10000, y: 20000 })
@@ -1011,8 +968,6 @@ describe("Query — orderBy", () => {
       .query("test")
       .with(Tag)
       .cascade(ChildOf, (a, b) => a.name!.localeCompare(b.name!));
-
-    w.start();
     tick();
 
     expect([...q]).toEqual([milkyWay, solarSystem, earth, jupiter, iss, moon, crewDragon]);
@@ -1028,7 +983,6 @@ describe("Query — destroy", () => {
   it("destroy() clears the tracked entities", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position);
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -1041,7 +995,6 @@ describe("Query — destroy", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
     const q = w.query("test").with(Position).enter(enter);
-    w.start();
     q.destroy();
     const e = w.entity();
     e.add(Position);
@@ -1052,7 +1005,6 @@ describe("Query — destroy", () => {
   it("destroy() removes the query from entities — existing entities no longer reference it", () => {
     const { w, tick } = setup();
     const q = w.query("test").with(Position);
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -1069,7 +1021,6 @@ describe("Query — destroy", () => {
     const { w } = setup();
     const q = w.query("test").with(Position);
     const entity = q.entity;
-    w.start();
     q.destroy();
     expect(entity._destroyed).toBe(true);
     expect(w.getEntity(entity.eid)).toBeUndefined();
@@ -1091,7 +1042,6 @@ describe("Query — destroy", () => {
     // Instead, just verify that a tracked query is also properly removed.
     const enter = vi.fn();
     const q = w.query("test").with(Position).enter(enter);
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -1114,7 +1064,6 @@ describe("Query — not predicate routing", () => {
     w.query("test")
       .with({ all: [Position, { not: Velocity }] })
       .enter(enter);
-    w.start();
     const e = w.entity();
     // Add Velocity first so the entity never transiently matches while being set up.
     e.add(Velocity); // no Position yet — doesn't match
@@ -1132,7 +1081,6 @@ describe("Query — not predicate routing", () => {
     w.query("test")
       .with({ all: [Position, { not: Velocity }] })
       .exit(exit);
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick(); // entity matches (no Velocity)
@@ -1148,7 +1096,6 @@ describe("Query — not predicate routing", () => {
       .with({ all: [Position, { not: Velocity }] })
       .enter(() => events.push("enter"))
       .exit(() => events.push("exit"));
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick(); // enter (no Velocity)
@@ -1162,8 +1109,7 @@ describe("Query — not predicate routing", () => {
   it("plain not query: entity enters on creation and when the excluded component is removed", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
-    w.query("test").with({ not: Velocity }).enter(enter);
-    w.start();
+    w.query("test").with({ not: Velocity }).enter(enter).build();
     enter.mockClear();
     const e = w.entity();
     e.add(Velocity);
@@ -1181,7 +1127,6 @@ describe("Query — not predicate routing", () => {
     w.system("test")
       .with({ all: [Position, { not: Velocity }] })
       .enter(enter);
-    w.start();
     const e = w.entity();
     // Add Velocity first so Position's arrival doesn't transiently match.
     e.add(Velocity); // no Position — doesn't match

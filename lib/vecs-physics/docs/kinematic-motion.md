@@ -69,8 +69,6 @@ const platform = world
 
 world.entity().set(ChildOf, { target: platform }).set(Box, { hx: 2, hy: 0.25 });
 
-world.start();
-
 world.progress(performance.now(), 1000 / 60);
 ```
 

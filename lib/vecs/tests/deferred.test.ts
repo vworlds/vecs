@@ -36,7 +36,6 @@ describe("Deferred mode — data-layer visibility", () => {
       e.add(Position);
       observed.push(e.get(Position));
     });
-    w.start();
     tick();
     expect(observed[0]).toBeUndefined();
   });
@@ -52,7 +51,6 @@ describe("Deferred mode — data-layer visibility", () => {
     });
     target = w.entity();
     target.set(Position, { x: 7 });
-    w.start();
     tick();
     expect(observed[0]).toBe(7);
   });
@@ -68,7 +66,6 @@ describe("Deferred mode — data-layer visibility", () => {
     target = w.entity();
     target.add(Position);
     const pos = target.get(Position);
-    w.start();
     tick();
     expect(observed[0]).toBe(pos);
   });
@@ -77,7 +74,6 @@ describe("Deferred mode — data-layer visibility", () => {
     const { w } = setup();
     const onSet = vi.fn();
     w.component(Position).onSet(onSet);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     onSet.mockClear();
@@ -97,7 +93,6 @@ describe("Deferred mode — data-layer visibility", () => {
     const { w } = setup();
     const onSet = vi.fn();
     w.component(Position).onSet(onSet);
-    w.start();
     const e = w.entity();
 
     let observed: Position | undefined;
@@ -111,7 +106,6 @@ describe("Deferred mode — data-layer visibility", () => {
 
   it("at top level, mutations are immediately visible", () => {
     const { w } = setup();
-    w.start();
     const e = w.entity();
     e.add(Position);
     expect(e.get(Position)).toBeInstanceOf(Position);
@@ -123,7 +117,6 @@ describe("Deferred mode — data-layer visibility", () => {
 describe("Deferred mode — entity creation", () => {
   it("world.entity() inside a deferred block does not appear in world.entities until drain", () => {
     const { w } = setup();
-    w.start();
     w.beginDefer();
     const e = w.entity();
     expect(() => w.entity(e.eid)).toThrow();
@@ -133,7 +126,6 @@ describe("Deferred mode — entity creation", () => {
 
   it("world.entity() inside a Filter.forEach is not visited by the same iteration", () => {
     const { w } = setup();
-    w.start();
     const a = w.entity();
     a.add(Position);
     let visits = 0;
@@ -152,7 +144,6 @@ describe("Deferred mode — flush()", () => {
     const { w } = setup();
     const onAdd = vi.fn();
     w.component(Position).onAdd(onAdd);
-    w.start();
     const e = w.entity();
     w.beginDefer();
     e.add(Position);
@@ -164,7 +155,6 @@ describe("Deferred mode — flush()", () => {
 
   it("flush() outside any begin/end is a no-op (queue already empty)", () => {
     const { w } = setup();
-    w.start();
     w.flush();
     w.flush();
     // No errors thrown; nothing to assert beyond that.
@@ -176,8 +166,7 @@ describe("Deferred mode — Query dispatches enter/exit/update immediately", () 
   it("Query.enter callback fires during world queue processing", () => {
     const { w } = setup();
     const enter = vi.fn();
-    w.query("q").with(Position).enter(enter);
-    w.start();
+    w.query("q").with(Position).enter(enter).build();
     const e = w.entity();
     e.add(Position);
     expect(enter).toHaveBeenCalledWith(e);
@@ -186,8 +175,7 @@ describe("Deferred mode — Query dispatches enter/exit/update immediately", () 
   it("Query.update callback fires immediately on c.modified()", () => {
     const { w } = setup();
     const update = vi.fn();
-    w.query("q").update(Position, update);
-    w.start();
+    w.query("q").update(Position, update).build();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     update.mockClear();
@@ -203,8 +191,8 @@ describe("Deferred mode — System inbox ordering", () => {
     w.system("test")
       .with(Position)
       .enter((e) => events.push(`enter ${e.eid}`))
-      .exit((e) => events.push(`exit ${e.eid}`));
-    w.start();
+      .exit((e) => events.push(`exit ${e.eid}`))
+      .build();
     const e = w.entity();
     // Top-level: each call inline-routes to the system. Three events queued
     // on the system's inbox.
@@ -221,7 +209,6 @@ describe("Deferred mode — System inbox ordering", () => {
     const onRemove = vi.fn();
     w.component(Position).onAdd(onAdd);
     w.component(Position).onRemove(onRemove);
-    w.start();
     const e = w.entity();
     w.beginDefer();
     e.add(Position);
@@ -240,7 +227,6 @@ describe("Deferred mode — exclusive replacement", () => {
     const order: string[] = [];
     w.component(Walking).onRemove(() => order.push("onRemove Walking"));
     w.component(Running).onAdd(() => order.push("onAdd Running"));
-    w.start();
     const e = w.entity();
     e.add(Walking);
     order.length = 0;
@@ -260,7 +246,6 @@ describe("Deferred mode — parent destruction", () => {
         observedParentId = w.getEntity(parentEid)?.eid;
         // Parent was destroyed before this child's exit fires (top-down).
       });
-    w.start();
     const parent = w.entity();
     parentEid = parent.eid;
     const child = w.entity();
@@ -276,7 +261,6 @@ describe("Deferred mode — parent destruction", () => {
 describe("World.defer(fn)", () => {
   it("mutations inside defer() are queued and applied after the callback returns", () => {
     const { w } = setup();
-    w.start();
     const e = w.entity();
     let visibleDuring: Position | undefined;
     w.defer(() => {
@@ -291,7 +275,6 @@ describe("World.defer(fn)", () => {
     const { w } = setup();
     const onAdd = vi.fn();
     w.component(Position).onAdd(onAdd);
-    w.start();
     const e = w.entity();
     w.defer(() => {
       e.add(Position);
@@ -304,7 +287,6 @@ describe("World.defer(fn)", () => {
     const { w } = setup();
     const onAdd = vi.fn();
     w.component(Position).onAdd(onAdd);
-    w.start();
     const e = w.entity();
     expect(() =>
       w.defer(() => {
@@ -321,7 +303,6 @@ describe("World.defer(fn)", () => {
     const onAdd = vi.fn();
     w.component(Position).onAdd(onAdd);
     w.component(Velocity).onAdd(onAdd);
-    w.start();
     const e = w.entity();
     w.defer(() => {
       e.add(Position);
@@ -344,7 +325,6 @@ describe("World.defer(fn)", () => {
       const componentEntity = w.component(DeferredRemove);
       componentEntity.meta.onDelete = CleanupPolicy.Remove;
       w.component(Velocity);
-      w.start();
       const carrier = w.entity().add(DeferredRemove);
       const sentinel = w.entity();
 
@@ -364,7 +344,6 @@ describe("World.defer(fn)", () => {
       const componentEntity = w.component(DeferredDelete);
       componentEntity.meta.onDelete = CleanupPolicy.Delete;
       w.component(Velocity);
-      w.start();
       const carrier = w.entity().add(DeferredDelete);
       const sentinel = w.entity();
 
@@ -383,7 +362,6 @@ describe("World.defer(fn)", () => {
 describe("Deferred mode — forEach nesting", () => {
   it("Query.forEach defers mutations made inside the callback", () => {
     const { w } = setup();
-    w.start();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -405,7 +383,6 @@ describe("Deferred mode — forEach nesting", () => {
 
   it("Filter.forEach defers mutations made inside the callback", () => {
     const { w } = setup();
-    w.start();
     const a = w.entity();
     a.add(Position);
     const f = w.filter([Position]);

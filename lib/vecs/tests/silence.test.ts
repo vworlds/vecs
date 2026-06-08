@@ -35,7 +35,6 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
         });
       });
     damp.entity.add(Physics); // include self in the silenced domain
-    w.start();
 
     const e = w.entity().add(Position);
     w.progress(0, 0); // entry initializes; the writeback is silenced
@@ -62,7 +61,6 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
           p.x += 1;
         });
       });
-    w.start();
 
     w.entity().add(Position);
     w.progress(0, 0);
@@ -87,7 +85,6 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
         });
       });
     write.entity.add(Physics);
-    w.start();
 
     const e = w.entity().add(Position);
     w.progress(0, 0); // entry initializes Read
@@ -118,7 +115,6 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
           p.x += 1;
         });
       });
-    w.start();
 
     w.entity().add(Position);
     w.progress(0, 0); // entry (one call) + Other writes
@@ -142,7 +138,6 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .with(Position)
       .ignoreSource([Physics])
       .update(Position, (e) => readCb(e));
-    w.start();
 
     w.progress(0, 0); // Writer (sourced) adds Position; Read enters and initializes
     expect(readCb).toHaveBeenCalled();
@@ -156,10 +151,11 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .with(Position)
       .ignoreSource([Physics])
       .update(Position, () => {});
-    w.start();
 
     const silenceEntity = read.entity.get(SilenceSource)!.target;
     const silenceQuery = silenceEntity.get(Query)!;
+    read.build();
+    silenceQuery.build();
     expect(w.queries).toContain(silenceQuery);
 
     read.destroy();
@@ -183,7 +179,6 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       });
     });
     writer.entity.add(Physics);
-    w.start();
 
     // Write is silenced — the plain query's update callback must not fire.
     w.progress(0, 0);
@@ -206,10 +201,11 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .with(Position)
       .ignoreSource([Physics])
       .update(Position, () => {});
-    w.start();
 
     const silenceEntity = rq.entity.get(SilenceSource)!.target;
     const silenceQuery = silenceEntity.get(Query)!;
+    rq.build();
+    silenceQuery.build();
     expect(w.queries).toContain(silenceQuery);
 
     rq.destroy();
@@ -235,7 +231,6 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
         });
       });
     writer.entity.add(Physics);
-    w.start();
 
     const e = w.entity().add(Position);
     w.progress(0, 0); // entry bridge

@@ -631,7 +631,6 @@ describe("Term — integration with existing Query public API", () => {
   it("Query delegates membership to root term", () => {
     const { w, tick } = setupWithTick();
     const q = w.query("test").with(Position).build();
-    w.start();
     const e = w.entity();
     e.add(Position);
     tick();
@@ -658,7 +657,6 @@ describe("Term — integration with existing Query public API", () => {
     const enter = vi.fn();
     const exit = vi.fn();
     w.query("test").with(Position).enter(enter).exit(exit);
-    w.start();
 
     const e = w.entity();
     e.add(Position);
@@ -673,7 +671,6 @@ describe("Term — integration with existing Query public API", () => {
     const { w, tick } = setupWithTick();
     const update = vi.fn();
     w.query("test").with(Position).update(Position, update);
-    w.start();
 
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
@@ -688,7 +685,6 @@ describe("Term — integration with existing Query public API", () => {
     const { w, tick } = setupWithTick();
     const enter = vi.fn();
     w.system("test").with(Position).enter(enter);
-    w.start();
 
     const e = w.entity();
     e.add(Position);
@@ -700,7 +696,6 @@ describe("Term — integration with existing Query public API", () => {
     const { w } = setupWithTick();
     const update = vi.fn();
     w.system("test").with(Position).update(Position, update);
-    w.start();
 
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
@@ -817,7 +812,6 @@ describe("Term — update channel bypasses the tree", () => {
     const updatePos = vi.fn();
     const updateVel = vi.fn();
     w.query("test").with(Position).update(Position, updatePos).update(Velocity, updateVel).build();
-    w.start();
 
     const e = w.entity();
     e.add(Position);
@@ -835,7 +829,6 @@ describe("Term — update channel bypasses the tree", () => {
     const { w, tick } = setupWithTick();
     const updateVel = vi.fn();
     w.query("test").with(Position).update(Velocity, updateVel).build();
-    w.start();
 
     const e = w.entity();
     e.add(Position);
@@ -853,7 +846,6 @@ describe("Term — update channel bypasses the tree", () => {
 
     const updateCb = vi.fn();
     w.query("test").with(Position).update(Position, updateCb).build();
-    w.start();
 
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
@@ -877,7 +869,6 @@ describe("Term — update channel bypasses the tree", () => {
       .with({ all: [Position, { not: Velocity }] })
       .update(Position, cb)
       .build();
-    w.start();
 
     const e = w.entity();
     e.add(Position);
@@ -1073,7 +1064,6 @@ describe("Term — targeted-update regression", () => {
 
     w.query("posOnly").with(Position).update(Position, posOnlyUpdate).build();
     w.query("velOnly").with(Velocity).update(Velocity, velOnlyUpdate).build();
-    w.start();
 
     const e = w.entity();
     e.add(Position);
@@ -1103,7 +1093,6 @@ describe("Term — exit snapshots are a query/system-layer concern", () => {
     const { w, tick } = setupWithTick();
     const exit = vi.fn();
     w.query("test").with(Position).exit([Position], exit).build();
-    w.start();
 
     const e = w.entity();
     const pos = e.set(Position, { x: 42 }).get(Position)!;
@@ -1117,7 +1106,6 @@ describe("Term — exit snapshots are a query/system-layer concern", () => {
     const { w, tick } = setupWithTick();
     const exit = vi.fn();
     w.query("test").with(Position, Velocity).exit([Position, Velocity], exit).build();
-    w.start();
 
     const e = w.entity();
     const pos = e.set(Position, { x: 1 }).get(Position)!;
@@ -1134,7 +1122,6 @@ describe("Term — exit snapshots are a query/system-layer concern", () => {
     const { w } = setupWithTick();
     const exit = vi.fn();
     w.system("exitsys-test").with(Position).exit([Position], exit);
-    w.start();
 
     const e = w.entity();
     const pos = e.set(Position, { x: 7 }).get(Position)!;

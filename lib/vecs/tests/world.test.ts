@@ -340,9 +340,8 @@ describe("World - pipeline", () => {
     }
   });
 
-  it("registers new component classes after start", () => {
+  it("registers component classes anytime", () => {
     const w = new World();
-    w.start();
 
     const component = w.component(A);
 
@@ -366,7 +365,6 @@ describe("World - pipeline", () => {
     w.system("s3")
       .phase(post)
       .run(() => order.push("post"));
-    w.start();
     w.progress(0, 16);
 
     expect(order).toEqual(["pre", "update", "post"]);
@@ -392,8 +390,6 @@ describe("World - pipeline", () => {
     expect(update.entity.parent(DependsOn)).toBe(w.entity(ON_UPDATE));
     expect(inserted.parent(DependsOn)).toBe(w.entity(ON_UPDATE));
     expect(w.entity(ON_VALIDATE).parent(DependsOn)).toBe(inserted);
-
-    w.start();
     w.progress(0, 0);
 
     expect(seen).toEqual(["update", "inserted", "validate"]);
@@ -415,8 +411,6 @@ describe("World - pipeline", () => {
     w.system("post")
       .phase(post)
       .run(() => seen.push("post"));
-
-    w.start();
     w.progress(0, 0);
 
     expect(seen).toEqual(["post", "collect"]);
@@ -442,7 +436,6 @@ describe("World - pipeline", () => {
 
     // World appends `System`, so the spec only needs to select the tagged entities.
     w.setPipeline(InPipeline);
-    w.start();
     w.progress(0, 0);
 
     expect(seen).toEqual(["a"]);
@@ -467,7 +460,6 @@ describe("World - pipeline", () => {
     w.system("boom").run(() => {
       throw new Error("boom");
     });
-    w.start();
 
     expect(() => w.progress(0, 0)).toThrow("boom");
     expect((w as any)._frameInProgress).toBe(false);

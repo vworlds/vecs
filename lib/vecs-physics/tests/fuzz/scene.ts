@@ -47,7 +47,6 @@ export function buildFuzzScene(seed: number): FuzzScene {
     gravity: { x: 0, y: -10 },
     subSteps: 2,
   });
-  world.start();
 
   const bodies: Entity[] = [];
   const drivenBodies: Entity[] = [];

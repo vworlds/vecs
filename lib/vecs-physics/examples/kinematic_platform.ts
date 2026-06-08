@@ -18,8 +18,6 @@ await preloadPhysics();
 
 const world = new World();
 installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 60, subSteps: 4 });
-world.start();
-
 const platform = world
   .entity()
   .set(Body, { type: BodyType.Kinematic })

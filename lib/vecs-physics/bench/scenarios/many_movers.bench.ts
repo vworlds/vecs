@@ -34,8 +34,6 @@ export function runManyMovers(): {
     fixedTimeStep: 1 / 60,
     subSteps: 4,
   });
-  world.start();
-
   for (let i = 0; i < BODY_COUNT; i++) {
     const x = (i % 50) - 25;
     const y = Math.floor(i / 50) - 5;

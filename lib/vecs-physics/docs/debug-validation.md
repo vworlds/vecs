@@ -61,7 +61,6 @@ installPhysics(world, {
 
 world.entity().set(Box, { hx: 0.5, hy: 0.5 });
 
-world.start();
 world.progress(performance.now(), 1000 / 60);
 ```
 

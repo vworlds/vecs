@@ -20,8 +20,6 @@ export function runFallingBalls(): { totalMs: number; msPerStep: number; steps: 
     fixedTimeStep: 1 / 60,
     subSteps: 4,
   });
-  world.start();
-
   // ── Static floor ──────────────────────────────────────────────────────────
   const floor = world.entity().set(Body, { type: BodyType.Static });
   world

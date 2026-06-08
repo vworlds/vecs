@@ -151,16 +151,17 @@ describe("Relationship queries", () => {
 
     expect(() => {
       const { w } = setup();
-      w.system("system-down").with({ source: [FriendOf, Position] });
-      w.start();
+      w.system("system-down")
+        .with({ source: [FriendOf, Position] })
+        .build();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
 
     expect(() => {
       const { w } = setup();
       w.system("system-each-down")
         .with({ source: [FriendOf, Position] })
-        .each([Body], () => {});
-      w.start();
+        .each([Body], () => {})
+        .build();
     }).toThrow("source/children is not supported in a tracked query; use world.filter(...)");
   });
 
@@ -271,7 +272,6 @@ describe("Relationship queries", () => {
     w.system("system-down")
       .with(Body)
       .each([{ down: [FriendOf, [Position, Velocity]] }], cb);
-    w.start();
     const parent = w.entity().add(Body);
     const child = w.entity().set(FriendOf, { target: parent }).add(Position);
 
@@ -320,7 +320,6 @@ describe("Relationship queries", () => {
     w.system("system-up")
       .with({ target: [FriendOf, Position] })
       .each([{ target: [FriendOf, [Position, Velocity]] }], cb);
-    w.start();
     const target = w.entity().set(Position, { x: 3 });
     const candidate = w.entity().set(FriendOf, { target });
     const pos = target.get(Position)!;
@@ -436,7 +435,6 @@ describe("Relationship queries", () => {
     w.system("sys-down")
       .with(Body)
       .each([Body, { down: [ChildOf, [Position]] }] as any, cb);
-    w.start();
     const parent = w.entity().add(Body);
     const child = w.entity().childOf(parent).set(Position, { x: 3 });
     const pos = child.get(Position);

@@ -62,8 +62,6 @@ const box = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyT
 
 world.entity().set(ChildOf, { target: box }).set(Box, { hx: 0.5, hy: 0.5 });
 
-world.start();
-
 world.progress(performance.now(), 1000 / 60);
 ```
 
@@ -195,7 +193,7 @@ box.set(Impulse, { x: 0, y: 3 });
 
 ## Setup Options
 
-`preloadPhysics` must resolve before `installPhysics`, and `installPhysics` must run before `world.start()`.
+`preloadPhysics` must resolve before `installPhysics`. Installed physics systems enter the pipeline the next time `world.progress()` runs.
 
 ```ts
 await preloadPhysics();
@@ -223,14 +221,13 @@ Advanced callers can pass phase names or phase objects to place physics systems 
 
 ## Common Mistakes
 
-### Installing Physics After `world.start()`
+### Forgetting To Preload Physics
 
-Physics systems must be installed before `world.start()`.
+`installPhysics()` requires the WASM runtime to be loaded first.
 
 ```ts
 await preloadPhysics();
 installPhysics(world);
-world.start();
 ```
 
 ### Adding Geometry Directly To A Body Entity

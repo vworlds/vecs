@@ -46,7 +46,6 @@ function getShapeAABB(shapeEid: number) {
 beforeEach(() => {
   world = new World();
   installPhysics(world);
-  world.start();
   state = getPhysics(world);
 });
 

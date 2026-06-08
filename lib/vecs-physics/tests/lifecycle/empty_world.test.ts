@@ -16,7 +16,6 @@ describe("test_world.c::EmptyWorld", () => {
   it("steps an empty installed world without crashing", () => {
     const world = new World();
     installPhysics(world);
-    world.start();
     const state = getPhysics(world);
 
     expect(() => step(world, 32)).not.toThrow();

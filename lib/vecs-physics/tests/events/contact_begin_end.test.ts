@@ -18,7 +18,6 @@ let now: number;
 beforeEach(() => {
   world = new World();
   installPhysics(world, { gravity: { x: 0, y: 0 } });
-  world.start();
   now = 0;
 });
 

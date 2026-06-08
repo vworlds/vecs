@@ -19,7 +19,6 @@ let state: PhysicsState;
 beforeEach(() => {
   world = new World();
   installPhysics(world, { gravity: { x: 0, y: 0 } });
-  world.start();
   state = getPhysics(world) as PhysicsState;
 });
 
@@ -204,8 +203,6 @@ describe("pose-sync feedback suppression", () => {
         lastSeenX = position.x;
         count++;
       });
-
-    userWorld.start();
     const userState = getPhysics(userWorld) as PhysicsState;
     const entity = userWorld
       .entity()

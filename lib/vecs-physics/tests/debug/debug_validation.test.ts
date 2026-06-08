@@ -53,7 +53,6 @@ function makeDebugWorld() {
     debug: true,
     debugSink: (msg) => messages.push(msg),
   });
-  world.start();
   return { world, messages };
 }
 
@@ -65,7 +64,6 @@ function makeNormalWorld() {
     fixedTimeStep: DT,
     subSteps: 1,
   });
-  world.start();
   return world;
 }
 

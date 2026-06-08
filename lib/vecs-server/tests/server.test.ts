@@ -162,7 +162,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     listener.connect(socket);
 
     const entity = world.entity();
@@ -189,7 +188,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     listener.connect(socket);
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
@@ -214,7 +212,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     listener.connect(socket);
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
@@ -238,7 +235,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     listener.connect(socket);
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
@@ -263,7 +259,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     listener.connect(first);
 
     const entity = world.entity().add(Networked).set(Position, { x: 30, y: 40 });
@@ -297,7 +292,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
@@ -322,7 +316,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
@@ -348,7 +341,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
@@ -372,7 +364,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
@@ -404,7 +395,6 @@ describe("ServerWorld", () => {
       const listener = new MockListener();
       server._attach(listener);
       server.installSystems(SERVER_PHASES);
-      world.start();
       const socket = new MemorySocket("client-1");
       listener.connect(socket);
 
@@ -433,7 +423,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
@@ -470,7 +459,6 @@ describe("ServerWorld", () => {
       .exit((e) => {
         seen.disconnected.push(e.eid);
       });
-    world.start();
 
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
@@ -488,7 +476,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
@@ -514,7 +501,6 @@ describe("ServerWorld", () => {
       .update(NetworkInput, (_e, ni) => {
         observed = ni.input;
       });
-    world.start();
 
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
@@ -533,7 +519,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
@@ -560,7 +545,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
@@ -590,7 +574,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
@@ -623,7 +606,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
     const first = new MemorySocket("client-1");
     listener.connect(first);
 
@@ -672,7 +654,7 @@ describe("ServerWorld", () => {
       exit: (entity) => events.push(`exit:${entity.eid}`),
     };
     tracker.subscribe(listener);
-    world.start();
+    tracker.build();
 
     const entity = world.entity().add(Position);
     entity.remove(Position);
@@ -694,7 +676,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const matching = world.entity().add(Networked).add(Position);
     const nonNetworked = world.entity().add(Position);
@@ -716,7 +697,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const { session: firstSession, view: first } = connectSession(server, listener, "client-1");
     const { session: secondSession, view: second } = connectSession(server, listener, "client-2");
@@ -734,7 +714,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const { session, view } = connectSession(server, listener);
     session.entity.set(View, { dsl: [Position] });
@@ -757,7 +736,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const positionEntity = world.entity().add(Networked).add(Position);
     const velocityEntity = world.entity().add(Networked).add(Velocity);
@@ -800,7 +778,6 @@ describe("ServerWorld", () => {
       .run(() => {
         observed = viewer!.get(View)?.tracker.has(target!) === true;
       });
-    world.start();
     target = world.entity().add(Networked).add(Position);
     viewer = connectSession(server, listener).session.entity;
     world.progress(0, 16);
@@ -816,7 +793,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const { session, socket, view } = connectSession(server, listener);
     session.entity.set(View, { dsl: [Position] });
@@ -855,7 +831,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const positionEntity = world.entity().add(Networked).add(Position);
     const velocityEntity = world.entity().add(Networked).add(Velocity);
@@ -888,7 +863,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const { session, socket, view } = connectSession(server, listener);
     session.entity.set(View, { dsl: [Position] });
@@ -929,7 +903,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const { session, socket, view } = connectSession(server, listener);
     session.entity.set(View, { dsl: [Position] });
@@ -963,7 +936,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const empty = world.entity().set(View, { dsl: false }).get(View)!;
     world.progress(0, 16);
@@ -992,7 +964,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const visible = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).add(LocalOnly);
     const hidden = world.entity().add(Networked).set(Position, { x: 2, y: 2 });
@@ -1033,7 +1004,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).add(LocalOnly);
     const socket = new MemorySocket("client-1");
@@ -1062,7 +1032,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const local = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).add(LocalOnly);
     const moving = world.entity().add(Networked).set(Position, { x: 2, y: 2 }).add(Velocity);
@@ -1096,7 +1065,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const cellA = world.entity().add(CellA);
     const cellB = world.entity().add(CellB);
@@ -1138,7 +1106,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const local = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).add(LocalOnly);
     const hidden = world.entity().add(Networked).set(Position, { x: 2, y: 2 });
@@ -1171,7 +1138,6 @@ describe("ServerWorld", () => {
     const listener = new MockListener();
     server._attach(listener);
     server.installSystems(SERVER_PHASES);
-    world.start();
 
     const socket = new MemorySocket("client-1");
     listener.connect(socket);

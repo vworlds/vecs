@@ -18,7 +18,6 @@ let world: World;
 beforeEach(() => {
   world = new World();
   installPhysics(world);
-  world.start();
 });
 
 // ─── Port of DeferredMassFlagSyncTest ─────────────────────────────────────────

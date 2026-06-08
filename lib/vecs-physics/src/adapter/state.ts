@@ -49,7 +49,7 @@ export function attachPhysics(world: World, state: PhysicsState): void {
 export function getPhysics(world: World): PhysicsState {
   const root = world.get(PhysicsRoot) as PhysicsRoot | undefined;
   if (!root) {
-    throw new Error("installPhysics(world, ...) must be called before world.start()");
+    throw new Error("installPhysics(world, ...) must be called before reading physics state");
   }
   return root.state;
 }

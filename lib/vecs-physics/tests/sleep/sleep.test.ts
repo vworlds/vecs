@@ -15,7 +15,6 @@ function makeWorld(enableSleep = true): World {
     subSteps: 1,
     enableSleep,
   });
-  world.start();
   return world;
 }
 

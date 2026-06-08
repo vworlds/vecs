@@ -35,7 +35,6 @@ beforeEach(() => {
   world = new World();
   // No gravity — we only care about kinematic motion, not free-fall.
   installPhysics(world, { gravity: { x: 0, y: 0 } });
-  world.start();
   state = getPhysics(world) as PhysicsState;
   now = 0;
 });

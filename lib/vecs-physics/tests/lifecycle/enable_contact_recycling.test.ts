@@ -16,7 +16,6 @@ describe("test_world.c::EnableContactRecyclingTest", () => {
   it("destroys contacts on disable and recreates them on re-enable", () => {
     const world = new World();
     installPhysics(world, { gravity: { x: 0, y: -10 } });
-    world.start();
     const state = getPhysics(world);
     const step = makeStepper(world);
 

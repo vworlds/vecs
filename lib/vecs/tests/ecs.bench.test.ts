@@ -460,8 +460,6 @@ function application(complex: boolean): { w: World; positionQuery: Query } {
         frameBuffer.draw(position.x, position.y, sprite.character.charCodeAt(0));
       });
   }
-
-  w.start();
   return { w, positionQuery };
 }
 

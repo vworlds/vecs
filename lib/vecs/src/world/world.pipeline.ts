@@ -7,8 +7,6 @@ import type { WorldOptions } from "./world.base.js";
 import { Modules } from "./world.modules.js";
 
 export class Pipeline extends Modules {
-  /** @internal `true` once {@link start} has prepared the world for frames. */
-  protected _started = false;
   /** @internal Flat system execution pipeline, rebuilt from `_pipelineQuery`. */
   public _pipeline: System[] = [];
   /** @internal Query whose ordered result defines the system pipeline. */
@@ -57,12 +55,6 @@ export class Pipeline extends Modules {
     }
   }
 
-  /** Build pending queries and prepare the world for running. */
-  public start(): void {
-    this._buildPendingQueries();
-    this._started = true;
-  }
-
   /** Define the query whose ordered results become this world's system pipeline. */
   public setPipeline<const S extends QuerySpec>(spec: S): Query<[typeof System]> {
     this._pipelineQuery?.destroy();
@@ -74,9 +66,6 @@ export class Pipeline extends Modules {
 
   /** Create and return a new {@link System}, ready for fluent configuration. */
   public system(name: string): System {
-    if (this._started) {
-      throw new Error("systems cannot be added after world start");
-    }
     return new System(name, this);
   }
 

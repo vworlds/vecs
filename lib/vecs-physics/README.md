@@ -18,7 +18,6 @@ import { Body, BodyType, Box, Position, installPhysics } from "@vworlds/vecs-phy
 
 const world = new World();
 installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 60 });
-world.start();
 
 const ground = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -1 });
 world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 2 });

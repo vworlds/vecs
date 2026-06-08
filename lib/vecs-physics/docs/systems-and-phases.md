@@ -4,7 +4,7 @@ This page explains how `vecs-physics` installs itself into a Vecs world, which p
 
 ## Summary
 
-`vecs-physics` preloads its WASM backend, then installs before `world.start()`.
+`vecs-physics` preloads its WASM backend, then installs physics systems into a world.
 
 ```ts
 await preloadPhysics();
@@ -16,7 +16,7 @@ installPhysics(world, {
 });
 ```
 
-By default, `installPhysics` registers physics components, configures shape exclusivity, creates physics phases, and installs internal systems. Advanced users can pass custom phase entities or phase names to place physics inside an existing pipeline.
+By default, `installPhysics` registers physics components, configures shape exclusivity, creates physics phases, and installs internal systems. Advanced users can pass custom phase entities or phase names to place physics inside an existing pipeline. Installed systems enter the pipeline the next time `world.progress()` runs.
 
 `vecs-physics` assumes the `delta` passed to `world.progress(now, delta)` is fixed. It does not run a catch-up accumulator by default.
 
@@ -49,8 +49,6 @@ installPhysics(world, {
   fixedTimeStep: 1 / 60,
   subSteps: 4,
 });
-
-world.start();
 
 // Use a fixed delta. 1000 / 60 ms corresponds to 1 / 60 seconds.
 world.progress(performance.now(), 1000 / 60);
@@ -165,8 +163,6 @@ const contactSystem = world
       console.log("contact", shapeEntity.eid, event.other.eid);
     }
   });
-
-world.start();
 ```
 
 ## Fixed Timestep Assumption
@@ -326,20 +322,20 @@ const damage = world
 
 ## Gotchas
 
-### `installPhysics` Must Run Before `world.start()`
+### Systems Join On The Next Progress
 
-Physics systems must be installed before `world.start()` so they participate in the pipeline.
+Physics can be installed after a world already exists. Its systems participate starting with the next `world.progress()` call.
 
 ```ts
 installPhysics(world);
-world.start();
+world.progress(performance.now(), 1000 / 60);
 ```
 
-This is wrong:
+Installing after a frame is allowed, but it cannot affect frames that already ran:
 
 ```ts
-world.start();
-installPhysics(world); // too late
+world.progress(performance.now(), 1000 / 60);
+installPhysics(world); // active on the next progress
 ```
 
 ### Variable Delta Produces Variable Physics

@@ -110,7 +110,6 @@ async function createSession(): Promise<Session> {
   client.installSystems();
 
   installRenderSystems(client);
-  client.start();
 
   return client;
 }

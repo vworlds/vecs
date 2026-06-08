@@ -44,7 +44,6 @@ describe("SetBulletDriftTest (flag persistence, box2d test_world.c:611-654)", ()
   it("bullet=false body: b2Body_IsBullet returns false, toggle to true returns true", () => {
     const world = new World();
     installPhysics(world, { gravity: { x: 0, y: 0 } });
-    world.start();
     const state = getPhysics(world);
 
     const bodyEntity = world.entity().set(Body, { type: BodyType.Dynamic, bullet: false });
@@ -62,7 +61,6 @@ describe("SetBulletDriftTest (flag persistence, box2d test_world.c:611-654)", ()
   it("bullet=true body: b2Body_IsBullet returns true, toggle to false returns false", () => {
     const world = new World();
     installPhysics(world, { gravity: { x: 0, y: 0 } });
-    world.start();
     const state = getPhysics(world);
 
     const bodyEntity = world.entity().set(Body, { type: BodyType.Dynamic, bullet: true });
@@ -87,7 +85,6 @@ describe("Bullet no-tunnel gate (VP-24 milestone physical gate)", () => {
       gravity: { x: 0, y: 0 },
       enableContinuous: true,
     });
-    world.start();
 
     const wall = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     world
@@ -121,7 +118,6 @@ describe("Bullet no-tunnel gate (VP-24 milestone physical gate)", () => {
       gravity: { x: 0, y: 0 },
       enableContinuous: false,
     });
-    world.start();
 
     const wall = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     world
@@ -158,7 +154,6 @@ describe("Fast non-bullet body CCD", () => {
       gravity: { x: 0, y: 0 },
       enableContinuous: true,
     });
-    world.start();
 
     const wall = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     world
@@ -196,7 +191,6 @@ describe("Bullet-vs-bullet skip (solver.c:227-230)", () => {
       gravity: { x: 0, y: 0 },
       enableContinuous: true,
     });
-    world.start();
 
     const bulletA = world
       .entity()
@@ -244,7 +238,6 @@ describe("HelloWorld parity with CCD enabled (no regression)", () => {
       gravity: { x: 0, y: -10 },
       enableContinuous: true,
     });
-    world.start();
 
     const ground = world
       .entity()

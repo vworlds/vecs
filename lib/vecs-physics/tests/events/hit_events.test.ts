@@ -37,7 +37,6 @@ function makeWorld(hitEventThreshold = 1.0) {
     gravity: { x: 0, y: 0 },
     hitEventThreshold,
   });
-  world.start();
   return world;
 }
 
@@ -194,7 +193,6 @@ describe("hit event threshold", () => {
       gravity: { x: 0, y: -10 },
       hitEventThreshold: 1.0,
     });
-    world.start();
 
     const groundBody = world
       .entity()

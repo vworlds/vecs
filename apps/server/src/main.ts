@@ -228,7 +228,6 @@ world
   .update(Position, [View], (entity, position, [view]) => updatePlayerView(entity, position, view));
 
 server.installSystems();
-world.start();
 
 createPhysicsWalls();
 for (let i = 0; i < 1; i++) {

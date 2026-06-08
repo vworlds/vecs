@@ -25,8 +25,6 @@ await preloadPhysics();
 const world = new World();
 installPhysics(world, { gravity: { x: 0, y: 0 }, fixedTimeStep: 1 / 60, subSteps: 4 });
 world.component(Tint);
-world.start();
-
 const zoneBody = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
 const zoneShape = world
   .entity()

@@ -51,7 +51,6 @@ function makeWorld() {
     fixedTimeStep: DT,
     subSteps: 4,
   });
-  world.start();
   return world;
 }
 
@@ -135,7 +134,7 @@ describe("contact opt-in", () => {
 
 describe("empty step is silent", () => {
   it("modified fires and array has event on step N; no modified and empty array on step N+1", () => {
-    // Use a fresh world so we can install the watcher before world.start().
+    // Use a fresh world so we can install the watcher before stepping.
     const w = new World();
     installPhysics(w, {
       gravity: { x: 0, y: 0 },
@@ -149,8 +148,6 @@ describe("empty step is silent", () => {
       .update(ContactEvents, () => {
         modifiedCount++;
       });
-
-    w.start();
     let n2 = 0;
     function step2() {
       n2 += STEP_MS;
@@ -222,7 +219,6 @@ describe("begin/end lifecycle", () => {
       fixedTimeStep: DT,
       subSteps: 4,
     });
-    floorWorld.start();
     let fn = 0;
     function fstep() {
       fn += STEP_MS;
@@ -364,7 +360,6 @@ describe("hit event delivery", () => {
       gravity: { x: 0, y: 0 },
       hitEventThreshold: 0.5,
     });
-    world2.start();
     let now2 = 0;
     function step2() {
       now2 += STEP_MS;
@@ -421,7 +416,6 @@ describe("hit event delivery", () => {
       gravity: { x: 0, y: -10 },
       hitEventThreshold: 5.0, // very high threshold
     });
-    world3.start();
     let now3 = 0;
 
     const groundBody = world3

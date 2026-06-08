@@ -40,7 +40,6 @@ describe("System — enter / exit / update", () => {
     const { w } = setup();
     const enter = vi.fn();
     w.system("test").with(Position).enter(enter);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -51,7 +50,6 @@ describe("System — enter / exit / update", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position, Velocity).enter([Position, Velocity], cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity).get(Velocity)!;
@@ -63,7 +61,6 @@ describe("System — enter / exit / update", () => {
     const { w } = setup();
     const exit = vi.fn();
     w.system("test").with(Position).exit(exit);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -76,7 +73,6 @@ describe("System — enter / exit / update", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).exit([Position], cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0);
@@ -89,7 +85,6 @@ describe("System — enter / exit / update", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).update(Position, cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // entity entered
@@ -103,7 +98,6 @@ describe("System — enter / exit / update", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).update(Position, cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // tick 1 enters the entity & queues pos
@@ -115,7 +109,6 @@ describe("System — enter / exit / update", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position, Velocity).update(Velocity, [Position], cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity).get(Velocity)!;
@@ -130,7 +123,6 @@ describe("System — enter / exit / update", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").update(Position, cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // enter
@@ -149,7 +141,6 @@ describe("System — enter / exit / update", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").run(cb);
-    w.start();
     w.progress(100, 16);
     w.progress(116, 16);
     expect(cb).toHaveBeenCalledTimes(2);
@@ -172,7 +163,6 @@ describe("System — enter / exit / update", () => {
     const { w } = setup();
     const exit = vi.fn();
     w.system("test").with(Position).exit(exit);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -184,7 +174,6 @@ describe("System — enter / exit / update", () => {
   it("sets changed when an entity enters the system", () => {
     const { w } = setup();
     const sys = w.system("test").with(Position).track();
-    w.start();
 
     expect(sys.changed).toBe(false);
     const e = w.entity();
@@ -200,7 +189,6 @@ describe("System — enter / exit / update", () => {
       .system("test")
       .with(Position)
       .update(Position, () => {});
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -218,7 +206,6 @@ describe("System — enter / exit / update", () => {
       .system("test")
       .with(Position)
       .each([Position], () => {});
-    w.start();
 
     const e = w.entity();
     e.add(Position);
@@ -252,20 +239,30 @@ describe("System — pipeline", () => {
     expect(() => sys.with(Velocity)).toThrow();
   });
 
-  it("auto-builds systems before start() builds the pipeline", () => {
+  it("auto-builds systems when progress builds the pipeline", () => {
     const { w } = setup();
     const cb = vi.fn();
     const sys = w.system("test").run(cb);
-    w.start();
-    expect(w.queries).toContain(sys);
+    expect(w.queries).not.toContain(sys);
     w.progress(0, 0);
+    expect(w.queries).toContain(sys);
     expect(cb).toHaveBeenCalled();
   });
 
-  it("rejects systems created after start()", () => {
+  it("inserts systems created after a frame on the next progress", () => {
     const { w } = setup();
-    w.start();
-    expect(() => w.system("late")).toThrow("systems cannot be added after world start");
+    const early = vi.fn();
+    const late = vi.fn();
+
+    w.system("early").run(early);
+    w.progress(0, 0);
+    w.system("late").run(late);
+
+    expect(late).not.toHaveBeenCalled();
+    w.progress(1, 0);
+
+    expect(early).toHaveBeenCalledTimes(2);
+    expect(late).toHaveBeenCalledTimes(1);
   });
 
   it("rejects query builds while a frame is in progress", () => {
@@ -275,7 +272,6 @@ describe("System — pipeline", () => {
         "queries cannot be built while a frame is in progress"
       );
     });
-    w.start();
     w.progress(0, 0);
   });
 
@@ -293,8 +289,6 @@ describe("System — pipeline", () => {
       expect(dynamicQuery?.count).toBe(1);
       expect(dynamicQuery?.has(e)).toBe(true);
     });
-
-    w.start();
     w.progress(0, 0);
   });
 
@@ -313,8 +307,6 @@ describe("System — pipeline", () => {
       expect(dynamicQuery?.count).toBe(1);
       expect(dynamicQuery?.has(e)).toBe(true);
     });
-
-    w.start();
     w.progress(0, 0);
   });
 
@@ -335,8 +327,6 @@ describe("System — pipeline", () => {
       expect(dynamicQuery?.has(e)).toBe(true);
       expect(enter).toHaveBeenCalledWith(e);
     });
-
-    w.start();
     w.progress(0, 0);
   });
 
@@ -348,8 +338,6 @@ describe("System — pipeline", () => {
       w.query("broken").with({ BROKEN: [] } as unknown as QueryDSL);
     });
     w.system("must not run").run(nextSystem);
-
-    w.start();
     expect(() => w.progress(0, 0)).toThrow("Unrecognized query term");
     expect(nextSystem).not.toHaveBeenCalled();
   });
@@ -365,7 +353,6 @@ describe("System — pipeline", () => {
     w.system("sysB")
       .phase(b)
       .run(() => seen.push("B"));
-    w.start();
     w.progress(0, 0);
     expect(seen).toEqual(["A", "B"]);
   });
@@ -374,7 +361,6 @@ describe("System — pipeline", () => {
     const w = new World();
     const cb = vi.fn();
     w.system("test").run(cb);
-    w.start();
     w.progress(0, 0);
     expect(cb).toHaveBeenCalled();
   });
@@ -388,7 +374,6 @@ describe("System — pipeline", () => {
         .phase(name)
         .run(() => seen.push(name));
     }
-    w.start();
     w.progress(0, 0);
     expect(seen).toEqual([...BUILTIN_PIPELINE_PHASES]);
   });
@@ -399,7 +384,6 @@ describe("System — pipeline", () => {
     w.system("first").run(() => seen.push("first"));
     w.system("second").run(() => seen.push("second"));
     w.system("third").run(() => seen.push("third"));
-    w.start();
     w.progress(0, 0);
     expect(seen).toEqual(["first", "second", "third"]);
   });
@@ -426,7 +410,6 @@ describe("System — query interaction with update watchlist", () => {
       .update(Position, () => {})
       .with(Velocity)
       .enter(cb);
-    w.start();
 
     const e = w.entity();
     e.add(Position); // would have matched the implicit query
@@ -444,7 +427,6 @@ describe("System — each", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).each([Position], cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // entry happens after run() in updateArchetypes
@@ -456,7 +438,6 @@ describe("System — each", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).each([Position], cb);
-    w.start();
     const e = w.entity();
     e.add(Position);
     // Top-level mutations execute inline, so the entity is already tracked by
@@ -473,7 +454,6 @@ describe("System — each", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).each([Position], cb);
-    w.start();
     const a = w.entity();
     const posA = a.add(Position).get(Position)!;
     const b = w.entity();
@@ -489,7 +469,6 @@ describe("System — each", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).each([Position], cb);
-    w.start();
     const a = w.entity();
     a.add(Position);
     const b = w.entity();
@@ -505,7 +484,6 @@ describe("System — each", () => {
     const cb = vi.fn();
     // Entity matches via Position only, but each also asks for Velocity:
     w.system("test").with(Position).each([Position, Velocity], cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0);
@@ -517,7 +495,6 @@ describe("System — each", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).each([Position], cb);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -535,7 +512,6 @@ describe("System — each", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).each([Position], cb);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -551,7 +527,6 @@ describe("System — each", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position, Velocity).each([Position, Velocity], cb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity).get(Velocity)!;
@@ -564,7 +539,6 @@ describe("System — each", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").each([Position], cb);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -576,7 +550,6 @@ describe("System — each", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).each([], cb);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -600,7 +573,6 @@ describe("System — each", () => {
   it("entities are only tracked when track or each is registered", () => {
     const { w } = setup();
     const sys = w.system("test").with(Position);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -610,7 +582,6 @@ describe("System — each", () => {
   it("track() populates entities on enter and clears them on exit", () => {
     const { w } = setup();
     const sys = w.system("test").with(Position).track();
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -626,7 +597,6 @@ describe("System — each", () => {
     const sys = w.system("test").with(Position);
     expect(sys.track()).toBe(sys);
     expect(sys.track().track()).toBe(sys);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -639,7 +609,6 @@ describe("System — each", () => {
       .system("test")
       .with(Position)
       .each([Position], () => {});
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -651,7 +620,6 @@ describe("System — each", () => {
     const eachCb = vi.fn();
     const updateCb = vi.fn();
     w.system("test").with(Position).each([Position], eachCb).update(Position, updateCb);
-    w.start();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // entry queues pos for update
@@ -681,7 +649,6 @@ describe("System — orderBy", () => {
       .system("test")
       .with(Position)
       .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
-    w.start();
     const e = w.entity();
     e.set(Position, { x: 5 });
     w.progress(0, 0);
@@ -694,7 +661,6 @@ describe("System — orderBy", () => {
       .system("test")
       .with(Position)
       .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
-    w.start();
 
     const e1 = w.entity();
     e1.set(Position, { x: 30 });
@@ -717,7 +683,6 @@ describe("System — orderBy", () => {
       .with(Position)
       .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x)
       .each([Position], (_e, [pos]) => visited.push(pos.x));
-    w.start();
 
     const e1 = w.entity();
     e1.set(Position, { x: 30 });
@@ -741,7 +706,6 @@ describe("System — orderBy", () => {
       .system("test")
       .with(Position)
       .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
-    w.start();
 
     const e1 = w.entity();
     e1.set(Position, { x: 10 });
@@ -766,7 +730,6 @@ describe("System — orderBy", () => {
         [Position, Velocity],
         (_eA, [posA, velA], _eB, [posB, velB]) => posA.x + velA.vx - (posB.x + velB.vx)
       );
-    w.start();
 
     const e1 = w.entity();
     e1.set(Position, { x: 10 });
@@ -790,7 +753,6 @@ describe("System — destroy", () => {
     const { w } = setup();
     const sys = w.system("test").with(Position);
     const entity = sys.entity;
-    w.start();
     sys.destroy();
 
     expect(w.queries).not.toContain(sys);
@@ -820,7 +782,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const cb = vi.fn();
     const sys = w.system("test").run(cb);
-    w.start();
     w.progress(0, 0);
     expect(cb).toHaveBeenCalledTimes(1);
     sys.disable();
@@ -833,7 +794,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const cb = vi.fn();
     const sys = w.system("test").run(cb);
-    w.start();
     sys.disable();
     w.progress(0, 0);
     expect(cb).not.toHaveBeenCalled();
@@ -846,7 +806,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const cb = vi.fn();
     const sys = w.system("test").with(Position).each([Position], cb);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -863,7 +822,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const enter = vi.fn();
     const sys = w.system("test").with(Position).enter(enter);
-    w.start();
     sys.disable();
     const e = w.entity();
     e.add(Position);
@@ -875,7 +833,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const exit = vi.fn();
     const sys = w.system("test").with(Position).exit(exit);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -889,7 +846,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const cb = vi.fn();
     const sys = w.system("test").with(Position).update(Position, cb);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -905,7 +861,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const enter = vi.fn();
     const sys = w.system("test").with(Position).enter(enter);
-    w.start();
     const e = w.entity();
     e.add(Position); // queues enter event before progress()
     sys.disable(); // should clear the inbox
@@ -916,7 +871,6 @@ describe("System — enable / disable", () => {
   it("entity membership is maintained while disabled", () => {
     const { w } = setup();
     const sys = w.system("test").with(Position).track();
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -932,7 +886,6 @@ describe("System — enable / disable", () => {
   it("entity exits are reflected in the tracked set while disabled", () => {
     const { w } = setup();
     const sys = w.system("test").with(Position).track();
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -953,7 +906,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const cb = vi.fn();
     const sys = w.system("test").run(cb);
-    w.start();
     sys.disable();
     sys.disable();
     w.progress(0, 0);
@@ -964,7 +916,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const cb = vi.fn();
     const sys = w.system("test").run(cb);
-    w.start();
     sys.enable();
     sys.enable();
     w.progress(0, 0);
@@ -975,7 +926,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const cb = vi.fn();
     const sys = w.system("test").with(Position).each([Position], cb);
-    w.start();
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -991,7 +941,6 @@ describe("System — enable / disable", () => {
     const { w } = setup();
     const enter = vi.fn();
     const sys = w.system("test").with(Position).enter(enter);
-    w.start();
     sys.disable();
     const e = w.entity();
     e.add(Position);

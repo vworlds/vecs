@@ -40,7 +40,6 @@ const STEP_MS = 1000 / 60;
 function makeWorld(): World {
   const world = new World();
   installPhysics(world, { gravity: { x: 0, y: -10 } });
-  world.start();
   return world;
 }
 
@@ -151,7 +150,6 @@ describe("ChainSegmentShapeTest — one-sided collision (port of box2d test_worl
     // No gravity so we have full control over the trajectory.
     const noGravWorld = new World();
     installPhysics(noGravWorld, { gravity: { x: 0, y: 0 } });
-    noGravWorld.start();
 
     const groundBody = noGravWorld
       .entity()

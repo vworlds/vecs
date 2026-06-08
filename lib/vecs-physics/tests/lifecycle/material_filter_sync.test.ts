@@ -84,7 +84,6 @@ function makeChainShape(body: ReturnType<typeof makeBody>) {
 beforeEach(() => {
   world = new World();
   installPhysics(world);
-  world.start();
   state = getPhysics(world);
 });
 

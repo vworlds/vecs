@@ -62,12 +62,8 @@ const DEFAULT_PRE_STEP_PHASE = "physics-pre";
 const DEFAULT_STEP_PHASE = "physics-step";
 const DEFAULT_POST_STEP_PHASE = "physics-post";
 
-/** Wire the physics engine into `world`. Must be called before `world.start()`
- * and at most once per world. */
+/** Wire the physics engine into `world`. Must be called at most once per world. */
 export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
-  if (isWorldStarted(world)) {
-    throw new Error("installPhysics must be called before world.start()");
-  }
   if (hasPhysics(world)) {
     throw new Error("installPhysics has already been called on this world");
   }
@@ -202,10 +198,4 @@ function resolveOptions(opts: PhysicsOptions): ResolvedPhysicsOptions {
     enableSleep: opts.enableSleep ?? true,
     enableContinuous: opts.enableContinuous ?? true,
   };
-}
-
-/** Whether `world.start()` has already run. Reads the world's internal started
- * flag; there is no public accessor. */
-function isWorldStarted(world: World): boolean {
-  return (world as unknown as { _started?: boolean })._started === true;
 }

@@ -32,7 +32,6 @@ let now: number;
 beforeEach(() => {
   world = new World();
   installPhysics(world, { gravity: { x: 0, y: 0 } });
-  world.start();
   state = getPhysics(world);
   now = 0;
 });

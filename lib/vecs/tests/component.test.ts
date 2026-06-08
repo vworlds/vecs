@@ -17,7 +17,6 @@ describe("ComponentMeta", () => {
     w.component(Health);
     const onSet = vi.fn();
     w.component(Health).onSet(onSet);
-    w.start();
     const e = w.entity();
     const h = e.add(Health).get(Health)!;
     e.modified(Health);
@@ -30,7 +29,6 @@ describe("ComponentMeta", () => {
     w.component(Health);
     const onSet = vi.fn();
     w.component(Health).onSet(onSet);
-    w.start();
     const e = w.entity();
     e.add(Health);
     onSet.mockClear();
@@ -47,7 +45,6 @@ describe("ComponentMeta", () => {
     w.component(Health);
     const onSet = vi.fn();
     w.component(Health).onSet(onSet);
-    w.start();
     const e = w.entity();
     e.add(Health);
     onSet.mockClear();
@@ -72,7 +69,6 @@ describe("Entity.modified", () => {
     w.component(Health);
     const onSet = vi.fn();
     w.component(Health).onSet(onSet);
-    w.start();
     const e = w.entity();
     const h = e.add(Health).get(Health)!;
     e.modified(Health);
@@ -85,7 +81,6 @@ describe("Entity.modified", () => {
     w.component(Health);
     const onSet = vi.fn();
     w.component(Health).onSet(onSet);
-    w.start();
     const e = w.entity();
     e.add(Health);
     onSet.mockClear();
@@ -102,7 +97,6 @@ describe("Entity.modified", () => {
     w.component(Health);
     const onSet = vi.fn();
     w.component(Health).onSet(onSet);
-    w.start();
     const e = w.entity();
     e.add(Health).modified(Health);
     w.progress(0, 0);
@@ -116,16 +110,14 @@ describe("Hook", () => {
     w.component(Health);
     const onAdd = vi.fn();
     w.component(Health).onAdd(onAdd);
-    w.start();
     const e = w.entity();
     const h = e.add(Health).get(Health)!;
     expect(onAdd).toHaveBeenCalledWith(e, h);
   });
 
-  it("hooks can be registered after world start", () => {
+  it("hooks can be registered after component registration", () => {
     const w = new World();
     w.component(Health);
-    w.start();
     const onAdd = vi.fn();
 
     w.component(Health).onAdd(onAdd);
@@ -144,7 +136,6 @@ describe("Hook", () => {
 
     const onAdd = vi.fn();
     w.component(Health).onSet(onSet).onAdd(onAdd);
-    w.start();
     const e = w.entity();
     const h = e.set(Health, { hp: 99 }).get(Health)!;
 
@@ -162,7 +153,6 @@ describe("Hook", () => {
     w.component(Health);
     const onRemove = vi.fn();
     w.component(Health).onRemove(onRemove);
-    w.start();
     const e = w.entity();
     const h = e.add(Health).get(Health)!;
     e.remove(Health);
@@ -174,7 +164,6 @@ describe("Hook", () => {
     w.component(Health);
     const onRemove = vi.fn();
     w.component(Health).onRemove(onRemove);
-    w.start();
     const e = w.entity();
     e.add(Health);
     e.destroy();

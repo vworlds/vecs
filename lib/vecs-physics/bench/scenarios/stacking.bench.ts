@@ -32,8 +32,6 @@ export function runStacking(): { totalMs: number; msPerStep: number; steps: numb
     fixedTimeStep: 1 / 60,
     subSteps: 4,
   });
-  world.start();
-
   // ── Ground ────────────────────────────────────────────────────────────────
   const ground = world.entity().set(Body, { type: BodyType.Static });
   world

@@ -110,7 +110,6 @@ function createServer(): ServerWorld {
     entity.set(View, { dsl: true }); // every client sees every networked entity
   });
   server.installSystems();
-  server.start();
   return server;
 }
 

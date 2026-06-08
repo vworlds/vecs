@@ -15,7 +15,6 @@ describe("test_world.c::DestroyAllBodiesWorld", () => {
   it("destroys every body and shape without leaving registered entities", () => {
     const world = new World();
     installPhysics(world, { gravity: { x: 0, y: -10 } });
-    world.start();
     const state = getPhysics(world);
     const step = makeStepper(world);
 

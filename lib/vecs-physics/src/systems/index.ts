@@ -55,7 +55,7 @@ export interface PhysicsSystemsOptions {
 }
 
 /** Install every physics system into `world`, bound to `state`, and tag each
- * system entity with {@link PhysicsSystemTag}. Must run before `world.start()`. */
+ * system entity with {@link PhysicsSystemTag}. */
 export function installPhysicsSystems(
   world: World,
   state: PhysicsState,

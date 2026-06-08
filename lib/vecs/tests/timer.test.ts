@@ -31,7 +31,6 @@ describe("Timers and tick sources", () => {
     const { world, tick } = setup();
     const cb = vi.fn();
     world.system("slow").interval(1).run(cb);
-    world.start();
 
     tick(1500, 1500);
     tick(2000, 500);
@@ -44,7 +43,6 @@ describe("Timers and tick sources", () => {
     const { world, tick } = setup();
     const cb = vi.fn();
     world.system("every-other").rate(2).run(cb);
-    world.start();
 
     for (let i = 1; i <= 5; i++) {
       tick(i * 16, 16);
@@ -59,7 +57,6 @@ describe("Timers and tick sources", () => {
     const second = new IntervalTickSource(1);
     const cb = vi.fn();
     world.system("consumer").tickSource(second).run(cb);
-    world.start();
 
     tick(500, 500);
     tick(1000, 500);
@@ -75,7 +72,6 @@ describe("Timers and tick sources", () => {
     const minute = new RateTickSource(60, second);
     const cb = vi.fn();
     world.system("consumer").tickSource(minute).run(cb);
-    world.start();
 
     for (let i = 1; i <= 60; i++) {
       tick(i * 1000, 1000);
@@ -91,7 +87,6 @@ describe("Timers and tick sources", () => {
     const minute = new RateTickSource(60, second);
     const cb = vi.fn();
     world.system("hour").tickSource(minute).rate(60).run(cb);
-    world.start();
 
     for (let i = 1; i <= 3700; i++) {
       tick(i * 1000, 1000);
@@ -106,7 +101,6 @@ describe("Timers and tick sources", () => {
     const eachSecond = world.system("second").interval(1);
     const consumer = vi.fn();
     world.system("consumer").tickSource(eachSecond).run(consumer);
-    world.start();
 
     for (let i = 1; i <= 120; i++) {
       tick(i * 1000, 1000);
@@ -122,7 +116,6 @@ describe("Timers and tick sources", () => {
     const second = new IntervalTickSource(1);
     const cb = vi.fn();
     world.system("consumer").tickSource(second).run(cb);
-    world.start();
 
     tick(500, 500);
     second.stop();
@@ -138,7 +131,6 @@ describe("Timers and tick sources", () => {
     const { world, tick } = setup();
     const enter = vi.fn();
     world.system("slow").with(Position).interval(1).enter(enter);
-    world.start();
 
     const entity = world.entity();
     entity.add(Position);
@@ -154,7 +146,6 @@ describe("Timers and tick sources", () => {
     const { world, tick } = setup();
     const cb = vi.fn();
     world.system("slow").interval(1).run(cb);
-    world.start();
 
     tick(250, 250);
     tick(12345, 750);
@@ -173,7 +164,6 @@ describe("Timers and tick sources", () => {
     const { world, tick } = setup();
     const cb = vi.fn();
     world.system("always").run(cb);
-    world.start();
 
     tick(16, 16);
     tick(49, 33);
@@ -189,7 +179,6 @@ describe("Timers and tick sources", () => {
     const { world, tick } = setup();
     const cb = vi.fn();
     world.system("slow").interval(1).rate(2).run(cb);
-    world.start();
 
     for (let i = 1; i <= 4; i++) {
       tick(i * 1000, 1000);
@@ -205,7 +194,6 @@ describe("Timers and tick sources", () => {
     const second = new IntervalTickSource(1);
     const cb = vi.fn();
     world.system("minute").tickSource(second).rate(60).run(cb);
-    world.start();
 
     for (let i = 1; i <= 60; i++) {
       tick(i * 1000, 1000);
@@ -220,7 +208,6 @@ describe("Timers and tick sources", () => {
     const source = world.system("source");
     const cb = vi.fn();
     world.system("consumer").tickSource(source).run(cb);
-    world.start();
 
     tick(10, 10);
     tick(30, 20);
@@ -260,7 +247,6 @@ describe("Timers and tick sources", () => {
       .phase(b)
       .tickSource(source)
       .run(() => {});
-    world.start();
 
     world.progress(1000, 1000);
 
@@ -282,7 +268,6 @@ describe("Timers and tick sources", () => {
       .system("c")
       .tickSource(source)
       .run(() => {});
-    world.start();
 
     tick(1000, 1000);
 
