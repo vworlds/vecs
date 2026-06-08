@@ -49,8 +49,8 @@ export class Pipeline extends Modules {
     this.beginFrame(delta);
     try {
       for (const system of this._pipeline) {
-        this.flush();
         system._run(now, delta);
+        this.flush();
       }
     } finally {
       this.endFrame();

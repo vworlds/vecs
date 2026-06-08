@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { World } from "../src/index.js";
-import { makeWorldWithFlushPhase } from "./_helpers.js";
 
 class Health {
   hp = 10;
@@ -14,42 +13,42 @@ describe("ComponentMeta", () => {
   });
 
   it("entity.modified(C) queues an onSet hook delivery", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
+    const w = new World();
+    w.component(Health);
     const onSet = vi.fn();
-    env.w.component(Health).onSet(onSet);
-    env.start();
-    const e = env.w.entity();
+    w.component(Health).onSet(onSet);
+    w.start();
+    const e = w.entity();
     const h = e.add(Health).get(Health)!;
     e.modified(Health);
-    env.tick();
+    w.progress(0, 0);
     expect(onSet).toHaveBeenCalledWith(e, h);
   });
 
   it("entity.modified(C) in deferred mode is coalesced — onSet fires once even if called multiple times", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
+    const w = new World();
+    w.component(Health);
     const onSet = vi.fn();
-    env.w.component(Health).onSet(onSet);
-    env.start();
-    const e = env.w.entity();
+    w.component(Health).onSet(onSet);
+    w.start();
+    const e = w.entity();
     e.add(Health);
     onSet.mockClear();
-    env.w.beginDefer();
+    w.beginDefer();
     e.modified(Health);
     e.modified(Health);
     e.modified(Health);
-    env.w.endDefer();
+    w.endDefer();
     expect(onSet).toHaveBeenCalledTimes(1);
   });
 
   it("entity.modified(C) at top level fires onSet immediately on each call", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
+    const w = new World();
+    w.component(Health);
     const onSet = vi.fn();
-    env.w.component(Health).onSet(onSet);
-    env.start();
-    const e = env.w.entity();
+    w.component(Health).onSet(onSet);
+    w.start();
+    const e = w.entity();
     e.add(Health);
     onSet.mockClear();
     e.modified(Health);
@@ -69,84 +68,84 @@ describe("Entity.modified", () => {
   });
 
   it("queues an onSet hook delivery", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
+    const w = new World();
+    w.component(Health);
     const onSet = vi.fn();
-    env.w.component(Health).onSet(onSet);
-    env.start();
-    const e = env.w.entity();
+    w.component(Health).onSet(onSet);
+    w.start();
+    const e = w.entity();
     const h = e.add(Health).get(Health)!;
     e.modified(Health);
-    env.tick();
+    w.progress(0, 0);
     expect(onSet).toHaveBeenCalledWith(e, h);
   });
 
   it("is coalesced in deferred mode — onSet fires once even if called multiple times", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
+    const w = new World();
+    w.component(Health);
     const onSet = vi.fn();
-    env.w.component(Health).onSet(onSet);
-    env.start();
-    const e = env.w.entity();
+    w.component(Health).onSet(onSet);
+    w.start();
+    const e = w.entity();
     e.add(Health);
     onSet.mockClear();
-    env.w.beginDefer();
+    w.beginDefer();
     e.modified(Health);
     e.modified(Health);
     e.modified(Health);
-    env.w.endDefer();
+    w.endDefer();
     expect(onSet).toHaveBeenCalledTimes(1);
   });
 
   it("can be chained after add", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
+    const w = new World();
+    w.component(Health);
     const onSet = vi.fn();
-    env.w.component(Health).onSet(onSet);
-    env.start();
-    const e = env.w.entity();
+    w.component(Health).onSet(onSet);
+    w.start();
+    const e = w.entity();
     e.add(Health).modified(Health);
-    env.tick();
+    w.progress(0, 0);
     expect(onSet).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("Hook", () => {
   it("onAdd fires when a component is first attached", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
+    const w = new World();
+    w.component(Health);
     const onAdd = vi.fn();
-    env.w.component(Health).onAdd(onAdd);
-    env.start();
-    const e = env.w.entity();
+    w.component(Health).onAdd(onAdd);
+    w.start();
+    const e = w.entity();
     const h = e.add(Health).get(Health)!;
     expect(onAdd).toHaveBeenCalledWith(e, h);
   });
 
   it("hooks can be registered after world start", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
-    env.start();
+    const w = new World();
+    w.component(Health);
+    w.start();
     const onAdd = vi.fn();
 
-    env.w.component(Health).onAdd(onAdd);
-    const e = env.w.entity();
+    w.component(Health).onAdd(onAdd);
+    const e = w.entity();
     const h = e.add(Health).get(Health)!;
 
     expect(onAdd).toHaveBeenCalledWith(e, h);
   });
 
   it("onSet fires when a component value is set", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
+    const w = new World();
+    w.component(Health);
 
     const set_values: number[] = [];
     const onSet = vi.fn((_e, c) => set_values.push(c.hp));
 
     const onAdd = vi.fn();
-    env.w.component(Health).onSet(onSet).onAdd(onAdd);
-    env.start();
-    const e = env.w.entity();
+    w.component(Health).onSet(onSet).onAdd(onAdd);
+    w.start();
+    const e = w.entity();
     const h = e.set(Health, { hp: 99 }).get(Health)!;
 
     e.set(Health, { hp: 200 });
@@ -159,24 +158,24 @@ describe("Hook", () => {
   });
 
   it("onRemove fires when a component is removed", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
+    const w = new World();
+    w.component(Health);
     const onRemove = vi.fn();
-    env.w.component(Health).onRemove(onRemove);
-    env.start();
-    const e = env.w.entity();
+    w.component(Health).onRemove(onRemove);
+    w.start();
+    const e = w.entity();
     const h = e.add(Health).get(Health)!;
     e.remove(Health);
     expect(onRemove).toHaveBeenCalledWith(e, h);
   });
 
   it("onRemove fires when the entity is destroyed", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Health);
+    const w = new World();
+    w.component(Health);
     const onRemove = vi.fn();
-    env.w.component(Health).onRemove(onRemove);
-    env.start();
-    const e = env.w.entity();
+    w.component(Health).onRemove(onRemove);
+    w.start();
+    const e = w.entity();
     e.add(Health);
     e.destroy();
     expect(onRemove).toHaveBeenCalledTimes(1);

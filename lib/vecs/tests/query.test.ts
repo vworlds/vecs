@@ -46,8 +46,6 @@ function setup() {
   w.component(Velocity);
   w.component(Sprite);
   w.component(Container);
-  // dummy system ensures progress always flushes archetype changes
-  w.system("__flush__").run(() => {});
   return {
     w,
     tick: () => w.progress(0, 0),

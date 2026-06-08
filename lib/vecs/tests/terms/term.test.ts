@@ -29,9 +29,8 @@ function setup() {
   return w;
 }
 
-function setupWithFlush() {
+function setupWithTick() {
   const w = setup();
-  w.system("__flush__").run(() => {});
   return { w, tick: () => w.progress(0, 0) };
 }
 
@@ -630,7 +629,7 @@ describe("Term — MergedPredicateTerm (diamond breaking)", () => {
 
 describe("Term — integration with existing Query public API", () => {
   it("Query delegates membership to root term", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     const q = w.query("test").with(Position).build();
     w.start();
     const e = w.entity();
@@ -655,7 +654,7 @@ describe("Term — integration with existing Query public API", () => {
   });
 
   it("Query enter/exit callbacks fire via term propagation", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     const enter = vi.fn();
     const exit = vi.fn();
     w.query("test").with(Position).enter(enter).exit(exit);
@@ -671,7 +670,7 @@ describe("Term — integration with existing Query public API", () => {
   });
 
   it("Query update callbacks fire via slim update channel", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     const update = vi.fn();
     w.query("test").with(Position).update(Position, update);
     w.start();
@@ -686,7 +685,7 @@ describe("Term — integration with existing Query public API", () => {
   });
 
   it("System receives enter events via term propagation", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     const enter = vi.fn();
     w.system("test").with(Position).enter(enter);
     w.start();
@@ -698,7 +697,7 @@ describe("Term — integration with existing Query public API", () => {
   });
 
   it("System update fires on modified()", () => {
-    const { w } = setupWithFlush();
+    const { w } = setupWithTick();
     const update = vi.fn();
     w.system("test").with(Position).update(Position, update);
     w.start();
@@ -814,7 +813,7 @@ describe("Term — structural routing only touches dependent terms", () => {
 
 describe("Term — update channel bypasses the tree", () => {
   it("modified(C) fires update callback only on consumers watching C", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     const updatePos = vi.fn();
     const updateVel = vi.fn();
     w.query("test").with(Position).update(Position, updatePos).update(Velocity, updateVel).build();
@@ -833,7 +832,7 @@ describe("Term — update channel bypasses the tree", () => {
   });
 
   it("modified(C) does not fire for components not on the watchlist", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     const updateVel = vi.fn();
     w.query("test").with(Position).update(Velocity, updateVel).build();
     w.start();
@@ -847,7 +846,7 @@ describe("Term — update channel bypasses the tree", () => {
   });
 
   it("update callback does not trigger enter/exit propagation", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     const term = w.getTerm(Position);
     const { enter } = listen(term);
     enter.mockClear();
@@ -870,7 +869,7 @@ describe("Term — update channel bypasses the tree", () => {
   // Ported from query-A-kimi: a belongs() re-evaluation triggered by an
   // unrelated component must not leak into the targeted update channel.
   it("a tree re-evaluation from an unrelated component does not reach update(C)", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     class Unrelated {}
     w.component(Unrelated);
     const cb = vi.fn();
@@ -1068,7 +1067,7 @@ describe("Term — consumer-count lifetime", () => {
 
 describe("Term — targeted-update regression", () => {
   it("modified(C) fires update(C) only on consumers watching C, walking only the slim per-entity set", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     const posOnlyUpdate = vi.fn();
     const velOnlyUpdate = vi.fn();
 
@@ -1101,7 +1100,7 @@ describe("Term — targeted-update regression", () => {
 
 describe("Term — exit snapshots are a query/system-layer concern", () => {
   it("Query exit callback receives removed component data as a positional tuple", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     const exit = vi.fn();
     w.query("test").with(Position).exit([Position], exit).build();
     w.start();
@@ -1115,7 +1114,7 @@ describe("Term — exit snapshots are a query/system-layer concern", () => {
   });
 
   it("Query exit on destroy captures the snapshot before storage deletion", () => {
-    const { w, tick } = setupWithFlush();
+    const { w, tick } = setupWithTick();
     const exit = vi.fn();
     w.query("test").with(Position, Velocity).exit([Position, Velocity], exit).build();
     w.start();
@@ -1132,7 +1131,7 @@ describe("Term — exit snapshots are a query/system-layer concern", () => {
   // Ported from query-A-kimi: the System inbox is the path that genuinely needs
   // a captured snapshot, since exits are replayed after storage is deleted.
   it("System exit callback receives removed component data via the inbox", () => {
-    const { w } = setupWithFlush();
+    const { w } = setupWithTick();
     const exit = vi.fn();
     w.system("exitsys-test").with(Position).exit([Position], exit);
     w.start();

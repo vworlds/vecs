@@ -15,8 +15,6 @@ function setup() {
   w.component(Position);
   w.component(Team);
   w.component(InZone);
-  // Dummy system ensures progress() always flushes queued archetype changes.
-  w.system("__flush__").run(() => {});
   return { w, tick: () => w.progress(0, 0) };
 }
 

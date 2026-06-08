@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { ChildOf, CleanupPolicy, Relationship, World } from "../src/index.js";
-import { makeWorldWithFlushPhase } from "./_helpers.js";
 
 class Position {
   x = 0;
@@ -211,29 +210,29 @@ describe("Entity — components", () => {
   });
 
   it("set marks a new component as modified", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Position);
-    env.start();
+    const w = new World();
+    w.component(Position);
+    w.start();
     const onSet = vi.fn();
-    env.w.component(Position).onSet(onSet);
-    const e = env.w.entity();
+    w.component(Position).onSet(onSet);
+    const e = w.entity();
     e.set(Position, { x: 1 });
-    env.tick();
+    w.progress(0, 0);
     expect(onSet).toHaveBeenCalledTimes(1);
   });
 
   it("set marks an already-present component as modified", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(Position);
-    env.start();
+    const w = new World();
+    w.component(Position);
+    w.start();
     const onSet = vi.fn();
-    env.w.component(Position).onSet(onSet);
-    const e = env.w.entity();
+    w.component(Position).onSet(onSet);
+    const e = w.entity();
     e.add(Position);
-    env.tick(); // flush the initial add notification
+    w.progress(0, 0); // flush the initial add notification
     onSet.mockClear();
     e.set(Position, { x: 42 });
-    env.tick();
+    w.progress(0, 0);
     expect(onSet).toHaveBeenCalledTimes(1);
   });
 
@@ -362,62 +361,62 @@ describe("Entity — components", () => {
 
 describe("Entity — lifecycle and relationships", () => {
   it("destroy emits the 'destroy' event", () => {
-    const env = makeWorldWithFlushPhase();
-    env.start();
-    const e = env.w.entity();
+    const w = new World();
+    w.start();
+    const e = w.entity();
     const cb = vi.fn();
     e.events.on("destroy", cb);
     e.destroy();
-    env.tick();
+    w.progress(0, 0);
     expect(cb).toHaveBeenCalledTimes(1);
   });
 
   it("destroy removes the entity from the world map", () => {
-    const env = makeWorldWithFlushPhase();
-    env.start();
-    const e = env.w.entity();
+    const w = new World();
+    w.start();
+    const e = w.entity();
     e.destroy();
-    expect(() => env.w.entity(e.eid)).toThrow();
+    expect(() => w.entity(e.eid)).toThrow();
   });
 
   it("destroy cascades through ChildOf relationships", () => {
-    const env = makeWorldWithFlushPhase();
-    env.start();
-    const parent = env.w.entity();
-    const child = env.w.entity();
-    const grandchild = env.w.entity();
+    const w = new World();
+    w.start();
+    const parent = w.entity();
+    const child = w.entity();
+    const grandchild = w.entity();
     child.childOf(parent);
     grandchild.childOf(child);
 
     const childDestroyed = vi.fn();
     child.events.on("destroy", childDestroyed);
     parent.destroy();
-    env.tick();
+    w.progress(0, 0);
     expect(childDestroyed).toHaveBeenCalled();
-    expect(() => env.w.entity(grandchild.eid)).toThrow();
-    expect(() => env.w.entity(child.eid)).toThrow();
-    expect(() => env.w.entity(parent.eid)).toThrow();
+    expect(() => w.entity(grandchild.eid)).toThrow();
+    expect(() => w.entity(child.eid)).toThrow();
+    expect(() => w.entity(parent.eid)).toThrow();
   });
 
   it("default relationship cleanup removes the component when the target is destroyed", () => {
-    const env = makeWorldWithFlushPhase();
-    env.w.component(FriendOf);
-    env.start();
-    const target = env.w.entity();
-    const source = env.w.entity().set(FriendOf, { target });
+    const w = new World();
+    w.component(FriendOf);
+    w.start();
+    const target = w.entity();
+    const source = w.entity().set(FriendOf, { target });
 
     target.destroy();
-    env.tick();
+    w.progress(0, 0);
 
     expect(source._destroyed).toBe(false);
     expect(source.get(FriendOf)).toBeUndefined();
-    expect(() => env.w.entity(target.eid)).toThrow();
+    expect(() => w.entity(target.eid)).toThrow();
   });
 
   it("destroy is re-entrant safe", () => {
-    const env = makeWorldWithFlushPhase();
-    env.start();
-    const e = env.w.entity();
+    const w = new World();
+    w.start();
+    const e = w.entity();
     const cb = vi.fn(() => e.destroy());
     e.events.on("destroy", cb);
     e.destroy();
@@ -555,15 +554,15 @@ describe("Entity — relationship navigation", () => {
   });
 
   it("childOf in deferred mode is not visible until queue drains", () => {
-    const env = makeWorldWithFlushPhase();
-    env.start();
-    const parent = env.w.entity();
-    const child = env.w.entity();
-    env.w.beginDefer();
+    const w = new World();
+    w.start();
+    const parent = w.entity();
+    const child = w.entity();
+    w.beginDefer();
     child.childOf(parent);
     expect(child.parent(ChildOf)).toBeUndefined();
     expect(parent.children(ChildOf).has(child)).toBe(false);
-    env.w.endDefer();
+    w.endDefer();
     expect(child.parent(ChildOf)).toBe(parent);
     expect(parent.children(ChildOf).has(child)).toBe(true);
   });
