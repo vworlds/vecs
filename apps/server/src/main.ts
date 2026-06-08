@@ -227,8 +227,6 @@ world
   .enter([Position, View], (entity, [position, view]) => updatePlayerView(entity, position, view))
   .update(Position, [View], (entity, position, [view]) => updatePlayerView(entity, position, view));
 
-server.installSystems();
-
 createPhysicsWalls();
 for (let i = 0; i < 1; i++) {
   spawnBall(110 + i * 95, 120 + (i % 3) * 90);

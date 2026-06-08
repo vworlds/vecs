@@ -12,14 +12,7 @@ import {
   type VecsSocket,
   worldPath,
 } from "@vworlds/vecs-protocol";
-import {
-  ON_UPDATE,
-  Phase,
-  type ComponentInstance,
-  type EID,
-  type Entity,
-  Query,
-} from "@vworlds/vecs";
+import { type ComponentInstance, type EID, Query, ON_LOAD } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { EventEmitter } from "eventemitter3";
 import {
@@ -61,10 +54,6 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
   interpolators?: Iterable<readonly [number, ComponentInterpolator]>;
 }
 
-export interface InstallSystemsOptions {
-  applyPhase?: string | Entity;
-}
-
 export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> {
   host: string;
   port: number;
@@ -87,7 +76,6 @@ export class ClientWorld extends NetworkWorld {
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
   private _forceBaselineReset = false;
-  private _systemsInstalled = false;
 
   public constructor(options: ClientWorldOptions = {}) {
     const localEntityIdStart = options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START;
@@ -106,6 +94,9 @@ export class ClientWorld extends NetworkWorld {
       (snapshot) => this.decodeComponentSnapshot(snapshot),
       options.interpolators
     );
+    this.system("ClientWorld:Apply")
+      .phase(ON_LOAD)
+      .run((now) => this.apply(now));
 
     if (options.socket) {
       this.attachSocket(options.socket);
@@ -134,17 +125,6 @@ export class ClientWorld extends NetworkWorld {
     socket.on("receive", (data) => this._receive(data));
     socket.on("disconnect", () => this._handleDisconnect());
     this._startAckTimer();
-  }
-
-  public installSystems(options: InstallSystemsOptions = {}): void {
-    if (this._systemsInstalled) {
-      return;
-    }
-    this._systemsInstalled = true;
-    const applyPhase = this._phaseTarget(options.applyPhase ?? ON_UPDATE);
-    this.system("ClientWorld:Apply")
-      .phase(applyPhase)
-      .run((now) => this.apply(now));
   }
 
   public setInput(input: unknown): void {
@@ -285,10 +265,6 @@ export class ClientWorld extends NetworkWorld {
       this._forceBaselineReset = true;
     }
     this.events.emit("disconnect");
-  }
-
-  private _phaseTarget(phase: string | Entity): Entity {
-    return (typeof phase === "string" ? this.entity(phase) : phase).add(Phase);
   }
 
   private _startAckTimer(): void {

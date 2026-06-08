@@ -86,7 +86,6 @@ function createServer(): ServerWorld {
     disconnectGraceMs: 1e9,
   });
   server.component(NetworkClient).onSet((entity) => entity.set(View, { dsl: true }));
-  server.installSystems();
   return server;
 }
 

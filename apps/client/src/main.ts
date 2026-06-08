@@ -107,7 +107,6 @@ async function createSession(): Promise<Session> {
     port: SERVER_PORT,
     worldName: "main",
   });
-  client.installSystems();
 
   installRenderSystems(client);
 
