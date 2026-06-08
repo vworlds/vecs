@@ -10,6 +10,9 @@
     "paths": {
       "@vworlds/vecs": ["lib/vecs/src/index.ts"],
       "@vworlds/vecs-client": ["lib/vecs-client/src/index.ts"],
+      "@vworlds/vecs-phaser": ["lib/vecs-phaser/src/index.ts"],
+      "@vworlds/vecs-phaser-client": ["lib/vecs-phaser-client/src/index.ts"],
+      "@vworlds/vecs-phaser-server": ["lib/vecs-phaser-server/src/index.ts"],
       "@vworlds/vecs-physics": ["lib/vecs-physics/src/index.ts"],
       "@vworlds/vecs-protocol": ["lib/vecs-protocol/src/index.ts"],
       "@vworlds/vecs-server": ["lib/vecs-server/src/index.ts"],

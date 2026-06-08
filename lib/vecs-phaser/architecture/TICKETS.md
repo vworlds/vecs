@@ -6,17 +6,20 @@ sized for one subagent and states scope, files, dependencies, and acceptance cri
 or the coordinate model.
 
 ## Conventions for every ticket
+
 - Match repo rules in `.agent/rules/` (commits, formatting, testing). Test-first where practical.
 - Mirror an existing `lib/vecs-*` package for package.json / tsconfig / vitest shape.
 - TypeScript strict; ESM; no `any` leaks across public API.
 - A ticket is **Done** only when `npm run typecheck`, `lint`, and its `test` pass for its package.
 
 ## Dependency graph (waves)
+
 ```
 W0 scaffolding ─┬─▶ W1 vecs-phaser (data) ─┬─▶ W2 vecs-phaser-client ─┐
                 │                           ├─▶ W3 vecs-phaser-server ─┤
                 └─▶ VPH-20 CoordSpace ──────┘                          ├─▶ W4 demo ─▶ W5 polish
 ```
+
 Parallelizable: within W1 the component-group tickets; within W2 the two shape-renderer
 tickets; W3 in parallel with W2; VPH-20 may start right after W0.
 
@@ -25,6 +28,7 @@ tickets; W3 in parallel with W2; VPH-20 may start right after W0.
 ## Wave 0 — Scaffolding
 
 ### VPH-1 — Scaffold all three packages + root wiring
+
 **Package:** repo-wide · **Deps:** none · **Parallel:** no (touches shared root files)
 
 Create package skeletons for `@vworlds/vecs-phaser`, `@vworlds/vecs-phaser-client`,
@@ -53,6 +57,7 @@ other two) pass on empty packages; `npm run build` includes them; the planning
 > conflicts. VPH-10/11/12 may run in parallel.
 
 ### VPH-10 — Transform + style components
+
 **Deps:** VPH-1 · **Files:** `src/components/transform.ts`, `src/components/style.ts`, `tests/transform.test.ts`, `tests/style.test.ts`
 
 Implement `Position, Rotation, Scale, Alpha, Depth, FillStyle, StrokeStyle` per §6
@@ -60,6 +65,7 @@ Implement `Position, Rotation, Scale, Alpha, Depth, FillStyle, StrokeStyle` per 
 and defaults survive encode→decode.
 
 ### VPH-11 — Shape components
+
 **Deps:** VPH-1 · **Files:** `src/components/shapes.ts`, `tests/shapes.test.ts`
 
 Implement `Arc, Ellipse, Rectangle, Polygon, Line, Triangle, Star` per §6, including
@@ -67,12 +73,14 @@ Implement `Arc, Ellipse, Rectangle, Polygon, Line, Triangle, Star` per §6, incl
 polygon points array and Arc defaults (`endAngle = 2π`).
 
 ### VPH-12 — Text component + TextAlign
+
 **Deps:** VPH-1 · **Files:** `src/components/text.ts`, `tests/text.test.ts`
 
 Implement `Text` + `enum TextAlign`. **Acceptance:** round-trip incl. unicode `value`,
 empty string, and each `align` value.
 
 ### VPH-13 — Protocol arrays + barrel exports
+
 **Deps:** VPH-10, VPH-11, VPH-12 · **Files:** `src/index.ts`, `tests/protocol.test.ts`
 
 Export everything; define `phaserNetworkComponents` and `phaserRenderableComponents` in
@@ -85,6 +93,7 @@ names+order (changing it is a deliberate protocol break); a test asserts
 ## Wave 2 — `@vworlds/vecs-phaser-client`
 
 ### VPH-20 — `CoordSpace` helper
+
 **Deps:** VPH-1 · **Parallel:** yes (early) · **Files:** `src/coord_space.ts`, `tests/coord_space.test.ts`
 
 Implement `CoordSpace` per §4 using **plain math** (no `Phaser.Math`); read `cx/cy` from
@@ -93,6 +102,7 @@ with a mock scene (`{ scale: { width, height } }`), including the worked example
 negation; resizing the mock scene moves the center.
 
 ### VPH-21 — `PhaserVecsRuntime` core
+
 **Deps:** VPH-13, VPH-20 · **Files:** `src/runtime.ts`, `src/index.ts`, `tests/runtime.lifecycle.test.ts`
 
 Implement the runtime shell: options, `eid→GameObject` map, `start()/stop()`,
@@ -103,6 +113,7 @@ function and a `MockScene`/`MockGameObject` test helper others reuse. **Acceptan
 listener; reset clears the map. Uses mock Phaser objects.
 
 ### VPH-22 — Shape renderers (set A: Arc, Rectangle, Polygon, Line, Text)
+
 **Deps:** VPH-21 · **Files:** `src/renderers/*.ts`, `tests/renderers.setA.test.ts`
 
 Per-renderable systems: `.enter` (create via `scene.add.<kind>`, init from present
@@ -112,12 +123,14 @@ arc sized via `len(radius)`; geometry updates apply; exit destroys; polygon `set
 with scaled+flipped relative points.
 
 ### VPH-23 — Shape renderers (set B: Ellipse, Triangle, Star)
+
 **Deps:** VPH-21 · **Parallel:** with VPH-22 · **Files:** `src/renderers/*.ts`, `tests/renderers.setB.test.ts`
 
 Same pattern for `Ellipse, Triangle, Star`. **Acceptance:** create/update/exit verified per
 shape with CoordSpace-scaled dimensions.
 
 ### VPH-24 — Shared transform/style sync + rotation interpolation
+
 **Deps:** VPH-21 · **Files:** `src/sync.ts`, `tests/sync.test.ts`
 
 Systems `.with(Position|Rotation|Scale|Alpha|Depth|FillStyle|StrokeStyle)` applying the
@@ -127,6 +140,7 @@ into the `ClientWorld` `interpolators` for the `Rotation` type id (shortest-arc 
 fill/stroke applied; missing GameObject is a no-op; rotation interpolator registered when enabled.
 
 ### VPH-25 — Client integration test (mock Phaser)
+
 **Deps:** VPH-22, VPH-23, VPH-24 · **Files:** `tests/integration.test.ts`
 
 Drive a `ClientWorld` with applied snapshots through the runtime end-to-end with mocks:
@@ -138,6 +152,7 @@ recreates, baseline `reset` rebuilds. **Acceptance:** all scenarios pass without
 ## Wave 3 — `@vworlds/vecs-phaser-server` (optional, parallel with W2)
 
 ### VPH-30 — Exclusivity + shape builders
+
 **Deps:** VPH-13 · **Files:** `src/builders.ts`, `src/index.ts`, `tests/builders.test.ts`
 
 `registerRenderExclusivity(world)` wrapping `setExclusiveComponents(...phaserRenderableComponents)`;
@@ -146,6 +161,7 @@ renderable + optional transform/style. **Acceptance:** builder-made entity carri
 `Networked` + intended renderable; setting a second renderable removes the first.
 
 ### VPH-31 — `syncPhysicsPose` helper
+
 **Deps:** VPH-13, `@vworlds/vecs-physics` · **Files:** `src/pose.ts`, `tests/pose.test.ts`
 
 System copying vecs-physics `Position`/`Rotation` (meters/radians) → render
@@ -160,6 +176,7 @@ physics pose; no redundant `modified` when unchanged.
 > meters, origin center, +y up; PPM = 100; client carries zero game components.
 
 ### VPH-40 — Migrate server demo
+
 **Deps:** W1 (+ VPH-30/31 if used) · **Files:** `apps/server/src/main.ts`, `apps/server/package.json`
 
 Per README §9 server changes: switch to `phaserNetworkComponents`; keep `Ball`/`Player`
@@ -170,6 +187,7 @@ all renderables; preserve interest management (`View` DSL / `InCell` / `viewAll`
 **Acceptance:** server boots; entities carry render components; typecheck/lint pass.
 
 ### VPH-41 — Migrate client demo to Phaser
+
 **Deps:** W2, VPH-40 contract · **Files:** `apps/client/src/main.ts`, `apps/client/index.html`, `apps/client/package.json`
 
 Replace canvas-2D with a Phaser game (one scene, 960×540); connect `ClientWorld` with
@@ -180,6 +198,7 @@ Add `phaser@^4.1.0` to the app. **Acceptance:** `npm run dev` renders balls/play
 decoration; arrows move the player; `G` toggles view; no per-entity render code remains.
 
 ### VPH-42 — End-to-end verification + docs
+
 **Deps:** VPH-40, VPH-41 · **Files:** demo READMEs, `architecture/` notes if needed
 
 Run server + client together; verify: origin-at-center & +y-up, smooth interpolated balls,
@@ -192,6 +211,7 @@ run steps. **Acceptance:** checklist verified and recorded.
 ## Wave 5 — Polish
 
 ### VPH-50 — Workspace gates + release hygiene
+
 **Deps:** all · **Files:** package versions, CHANGELOGs
 
 `npm run test|typecheck|lint|format` green across workspaces; align package versions with
@@ -201,6 +221,7 @@ publish. **Acceptance:** all gates pass; packages are publish-shaped.
 ---
 
 ## Suggested delegation order
+
 1. **VPH-1** (solo).
 2. Parallel: **VPH-10, VPH-11, VPH-12, VPH-20**.
 3. **VPH-13** → then **VPH-21**.

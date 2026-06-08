@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "noEmit": false,
+    "outDir": "dist",
+    "paths": {
+      "@vworlds/vecs": ["lib/vecs/dist/index.d.ts"],
+      "@vworlds/vecs-phaser": ["lib/vecs-phaser/dist/index.d.ts"],
+      "@vworlds/vecs-protocol": ["lib/vecs-protocol/dist/index.d.ts"],
+      "@vworlds/vecs-server": ["lib/vecs-server/dist/index.d.ts"],
+      "@vworlds/vecs-wire": ["lib/vecs-wire/dist/index.d.ts"]
+    },
+    "rootDir": "src",
+    "sourceMap": true
+  },
+  "include": ["src"]
+}
