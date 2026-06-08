@@ -4,8 +4,12 @@ import {
   Component,
   DEFAULT_ID_REUSE_WAIT_FRAMES,
   DependsOn,
+  insertPhaseAfter,
   Module,
+  ON_UPDATE,
+  ON_VALIDATE,
   Phase,
+  PRE_STORE,
   World,
 } from "../src/index.js";
 import { makePhase } from "./_helpers.js";
@@ -364,6 +368,63 @@ describe("World - pipeline", () => {
     w.progress(0, 16);
 
     expect(order).toEqual(["pre", "update", "post"]);
+  });
+
+  it("insertPhaseAfter splices phase children without moving anchor systems", () => {
+    const w = new World();
+    const inserted = w.entity("inserted").add(Phase);
+    const seen: string[] = [];
+    const update = w
+      .system("update")
+      .phase(ON_UPDATE)
+      .run(() => seen.push("update"));
+    w.system("inserted")
+      .phase(inserted)
+      .run(() => seen.push("inserted"));
+    w.system("validate")
+      .phase(ON_VALIDATE)
+      .run(() => seen.push("validate"));
+
+    insertPhaseAfter(inserted, w.entity(ON_UPDATE));
+
+    expect(update.entity.parent(DependsOn)).toBe(w.entity(ON_UPDATE));
+    expect(inserted.parent(DependsOn)).toBe(w.entity(ON_UPDATE));
+    expect(w.entity(ON_VALIDATE).parent(DependsOn)).toBe(inserted);
+
+    w.start();
+    w.progress(0, 0);
+
+    expect(seen).toEqual(["update", "inserted", "validate"]);
+  });
+
+  it("insertPhaseAfter removes same-depth ties with later built-in phases", () => {
+    const w = new World();
+    const pre = w.entity("pre").add(Phase);
+    const step = w.entity("step").add(Phase);
+    const post = w.entity("post").add(Phase);
+    const seen: string[] = [];
+
+    w.system("collect")
+      .phase(PRE_STORE)
+      .run(() => seen.push("collect"));
+    insertPhaseAfter(pre, w.entity(ON_UPDATE));
+    insertPhaseAfter(step, pre);
+    insertPhaseAfter(post, step);
+    w.system("post")
+      .phase(post)
+      .run(() => seen.push("post"));
+
+    w.start();
+    w.progress(0, 0);
+
+    expect(seen).toEqual(["post", "collect"]);
+  });
+
+  it("insertPhaseAfter requires the inserted entity to be a phase", () => {
+    const w = new World();
+    const loose = w.entity("loose");
+
+    expect(() => insertPhaseAfter(loose, w.entity(ON_UPDATE))).toThrow(/Phase/);
   });
 
   it("setPipeline replaces which systems the world runs", () => {

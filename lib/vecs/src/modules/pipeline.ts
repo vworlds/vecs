@@ -1,5 +1,6 @@
 import { System } from "../system.js";
 import { Module } from "../module.js";
+import { type Entity } from "../entity/index.js";
 import { DependsOn, Traversable } from "./relationships.js";
 
 /** Marker component tagging an entity as a pipeline phase anchor. */
@@ -24,6 +25,30 @@ export const BUILTIN_PIPELINE_PHASES = [
   PRE_STORE,
   ON_STORE,
 ] as const;
+
+/** Insert an existing phase directly after an existing phase spine anchor. */
+export function insertPhaseAfter(phase: Entity, anchor: Entity): Entity {
+  assertPhase(phase, "phase");
+  assertPhase(anchor, "anchor");
+
+  const downstream = [...anchor.children(DependsOn)].filter(
+    (child) => child !== phase && child.has(Phase) && child.has(DependsOn)
+  );
+
+  phase.set(DependsOn, { target: anchor });
+
+  for (const child of downstream) {
+    child.set(DependsOn, { target: phase });
+  }
+
+  return phase;
+}
+
+function assertPhase(entity: Entity, label: string): void {
+  if (!entity.has(Phase)) {
+    throw new Error(`insertPhaseAfter ${label} must have Phase`);
+  }
+}
 
 /** Built-in module that creates the default query-driven system pipeline. */
 export class PipelineModule extends Module {

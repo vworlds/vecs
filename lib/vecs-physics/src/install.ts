@@ -8,7 +8,7 @@
 // Registration order matters — Vecs assigns component type ids in registration
 // order, so keeping the order stable keeps ids deterministic across installs.
 
-import { DependsOn, ON_UPDATE, Phase, type Entity, type World } from "@vworlds/vecs";
+import { insertPhaseAfter, ON_UPDATE, Phase, type Entity, type World } from "@vworlds/vecs";
 
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "./components/body.js";
 import { Damping, GravityScale, MotionLocks, Sleep } from "./components/body_tuning.js";
@@ -122,9 +122,10 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
   const preStep = resolvePhase(world, opts.preStepPhase, DEFAULT_PRE_STEP_PHASE);
   const step = resolvePhase(world, opts.stepPhase, DEFAULT_STEP_PHASE);
   const postStep = resolvePhase(world, opts.postStepPhase, DEFAULT_POST_STEP_PHASE);
-  orderPhase(preStep, world.entity(ON_UPDATE));
-  orderPhase(step, preStep);
-  orderPhase(postStep, step);
+  const updatePhase = world.entity(ON_UPDATE);
+  insertPhaseAfter(preStep, updatePhase);
+  insertPhaseAfter(step, preStep);
+  insertPhaseAfter(postStep, step);
 
   // 5. Allocate WASM state, create the Box2D world, install the systems (bound
   //    to it), then attach it.
@@ -180,10 +181,6 @@ function resolvePhase(
     typeof given === "string" || given === undefined ? world.entity(given ?? defaultName) : given;
   phase.add(Phase);
   return phase;
-}
-
-function orderPhase(phase: Entity, target: Entity): void {
-  phase.set(DependsOn, { target });
 }
 
 /** Apply Box2D-aligned defaults to `opts`. */

@@ -31,6 +31,7 @@ export { Singleton, SingletonModule } from "./modules/singleton.js";
 export { Traversable, RelationshipsModule } from "./modules/relationships.js";
 export {
   BUILTIN_PIPELINE_PHASES,
+  insertPhaseAfter,
   ON_LOAD,
   ON_STORE,
   ON_UPDATE,
