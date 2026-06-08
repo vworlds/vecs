@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-physics",
-  "version": "1.0.24",
+  "version": "1.0.25",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -30,7 +30,7 @@
     "examples": "tsx --conditions=development examples/hello_world.ts && tsx --conditions=development examples/sensor_trigger.ts && tsx --conditions=development examples/kinematic_platform.ts && tsx --conditions=development examples/contact_events.ts"
   },
   "dependencies": {
-    "@vworlds/vecs": "1.0.24",
+    "@vworlds/vecs": "1.0.25",
     "box2d3-wasm": "^5.2.0"
   },
   "license": "MIT"
