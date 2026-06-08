@@ -1,6 +1,6 @@
 /**
  * Enforces that private/@internal class members are prefixed with `_`, and
- * that `_`-prefixed class members are either private or @internal.
+ * that `_`-prefixed class members are either private, protected, or @internal.
  */
 const rule = {
   meta: {
@@ -13,7 +13,7 @@ const rule = {
     messages: {
       requireUnderscore: "Class member '{{name}}' is {{reason}} and must be prefixed with '_'.",
       forbidUnderscore:
-        "Class member '{{name}}' has '_' prefix but is neither private nor @internal.",
+        "Class member '{{name}}' has '_' prefix but is neither private, protected, nor @internal.",
     },
   },
   create(context) {
@@ -33,14 +33,21 @@ const rule = {
 
       const name = nameNode.name;
       const isPrivate = node.accessibility === "private";
+      const isProtected = node.accessibility === "protected";
       const isInternal = hasInternalTag(node);
       const hasUnderscore = name.startsWith("_");
 
       if ((isPrivate || isInternal) && !hasUnderscore) {
-        const reason =
-          isPrivate && isInternal ? "private and @internal" : isPrivate ? "private" : "@internal";
+        const reasons = [];
+        if (isPrivate) {
+          reasons.push("private");
+        }
+        if (isInternal) {
+          reasons.push("@internal");
+        }
+        const reason = reasons.join(" and ");
         context.report({ node: nameNode, messageId: "requireUnderscore", data: { name, reason } });
-      } else if (hasUnderscore && !isPrivate && !isInternal) {
+      } else if (hasUnderscore && !isPrivate && !isProtected && !isInternal) {
         context.report({ node: nameNode, messageId: "forbidUnderscore", data: { name } });
       }
     }

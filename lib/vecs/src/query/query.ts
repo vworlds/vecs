@@ -485,8 +485,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     }
   }
 
-  /** @internal */
-  public _enter(e: Entity): void {
+  /** Extension hook for subclasses that need to observe query membership entry. */
+  protected _enter(e: Entity): void {
     this.changed = true;
     this._entities?.add(e);
     e._addQueryMembership(this as any);
@@ -499,8 +499,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     });
   }
 
-  /** @internal */
-  public _exit(e: Entity): void {
+  /** Extension hook for subclasses that need to observe query membership exit. */
+  protected _exit(e: Entity): void {
     this.changed = true;
     this._exitCallback?.(e);
     this._entities?.delete(e);

@@ -9,8 +9,6 @@
  * Empty slots are represented as `undefined` and do not count toward
  * {@link size}.
  *
- * @internal Used only inside the package.
- *
  * @typeParam T - Value type stored in the map.
  */
 export class ArrayMap<T> {

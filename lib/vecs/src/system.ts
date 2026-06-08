@@ -135,7 +135,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * Target relationship reactivity is handled by `TargetTerm`; systems only
    * translate root-term membership events into inbox commands here.
    */
-  public override _enter(e: Entity): void {
+  protected override _enter(e: Entity): void {
     this.changed = true;
     this._entities?.add(e);
     e._addQueryMembership(this);
@@ -161,7 +161,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * snapshot of the components the callback wants to inject so they remain
    * resolvable after the underlying components are removed.
    */
-  public override _exit(e: Entity): void {
+  protected override _exit(e: Entity): void {
     this.changed = true;
     this._entities?.delete(e);
     e._removeQueryMembership(this);

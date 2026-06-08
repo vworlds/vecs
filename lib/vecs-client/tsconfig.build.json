@@ -6,11 +6,12 @@
     "noEmit": false,
     "outDir": "dist",
     "paths": {
-      "@vworlds/vecs-protocol": ["lib/vecs-protocol/src/index.ts"],
-      "@vworlds/vecs-wire": ["lib/vecs-wire/src/index.ts"]
+      "@vworlds/vecs": ["lib/vecs/dist/index.d.ts"],
+      "@vworlds/vecs-protocol": ["lib/vecs-protocol/dist/index.d.ts"],
+      "@vworlds/vecs-wire": ["lib/vecs-wire/dist/index.d.ts"]
     },
-    "rootDir": "..",
+    "rootDir": "src",
     "sourceMap": true
   },
-  "include": ["src", "../vecs-protocol/src", "../vecs-wire/src"]
+  "include": ["src"]
 }

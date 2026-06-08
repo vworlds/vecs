@@ -13,7 +13,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w @vworlds/vecs && npm run build -w @vworlds/vecs-wire && npm run build -w @vworlds/vecs-protocol && npm run build -w @vworlds/vecs-client && npm run build -w @vworlds/vecs-server && npm run build -w @vworlds/vecs-physics && npm run build -w @vworlds/vecs-demo-client --if-present && npm run build -w @vworlds/vecs-demo-server --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "format": "prettier --write .",

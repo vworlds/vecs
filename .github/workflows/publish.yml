@@ -49,6 +49,7 @@ jobs:
         run: |
           node scripts/prepare-vecs-publish-package.mjs lib/vecs-client
           node scripts/prepare-vecs-publish-package.mjs lib/vecs-server
+          node scripts/prepare-vecs-publish-package.mjs lib/vecs-protocol
           node scripts/prepare-vecs-publish-package.mjs lib/vecs-physics
           node scripts/prepare-vecs-publish-package.mjs lib/vecs-wire
 
@@ -67,6 +68,11 @@ jobs:
 
       - name: Publish wire
         run: npm publish ./lib/vecs-wire/dist --access public
+        env:
+          NODE_AUTH_TOKEN: ""
+
+      - name: Publish protocol
+        run: npm publish ./lib/vecs-protocol/dist --access public
         env:
           NODE_AUTH_TOKEN: ""
 

@@ -35,13 +35,13 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
   }
 
   /** @internal */
-  public override _enter(e: Entity): void {
+  protected override _enter(e: Entity): void {
     this._grouping.enter(e);
     super._enter(e);
   }
 
   /** @internal */
-  public override _exit(e: Entity): void {
+  protected override _exit(e: Entity): void {
     super._exit(e);
     this._grouping.exit(e);
   }

@@ -9,7 +9,7 @@ const packagePaths = [
   "lib/vecs-wire/package.json",
 ];
 
-const syncedDependencyNames = ["@vworlds/vecs", "@vworlds/vecs-wire"];
+const syncedDependencyNames = ["@vworlds/vecs", "@vworlds/vecs-protocol", "@vworlds/vecs-wire"];
 
 const packages = await Promise.all(
   packagePaths.map(async (path) => ({

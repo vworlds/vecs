@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "noEmit": false,
+    "outDir": "dist",
+    "paths": {
+      "@vworlds/vecs": ["lib/vecs/dist/index.d.ts"],
+      "@vworlds/vecs-wire": ["lib/vecs-wire/dist/index.d.ts"]
+    },
+    "rootDir": "src",
+    "sourceMap": true
+  },
+  "include": ["src"]
+}

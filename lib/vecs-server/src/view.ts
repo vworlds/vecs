@@ -208,14 +208,12 @@ export class EntityTracker extends Query implements IEntityTracker {
     this._listeners.delete(listener);
   }
 
-  /** @internal */
-  public override _enter(e: Entity): void {
+  protected override _enter(e: Entity): void {
     super._enter(e);
     this._listeners.forEach((listener) => listener.enter(e));
   }
 
-  /** @internal */
-  public override _exit(e: Entity): void {
+  protected override _exit(e: Entity): void {
     super._exit(e);
     this._listeners.forEach((listener) => listener.exit(e));
   }

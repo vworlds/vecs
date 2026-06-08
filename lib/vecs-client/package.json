@@ -14,7 +14,7 @@
   "dependencies": {
     "@vworlds/dgram-client": "^1.0.8",
     "@vworlds/vecs": "1.0.23",
-    "@vworlds/vecs-protocol": "file:../vecs-protocol",
+    "@vworlds/vecs-protocol": "1.0.23",
     "@vworlds/vecs-wire": "1.0.23",
     "eventemitter3": "^5.0.4"
   },
