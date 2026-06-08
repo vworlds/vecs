@@ -118,14 +118,19 @@ describe("World.module", () => {
     expect(mod.entered).toEqual([entity.eid]);
   });
 
-  it("cannot register modules after component registration is disabled", () => {
+  it("can register modules after start", () => {
     class TestModule extends Module {
-      public init(): void {}
+      public init(): void {
+        this.world.component(Position);
+      }
     }
 
     const world = new World();
     world.start();
 
-    expect(() => world.module(TestModule)).toThrow("World component registration is disabled");
+    const mod = world.module(TestModule);
+
+    expect(mod).toBeInstanceOf(TestModule);
+    expect(world.component(Position).meta.Class).toBe(Position);
   });
 });

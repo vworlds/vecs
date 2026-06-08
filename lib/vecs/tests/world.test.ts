@@ -340,12 +340,14 @@ describe("World - pipeline", () => {
     }
   });
 
-  it("component returns the same component entity after registration is disabled", () => {
+  it("registers new component classes after start", () => {
     const w = new World();
-    w.component(A);
     w.start();
 
-    expect(w.component(A)).toBe(w.component(A));
+    const component = w.component(A);
+
+    expect(component).toBeInstanceOf(Component);
+    expect(w.component(A)).toBe(component);
   });
 
   it("progress runs systems in dependency order", () => {

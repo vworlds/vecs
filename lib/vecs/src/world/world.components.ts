@@ -7,9 +7,6 @@ import { type World } from "./world.js";
 const RESERVED_EID = 0;
 
 export class Components extends Entities {
-  /** @internal `true` once {@link start} or {@link disableComponentRegistration} has been called. */
-  protected _componentRegistrationDisabled = false;
-
   /**
    * Register a component class with this world, or look up a previously
    * registered component entity.
@@ -25,9 +22,6 @@ export class Components extends Entities {
    * Passing a **string** resolves an already-registered component entity by
    * name (set via `world.component(C).name = "..."`). Throws if no entity with
    * that name exists or if the named entity is not a `Component` entity.
-   *
-   * After {@link start} (or {@link disableComponentRegistration}), registering a
-   * new class throws.
    *
    * @param ComponentClass - The component class to register or retrieve.
    * @param ceid - Optional explicit numeric component entity id.
@@ -64,11 +58,6 @@ export class Components extends Entities {
     }
 
     return this._component<Component<T>>(Component, ComponentClassOrName, ceid);
-  }
-
-  /** Prevent any further calls to {@link component}. */
-  public disableComponentRegistration(): void {
-    this._componentRegistrationDisabled = true;
   }
 
   /**
@@ -136,9 +125,6 @@ export class Components extends Entities {
       throw new Error(
         `Component class ${ComponentClass.name} is already registered with eid ${existingComponent.eid}`
       );
-    }
-    if (this._componentRegistrationDisabled) {
-      throw new Error("World component registration is disabled");
     }
     if (ceid === undefined) {
       ceid = pool.alloc();

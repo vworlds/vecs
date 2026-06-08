@@ -225,7 +225,7 @@ Advanced callers can pass phase names or phase objects to place physics systems 
 
 ### Installing Physics After `world.start()`
 
-Physics components and systems must be registered before `world.start()`.
+Physics systems must be installed before `world.start()`.
 
 ```ts
 await preloadPhysics();

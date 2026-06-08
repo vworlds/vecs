@@ -328,7 +328,7 @@ const damage = world
 
 ### `installPhysics` Must Run Before `world.start()`
 
-Vecs disables component registration after `world.start()`. Physics components and systems must be installed before then.
+Physics systems must be installed before `world.start()` so they participate in the pipeline.
 
 ```ts
 installPhysics(world);

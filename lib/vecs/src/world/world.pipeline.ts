@@ -57,10 +57,9 @@ export class Pipeline extends Modules {
     }
   }
 
-  /** Freeze component registration and prepare the world for running. */
+  /** Build pending queries and prepare the world for running. */
   public start(): void {
     this._buildPendingQueries();
-    this._componentRegistrationDisabled = true;
     this._started = true;
   }
 

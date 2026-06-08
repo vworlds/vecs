@@ -27,10 +27,10 @@ yarn add @vworlds/vecs
 ### Lifecycle in brief
 
 ```
-world.component() × N  →  system() / query() × N  →  start()  →  progress() every frame
+world.component() / system() / query() × N  →  start()  →  progress() every frame
 ```
 
-Components must be registered before they are used as component classes. After `start()`, component registration is disabled. Systems and queries can still be created — standalone queries backfill existing matched entities immediately.
+Components must be registered before they are used as component classes, and they may be registered before or after `start()`. Systems must be added before `start()`; standalone queries can still be created later and backfill existing matched entities immediately.
 
 ---
 
@@ -100,7 +100,7 @@ world
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 
-world.start(); // freeze registration and prepare the pipeline
+world.start(); // build pending queries and prepare the pipeline
 
 // ─── Spawn entities ────────────────────────────────────────────────────────
 
@@ -144,7 +144,7 @@ const world = new World();
 
 #### Component registration
 
-Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `with`, `filter`, hook registration, or `setExclusiveComponents`.
+Components are ordinary classes. They do not inherit from a vecs base class, and vecs constructs them with `new ComponentClass()`, so constructors should take no parameters. Register every component class before using it in `add`, `set`, `get`, `with`, `filter`, hook registration, or `setExclusiveComponents`. Registration can happen before or after `world.start()`.
 
 ```ts
 class Position {
@@ -176,7 +176,7 @@ Id ranges are configured by passing `idPools` to the `World` constructor. The bu
 | `module`    | 900 – 999 |
 | `entity`    | 1000 – ∞  |
 
-After `world.start()` (or `world.disableComponentRegistration()`) any further call to `world.component(Class)` that would register a new class throws. There is no automatic component registration; using an unregistered component class as a component is an error.
+There is no automatic component registration; using an unregistered component class as a component is an error.
 
 #### Exclusive component groups
 
@@ -381,8 +381,7 @@ A `Filter` requires no name, no `world.start()`, and no `destroy()` — create i
 #### Pipeline control
 
 ```ts
-world.start();                         // freeze registration, distribute systems
-world.disableComponentRegistration();  // freeze registration without sorting
+world.start();                         // build pending queries, distribute systems
 
 world.flush();                         // drain queued top-level mutations
 world.defer(() => { ... });            // run a block in deferred mode

@@ -18,8 +18,7 @@ import { type WorldOptions } from "./world.base.js";
  *    class you plan to use.
  * 2. **Build the pipeline** — attach systems to phase entities with
  *    `DependsOn`, or call {@link setPipeline} with a custom query spec.
- * 3. **Start** — call {@link start} to freeze component registration and
- *    build pending queries.
+ * 3. **Start** — call {@link start} to build pending queries.
  * 4. **Run loop** — call {@link progress} once per frame.
  *
  * ## Deferred mode
