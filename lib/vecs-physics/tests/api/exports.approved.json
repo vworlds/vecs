@@ -20,6 +20,7 @@
     "LinearVelocity",
     "Material",
     "MotionLocks",
+    "PhysicsModule",
     "Polygon",
     "Position",
     "Rotation",
@@ -30,7 +31,6 @@
     "ShapeRotation",
     "Sleep",
     "Torque",
-    "installPhysics",
     "preloadPhysics"
   ],
   "classExports": [
@@ -53,6 +53,7 @@
     "LinearVelocity",
     "Material",
     "MotionLocks",
+    "PhysicsModule",
     "Polygon",
     "Position",
     "Rotation",
@@ -64,7 +65,7 @@
     "Sleep",
     "Torque"
   ],
-  "functionExports": ["installPhysics", "preloadPhysics"],
+  "functionExports": ["preloadPhysics"],
   "valueExports": ["BodyType"],
   "typeExports": ["ContactEvent", "HitEvent", "PhysicsOptions", "SensorEvent", "Vec2"]
 }

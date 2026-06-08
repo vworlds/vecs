@@ -13,7 +13,7 @@ import {
   Circle,
   CollisionFilter,
   Position,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 
@@ -25,7 +25,7 @@ let now: number;
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world, { gravity: { x: 0, y: -10 } });
+  world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
   state = getPhysics(world) as PhysicsState;
   now = 0;
 });

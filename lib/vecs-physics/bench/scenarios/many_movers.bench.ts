@@ -8,7 +8,7 @@ import {
   Body,
   BodyType,
   Box,
-  installPhysics,
+  PhysicsModule,
   LinearVelocity,
   Material,
   Position,
@@ -29,7 +29,7 @@ export function runManyMovers(): {
   lookupSpeedup: number;
 } {
   const world = new World();
-  installPhysics(world, {
+  world.module(PhysicsModule, {
     gravity: { x: 0, y: 0 },
     fixedTimeStep: 1 / 60,
     subSteps: 4,

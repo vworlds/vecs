@@ -16,7 +16,7 @@ import {
   GravityScale,
   HitEvents,
   Impulse,
-  installPhysics,
+  PhysicsModule,
   KinematicTargetPosition,
   KinematicTargetRotation,
   LinearVelocity,
@@ -69,10 +69,10 @@ const PUBLIC_COMPONENTS = [
 
 const GEOMETRY = [Box, Circle, Capsule, Segment, Polygon, Chain];
 
-describe("installPhysics", () => {
+describe("PhysicsModule", () => {
   it("registers every public component", () => {
     const world = new World();
-    installPhysics(world);
+    world.module(PhysicsModule);
     for (const C of PUBLIC_COMPONENTS) {
       expect(world._classRegistry.has(C)).toBe(true);
     }
@@ -80,7 +80,7 @@ describe("installPhysics", () => {
 
   it("marks every geometry component mutually exclusive", () => {
     const world = new World();
-    installPhysics(world);
+    world.module(PhysicsModule);
     for (const C of GEOMETRY) {
       const componentMeta = world.component(C).meta;
       const others = GEOMETRY.filter((G) => G !== C).map((G) => world.component(G).meta);
@@ -93,7 +93,7 @@ describe("installPhysics", () => {
 
   it("creates the three default physics phases", () => {
     const world = new World();
-    installPhysics(world);
+    world.module(PhysicsModule);
     expect(world.entity("physics-pre").has(Phase)).toBe(true);
     expect(world.entity("physics-step").has(Phase)).toBe(true);
     expect(world.entity("physics-post").has(Phase)).toBe(true);
@@ -106,7 +106,7 @@ describe("installPhysics", () => {
   it("reuses an existing phase passed by name and creates it under that name", () => {
     const world = new World();
     const input = world.entity("input").add(Phase);
-    installPhysics(world, { preStepPhase: "input", stepPhase: "sim" });
+    world.module(PhysicsModule, { preStepPhase: "input", stepPhase: "sim" });
     // Existing "input" phase is reused, not duplicated.
     expect(world.entity("input")).toBe(input);
     // A new name is created.
@@ -120,7 +120,7 @@ describe("installPhysics", () => {
 
   it("attaches a PhysicsState reachable via getPhysics, with resolved defaults", () => {
     const world = new World();
-    installPhysics(world);
+    world.module(PhysicsModule);
     const state = getPhysics(world);
     expect(state.gravityX).toBe(0);
     expect(state.gravityY).toBe(-10);
@@ -144,7 +144,7 @@ describe("installPhysics", () => {
 
   it("applies overridden options onto the PhysicsState", () => {
     const world = new World();
-    installPhysics(world, {
+    world.module(PhysicsModule, {
       gravity: { x: 1, y: -3 },
       fixedTimeStep: 1 / 120,
       subSteps: 8,
@@ -160,22 +160,32 @@ describe("installPhysics", () => {
     expect(state.enableSleep).toBe(false);
   });
 
-  it("keeps physics state reachable after install", () => {
+  it("keeps physics state reachable after module registration", () => {
     const world = new World();
-    installPhysics(world);
+    world.module(PhysicsModule);
     expect(getPhysics(world).worldId).toBeDefined();
   });
 
-  it("throws if installed twice on the same world", () => {
+  it("is idempotent for the same module class", () => {
     const world = new World();
-    installPhysics(world);
-    expect(() => installPhysics(world)).toThrow(/already been called/);
+    const first = world.module(PhysicsModule);
+
+    expect(world.module(PhysicsModule)).toBe(first);
   });
 
-  it("can install after the world has already progressed", () => {
+  it("throws if a configured physics module is registered after physics exists", () => {
+    const world = new World();
+    world.module(PhysicsModule);
+
+    expect(() => world.module(PhysicsModule, { gravity: { x: 0, y: 0 } })).toThrow(
+      /configuration is only accepted on first registration/
+    );
+  });
+
+  it("can register after the world has already progressed", () => {
     const world = new World();
     world.progress(0, 0);
 
-    expect(() => installPhysics(world)).not.toThrow();
+    expect(() => world.module(PhysicsModule)).not.toThrow();
   });
 });

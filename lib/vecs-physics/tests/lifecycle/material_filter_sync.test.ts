@@ -17,7 +17,7 @@ import {
   Circle,
   CollisionFilter,
   Material,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 
@@ -83,7 +83,7 @@ function makeChainShape(body: ReturnType<typeof makeBody>) {
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world);
+  world.module(PhysicsModule);
   state = getPhysics(world);
 });
 

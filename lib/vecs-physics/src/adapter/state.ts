@@ -11,7 +11,7 @@ export type b2ChainId = ReturnType<Box2DModule["b2CreateChain"]>;
 export type b2Vec2 = ReturnType<Box2DModule["b2Body_GetPosition"]>;
 
 /** Fully-resolved engine configuration: every `PhysicsOptions` field with its
- * default applied. Built by `installPhysics`; the source of truth for tunables
+ * default applied. Built by `PhysicsModule`; the source of truth for tunables
  * the engine reads at runtime. */
 export interface ResolvedPhysicsOptions {
   gravityX: number;
@@ -49,7 +49,7 @@ export function attachPhysics(world: World, state: PhysicsState): void {
 export function getPhysics(world: World): PhysicsState {
   const root = world.get(PhysicsRoot) as PhysicsRoot | undefined;
   if (!root) {
-    throw new Error("installPhysics(world, ...) must be called before reading physics state");
+    throw new Error("world.module(PhysicsModule) must be called before reading physics state");
   }
   return root.state;
 }

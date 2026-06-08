@@ -20,7 +20,7 @@ import {
   KinematicTargetRotation,
   Position,
   Rotation,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 import { getPhysics, type PhysicsState, type b2BodyId } from "../../src/adapter/state.js";
 
@@ -34,7 +34,7 @@ let now: number;
 beforeEach(() => {
   world = new World();
   // No gravity — we only care about kinematic motion, not free-fall.
-  installPhysics(world, { gravity: { x: 0, y: 0 } });
+  world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
   state = getPhysics(world) as PhysicsState;
   now = 0;
 });

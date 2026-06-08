@@ -28,7 +28,7 @@ export async function preloadPhysics(): Promise<void> {
 export function getBox2D(): Box2DModule {
   if (!module) {
     throw new Error(
-      "Box2D module not loaded. Call `await preloadPhysics()` before `installPhysics()`."
+      "Box2D module not loaded. Call `await preloadPhysics()` before `world.module(PhysicsModule)`."
     );
   }
   return module;

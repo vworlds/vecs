@@ -1,6 +1,6 @@
 # Installation
 
-Install `vecs`, `vecs-physics`, and then preload the physics runtime before installing physics into a world.
+Install `vecs`, `vecs-physics`, and then preload the physics runtime before registering the physics module in a world.
 
 ```sh
 npm install @vworlds/vecs @vworlds/vecs-physics
@@ -12,22 +12,22 @@ npm install @vworlds/vecs @vworlds/vecs-physics
 
 ```ts
 import { World } from "@vworlds/vecs";
-import { installPhysics, preloadPhysics } from "@vworlds/vecs-physics";
+import { PhysicsModule, preloadPhysics } from "@vworlds/vecs-physics";
 
 await preloadPhysics();
 
 const world = new World();
 
-installPhysics(world, {
+world.module(PhysicsModule, {
   gravity: { x: 0, y: -10 },
   fixedTimeStep: 1 / 60,
   subSteps: 4,
 });
 ```
 
-`preloadPhysics()` is async and cached. Call it once before the first `installPhysics()` in a process. `installPhysics()` stays synchronous so world setup and phase wiring remain deterministic after the WASM module has loaded.
+`preloadPhysics()` is async and cached. Call it once before the first `world.module(PhysicsModule)` in a process. Module registration stays synchronous so world setup and phase wiring remain deterministic after the WASM module has loaded.
 
-If `installPhysics()` runs before `preloadPhysics()` resolves, it throws with a message telling you to call `await preloadPhysics()` first.
+If `world.module(PhysicsModule)` runs before `preloadPhysics()` resolves, it throws with a message telling you to call `await preloadPhysics()` first.
 
 ## Node Runtime Note
 

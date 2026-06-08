@@ -1,5 +1,5 @@
 // `PhysicsDebugValidation` — per-step structural validation with warn-once
-// semantics. Registered ONLY when `installPhysics` is called with
+// semantics. Registered ONLY when `PhysicsModule` is configured with
 // `{ debug: true }`. In normal mode this system is never installed, and no
 // validation overhead exists.
 //

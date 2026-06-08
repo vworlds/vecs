@@ -30,7 +30,7 @@ import {
   Circle,
   LinearVelocity,
   Position,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 
 const STEP_MS = 1000 / 60;
@@ -39,7 +39,7 @@ const STEP_MS = 1000 / 60;
 
 function makeWorld(): World {
   const world = new World();
-  installPhysics(world, { gravity: { x: 0, y: -10 } });
+  world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
   return world;
 }
 
@@ -149,7 +149,7 @@ describe("ChainSegmentShapeTest — one-sided collision (port of box2d test_worl
     // The circle should pass through unimpeded, ending up above y = 0.
     // No gravity so we have full control over the trajectory.
     const noGravWorld = new World();
-    installPhysics(noGravWorld, { gravity: { x: 0, y: 0 } });
+    noGravWorld.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
 
     const groundBody = noGravWorld
       .entity()

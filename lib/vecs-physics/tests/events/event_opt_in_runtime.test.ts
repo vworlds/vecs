@@ -16,7 +16,7 @@ import {
   ContactEvents,
   GravityScale,
   HitEvents,
-  installPhysics,
+  PhysicsModule,
   Position,
   Sensor,
   SensorEvents,
@@ -31,7 +31,7 @@ let now: number;
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world, { gravity: { x: 0, y: 0 } });
+  world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
   state = getPhysics(world);
   now = 0;
 });

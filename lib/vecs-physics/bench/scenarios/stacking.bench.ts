@@ -14,7 +14,7 @@ import {
   Body,
   BodyType,
   Box,
-  installPhysics,
+  PhysicsModule,
   Material,
   Position,
   Rotation,
@@ -27,7 +27,7 @@ const DT_MS = 1000 / 60;
 
 export function runStacking(): { totalMs: number; msPerStep: number; steps: number } {
   const world = new World();
-  installPhysics(world, {
+  world.module(PhysicsModule, {
     gravity: { x: 0, y: -10 },
     fixedTimeStep: 1 / 60,
     subSteps: 4,

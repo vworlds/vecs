@@ -9,7 +9,7 @@
 import { World, type EID } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { Body, BodyType, Box, Circle, Position, Sleep, installPhysics } from "../../src/index.js";
+import { Body, BodyType, Box, Circle, Position, Sleep, PhysicsModule } from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 
 const STEP_MS = 1000 / 60;
@@ -20,7 +20,7 @@ let now: number;
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world, { gravity: { x: 0, y: -10 } });
+  world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
   state = getPhysics(world) as PhysicsState;
   now = 0;
 });

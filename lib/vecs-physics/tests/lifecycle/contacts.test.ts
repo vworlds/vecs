@@ -14,7 +14,7 @@ import {
   LinearVelocity,
   Material,
   Position,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 
 const STEP_MS = 1000 / 60;
@@ -24,7 +24,7 @@ let now: number;
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world, { gravity: { x: 0, y: -10 } });
+  world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
   now = 0;
 });
 

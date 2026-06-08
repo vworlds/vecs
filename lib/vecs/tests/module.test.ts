@@ -40,6 +40,42 @@ describe("World.module", () => {
     expect(world.entity(950)).toBe(mod);
   });
 
+  it("passes typed config to init", () => {
+    type TestConfig = { enabled: boolean; limit: number };
+
+    class TestModule extends Module<TestConfig> {
+      public config: TestConfig | undefined;
+
+      public init(config: TestConfig): void {
+        this.config = config;
+      }
+    }
+
+    const config = { enabled: true, limit: 3 };
+    const world = new World();
+    const mod = world.module(TestModule, config);
+
+    expect(mod.config).toBe(config);
+  });
+
+  it("accepts typed config with an explicit module eid", () => {
+    type TestConfig = { label: string };
+
+    class TestModule extends Module<TestConfig> {
+      public label = "";
+
+      public init(config: TestConfig): void {
+        this.label = config.label;
+      }
+    }
+
+    const world = new World();
+    const mod = world.module(TestModule, { label: "network" }, 950);
+
+    expect(mod.eid).toBe(950);
+    expect(mod.label).toBe("network");
+  });
+
   it("is idempotent for the same module class and same eid", () => {
     class TestModule extends Module {
       public init(): void {}
@@ -91,6 +127,19 @@ describe("World.module", () => {
 
     expect(second).toBe(first);
     expect(first.initCalls).toBe(1);
+  });
+
+  it("throws when config is supplied after a module is already registered", () => {
+    class TestModule extends Module<{ enabled: boolean } | undefined> {
+      public init(): void {}
+    }
+
+    const world = new World();
+    world.module(TestModule);
+
+    expect(() => world.module(TestModule, { enabled: true })).toThrow(
+      /configuration is only accepted on first registration/
+    );
   });
 
   it("allows init to register components and create systems", () => {

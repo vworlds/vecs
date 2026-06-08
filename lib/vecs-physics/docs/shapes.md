@@ -105,7 +105,7 @@ The geometry components are mutually exclusive. Adding one removes the previous 
 world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);
 ```
 
-`installPhysics(world, options)` performs this setup for physics components.
+`PhysicsModule` performs this setup for physics components.
 
 ### Box
 

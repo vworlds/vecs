@@ -6,7 +6,7 @@
 import { type Entity, World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
-import { Body, BodyType, Box, Material, Position, installPhysics } from "../../src/index.js";
+import { Body, BodyType, Box, Material, Position, PhysicsModule } from "../../src/index.js";
 import { getPhysics } from "../../src/adapter/state.js";
 
 const STEP_MS = 1000 / 60;
@@ -14,7 +14,7 @@ const STEP_MS = 1000 / 60;
 describe("test_world.c::DestroyAllBodiesWorld", () => {
   it("destroys every body and shape without leaving registered entities", () => {
     const world = new World();
-    installPhysics(world, { gravity: { x: 0, y: -10 } });
+    world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
     const state = getPhysics(world);
     const step = makeStepper(world);
 

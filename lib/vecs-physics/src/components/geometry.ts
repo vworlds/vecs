@@ -1,4 +1,4 @@
-// Geometry components. Exactly one per shape entity; `installPhysics` marks them
+// Geometry components. Exactly one per shape entity; `PhysicsModule` marks them
 // mutually exclusive so adding one removes any previous geometry. Defaults match
 // the documented shapes. Public API — see `docs/components.md`.
 

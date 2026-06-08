@@ -16,7 +16,7 @@ import {
   Circle,
   ShapePosition,
   ShapeRotation,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 
@@ -45,7 +45,7 @@ function getShapeAABB(shapeEid: number) {
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world);
+  world.module(PhysicsModule);
   state = getPhysics(world);
 });
 

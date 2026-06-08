@@ -1,5 +1,7 @@
 import { Component } from "./component.js";
 
+export type ModuleConfig<T extends Module<any>> = T extends Module<infer Config> ? Config : never;
+
 /**
  * Base class for built-in world modules.
  *
@@ -10,7 +12,9 @@ import { Component } from "./component.js";
  * User code does not instantiate `Module` subclasses directly; they are
  * created and initialised by the world internally.
  */
-export abstract class Module extends Component {
+export abstract class Module<Config extends object | undefined = undefined> extends Component {
+  declare protected readonly moduleConfig?: Config;
+
   /**
    * Initialise this module.
    *
@@ -18,5 +22,5 @@ export abstract class Module extends Component {
    * registered. Implementations should register components, attach hooks, and
    * perform any other world-level setup required by the module.
    */
-  public abstract init(): void;
+  public abstract init(config: Config): void;
 }

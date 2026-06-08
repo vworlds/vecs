@@ -12,7 +12,7 @@
 import { World, type EID } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
-import { Body, BodyType, Box, Material, Position, installPhysics } from "../../src/index.js";
+import { Body, BodyType, Box, Material, Position, PhysicsModule } from "../../src/index.js";
 import { getPhysics } from "../../src/adapter/state.js";
 
 const COLUMNS = 20;
@@ -28,7 +28,7 @@ describe("test_world.c::CrossPlatformTest", () => {
 
 function runStackingSnapshot(): string {
   const world = new World();
-  installPhysics(world, {
+  world.module(PhysicsModule, {
     gravity: { x: 0, y: -10 },
     fixedTimeStep: 1 / 60,
     subSteps: 4,

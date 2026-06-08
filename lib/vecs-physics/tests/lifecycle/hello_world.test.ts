@@ -18,7 +18,7 @@ import {
   Material,
   Position,
   Rotation,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 
 const STEP_MS = 1000 / 60;
@@ -26,7 +26,7 @@ const STEP_MS = 1000 / 60;
 describe("HelloWorld (M3 parity gate)", () => {
   it("a dynamic box dropped on a static ground comes to rest at (0, 1, 0)", () => {
     const world = new World();
-    installPhysics(world, { gravity: { x: 0, y: -10 } });
+    world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
 
     // Ground: static body at (0, -10) with a child Box of half-extents (50, 10),
     // i.e. b2MakeBox(50, 10). Box stores full width/height.

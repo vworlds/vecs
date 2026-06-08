@@ -1,6 +1,6 @@
 # @vworlds/vecs-physics
 
-`vecs-physics` is a Box2D v3 to Vecs port: the solver model follows Box2D, while the public API is idiomatic Vecs ECS through components, systems, phases, and a single `installPhysics(world, opts?)` entry point.
+`vecs-physics` is a Box2D v3 to Vecs port: the solver model follows Box2D, while the public API is idiomatic Vecs ECS through components, systems, phases, and `world.module(PhysicsModule)`.
 
 ## Install
 
@@ -14,10 +14,10 @@ This is the M3 parity scene: a dynamic box starts at `y = 4`, falls onto static 
 
 ```ts
 import { ChildOf, World } from "@vworlds/vecs";
-import { Body, BodyType, Box, Position, installPhysics } from "@vworlds/vecs-physics";
+import { Body, BodyType, Box, Position, PhysicsModule } from "@vworlds/vecs-physics";
 
 const world = new World();
-installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 60 });
+world.module(PhysicsModule, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 60 });
 
 const ground = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -1 });
 world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 2 });

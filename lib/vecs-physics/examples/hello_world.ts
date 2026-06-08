@@ -8,7 +8,7 @@ import {
   LinearVelocity,
   Material,
   Position,
-  installPhysics,
+  PhysicsModule,
   preloadPhysics,
 } from "@vworlds/vecs-physics";
 
@@ -17,7 +17,7 @@ const STEP_MS = 1000 / 60;
 await preloadPhysics();
 
 const world = new World();
-installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 60, subSteps: 4 });
+world.module(PhysicsModule, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 60, subSteps: 4 });
 const ground = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -1 });
 world.entity().childOf(ground).set(Box, { width: 100, height: 2 });
 

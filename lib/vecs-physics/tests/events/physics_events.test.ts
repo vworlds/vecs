@@ -36,7 +36,7 @@ import {
   Position,
   Sensor,
   SensorEvents,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ const STEP_MS = DT * 1000;
 
 function makeWorld() {
   const world = new World();
-  installPhysics(world, {
+  world.module(PhysicsModule, {
     gravity: { x: 0, y: 0 },
     fixedTimeStep: DT,
     subSteps: 4,
@@ -136,7 +136,7 @@ describe("empty step is silent", () => {
   it("modified fires and array has event on step N; no modified and empty array on step N+1", () => {
     // Use a fresh world so we can install the watcher before stepping.
     const w = new World();
-    installPhysics(w, {
+    w.module(PhysicsModule, {
       gravity: { x: 0, y: 0 },
       fixedTimeStep: DT,
       subSteps: 4,
@@ -214,7 +214,7 @@ describe("begin/end lifecycle", () => {
     // on the step after the destroy.
 
     const floorWorld = new World();
-    installPhysics(floorWorld, {
+    floorWorld.module(PhysicsModule, {
       gravity: { x: 0, y: -10 },
       fixedTimeStep: DT,
       subSteps: 4,
@@ -356,7 +356,7 @@ describe("sensor delivery", () => {
 describe("hit event delivery", () => {
   it("fast impact: both shapes with HitEvents get a HitEvent with correct other and speed", () => {
     const world2 = new World();
-    installPhysics(world2, {
+    world2.module(PhysicsModule, {
       gravity: { x: 0, y: 0 },
       hitEventThreshold: 0.5,
     });
@@ -412,7 +412,7 @@ describe("hit event delivery", () => {
 
   it("slow settling contact: no hit event produced", () => {
     const world3 = new World();
-    installPhysics(world3, {
+    world3.module(PhysicsModule, {
       gravity: { x: 0, y: -10 },
       hitEventThreshold: 5.0, // very high threshold
     });
