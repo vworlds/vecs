@@ -290,9 +290,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   /** Place this system after a phase entity in the world pipeline. */
   public phase(phase: Entity | string): this {
     this._assertConfigurable();
-    const target = (
-      typeof phase === "string" ? this.world.entity(phase) : this.world.entity(phase)
-    ).add(Phase);
+    const target = (typeof phase === "string" ? this.world.entity(phase) : phase).add(Phase);
     this.entity.set(DependsOn, { target });
     return this;
   }

@@ -288,7 +288,7 @@ export class ClientWorld extends NetworkWorld {
   }
 
   private _phaseTarget(phase: string | Entity): Entity {
-    return (typeof phase === "string" ? this.entity(phase) : this.entity(phase)).add(Phase);
+    return (typeof phase === "string" ? this.entity(phase) : phase).add(Phase);
   }
 
   private _startAckTimer(): void {

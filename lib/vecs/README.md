@@ -618,6 +618,16 @@ Class-valued query terms are components. Register component classes before using
 });
 ```
 
+#### `.phase(anchor)`
+
+Place the system after a pipeline anchor by name or entity. Sets `DependsOn` on the system's backing entity (replacing any previous target) and tags the anchor with `Phase`, so it is picked up and ordered by the default pipeline query. Systems default to `vecs::OnUpdate`, so call this only to run elsewhere.
+
+```ts
+.phase(ON_LOAD)                 // a built-in phase constant
+.phase("custom")               // a custom anchor, created and tagged if missing
+.phase(world.entity("custom")) // an existing entity
+```
+
 #### `.enter(callback)` / `.enter(inject, callback)`
 
 Fires once when an entity first matches the system.

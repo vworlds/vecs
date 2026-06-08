@@ -1,5 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
-import { Query, System, World, type QueryDSL } from "../src/index.js";
+import {
+  BUILTIN_PIPELINE_PHASES,
+  DependsOn,
+  ON_LOAD,
+  ON_UPDATE,
+  Query,
+  System,
+  World,
+  type QueryDSL,
+} from "../src/index.js";
 import { makePhase } from "./_helpers.js";
 
 class Position {
@@ -368,6 +377,42 @@ describe("System — pipeline", () => {
     w.start();
     w.progress(0, 0);
     expect(cb).toHaveBeenCalled();
+  });
+
+  it("runs systems across the full built-in phase chain in dependency order", () => {
+    const w = new World();
+    const seen: string[] = [];
+    // Register in shuffled order to prove ordering comes from DependsOn, not creation.
+    for (const name of [...BUILTIN_PIPELINE_PHASES].reverse()) {
+      w.system(`sys:${name}`)
+        .phase(name)
+        .run(() => seen.push(name));
+    }
+    w.start();
+    w.progress(0, 0);
+    expect(seen).toEqual([...BUILTIN_PIPELINE_PHASES]);
+  });
+
+  it("orders systems within the same phase by creation order", () => {
+    const w = new World();
+    const seen: string[] = [];
+    w.system("first").run(() => seen.push("first"));
+    w.system("second").run(() => seen.push("second"));
+    w.system("third").run(() => seen.push("third"));
+    w.start();
+    w.progress(0, 0);
+    expect(seen).toEqual(["first", "second", "third"]);
+  });
+
+  it(".phase() retargets the default OnUpdate dependency rather than adding a second", () => {
+    const w = new World();
+    const sys = w
+      .system("s")
+      .phase(ON_LOAD)
+      .run(() => {});
+    // DependsOn is single-target, so the OnUpdate set by the constructor is replaced.
+    expect(sys.entity.parent(DependsOn)).toBe(w.entity(ON_LOAD));
+    expect(sys.entity.parent(DependsOn)).not.toBe(w.entity(ON_UPDATE));
   });
 });
 

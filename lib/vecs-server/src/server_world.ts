@@ -294,7 +294,7 @@ export class ServerWorld extends NetworkWorld {
   }
 
   private _phaseTarget(phase: string | Entity): Entity {
-    return (typeof phase === "string" ? this.entity(phase) : this.entity(phase)).add(Phase);
+    return (typeof phase === "string" ? this.entity(phase) : phase).add(Phase);
   }
 
   private _pushEntitySnapshots(entity: Entity, snapshots: EncodedSnapshot[]): void {

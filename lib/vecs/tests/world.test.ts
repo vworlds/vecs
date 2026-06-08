@@ -366,6 +366,25 @@ describe("World - pipeline", () => {
     expect(order).toEqual(["pre", "update", "post"]);
   });
 
+  it("setPipeline replaces which systems the world runs", () => {
+    class InPipeline {}
+    const w = new World();
+    w.component(InPipeline);
+    const seen: string[] = [];
+
+    w.system("a")
+      .run(() => seen.push("a"))
+      .entity.add(InPipeline);
+    w.system("b").run(() => seen.push("b")); // not tagged — excluded by the custom spec
+
+    // World appends `System`, so the spec only needs to select the tagged entities.
+    w.setPipeline(InPipeline);
+    w.start();
+    w.progress(0, 0);
+
+    expect(seen).toEqual(["a"]);
+  });
+
   it("beginFrame without prior endFrame throws", () => {
     const w = new World();
 
