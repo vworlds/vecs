@@ -48,15 +48,15 @@ export interface PhysicsPhases {
   postStep: Entity;
 }
 
-/** Options forwarded to {@link installPhysicsSystems} from {@link installPhysics}. */
+/** Options forwarded to {@link registerPhysicsSystems} from {@link PhysicsModule}. */
 export interface PhysicsSystemsOptions {
   /** Install `PhysicsDebugValidation` when `true`. Default `false`. */
   debug?: boolean;
 }
 
-/** Install every physics system into `world`, bound to `state`, and tag each
+/** Register every physics system into `world`, bound to `state`, and tag each
  * system entity with {@link PhysicsSystemTag}. */
-export function installPhysicsSystems(
+export function registerPhysicsSystems(
   world: World,
   state: PhysicsState,
   phases: PhysicsPhases,

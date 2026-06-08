@@ -22,7 +22,7 @@ import {
   Box,
   Circle,
   GravityScale,
-  installPhysics,
+  PhysicsModule,
   LinearVelocity,
   Position,
   Sensor,
@@ -34,10 +34,12 @@ const STEP_MS = 1000 / 60;
 
 function makeWorld(gravityY = 0) {
   const world = new World();
-  installPhysics(world, {
-    gravity: { x: 0, y: gravityY },
-    subSteps: 4,
-  });
+  world.module(
+    PhysicsModule.configure({
+      gravity: { x: 0, y: gravityY },
+      subSteps: 4,
+    })
+  );
   return world;
 }
 

@@ -1,7 +1,7 @@
 // VP-19 tests: PhysicsForceGather, PhysicsImpulseAccumulate, PhysicsImpulseZero.
 //
 // Test-first (TDD) per project conventions. All tests run the full Vecs world
-// pipeline: installPhysics → world.progress.
+// pipeline: PhysicsModule → world.progress.
 //
 // Pattern for "known mass": attach a default 1x1 Box with density 1. On
 // box2d3-wasm@5.2.0 this gives mass = 1 and inertia = 1/6.
@@ -31,7 +31,7 @@ import {
   LinearVelocity,
   Position,
   Torque,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 
 const DT = 1 / 60;
@@ -42,7 +42,9 @@ const STEP_MS = DT * 1000;
 /** Create a world with no gravity so force/impulse tests run clean. */
 function makeWorld() {
   const world = new World();
-  installPhysics(world, { gravity: { x: 0, y: 0 }, fixedTimeStep: DT, subSteps: 1 });
+  world.module(
+    PhysicsModule.configure({ gravity: { x: 0, y: 0 }, fixedTimeStep: DT, subSteps: 1 })
+  );
   return world;
 }
 
@@ -276,7 +278,9 @@ describe("PhysicsImpulseZero — silent zero", () => {
   it("Impulse is zeroed after the step without firing a modified event", () => {
     // Watcher must be registered before the relevant progress call.
     const world = new World();
-    installPhysics(world, { gravity: { x: 0, y: 0 }, fixedTimeStep: DT, subSteps: 1 });
+    world.module(
+      PhysicsModule.configure({ gravity: { x: 0, y: 0 }, fixedTimeStep: DT, subSteps: 1 })
+    );
 
     // Track how many times a watcher observes Impulse modified.
     let modifiedCount = 0;
@@ -326,7 +330,9 @@ describe("PhysicsImpulseZero — silent zero", () => {
   it("AngularImpulse is accumulated and zeroed silently", () => {
     // Watcher must be registered before the relevant progress call.
     const world = new World();
-    installPhysics(world, { gravity: { x: 0, y: 0 }, fixedTimeStep: DT, subSteps: 1 });
+    world.module(
+      PhysicsModule.configure({ gravity: { x: 0, y: 0 }, fixedTimeStep: DT, subSteps: 1 })
+    );
 
     let modifiedCount = 0;
     world

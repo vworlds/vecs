@@ -8,7 +8,7 @@
 import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { Body, BodyType, Circle, Sensor, installPhysics } from "../../src/index.js";
+import { Body, BodyType, Circle, Sensor, PhysicsModule } from "../../src/index.js";
 import { getPhysics } from "../../src/adapter/state.js";
 
 const PI = Math.PI;
@@ -17,7 +17,7 @@ let world: World;
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world);
+  world.module(PhysicsModule);
 });
 
 // ─── Port of DeferredMassFlagSyncTest ─────────────────────────────────────────

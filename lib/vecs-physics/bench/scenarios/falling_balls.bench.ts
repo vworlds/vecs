@@ -6,7 +6,7 @@
 
 import { World } from "@vworlds/vecs";
 
-import { Body, BodyType, Circle, installPhysics, Material, Position } from "../../src/index.js";
+import { Body, BodyType, Circle, PhysicsModule, Material, Position } from "../../src/index.js";
 
 const GRID_COLS = 10;
 const GRID_ROWS = 10;
@@ -15,11 +15,13 @@ const DT_MS = 1000 / 60;
 
 export function runFallingBalls(): { totalMs: number; msPerStep: number; steps: number } {
   const world = new World();
-  installPhysics(world, {
-    gravity: { x: 0, y: -10 },
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-  });
+  world.module(
+    PhysicsModule.configure({
+      gravity: { x: 0, y: -10 },
+      fixedTimeStep: 1 / 60,
+      subSteps: 4,
+    })
+  );
   // ── Static floor ──────────────────────────────────────────────────────────
   const floor = world.entity().set(Body, { type: BodyType.Static });
   world

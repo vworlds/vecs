@@ -39,7 +39,7 @@ adapter does not implement any physics math itself.
 - **Box2D-compatible simulation behaviour.** Defaults, units, and semantics
   match Box2D v3. A falling box under gravity 10 m/s² lands where Box2D says
   it should.
-- **Vecs-first API.** Components and `installPhysics(world, opts)` are the
+- **Vecs-first API.** Components and `world.module(PhysicsModule)` are the
   only public surface. `world.progress(now, delta)` drives everything.
 - **Zero archetype churn for hot one-shot effects.** `Impulse` and
   `AngularImpulse` consume silently. Event arrays clear in place. No private
@@ -72,7 +72,7 @@ engineering must keep stable.
 import {
   // Bootstrap
   preloadPhysics, // NEW: async, loads box2d3-wasm module once
-  installPhysics, // sync, wires the engine into a world
+  PhysicsModule, // world module that wires the engine into a world
 
   // Body
   Body,
@@ -124,7 +124,7 @@ import {
 } from "@vworlds/vecs-physics";
 ```
 
-### Bootstrap and install signature
+### Bootstrap and module registration
 
 ```ts
 export function preloadPhysics(): Promise<void>;
@@ -152,24 +152,27 @@ export type PhysicsOptions = {
   enableContinuous?: boolean; // default true
 };
 
-export function installPhysics(world: World, opts?: PhysicsOptions): void;
+export class PhysicsModule extends import("@vworlds/vecs").Module {
+  static configure(options: PhysicsOptions): typeof PhysicsModule;
+}
 ```
 
 Canonical bootstrap:
 
 ```ts
 await preloadPhysics(); // once per process; cached
-installPhysics(world, opts);
+world.module(PhysicsModule);
+world.module(PhysicsModule.configure(opts)); // with non-default options
 ```
 
-`installPhysics` must:
+`PhysicsModule.init()` must:
 
 1. Throw if `preloadPhysics` has not resolved.
 2. Register every public component via `world.component(...)` in the stable
    order in **Component registration order** below.
 3. Call `world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain)`.
 4. Create or look up the three physics phases.
-5. Install the physics systems (listed under **System and phase pipeline**).
+5. Register the physics systems (listed under **System and phase pipeline**).
 6. Allocate `PhysicsState` (holds the `b2WorldId` and entity↔ID maps) and
    bind it to the world via the `PhysicsRoot` singleton.
 7. Throw if called twice on the same world.
@@ -268,7 +271,7 @@ lib/vecs-physics/
 │   └── PLAN.md                  (this document)
 ├── src/
 │   ├── index.ts                 Public exports.
-│   ├── install.ts               installPhysics + options parsing + phase setup.
+│   ├── module.ts                PhysicsModule + options parsing + phase setup.
 │   │
 │   ├── components/              ECS data classes — no Box2D imports.
 │   │   ├── body.ts, body_tuning.ts, shape_pose.ts, geometry.ts,
@@ -308,7 +311,7 @@ Module boundaries:
 ### Component registration order
 
 Components register in this order so type ids are deterministic across
-installs:
+module registrations:
 
 1. `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, `Body`.
 2. `Damping`, `GravityScale`, `MotionLocks`, `Sleep`.
@@ -332,7 +335,7 @@ installs:
 
 - Marking the component singleton auto-attaches the instance to the
   component's own meta entity. Retrieval is `world.get(PhysicsRoot)` — O(1).
-- A second instance throws; double-install and cross-world wiring bugs are
+- A second configured module class throws after physics exists; duplicate and cross-world wiring bugs are
   caught for free.
 - It GCs with the world; `PhysicsRoot` is never exported.
 - A non-exported `getPhysics(world)` is the only legal way to reach state.
@@ -815,7 +818,7 @@ All landed on the `physics` branch.
 
 1. **WASM init lifecycle.** `preloadPhysics` is process-global and cached.
    In multi-world / multi-test scenarios, callers must `await preloadPhysics`
-   exactly once before any `installPhysics`. Tests share a single
+   exactly once before any `PhysicsModule`. Tests share a single
    `beforeAll(async () => { await preloadPhysics(); })` per test file.
 2. **Emscripten manual cleanup.** Every `new b2Xxx()` and factory call
    leaks if not `.delete()`'d. The discipline is enforced inside
@@ -852,7 +855,7 @@ vecs-physics becomes a vecs↔Box2D adapter and nothing more.
 
 ## Scope decisions (locked)
 
-- **Async bootstrap via separate `preloadPhysics()`.** `installPhysics`
+- **Async bootstrap via separate `preloadPhysics()`.** `PhysicsModule`
   stays synchronous. Existing call sites add one `await preloadPhysics()`
   line.
 - **v1 surface only.** Joints, raycasts, AABB/shape queries, and contact
@@ -891,8 +894,8 @@ only their bodies change. Each currently reaches into `src/engine/*` to
 mutate the TS engine; after the migration each reaches into a thin wrapper
 around box2d3-wasm IDs.
 
-`src/install.ts` keeps its signature, registration order, exclusivity rule,
-phase setup, and `attachPhysics(world, state)` flow.
+`src/module.ts` keeps the registration order, exclusivity rule, phase setup,
+and `attachPhysics(world, state)` flow behind `PhysicsModule`.
 
 ## New files
 
@@ -937,8 +940,8 @@ Discipline:
    `SetLinearVelocity`, etc.) are pooled at the state level and freed on
    world teardown.
 
-A new internal `uninstallPhysics(world)` helper (not in v1 public API but
-used by tests) calls `b2DestroyWorld(state.worldId)` and frees pools.
+A future internal teardown helper (not in the v1 public API) should call
+`b2DestroyWorld(state.worldId)` and free pools.
 
 ## `preloadPhysics` bootstrap
 
@@ -965,14 +968,14 @@ export async function preloadPhysics(): Promise<void> {
 export function getBox2D(): Box2DModule {
   if (!module) {
     throw new Error(
-      "Box2D module not loaded. Call `await preloadPhysics()` before `installPhysics()`."
+      "Box2D module not loaded. Call `await preloadPhysics()` before `world.module(PhysicsModule)`."
     );
   }
   return module;
 }
 ```
 
-`installPhysics` calls `getBox2D()` inside `new PhysicsState(...)` to grab
+`PhysicsModule` calls `getBox2D()` inside `new PhysicsState(...)` to grab
 the module reference.
 
 ## Tests

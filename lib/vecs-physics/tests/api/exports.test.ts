@@ -10,13 +10,16 @@ import { buildApiSnapshot, type ApiSnapshot } from "../../scripts/api-snapshot-l
 type PublicTypeExports = [PhysicsOptions, Vec2, ContactEvent, SensorEvent, HitEvent];
 
 const APPROVED_API = readApprovedApiSnapshot();
+const DOCUMENTED_COMPONENT_CLASSES = APPROVED_API.classExports.filter(
+  (name) => name !== "PhysicsModule"
+);
 
 describe("public API exports", () => {
   it("matches the approved public API snapshot", () => {
     expect(buildApiSnapshot()).toEqual(APPROVED_API);
   });
 
-  it("exports component classes, installPhysics, and BodyType with expected runtime kinds", () => {
+  it("exports component classes, PhysicsModule, and BodyType with expected runtime kinds", () => {
     for (const name of APPROVED_API.classExports) {
       const value = api[name as keyof typeof api];
       expect(typeof value).toBe("function");
@@ -38,7 +41,7 @@ describe("public API exports", () => {
   });
 
   it("keeps docs/components.md component rows in sync with exported component classes", () => {
-    expect(parseDocumentedDefaultComponents()).toEqual([...APPROVED_API.classExports].sort());
+    expect(parseDocumentedDefaultComponents()).toEqual([...DOCUMENTED_COMPONENT_CLASSES].sort());
   });
 });
 

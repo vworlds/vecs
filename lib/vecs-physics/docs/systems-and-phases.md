@@ -1,22 +1,24 @@
 # Systems And Phases
 
-This page explains how `vecs-physics` installs itself into a Vecs world, which phases it uses, how physics steps are ordered, and what user systems should expect before and after physics runs.
+This page explains how `vecs-physics` registers itself in a Vecs world, which phases it uses, how physics steps are ordered, and what user systems should expect before and after physics runs.
 
 ## Summary
 
-`vecs-physics` preloads its WASM backend, then installs physics systems into a world.
+`vecs-physics` preloads its WASM backend, then registers `PhysicsModule` in a world.
 
 ```ts
 await preloadPhysics();
 
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  })
+);
 ```
 
-By default, `installPhysics` registers physics components, configures shape exclusivity, creates physics phases, and installs internal systems. Advanced users can pass custom phase entities or phase names to place physics inside an existing pipeline. Installed systems enter the pipeline the next time `world.progress()` runs.
+By default, `PhysicsModule` registers physics components, configures shape exclusivity, creates physics phases, and registers internal systems. Advanced users can pass custom phase entities or phase names to place physics inside an existing pipeline. Physics systems enter the pipeline the next time `world.progress()` runs.
 
 `vecs-physics` assumes the `delta` passed to `world.progress(now, delta)` is fixed. It does not run a catch-up accumulator by default.
 
@@ -32,23 +34,25 @@ Physics needs several ordered steps:
 4. Write simulation results back to ECS components.
 5. Publish contact, hit, and sensor events to event components.
 
-`installPhysics` wires these steps into Vecs systems so user code can stay ECS-native.
+`PhysicsModule` wires these steps into Vecs systems so user code can stay ECS-native.
 
 ## Minimal Setup
 
 ```ts
 import { World } from "@vworlds/vecs";
-import { installPhysics, preloadPhysics } from "@vworlds/vecs-physics";
+import { PhysicsModule, preloadPhysics } from "@vworlds/vecs-physics";
 
 const world = new World();
 
 await preloadPhysics();
 
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  })
+);
 
 // Use a fixed delta. 1000 / 60 ms corresponds to 1 / 60 seconds.
 world.progress(performance.now(), 1000 / 60);
@@ -60,7 +64,7 @@ Use the default setup when you do not need special ordering around physics.
 
 Vecs creates these built-in pipeline anchors: `vecs::OnLoad`, `vecs::PostLoad`, `vecs::PreUpdate`, `vecs::OnUpdate`, `vecs::OnValidate`, `vecs::PostUpdate`, `vecs::PreStore`, and `vecs::OnStore`.
 
-By default, `installPhysics` creates and uses three additional phase entities ordered after `vecs::OnUpdate`:
+By default, `PhysicsModule` creates and uses three additional phase entities ordered after `vecs::OnUpdate`:
 
 | Phase          | Purpose                                         |
 | -------------- | ----------------------------------------------- |
@@ -78,7 +82,7 @@ Most projects can use `world.progress(now, delta)` and let Vecs run systems in d
 
 ## Custom Phase Placement
 
-If your app already has phase entities, pass phase names or entities to `installPhysics`. Use the built-in anchors for common app work: input and gameplay systems usually stay in the default `vecs::OnUpdate`, while systems that need final physics results should target `physics-post` or a custom phase after it.
+If your app already has phase entities, pass phase names or entities to `PhysicsModule`. Use the built-in anchors for common app work: input and gameplay systems usually stay in the default `vecs::OnUpdate`, while systems that need final physics results should target `physics-post` or a custom phase after it.
 
 ```ts
 const gameplay = world
@@ -90,21 +94,25 @@ const physicsStep = world.entity("physics-step").add(Phase).set(DependsOn, { tar
 const physicsPost = world.entity("physics-post").add(Phase).set(DependsOn, { target: physicsStep });
 const render = world.entity("render").add(Phase).set(DependsOn, { target: physicsPost });
 
-installPhysics(world, {
-  preStepPhase: physicsPre,
-  stepPhase: physicsStep,
-  postStepPhase: physicsPost,
-});
+world.module(
+  PhysicsModule.configure({
+    preStepPhase: physicsPre,
+    stepPhase: physicsStep,
+    postStepPhase: physicsPost,
+  })
+);
 ```
 
 Or use phase names:
 
 ```ts
-installPhysics(world, {
-  preStepPhase: "physics-pre",
-  stepPhase: "physics-step",
-  postStepPhase: "physics-post",
-});
+world.module(
+  PhysicsModule.configure({
+    preStepPhase: "physics-pre",
+    stepPhase: "physics-step",
+    postStepPhase: "physics-post",
+  })
+);
 ```
 
 Use custom placement when input, gameplay, camera, animation, networking, or rendering systems need strict ordering relative to physics.
@@ -137,13 +145,15 @@ const physicsStep = world.entity("physics-step").add(Phase).set(DependsOn, { tar
 const physicsPost = world.entity("physics-post").add(Phase).set(DependsOn, { target: physicsStep });
 const render = world.entity("render").add(Phase).set(DependsOn, { target: physicsPost });
 
-installPhysics(world, {
-  preStepPhase: physicsPre,
-  stepPhase: physicsStep,
-  postStepPhase: physicsPost,
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-});
+world.module(
+  PhysicsModule.configure({
+    preStepPhase: physicsPre,
+    stepPhase: physicsStep,
+    postStepPhase: physicsPost,
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  })
+);
 
 const inputSystem = world
   .system("ApplyPlayerInput")
@@ -172,9 +182,11 @@ Box2D-style physics is designed for fixed timesteps. `vecs-physics` follows that
 `fixedTimeStep` is expressed in seconds:
 
 ```ts
-installPhysics(world, {
-  fixedTimeStep: 1 / 60,
-});
+world.module(
+  PhysicsModule.configure({
+    fixedTimeStep: 1 / 60,
+  })
+);
 ```
 
 Vecs `delta` is expressed in milliseconds:
@@ -200,10 +212,12 @@ function tick(now: number) {
 `subSteps` controls solver accuracy inside each physics step.
 
 ```ts
-installPhysics(world, {
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-});
+world.module(
+  PhysicsModule.configure({
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  })
+);
 ```
 
 The default recommendation is `4`, matching Box2D guidance.
@@ -214,7 +228,7 @@ For the first version of `vecs-physics`, joints are deferred, so most projects s
 
 ## World Options
 
-`installPhysics` applies Box2D-aligned defaults when options are omitted.
+`PhysicsModule` applies Box2D-aligned defaults when options are omitted.
 
 | Option                 |            Default | Description                                                             |
 | ---------------------- | -----------------: | ----------------------------------------------------------------------- |
@@ -231,7 +245,7 @@ For the first version of `vecs-physics`, joints are deferred, so most projects s
 | `enableSleep`          |             `true` | Allows inactive bodies with `Sleep.enabled` to move into sleeping sets. |
 | `enableContinuous`     |             `true` | Enables continuous collision for bullet and fast-body paths.            |
 
-When `debug` is `true`, `PhysicsDebugValidation` runs at the end of `physics-pre`; otherwise that system is not installed. When `enableContinuous` is `true`, the step can run the CCD path for `Body.bullet` and other fast bodies before events are published.
+When `debug` is `true`, `PhysicsDebugValidation` runs at the end of `physics-pre`; otherwise that system is not registered. When `enableContinuous` is `true`, the step can run the CCD path for `Body.bullet` and other fast bodies before events are published.
 
 ## What Runs Before The Step
 
@@ -327,7 +341,7 @@ const damage = world
 Physics can be installed after a world already exists. Its systems participate starting with the next `world.progress()` call.
 
 ```ts
-installPhysics(world);
+world.module(PhysicsModule);
 world.progress(performance.now(), 1000 / 60);
 ```
 
@@ -335,7 +349,7 @@ Installing after a frame is allowed, but it cannot affect frames that already ra
 
 ```ts
 world.progress(performance.now(), 1000 / 60);
-installPhysics(world); // active on the next progress
+world.module(PhysicsModule); // active on the next progress
 ```
 
 ### Variable Delta Produces Variable Physics

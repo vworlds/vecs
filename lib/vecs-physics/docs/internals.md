@@ -33,7 +33,7 @@ Application code should not depend on internal body ids, shape ids, contact ids,
 
 ## Internal World State
 
-`installPhysics(world, options)` creates the internal physics world and registers Vecs systems that keep it synchronized with ECS state.
+`world.module(PhysicsModule)` creates the internal physics world and registers Vecs systems that keep it synchronized with ECS state. Use `world.module(PhysicsModule.configure(options))` for non-default physics options.
 
 Conceptually, the internal state owns:
 
@@ -163,7 +163,7 @@ Application code should use Vecs `Entity` references, not physics handles.
 
 ## Synchronization Pipeline
 
-The physics systems are installed into Vecs phases. The exact phase names can be defaulted by `installPhysics` or supplied by advanced users.
+The physics systems are installed into Vecs phases. The exact phase names can be defaulted by `PhysicsModule` or supplied by advanced users.
 
 A typical frame has three internal stages.
 
@@ -314,7 +314,7 @@ Examples:
 - Shape-local components are attached to a body entity.
 - Body components are attached to a shape entity by mistake.
 
-Debug validation is installed only when `installPhysics(world, { debug: true })` is used. Normal mode ignores invalid structures without warning.
+Debug validation is registered only when `world.module(PhysicsModule.configure({ debug: true }))` is used. Normal mode ignores invalid structures without warning.
 
 Warnings must be deduplicated. A bad entity should not flood the console every frame.
 

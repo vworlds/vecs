@@ -30,7 +30,7 @@ import {
   Material,
   Position,
   Rotation,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 
 const STEP_MS = 1000 / 60;
@@ -99,7 +99,7 @@ describe("Friction ramp (M4 closeout parity gate)", () => {
     // μ_mix = sqrt(0.6 * 0.6) = 0.6; atan(0.6) ≈ 31°; ramp angle 20° < 31°
     // → static friction holds → box comes to rest on the ramp.
     const world = new World();
-    installPhysics(world, { gravity: { x: 0, y: -10 } });
+    world.module(PhysicsModule.configure({ gravity: { x: 0, y: -10 } }));
 
     makeRamp(world);
     const body = makeDynamicBox(world, 0.6);
@@ -125,7 +125,7 @@ describe("Friction ramp (M4 closeout parity gate)", () => {
 
   it("high friction box is stable on the ramp over 180 additional steps", () => {
     const world = new World();
-    installPhysics(world, { gravity: { x: 0, y: -10 } });
+    world.module(PhysicsModule.configure({ gravity: { x: 0, y: -10 } }));
 
     makeRamp(world);
     const body = makeDynamicBox(world, 0.6);
@@ -151,7 +151,7 @@ describe("Friction ramp (M4 closeout parity gate)", () => {
   it("zero friction: box slides down the ramp (moves significantly)", () => {
     // μ_mix = sqrt(0 * 0.6) = 0 → no friction → box slides under gravity.
     const world = new World();
-    installPhysics(world, { gravity: { x: 0, y: -10 } });
+    world.module(PhysicsModule.configure({ gravity: { x: 0, y: -10 } }));
 
     makeRamp(world);
     const body = makeDynamicBox(world, 0);
@@ -175,12 +175,12 @@ describe("Friction ramp (M4 closeout parity gate)", () => {
   it("qualitative difference: high-friction box barely moves; zero-friction box slides far", () => {
     // Side-by-side comparison to confirm the friction mixing rule has observable effect.
     const worldHigh = new World();
-    installPhysics(worldHigh, { gravity: { x: 0, y: -10 } });
+    worldHigh.module(PhysicsModule.configure({ gravity: { x: 0, y: -10 } }));
     makeRamp(worldHigh);
     const highBody = makeDynamicBox(worldHigh, 0.6);
 
     const worldZero = new World();
-    installPhysics(worldZero, { gravity: { x: 0, y: -10 } });
+    worldZero.module(PhysicsModule.configure({ gravity: { x: 0, y: -10 } }));
     makeRamp(worldZero);
     const zeroBody = makeDynamicBox(worldZero, 0);
 

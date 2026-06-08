@@ -14,7 +14,7 @@ import {
   LinearVelocity,
   MotionLocks,
   Position,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 
@@ -26,7 +26,7 @@ let now: number;
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world, { gravity: { x: 0, y: -10 } });
+  world.module(PhysicsModule.configure({ gravity: { x: 0, y: -10 } }));
   state = getPhysics(world);
   now = 0;
 });

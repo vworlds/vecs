@@ -14,7 +14,7 @@ import {
   LinearVelocity,
   Position,
   Rotation,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 
@@ -23,7 +23,7 @@ let state: PhysicsState;
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world);
+  world.module(PhysicsModule);
   state = getPhysics(world);
 });
 

@@ -14,9 +14,9 @@ import {
   BodyType,
   Chain,
   Circle,
-  installPhysics,
   LinearVelocity as PhysicsVelocity,
   Material,
+  PhysicsModule,
   Position as PhysicsPosition,
   preloadPhysics,
 } from "@vworlds/vecs-physics";
@@ -112,7 +112,9 @@ cellTagComponents.forEach((CellTag) => {
 });
 
 await preloadPhysics();
-installPhysics(world, { gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 });
+world.module(
+  PhysicsModule.configure({ gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 })
+);
 const physicsPost = world.entity("physics-post");
 
 // One anchor entity per grid cell. Moving entities relate to these via InCell;

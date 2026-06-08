@@ -6,22 +6,24 @@ The goal is not to expose a JavaScript Box2D binding. Users should not create Bo
 
 ```ts
 import { World } from "@vworlds/vecs";
-import { installPhysics, preloadPhysics } from "@vworlds/vecs-physics";
+import { PhysicsModule, preloadPhysics } from "@vworlds/vecs-physics";
 
 const world = new World();
 
 await preloadPhysics();
 
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  })
+);
 ```
 
 ## Documentation
 
-- [Getting Started](./getting-started.md) - install, setup, and first falling box.
+- [Getting Started](./getting-started.md) - setup and first falling box.
 - [Installation](./installation.md) - runtime dependency, preload, Node, and browser setup notes.
 - [Core Components](./components.md) - public component reference.
 - [Bodies](./bodies.md) - body types, position sync, velocities, damping, sleep, and motion locks.
@@ -30,7 +32,7 @@ installPhysics(world, {
 - [Forces And Impulses](./forces-and-impulses.md) - persistent forces, queued impulses, child force sources, and update semantics.
 - [Events](./events.md) - contact, hit, and sensor event components.
 - [Kinematic Motion](./kinematic-motion.md) - target position and target rotation for kinematic bodies.
-- [Systems And Phases](./systems-and-phases.md) - install phases, fixed timestep assumptions, and frame ordering.
+- [Systems And Phases](./systems-and-phases.md) - physics phases, fixed timestep assumptions, and frame ordering.
 - [Debug Validation](./debug-validation.md) - optional diagnostics for invalid ECS structures.
 - [Internals](./internals.md) - port architecture, broad phase, solver, islands, and Box2D lineage.
 - [Roadmap](./roadmap.md) - deferred features such as ray casts, overlap queries, shape casts, and joints.
@@ -66,7 +68,7 @@ import {
   ContactEvents,
   Material,
   Position,
-  installPhysics,
+  PhysicsModule,
   preloadPhysics,
 } from "@vworlds/vecs-physics";
 
@@ -74,11 +76,13 @@ await preloadPhysics();
 
 const world = new World();
 
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  })
+);
 
 const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
@@ -98,25 +102,27 @@ world.progress(performance.now(), 1000 / 60);
 
 ## Installation And Setup
 
-Preload the WASM runtime once, then install physics into a world. Installed systems enter the pipeline the next time `world.progress()` runs.
+Preload the WASM runtime once, then register `PhysicsModule` in a world. Physics systems enter the pipeline the next time `world.progress()` runs.
 
 ```ts
 await preloadPhysics();
 
-installPhysics(world, options);
+world.module(PhysicsModule);
 ```
 
-`installPhysics` registers physics components, marks mutually exclusive shape components, installs physics systems, and creates the internal simulation state.
+`PhysicsModule` registers physics components, marks mutually exclusive shape components, registers physics systems, and creates the internal simulation state.
 
 ```ts
 await preloadPhysics();
 
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-  debug: false,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+    debug: false,
+  })
+);
 ```
 
 Default setup is meant to work without custom phase wiring. Advanced callers can provide phases or phase names so physics can sit at a specific point in an existing Vecs pipeline.
@@ -124,11 +130,13 @@ Default setup is meant to work without custom phase wiring. Advanced callers can
 ```ts
 await preloadPhysics();
 
-installPhysics(world, {
-  preStepPhase: "physics-pre",
-  stepPhase: "physics-step",
-  postStepPhase: "physics-post",
-});
+world.module(
+  PhysicsModule.configure({
+    preStepPhase: "physics-pre",
+    stepPhase: "physics-step",
+    postStepPhase: "physics-post",
+  })
+);
 ```
 
 See [Systems And Phases](./systems-and-phases.md).
@@ -580,7 +588,7 @@ Debug validation is optional.
 ```ts
 await preloadPhysics();
 
-installPhysics(world, { debug: true });
+world.module(PhysicsModule.configure({ debug: true }));
 ```
 
 In normal mode, invalid component combinations are ignored as if they do not exist.

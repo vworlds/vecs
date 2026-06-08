@@ -3,7 +3,7 @@
 // Public API Contract.
 
 // Entry point
-export { installPhysics, type PhysicsOptions } from "./install.js";
+export { PhysicsModule, type PhysicsOptions } from "./module.js";
 export { preloadPhysics } from "./adapter/runtime.js";
 
 // Body

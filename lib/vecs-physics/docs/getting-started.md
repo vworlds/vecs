@@ -40,7 +40,7 @@ import {
   BodyType,
   Box,
   Position,
-  installPhysics,
+  PhysicsModule,
   preloadPhysics,
 } from "@vworlds/vecs-physics";
 
@@ -48,11 +48,13 @@ await preloadPhysics();
 
 const world = new World();
 
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  })
+);
 
 const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
@@ -65,7 +67,7 @@ world.entity().set(ChildOf, { target: box }).set(Box, { hx: 0.5, hy: 0.5 });
 world.progress(performance.now(), 1000 / 60);
 ```
 
-`preloadPhysics()` loads the `box2d3-wasm` module once for the process. It must resolve before `installPhysics()` creates the internal Box2D world.
+`preloadPhysics()` loads the `box2d3-wasm` module once for the process. It must resolve before `world.module(PhysicsModule)` creates the internal Box2D world.
 
 `ground.add(Body)` creates a static body because `Body` defaults to `BodyType.Static`.
 
@@ -193,17 +195,19 @@ box.set(Impulse, { x: 0, y: 3 });
 
 ## Setup Options
 
-`preloadPhysics` must resolve before `installPhysics`. Installed physics systems enter the pipeline the next time `world.progress()` runs.
+`preloadPhysics` must resolve before `world.module(PhysicsModule)`. Physics systems enter the pipeline the next time `world.progress()` runs.
 
 ```ts
 await preloadPhysics();
 
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-  debug: false,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+    debug: false,
+  })
+);
 ```
 
 Common options:
@@ -223,11 +227,11 @@ Advanced callers can pass phase names or phase objects to place physics systems 
 
 ### Forgetting To Preload Physics
 
-`installPhysics()` requires the WASM runtime to be loaded first.
+`world.module(PhysicsModule)` requires the WASM runtime to be loaded first.
 
 ```ts
 await preloadPhysics();
-installPhysics(world);
+world.module(PhysicsModule);
 ```
 
 ### Adding Geometry Directly To A Body Entity

@@ -1,7 +1,7 @@
 import { World, type EID } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
-import { Body, BodyType, Box, Position, Sleep, installPhysics } from "../../src/index.js";
+import { Body, BodyType, Box, Position, Sleep, PhysicsModule } from "../../src/index.js";
 import { getPhysics, type b2BodyId, type PhysicsState } from "../../src/adapter/state.js";
 
 const DT = 1 / 60;
@@ -9,12 +9,14 @@ const STEP_MS = DT * 1000;
 
 function makeWorld(enableSleep = true): World {
   const world = new World();
-  installPhysics(world, {
-    gravity: { x: 0, y: 0 },
-    fixedTimeStep: DT,
-    subSteps: 1,
-    enableSleep,
-  });
+  world.module(
+    PhysicsModule.configure({
+      gravity: { x: 0, y: 0 },
+      fixedTimeStep: DT,
+      subSteps: 1,
+      enableSleep,
+    })
+  );
   return world;
 }
 
@@ -110,7 +112,7 @@ describe("WASM sleep configuration", () => {
     expect(isAwake(world, body.eid)).toBe(true);
   });
 
-  it("honours installPhysics enableSleep=false at the world level", () => {
+  it("honours PhysicsModule enableSleep=false at the world level", () => {
     const world = makeWorld(false);
     const body = createDynamicBox(world, { enabled: true, awake: true, threshold: 0.05 });
 

@@ -22,7 +22,7 @@ import {
   SensorEvents,
   ShapePosition,
   ShapeRotation,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
 
@@ -60,7 +60,7 @@ function getBodyMass(bodyEid: EID): number {
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world);
+  world.module(PhysicsModule);
   state = getPhysics(world);
 });
 

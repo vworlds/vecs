@@ -8,7 +8,7 @@
 import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { Body, BodyType, Box, ContactEvents, Position, installPhysics } from "../../src/index.js";
+import { Body, BodyType, Box, ContactEvents, Position, PhysicsModule } from "../../src/index.js";
 
 const STEP_MS = 1000 / 60;
 
@@ -17,7 +17,7 @@ let now: number;
 
 beforeEach(() => {
   world = new World();
-  installPhysics(world, { gravity: { x: 0, y: 0 } });
+  world.module(PhysicsModule.configure({ gravity: { x: 0, y: 0 } }));
   now = 0;
 });
 

@@ -27,22 +27,26 @@ Debug validation exists for development, tests, and editor workflows where silen
 Enable validation when installing physics.
 
 ```ts
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-  debug: true,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+    debug: true,
+  })
+);
 ```
 
 When `debug` is omitted or `false`, validation warnings are disabled.
 
 ```ts
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  })
+);
 ```
 
 ## Minimal Example
@@ -52,12 +56,14 @@ This creates an invalid shape entity. In normal mode it is ignored. In debug mod
 ```ts
 const world = new World();
 
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-  debug: true,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+    debug: true,
+  })
+);
 
 world.entity().set(Box, { hx: 0.5, hy: 0.5 });
 

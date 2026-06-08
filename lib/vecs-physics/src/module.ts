@@ -1,14 +1,12 @@
-// `installPhysics` — the single entry point that wires the physics engine into a
-// Vecs world. It registers every public component, declares geometry
-// exclusivity, ensures the three physics phases exist, creates the Box2D world,
-// installs the physics systems (each tagged with `PhysicsSystemTag`), and
-// attaches the private `PhysicsState`. See PLAN.md → _installPhysics Signature_
-// and _Component registration order_.
+// `PhysicsModule` wires the physics engine into a Vecs world. It registers every
+// public component, declares geometry exclusivity, ensures the three physics
+// phases exist, creates the Box2D world, installs the physics systems (each
+// tagged with `PhysicsSystemTag`), and attaches the private `PhysicsState`.
 //
-// Registration order matters — Vecs assigns component type ids in registration
-// order, so keeping the order stable keeps ids deterministic across installs.
+// Registration order matters: Vecs assigns component type ids in registration
+// order, so keeping the order stable keeps ids deterministic across worlds.
 
-import { insertPhaseAfter, ON_UPDATE, Phase, type Entity, type World } from "@vworlds/vecs";
+import { insertPhaseAfter, Module, ON_UPDATE, Phase, type Entity, type World } from "@vworlds/vecs";
 
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "./components/body.js";
 import { Damping, GravityScale, MotionLocks, Sleep } from "./components/body_tuning.js";
@@ -28,9 +26,9 @@ import {
   type ResolvedPhysicsOptions,
 } from "./adapter/state.js";
 import { registerImpulseHooks } from "./systems/impulse_accumulate.js";
-import { installPhysicsSystems } from "./systems/index.js";
+import { registerPhysicsSystems } from "./systems/index.js";
 
-/** Options for {@link installPhysics}. Every field is optional; omitted fields
+/** Options for {@link PhysicsModule}. Every field is optional; omitted fields
  * fall back to Box2D-aligned defaults. */
 export type PhysicsOptions = {
   gravity?: { x: number; y: number }; // default { x: 0, y: -10 }
@@ -61,15 +59,29 @@ export type PhysicsOptions = {
 const DEFAULT_PRE_STEP_PHASE = "physics-pre";
 const DEFAULT_STEP_PHASE = "physics-step";
 const DEFAULT_POST_STEP_PHASE = "physics-post";
+const MODULE_OPTIONS = new WeakMap<typeof PhysicsModule, PhysicsOptions>();
 
-/** Wire the physics engine into `world`. Must be called at most once per world. */
-export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
+/** World module that installs physics when registered with `world.module`. */
+export class PhysicsModule extends Module {
+  public static configure(options: PhysicsOptions): typeof PhysicsModule {
+    class ConfiguredPhysicsModule extends PhysicsModule {}
+
+    MODULE_OPTIONS.set(ConfiguredPhysicsModule, options);
+    return ConfiguredPhysicsModule;
+  }
+
+  public init(): void {
+    registerPhysics(this.world, MODULE_OPTIONS.get(this.constructor as typeof PhysicsModule) ?? {});
+  }
+}
+
+function registerPhysics(world: World, opts: PhysicsOptions): void {
   if (hasPhysics(world)) {
-    throw new Error("installPhysics has already been called on this world");
+    throw new Error("PhysicsModule has already been registered on this world");
   }
 
   // 1. Register every public component, in a stable order (see file header).
-  //    `ChildOf` is built into Vecs — referenced, never registered.
+  //    `ChildOf` is built into Vecs: referenced, never registered.
   world.component(Position);
   world.component(Rotation);
   world.component(LinearVelocity);
@@ -123,14 +135,14 @@ export function installPhysics(world: World, opts: PhysicsOptions = {}): void {
   insertPhaseAfter(step, preStep);
   insertPhaseAfter(postStep, step);
 
-  // 5. Allocate WASM state, create the Box2D world, install the systems (bound
+  // 5. Allocate WASM state, create the Box2D world, register the systems (bound
   //    to it), then attach it.
   const box2d = getBox2D();
   const options = resolveOptions(opts);
   const state = new PhysicsState(box2d, options, opts.debugSink);
   state.worldId = createWorldId(state, options);
   registerImpulseHooks(world, state);
-  installPhysicsSystems(
+  registerPhysicsSystems(
     world,
     state,
     { preStep, step, postStep },

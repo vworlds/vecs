@@ -82,7 +82,7 @@ if (hit) {
 }
 ```
 
-Ray casts are likely to be exposed through an imperative API returned by `installPhysics`, not through request components.
+Ray casts are likely to be exposed through an imperative API returned by `PhysicsModule`, not through request components.
 
 Reason: ray casts are synchronous queries against the current physics world. They are usually easier to use as direct reads than as ECS state.
 

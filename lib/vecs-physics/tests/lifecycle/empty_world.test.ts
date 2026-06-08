@@ -7,7 +7,7 @@
 import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
-import { installPhysics } from "../../src/index.js";
+import { PhysicsModule } from "../../src/index.js";
 import { getPhysics } from "../../src/adapter/state.js";
 
 const STEP_MS = 1000 / 60;
@@ -15,7 +15,7 @@ const STEP_MS = 1000 / 60;
 describe("test_world.c::EmptyWorld", () => {
   it("steps an empty installed world without crashing", () => {
     const world = new World();
-    installPhysics(world);
+    world.module(PhysicsModule);
     const state = getPhysics(world);
 
     expect(() => step(world, 32)).not.toThrow();

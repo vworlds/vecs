@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Migrated the physics backend from the in-house TypeScript engine to `box2d3-wasm`, while keeping the Vecs component API unchanged.
 - Pinned the migration baseline to `box2d3-wasm@5.2.0`; tight parity expectations are now determined by that WASM build.
-- Updated bootstrap docs and examples to call `await preloadPhysics()` before `installPhysics()`.
+- Updated bootstrap docs and examples to call `await preloadPhysics()` before `world.module(PhysicsModule)`.
 
 ### Performance
 
@@ -57,7 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `Sleep` component, sleeping solver sets, island split, and wake paths for force, impulse, kinematic, teleport, and contact disturbance flows.
 - Continuous collision support through `Body.bullet` and `enableContinuous` for bullets and fast bodies.
-- Optional `installPhysics(world, { debug: true })` validation warnings for invalid ECS structures.
+- Optional `world.module(PhysicsModule.configure({ debug: true }))` validation warnings for invalid ECS structures.
 - Fat-AABB hysteresis parity fix and hot-path scratch reuse.
 - Benchmark harness under `bench/` for `stacking` and `falling_balls` scenarios.
 

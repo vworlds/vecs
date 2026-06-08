@@ -50,16 +50,18 @@ import {
   Box,
   KinematicTargetPosition,
   Position,
-  installPhysics,
+  PhysicsModule,
 } from "@vworlds/vecs-physics";
 
 const world = new World();
 
-installPhysics(world, {
-  gravity: { x: 0, y: -10 },
-  fixedTimeStep: 1 / 60,
-  subSteps: 4,
-});
+world.module(
+  PhysicsModule.configure({
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  })
+);
 
 const platform = world
   .entity()

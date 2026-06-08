@@ -34,7 +34,7 @@ import {
   Sensor,
   ShapePosition,
   ShapeRotation,
-  installPhysics,
+  PhysicsModule,
 } from "../../src/index.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -46,24 +46,28 @@ const STEP_MS = DT * 1000;
 function makeDebugWorld() {
   const messages: string[] = [];
   const world = new World();
-  installPhysics(world, {
-    gravity: { x: 0, y: 0 },
-    fixedTimeStep: DT,
-    subSteps: 1,
-    debug: true,
-    debugSink: (msg) => messages.push(msg),
-  });
+  world.module(
+    PhysicsModule.configure({
+      gravity: { x: 0, y: 0 },
+      fixedTimeStep: DT,
+      subSteps: 1,
+      debug: true,
+      debugSink: (msg) => messages.push(msg),
+    })
+  );
   return { world, messages };
 }
 
 /** Create a world with debug: false (normal mode). */
 function makeNormalWorld() {
   const world = new World();
-  installPhysics(world, {
-    gravity: { x: 0, y: 0 },
-    fixedTimeStep: DT,
-    subSteps: 1,
-  });
+  world.module(
+    PhysicsModule.configure({
+      gravity: { x: 0, y: 0 },
+      fixedTimeStep: DT,
+      subSteps: 1,
+    })
+  );
   return world;
 }
 

@@ -339,7 +339,7 @@ Missing `ShapeRotation` means local angle `0`.
 
 Every shape entity should have exactly one geometry component.
 
-`installPhysics` marks these components as mutually exclusive:
+`PhysicsModule` marks these components as mutually exclusive:
 
 ```ts
 world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);

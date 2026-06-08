@@ -21,7 +21,7 @@ import {
   Segment,
   Sensor,
   Torque,
-  installPhysics,
+  PhysicsModule,
   type Vec2,
 } from "../../src/index.js";
 import { Rng } from "./rng.js";
@@ -40,13 +40,15 @@ export function buildFuzzScene(seed: number): FuzzScene {
   const rng = new Rng(seed);
   const impulseRng = new Rng(seed ^ 0x9e3779b9);
   const world = new World();
-  installPhysics(world, {
-    debug: true,
-    enableSleep: true,
-    fixedTimeStep: DT,
-    gravity: { x: 0, y: -10 },
-    subSteps: 2,
-  });
+  world.module(
+    PhysicsModule.configure({
+      debug: true,
+      enableSleep: true,
+      fixedTimeStep: DT,
+      gravity: { x: 0, y: -10 },
+      subSteps: 2,
+    })
+  );
 
   const bodies: Entity[] = [];
   const drivenBodies: Entity[] = [];
