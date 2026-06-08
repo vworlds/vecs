@@ -48,13 +48,11 @@ await preloadPhysics();
 
 const world = new World();
 
-world.module(
-  PhysicsModule.configure({
-    gravity: { x: 0, y: -10 },
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-  })
-);
+world.module(PhysicsModule, {
+  gravity: { x: 0, y: -10 },
+  fixedTimeStep: 1 / 60,
+  subSteps: 4,
+});
 
 const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
@@ -200,14 +198,12 @@ box.set(Impulse, { x: 0, y: 3 });
 ```ts
 await preloadPhysics();
 
-world.module(
-  PhysicsModule.configure({
-    gravity: { x: 0, y: -10 },
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-    debug: false,
-  })
-);
+world.module(PhysicsModule, {
+  gravity: { x: 0, y: -10 },
+  fixedTimeStep: 1 / 60,
+  subSteps: 4,
+  debug: false,
+});
 ```
 
 Common options:

@@ -17,7 +17,7 @@ import { ChildOf, World } from "@vworlds/vecs";
 import { Body, BodyType, Box, Position, PhysicsModule } from "@vworlds/vecs-physics";
 
 const world = new World();
-world.module(PhysicsModule.configure({ gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 60 }));
+world.module(PhysicsModule, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 60 });
 
 const ground = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -1 });
 world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 2 });

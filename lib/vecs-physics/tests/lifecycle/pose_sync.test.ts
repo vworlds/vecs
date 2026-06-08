@@ -18,7 +18,7 @@ let state: PhysicsState;
 
 beforeEach(() => {
   world = new World();
-  world.module(PhysicsModule.configure({ gravity: { x: 0, y: 0 } }));
+  world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
   state = getPhysics(world) as PhysicsState;
 });
 
@@ -187,7 +187,7 @@ describe("pose-sync feedback suppression", () => {
 
   it("delivers the engine write-back to a non-physics user system", () => {
     const userWorld = new World();
-    userWorld.module(PhysicsModule.configure({ gravity: { x: 0, y: 0 } }));
+    userWorld.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
     const render = userWorld
       .entity("render")
       .add(Phase)

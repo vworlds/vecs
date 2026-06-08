@@ -33,7 +33,7 @@ Application code should not depend on internal body ids, shape ids, contact ids,
 
 ## Internal World State
 
-`world.module(PhysicsModule)` creates the internal physics world and registers Vecs systems that keep it synchronized with ECS state. Use `world.module(PhysicsModule.configure(options))` for non-default physics options.
+`world.module(PhysicsModule)` creates the internal physics world and registers Vecs systems that keep it synchronized with ECS state. Use `world.module(PhysicsModule, options)` for non-default physics options.
 
 Conceptually, the internal state owns:
 
@@ -314,7 +314,7 @@ Examples:
 - Shape-local components are attached to a body entity.
 - Body components are attached to a shape entity by mistake.
 
-Debug validation is registered only when `world.module(PhysicsModule.configure({ debug: true }))` is used. Normal mode ignores invalid structures without warning.
+Debug validation is registered only when `world.module(PhysicsModule, { debug: true })` is used. Normal mode ignores invalid structures without warning.
 
 Warnings must be deduplicated. A bad entity should not flood the console every frame.
 

@@ -12,13 +12,11 @@ const world = new World();
 
 await preloadPhysics();
 
-world.module(
-  PhysicsModule.configure({
-    gravity: { x: 0, y: -10 },
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-  })
-);
+world.module(PhysicsModule, {
+  gravity: { x: 0, y: -10 },
+  fixedTimeStep: 1 / 60,
+  subSteps: 4,
+});
 ```
 
 ## Documentation
@@ -76,13 +74,11 @@ await preloadPhysics();
 
 const world = new World();
 
-world.module(
-  PhysicsModule.configure({
-    gravity: { x: 0, y: -10 },
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-  })
-);
+world.module(PhysicsModule, {
+  gravity: { x: 0, y: -10 },
+  fixedTimeStep: 1 / 60,
+  subSteps: 4,
+});
 
 const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
@@ -115,14 +111,12 @@ world.module(PhysicsModule);
 ```ts
 await preloadPhysics();
 
-world.module(
-  PhysicsModule.configure({
-    gravity: { x: 0, y: -10 },
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-    debug: false,
-  })
-);
+world.module(PhysicsModule, {
+  gravity: { x: 0, y: -10 },
+  fixedTimeStep: 1 / 60,
+  subSteps: 4,
+  debug: false,
+});
 ```
 
 Default setup is meant to work without custom phase wiring. Advanced callers can provide phases or phase names so physics can sit at a specific point in an existing Vecs pipeline.
@@ -130,13 +124,11 @@ Default setup is meant to work without custom phase wiring. Advanced callers can
 ```ts
 await preloadPhysics();
 
-world.module(
-  PhysicsModule.configure({
-    preStepPhase: "physics-pre",
-    stepPhase: "physics-step",
-    postStepPhase: "physics-post",
-  })
-);
+world.module(PhysicsModule, {
+  preStepPhase: "physics-pre",
+  stepPhase: "physics-step",
+  postStepPhase: "physics-post",
+});
 ```
 
 See [Systems And Phases](./systems-and-phases.md).
@@ -588,7 +580,7 @@ Debug validation is optional.
 ```ts
 await preloadPhysics();
 
-world.module(PhysicsModule.configure({ debug: true }));
+world.module(PhysicsModule, { debug: true });
 ```
 
 In normal mode, invalid component combinations are ignored as if they do not exist.

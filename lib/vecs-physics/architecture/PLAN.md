@@ -152,8 +152,8 @@ export type PhysicsOptions = {
   enableContinuous?: boolean; // default true
 };
 
-export class PhysicsModule extends import("@vworlds/vecs").Module {
-  static configure(options: PhysicsOptions): typeof PhysicsModule;
+export class PhysicsModule extends import("@vworlds/vecs").Module<PhysicsOptions | undefined> {
+  init(options?: PhysicsOptions): void;
 }
 ```
 
@@ -162,7 +162,7 @@ Canonical bootstrap:
 ```ts
 await preloadPhysics(); // once per process; cached
 world.module(PhysicsModule);
-world.module(PhysicsModule.configure(opts)); // with non-default options
+world.module(PhysicsModule, opts); // with non-default options
 ```
 
 `PhysicsModule.init()` must:

@@ -34,7 +34,7 @@ let now: number;
 beforeEach(() => {
   world = new World();
   // No gravity — we only care about kinematic motion, not free-fall.
-  world.module(PhysicsModule.configure({ gravity: { x: 0, y: 0 } }));
+  world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
   state = getPhysics(world) as PhysicsState;
   now = 0;
 });

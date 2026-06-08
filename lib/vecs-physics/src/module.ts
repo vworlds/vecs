@@ -59,19 +59,11 @@ export type PhysicsOptions = {
 const DEFAULT_PRE_STEP_PHASE = "physics-pre";
 const DEFAULT_STEP_PHASE = "physics-step";
 const DEFAULT_POST_STEP_PHASE = "physics-post";
-const MODULE_OPTIONS = new WeakMap<typeof PhysicsModule, PhysicsOptions>();
 
 /** World module that installs physics when registered with `world.module`. */
-export class PhysicsModule extends Module {
-  public static configure(options: PhysicsOptions): typeof PhysicsModule {
-    class ConfiguredPhysicsModule extends PhysicsModule {}
-
-    MODULE_OPTIONS.set(ConfiguredPhysicsModule, options);
-    return ConfiguredPhysicsModule;
-  }
-
-  public init(): void {
-    registerPhysics(this.world, MODULE_OPTIONS.get(this.constructor as typeof PhysicsModule) ?? {});
+export class PhysicsModule extends Module<PhysicsOptions | undefined> {
+  public init(options: PhysicsOptions | undefined): void {
+    registerPhysics(this.world, options ?? {});
   }
 }
 

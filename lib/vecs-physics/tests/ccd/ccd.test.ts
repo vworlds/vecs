@@ -43,7 +43,7 @@ function runSteps(world: World, n: number): void {
 describe("SetBulletDriftTest (flag persistence, box2d test_world.c:611-654)", () => {
   it("bullet=false body: b2Body_IsBullet returns false, toggle to true returns true", () => {
     const world = new World();
-    world.module(PhysicsModule.configure({ gravity: { x: 0, y: 0 } }));
+    world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
     const state = getPhysics(world);
 
     const bodyEntity = world.entity().set(Body, { type: BodyType.Dynamic, bullet: false });
@@ -60,7 +60,7 @@ describe("SetBulletDriftTest (flag persistence, box2d test_world.c:611-654)", ()
 
   it("bullet=true body: b2Body_IsBullet returns true, toggle to false returns false", () => {
     const world = new World();
-    world.module(PhysicsModule.configure({ gravity: { x: 0, y: 0 } }));
+    world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
     const state = getPhysics(world);
 
     const bodyEntity = world.entity().set(Body, { type: BodyType.Dynamic, bullet: true });
@@ -81,12 +81,10 @@ describe("SetBulletDriftTest (flag persistence, box2d test_world.c:611-654)", ()
 describe("Bullet no-tunnel gate (VP-24 milestone physical gate)", () => {
   it("a bullet body does not tunnel through a static wall", () => {
     const world = new World();
-    world.module(
-      PhysicsModule.configure({
-        gravity: { x: 0, y: 0 },
-        enableContinuous: true,
-      })
-    );
+    world.module(PhysicsModule, {
+      gravity: { x: 0, y: 0 },
+      enableContinuous: true,
+    });
 
     const wall = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     world
@@ -116,12 +114,10 @@ describe("Bullet no-tunnel gate (VP-24 milestone physical gate)", () => {
 
   it("with enableContinuous=false a very-fast bullet WILL tunnel through a thin wall", () => {
     const world = new World();
-    world.module(
-      PhysicsModule.configure({
-        gravity: { x: 0, y: 0 },
-        enableContinuous: false,
-      })
-    );
+    world.module(PhysicsModule, {
+      gravity: { x: 0, y: 0 },
+      enableContinuous: false,
+    });
 
     const wall = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     world
@@ -154,12 +150,10 @@ describe("Bullet no-tunnel gate (VP-24 milestone physical gate)", () => {
 describe("Fast non-bullet body CCD", () => {
   it("a non-bullet body moving fast enough uses CCD to avoid tunnelling", () => {
     const world = new World();
-    world.module(
-      PhysicsModule.configure({
-        gravity: { x: 0, y: 0 },
-        enableContinuous: true,
-      })
-    );
+    world.module(PhysicsModule, {
+      gravity: { x: 0, y: 0 },
+      enableContinuous: true,
+    });
 
     const wall = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     world
@@ -193,12 +187,10 @@ describe("Fast non-bullet body CCD", () => {
 describe("Bullet-vs-bullet skip (solver.c:227-230)", () => {
   it("two bullets do not TOI-resolve against each other", () => {
     const world = new World();
-    world.module(
-      PhysicsModule.configure({
-        gravity: { x: 0, y: 0 },
-        enableContinuous: true,
-      })
-    );
+    world.module(PhysicsModule, {
+      gravity: { x: 0, y: 0 },
+      enableContinuous: true,
+    });
 
     const bulletA = world
       .entity()
@@ -242,12 +234,10 @@ describe("Bullet-vs-bullet skip (solver.c:227-230)", () => {
 describe("HelloWorld parity with CCD enabled (no regression)", () => {
   it("a dynamic box dropped on a ground rests at y≈1 with enableContinuous=true", () => {
     const world = new World();
-    world.module(
-      PhysicsModule.configure({
-        gravity: { x: 0, y: -10 },
-        enableContinuous: true,
-      })
-    );
+    world.module(PhysicsModule, {
+      gravity: { x: 0, y: -10 },
+      enableContinuous: true,
+    });
 
     const ground = world
       .entity()

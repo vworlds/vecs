@@ -112,9 +112,7 @@ cellTagComponents.forEach((CellTag) => {
 });
 
 await preloadPhysics();
-world.module(
-  PhysicsModule.configure({ gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 })
-);
+world.module(PhysicsModule, { gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 });
 const physicsPost = world.entity("physics-post");
 
 // One anchor entity per grid cell. Moving entities relate to these via InCell;

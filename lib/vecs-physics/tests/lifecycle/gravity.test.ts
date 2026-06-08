@@ -13,9 +13,7 @@ const G = 10;
 describe("free fall under gravity", () => {
   it("matches pos.y = 4 - 0.5·g·t² and v = -g·t", () => {
     const world = new World();
-    world.module(
-      PhysicsModule.configure({ gravity: { x: 0, y: -G }, fixedTimeStep: DT, subSteps: 4 })
-    );
+    world.module(PhysicsModule, { gravity: { x: 0, y: -G }, fixedTimeStep: DT, subSteps: 4 });
 
     const e = world
       .entity()
@@ -45,7 +43,7 @@ describe("free fall under gravity", () => {
 
   it("does not move a static body under gravity", () => {
     const world = new World();
-    world.module(PhysicsModule.configure({ gravity: { x: 0, y: -G } }));
+    world.module(PhysicsModule, { gravity: { x: 0, y: -G } });
 
     const e = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 4 });
     for (let i = 0; i < 10; i++) {

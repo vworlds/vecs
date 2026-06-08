@@ -9,14 +9,12 @@ const STEP_MS = DT * 1000;
 
 function makeWorld(enableSleep = true): World {
   const world = new World();
-  world.module(
-    PhysicsModule.configure({
-      gravity: { x: 0, y: 0 },
-      fixedTimeStep: DT,
-      subSteps: 1,
-      enableSleep,
-    })
-  );
+  world.module(PhysicsModule, {
+    gravity: { x: 0, y: 0 },
+    fixedTimeStep: DT,
+    subSteps: 1,
+    enableSleep,
+  });
   return world;
 }
 

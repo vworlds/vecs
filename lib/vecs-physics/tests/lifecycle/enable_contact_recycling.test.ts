@@ -15,7 +15,7 @@ const STEP_MS = 1000 / 60;
 describe("test_world.c::EnableContactRecyclingTest", () => {
   it("destroys contacts on disable and recreates them on re-enable", () => {
     const world = new World();
-    world.module(PhysicsModule.configure({ gravity: { x: 0, y: -10 } }));
+    world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
     const state = getPhysics(world);
     const step = makeStepper(world);
 

@@ -27,13 +27,11 @@ const DT_MS = 1000 / 60;
 
 export function runStacking(): { totalMs: number; msPerStep: number; steps: number } {
   const world = new World();
-  world.module(
-    PhysicsModule.configure({
-      gravity: { x: 0, y: -10 },
-      fixedTimeStep: 1 / 60,
-      subSteps: 4,
-    })
-  );
+  world.module(PhysicsModule, {
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  });
   // ── Ground ────────────────────────────────────────────────────────────────
   const ground = world.entity().set(Body, { type: BodyType.Static });
   world

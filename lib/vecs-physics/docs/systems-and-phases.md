@@ -9,13 +9,11 @@ This page explains how `vecs-physics` registers itself in a Vecs world, which ph
 ```ts
 await preloadPhysics();
 
-world.module(
-  PhysicsModule.configure({
-    gravity: { x: 0, y: -10 },
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-  })
-);
+world.module(PhysicsModule, {
+  gravity: { x: 0, y: -10 },
+  fixedTimeStep: 1 / 60,
+  subSteps: 4,
+});
 ```
 
 By default, `PhysicsModule` registers physics components, configures shape exclusivity, creates physics phases, and registers internal systems. Advanced users can pass custom phase entities or phase names to place physics inside an existing pipeline. Physics systems enter the pipeline the next time `world.progress()` runs.
@@ -46,13 +44,11 @@ const world = new World();
 
 await preloadPhysics();
 
-world.module(
-  PhysicsModule.configure({
-    gravity: { x: 0, y: -10 },
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-  })
-);
+world.module(PhysicsModule, {
+  gravity: { x: 0, y: -10 },
+  fixedTimeStep: 1 / 60,
+  subSteps: 4,
+});
 
 // Use a fixed delta. 1000 / 60 ms corresponds to 1 / 60 seconds.
 world.progress(performance.now(), 1000 / 60);
@@ -94,25 +90,21 @@ const physicsStep = world.entity("physics-step").add(Phase).set(DependsOn, { tar
 const physicsPost = world.entity("physics-post").add(Phase).set(DependsOn, { target: physicsStep });
 const render = world.entity("render").add(Phase).set(DependsOn, { target: physicsPost });
 
-world.module(
-  PhysicsModule.configure({
-    preStepPhase: physicsPre,
-    stepPhase: physicsStep,
-    postStepPhase: physicsPost,
-  })
-);
+world.module(PhysicsModule, {
+  preStepPhase: physicsPre,
+  stepPhase: physicsStep,
+  postStepPhase: physicsPost,
+});
 ```
 
 Or use phase names:
 
 ```ts
-world.module(
-  PhysicsModule.configure({
-    preStepPhase: "physics-pre",
-    stepPhase: "physics-step",
-    postStepPhase: "physics-post",
-  })
-);
+world.module(PhysicsModule, {
+  preStepPhase: "physics-pre",
+  stepPhase: "physics-step",
+  postStepPhase: "physics-post",
+});
 ```
 
 Use custom placement when input, gameplay, camera, animation, networking, or rendering systems need strict ordering relative to physics.
@@ -145,15 +137,13 @@ const physicsStep = world.entity("physics-step").add(Phase).set(DependsOn, { tar
 const physicsPost = world.entity("physics-post").add(Phase).set(DependsOn, { target: physicsStep });
 const render = world.entity("render").add(Phase).set(DependsOn, { target: physicsPost });
 
-world.module(
-  PhysicsModule.configure({
-    preStepPhase: physicsPre,
-    stepPhase: physicsStep,
-    postStepPhase: physicsPost,
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-  })
-);
+world.module(PhysicsModule, {
+  preStepPhase: physicsPre,
+  stepPhase: physicsStep,
+  postStepPhase: physicsPost,
+  fixedTimeStep: 1 / 60,
+  subSteps: 4,
+});
 
 const inputSystem = world
   .system("ApplyPlayerInput")
@@ -182,11 +172,9 @@ Box2D-style physics is designed for fixed timesteps. `vecs-physics` follows that
 `fixedTimeStep` is expressed in seconds:
 
 ```ts
-world.module(
-  PhysicsModule.configure({
-    fixedTimeStep: 1 / 60,
-  })
-);
+world.module(PhysicsModule, {
+  fixedTimeStep: 1 / 60,
+});
 ```
 
 Vecs `delta` is expressed in milliseconds:
@@ -212,12 +200,10 @@ function tick(now: number) {
 `subSteps` controls solver accuracy inside each physics step.
 
 ```ts
-world.module(
-  PhysicsModule.configure({
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-  })
-);
+world.module(PhysicsModule, {
+  fixedTimeStep: 1 / 60,
+  subSteps: 4,
+});
 ```
 
 The default recommendation is `4`, matching Box2D guidance.

@@ -18,13 +18,11 @@ await preloadPhysics();
 
 const world = new World();
 
-world.module(
-  PhysicsModule.configure({
-    gravity: { x: 0, y: -10 },
-    fixedTimeStep: 1 / 60,
-    subSteps: 4,
-  })
-);
+world.module(PhysicsModule, {
+  gravity: { x: 0, y: -10 },
+  fixedTimeStep: 1 / 60,
+  subSteps: 4,
+});
 ```
 
 `preloadPhysics()` is async and cached. Call it once before the first `world.module(PhysicsModule)` in a process. Module registration stays synchronous so world setup and phase wiring remain deterministic after the WASM module has loaded.

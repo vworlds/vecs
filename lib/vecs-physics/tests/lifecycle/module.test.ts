@@ -106,7 +106,7 @@ describe("PhysicsModule", () => {
   it("reuses an existing phase passed by name and creates it under that name", () => {
     const world = new World();
     const input = world.entity("input").add(Phase);
-    world.module(PhysicsModule.configure({ preStepPhase: "input", stepPhase: "sim" }));
+    world.module(PhysicsModule, { preStepPhase: "input", stepPhase: "sim" });
     // Existing "input" phase is reused, not duplicated.
     expect(world.entity("input")).toBe(input);
     // A new name is created.
@@ -144,15 +144,13 @@ describe("PhysicsModule", () => {
 
   it("applies overridden options onto the PhysicsState", () => {
     const world = new World();
-    world.module(
-      PhysicsModule.configure({
-        gravity: { x: 1, y: -3 },
-        fixedTimeStep: 1 / 120,
-        subSteps: 8,
-        debug: true,
-        enableSleep: false,
-      })
-    );
+    world.module(PhysicsModule, {
+      gravity: { x: 1, y: -3 },
+      fixedTimeStep: 1 / 120,
+      subSteps: 8,
+      debug: true,
+      enableSleep: false,
+    });
     const state = getPhysics(world);
     expect(state.gravityX).toBe(1);
     expect(state.gravityY).toBe(-3);
@@ -179,8 +177,8 @@ describe("PhysicsModule", () => {
     const world = new World();
     world.module(PhysicsModule);
 
-    expect(() => world.module(PhysicsModule.configure({ gravity: { x: 0, y: 0 } }))).toThrow(
-      /already been registered/
+    expect(() => world.module(PhysicsModule, { gravity: { x: 0, y: 0 } })).toThrow(
+      /configuration is only accepted on first registration/
     );
   });
 

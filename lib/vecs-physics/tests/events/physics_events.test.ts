@@ -46,13 +46,11 @@ const STEP_MS = DT * 1000;
 
 function makeWorld() {
   const world = new World();
-  world.module(
-    PhysicsModule.configure({
-      gravity: { x: 0, y: 0 },
-      fixedTimeStep: DT,
-      subSteps: 4,
-    })
-  );
+  world.module(PhysicsModule, {
+    gravity: { x: 0, y: 0 },
+    fixedTimeStep: DT,
+    subSteps: 4,
+  });
   return world;
 }
 
@@ -138,13 +136,11 @@ describe("empty step is silent", () => {
   it("modified fires and array has event on step N; no modified and empty array on step N+1", () => {
     // Use a fresh world so we can install the watcher before stepping.
     const w = new World();
-    w.module(
-      PhysicsModule.configure({
-        gravity: { x: 0, y: 0 },
-        fixedTimeStep: DT,
-        subSteps: 4,
-      })
-    );
+    w.module(PhysicsModule, {
+      gravity: { x: 0, y: 0 },
+      fixedTimeStep: DT,
+      subSteps: 4,
+    });
 
     let modifiedCount = 0;
     w.system("WatcherContact")
@@ -218,13 +214,11 @@ describe("begin/end lifecycle", () => {
     // on the step after the destroy.
 
     const floorWorld = new World();
-    floorWorld.module(
-      PhysicsModule.configure({
-        gravity: { x: 0, y: -10 },
-        fixedTimeStep: DT,
-        subSteps: 4,
-      })
-    );
+    floorWorld.module(PhysicsModule, {
+      gravity: { x: 0, y: -10 },
+      fixedTimeStep: DT,
+      subSteps: 4,
+    });
     let fn = 0;
     function fstep() {
       fn += STEP_MS;
@@ -362,12 +356,10 @@ describe("sensor delivery", () => {
 describe("hit event delivery", () => {
   it("fast impact: both shapes with HitEvents get a HitEvent with correct other and speed", () => {
     const world2 = new World();
-    world2.module(
-      PhysicsModule.configure({
-        gravity: { x: 0, y: 0 },
-        hitEventThreshold: 0.5,
-      })
-    );
+    world2.module(PhysicsModule, {
+      gravity: { x: 0, y: 0 },
+      hitEventThreshold: 0.5,
+    });
     let now2 = 0;
     function step2() {
       now2 += STEP_MS;
@@ -420,12 +412,10 @@ describe("hit event delivery", () => {
 
   it("slow settling contact: no hit event produced", () => {
     const world3 = new World();
-    world3.module(
-      PhysicsModule.configure({
-        gravity: { x: 0, y: -10 },
-        hitEventThreshold: 5.0, // very high threshold
-      })
-    );
+    world3.module(PhysicsModule, {
+      gravity: { x: 0, y: -10 },
+      hitEventThreshold: 5.0, // very high threshold
+    });
     let now3 = 0;
 
     const groundBody = world3

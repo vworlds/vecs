@@ -28,13 +28,11 @@ describe("test_world.c::CrossPlatformTest", () => {
 
 function runStackingSnapshot(): string {
   const world = new World();
-  world.module(
-    PhysicsModule.configure({
-      gravity: { x: 0, y: -10 },
-      fixedTimeStep: 1 / 60,
-      subSteps: 4,
-    })
-  );
+  world.module(PhysicsModule, {
+    gravity: { x: 0, y: -10 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  });
 
   makeGround(world);
   makeStack(world);

@@ -29,13 +29,11 @@ export function runManyMovers(): {
   lookupSpeedup: number;
 } {
   const world = new World();
-  world.module(
-    PhysicsModule.configure({
-      gravity: { x: 0, y: 0 },
-      fixedTimeStep: 1 / 60,
-      subSteps: 4,
-    })
-  );
+  world.module(PhysicsModule, {
+    gravity: { x: 0, y: 0 },
+    fixedTimeStep: 1 / 60,
+    subSteps: 4,
+  });
   for (let i = 0; i < BODY_COUNT; i++) {
     const x = (i % 50) - 25;
     const y = Math.floor(i / 50) - 5;

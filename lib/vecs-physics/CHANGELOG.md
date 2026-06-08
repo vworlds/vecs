@@ -57,7 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `Sleep` component, sleeping solver sets, island split, and wake paths for force, impulse, kinematic, teleport, and contact disturbance flows.
 - Continuous collision support through `Body.bullet` and `enableContinuous` for bullets and fast bodies.
-- Optional `world.module(PhysicsModule.configure({ debug: true }))` validation warnings for invalid ECS structures.
+- Optional `world.module(PhysicsModule, { debug: true })` validation warnings for invalid ECS structures.
 - Fat-AABB hysteresis parity fix and hot-path scratch reuse.
 - Benchmark harness under `bench/` for `stacking` and `falling_balls` scenarios.
 

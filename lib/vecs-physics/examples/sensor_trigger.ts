@@ -23,9 +23,7 @@ const STEP_MS = 1000 / 60;
 await preloadPhysics();
 
 const world = new World();
-world.module(
-  PhysicsModule.configure({ gravity: { x: 0, y: 0 }, fixedTimeStep: 1 / 60, subSteps: 4 })
-);
+world.module(PhysicsModule, { gravity: { x: 0, y: 0 }, fixedTimeStep: 1 / 60, subSteps: 4 });
 world.component(Tint);
 const zoneBody = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
 const zoneShape = world

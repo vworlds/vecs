@@ -26,7 +26,7 @@ let now: number;
 
 beforeEach(() => {
   world = new World();
-  world.module(PhysicsModule.configure({ gravity: { x: 0, y: -10 } }));
+  world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
   state = getPhysics(world);
   now = 0;
 });

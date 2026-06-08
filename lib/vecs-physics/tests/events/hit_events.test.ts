@@ -33,12 +33,10 @@ const STEP_MS = 1000 / 60;
 /** Create a world with zero gravity and the given hitEventThreshold. */
 function makeWorld(hitEventThreshold = 1.0) {
   const world = new World();
-  world.module(
-    PhysicsModule.configure({
-      gravity: { x: 0, y: 0 },
-      hitEventThreshold,
-    })
-  );
+  world.module(PhysicsModule, {
+    gravity: { x: 0, y: 0 },
+    hitEventThreshold,
+  });
   return world;
 }
 
@@ -191,12 +189,10 @@ describe("hit event threshold", () => {
     // A box slowly settling: it falls a very short distance (gravity -10, one step
     // of ~16 ms → approach ≈ 0.16 m/s), well below threshold = 1.0.
     const world = new World();
-    world.module(
-      PhysicsModule.configure({
-        gravity: { x: 0, y: -10 },
-        hitEventThreshold: 1.0,
-      })
-    );
+    world.module(PhysicsModule, {
+      gravity: { x: 0, y: -10 },
+      hitEventThreshold: 1.0,
+    });
 
     const groundBody = world
       .entity()

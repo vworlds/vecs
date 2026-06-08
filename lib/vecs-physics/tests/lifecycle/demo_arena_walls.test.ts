@@ -20,9 +20,7 @@ const STEP_MS = 1000 / 30;
 describe("demo arena walls", () => {
   it("keeps a falling ball inside the loop-chain arena", () => {
     const world = new World();
-    world.module(
-      PhysicsModule.configure({ gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 30, subSteps: 4 })
-    );
+    world.module(PhysicsModule, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 30, subSteps: 4 });
 
     const walls = world.entity().set(Position, { x: 0, y: 0 }).set(Body, {
       type: BodyType.Static,
