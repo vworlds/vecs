@@ -9,3 +9,5 @@ coverage/
 *.tsbuildinfo
 .worktrees/
 .tmp/
+graphify-out/cost.json
+graphify-out/cache/
