@@ -337,10 +337,25 @@ eid→GameObject map defensively, then live entities re-enter and rebuild.
 an `interpolators` entry for `Rotation`'s type id doing **shortest-arc angular lerp** (in
 radians). All other components snap to latest.
 
-### 7.5 Origin normalization
+### 7.5 Origin & rotation pivot
 
-Phaser shapes are centered (origin 0.5); `Text` is top-left (0,0). The Text renderer calls
-`setOrigin(0.5)` on create so `Position` is "center" everywhere.
+`Position` is the **entity origin** — it maps to the Box2D body transform that
+`syncPhysicsPose` copies, and it is the **rotation pivot** for every shape (`Rotation`
+rotates about it, matching Box2D bodies). The renderer must guarantee this uniformly:
+
+- **Centered primitives** (`Arc`, `Ellipse`, `Rectangle`, `Star`): Phaser already centers
+  these on the GameObject position (origin 0.5) — matches Box2D circle / `SetAsBox`.
+- **`Text`**: Phaser anchors top-left (0,0); the Text renderer calls `setOrigin(0.5)` so
+  `Position` is the center, like every other shape.
+- **Vertex shapes** (`Polygon`, `Line`, `Triangle`): vertices are offsets from `Position`
+  in vertex-space `(0,0)` — the Box2D body-local convention (symmetric verts ⇒ centered,
+  asymmetric ⇒ intentionally offset). **Phaser does not honor this by default**: it anchors
+  a Polygon on the _center of its points' bounding box_, and `getBounds` misbehaves when
+  points are negative. The renderer must therefore **pin vertex-space `(0,0)` to `Position`
+  and keep the rotation pivot there** — position the GameObject at `Position` and set the
+  display origin so geometry-local `(0,0)` is the anchor; do **not** rely on Phaser's
+  bounding-box centering. The frontier still applies `rx/ry` (scale + Y-flip) to the
+  vertices and negates the angle.
 
 ---
 
@@ -445,6 +460,7 @@ view (interest management), and baseline-reset rebuild.
 | Frontier conversion (centering, Y-flip, angle negation, relative vs absolute) | Localized in `CoordSpace`; exhaustive unit tests + visual demo check                                                    |
 | Component order is protocol **and** enter-init invariant                      | Snapshot test the order; document in code                                                                               |
 | New adds after a shape's enter aren't routed to `.update`                     | Enter reads all present components; order guarantees they're there                                                      |
+| Vertex-shape origin (Phaser anchors on bounding box, not vertex `(0,0)`)      | Pin vertex `(0,0)` to `Position` & rotation pivot per §7.5; handle asymmetric/negative points                           |
 | `Polygon.setTo` rebuilds geometry                                             | Treat as definition data, not per-frame                                                                                 |
 | Interpolation cadence (smoothness)                                            | Verify `.update(Position)` fires per frame during interp (existing demo behavior)                                       |
 | `phaser` version/peering                                                      | `phaser` is a **type-only peer dep** of the client lib; the app provides the runtime; `CoordSpace` avoids `Phaser.Math` |

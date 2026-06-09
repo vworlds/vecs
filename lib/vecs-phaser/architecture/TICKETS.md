@@ -118,16 +118,31 @@ listener; reset clears the map. Uses mock Phaser objects.
 
 Per-renderable systems: `.enter` (create via `scene.add.<kind>`, init from present
 components per §7.2), `.update(<Shape>)` (geometry via CoordSpace), `.exit` (destroy).
-Text renderer sets `setOrigin(0.5)`. **Acceptance:** entering an `Arc` entity creates an
-arc sized via `len(radius)`; geometry updates apply; exit destroys; polygon `setTo` called
-with scaled+flipped relative points.
+Text renderer sets `setOrigin(0.5)`.
+
+**Origin & rotation pivot (per §7.5) — required:** `Position` is the origin and rotation
+pivot for every shape. Centered primitives use Phaser's default 0.5 origin. **Vertex shapes
+(`Polygon`, `Line`) must pin geometry-local `(0,0)` to `Position`** (and keep the rotation
+pivot there) — position the GameObject at `Position` and set its display origin so local
+`(0,0)` is the anchor; do **not** rely on Phaser's bounding-box centering. Apply `rx/ry`
+(scale + Y-flip) to vertices.
+
+**Acceptance:** entering an `Arc` entity creates an arc sized via `len(radius)`; geometry
+updates apply; exit destroys; `polygon.setTo` called with scaled+flipped relative points;
+**a `Polygon`/`Line` with _asymmetric_ vertices (and a negative coordinate) renders with
+vertex `(0,0)` at `Position`** (assert the GameObject position and origin/offset, not the
+bounding-box center); **applying `Rotation` pivots the vertex shape about `Position`** (the
+shape does not drift). Use mock Phaser objects.
 
 ### VPH-23 — Shape renderers (set B: Ellipse, Triangle, Star)
 
 **Deps:** VPH-21 · **Parallel:** with VPH-22 · **Files:** `src/renderers/*.ts`, `tests/renderers.setB.test.ts`
 
-Same pattern for `Ellipse, Triangle, Star`. **Acceptance:** create/update/exit verified per
-shape with CoordSpace-scaled dimensions.
+Same pattern for `Ellipse, Triangle, Star`. `Ellipse`/`Star` are centered primitives;
+**`Triangle` is a vertex shape — apply the §7.5 origin & rotation-pivot contract (pin
+vertex `(0,0)` to `Position`), same as VPH-22's Polygon/Line.** **Acceptance:**
+create/update/exit verified per shape with CoordSpace-scaled dimensions; an asymmetric
+`Triangle` renders with vertex `(0,0)` at `Position` and rotates about it.
 
 ### VPH-24 — Shared transform/style sync + rotation interpolation
 
