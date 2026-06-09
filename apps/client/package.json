@@ -12,11 +12,12 @@
   },
   "dependencies": {
     "@vworlds/vecs-client": "*",
-    "@vworlds/vecs-wire": "*"
+    "@vworlds/vecs-phaser": "*",
+    "@vworlds/vecs-phaser-client": "*",
+    "phaser": "^4.1.0"
   },
   "devDependencies": {
-    "vite": "^5.4.21",
-    "vite-tsconfig-paths": "^5.1.4"
+    "vite": "^5.4.21"
   },
   "license": "UNLICENSED"
 }

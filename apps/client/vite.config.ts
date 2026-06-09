@@ -1,5 +1,4 @@
 import { defineConfig } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 
 const workspaceRoot = new URL("../..", import.meta.url).pathname;
 const packages = [
@@ -10,7 +9,6 @@ const packages = [
 ];
 
 export default defineConfig({
-  plugins: [tsconfigPaths()],
   resolve: {
     alias: {
       "@vworlds/vecs": new URL("../../lib/vecs/src/index.ts", import.meta.url).pathname,
