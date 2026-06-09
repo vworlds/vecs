@@ -7,9 +7,20 @@ const packagePaths = [
   "lib/vecs-protocol/package.json",
   "lib/vecs-server/package.json",
   "lib/vecs-wire/package.json",
+  "lib/vecs-phaser/package.json",
+  "lib/vecs-phaser-server/package.json",
+  "lib/vecs-phaser-client/package.json",
 ];
 
-const syncedDependencyNames = ["@vworlds/vecs", "@vworlds/vecs-protocol", "@vworlds/vecs-wire"];
+const syncedDependencyNames = [
+  "@vworlds/vecs",
+  "@vworlds/vecs-protocol",
+  "@vworlds/vecs-wire",
+  "@vworlds/vecs-client",
+  "@vworlds/vecs-server",
+  "@vworlds/vecs-physics",
+  "@vworlds/vecs-phaser",
+];
 
 const packages = await Promise.all(
   packagePaths.map(async (path) => ({
