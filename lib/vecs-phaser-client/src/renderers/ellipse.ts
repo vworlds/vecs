@@ -7,7 +7,7 @@ import {
   getMappedGameObject,
   initialPosition,
   type SizeGameObject,
-} from "./utils.js";
+} from "./shared.js";
 
 export const installEllipseRenderer: RenderSystemInstaller = (ctx: RenderContext): void => {
   const system = ctx.world

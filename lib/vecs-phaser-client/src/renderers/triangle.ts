@@ -3,12 +3,12 @@ import { Triangle } from "@vworlds/vecs-phaser";
 import type { RenderContext, RenderSystemInstaller } from "../render_context.js";
 import {
   applyInitialComponents,
+  applyVertexOrigin,
   destroyMappedGameObject,
   getMappedGameObject,
   initialPosition,
-  pinVertexOrigin,
   type VertexGameObject,
-} from "./utils.js";
+} from "./shared.js";
 
 export const installTriangleRenderer: RenderSystemInstaller = (ctx: RenderContext): void => {
   const system = ctx.world
@@ -21,7 +21,7 @@ export const installTriangleRenderer: RenderSystemInstaller = (ctx: RenderContex
         y,
         ...triangleCoordinates(ctx, triangle)
       ) as unknown as VertexGameObject;
-      pinVertexOrigin(obj);
+      applyVertexOrigin(obj);
       ctx.setGameObject(entity.eid, obj);
       applyInitialComponents(ctx, entity, obj);
     })
