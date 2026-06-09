@@ -5,12 +5,11 @@ interest management, and replicated render components consumed by `apps/client`.
 
 ## Run
 
-Build the workspace packages before starting the demo. The Phaser client intentionally consumes
-the built `dist` output for `@vworlds/vecs-phaser*` so decorator metadata is registered correctly.
+Start the demo server directly; it source-loads workspace packages through tsconfig path aliases,
+so library changes reload without a build step.
 
 ```bash
 npm install
-npm run build
 npm run dev -w @vworlds/vecs-demo-server
 ```
 

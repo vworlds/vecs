@@ -1,11 +1,57 @@
 import { describe, expect, it } from "vitest";
-import { Decoder, Encoder, type } from "../src/index.js";
+import { Decoder, Encoder, type, type WireTypeSpec } from "../src/index.js";
+
+interface IStandardFieldDecoratorContext {
+  kind: string;
+  name: string | symbol;
+  static: boolean;
+  private: boolean;
+  addInitializer(initializer: (this: object) => void): void;
+}
+
+interface IStandardFieldDefinition {
+  name: string;
+  spec: WireTypeSpec;
+}
+
+type EmptyConstructor<T extends object = object> = new () => T;
+type StandardTypeDecorator = (value: undefined, context: IStandardFieldDecoratorContext) => void;
 
 function roundTrip<T>(C: new () => T, value: object): T {
   const encoder = new Encoder(new Uint8Array(4096));
   encoder.write(value);
 
   return new Decoder(encoder.getBuffer()).read(C);
+}
+
+function standardDecorated<TBase extends EmptyConstructor>(
+  Base: TBase,
+  fields: readonly IStandardFieldDefinition[]
+): TBase {
+  const initializers: Array<(this: object) => void> = [];
+
+  fields.forEach((field) => {
+    const decorator = type(field.spec) as unknown as StandardTypeDecorator;
+    decorator(undefined, {
+      kind: "field",
+      name: field.name,
+      static: false,
+      private: false,
+      addInitializer(initializer): void {
+        initializers.push(initializer);
+      },
+    });
+  });
+
+  const BaseConstructor = Base as EmptyConstructor<object>;
+  const StandardDecorated = class extends BaseConstructor {
+    constructor() {
+      super();
+      initializers.forEach((initializer) => initializer.call(this));
+    }
+  };
+
+  return StandardDecorated as unknown as TBase;
 }
 
 describe("type decorator", () => {
@@ -197,6 +243,83 @@ describe("type decorator", () => {
     expect(decoded.points[1]).toBeInstanceOf(Position);
     expect(decoded.points[1].x).toBe(3);
     expect(decoded.points[1].y).toBe(4);
+  });
+
+  it("round-trips standard field decorators", () => {
+    const StandardPosition = standardDecorated(
+      class StandardPosition {
+        public x = 0;
+        public y = 0;
+      },
+      [
+        { name: "x", spec: "i32" },
+        { name: "y", spec: "i32" },
+      ]
+    );
+
+    const value = new StandardPosition();
+    value.x = -12;
+    value.y = 34;
+
+    const decoded = roundTrip(StandardPosition, value);
+
+    expect(decoded).toBeInstanceOf(StandardPosition);
+    expect(decoded.x).toBe(-12);
+    expect(decoded.y).toBe(34);
+  });
+
+  it("decodes standard field decorators before any user instance exists", () => {
+    const StandardCounter = standardDecorated(
+      class StandardCounter {
+        public count = 0;
+      },
+      [{ name: "count", spec: "u32" }]
+    );
+    const encoder = new Encoder(new Uint8Array(128));
+    encoder.write_u32(42);
+
+    const decoded = new Decoder(encoder.getBuffer()).read(StandardCounter);
+
+    expect(decoded).toBeInstanceOf(StandardCounter);
+    expect(decoded.count).toBe(42);
+  });
+
+  it("rejects unsupported standard decorator contexts", () => {
+    const decorator = type("u32") as unknown as StandardTypeDecorator;
+    const baseContext = {
+      kind: "field",
+      name: "value",
+      static: false,
+      private: false,
+      addInitializer(): void {},
+    } satisfies IStandardFieldDecoratorContext;
+
+    expect(() => decorator(undefined, { ...baseContext, kind: "method" })).toThrow(
+      "vecs-wire/type only supports standard field decorators"
+    );
+    expect(() => decorator(undefined, { ...baseContext, static: true })).toThrow(
+      "vecs-wire/type does not support static fields"
+    );
+    expect(() => decorator(undefined, { ...baseContext, private: true })).toThrow(
+      "vecs-wire/type does not support private fields"
+    );
+    expect(() => decorator(undefined, { ...baseContext, name: Symbol("value") })).toThrow(
+      "vecs-wire/type only supports string property keys"
+    );
+  });
+
+  it("throws when duplicate fields use conflicting specs", () => {
+    const Conflicting = standardDecorated(
+      class Conflicting {
+        public value = 0;
+      },
+      [
+        { name: "value", spec: "u32" },
+        { name: "value", spec: "string" },
+      ]
+    );
+
+    expect(() => new Conflicting()).toThrow("vecs-wire/type duplicate field value");
   });
 
   it("does not share metadata between classes", () => {
