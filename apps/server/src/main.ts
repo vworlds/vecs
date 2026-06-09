@@ -62,6 +62,7 @@ const PLAYER_STEP = 7 / PIXELS_PER_METER;
 const SCORE_OFFSET_Y = PLAYER_HALF_SIZE + 0.18;
 const MAX_BALLS = 50;
 const BALL_RADIUS = 12 / PIXELS_PER_METER;
+const BALL_ARC_END_ANGLE = Math.PI * 1.65;
 const TICK_RATE = 30;
 const DT = 1 / TICK_RATE;
 const DT_MS = 1000 / TICK_RATE;
@@ -85,6 +86,10 @@ class Ball {
 }
 
 class ViewAll {}
+
+class RotatingDecoration {
+  public speed = 0.025;
+}
 
 /**
  * Relationship pointing each networked entity at the grid-cell entity it
@@ -122,6 +127,7 @@ const server = vecsListener.registerWorld(world);
 world.component(Ball);
 world.component(Player);
 world.component(InCell);
+world.component(RotatingDecoration);
 world.component(ViewAll);
 cellTagComponents.forEach((CellTag) => {
   world.component(CellTag);
@@ -225,6 +231,14 @@ world
     if (ballsByCell.count < MAX_BALLS) {
       spawnBall();
     }
+  });
+
+world
+  .system("SpinDecorations")
+  .with(Networked, RotatingDecoration, RenderRotation)
+  .each([RotatingDecoration, RenderRotation], (entity, [rotating, rotation]) => {
+    rotation.angle += rotating.speed;
+    entity.modified(RenderRotation);
   });
 
 // Maintain each entity's InCell relationship from its position. Retargeting on
@@ -350,7 +364,7 @@ function spawnBall(x?: number, y?: number): void {
     .entity()
     .add(Networked)
     .add(Ball)
-    .set(Arc, { radius: BALL_RADIUS })
+    .set(Arc, { endAngle: BALL_ARC_END_ANGLE, radius: BALL_RADIUS })
     .set(FillStyle, randomFillStyle())
     .set(RenderPosition, point)
     .set(RenderRotation, { angle: 0 })
@@ -409,14 +423,16 @@ function createDecorations(): void {
     x3: 0.28,
     y3: -0.2,
     position: { x: -2.7, y: -2.05 },
+    rotation: { angle: 0 },
     fillStyle: { color: 0x66ffaa, alpha: 0.85 },
-  });
+  }).set(RotatingDecoration, { speed: 0.018 });
   createPolygon(world, {
     points: [-0.3, -0.18, -0.08, 0.25, 0.32, 0.14, 0.22, -0.24],
     position: { x: -1.1, y: -2.05 },
+    rotation: { angle: 0 },
     fillStyle: { color: 0xb388ff, alpha: 0.85 },
     strokeStyle: { color: 0xffffff, alpha: 0.45, width: 2 },
-  });
+  }).set(RotatingDecoration, { speed: -0.014 });
   createEllipse(world, {
     width: 0.7,
     height: 0.32,
@@ -429,8 +445,9 @@ function createDecorations(): void {
     x2: 0.45,
     y2: 0.15,
     position: { x: 2.55, y: -2.05 },
+    rotation: { angle: 0 },
     strokeStyle: { color: 0x88ccff, alpha: 1, width: 4 },
-  });
+  }).set(RotatingDecoration, { speed: 0.03 });
 }
 
 function assignCell(entity: Entity, position: RenderPosition): void {
