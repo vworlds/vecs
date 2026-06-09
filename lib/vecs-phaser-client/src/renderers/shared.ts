@@ -1,4 +1,4 @@
-import type { Entity } from "@vworlds/vecs";
+import type { EID, Entity } from "@vworlds/vecs";
 import {
   Alpha,
   Depth,
@@ -22,6 +22,20 @@ export interface RenderObject extends Phaser.GameObjects.GameObject {
   setRotation(radians: number): this;
   setScale(x: number, y?: number): this;
   setStrokeStyle(lineWidth: number, color: number, alpha?: number): this;
+}
+
+export interface SizeGameObject extends RenderObject {
+  setSize(width: number, height: number): this;
+}
+
+export interface StarGameObject extends RenderObject {
+  setInnerRadius(value: number): this;
+  setOuterRadius(value: number): this;
+  setPoints(points: number): this;
+}
+
+export interface VertexGameObject extends RenderObject {
+  setTo(...coordinates: readonly number[]): this;
 }
 
 export function applyInitialComponents(
@@ -67,6 +81,27 @@ export function applyInitialComponents(
 
 export function applyVertexOrigin(obj: RenderObject): void {
   obj.setOrigin(0, 0);
+}
+
+export function destroyMappedGameObject(ctx: RenderContext, eid: EID): void {
+  const obj = ctx.getGameObject(eid);
+  if (obj === undefined) {
+    return;
+  }
+  obj.destroy();
+  ctx.deleteGameObject(eid);
+}
+
+export function getMappedGameObject<T extends RenderObject>(
+  ctx: RenderContext,
+  eid: EID
+): T | undefined {
+  return ctx.getGameObject(eid) as T | undefined;
+}
+
+export function initialPosition(ctx: RenderContext, entity: Entity): readonly [number, number] {
+  const position = entity.get(Position);
+  return [ctx.coords.x(position?.x ?? 0), ctx.coords.y(position?.y ?? 0)];
 }
 
 export function hexColor(color: number): string {

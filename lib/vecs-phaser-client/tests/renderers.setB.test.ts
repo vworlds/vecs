@@ -90,7 +90,7 @@ describe("VPH-23 renderers", () => {
     const triangle = scene.created[0];
     expect(triangle.kind).toBe("triangle");
     expect(triangle.createArgs).toEqual([640, 448, 0, -0, -32, -16, 80, 48]);
-    expect(triangle.calls).toContainEqual({ method: "setDisplayOrigin", args: [0, 0] });
+    expect(triangle.calls).toContainEqual({ method: "setOrigin", args: [0, 0] });
     expect(triangle.calls).toContainEqual({ method: "setPosition", args: [640, 448] });
     expect(triangle.calls).toContainEqual({ method: "setRotation", args: [-Math.PI / 3] });
     expect(runtime.getGameObject(entity.eid)).toBe(triangle);
