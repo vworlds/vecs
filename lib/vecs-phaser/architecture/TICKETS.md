@@ -101,16 +101,15 @@ Implement `CoordSpace` per §4 using **plain math** (no `Phaser.Math`); read `cx
 with a mock scene (`{ scale: { width, height } }`), including the worked example and angle
 negation; resizing the mock scene moves the center.
 
-### VPH-21 — `PhaserVecsRuntime` core
+### VPH-21 — `PhaserRenderModule` core
 
-**Deps:** VPH-13, VPH-20 · **Files:** `src/runtime.ts`, `src/index.ts`, `tests/runtime.lifecycle.test.ts`
+**Deps:** VPH-13, VPH-20 · **Files:** `src/module.ts`, `src/index.ts`, `tests/module.lifecycle.test.ts`
 
-Implement the runtime shell: options, `eid→GameObject` map, `start()/stop()`,
-`getGameObject()`, the `world.events.on("reset")` handler (clear map), and a registration
-point that VPH-22/23/24 plug systems into. Define a small internal `RenderSystems` install
-function and a `MockScene`/`MockGameObject` test helper others reuse. **Acceptance:**
-`start()` installs systems and `stop()` destroys created objects + removes the reset
-listener; reset clears the map. Uses mock Phaser objects.
+Implement the render module shell: `PhaserRenderModule`, local `VGameObject`, `CoordSpace`
+construction, and a registration point that VPH-22/23/24 plug systems into. Define a
+`MockScene`/`MockGameObject` test helper others reuse. **Acceptance:** `world.module(...)`
+registers render systems, and removing `VGameObject` destroys the Phaser object. Uses mock
+Phaser objects.
 
 ### VPH-22 — Shape renderers (set A: Arc, Rectangle, Polygon, Line, Text)
 
@@ -206,7 +205,7 @@ all renderables; preserve interest management (`View` DSL / `InCell` / `viewAll`
 **Deps:** W2, VPH-40 contract · **Files:** `apps/client/src/main.ts`, `apps/client/index.html`, `apps/client/package.json`
 
 Replace canvas-2D with a Phaser game (one scene, 960×540); connect `ClientWorld` with
-`phaserNetworkComponents`; `new PhaserVecsRuntime({ world, scene, pixelsPerMeter: 100 }).start()`;
+`phaserNetworkComponents`; `world.module(PhaserRenderModule, { scene, pixelsPerMeter: 100 })`;
 `update()` does `setInput` + `progress`; **delete manual render systems**; keep arrows + `G`;
 draw cosmetic grid + instructions with Phaser `Graphics`/`Text`; preserve reconnect handling.
 Add `phaser@^4.1.0` to the app. **Acceptance:** `npm run dev` renders balls/players/scores/

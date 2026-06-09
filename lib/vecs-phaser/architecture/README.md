@@ -115,8 +115,8 @@ build script).
 @vworlds/vecs-phaser            (data-only)   deps: vecs, vecs-wire
         │  components + protocol arrays + TextAlign           no phaser/client/server
         ▼
-@vworlds/vecs-phaser-client     (runtime)     deps: vecs-phaser, vecs-client
-        │  PhaserVecsRuntime, CoordSpace, render systems     peer: phaser@^4.1
+@vworlds/vecs-phaser-client     (render module) deps: vecs-phaser, vecs-client
+        │  PhaserRenderModule, VGameObject, CoordSpace       peer: phaser@^4.1
         ▼
 @vworlds/vecs-phaser-server     (helpers, optional)  deps: vecs-phaser, vecs-server
            PhaserServerModule (zero-config ECS module)  no phaser
@@ -195,18 +195,18 @@ export class CoordSpace {
   rot(rad: number): number;
   deg(rad: number): number;
 }
-export interface PhaserVecsRuntimeOptions {
-  world: ClientWorld;
+export interface PhaserRenderModuleConfig {
   scene: Phaser.Scene;
   pixelsPerMeter?: number; // default 64
-  interpolateRotation?: boolean; // default true
 }
-export class PhaserVecsRuntime {
-  constructor(options: PhaserVecsRuntimeOptions);
-  start(): void;
-  stop(): void;
-  getGameObject(eid: EID): Phaser.GameObjects.GameObject | undefined;
+export class VGameObject {
+  obj: Phaser.GameObjects.GameObject;
 }
+export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
+  init(config: PhaserRenderModuleConfig): void;
+}
+export function phaserInterpolators(options?): Array<readonly [number, ComponentInterpolator]>;
+export const rotationInterpolator: ComponentInterpolator;
 ```
 
 **`@vworlds/vecs-phaser-server`** (optional)
@@ -281,7 +281,7 @@ in `phaserRenderableComponents` order.
 
 ---
 
-## 7. Client runtime architecture
+## 7. Client render module architecture
 
 ### 7.1 Data flow
 
@@ -290,10 +290,10 @@ ServerWorld (meters)                         ClientWorld (meters)            Pha
   entity.set(Arc/Position/…)                    progress(now, delta)
         │ collect snapshots (order §6)              │ apply() → decode → entity.attach()
         ▼ encode (f32)                              ▼ fires query enter/modified/exit
-  StateDiff ── dgram ──────────────────────▶  PhaserVecsRuntime systems
-                                                   │ enter: scene.add.*()  ── CoordSpace ──▶ GameObject
-                                                   │ update: setPosition/…  ── CoordSpace ──▶ mutate
-                                                   └ exit:  gameObject.destroy()
+  StateDiff ── dgram ──────────────────────▶  PhaserRenderModule systems
+                                                   │ new:    scene.add.*() + set VGameObject
+                                                   │ sync:   setPosition/…  ── CoordSpace ──▶ mutate
+                                                   └ exit:   remove VGameObject → destroy()
 ```
 
 The app drives `clientWorld.progress(now, delta)` each frame (from the Phaser scene's
@@ -303,44 +303,48 @@ smooth between server ticks.
 
 ### 7.2 Lifecycle & the enter-initialization invariant
 
-State: `Map<EID, Phaser.GameObjects.GameObject>`.
+State: local `VGameObject` component on each rendered entity. It is not networked and has no
+`@wireType` fields. Looking up an object is `entity.get(VGameObject)?.obj`.
 
-**One system per renderable** (`.with(Arc)`, `.with(Rectangle)`, …):
+**Two systems per renderable**:
 
-- `.enter` → create the GameObject via `scene.add.<kind>(…)`, store in the map, then
-  **initialize from every currently-present component** (`entity.get(Position|Rotation|
-Scale|Alpha|Depth|FillStyle|StrokeStyle)`). This is reliable **because** transform+style
-  components are registered before shapes, so their snapshots are applied first and are
-  already attached when the shape's `enter` fires.
-- `.update(Arc)` etc. → mutate shape geometry on the mapped object. `Polygon.setTo` is
-  _definition_ data, not a 60 fps channel.
-- `.exit` → `destroy()` and remove from the map.
+- `phaser.new.*` matches `.with(Shape).without(VGameObject)` and creates the GameObject via
+  `scene.add.<kind>(…)`, then sets `VGameObject` on the entity.
+- `phaser.render.*` matches `.with(Shape, VGameObject)`, mutates shape geometry on updates,
+  and removes `VGameObject` on exit. `VGameObject.onRemove` destroys the Phaser object, so
+  explicit entity destruction and `clearAllEntities()` also tear down immediately.
 
-**Shared transform/style sync systems** (`.with(Position)`, `.with(FillStyle)`, …) handle
-_subsequent_ changes uniformly across all shape types: look up the mapped GameObject (guard
-when absent) and apply `setPosition/setRotation/setScale/setAlpha/setDepth` /
-`setFillStyle/setStrokeStyle` via `CoordSpace`. (Initial values are covered by enter; new
-adds with `isUpdate=false` are not routed to `.update`, hence enter must read them.)
+The render/exit systems are registered before creation systems so a same-frame renderable
+type change can remove the old `VGameObject` before the new shape's `.without(VGameObject)`
+creation query runs. Sync systems still run after creation, preserving same-tick initial
+position/style.
+
+**Shared transform/style sync systems** match `.with(Component, VGameObject)` for `Position`,
+`Rotation`, `Scale`, `Alpha`, `Depth`, `FillStyle`, and `StrokeStyle`. Each has both `enter`
+and `update`, so pre-present transform/style components initialize the GameObject in the same
+tick that creation sets `VGameObject`. Initial sync is query-driven rather than manual.
 
 Renderable **type change** (e.g. `Arc`→`Rectangle`): exclusivity removes the old renderable
-→ old system `.exit` destroys the GameObject; new system `.enter` creates the replacement.
+→ old render system `.exit` removes `VGameObject`; its remove hook destroys the old object;
+the new shape's creation system creates the replacement.
 
 ### 7.3 Reset
 
-Baseline reset destroys all networked entities → our `.exit` runs → GameObjects destroyed
-automatically. The runtime _also_ subscribes to `world.events.on("reset")` to clear the
-eid→GameObject map defensively, then live entities re-enter and rebuild.
+Baseline reset or disconnect destroys/clears networked entities → `VGameObject` is removed →
+the remove hook destroys GameObjects. Reconnect builds a fresh `ClientWorld` and registers
+`PhaserRenderModule` again. No separate reset handler or entity-id object registry is needed.
 
 ### 7.4 Interpolation
 
-`Position` (type 1) is smoothed by default. When `interpolateRotation` (default true), pass
-an `interpolators` entry for `Rotation`'s type id doing **shortest-arc angular lerp** (in
-radians). All other components snap to latest.
+`Position` (type 1) is smoothed by default. Rotation interpolation is configured at
+`ClientWorld.connectDgram` time by passing `phaserInterpolators()`, which adds a `Rotation`
+type-id interpolator doing **shortest-arc angular lerp** in radians. It is not a render module
+option. All other components snap to latest.
 
 ### 7.5 Origin & rotation pivot
 
 `Position` is the **entity origin** — it maps to the Box2D body transform that
-`syncPhysicsPose` copies, and it is the **rotation pivot** for every shape (`Rotation`
+`PhaserServerModule`'s pose-sync copies, and it is the **rotation pivot** for every shape (`Rotation`
 rotates about it, matching Box2D bodies). The renderer must guarantee this uniformly:
 
 - **Centered primitives** (`Arc`, `Ellipse`, `Rectangle`, `Star`): Phaser already centers
@@ -407,7 +411,7 @@ physics-driven in meters) is migrated to prove the whole stack end to end.
   `phaserNetworkComponents`; keep `Ball`/`Player` as local components.
 - Recenter all game math to meters/center-origin (walls, player spawn/movement, grid cells,
   collision). Physics already meters — drop the pixel `SyncPhysicsBalls` conversion; render
-  `Position`/`Rotation` become a **direct copy** of physics pose (use `syncPhysicsPose`).
+  `Position`/`Rotation` become a **direct copy** of physics pose (via `PhaserServerModule`).
 - Render mapping: **Ball** → `Arc` (radius = physics circle radius) + `FillStyle` (random);
   **Player** → `Rectangle` + `FillStyle`; **score** → a child `Text` entity following the
   player (server writes `Text.value = String(score)`).
@@ -418,12 +422,13 @@ physics-driven in meters) is migrated to prove the whole stack end to end.
 ### Client changes (`apps/client/src/main.ts` + `index.html`)
 
 - Replace canvas-2D with a **Phaser.Game** (one `Scene`, 960×540).
-- In `create()`: connect `ClientWorld.connectDgram({ networkComponents: phaserNetworkComponents, … })`,
-  `new PhaserVecsRuntime({ world, scene, pixelsPerMeter: 100 }).start()`.
+- In `create()`: connect `ClientWorld.connectDgram({ networkComponents: phaserNetworkComponents, interpolators: phaserInterpolators(), … })`,
+  then `world.module(PhaserRenderModule, { scene, pixelsPerMeter: 100 })`.
 - In `update(time, delta)`: `world.setInput({arrows, viewAll})` then `world.progress(time, delta)`.
 - **Delete the manual render systems.** Keep input (arrows + `G`). Cosmetic grid + the
   instructions line drawn with Phaser `Graphics`/`Text` in the demo scene (client-only).
-- Handle connect/disconnect/reconnect as today.
+- On disconnect, call `world.clearAllEntities()`; reconnect creates a fresh `ClientWorld` and
+  registers the render module again.
 
 ### Demonstrates
 
@@ -439,10 +444,11 @@ view (interest management), and baseline-reset rebuild.
   `TextAlign`); `phaserNetworkComponents` order snapshot; `phaserRenderableComponents`
   membership == primary renderables.
 - **`vecs-phaser-client`:** `CoordSpace` math ((0,0)→center, (1,0)→+PPM, (0,1)→−PPM, angle
-  negation, relative vs absolute). With **mock Phaser** objects (node env, no browser):
-  create on shape enter; enter initializes from pre-present Position/FillStyle (ordering
-  invariant); transform/style updates apply via CoordSpace; destroy on exit; recreate on
-  renderable-type change; rebuild on `reset`; Text origin centered.
+  negation, relative vs absolute). With **mock Phaser** objects (node env, no browser): load
+  `PhaserRenderModule` on a `ClientWorld`; create on shape enter; initialize pre-present
+  Position/FillStyle through sync-system ordering; transform/style updates apply via
+  CoordSpace; destroy on exit/entity clear; recreate on renderable-type change; Text origin
+  centered; vertex shapes pin `(0,0)` to `Position`.
 - **`vecs-phaser-server`:** `PhaserServerModule` enforces exclusivity; reactive pose-sync copies
   physics `Position`/`Rotation` → render (only when physics changed; no create).
 - **Demo:** manual + scripted end-to-end (see [`TICKETS.md`](./TICKETS.md) VPH-42).
