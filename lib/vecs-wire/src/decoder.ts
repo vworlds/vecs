@@ -6,6 +6,7 @@ export interface IDecodable<T> {
 
 export type DecodableType<T> = IDecodable<T> | (new () => T);
 
+const probedConstructors = new WeakSet<Function>();
 const maxSafeBigInt = BigInt(Number.MAX_SAFE_INTEGER);
 const minSafeBigInt = BigInt(Number.MIN_SAFE_INTEGER);
 
@@ -215,10 +216,37 @@ export class Decoder {
   }
 
   read<T>(C: DecodableType<T>): T {
-    const decodable = C as IDecodable<T>;
+    let decodable = C as IDecodable<T>;
+    if (typeof decodable.wireDecode !== "function") {
+      probeStandardDecoratedType(C);
+      decodable = C as IDecodable<T>;
+    }
+
     if (typeof decodable.wireDecode !== "function") {
       throw new TypeError("vecs-wire/decoder read requires a wireDecode method");
     }
     return decodable.wireDecode(this);
   }
+}
+
+function isConstructor(value: unknown): value is new () => unknown {
+  if (typeof value !== "function") {
+    return false;
+  }
+
+  try {
+    Reflect.construct(Object, [], value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function probeStandardDecoratedType(C: unknown): void {
+  if (!isConstructor(C) || probedConstructors.has(C)) {
+    return;
+  }
+
+  probedConstructors.add(C);
+  new C();
 }
