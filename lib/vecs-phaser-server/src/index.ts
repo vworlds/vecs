@@ -1,2 +1,1 @@
-export * from "./builders.js";
-export * from "./pose.js";
+export { PhaserServerModule } from "./PhaserServerModule.js";

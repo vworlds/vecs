@@ -119,7 +119,7 @@ build script).
         │  PhaserVecsRuntime, CoordSpace, render systems     peer: phaser@^4.1
         ▼
 @vworlds/vecs-phaser-server     (helpers, optional)  deps: vecs-phaser, vecs-server
-           setExclusiveComponents wiring, builders, pose-sync  no phaser
+           PhaserServerModule (zero-config ECS module)  no phaser
 ```
 
 ### 5.1 Public API surface (the contract subagents build to)
@@ -212,10 +212,10 @@ export class PhaserVecsRuntime {
 **`@vworlds/vecs-phaser-server`** (optional)
 
 ```ts
-export function registerRenderExclusivity(world: ServerWorld): void; // setExclusiveComponents(...renderables)
-export function createArc(world, props): Entity; // + sibling shape builders
-// …builders add Networked + the one renderable + provided transform/style
-export function syncPhysicsPose(world: ServerWorld, options?): void; // physics Position/Rotation → render
+export class PhaserServerModule extends Module<undefined> {
+  // zero-config: sets exclusive renderable components + two PRE_STORE reactive
+  // pose-sync systems (copies vecs-physics Position/Rotation → render Position/Rotation)
+}
 ```
 
 ---
@@ -363,16 +363,11 @@ rotates about it, matching Box2D bodies). The renderer must guarantee this unifo
 
 ```ts
 import { ServerWorld } from "@vworlds/vecs-server";
-import {
-  phaserNetworkComponents,
-  phaserRenderableComponents,
-  Arc,
-  Position,
-  FillStyle,
-} from "@vworlds/vecs-phaser";
+import { PhaserServerModule } from "@vworlds/vecs-phaser-server";
+import { phaserNetworkComponents, Arc, Position, FillStyle } from "@vworlds/vecs-phaser";
 
 const world = new ServerWorld({ name: "main", networkComponents: phaserNetworkComponents });
-world.setExclusiveComponents(...phaserRenderableComponents);
+world.module(PhaserServerModule); // owns exclusivity + reactive pose-sync in PRE_STORE
 
 world
   .entity()
@@ -382,12 +377,14 @@ world
   .set(FillStyle, { color: 0xffcc00, alpha: 1 });
 ```
 
-Optional helpers in `@vworlds/vecs-phaser-server`:
+The `PhaserServerModule` (zero-config) handles everything in one call:
 
-- `registerRenderExclusivity(world)` — one call wrapping `setExclusiveComponents`.
-- shape builders (`createArc`, `createRectangle`, …) that add `Networked` + the renderable.
-- `syncPhysicsPose(world)` — system copying vecs-physics `Position`/`Rotation` (meters) →
-  render `Position`/`Rotation`; a trivial copy since both are meters.
+- Sets exclusive renderable components (one shape per entity).
+- Installs two reactive pose-sync systems in `PRE_STORE` that copy
+  `vecs-physics` `Position`/`Rotation` → render `Position`/`Rotation` only
+  when physics actually changed the body pose. Entities must already have a
+  render pose (set by the user at creation); the module never creates render
+  components.
 
 ---
 
@@ -446,8 +443,8 @@ view (interest management), and baseline-reset rebuild.
   create on shape enter; enter initializes from pre-present Position/FillStyle (ordering
   invariant); transform/style updates apply via CoordSpace; destroy on exit; recreate on
   renderable-type change; rebuild on `reset`; Text origin centered.
-- **`vecs-phaser-server`:** exclusivity rejects two renderables; builders add `Networked` +
-  intended renderable; `syncPhysicsPose` copies pose.
+- **`vecs-phaser-server`:** `PhaserServerModule` enforces exclusivity; reactive pose-sync copies
+  physics `Position`/`Rotation` → render (only when physics changed; no create).
 - **Demo:** manual + scripted end-to-end (see [`TICKETS.md`](./TICKETS.md) VPH-42).
 - Repo gates: `npm run test|typecheck|lint|format` across workspaces.
 
