@@ -7,7 +7,7 @@ import {
   getMappedGameObject,
   initialPosition,
   type StarGameObject,
-} from "./utils.js";
+} from "./shared.js";
 
 export const installStarRenderer: RenderSystemInstaller = (ctx: RenderContext): void => {
   const system = ctx.world
