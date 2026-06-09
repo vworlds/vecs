@@ -29,14 +29,6 @@ interface IWireField {
   spec: WireTypeSpec;
 }
 
-interface StandardFieldDecoratorContext {
-  kind: string;
-  name: string | symbol;
-  static: boolean;
-  private: boolean;
-  addInitializer(initializer: (this: object) => void): void;
-}
-
 type DecoratedConstructor<T = unknown> = (new () => T) & {
   wireDecode?: (decoder: Decoder) => T;
   prototype: IEncodable;
@@ -66,53 +58,22 @@ const compiledConstructors = new WeakSet<Function>();
 export function type(spec: WireTypeSpec): PropertyDecorator {
   assertValidSpec(spec);
 
-  return ((target: unknown, propertyKey: unknown) => {
-    if (isStandardFieldDecoratorContext(propertyKey)) {
-      registerStandardFieldDecorator(spec, propertyKey);
-      return;
-    }
-
-    if (typeof propertyKey !== "string" || target === undefined || target === null) {
+  return (target, propertyKey) => {
+    if (typeof propertyKey !== "string") {
       throw new TypeError("vecs-wire/type only supports string property keys");
     }
 
-    registerWireField((target as object).constructor as DecoratedConstructor, propertyKey, spec);
-  }) as PropertyDecorator;
-}
-
-function registerStandardFieldDecorator(
-  spec: WireTypeSpec,
-  context: StandardFieldDecoratorContext
-): void {
-  if (
-    context.kind !== "field" ||
-    context.static ||
-    context.private ||
-    typeof context.name !== "string"
-  ) {
-    throw new TypeError("vecs-wire/type only supports public instance string fields");
-  }
-
-  const key = context.name;
-  context.addInitializer(function registerWireFieldInitializer(this: object): void {
-    registerWireField(this.constructor as DecoratedConstructor, key, spec);
-  });
-}
-
-function registerWireField(C: DecoratedConstructor, key: string, spec: WireTypeSpec): void {
-  const fields = fieldsByConstructor.get(C) ?? [];
-  const existing = fields.find((field) => field.key === key);
-  if (existing !== undefined) {
-    if (existing.spec === spec) {
-      return;
+    const C = target.constructor as DecoratedConstructor;
+    const fields = fieldsByConstructor.get(C) ?? [];
+    if (fields.some((field) => field.key === propertyKey)) {
+      throw new Error(`vecs-wire/type duplicate field ${propertyKey}`);
     }
-    throw new Error(`vecs-wire/type duplicate field ${key}`);
-  }
 
-  fields.push({ key, spec });
-  fieldsByConstructor.set(C, fields);
-  compiledConstructors.delete(C);
-  installTrampolines(C);
+    fields.push({ key: propertyKey, spec });
+    fieldsByConstructor.set(C, fields);
+    compiledConstructors.delete(C);
+    installTrampolines(C);
+  };
 }
 
 function installTrampolines(C: DecoratedConstructor): void {
@@ -258,14 +219,4 @@ function isArraySpec(spec: WireTypeSpec): spec is readonly [WireScalarType | Wir
 
 function isScalarSpec(spec: WireScalarType | WireConstructor): spec is WireScalarType {
   return typeof spec === "string" && Object.prototype.hasOwnProperty.call(scalarMethods, spec);
-}
-
-function isStandardFieldDecoratorContext(value: unknown): value is StandardFieldDecoratorContext {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "kind" in value &&
-    "name" in value &&
-    "addInitializer" in value
-  );
 }

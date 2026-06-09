@@ -94,44 +94,6 @@ describe("type decorator", () => {
     expect(decoded.extra).toEqual({ ok: true, values: [1, 2, 3] });
   });
 
-  it("supports standard field decorator context", () => {
-    const initializers: Array<(this: object) => void> = [];
-
-    class StandardField {
-      public value = 0;
-
-      public constructor() {
-        initializers.forEach((initializer) => initializer.call(this));
-      }
-    }
-
-    const decorator = type("u8") as unknown as (
-      target: unknown,
-      context: {
-        kind: string;
-        name: string;
-        static: boolean;
-        private: boolean;
-        addInitializer(initializer: (this: object) => void): void;
-      }
-    ) => void;
-    decorator(undefined, {
-      kind: "field",
-      name: "value",
-      static: false,
-      private: false,
-      addInitializer(initializer) {
-        initializers.push(initializer);
-      },
-    });
-
-    const value = new StandardField();
-    value.value = 42;
-
-    expect(roundTrip(StandardField, value).value).toBe(42);
-    expect(new Decoder(Uint8Array.from([7])).read(StandardField).value).toBe(7);
-  });
-
   it("rejects unsigned decorated fields with negative values", () => {
     class Position {
       @type("u16")

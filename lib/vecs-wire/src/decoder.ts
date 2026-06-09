@@ -217,19 +217,8 @@ export class Decoder {
   read<T>(C: DecodableType<T>): T {
     const decodable = C as IDecodable<T>;
     if (typeof decodable.wireDecode !== "function") {
-      initializeDecoratedFields(C);
-    }
-    if (typeof decodable.wireDecode !== "function") {
       throw new TypeError("vecs-wire/decoder read requires a wireDecode method");
     }
     return decodable.wireDecode(this);
-  }
-}
-
-function initializeDecoratedFields<T>(C: DecodableType<T>): void {
-  try {
-    new (C as new () => T)();
-  } catch {
-    // Non-constructable IDecodable objects still fail the explicit check above.
   }
 }

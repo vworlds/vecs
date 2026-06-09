@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --conditions=development --include ../../lib src/main.ts",
+    "dev": "npm run build -w @vworlds/vecs && npm run build -w @vworlds/vecs-wire && npm run build -w @vworlds/vecs-protocol && npm run build -w @vworlds/vecs-server && npm run build -w @vworlds/vecs-physics && npm run build -w @vworlds/vecs-phaser && npm run build -w @vworlds/vecs-phaser-server && tsx watch --tsconfig tsconfig.dev.json src/main.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" --no-error-on-unmatched-pattern",
