@@ -15,20 +15,20 @@ import {
 } from "@vworlds/vecs-phaser";
 import { describe, expect, it } from "vitest";
 
-import { PhaserVecsRuntime } from "../src/runtime.js";
+import { PhaserRenderModule, VGameObject } from "../src/module.js";
 import { createMockScene } from "./mock_phaser.js";
 
 describe("VPH-23 renderers", () => {
   it("creates, updates, and destroys ellipses with CoordSpace-scaled dimensions", () => {
-    const { entity, scene, runtime, world } = setupRuntime();
+    const { entity, scene, world } = setupRuntime();
 
     entity.set(Position, { x: 1, y: -2 }).set(Ellipse, { width: 2, height: 0.5 });
     tick(world);
 
     const ellipse = scene.created[0];
     expect(ellipse.kind).toBe("ellipse");
-    expect(ellipse.createArgs).toEqual([576, 512, 128, 32]);
-    expect(runtime.getGameObject(entity.eid)).toBe(ellipse);
+    expect(ellipse.createArgs).toEqual([0, 0, 128, 32]);
+    expect(entity.get(VGameObject)?.obj).toBe(ellipse);
 
     entity.set(Ellipse, { width: 3, height: 1.25 });
     tick(world);
@@ -39,11 +39,11 @@ describe("VPH-23 renderers", () => {
     tick(world);
 
     expect(ellipse.destroyed).toBe(true);
-    expect(runtime.getGameObject(entity.eid)).toBeUndefined();
+    expect(entity.get(VGameObject)).toBeUndefined();
   });
 
   it("creates, updates, and destroys stars with CoordSpace-scaled radii", () => {
-    const { entity, scene, runtime, world } = setupRuntime();
+    const { entity, scene, world } = setupRuntime();
 
     entity.set(Position, { x: -1, y: 1 }).set(Star, {
       points: 7,
@@ -54,8 +54,8 @@ describe("VPH-23 renderers", () => {
 
     const star = scene.created[0];
     expect(star.kind).toBe("star");
-    expect(star.createArgs).toEqual([448, 320, 7, 16, 48]);
-    expect(runtime.getGameObject(entity.eid)).toBe(star);
+    expect(star.createArgs).toEqual([0, 0, 7, 16, 48]);
+    expect(entity.get(VGameObject)?.obj).toBe(star);
 
     entity.set(Star, { points: 9, innerRadius: 0.5, outerRadius: 1.5 });
     tick(world);
@@ -68,11 +68,11 @@ describe("VPH-23 renderers", () => {
     tick(world);
 
     expect(star.destroyed).toBe(true);
-    expect(runtime.getGameObject(entity.eid)).toBeUndefined();
+    expect(entity.get(VGameObject)).toBeUndefined();
   });
 
   it("pins asymmetric triangle vertex-space origin to Position and rotates about it", () => {
-    const { entity, scene, runtime, world } = setupRuntime();
+    const { entity, scene, world } = setupRuntime();
 
     entity
       .set(Position, { x: 2, y: -1 })
@@ -89,11 +89,11 @@ describe("VPH-23 renderers", () => {
 
     const triangle = scene.created[0];
     expect(triangle.kind).toBe("triangle");
-    expect(triangle.createArgs).toEqual([640, 448, 0, -0, -32, -16, 80, 48]);
+    expect(triangle.createArgs).toEqual([0, 0, 0, -0, -32, -16, 80, 48]);
     expect(triangle.calls).toContainEqual({ method: "setOrigin", args: [0, 0] });
     expect(triangle.calls).toContainEqual({ method: "setPosition", args: [640, 448] });
     expect(triangle.calls).toContainEqual({ method: "setRotation", args: [-Math.PI / 3] });
-    expect(runtime.getGameObject(entity.eid)).toBe(triangle);
+    expect(entity.get(VGameObject)?.obj).toBe(triangle);
 
     entity.set(Triangle, {
       x1: 0.25,
@@ -111,7 +111,7 @@ describe("VPH-23 renderers", () => {
     tick(world);
 
     expect(triangle.destroyed).toBe(true);
-    expect(runtime.getGameObject(entity.eid)).toBeUndefined();
+    expect(entity.get(VGameObject)).toBeUndefined();
   });
 
   it("initializes transform and style components present before a shape enters", () => {
@@ -141,16 +141,14 @@ describe("VPH-23 renderers", () => {
 
 function setupRuntime(): {
   entity: Entity;
-  runtime: PhaserVecsRuntime;
   scene: ReturnType<typeof createMockScene>;
   world: ClientWorld;
 } {
   const world = new ClientWorld();
   phaserNetworkComponents.forEach((ComponentClass) => world.component(ComponentClass));
   const scene = createMockScene(1024, 768);
-  const runtime = new PhaserVecsRuntime({ world, scene });
-  runtime.start();
-  return { entity: world.entity(), runtime, scene, world };
+  world.module(PhaserRenderModule, { scene });
+  return { entity: world.entity(), scene, world };
 }
 
 function tick(world: ClientWorld): void {

@@ -1,6 +1,6 @@
 import { ClientWorld } from "@vworlds/vecs-client";
 import { phaserNetworkComponents } from "@vworlds/vecs-phaser";
-import { CoordSpace, phaserInterpolators, PhaserVecsRuntime } from "@vworlds/vecs-phaser-client";
+import { CoordSpace, PhaserRenderModule, phaserInterpolators } from "@vworlds/vecs-phaser-client";
 import Phaser from "phaser";
 
 const CANVAS_WIDTH = 960;
@@ -16,7 +16,6 @@ const WORLD_HALF_WIDTH_METERS = CANVAS_WIDTH / PIXELS_PER_METER / 2;
 const WORLD_HALF_HEIGHT_METERS = CANVAS_HEIGHT / PIXELS_PER_METER / 2;
 
 interface Session {
-  readonly runtime: PhaserVecsRuntime;
   readonly scene: Phaser.Scene;
   readonly world: ClientWorld;
 }
@@ -140,7 +139,7 @@ async function connect(scene: Phaser.Scene): Promise<void> {
   try {
     const session = await createSession(scene);
     if (generation !== connectGeneration) {
-      session.runtime.stop();
+      session.world.clearAllEntities();
       session.world.close();
       return;
     }
@@ -164,16 +163,9 @@ async function createSession(scene: Phaser.Scene): Promise<Session> {
     port: SERVER_PORT,
     worldName: "main",
   });
-  const runtime = new PhaserVecsRuntime({
-    interpolateRotation: true,
-    pixelsPerMeter: PIXELS_PER_METER,
-    scene,
-    world,
-  });
+  world.module(PhaserRenderModule, { pixelsPerMeter: PIXELS_PER_METER, scene });
 
-  runtime.start();
-
-  return { runtime, scene, world };
+  return { scene, world };
 }
 
 function handleDisconnect(session: Session): void {
@@ -183,7 +175,6 @@ function handleDisconnect(session: Session): void {
 
   keys.clear();
   session.world.clearAllEntities();
-  session.runtime.stop();
   activeSession = undefined;
   scheduleReconnect("Disconnected. Reconnecting...", session.scene);
 }
