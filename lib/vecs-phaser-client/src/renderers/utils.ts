@@ -27,8 +27,9 @@ export interface SizeGameObject extends TransformStyleGameObject {
 }
 
 export interface StarGameObject extends TransformStyleGameObject {
+  setInnerRadius(value: number): this;
+  setOuterRadius(value: number): this;
   setPoints(points: number): this;
-  setRadius(innerRadius: number, outerRadius: number): this;
 }
 
 export interface VertexGameObject extends TransformStyleGameObject {

@@ -61,7 +61,8 @@ describe("VPH-23 renderers", () => {
     tick(world);
 
     expect(star.calls).toContainEqual({ method: "setPoints", args: [9] });
-    expect(star.calls).toContainEqual({ method: "setRadius", args: [32, 96] });
+    expect(star.calls).toContainEqual({ method: "setInnerRadius", args: [32] });
+    expect(star.calls).toContainEqual({ method: "setOuterRadius", args: [96] });
 
     entity.remove(Star);
     tick(world);

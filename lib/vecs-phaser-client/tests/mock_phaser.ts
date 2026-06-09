@@ -31,6 +31,10 @@ export class MockGameObject {
     return this.record("setFillStyle", ...args);
   }
 
+  setInnerRadius(...args: readonly unknown[]): this {
+    return this.record("setInnerRadius", ...args);
+  }
+
   setDisplayOrigin(...args: readonly unknown[]): this {
     return this.record("setDisplayOrigin", ...args);
   }
@@ -51,8 +55,8 @@ export class MockGameObject {
     return this.record("setPoints", ...args);
   }
 
-  setRadius(...args: readonly unknown[]): this {
-    return this.record("setRadius", ...args);
+  setOuterRadius(...args: readonly unknown[]): this {
+    return this.record("setOuterRadius", ...args);
   }
 
   setScale(...args: readonly unknown[]): this {

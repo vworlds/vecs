@@ -31,7 +31,8 @@ export const installStarRenderer: RenderSystemInstaller = (ctx: RenderContext): 
         return;
       }
       obj.setPoints(star.points);
-      obj.setRadius(ctx.coords.len(star.innerRadius), ctx.coords.len(star.outerRadius));
+      obj.setInnerRadius(ctx.coords.len(star.innerRadius));
+      obj.setOuterRadius(ctx.coords.len(star.outerRadius));
     })
     .exit((entity) => destroyMappedGameObject(ctx, entity.eid));
 
