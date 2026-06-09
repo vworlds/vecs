@@ -9,6 +9,9 @@ export default defineConfig({
       "@vworlds/vecs-phaser": fileURLToPath(
         new URL("../vecs-phaser/src/index.ts", import.meta.url)
       ),
+      "@vworlds/vecs-physics": fileURLToPath(
+        new URL("../vecs-physics/src/index.ts", import.meta.url)
+      ),
       "@vworlds/vecs-protocol": fileURLToPath(
         new URL("../vecs-protocol/src/index.ts", import.meta.url)
       ),
