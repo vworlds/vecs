@@ -1,8 +1,24 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
-const syncedDependencyNames = ["@vworlds/vecs", "@vworlds/vecs-protocol", "@vworlds/vecs-wire"];
-const rootDistPackages = new Set(["vecs-client", "vecs-physics", "vecs-protocol", "vecs-server"]);
+const syncedDependencyNames = [
+  "@vworlds/vecs",
+  "@vworlds/vecs-protocol",
+  "@vworlds/vecs-wire",
+  "@vworlds/vecs-client",
+  "@vworlds/vecs-server",
+  "@vworlds/vecs-physics",
+  "@vworlds/vecs-phaser",
+];
+const rootDistPackages = new Set([
+  "vecs-client",
+  "vecs-physics",
+  "vecs-protocol",
+  "vecs-server",
+  "vecs-phaser",
+  "vecs-phaser-server",
+  "vecs-phaser-client",
+]);
 const packageDir = process.argv[2];
 
 if (!packageDir) {
@@ -38,6 +54,7 @@ const publishPackage = {
     url: "git+https://github.com/vworlds/vecs.git",
   },
   dependencies,
+  peerDependencies: sourcePackage.peerDependencies,
   license: sourcePackage.license,
 };
 
