@@ -1,9 +1,9 @@
 import express from "express";
 import { type ComponentClass, type Entity, type QueryDSL, Relationship } from "@vworlds/vecs";
 import {
-  Arc,
   FillStyle,
   phaserNetworkComponents,
+  Polygon,
   Position as RenderPosition,
   Rectangle,
   Rotation as RenderRotation,
@@ -62,7 +62,6 @@ const PLAYER_STEP = 7 / PIXELS_PER_METER;
 const SCORE_OFFSET_Y = PLAYER_HALF_SIZE + 0.18;
 const MAX_BALLS = 50;
 const BALL_RADIUS = 12 / PIXELS_PER_METER;
-const BALL_ARC_END_ANGLE = Math.PI * 1.65;
 const TICK_RATE = 30;
 const DT = 1 / TICK_RATE;
 const DT_MS = 1000 / TICK_RATE;
@@ -364,7 +363,7 @@ function spawnBall(x?: number, y?: number): void {
     .entity()
     .add(Networked)
     .add(Ball)
-    .set(Arc, { endAngle: BALL_ARC_END_ANGLE, radius: BALL_RADIUS })
+    .set(Polygon, { points: regularHexagonPoints(BALL_RADIUS) })
     .set(FillStyle, randomFillStyle())
     .set(RenderPosition, point)
     .set(RenderRotation, { angle: 0 })
@@ -382,6 +381,13 @@ function spawnBall(x?: number, y?: number): void {
     .childOf(body)
     .set(Circle, { radius: BALL_RADIUS })
     .set(Material, { friction: 0.6, restitution: 0.7 });
+}
+
+function regularHexagonPoints(radius: number): number[] {
+  return Array.from({ length: 6 }, (_value, i) => {
+    const angle = (i * Math.PI) / 3;
+    return [radius * Math.cos(angle), radius * Math.sin(angle)];
+  }).flat();
 }
 
 function createPhysicsWalls(): void {
