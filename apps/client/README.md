@@ -1,7 +1,7 @@
 # vecs Demo Client
 
 Phaser client for the server-driven rendering demo. The client connects to `apps/server`,
-receives replicated vecs render components, and lets `PhaserVecsRuntime` create/update/destroy
+receives replicated vecs render components, and lets `PhaserRenderModule` create/update/destroy
 GameObjects automatically.
 
 ## Run

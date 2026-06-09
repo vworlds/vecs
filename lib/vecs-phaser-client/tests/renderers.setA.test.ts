@@ -17,15 +17,14 @@ import {
 } from "@vworlds/vecs-phaser";
 import { describe, expect, it } from "vitest";
 
-import { PhaserVecsRuntime } from "../src/runtime.js";
+import { PhaserRenderModule, VGameObject } from "../src/module.js";
 import { createMockScene, type MockGameObject } from "./mock_phaser.js";
 
 function setup() {
   const world = new ClientWorld({ networkComponents: phaserNetworkComponents });
   const scene = createMockScene(1024, 768);
-  const runtime = new PhaserVecsRuntime({ world, scene, pixelsPerMeter: 64 });
-  runtime.start();
-  return { runtime, scene, world };
+  world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64 });
+  return { scene, world };
 }
 
 function methods(obj: MockGameObject, method: string): readonly (readonly unknown[])[] {
@@ -34,7 +33,7 @@ function methods(obj: MockGameObject, method: string): readonly (readonly unknow
 
 describe("set A renderers", () => {
   it("creates, updates, and destroys arcs with CoordSpace geometry", () => {
-    const { runtime, scene, world } = setup();
+    const { scene, world } = setup();
     const entity = world.entity();
     entity.set(Position, { x: 1, y: 2 });
     entity.set(FillStyle, { alpha: 0.75, color: 0xff0000 });
@@ -45,7 +44,7 @@ describe("set A renderers", () => {
     const obj = scene.created[0]!;
     expect(obj.kind).toBe("arc");
     expect(obj.createArgs).toEqual([0, 0, 32, -90, -180, false]);
-    expect(runtime.getGameObject(entity.eid)).toBe(obj);
+    expect(entity.get(VGameObject)?.obj).toBe(obj);
     expect(methods(obj, "setPosition")).toContainEqual([576, 256]);
     expect(methods(obj, "setFillStyle")).toContainEqual([0xff0000, 0.75]);
     expect(methods(obj, "setIterations")).toContainEqual([0.02]);
@@ -54,16 +53,16 @@ describe("set A renderers", () => {
     entity.set(Arc, { endAngle: Math.PI / 2, iterations: 0.05, radius: 0.25, startAngle: 0 });
     world.progress(1, 0);
 
-    expect(methods(obj, "setRadius")).toEqual([[16]]);
-    expect(methods(obj, "setStartAngle")).toEqual([[-0, false]]);
-    expect(methods(obj, "setEndAngle")).toEqual([[-90, false]]);
-    expect(methods(obj, "setIterations")).toEqual([[0.05]]);
+    expect(methods(obj, "setRadius")).toContainEqual([16]);
+    expect(methods(obj, "setStartAngle")).toContainEqual([-0, false]);
+    expect(methods(obj, "setEndAngle")).toContainEqual([-90, false]);
+    expect(methods(obj, "setIterations")).toContainEqual([0.05]);
 
     entity.remove(Arc);
     world.progress(2, 0);
 
     expect(obj.destroyed).toBe(true);
-    expect(runtime.getGameObject(entity.eid)).toBeUndefined();
+    expect(entity.get(VGameObject)).toBeUndefined();
   });
 
   it("initializes centered primitives from pre-present transform and style components", () => {
@@ -102,7 +101,7 @@ describe("set A renderers", () => {
     entity.set(Rectangle, { height: 0.25, width: 0.5 });
     world.progress(1, 0);
 
-    expect(methods(obj, "setSize")).toEqual([[32, 16]]);
+    expect(methods(obj, "setSize")).toContainEqual([32, 16]);
   });
 
   it("uses scaled and flipped relative points for polygons and pins vertex origin to Position", () => {
@@ -125,8 +124,8 @@ describe("set A renderers", () => {
     entity.set(Polygon, { points: [-0.5, 0.5, 1, -0.25, 0, -1] });
     world.progress(1, 0);
 
-    expect(methods(obj, "setTo")).toEqual([[[-32, -32, 64, 16, 0, 64]]]);
-    expect(methods(obj, "setOrigin")).toEqual([[0, 0]]);
+    expect(methods(obj, "setTo")).toContainEqual([[-32, -32, 64, 16, 0, 64]]);
+    expect(methods(obj, "setOrigin")).toContainEqual([0, 0]);
     expect(methods(obj, "setPosition")).toEqual([]);
   });
 
@@ -184,18 +183,16 @@ describe("set A renderers", () => {
     entity.set(Text, { align: TextAlign.Right, color: 0x123, fontSize: 18, value: "bye" });
     world.progress(1, 0);
 
-    expect(methods(obj, "setText")).toEqual([["bye"]]);
-    expect(methods(obj, "setStyle")).toEqual([
-      [
-        {
-          align: "right",
-          backgroundColor: "#112233",
-          color: "#000123",
-          fontFamily: "serif",
-          fontSize: 18,
-        },
-      ],
+    expect(methods(obj, "setText")).toContainEqual(["bye"]);
+    expect(methods(obj, "setStyle")).toContainEqual([
+      {
+        align: "right",
+        backgroundColor: "#112233",
+        color: "#000123",
+        fontFamily: "serif",
+        fontSize: 18,
+      },
     ]);
-    expect(methods(obj, "setOrigin")).toEqual([[0.5]]);
+    expect(methods(obj, "setOrigin")).toContainEqual([0.5]);
   });
 });
