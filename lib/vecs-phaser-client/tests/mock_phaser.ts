@@ -47,6 +47,34 @@ export class MockGameObject {
     return this.record("setScale", ...args);
   }
 
+  setEndAngle(...args: readonly unknown[]): this {
+    return this.record("setEndAngle", ...args);
+  }
+
+  setIterations(...args: readonly unknown[]): this {
+    return this.record("setIterations", ...args);
+  }
+
+  setRadius(...args: readonly unknown[]): this {
+    return this.record("setRadius", ...args);
+  }
+
+  setSize(...args: readonly unknown[]): this {
+    return this.record("setSize", ...args);
+  }
+
+  setStartAngle(...args: readonly unknown[]): this {
+    return this.record("setStartAngle", ...args);
+  }
+
+  setStyle(...args: readonly unknown[]): this {
+    return this.record("setStyle", ...args);
+  }
+
+  setText(...args: readonly unknown[]): this {
+    return this.record("setText", ...args);
+  }
+
   setStrokeStyle(...args: readonly unknown[]): this {
     return this.record("setStrokeStyle", ...args);
   }
