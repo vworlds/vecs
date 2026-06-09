@@ -6,13 +6,11 @@ GameObjects automatically.
 
 ## Run
 
-Build the workspace packages before starting the demo. The client consumes the built `dist`
-output for `@vworlds/vecs-phaser*` on purpose; loading those decorator-bearing components from
-source under Vite/esbuild can prevent wire fields from registering.
+Start the demo directly; Vite aliases workspace packages to source, so client and Phaser package
+changes hot-reload without a build step.
 
 ```bash
 npm install
-npm run build
 npm run dev -w @vworlds/vecs-demo-server
 npm run dev -w @vworlds/vecs-demo-client
 ```
