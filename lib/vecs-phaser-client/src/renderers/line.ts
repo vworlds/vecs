@@ -2,12 +2,7 @@ import { Line } from "@vworlds/vecs-phaser";
 import type Phaser from "phaser";
 
 import type { RenderContext } from "../render_context.js";
-import {
-  applyInitialComponents,
-  applyVertexOrigin,
-  boundsFromFlatPoints,
-  type RenderObject,
-} from "./shared.js";
+import { applyInitialComponents, applyVertexOrigin, type RenderObject } from "./shared.js";
 
 type LineObject = Phaser.GameObjects.Line & RenderObject;
 
@@ -30,7 +25,7 @@ export function installLineRenderer(ctx: RenderContext): void {
         points[2],
         points[3]
       ) as LineObject;
-      applyVertexOrigin(obj, boundsFromFlatPoints(points));
+      applyVertexOrigin(obj);
       ctx.setGameObject(entity.eid, obj);
       applyInitialComponents(ctx, entity, obj);
     })
@@ -41,7 +36,7 @@ export function installLineRenderer(ctx: RenderContext): void {
       }
       const points = linePoints(ctx, line);
       obj.setTo(points[0], points[1], points[2], points[3]);
-      applyVertexOrigin(obj, boundsFromFlatPoints(points));
+      applyVertexOrigin(obj);
     })
     .exit((entity) => {
       const obj = ctx.getGameObject(entity.eid);

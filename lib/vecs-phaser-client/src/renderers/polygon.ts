@@ -2,12 +2,7 @@ import { Polygon } from "@vworlds/vecs-phaser";
 import type Phaser from "phaser";
 
 import type { RenderContext } from "../render_context.js";
-import {
-  applyInitialComponents,
-  applyVertexOrigin,
-  boundsFromFlatPoints,
-  type RenderObject,
-} from "./shared.js";
+import { applyInitialComponents, applyVertexOrigin, type RenderObject } from "./shared.js";
 
 type PolygonObject = Phaser.GameObjects.Polygon & RenderObject;
 
@@ -23,7 +18,7 @@ export function installPolygonRenderer(ctx: RenderContext): void {
 
       const points = polygonPoints(ctx, polygon);
       const obj = ctx.scene.add.polygon(0, 0, points) as PolygonObject;
-      applyVertexOrigin(obj, boundsFromFlatPoints(points));
+      applyVertexOrigin(obj);
       ctx.setGameObject(entity.eid, obj);
       applyInitialComponents(ctx, entity, obj);
     })
@@ -34,7 +29,7 @@ export function installPolygonRenderer(ctx: RenderContext): void {
       }
       const points = polygonPoints(ctx, polygon);
       obj.setTo(points);
-      applyVertexOrigin(obj, boundsFromFlatPoints(points));
+      applyVertexOrigin(obj);
     })
     .exit((entity) => {
       const obj = ctx.getGameObject(entity.eid);

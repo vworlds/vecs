@@ -118,7 +118,7 @@ describe("set A renderers", () => {
     expect(obj.kind).toBe("polygon");
     expect(obj.createArgs).toEqual([0, 0, [-64, 32, 128, -64, 32, 64]]);
     expect(methods(obj, "setPosition")).toContainEqual([576, 448]);
-    expect(methods(obj, "setOrigin")).toContainEqual([1 / 3, 0.5]);
+    expect(methods(obj, "setOrigin")).toContainEqual([0, 0]);
     expect(methods(obj, "setRotation")).toContainEqual([-Math.PI / 2]);
 
     obj.calls.length = 0;
@@ -126,7 +126,7 @@ describe("set A renderers", () => {
     world.progress(1, 0);
 
     expect(methods(obj, "setTo")).toEqual([[[-32, -32, 64, 16, 0, 64]]]);
-    expect(methods(obj, "setOrigin")).toEqual([[1 / 3, 1 / 3]]);
+    expect(methods(obj, "setOrigin")).toEqual([[0, 0]]);
     expect(methods(obj, "setPosition")).toEqual([]);
   });
 
@@ -143,7 +143,7 @@ describe("set A renderers", () => {
     expect(obj.kind).toBe("line");
     expect(obj.createArgs).toEqual([0, 0, -64, 16, 128, -48]);
     expect(methods(obj, "setPosition")).toContainEqual([480, 352]);
-    expect(methods(obj, "setOrigin")).toContainEqual([1 / 3, 0.75]);
+    expect(methods(obj, "setOrigin")).toContainEqual([0, 0]);
     expect(methods(obj, "setRotation")).toContainEqual([-Math.PI]);
   });
 

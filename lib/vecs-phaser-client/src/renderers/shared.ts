@@ -24,13 +24,6 @@ export interface RenderObject extends Phaser.GameObjects.GameObject {
   setStrokeStyle(lineWidth: number, color: number, alpha?: number): this;
 }
 
-export interface VertexBounds {
-  readonly maxX: number;
-  readonly maxY: number;
-  readonly minX: number;
-  readonly minY: number;
-}
-
 export function applyInitialComponents(
   ctx: RenderContext,
   entity: Entity,
@@ -72,32 +65,8 @@ export function applyInitialComponents(
   }
 }
 
-export function applyVertexOrigin(obj: RenderObject, bounds: VertexBounds): void {
-  const width = bounds.maxX - bounds.minX;
-  const height = bounds.maxY - bounds.minY;
-  obj.setOrigin(originForAxis(bounds.minX, width), originForAxis(bounds.minY, height));
-}
-
-export function boundsFromFlatPoints(points: readonly number[]): VertexBounds {
-  if (points.length < 2) {
-    return { maxX: 0, maxY: 0, minX: 0, minY: 0 };
-  }
-
-  let minX = points[0] ?? 0;
-  let maxX = minX;
-  let minY = points[1] ?? 0;
-  let maxY = minY;
-
-  for (let i = 2; i < points.length; i += 2) {
-    const x = points[i] ?? 0;
-    const y = points[i + 1] ?? 0;
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y);
-  }
-
-  return { maxX, maxY, minX, minY };
+export function applyVertexOrigin(obj: RenderObject): void {
+  obj.setOrigin(0, 0);
 }
 
 export function hexColor(color: number): string {
@@ -113,8 +82,4 @@ export function textAlign(value: TextAlign): "center" | "left" | "right" {
     default:
       return "left";
   }
-}
-
-function originForAxis(min: number, size: number): number {
-  return size === 0 ? 0 : -min / size;
 }
