@@ -1,15 +1,26 @@
 import express from "express";
-import { type as wireType } from "@vworlds/vecs-wire";
-import {
-  NetworkClient,
-  NetworkInput,
-  Networked,
-  ServerWorld,
-  VecsListener,
-  View,
-} from "@vworlds/vecs-server";
 import { type ComponentClass, type Entity, type QueryDSL, Relationship } from "@vworlds/vecs";
 import {
+  Arc,
+  FillStyle,
+  phaserNetworkComponents,
+  Position as RenderPosition,
+  Rectangle,
+  Rotation as RenderRotation,
+  Text,
+  TextAlign,
+} from "@vworlds/vecs-phaser";
+import {
+  createEllipse,
+  createLine,
+  createPolygon,
+  createStar,
+  createTriangle,
+  registerRenderExclusivity,
+  syncPhysicsPose,
+} from "@vworlds/vecs-phaser-server";
+import {
+  AngularVelocity as PhysicsAngularVelocity,
   Body,
   BodyType,
   Chain,
@@ -19,26 +30,41 @@ import {
   PhysicsModule,
   Position as PhysicsPosition,
   preloadPhysics,
+  Rotation as PhysicsRotation,
 } from "@vworlds/vecs-physics";
+import {
+  NetworkClient,
+  NetworkInput,
+  Networked,
+  ServerWorld,
+  VecsListener,
+  View,
+} from "@vworlds/vecs-server";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const WIDTH = 960;
 const HEIGHT = 540;
-const GAME_TOP = 60;
-const PLAY_HEIGHT = HEIGHT - GAME_TOP;
+const PIXELS_PER_METER = 100;
+const WORLD_WIDTH = WIDTH / PIXELS_PER_METER;
+const WORLD_HEIGHT = HEIGHT / PIXELS_PER_METER;
+const WORLD_MIN_X = -WORLD_WIDTH / 2;
+const WORLD_MAX_X = WORLD_WIDTH / 2;
+const WORLD_MIN_Y = -WORLD_HEIGHT / 2;
+const WORLD_MAX_Y = WORLD_HEIGHT / 2;
 const GRID_COLUMNS = 3;
 const GRID_ROWS = 3;
 const GRID_CELL_COUNT = GRID_COLUMNS * GRID_ROWS;
-const GRID_CELL_WIDTH = WIDTH / GRID_COLUMNS;
-const GRID_CELL_HEIGHT = (HEIGHT - GAME_TOP) / GRID_ROWS;
-const PLAYER_SIZE = 28;
-const PLAYER_STEP = 7;
+const GRID_CELL_WIDTH = WORLD_WIDTH / GRID_COLUMNS;
+const GRID_CELL_HEIGHT = WORLD_HEIGHT / GRID_ROWS;
+const PLAYER_SIZE = 28 / PIXELS_PER_METER;
+const PLAYER_HALF_SIZE = PLAYER_SIZE / 2;
+const PLAYER_STEP = 7 / PIXELS_PER_METER;
+const SCORE_OFFSET_Y = PLAYER_HALF_SIZE + 0.18;
 const MAX_BALLS = 50;
-const BALL_RADIUS = 12;
+const BALL_RADIUS = 12 / PIXELS_PER_METER;
 const TICK_RATE = 30;
 const DT = 1 / TICK_RATE;
 const DT_MS = 1000 / TICK_RATE;
-const PIXELS_PER_METER = 100;
 let playerSpawnIndex = 0;
 
 interface PlayerInput {
@@ -49,27 +75,13 @@ interface PlayerInput {
   viewAll?: boolean;
 }
 
-class Position {
-  @wireType("i16")
-  public x = 0;
-
-  @wireType("i16")
-  public y = 0;
-}
-
 class Player {
-  @wireType("u32")
   public score = 0;
+  public scoreText?: Entity;
 }
 
 class Ball {
-  @wireType("u8")
   public radius = BALL_RADIUS;
-}
-
-class Color {
-  @wireType("u32")
-  public value = 0xffffff;
 }
 
 class ViewAll {}
@@ -89,7 +101,9 @@ const cellTagComponents: ComponentClass[] = Array.from(
   () => class CellTag {}
 );
 
-const world = new ServerWorld({ name: "main", networkComponents: [Position, Player, Ball, Color] });
+const world = new ServerWorld({ name: "main", networkComponents: phaserNetworkComponents });
+registerRenderExclusivity(world);
+
 const app = express();
 app.use(express.json());
 app.use((req, res, next) => {
@@ -105,6 +119,8 @@ app.use((req, res, next) => {
 
 const vecsListener = new VecsListener();
 const server = vecsListener.registerWorld(world);
+world.component(Ball);
+world.component(Player);
 world.component(InCell);
 world.component(ViewAll);
 cellTagComponents.forEach((CellTag) => {
@@ -114,6 +130,7 @@ cellTagComponents.forEach((CellTag) => {
 await preloadPhysics();
 world.module(PhysicsModule, { gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 });
 const physicsPost = world.entity("physics-post");
+syncPhysicsPose(world, { phase: physicsPost });
 
 // One anchor entity per grid cell. Moving entities relate to these via InCell;
 // the per-cell View DSL targets each anchor's tag.
@@ -127,59 +144,58 @@ world.component(NetworkClient).onSet((entity) => {
 });
 
 // Simulation index: balls bucketed by their position cell. Re-buckets in place
-// as a ball moves (driven by Position updates), giving collision a cheap
+// as a ball moves (driven by render Position updates), giving collision a cheap
 // per-cell candidate set instead of scanning every ball.
 const ballsByCell = world
   .query("BallsByCell")
-  .with(Networked, Ball, Position)
-  .groupBy([Position], (_entity: Entity, [position]: [Position]) => getGridCellIndex(position));
+  .with(Networked, Ball, RenderPosition)
+  .groupBy([RenderPosition], (_entity: Entity, [position]: [RenderPosition]) =>
+    getGridCellIndex(position)
+  );
 
 // Interest index: every networked entity bucketed by the cell entity it points
 // at via InCell. Keyed by the cell anchor entity (the relationship target), so
 // it stays correct purely from relationship retargeting.
-const occupancyByCell = world.query("OccupancyByCell").with(Networked, Position).groupBy(InCell);
-
-var selected: Entity | undefined = undefined;
-world
-  .system("SyncPhysicsBalls")
-  .with(Networked, Ball, Position, PhysicsPosition)
-  .phase(physicsPost)
-  .each([Position, PhysicsPosition, Ball], (entity, [position, physicsPosition, ball]) => {
-    // Keep the wire-typed demo Position as the client protocol and adapt from
-    // vecs-physics Position post-step instead of decorating external classes.
-    const next = toDemoBallPoint(physicsPosition, ball.radius);
-    if (position.x !== next.x || position.y !== next.y) {
-      position.x = next.x;
-      position.y = next.y;
-      entity.modified(Position);
-    }
-  });
+const occupancyByCell = world
+  .query("OccupancyByCell")
+  .with(Networked, RenderPosition)
+  .groupBy(InCell);
 
 world
   .system("SpawnPlayers")
   .with(Networked, NetworkClient)
   .enter((entity) => {
-    const playerIndex = playerSpawnIndex++;
-    entity.set(Position, {
-      x: 80 + (playerIndex % 8) * 70,
-      y: 420 - Math.floor(playerIndex / 8) * 45,
-    });
-    entity.add(Player).add(ViewAll);
+    const spawn = nextPlayerSpawnPoint();
+    const scoreText = createScoreText(entity, spawn);
+    entity
+      .set(RenderPosition, spawn)
+      .set(Rectangle, { width: PLAYER_SIZE, height: PLAYER_SIZE })
+      .set(FillStyle, { color: 0x66ccff, alpha: 1 })
+      .set(Player, { scoreText })
+      .add(ViewAll);
   });
 
 world
   .system("MovePlayers")
-  .with(Networked, NetworkClient, NetworkInput, Player, Position)
-  .each([NetworkInput, Player, Position], (entity, [networkInput, player, position]) => {
+  .with(Networked, NetworkClient, NetworkInput, Player, RenderPosition)
+  .each([NetworkInput, Player, RenderPosition], (entity, [networkInput, player, position]) => {
     const input = normalizeInput(networkInput.input);
     syncViewAll(entity, input.viewAll === true);
 
     const x = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    const y = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+    const y = (input.up ? 1 : 0) - (input.down ? 1 : 0);
+    const nextX = clamp(
+      position.x + x * PLAYER_STEP,
+      WORLD_MIN_X + PLAYER_HALF_SIZE,
+      WORLD_MAX_X - PLAYER_HALF_SIZE
+    );
+    const nextY = clamp(
+      position.y + y * PLAYER_STEP,
+      WORLD_MIN_Y + PLAYER_HALF_SIZE,
+      WORLD_MAX_Y - PLAYER_HALF_SIZE
+    );
 
-    position.x = clamp(position.x + x * PLAYER_STEP, 0, WIDTH - PLAYER_SIZE);
-    position.y = clamp(position.y + y * PLAYER_STEP, GAME_TOP, HEIGHT - PLAYER_SIZE);
-    entity.modified(Position);
+    updateRenderPosition(entity, position, nextX, nextY);
 
     // Only test balls in the player's cell and its neighbours — the grouping
     // turns an all-balls scan into a small per-cell candidate set.
@@ -187,18 +203,19 @@ world
       ballsByCell
         .group(cellIndex)
         ?.forEach(
-          [Position, Ball],
-          (ballEntity: Entity, [ballPosition, ball]: [Position, Ball]) => {
+          [RenderPosition, Ball],
+          (ballEntity: Entity, [ballPosition, ball]: [RenderPosition, Ball]) => {
             if (!overlaps(position, ballPosition, ball.radius)) {
               return;
             }
 
             player.score += 1;
-            entity.modified(Player);
             ballEntity.destroy();
           }
         );
     });
+
+    syncScoreText(player, position);
   });
 
 world
@@ -215,22 +232,25 @@ world
 // and no exclusive-component bookkeeping.
 world
   .system("AssignCells")
-  .with(Networked, Position)
+  .with(Networked, RenderPosition)
   .phase(physicsPost)
-  .enter([Position], (entity, [position]) => assignCell(entity, position))
-  .update(Position, (entity, position) => assignCell(entity, position));
+  .enter([RenderPosition], (entity, [position]) => assignCell(entity, position))
+  .update(RenderPosition, (entity, position) => assignCell(entity, position));
 
 world
   .system("UpdatePlayerViews")
-  .with(Networked, NetworkClient, Position, View)
+  .with(Networked, NetworkClient, RenderPosition, View)
   .phase(physicsPost)
-  .enter([Position, View], (entity, [position, view]) => updatePlayerView(entity, position, view))
-  .update(Position, [View], (entity, position, [view]) => updatePlayerView(entity, position, view));
+  .enter([RenderPosition, View], (entity, [position, view]) =>
+    updatePlayerView(entity, position, view)
+  )
+  .update(RenderPosition, [View], (entity, position, [view]) =>
+    updatePlayerView(entity, position, view)
+  );
 
 createPhysicsWalls();
-for (let i = 0; i < 1; i++) {
-  spawnBall(110 + i * 95, 120 + (i % 3) * 90);
-}
+createDecorations();
+spawnBall(-3.7, 1.5);
 
 await vecsListener.listen(app, { ordered: false, maxRetransmits: 2 });
 
@@ -268,6 +288,60 @@ function simulate(dt: number, tick: number): void {
   world.progress((tick + 1) * DT_MS, dt * 1000);
 }
 
+function nextPlayerSpawnPoint(): { x: number; y: number } {
+  const playerIndex = playerSpawnIndex++;
+  return {
+    x: clamp(
+      WORLD_MIN_X + PLAYER_HALF_SIZE + 0.5 + (playerIndex % 8) * 0.7,
+      WORLD_MIN_X + PLAYER_HALF_SIZE,
+      WORLD_MAX_X - PLAYER_HALF_SIZE
+    ),
+    y: clamp(
+      WORLD_MAX_Y - PLAYER_HALF_SIZE - 0.5 - Math.floor(playerIndex / 8) * 0.45,
+      WORLD_MIN_Y + PLAYER_HALF_SIZE,
+      WORLD_MAX_Y - PLAYER_HALF_SIZE
+    ),
+  };
+}
+
+function createScoreText(playerEntity: Entity, playerPosition: { x: number; y: number }): Entity {
+  return world
+    .entity()
+    .childOf(playerEntity)
+    .add(Networked)
+    .set(RenderPosition, scoreTextPosition(playerPosition))
+    .set(Text, {
+      value: "0",
+      fontFamily: "monospace",
+      fontSize: 18,
+      color: 0xffffff,
+      align: TextAlign.Center,
+    });
+}
+
+function syncScoreText(player: Player, playerPosition: RenderPosition): void {
+  const scoreTextEntity = player.scoreText;
+  if (scoreTextEntity === undefined) {
+    return;
+  }
+
+  const textPosition = scoreTextEntity.get(RenderPosition);
+  if (textPosition !== undefined) {
+    const next = scoreTextPosition(playerPosition);
+    updateRenderPosition(scoreTextEntity, textPosition, next.x, next.y);
+  }
+
+  const text = scoreTextEntity.get(Text);
+  const score = String(player.score);
+  if (text !== undefined && text.value !== score) {
+    scoreTextEntity.set(Text, { value: score });
+  }
+}
+
+function scoreTextPosition(playerPosition: { x: number; y: number }): { x: number; y: number } {
+  return { x: playerPosition.x, y: playerPosition.y + SCORE_OFFSET_Y };
+}
+
 function spawnBall(x?: number, y?: number): void {
   // With no explicit position, drop the ball into the least-crowded cell using
   // the relationship-keyed occupancy grouping, spreading balls away from packs.
@@ -276,19 +350,23 @@ function spawnBall(x?: number, y?: number): void {
     .entity()
     .add(Networked)
     .add(Ball)
-    .set(Color, randomColor())
-    .set(Position, point)
-    .set(PhysicsPosition, toPhysicsPoint(point))
+    .set(Arc, { radius: BALL_RADIUS })
+    .set(FillStyle, randomFillStyle())
+    .set(RenderPosition, point)
+    .set(RenderRotation, { angle: 0 })
+    .set(PhysicsPosition, point)
+    .set(PhysicsRotation, { angle: 0 })
+    .set(PhysicsAngularVelocity, { value: randomSignedFloat(2, 8) })
     .set(Body, { type: BodyType.Dynamic })
     .set(PhysicsVelocity, {
-      x: demoUnitsToMeters(randomSignedInt(60, 150)),
-      y: demoUnitsToMeters(randomSignedInt(60, 120)),
+      x: randomSignedFloat(0.6, 1.5),
+      y: randomSignedFloat(0.6, 1.2),
     });
 
   world
     .entity()
     .childOf(body)
-    .set(Circle, { radius: demoUnitsToMeters(BALL_RADIUS) })
+    .set(Circle, { radius: BALL_RADIUS })
     .set(Material, { friction: 0.6, restitution: 0.7 });
 }
 
@@ -304,10 +382,10 @@ function createPhysicsWalls(): void {
     .childOf(walls)
     .set(Chain, {
       points: [
-        toPhysicsPoint({ x: WIDTH, y: HEIGHT }),
-        toPhysicsPoint({ x: 0, y: HEIGHT }),
-        toPhysicsPoint({ x: 0, y: 0 }),
-        toPhysicsPoint({ x: WIDTH, y: 0 }),
+        { x: WORLD_MAX_X, y: WORLD_MAX_Y },
+        { x: WORLD_MAX_X, y: WORLD_MIN_Y },
+        { x: WORLD_MIN_X, y: WORLD_MIN_Y },
+        { x: WORLD_MIN_X, y: WORLD_MAX_Y },
       ],
 
       loop: true,
@@ -315,14 +393,54 @@ function createPhysicsWalls(): void {
     .set(Material, { density: 0, friction: 0.6, restitution: 0.7 });
 }
 
-function assignCell(entity: Entity, position: Position): void {
+function createDecorations(): void {
+  createStar(world, {
+    points: 5,
+    innerRadius: 0.12,
+    outerRadius: 0.24,
+    position: { x: -4.1, y: -2.05 },
+    fillStyle: { color: 0xffdd66, alpha: 0.9 },
+  });
+  createTriangle(world, {
+    x1: 0,
+    y1: 0.28,
+    x2: -0.28,
+    y2: -0.2,
+    x3: 0.28,
+    y3: -0.2,
+    position: { x: -2.7, y: -2.05 },
+    fillStyle: { color: 0x66ffaa, alpha: 0.85 },
+  });
+  createPolygon(world, {
+    points: [-0.3, -0.18, -0.08, 0.25, 0.32, 0.14, 0.22, -0.24],
+    position: { x: -1.1, y: -2.05 },
+    fillStyle: { color: 0xb388ff, alpha: 0.85 },
+    strokeStyle: { color: 0xffffff, alpha: 0.45, width: 2 },
+  });
+  createEllipse(world, {
+    width: 0.7,
+    height: 0.32,
+    position: { x: 1.0, y: -2.05 },
+    fillStyle: { color: 0xff88bb, alpha: 0.8 },
+  });
+  createLine(world, {
+    x1: -0.45,
+    y1: -0.15,
+    x2: 0.45,
+    y2: 0.15,
+    position: { x: 2.55, y: -2.05 },
+    strokeStyle: { color: 0x88ccff, alpha: 1, width: 4 },
+  });
+}
+
+function assignCell(entity: Entity, position: RenderPosition): void {
   const cell = cellEntities[getGridCellIndex(position)];
   if (entity.parent(InCell) !== cell) {
     entity.set(InCell, { target: cell });
   }
 }
 
-function updatePlayerView(entity: Entity, position: Position, view: View): void {
+function updatePlayerView(entity: Entity, position: RenderPosition, view: View): void {
   const dsl: QueryDSL =
     entity.get(ViewAll) !== undefined ? true : cellViewDSL[getGridCellIndex(position)];
   if (view.dsl !== dsl) {
@@ -360,54 +478,43 @@ function randomPointInCell(cellIndex: number): { x: number; y: number } {
   const column = cellIndex % GRID_COLUMNS;
   const row = Math.floor(cellIndex / GRID_COLUMNS);
   return {
-    x: randomInt(
-      Math.floor(column * GRID_CELL_WIDTH) + BALL_RADIUS,
-      Math.floor((column + 1) * GRID_CELL_WIDTH) - BALL_RADIUS
+    x: randomFloat(
+      WORLD_MIN_X + column * GRID_CELL_WIDTH + BALL_RADIUS,
+      WORLD_MIN_X + (column + 1) * GRID_CELL_WIDTH - BALL_RADIUS
     ),
-    y: randomInt(
-      Math.floor(GAME_TOP + row * GRID_CELL_HEIGHT) + BALL_RADIUS,
-      Math.floor(GAME_TOP + (row + 1) * GRID_CELL_HEIGHT) - BALL_RADIUS
+    y: randomFloat(
+      WORLD_MIN_Y + row * GRID_CELL_HEIGHT + BALL_RADIUS,
+      WORLD_MIN_Y + (row + 1) * GRID_CELL_HEIGHT - BALL_RADIUS
     ),
   };
 }
 
-function toPhysicsPoint(point: { x: number; y: number }): { x: number; y: number } {
-  return { x: demoUnitsToMeters(point.x), y: demoUnitsToMeters(HEIGHT - point.y) };
-}
-
-function toDemoBallPoint(position: PhysicsPosition, radius: number): { x: number; y: number } {
-  return {
-    x: Math.round(metersToDemoUnits(position.x)),
-    y: Math.round(HEIGHT - metersToDemoUnits(position.y)),
-  };
-}
-
-function demoUnitsToMeters(value: number): number {
-  return value / PIXELS_PER_METER;
-}
-
-function metersToDemoUnits(value: number): number {
-  return value * PIXELS_PER_METER;
-}
-
-function randomColor(): Partial<Color> {
+function randomFillStyle(): Partial<FillStyle> {
   const r = randomInt(80, 255);
   const g = randomInt(80, 255);
   const b = randomInt(80, 255);
   return {
-    value: (r << 16) | (g << 8) | b,
+    color: (r << 16) | (g << 8) | b,
   };
 }
 
-function forEachNearbyCell(position: Position, visit: (cellIndex: number) => void): void {
-  const column = clampGridIndex(
-    Math.floor(clamp(position.x, 0, WIDTH - 1) / GRID_CELL_WIDTH),
-    GRID_COLUMNS
-  );
-  const row = clampGridIndex(
-    Math.floor((clamp(position.y, GAME_TOP, HEIGHT - 1) - GAME_TOP) / GRID_CELL_HEIGHT),
-    GRID_ROWS
-  );
+function updateRenderPosition(
+  entity: Entity,
+  position: RenderPosition,
+  x: number,
+  y: number
+): void {
+  if (position.x === x && position.y === y) {
+    return;
+  }
+  position.x = x;
+  position.y = y;
+  entity.modified(RenderPosition);
+}
+
+function forEachNearbyCell(position: RenderPosition, visit: (cellIndex: number) => void): void {
+  const column = gridColumn(position.x);
+  const row = gridRow(position.y);
   for (let dr = -1; dr <= 1; dr++) {
     for (let dc = -1; dc <= 1; dc++) {
       const r = row + dr;
@@ -420,16 +527,26 @@ function forEachNearbyCell(position: Position, visit: (cellIndex: number) => voi
   }
 }
 
-function getGridCellIndex(position: Position): number {
-  const column = clampGridIndex(
-    Math.floor(clamp(position.x, 0, WIDTH - 1) / GRID_CELL_WIDTH),
+function getGridCellIndex(position: RenderPosition): number {
+  return gridRow(position.y) * GRID_COLUMNS + gridColumn(position.x);
+}
+
+function gridColumn(x: number): number {
+  return clampGridIndex(
+    Math.floor(
+      (clamp(x, WORLD_MIN_X, WORLD_MAX_X - Number.EPSILON) - WORLD_MIN_X) / GRID_CELL_WIDTH
+    ),
     GRID_COLUMNS
   );
-  const row = clampGridIndex(
-    Math.floor((clamp(position.y, GAME_TOP, HEIGHT - 1) - GAME_TOP) / GRID_CELL_HEIGHT),
+}
+
+function gridRow(y: number): number {
+  return clampGridIndex(
+    Math.floor(
+      (clamp(y, WORLD_MIN_Y, WORLD_MAX_Y - Number.EPSILON) - WORLD_MIN_Y) / GRID_CELL_HEIGHT
+    ),
     GRID_ROWS
   );
-  return row * GRID_COLUMNS + column;
 }
 
 function clampGridIndex(value: number, size: number): number {
@@ -450,9 +567,21 @@ function normalizeInput(input: unknown): PlayerInput {
   };
 }
 
-function overlaps(playerPosition: Position, ballPosition: Position, ballRadius: number): boolean {
-  const closestX = clamp(ballPosition.x, playerPosition.x, playerPosition.x + PLAYER_SIZE);
-  const closestY = clamp(ballPosition.y, playerPosition.y, playerPosition.y + PLAYER_SIZE);
+function overlaps(
+  playerPosition: RenderPosition,
+  ballPosition: RenderPosition,
+  ballRadius: number
+): boolean {
+  const closestX = clamp(
+    ballPosition.x,
+    playerPosition.x - PLAYER_HALF_SIZE,
+    playerPosition.x + PLAYER_HALF_SIZE
+  );
+  const closestY = clamp(
+    ballPosition.y,
+    playerPosition.y - PLAYER_HALF_SIZE,
+    playerPosition.y + PLAYER_HALF_SIZE
+  );
   return Math.hypot(ballPosition.x - closestX, ballPosition.y - closestY) <= ballRadius;
 }
 
@@ -460,11 +589,15 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function randomFloat(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
 function randomInt(min: number, max: number): number {
   return Math.floor(min + Math.random() * (max - min + 1));
 }
 
-function randomSignedInt(min: number, max: number): number {
-  const speed = randomInt(min, max);
+function randomSignedFloat(min: number, max: number): number {
+  const speed = randomFloat(min, max);
   return Math.random() < 0.5 ? -speed : speed;
 }

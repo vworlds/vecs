@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@vworlds/vecs": "*",
+    "@vworlds/vecs-phaser": "1.0.25",
+    "@vworlds/vecs-phaser-server": "1.0.25",
     "@vworlds/vecs-physics": "*",
     "@vworlds/vecs-server": "*",
     "@vworlds/vecs-wire": "*",
