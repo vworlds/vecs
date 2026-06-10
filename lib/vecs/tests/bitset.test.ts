@@ -131,16 +131,6 @@ describe("Bitset", () => {
     expect(new BitPtr(7).equals(new BitPtr(8))).toBe(false);
   });
 
-  it("_addIndexBitmask and _setIndexBitmask manipulate raw words", () => {
-    const b = new Bitset();
-    b._addIndexBitmask(0, 0b1010);
-    expect(b.has(1)).toBe(true);
-    expect(b.has(3)).toBe(true);
-    b._setIndexBitmask(0, 0b0001);
-    expect(b.has(1)).toBe(false);
-    expect(b.has(0)).toBe(true);
-  });
-
   describe("_compileSubsetCheck", () => {
     it("returns 'true' for an empty mask", () => {
       const mask = new Bitset();
@@ -199,7 +189,13 @@ describe("Bitset", () => {
 
       for (const c of cases) {
         const target = new Bitset();
-        c.entityBits.forEach((w, i) => target._setIndexBitmask(i, w));
+        c.entityBits.forEach((w, i) => {
+          for (let bit = 0; bit < 32; bit++) {
+            if ((w & (1 << bit)) !== 0) {
+              target.add(i * 32 + bit);
+            }
+          }
+        });
         expect(evaluator(target._bits)).toBe(c.expected);
         expect(target.hasBitset(mask)).toBe(c.expected);
       }

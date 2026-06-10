@@ -32,12 +32,6 @@ export class Base {
    */
   public readonly componentBitmask = new Bitset();
 
-  /**
-   * Free-form property bag. Modules can use it to associate arbitrary data with
-   * an entity without registering a dedicated component.
-   */
-  public properties = new Map<string, any>();
-
   /** @internal Set to `true` after the world has fully torn down this entity. */
   public _destroyed: boolean = false;
 

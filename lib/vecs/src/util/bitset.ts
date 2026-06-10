@@ -211,25 +211,6 @@ export class Bitset {
   }
 
   /**
-   * OR `bitmask` into the word at position `arrayIndex`.
-   *
-   * @internal Low-level bulk operation; prefer {@link add} or {@link addBit}
-   * for single bits.
-   */
-  public _addIndexBitmask(arrayIndex: number, bitmask: number): void {
-    this._bits[arrayIndex] |= bitmask;
-  }
-
-  /**
-   * Replace the word at position `arrayIndex` with `bitmask`.
-   *
-   * @internal Used by network deserialization to write a whole word at once.
-   */
-  public _setIndexBitmask(arrayIndex: number, bitmask: number): void {
-    this._bits[arrayIndex] = bitmask;
-  }
-
-  /**
    * Emit a JavaScript expression that evaluates to `true` when the bitset
    * addressed by `targetBitsExpr` (a `number[]` of 32-bit words) contains
    * every bit set in this bitset.
