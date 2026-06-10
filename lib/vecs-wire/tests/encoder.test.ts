@@ -83,6 +83,20 @@ describe("Encoder", () => {
     expect(decoder.read_f64()).toBeCloseTo(2.718281828, 9);
   });
 
+  it("encodes and decodes floats over a buffer with a non-zero byteOffset", () => {
+    const backing = new Uint8Array(1024);
+    const offsetBuffer = backing.subarray(16);
+
+    const encoder = new Encoder(offsetBuffer);
+    encoder.write_f32(3.14);
+    encoder.write_f64(2.718281828);
+
+    const decoder = new Decoder(encoder.getBuffer());
+
+    expect(decoder.read_f32()).toBeCloseTo(3.14, 2);
+    expect(decoder.read_f64()).toBeCloseTo(2.718281828, 9);
+  });
+
   it("encodes and decodes boolean", () => {
     const encoder = createEncoder();
     encoder.write_bool(true);

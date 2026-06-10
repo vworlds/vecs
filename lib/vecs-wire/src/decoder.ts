@@ -1,5 +1,7 @@
 import { AnyType, TagSize } from "./any.js";
 
+const textDecoder = new TextDecoder();
+
 export interface IDecodable<T> {
   wireDecode(decoder: Decoder): T;
 }
@@ -16,10 +18,12 @@ function canConvertToNumber(bigintValue: bigint): boolean {
 
 export class Decoder {
   private readonly _buffer: Uint8Array;
+  private readonly _view: DataView;
   private _cursor = 0;
 
   constructor(buffer: Uint8Array) {
     this._buffer = buffer;
+    this._view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   }
 
   public get EOF(): boolean {
@@ -115,11 +119,7 @@ export class Decoder {
     if (this._cursor + 4 > this._buffer.length) {
       throw new RangeError("vecs-wire/decoder read_f32: Attempt to read beyond buffer size");
     }
-    const value = new DataView(
-      this._buffer.buffer,
-      this._buffer.byteOffset + this._cursor,
-      4
-    ).getFloat32(0, true);
+    const value = this._view.getFloat32(this._cursor, true);
     this._cursor += 4;
     return value;
   }
@@ -128,11 +128,7 @@ export class Decoder {
     if (this._cursor + 8 > this._buffer.length) {
       throw new RangeError("vecs-wire/decoder read_f64: Attempt to read beyond buffer size");
     }
-    const value = new DataView(
-      this._buffer.buffer,
-      this._buffer.byteOffset + this._cursor,
-      8
-    ).getFloat64(0, true);
+    const value = this._view.getFloat64(this._cursor, true);
     this._cursor += 8;
     return value;
   }
@@ -151,7 +147,7 @@ export class Decoder {
     if (len === 0) {
       return "";
     }
-    return new TextDecoder().decode(this.read_buffer_raw(len));
+    return textDecoder.decode(this.read_buffer_raw(len));
   }
 
   read_bytes(): Uint8Array {
@@ -191,7 +187,7 @@ export class Decoder {
       case AnyType.empty_string:
         return "";
       case AnyType.string:
-        return new TextDecoder().decode(this.read_buffer_raw(ts.size));
+        return textDecoder.decode(this.read_buffer_raw(ts.size));
       case AnyType.number_integer: {
         const bi = this.read_i64();
         return canConvertToNumber(bi) ? Number(bi) : bi;

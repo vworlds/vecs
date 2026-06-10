@@ -1,5 +1,7 @@
 import { AnyType, TagSize } from "./any.js";
 
+const textEncoder = new TextEncoder();
+
 export interface IEncodable {
   wireEncode(encoder: Encoder): void;
 }
@@ -32,10 +34,12 @@ function assertIntegerRange(value: number, min: number, max: number, method: str
 
 export class Encoder {
   private readonly _buffer: Uint8Array;
+  private readonly _view: DataView;
   private _cursor = 0;
 
   constructor(buffer: Uint8Array) {
     this._buffer = buffer;
+    this._view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   }
 
   getBuffer(): Uint8Array {
@@ -151,11 +155,7 @@ export class Encoder {
     if (this._cursor + 4 > this._buffer.length) {
       throw new RangeError("vecs-wire/encoder write_f32: Attempt to write beyond buffer size");
     }
-    new DataView(this._buffer.buffer, this._buffer.byteOffset + this._cursor, 4).setFloat32(
-      0,
-      value,
-      true
-    );
+    this._view.setFloat32(this._cursor, value, true);
     this._cursor += 4;
   }
 
@@ -163,11 +163,7 @@ export class Encoder {
     if (this._cursor + 8 > this._buffer.length) {
       throw new RangeError("vecs-wire/encoder write_f64: Attempt to write beyond buffer size");
     }
-    new DataView(this._buffer.buffer, this._buffer.byteOffset + this._cursor, 8).setFloat64(
-      0,
-      value,
-      true
-    );
+    this._view.setFloat64(this._cursor, value, true);
     this._cursor += 8;
   }
 
@@ -185,7 +181,7 @@ export class Encoder {
   }
 
   write_string(value: string): void {
-    const encodedString = new TextEncoder().encode(value);
+    const encodedString = textEncoder.encode(value);
     this.write_u32(encodedString.length);
     this._write_buffer_raw(encodedString, encodedString.length);
   }
@@ -199,7 +195,7 @@ export class Encoder {
         this.write(new TagSize(AnyType.boolean, value ? 1 : 2));
         break;
       case "string": {
-        const encodedString = new TextEncoder().encode(value);
+        const encodedString = textEncoder.encode(value);
         if (encodedString.length === 0) {
           this.write(new TagSize(AnyType.empty_string, 1));
         } else {
