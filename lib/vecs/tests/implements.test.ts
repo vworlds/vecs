@@ -222,6 +222,23 @@ describe("Implements", () => {
     }).toThrow("Relationship FriendOf cannot be an interface");
   });
 
+  it("survives teardown that destroys an interface still referenced by another implementer", () => {
+    abstract class Iface {}
+    class ImplA {}
+    class ImplB {}
+    const world = new World();
+    world.component(Iface);
+    world.component(ImplA).set(Implements, { interfaces: [Iface] });
+    world.component(ImplB).set(Implements, { interfaces: [Iface] });
+
+    // Destroy the interface component entity, then an implementer: removing the
+    // implementer triggers a recompute while ImplB still references the now-gone
+    // Iface, which must not throw "unregistered component entity".
+    world.component(Iface).destroy();
+
+    expect(() => world.component(ImplA).destroy()).not.toThrow();
+  });
+
   it("expands aliases when attaching a concrete instance", () => {
     const world = setup();
     const orange = new Orange();

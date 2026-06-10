@@ -1,4 +1,4 @@
-import { Implements, type ComponentMeta } from "../component_meta.js";
+import { Implements, type ComponentMeta, type ComponentType } from "../component_meta.js";
 import { type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 
@@ -7,6 +7,7 @@ export { Implements } from "../component_meta.js";
 /** Built-in world module that maintains abstract/interface component aliases. */
 export class ImplementsModule extends Module {
   private readonly _declaring = new Set<Entity>();
+  private readonly _knownComponentClasses = new Set<ComponentType>();
   private _touched = new Set<ComponentMeta>();
 
   public init(): void {
@@ -54,9 +55,10 @@ export class ImplementsModule extends Module {
     for (const entity of this._declaring) {
       const meta = entity.meta;
       const implementsComponent = entity.get(Implements)!;
-      const interfaces = implementsComponent.interfaces.map(
-        (InterfaceClass) => this.world.entity(InterfaceClass).meta
-      );
+      const interfaces = this._resolveInterfaces(implementsComponent.interfaces);
+      if (!interfaces) {
+        continue;
+      }
 
       this._validateDeclaration(meta, interfaces);
       direct.set(meta, interfaces);
@@ -75,6 +77,22 @@ export class ImplementsModule extends Module {
     }
 
     this._touched = touched;
+    touched.forEach((meta) => this._knownComponentClasses.add(meta.Class));
+  }
+
+  private _resolveInterfaces(classes: ComponentType[]): ComponentMeta[] | undefined {
+    const interfaces: ComponentMeta[] = [];
+    for (const InterfaceClass of classes) {
+      let entity = this.world.getEntity(InterfaceClass);
+      if (!entity) {
+        if (this._knownComponentClasses.has(InterfaceClass)) {
+          return undefined;
+        }
+        entity = this.world.entity(InterfaceClass);
+      }
+      interfaces.push(entity.meta);
+    }
+    return interfaces;
   }
 
   private _resetPrevious(): void {
