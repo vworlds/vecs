@@ -1,0 +1,66 @@
+import { type ComponentClass } from "@vworlds/vecs";
+
+export { Alpha, Depth, Position, Rotation, Scale } from "./components/transform.js";
+export { FillStyle, StrokeStyle } from "./components/style.js";
+export { Arc, Ellipse, Line, Polygon, Rectangle, Star, Triangle } from "./components/shapes.js";
+export { Text, TextAlign } from "./components/text.js";
+
+import { Alpha, Depth, Position, Rotation, Scale } from "./components/transform.js";
+import { FillStyle, StrokeStyle } from "./components/style.js";
+import { Arc, Ellipse, Line, Polygon, Rectangle, Star, Triangle } from "./components/shapes.js";
+import { Text } from "./components/text.js";
+
+/**
+ * All components that participate in the network protocol, in registration order.
+ * ORDER IS THE PROTOCOL — type id = index + 1. Do not reorder without a protocol version bump.
+ *
+ * Type ids:
+ *   1  Position
+ *   2  Rotation
+ *   3  Scale
+ *   4  Alpha
+ *   5  Depth
+ *   6  FillStyle
+ *   7  StrokeStyle
+ *   8  Arc
+ *   9  Ellipse
+ *  10  Rectangle
+ *  11  Polygon
+ *  12  Line
+ *  13  Triangle
+ *  14  Star
+ *  15  Text
+ */
+export const phaserNetworkComponents = [
+  Position,
+  Rotation,
+  Scale,
+  Alpha,
+  Depth,
+  FillStyle,
+  StrokeStyle,
+  Arc,
+  Ellipse,
+  Rectangle,
+  Polygon,
+  Line,
+  Triangle,
+  Star,
+  Text,
+] as const satisfies readonly ComponentClass[];
+
+/**
+ * The subset of network components that represent renderable shapes.
+ * Exactly one of these should be present on each renderable entity.
+ * Order matches phaserNetworkComponents (shapes section).
+ */
+export const phaserRenderableComponents = [
+  Arc,
+  Ellipse,
+  Rectangle,
+  Polygon,
+  Line,
+  Triangle,
+  Star,
+  Text,
+] as const satisfies readonly ComponentClass[];

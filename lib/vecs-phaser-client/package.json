@@ -1,0 +1,40 @@
+{
+  "name": "@vworlds/vecs-phaser-client",
+  "version": "1.0.25",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "rimraf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@vworlds/vecs-client": "1.0.25",
+    "@vworlds/vecs-phaser": "1.0.25"
+  },
+  "peerDependencies": {
+    "phaser": "^4.1.0"
+  },
+  "devDependencies": {
+    "phaser": "^4.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}

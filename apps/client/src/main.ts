@@ -1,41 +1,30 @@
 import { ClientWorld } from "@vworlds/vecs-client";
-import { type as wireType } from "@vworlds/vecs-wire";
+import { phaserNetworkComponents } from "@vworlds/vecs-phaser";
+import { CoordSpace, PhaserRenderModule, phaserInterpolators } from "@vworlds/vecs-phaser-client";
+import Phaser from "phaser";
 
-const LOCAL_ENTITY_START = 100_000;
-const PLAYER_SIZE = 28;
-const RECONNECT_DELAY_MS = 1_000;
-const SERVER_PORT = 3000;
-const GAME_TOP = 60;
+const CANVAS_WIDTH = 960;
+const CANVAS_HEIGHT = 540;
 const GRID_COLUMNS = 3;
 const GRID_ROWS = 3;
+const LOCAL_ENTITY_START = 100_000;
+const PIXELS_PER_METER = 100;
+const RECONNECT_DELAY_MS = 1_000;
+const SERVER_PORT = 3000;
 const VIEW_ALL_KEY = "g";
+const WORLD_HALF_WIDTH_METERS = CANVAS_WIDTH / PIXELS_PER_METER / 2;
+const WORLD_HALF_HEIGHT_METERS = CANVAS_HEIGHT / PIXELS_PER_METER / 2;
 
-type Session = ClientWorld;
-
-class Position {
-  @wireType("i16")
-  public x = 0;
-
-  @wireType("i16")
-  public y = 0;
-}
-
-class Player {
-  @wireType("u32")
-  public score = 0;
-}
-
-class Ball {
-  @wireType("u8")
-  public radius = 12;
-}
-
-class Color {
-  @wireType("u32")
-  public value = 0xffffff;
+interface Session {
+  readonly scene: Phaser.Scene;
+  readonly world: ClientWorld;
 }
 
 const keys = new Set<string>();
+let activeSession: Session | undefined;
+let connectionStatus = "Connecting to vecs demo server...";
+let connectGeneration = 0;
+let reconnectTimer: number | undefined;
 let viewAll = true;
 
 window.addEventListener("keydown", (event) => {
@@ -57,89 +46,126 @@ window.addEventListener("keyup", (event) => {
   }
 });
 
-const canvas = document.querySelector<HTMLCanvasElement>("#game");
-if (!canvas) {
-  throw new Error("Missing #game canvas");
+class DemoScene extends Phaser.Scene {
+  private _instructionsText: Phaser.GameObjects.Text | undefined;
+  private _statusText: Phaser.GameObjects.Text | undefined;
+
+  public constructor() {
+    super("DemoScene");
+  }
+
+  public create(): void {
+    const coords = new CoordSpace(this, PIXELS_PER_METER);
+
+    this.drawGrid(coords);
+    this._instructionsText = this.add
+      .text(20, 20, "", {
+        color: "#e2e8f0",
+        fontFamily: "sans-serif",
+        fontSize: "16px",
+      })
+      .setDepth(10_000);
+    this._statusText = this.add
+      .text(20, 48, "", {
+        color: "#fecaca",
+        fontFamily: "sans-serif",
+        fontSize: "16px",
+      })
+      .setDepth(10_000);
+
+    void connect(this);
+  }
+
+  public override update(time: number, delta: number): void {
+    this.updateChrome();
+
+    if (!activeSession) {
+      return;
+    }
+
+    activeSession.world.setInput({
+      left: keys.has("ArrowLeft"),
+      right: keys.has("ArrowRight"),
+      up: keys.has("ArrowUp"),
+      down: keys.has("ArrowDown"),
+      viewAll,
+    });
+    activeSession.world.progress(time, delta);
+  }
+
+  private drawGrid(coords: CoordSpace): void {
+    const graphics = this.add.graphics().setDepth(-10_000);
+    graphics.lineStyle(1, 0x334155, 1);
+    graphics.beginPath();
+
+    for (let column = 1; column < GRID_COLUMNS; column++) {
+      const xMeters =
+        -WORLD_HALF_WIDTH_METERS + (column * CANVAS_WIDTH) / GRID_COLUMNS / PIXELS_PER_METER;
+      graphics.moveTo(coords.x(xMeters), coords.y(WORLD_HALF_HEIGHT_METERS));
+      graphics.lineTo(coords.x(xMeters), coords.y(-WORLD_HALF_HEIGHT_METERS));
+    }
+
+    for (let row = 1; row < GRID_ROWS; row++) {
+      const yMeters =
+        WORLD_HALF_HEIGHT_METERS - (row * CANVAS_HEIGHT) / GRID_ROWS / PIXELS_PER_METER;
+      graphics.moveTo(coords.x(-WORLD_HALF_WIDTH_METERS), coords.y(yMeters));
+      graphics.lineTo(coords.x(WORLD_HALF_WIDTH_METERS), coords.y(yMeters));
+    }
+
+    graphics.strokePath();
+  }
+
+  private updateChrome(): void {
+    this._instructionsText?.setText(
+      `vecs-client: arrows move, G toggles ${viewAll ? "all entities" : "nearby grid view"}`
+    );
+    this._statusText?.setText(activeSession ? "" : connectionStatus);
+  }
 }
-const gameCanvas = canvas;
 
-const ctx = canvas.getContext("2d");
-if (!ctx) {
-  throw new Error("2d canvas context unavailable");
-}
-const context = ctx;
+new Phaser.Game({
+  backgroundColor: "#020617",
+  height: CANVAS_HEIGHT,
+  parent: "game",
+  scene: DemoScene,
+  type: Phaser.AUTO,
+  width: CANVAS_WIDTH,
+});
 
-let activeSession: Session | undefined;
-let connectionStatus = "Connecting to vecs demo server...";
-let connectGeneration = 0;
-let lastFrameTime = performance.now();
-let reconnectTimer: number | undefined;
-
-void connect();
-requestAnimationFrame(frame);
-
-async function connect(): Promise<void> {
+async function connect(scene: Phaser.Scene): Promise<void> {
   const generation = ++connectGeneration;
   connectionStatus = "Connecting to vecs demo server...";
 
   try {
-    const session = await createSession();
+    const session = await createSession(scene);
     if (generation !== connectGeneration) {
-      session.close();
+      session.world.clearAllEntities();
+      session.world.close();
       return;
     }
 
     activeSession = session;
     connectionStatus = "Connected";
-    session.events.on("disconnect", () => handleDisconnect(session));
+    session.world.events.on("disconnect", () => handleDisconnect(session));
   } catch (err: unknown) {
     if (generation === connectGeneration) {
-      scheduleReconnect(`Connection failed: ${formatError(err)}`);
+      scheduleReconnect(`Connection failed: ${formatError(err)}`, scene);
     }
   }
 }
 
-async function createSession(): Promise<Session> {
-  const client = await ClientWorld.connectDgram({
-    networkComponents: [Position, Player, Ball, Color],
-    localEntityIdStart: LOCAL_ENTITY_START,
+async function createSession(scene: Phaser.Scene): Promise<Session> {
+  const world = await ClientWorld.connectDgram({
     host: location.hostname,
+    interpolators: phaserInterpolators(),
+    localEntityIdStart: LOCAL_ENTITY_START,
+    networkComponents: phaserNetworkComponents,
     port: SERVER_PORT,
     worldName: "main",
   });
+  world.module(PhaserRenderModule, { pixelsPerMeter: PIXELS_PER_METER, scene });
 
-  installRenderSystems(client);
-
-  return client;
-}
-
-function installRenderSystems(world: ClientWorld): void {
-  world
-    .system("RenderBalls")
-    .with(Position, Ball, Color)
-    .each([Position, Ball, Color], (_entity, [position, ball, color]) => {
-      context.beginPath();
-      context.arc(position.x, position.y, ball.radius, 0, Math.PI * 2);
-      context.fillStyle = `#${color.value.toString(16).padStart(6, "0")}`;
-      context.fill();
-      context.strokeStyle = "#0f172a";
-      context.lineWidth = 3;
-      context.stroke();
-    });
-
-  world
-    .system("RenderPlayers")
-    .with(Position, Player)
-    .each([Position, Player], (_entity, [position, player]) => {
-      context.fillStyle = "#facc15";
-      context.fillRect(position.x, position.y, PLAYER_SIZE, PLAYER_SIZE);
-      context.strokeStyle = "#422006";
-      context.lineWidth = 3;
-      context.strokeRect(position.x, position.y, PLAYER_SIZE, PLAYER_SIZE);
-      context.fillStyle = "#fefce8";
-      context.font = "14px sans-serif";
-      context.fillText(String(player.score), position.x + 8, position.y - 8);
-    });
+  return { scene, world };
 }
 
 function handleDisconnect(session: Session): void {
@@ -148,12 +174,12 @@ function handleDisconnect(session: Session): void {
   }
 
   keys.clear();
-  session.clearAllEntities();
+  session.world.clearAllEntities();
   activeSession = undefined;
-  scheduleReconnect("Disconnected. Reconnecting...");
+  scheduleReconnect("Disconnected. Reconnecting...", session.scene);
 }
 
-function scheduleReconnect(status: string): void {
+function scheduleReconnect(status: string, scene: Phaser.Scene): void {
   keys.clear();
   connectionStatus = status;
   activeSession = undefined;
@@ -162,60 +188,8 @@ function scheduleReconnect(status: string): void {
   }
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = undefined;
-    void connect();
+    void connect(scene);
   }, RECONNECT_DELAY_MS);
-}
-
-function frame(now: number): void {
-  const delta = now - lastFrameTime;
-  lastFrameTime = now;
-
-  context.fillStyle = "#020617";
-  context.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
-  drawGrid();
-  context.fillStyle = "#e2e8f0";
-  context.font = "16px sans-serif";
-  context.fillText(
-    `vecs-client: arrows move, G toggles ${viewAll ? "all entities" : "nearby grid view"}`,
-    20,
-    30
-  );
-
-  if (activeSession) {
-    activeSession.setInput({
-      left: keys.has("ArrowLeft"),
-      right: keys.has("ArrowRight"),
-      up: keys.has("ArrowUp"),
-      down: keys.has("ArrowDown"),
-      viewAll,
-    });
-    activeSession.progress(now, delta);
-  } else {
-    context.fillStyle = "#fecaca";
-    context.fillText(connectionStatus, 20, 60);
-  }
-
-  requestAnimationFrame(frame);
-}
-
-function drawGrid(): void {
-  const cellWidth = gameCanvas.width / GRID_COLUMNS;
-  const cellHeight = (gameCanvas.height - GAME_TOP) / GRID_ROWS;
-
-  context.strokeStyle = "#334155";
-  context.lineWidth = 1;
-  context.beginPath();
-  for (let column = 1; column < GRID_COLUMNS; column++) {
-    const x = column * cellWidth;
-    context.moveTo(x, GAME_TOP);
-    context.lineTo(x, gameCanvas.height);
-  }
-  for (let row = 0; row <= GRID_ROWS; row++) {
-    const y = GAME_TOP + row * cellHeight;
-    context.moveTo(0, y);
-    context.lineTo(gameCanvas.width, y);
-  }
-  context.stroke();
 }
 
 function isArrowKey(key: string): boolean {
