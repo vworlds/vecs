@@ -36,9 +36,6 @@ export class StarModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace
       .with(Star, VGameObject)
       .phase(ON_STORE)
       .update(Star, [VGameObject], (_entity, star, [vgo]) => {
-        if (vgo === undefined) {
-          return;
-        }
         const obj = vgo.obj as StarGameObject;
         obj.setPoints(star.points);
         obj.setInnerRadius(coords.len(star.innerRadius));

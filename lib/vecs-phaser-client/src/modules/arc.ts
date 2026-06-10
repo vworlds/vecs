@@ -38,9 +38,6 @@ export class ArcModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace 
       .with(Arc, VGameObject)
       .phase(ON_STORE)
       .update(Arc, [VGameObject], (_entity, arc, [vgo]) => {
-        if (vgo === undefined) {
-          return;
-        }
         (vgo.obj as ArcObject)
           .setRadius(coords.len(arc.radius))
           .setStartAngle(coords.deg(arc.startAngle), arc.anticlockwise)

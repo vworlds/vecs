@@ -39,9 +39,6 @@ export class PolygonModule extends Module<{ scene: Phaser.Scene; coords: CoordSp
       .with(Polygon, VGameObject)
       .phase(ON_STORE)
       .update(Polygon, [VGameObject], (_entity, polygon, [vgo]) => {
-        if (vgo === undefined) {
-          return;
-        }
         const obj = vgo.obj as PolygonObject;
         obj.setTo(polygonPoints(coords, polygon));
         obj.setOrigin(0, 0);

@@ -49,9 +49,6 @@ export class TriangleModule extends Module<{ scene: Phaser.Scene; coords: CoordS
       .with(Triangle, VGameObject)
       .phase(ON_STORE)
       .update(Triangle, [VGameObject], (_entity, triangle, [vgo]) => {
-        if (vgo === undefined) {
-          return;
-        }
         const obj = vgo.obj as TriangleObject;
         obj.setTo(...triangleCoordinates(coords, triangle));
         obj.setOrigin(0, 0);

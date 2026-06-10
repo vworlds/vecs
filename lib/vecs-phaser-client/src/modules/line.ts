@@ -36,9 +36,6 @@ export class LineModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace
       .with(Line, VGameObject)
       .phase(ON_STORE)
       .update(Line, [VGameObject], (_entity, line, [vgo]) => {
-        if (vgo === undefined) {
-          return;
-        }
         const obj = vgo.obj as LineObject;
         obj.setTo(...linePoints(coords, line));
         obj.setOrigin(0, 0);

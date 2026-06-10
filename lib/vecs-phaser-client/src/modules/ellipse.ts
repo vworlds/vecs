@@ -35,9 +35,6 @@ export class EllipseModule extends Module<{ scene: Phaser.Scene; coords: CoordSp
       .with(Ellipse, VGameObject)
       .phase(ON_STORE)
       .update(Ellipse, [VGameObject], (_entity, ellipse, [vgo]) => {
-        if (vgo === undefined) {
-          return;
-        }
         (vgo.obj as SizeGameObject).setSize(coords.len(ellipse.width), coords.len(ellipse.height));
       });
   }

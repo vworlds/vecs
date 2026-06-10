@@ -35,9 +35,6 @@ export class RectangleModule extends Module<{ scene: Phaser.Scene; coords: Coord
       .with(Rectangle, VGameObject)
       .phase(ON_STORE)
       .update(Rectangle, [VGameObject], (_entity, rectangle, [vgo]) => {
-        if (vgo === undefined) {
-          return;
-        }
         (vgo.obj as RectangleObject).setSize(
           coords.len(rectangle.width),
           coords.len(rectangle.height)

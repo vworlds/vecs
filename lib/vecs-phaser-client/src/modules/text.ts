@@ -30,9 +30,6 @@ export class TextModule extends Module<{ scene: Phaser.Scene }> {
       .with(TextComponent, VGameObject)
       .phase(ON_STORE)
       .update(TextComponent, [VGameObject], (_entity, text, [vgo]) => {
-        if (vgo === undefined) {
-          return;
-        }
         const obj = vgo.obj as TextObject;
         obj.setText(text.value);
         obj.setStyle(textStyle(text));
