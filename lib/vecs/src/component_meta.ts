@@ -16,7 +16,7 @@ export abstract class Relationship {
 export type ComponentInstance = object;
 
 /** A component constructor used as a component key. */
-export type ComponentType<T extends ComponentInstance = ComponentInstance> = new (
+export type ComponentType<T extends ComponentInstance = ComponentInstance> = abstract new (
   ...args: any[]
 ) => T;
 
@@ -25,6 +25,11 @@ export type ComponentClass<T extends ComponentInstance = ComponentInstance> = ne
 
 /** A component class constructor, component eid, or entity component key. */
 export type ComponentRef = EID | ComponentType | EntityClass | Entity;
+
+/** Built-in component declaring abstract/interface component aliases. */
+export class Implements {
+  public interfaces: ComponentType[] = [];
+}
 
 /**
  * Lifecycle hook for a registered component class. Exposed by
@@ -112,6 +117,12 @@ export class ComponentMeta implements Hook<ComponentInstance> {
    * means no restriction.
    */
   public _exclusive: ComponentMeta[] | undefined = undefined;
+
+  /** @internal Full transitive interface metas exposed as aliases for this component. */
+  public _implementsClosure: ComponentMeta[] | undefined = undefined;
+
+  /** @internal Whether this component meta is an abstract/interface alias. */
+  public _isInterface = false;
 
   /** @internal `onAdd` handlers, lazily allocated and prepended by {@link onAdd}. */
   public _onAddHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;

@@ -65,6 +65,18 @@ export class Components extends Relationships {
     if (!c) {
       return;
     }
+    if (meta._implementsClosure) {
+      for (const aliasMeta of meta._implementsClosure) {
+        if (this._components.get(aliasMeta.eid) === c) {
+          this._removeRaw(aliasMeta, c);
+        }
+      }
+    }
+    this._removeRaw(meta, c);
+  }
+
+  /** @internal Apply one remove without expanding interface aliases. */
+  protected _removeRaw(meta: ComponentMeta, c: ComponentInstance): void {
     if (meta.isRelationship) {
       this._removeIncoming((c as Relationship).target, meta.eid);
     }
@@ -127,6 +139,7 @@ export class Components extends Relationships {
 
   public add(ref: ComponentRef): this {
     const componentMeta = this.world.entity(ref).meta;
+    this._throwIfInterface(componentMeta, "add");
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Set,
@@ -164,6 +177,7 @@ export class Components extends Relationships {
     const ComponentKey = component === undefined ? classOrComponent.constructor : classOrComponent;
     const instance = component ?? classOrComponent;
     const componentMeta = this.world.entity(ComponentKey as ComponentRef).meta;
+    this._throwIfInterface(componentMeta, "attach");
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Attach,
@@ -250,6 +264,7 @@ export class Components extends Relationships {
     if (componentMeta.isRelationship) {
       throw new Error("Entity.getMut cannot mutate Relationship components; retarget with set");
     }
+    this._throwIfInterface(componentMeta, "getMut");
     const component = this._get(componentMeta.eid);
     if (!component) {
       return undefined;
@@ -271,11 +286,13 @@ export class Components extends Relationships {
    */
   public modified(ref: ComponentRef): this {
     const componentMeta = this.world.entity(ref).meta;
+    this._throwIfInterface(componentMeta, "modify");
     return this._markModified(componentMeta);
   }
 
   /** @internal Mark a component changed, coalescing duplicate pending notifications. */
   protected _markModified(meta: ComponentMeta): this {
+    this._throwIfInterface(meta, "modify");
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return this;
     }
@@ -310,6 +327,7 @@ export class Components extends Relationships {
 
   public remove(ref: ComponentRef): void {
     const componentMeta = this.world.entity(ref).meta;
+    this._throwIfInterface(componentMeta, "remove");
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Remove,
@@ -348,6 +366,7 @@ export class Components extends Relationships {
 
   public set(ref: ComponentRef, props: Partial<ComponentInstance>): this {
     const componentMeta = this.world.entity(ref).meta;
+    this._throwIfInterface(componentMeta, "set");
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Set,
@@ -388,6 +407,16 @@ export class Components extends Relationships {
     instance: ComponentInstance,
     isUpdate: boolean
   ): void {
+    this._notifyRaw(meta, instance, isUpdate);
+    if (meta._implementsClosure) {
+      for (const aliasMeta of meta._implementsClosure) {
+        this._notifyRaw(aliasMeta, instance, isUpdate);
+      }
+    }
+  }
+
+  /** @internal Perform one set-side hook and query update without expanding aliases. */
+  protected _notifyRaw(meta: ComponentMeta, instance: ComponentInstance, isUpdate: boolean): void {
     meta._onSetHandlers?.forEach((handler) => handler(this as unknown as Entity, instance));
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (isUpdate) {
@@ -411,6 +440,25 @@ export class Components extends Relationships {
         }
       }
     }
+    if (meta._implementsClosure) {
+      for (const aliasMeta of meta._implementsClosure) {
+        const prev = this._components.get(aliasMeta.eid);
+        if (prev !== undefined && prev !== instance) {
+          const concreteMeta = this.world.entity((prev as any).constructor).meta;
+          this._remove(concreteMeta);
+        }
+      }
+    }
+    this._storeRaw(meta, instance, isAdd);
+    if (meta._implementsClosure) {
+      for (const aliasMeta of meta._implementsClosure) {
+        this._storeRaw(aliasMeta, instance, isAdd);
+      }
+    }
+  }
+
+  /** @internal Store one component eid without expanding interface aliases. */
+  protected _storeRaw(meta: ComponentMeta, instance: ComponentInstance, isAdd: boolean): void {
     const existing = this._components.has(meta.eid);
     this._components.set(meta.eid, instance);
     this.componentBitmask.addBit(meta.bitPtr);
@@ -422,6 +470,14 @@ export class Components extends Relationships {
     }
     if (!existing) {
       this.world._notifyComponentAdded(meta.eid, this as unknown as Entity);
+    }
+  }
+
+  private _throwIfInterface(meta: ComponentMeta, op: string): void {
+    if (meta._isInterface) {
+      throw new Error(
+        `Cannot ${op} the abstract interface ${meta.Class.name}; operate via the concrete component`
+      );
     }
   }
 

@@ -1,5 +1,6 @@
 import { SilenceSource } from "../modules/relationships.js";
 import { IdentityModule } from "../modules/identity.js";
+import { ImplementsModule } from "../modules/implements.js";
 import { PipelineModule } from "../modules/pipeline.js";
 import { RelationshipsModule } from "../modules/relationships.js";
 import { SingletonModule } from "../modules/singleton.js";
@@ -35,8 +36,12 @@ export class World extends Pipeline {
     this.component(SilenceSource).onRemove((entity) => entity.get(Query)?._clearSilence());
     this.component(Query).onRemove((_entity, query) => query.destroy());
     this.component(System).onRemove((_entity, system) => system.destroy());
-    [IdentityModule, SingletonModule, RelationshipsModule, PipelineModule].forEach((mod) =>
-      this.module(mod)
-    );
+    [
+      IdentityModule,
+      ImplementsModule,
+      SingletonModule,
+      RelationshipsModule,
+      PipelineModule,
+    ].forEach((mod) => this.module(mod));
   }
 }

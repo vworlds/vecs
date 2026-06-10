@@ -4,6 +4,7 @@ import type { ComponentInstance, ComponentType } from "./component_meta.js";
 export {
   CleanupPolicy,
   ComponentMeta,
+  Implements,
   Relationship,
   type ComponentClass,
   type ComponentInstance,

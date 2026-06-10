@@ -23,6 +23,7 @@ yarn add @vworlds/vecs
 | **Hook**                 | Lightweight `onAdd` / `onRemove` / `onSet` callbacks per component class.       |
 | **Phase**                | Marker component for entities used as pipeline ordering anchors.                |
 | **Exclusive components** | A group of components where at most one may exist on any entity at a time.      |
+| **Implements**           | Declares abstract/interface component aliases for a concrete component.         |
 
 ### Lifecycle in brief
 
@@ -185,6 +186,59 @@ e.add(Running); // Walking is automatically removed first
 ```
 
 Each call defines one independent group. A component may belong to at most one group; calling `setExclusiveComponents` again with the same class overwrites its group. Safe to call at any time.
+
+#### Component interfaces with `Implements`
+
+Use the built-in `Implements` component when one concrete component should be queryable through abstract parent or interface component types. The concrete component remains the single source of truth; vecs stores the same instance under each alias, so `get(Parent) === get(Concrete)`.
+
+```ts
+import { Implements, World } from "@vworlds/vecs";
+
+abstract class Food {
+  calories = 0;
+}
+
+abstract class Fruit extends Food {
+  color = "";
+}
+
+abstract class Foreign {
+  importCost = 0;
+}
+
+class Orange extends Fruit implements Foreign {
+  acidity = 8;
+  color = "orange";
+  calories = 4;
+  importCost = 15;
+}
+
+const world = new World();
+
+world.component(Food);
+world.component(Fruit).set(Implements, { interfaces: [Food] });
+world.component(Foreign);
+world.component(Orange).set(Implements, { interfaces: [Fruit, Foreign] });
+
+const orange = world.entity("cheapOrange").set(Orange, { importCost: 1, calories: 7 });
+
+orange.get(Food) === orange.get(Orange); // true
+orange.has(Fruit); // true
+orange.has(Foreign); // true
+
+world
+  .query("foods")
+  .with(Food)
+  .forEach([Food], (_entity, [food]) => {
+    food.calories; // Orange data injected through the Food alias
+  });
+```
+
+Interfaces are read/query aliases only. `get`, `has`, `query().with`, `filter`, and injection may use an interface type, but mutation must go through the concrete component. Calling `add`, `set`, `remove`, `modified`, `getMut`, or `attach` on an interface throws at runtime; `add` and `set` are also rejected by TypeScript for abstract classes.
+
+If two concrete components implement the same interface, they cannot coexist on one entity through that alias. Setting the second concrete component evicts the first concrete component and all of its aliases instead of throwing.
+
+`Implements` declarations are transitive. In the example above, `Orange` implements `Fruit`, and `Fruit` implements `Food`, so an entity with `Orange` matches both `with(Fruit)` and `with(Food)`. Relationship components cannot be implementers or interfaces.
 
 #### Entity management
 
