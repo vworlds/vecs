@@ -1,5 +1,14 @@
 import express from "express";
-import { type ComponentClass, type Entity, type QueryDSL, Relationship } from "@vworlds/vecs";
+import {
+  ChildOf,
+  type ComponentClass,
+  type Entity,
+  ON_UPDATE,
+  POST_UPDATE,
+  PRE_STORE,
+  type QueryDSL,
+  Relationship,
+} from "@vworlds/vecs";
 import {
   Ellipse,
   FillStyle,
@@ -60,6 +69,8 @@ const PLAYER_STEP = 7 / PIXELS_PER_METER;
 const SCORE_OFFSET_Y = PLAYER_HALF_SIZE + 0.18;
 const MAX_BALLS = 50;
 const BALL_RADIUS = 12 / PIXELS_PER_METER;
+const ELECTRON_DISTANCE = BALL_RADIUS + 0.13;
+const ELECTRON_SIZE = 0.07;
 const TICK_RATE = 30;
 const DT = 1 / TICK_RATE;
 const DT_MS = 1000 / TICK_RATE;
@@ -80,6 +91,17 @@ class Player {
 
 class Ball {
   public radius = BALL_RADIUS;
+}
+
+class Electron {
+  public angle = 0;
+  public radius = ELECTRON_DISTANCE;
+  public speed = 0.12;
+}
+
+class Offset {
+  public x = 0;
+  public y = 0;
 }
 
 class ViewAll {}
@@ -121,6 +143,8 @@ app.use((req, res, next) => {
 const vecsListener = new VecsListener();
 const server = vecsListener.registerWorld(world);
 world.component(Ball);
+world.component(Electron);
+world.component(Offset);
 world.component(Player);
 world.component(InCell);
 world.component(RotatingDecoration);
@@ -132,7 +156,6 @@ cellTagComponents.forEach((CellTag) => {
 await preloadPhysics();
 world.module(PhysicsModule, { gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 });
 world.module(PhaserServerModule);
-const physicsPost = world.entity("physics-post");
 
 // One anchor entity per grid cell. Moving entities relate to these via InCell;
 // the per-cell View DSL targets each anchor's tag.
@@ -238,20 +261,52 @@ world
     entity.modified(RenderRotation);
   });
 
+world
+  .system("OrbitElectrons")
+  .with(Offset, Electron)
+  .each([Offset, Electron], (entity, [offset, electron]) => {
+    electron.angle += electron.speed;
+    offset.x = Math.cos(electron.angle) * electron.radius;
+    offset.y = Math.sin(electron.angle) * electron.radius;
+    entity.modified(Electron);
+    entity.modified(Offset);
+  });
+
+world
+  .system("ApplyLocalPositions")
+  .with(RenderPosition, Offset)
+  .cascade(ChildOf)
+  .phase(POST_UPDATE)
+  .each(
+    [Offset, RenderPosition, { target: [ChildOf, [RenderPosition]] }],
+    (entity, [offset, position, parentPosition]) => {
+      if (parentPosition === undefined) {
+        return;
+      }
+
+      updateRenderPosition(
+        entity,
+        position,
+        parentPosition.x + offset.x,
+        parentPosition.y + offset.y
+      );
+    }
+  );
+
 // Maintain each entity's InCell relationship from its position. Retargeting on
 // a cell crossing is a data change, so there is no per-entity archetype churn
 // and no exclusive-component bookkeeping.
 world
   .system("AssignCells")
   .with(Networked, RenderPosition)
-  .phase(physicsPost)
+  .phase(PRE_STORE)
   .enter([RenderPosition], (entity, [position]) => assignCell(entity, position))
   .update(RenderPosition, (entity, position) => assignCell(entity, position));
 
 world
   .system("UpdatePlayerViews")
   .with(Networked, NetworkClient, RenderPosition, View)
-  .phase(physicsPost)
+  .phase(PRE_STORE)
   .enter([RenderPosition, View], (entity, [position, view]) =>
     updatePlayerView(entity, position, view)
   )
@@ -379,6 +434,32 @@ function spawnBall(x?: number, y?: number): void {
     .childOf(body)
     .set(Circle, { radius: BALL_RADIUS })
     .set(Material, { friction: 0.6, restitution: 0.7 });
+
+  createElectron(body, point);
+}
+
+function createElectron(ball: Entity, ballPosition: { x: number; y: number }): Entity {
+  const angle = randomFloat(0, Math.PI * 2);
+  const radius = randomFloat(ELECTRON_DISTANCE * 0.85, ELECTRON_DISTANCE * 1.2);
+  const offset = {
+    x: Math.cos(angle) * radius,
+    y: Math.sin(angle) * radius,
+  };
+
+  return world
+    .entity()
+    .childOf(ball)
+    .add(Networked)
+    .add(Ellipse)
+    .set(Size, { width: ELECTRON_SIZE, height: ELECTRON_SIZE })
+    .set(FillStyle, { color: 0x9bf6ff, alpha: 1 })
+    .set(RenderPosition, { x: ballPosition.x + offset.x, y: ballPosition.y + offset.y })
+    .set(Offset, offset)
+    .set(Electron, {
+      angle,
+      radius,
+      speed: randomSignedFloat(0.08, 0.16),
+    });
 }
 
 function regularHexagonPoints(radius: number): number[] {
