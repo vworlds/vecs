@@ -38,7 +38,7 @@ be configured so WebRTC data channels work.
   code in the client.
 - `Star`, `Triangle`, `Polygon`, `Ellipse`, and `Line` decorations appear from server-authored
   render components.
-- Rotating arcs and decorative vertex shapes make rotation/pivot behavior visible.
+- Rotating hexagons and decorative vertex shapes make rotation/pivot behavior visible.
 - Restarting the server while the client stays open rebuilds the replicated GameObjects after
   reconnect.
 
