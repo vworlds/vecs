@@ -1,8 +1,8 @@
-import { Module, PRE_STORE, ON_STORE } from "@vworlds/vecs";
-import type Phaser from "phaser";
+import { Module, ON_STORE } from "@vworlds/vecs";
+import Phaser from "phaser";
 import { CoordSpace } from "../coord_space.js";
 import { Polygon } from "@vworlds/vecs-phaser";
-import { PolygonObject, removeGameObject, VGameObject } from "./types.js";
+import * as m from "../markers.js";
 
 function polygonPoints(coords: CoordSpace, polygon: Polygon): number[] {
   const points: number[] = [];
@@ -17,31 +17,29 @@ export class PolygonModule extends Module<{ scene: Phaser.Scene; coords: CoordSp
     const { scene, coords } = config;
     const world = this.world;
 
-    world
-      .system("phaser.render.polygon.teardown")
-      .with(Polygon, VGameObject)
-      .phase(PRE_STORE)
-      .exit([Polygon, VGameObject], (entity) => removeGameObject(entity));
+    world.component(Polygon).onRemove((entity) => {
+      if (entity.has(Phaser.GameObjects.Polygon)) {
+        entity.remove(Phaser.GameObjects.Polygon);
+      }
+    });
 
     world
       .system("phaser.new.polygon")
       .with(Polygon)
-      .without(VGameObject)
+      .without(Phaser.GameObjects.Polygon)
       .phase(ON_STORE)
       .enter([Polygon], (entity, [polygon]) => {
-        const obj = scene.add.polygon(0, 0, polygonPoints(coords, polygon)) as PolygonObject;
+        const obj = scene.add.polygon(0, 0, polygonPoints(coords, polygon));
         obj.setOrigin(0, 0);
-        entity.set(VGameObject, { obj });
+        entity.attach(obj);
       });
 
     world
       .system("phaser.render.polygon.geometry")
-      .with(Polygon, VGameObject)
+      .with(Polygon, m.Vertices)
       .phase(ON_STORE)
-      .update(Polygon, [VGameObject], (_entity, polygon, [vgo]) => {
-        const obj = vgo.obj as PolygonObject;
+      .update(Polygon, [m.Vertices], (_entity, polygon, [obj]) => {
         obj.setTo(polygonPoints(coords, polygon));
-        obj.setOrigin(0, 0);
       });
   }
 }

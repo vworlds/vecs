@@ -1,8 +1,8 @@
-import { Module, PRE_STORE, ON_STORE } from "@vworlds/vecs";
-import type Phaser from "phaser";
+import { Module, ON_STORE } from "@vworlds/vecs";
+import Phaser from "phaser";
 import { CoordSpace } from "../coord_space.js";
 import { Triangle } from "@vworlds/vecs-phaser";
-import { removeGameObject, TriangleObject, VGameObject } from "./types.js";
+import * as m from "../markers.js";
 
 function triangleCoordinates(
   coords: CoordSpace,
@@ -23,35 +23,29 @@ export class TriangleModule extends Module<{ scene: Phaser.Scene; coords: CoordS
     const { scene, coords } = config;
     const world = this.world;
 
-    world
-      .system("phaser.render.triangle.teardown")
-      .with(Triangle, VGameObject)
-      .phase(PRE_STORE)
-      .exit([Triangle, VGameObject], (entity) => removeGameObject(entity));
+    world.component(Triangle).onRemove((entity) => {
+      if (entity.has(Phaser.GameObjects.Triangle)) {
+        entity.remove(Phaser.GameObjects.Triangle);
+      }
+    });
 
     world
       .system("phaser.new.triangle")
       .with(Triangle)
-      .without(VGameObject)
+      .without(Phaser.GameObjects.Triangle)
       .phase(ON_STORE)
       .enter([Triangle], (entity, [triangle]) => {
-        const obj = scene.add.triangle(
-          0,
-          0,
-          ...triangleCoordinates(coords, triangle)
-        ) as TriangleObject;
+        const obj = scene.add.triangle(0, 0, ...triangleCoordinates(coords, triangle));
         obj.setOrigin(0, 0);
-        entity.set(VGameObject, { obj });
+        entity.attach(obj);
       });
 
     world
       .system("phaser.render.triangle.geometry")
-      .with(Triangle, VGameObject)
+      .with(Triangle, m.Vertices)
       .phase(ON_STORE)
-      .update(Triangle, [VGameObject], (_entity, triangle, [vgo]) => {
-        const obj = vgo.obj as TriangleObject;
+      .update(Triangle, [m.Vertices], (_entity, triangle, [obj]) => {
         obj.setTo(...triangleCoordinates(coords, triangle));
-        obj.setOrigin(0, 0);
       });
   }
 }

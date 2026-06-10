@@ -1,8 +1,8 @@
-import { Module, PRE_STORE, ON_STORE } from "@vworlds/vecs";
-import type Phaser from "phaser";
+import { Module, ON_STORE } from "@vworlds/vecs";
+import Phaser from "phaser";
 import { CoordSpace } from "../coord_space.js";
 import { Line } from "@vworlds/vecs-phaser";
-import { LineObject, removeGameObject, VGameObject } from "./types.js";
+import * as m from "../markers.js";
 
 function linePoints(coords: CoordSpace, line: Line): [number, number, number, number] {
   return [coords.rx(line.x1), coords.ry(line.y1), coords.rx(line.x2), coords.ry(line.y2)];
@@ -13,32 +13,30 @@ export class LineModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace
     const { scene, coords } = config;
     const world = this.world;
 
-    world
-      .system("phaser.render.line.teardown")
-      .with(Line, VGameObject)
-      .phase(PRE_STORE)
-      .exit([Line, VGameObject], (entity) => removeGameObject(entity));
+    world.component(Line).onRemove((entity) => {
+      if (entity.has(Phaser.GameObjects.Line)) {
+        entity.remove(Phaser.GameObjects.Line);
+      }
+    });
 
     world
       .system("phaser.new.line")
       .with(Line)
-      .without(VGameObject)
+      .without(Phaser.GameObjects.Line)
       .phase(ON_STORE)
       .enter([Line], (entity, [line]) => {
         const points = linePoints(coords, line);
-        const obj = scene.add.line(0, 0, points[0], points[1], points[2], points[3]) as LineObject;
+        const obj = scene.add.line(0, 0, points[0], points[1], points[2], points[3]);
         obj.setOrigin(0, 0);
-        entity.set(VGameObject, { obj });
+        entity.attach(obj);
       });
 
     world
       .system("phaser.render.line.geometry")
-      .with(Line, VGameObject)
+      .with(Line, m.Vertices)
       .phase(ON_STORE)
-      .update(Line, [VGameObject], (_entity, line, [vgo]) => {
-        const obj = vgo.obj as LineObject;
+      .update(Line, [m.Vertices], (_entity, line, [obj]) => {
         obj.setTo(...linePoints(coords, line));
-        obj.setOrigin(0, 0);
       });
   }
 }

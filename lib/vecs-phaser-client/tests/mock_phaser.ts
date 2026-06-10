@@ -1,4 +1,6 @@
-import type Phaser from "phaser";
+import Phaser from "phaser";
+
+type ComponentType = abstract new (...args: any[]) => object;
 
 export interface RecordedCall {
   readonly method: string;
@@ -11,8 +13,11 @@ export class MockGameObject {
 
   constructor(
     readonly kind: string = "gameObject",
-    readonly createArgs: readonly unknown[] = []
-  ) {}
+    readonly createArgs: readonly unknown[] = [],
+    ComponentClass: ComponentType = MockGameObject
+  ) {
+    Object.defineProperty(this, "constructor", { value: ComponentClass });
+  }
 
   destroy(): void {
     this.destroyed = true;
@@ -118,14 +123,14 @@ export interface MockSceneAdd {
 
 export class MockScene {
   readonly add: MockSceneAdd = {
-    arc: (...args) => this.create("arc", args),
-    ellipse: (...args) => this.create("ellipse", args),
-    line: (...args) => this.create("line", args),
-    polygon: (...args) => this.create("polygon", args),
-    rectangle: (...args) => this.create("rectangle", args),
-    star: (...args) => this.create("star", args),
-    text: (...args) => this.create("text", args),
-    triangle: (...args) => this.create("triangle", args),
+    arc: (...args) => this.create("arc", Phaser.GameObjects.Arc, args),
+    ellipse: (...args) => this.create("ellipse", Phaser.GameObjects.Ellipse, args),
+    line: (...args) => this.create("line", Phaser.GameObjects.Line, args),
+    polygon: (...args) => this.create("polygon", Phaser.GameObjects.Polygon, args),
+    rectangle: (...args) => this.create("rectangle", Phaser.GameObjects.Rectangle, args),
+    star: (...args) => this.create("star", Phaser.GameObjects.Star, args),
+    text: (...args) => this.create("text", Phaser.GameObjects.Text, args),
+    triangle: (...args) => this.create("triangle", Phaser.GameObjects.Triangle, args),
   };
   readonly created: MockGameObject[] = [];
   readonly scale: { width: number; height: number };
@@ -134,8 +139,12 @@ export class MockScene {
     this.scale = { width, height };
   }
 
-  create(kind: string, args: readonly unknown[] = []): MockGameObject {
-    const obj = new MockGameObject(kind, args);
+  create(
+    kind: string,
+    ComponentClass: ComponentType,
+    args: readonly unknown[] = []
+  ): MockGameObject {
+    const obj = new MockGameObject(kind, args, ComponentClass);
     this.created.push(obj);
     return obj;
   }

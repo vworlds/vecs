@@ -9,7 +9,7 @@ import {
   StrokeStyle,
 } from "@vworlds/vecs-phaser";
 import { CoordSpace } from "../coord_space.js";
-import { VGameObject } from "./types.js";
+import * as m from "../markers.js";
 
 export class SyncModule extends Module<{ coords: CoordSpace }> {
   public init({ coords }: { coords: CoordSpace }): void {
@@ -17,48 +17,48 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
 
     world
       .system("phaser.sync.position")
-      .with(Position, VGameObject)
+      .with(Position, m.Transform)
       .phase(ON_STORE)
-      .update(Position, [VGameObject], (_e, p, [vgo]) =>
-        vgo.obj.setPosition(coords.x(p.x), coords.y(p.y))
+      .update(Position, [m.Transform], (_e, p, [obj]) =>
+        obj.setPosition(coords.x(p.x), coords.y(p.y))
       );
 
     world
       .system("phaser.sync.rotation")
-      .with(Rotation, VGameObject)
+      .with(Rotation, m.Transform)
       .phase(ON_STORE)
-      .update(Rotation, [VGameObject], (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
+      .update(Rotation, [m.Transform], (_e, r, [obj]) => obj.setRotation(coords.rot(r.angle)));
 
     world
       .system("phaser.sync.scale")
-      .with(Scale, VGameObject)
+      .with(Scale, m.Transform)
       .phase(ON_STORE)
-      .update(Scale, [VGameObject], (_e, s, [vgo]) => vgo.obj.setScale(s.x, s.y));
+      .update(Scale, [m.Transform], (_e, s, [obj]) => obj.setScale(s.x, s.y));
 
     world
       .system("phaser.sync.alpha")
-      .with(Alpha, VGameObject)
+      .with(Alpha, m.Alpha)
       .phase(ON_STORE)
-      .update(Alpha, [VGameObject], (_e, a, [vgo]) => vgo.obj.setAlpha(a.value));
+      .update(Alpha, [m.Alpha], (_e, a, [obj]) => obj.setAlpha(a.value));
 
     world
       .system("phaser.sync.depth")
-      .with(Depth, VGameObject)
+      .with(Depth, m.Depth)
       .phase(ON_STORE)
-      .update(Depth, [VGameObject], (_e, d, [vgo]) => vgo.obj.setDepth(d.value));
+      .update(Depth, [m.Depth], (_e, d, [obj]) => obj.setDepth(d.value));
 
     world
       .system("phaser.sync.fill-style")
-      .with(FillStyle, VGameObject)
+      .with(FillStyle, m.Fill)
       .phase(ON_STORE)
-      .update(FillStyle, [VGameObject], (_e, f, [vgo]) => vgo.obj.setFillStyle(f.color, f.alpha));
+      .update(FillStyle, [m.Fill], (_e, f, [obj]) => obj.setFillStyle(f.color, f.alpha));
 
     world
       .system("phaser.sync.stroke-style")
-      .with(StrokeStyle, VGameObject)
+      .with(StrokeStyle, m.Stroke)
       .phase(ON_STORE)
-      .update(StrokeStyle, [VGameObject], (_e, s, [vgo]) =>
-        vgo.obj.setStrokeStyle(s.width, s.color, s.alpha)
+      .update(StrokeStyle, [m.Stroke], (_e, s, [obj]) =>
+        obj.setStrokeStyle(s.width, s.color, s.alpha)
       );
   }
 }

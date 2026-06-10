@@ -1,19 +1,22 @@
 import { ClientWorld } from "@vworlds/vecs-client";
 import { Arc, phaserNetworkComponents, Position } from "@vworlds/vecs-phaser";
+import Phaser from "phaser";
 import { describe, expect, it } from "vitest";
 
-import { PhaserRenderModule, VGameObject } from "../src/module.js";
+import * as m from "../src/markers.js";
+import { PhaserRenderModule } from "../src/index.js";
 import { createMockScene } from "./mock_phaser.js";
 
 describe("PhaserRenderModule lifecycle", () => {
-  it("registers VGameObject and creates render systems through world.module", () => {
+  it("registers internal Phaser aliases and creates render systems through world.module", () => {
     const world = new ClientWorld({ networkComponents: phaserNetworkComponents });
     const scene = createMockScene(1000, 800);
 
     const mod = world.module(PhaserRenderModule, { scene, pixelsPerMeter: 50 });
 
     expect(mod).toBeInstanceOf(PhaserRenderModule);
-    expect(world.entity(VGameObject)).toBeDefined();
+    expect(world.entity(m.GameObject)).toBeDefined();
+    expect(world.entity(Phaser.GameObjects.Arc)).toBeDefined();
   });
 
   it("uses the default 64 pixels per meter when no scale is provided", () => {
@@ -29,10 +32,11 @@ describe("PhaserRenderModule lifecycle", () => {
     const obj = scene.created[0]!;
     expect(obj.createArgs).toEqual([0, 0, 32, -0, -360, false]);
     expect(obj.calls).toContainEqual({ method: "setPosition", args: [564, 336] });
-    expect(entity.get(VGameObject)?.obj).toBe(obj);
+    expect(entity.get(Phaser.GameObjects.Arc)).toBe(obj);
+    expect(entity.get(m.GameObject)).toBe(obj);
   });
 
-  it("destroys the Phaser object when VGameObject is removed directly", () => {
+  it("destroys the Phaser object when its concrete component is removed directly", () => {
     const world = new ClientWorld({ networkComponents: phaserNetworkComponents });
     const scene = createMockScene();
     world.module(PhaserRenderModule, { scene });
@@ -42,9 +46,10 @@ describe("PhaserRenderModule lifecycle", () => {
     world.progress(0, 0);
 
     const obj = scene.created[0]!;
-    entity.remove(VGameObject);
+    entity.remove(Phaser.GameObjects.Arc);
 
     expect(obj.destroyed).toBe(true);
-    expect(entity.get(VGameObject)).toBeUndefined();
+    expect(entity.get(Phaser.GameObjects.Arc)).toBeUndefined();
+    expect(entity.get(m.GameObject)).toBeUndefined();
   });
 });

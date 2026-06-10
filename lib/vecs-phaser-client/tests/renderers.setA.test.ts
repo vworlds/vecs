@@ -15,9 +15,11 @@ import {
   TextAlign,
   phaserNetworkComponents,
 } from "@vworlds/vecs-phaser";
+import Phaser from "phaser";
 import { describe, expect, it } from "vitest";
 
-import { PhaserRenderModule, VGameObject } from "../src/module.js";
+import * as m from "../src/markers.js";
+import { PhaserRenderModule } from "../src/index.js";
 import { createMockScene, type MockGameObject } from "./mock_phaser.js";
 
 function setup() {
@@ -44,7 +46,8 @@ describe("set A renderers", () => {
     const obj = scene.created[0]!;
     expect(obj.kind).toBe("arc");
     expect(obj.createArgs).toEqual([0, 0, 32, -90, -180, false]);
-    expect(entity.get(VGameObject)?.obj).toBe(obj);
+    expect(entity.get(Phaser.GameObjects.Arc)).toBe(obj);
+    expect(entity.get(m.GameObject)).toBe(obj);
     expect(methods(obj, "setPosition")).toContainEqual([576, 256]);
     expect(methods(obj, "setFillStyle")).toContainEqual([0xff0000, 0.75]);
     expect(methods(obj, "setIterations")).toContainEqual([0.02]);
@@ -62,7 +65,9 @@ describe("set A renderers", () => {
     world.progress(2, 0);
 
     expect(obj.destroyed).toBe(true);
-    expect(entity.get(VGameObject)).toBeUndefined();
+    expect(methods(obj, "destroy")).toHaveLength(1);
+    expect(entity.get(Phaser.GameObjects.Arc)).toBeUndefined();
+    expect(entity.get(m.GameObject)).toBeUndefined();
   });
 
   it("initializes centered primitives from pre-present transform and style components", () => {
@@ -125,7 +130,7 @@ describe("set A renderers", () => {
     world.progress(1, 0);
 
     expect(methods(obj, "setTo")).toContainEqual([[-32, -32, 64, 16, 0, 64]]);
-    expect(methods(obj, "setOrigin")).toContainEqual([0, 0]);
+    expect(methods(obj, "setOrigin")).toEqual([]);
     expect(methods(obj, "setPosition")).toEqual([]);
   });
 
@@ -193,6 +198,6 @@ describe("set A renderers", () => {
         fontSize: 18,
       },
     ]);
-    expect(methods(obj, "setOrigin")).toContainEqual([0.5]);
+    expect(methods(obj, "setOrigin")).toEqual([]);
   });
 });

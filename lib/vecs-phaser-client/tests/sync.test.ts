@@ -12,7 +12,7 @@ import {
 } from "@vworlds/vecs-phaser";
 import { describe, expect, it } from "vitest";
 
-import { PhaserRenderModule } from "../src/module.js";
+import { PhaserRenderModule } from "../src/index.js";
 import { phaserInterpolators, rotationInterpolator } from "../src/sync.js";
 import { createMockScene, type MockGameObject, type RecordedCall } from "./mock_phaser.js";
 

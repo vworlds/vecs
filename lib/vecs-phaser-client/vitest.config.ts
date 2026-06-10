@@ -16,6 +16,7 @@ export default defineConfig({
         new URL("../vecs-protocol/src/index.ts", import.meta.url)
       ),
       "@vworlds/vecs-wire": fileURLToPath(new URL("../vecs-wire/src/index.ts", import.meta.url)),
+      phaser: fileURLToPath(new URL("./tests/phaser_stub.ts", import.meta.url)),
     },
   },
 });

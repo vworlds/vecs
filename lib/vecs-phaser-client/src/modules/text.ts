@@ -1,39 +1,38 @@
-import { Module, PRE_STORE, ON_STORE } from "@vworlds/vecs";
-import type Phaser from "phaser";
+import { Module, ON_STORE } from "@vworlds/vecs";
+import Phaser from "phaser";
 import { Text as TextComponent } from "@vworlds/vecs-phaser";
-import { removeGameObject, TextObject, textStyle, VGameObject } from "./types.js";
+import * as m from "../markers.js";
+import { textStyle } from "./types.js";
 
 export class TextModule extends Module<{ scene: Phaser.Scene }> {
   public init(config: { scene: Phaser.Scene }): void {
     const { scene } = config;
     const world = this.world;
 
-    world
-      .system("phaser.render.text.teardown")
-      .with(TextComponent, VGameObject)
-      .phase(PRE_STORE)
-      .exit([TextComponent, VGameObject], (entity) => removeGameObject(entity));
+    world.component(TextComponent).onRemove((entity) => {
+      if (entity.has(Phaser.GameObjects.Text)) {
+        entity.remove(Phaser.GameObjects.Text);
+      }
+    });
 
     world
       .system("phaser.new.text")
       .with(TextComponent)
-      .without(VGameObject)
+      .without(Phaser.GameObjects.Text)
       .phase(ON_STORE)
       .enter([TextComponent], (entity, [text]) => {
-        const obj = scene.add.text(0, 0, text.value, textStyle(text)) as unknown as TextObject;
+        const obj = scene.add.text(0, 0, text.value, textStyle(text));
         obj.setOrigin(0.5);
-        entity.set(VGameObject, { obj });
+        entity.attach(obj);
       });
 
     world
       .system("phaser.render.text.geometry")
-      .with(TextComponent, VGameObject)
+      .with(TextComponent, m.Text)
       .phase(ON_STORE)
-      .update(TextComponent, [VGameObject], (_entity, text, [vgo]) => {
-        const obj = vgo.obj as TextObject;
+      .update(TextComponent, [m.Text], (_entity, text, [obj]) => {
         obj.setText(text.value);
         obj.setStyle(textStyle(text));
-        obj.setOrigin(0.5);
       });
   }
 }

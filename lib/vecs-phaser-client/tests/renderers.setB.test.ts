@@ -13,9 +13,11 @@ import {
   Triangle,
   phaserNetworkComponents,
 } from "@vworlds/vecs-phaser";
+import Phaser from "phaser";
 import { describe, expect, it } from "vitest";
 
-import { PhaserRenderModule, VGameObject } from "../src/module.js";
+import * as m from "../src/markers.js";
+import { PhaserRenderModule } from "../src/index.js";
 import { createMockScene } from "./mock_phaser.js";
 
 describe("VPH-23 renderers", () => {
@@ -28,7 +30,8 @@ describe("VPH-23 renderers", () => {
     const ellipse = scene.created[0];
     expect(ellipse.kind).toBe("ellipse");
     expect(ellipse.createArgs).toEqual([0, 0, 128, 32]);
-    expect(entity.get(VGameObject)?.obj).toBe(ellipse);
+    expect(entity.get(Phaser.GameObjects.Ellipse)).toBe(ellipse);
+    expect(entity.get(m.GameObject)).toBe(ellipse);
 
     entity.set(Ellipse, { width: 3, height: 1.25 });
     tick(world);
@@ -39,7 +42,8 @@ describe("VPH-23 renderers", () => {
     tick(world);
 
     expect(ellipse.destroyed).toBe(true);
-    expect(entity.get(VGameObject)).toBeUndefined();
+    expect(entity.get(Phaser.GameObjects.Ellipse)).toBeUndefined();
+    expect(entity.get(m.GameObject)).toBeUndefined();
   });
 
   it("creates, updates, and destroys stars with CoordSpace-scaled radii", () => {
@@ -55,7 +59,8 @@ describe("VPH-23 renderers", () => {
     const star = scene.created[0];
     expect(star.kind).toBe("star");
     expect(star.createArgs).toEqual([0, 0, 7, 16, 48]);
-    expect(entity.get(VGameObject)?.obj).toBe(star);
+    expect(entity.get(Phaser.GameObjects.Star)).toBe(star);
+    expect(entity.get(m.GameObject)).toBe(star);
 
     entity.set(Star, { points: 9, innerRadius: 0.5, outerRadius: 1.5 });
     tick(world);
@@ -68,7 +73,8 @@ describe("VPH-23 renderers", () => {
     tick(world);
 
     expect(star.destroyed).toBe(true);
-    expect(entity.get(VGameObject)).toBeUndefined();
+    expect(entity.get(Phaser.GameObjects.Star)).toBeUndefined();
+    expect(entity.get(m.GameObject)).toBeUndefined();
   });
 
   it("pins asymmetric triangle vertex-space origin to Position and rotates about it", () => {
@@ -93,7 +99,8 @@ describe("VPH-23 renderers", () => {
     expect(triangle.calls).toContainEqual({ method: "setOrigin", args: [0, 0] });
     expect(triangle.calls).toContainEqual({ method: "setPosition", args: [640, 448] });
     expect(triangle.calls).toContainEqual({ method: "setRotation", args: [-Math.PI / 3] });
-    expect(entity.get(VGameObject)?.obj).toBe(triangle);
+    expect(entity.get(Phaser.GameObjects.Triangle)).toBe(triangle);
+    expect(entity.get(m.GameObject)).toBe(triangle);
 
     entity.set(Triangle, {
       x1: 0.25,
@@ -111,7 +118,8 @@ describe("VPH-23 renderers", () => {
     tick(world);
 
     expect(triangle.destroyed).toBe(true);
-    expect(entity.get(VGameObject)).toBeUndefined();
+    expect(entity.get(Phaser.GameObjects.Triangle)).toBeUndefined();
+    expect(entity.get(m.GameObject)).toBeUndefined();
   });
 
   it("initializes transform and style components present before a shape enters", () => {

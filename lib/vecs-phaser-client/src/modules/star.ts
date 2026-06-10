@@ -1,24 +1,24 @@
-import { Module, PRE_STORE, ON_STORE } from "@vworlds/vecs";
-import type Phaser from "phaser";
+import { Module, ON_STORE } from "@vworlds/vecs";
+import Phaser from "phaser";
 import { CoordSpace } from "../coord_space.js";
 import { Star } from "@vworlds/vecs-phaser";
-import { removeGameObject, StarGameObject, VGameObject } from "./types.js";
+import * as m from "../markers.js";
 
 export class StarModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace }> {
   public init(config: { scene: Phaser.Scene; coords: CoordSpace }): void {
     const { scene, coords } = config;
     const world = this.world;
 
-    world
-      .system("phaser.render.star.teardown")
-      .with(Star, VGameObject)
-      .phase(PRE_STORE)
-      .exit([Star, VGameObject], (entity) => removeGameObject(entity));
+    world.component(Star).onRemove((entity) => {
+      if (entity.has(Phaser.GameObjects.Star)) {
+        entity.remove(Phaser.GameObjects.Star);
+      }
+    });
 
     world
       .system("phaser.new.star")
       .with(Star)
-      .without(VGameObject)
+      .without(Phaser.GameObjects.Star)
       .phase(ON_STORE)
       .enter([Star], (entity, [star]) => {
         const obj = scene.add.star(
@@ -27,16 +27,15 @@ export class StarModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace
           star.points,
           coords.len(star.innerRadius),
           coords.len(star.outerRadius)
-        ) as unknown as StarGameObject;
-        entity.set(VGameObject, { obj });
+        );
+        entity.attach(obj);
       });
 
     world
       .system("phaser.render.star.geometry")
-      .with(Star, VGameObject)
+      .with(Star, m.Star)
       .phase(ON_STORE)
-      .update(Star, [VGameObject], (_entity, star, [vgo]) => {
-        const obj = vgo.obj as StarGameObject;
+      .update(Star, [m.Star], (_entity, star, [obj]) => {
         obj.setPoints(star.points);
         obj.setInnerRadius(coords.len(star.innerRadius));
         obj.setOuterRadius(coords.len(star.outerRadius));

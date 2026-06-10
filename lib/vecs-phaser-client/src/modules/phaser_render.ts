@@ -1,7 +1,7 @@
-import { Module } from "@vworlds/vecs";
-import type Phaser from "phaser";
+import { Implements, Module } from "@vworlds/vecs";
+import Phaser from "phaser";
 import { CoordSpace } from "../coord_space.js";
-import { VGameObject } from "./types.js";
+import * as m from "../markers.js";
 import { ArcModule } from "./arc.js";
 import { EllipseModule } from "./ellipse.js";
 import { LineModule } from "./line.js";
@@ -22,7 +22,44 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     const coords = new CoordSpace(config.scene, config.pixelsPerMeter);
     const world = this.world;
 
-    world.component(VGameObject).onRemove((_entity, vgo) => vgo.obj.destroy());
+    [
+      m.GameObject,
+      m.Shape,
+      m.Transform,
+      m.Alpha,
+      m.Depth,
+      m.Fill,
+      m.Stroke,
+      m.Size,
+      m.Arc,
+      m.Vertices,
+      m.Star,
+      m.Text,
+    ].forEach((Marker) => world.component(Marker));
+
+    world.component(m.Shape).set(Implements, {
+      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Fill, m.Stroke],
+    });
+    world.component(Phaser.GameObjects.Arc).set(Implements, { interfaces: [m.Shape, m.Arc] });
+    world.component(Phaser.GameObjects.Rectangle).set(Implements, {
+      interfaces: [m.Shape, m.Size],
+    });
+    world.component(Phaser.GameObjects.Ellipse).set(Implements, {
+      interfaces: [m.Shape, m.Size],
+    });
+    world.component(Phaser.GameObjects.Line).set(Implements, { interfaces: [m.Shape, m.Vertices] });
+    world.component(Phaser.GameObjects.Polygon).set(Implements, {
+      interfaces: [m.Shape, m.Vertices],
+    });
+    world.component(Phaser.GameObjects.Triangle).set(Implements, {
+      interfaces: [m.Shape, m.Vertices],
+    });
+    world.component(Phaser.GameObjects.Star).set(Implements, { interfaces: [m.Shape, m.Star] });
+    world.component(Phaser.GameObjects.Text).set(Implements, {
+      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text],
+    });
+
+    world.component(m.GameObject).onRemove((_entity, obj) => obj.destroy());
 
     world.module(ArcModule, { scene: config.scene, coords });
     world.module(EllipseModule, { scene: config.scene, coords });
