@@ -10,6 +10,7 @@ import {
   Rectangle,
   Rotation,
   Scale,
+  Size,
   StrokeStyle,
   Text,
   TextAlign,
@@ -80,7 +81,7 @@ describe("set A renderers", () => {
     entity.set(Depth, { value: 9 });
     entity.set(FillStyle, { alpha: 0.25, color: 0x00ff00 });
     entity.set(StrokeStyle, { alpha: 0.8, color: 0x0000ff, width: 6 });
-    entity.set(Rectangle, { height: 0.5, width: 2 });
+    entity.add(Rectangle).set(Size, { height: 0.5, width: 2 });
 
     world.progress(0, 0);
 
@@ -98,12 +99,12 @@ describe("set A renderers", () => {
   it("updates rectangle geometry with pixel sizes", () => {
     const { scene, world } = setup();
     const entity = world.entity();
-    entity.set(Rectangle, { height: 1, width: 1 });
+    entity.add(Rectangle).set(Size, { height: 1, width: 1 });
     world.progress(0, 0);
 
     const obj = scene.created[0]!;
     obj.calls.length = 0;
-    entity.set(Rectangle, { height: 0.25, width: 0.5 });
+    entity.set(Size, { height: 0.25, width: 0.5 });
     world.progress(1, 0);
 
     expect(methods(obj, "setSize")).toContainEqual([32, 16]);

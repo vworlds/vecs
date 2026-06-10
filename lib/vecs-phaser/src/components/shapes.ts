@@ -1,4 +1,4 @@
-import { type as wireType } from "@vworlds/vecs-wire";
+import { type as wireType, tag as wireTag } from "@vworlds/vecs-wire";
 
 /**
  * Arc shape. All dimensions in meters; angles in radians (CCW+).
@@ -27,9 +27,10 @@ export class Arc {
 }
 
 /**
- * Ellipse shape. All dimensions in meters.
+ * Width and height of a sized shape, in meters. Shared by shapes whose geometry
+ * is the Phaser Size mixin (Ellipse, Rectangle) and applied via `setSize`.
  */
-export class Ellipse {
+export class Size {
   /** Width in meters. */
   @wireType("f32")
   public width = 2;
@@ -40,17 +41,16 @@ export class Ellipse {
 }
 
 /**
- * Rectangle shape. All dimensions in meters.
+ * Ellipse shape tag. Dimensions live on the shared {@link Size} component.
  */
-export class Rectangle {
-  /** Width in meters. */
-  @wireType("f32")
-  public width = 2;
+@wireTag
+export class Ellipse {}
 
-  /** Height in meters. */
-  @wireType("f32")
-  public height = 1;
-}
+/**
+ * Rectangle shape tag. Dimensions live on the shared {@link Size} component.
+ */
+@wireTag
+export class Rectangle {}
 
 /**
  * Polygon shape. Points are alternating x,y pairs in meters,

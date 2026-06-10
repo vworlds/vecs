@@ -6,6 +6,7 @@ import {
   Position,
   Rotation,
   Scale,
+  Size,
   StrokeStyle,
 } from "@vworlds/vecs-phaser";
 import { CoordSpace } from "../coord_space.js";
@@ -46,6 +47,14 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
       .with(Depth, m.Depth)
       .phase(ON_STORE)
       .update(Depth, [m.Depth], (_e, d, [obj]) => obj.setDepth(d.value));
+
+    world
+      .system("phaser.sync.size")
+      .with(Size, m.Size)
+      .phase(ON_STORE)
+      .update(Size, [m.Size], (_e, s, [obj]) =>
+        obj.setSize(coords.len(s.width), coords.len(s.height))
+      );
 
     world
       .system("phaser.sync.fill-style")

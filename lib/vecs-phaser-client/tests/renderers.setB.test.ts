@@ -8,6 +8,7 @@ import {
   Position,
   Rotation,
   Scale,
+  Size,
   Star,
   StrokeStyle,
   Triangle,
@@ -24,7 +25,7 @@ describe("VPH-23 renderers", () => {
   it("creates, updates, and destroys ellipses with CoordSpace-scaled dimensions", () => {
     const { entity, scene, world } = setupRuntime();
 
-    entity.set(Position, { x: 1, y: -2 }).set(Ellipse, { width: 2, height: 0.5 });
+    entity.set(Position, { x: 1, y: -2 }).add(Ellipse).set(Size, { width: 2, height: 0.5 });
     tick(world);
 
     const ellipse = scene.created[0];
@@ -33,7 +34,7 @@ describe("VPH-23 renderers", () => {
     expect(entity.get(Phaser.GameObjects.Ellipse)).toBe(ellipse);
     expect(entity.get(m.GameObject)).toBe(ellipse);
 
-    entity.set(Ellipse, { width: 3, height: 1.25 });
+    entity.set(Size, { width: 3, height: 1.25 });
     tick(world);
 
     expect(ellipse.calls).toContainEqual({ method: "setSize", args: [192, 80] });
@@ -133,7 +134,8 @@ describe("VPH-23 renderers", () => {
       .set(Depth, { value: 12 })
       .set(FillStyle, { color: 0xff00aa, alpha: 0.7 })
       .set(StrokeStyle, { color: 0x001122, alpha: 0.5, width: 4 })
-      .set(Ellipse, { width: 1, height: 1 });
+      .add(Ellipse)
+      .set(Size, { width: 1, height: 1 });
     tick(world);
 
     const ellipse = scene.created[0];

@@ -9,6 +9,7 @@ import {
   Position as RenderPosition,
   Rectangle,
   Rotation as RenderRotation,
+  Size,
   Star,
   StrokeStyle,
   Text,
@@ -170,7 +171,8 @@ world
     const scoreText = createScoreText(entity, spawn);
     entity
       .set(RenderPosition, spawn)
-      .set(Rectangle, { width: PLAYER_SIZE, height: PLAYER_SIZE })
+      .add(Rectangle)
+      .set(Size, { width: PLAYER_SIZE, height: PLAYER_SIZE })
       .set(FillStyle, { color: 0x66ccff, alpha: 1 })
       .set(Player, { scoreText })
       .add(ViewAll);
@@ -436,7 +438,8 @@ function createDecorations(): void {
   world
     .entity()
     .add(Networked)
-    .set(Ellipse, { width: 0.7, height: 0.32 })
+    .add(Ellipse)
+    .set(Size, { width: 0.7, height: 0.32 })
     .set(RenderPosition, { x: 1.0, y: -2.05 })
     .set(FillStyle, { color: 0xff88bb, alpha: 0.8 });
   world

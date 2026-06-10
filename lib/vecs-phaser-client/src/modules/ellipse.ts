@@ -1,8 +1,7 @@
 import { Module, ON_STORE } from "@vworlds/vecs";
 import Phaser from "phaser";
 import { CoordSpace } from "../coord_space.js";
-import { Ellipse } from "@vworlds/vecs-phaser";
-import * as m from "../markers.js";
+import { Ellipse, Size } from "@vworlds/vecs-phaser";
 
 export class EllipseModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace }> {
   public init(config: { scene: Phaser.Scene; coords: CoordSpace }): void {
@@ -17,20 +16,12 @@ export class EllipseModule extends Module<{ scene: Phaser.Scene; coords: CoordSp
 
     world
       .system("phaser.new.ellipse")
-      .with(Ellipse)
+      .with(Ellipse, Size)
       .without(Phaser.GameObjects.Ellipse)
       .phase(ON_STORE)
-      .enter([Ellipse], (entity, [ellipse]) => {
-        const obj = scene.add.ellipse(0, 0, coords.len(ellipse.width), coords.len(ellipse.height));
+      .enter([Size], (entity, [size]) => {
+        const obj = scene.add.ellipse(0, 0, coords.len(size.width), coords.len(size.height));
         entity.attach(obj);
-      });
-
-    world
-      .system("phaser.render.ellipse.geometry")
-      .with(Ellipse, m.Size)
-      .phase(ON_STORE)
-      .update(Ellipse, [m.Size], (_entity, ellipse, [obj]) => {
-        obj.setSize(coords.len(ellipse.width), coords.len(ellipse.height));
       });
   }
 }

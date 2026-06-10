@@ -1,6 +1,13 @@
 import type { Entity } from "@vworlds/vecs";
 import { ClientWorld } from "@vworlds/vecs-client";
-import { Arc, FillStyle, phaserNetworkComponents, Position, Rectangle } from "@vworlds/vecs-phaser";
+import {
+  Arc,
+  FillStyle,
+  phaserNetworkComponents,
+  Position,
+  Rectangle,
+  Size,
+} from "@vworlds/vecs-phaser";
 import Phaser from "phaser";
 import { describe, expect, it } from "vitest";
 
@@ -39,7 +46,7 @@ describe("PhaserRenderModule integration", () => {
     expect(entity.get(Phaser.GameObjects.Arc)).toBe(arc);
 
     entity.remove(Arc);
-    entity.set(Rectangle, { height: 0.5, width: 1.5 });
+    entity.add(Rectangle).set(Size, { height: 0.5, width: 1.5 });
     world.progress(1, 0);
 
     const rectangle = scene.created[1]!;
@@ -151,11 +158,11 @@ function setRectangleEntity(
   entity: Entity,
   position: Partial<Position>,
   fill: Partial<FillStyle>,
-  rectangle: Partial<Rectangle>
+  size: Partial<Size>
 ): void {
   entity.set(Position, position);
   entity.set(FillStyle, fill);
-  entity.set(Rectangle, rectangle);
+  entity.add(Rectangle).set(Size, size);
 }
 
 function setup(): { scene: ReturnType<typeof createMockScene>; world: ClientWorld } {

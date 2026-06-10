@@ -1,8 +1,7 @@
 import { Module, ON_STORE } from "@vworlds/vecs";
 import Phaser from "phaser";
 import { CoordSpace } from "../coord_space.js";
-import { Rectangle } from "@vworlds/vecs-phaser";
-import * as m from "../markers.js";
+import { Rectangle, Size } from "@vworlds/vecs-phaser";
 
 export class RectangleModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace }> {
   public init(config: { scene: Phaser.Scene; coords: CoordSpace }): void {
@@ -17,25 +16,12 @@ export class RectangleModule extends Module<{ scene: Phaser.Scene; coords: Coord
 
     world
       .system("phaser.new.rectangle")
-      .with(Rectangle)
+      .with(Rectangle, Size)
       .without(Phaser.GameObjects.Rectangle)
       .phase(ON_STORE)
-      .enter([Rectangle], (entity, [rectangle]) => {
-        const obj = scene.add.rectangle(
-          0,
-          0,
-          coords.len(rectangle.width),
-          coords.len(rectangle.height)
-        );
+      .enter([Size], (entity, [size]) => {
+        const obj = scene.add.rectangle(0, 0, coords.len(size.width), coords.len(size.height));
         entity.attach(obj);
-      });
-
-    world
-      .system("phaser.render.rectangle.geometry")
-      .with(Rectangle, m.Size)
-      .phase(ON_STORE)
-      .update(Rectangle, [m.Size], (_entity, rectangle, [obj]) => {
-        obj.setSize(coords.len(rectangle.width), coords.len(rectangle.height));
       });
   }
 }

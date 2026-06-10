@@ -7,6 +7,7 @@ import {
   Line,
   Polygon,
   Rectangle,
+  Size,
   Star,
   Triangle,
 } from "../src/components/shapes.js";
@@ -48,31 +49,24 @@ describe("Arc", () => {
   });
 });
 
-describe("Ellipse", () => {
+describe("Size", () => {
   it("round-trips non-default values", () => {
-    const ellipse = new Ellipse();
-    ellipse.width = 4;
-    ellipse.height = 2;
+    const size = new Size();
+    size.width = 3;
+    size.height = 1.5;
 
-    const decoded = roundTrip(Ellipse, ellipse);
+    const decoded = roundTrip(Size, size);
 
-    expect(decoded).toBeInstanceOf(Ellipse);
-    expect(decoded.width).toBeCloseTo(4, 4);
-    expect(decoded.height).toBeCloseTo(2, 4);
+    expect(decoded).toBeInstanceOf(Size);
+    expect(decoded.width).toBeCloseTo(3, 4);
+    expect(decoded.height).toBeCloseTo(1.5, 4);
   });
 });
 
-describe("Rectangle", () => {
-  it("round-trips non-default values", () => {
-    const rect = new Rectangle();
-    rect.width = 3;
-    rect.height = 1.5;
-
-    const decoded = roundTrip(Rectangle, rect);
-
-    expect(decoded).toBeInstanceOf(Rectangle);
-    expect(decoded.width).toBeCloseTo(3, 4);
-    expect(decoded.height).toBeCloseTo(1.5, 4);
+describe("shape tags", () => {
+  it("round-trip Ellipse and Rectangle as presence-only tags", () => {
+    expect(roundTrip(Ellipse, new Ellipse())).toBeInstanceOf(Ellipse);
+    expect(roundTrip(Rectangle, new Rectangle())).toBeInstanceOf(Rectangle);
   });
 });
 

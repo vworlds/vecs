@@ -2,12 +2,30 @@ import { type ComponentClass } from "@vworlds/vecs";
 
 export { Alpha, Depth, Position, Rotation, Scale } from "./components/transform.js";
 export { FillStyle, StrokeStyle } from "./components/style.js";
-export { Arc, Ellipse, Line, Polygon, Rectangle, Star, Triangle } from "./components/shapes.js";
+export {
+  Arc,
+  Ellipse,
+  Line,
+  Polygon,
+  Rectangle,
+  Size,
+  Star,
+  Triangle,
+} from "./components/shapes.js";
 export { Text, TextAlign } from "./components/text.js";
 
 import { Alpha, Depth, Position, Rotation, Scale } from "./components/transform.js";
 import { FillStyle, StrokeStyle } from "./components/style.js";
-import { Arc, Ellipse, Line, Polygon, Rectangle, Star, Triangle } from "./components/shapes.js";
+import {
+  Arc,
+  Ellipse,
+  Line,
+  Polygon,
+  Rectangle,
+  Size,
+  Star,
+  Triangle,
+} from "./components/shapes.js";
 import { Text } from "./components/text.js";
 
 /**
@@ -30,6 +48,7 @@ import { Text } from "./components/text.js";
  *  13  Triangle
  *  14  Star
  *  15  Text
+ *  16  Size
  */
 export const phaserNetworkComponents = [
   Position,
@@ -47,6 +66,7 @@ export const phaserNetworkComponents = [
   Triangle,
   Star,
   Text,
+  Size,
 ] as const satisfies readonly ComponentClass[];
 
 /**

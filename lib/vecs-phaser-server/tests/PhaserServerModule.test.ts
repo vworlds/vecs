@@ -23,7 +23,7 @@ describe("PhaserServerModule exclusivity", () => {
   it("removes an existing renderable when a second renderable is set", () => {
     const world = createWorld();
     world.module(PhaserServerModule);
-    const entity = world.entity().set(Rectangle, { width: 4, height: 5 });
+    const entity = world.entity().add(Rectangle);
 
     entity.set(phaserRenderableComponents[0], { radius: 0.25 });
 
