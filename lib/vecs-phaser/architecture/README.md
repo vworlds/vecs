@@ -119,7 +119,7 @@ build script).
         │  PhaserRenderModule, VGameObject, CoordSpace       peer: phaser@^4.1
         ▼
 @vworlds/vecs-phaser-server     (helpers, optional)  deps: vecs-phaser, vecs-server
-           setExclusiveComponents wiring, builders, pose-sync  no phaser
+           PhaserServerModule (zero-config ECS module)  no phaser
 ```
 
 ### 5.1 Public API surface (the contract subagents build to)
@@ -212,10 +212,10 @@ export const rotationInterpolator: ComponentInterpolator;
 **`@vworlds/vecs-phaser-server`** (optional)
 
 ```ts
-export function registerRenderExclusivity(world: ServerWorld): void; // setExclusiveComponents(...renderables)
-export function createArc(world, props): Entity; // + sibling shape builders
-// …builders add Networked + the one renderable + provided transform/style
-export function syncPhysicsPose(world: ServerWorld, options?): void; // physics Position/Rotation → render
+export class PhaserServerModule extends Module<undefined> {
+  // zero-config: sets exclusive renderable components + two PRE_STORE reactive
+  // pose-sync systems (copies vecs-physics Position/Rotation → render Position/Rotation)
+}
 ```
 
 ---
@@ -344,7 +344,7 @@ option. All other components snap to latest.
 ### 7.5 Origin & rotation pivot
 
 `Position` is the **entity origin** — it maps to the Box2D body transform that
-`syncPhysicsPose` copies, and it is the **rotation pivot** for every shape (`Rotation`
+`PhaserServerModule`'s pose-sync copies, and it is the **rotation pivot** for every shape (`Rotation`
 rotates about it, matching Box2D bodies). The renderer must guarantee this uniformly:
 
 - **Centered primitives** (`Arc`, `Ellipse`, `Rectangle`, `Star`): Phaser already centers
@@ -367,16 +367,11 @@ rotates about it, matching Box2D bodies). The renderer must guarantee this unifo
 
 ```ts
 import { ServerWorld } from "@vworlds/vecs-server";
-import {
-  phaserNetworkComponents,
-  phaserRenderableComponents,
-  Arc,
-  Position,
-  FillStyle,
-} from "@vworlds/vecs-phaser";
+import { PhaserServerModule } from "@vworlds/vecs-phaser-server";
+import { phaserNetworkComponents, Arc, Position, FillStyle } from "@vworlds/vecs-phaser";
 
 const world = new ServerWorld({ name: "main", networkComponents: phaserNetworkComponents });
-world.setExclusiveComponents(...phaserRenderableComponents);
+world.module(PhaserServerModule); // owns exclusivity + reactive pose-sync in PRE_STORE
 
 world
   .entity()
@@ -386,12 +381,14 @@ world
   .set(FillStyle, { color: 0xffcc00, alpha: 1 });
 ```
 
-Optional helpers in `@vworlds/vecs-phaser-server`:
+The `PhaserServerModule` (zero-config) handles everything in one call:
 
-- `registerRenderExclusivity(world)` — one call wrapping `setExclusiveComponents`.
-- shape builders (`createArc`, `createRectangle`, …) that add `Networked` + the renderable.
-- `syncPhysicsPose(world)` — system copying vecs-physics `Position`/`Rotation` (meters) →
-  render `Position`/`Rotation`; a trivial copy since both are meters.
+- Sets exclusive renderable components (one shape per entity).
+- Installs two reactive pose-sync systems in `PRE_STORE` that copy
+  `vecs-physics` `Position`/`Rotation` → render `Position`/`Rotation` only
+  when physics actually changed the body pose. Entities must already have a
+  render pose (set by the user at creation); the module never creates render
+  components.
 
 ---
 
@@ -414,7 +411,7 @@ physics-driven in meters) is migrated to prove the whole stack end to end.
   `phaserNetworkComponents`; keep `Ball`/`Player` as local components.
 - Recenter all game math to meters/center-origin (walls, player spawn/movement, grid cells,
   collision). Physics already meters — drop the pixel `SyncPhysicsBalls` conversion; render
-  `Position`/`Rotation` become a **direct copy** of physics pose (use `syncPhysicsPose`).
+  `Position`/`Rotation` become a **direct copy** of physics pose (via `PhaserServerModule`).
 - Render mapping: **Ball** → `Arc` (radius = physics circle radius) + `FillStyle` (random);
   **Player** → `Rectangle` + `FillStyle`; **score** → a child `Text` entity following the
   player (server writes `Text.value = String(score)`).
@@ -452,8 +449,8 @@ view (interest management), and baseline-reset rebuild.
   Position/FillStyle through sync-system ordering; transform/style updates apply via
   CoordSpace; destroy on exit/entity clear; recreate on renderable-type change; Text origin
   centered; vertex shapes pin `(0,0)` to `Position`.
-- **`vecs-phaser-server`:** exclusivity rejects two renderables; builders add `Networked` +
-  intended renderable; `syncPhysicsPose` copies pose.
+- **`vecs-phaser-server`:** `PhaserServerModule` enforces exclusivity; reactive pose-sync copies
+  physics `Position`/`Rotation` → render (only when physics changed; no create).
 - **Demo:** manual + scripted end-to-end (see [`TICKETS.md`](./TICKETS.md) VPH-42).
 - Repo gates: `npm run test|typecheck|lint|format` across workspaces.
 

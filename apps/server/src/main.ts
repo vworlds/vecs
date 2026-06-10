@@ -1,24 +1,21 @@
 import express from "express";
 import { type ComponentClass, type Entity, type QueryDSL, Relationship } from "@vworlds/vecs";
 import {
+  Ellipse,
   FillStyle,
+  Line,
   phaserNetworkComponents,
   Polygon,
   Position as RenderPosition,
   Rectangle,
   Rotation as RenderRotation,
+  Star,
+  StrokeStyle,
   Text,
   TextAlign,
+  Triangle,
 } from "@vworlds/vecs-phaser";
-import {
-  createEllipse,
-  createLine,
-  createPolygon,
-  createStar,
-  createTriangle,
-  registerRenderExclusivity,
-  syncPhysicsPose,
-} from "@vworlds/vecs-phaser-server";
+import { PhaserServerModule } from "@vworlds/vecs-phaser-server";
 import {
   AngularVelocity as PhysicsAngularVelocity,
   Body,
@@ -106,7 +103,6 @@ const cellTagComponents: ComponentClass[] = Array.from(
 );
 
 const world = new ServerWorld({ name: "main", networkComponents: phaserNetworkComponents });
-registerRenderExclusivity(world);
 
 const app = express();
 app.use(express.json());
@@ -134,8 +130,8 @@ cellTagComponents.forEach((CellTag) => {
 
 await preloadPhysics();
 world.module(PhysicsModule, { gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 });
+world.module(PhaserServerModule);
 const physicsPost = world.entity("physics-post");
-syncPhysicsPose(world, { phase: physicsPost });
 
 // One anchor entity per grid cell. Moving entities relate to these via InCell;
 // the per-cell View DSL targets each anchor's tag.
@@ -414,46 +410,43 @@ function createPhysicsWalls(): void {
 }
 
 function createDecorations(): void {
-  createStar(world, {
-    points: 5,
-    innerRadius: 0.12,
-    outerRadius: 0.24,
-    position: { x: -4.1, y: -2.05 },
-    fillStyle: { color: 0xffdd66, alpha: 0.9 },
-  });
-  createTriangle(world, {
-    x1: 0,
-    y1: 0.28,
-    x2: -0.28,
-    y2: -0.2,
-    x3: 0.28,
-    y3: -0.2,
-    position: { x: -2.7, y: -2.05 },
-    rotation: { angle: 0 },
-    fillStyle: { color: 0x66ffaa, alpha: 0.85 },
-  }).set(RotatingDecoration, { speed: 0.018 });
-  createPolygon(world, {
-    points: [-0.3, -0.18, -0.08, 0.25, 0.32, 0.14, 0.22, -0.24],
-    position: { x: -1.1, y: -2.05 },
-    rotation: { angle: 0 },
-    fillStyle: { color: 0xb388ff, alpha: 0.85 },
-    strokeStyle: { color: 0xffffff, alpha: 0.45, width: 2 },
-  }).set(RotatingDecoration, { speed: -0.014 });
-  createEllipse(world, {
-    width: 0.7,
-    height: 0.32,
-    position: { x: 1.0, y: -2.05 },
-    fillStyle: { color: 0xff88bb, alpha: 0.8 },
-  });
-  createLine(world, {
-    x1: -0.45,
-    y1: -0.15,
-    x2: 0.45,
-    y2: 0.15,
-    position: { x: 2.55, y: -2.05 },
-    rotation: { angle: 0 },
-    strokeStyle: { color: 0x88ccff, alpha: 1, width: 4 },
-  }).set(RotatingDecoration, { speed: 0.03 });
+  world
+    .entity()
+    .add(Networked)
+    .set(Star, { points: 5, innerRadius: 0.12, outerRadius: 0.24 })
+    .set(RenderPosition, { x: -4.1, y: -2.05 })
+    .set(FillStyle, { color: 0xffdd66, alpha: 0.9 });
+  world
+    .entity()
+    .add(Networked)
+    .set(Triangle, { x1: 0, y1: 0.28, x2: -0.28, y2: -0.2, x3: 0.28, y3: -0.2 })
+    .set(RenderPosition, { x: -2.7, y: -2.05 })
+    .set(RenderRotation, { angle: 0 })
+    .set(FillStyle, { color: 0x66ffaa, alpha: 0.85 })
+    .set(RotatingDecoration, { speed: 0.018 });
+  world
+    .entity()
+    .add(Networked)
+    .set(Polygon, { points: [-0.3, -0.18, -0.08, 0.25, 0.32, 0.14, 0.22, -0.24] })
+    .set(RenderPosition, { x: -1.1, y: -2.05 })
+    .set(RenderRotation, { angle: 0 })
+    .set(FillStyle, { color: 0xb388ff, alpha: 0.85 })
+    .set(StrokeStyle, { color: 0xffffff, alpha: 0.45, width: 2 })
+    .set(RotatingDecoration, { speed: -0.014 });
+  world
+    .entity()
+    .add(Networked)
+    .set(Ellipse, { width: 0.7, height: 0.32 })
+    .set(RenderPosition, { x: 1.0, y: -2.05 })
+    .set(FillStyle, { color: 0xff88bb, alpha: 0.8 });
+  world
+    .entity()
+    .add(Networked)
+    .set(Line, { x1: -0.45, y1: -0.15, x2: 0.45, y2: 0.15 })
+    .set(RenderPosition, { x: 2.55, y: -2.05 })
+    .set(RenderRotation, { angle: 0 })
+    .set(StrokeStyle, { color: 0x88ccff, alpha: 1, width: 4 })
+    .set(RotatingDecoration, { speed: 0.03 });
 }
 
 function assignCell(entity: Entity, position: RenderPosition): void {
