@@ -80,6 +80,20 @@ export function type(spec: WireTypeSpec): PropertyDecorator {
   };
 }
 
+/**
+ * Register a class as a presence-only wire tag: a component with no encoded
+ * fields. It encodes to zero bytes and decodes to a fresh instance, so its mere
+ * presence on an entity is the payload. Usable as a class decorator (`@tag`) or
+ * called directly (`tag(C)`).
+ */
+export function tag<T extends WireConstructor>(C: T): T {
+  if (!fieldsByConstructor.has(C)) {
+    fieldsByConstructor.set(C, []);
+  }
+  installTrampolines(C as unknown as DecoratedConstructor);
+  return C;
+}
+
 function registerStandardField(context: IStandardFieldDecoratorContext, spec: WireTypeSpec): void {
   if (context.kind !== "field") {
     throw new TypeError("vecs-wire/type only supports standard field decorators");
@@ -138,8 +152,8 @@ function compileWireType(C: DecoratedConstructor): void {
   }
 
   const fields = fieldsByConstructor.get(C);
-  if (fields === undefined || fields.length === 0) {
-    throw new Error(`vecs-wire/type ${C.name || "anonymous class"} has no decorated fields`);
+  if (fields === undefined) {
+    throw new Error(`vecs-wire/type ${C.name || "anonymous class"} is not a wire type`);
   }
 
   const nestedTypes: WireConstructor[] = [];

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Decoder, Encoder, type, type WireTypeSpec } from "../src/index.js";
+import { Decoder, Encoder, tag, type, type WireTypeSpec } from "../src/index.js";
 
 interface IStandardFieldDecoratorContext {
   kind: string;
@@ -355,5 +355,24 @@ describe("type decorator", () => {
       const encoder = new Encoder(new Uint8Array(128));
       encoder.write(value);
     }).toThrow("values must be an array");
+  });
+
+  it("round-trips a presence-only tag to zero bytes and back", () => {
+    class Marker {}
+    tag(Marker);
+
+    const encoder = new Encoder(new Uint8Array(16));
+    encoder.write(new Marker());
+    expect(encoder.getBuffer().length).toBe(0);
+
+    const decoded = new Decoder(encoder.getBuffer()).read(Marker);
+    expect(decoded).toBeInstanceOf(Marker);
+  });
+
+  it("supports tag used as a class decorator", () => {
+    @tag
+    class Flag {}
+
+    expect(roundTrip(Flag, new Flag())).toBeInstanceOf(Flag);
   });
 });
