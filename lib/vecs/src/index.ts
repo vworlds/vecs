@@ -50,4 +50,5 @@ export { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
 export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";
 export { ArrayMap, IterableArrayMap } from "./util/array_map.js";
 export { Bitset } from "./util/bitset.js";
+export { Events, type EventListener, type EventNames } from "./util/events.js";
 export { DEFAULT_ID_REUSE_WAIT_FRAMES, type IdPoolConfig } from "./util/id_pool.js";

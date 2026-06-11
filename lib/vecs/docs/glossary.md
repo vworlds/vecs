@@ -44,6 +44,9 @@ pipeline). [Execution model](./execution-model.md#deferred-mutation-and-flush-bo
 **Exclusive components** — a declared group where at most one member may exist on an entity;
 setting one removes the others. [Components](./components.md#exclusive-component-groups).
 
+**Events** — a minimal typed event emitter helper exported for package-level events. It is not an
+entity lifecycle API. [Utilities](./utilities.md#events).
+
 **Filter** — a non-reactive, one-shot predicate that scans world entities on each `forEach`.
 [Queries and filters](./queries-and-filters.md#filters-one-shot-scans).
 

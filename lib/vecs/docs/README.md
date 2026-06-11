@@ -24,6 +24,8 @@ Read in this order the first time through:
    - [Modules](./modules.md) — packaging features, composition, the built-in modules.
 5. [Design guide](./design-guide.md) — opinionated patterns and anti-patterns distilled from real
    designs. Read it once you know the machinery.
+6. [Utilities](./utilities.md) — helper classes exported by `@vworlds/vecs` but not part of the ECS
+   lifecycle model.
 
 Keep the [Glossary](./glossary.md) at hand for terminology.
 
@@ -41,6 +43,7 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 | [relationships.md](./relationships.md)             | `Relationship`, `ChildOf`/`DependsOn`, `parent`/`children`, `Traversable`, cascades.         |
 | [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, composition, built-in modules.                             |
 | [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                               |
+| [utilities.md](./utilities.md)                     | Public helper classes such as `Events`.                                                      |
 | [glossary.md](./glossary.md)                       | ECS and vecs terminology.                                                                    |
 
 Networking (wire encoding with `@type`, protocol component ordering, replication) lives in the

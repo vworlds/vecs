@@ -8,8 +8,8 @@ import type { Entity } from "./entity.js";
 export class Lifecycle extends Components {
   /**
    * @internal Apply a `Destroy` command: fire `_exit` on every query, then
-   * `onRemove` on every component, emit the `destroy` event, unregister from
-   * the world, and apply incoming relationship cleanup policies.
+   * `onRemove` on every component, unregister from the world, and apply
+   * incoming relationship cleanup policies.
    */
   public _destroy(): void {
     if (this._destroyed) {
@@ -55,11 +55,6 @@ export class Lifecycle extends Components {
     this._dirtyComponentBitmask.clear();
     this._queries.clear();
 
-    if (this._events) {
-      this._events.emit("destroy");
-      this._events.removeAllListeners("destroy");
-    }
-
     this._components.clear();
 
     if (entityMeta && entityMeta.usageCount === 0 && entityMeta.Class !== Object) {
@@ -73,9 +68,9 @@ export class Lifecycle extends Components {
   /**
    * Destroy this entity.
    *
-   * Each component fires its `onRemove` hook, the `"destroy"` event is emitted
-   * just before teardown, and the entity is unregistered from the world.
-   * After destruction the entity must not be used.
+   * Each component fires its `onRemove` hook, the entity is unregistered from
+   * the world, and incoming relationship cleanup policies are applied. After
+   * destruction the entity must not be used.
    */
   public destroy(): void {
     const entityMeta = this._meta;
