@@ -20,7 +20,7 @@ events.on("reset", (event) => console.log(event.initial));
 events.emit("reset", { initial: true });
 ```
 
-## Reference
+### Reference
 
 | Method                             | Description                                                                |
 | ---------------------------------- | -------------------------------------------------------------------------- |
@@ -34,3 +34,78 @@ events.emit("reset", { initial: true });
 | `eventNames()`                     | Return event names with at least one listener.                             |
 | `listeners(event)`                 | Return registered listener functions for an event.                         |
 | `listenerCount(event)`             | Return the number of listeners registered for an event.                    |
+
+## `ArrayMap`
+
+`ArrayMap` (`lib/vecs/src/util/array_map.ts`) is a cheap `Map<number, T>` substitute backed by a
+sparse JavaScript array. Lookups are a single array read and memory usage is one sparse backing
+array. Use it when you only need random access (`get`, `set`, `has`, `delete`) by non-negative
+integer keys and don't need iteration.
+
+The world and entity APIs return read-only `ArrayMap` views (e.g. `entity.components`).
+
+```ts
+import { ArrayMap } from "@vworlds/vecs";
+
+const map = new ArrayMap<string>();
+map.set(42, "hello");
+map.get(42); // "hello"
+map.has(42); // true
+map.delete(42);
+map.size; // 0
+```
+
+### Reference
+
+| Method          | Description                                                       |
+| --------------- | ----------------------------------------------------------------- |
+| `set(key, val)` | Insert or replace the value at `key`. Increments `size` when new. |
+| `get(key)`      | Retrieve the value at `key`, or `undefined` if no entry exists.   |
+| `has(key)`      | `true` when an entry exists at `key`.                             |
+| `delete(key)`   | Remove the entry at `key`. Does nothing if no entry exists there. |
+| `clear()`       | Remove all entries and reset `size` to zero.                      |
+| `size`          | The number of entries currently in the map.                       |
+
+## `IterableArrayMap`
+
+`IterableArrayMap` (`lib/vecs/src/util/array_map.ts`) is an iterable `Map<number, T>` substitute
+backed by dense entries plus sparse indexes. Use it when callers need fast `forEach` or `values`
+over present entries. Random access resolves `key → dense index` through an internal `ArrayMap`,
+then indexes into a dense items array; iteration walks the dense items array directly.
+
+Deletes keep the items array dense by moving the last value into the removed slot, so iteration
+is always a tight loop without sparse holes. Compared with `ArrayMap`, this costs extra memory
+for tuple storage and an index map.
+
+```ts
+import { IterableArrayMap } from "@vworlds/vecs";
+
+const map = new IterableArrayMap<{ x: number }>();
+map.set(1, { x: 10 });
+map.set(3, { x: 30 });
+
+for (const [key, value] of map) {
+  console.log(key, value.x); // 1 10, 3 30 (or swapped after a delete)
+}
+```
+
+### Reference
+
+| Method              | Description                                                            |
+| ------------------- | ---------------------------------------------------------------------- |
+| `set(key, val)`     | Insert or replace the value at `key`.                                  |
+| `get(key)`          | Retrieve the value at `key`, or `undefined` if no entry exists.        |
+| `has(key)`          | `true` when an entry exists at `key`.                                  |
+| `delete(key)`       | Remove the entry at `key`. Swaps last item into vacated slot (O(1)).   |
+| `forEach(cb)`       | Visit every entry in dense item order, invoking `cb(value, key, map)`. |
+| `entries()`         | Iterator over `[key, value]` entries in dense item order.              |
+| `values()`          | Every present value in dense item order as `T[]`.                      |
+| `[Symbol.iterator]` | Same as `entries()`; supports `for..of`.                               |
+| `clear()`           | Remove all entries and reset `size` to zero.                           |
+| `size`              | The number of entries currently in the map.                            |
+
+## `Bitset`
+
+`Bitset` is covered in [Queries and filters](./queries-and-filters.md#bitset). It is the compact
+integer-set type the ECS uses for entity archetypes and watchlists, and is exported so component
+data can use it for bit-flag fields. See that guide for the full reference and usage.

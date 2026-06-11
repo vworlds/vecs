@@ -43,7 +43,7 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 | [relationships.md](./relationships.md)             | `Relationship`, `ChildOf`/`DependsOn`, `parent`/`children`, `Traversable`, cascades.         |
 | [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, composition, built-in modules.                             |
 | [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                               |
-| [utilities.md](./utilities.md)                     | Public helper classes such as `Events`.                                                      |
+| [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.    |
 | [glossary.md](./glossary.md)                       | ECS and vecs terminology.                                                                    |
 
 Networking (wire encoding with `@type`, protocol component ordering, replication) lives in the
