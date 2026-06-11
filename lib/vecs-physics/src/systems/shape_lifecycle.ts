@@ -12,10 +12,10 @@ import { withAllocated } from "../adapter/disposal.js";
 const MAX_POLYGON_VERTICES = 8;
 
 export function installShapeLifecycle(world: World, state: PhysicsState, phase: Entity): System {
-  const system = world
-    .system("PhysicsShapeLifecycle")
-    .with({ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] })
-    .phase(phase);
+  const shapePredicate = {
+    all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }],
+  } as const;
+  const system = world.system("PhysicsShapeLifecycle").with(shapePredicate).phase(phase);
 
   system.enter((entity) => {
     createShapeForEntity(state, entity);
@@ -30,41 +30,69 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     destroyShapeForEntity(state, entity, true, childOf?.target);
   });
 
-  system.update(Box, (entity) => {
-    recreateShapeForEntity(state, entity);
-  });
-  system.update(Circle, (entity) => {
-    recreateShapeForEntity(state, entity);
-  });
-  system.update(Capsule, (entity) => {
-    const capsule = entity.get(Capsule);
-    if (
-      capsule !== undefined &&
-      !hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)
-    ) {
-      return;
-    }
-    recreateShapeForEntity(state, entity);
-  });
-  system.update(Segment, (entity) => {
-    const segment = entity.get(Segment);
-    if (
-      segment !== undefined &&
-      !hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)
-    ) {
-      return;
-    }
-    recreateShapeForEntity(state, entity);
-  });
-  system.update(Polygon, (entity) => {
-    recreateShapeForEntity(state, entity);
-  });
-  system.update(Chain, (entity) => {
-    recreateShapeForEntity(state, entity);
-  });
-  system.update(ChildOf, (entity) => {
-    recreateShapeForEntity(state, entity);
-  });
+  world
+    .system("PhysicsShapeLifecycle:Box")
+    .with(Box, { parent: Body })
+    .phase(phase)
+    .update(Box, (entity) => {
+      recreateShapeForEntity(state, entity);
+    });
+  world
+    .system("PhysicsShapeLifecycle:Circle")
+    .with(Circle, { parent: Body })
+    .phase(phase)
+    .update(Circle, (entity) => {
+      recreateShapeForEntity(state, entity);
+    });
+  world
+    .system("PhysicsShapeLifecycle:Capsule")
+    .with(Capsule, { parent: Body })
+    .phase(phase)
+    .update(Capsule, (entity) => {
+      const capsule = entity.get(Capsule);
+      if (
+        capsule !== undefined &&
+        !hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)
+      ) {
+        return;
+      }
+      recreateShapeForEntity(state, entity);
+    });
+  world
+    .system("PhysicsShapeLifecycle:Segment")
+    .with(Segment, { parent: Body })
+    .phase(phase)
+    .update(Segment, (entity) => {
+      const segment = entity.get(Segment);
+      if (
+        segment !== undefined &&
+        !hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)
+      ) {
+        return;
+      }
+      recreateShapeForEntity(state, entity);
+    });
+  world
+    .system("PhysicsShapeLifecycle:Polygon")
+    .with(Polygon, { parent: Body })
+    .phase(phase)
+    .update(Polygon, (entity) => {
+      recreateShapeForEntity(state, entity);
+    });
+  world
+    .system("PhysicsShapeLifecycle:Chain")
+    .with(Chain, { parent: Body })
+    .phase(phase)
+    .update(Chain, (entity) => {
+      recreateShapeForEntity(state, entity);
+    });
+  world
+    .system("PhysicsShapeLifecycle:ChildOf")
+    .with(ChildOf, shapePredicate)
+    .phase(phase)
+    .update(ChildOf, (entity) => {
+      recreateShapeForEntity(state, entity);
+    });
 
   return system;
 }

@@ -220,7 +220,7 @@ describe("Query — construction", () => {
     expect(q.has(tagged.entity)).toBe(true);
   });
 
-  it("matches nothing until with() or update() sets a predicate", () => {
+  it("matches nothing until with() sets a predicate", () => {
     const { w, tick } = setup();
     const q = w.query("empty");
     const e = w.entity();
@@ -238,8 +238,8 @@ describe("Query — construction", () => {
   });
 });
 
-describe("Query — update watchlist predicate", () => {
-  it("update-only queries backfill existing entities after installing the watchlist predicate", () => {
+describe("Query — update predicate", () => {
+  it("update-only queries backfill existing entities after adding their watched component to the predicate", () => {
     const { w, tick } = setup();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
@@ -253,7 +253,7 @@ describe("Query — update watchlist predicate", () => {
     expect(update).toHaveBeenCalledWith(e, pos);
   });
 
-  it("multiple update() calls before build() combine into the implicit predicate", () => {
+  it("multiple update() calls before build() combine into the predicate", () => {
     const { w, tick } = setup();
     const e = w.entity();
     e.add(Position);
@@ -271,6 +271,22 @@ describe("Query — update watchlist predicate", () => {
     expect(q.has(e)).toBe(true);
     expect(positionUpdate).toHaveBeenCalledWith(e, e.get(Position));
     expect(velocityUpdate).toHaveBeenCalledWith(e, e.get(Velocity));
+  });
+
+  it("update() narrows an existing predicate to require the watched component", () => {
+    const { w, tick } = setup();
+    const update = vi.fn();
+    const q = w.query("updated").with(Position).update(Velocity, update).build();
+
+    const positionOnly = w.entity().add(Position);
+    tick();
+    expect(q.has(positionOnly)).toBe(false);
+    expect(update).not.toHaveBeenCalled();
+
+    const vel = positionOnly.set(Velocity, { vx: 1 }).get(Velocity)!;
+    tick();
+    expect(q.has(positionOnly)).toBe(true);
+    expect(update).toHaveBeenCalledWith(positionOnly, vel);
   });
 
   it("throws when update() is registered twice for the same component", () => {

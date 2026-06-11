@@ -66,8 +66,8 @@ export type QueryDSL =
  *
  * - `with` — the membership predicate (required).
  * - `cascade` — a traversable relationship to order by depth-first (optional).
- * - `hint` — component classes guaranteed present, for type inference (optional,
- *   type-only, not validated at runtime).
+ * - `hint` — component classes guaranteed present by opaque predicates, used for
+ *   type inference (optional).
  */
 export type QueryConfig = {
   with: QueryDSL;

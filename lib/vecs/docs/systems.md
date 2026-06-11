@@ -89,8 +89,10 @@ Fires once when an entity starts matching the system:
 ### `.update(ComponentClass, callback)` / `.update(ComponentClass, inject, callback)`
 
 Fires when the watched component is set or marked modified on a tracked entity — and **on entry**
-for each watched component the entity already has. The callback receives the entity first because
-component instances carry no owner reference:
+for each watched component the entity already has. `update(ComponentClass, ...)` also adds
+`ComponentClass` to the membership predicate, so the system only matches entities that carry the
+watched component. The callback receives the entity first because component instances carry no owner
+reference:
 
 ```ts
 .update(Position, (entity, pos) => renderer.setPosition(entity.eid, pos.x, pos.y))
@@ -100,9 +102,8 @@ component instances carry no owner reference:
 Because `update` fires on entry, a separate `enter` that applies the same value is redundant —
 lean on `update` alone for "apply current value when the entity appears, and again on change".
 
-If `with()` has not been called, each `update(C)` watch auto-expands the membership predicate to
-require `C`. With an explicit `with()`, membership is exactly what you declared and `update`
-only adds the watch.
+Use `.update(C, ...)` by itself when `C` is the membership shape and watched value. Use
+`.with(A).update(C, ...)` when the callback should run only for entities carrying both `A` and `C`.
 
 A query or system can register only one `update(C, ...)` callback for each component. A duplicate
 registration throws instead of replacing the existing callback.

@@ -392,12 +392,15 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /**
    * Register one update callback for a watched component.
    *
-   * The callback fires when `ComponentClass` is set or marked modified on a
-   * matched entity, and when a matched entity enters with the watched component
-   * already present. Calling `update` more than once for the same component on
-   * one query or system is rejected instead of replacing the previous callback.
+   * `update(ComponentClass, ...)` also adds `ComponentClass` to the query
+   * predicate, so the callback only observes entities that carry the watched
+   * component. The callback fires when `ComponentClass` is set or marked
+   * modified on a matched entity, and when a matched entity enters with the
+   * watched component already present. Calling `update` more than once for the
+   * same component on one query or system is rejected instead of replacing the
+   * previous callback.
    *
-   * @throws When this query has already been built, or when `ComponentClass`
+   * @throws When this query has already been built, when `ComponentClass`
    *   already has an update callback on this query.
    */
   public update<C extends ComponentType>(
@@ -442,10 +445,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     }
     this._componentUpdateCallbacks.set(componentEid, callback);
     this._watchlistBitmask.add(componentEid);
-    if (!this._hasExplicitQuery) {
-      this._dsl = this._watchlistBitmask.indices();
-    }
-    return this;
+    return this.with(componentEid) as unknown as this;
   }
 
   /* -------------------------------------------------------------------------

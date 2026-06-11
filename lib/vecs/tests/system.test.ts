@@ -119,7 +119,7 @@ describe("System — enter / exit / update", () => {
     expect(cb).toHaveBeenCalledWith(e, vel, [pos]);
   });
 
-  it("update without an explicit query implicitly requires its component", () => {
+  it("update without an explicit query requires its component", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").update(Position, cb);
@@ -129,7 +129,6 @@ describe("System — enter / exit / update", () => {
     w.progress(0, 0); // drain
     expect(cb).toHaveBeenCalledWith(e, pos);
 
-    // Entity without Position must not match.
     const f = w.entity();
     f.add(Velocity);
     w.progress(0, 0);
@@ -413,18 +412,16 @@ describe("System — pipeline", () => {
 });
 
 describe("System — query interaction with update watchlist", () => {
-  it("with() merges with any prior implicit watchlist query", () => {
+  it("with() merges with any prior update predicate", () => {
     const { w } = setup();
     const cb = vi.fn();
-    // update adds Position to the implicit query;
-    // a subsequent with() should add Velocity to it.
     w.system("test")
       .update(Position, () => {})
       .with(Velocity)
       .enter(cb);
 
     const e = w.entity();
-    e.add(Position); // would have matched the implicit query
+    e.add(Position);
     w.progress(0, 0);
     expect(cb).not.toHaveBeenCalled();
 

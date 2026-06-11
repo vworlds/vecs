@@ -12,9 +12,12 @@ export function installMaterialFilterSync(
   state: PhysicsState,
   phase: Entity
 ): System {
+  const shapePredicate = {
+    all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }],
+  } as const;
   const system = world
-    .system("PhysicsMaterialFilterSync")
-    .with({ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] })
+    .system("PhysicsMaterialFilterSync:Material")
+    .with(Material, shapePredicate)
     .phase(phase);
 
   system.update(Material, (entity, material) => {
@@ -36,29 +39,37 @@ export function installMaterialFilterSync(
     }
   });
 
-  system.update(CollisionFilter, (entity, filter) => {
-    const shapeId = state.shapeByEntityWasm.get(entity.eid);
-    if (shapeId !== undefined) {
-      withAllocated(
-        () => new state.box2d.b2Filter(),
-        (wasmFilter) => {
-          // Public filters are 32-bit numbers; Box2D stores 64-bit masks. The
-          // decimal string setters zero-pad the upper 32 bits explicitly.
-          wasmFilter.setCategoryBits64(String(filter.categoryBits >>> 0));
-          wasmFilter.setMaskBits64(String(filter.maskBits >>> 0));
-          wasmFilter.groupIndex = filter.groupIndex;
-          state.box2d.b2Shape_SetFilter(shapeId, wasmFilter);
-        }
-      );
-    }
-    if (state.chainByEntity.has(entity.eid)) {
-      recreateShapeForEntity(state, entity);
-    }
-  });
+  world
+    .system("PhysicsMaterialFilterSync:CollisionFilter")
+    .with(CollisionFilter, shapePredicate)
+    .phase(phase)
+    .update(CollisionFilter, (entity, filter) => {
+      const shapeId = state.shapeByEntityWasm.get(entity.eid);
+      if (shapeId !== undefined) {
+        withAllocated(
+          () => new state.box2d.b2Filter(),
+          (wasmFilter) => {
+            // Public filters are 32-bit numbers; Box2D stores 64-bit masks. The
+            // decimal string setters zero-pad the upper 32 bits explicitly.
+            wasmFilter.setCategoryBits64(String(filter.categoryBits >>> 0));
+            wasmFilter.setMaskBits64(String(filter.maskBits >>> 0));
+            wasmFilter.groupIndex = filter.groupIndex;
+            state.box2d.b2Shape_SetFilter(shapeId, wasmFilter);
+          }
+        );
+      }
+      if (state.chainByEntity.has(entity.eid)) {
+        recreateShapeForEntity(state, entity);
+      }
+    });
 
-  system.update(Sensor, (entity) => {
-    recreateShapeForEntity(state, entity);
-  });
+  world
+    .system("PhysicsMaterialFilterSync:Sensor")
+    .with(Sensor, shapePredicate)
+    .phase(phase)
+    .update(Sensor, (entity) => {
+      recreateShapeForEntity(state, entity);
+    });
 
   return system;
 }

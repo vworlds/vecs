@@ -47,48 +47,64 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     state.box2d.b2Body_SetBullet(bodyId, body.bullet);
   });
 
-  system.update(Damping, (entity, damping) => {
-    const bodyId = state.bodyByEntityWasm.get(entity.eid);
-    if (bodyId === undefined) {
-      return;
-    }
-    state.box2d.b2Body_SetLinearDamping(bodyId, damping.linear);
-    state.box2d.b2Body_SetAngularDamping(bodyId, damping.angular);
-  });
-
-  system.update(GravityScale, (entity, gravityScale) => {
-    const bodyId = state.bodyByEntityWasm.get(entity.eid);
-    if (bodyId === undefined) {
-      return;
-    }
-    state.box2d.b2Body_SetGravityScale(bodyId, gravityScale.value);
-  });
-
-  system.update(MotionLocks, (entity, locks) => {
-    const bodyId = state.bodyByEntityWasm.get(entity.eid);
-    if (bodyId === undefined) {
-      return;
-    }
-    withAllocated(
-      () => new state.box2d.b2MotionLocks(),
-      (motionLocks) => {
-        motionLocks.linearX = locks.x;
-        motionLocks.linearY = locks.y;
-        motionLocks.angularZ = locks.rotation;
-        state.box2d.b2Body_SetMotionLocks(bodyId, motionLocks);
+  world
+    .system("PhysicsBodyLifecycle:Damping")
+    .with(Body, Damping)
+    .phase(phase)
+    .update(Damping, (entity, damping) => {
+      const bodyId = state.bodyByEntityWasm.get(entity.eid);
+      if (bodyId === undefined) {
+        return;
       }
-    );
-  });
+      state.box2d.b2Body_SetLinearDamping(bodyId, damping.linear);
+      state.box2d.b2Body_SetAngularDamping(bodyId, damping.angular);
+    });
 
-  system.update(Sleep, (entity, sleep) => {
-    const bodyId = state.bodyByEntityWasm.get(entity.eid);
-    if (bodyId === undefined) {
-      return;
-    }
-    state.box2d.b2Body_EnableSleep(bodyId, sleep.enabled);
-    state.box2d.b2Body_SetAwake(bodyId, sleep.awake);
-    state.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
-  });
+  world
+    .system("PhysicsBodyLifecycle:GravityScale")
+    .with(Body, GravityScale)
+    .phase(phase)
+    .update(GravityScale, (entity, gravityScale) => {
+      const bodyId = state.bodyByEntityWasm.get(entity.eid);
+      if (bodyId === undefined) {
+        return;
+      }
+      state.box2d.b2Body_SetGravityScale(bodyId, gravityScale.value);
+    });
+
+  world
+    .system("PhysicsBodyLifecycle:MotionLocks")
+    .with(Body, MotionLocks)
+    .phase(phase)
+    .update(MotionLocks, (entity, locks) => {
+      const bodyId = state.bodyByEntityWasm.get(entity.eid);
+      if (bodyId === undefined) {
+        return;
+      }
+      withAllocated(
+        () => new state.box2d.b2MotionLocks(),
+        (motionLocks) => {
+          motionLocks.linearX = locks.x;
+          motionLocks.linearY = locks.y;
+          motionLocks.angularZ = locks.rotation;
+          state.box2d.b2Body_SetMotionLocks(bodyId, motionLocks);
+        }
+      );
+    });
+
+  world
+    .system("PhysicsBodyLifecycle:Sleep")
+    .with(Body, Sleep)
+    .phase(phase)
+    .update(Sleep, (entity, sleep) => {
+      const bodyId = state.bodyByEntityWasm.get(entity.eid);
+      if (bodyId === undefined) {
+        return;
+      }
+      state.box2d.b2Body_EnableSleep(bodyId, sleep.enabled);
+      state.box2d.b2Body_SetAwake(bodyId, sleep.awake);
+      state.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
+    });
 
   return system;
 }
