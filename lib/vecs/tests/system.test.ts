@@ -207,6 +207,23 @@ describe("System — enter / exit / update", () => {
     expect(cb).not.toHaveBeenCalled();
   });
 
+  it("first set(C) does not double-fire when it makes the entity re-enter", () => {
+    const { w } = setup();
+    const cb = vi.fn();
+    w.setExclusiveComponents(Sprite, Velocity);
+    w.system("test")
+      .with(Position, { any: [Sprite, Velocity] })
+      .update(Velocity, cb);
+    const e = w.entity().add(Position).add(Sprite);
+    w.progress(0, 16);
+
+    e.set(Velocity, { vx: 7 });
+    w.progress(16, 16);
+
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith(e, e.get(Velocity));
+  });
+
   it("run fires every tick regardless of entity state", () => {
     const { w } = setup();
     const cb = vi.fn();

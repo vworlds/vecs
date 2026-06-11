@@ -19,6 +19,8 @@ export class Base {
   protected readonly _dirtyComponentBitmask = new Bitset();
   /** @internal Set of queries this entity currently belongs to. */
   protected readonly _queries = new Set<Query>();
+  /** @internal Queries that entered during the current component store. */
+  protected _storeEntrants: Set<Query> | undefined;
 
   /** @internal Empty incoming set used when no entities target this one. */
   protected static readonly _emptyIncoming: ReadonlySet<Entity> = new Set();

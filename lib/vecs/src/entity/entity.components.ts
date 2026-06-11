@@ -25,11 +25,16 @@ export class Components extends Relationships {
     const oldTarget = meta.isRelationship
       ? (existing as Relationship | undefined)?.target
       : undefined;
-    const preMembers = existing === undefined ? this._snapshotUpdateMembers() : undefined;
-    this._storeComponent(meta, component, existing === undefined);
+    const entrants =
+      existing === undefined
+        ? this._collectStoreEntrants(() => this._storeComponent(meta, component, true))
+        : undefined;
+    if (existing !== undefined) {
+      this._storeComponent(meta, component, false);
+    }
     this._updateIncoming(meta, oldTarget, (component as Relationship).target);
     if (existing === undefined) {
-      this._notifyComponentSet(meta, component, false, preMembers);
+      this._notifyComponentSet(meta, component, false, entrants);
     } else {
       this._notifyComponentSet(meta, component, true);
     }
@@ -120,12 +125,16 @@ export class Components extends Relationships {
       this._notifyComponentSet(meta, existing, true);
       return;
     }
-    const preMembers = props !== undefined ? this._snapshotUpdateMembers() : undefined;
-    const c = this._new(meta, props);
-    if (props !== undefined) {
-      this._updateIncoming(meta, oldTarget, (c as Relationship).target);
-      this._notifyComponentSet(meta, c, false, preMembers);
+    if (props === undefined) {
+      this._new(meta, props);
+      return;
     }
+    let c!: ComponentInstance;
+    const entrants = this._collectStoreEntrants(() => {
+      c = this._new(meta, props);
+    });
+    this._updateIncoming(meta, oldTarget, (c as Relationship).target);
+    this._notifyComponentSet(meta, c, false, entrants);
   }
 
   /**
@@ -421,22 +430,20 @@ export class Components extends Relationships {
    * notified and the term graph is woken via `_notifyComponentChanged`.
    *
    * When `isUpdate` is `false` (a first-time set/attach that just stored a
-   * brand-new component), `preMembers` is the snapshot of update-watching
-   * queries taken before the store ran. Only queries that were members both
-   * before and after the store are notified -- entry-replay already covers
-   * queries the store itself caused the entity to join, and queries the store
-   * caused the entity to leave must not fire for this update.
+   * brand-new component), `entrants` contains queries that joined during the
+   * store. Those queries are skipped because entry-replay already covered
+   * them; any query that exited is already absent from `_queries`.
    */
   protected _notifyComponentSet(
     meta: ComponentMeta,
     instance: ComponentInstance,
     isUpdate: boolean,
-    preMembers?: readonly Query[]
+    entrants?: ReadonlySet<Query>
   ): void {
-    this._notifyRaw(meta, instance, isUpdate, preMembers);
+    this._notifyRaw(meta, instance, isUpdate, entrants);
     if (meta._implementsClosure) {
       for (const aliasMeta of meta._implementsClosure) {
-        this._notifyRaw(aliasMeta, instance, isUpdate, preMembers);
+        this._notifyRaw(aliasMeta, instance, isUpdate, entrants);
       }
     }
   }
@@ -446,7 +453,7 @@ export class Components extends Relationships {
     meta: ComponentMeta,
     instance: ComponentInstance,
     isUpdate: boolean,
-    preMembers?: readonly Query[]
+    entrants?: ReadonlySet<Query>
   ): void {
     meta._onSetHandlers?.forEach((handler) => handler(this as unknown as Entity, instance));
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
@@ -455,12 +462,12 @@ export class Components extends Relationships {
       this._queries.forEach((q) =>
         q._notifyModified(this as unknown as Entity, meta.eid, instance)
       );
-    } else if (preMembers) {
-      for (const q of preMembers) {
-        if (this._queries.has(q)) {
+    } else {
+      this._queries.forEach((q) => {
+        if (!entrants?.has(q)) {
           q._notifyModified(this as unknown as Entity, meta.eid, instance);
         }
-      }
+      });
     }
   }
 
@@ -510,13 +517,20 @@ export class Components extends Relationships {
     }
   }
 
-  /**
-   * @internal Snapshot the update-watching queries this entity currently
-   * belongs to, for replay after a first-time set/attach store. Returns
-   * `undefined` when there is nothing to snapshot.
-   */
-  private _snapshotUpdateMembers(): readonly Query[] | undefined {
-    return this._queries.size > 0 ? [...this._queries] : undefined;
+  /** @internal Run a store and collect queries that entered because of it. */
+  private _collectStoreEntrants(store: () => void): ReadonlySet<Query> | undefined {
+    const parentEntrants = this._storeEntrants;
+    const entrants = new Set<Query>();
+    this._storeEntrants = entrants;
+    try {
+      store();
+    } finally {
+      this._storeEntrants = parentEntrants;
+      if (parentEntrants) {
+        entrants.forEach((q) => parentEntrants.add(q));
+      }
+    }
+    return entrants.size > 0 ? entrants : undefined;
   }
 
   private _throwIfInterface(meta: ComponentMeta, op: string): void {

@@ -8,7 +8,11 @@ export class Queries extends Base {
    */
   public _addQueryMembership(q: Query): void {
     if (q._watchesUpdates()) {
+      const alreadyMember = this._queries.has(q);
       this._queries.add(q);
+      if (!alreadyMember) {
+        this._storeEntrants?.add(q);
+      }
     }
   }
 
