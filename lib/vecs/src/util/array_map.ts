@@ -89,7 +89,7 @@ export class ArrayMap<T> {
  */
 export class IterableArrayMap<T> {
   private readonly _indices = new ArrayMap<number>();
-  private readonly _items: [number, T][] = [];
+  private readonly _items: Array<readonly [number, T]> = [];
 
   /** The number of entries currently in the map. */
   public get size(): number {
@@ -105,7 +105,7 @@ export class IterableArrayMap<T> {
   public set(key: number, value: T): void {
     const existingIndex = this._indices.get(key);
     if (existingIndex !== undefined) {
-      this._items[existingIndex][1] = value;
+      this._items[existingIndex] = [key, value];
       return;
     }
 
@@ -167,6 +167,22 @@ export class IterableArrayMap<T> {
       const [key, value] = items[i];
       callback(value, key, this);
     }
+  }
+
+  /**
+   * Return an iterator over `[key, value]` entries in dense item order.
+   *
+   * Entries are backed by the map's internal storage for speed. Treat them as
+   * immutable; mutating them through casts or plain JavaScript can corrupt the
+   * map's key index.
+   */
+  public entries(): IterableIterator<readonly [number, T]> {
+    return this._items.values();
+  }
+
+  /** Return an iterator over `[key, value]` entries in dense item order. */
+  public [Symbol.iterator](): IterableIterator<readonly [number, T]> {
+    return this.entries();
   }
 
   /** Return every present value in dense item order. */

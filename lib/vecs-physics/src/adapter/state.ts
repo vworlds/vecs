@@ -1,4 +1,11 @@
-import { ArrayMap, Singleton, type EID, type Entity, type World } from "@vworlds/vecs";
+import {
+  ArrayMap,
+  IterableArrayMap,
+  Singleton,
+  type EID,
+  type Entity,
+  type World,
+} from "@vworlds/vecs";
 
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
 import { type Box2DModule } from "./runtime.js";
@@ -88,7 +95,7 @@ export class PhysicsState {
   // unused/null-aligned by Box2D, so ArrayMap slot 0 stays empty too. We do not
   // check id generations in hot lookups: correctness comes from clearing each
   // slot on Box2D destruction before Box2D can reuse that index1.
-  public readonly bodyByEntityWasm = new Map<EID, b2BodyId>();
+  public readonly bodyByEntityWasm = new IterableArrayMap<b2BodyId>();
   public readonly entityByBodyIndex = new ArrayMap<EID>();
   public readonly shapeByEntityWasm = new ArrayMap<b2ShapeId>();
   public readonly entityByShapeIndex = new ArrayMap<EID>();

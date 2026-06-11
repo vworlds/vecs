@@ -69,7 +69,7 @@ export class History {
       return this.get(to);
     }
 
-    const entities = new Map<EID, EntityHistory>();
+    const entities = new IterableArrayMap<EntityHistory>();
 
     for (let frame = from + 1; frame <= to; frame++) {
       applyDiff(entities, this.get(frame));
@@ -83,7 +83,7 @@ export class History {
   }
 }
 
-function applyDiff(entities: Map<EID, EntityHistory>, diff: StateDiff): void {
+function applyDiff(entities: IterableArrayMap<EntityHistory>, diff: StateDiff): void {
   diff.snapshots.forEach((snapshot) => {
     let entity = entities.get(snapshot.eid);
 
@@ -112,7 +112,7 @@ function applyDiff(entities: Map<EID, EntityHistory>, diff: StateDiff): void {
   });
 }
 
-function forgeDiff(from: number, to: number, entities: Map<EID, EntityHistory>): StateDiff {
+function forgeDiff(from: number, to: number, entities: IterableArrayMap<EntityHistory>): StateDiff {
   const snapshots: EncodedSnapshot[] = [];
   const removed: RemovedComponent[] = [];
 

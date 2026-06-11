@@ -110,6 +110,35 @@ describe("IterableArrayMap", () => {
     ]);
   });
 
+  it("entries returns key/value pairs in dense item order", () => {
+    const m = new IterableArrayMap<string>();
+    m.set(0, "a");
+    m.set(2, "c");
+    m.set(5, "f");
+
+    expect([...m.entries()]).toEqual([
+      [0, "a"],
+      [2, "c"],
+      [5, "f"],
+    ]);
+  });
+
+  it("supports for-of over key/value pairs", () => {
+    const m = new IterableArrayMap<number>();
+    m.set(1, 10);
+    m.set(3, 30);
+
+    const seen: Array<[number, number]> = [];
+    for (const [key, value] of m) {
+      seen.push([key, value]);
+    }
+
+    expect(seen).toEqual([
+      [1, 10],
+      [3, 30],
+    ]);
+  });
+
   it("clear empties the map", () => {
     const m = new IterableArrayMap<number>();
     m.set(1, 1);
