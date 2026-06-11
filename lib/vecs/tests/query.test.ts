@@ -6,6 +6,7 @@ import {
   SilenceSource,
   Traversable,
   World,
+  type EID,
   type GroupedQuery,
 } from "../src/index.js";
 
@@ -774,6 +775,84 @@ describe("Query — orderBy", () => {
     e1.remove(Position);
     tick();
     expect([...q]).toEqual([e2]);
+  });
+
+  it("changing a sort key re-sorts iteration and forEach order", () => {
+    const { w, tick } = setup();
+    const q = w
+      .query("test")
+      .with(Position)
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
+    const e1 = w.entity();
+    e1.set(Position, { x: 1 });
+    const e2 = w.entity();
+    e2.set(Position, { x: 2 });
+    const e3 = w.entity();
+    e3.set(Position, { x: 3 });
+    tick();
+    expect([...q]).toEqual([e1, e2, e3]);
+
+    e1.set(Position, { x: 99 });
+
+    // Compare eids rather than Entity arrays directly: when this assertion
+    // fails (pre-fix, the order is stale), printing a diff of Entity objects
+    // recurses through the World/Entity object graph and never terminates.
+    expect([...q].map((e) => e.eid)).toEqual([e2.eid, e3.eid, e1.eid]);
+    const order: EID[] = [];
+    q.forEach((e) => order.push(e.eid));
+    expect(order).toEqual([e2.eid, e3.eid, e1.eid]);
+  });
+
+  it("has() remains correct for every member after a sort key changes", () => {
+    const { w, tick } = setup();
+    const q = w
+      .query("test")
+      .with(Position)
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
+    const e1 = w.entity();
+    e1.set(Position, { x: 1 });
+    const e2 = w.entity();
+    e2.set(Position, { x: 2 });
+    const e3 = w.entity();
+    e3.set(Position, { x: 3 });
+    tick();
+
+    e1.set(Position, { x: 99 });
+
+    expect(q.has(e1)).toBe(true);
+    expect(q.has(e2)).toBe(true);
+    expect(q.has(e3)).toBe(true);
+  });
+
+  it("a data change from a silenced source still keeps order fresh", () => {
+    const { w, tick } = setup();
+    w.component(Tag);
+    const q = w
+      .query("test")
+      .with(Position)
+      .ignoreSource([Tag])
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x);
+
+    const e1 = w.entity();
+    e1.set(Position, { x: 1 });
+    const e2 = w.entity();
+    e2.set(Position, { x: 2 });
+    tick();
+    expect([...q]).toEqual([e1, e2]);
+
+    const writer = w.system("Writer").run(() => {
+      e1.getMut(Position, (p) => {
+        p.x = 99;
+      });
+    });
+    writer.entity.add(Tag);
+
+    tick();
+
+    // Compare eids rather than Entity arrays directly: when this assertion
+    // fails (pre-fix, the order is stale), printing a diff of Entity objects
+    // recurses through the World/Entity object graph and never terminates.
+    expect([...q].map((e) => e.eid)).toEqual([e2.eid, e1.eid]);
   });
 
   it("orderBy() returns the query for chaining", () => {

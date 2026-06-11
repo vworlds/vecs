@@ -20,6 +20,7 @@ import {
 import { Entity, type EID } from "./entity/index.js";
 import { ON_UPDATE, Phase } from "./modules/pipeline.js";
 import { DependsOn } from "./modules/relationships.js";
+import { OrderedSet } from "./util/ordered_set.js";
 import { type World } from "./world/index.js";
 import {
   ALWAYS_TICK_SOURCE,
@@ -149,6 +150,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       if (!this._watchlistBitmask.has(ceid)) {
         return;
       }
+      if (this._componentUpdateCallbacks.get(ceid) === undefined) {
+        return;
+      }
       // Entry-time initialization bypasses the silence filter: an entity
       // introduced by an ignored source must still initialize in this system.
       this._pushUpdate(e, ceid, c);
@@ -191,6 +195,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     if (!this._watchlistBitmask.has(ceid)) {
       return;
     }
+    if (this._orderByWatch?.has(ceid) && this._entities instanceof OrderedSet) {
+      this._entities.markDirty();
+    }
     if (!this._enabled) {
       return;
     }
@@ -198,6 +205,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       return;
     }
     this.changed = true;
+    if (this._componentUpdateCallbacks.get(ceid) === undefined) {
+      return;
+    }
     this._pushUpdate(e, ceid, c);
   }
 

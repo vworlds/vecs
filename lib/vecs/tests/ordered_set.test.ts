@@ -35,7 +35,7 @@ describe("OrderedSet", () => {
     expect([...s]).toEqual([5, 10, 20, 30]);
   });
 
-  it("reSort moves an existing object after its sort key changes", () => {
+  it("markDirty defers re-sort until the next ordered read", () => {
     type Item = { priority: number; name: string };
     const s = new OrderedSet<Item>(
       (a, b) => a.priority - b.priority || a.name.localeCompare(b.name)
@@ -46,8 +46,38 @@ describe("OrderedSet", () => {
     s.add(a).add(b).add(c);
 
     a.priority = 4;
-    expect(s.reSort(a)).toBe(s);
+    s.markDirty();
     expect([...s].map((item) => item.name)).toEqual(["b", "c", "a"]);
+  });
+
+  it("has() stays correct for a member while the set is dirty", () => {
+    type Item = { priority: number; name: string };
+    const s = new OrderedSet<Item>((a, b) => a.priority - b.priority);
+    const a = { priority: 1, name: "a" };
+    const b = { priority: 2, name: "b" };
+    s.add(a).add(b);
+
+    a.priority = 99;
+    s.markDirty();
+
+    expect(s.has(a)).toBe(true);
+    expect(s.has(b)).toBe(true);
+    expect([...s].map((item) => item.name)).toEqual(["b", "a"]);
+  });
+
+  it("add dedupes by identity while the set is dirty", () => {
+    type Item = { priority: number; name: string };
+    const s = new OrderedSet<Item>((a, b) => a.priority - b.priority);
+    const a = { priority: 1, name: "a" };
+    const b = { priority: 2, name: "b" };
+    s.add(a).add(b);
+
+    a.priority = 99;
+    s.markDirty();
+    s.add(a);
+
+    expect(s.size).toBe(2);
+    expect([...s].map((item) => item.name)).toEqual(["b", "a"]);
   });
 
   it("delete removes existing element and returns true", () => {

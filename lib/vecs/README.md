@@ -720,7 +720,7 @@ Fires every tick for **every tracked entity**, regardless of whether anything ch
 
 #### `.orderBy(components, compare)`
 
-Store matched entities in a custom order determined by `compare`. Implies `.track()`. Iterating the system, `forEach`, and `each` walks entities in sorted order.
+Store matched entities in a custom order determined by `compare`. Implies `.track()`. Iterating the system, `forEach`, and `each` walks entities in sorted order. The order is maintained reactively: when data of a component listed in the inject tuple changes (via `set` / `modified`), the order is refreshed before the next iteration — so comparators must depend only on the injected components (or, for `cascade`, the relationship depths).
 
 ```ts
 world

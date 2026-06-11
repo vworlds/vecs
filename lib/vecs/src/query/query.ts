@@ -96,6 +96,13 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   protected _queryComponentClass: ComponentType;
   /** @internal Root term subscription handle. */
   protected _unsubscribeTerm: (() => void) | undefined;
+  /**
+   * @internal Component eids read by the `orderBy` comparator's inject tuple
+   * (plus, for `cascade`, the relationship eid). When one of these changes on
+   * a tracked entity, `_entities` (an `OrderedSet`) is marked dirty so the
+   * next ordered read re-sorts.
+   */
+  protected _orderByWatch: Set<EID> | undefined;
 
   constructor(name: string, world: World, track: boolean = true) {
     this._queryComponentClass = Query as ComponentType;
@@ -267,7 +274,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   ): this {
     this._assertConfigurable();
     this._tracking = true;
-    this._entities = makeSortedEntitySet(this.world, arg0, arg1, arg2);
+    const { set, watchEids } = makeSortedEntitySet(this.world, arg0, arg1, arg2);
+    this._entities = set;
+    this._watchOrderBy(watchEids);
     return this;
   }
 
@@ -292,9 +301,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       const db = depths.get(b) ?? -1;
       return da - db || compare?.(a, b) || 0;
     });
-    this.update(relMeta.Class, (entity) => {
-      this._reSortCascade(entity, relMeta.eid);
-    });
+    this._watchOrderBy([relMeta.eid]);
     return this;
   }
 
@@ -512,6 +519,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     if (!this._watchlistBitmask.has(ceid)) {
       return;
     }
+    if (this._orderByWatch?.has(ceid) && this._entities instanceof OrderedSet) {
+      this._entities.markDirty();
+    }
     if (this._isSourceSilenced()) {
       return;
     }
@@ -539,7 +549,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
 
   /** @internal */
   public _watchesUpdates(): boolean {
-    return this._componentUpdateCallbacks.size > 0;
+    return this._componentUpdateCallbacks.size > 0 || (this._orderByWatch?.size ?? 0) > 0;
   }
 
   /** @internal Throw when a builder method is called after registration. */
@@ -596,13 +606,20 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return q;
   }
 
-  private _reSortCascade(entity: Entity, relEid: EID): void {
-    const entities = this._entities;
-    if (entities instanceof OrderedSet) {
-      entities.reSort(entity);
+  /**
+   * @internal Register `eids` as `orderBy`-relevant: a change to any of them
+   * on a tracked entity marks `_entities` (an `OrderedSet`) dirty so the next
+   * ordered read re-sorts. Also adds them to `_watchlistBitmask` so
+   * `_notifyModified` is reachable for them.
+   */
+  private _watchOrderBy(eids: readonly EID[]): void {
+    if (eids.length === 0) {
+      return;
     }
-    for (const child of entity._childrenByEid(relEid) ?? []) {
-      this._reSortCascade(child, relEid);
+    this._orderByWatch ??= new Set();
+    for (const eid of eids) {
+      this._orderByWatch.add(eid);
+      this._watchlistBitmask.add(eid);
     }
   }
 }
