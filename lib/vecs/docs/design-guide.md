@@ -5,6 +5,10 @@ guide distilled from real designs (the physics engine, the Phaser render layer, 
 It explains the model, the execution semantics that make the tricks work, the idioms to
 reach for, and the anti-patterns to avoid.
 
+This guide assumes you know the machinery; the [docs home](./README.md) holds the
+subsystem guides — start with [Concepts](./concepts.md) and the
+[Execution model](./execution-model.md) if you are new.
+
 > **Golden rule:** components are _data_, systems are _behavior_, and **lifecycle is driven
 > by the presence and change of components — not by imperative bookkeeping.** Almost every
 > good pattern below is a consequence of taking that seriously.
@@ -27,7 +31,8 @@ reach for, and the anti-patterns to avoid.
 ## 2. The execution model (read this first — every trick follows from it)
 
 `world.progress(now, delta)` runs the **pipeline**: systems grouped by **phase**, phases in a
-fixed order. Internalize these four facts:
+fixed order. (The full mechanics are in [Execution model](./execution-model.md); this section
+is the design-relevant core.) Internalize these four facts:
 
 1. **Phases run in a fixed order.** The eight built-in phases (`lib/vecs/src/modules/pipeline.ts`):
 
@@ -49,8 +54,9 @@ fixed order. Internalize these four facts:
 
 3. **Structural changes are deferred and flushed after every system.** When a system calls
    `entity.set/add/remove`/`entity.destroy()` during its run, the change is queued and applied
-   in a `flush()` **immediately after that system finishes** (`world.pipeline.ts`: `system._run()`
-   then `this.flush()`). Consequence: **a structural change made by system A is visible to every
+   in a `flush()` **immediately after that system finishes**
+   (`lib/vecs/src/world/world.pipeline.ts`: `system._run()` then `this.flush()`). Consequence:
+   **a structural change made by system A is visible to every
    later system in the same tick** (later in the same phase, or in a later phase). It is _not_
    visible to A mid-iteration. This single fact enables the companion-component lifecycle, the
    teardown-before-create ordering, and same-tick reconciliation.
@@ -90,7 +96,8 @@ export class Rotation {
 
 ### Networked components
 
-Mark wire fields with `@type` (re-exported as `@wireType`) from `@vworlds/vecs-wire`. The
+Mark wire fields with `@type` from `@vworlds/vecs-wire` (conventionally imported as
+`import { type as wireType }`). The
 **order** you pass components in `networkComponents` _is the wire protocol_ (type id = index + 1).
 Reordering is a breaking protocol change — snapshot-test the order.
 
