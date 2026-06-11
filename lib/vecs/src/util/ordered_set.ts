@@ -2,9 +2,14 @@
  * A `Set<T>` whose iteration order is determined by a comparator instead of
  * insertion order.
  *
- * Backed by a sorted array. Insertions and lookups are `O(log n)` (binary
- * search) plus the cost of an array splice on `add`. Removal uses identity
- * lookup because sorted values may be mutable.
+ * Backed by a sorted array plus a side `Set<T>` for O(1) membership checks.
+ * Insertions are `O(log n)` (binary search) plus the cost of an array splice.
+ * Removal uses identity lookup because sorted values may be mutable.
+ *
+ * The backing array can go stale relative to the comparator: callers mark it
+ * dirty with {@link markDirty} when data the comparator reads has changed.
+ * The next order-dependent read re-sorts the whole array in place before
+ * returning. `has` is unaffected by dirtiness — it always checks the side set.
  *
  * Used by `Query.orderBy` to keep matched entities in a user-defined order so
  * iteration in `forEach` and `each` walks them sorted.
@@ -15,7 +20,9 @@
  */
 export class OrderedSet<T> implements Set<T> {
   private _items: T[] = [];
+  private readonly _members = new Set<T>();
   private readonly _compare: (a: T, b: T) => number;
+  private _dirty = false;
 
   constructor(compare: (a: T, b: T) => number) {
     this._compare = compare;
@@ -39,6 +46,15 @@ export class OrderedSet<T> implements Set<T> {
     return lo;
   }
 
+  /** Re-sort the backing array in place when {@link markDirty} was called. */
+  private _ensureSorted(): void {
+    if (!this._dirty) {
+      return;
+    }
+    this._items.sort(this._compare);
+    this._dirty = false;
+  }
+
   /** Number of elements currently stored. */
   public get size(): number {
     return this._items.length;
@@ -51,52 +67,56 @@ export class OrderedSet<T> implements Set<T> {
 
   /**
    * Insert `value` at the position determined by the comparator. No-op when
-   * an element compares equal to `value`.
+   * `value` is already a member.
    *
    * @param value - Element to insert.
    */
   public add(value: T): this {
-    const i = this._bisect(value);
-    if (i < this._items.length && this._compare(this._items[i], value) === 0) {
+    if (this._members.has(value)) {
       return this;
     }
+    this._ensureSorted();
+    const i = this._bisect(value);
     this._items.splice(i, 0, value);
+    this._members.add(value);
     return this;
   }
 
-  /** Remove `value` by identity, then insert it at its current sort position. */
-  public reSort(value: T): this {
-    const i = this._items.indexOf(value);
-    if (i === -1) {
-      return this;
-    }
-    this._items.splice(i, 1);
-    return this.add(value);
+  /**
+   * Mark the backing array stale. The next order-dependent read re-sorts it
+   * with the comparator before returning.
+   */
+  public markDirty(): void {
+    this._dirty = true;
   }
 
   /**
-   * Return `true` when an element comparing equal to `value` is in the set.
+   * Return `true` when `value` is a member of the set, regardless of sort
+   * state. O(1) identity lookup against the side membership set.
    *
    * @param value - Element to look up.
    */
   public has(value: T): boolean {
-    const i = this._bisect(value);
-    return i < this._items.length && this._compare(this._items[i], value) === 0;
+    return this._members.has(value);
   }
 
   /** Remove `value` by identity. Returns `true` if an element was removed. */
   public delete(value: T): boolean {
+    if (!this._members.delete(value)) {
+      return false;
+    }
     const i = this._items.indexOf(value);
     if (i !== -1) {
       this._items.splice(i, 1);
-      return true;
     }
-    return false;
+    return true;
   }
 
   /** Remove every element. */
   public clear(): void {
     this._items.length = 0;
+    this._members.clear();
+    this._dirty = false;
   }
 
   /**
@@ -107,6 +127,7 @@ export class OrderedSet<T> implements Set<T> {
    * @param thisArg - Optional `this` binding for the callback.
    */
   public forEach(callbackfn: (value: T, value2: T, set: Set<T>) => void, thisArg?: unknown): void {
+    this._ensureSorted();
     for (const item of this._items) {
       callbackfn.call(thisArg, item, item, this);
     }
@@ -114,11 +135,13 @@ export class OrderedSet<T> implements Set<T> {
 
   /** Iterator over elements in sorted order. */
   public [Symbol.iterator](): IterableIterator<T> {
+    this._ensureSorted();
     return this._items[Symbol.iterator]();
   }
 
   /** Iterator yielding `[value, value]` pairs in sorted order. */
   public *entries(): IterableIterator<[T, T]> {
+    this._ensureSorted();
     for (const item of this._items) {
       yield [item, item];
     }
@@ -126,11 +149,13 @@ export class OrderedSet<T> implements Set<T> {
 
   /** Iterator over elements in sorted order. */
   public keys(): IterableIterator<T> {
+    this._ensureSorted();
     return this._items[Symbol.iterator]();
   }
 
   /** Iterator over elements in sorted order. */
   public values(): IterableIterator<T> {
+    this._ensureSorted();
     return this._items[Symbol.iterator]();
   }
 }

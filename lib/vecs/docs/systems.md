@@ -235,6 +235,10 @@ world
 
 Ties break by entity id, so the order is deterministic.
 
+The order is maintained reactively. When data for a component in the injection tuple changes via
+`set` or `modified`, the system refreshes the sort before the next ordered read. Keep comparators
+dependent only on those injected components; unrelated component data is not watched for ordering.
+
 ### `.track()`
 
 Enable membership tracking without an `each`: exposes `count`, `has(e)`, iteration, and `forEach`.
@@ -295,7 +299,7 @@ While disabled, query membership is still maintained, so the tracked set is corr
 | `each([C...], cb)`                                               | Fires per tracked entity every tick. Implies `track`. One per system.                                                            |
 | `run(cb)`                                                        | Fires once per tick, `(now, delta)`.                                                                                             |
 | `interval(seconds)` / `rate(n[, source])` / `tickSource(source)` | Cadence control.                                                                                                                 |
-| `orderBy([C...], compare)`                                       | Sorted membership. Implies `track`.                                                                                              |
+| `orderBy([C...], compare)`                                       | Sorted membership refreshed when injected comparator data changes. Implies `track`.                                              |
 | `track()`                                                        | Expose `count`, `has`, iteration, `forEach` without `each`.                                                                      |
 | `ignoreSource(query \| dsl)`                                     | Drop `update` events originating from matching systems; see [Queries](./queries-and-filters.md#silencing-feedback-ignoresource). |
 | `disable()` / `enable()`                                         | Pause / resume processing. Idempotent.                                                                                           |

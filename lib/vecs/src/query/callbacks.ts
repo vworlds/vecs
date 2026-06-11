@@ -87,32 +87,35 @@ export function makeSortedEntitySet(
   arg0: readonly InjectElement[] | typeof Entity | typeof Iter,
   arg1?: readonly InjectElement[] | Function,
   arg2?: Function
-): OrderedSet<Entity> {
+): { set: OrderedSet<Entity>; watchEids: EID[] } {
   const useIter = wantsIter(arg0);
   const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
   const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (...args: unknown[]) => number;
   const inject = mapInject(world, components);
   const arity = injectArity(inject);
+  const watchEids = directInjectEids(inject);
   if (useIter) {
     const itA = new Iter(arity);
     const itB = new Iter(arity);
     const resolvedA = new Array(arity);
     const resolvedB = new Array(arity);
-    return new OrderedSet<Entity>((a, b) => {
+    const set = new OrderedSet<Entity>((a, b) => {
       itA.entity = a;
       itB.entity = b;
       getInjectedWithSrc(a, inject, resolvedA, itA.src);
       getInjectedWithSrc(b, inject, resolvedB, itB.src);
       return cb(itA, resolvedA, itB, resolvedB) || a.eid - b.eid;
     });
+    return { set, watchEids };
   }
   const resolvedA = new Array(arity);
   const resolvedB = new Array(arity);
-  return new OrderedSet<Entity>((a, b) => {
+  const set = new OrderedSet<Entity>((a, b) => {
     getInjected(a, inject, false, resolvedA);
     getInjected(b, inject, false, resolvedB);
     return cb(a, resolvedA, b, resolvedB) || a.eid - b.eid;
   });
+  return { set, watchEids };
 }
 
 export function makeUpdateRegistration<C extends ComponentType>(

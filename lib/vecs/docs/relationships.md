@@ -127,9 +127,9 @@ A query can then order its members depth-first along the relationship with `casc
 world.query("tree").with({ with: Node, cascade: ChildOf });
 ```
 
-Parents sort before children, and re-targeting re-sorts the affected subtree. `ChildOf` and
-`DependsOn` are `Traversable` out of the box — the world's default pipeline is itself a
-`cascade: DependsOn` query (see
+Parents sort before children. Retargeting updates relationship depths, and cascade-ordered queries
+refresh their order before the next iteration. `ChildOf` and `DependsOn` are `Traversable` out of
+the box — the world's default pipeline is itself a `cascade: DependsOn` query (see
 [Execution model](./execution-model.md#the-pipeline-is-a-query)).
 
 ## Reference

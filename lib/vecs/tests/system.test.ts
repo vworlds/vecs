@@ -712,6 +712,37 @@ describe("System — orderBy", () => {
     expect(visited).toEqual([10, 20, 30]);
   });
 
+  it("a position change from an earlier tick reorders the next each() pass", () => {
+    const { w } = setup();
+    let visited: number[] = [];
+    w.system("test")
+      .with(Position)
+      .orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x)
+      .each([Position], (_e, [pos]) => visited.push(pos.x));
+
+    const e1 = w.entity();
+    e1.set(Position, { x: 1 });
+
+    const e2 = w.entity();
+    e2.set(Position, { x: 2 });
+
+    const e3 = w.entity();
+    e3.set(Position, { x: 3 });
+
+    w.progress(0, 0);
+    expect(visited).toEqual([1, 2, 3]);
+
+    // Change e1's sort key after the tick that visited it; the next run
+    // must reflect the new order even though no tick ran in between the
+    // write and the next progress.
+    e1.set(Position, { x: 99 });
+
+    visited = [];
+    w.progress(0, 0);
+
+    expect(visited).toEqual([2, 3, 99]);
+  });
+
   it("exiting entity is removed from the sorted set", () => {
     const { w } = setup();
     const sys = w
