@@ -1,7 +1,7 @@
 import { type ComponentType } from "./component.js";
 import { Entity } from "./entity/index.js";
 import type { World } from "./world/index.js";
-import { _compile, type EntityTestFunc, type QueryDSL } from "./dsl.js";
+import { _compile, getDSLCacheKey, type EntityTestFunc, type QueryDSL } from "./dsl.js";
 import type { Term } from "./terms/term.js";
 import {
   isCursorMarker,
@@ -49,6 +49,7 @@ import {
 export class Filter<R extends ComponentType[] = []> {
   private readonly _belongs: EntityTestFunc;
   private readonly _dsl: QueryDSL;
+  private readonly _termKey: string;
 
   constructor(
     /** World this filter reads entities from. */
@@ -57,10 +58,11 @@ export class Filter<R extends ComponentType[] = []> {
   ) {
     this._dsl = dsl;
     this._belongs = _compile(world, dsl);
+    this._termKey = getDSLCacheKey(dsl, world);
   }
 
   public get rootTerm(): Term | undefined {
-    return this.world._getCachedTerm(this._dsl);
+    return this.world._getCachedTermByKey(this._termKey);
   }
 
   /**
