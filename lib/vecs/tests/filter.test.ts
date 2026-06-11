@@ -122,6 +122,19 @@ describe("Filter — entity-only forEach", () => {
   });
 });
 
+describe("Filter — rootTerm", () => {
+  it("reflects a term created after the filter was constructed", () => {
+    const { w } = setup();
+    const f = w.filter([Position, Velocity]);
+
+    expect(f.rootTerm).toBeUndefined();
+
+    w.getTerm([Position, Velocity]);
+
+    expect(f.rootTerm).toBeDefined();
+  });
+});
+
 describe("Filter — forEach with injection", () => {
   it("resolves injected components", () => {
     const { w } = setup();
