@@ -2,6 +2,7 @@ import { type ComponentInstance, type ComponentRef, type ComponentType } from ".
 import { Entity, type EID } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import { _resolveRelationship, type MaybeRequired } from "./dsl.js";
+import { type ArrayMap } from "./util/array_map.js";
 
 export type TargetInject<J extends readonly ComponentType[] = readonly ComponentType[]> = {
   target: readonly [ComponentRef, readonly [...J]];
@@ -94,7 +95,7 @@ export function getInjected(
   inject: readonly ResolvedInjectTerm[],
   requireDirectComponents: boolean,
   out: (ComponentInstance | undefined)[],
-  exitSnapshot?: Map<EID, ComponentInstance>
+  exitSnapshot?: ArrayMap<ComponentInstance>
 ): void {
   let outIndex = 0;
   inject.forEach((term) => {
@@ -126,7 +127,7 @@ export function getInjectedWithSrc(
   out: (ComponentInstance | undefined)[],
   src: (Entity | undefined)[],
   requireDirectComponents = false,
-  exitSnapshot?: Map<EID, ComponentInstance>
+  exitSnapshot?: ArrayMap<ComponentInstance>
 ): void {
   let outIndex = 0;
   inject.forEach((term) => {

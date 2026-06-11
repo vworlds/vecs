@@ -13,9 +13,10 @@ import {
   type InjectTuple,
 } from "../inject.js";
 import { OrderedSet } from "../util/ordered_set.js";
+import { type ArrayMap } from "../util/array_map.js";
 import { type World } from "../world/index.js";
 
-export type EntityCallback = (e: Entity, snapshot?: Map<EID, ComponentInstance>) => void;
+export type EntityCallback = (e: Entity, snapshot?: ArrayMap<ComponentInstance>) => void;
 export type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
 export function makeEnterCallback(
@@ -64,7 +65,7 @@ export function makeExitCallback(
   const snapshotTypes = directInjectEids(inject);
   const arity = injectArity(inject);
   if (useIter) {
-    const callback = (e: Entity, exitSnapshot?: Map<EID, ComponentInstance>) => {
+    const callback = (e: Entity, exitSnapshot?: ArrayMap<ComponentInstance>) => {
       const injected = new Array(arity);
       const it = new Iter(arity);
       it.entity = e;
@@ -73,7 +74,7 @@ export function makeExitCallback(
     };
     return { callback, snapshotTypes };
   }
-  const callback = (e: Entity, exitSnapshot?: Map<EID, ComponentInstance>) => {
+  const callback = (e: Entity, exitSnapshot?: ArrayMap<ComponentInstance>) => {
     const injected = new Array(arity);
     getInjected(e, inject, true, injected, exitSnapshot);
     cb(e, injected as any);

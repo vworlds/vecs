@@ -27,6 +27,7 @@ import {
   type ITickSource,
   RateTickSource,
 } from "./timer.js";
+import { ArrayMap } from "./util/array_map.js";
 
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
@@ -50,7 +51,7 @@ type _SystemInboxEvent =
   | {
       kind: InboxCommand.Exit;
       entity: Entity;
-      snapshot: Map<EID, ComponentInstance> | undefined;
+      snapshot: ArrayMap<ComponentInstance> | undefined;
     }
   | {
       kind: InboxCommand.Update;
@@ -169,17 +170,17 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       return;
     }
     if (this._exitCallback !== undefined) {
-      let snapshot: Map<EID, ComponentInstance> | undefined;
+      let exitSnapshot: ArrayMap<ComponentInstance> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
-        snapshot = new Map<EID, ComponentInstance>();
+        exitSnapshot = new ArrayMap<ComponentInstance>();
         for (const ceid of this._exitSnapshotTypes) {
           const c = e._get(ceid);
           if (c) {
-            snapshot.set(ceid, c);
+            exitSnapshot.set(ceid, c);
           }
         }
       }
-      this._inbox.push({ kind: InboxCommand.Exit, entity: e, snapshot });
+      this._inbox.push({ kind: InboxCommand.Exit, entity: e, snapshot: exitSnapshot });
     }
   }
 
