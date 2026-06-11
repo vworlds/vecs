@@ -271,6 +271,21 @@ describe("Query — update watchlist predicate", () => {
     expect(positionUpdate).toHaveBeenCalledWith(e, e.get(Position));
     expect(velocityUpdate).toHaveBeenCalledWith(e, e.get(Velocity));
   });
+
+  it("a member entity's first set(C, props) fires update(C) synchronously", () => {
+    const { w } = setup();
+    const update = vi.fn();
+    w.query("updated").with(Position).update(Velocity, update).build();
+    const e = w.entity();
+    e.add(Position);
+
+    const vel = e.set(Velocity, { vx: 42 }).get(Velocity)!;
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith(e, vel);
+
+    e.set(Velocity, { vx: 43 });
+    expect(update).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("Query — changed flag", () => {

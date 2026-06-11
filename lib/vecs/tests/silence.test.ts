@@ -144,6 +144,27 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     expect(readCb.mock.calls[0][0]).toBe(created);
   });
 
+  it("silences a first-time set(C) from an ignored source", () => {
+    const { w } = setup();
+    // Writer runs first so its commands (and the resulting query-update
+    // notification) drain before Read processes its inbox in the same tick.
+    const writer = w.system("Writer").run(() => {
+      const e = w.entity().add(Position);
+      e.set(Velocity, { vx: 1 });
+    });
+    writer.entity.add(Physics);
+
+    const readCb = vi.fn();
+    w.system("Read")
+      .with(Position)
+      .ignoreSource([Physics])
+      .update(Velocity, () => readCb());
+
+    w.progress(0, 0);
+    w.progress(0, 0);
+    expect(readCb).not.toHaveBeenCalled();
+  });
+
   it("destroys the inline silence query with the parent query", () => {
     const { w } = setup();
     const read = w

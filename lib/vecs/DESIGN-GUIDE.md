@@ -196,10 +196,11 @@ classes or DSL objects (`{ all: [...] }`, `{ any: [...] }`, `{ parent: X }`, `{ 
 
 - **`enter`** — fires once when an entity _becomes_ a member. Use it for one-time setup
   (create the resource).
-- **`update(C, …)`** — fires when watched component `C` is modified. **It also fires on entry for
-  every already-present watched component** (`System._enter` re-pushes update events for watched
-  components). So a plain `.update(C)` initializes on entry _and_ reacts to changes — **don't
-  write a separate `.enter` that duplicates the same logic.**
+- **`update(C, …)`** — fires whenever `C`'s data is applied: `modified(C)`, `set(C, props)`
+  (including the first set that creates `C`), and `attach` (including the first attach). **It also
+  fires on entry for every already-present watched component** (`System._enter` re-pushes update
+  events for watched components). So a plain `.update(C)` initializes on entry _and_ reacts to
+  changes — **don't write a separate `.enter` that duplicates the same logic.**
 - **`exit`** — fires when an entity stops matching (a component removed, or the entity destroyed).
   Its injected components are read from a **snapshot captured at exit time**, so they're still
   resolvable even though they're being removed.

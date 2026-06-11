@@ -137,6 +137,76 @@ describe("System — enter / exit / update", () => {
     expect(cb).toHaveBeenCalledTimes(1);
   });
 
+  it("a member entity's first set(C, props) fires update(C) immediately, not just on the second set", () => {
+    const { w } = setup();
+    const calls: number[] = [];
+    w.system("test")
+      .with(Position)
+      .update(Velocity, (_e, vel) => calls.push(vel.vx));
+    const e = w.entity().add(Position);
+    w.progress(0, 16);
+
+    e.set(Velocity, { vx: 42 });
+    w.progress(16, 16);
+    expect(calls).toEqual([42]);
+
+    e.set(Velocity, { vx: 43 });
+    w.progress(32, 16);
+    expect(calls).toEqual([42, 43]);
+  });
+
+  it("update(C) without with(): a fresh entity's first set(C, props) fires exactly once", () => {
+    const { w } = setup();
+    const cb = vi.fn();
+    w.system("test").update(Velocity, cb);
+    const e = w.entity();
+    w.progress(0, 16);
+
+    e.set(Velocity, { vx: 7 });
+    w.progress(16, 16);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith(e, e.get(Velocity));
+  });
+
+  it("with(C).update(C): a fresh entity's first set(C, props) fires exactly once", () => {
+    const { w } = setup();
+    const cb = vi.fn();
+    w.system("test").with(Velocity).update(Velocity, cb);
+    const e = w.entity();
+    w.progress(0, 16);
+
+    e.set(Velocity, { vx: 7 });
+    w.progress(16, 16);
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("a member entity's first attach(C) fires update(C)", () => {
+    const { w } = setup();
+    const cb = vi.fn();
+    w.system("test").with(Position).update(Velocity, cb);
+    const e = w.entity().add(Position);
+    w.progress(0, 16);
+
+    const vel = new Velocity();
+    vel.vx = 5;
+    e.attach(vel);
+    w.progress(16, 16);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith(e, vel);
+  });
+
+  it("update(C) does not fire for a set that causes the entity to exit the query", () => {
+    const { w } = setup();
+    const cb = vi.fn();
+    w.system("test").with(Position).without(Velocity).update(Velocity, cb);
+    const e = w.entity().add(Position);
+    w.progress(0, 16);
+
+    e.set(Velocity, { vx: 1 });
+    w.progress(16, 16);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
   it("run fires every tick regardless of entity state", () => {
     const { w } = setup();
     const cb = vi.fn();

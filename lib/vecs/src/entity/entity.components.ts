@@ -7,6 +7,7 @@ import {
   type ComponentType,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
+import type { Query } from "../query/index.js";
 import { Relationships } from "./entity.relationships.js";
 import type { EID, Entity } from "./entity.js";
 
@@ -24,9 +25,14 @@ export class Components extends Relationships {
     const oldTarget = meta.isRelationship
       ? (existing as Relationship | undefined)?.target
       : undefined;
+    const preMembers = existing === undefined ? this._snapshotUpdateMembers() : undefined;
     this._storeComponent(meta, component, existing === undefined);
     this._updateIncoming(meta, oldTarget, (component as Relationship).target);
-    this._notifyComponentSet(meta, component, existing !== undefined);
+    if (existing === undefined) {
+      this._notifyComponentSet(meta, component, false, preMembers);
+    } else {
+      this._notifyComponentSet(meta, component, true);
+    }
   }
 
   /**
@@ -102,17 +108,23 @@ export class Components extends Relationships {
       return;
     }
     const existing = this._components.get(meta.eid);
+    if (existing !== undefined && props === undefined) {
+      return;
+    }
     const oldTarget = meta.isRelationship
       ? (existing as Relationship | undefined)?.target
       : undefined;
-    const c = existing ?? this._new(meta, props);
+    if (existing !== undefined) {
+      Object.assign(existing, props);
+      this._updateIncoming(meta, oldTarget, (existing as Relationship).target);
+      this._notifyComponentSet(meta, existing, true);
+      return;
+    }
+    const preMembers = props !== undefined ? this._snapshotUpdateMembers() : undefined;
+    const c = this._new(meta, props);
     if (props !== undefined) {
-      if (existing) {
-        Object.assign(c, props);
-      }
-      const newTarget = (c as Relationship).target;
-      this._updateIncoming(meta, oldTarget, newTarget);
-      this._notifyComponentSet(meta, c, existing !== undefined);
+      this._updateIncoming(meta, oldTarget, (c as Relationship).target);
+      this._notifyComponentSet(meta, c, false, preMembers);
     }
   }
 
@@ -401,22 +413,41 @@ export class Components extends Relationships {
     return c;
   }
 
-  /** @internal Perform the shared set-side hook and query update routing. */
+  /**
+   * @internal Perform the shared set-side hook and query update routing.
+   *
+   * When `isUpdate` is `true` (an already-existing component was set, attached,
+   * or marked modified), every query currently watching this entity is
+   * notified and the term graph is woken via `_notifyComponentChanged`.
+   *
+   * When `isUpdate` is `false` (a first-time set/attach that just stored a
+   * brand-new component), `preMembers` is the snapshot of update-watching
+   * queries taken before the store ran. Only queries that were members both
+   * before and after the store are notified -- entry-replay already covers
+   * queries the store itself caused the entity to join, and queries the store
+   * caused the entity to leave must not fire for this update.
+   */
   protected _notifyComponentSet(
     meta: ComponentMeta,
     instance: ComponentInstance,
-    isUpdate: boolean
+    isUpdate: boolean,
+    preMembers?: readonly Query[]
   ): void {
-    this._notifyRaw(meta, instance, isUpdate);
+    this._notifyRaw(meta, instance, isUpdate, preMembers);
     if (meta._implementsClosure) {
       for (const aliasMeta of meta._implementsClosure) {
-        this._notifyRaw(aliasMeta, instance, isUpdate);
+        this._notifyRaw(aliasMeta, instance, isUpdate, preMembers);
       }
     }
   }
 
   /** @internal Perform one set-side hook and query update without expanding aliases. */
-  protected _notifyRaw(meta: ComponentMeta, instance: ComponentInstance, isUpdate: boolean): void {
+  protected _notifyRaw(
+    meta: ComponentMeta,
+    instance: ComponentInstance,
+    isUpdate: boolean,
+    preMembers?: readonly Query[]
+  ): void {
     meta._onSetHandlers?.forEach((handler) => handler(this as unknown as Entity, instance));
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (isUpdate) {
@@ -424,6 +455,12 @@ export class Components extends Relationships {
       this._queries.forEach((q) =>
         q._notifyModified(this as unknown as Entity, meta.eid, instance)
       );
+    } else if (preMembers) {
+      for (const q of preMembers) {
+        if (this._queries.has(q)) {
+          q._notifyModified(this as unknown as Entity, meta.eid, instance);
+        }
+      }
     }
   }
 
@@ -471,6 +508,15 @@ export class Components extends Relationships {
     if (!existing) {
       this.world._notifyComponentAdded(meta.eid, this as unknown as Entity);
     }
+  }
+
+  /**
+   * @internal Snapshot the update-watching queries this entity currently
+   * belongs to, for replay after a first-time set/attach store. Returns
+   * `undefined` when there is nothing to snapshot.
+   */
+  private _snapshotUpdateMembers(): readonly Query[] | undefined {
+    return this._queries.size > 0 ? [...this._queries] : undefined;
   }
 
   private _throwIfInterface(meta: ComponentMeta, op: string): void {

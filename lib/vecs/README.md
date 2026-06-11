@@ -695,7 +695,7 @@ Fires when an entity leaves the system (component removed or entity destroyed). 
 
 #### `.update(ComponentClass, callback)` / `.update(ComponentClass, inject, callback)`
 
-Fires when `entity.modified(ComponentClass)` is called for the watched component on a tracked entity. It also fires for `entity.set(C, props)` on an already-attached component and for initial watched components when an entity enters the query. The callback receives the entity first because component instances do not carry owner references.
+Fires whenever `ComponentClass`'s data is applied on a tracked entity: `entity.modified(C)`, `entity.set(C, props)` (including the very first `set` that creates the component), and `entity.attach(...)` (including the first attach) all fire it. It also fires for already-present watched components when an entity enters the query. The callback receives the entity first because component instances do not carry owner references.
 
 ```ts
 .update(Position, (entity, pos) => renderer.setPosition(entity.eid, pos.x, pos.y));

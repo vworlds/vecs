@@ -400,8 +400,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * Register a callback fired **every tick** for **every tracked entity**,
    * unconditionally, with the listed components resolved from each entity.
    *
-   * Unlike {@link update} (which only fires when `entity.modified(C)` is
-   * called), `each` fires every tick the system runs, once per tracked entity.
+   * Unlike {@link update} (which fires only when `C`'s data is applied via
+   * `set`, `attach`, or `modified`), `each` fires every tick the system runs,
+   * once per tracked entity.
    * Components declared via {@link with} are non-nullable in the resolved
    * tuple; any other component class may be `undefined` if the entity lacks it.
    *
