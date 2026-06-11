@@ -34,12 +34,11 @@ function assertIntegerRange(value: number, min: number, max: number, method: str
 
 export class Encoder {
   private readonly _buffer: Uint8Array;
-  private readonly _view: DataView;
+  private _view: DataView | undefined;
   private _cursor = 0;
 
   constructor(buffer: Uint8Array) {
     this._buffer = buffer;
-    this._view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   }
 
   getBuffer(): Uint8Array {
@@ -155,7 +154,7 @@ export class Encoder {
     if (this._cursor + 4 > this._buffer.length) {
       throw new RangeError("vecs-wire/encoder write_f32: Attempt to write beyond buffer size");
     }
-    this._view.setFloat32(this._cursor, value, true);
+    this._dataView.setFloat32(this._cursor, value, true);
     this._cursor += 4;
   }
 
@@ -163,7 +162,7 @@ export class Encoder {
     if (this._cursor + 8 > this._buffer.length) {
       throw new RangeError("vecs-wire/encoder write_f64: Attempt to write beyond buffer size");
     }
-    this._view.setFloat64(this._cursor, value, true);
+    this._dataView.setFloat64(this._cursor, value, true);
     this._cursor += 8;
   }
 
@@ -268,5 +267,13 @@ export class Encoder {
       throw new TypeError("vecs-wire/encoder write requires a wireEncode method");
     }
     encodable.wireEncode(this);
+  }
+
+  private get _dataView(): DataView {
+    return (this._view ??= new DataView(
+      this._buffer.buffer,
+      this._buffer.byteOffset,
+      this._buffer.byteLength
+    ));
   }
 }
