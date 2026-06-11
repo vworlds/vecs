@@ -90,6 +90,11 @@ export class Queries extends Storage {
     return getCachedTerm(this, q);
   }
 
+  /** @internal Return a cached term for a precomputed canonical DSL key, without creating one. */
+  public _getCachedTermByKey(key: string): Term | undefined {
+    return this._termCache.get(key);
+  }
+
   /** @internal Drive the component leaf for a newly attached component. */
   public _notifyComponentAdded(ceid: EID, entity: Entity): void {
     notifyComponentAdded(this as unknown as World, ceid, entity);
