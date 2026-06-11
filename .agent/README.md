@@ -16,6 +16,7 @@ Use this structure for repo-specific agent instructions:
   README.md
   rules/
     commits.md
+    documentation.md
     formatting.md
     testing.md
   workflows/
@@ -26,6 +27,7 @@ Use this structure for repo-specific agent instructions:
 Put durable rules in `.agent/rules/`:
 
 - Commit message format and commit policy: `rules/commits.md`.
+- Documentation requirements, doc style, and doc/JSDoc sync: `rules/documentation.md`.
 - Formatting, linting, hooks, and CI checks: `rules/formatting.md`.
 - Test requirements, test locations, mocking style, and assertion standards: `rules/testing.md`.
 
@@ -40,6 +42,7 @@ Put step-by-step procedures in `.agent/workflows/`:
 Keep `AGENTS.md` as the short routing index. Put detailed instructions here instead:
 
 - Add or update commit rules in `rules/commits.md`.
+- Add or update documentation rules in `rules/documentation.md`.
 - Add or update formatting, linting, hook, or CI rules in `rules/formatting.md`.
 - Add or update test rules in `rules/testing.md`.
 - Add task-specific procedures in `workflows/`.
