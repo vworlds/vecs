@@ -3,7 +3,7 @@
 ECS and vecs terminology, in alphabetical order. Each entry links to the guide that develops it.
 
 **Archetype** — the set of component type ids attached to an entity, represented as the entity's
-`componentBitmask` (a [`Bitset`](./queries-and-filters.md#bitset)). Query matching tests
+`componentBitmask` (a [`Bitset`](./utilities.md#bitset)). Query matching tests
 archetypes with fast bitwise subset checks.
 
 **Backfill** — when a tracked query or system is built, entities that already match are routed
@@ -12,7 +12,7 @@ through `enter` so the tracked set starts complete.
 
 **Bitset** — a compact, growable set of non-negative integers backed by 32-bit words; used for
 archetypes and watchlists, and exported for bit-flag component fields.
-[Queries and filters](./queries-and-filters.md#bitset).
+[Utilities](./utilities.md#bitset).
 
 **Cascade (query)** — depth-first ordering of a query's members along a `Traversable`
 relationship, via `{ with: ..., cascade: Rel }`.

@@ -106,6 +106,34 @@ for (const [key, value] of map) {
 
 ## `Bitset`
 
-`Bitset` is covered in [Queries and filters](./queries-and-filters.md#bitset). It is the compact
-integer-set type the ECS uses for entity archetypes and watchlists, and is exported so component
-data can use it for bit-flag fields. See that guide for the full reference and usage.
+`Bitset` (`lib/vecs/src/util/bitset.ts`) is the compact integer-set type the ECS uses for entity
+archetypes and watchlists. It is exported so component data can use it for bit-flag fields:
+
+```ts
+import { Bitset } from "@vworlds/vecs";
+
+class Tags {
+  tags = new Bitset();
+}
+
+tags.tags.add(TAG_VISIBLE);
+if (tags.tags.has(TAG_VISIBLE)) { ... }
+```
+
+### Reference
+
+| Method                                              | Description                                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `add(n)`                                            | Set bit `n`.                                                                         |
+| `delete(n)`                                         | Clear bit `n`. Storage is not compacted automatically; call `compact()` when needed. |
+| `addBit(bptr)` / `deleteBit(bptr)` / `hasBit(bptr)` | Fast paths using a pre-computed `BitPtr`.                                            |
+| `has(n)`                                            | `true` when bit `n` is set.                                                          |
+| `equal(other)`                                      | `true` when both bitsets have exactly the same bits set.                             |
+| `hasBitset(other)`                                  | `true` when every bit in `other` is also set here (subset check).                    |
+| `forEach(cb)`                                       | Visit each set bit index in ascending order.                                         |
+| `indices()`                                         | All set bit indices as `number[]`.                                                   |
+| `clear()`                                           | Remove every set bit.                                                                |
+| `compact()`                                         | Trim trailing zero words from backing storage.                                       |
+
+Related: `getDSLKey(dsl, world)` returns a deterministic 32-bit hash of a DSL expression
+(equivalent expressions hash identically), useful for caching keyed on predicates.

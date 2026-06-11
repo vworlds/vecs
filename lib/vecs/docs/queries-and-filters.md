@@ -1,7 +1,7 @@
 # Queries and Filters
 
 Express entity predicates with the query DSL, track them live with `Query`, scan once with
-`Filter`, index with `groupBy`, and use the `Bitset` utility that powers matching.
+`Filter`, index with `groupBy`, and reach for the `Bitset` utility that powers matching.
 
 ## The query DSL
 
@@ -183,32 +183,5 @@ reactivity.
 
 ## `Bitset`
 
-`Bitset` (`lib/vecs/src/util/bitset.ts`) is the compact integer-set type the ECS uses for entity
-archetypes and watchlists. It is exported so component data can use it for bit-flag fields:
-
-```ts
-import { Bitset } from "@vworlds/vecs";
-
-class Tags {
-  tags = new Bitset();
-}
-
-tags.tags.add(TAG_VISIBLE);
-if (tags.tags.has(TAG_VISIBLE)) { ... }
-```
-
-| Method                                              | Description                                                                          |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `add(n)`                                            | Set bit `n`.                                                                         |
-| `delete(n)`                                         | Clear bit `n`. Storage is not compacted automatically; call `compact()` when needed. |
-| `addBit(bptr)` / `deleteBit(bptr)` / `hasBit(bptr)` | Fast paths using a pre-computed `BitPtr`.                                            |
-| `has(n)`                                            | `true` when bit `n` is set.                                                          |
-| `equal(other)`                                      | `true` when both bitsets have exactly the same bits set.                             |
-| `hasBitset(other)`                                  | `true` when every bit in `other` is also set here (subset check).                    |
-| `forEach(cb)`                                       | Visit each set bit index in ascending order.                                         |
-| `indices()`                                         | All set bit indices as `number[]`.                                                   |
-| `clear()`                                           | Remove every set bit.                                                                |
-| `compact()`                                         | Trim trailing zero words from backing storage.                                       |
-
-Related: `getDSLKey(dsl, world)` returns a deterministic 32-bit hash of a DSL expression
-(equivalent expressions hash identically), useful for caching keyed on predicates.
+`Bitset` is the compact integer-set type that powers entity archetypes and query watchlists.
+It is documented in full in [Utilities](./utilities.md#bitset).

@@ -39,7 +39,7 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 | [components.md](./components.md)                   | `world.component`, hooks, exclusive groups, `CleanupPolicy`, `Implements`, `Singleton`.      |
 | [entities.md](./entities.md)                       | `world.entity`, `add`/`set`/`get`/`remove`/`destroy`, deferred read semantics.               |
 | [systems.md](./systems.md)                         | `world.system`, `with`/`without`, `enter`/`update`/`exit`, `each`/`run`, tick sources.       |
-| [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`, `Bitset`.                          |
+| [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`.                                    |
 | [relationships.md](./relationships.md)             | `Relationship`, `ChildOf`/`DependsOn`, `parent`/`children`, `Traversable`, cascades.         |
 | [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, composition, built-in modules.                             |
 | [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                               |
