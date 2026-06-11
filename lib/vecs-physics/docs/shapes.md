@@ -99,13 +99,15 @@ In this example, the circle is one meter above the body origin in body-local spa
 
 Each shape entity should have one geometry component.
 
-The geometry components are mutually exclusive. Adding one removes the previous one from the same entity.
+The geometry components are mutually exclusive. Adding one removes the previous one from the same entity. `PhysicsModule` sets this up by declaring each geometry component an implementer of the abstract `Shape` marker:
 
 ```ts
-world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);
+world.component(Box).set(Implements, { interfaces: [Shape] });
+world.component(Circle).set(Implements, { interfaces: [Shape] });
+// ...and so on for Capsule, Segment, Polygon, Chain.
 ```
 
-`PhysicsModule` performs this setup for physics components.
+`entity.get(Shape)` and `world.filter(Shape)` match whichever concrete geometry component is present. See [Components](./components.md#geometry-components).
 
 ### Box
 

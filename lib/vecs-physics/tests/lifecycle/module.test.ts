@@ -28,6 +28,7 @@ import {
   Segment,
   Sensor,
   SensorEvents,
+  Shape,
   ShapePosition,
   ShapeRotation,
   Sleep,
@@ -78,17 +79,26 @@ describe("PhysicsModule", () => {
     }
   });
 
-  it("marks every geometry component mutually exclusive", () => {
+  it("declares every geometry component as a Shape implementer", () => {
     const world = new World();
     world.module(PhysicsModule);
+    const shapeMeta = world.component(Shape).meta;
     for (const C of GEOMETRY) {
       const componentMeta = world.component(C).meta;
-      const others = GEOMETRY.filter((G) => G !== C).map((G) => world.component(G).meta);
-      expect(componentMeta._exclusive).not.toContain(componentMeta);
-      for (const otherMeta of others) {
-        expect(componentMeta._exclusive).toContain(otherMeta);
-      }
+      expect(componentMeta._implementsClosure).toContain(shapeMeta);
     }
+  });
+
+  it("setting one geometry component evicts a previously-set geometry component", () => {
+    const world = new World();
+    world.module(PhysicsModule);
+    const entity = world.entity().set(Box, { hx: 1, hy: 1 });
+
+    entity.set(Circle, { radius: 2 });
+
+    expect(entity.has(Box)).toBe(false);
+    expect(entity.has(Circle)).toBe(true);
+    expect(entity.get(Shape)).toBe(entity.get(Circle));
   });
 
   it("creates the three default physics phases", () => {
@@ -139,7 +149,7 @@ describe("PhysicsModule", () => {
     expect(state.enableSleep).toBe(true);
     expect(state.enableContinuous).toBe(true);
     expect(state.entityByBodyIndex.size).toBe(0);
-    expect(state.shapeByEntityWasm.size).toBe(0);
+    expect(state.entityByShapeIndex.size).toBe(0);
   });
 
   it("applies overridden options onto the PhysicsState", () => {

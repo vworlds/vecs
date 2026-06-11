@@ -1,25 +1,22 @@
-import { type EID, type Entity, type System, type World } from "@vworlds/vecs";
+import { type Entity, type System, type World } from "@vworlds/vecs";
 
+import { Chain, Shape } from "../components/geometry.js";
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
 import { type b2ShapeId, type PhysicsState } from "../adapter/state.js";
 
 type EventFlag = "contact" | "hit" | "sensor";
 
 export function installEventOptInSync(world: World, state: PhysicsState, phase: Entity): System {
+  world.component(ContactEvents).onAdd((entity) => setEventFlag(state, entity, "contact", true));
   world
     .component(ContactEvents)
-    .onAdd((entity) => setEventFlag(state, entity.eid, "contact", true));
-  world
-    .component(ContactEvents)
-    .onRemove((entity) => setEventFlag(state, entity.eid, "contact", false));
+    .onRemove((entity) => setEventFlag(state, entity, "contact", false));
 
-  world.component(HitEvents).onAdd((entity) => setEventFlag(state, entity.eid, "hit", true));
-  world.component(HitEvents).onRemove((entity) => setEventFlag(state, entity.eid, "hit", false));
+  world.component(HitEvents).onAdd((entity) => setEventFlag(state, entity, "hit", true));
+  world.component(HitEvents).onRemove((entity) => setEventFlag(state, entity, "hit", false));
 
-  world.component(SensorEvents).onAdd((entity) => setEventFlag(state, entity.eid, "sensor", true));
-  world
-    .component(SensorEvents)
-    .onRemove((entity) => setEventFlag(state, entity.eid, "sensor", false));
+  world.component(SensorEvents).onAdd((entity) => setEventFlag(state, entity, "sensor", true));
+  world.component(SensorEvents).onRemove((entity) => setEventFlag(state, entity, "sensor", false));
 
   return world
     .system("PhysicsEventOptInSync")
@@ -29,8 +26,17 @@ export function installEventOptInSync(world: World, state: PhysicsState, phase: 
     });
 }
 
-function setEventFlag(state: PhysicsState, entityId: EID, flag: EventFlag, enabled: boolean): void {
-  const shapeId = state.shapeByEntityWasm.get(entityId);
+function setEventFlag(
+  state: PhysicsState,
+  entity: Entity,
+  flag: EventFlag,
+  enabled: boolean
+): void {
+  const shape = entity.get(Shape);
+  if (shape === undefined || shape instanceof Chain) {
+    return;
+  }
+  const shapeId = shape._shapeId as b2ShapeId | undefined;
   if (shapeId !== undefined) {
     applyEventFlag(state, shapeId, flag, enabled);
   }

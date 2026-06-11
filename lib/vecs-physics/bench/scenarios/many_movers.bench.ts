@@ -57,11 +57,13 @@ export function runManyMovers(): {
   const totalMs = performance.now() - t0;
 
   const state = getPhysics(world);
-  const bodyIds = [...state.bodyByEntityWasm.values()];
-  const entries = [...state.bodyByEntityWasm.entries()].map(([entityId, bodyId]) => ({
-    bodyId,
-    entityId,
-  }));
+  const entries: Array<{ bodyId: NonNullable<Body["_bodyId"]>; entityId: EID }> = [];
+  world.filter(Body).forEach([Body], (entity, [body]) => {
+    if (body?._bodyId !== undefined) {
+      entries.push({ bodyId: body._bodyId, entityId: entity.eid });
+    }
+  });
+  const bodyIds = entries.map(({ bodyId }) => bodyId);
 
   const linearStart = performance.now();
   let linearChecksum = 0;

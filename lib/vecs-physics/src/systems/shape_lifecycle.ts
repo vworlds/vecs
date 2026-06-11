@@ -1,83 +1,48 @@
 import { ChildOf, Iter, type Entity, type System, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
-import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
+import { Box, Capsule, Chain, Circle, Polygon, Segment, Shape } from "../components/geometry.js";
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
 import { CollisionFilter, Material, Sensor } from "../components/material.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
 import { type Box2DModule } from "../adapter/runtime.js";
-import { type b2BodyId, type b2ShapeId, type PhysicsState } from "../adapter/state.js";
+import {
+  type b2BodyId,
+  type b2ChainId,
+  type b2ShapeId,
+  type PhysicsState,
+} from "../adapter/state.js";
 import { withAllocated } from "../adapter/disposal.js";
 
 const MAX_POLYGON_VERTICES = 8;
 
 export function installShapeLifecycle(world: World, state: PhysicsState, phase: Entity): System {
-  const shapePredicate = {
-    all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }],
-  } as const;
+  const shapePredicate = { all: [Shape, { parent: Body }] } as const;
   const system = world.system("PhysicsShapeLifecycle").with(shapePredicate).phase(phase);
 
   system.enter(Iter, [{ target: [ChildOf, [Body]] }], (it, [body]) => {
     createShapeForEntity(state, it.entity, it.src[0], body);
   });
 
-  // Inject `[ChildOf]` so the parent relationship is captured in the exit
-  // snapshot while the entity's components are still present. The exit
-  // callback itself runs on the next tick's inbox drain, after `_destroy`
-  // has cleared `entity._components` -- by then `entity.parent(ChildOf)`
-  // would return `undefined`.
-  system.exit([ChildOf], (entity, [childOf]) => {
-    destroyShapeForEntity(state, entity, true, childOf?.target);
+  // Inject `[ChildOf, Shape]` so the parent relationship and shape handle are
+  // captured in the exit snapshot while the entity's components are still
+  // present. The exit callback itself runs on the next tick's inbox drain,
+  // after `_destroy` has cleared `entity._components` -- by then
+  // `entity.parent(ChildOf)` and `entity.get(Shape)` would return `undefined`.
+  system.exit([ChildOf, Shape], (entity, [childOf, shape]) => {
+    destroyShapeForEntity(state, entity, true, childOf?.target, shape);
   });
 
-  world
-    .system("PhysicsShapeLifecycle:Box")
-    .with(Box, { parent: Body })
-    .phase(phase)
-    .update(Iter, Box, [{ target: [ChildOf, [Body]] }], (it, _box, [body]) => {
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
-    });
-  world
-    .system("PhysicsShapeLifecycle:Circle")
-    .with(Circle, { parent: Body })
-    .phase(phase)
-    .update(Iter, Circle, [{ target: [ChildOf, [Body]] }], (it, _circle, [body]) => {
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
-    });
-  world
-    .system("PhysicsShapeLifecycle:Capsule")
-    .with(Capsule, { parent: Body })
-    .phase(phase)
-    .update(Iter, Capsule, [{ target: [ChildOf, [Body]] }], (it, capsule, [body]) => {
-      if (!hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)) {
-        return;
-      }
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
-    });
-  world
-    .system("PhysicsShapeLifecycle:Segment")
-    .with(Segment, { parent: Body })
-    .phase(phase)
-    .update(Iter, Segment, [{ target: [ChildOf, [Body]] }], (it, segment, [body]) => {
-      if (!hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)) {
-        return;
-      }
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
-    });
-  world
-    .system("PhysicsShapeLifecycle:Polygon")
-    .with(Polygon, { parent: Body })
-    .phase(phase)
-    .update(Iter, Polygon, [{ target: [ChildOf, [Body]] }], (it, _polygon, [body]) => {
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
-    });
-  world
-    .system("PhysicsShapeLifecycle:Chain")
-    .with(Chain, { parent: Body })
-    .phase(phase)
-    .update(Iter, Chain, [{ target: [ChildOf, [Body]] }], (it, _chain, [body]) => {
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
-    });
+  system.update(Iter, Shape, [{ target: [ChildOf, [Body]] }], (it, shape, [body]) => {
+    if (
+      (shape instanceof Capsule && !hasValidEndpoints(shape.x1, shape.y1, shape.x2, shape.y2)) ||
+      (shape instanceof Segment && !hasValidEndpoints(shape.x1, shape.y1, shape.x2, shape.y2))
+    ) {
+      return;
+    }
+    recreateShapeForEntity(state, it.entity, it.src[0], body);
+  });
+
   world
     .system("PhysicsShapeLifecycle:ChildOf")
     .with(ChildOf, shapePredicate)
@@ -120,7 +85,10 @@ function createShapeForEntity(
 
   const shapeId = createSingleShape(state, entity, bodyId, options, pose);
   if (shapeId !== undefined) {
-    state.shapeByEntityWasm.set(entity.eid, shapeId);
+    const shape = entity.get(Shape) as Shape | undefined;
+    if (shape !== undefined) {
+      shape._shapeId = shapeId;
+    }
     state.entityByShapeIndex.set(shapeId.index1, entity.eid);
     state.dirtyMassBodies.add(parentEntity.eid);
   }
@@ -130,29 +98,42 @@ function destroyShapeForEntity(
   state: PhysicsState,
   entity: Entity,
   allowCascadeSkip: boolean,
-  parent?: Entity
+  parent?: Entity,
+  shape?: Readonly<Shape>
 ): void {
   const resolvedParent = parent ?? entity.parent(ChildOf);
-  const chainId = state.chainByEntity.get(entity.eid);
-  if (chainId !== undefined) {
+  const resolvedShape = shape ?? entity.get(Shape);
+  const handle = resolvedShape?._shapeId;
+  if (handle === undefined) {
+    return;
+  }
+
+  if (resolvedShape instanceof Chain) {
+    const chainId = handle as b2ChainId;
     // b2Chain_IsValid already returns false when the parent body was destroyed
     // and Box2D cascaded the chain, so it is the only guard the destroy needs.
     if (state.box2d.b2Chain_IsValid(chainId)) {
       state.box2d.b2DestroyChain(chainId);
     }
-    state.chainByEntity.delete(entity.eid);
     markParentBodyMassDirty(state, resolvedParent);
-  }
-
-  const shapeId = state.shapeByEntityWasm.get(entity.eid);
-  if (shapeId !== undefined) {
+  } else {
+    const shapeId = handle as b2ShapeId;
     const parentBodyExists = parentBodyStillExists(resolvedParent);
     if ((!allowCascadeSkip || parentBodyExists) && state.box2d.b2Shape_IsValid(shapeId)) {
       state.box2d.b2DestroyShape(shapeId, true);
     }
-    state.shapeByEntityWasm.delete(entity.eid);
     state.entityByShapeIndex.delete(shapeId.index1);
     markParentBodyMassDirty(state, resolvedParent);
+  }
+
+  // Clear the handle on the live component if it still exists (e.g. the
+  // parent body was removed and the shape entity remains, no longer matching
+  // the lifecycle predicate). When `shape` was injected from an exit
+  // snapshot, `entity.get(Shape)` is already cleared by `_destroy` and this
+  // is a no-op.
+  const mutableShape = entity.get(Shape) as Shape | undefined;
+  if (mutableShape !== undefined) {
+    mutableShape._shapeId = undefined;
   }
 }
 
@@ -297,7 +278,10 @@ function createChain(
       def.SetPoints(points);
       return box2d.b2CreateChain(bodyId, def);
     });
-    state.chainByEntity.set(entity.eid, chainId);
+    const shape = entity.get(Shape) as Shape | undefined;
+    if (shape !== undefined) {
+      shape._shapeId = chainId;
+    }
     markParentBodyMassDirty(state, parent);
   } finally {
     for (const point of points) {

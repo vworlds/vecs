@@ -9,9 +9,10 @@ import {
   LinearVelocity,
   Position,
   Rotation,
+  Shape,
   PhysicsModule,
 } from "../../src/index.js";
-import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
+import { getPhysics, type b2ShapeId, type PhysicsState } from "../../src/adapter/state.js";
 
 let world: World;
 let state: PhysicsState;
@@ -65,7 +66,7 @@ function setWasmTransform(entity: Entity, x: number, y: number, angle = 0): void
 }
 
 function readShapeCenterX(shape: Entity): number {
-  const shapeId = state.shapeByEntityWasm.get(shape.eid)!;
+  const shapeId = shape.get(Shape)!._shapeId as b2ShapeId;
   const aabb = state.box2d.b2Shape_GetAABB(shapeId);
   try {
     return (aabb.lowerBound.x + aabb.upperBound.x) / 2;
@@ -159,12 +160,12 @@ describe("body transform updates attached shapes", () => {
     const body = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     const shape = world.entity().childOf(body).set(Box, { hx: 0.5, hy: 0.5 });
     world.progress(0, 16);
-    const shapeId = state.shapeByEntityWasm.get(shape.eid);
+    const shapeId = shape.get(Shape)?._shapeId;
 
     body.set(Position, { x: 10, y: 0 });
     world.progress(16, 16);
 
-    expect(state.shapeByEntityWasm.get(shape.eid)).toBe(shapeId);
+    expect(shape.get(Shape)?._shapeId).toBe(shapeId);
     expect(readShapeCenterX(shape)).toBeCloseTo(10, 3);
   });
 });

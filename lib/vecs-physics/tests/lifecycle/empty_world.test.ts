@@ -21,7 +21,6 @@ describe("test_world.c::EmptyWorld", () => {
     expect(() => step(world, 32)).not.toThrow();
 
     // No bodies or shapes were registered.
-    expect(state.shapeByEntityWasm.size).toBe(0);
     expect(state.entityByBodyIndex.size).toBe(0);
     expect(state.entityByShapeIndex.size).toBe(0);
     // The WASM world is still valid after 32 empty steps.

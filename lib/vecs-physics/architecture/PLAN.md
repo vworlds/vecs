@@ -170,7 +170,11 @@ world.module(PhysicsModule, opts); // with non-default options
 1. Throw if `preloadPhysics` has not resolved.
 2. Register every public component via `world.component(...)` in the stable
    order in **Component registration order** below.
-3. Call `world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain)`.
+3. Declare each geometry component (`Box`, `Circle`, `Capsule`, `Segment`,
+   `Polygon`, `Chain`) an implementer of the abstract `Shape` marker via
+   `world.component(C).set(Implements, { interfaces: [Shape] })`. This makes
+   the geometry components mutually exclusive (setting one evicts any
+   previous geometry) and lets queries/systems match `Shape` polymorphically.
 4. Create or look up the three physics phases.
 5. Register the physics systems (listed under **System and phase pipeline**).
 6. Allocate `PhysicsState` (holds the `b2WorldId` and entity↔ID maps) and
@@ -316,13 +320,14 @@ module registrations:
 1. `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, `Body`.
 2. `Damping`, `GravityScale`, `MotionLocks`, `Sleep`.
 3. `ShapePosition`, `ShapeRotation`.
-4. `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, `Chain`.
+4. `Shape`, `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, `Chain`.
 5. `Material`, `CollisionFilter`, `Sensor`.
 6. `Force`, `Torque`, `Impulse`, `AngularImpulse`.
 7. `KinematicTargetPosition`, `KinematicTargetRotation`.
 8. `ContactEvents`, `SensorEvents`, `HitEvents`.
 9. Internal: `PhysicsRoot` (singleton), `PhysicsSystemTag`.
-10. `world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain)`.
+10. `world.component(C).set(Implements, { interfaces: [Shape] })` for each of
+    `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, `Chain`.
 11. Phase creation/lookup.
 12. System creation; tag each physics system entity with `PhysicsSystemTag`.
 13. `PhysicsState` allocation and attach to `PhysicsRoot`.
@@ -414,10 +419,11 @@ Query: `Body`.
 
 - `.enter` — read `Body`, `Position`, `Rotation`, `LinearVelocity`,
   `AngularVelocity`, optional tunables. Fill a `b2DefaultBodyDef()`. Call
-  `b2CreateBody(worldId, def)`. Store `b2BodyId` in
-  `state.bodyByEntity` / `state.entityByBody`.
-- `.exit` — look up `b2BodyId`; call `b2DestroyBody(id)`. Drop maps. Box2D
-  cascades shape destruction internally.
+  `b2CreateBody(worldId, def)`. Store the `b2BodyId` on `Body._bodyId` and
+  register `state.entityByBodyIndex.set(bodyId.index1, entity.eid)`.
+- `.exit` — read the body ID from the injected `Body` snapshot, call
+  `b2DestroyBody(id)`, and drop the `entityByBodyIndex` entry. Box2D cascades
+  shape destruction internally.
 - `.update(Body, …)` — `type` change → `b2Body_SetType`; `enabled` →
   `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`.
   `allowFastRotation` is create-time only under `box2d3-wasm@5.2.0` because
@@ -426,20 +432,27 @@ Query: `Body`.
 
 ### `PhysicsShapeLifecycle` (`physics-pre`)
 
-Query: `{ all: [{ any: [Box, Circle, Capsule, Segment, Polygon, Chain] }, { parent: Body }] }`.
+Query: `{ all: [Shape, { parent: Body }] }`. `Box`, `Circle`, `Capsule`,
+`Segment`, `Polygon`, and `Chain` all declare `Implements: [Shape]`, so this
+one predicate covers every geometry type.
 
 Membership tracks geometry-with-Body-parent — covers attachment, detachment,
 and reparenting via one query.
 
-- `.enter` — resolve parent body via `entity.parent(ChildOf)` →
-  `state.bodyByEntity`. Build a `b2ShapeDef` from `Material` / `CollisionFilter`
-  / `Sensor` / `ShapePosition` / `ShapeRotation`. Dispatch by geometry type
-  (see table below). Store `b2ShapeId` in `state.shapeByEntity` /
-  `state.entityByShape`.
-- `.exit` — `b2DestroyShape(shapeId)` (or `b2DestroyChain` for chains). Drop
-  maps.
-- `.update(<geom>, …)` — same-type props change in place via
-  `b2Shape_Set...` setters where available; otherwise destroy + recreate.
+- `.enter` — resolve parent body from the injected parent `Body._bodyId`. Build a
+  `b2ShapeDef` from `Material` / `CollisionFilter` / `Sensor` / `ShapePosition` / `ShapeRotation`. Dispatch by
+  geometry type (see table below). Store the resulting `b2ShapeId` (or
+  `b2ChainId` for `Chain`) on `Shape._shapeId` (`@internal`) and, for
+  non-chain shapes, register `state.entityByShapeIndex.set(shapeId.index1,
+entity.eid)`.
+- `.exit` — injects `[ChildOf, Shape]` so the parent link and `_shapeId` are
+  still readable from the exit snapshot. `b2DestroyShape(shapeId)` (or
+  `b2DestroyChain` for chains, branching on `instanceof Chain`); drop the
+  `entityByShapeIndex` entry for non-chain shapes.
+- `.update(Shape, …)` — single collapsed system for all six geometry types:
+  destroy + recreate the shape, except `Capsule`/`Segment` updates with
+  degenerate (near-zero-length) endpoints are ignored, preserving the existing
+  valid shape (Box2D parity).
 - `.update(ChildOf, …)` — reparenting between bodies = destroy under old
   parent, recreate under new.
 
@@ -682,9 +695,11 @@ recreate under the new body.
 
 ### Chains
 
-`Chain` produces a `b2ChainId` representing N internal segments. The shape
-table uses a separate `chainByEntity: Map<EntityId, b2ChainId>` and the
-common path stays branch-free.
+`Chain` produces a `b2ChainId` representing N internal segments. `Chain`
+extends `Shape` like the other five geometry components, so the handle is
+stored in the same `Shape._shapeId: b2ShapeId | b2ChainId | undefined` field;
+code that destroys/recreates a shape branches on `instanceof Chain` to know
+which Box2D destroy function and validity check to use.
 
 ## Material and filter updates
 

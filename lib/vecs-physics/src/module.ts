@@ -1,16 +1,26 @@
 // `PhysicsModule` wires the physics engine into a Vecs world. It registers every
-// public component, declares geometry exclusivity, ensures the three physics
-// phases exist, creates the Box2D world, installs the physics systems (each
-// tagged with `PhysicsSystemTag`), and attaches the private `PhysicsState`.
+// public component, declares each geometry component as a `Shape` implementer
+// (mutually exclusive: setting one evicts any previous geometry), ensures the
+// three physics phases exist, creates the Box2D world, installs the physics
+// systems (each tagged with `PhysicsSystemTag`), and attaches the private
+// `PhysicsState`.
 //
 // Registration order matters: Vecs assigns component type ids in registration
 // order, so keeping the order stable keeps ids deterministic across worlds.
 
-import { insertPhaseAfter, Module, ON_UPDATE, Phase, type Entity, type World } from "@vworlds/vecs";
+import {
+  Implements,
+  insertPhaseAfter,
+  Module,
+  ON_UPDATE,
+  Phase,
+  type Entity,
+  type World,
+} from "@vworlds/vecs";
 
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "./components/body.js";
 import { Damping, GravityScale, MotionLocks, Sleep } from "./components/body_tuning.js";
-import { Box, Capsule, Chain, Circle, Polygon, Segment } from "./components/geometry.js";
+import { Box, Capsule, Chain, Circle, Polygon, Segment, Shape } from "./components/geometry.js";
 import { AngularImpulse, Force, Impulse, Torque } from "./components/force.js";
 import { CollisionFilter, Material, Sensor } from "./components/material.js";
 import { ContactEvents, HitEvents, SensorEvents } from "./components/events.js";
@@ -88,6 +98,7 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
   world.component(ShapePosition);
   world.component(ShapeRotation);
 
+  world.component(Shape);
   world.component(Box);
   world.component(Circle);
   world.component(Capsule);
@@ -115,8 +126,15 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
   //    registered in their documented order for deterministic type ids.
   registerInternalComponents(world);
 
-  // 3. Geometry components are mutually exclusive: an entity holds at most one.
-  world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);
+  // 3. Geometry components all implement `Shape`: queries/systems can match
+  //    `Shape` without enumerating every concrete type, and `Implements`
+  //    enforces mutual exclusivity (setting one evicts any previous geometry).
+  world.component(Box).set(Implements, { interfaces: [Shape] });
+  world.component(Circle).set(Implements, { interfaces: [Shape] });
+  world.component(Capsule).set(Implements, { interfaces: [Shape] });
+  world.component(Segment).set(Implements, { interfaces: [Shape] });
+  world.component(Polygon).set(Implements, { interfaces: [Shape] });
+  world.component(Chain).set(Implements, { interfaces: [Shape] });
 
   // 4. Ensure the three physics phase entities exist and are ordered after update.
   const preStep = resolvePhase(world, opts.preStepPhase, DEFAULT_PRE_STEP_PHASE);

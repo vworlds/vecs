@@ -106,7 +106,7 @@ await preloadPhysics();
 world.module(PhysicsModule);
 ```
 
-`PhysicsModule` registers physics components, marks mutually exclusive shape components, registers physics systems, and creates the internal simulation state.
+`PhysicsModule` registers physics components, declares the geometry components as mutually exclusive `Shape` implementers, registers physics systems, and creates the internal simulation state.
 
 ```ts
 await preloadPhysics();
@@ -290,13 +290,7 @@ export class Chain {
 }
 ```
 
-Geometry components are mutually exclusive.
-
-```ts
-world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);
-```
-
-Adding one geometry component removes the previous one from the same entity.
+Geometry components are mutually exclusive: each declares `Implements: [Shape]`, an abstract marker `PhysicsModule` registers via `Implements` from `@vworlds/vecs`. Adding one geometry component removes the previous one from the same entity, and `entity.get(Shape)` matches whichever one is present.
 
 See [Shapes](./shapes.md).
 

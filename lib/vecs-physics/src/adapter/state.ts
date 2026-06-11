@@ -82,13 +82,8 @@ export class PhysicsState {
   public readonly enableSleep: boolean;
   public readonly enableContinuous: boolean;
 
-  // Forward handle (entity -> b2BodyId) lives on the `Body` component instead
-  // of a map; see `Body._bodyId`.
-  public readonly shapeByEntityWasm = new ArrayMap<b2ShapeId>();
-  public readonly chainByEntity = new ArrayMap<b2ChainId>();
-
-  // Index-keyed reverse ArrayMaps: box2d events carry an opaque b2*Id and must
-  // resolve back to an entity, which a component field can't provide.
+  // Forward handles live on components: Body._bodyId and Shape._shapeId.
+  // Index-keyed reverse ArrayMaps resolve Box2D event IDs back to entities.
   // Emscripten returns fresh wrapper objects for b2*Id fields on events, so
   // Map<b2*Id, EntityId> misses by object identity. Public index1 slot 0 is
   // unused/null-aligned by Box2D, so ArrayMap slot 0 stays empty too. We do not

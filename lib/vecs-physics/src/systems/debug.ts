@@ -52,7 +52,7 @@ import {
 
 import { Body, BodyType, Position } from "../components/body.js";
 import { AngularImpulse, Force, Impulse, Torque } from "../components/force.js";
-import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
+import { Chain, Polygon, Shape } from "../components/geometry.js";
 import { Material } from "../components/material.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
 import { type PhysicsState } from "../adapter/state.js";
@@ -75,7 +75,7 @@ const CODE_FORCE_WITHOUT_TARGET = "force-without-target";
 export function installDebugValidation(world: World, state: PhysicsState, phase: Entity): System {
   // ── Filters (non-reactive; walked every step) ─────────────────────────────
   // Geometry entities: any entity with at least one geometry component.
-  const geomFilter: Filter = world.filter({ any: [Box, Circle, Capsule, Segment, Polygon, Chain] });
+  const geomFilter: Filter = world.filter(Shape);
 
   // Body entities: any entity with Body.
   const bodyFilter: Filter = world.filter(Body);

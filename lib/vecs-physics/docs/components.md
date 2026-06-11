@@ -337,15 +337,20 @@ Missing `ShapeRotation` means local angle `0`.
 
 ## Geometry Components
 
-Every shape entity should have exactly one geometry component.
+Every shape entity should have exactly one geometry component: `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, or `Chain`.
 
-`PhysicsModule` marks these components as mutually exclusive:
+Each of these declares `Implements: [Shape]`, an abstract marker exported from `vecs-physics`:
 
 ```ts
-world.setExclusiveComponents(Box, Circle, Capsule, Segment, Polygon, Chain);
+export abstract class Shape {}
 ```
 
-Adding one geometry component removes any previous geometry component from that entity.
+`Shape` is registered as a Vecs interface (see `Implements` in `@vworlds/vecs`). Two consequences:
+
+- **Mutual exclusivity.** Setting one geometry component removes any previous geometry component from that entity — `entity.set(Circle, { radius: 1 })` on an entity that already has `Box` removes `Box` first.
+- **Polymorphic queries.** `entity.get(Shape)` and `world.filter(Shape)`/`.with(Shape)` match whichever concrete geometry component is present, without enumerating all six types.
+
+You will not construct or set `Shape` directly — it has no instantiable defaults of its own. Use the concrete geometry components below.
 
 ### `Box`
 

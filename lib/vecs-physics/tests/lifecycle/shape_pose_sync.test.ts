@@ -14,11 +14,12 @@ import {
   BodyType,
   Box,
   Circle,
+  Shape,
   ShapePosition,
   ShapeRotation,
   PhysicsModule,
 } from "../../src/index.js";
-import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
+import { getPhysics, type b2ShapeId, type PhysicsState } from "../../src/adapter/state.js";
 
 let world: World;
 let state: PhysicsState;
@@ -28,7 +29,7 @@ function makeBody(type: BodyType = BodyType.Static) {
 }
 
 function getShapeAABB(shapeEid: number) {
-  const shapeId = state.shapeByEntityWasm.get(shapeEid);
+  const shapeId = world.getEntity(shapeEid)?.get(Shape)?._shapeId as b2ShapeId | undefined;
   if (shapeId === undefined || !state.box2d.b2Shape_IsValid(shapeId)) {
     return undefined;
   }

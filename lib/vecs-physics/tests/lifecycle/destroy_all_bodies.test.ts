@@ -33,7 +33,6 @@ describe("test_world.c::DestroyAllBodiesWorld", () => {
     step(1);
 
     // All entity → WASM mappings must be cleared.
-    expect(state.shapeByEntityWasm.size).toBe(0);
     expect(state.entityByBodyIndex.size).toBe(0);
     expect(state.entityByShapeIndex.size).toBe(0);
     // The WASM world remains valid after all bodies are destroyed.
