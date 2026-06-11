@@ -11,7 +11,7 @@ export function installMassRecompute(world: World, state: PhysicsState, phase: E
     .phase(phase)
     .run(() => {
       for (const eid of state.dirtyMassBodies) {
-        const bodyId = state.bodyByEntityWasm.get(eid);
+        const bodyId = world.getEntity(eid)?.get(Body)?._bodyId;
         if (bodyId !== undefined) {
           state.box2d.b2Body_ApplyMassFromShapes(bodyId);
         }
@@ -25,12 +25,13 @@ export function installMassRecompute(world: World, state: PhysicsState, phase: E
 }
 
 function warnOnMasslessDynamicBodies(world: World, state: PhysicsState): void {
-  for (const [eid, bodyId] of state.bodyByEntityWasm) {
-    const entity = world.getEntity(eid);
-    const body = entity?.get(Body);
-    if (body?.type !== BodyType.Dynamic) {
+  world.filter(Body).forEach((entity) => {
+    const eid = entity.eid;
+    const body = entity.get(Body);
+    const bodyId = body?._bodyId;
+    if (body?.type !== BodyType.Dynamic || bodyId === undefined) {
       state.warn.rearm(eid, CODE_DYNAMIC_BODY_WITHOUT_DENSITY);
-      continue;
+      return;
     }
 
     if (state.box2d.b2Body_GetMass(bodyId) === 0) {
@@ -42,5 +43,5 @@ function warnOnMasslessDynamicBodies(world: World, state: PhysicsState): void {
     } else {
       state.warn.rearm(eid, CODE_DYNAMIC_BODY_WITHOUT_DENSITY);
     }
-  }
+  });
 }

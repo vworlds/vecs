@@ -17,24 +17,26 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
   const system = world.system("PhysicsBodyLifecycle").with(Body).phase(phase);
 
   system.enter((entity) => {
-    const body = entity.get(Body)!;
+    const body = entity.get(Body) as Body;
     const bodyId = createWasmBodyId(state, entity, body);
-    state.bodyByEntityWasm.set(entity.eid, bodyId);
+    body._bodyId = bodyId;
     state.entityByBodyIndex.set(bodyId.index1, entity.eid);
   });
 
-  system.exit((entity) => {
-    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+  // Inject `[Body]` so the handle survives the post-`_destroy` snapshot -- by
+  // the time the exit callback runs (next tick's inbox drain), `entity.get(Body)`
+  // would return `undefined`.
+  system.exit([Body], (entity, [body]) => {
+    const bodyId = body?._bodyId;
     if (bodyId === undefined) {
       return;
     }
     state.box2d.b2DestroyBody(bodyId);
-    state.bodyByEntityWasm.delete(entity.eid);
     state.entityByBodyIndex.delete(bodyId.index1);
   });
 
   system.update(Body, (entity, body) => {
-    const bodyId = state.bodyByEntityWasm.get(entity.eid);
+    const bodyId = body._bodyId;
     if (bodyId === undefined) {
       return;
     }
@@ -52,7 +54,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     .with(Body, Damping)
     .phase(phase)
     .update(Damping, (entity, damping) => {
-      const bodyId = state.bodyByEntityWasm.get(entity.eid);
+      const bodyId = entity.get(Body)?._bodyId;
       if (bodyId === undefined) {
         return;
       }
@@ -65,7 +67,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     .with(Body, GravityScale)
     .phase(phase)
     .update(GravityScale, (entity, gravityScale) => {
-      const bodyId = state.bodyByEntityWasm.get(entity.eid);
+      const bodyId = entity.get(Body)?._bodyId;
       if (bodyId === undefined) {
         return;
       }
@@ -77,7 +79,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     .with(Body, MotionLocks)
     .phase(phase)
     .update(MotionLocks, (entity, locks) => {
-      const bodyId = state.bodyByEntityWasm.get(entity.eid);
+      const bodyId = entity.get(Body)?._bodyId;
       if (bodyId === undefined) {
         return;
       }
@@ -97,7 +99,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     .with(Body, Sleep)
     .phase(phase)
     .update(Sleep, (entity, sleep) => {
-      const bodyId = state.bodyByEntityWasm.get(entity.eid);
+      const bodyId = entity.get(Body)?._bodyId;
       if (bodyId === undefined) {
         return;
       }

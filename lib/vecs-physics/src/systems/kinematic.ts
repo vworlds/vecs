@@ -19,7 +19,7 @@ export function installKinematicTargets(world: World, state: PhysicsState, phase
       }
 
       targetFilter.forEach((entity) => {
-        const bodyId = state.bodyByEntityWasm.get(entity.eid);
+        const bodyId = entity.get(Body)?._bodyId;
         if (bodyId === undefined || !isKinematicBody(state, bodyId)) {
           return;
         }

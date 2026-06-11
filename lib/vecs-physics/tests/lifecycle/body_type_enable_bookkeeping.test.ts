@@ -33,7 +33,7 @@ function step(n = 1): void {
 }
 
 function wasmBodyId(eid: EID) {
-  const bodyId = state.bodyByEntityWasm.get(eid);
+  const bodyId = world.getEntity(eid)?.get(Body)?._bodyId;
   if (bodyId === undefined) {
     throw new Error(`missing wasm body for entity ${eid}`);
   }
@@ -211,7 +211,7 @@ describe("contact teardown on body type/disable changes", () => {
     // Disable — Box2D owns contact teardown internally after M7.
     body.set(Body, { type: BodyType.Dynamic, enabled: false });
     expect(() => step()).not.toThrow();
-    const bodyId = state.bodyByEntityWasm.get(body.eid)!;
+    const bodyId = body.get(Body)!._bodyId!;
     expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(false);
   });
 
@@ -227,7 +227,7 @@ describe("contact teardown on body type/disable changes", () => {
 
     body.set(Body, { type: BodyType.Static });
     expect(() => step()).not.toThrow();
-    const bodyId = state.bodyByEntityWasm.get(body.eid)!;
+    const bodyId = body.get(Body)!._bodyId!;
     expect(state.box2d.b2Body_GetType(bodyId)).toBe(state.box2d.b2BodyType.b2_staticBody);
   });
 });

@@ -12,7 +12,7 @@ export function installForceGather(world: World, state: PhysicsState, phase: Ent
     .phase(phase)
     .run(() => {
       forceFilter.forEach((entity) => {
-        const bodyId = resolveBodyId(entity, state);
+        const bodyId = resolveBodyId(entity);
         if (bodyId === undefined) {
           return;
         }

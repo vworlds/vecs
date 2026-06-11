@@ -22,8 +22,8 @@ beforeEach(() => {
   state = getPhysics(world) as PhysicsState;
 });
 
-function bodyId(entity: Entity): NonNullable<ReturnType<PhysicsState["bodyByEntityWasm"]["get"]>> {
-  return state.bodyByEntityWasm.get(entity.eid)!;
+function bodyId(entity: Entity): NonNullable<Body["_bodyId"]> {
+  return entity.get(Body)!._bodyId!;
 }
 
 function readBodyPosition(entity: Entity): { x: number; y: number } {
@@ -213,7 +213,7 @@ describe("pose-sync feedback suppression", () => {
     const pos = new userState.box2d.b2Vec2(4, 0);
     const rot = userState.box2d.b2MakeRot(0);
     try {
-      userState.box2d.b2Body_SetTransform(userState.bodyByEntityWasm.get(entity.eid)!, pos, rot);
+      userState.box2d.b2Body_SetTransform(entity.get(Body)!._bodyId!, pos, rot);
     } finally {
       rot.delete();
       pos.delete();

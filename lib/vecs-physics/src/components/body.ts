@@ -4,7 +4,10 @@
 //
 // These are plain data classes: every field is initialised on the class body so
 // `new C()` yields a valid, default-shaped instance (the Vecs zero-arg
-// contract). No imports from systems/ or adapter/ — components are pure data.
+// contract). No imports from systems/ or adapter/ beyond type-only `b2*Id`
+// handle types — components are pure data.
+
+import type { b2BodyId } from "../adapter/state.js";
 
 /** Simulation behaviour of a {@link Body}. */
 export enum BodyType {
@@ -22,6 +25,8 @@ export class Body {
   bullet = false;
   enabled = true;
   allowFastRotation = false;
+  /** @internal Engine-owned box2d handle; set by the lifecycle system, undefined until then. */
+  _bodyId: b2BodyId | undefined = undefined;
 }
 
 /** Canonical world-space body position. Teleports when written by user code. */

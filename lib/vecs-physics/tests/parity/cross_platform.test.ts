@@ -52,9 +52,11 @@ function runStackingSnapshot(): string {
     awake: boolean;
   }> = [];
 
-  for (const [eid, bodyId] of state.bodyByEntityWasm) {
-    if (!state.box2d.b2Body_IsValid(bodyId)) {
-      continue;
+  world.filter(Body).forEach((entity) => {
+    const eid = entity.eid;
+    const bodyId = entity.get(Body)?._bodyId;
+    if (bodyId === undefined || !state.box2d.b2Body_IsValid(bodyId)) {
+      return;
     }
 
     const pos = state.box2d.b2Body_GetPosition(bodyId);
@@ -74,7 +76,7 @@ function runStackingSnapshot(): string {
     vel.delete();
 
     bodies.push({ eid, x, y, angle, vx, vy, omega, awake });
-  }
+  });
 
   // Sort by eid for determinism.
   bodies.sort((a, b) => a.eid - b.eid);

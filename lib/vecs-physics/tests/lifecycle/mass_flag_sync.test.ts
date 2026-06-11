@@ -30,7 +30,7 @@ describe("DeferredMassFlagSyncTest (golden from box2d/test/test_world.c)", () =>
 
     // Frame 1: body created, massDirty should be false (no shapes yet).
     world.progress(0, 16);
-    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    const bodyId = bodyEnt.get(Body)!._bodyId!;
     expect(bodyId).toBeDefined();
     expect(state.box2d.b2Body_GetMass(bodyId)).toBe(0);
 
@@ -59,7 +59,7 @@ describe("PhysicsMassRecompute", () => {
     const shapeEnt = world.entity().childOf(bodyEnt).set(Circle, { radius: 1 });
 
     world.progress(0, 16);
-    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    const bodyId = bodyEnt.get(Body)!._bodyId!;
     const shapeId = state.shapeByEntityWasm.get(shapeEnt.eid)!;
     expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(PI, 6);
 
@@ -80,7 +80,7 @@ describe("PhysicsMassRecompute", () => {
     const shapeEnt = world.entity().childOf(bodyEnt).set(Circle, { radius: 1 });
 
     world.progress(0, 16);
-    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    const bodyId = bodyEnt.get(Body)!._bodyId!;
     const shapeId = state.shapeByEntityWasm.get(shapeEnt.eid)!;
 
     const massAfterFrame1 = state.box2d.b2Body_GetMass(bodyId);
@@ -98,7 +98,7 @@ describe("PhysicsMassRecompute", () => {
     world.entity().childOf(bodyEnt).set(Circle, { radius: 1 });
 
     world.progress(0, 16);
-    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    const bodyId = bodyEnt.get(Body)!._bodyId!;
 
     expect(state.box2d.b2Body_GetMass(bodyId)).toBe(0);
     expect(state.box2d.b2Body_GetRotationalInertia(bodyId)).toBe(0);
@@ -110,7 +110,7 @@ describe("PhysicsMassRecompute", () => {
     const bodyEnt = world.entity().set(Body, { type: BodyType.Dynamic });
 
     world.progress(0, 16);
-    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    const bodyId = bodyEnt.get(Body)!._bodyId!;
     expect(state.dirtyMassBodies.size).toBe(0);
     expect(state.box2d.b2Body_GetMass(bodyId)).toBe(0);
   });
@@ -122,7 +122,7 @@ describe("PhysicsMassRecompute", () => {
 
     // Frame 1: shape created, mass computed.
     world.progress(0, 16);
-    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    const bodyId = bodyEnt.get(Body)!._bodyId!;
     expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(PI, 6);
 
     // Remove the shape entity.
@@ -147,7 +147,7 @@ describe("PhysicsMassRecompute", () => {
 
     world.progress(0, 16);
 
-    const bodyId = state.bodyByEntityWasm.get(bodyEnt.eid)!;
+    const bodyId = bodyEnt.get(Body)!._bodyId!;
 
     // box2d3-wasm@5.2.0 baseline: mass = density·π·r² = 1·π·1 = π.
     expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(PI, 6);

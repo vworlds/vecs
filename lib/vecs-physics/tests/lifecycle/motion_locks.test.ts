@@ -39,7 +39,7 @@ function step(n = 1): void {
 }
 
 function wasmBodyId(eid: EID) {
-  const bodyId = state.bodyByEntityWasm.get(eid);
+  const bodyId = world.getEntity(eid)?.get(Body)?._bodyId;
   if (bodyId === undefined) {
     throw new Error(`missing wasm body for entity ${eid}`);
   }

@@ -138,7 +138,7 @@ describe("PhysicsModule", () => {
     expect(state.maximumLinearSpeed).toBe(400);
     expect(state.enableSleep).toBe(true);
     expect(state.enableContinuous).toBe(true);
-    expect(state.bodyByEntityWasm.size).toBe(0);
+    expect(state.entityByBodyIndex.size).toBe(0);
     expect(state.shapeByEntityWasm.size).toBe(0);
   });
 

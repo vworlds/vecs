@@ -31,7 +31,7 @@ function makeBody(type: BodyType = BodyType.Dynamic) {
 }
 
 function getBodyMass(eid: EID): number {
-  return state.box2d.b2Body_GetMass(state.bodyByEntityWasm.get(eid)!);
+  return state.box2d.b2Body_GetMass(world.getEntity(eid)!.get(Body)!._bodyId!);
 }
 
 function getShapeMaterial(shapeEid: EID) {

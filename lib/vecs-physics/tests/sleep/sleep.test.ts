@@ -36,8 +36,7 @@ function createDynamicBox(world: World, sleep?: Partial<Sleep>) {
 }
 
 function getBodyId(world: World, eid: EID): b2BodyId {
-  const state = getPhysics(world) as PhysicsState;
-  const bodyId = state.bodyByEntityWasm.get(eid);
+  const bodyId = world.getEntity(eid)?.get(Body)?._bodyId;
   if (bodyId === undefined) {
     throw new Error("missing wasm body");
   }

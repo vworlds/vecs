@@ -22,7 +22,7 @@ describe("test_world.c::DestroyAllBodiesWorld", () => {
     step(5);
 
     // Some contacts should have formed.
-    expect(state.bodyByEntityWasm.size).toBeGreaterThan(0);
+    expect(state.entityByBodyIndex.size).toBeGreaterThan(0);
 
     for (const shape of shapes) {
       shape.destroy();
@@ -33,7 +33,6 @@ describe("test_world.c::DestroyAllBodiesWorld", () => {
     step(1);
 
     // All entity → WASM mappings must be cleared.
-    expect(state.bodyByEntityWasm.size).toBe(0);
     expect(state.shapeByEntityWasm.size).toBe(0);
     expect(state.entityByBodyIndex.size).toBe(0);
     expect(state.entityByShapeIndex.size).toBe(0);

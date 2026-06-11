@@ -47,7 +47,7 @@ function step(n = 1): void {
 }
 
 function bodySim(eid: EID) {
-  return state.bodyByEntityWasm.get(eid)!;
+  return world.getEntity(eid)!.get(Body)!._bodyId!;
 }
 
 function bodyPosition(bodyId: b2BodyId): { x: number; y: number } {

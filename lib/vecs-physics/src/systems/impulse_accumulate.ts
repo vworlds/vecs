@@ -19,7 +19,7 @@ export function installImpulseAccumulate(world: World, state: PhysicsState, phas
 
 export function registerImpulseHooks(world: World, state: PhysicsState): void {
   world.component(Impulse).onSet((entity, impulse) => {
-    const bodyId = resolveBodyId(entity, state);
+    const bodyId = resolveBodyId(entity);
     if (bodyId === undefined) {
       return;
     }
@@ -32,7 +32,7 @@ export function registerImpulseHooks(world: World, state: PhysicsState): void {
   });
 
   world.component(AngularImpulse).onSet((entity, impulse) => {
-    const bodyId = resolveBodyId(entity, state);
+    const bodyId = resolveBodyId(entity);
     if (bodyId === undefined) {
       return;
     }

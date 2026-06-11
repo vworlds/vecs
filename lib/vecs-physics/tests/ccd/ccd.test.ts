@@ -49,7 +49,7 @@ describe("SetBulletDriftTest (flag persistence, box2d test_world.c:611-654)", ()
     const bodyEntity = world.entity().set(Body, { type: BodyType.Dynamic, bullet: false });
     runSteps(world, 1);
 
-    const bodyId = state.bodyByEntityWasm.get(bodyEntity.eid)!;
+    const bodyId = bodyEntity.get(Body)!._bodyId!;
     expect(state.box2d.b2Body_IsBullet(bodyId)).toBe(false);
 
     bodyEntity.set(Body, { type: BodyType.Dynamic, bullet: true });
@@ -66,7 +66,7 @@ describe("SetBulletDriftTest (flag persistence, box2d test_world.c:611-654)", ()
     const bodyEntity = world.entity().set(Body, { type: BodyType.Dynamic, bullet: true });
     runSteps(world, 1);
 
-    const bodyId = state.bodyByEntityWasm.get(bodyEntity.eid)!;
+    const bodyId = bodyEntity.get(Body)!._bodyId!;
     expect(state.box2d.b2Body_IsBullet(bodyId)).toBe(true);
 
     bodyEntity.set(Body, { type: BodyType.Dynamic, bullet: false });

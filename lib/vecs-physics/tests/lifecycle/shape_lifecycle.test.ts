@@ -51,7 +51,7 @@ function hasWasmShape(eid: EID): boolean {
 }
 
 function getBodyMass(bodyEid: EID): number {
-  const bodyId = state.bodyByEntityWasm.get(bodyEid);
+  const bodyId = world.getEntity(bodyEid)?.get(Body)?._bodyId;
   if (bodyId === undefined) {
     return 0;
   }
@@ -493,9 +493,9 @@ describe("PhysicsShapeLifecycle.exit", () => {
     shape.remove(Box);
     world.progress(16, 16);
 
-    expect(state.bodyByEntityWasm.has(body.eid)).toBe(true);
-    const bodyId = state.bodyByEntityWasm.get(body.eid)!;
-    expect(state.box2d.b2Body_IsValid(bodyId)).toBe(true);
+    const bodyId = body.get(Body)?._bodyId;
+    expect(bodyId).toBeDefined();
+    expect(state.box2d.b2Body_IsValid(bodyId!)).toBe(true);
   });
 
   it("removing the parent body destroys the WASM shape (ChildOf cascade)", () => {

@@ -1,4 +1,4 @@
-import { ArrayMap, IterableArrayMap, Singleton, type EID, type World } from "@vworlds/vecs";
+import { ArrayMap, Singleton, type EID, type World } from "@vworlds/vecs";
 
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
 import { type Box2DModule } from "./runtime.js";
@@ -82,17 +82,20 @@ export class PhysicsState {
   public readonly enableSleep: boolean;
   public readonly enableContinuous: boolean;
 
-  // Entity → WASM body/shape IDs plus index-keyed reverse ArrayMaps.
+  // Forward handle (entity -> b2BodyId) lives on the `Body` component instead
+  // of a map; see `Body._bodyId`.
+  public readonly shapeByEntityWasm = new ArrayMap<b2ShapeId>();
+  public readonly chainByEntity = new ArrayMap<b2ChainId>();
+
+  // Index-keyed reverse ArrayMaps: box2d events carry an opaque b2*Id and must
+  // resolve back to an entity, which a component field can't provide.
   // Emscripten returns fresh wrapper objects for b2*Id fields on events, so
   // Map<b2*Id, EntityId> misses by object identity. Public index1 slot 0 is
   // unused/null-aligned by Box2D, so ArrayMap slot 0 stays empty too. We do not
   // check id generations in hot lookups: correctness comes from clearing each
   // slot on Box2D destruction before Box2D can reuse that index1.
-  public readonly bodyByEntityWasm = new IterableArrayMap<b2BodyId>();
   public readonly entityByBodyIndex = new ArrayMap<EID>();
-  public readonly shapeByEntityWasm = new ArrayMap<b2ShapeId>();
   public readonly entityByShapeIndex = new ArrayMap<EID>();
-  public readonly chainByEntity = new ArrayMap<b2ChainId>();
 
   // Bodies whose mass needs recomputing this step (populated by shape lifecycle).
   public readonly dirtyMassBodies = new Set<EID>();
@@ -111,8 +114,9 @@ export class PhysicsState {
   public readonly impulseEntitiesThisStep = new Set<EID>();
 
   // Pending impulses remain wrapper-keyed by invariant: hooks resolve bodyId
-  // from bodyByEntityWasm, then get/set with that same stored wrapper, and the
-  // pre-step drain iterates stored keys instead of looking up event wrappers.
+  // off the `Body` component via resolveBodyId, then get/set with that same
+  // stored wrapper, and the pre-step drain iterates stored keys instead of
+  // looking up event wrappers.
   public readonly pendingLinearImpulse = new Map<
     b2BodyId,
     { x: number; y: number; wake: boolean }

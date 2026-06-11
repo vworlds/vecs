@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 
 function wasmBodyId(eid: EID) {
-  const bodyId = state.bodyByEntityWasm.get(eid);
+  const bodyId = world.getEntity(eid)?.get(Body)?._bodyId;
   if (bodyId === undefined) {
     throw new Error(`missing wasm body for entity ${eid}`);
   }
@@ -125,7 +125,7 @@ describe("PhysicsBodyLifecycle.exit", () => {
     e.remove(Body);
     world.progress(16, 16);
 
-    expect(state.bodyByEntityWasm.has(e.eid)).toBe(false);
+    expect(e.get(Body)).toBeUndefined();
     expect(state.box2d.b2Body_IsValid(bodyId)).toBe(false);
   });
 
@@ -137,7 +137,7 @@ describe("PhysicsBodyLifecycle.exit", () => {
     e.destroy();
     world.progress(16, 16);
 
-    expect(state.bodyByEntityWasm.has(e.eid)).toBe(false);
+    expect(world.getEntity(e.eid)).toBeUndefined();
     expect(state.box2d.b2Body_IsValid(bodyId)).toBe(false);
   });
 

@@ -131,7 +131,7 @@ describe("PhysicsShapePoseSync marks body massDirty on local pose change", () =>
     world.progress(0, 16);
 
     // Mass should be non-zero.
-    const bodyId = state.bodyByEntityWasm.get(body.eid)!;
+    const bodyId = body.get(Body)!._bodyId!;
     const massBefore = state.box2d.b2Body_GetMass(bodyId);
     expect(massBefore).toBeGreaterThan(0);
 

@@ -107,7 +107,7 @@ function createShapeForEntity(state: PhysicsState, entity: Entity): void {
   if (parentEntity === undefined) {
     return;
   }
-  const bodyId = state.bodyByEntityWasm.get(parentEntity.eid);
+  const bodyId = parentEntity.get(Body)?._bodyId;
   if (bodyId === undefined) {
     return;
   }
@@ -148,7 +148,7 @@ function destroyShapeForEntity(
 
   const shapeId = state.shapeByEntityWasm.get(entity.eid);
   if (shapeId !== undefined) {
-    const parentBodyExists = parentBodyStillExists(state, resolvedParent);
+    const parentBodyExists = parentBodyStillExists(resolvedParent);
     if ((!allowCascadeSkip || parentBodyExists) && state.box2d.b2Shape_IsValid(shapeId)) {
       state.box2d.b2DestroyShape(shapeId, true);
     }
@@ -372,12 +372,12 @@ function readLocalPose(entity: Entity): { x: number; y: number; angle: number } 
   };
 }
 
-function parentBodyStillExists(state: PhysicsState, parent?: Entity): boolean {
-  return parent !== undefined && state.bodyByEntityWasm.has(parent.eid);
+function parentBodyStillExists(parent?: Entity): boolean {
+  return parent !== undefined && parent.get(Body)?._bodyId !== undefined;
 }
 
 function markParentBodyMassDirty(state: PhysicsState, parent?: Entity): void {
-  if (parent !== undefined && state.bodyByEntityWasm.has(parent.eid)) {
+  if (parent !== undefined && parent.get(Body)?._bodyId !== undefined) {
     state.dirtyMassBodies.add(parent.eid);
   }
 }

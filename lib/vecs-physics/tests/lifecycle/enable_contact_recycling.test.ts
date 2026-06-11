@@ -27,7 +27,7 @@ describe("test_world.c::EnableContactRecyclingTest", () => {
     world.entity().childOf(body).set(Box, { hx: 1, hy: 1 });
 
     step(5);
-    const bodyId = state.bodyByEntityWasm.get(body.eid)!;
+    const bodyId = body.get(Body)!._bodyId!;
     // Some contacts should have formed.
     expect(state.box2d.b2Body_IsValid(bodyId)).toBe(true);
 
