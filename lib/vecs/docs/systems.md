@@ -104,6 +104,9 @@ If `with()` has not been called, each `update(C)` watch auto-expands the members
 require `C`. With an explicit `with()`, membership is exactly what you declared and `update`
 only adds the watch.
 
+A query or system can register only one `update(C, ...)` callback for each component. A duplicate
+registration throws instead of replacing the existing callback.
+
 ### `.exit(callback)` / `.exit(inject, callback)`
 
 Fires when an entity stops matching (component removed, or entity destroyed). Directly injected

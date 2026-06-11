@@ -271,6 +271,15 @@ describe("Query — update watchlist predicate", () => {
     expect(positionUpdate).toHaveBeenCalledWith(e, e.get(Position));
     expect(velocityUpdate).toHaveBeenCalledWith(e, e.get(Velocity));
   });
+
+  it("throws when update() is registered twice for the same component", () => {
+    const { w } = setup();
+    const q = w.query("updated").update(Position, () => {});
+
+    expect(() => q.update(Position, () => {})).toThrow(
+      "query 'updated' already has an update callback for component Position"
+    );
+  });
 });
 
 describe("Query — changed flag", () => {
