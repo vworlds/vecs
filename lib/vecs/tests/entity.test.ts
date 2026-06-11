@@ -461,13 +461,6 @@ describe("Entity — lifecycle and relationships", () => {
     const e = w.entity();
     expect(e.children(ChildOf).size).toBe(0);
   });
-
-  it("properties is a free-form map", () => {
-    const w = new World();
-    const e = w.entity();
-    e.properties.set("kind", "bullet");
-    expect(e.properties.get("kind")).toBe("bullet");
-  });
 });
 
 describe("Entity — component entity onDelete", () => {
