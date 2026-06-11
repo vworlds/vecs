@@ -1,6 +1,7 @@
 import { type ComponentInstance, type ComponentRef, type ComponentType } from "../component.js";
 import {
   containsDownTerm,
+  getQuerySpecComponentConstraints,
   isQueryConfig,
   type ExtractSpecsRequired,
   type QueryDSL,
@@ -81,6 +82,10 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public _tracking = false;
   /** @internal Bitmask of component eids this query reacts to via `update`. */
   public _watchlistBitmask: Bitset = new Bitset();
+  /** @internal Component eids guaranteed present by the predicate or explicit hints. */
+  protected _requiredComponentBitmask: Bitset = new Bitset();
+  /** @internal Component eids excluded by the predicate. */
+  protected _forbiddenComponentBitmask: Bitset = new Bitset();
 
   /** @internal `true` once this query has been registered with its world. */
   protected _built = false;
@@ -92,6 +97,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   protected _hasExplicitQuery: boolean = false;
   /** @internal Per-component-eid `update` callbacks. */
   protected _componentUpdateCallbacks = new ArrayMap<ComponentCallback>();
+  /** @internal Component eids with registered user `update` callbacks. */
+  protected _updateCallbackEids: EID[] = [];
   /** @internal Component class for membership checks. */
   protected _queryComponentClass: ComponentType;
   /** @internal Root term subscription handle. */
@@ -209,6 +216,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     let cascade: ComponentRef | undefined;
 
     for (const spec of specs) {
+      const constraints = getQuerySpecComponentConstraints(spec, this.world);
+      constraints.required.forEach((eid) => this._requiredComponentBitmask.add(eid));
+      constraints.forbidden.forEach((eid) => this._forbiddenComponentBitmask.add(eid));
       if (isQueryConfig(spec)) {
         terms.push(spec.with);
         if (spec.cascade !== undefined) {
@@ -392,13 +402,16 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /**
    * Register one update callback for a watched component.
    *
-   * The callback fires when `ComponentClass` is set or marked modified on a
-   * matched entity, and when a matched entity enters with the watched component
-   * already present. Calling `update` more than once for the same component on
-   * one query or system is rejected instead of replacing the previous callback.
+   * `ComponentClass` must be guaranteed by the query predicate, either through
+   * `with(ComponentClass)` or a {@link QueryConfig} `hint`. The callback fires
+   * when `ComponentClass` is set or marked modified on a matched entity, and
+   * when a matched entity enters with the watched component already present.
+   * Calling `update` more than once for the same component on one query or
+   * system is rejected instead of replacing the previous callback.
    *
-   * @throws When this query has already been built, or when `ComponentClass`
-   *   already has an update callback on this query.
+   * @throws When this query has already been built, when `ComponentClass`
+   *   already has an update callback on this query, or at build time when
+   *   `ComponentClass` is not guaranteed by the predicate.
    */
   public update<C extends ComponentType>(
     ComponentClass: C,
@@ -441,10 +454,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       );
     }
     this._componentUpdateCallbacks.set(componentEid, callback);
+    this._updateCallbackEids.push(componentEid);
     this._watchlistBitmask.add(componentEid);
-    if (!this._hasExplicitQuery) {
-      this._dsl = this._watchlistBitmask.indices();
-    }
     return this;
   }
 
@@ -471,6 +482,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     if (this.built) {
       return this;
     }
+    this._assertUpdateCallbacksValid();
     if (!this._isBuildable()) {
       this.destroy();
       return this;
@@ -573,6 +585,21 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   protected _assertConfigurable(): void {
     if (this.built) {
       throw new Error(`query '${this.name}' has already been built`);
+    }
+  }
+
+  /** @internal Throw when an update callback watches a component outside the predicate. */
+  protected _assertUpdateCallbacksValid(): void {
+    for (const ceid of this._updateCallbackEids) {
+      if (this._requiredComponentBitmask.has(ceid) && !this._forbiddenComponentBitmask.has(ceid)) {
+        continue;
+      }
+      const queryName = this.name;
+      const componentName = this.world.entity(ceid).meta.Class.name;
+      this.destroy();
+      throw new Error(
+        `query '${queryName}' cannot update(${componentName}) because ${componentName} is not guaranteed by the predicate`
+      );
     }
   }
 

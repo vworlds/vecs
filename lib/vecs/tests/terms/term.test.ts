@@ -811,10 +811,15 @@ describe("Term — update channel bypasses the tree", () => {
     const { w, tick } = setupWithTick();
     const updatePos = vi.fn();
     const updateVel = vi.fn();
-    w.query("test").with(Position).update(Position, updatePos).update(Velocity, updateVel).build();
+    w.query("test")
+      .with(Position, Velocity)
+      .update(Position, updatePos)
+      .update(Velocity, updateVel)
+      .build();
 
     const e = w.entity();
     e.add(Position);
+    e.add(Velocity);
     tick();
     updatePos.mockClear();
     updateVel.mockClear();
@@ -828,11 +833,13 @@ describe("Term — update channel bypasses the tree", () => {
   it("modified(C) does not fire for components not on the watchlist", () => {
     const { w, tick } = setupWithTick();
     const updateVel = vi.fn();
-    w.query("test").with(Position).update(Velocity, updateVel).build();
+    w.query("test").with(Position, Velocity).update(Velocity, updateVel).build();
 
     const e = w.entity();
     e.add(Position);
+    e.add(Velocity);
     tick();
+    updateVel.mockClear();
     e.modified(Position);
     tick();
     expect(updateVel).not.toHaveBeenCalled();

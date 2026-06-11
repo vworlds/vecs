@@ -119,22 +119,17 @@ describe("System — enter / exit / update", () => {
     expect(cb).toHaveBeenCalledWith(e, vel, [pos]);
   });
 
-  it("update without an explicit query implicitly requires its component", () => {
+  it("update without an explicit query throws at build time", () => {
     const { w } = setup();
-    const cb = vi.fn();
-    w.system("test").update(Position, cb);
-    const e = w.entity();
-    const pos = e.add(Position).get(Position)!;
-    w.progress(0, 0); // enter
-    w.progress(0, 0); // drain
-    expect(cb).toHaveBeenCalledWith(e, pos);
 
-    // Entity without Position must not match.
-    const f = w.entity();
-    f.add(Velocity);
-    w.progress(0, 0);
-    w.progress(0, 0);
-    expect(cb).toHaveBeenCalledTimes(1);
+    expect(() =>
+      w
+        .system("test")
+        .update(Position, () => {})
+        .build()
+    ).toThrow(
+      "query 'test' cannot update(Position) because Position is not guaranteed by the predicate"
+    );
   });
 
   it("run fires every tick regardless of entity state", () => {
@@ -413,24 +408,30 @@ describe("System — pipeline", () => {
 });
 
 describe("System — query interaction with update watchlist", () => {
-  it("with() merges with any prior implicit watchlist query", () => {
+  it("update() before with() still requires the final predicate to guarantee the component", () => {
+    const { w } = setup();
+
+    expect(() =>
+      w
+        .system("test")
+        .update(Position, () => {})
+        .with(Velocity)
+        .build()
+    ).toThrow(
+      "query 'test' cannot update(Position) because Position is not guaranteed by the predicate"
+    );
+  });
+
+  it("update() before with() is valid when with() guarantees the component", () => {
     const { w } = setup();
     const cb = vi.fn();
-    // update adds Position to the implicit query;
-    // a subsequent with() should add Velocity to it.
-    w.system("test")
-      .update(Position, () => {})
-      .with(Velocity)
-      .enter(cb);
+    w.system("test").update(Position, cb).with(Position).build();
 
     const e = w.entity();
-    e.add(Position); // would have matched the implicit query
+    const pos = e.add(Position).get(Position)!;
     w.progress(0, 0);
-    expect(cb).not.toHaveBeenCalled();
-
-    e.add(Velocity);
     w.progress(0, 0);
-    expect(cb).toHaveBeenCalledWith(e);
+    expect(cb).toHaveBeenCalledWith(e, pos);
   });
 });
 

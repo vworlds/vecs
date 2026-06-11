@@ -411,8 +411,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * Register a callback fired **every tick** for **every tracked entity**,
    * unconditionally, with the listed components resolved from each entity.
    *
-   * Unlike {@link update} (which only fires when `entity.modified(C)` is
-   * called), `each` fires every tick the system runs, once per tracked entity.
+   * Unlike {@link update} (which fires when a watched component's data is set
+   * or marked modified), `each` fires every tick the system runs, once per
+   * tracked entity.
    * Components declared via {@link with} are non-nullable in the resolved
    * tuple; any other component class may be `undefined` if the entity lacks it.
    *
@@ -491,10 +492,11 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   /**
    * Add entity-membership predicates using {@link QuerySpec} expressions.
    *
-   * Merges with any existing predicate using `all`. After calling `with`,
-   * watchlist auto-expansion via `update` is disabled.
+   * Merges with any existing predicate using `all`. `update` callbacks never
+   * alter membership and must watch components guaranteed by this predicate.
    *
-   * `hint` fields are pure type-level hints — see {@link Query.with} for details.
+   * `hint` fields declare components guaranteed by opaque predicates — see
+   * {@link Query.with} for details.
    *
    * @param specs - Query specifications to add.
    * @returns This system, retyped with the guaranteed components added to `R`.

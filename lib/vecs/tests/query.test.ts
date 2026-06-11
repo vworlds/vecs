@@ -220,7 +220,7 @@ describe("Query — construction", () => {
     expect(q.has(tagged.entity)).toBe(true);
   });
 
-  it("matches nothing until with() or update() sets a predicate", () => {
+  it("matches nothing until with() sets a predicate", () => {
     const { w, tick } = setup();
     const q = w.query("empty");
     const e = w.entity();
@@ -238,22 +238,21 @@ describe("Query — construction", () => {
   });
 });
 
-describe("Query — update watchlist predicate", () => {
-  it("update-only queries backfill existing entities after installing the watchlist predicate", () => {
-    const { w, tick } = setup();
-    const e = w.entity();
-    const pos = e.add(Position).get(Position)!;
-    tick();
+describe("Query — update predicate validation", () => {
+  it("throws at build time when update() has no predicate", () => {
+    const { w } = setup();
 
-    const update = vi.fn();
-    const q = w.query("updated").update(Position, update).build();
-
-    expect(q.belongs(e)).toBe(true);
-    expect(q.has(e)).toBe(true);
-    expect(update).toHaveBeenCalledWith(e, pos);
+    expect(() =>
+      w
+        .query("updated")
+        .update(Position, () => {})
+        .build()
+    ).toThrow(
+      "query 'updated' cannot update(Position) because Position is not guaranteed by the predicate"
+    );
   });
 
-  it("multiple update() calls before build() combine into the implicit predicate", () => {
+  it("accepts update() for components guaranteed by with()", () => {
     const { w, tick } = setup();
     const e = w.entity();
     e.add(Position);
@@ -264,6 +263,7 @@ describe("Query — update watchlist predicate", () => {
     const velocityUpdate = vi.fn();
     const q = w
       .query("updated")
+      .with(Position, Velocity)
       .update(Position, positionUpdate)
       .update(Velocity, velocityUpdate)
       .build();
@@ -271,6 +271,48 @@ describe("Query — update watchlist predicate", () => {
     expect(q.has(e)).toBe(true);
     expect(positionUpdate).toHaveBeenCalledWith(e, e.get(Position));
     expect(velocityUpdate).toHaveBeenCalledWith(e, e.get(Velocity));
+  });
+
+  it("accepts update() for components guaranteed by QueryConfig hints", () => {
+    const { w } = setup();
+    const update = vi.fn();
+    const e = w.entity().add(Position).add(Velocity);
+
+    w.query("hinted")
+      .with({ with: { any: [Position, Velocity] }, hint: [Velocity] })
+      .update(Velocity, update)
+      .build();
+
+    expect(update).toHaveBeenCalledWith(e, e.get(Velocity));
+  });
+
+  it("throws when update() watches a component outside the predicate", () => {
+    const { w } = setup();
+
+    expect(() =>
+      w
+        .query("updated")
+        .with(Position)
+        .update(Velocity, () => {})
+        .build()
+    ).toThrow(
+      "query 'updated' cannot update(Velocity) because Velocity is not guaranteed by the predicate"
+    );
+  });
+
+  it("throws when update() watches a component forbidden by without()", () => {
+    const { w } = setup();
+
+    expect(() =>
+      w
+        .query("updated")
+        .with(Position, Velocity)
+        .without(Velocity)
+        .update(Velocity, () => {})
+        .build()
+    ).toThrow(
+      "query 'updated' cannot update(Velocity) because Velocity is not guaranteed by the predicate"
+    );
   });
 
   it("throws when update() is registered twice for the same component", () => {

@@ -50,8 +50,8 @@ Anywhere a DSL is accepted, you can pass the object form
 
 - `cascade` orders the tracked set depth-first along a
   [`Traversable` relationship](./relationships.md#traversal-order-traversable-and-cascade).
-- `hint` declares components as guaranteed-present for **type inference only** (not validated at
-  runtime). Use it when the DSL shape (`any`, `not`, `test`, numeric ids) hides a guarantee the
+- `hint` declares components as guaranteed-present for type inference and `update` predicate
+  validation. Use it when the DSL shape (`any`, `not`, `test`, numeric ids) hides a guarantee the
   type extractor can't see:
 
 ```ts

@@ -66,8 +66,8 @@ export type QueryDSL =
  *
  * - `with` — the membership predicate (required).
  * - `cascade` — a traversable relationship to order by depth-first (optional).
- * - `hint` — component classes guaranteed present, for type inference (optional,
- *   type-only, not validated at runtime).
+ * - `hint` — component classes guaranteed present by opaque predicates, used for
+ *   type inference and `update` predicate validation (optional).
  */
 export type QueryConfig = {
   with: QueryDSL;
@@ -77,6 +77,11 @@ export type QueryConfig = {
 
 export type QuerySpec = QueryDSL | QueryConfig;
 
+export type QueryComponentConstraints = {
+  required: readonly EID[];
+  forbidden: readonly EID[];
+};
+
 export function isQueryConfig(spec: QuerySpec): spec is QueryConfig {
   return (
     typeof spec === "object" &&
@@ -85,6 +90,24 @@ export function isQueryConfig(spec: QuerySpec): spec is QueryConfig {
     !(spec instanceof Entity) &&
     "with" in spec
   );
+}
+
+export function getQuerySpecComponentConstraints(
+  spec: QuerySpec,
+  world: World
+): QueryComponentConstraints {
+  const dsl = isQueryConfig(spec) ? spec.with : spec;
+  const constraints = _getQueryDSLComponentConstraints(simplifyQueryDSL(dsl, world), world);
+  if (!isQueryConfig(spec) || spec.hint === undefined) {
+    return constraints;
+  }
+  return {
+    required: [
+      ...constraints.required,
+      ...spec.hint.map((component) => world.entity(component).eid),
+    ],
+    forbidden: constraints.forbidden,
+  };
 }
 
 /**
@@ -189,6 +212,84 @@ function _calculateComponentBitmask(types: readonly EID[]): Bitset {
     bitmask.add(type);
   });
   return bitmask;
+}
+
+function _getForbiddenComponentConstraints(q: QueryDSL, world: World): readonly EID[] {
+  const component = _singleComponentConstraint(q, world);
+  if (component !== undefined) {
+    return [component];
+  }
+
+  if (typeof q === "object" && q !== null && !(q instanceof Array)) {
+    if ("all" in q && q.all.length === 1) {
+      return _getForbiddenComponentConstraints(q.all[0], world);
+    }
+    if ("any" in q) {
+      return q.any.flatMap((term) => _getForbiddenComponentConstraints(term, world));
+    }
+  }
+
+  return [];
+}
+
+function _getQueryDSLComponentConstraints(q: QueryDSL, world: World): QueryComponentConstraints {
+  const component = _singleComponentConstraint(q, world);
+  if (component !== undefined) {
+    return { required: [component], forbidden: [] };
+  }
+
+  if (q instanceof Array) {
+    return {
+      required: q.map((component) => _resolveComponentRequirement(component, world)),
+      forbidden: [],
+    };
+  }
+
+  if (typeof q !== "object" || q === null) {
+    return { required: [], forbidden: [] };
+  }
+
+  if ("only" in q) {
+    const components = q.only instanceof Array ? q.only : [q.only];
+    return {
+      required: components.map((component) => _resolveComponentRequirement(component, world)),
+      forbidden: [],
+    };
+  }
+
+  if ("all" in q) {
+    const nested = q.all.map((term) => _getQueryDSLComponentConstraints(term, world));
+    return {
+      required: nested.flatMap((constraints) => constraints.required),
+      forbidden: nested.flatMap((constraints) => constraints.forbidden),
+    };
+  }
+
+  if ("not" in q) {
+    return { required: [], forbidden: _getForbiddenComponentConstraints(q.not, world) };
+  }
+
+  if ("target" in q) {
+    return { required: [_resolveComponentRequirement(q.target[0], world)], forbidden: [] };
+  }
+
+  return { required: [], forbidden: [] };
+}
+
+function _singleComponentConstraint(q: QueryDSL, world: World): EID | undefined {
+  if (typeof q === "number" || q instanceof Entity) {
+    return _resolveComponentRequirement(q, world);
+  }
+
+  if (typeof q === "function") {
+    return _resolveComponentRequirement(q as ComponentClass, world);
+  }
+
+  if (q instanceof Array && q.length === 1) {
+    return _resolveComponentRequirement(q[0], world);
+  }
+
+  return undefined;
 }
 
 function _resolveComponentRequirement(component: ComponentRef, world: World): EID {
