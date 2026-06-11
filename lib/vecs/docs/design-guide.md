@@ -195,19 +195,17 @@ world
 `.with(...)` defines who's in the query; `.without(...)` excludes. Specs can be component
 classes or DSL objects (`{ all: [...] }`, `{ any: [...] }`, `{ parent: X }`, `{ target: [Rel, Tag] }`).
 
-> `.with(...)` and `.without(...)` own membership. `.update(C)` only watches change events for
-> components guaranteed by that predicate (or by a `QueryConfig` `hint`); it never expands
-> membership.
+> `.with(...)`, `.without(...)`, and `.update(C)` own membership. `.update(C)` watches change events
+> and also requires `C`, so `.with(A).update(C)` matches entities carrying both `A` and `C`.
 
 ### Reactive callbacks: `enter` / `update` / `exit`
 
 - **`enter`** — fires once when an entity _becomes_ a member. Use it for one-time setup
   (create the resource).
-- **`update(C, …)`** — fires when watched component `C` is modified. `C` must be guaranteed by
-  the predicate. **It also fires on entry for every already-present watched component**
-  (`System._enter` re-pushes update events for watched components). So `.with(C).update(C)`
-  initializes on entry _and_ reacts to changes — **don't write a separate `.enter` that duplicates
-  the same logic.**
+- **`update(C, …)`** — adds `C` to the predicate and fires when watched component `C` is modified.
+  **It also fires on entry for every already-present watched component** (`System._enter` re-pushes
+  update events for watched components). So `.update(C)` initializes on entry _and_ reacts to
+  changes — **don't write a separate `.enter` that duplicates the same logic.**
 - **`exit`** — fires when an entity stops matching (a component removed, or the entity destroyed).
   Its injected components are read from a **snapshot captured at exit time**, so they're still
   resolvable even though they're being removed.
@@ -456,8 +454,8 @@ no separate `enter` — just order the system after whatever produces the entity
   this tick, not to the current system mid-iteration.
 - **`update(C)` fires on entry** for already-present watched components. Lean on it; don't
   duplicate in `enter`.
-- **Membership is fixed by `.with(...)` / `.without(...)`;** `update(C)` watches `C` for events but
-  doesn't expand membership.
+- **Membership is fixed by `.with(...)` / `.without(...)` / `.update(C)`;** `update(C)` watches `C`
+  and requires it.
 - **`exit` reads a snapshot** of the injected components captured at exit (they're being removed).
 - **Within a phase, order = registration order;** across phases, the spine guarantees order. Don't
   use registration order for cross-module correctness — use phases.

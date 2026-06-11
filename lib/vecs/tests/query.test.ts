@@ -238,21 +238,22 @@ describe("Query — construction", () => {
   });
 });
 
-describe("Query — update predicate validation", () => {
-  it("throws at build time when update() has no predicate", () => {
-    const { w } = setup();
+describe("Query — update predicate", () => {
+  it("update-only queries backfill existing entities after adding their watched component to the predicate", () => {
+    const { w, tick } = setup();
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    tick();
 
-    expect(() =>
-      w
-        .query("updated")
-        .update(Position, () => {})
-        .build()
-    ).toThrow(
-      "query 'updated' cannot update(Position) because Position is not guaranteed by the predicate"
-    );
+    const update = vi.fn();
+    const q = w.query("updated").update(Position, update).build();
+
+    expect(q.belongs(e)).toBe(true);
+    expect(q.has(e)).toBe(true);
+    expect(update).toHaveBeenCalledWith(e, pos);
   });
 
-  it("accepts update() for components guaranteed by with()", () => {
+  it("multiple update() calls before build() combine into the predicate", () => {
     const { w, tick } = setup();
     const e = w.entity();
     e.add(Position);
@@ -263,7 +264,6 @@ describe("Query — update predicate validation", () => {
     const velocityUpdate = vi.fn();
     const q = w
       .query("updated")
-      .with(Position, Velocity)
       .update(Position, positionUpdate)
       .update(Velocity, velocityUpdate)
       .build();
@@ -273,46 +273,20 @@ describe("Query — update predicate validation", () => {
     expect(velocityUpdate).toHaveBeenCalledWith(e, e.get(Velocity));
   });
 
-  it("accepts update() for components guaranteed by QueryConfig hints", () => {
-    const { w } = setup();
+  it("update() narrows an existing predicate to require the watched component", () => {
+    const { w, tick } = setup();
     const update = vi.fn();
-    const e = w.entity().add(Position).add(Velocity);
+    const q = w.query("updated").with(Position).update(Velocity, update).build();
 
-    w.query("hinted")
-      .with({ with: { any: [Position, Velocity] }, hint: [Velocity] })
-      .update(Velocity, update)
-      .build();
+    const positionOnly = w.entity().add(Position);
+    tick();
+    expect(q.has(positionOnly)).toBe(false);
+    expect(update).not.toHaveBeenCalled();
 
-    expect(update).toHaveBeenCalledWith(e, e.get(Velocity));
-  });
-
-  it("throws when update() watches a component outside the predicate", () => {
-    const { w } = setup();
-
-    expect(() =>
-      w
-        .query("updated")
-        .with(Position)
-        .update(Velocity, () => {})
-        .build()
-    ).toThrow(
-      "query 'updated' cannot update(Velocity) because Velocity is not guaranteed by the predicate"
-    );
-  });
-
-  it("throws when update() watches a component forbidden by without()", () => {
-    const { w } = setup();
-
-    expect(() =>
-      w
-        .query("updated")
-        .with(Position, Velocity)
-        .without(Velocity)
-        .update(Velocity, () => {})
-        .build()
-    ).toThrow(
-      "query 'updated' cannot update(Velocity) because Velocity is not guaranteed by the predicate"
-    );
+    const vel = positionOnly.set(Velocity, { vx: 1 }).get(Velocity)!;
+    tick();
+    expect(q.has(positionOnly)).toBe(true);
+    expect(update).toHaveBeenCalledWith(positionOnly, vel);
   });
 
   it("throws when update() is registered twice for the same component", () => {

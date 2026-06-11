@@ -492,11 +492,10 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   /**
    * Add entity-membership predicates using {@link QuerySpec} expressions.
    *
-   * Merges with any existing predicate using `all`. `update` callbacks never
-   * alter membership and must watch components guaranteed by this predicate.
+   * Merges with any existing predicate using `all`. `update` callbacks also
+   * add their watched component to the predicate.
    *
-   * `hint` fields declare components guaranteed by opaque predicates — see
-   * {@link Query.with} for details.
+   * `hint` fields are pure type-level hints — see {@link Query.with} for details.
    *
    * @param specs - Query specifications to add.
    * @returns This system, retyped with the guaranteed components added to `R`.
