@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ArrayMap } from "../src/util/array_map.js";
+import { ArrayMap, IterableArrayMap } from "../src/util/array_map.js";
 
 describe("ArrayMap", () => {
   it("starts empty", () => {
@@ -20,7 +20,7 @@ describe("ArrayMap", () => {
   it("size only increments for new keys", () => {
     const m = new ArrayMap<number>();
     m.set(1, 100);
-    m.set(1, 200); // overwrite
+    m.set(1, 200);
     expect(m.size).toBe(1);
     expect(m.get(1)).toBe(200);
   });
@@ -43,8 +43,61 @@ describe("ArrayMap", () => {
     expect(m.size).toBe(1);
   });
 
+  it("clear empties the map", () => {
+    const m = new ArrayMap<number>();
+    m.set(1, 1);
+    m.set(2, 2);
+    m.clear();
+    expect(m.has(1)).toBe(false);
+    expect(m.has(2)).toBe(false);
+    expect(m.size).toBe(0);
+  });
+});
+
+describe("IterableArrayMap", () => {
+  it("starts empty", () => {
+    const m = new IterableArrayMap<string>();
+    expect(m.size).toBe(0);
+    expect(m.get(0)).toBeUndefined();
+    expect(m.has(0)).toBe(false);
+  });
+
+  it("set/get/has round trip", () => {
+    const m = new IterableArrayMap<string>();
+    m.set(5, "hello");
+    expect(m.get(5)).toBe("hello");
+    expect(m.has(5)).toBe(true);
+    expect(m.size).toBe(1);
+  });
+
+  it("size only increments for new keys", () => {
+    const m = new IterableArrayMap<number>();
+    m.set(1, 100);
+    m.set(1, 200); // overwrite
+    expect(m.size).toBe(1);
+    expect(m.get(1)).toBe(200);
+  });
+
+  it("delete removes entry and decrements size", () => {
+    const m = new IterableArrayMap<number>();
+    m.set(2, 42);
+    m.set(7, 99);
+    expect(m.size).toBe(2);
+    m.delete(2);
+    expect(m.has(2)).toBe(false);
+    expect(m.get(2)).toBeUndefined();
+    expect(m.size).toBe(1);
+  });
+
+  it("delete on missing key is a no-op", () => {
+    const m = new IterableArrayMap<number>();
+    m.set(1, 1);
+    m.delete(50);
+    expect(m.size).toBe(1);
+  });
+
   it("forEach skips undefined slots and reports key+value", () => {
-    const m = new ArrayMap<string>();
+    const m = new IterableArrayMap<string>();
     m.set(0, "a");
     m.set(2, "c");
     m.set(5, "f");
@@ -58,7 +111,7 @@ describe("ArrayMap", () => {
   });
 
   it("clear empties the map", () => {
-    const m = new ArrayMap<number>();
+    const m = new IterableArrayMap<number>();
     m.set(1, 1);
     m.set(2, 2);
     m.clear();

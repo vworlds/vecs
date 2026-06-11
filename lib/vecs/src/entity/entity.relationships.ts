@@ -4,7 +4,7 @@ import {
   type ComponentMeta,
   type ComponentRef,
 } from "../component_meta.js";
-import { ArrayMap } from "../util/array_map.js";
+import { IterableArrayMap } from "../util/array_map.js";
 import { DenseSet } from "../util/dense_set.js";
 import type { EID, Entity } from "./entity.js";
 import { Queries } from "./entity.queries.js";
@@ -38,7 +38,7 @@ export class Relationships extends Queries {
     let sources = target._incoming?.get(relEid);
     if (!sources) {
       sources = new DenseSet<Entity>();
-      (target._incoming ??= new ArrayMap()).set(relEid, sources);
+      (target._incoming ??= new IterableArrayMap()).set(relEid, sources);
     }
     sources.add(this as unknown as Entity);
   }

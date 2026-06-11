@@ -1,6 +1,6 @@
 import { ComponentMeta, type ComponentInstance, type ComponentType } from "../component_meta.js";
 import type { Query } from "../query/index.js";
-import { ArrayMap, type ReadonlyArrayMap } from "../util/array_map.js";
+import { IterableArrayMap, type ReadonlyIterableArrayMap } from "../util/array_map.js";
 import { Bitset } from "../util/bitset.js";
 import { DenseSet } from "../util/dense_set.js";
 import { Events } from "../util/events.js";
@@ -14,7 +14,7 @@ export class Base {
   protected _meta: ComponentMeta | undefined;
 
   /** @internal Maps component eid to component instance. */
-  protected _components = new ArrayMap<ComponentInstance>();
+  protected _components = new IterableArrayMap<ComponentInstance>();
   /** @internal Component eids with pending modified delivery. */
   protected readonly _dirtyComponentBitmask = new Bitset();
   /** @internal Set of queries this entity currently belongs to. */
@@ -24,7 +24,7 @@ export class Base {
   protected static readonly _emptyIncoming: ReadonlySet<Entity> = new Set();
 
   /** @internal Relationship eid -> source entities targeting this entity. */
-  protected _incoming: ArrayMap<DenseSet<Entity>> | undefined;
+  protected _incoming: IterableArrayMap<DenseSet<Entity>> | undefined;
 
   /**
    * Bitmask of component type ids currently attached to this entity. Used by
@@ -68,7 +68,7 @@ export class Base {
    * entity.components.forEach((c) => console.log(c.constructor.name));
    * ```
    */
-  public get components(): ReadonlyArrayMap<ComponentInstance> {
+  public get components(): ReadonlyIterableArrayMap<ComponentInstance> {
     return this._components;
   }
 

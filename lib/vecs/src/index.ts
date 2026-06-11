@@ -48,6 +48,6 @@ export {
 export { getDSLKey } from "./dsl.js";
 export { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
 export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";
-export { ArrayMap } from "./util/array_map.js";
+export { ArrayMap, IterableArrayMap } from "./util/array_map.js";
 export { Bitset } from "./util/bitset.js";
 export { DEFAULT_ID_REUSE_WAIT_FRAMES, type IdPoolConfig } from "./util/id_pool.js";

@@ -1,4 +1,4 @@
-import { ArrayMap, type EID } from "@vworlds/vecs";
+import { IterableArrayMap, type EID } from "@vworlds/vecs";
 import {
   ALL_COMPONENTS,
   EncodedSnapshot,
@@ -12,7 +12,7 @@ const REMOVED = 0;
 
 type RemovedMarker = typeof REMOVED;
 type Slot = EncodedSnapshot | RemovedMarker;
-type EntityHistory = ArrayMap<Slot> | RemovedMarker;
+type EntityHistory = IterableArrayMap<Slot> | RemovedMarker;
 
 export class History {
   private readonly _buffer: StateDiff[];
@@ -88,7 +88,7 @@ function applyDiff(entities: Map<EID, EntityHistory>, diff: StateDiff): void {
     let entity = entities.get(snapshot.eid);
 
     if (entity === undefined || entity === REMOVED) {
-      entity = new ArrayMap<Slot>();
+      entity = new IterableArrayMap<Slot>();
       entities.set(snapshot.eid, entity);
     }
 
@@ -106,7 +106,7 @@ function applyDiff(entities: Map<EID, EntityHistory>, diff: StateDiff): void {
       return;
     }
 
-    const components = entity ?? new ArrayMap<Slot>();
+    const components = entity ?? new IterableArrayMap<Slot>();
     components.set(type, REMOVED);
     entities.set(eid, components);
   });
