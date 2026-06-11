@@ -90,9 +90,9 @@ export class PhysicsState {
   // slot on Box2D destruction before Box2D can reuse that index1.
   public readonly bodyByEntityWasm = new Map<EID, b2BodyId>();
   public readonly entityByBodyIndex = new ArrayMap<EID>();
-  public readonly shapeByEntityWasm = new Map<EID, b2ShapeId>();
+  public readonly shapeByEntityWasm = new ArrayMap<b2ShapeId>();
   public readonly entityByShapeIndex = new ArrayMap<EID>();
-  public readonly chainByEntity = new Map<EID, b2ChainId>();
+  public readonly chainByEntity = new ArrayMap<b2ChainId>();
 
   // Shape entity object map: shape eid → Entity object.
   // Used by events.ts to resolve entities for teardown events even after

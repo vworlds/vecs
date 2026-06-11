@@ -2,14 +2,14 @@
 // until it is re-armed, so a persistent structural problem logs once rather
 // than every step. Re-arming lets a fixed-then-rebroken structure warn again.
 
-import type { EID } from "@vworlds/vecs";
+import { ArrayMap, type EID } from "@vworlds/vecs";
 
 /** Receives a fully formatted warning line. Defaults to `console.warn`. */
 export type WarnSink = (message: string) => void;
 
 export class WarnDedupe {
   /** entity eid -> set of issue codes already warned for that entity. */
-  private readonly _warned = new Map<EID, Set<string>>();
+  private readonly _warned = new ArrayMap<Set<string>>();
 
   private readonly _sink: WarnSink;
 

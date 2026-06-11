@@ -13,6 +13,7 @@ import {
   notifyEntityDestroyed,
 } from "../terms/build.js";
 import { ComponentTerm, EmptyTerm, Term, WorldTerm } from "../terms/index.js";
+import { ArrayMap } from "../util/array_map.js";
 import { Storage } from "./world.storage.js";
 import type { World } from "./world.js";
 
@@ -24,7 +25,7 @@ export class Queries extends Storage {
   /** @internal Canonical DSL key -> live term. */
   public readonly _termCache = new Map<string, Term>();
   /** @internal Component eid -> pinned component leaf term. */
-  public readonly _componentTerms = new Map<EID, ComponentTerm>();
+  public readonly _componentTerms = new ArrayMap<ComponentTerm>();
   /** @internal Pinned false term. */
   public _emptyTerm: EmptyTerm | undefined;
   /** @internal Pinned world term. */

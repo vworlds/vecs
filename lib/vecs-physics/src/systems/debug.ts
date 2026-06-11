@@ -41,6 +41,7 @@
 // Polygon validity is checked via b2ComputeHull (box2d3-wasm); see isValidPolygon.
 
 import {
+  ArrayMap,
   ChildOf,
   type EID,
   type Entity,
@@ -184,7 +185,7 @@ function _validateGeomEntities(state: PhysicsState, geomFilter: Filter, dedupe: 
  * dependency on PhysicsState internals. */
 function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: WarnDedupe): void {
   // Build a map: body-eid → list of geometry child entities (per this step).
-  const geomChildrenByBody = new Map<EID, Entity[]>();
+  const geomChildrenByBody = new ArrayMap<Entity[]>();
 
   geomFilter.forEach((e) => {
     const parent = e.parent(ChildOf);
