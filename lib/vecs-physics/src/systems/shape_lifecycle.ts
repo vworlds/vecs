@@ -88,7 +88,7 @@ function createShapeForEntity(state: PhysicsState, entity: Entity): void {
   const pose = readLocalPose(entity);
   const chain = entity.get(Chain);
   if (chain !== undefined) {
-    createChain(state, entity, bodyId, chain, options, pose);
+    createChain(state, entity, parentEntity, bodyId, chain, options, pose);
     return;
   }
 
@@ -107,6 +107,7 @@ function destroyShapeForEntity(
   allowCascadeSkip: boolean,
   parent?: Entity
 ): void {
+  const resolvedParent = parent ?? entity.parent(ChildOf);
   const chainId = state.chainByEntity.get(entity.eid);
   if (chainId !== undefined) {
     // b2Chain_IsValid already returns false when the parent body was destroyed
@@ -115,18 +116,18 @@ function destroyShapeForEntity(
       state.box2d.b2DestroyChain(chainId);
     }
     state.chainByEntity.delete(entity.eid);
-    markParentBodyMassDirty(state, entity, parent);
+    markParentBodyMassDirty(state, resolvedParent);
   }
 
   const shapeId = state.shapeByEntityWasm.get(entity.eid);
   if (shapeId !== undefined) {
-    const parentBodyExists = parentBodyStillExists(state, entity, parent);
+    const parentBodyExists = parentBodyStillExists(state, resolvedParent);
     if ((!allowCascadeSkip || parentBodyExists) && state.box2d.b2Shape_IsValid(shapeId)) {
       state.box2d.b2DestroyShape(shapeId, true);
     }
     state.shapeByEntityWasm.delete(entity.eid);
     state.entityByShapeIndex.delete(shapeId.index1);
-    markParentBodyMassDirty(state, entity, parent);
+    markParentBodyMassDirty(state, resolvedParent);
   }
 }
 
@@ -251,6 +252,7 @@ function createPolygonShape(
 function createChain(
   state: PhysicsState,
   entity: Entity,
+  parent: Entity,
   bodyId: b2BodyId,
   chain: Chain,
   options: ShapeOptions,
@@ -272,7 +274,7 @@ function createChain(
     });
     state.chainByEntity.set(entity.eid, chainId);
     state.shapeEntityByEid.set(entity.eid, entity);
-    markParentBodyMassDirty(state, entity);
+    markParentBodyMassDirty(state, parent);
   } finally {
     for (const point of points) {
       point.delete();
@@ -344,15 +346,13 @@ function readLocalPose(entity: Entity): { x: number; y: number; angle: number } 
   };
 }
 
-function parentBodyStillExists(state: PhysicsState, entity: Entity, parent?: Entity): boolean {
-  const resolved = parent ?? entity.parent(ChildOf);
-  return resolved !== undefined && state.bodyByEntityWasm.has(resolved.eid);
+function parentBodyStillExists(state: PhysicsState, parent?: Entity): boolean {
+  return parent !== undefined && state.bodyByEntityWasm.has(parent.eid);
 }
 
-function markParentBodyMassDirty(state: PhysicsState, entity: Entity, parent?: Entity): void {
-  const resolved = parent ?? entity.parent(ChildOf);
-  if (resolved !== undefined && state.bodyByEntityWasm.has(resolved.eid)) {
-    state.dirtyMassBodies.add(resolved.eid);
+function markParentBodyMassDirty(state: PhysicsState, parent?: Entity): void {
+  if (parent !== undefined && state.bodyByEntityWasm.has(parent.eid)) {
+    state.dirtyMassBodies.add(parent.eid);
   }
 }
 
