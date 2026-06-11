@@ -15,8 +15,7 @@
     "@vworlds/dgram-client": "^1.0.8",
     "@vworlds/vecs": "1.0.25",
     "@vworlds/vecs-protocol": "1.0.25",
-    "@vworlds/vecs-wire": "1.0.25",
-    "eventemitter3": "^5.0.4"
+    "@vworlds/vecs-wire": "1.0.25"
   },
   "license": "UNLICENSED"
 }

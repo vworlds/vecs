@@ -151,7 +151,6 @@ is in [Relationships](./relationships.md).
 | `components`                                   | Read-only `ArrayMap` view of attached instances keyed by type id (`forEach`, `get`, `has`, `size`). |
 | `empty`                                        | `true` when no components are attached.                                                             |
 | `properties`                                   | Free-form `Map<string, any>` for module-level bookkeeping.                                          |
-| `events`                                       | Typed event emitter; emits `"destroy"` just before teardown.                                        |
 | `meta`                                         | `ComponentMeta` for using this entity as a component key (created lazily).                          |
 | `instanceCount()`                              | Number of entities currently carrying this entity's eid as a component.                             |
 | `add(ref)`                                     | Attach a component with default values (idempotent). Returns `this`.                                |
@@ -162,7 +161,7 @@ is in [Relationships](./relationships.md).
 | `has(ref)`                                     | `true` when the component is attached.                                                              |
 | `modified(ref)`                                | Queue an `onSet`/`update` notification; coalesced while pending. Returns `this`.                    |
 | `remove(ref)`                                  | Detach a component; routes `exit`, then fires `onRemove`.                                           |
-| `destroy()`                                    | Remove all components, emit `"destroy"`, unregister, and apply incoming relationship cleanup.       |
+| `destroy()`                                    | Remove all components, unregister, and apply incoming relationship cleanup.                         |
 | `parent(rel)`                                  | Target entity of relationship `rel`, or `undefined`.                                                |
 | `children(rel)`                                | `ReadonlySet<Entity>` of entities targeting this one through `rel`.                                 |
 | `childOf(parent)`                              | Shorthand for `set(ChildOf, { target: parent })`. Returns `this`.                                   |

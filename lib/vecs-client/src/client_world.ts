@@ -12,9 +12,8 @@ import {
   type VecsSocket,
   worldPath,
 } from "@vworlds/vecs-protocol";
-import { type ComponentInstance, type EID, Query, ON_LOAD } from "@vworlds/vecs";
+import { type ComponentInstance, type EID, Events, Query, ON_LOAD } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
-import { EventEmitter } from "eventemitter3";
 import {
   ComponentSnapshot,
   DiffBuffer,
@@ -64,7 +63,7 @@ export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> 
 }
 
 export class ClientWorld extends NetworkWorld {
-  public readonly events = new EventEmitter<ClientWorldEvents>();
+  public readonly events = new Events<ClientWorldEvents>();
   private _socket: VecsSocket | undefined;
   private readonly _rpc = new SessionRPC();
   private readonly _rpcInbox: RPC[] = [];

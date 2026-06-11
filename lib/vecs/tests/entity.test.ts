@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ChildOf, CleanupPolicy, Relationship, World } from "../src/index.js";
+import { ChildOf, CleanupPolicy, Relationship, type Entity, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -357,16 +357,6 @@ describe("Entity — components", () => {
 });
 
 describe("Entity — lifecycle and relationships", () => {
-  it("destroy emits the 'destroy' event", () => {
-    const w = new World();
-    const e = w.entity();
-    const cb = vi.fn();
-    e.events.on("destroy", cb);
-    e.destroy();
-    w.progress(0, 0);
-    expect(cb).toHaveBeenCalledTimes(1);
-  });
-
   it("destroy removes the entity from the world map", () => {
     const w = new World();
     const e = w.entity();
@@ -423,11 +413,11 @@ describe("Entity — lifecycle and relationships", () => {
     child.childOf(parent);
     grandchild.childOf(child);
 
-    const childDestroyed = vi.fn();
-    child.events.on("destroy", childDestroyed);
     parent.destroy();
     w.progress(0, 0);
-    expect(childDestroyed).toHaveBeenCalled();
+    expect(parent._destroyed).toBe(true);
+    expect(child._destroyed).toBe(true);
+    expect(grandchild._destroyed).toBe(true);
     expect(() => w.entity(grandchild.eid)).toThrow();
     expect(() => w.entity(child.eid)).toThrow();
     expect(() => w.entity(parent.eid)).toThrow();
@@ -449,11 +439,15 @@ describe("Entity — lifecycle and relationships", () => {
 
   it("destroy is re-entrant safe", () => {
     const w = new World();
+    w.component(Position);
+    const cb = vi.fn((entity: Entity) => entity.destroy());
+    w.component(Position).onRemove(cb);
     const e = w.entity();
-    const cb = vi.fn(() => e.destroy());
-    e.events.on("destroy", cb);
+    e.add(Position);
     e.destroy();
     expect(cb).toHaveBeenCalledTimes(1);
+    expect(e._destroyed).toBe(true);
+    expect(() => w.entity(e.eid)).toThrow();
   });
 
   it("children(ref) returns an empty ReadonlySet before any child is added", () => {

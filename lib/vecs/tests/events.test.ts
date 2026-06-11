@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Events } from "../src/util/events.js";
+import { Events } from "../src/index.js";
 
 type Map = {
   hello(name: string): void;

@@ -1,13 +1,14 @@
 /**
  * Minimal, strongly-typed event emitter.
  *
- * Provides the small subset of the `EventEmitter` API the package needs —
+ * Provides the small subset of the `EventEmitter` API vecs packages need —
  * `on` / `addListener`, `once`, `off` / `removeListener`,
  * `removeAllListeners`, `emit`, `eventNames`, `listeners`, and
  * `listenerCount` — with `on` / `emit` / `off` signatures driven by an
  * `EventMap`.
  *
- * @internal Used only inside the package, to expose typed entity-level events.
+ * Use this for package-level events that need typed `on` and `emit` calls
+ * without adding an external runtime dependency.
  */
 
 declare type ValidEventMap<T = any> = T extends {
@@ -45,9 +46,7 @@ interface Registration {
 /**
  * Typed `EventEmitter` parameterised by an `EventMap` of `eventName -> handler`.
  *
- * Constructed lazily by `Entity.events`.
- *
- * @internal
+ * Use for package-level events that need typed event names and payloads.
  */
 export class Events<EventMap extends ValidEventMap = any> {
   private _listeners = new Map<EventNames<EventMap>, Registration[]>();

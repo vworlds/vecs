@@ -3,11 +3,8 @@ import type { Query } from "../query/index.js";
 import { IterableArrayMap, type ReadonlyIterableArrayMap } from "../util/array_map.js";
 import { Bitset } from "../util/bitset.js";
 import { DenseSet } from "../util/dense_set.js";
-import { Events } from "../util/events.js";
 import type { World } from "../world/index.js";
 import type { EID, Entity } from "./entity.js";
-
-export type EntityEvents = Events<{ destroy(): void }>;
 
 export class Base {
   /** @internal Metadata for this entity when the entity itself is used as a component key. */
@@ -34,9 +31,6 @@ export class Base {
 
   /** @internal Set to `true` after the world has fully torn down this entity. */
   public _destroyed: boolean = false;
-
-  /** @internal Lazy event emitter, allocated on first {@link events} access. */
-  declare public _events: EntityEvents;
 
   constructor(
     /** World that owns this entity. */
@@ -69,19 +63,6 @@ export class Base {
   /** `true` when no components are currently attached to this entity. */
   public get empty(): boolean {
     return this._components.size == 0;
-  }
-
-  /**
-   * Typed event emitter for entity-level lifecycle events. Currently only the
-   * `"destroy"` event is emitted, just before the entity is fully torn down.
-   *
-   * The emitter is created lazily on first access.
-   */
-  public get events(): EntityEvents {
-    if (!this._events) {
-      this._events = new Events();
-    }
-    return this._events;
   }
 
   /** Metadata for using this entity's eid as a component key. Created lazily for plain entities. */
