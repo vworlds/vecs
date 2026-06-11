@@ -171,6 +171,18 @@ describe("System — enter / exit / update", () => {
     expect(exit.mock.calls[0][0]).toBe(e);
   });
 
+  it("exit injection includes the component instance when the entity is destroyed", () => {
+    const { w } = setup();
+    const cb = vi.fn();
+    w.system("test").with(Position).exit([Position], cb);
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    w.progress(0, 0);
+    e.destroy();
+    w.progress(0, 0);
+    expect(cb).toHaveBeenCalledWith(e, [pos]);
+  });
+
   it("sets changed when an entity enters the system", () => {
     const { w } = setup();
     const sys = w.system("test").with(Position).track();

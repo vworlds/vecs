@@ -374,6 +374,47 @@ describe("Entity — lifecycle and relationships", () => {
     expect(() => w.entity(e.eid)).toThrow();
   });
 
+  it("destroy clears component storage so read APIs agree", () => {
+    const w = new World();
+    w.component(Position);
+    const e = w.entity();
+    e.set(Position, { x: 5, y: 0 });
+    e.destroy();
+    expect(e.get(Position)).toBeUndefined();
+    expect(e.components.size).toBe(0);
+    expect(e.empty).toBe(true);
+    expect(e.has(Position)).toBe(false);
+  });
+
+  it("deferred destroy clears component storage after the queue drains", () => {
+    const w = new World();
+    w.component(Position);
+    const e = w.entity();
+    e.set(Position, { x: 5, y: 0 });
+    w.defer(() => {
+      e.destroy();
+    });
+    expect(e.get(Position)).toBeUndefined();
+    expect(e.components.size).toBe(0);
+    expect(e.empty).toBe(true);
+    expect(e.has(Position)).toBe(false);
+  });
+
+  it("onRemove hook can read a sibling component while the entity is being destroyed", () => {
+    const w = new World();
+    w.component(Position);
+    w.component(Velocity);
+    let observed: Velocity | undefined;
+    w.component(Position).onRemove((entity) => {
+      observed = entity.get(Velocity);
+    });
+    const e = w.entity();
+    e.set(Position, { x: 5, y: 0 });
+    const vel = e.set(Velocity, { vx: 1 }).get(Velocity);
+    e.destroy();
+    expect(observed).toBe(vel);
+  });
+
   it("destroy cascades through ChildOf relationships", () => {
     const w = new World();
     const parent = w.entity();

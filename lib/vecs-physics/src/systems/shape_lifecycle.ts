@@ -21,8 +21,13 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     createShapeForEntity(state, entity);
   });
 
-  system.exit((entity) => {
-    destroyShapeForEntity(state, entity, true);
+  // Inject `[ChildOf]` so the parent relationship is captured in the exit
+  // snapshot while the entity's components are still present. The exit
+  // callback itself runs on the next tick's inbox drain, after `_destroy`
+  // has cleared `entity._components` -- by then `entity.parent(ChildOf)`
+  // would return `undefined`.
+  system.exit([ChildOf], (entity, [childOf]) => {
+    destroyShapeForEntity(state, entity, true, childOf?.target);
   });
 
   system.update(Box, (entity) => {
@@ -99,7 +104,8 @@ function createShapeForEntity(state: PhysicsState, entity: Entity): void {
 function destroyShapeForEntity(
   state: PhysicsState,
   entity: Entity,
-  allowCascadeSkip: boolean
+  allowCascadeSkip: boolean,
+  parent?: Entity
 ): void {
   const chainId = state.chainByEntity.get(entity.eid);
   if (chainId !== undefined) {
@@ -109,18 +115,18 @@ function destroyShapeForEntity(
       state.box2d.b2DestroyChain(chainId);
     }
     state.chainByEntity.delete(entity.eid);
-    markParentBodyMassDirty(state, entity);
+    markParentBodyMassDirty(state, entity, parent);
   }
 
   const shapeId = state.shapeByEntityWasm.get(entity.eid);
   if (shapeId !== undefined) {
-    const parentBodyExists = parentBodyStillExists(state, entity);
+    const parentBodyExists = parentBodyStillExists(state, entity, parent);
     if ((!allowCascadeSkip || parentBodyExists) && state.box2d.b2Shape_IsValid(shapeId)) {
       state.box2d.b2DestroyShape(shapeId, true);
     }
     state.shapeByEntityWasm.delete(entity.eid);
     state.entityByShapeIndex.delete(shapeId.index1);
-    markParentBodyMassDirty(state, entity);
+    markParentBodyMassDirty(state, entity, parent);
   }
 }
 
@@ -338,15 +344,15 @@ function readLocalPose(entity: Entity): { x: number; y: number; angle: number } 
   };
 }
 
-function parentBodyStillExists(state: PhysicsState, entity: Entity): boolean {
-  const parent = entity.parent(ChildOf);
-  return parent !== undefined && state.bodyByEntityWasm.has(parent.eid);
+function parentBodyStillExists(state: PhysicsState, entity: Entity, parent?: Entity): boolean {
+  const resolved = parent ?? entity.parent(ChildOf);
+  return resolved !== undefined && state.bodyByEntityWasm.has(resolved.eid);
 }
 
-function markParentBodyMassDirty(state: PhysicsState, entity: Entity): void {
-  const parent = entity.parent(ChildOf);
-  if (parent !== undefined && state.bodyByEntityWasm.has(parent.eid)) {
-    state.dirtyMassBodies.add(parent.eid);
+function markParentBodyMassDirty(state: PhysicsState, entity: Entity, parent?: Entity): void {
+  const resolved = parent ?? entity.parent(ChildOf);
+  if (resolved !== undefined && state.bodyByEntityWasm.has(resolved.eid)) {
+    state.dirtyMassBodies.add(resolved.eid);
   }
 }
 
