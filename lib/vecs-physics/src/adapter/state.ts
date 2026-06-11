@@ -1,11 +1,4 @@
-import {
-  ArrayMap,
-  IterableArrayMap,
-  Singleton,
-  type EID,
-  type Entity,
-  type World,
-} from "@vworlds/vecs";
+import { ArrayMap, IterableArrayMap, Singleton, type EID, type World } from "@vworlds/vecs";
 
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
 import { type Box2DModule } from "./runtime.js";
@@ -100,11 +93,6 @@ export class PhysicsState {
   public readonly shapeByEntityWasm = new ArrayMap<b2ShapeId>();
   public readonly entityByShapeIndex = new ArrayMap<EID>();
   public readonly chainByEntity = new ArrayMap<b2ChainId>();
-
-  // Shape entity object map: shape eid → Entity object.
-  // Used by events.ts to resolve entities for teardown events even after
-  // the entity has been removed from the world lookup table.
-  public readonly shapeEntityByEid = new Map<EID, Entity>();
 
   // Bodies whose mass needs recomputing this step (populated by shape lifecycle).
   public readonly dirtyMassBodies = new Set<EID>();

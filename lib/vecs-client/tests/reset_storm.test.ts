@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type as wireType, Decoder } from "@vworlds/vecs-wire";
-import type { EID, Entity } from "@vworlds/vecs";
+import { ArrayMap, IterableArrayMap, type EID, type Entity } from "@vworlds/vecs";
 import {
   ALL_COMPONENTS,
   Server2Client,
@@ -122,8 +122,8 @@ function networkEntities(world: ClientWorld): Entity[] {
   );
 }
 
-function clientState(world: ClientWorld): Map<EID, { x: number; y: number }> {
-  const state = new Map<EID, { x: number; y: number }>();
+function clientState(world: ClientWorld): IterableArrayMap<{ x: number; y: number }> {
+  const state = new IterableArrayMap<{ x: number; y: number }>();
   for (const entity of networkEntities(world)) {
     const position = entity.get(Position);
     if (position) {
@@ -133,8 +133,8 @@ function clientState(world: ClientWorld): Map<EID, { x: number; y: number }> {
   return state;
 }
 
-function serverState(live: Set<Entity>): Map<EID, { x: number; y: number }> {
-  const state = new Map<EID, { x: number; y: number }>();
+function serverState(live: Set<Entity>): IterableArrayMap<{ x: number; y: number }> {
+  const state = new IterableArrayMap<{ x: number; y: number }>();
   for (const entity of live) {
     const position = entity.get(Position)!;
     state.set(entity.eid, { x: position.x, y: position.y });
@@ -163,7 +163,7 @@ describe("reset storm (inactive tab)", () => {
     // A view system enriches each entity's Sprite on `enter`. It must run again
     // whenever a baseline rebuilds the entity, or the enrichment is lost. We
     // count enters per entity and stamp the (client-only) `view` field.
-    const enters = new Map<EID, number>();
+    const enters = new ArrayMap<number>();
     client
       .query("view")
       .with(Sprite)

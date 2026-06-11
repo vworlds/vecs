@@ -96,7 +96,6 @@ function createShapeForEntity(state: PhysicsState, entity: Entity): void {
   if (shapeId !== undefined) {
     state.shapeByEntityWasm.set(entity.eid, shapeId);
     state.entityByShapeIndex.set(shapeId.index1, entity.eid);
-    state.shapeEntityByEid.set(entity.eid, entity);
     state.dirtyMassBodies.add(parentEntity.eid);
   }
 }
@@ -273,7 +272,6 @@ function createChain(
       return box2d.b2CreateChain(bodyId, def);
     });
     state.chainByEntity.set(entity.eid, chainId);
-    state.shapeEntityByEid.set(entity.eid, entity);
     markParentBodyMassDirty(state, parent);
   } finally {
     for (const point of points) {
