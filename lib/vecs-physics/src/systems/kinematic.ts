@@ -5,21 +5,19 @@ import { KinematicTargetPosition, KinematicTargetRotation } from "../components/
 import { type PhysicsState, type b2BodyId } from "../adapter/state.js";
 
 export function installKinematicTargets(world: World, state: PhysicsState, phase: Entity): System {
-  const targetFilter = world.filter({
-    all: [Body, { any: [KinematicTargetPosition, KinematicTargetRotation] }],
-  });
-
   return world
     .system("PhysicsKinematicTargets")
+    .with({ all: [Body, { any: [KinematicTargetPosition, KinematicTargetRotation] }] })
+    .track()
     .phase(phase)
-    .run(() => {
+    .run(function (this: System<[typeof Body]>) {
       const dt = state.fixedTimeStep;
       if (dt <= 0) {
         return;
       }
 
-      targetFilter.forEach((entity) => {
-        const bodyId = entity.get(Body)?._bodyId;
+      this.forEach([Body], (entity, [body]) => {
+        const bodyId = body._bodyId;
         if (bodyId === undefined || !isKinematicBody(state, bodyId)) {
           return;
         }
