@@ -119,24 +119,45 @@ describe("Deferred mode — entity creation", () => {
     const { w } = setup();
     w.beginDefer();
     const e = w.entity();
-    expect(() => w.entity(e.eid)).toThrow();
+    expect(w.entity(e.eid)).toBe(e);
+    expect(w.getEntity(e.eid)).toBe(e);
+    expect(w.entities.get(e.eid)).toBeUndefined();
     w.endDefer();
     expect(w.entity(e.eid)).toBe(e);
+    expect(w.getEntity(e.eid)).toBe(e);
+    expect(w.entities.get(e.eid)).toBe(e);
   });
 
-  it("getOrCreateEntity inside a deferred block does not appear until drain", () => {
+  it("getOrCreateEntity inside a deferred block does not appear in world.entities until drain", () => {
     const { w } = setup();
-    w.start();
     w.beginDefer();
     const e = w.getOrCreateEntity(1234);
-    expect(() => w.entity(e.eid)).toThrow(); // not registered until drain
+    expect(w.entity(e.eid)).toBe(e);
+    expect(w.getEntity(e.eid)).toBe(e);
+    expect(w.entities.get(e.eid)).toBeUndefined();
     w.endDefer();
     expect(w.entity(e.eid)).toBe(e);
+    expect(w.getEntity(e.eid)).toBe(e);
+    expect(w.entities.get(e.eid)).toBe(e);
+  });
+
+  it("getOrCreateEntity returns the same pending entity inside a deferred block", () => {
+    const { w } = setup();
+    w.beginDefer();
+    const first = w.getOrCreateEntity(1234);
+    const second = w.getOrCreateEntity(1234);
+    expect(second).toBe(first);
+    expect(w.entity(first.eid)).toBe(first);
+    expect(w.getEntity(first.eid)).toBe(first);
+    expect(w.entities.get(first.eid)).toBeUndefined();
+    w.endDefer();
+    expect(w.entity(first.eid)).toBe(first);
+    expect(w.getEntity(first.eid)).toBe(first);
+    expect(w.entities.get(first.eid)).toBe(first);
   });
 
   it("getOrCreateEntity runs its onCreate callback at drain in deferred mode", () => {
     const { w } = setup();
-    w.start();
     const seen: number[] = [];
     w.beginDefer();
     const e = w.getOrCreateEntity(1234, (created) => seen.push(created.eid));

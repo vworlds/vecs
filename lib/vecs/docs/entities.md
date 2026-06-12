@@ -112,6 +112,12 @@ commands instead of applying immediately, and reads return the pre-mutation stat
 drains. The exact read-after-write rules are tabulated in
 [Execution model — deferred mutation](./execution-model.md#deferred-mutation-and-flush-boundaries).
 
+Deferred entity creation is idempotent within one deferred scope: if `world.entity()` or
+`getOrCreateEntity(eid)` creates a new entity, `getEntity(eid)`, `entity(eid)`, and later
+`getOrCreateEntity(eid)` calls before the drain return that same pending entity. Collection-style
+reads such as `world.entities` and queries still do not see the entity until the queued creation
+drains.
+
 ## Destroying entities
 
 `e.destroy()` removes every component (firing each `onRemove` hook and query `exit`), emits the

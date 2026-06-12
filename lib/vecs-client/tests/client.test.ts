@@ -103,6 +103,27 @@ describe("ClientWorld", () => {
     expect(world.entity(1000).get(Position)).toMatchObject({ x: 4, y: 8 });
   });
 
+  it("applies repeated server snapshots for a new entity through the apply system", () => {
+    const world = createClientWorld({ serverTickIntervalMs: 10 });
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(1085, 4, 8), posSnapshot(1085, 5, 9)],
+          }),
+        })
+      )
+    );
+
+    expect(() => world.progress(0, 0)).not.toThrow();
+    expect(world.entity(1085).get(Position)).toMatchObject({ x: 5, y: 9 });
+  });
+
   it("keeps server entities after their last synchronized component is removed", () => {
     const world = createClientWorld({ serverTickIntervalMs: 10 });
     world.component(LocalEffect);

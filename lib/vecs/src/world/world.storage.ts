@@ -1,5 +1,5 @@
 import type { Entity } from "../entity/index.js";
-import { IterableArrayMap, type ReadonlyIterableArrayMap } from "../util/array_map.js";
+import { ArrayMap, IterableArrayMap, type ReadonlyIterableArrayMap } from "../util/array_map.js";
 import { Pools } from "./world.pools.js";
 
 export class Storage extends Pools {
@@ -13,6 +13,9 @@ export class Storage extends Pools {
    */
   protected _entities = new IterableArrayMap<Entity>();
 
+  /** @internal Entity id -> entity queued for deferred creation, not query-visible yet. */
+  protected _deferredEntities = new ArrayMap<Entity>();
+
   /** Read-only view of the live entities, keyed by entity id. */
   public get entities(): ReadonlyIterableArrayMap<Entity> {
     return this._entities;
@@ -21,6 +24,7 @@ export class Storage extends Pools {
   /** @internal Remove an entity from the world's entity map (called by `Entity._destroy`). */
   public _unregisterEntity(entity: Entity): void {
     this._entities.delete(entity.eid);
+    this._deferredEntities.delete(entity.eid);
     this._poolFor(entity.eid).free(entity.eid);
   }
 }

@@ -7,12 +7,22 @@ import type { World } from "./world.js";
 const RESERVED_EID = 0;
 
 export class Entities extends Deferred {
-  /** Return the entity with id `eid`, creating it if it does not yet exist. */
+  /**
+   * Return the entity with id `eid`, creating it if it does not yet exist.
+   *
+   * In deferred mode, a newly created entity remains hidden from collections
+   * and queries until flush, but numeric lookups (`getEntity(eid)`,
+   * `entity(eid)`) and repeated `getOrCreateEntity(eid)` calls in the same
+   * deferred scope return that same pending entity.
+   */
   public getOrCreateEntity(this: World, eid: EID, onCreateCallback?: (e: Entity) => void): Entity {
     if (eid === RESERVED_EID) {
       throw new Error(`Entity eid ${eid} is reserved`);
     }
     let e = this._entities.get(eid);
+    if (!e && this.deferred) {
+      e = this._deferredEntities.get(eid);
+    }
     if (!e) {
       this._reserveEid(eid);
       e = new Entity(this, eid);
@@ -20,6 +30,7 @@ export class Entities extends Deferred {
         // Mirror `_entity`: in deferred mode the entity is not registered or
         // made visible to queries until the queue drains. The reservation above
         // still happens eagerly so the id cannot be handed out again meanwhile.
+        this._deferredEntities.set(eid, e);
         this._enqueue({ kind: CommandKind.CreateEntity, entity: e, onCreate: onCreateCallback });
       } else {
         this._entities.set(eid, e);
@@ -42,7 +53,8 @@ export class Entities extends Deferred {
       if (ref === RESERVED_EID) {
         throw new Error(`Entity eid ${ref} is reserved`);
       }
-      return this._entities.get(ref);
+      const entity = this._entities.get(ref);
+      return entity ?? (this.deferred ? this._deferredEntities.get(ref) : undefined);
     }
     return ref.world === this && this._entities.get(ref.eid) === ref ? ref : undefined;
   }
@@ -105,6 +117,7 @@ export class Entities extends Deferred {
     const eid = this._entityPool.alloc();
     const e = new Constructor(this, eid);
     if (this.deferred) {
+      this._deferredEntities.set(eid, e);
       this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
     } else {
       this._entities.set(eid, e);
