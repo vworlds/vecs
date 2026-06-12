@@ -90,5 +90,5 @@ Or run all four in sequence via `npm run examples`.
 
 ## Architecture
 
-- [Architecture Plan](./architecture/PLAN.md)
+- [Architecture Plan](./architecture/ARCHITECTURE.md)
 - [Solver Map](./architecture/SOLVER.md)

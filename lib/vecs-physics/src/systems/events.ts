@@ -54,7 +54,7 @@ export function installEvents(world: World, state: PhysicsState, phase: Entity):
 
 // Contact begin/end and hit events all come from a single
 // `b2World_GetContactEvents` poll, so fetch the event block once per step and
-// fan begin/end into `touchedContact` and hits into `touchedHit` (PLAN.md ->
+// fan begin/end into `touchedContact` and hits into `touchedHit` (ARCHITECTURE.md ->
 // PhysicsEvents: "poll once per step").
 function publishContactAndHitEvents(
   world: World,

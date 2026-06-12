@@ -37,7 +37,7 @@ import {
 // Every component must construct valid and default-shaped with `new C()` — the
 // Vecs zero-arg contract. These defaults are part of the public API and must
 // match Box2D's b2Default{Body,Shape}Def / b2DefaultFilter /
-// b2DefaultSurfaceMaterial (see architecture/PLAN.md → Authoritative Component
+// b2DefaultSurfaceMaterial (see architecture/ARCHITECTURE.md → Authoritative Component
 // Defaults).
 
 describe("body component defaults", () => {

@@ -1,6 +1,6 @@
 # Box2D Parity N/A Cases
 
-These Box2D tests are intentionally not ported for v1 because `architecture/PLAN.md` lists the underlying features as non-goals: ray casts, shape casts, AABB overlap queries, multithreading, C container helpers, and C API ergonomics.
+These Box2D tests are intentionally not ported for v1 because `architecture/ARCHITECTURE.md` lists the underlying features as non-goals: ray casts, shape casts, AABB overlap queries, multithreading, C container helpers, and C API ergonomics.
 
 | Box2D test              | v1 status        | PLAN non-goal reason                                                                                                             |
 | ----------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |

@@ -1,5 +1,5 @@
 // Public API surface for @vworlds/vecs-physics. Only re-exports — no logic.
-// The stable contract is documented in docs/ and architecture/PLAN.md →
+// The stable contract is documented in docs/ and architecture/ARCHITECTURE.md →
 // Public API Contract.
 
 // Entry point

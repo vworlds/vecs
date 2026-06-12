@@ -1,7 +1,7 @@
 // Physics system installation. Creates all physics systems in their canonical
 // run order and tags each one with `PhysicsSystemTag` so the pose-sync feedback
 // suppression (`PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])`) can filter
-// the engine's own write-back. This is registration step 12 (PLAN.md →
+// the engine's own write-back. This is registration step 12 (ARCHITECTURE.md →
 // _Component registration order_).
 //
 // Physics-pre phase order (creation order = run order within a phase):
