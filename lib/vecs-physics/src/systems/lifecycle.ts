@@ -1,4 +1,4 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 
 import {
   AngularVelocity,
@@ -10,11 +10,12 @@ import {
 } from "../components/body.js";
 import { Damping, GravityScale, MotionLocks, Sleep } from "../components/body_tuning.js";
 import { type Box2DModule } from "../adapter/runtime.js";
-import { type b2BodyId, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type b2BodyId, type PhysicsState } from "../adapter/state.js";
 import { withAllocated } from "../adapter/disposal.js";
 
-export function installBodyLifecycle(world: World, state: PhysicsState, phase: Entity): System {
+export function installBodyLifecycle(world: World, state: PhysicsState, phase: Entity): void {
   const system = world.system("PhysicsBodyLifecycle").with(Body).phase(phase);
+  system.entity.add(PhysicsSystemTag);
 
   system.enter([Body], (entity, [body]) => {
     const bodyId = createWasmBodyId(state, entity, body);
@@ -48,7 +49,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     state.box2d.b2Body_SetBullet(bodyId, body.bullet);
   });
 
-  world
+  const dampingSystem = world
     .system("PhysicsBodyLifecycle:Damping")
     .with(Body, Damping)
     .phase(phase)
@@ -60,8 +61,9 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
       state.box2d.b2Body_SetLinearDamping(bodyId, damping.linear);
       state.box2d.b2Body_SetAngularDamping(bodyId, damping.angular);
     });
+  dampingSystem.entity.add(PhysicsSystemTag);
 
-  world
+  const gravityScaleSystem = world
     .system("PhysicsBodyLifecycle:GravityScale")
     .with(Body, GravityScale)
     .phase(phase)
@@ -72,8 +74,9 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
       }
       state.box2d.b2Body_SetGravityScale(bodyId, gravityScale.value);
     });
+  gravityScaleSystem.entity.add(PhysicsSystemTag);
 
-  world
+  const motionLocksSystem = world
     .system("PhysicsBodyLifecycle:MotionLocks")
     .with(Body, MotionLocks)
     .phase(phase)
@@ -92,8 +95,9 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
         }
       );
     });
+  motionLocksSystem.entity.add(PhysicsSystemTag);
 
-  world
+  const sleepSystem = world
     .system("PhysicsBodyLifecycle:Sleep")
     .with(Body, Sleep)
     .phase(phase)
@@ -106,8 +110,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
       state.box2d.b2Body_SetAwake(bodyId, sleep.awake);
       state.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
     });
-
-  return system;
+  sleepSystem.entity.add(PhysicsSystemTag);
 }
 
 function createWasmBodyId(state: PhysicsState, entity: Entity, body: Body): b2BodyId {

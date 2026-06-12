@@ -1,20 +1,21 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 
 import { AngularImpulse, Impulse } from "../components/force.js";
-import { type b2BodyId, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type b2BodyId, type PhysicsState } from "../adapter/state.js";
 import { resolveBodyId } from "../util/resolve_body.js";
 
 type LinearImpulseAccumulator = { x: number; y: number; wake: boolean };
 type AngularImpulseAccumulator = { value: number; wake: boolean };
 
-export function installImpulseAccumulate(world: World, state: PhysicsState, phase: Entity): System {
-  return world
+export function installImpulseAccumulate(world: World, state: PhysicsState, phase: Entity): void {
+  const system = world
     .system("PhysicsImpulseAccumulate")
     .phase(phase)
     .run(() => {
       drainLinearImpulses(state);
       drainAngularImpulses(state);
     });
+  system.entity.add(PhysicsSystemTag);
 }
 
 export function registerImpulseHooks(world: World, state: PhysicsState): void {

@@ -1,4 +1,4 @@
-import { ChildOf, Iter, type Entity, type System, type World } from "@vworlds/vecs";
+import { ChildOf, Iter, type Entity, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment, Shape } from "../components/geometry.js";
@@ -10,18 +10,20 @@ import {
   type b2BodyId,
   type b2ChainId,
   type b2ShapeId,
+  PhysicsSystemTag,
   type PhysicsState,
 } from "../adapter/state.js";
 import { withAllocated } from "../adapter/disposal.js";
+import { shapeWithBodyParent } from "./shape_predicates.js";
 
 const MAX_POLYGON_VERTICES = 8;
 
-export function installShapeLifecycle(world: World, state: PhysicsState, phase: Entity): System {
-  const shapePredicate = { all: [Shape, { parent: Body }] } as const;
-  const system = world.system("PhysicsShapeLifecycle").with(shapePredicate).phase(phase);
+export function installShapeLifecycle(world: World, state: PhysicsState, phase: Entity): void {
+  const system = world.system("PhysicsShapeLifecycle").with(shapeWithBodyParent).phase(phase);
+  system.entity.add(PhysicsSystemTag);
 
-  system.enter(Iter, [{ target: [ChildOf, [Body]] }], (it, [body]) => {
-    createShapeForEntity(state, it.entity, it.src[0], body);
+  system.enter(Iter, [Shape, { target: [ChildOf, [Body]] }], (it, [shape, body]) => {
+    createShapeForEntity(state, it.entity, it.src[1], body, shape);
   });
 
   // Inject `[ChildOf, Shape]` so the parent relationship and shape handle are
@@ -40,55 +42,53 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     ) {
       return;
     }
-    recreateShapeForEntity(state, it.entity, it.src[0], body);
+    recreateShapeForEntity(state, it.entity, it.src[0], body, shape);
   });
 
-  world
+  const childOfSystem = world
     .system("PhysicsShapeLifecycle:ChildOf")
-    .with(ChildOf, shapePredicate)
+    .with(ChildOf, shapeWithBodyParent)
     .phase(phase)
-    .update(Iter, ChildOf, [{ target: [ChildOf, [Body]] }], (it, _childOf, [body]) => {
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
+    .update(Iter, ChildOf, [Shape, { target: [ChildOf, [Body]] }], (it, _childOf, tuple) => {
+      const [shape, body] = tuple;
+      recreateShapeForEntity(state, it.entity, it.src[1], body, shape);
     });
-
-  return system;
+  childOfSystem.entity.add(PhysicsSystemTag);
 }
 
 export function recreateShapeForEntity(
   state: PhysicsState,
   entity: Entity,
   parentEntity: Entity | undefined,
-  parentBody: Body | undefined
+  parentBody: Body | undefined,
+  shape: Shape | undefined
 ): void {
-  destroyShapeForEntity(state, entity, false);
-  createShapeForEntity(state, entity, parentEntity, parentBody);
+  destroyShapeForEntity(state, entity, false, parentEntity, shape);
+  createShapeForEntity(state, entity, parentEntity, parentBody, shape);
 }
 
 function createShapeForEntity(
   state: PhysicsState,
   entity: Entity,
   parentEntity: Entity | undefined,
-  parentBody: Body | undefined
+  parentBody: Body | undefined,
+  shape: Shape | undefined
 ): void {
   const bodyId = parentBody?._bodyId;
-  if (parentEntity === undefined || bodyId === undefined) {
+  if (parentEntity === undefined || bodyId === undefined || shape === undefined) {
     return;
   }
 
   const options = readShapeOptions(entity);
   const pose = readLocalPose(entity);
-  const chain = entity.get(Chain);
-  if (chain !== undefined) {
-    createChain(state, entity, parentEntity, bodyId, chain, options, pose);
+  if (shape instanceof Chain) {
+    createChain(state, parentEntity, bodyId, shape, options, pose);
     return;
   }
 
-  const shapeId = createSingleShape(state, entity, bodyId, options, pose);
+  const shapeId = createSingleShape(state, bodyId, shape, options, pose);
   if (shapeId !== undefined) {
-    const shape = entity.get(Shape) as Shape | undefined;
-    if (shape !== undefined) {
-      shape._shapeId = shapeId;
-    }
+    shape._shapeId = shapeId;
     state.entityByShapeIndex.set(shapeId.index1, entity.eid);
     state.dirtyMassBodies.add(parentEntity.eid);
   }
@@ -139,8 +139,8 @@ function destroyShapeForEntity(
 
 function createSingleShape(
   state: PhysicsState,
-  entity: Entity,
   bodyId: b2BodyId,
+  shape: Shape,
   options: ShapeOptions,
   pose: { x: number; y: number; angle: number }
 ): b2ShapeId | undefined {
@@ -148,8 +148,7 @@ function createSingleShape(
   return withAllocated(box2d.b2DefaultShapeDef, (def) => {
     applyShapeDef(def, options);
 
-    const box = entity.get(Box);
-    if (box !== undefined) {
+    if (shape instanceof Box) {
       return withAllocated(
         () => new box2d.b2Vec2(pose.x, pose.y),
         (center) =>
@@ -157,7 +156,7 @@ function createSingleShape(
             () => new box2d.b2Rot(),
             (rot) => {
               rot.SetAngle(pose.angle);
-              const polygon = box2d.b2MakeOffsetBox(box.hx, box.hy, center, rot);
+              const polygon = box2d.b2MakeOffsetBox(shape.hx, shape.hy, center, rot);
               try {
                 return box2d.b2CreatePolygonShape(bodyId, def, polygon);
               } finally {
@@ -168,52 +167,48 @@ function createSingleShape(
       );
     }
 
-    const circle = entity.get(Circle);
-    if (circle !== undefined) {
+    if (shape instanceof Circle) {
       return withAllocated(
         () => new box2d.b2Circle(),
-        (shape) => {
-          shape.center.Set(pose.x, pose.y);
-          shape.radius = circle.radius;
-          return box2d.b2CreateCircleShape(bodyId, def, shape);
+        (wasmShape) => {
+          wasmShape.center.Set(pose.x, pose.y);
+          wasmShape.radius = shape.radius;
+          return box2d.b2CreateCircleShape(bodyId, def, wasmShape);
         }
       );
     }
 
-    const capsule = entity.get(Capsule);
-    if (capsule !== undefined) {
-      if (!hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)) {
+    if (shape instanceof Capsule) {
+      if (!hasValidEndpoints(shape.x1, shape.y1, shape.x2, shape.y2)) {
         return undefined;
       }
       return withAllocated(
         () => new box2d.b2Capsule(),
-        (shape) => {
-          shape.center1.Set(capsule.x1 + pose.x, capsule.y1 + pose.y);
-          shape.center2.Set(capsule.x2 + pose.x, capsule.y2 + pose.y);
-          shape.radius = capsule.radius;
-          return box2d.b2CreateCapsuleShape(bodyId, def, shape);
+        (wasmShape) => {
+          wasmShape.center1.Set(shape.x1 + pose.x, shape.y1 + pose.y);
+          wasmShape.center2.Set(shape.x2 + pose.x, shape.y2 + pose.y);
+          wasmShape.radius = shape.radius;
+          return box2d.b2CreateCapsuleShape(bodyId, def, wasmShape);
         }
       );
     }
 
-    const segment = entity.get(Segment);
-    if (segment !== undefined) {
-      if (!hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)) {
+    if (shape instanceof Segment) {
+      if (!hasValidEndpoints(shape.x1, shape.y1, shape.x2, shape.y2)) {
         return undefined;
       }
       return withAllocated(
         () => new box2d.b2Segment(),
-        (shape) => {
-          shape.point1.Set(segment.x1 + pose.x, segment.y1 + pose.y);
-          shape.point2.Set(segment.x2 + pose.x, segment.y2 + pose.y);
-          return box2d.b2CreateSegmentShape(bodyId, def, shape);
+        (wasmShape) => {
+          wasmShape.point1.Set(shape.x1 + pose.x, shape.y1 + pose.y);
+          wasmShape.point2.Set(shape.x2 + pose.x, shape.y2 + pose.y);
+          return box2d.b2CreateSegmentShape(bodyId, def, wasmShape);
         }
       );
     }
 
-    const polygon = entity.get(Polygon);
-    if (polygon !== undefined) {
-      return createPolygonShape(state, bodyId, def, polygon, pose);
+    if (shape instanceof Polygon) {
+      return createPolygonShape(state, bodyId, def, shape, pose);
     }
 
     return undefined;
@@ -257,7 +252,6 @@ function createPolygonShape(
 
 function createChain(
   state: PhysicsState,
-  entity: Entity,
   parent: Entity,
   bodyId: b2BodyId,
   chain: Chain,
@@ -278,10 +272,7 @@ function createChain(
       def.SetPoints(points);
       return box2d.b2CreateChain(bodyId, def);
     });
-    const shape = entity.get(Shape) as Shape | undefined;
-    if (shape !== undefined) {
-      shape._shapeId = chainId;
-    }
+    chain._shapeId = chainId;
     markParentBodyMassDirty(state, parent);
   } finally {
     for (const point of points) {

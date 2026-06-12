@@ -1,4 +1,4 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 
 import {
   AngularVelocity,
@@ -8,10 +8,10 @@ import {
   Position,
   Rotation,
 } from "../components/body.js";
-import { type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 
-export function installPoseSyncOut(world: World, state: PhysicsState, phase: Entity): System {
-  return world
+export function installPoseSyncOut(world: World, state: PhysicsState, phase: Entity): void {
+  const system = world
     .system("PhysicsPoseSyncOut")
     .phase(phase)
     .run(() => {
@@ -56,4 +56,5 @@ export function installPoseSyncOut(world: World, state: PhysicsState, phase: Ent
         bodyEvents.delete();
       }
     });
+  system.entity.add(PhysicsSystemTag);
 }

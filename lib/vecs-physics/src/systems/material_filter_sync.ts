@@ -1,34 +1,31 @@
-import { ChildOf, Iter, type Entity, type System, type World } from "@vworlds/vecs";
+import { ChildOf, Iter, type Entity, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Chain, Shape } from "../components/geometry.js";
 import { CollisionFilter, Material, Sensor } from "../components/material.js";
 import { withAllocated } from "../adapter/disposal.js";
-import { type b2ShapeId, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type b2ShapeId, type PhysicsState } from "../adapter/state.js";
 import { recreateShapeForEntity } from "./shape_lifecycle.js";
+import { shapeWithBodyParent } from "./shape_predicates.js";
 
-export function installMaterialFilterSync(
-  world: World,
-  state: PhysicsState,
-  phase: Entity
-): System {
-  const shapePredicate = { all: [Shape, { parent: Body }] } as const;
+export function installMaterialFilterSync(world: World, state: PhysicsState, phase: Entity): void {
   const system = world
     .system("PhysicsMaterialFilterSync:Material")
-    .with(Material, shapePredicate)
+    .with(Material, shapeWithBodyParent)
     .phase(phase);
+  system.entity.add(PhysicsSystemTag);
 
-  system.update(Iter, Material, [{ target: [ChildOf, [Body]] }], (it, material, [body]) => {
-    if (requiresMaterialRecreate(state, it.entity, material)) {
+  system.update(Iter, Material, [Shape, { target: [ChildOf, [Body]] }], (it, material, tuple) => {
+    const [shape, body] = tuple;
+    if (requiresMaterialRecreate(state, shape, material)) {
       // box2d3-wasm@5.2.0 exposes no shape setters for rollingResistance,
       // tangentSpeed, or userMaterialId, so those updates recreate the shape.
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
+      recreateShapeForEntity(state, it.entity, it.src[1], body, shape);
       return;
     }
 
-    const shape = it.entity.get(Shape);
     if (shape instanceof Chain) {
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
+      recreateShapeForEntity(state, it.entity, it.src[1], body, shape);
       return;
     }
 
@@ -40,14 +37,14 @@ export function installMaterialFilterSync(
     }
   });
 
-  world
+  const collisionFilterSystem = world
     .system("PhysicsMaterialFilterSync:CollisionFilter")
-    .with(CollisionFilter, shapePredicate)
+    .with(CollisionFilter, shapeWithBodyParent)
     .phase(phase)
-    .update(Iter, CollisionFilter, [{ target: [ChildOf, [Body]] }], (it, filter, [body]) => {
-      const shape = it.entity.get(Shape);
+    .update(Iter, CollisionFilter, [Shape, { target: [ChildOf, [Body]] }], (it, filter, tuple) => {
+      const [shape, body] = tuple;
       if (shape instanceof Chain) {
-        recreateShapeForEntity(state, it.entity, it.src[0], body);
+        recreateShapeForEntity(state, it.entity, it.src[1], body, shape);
         return;
       }
 
@@ -66,20 +63,24 @@ export function installMaterialFilterSync(
         );
       }
     });
+  collisionFilterSystem.entity.add(PhysicsSystemTag);
 
-  world
+  const sensorSystem = world
     .system("PhysicsMaterialFilterSync:Sensor")
-    .with(Sensor, shapePredicate)
+    .with(Sensor, shapeWithBodyParent)
     .phase(phase)
-    .update(Iter, Sensor, [{ target: [ChildOf, [Body]] }], (it, _sensor, [body]) => {
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
+    .update(Iter, Sensor, [Shape, { target: [ChildOf, [Body]] }], (it, _sensor, tuple) => {
+      const [shape, body] = tuple;
+      recreateShapeForEntity(state, it.entity, it.src[1], body, shape);
     });
-
-  return system;
+  sensorSystem.entity.add(PhysicsSystemTag);
 }
 
-function requiresMaterialRecreate(state: PhysicsState, entity: Entity, next: Material): boolean {
-  const shape = entity.get(Shape);
+function requiresMaterialRecreate(
+  state: PhysicsState,
+  shape: Shape | undefined,
+  next: Material
+): boolean {
   if (shape === undefined || shape instanceof Chain) {
     return false;
   }

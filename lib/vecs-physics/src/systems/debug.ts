@@ -29,7 +29,8 @@
 // warn again. The WarnDedupe key is `(eid, code)`, so each code is independent.
 //
 // Design points:
-//   - Uses world.filter() scans (non-reactive) — same pattern as ForceGather.
+//   - Uses world.filter() scans (non-reactive); debug validation is opt-in and
+//     intentionally trades hot-path structure for simple whole-world checks.
 //     An entity enters the relevant filter when it carries the matching
 //     component(s), and the validator re-checks it every step.
 //   - WarnDedupe instance is owned by PhysicsState (survives across systems).
@@ -40,22 +41,14 @@
 // Upstream docs: docs/debug-validation.md.
 // Polygon validity is checked via b2ComputeHull (box2d3-wasm); see isValidPolygon.
 
-import {
-  ArrayMap,
-  ChildOf,
-  type EID,
-  type Entity,
-  type Filter,
-  type System,
-  type World,
-} from "@vworlds/vecs";
+import { ArrayMap, ChildOf, type EID, type Entity, type Filter, type World } from "@vworlds/vecs";
 
 import { Body, BodyType, Position } from "../components/body.js";
 import { AngularImpulse, Force, Impulse, Torque } from "../components/force.js";
 import { Chain, Polygon, Shape } from "../components/geometry.js";
 import { Material } from "../components/material.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
-import { type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 import { type WarnDedupe } from "../util/warn.js";
 
 // ─── Issue codes ──────────────────────────────────────────────────────────────
@@ -70,9 +63,8 @@ const CODE_FORCE_WITHOUT_TARGET = "force-without-target";
 
 // ─── System factory ───────────────────────────────────────────────────────────
 
-/** Create `PhysicsDebugValidation` on `world` in `phase`.
- * Returns the system so the caller can tag its entity. */
-export function installDebugValidation(world: World, state: PhysicsState, phase: Entity): System {
+/** Create `PhysicsDebugValidation` on `world` in `phase`. */
+export function installDebugValidation(world: World, state: PhysicsState, phase: Entity): void {
   // ── Filters (non-reactive; walked every step) ─────────────────────────────
   // Geometry entities: any entity with at least one geometry component.
   const geomFilter: Filter = world.filter(Shape);
@@ -93,7 +85,7 @@ export function installDebugValidation(world: World, state: PhysicsState, phase:
   // the filter will then produce a fresh warning, completing the re-arm cycle.
   const prevBodyPoseEids = new Set<EID>();
 
-  return world
+  const system = world
     .system("PhysicsDebugValidation")
     .phase(phase)
     .run(() => {
@@ -102,6 +94,7 @@ export function installDebugValidation(world: World, state: PhysicsState, phase:
       _validateBodyShapePositionEntities(bodyPoseFilter, prevBodyPoseEids, state.warn);
       _validateForceEntities(forceFilter, state.warn);
     });
+  system.entity.add(PhysicsSystemTag);
 }
 
 // ─── Geometry-entity validation ───────────────────────────────────────────────

@@ -1,12 +1,12 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 
 import { Body, BodyType } from "../components/body.js";
-import { type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 
 const CODE_DYNAMIC_BODY_WITHOUT_DENSITY = "dynamic-body-without-density";
 
-export function installMassRecompute(world: World, state: PhysicsState, phase: Entity): System {
-  return world
+export function installMassRecompute(world: World, state: PhysicsState, phase: Entity): void {
+  const system = world
     .system("PhysicsMassRecompute")
     .phase(phase)
     .run(() => {
@@ -22,6 +22,7 @@ export function installMassRecompute(world: World, state: PhysicsState, phase: E
         warnOnMasslessDynamicBodies(world, state);
       }
     });
+  system.entity.add(PhysicsSystemTag);
 }
 
 function warnOnMasslessDynamicBodies(world: World, state: PhysicsState): void {

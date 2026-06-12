@@ -1,32 +1,41 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { ChildOf, type Entity, type World } from "@vworlds/vecs";
 
+import { Body } from "../components/body.js";
 import { Force, Torque } from "../components/force.js";
-import { type PhysicsState } from "../adapter/state.js";
-import { resolveBodyId } from "../util/resolve_body.js";
+import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 
-export function installForceGather(world: World, state: PhysicsState, phase: Entity): System {
-  const forceFilter = world.filter({ any: [Force, Torque] });
+const forceTargetPredicate = { any: [Body, { parent: Body }] } as const;
 
-  return world
-    .system("PhysicsForceGather")
+export function installForceGather(world: World, state: PhysicsState, phase: Entity): void {
+  const forceSystem = world
+    .system("PhysicsForceGather:Force")
+    .with(Force, forceTargetPredicate)
+    .phase(phase);
+  forceSystem.entity.add(PhysicsSystemTag);
+
+  forceSystem.each([Force, Body, { target: [ChildOf, [Body]] }], (_entity, tuple) => {
+    const [force, body, parentBody] = tuple;
+    const bodyId = body?._bodyId ?? parentBody?._bodyId;
+    if (bodyId === undefined) {
+      return;
+    }
+
+    state.scratchVec2.Set(force.x, force.y);
+    state.box2d.b2Body_ApplyForceToCenter(bodyId, state.scratchVec2, force.wake);
+  });
+
+  const torqueSystem = world
+    .system("PhysicsForceGather:Torque")
+    .with(Torque, forceTargetPredicate)
     .phase(phase)
-    .run(() => {
-      forceFilter.forEach((entity) => {
-        const bodyId = resolveBodyId(entity);
-        if (bodyId === undefined) {
-          return;
-        }
+    .each([Torque, Body, { target: [ChildOf, [Body]] }], (_entity, tuple) => {
+      const [torque, body, parentBody] = tuple;
+      const bodyId = body?._bodyId ?? parentBody?._bodyId;
+      if (bodyId === undefined) {
+        return;
+      }
 
-        const force = entity.get(Force) as Force | undefined;
-        if (force !== undefined) {
-          state.scratchVec2.Set(force.x, force.y);
-          state.box2d.b2Body_ApplyForceToCenter(bodyId, state.scratchVec2, force.wake);
-        }
-
-        const torque = entity.get(Torque) as Torque | undefined;
-        if (torque !== undefined) {
-          state.box2d.b2Body_ApplyTorque(bodyId, torque.value, torque.wake);
-        }
-      });
+      state.box2d.b2Body_ApplyTorque(bodyId, torque.value, torque.wake);
     });
+  torqueSystem.entity.add(PhysicsSystemTag);
 }

@@ -1,14 +1,15 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "../components/body.js";
 import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 
-export function installPoseSyncIn(world: World, state: PhysicsState, phase: Entity): System {
+export function installPoseSyncIn(world: World, state: PhysicsState, phase: Entity): void {
   const system = world.system("PhysicsPoseSyncIn").with(Body).phase(phase);
+  system.entity.add(PhysicsSystemTag);
 
   system.ignoreSource([PhysicsSystemTag]);
 
-  world
+  const positionSystem = world
     .system("PhysicsPoseSyncIn:Position")
     .with(Body, Position)
     .phase(phase)
@@ -27,8 +28,9 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
         rotation.delete();
       }
     });
+  positionSystem.entity.add(PhysicsSystemTag);
 
-  world
+  const rotationSystem = world
     .system("PhysicsPoseSyncIn:Rotation")
     .with(Body, Rotation)
     .phase(phase)
@@ -48,8 +50,9 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
         position.delete();
       }
     });
+  rotationSystem.entity.add(PhysicsSystemTag);
 
-  world
+  const linearVelocitySystem = world
     .system("PhysicsPoseSyncIn:LinearVelocity")
     .with(Body, LinearVelocity)
     .phase(phase)
@@ -63,8 +66,9 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
       state.scratchVec2.Set(velocity.x, velocity.y);
       state.box2d.b2Body_SetLinearVelocity(bodyId, state.scratchVec2);
     });
+  linearVelocitySystem.entity.add(PhysicsSystemTag);
 
-  world
+  const angularVelocitySystem = world
     .system("PhysicsPoseSyncIn:AngularVelocity")
     .with(Body, AngularVelocity)
     .phase(phase)
@@ -77,6 +81,5 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
 
       state.box2d.b2Body_SetAngularVelocity(bodyId, velocity.value);
     });
-
-  return system;
+  angularVelocitySystem.entity.add(PhysicsSystemTag);
 }

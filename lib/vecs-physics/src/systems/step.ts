@@ -1,9 +1,9 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 
-import { type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 
-export function installStep(world: World, state: PhysicsState, phase: Entity): System {
-  return world
+export function installStep(world: World, state: PhysicsState, phase: Entity): void {
+  const system = world
     .system("PhysicsStep")
     .phase(phase)
     .run((_now, delta) => {
@@ -17,4 +17,5 @@ export function installStep(world: World, state: PhysicsState, phase: Entity): S
       }
       state.box2d.b2World_Step(state.worldId, state.fixedTimeStep, state.subSteps);
     });
+  system.entity.add(PhysicsSystemTag);
 }

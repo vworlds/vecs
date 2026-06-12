@@ -1,29 +1,36 @@
-import { ChildOf, Iter, type Entity, type System, type World } from "@vworlds/vecs";
+import { ChildOf, Iter, type Entity, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Shape } from "../components/geometry.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
-import { type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 import { recreateShapeForEntity } from "./shape_lifecycle.js";
+import { shapeWithBodyParent } from "./shape_predicates.js";
 
-export function installShapePoseSync(world: World, state: PhysicsState, phase: Entity): System {
-  const shapePredicate = { all: [Shape, { parent: Body }] } as const;
+export function installShapePoseSync(world: World, state: PhysicsState, phase: Entity): void {
   const system = world
     .system("PhysicsShapePoseSync:Position")
-    .with(ShapePosition, shapePredicate)
+    .with(ShapePosition, shapeWithBodyParent)
     .phase(phase);
+  system.entity.add(PhysicsSystemTag);
 
-  system.update(Iter, ShapePosition, [{ target: [ChildOf, [Body]] }], (it, _position, [body]) => {
-    recreateShapeForEntity(state, it.entity, it.src[0], body);
-  });
+  system.update(
+    Iter,
+    ShapePosition,
+    [Shape, { target: [ChildOf, [Body]] }],
+    (it, _position, tuple) => {
+      const [shape, body] = tuple;
+      recreateShapeForEntity(state, it.entity, it.src[1], body, shape);
+    }
+  );
 
-  world
+  const rotationSystem = world
     .system("PhysicsShapePoseSync:Rotation")
-    .with(ShapeRotation, shapePredicate)
+    .with(ShapeRotation, shapeWithBodyParent)
     .phase(phase)
-    .update(Iter, ShapeRotation, [{ target: [ChildOf, [Body]] }], (it, _rotation, [body]) => {
-      recreateShapeForEntity(state, it.entity, it.src[0], body);
+    .update(Iter, ShapeRotation, [Shape, { target: [ChildOf, [Body]] }], (it, _rotation, tuple) => {
+      const [shape, body] = tuple;
+      recreateShapeForEntity(state, it.entity, it.src[1], body, shape);
     });
-
-  return system;
+  rotationSystem.entity.add(PhysicsSystemTag);
 }

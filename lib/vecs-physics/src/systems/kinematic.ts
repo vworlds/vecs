@@ -1,31 +1,30 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { KinematicTargetPosition, KinematicTargetRotation } from "../components/target.js";
-import { type PhysicsState, type b2BodyId } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsState, type b2BodyId } from "../adapter/state.js";
 
-export function installKinematicTargets(world: World, state: PhysicsState, phase: Entity): System {
-  return world
+export function installKinematicTargets(world: World, state: PhysicsState, phase: Entity): void {
+  const dt = state.fixedTimeStep;
+  if (dt <= 0) {
+    return;
+  }
+
+  const system = world
     .system("PhysicsKinematicTargets")
     .with({ all: [Body, { any: [KinematicTargetPosition, KinematicTargetRotation] }] })
-    .track()
     .phase(phase)
-    .run(function (this: System<[typeof Body]>) {
-      const dt = state.fixedTimeStep;
-      if (dt <= 0) {
+    .each([Body, KinematicTargetPosition, KinematicTargetRotation], (_entity, tuple) => {
+      const [body, positionTarget, rotationTarget] = tuple;
+      const bodyId = body._bodyId;
+      if (bodyId === undefined || !isKinematicBody(state, bodyId)) {
         return;
       }
 
-      this.forEach([Body], (entity, [body]) => {
-        const bodyId = body._bodyId;
-        if (bodyId === undefined || !isKinematicBody(state, bodyId)) {
-          return;
-        }
-
-        drivePositionTarget(state, bodyId, entity.get(KinematicTargetPosition), dt);
-        driveRotationTarget(state, bodyId, entity.get(KinematicTargetRotation), dt);
-      });
+      drivePositionTarget(state, bodyId, positionTarget, dt);
+      driveRotationTarget(state, bodyId, rotationTarget, dt);
     });
+  system.entity.add(PhysicsSystemTag);
 }
 
 function drivePositionTarget(

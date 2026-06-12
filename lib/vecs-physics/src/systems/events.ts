@@ -1,7 +1,7 @@
-import { type EID, type Entity, type System, type World } from "@vworlds/vecs";
+import { type EID, type Entity, type World } from "@vworlds/vecs";
 
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
-import { type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 import { type Box2DModule } from "../adapter/runtime.js";
 
 type ContactBeginEvent = ReturnType<
@@ -15,8 +15,8 @@ type ContactHitEvent = ReturnType<
 >;
 type SensorEvent = ReturnType<ReturnType<Box2DModule["b2World_GetSensorEvents"]>["GetBeginEvent"]>;
 
-export function installEvents(world: World, state: PhysicsState, phase: Entity): System {
-  return world
+export function installEvents(world: World, state: PhysicsState, phase: Entity): void {
+  const system = world
     .system("PhysicsEvents")
     .phase(phase)
     .run(() => {
@@ -49,6 +49,7 @@ export function installEvents(world: World, state: PhysicsState, phase: Entity):
         state.prevTouchedHit.add(eid);
       }
     });
+  system.entity.add(PhysicsSystemTag);
 }
 
 // Contact begin/end and hit events all come from a single

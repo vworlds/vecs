@@ -1,12 +1,12 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 
 import { Chain, Shape } from "../components/geometry.js";
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
-import { type b2ShapeId, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type b2ShapeId, type PhysicsState } from "../adapter/state.js";
 
 type EventFlag = "contact" | "hit" | "sensor";
 
-export function installEventOptInSync(world: World, state: PhysicsState, phase: Entity): System {
+export function installEventOptInSync(world: World, state: PhysicsState, phase: Entity): void {
   world.component(ContactEvents).onAdd((entity) => setEventFlag(state, entity, "contact", true));
   world
     .component(ContactEvents)
@@ -18,12 +18,13 @@ export function installEventOptInSync(world: World, state: PhysicsState, phase: 
   world.component(SensorEvents).onAdd((entity) => setEventFlag(state, entity, "sensor", true));
   world.component(SensorEvents).onRemove((entity) => setEventFlag(state, entity, "sensor", false));
 
-  return world
+  const system = world
     .system("PhysicsEventOptInSync")
     .phase(phase)
     .run(() => {
       // Hook-driven: onAdd/onRemove do the work synchronously during command drain.
     });
+  system.entity.add(PhysicsSystemTag);
 }
 
 function setEventFlag(

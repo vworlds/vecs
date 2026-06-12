@@ -1,10 +1,10 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 
 import { AngularImpulse, Impulse } from "../components/force.js";
-import { type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 
-export function installImpulseZero(world: World, state: PhysicsState, phase: Entity): System {
-  return world
+export function installImpulseZero(world: World, state: PhysicsState, phase: Entity): void {
+  const system = world
     .system("PhysicsImpulseZero")
     .phase(phase)
     .run(() => {
@@ -28,4 +28,5 @@ export function installImpulseZero(world: World, state: PhysicsState, phase: Ent
 
       state.impulseEntitiesThisStep.clear();
     });
+  system.entity.add(PhysicsSystemTag);
 }
