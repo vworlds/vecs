@@ -1,4 +1,4 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { ChildOf, Iter, type Entity, type System, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
@@ -20,22 +20,22 @@ export function installMaterialFilterSync(
     .with(Material, shapePredicate)
     .phase(phase);
 
-  system.update(Material, (entity, material) => {
-    if (requiresMaterialRecreate(state, entity, material)) {
+  system.update(Iter, Material, [{ target: [ChildOf, [Body]] }], (it, material, [body]) => {
+    if (requiresMaterialRecreate(state, it.entity, material)) {
       // box2d3-wasm@5.2.0 exposes no shape setters for rollingResistance,
       // tangentSpeed, or userMaterialId, so those updates recreate the shape.
-      recreateShapeForEntity(state, entity);
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
       return;
     }
 
-    const shapeId = state.shapeByEntityWasm.get(entity.eid);
+    const shapeId = state.shapeByEntityWasm.get(it.entity.eid);
     if (shapeId !== undefined) {
       state.box2d.b2Shape_SetDensity(shapeId, material.density, true);
       state.box2d.b2Shape_SetFriction(shapeId, material.friction);
       state.box2d.b2Shape_SetRestitution(shapeId, material.restitution);
     }
-    if (state.chainByEntity.has(entity.eid)) {
-      recreateShapeForEntity(state, entity);
+    if (state.chainByEntity.has(it.entity.eid)) {
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
     }
   });
 
@@ -43,8 +43,8 @@ export function installMaterialFilterSync(
     .system("PhysicsMaterialFilterSync:CollisionFilter")
     .with(CollisionFilter, shapePredicate)
     .phase(phase)
-    .update(CollisionFilter, (entity, filter) => {
-      const shapeId = state.shapeByEntityWasm.get(entity.eid);
+    .update(Iter, CollisionFilter, [{ target: [ChildOf, [Body]] }], (it, filter, [body]) => {
+      const shapeId = state.shapeByEntityWasm.get(it.entity.eid);
       if (shapeId !== undefined) {
         withAllocated(
           () => new state.box2d.b2Filter(),
@@ -58,8 +58,8 @@ export function installMaterialFilterSync(
           }
         );
       }
-      if (state.chainByEntity.has(entity.eid)) {
-        recreateShapeForEntity(state, entity);
+      if (state.chainByEntity.has(it.entity.eid)) {
+        recreateShapeForEntity(state, it.entity, it.src[0], body);
       }
     });
 
@@ -67,8 +67,8 @@ export function installMaterialFilterSync(
     .system("PhysicsMaterialFilterSync:Sensor")
     .with(Sensor, shapePredicate)
     .phase(phase)
-    .update(Sensor, (entity) => {
-      recreateShapeForEntity(state, entity);
+    .update(Iter, Sensor, [{ target: [ChildOf, [Body]] }], (it, _sensor, [body]) => {
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
     });
 
   return system;

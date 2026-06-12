@@ -1,4 +1,4 @@
-import { type Entity, type System, type World } from "@vworlds/vecs";
+import { ChildOf, Iter, type Entity, type System, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
@@ -15,16 +15,16 @@ export function installShapePoseSync(world: World, state: PhysicsState, phase: E
     .with(ShapePosition, shapePredicate)
     .phase(phase);
 
-  system.update(ShapePosition, (entity) => {
-    recreateShapeForEntity(state, entity);
+  system.update(Iter, ShapePosition, [{ target: [ChildOf, [Body]] }], (it, _position, [body]) => {
+    recreateShapeForEntity(state, it.entity, it.src[0], body);
   });
 
   world
     .system("PhysicsShapePoseSync:Rotation")
     .with(ShapeRotation, shapePredicate)
     .phase(phase)
-    .update(ShapeRotation, (entity) => {
-      recreateShapeForEntity(state, entity);
+    .update(Iter, ShapeRotation, [{ target: [ChildOf, [Body]] }], (it, _rotation, [body]) => {
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
     });
 
   return system;

@@ -1,4 +1,4 @@
-import { ChildOf, type Entity, type System, type World } from "@vworlds/vecs";
+import { ChildOf, Iter, type Entity, type System, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment } from "../components/geometry.js";
@@ -17,8 +17,8 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
   } as const;
   const system = world.system("PhysicsShapeLifecycle").with(shapePredicate).phase(phase);
 
-  system.enter((entity) => {
-    createShapeForEntity(state, entity);
+  system.enter(Iter, [{ target: [ChildOf, [Body]] }], (it, [body]) => {
+    createShapeForEntity(state, it.entity, it.src[0], body);
   });
 
   // Inject `[ChildOf]` so the parent relationship is captured in the exit
@@ -34,81 +34,79 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     .system("PhysicsShapeLifecycle:Box")
     .with(Box, { parent: Body })
     .phase(phase)
-    .update(Box, (entity) => {
-      recreateShapeForEntity(state, entity);
+    .update(Iter, Box, [{ target: [ChildOf, [Body]] }], (it, _box, [body]) => {
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
     });
   world
     .system("PhysicsShapeLifecycle:Circle")
     .with(Circle, { parent: Body })
     .phase(phase)
-    .update(Circle, (entity) => {
-      recreateShapeForEntity(state, entity);
+    .update(Iter, Circle, [{ target: [ChildOf, [Body]] }], (it, _circle, [body]) => {
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
     });
   world
     .system("PhysicsShapeLifecycle:Capsule")
     .with(Capsule, { parent: Body })
     .phase(phase)
-    .update(Capsule, (entity) => {
-      const capsule = entity.get(Capsule);
-      if (
-        capsule !== undefined &&
-        !hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)
-      ) {
+    .update(Iter, Capsule, [{ target: [ChildOf, [Body]] }], (it, capsule, [body]) => {
+      if (!hasValidEndpoints(capsule.x1, capsule.y1, capsule.x2, capsule.y2)) {
         return;
       }
-      recreateShapeForEntity(state, entity);
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
     });
   world
     .system("PhysicsShapeLifecycle:Segment")
     .with(Segment, { parent: Body })
     .phase(phase)
-    .update(Segment, (entity) => {
-      const segment = entity.get(Segment);
-      if (
-        segment !== undefined &&
-        !hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)
-      ) {
+    .update(Iter, Segment, [{ target: [ChildOf, [Body]] }], (it, segment, [body]) => {
+      if (!hasValidEndpoints(segment.x1, segment.y1, segment.x2, segment.y2)) {
         return;
       }
-      recreateShapeForEntity(state, entity);
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
     });
   world
     .system("PhysicsShapeLifecycle:Polygon")
     .with(Polygon, { parent: Body })
     .phase(phase)
-    .update(Polygon, (entity) => {
-      recreateShapeForEntity(state, entity);
+    .update(Iter, Polygon, [{ target: [ChildOf, [Body]] }], (it, _polygon, [body]) => {
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
     });
   world
     .system("PhysicsShapeLifecycle:Chain")
     .with(Chain, { parent: Body })
     .phase(phase)
-    .update(Chain, (entity) => {
-      recreateShapeForEntity(state, entity);
+    .update(Iter, Chain, [{ target: [ChildOf, [Body]] }], (it, _chain, [body]) => {
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
     });
   world
     .system("PhysicsShapeLifecycle:ChildOf")
     .with(ChildOf, shapePredicate)
     .phase(phase)
-    .update(ChildOf, (entity) => {
-      recreateShapeForEntity(state, entity);
+    .update(Iter, ChildOf, [{ target: [ChildOf, [Body]] }], (it, _childOf, [body]) => {
+      recreateShapeForEntity(state, it.entity, it.src[0], body);
     });
 
   return system;
 }
 
-export function recreateShapeForEntity(state: PhysicsState, entity: Entity): void {
+export function recreateShapeForEntity(
+  state: PhysicsState,
+  entity: Entity,
+  parentEntity: Entity | undefined,
+  parentBody: Body | undefined
+): void {
   destroyShapeForEntity(state, entity, false);
-  createShapeForEntity(state, entity);
+  createShapeForEntity(state, entity, parentEntity, parentBody);
 }
 
-function createShapeForEntity(state: PhysicsState, entity: Entity): void {
-  const parentEntity = entity.parent(ChildOf);
-  if (parentEntity === undefined) {
-    return;
-  }
-  const bodyId = parentEntity.get(Body)?._bodyId;
-  if (bodyId === undefined) {
+function createShapeForEntity(
+  state: PhysicsState,
+  entity: Entity,
+  parentEntity: Entity | undefined,
+  parentBody: Body | undefined
+): void {
+  const bodyId = parentBody?._bodyId;
+  if (parentEntity === undefined || bodyId === undefined) {
     return;
   }
 

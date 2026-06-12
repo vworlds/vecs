@@ -25,11 +25,10 @@ export function installMassRecompute(world: World, state: PhysicsState, phase: E
 }
 
 function warnOnMasslessDynamicBodies(world: World, state: PhysicsState): void {
-  world.filter(Body).forEach((entity) => {
+  world.filter(Body).forEach([Body], (entity, [body]) => {
     const eid = entity.eid;
-    const body = entity.get(Body);
-    const bodyId = body?._bodyId;
-    if (body?.type !== BodyType.Dynamic || bodyId === undefined) {
+    const bodyId = body._bodyId;
+    if (body.type !== BodyType.Dynamic || bodyId === undefined) {
       state.warn.rearm(eid, CODE_DYNAMIC_BODY_WITHOUT_DENSITY);
       return;
     }

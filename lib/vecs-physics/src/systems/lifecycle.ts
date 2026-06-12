@@ -16,8 +16,7 @@ import { withAllocated } from "../adapter/disposal.js";
 export function installBodyLifecycle(world: World, state: PhysicsState, phase: Entity): System {
   const system = world.system("PhysicsBodyLifecycle").with(Body).phase(phase);
 
-  system.enter((entity) => {
-    const body = entity.get(Body) as Body;
+  system.enter([Body], (entity, [body]) => {
     const bodyId = createWasmBodyId(state, entity, body);
     body._bodyId = bodyId;
     state.entityByBodyIndex.set(bodyId.index1, entity.eid);
@@ -53,8 +52,8 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     .system("PhysicsBodyLifecycle:Damping")
     .with(Body, Damping)
     .phase(phase)
-    .update(Damping, (entity, damping) => {
-      const bodyId = entity.get(Body)?._bodyId;
+    .update(Damping, [Body], (entity, damping, [body]) => {
+      const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
       }
@@ -66,8 +65,8 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     .system("PhysicsBodyLifecycle:GravityScale")
     .with(Body, GravityScale)
     .phase(phase)
-    .update(GravityScale, (entity, gravityScale) => {
-      const bodyId = entity.get(Body)?._bodyId;
+    .update(GravityScale, [Body], (entity, gravityScale, [body]) => {
+      const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
       }
@@ -78,8 +77,8 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     .system("PhysicsBodyLifecycle:MotionLocks")
     .with(Body, MotionLocks)
     .phase(phase)
-    .update(MotionLocks, (entity, locks) => {
-      const bodyId = entity.get(Body)?._bodyId;
+    .update(MotionLocks, [Body], (entity, locks, [body]) => {
+      const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
       }
@@ -98,8 +97,8 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     .system("PhysicsBodyLifecycle:Sleep")
     .with(Body, Sleep)
     .phase(phase)
-    .update(Sleep, (entity, sleep) => {
-      const bodyId = entity.get(Body)?._bodyId;
+    .update(Sleep, [Body], (entity, sleep, [body]) => {
+      const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
       }

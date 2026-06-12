@@ -13,8 +13,8 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
     .with(Body, Position)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update(Position, (entity, position) => {
-      const bodyId = entity.get(Body)?._bodyId;
+    .update(Position, [Body], (entity, position, [body]) => {
+      const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
       }
@@ -33,8 +33,8 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
     .with(Body, Rotation)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update(Rotation, (entity, rotation) => {
-      const bodyId = entity.get(Body)?._bodyId;
+    .update(Rotation, [Body], (entity, rotation, [body]) => {
+      const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
       }
@@ -54,8 +54,8 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
     .with(Body, LinearVelocity)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update(LinearVelocity, (entity, velocity) => {
-      const bodyId = entity.get(Body)?._bodyId;
+    .update(LinearVelocity, [Body], (entity, velocity, [body]) => {
+      const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
       }
@@ -69,8 +69,8 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
     .with(Body, AngularVelocity)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update(AngularVelocity, (entity, velocity) => {
-      const bodyId = entity.get(Body)?._bodyId;
+    .update(AngularVelocity, [Body], (entity, velocity, [body]) => {
+      const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
       }
