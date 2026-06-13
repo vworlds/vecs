@@ -9,7 +9,7 @@
 // returned by value from `b2World_CastRayClosest`) is freed via
 // `withAllocated` or an explicit `finally { .delete() }`.
 
-import { type Entity, type World } from "@vworlds/vecs";
+import { type EID, type Entity, type World } from "@vworlds/vecs";
 
 import { type Vec2 } from "../components/geometry.js";
 import { withAllocated } from "./disposal.js";
@@ -165,12 +165,69 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     );
   }
 
-  public overlapAABB(_query: { min: Vec2; max: Vec2; filter?: QueryFilter }): Entity[] {
-    throw new Error("overlapAABB is not yet implemented (M8-4/M8-5)");
+  public overlapAABB(query: { min: Vec2; max: Vec2; filter?: QueryFilter }): Entity[] {
+    const { box2d, worldId } = this.state;
+    return withAllocated(
+      () => new box2d.b2AABB(),
+      (aabb) =>
+        withAllocated(
+          () => new box2d.b2QueryFilter(),
+          (filter) => {
+            aabb.lowerBound.Set(query.min.x, query.min.y);
+            aabb.upperBound.Set(query.max.x, query.max.y);
+            applyQueryFilter(filter, query.filter);
+
+            const entities: Entity[] = [];
+            const seen = new Set<EID>();
+            box2d.b2World_OverlapAABB(worldId, aabb, filter, (result: { shapeId: b2ShapeId }) => {
+              const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+              if (entity !== undefined && !seen.has(entity.eid)) {
+                seen.add(entity.eid);
+                entities.push(entity);
+              }
+              return true;
+            });
+
+            return entities;
+          }
+        )
+    );
   }
 
-  public overlapCircle(_query: { center: Vec2; radius: number; filter?: QueryFilter }): Entity[] {
-    throw new Error("overlapCircle is not yet implemented (M8-4/M8-5)");
+  public overlapCircle(query: { center: Vec2; radius: number; filter?: QueryFilter }): Entity[] {
+    const { box2d, worldId } = this.state;
+    return withAllocated(
+      () => new box2d.b2Vec2(query.center.x, query.center.y),
+      (centerVec) =>
+        withAllocated(
+          () => box2d.b2MakeProxy(centerVec, 1, query.radius),
+          (proxy) =>
+            withAllocated(
+              () => new box2d.b2QueryFilter(),
+              (filter) => {
+                applyQueryFilter(filter, query.filter);
+
+                const entities: Entity[] = [];
+                const seen = new Set<EID>();
+                box2d.b2World_OverlapShape(
+                  worldId,
+                  proxy,
+                  filter,
+                  (result: { shapeId: b2ShapeId }) => {
+                    const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+                    if (entity !== undefined && !seen.has(entity.eid)) {
+                      seen.add(entity.eid);
+                      entities.push(entity);
+                    }
+                    return true;
+                  }
+                );
+
+                return entities;
+              }
+            )
+        )
+    );
   }
 }
 

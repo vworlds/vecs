@@ -12,8 +12,9 @@
 //     shape entity with `0 <= fraction <= 1`.
 //   - `rayCastAll` on an empty world returns `[]` (implemented in M8-4; the
 //     full ray-cast suite lives in `tests/queries/raycast.test.ts`).
-//   - `overlapAABB`/`overlapCircle` are pinned as "not yet implemented" stubs
-//     until M8-5.
+//   - `overlapAABB`/`overlapCircle` on an empty world return `[]`
+//     (implemented in M8-5; the full overlap suite lives in
+//     `tests/queries/overlap.test.ts`).
 
 import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
@@ -106,22 +107,20 @@ describe("rayCastAll on an empty world", () => {
   });
 });
 
-describe("unimplemented query stubs (pinned until M8-5)", () => {
-  it("overlapAABB throws not-yet-implemented", () => {
+describe("overlapAABB on an empty world", () => {
+  it("returns [] (implemented in M8-5)", () => {
     const world = new World();
     world.module(PhysicsModule);
 
-    expect(() =>
-      physics(world).overlapAABB({ min: { x: -1, y: -1 }, max: { x: 1, y: 1 } })
-    ).toThrow(/not yet implemented/);
+    expect(physics(world).overlapAABB({ min: { x: -1, y: -1 }, max: { x: 1, y: 1 } })).toEqual([]);
   });
+});
 
-  it("overlapCircle throws not-yet-implemented", () => {
+describe("overlapCircle on an empty world", () => {
+  it("returns [] (implemented in M8-5)", () => {
     const world = new World();
     world.module(PhysicsModule);
 
-    expect(() => physics(world).overlapCircle({ center: { x: 0, y: 0 }, radius: 1 })).toThrow(
-      /not yet implemented/
-    );
+    expect(physics(world).overlapCircle({ center: { x: 0, y: 0 }, radius: 1 })).toEqual([]);
   });
 });
