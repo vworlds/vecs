@@ -33,6 +33,7 @@
     "ShapeRotation",
     "Sleep",
     "Torque",
+    "physics",
     "preloadPhysics"
   ],
   "classExports": [
@@ -69,7 +70,16 @@
     "Sleep",
     "Torque"
   ],
-  "functionExports": ["preloadPhysics"],
+  "functionExports": ["physics", "preloadPhysics"],
   "valueExports": ["BodyType"],
-  "typeExports": ["ContactEvent", "HitEvent", "PhysicsOptions", "SensorEvent", "Vec2"]
+  "typeExports": [
+    "ContactEvent",
+    "HitEvent",
+    "PhysicsOptions",
+    "PhysicsQueries",
+    "QueryFilter",
+    "RayHit",
+    "SensorEvent",
+    "Vec2"
+  ]
 }

@@ -1,6 +1,7 @@
 import { ArrayMap, Singleton, type EID, type World } from "@vworlds/vecs";
 
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
+import { type PhysicsQueries } from "./queries.js";
 import { type Box2DModule } from "./runtime.js";
 
 export type EntityId = EID;
@@ -121,6 +122,11 @@ export class PhysicsState {
   // World-lifetime scratch vector reused by hot pose/velocity setters.
   // It is intentionally not wrapped in withAllocated: teardown does not exist yet.
   public readonly scratchVec2: b2Vec2;
+
+  // Stable PhysicsQueries facade, constructed lazily by `physics(world)` and
+  // cached here so repeated calls don't re-allocate. Type-only import above
+  // avoids a runtime import cycle (queries.ts imports state.ts at runtime).
+  public queries?: PhysicsQueries;
 
   public constructor(box2d: Box2DModule, options: ResolvedPhysicsOptions, warnSink?: WarnSink) {
     this.box2d = box2d;

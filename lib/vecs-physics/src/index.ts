@@ -52,3 +52,7 @@ export {
   HitEvents,
   type HitEvent,
 } from "./components/events.js";
+
+// Queries
+export { physics } from "./adapter/queries.js";
+export type { PhysicsQueries, QueryFilter, RayHit } from "./adapter/queries.js";
