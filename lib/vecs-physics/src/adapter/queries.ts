@@ -13,7 +13,12 @@ import { type Entity, type World } from "@vworlds/vecs";
 
 import { type Vec2 } from "../components/geometry.js";
 import { withAllocated } from "./disposal.js";
-import { getPhysics, type b2ShapeId, type PhysicsState } from "./state.js";
+import {
+  getPhysics,
+  type b2RayCallbackResult,
+  type b2ShapeId,
+  type PhysicsState,
+} from "./state.js";
 
 /** Category/mask filter applied to a query. Unlike a shape's own filter
  * (default `categoryBits = 1`), a query's default `categoryBits` is
@@ -120,8 +125,44 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     );
   }
 
-  public rayCastAll(_query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit[] {
-    throw new Error("rayCastAll is not yet implemented (M8-4/M8-5)");
+  public rayCastAll(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit[] {
+    const { box2d, worldId } = this.state;
+    return withAllocated(
+      () => new box2d.b2Vec2(query.from.x, query.from.y),
+      (origin) =>
+        withAllocated(
+          () => new box2d.b2Vec2(query.to.x - query.from.x, query.to.y - query.from.y),
+          (translation) =>
+            withAllocated(
+              () => new box2d.b2QueryFilter(),
+              (filter) => {
+                applyQueryFilter(filter, query.filter);
+
+                const hits: RayHit[] = [];
+                box2d.b2World_CastRay(
+                  worldId,
+                  origin,
+                  translation,
+                  filter,
+                  (result: b2RayCallbackResult) => {
+                    const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+                    if (entity !== undefined) {
+                      hits.push({
+                        entity,
+                        point: { x: result.point.x, y: result.point.y },
+                        normal: { x: result.normal.x, y: result.normal.y },
+                        fraction: result.fraction,
+                      });
+                    }
+                    return 1;
+                  }
+                );
+
+                return hits;
+              }
+            )
+        )
+    );
   }
 
   public overlapAABB(_query: { min: Vec2; max: Vec2; filter?: QueryFilter }): Entity[] {

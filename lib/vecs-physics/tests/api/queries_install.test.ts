@@ -10,8 +10,10 @@
 //   - No allocation leak / no crash across many calls, interleaved with steps.
 //   - A world with a static box: `rayCastClosest` through it resolves to the
 //     shape entity with `0 <= fraction <= 1`.
-//   - `rayCastAll`/`overlapAABB`/`overlapCircle` are pinned as "not yet
-//     implemented" stubs until M8-4/M8-5.
+//   - `rayCastAll` on an empty world returns `[]` (implemented in M8-4; the
+//     full ray-cast suite lives in `tests/queries/raycast.test.ts`).
+//   - `overlapAABB`/`overlapCircle` are pinned as "not yet implemented" stubs
+//     until M8-5.
 
 import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
@@ -95,16 +97,16 @@ describe("rayCastClosest against a static box", () => {
   });
 });
 
-describe("unimplemented query stubs (pinned until M8-4/M8-5)", () => {
-  it("rayCastAll throws not-yet-implemented", () => {
+describe("rayCastAll on an empty world", () => {
+  it("returns [] (implemented in M8-4)", () => {
     const world = new World();
     world.module(PhysicsModule);
 
-    expect(() => physics(world).rayCastAll({ from: { x: -5, y: 0 }, to: { x: 5, y: 0 } })).toThrow(
-      /not yet implemented/
-    );
+    expect(physics(world).rayCastAll({ from: { x: -5, y: 0 }, to: { x: 5, y: 0 } })).toEqual([]);
   });
+});
 
+describe("unimplemented query stubs (pinned until M8-5)", () => {
   it("overlapAABB throws not-yet-implemented", () => {
     const world = new World();
     world.module(PhysicsModule);

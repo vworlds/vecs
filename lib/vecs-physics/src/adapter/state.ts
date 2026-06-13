@@ -10,6 +10,9 @@ export type b2BodyId = ReturnType<Box2DModule["b2CreateBody"]>;
 export type b2ShapeId = ReturnType<Box2DModule["b2CreateCircleShape"]>;
 export type b2ChainId = ReturnType<Box2DModule["b2CreateChain"]>;
 export type b2Vec2 = ReturnType<Box2DModule["b2Body_GetPosition"]>;
+/** The transient result object passed to a `b2World_CastRay` collector callback
+ * (the binding types the callback parameter as `any`). */
+export type b2RayCallbackResult = InstanceType<Box2DModule["b2RayCallbackResult"]>;
 
 /** Fully-resolved engine configuration: every `PhysicsOptions` field with its
  * default applied. Built by `PhysicsModule`; the source of truth for tunables
