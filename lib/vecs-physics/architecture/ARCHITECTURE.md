@@ -491,7 +491,7 @@ For every entity in `state.impulseEntitiesThisStep`, directly zero `Impulse.x/y`
 3. `TargetTerm` fan-out re-evaluates `ChildOf`-children with geometry — `PhysicsShapeLifecycle.enter` queues for them.
 4. Physics-pre runs: body system creates the `b2BodyId`; shape system creates each child shape attached to it.
 
-**Creation order does not matter** because `{ parent: Body }` is a `TargetTerm` with fan-out reactivity. Body-first and shape-first both work within the same frame. (Caveat: installing the module _after_ entities already exist does not currently backfill them — see UP-2 in `ROADMAP.md`.)
+**Creation order does not matter** because `{ parent: Body }` is a `TargetTerm` with fan-out reactivity. Body-first and shape-first both work within the same frame. (Requirement: `PhysicsModule` must be installed _before_ physics components are added to entities — the module is what registers those component classes, and physics wires entities through reactive systems that only observe components added on or after install. Entities created before installation are not backfilled, by design; this is documented in `docs/installation.md`. Resolved UP-2 — v2 ships this as a documentation contract, not a backfill mechanism.)
 
 ### Remove `Body`
 

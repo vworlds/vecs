@@ -37,7 +37,7 @@ v2 is **adopter-driven**. The first production integration (spacerocks → vecs-
 | ID   | Gap                                                                           | Severity | Kind               |
 | ---- | ----------------------------------------------------------------------------- | -------- | ------------------ |
 | UP-1 | Sensors don't detect solid shapes; sensor-detection semantics undocumented    | 🔴       | Correctness + docs |
-| UP-2 | Installing `PhysicsModule` after entities exist doesn't backfill their shapes | 🔴       | Lifecycle bug      |
+| UP-2 | Install ordering: physics components require the module to be installed first | 🔴       | Docs (by design)   |
 | UP-3 | No ray casts                                                                  | 🟠       | New query API      |
 | UP-4 | No spatial / overlap / nearest queries                                        | 🟠       | New query API      |
 
@@ -48,7 +48,7 @@ These split into two workstreams.
 Both are bugs/semantic gaps in the existing model, not new surface. They are additive and independently shippable.
 
 - **UP-1 — sensor detectability.** Box2D v3 only reports a sensor overlap when **both** shapes have `enableSensorEvents == true` (confirmed in `box2d/src/sensor.c`: line 67 gates on the visited shape, line 172 on the sensor shape). vecs-physics sets that flag only from the presence of a `SensorEvents` component, so a plain solid shape is invisible to every sensor — the documented "sensor zone detects a solid player" example cannot work. Spacerocks worked around this by making _every_ gameplay entity a sensor (sensor↔sensor works). v2 adds a first-class way to make a solid shape detectable, fixes the docs, and adds parity tests covering sensor↔solid, sensor↔sensor, and filter gating.
-- **UP-2 — late-install backfill.** Entities that have `Body` + a child shape **before** `world.module(PhysicsModule)` get a body that integrates (it moves) but a shape that never attaches — collisions/sensors are silently dead. The docs claim physics "can be installed after a world already exists." v2 makes module install reconcile all pre-existing `Body`/`Shape` entities so they are indistinguishable from runtime-created ones, with a debug warning if reconciliation is incomplete.
+- **UP-2 — install ordering.** Investigation (test-first) traced the reported symptom to a hard prerequisite, not a backfill bug: `PhysicsModule` is what _registers_ the physics component classes, so adding `Body`/`Shape` before install throws, and the only way to "pre-create" them is to register the classes yourself first — at which point `Box implements Shape` is declared after the geometry was set, so vecs core never aliases those shapes onto the `Shape` interface and the shape lifecycle system cannot see them. **Resolution (owner decision): documentation, not reconciliation.** Using physics components before installing the module is unsupported by design — like running a program before installing its OS. v2 documents the install-first requirement in `docs/installation.md`, `docs/getting-started.md`, and `docs/systems-and-phases.md`, and corrects the prior "can be installed after a world already exists" wording that implied pre-existing physics entities are wired.
 
 ### Workstream B — query API (UP-3, UP-4)
 

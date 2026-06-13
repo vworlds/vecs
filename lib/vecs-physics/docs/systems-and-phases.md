@@ -322,20 +322,25 @@ const damage = world
 
 ## Gotchas
 
-### Systems Join On The Next Progress
+### Install The Module Before Creating Physics Entities
 
-Physics can be installed after a world already exists. Its systems participate starting with the next `world.progress()` call.
+`PhysicsModule` registers the physics component classes (`Body`, `Box`, `Position`, …) when it is installed. Install it before you add any of those components to entities — adding one beforehand throws because the class is not registered on the world yet.
 
 ```ts
-world.module(PhysicsModule);
-world.progress(performance.now(), 1000 / 60);
+world.module(PhysicsModule); // registers physics components and systems
+const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 ```
 
-Installing after a frame is allowed, but it cannot affect frames that already ran:
+Physics wires entities through reactive systems that only observe components added on or after install, so there is no backfill of entities created before the module. This is by design: install the module first, the same way you install an operating system before running programs. See [Installation](./installation.md#install-the-module-before-creating-physics-entities).
+
+### Systems Join On The Next Progress
+
+Physics systems enter the pipeline starting with the next `world.progress()` call after install. Installing on an existing world is fine; it simply cannot affect frames that already ran.
 
 ```ts
 world.progress(performance.now(), 1000 / 60);
 world.module(PhysicsModule); // active on the next progress
+world.progress(performance.now(), 1000 / 60);
 ```
 
 ### Variable Delta Produces Variable Physics

@@ -230,6 +230,22 @@ await preloadPhysics();
 world.module(PhysicsModule);
 ```
 
+### Creating Physics Entities Before Installing The Module
+
+`world.module(PhysicsModule)` registers the physics components. Add them to entities only after the module is installed.
+
+```ts
+// Good: install first, then create entities.
+world.module(PhysicsModule);
+world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
+
+// Bad: throws "unregistered component entity for component class 'Body'".
+const world = new World();
+world.entity().set(Body, { type: BodyType.Dynamic });
+```
+
+Entities created before installation are not backfilled — see [Installation](./installation.md#install-the-module-before-creating-physics-entities).
+
 ### Adding Geometry Directly To A Body Entity
 
 Shapes should be child entities of the body entity.

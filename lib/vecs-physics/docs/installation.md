@@ -29,6 +29,31 @@ world.module(PhysicsModule, {
 
 If `world.module(PhysicsModule)` runs before `preloadPhysics()` resolves, it throws with a message telling you to call `await preloadPhysics()` first.
 
+## Install The Module Before Creating Physics Entities
+
+`world.module(PhysicsModule)` is what _registers_ the physics components (`Body`, `Box`, `Position`, …) on the world. Register the module before you add any of those components to entities — the same way you install an operating system before running programs on it.
+
+```ts
+await preloadPhysics();
+
+const world = new World();
+world.module(PhysicsModule); // registers the physics components and systems
+
+// Now it is safe to create physics entities.
+const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
+world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+```
+
+Adding a physics component to an entity before the module is installed throws — the component class is not registered on the world yet:
+
+```ts
+const world = new World();
+world.entity().set(Body, { type: BodyType.Dynamic });
+// throws: unregistered component entity for component class 'Body'
+```
+
+There is no backfill of entities that somehow pre-date installation (for example, if you register the component classes yourself and create entities before `world.module(PhysicsModule)`): physics wires entities through its reactive systems, which only see components added on or after install. Install first, then build your world.
+
 ## Node Runtime Note
 
 `box2d3-wasm` reads `navigator.hardwareConcurrency` during module initialization. Node does not always provide that browser global, so `preloadPhysics()` creates `globalThis.navigator` when needed and fills `navigator.hardwareConcurrency` from `node:os` CPU count.
