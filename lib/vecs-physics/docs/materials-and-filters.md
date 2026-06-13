@@ -141,13 +141,15 @@ const CollisionCategory = {
 } as const;
 ```
 
-Player shape collides with terrain, enemies, and pickups.
+Player shape collides with terrain, enemies, and pickups. Add `Detectable` so
+sensors (such as the pickup below) can see the player shape.
 
 ```ts
 world
   .entity()
   .set(ChildOf, { target: player })
   .set(Box, { hx: 0.5, hy: 1 })
+  .add(Detectable)
   .set(CollisionFilter, {
     categoryBits: CollisionCategory.Player,
     maskBits: CollisionCategory.Terrain | CollisionCategory.Enemy | CollisionCategory.Pickup,
@@ -181,6 +183,12 @@ world
     maskBits: CollisionCategory.Player,
   });
 ```
+
+The pickup is the sensor (`Sensor` + `SensorEvents`); it receives the overlap
+event. The player shape's `Detectable` is what makes it visible to that
+sensor — without it, Box2D never reports the overlap, no matter how the
+filters are configured. See [Events](./events.md) for the full sensor
+detection rule.
 
 ## Group Index Example
 
@@ -302,6 +310,23 @@ trigger.add(Sensor).add(SensorEvents).set(CollisionFilter, {
   maskBits: CollisionCategory.Player,
 });
 ```
+
+### Expecting Detectable To Bypass Filters
+
+`Detectable` only makes a shape visible to the sensor-overlap pass. It does
+not change `CollisionFilter`. If the sensor's mask does not accept the
+detectable shape's category (or vice versa), Box2D still does not report the
+overlap.
+
+```ts
+sensorShape.add(Sensor).add(SensorEvents).set(CollisionFilter, { maskBits: 0b01 });
+
+// Never detected: category 0b10 is not in the sensor's mask.
+solidShape.add(Detectable).set(CollisionFilter, { categoryBits: 0b10 });
+```
+
+Make sure the sensor's `maskBits` includes the detectable shape's
+`categoryBits` (and vice versa) if you want the overlap reported.
 
 ### Changing filters every frame
 

@@ -22,7 +22,7 @@ import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "./com
 import { Damping, GravityScale, MotionLocks, Sleep } from "./components/body_tuning.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment, Shape } from "./components/geometry.js";
 import { AngularImpulse, Force, Impulse, Torque } from "./components/force.js";
-import { CollisionFilter, Material, Sensor } from "./components/material.js";
+import { CollisionFilter, Detectable, Material, Sensor } from "./components/material.js";
 import { ContactEvents, HitEvents, SensorEvents } from "./components/events.js";
 import { KinematicTargetPosition, KinematicTargetRotation } from "./components/target.js";
 import { ShapePosition, ShapeRotation } from "./components/shape_pose.js";
@@ -109,6 +109,7 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
   world.component(Material);
   world.component(CollisionFilter);
   world.component(Sensor);
+  world.component(Detectable);
 
   world.component(Force);
   world.component(Torque);

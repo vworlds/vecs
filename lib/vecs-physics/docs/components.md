@@ -72,6 +72,7 @@ This table is checked against the default value produced by `new C()` for each p
 | `CollisionFilter`         | `maskBits`          | `0xffffffff` |
 | `CollisionFilter`         | `groupIndex`        | `0`          |
 | `Sensor`                  | `marker`            | `{}`         |
+| `Detectable`              | `marker`            | `{}`         |
 | `Force`                   | `x`                 | `0`          |
 | `Force`                   | `y`                 | `0`          |
 | `Force`                   | `wake`              | `true`       |
@@ -518,6 +519,28 @@ world
 ```
 
 Missing `Sensor` means the shape is solid.
+
+## Detectable Component
+
+`Detectable` marks a (typically solid) shape as visible to overlapping sensors.
+
+```ts
+export class Detectable {}
+```
+
+Box2D v3 only reports a sensor overlap when **both** the sensor shape and the
+visited shape opt in to sensor events. A plain solid shape has no
+`SensorEvents` and is therefore invisible to every sensor by default. Add
+`Detectable` to make it visible without turning it into a sensor and without
+giving it `SensorEvents` of its own — the overlap is still reported to the
+sensor shape, not to the detectable shape.
+
+```ts
+world.entity().set(ChildOf, { target: player }).set(Box, { hx: 0.5, hy: 0.5 }).add(Detectable);
+```
+
+Missing `Detectable` means a solid shape is not reported to sensors. See
+[Events](./events.md) for the full sensor model.
 
 ## Force And Impulse Components
 

@@ -35,7 +35,7 @@ export {
 } from "./components/geometry.js";
 
 // Material / filter / sensor
-export { Material, CollisionFilter, Sensor } from "./components/material.js";
+export { Material, CollisionFilter, Sensor, Detectable } from "./components/material.js";
 
 // Forces & impulses
 export { Force, Torque, Impulse, AngularImpulse } from "./components/force.js";

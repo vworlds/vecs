@@ -88,6 +88,42 @@ A shape becomes a sensor by adding `Sensor`.
 export class Sensor {}
 ```
 
+### The Sensor Detection Rule
+
+Box2D v3 only reports an overlap to a sensor shape when **both** of these are
+true:
+
+- The sensor shape has `Sensor` + `SensorEvents` (so it is a sensor and wants
+  to receive overlap events).
+- The _visited_ shape — the other shape overlapping the sensor — opts in to
+  sensor events too.
+
+A plain solid shape (no `SensorEvents`, no `Sensor`) does **not** opt in, so
+it is invisible to every sensor by default. To make a solid shape visible to
+sensors, add `Detectable` to it:
+
+```ts
+export class Detectable {}
+```
+
+`Detectable` forces the shape to opt in to sensor visibility without making it
+a sensor and without giving it `SensorEvents` of its own — the overlap is
+still reported only to the sensor shape, never to the detectable shape.
+
+```ts
+export type SensorEvent = {
+  other: Entity;
+};
+```
+
+`other` is the other shape entity involved in the overlap.
+
+Adding `SensorEvents` to the visited shape also opts it in (because
+`SensorEvents` implies sensor visibility too), but that additionally makes the
+visited shape collect its own (likely empty, since it is not a sensor)
+`SensorEvents.begin`/`end` arrays. Prefer `Detectable` for solid shapes — it
+says "let sensors see me" without implying "I receive sensor events".
+
 Example: trigger a checkpoint when the player enters a zone.
 
 ```ts
@@ -104,6 +140,15 @@ world
   .add(SensorEvents)
   .add(Checkpoint);
 
+const player = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
+
+world
+  .entity()
+  .set(ChildOf, { target: player })
+  .set(Circle, { radius: 0.5 })
+  .add(Detectable)
+  .add(Player);
+
 world
   .system("CheckpointTriggers")
   .with({ all: [Checkpoint, SensorEvents] })
@@ -117,15 +162,9 @@ world
   });
 ```
 
-Sensor event payloads follow the same basic shape as contact events.
-
-```ts
-export type SensorEvent = {
-  other: Entity;
-};
-```
-
-`other` is the other shape entity involved in the overlap.
+The checkpoint shape is the sensor (`Sensor` + `SensorEvents`). The player's
+shape adds `Detectable` so the checkpoint can see it — without the player
+shape becoming a sensor or collecting its own `SensorEvents`.
 
 ## Hit Events
 
@@ -266,6 +305,24 @@ shape.set(ChildOf, { target: body }).add(ContactEvents);
 ```ts
 shape.add(Sensor).add(SensorEvents);
 ```
+
+### Forgetting Detectable On Solid Shapes
+
+A sensor only reports an overlap when the visited shape opts in too. A plain
+solid shape (no `Detectable`, no `SensorEvents`) is invisible to every sensor,
+even if the sensor shape itself has `Sensor` + `SensorEvents`.
+
+```ts
+// The sensor never sees this shape:
+playerShape.set(Box, { hx: 0.5, hy: 0.5 });
+
+// Add Detectable so sensors can see it:
+playerShape.add(Detectable);
+```
+
+Do not "fix" this by adding `SensorEvents` to the solid shape — that works
+mechanically (it also opts the shape in), but it implies the solid shape
+receives sensor events, which it never does as a non-sensor. Use `Detectable`.
 
 ### Expecting Empty Events To Trigger Updates
 

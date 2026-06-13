@@ -27,3 +27,8 @@ export class CollisionFilter {
 
 /** Marks a shape as an overlap-only sensor (no collision response). */
 export class Sensor {}
+
+/** Marks a (typically solid) shape as detectable by sensor overlaps. Without it,
+ * Box2D v3 will not report this shape to overlapping sensors. It does NOT make
+ * the shape a sensor, and the shape does not itself receive sensor events. */
+export class Detectable {}

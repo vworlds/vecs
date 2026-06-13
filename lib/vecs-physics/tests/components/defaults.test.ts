@@ -13,6 +13,7 @@ import {
   CollisionFilter,
   ContactEvents,
   Damping,
+  Detectable,
   Force,
   GravityScale,
   HitEvents,
@@ -156,6 +157,10 @@ describe("material and filter defaults", () => {
   it("Sensor is an empty marker", () => {
     expect({ ...new Sensor() }).toEqual({});
   });
+
+  it("Detectable is an empty marker", () => {
+    expect({ ...new Detectable() }).toEqual({});
+  });
 });
 
 describe("force and impulse defaults", () => {
@@ -268,6 +273,7 @@ function buildDefaultSpecs(): Map<string, string> {
       "groupIndex",
     ]),
     [keyFor("Sensor", "marker"), formatValue(new Sensor())],
+    [keyFor("Detectable", "marker"), formatValue(new Detectable())],
     ...rowsFor("Force", new Force(), ["x", "y", "wake"]),
     ...rowsFor("Torque", new Torque(), ["value", "wake"]),
     ...rowsFor("Impulse", new Impulse(), ["x", "y", "wake"]),

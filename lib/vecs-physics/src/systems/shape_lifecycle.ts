@@ -3,7 +3,7 @@ import { ChildOf, Iter, type Entity, type World } from "@vworlds/vecs";
 import { Body } from "../components/body.js";
 import { Box, Capsule, Chain, Circle, Polygon, Segment, Shape } from "../components/geometry.js";
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
-import { CollisionFilter, Material, Sensor } from "../components/material.js";
+import { CollisionFilter, Detectable, Material, Sensor } from "../components/material.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
 import { type Box2DModule } from "../adapter/runtime.js";
 import {
@@ -333,7 +333,8 @@ function readShapeOptions(entity: Entity): ShapeOptions {
     sensor: entity.get(Sensor) !== undefined,
     enableContactEvents: entity.get(ContactEvents) !== undefined,
     enableHitEvents: entity.get(HitEvents) !== undefined,
-    enableSensorEvents: entity.get(SensorEvents) !== undefined,
+    enableSensorEvents:
+      entity.get(SensorEvents) !== undefined || entity.get(Detectable) !== undefined,
   };
 }
 
