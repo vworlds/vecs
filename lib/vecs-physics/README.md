@@ -50,11 +50,29 @@ console.log(finalPosition.x.toFixed(3), finalPosition.y.toFixed(3));
 | Collision filters    | Category bits, mask bits, and group index.                             |
 | Debug validation     | Optional deduplicated warnings with `debug: true`.                     |
 
+## New In V2
+
+- `Detectable` - marker component that makes a solid shape visible to sensors (Box2D v3 requires both the sensor shape and the visited shape to opt in to sensor events).
+- `physics(world)` - imperative, read-only query API: `rayCastClosest`, `rayCastAll`, `overlapAABB` (broad-phase), and `overlapCircle` (precise mid-phase). Results are Vecs shape entities, never Box2D handles. See [Queries](./docs/queries.md).
+
+```ts
+import { physics } from "@vworlds/vecs-physics";
+
+const hit = physics(world).rayCastClosest({ from: { x: 0, y: 2 }, to: { x: 10, y: 2 } });
+if (hit) {
+  console.log(hit.entity, hit.point, hit.normal, hit.fraction);
+}
+
+const overlapping = physics(world).overlapAABB({ min: { x: -5, y: -5 }, max: { x: 5, y: 5 } });
+for (const entity of overlapping) {
+  console.log(entity);
+}
+```
+
 ## V1 Limitations
 
 - No joints.
-- No ray casts or shape casts.
-- No AABB overlap queries.
+- No shape casts.
 - No public character mover helpers.
 - No debug drawing API.
 - Single-threaded solver only.
@@ -72,9 +90,12 @@ tsx examples/hello_world.ts
 tsx examples/sensor_trigger.ts
 tsx examples/kinematic_platform.ts
 tsx examples/contact_events.ts
+tsx examples/raycast.ts
+tsx examples/overlap_query.ts
+tsx examples/sensor_detectable.ts
 ```
 
-Or run all four in sequence via `npm run examples`.
+Or run all seven in sequence via `npm run examples`.
 
 ## Learn More
 
@@ -83,6 +104,7 @@ Or run all four in sequence via `npm run examples`.
 - [Bodies](./docs/bodies.md)
 - [Shapes](./docs/shapes.md)
 - [Events](./docs/events.md)
+- [Queries](./docs/queries.md)
 - [Systems And Phases](./docs/systems-and-phases.md)
 - [Debug Validation](./docs/debug-validation.md)
 - [Internals](./docs/internals.md)

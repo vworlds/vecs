@@ -6,11 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-06-13
+
+### Added
+
+- `Detectable` marker component so solid shapes are detectable by sensors (Box2D v3 requires both the sensor and the visited shape to opt in to sensor events).
+- Imperative read-only query API via the `physics(world)` accessor and the `PhysicsQueries` facade: `rayCastClosest`, `rayCastAll`, `overlapAABB` (broad-phase), `overlapCircle` (precise mid-phase). New public types `QueryFilter` and `RayHit`. Results are Vecs shape entities, never Box2D handles.
+
 ### Changed
 
 - Migrated the physics backend from the in-house TypeScript engine to `box2d3-wasm`, while keeping the Vecs component API unchanged.
-- Pinned the migration baseline to `box2d3-wasm@5.2.0`; tight parity expectations are now determined by that WASM build.
+- Pinned the migration baseline to `box2d3-wasm@5.2.0`; tight parity expectations are now determined by that WASM build. The pin remains for this release.
 - Updated bootstrap docs and examples to call `await preloadPhysics()` before `world.module(PhysicsModule)`.
+
+### Docs
+
+- Documented that `PhysicsModule` must be installed before physics components are added to entities (entities created before install are not backfilled, by design).
+- Corrected the sensor-detection model docs: a sensor only sees shapes that opt in via `SensorEvents` or `Detectable`.
 
 ### Performance
 

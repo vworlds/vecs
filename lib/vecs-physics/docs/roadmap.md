@@ -10,22 +10,22 @@ The initial version is designed to make normal rigid-body gameplay work with a n
 
 Included areas:
 
-| Area              | Status   | Notes                                                                   |
-| ----------------- | -------- | ----------------------------------------------------------------------- |
-| Bodies            | Included | `Body`, `Position`, `Rotation`, velocities, and optional body tunables. |
-| Shapes            | Included | Child shape entities with exclusive geometry components.                |
-| Materials         | Included | Box2D-compatible defaults for density, friction, and restitution.       |
-| Collision filters | Included | Category bits, mask bits, and group index.                              |
-| Sensors           | Included | `Sensor` component on shape entities.                                   |
-| Forces            | Included | Persistent `Force` and `Torque` components.                             |
-| Impulses          | Included | Reactive one-shot `Impulse` and `AngularImpulse` components.            |
-| Kinematic targets | Included | Target position and rotation components for kinematic bodies.           |
-| Contact events    | Included | Shape-local `ContactEvents` component.                                  |
-| Sensor events     | Included | Shape-local `SensorEvents` component.                                   |
-| Hit events        | Included | Shape-local `HitEvents` component.                                      |
-| Sleeping          | Included | `Sleep` component plus world `enableSleep: true` default.               |
-| Continuous CCD    | Included | `Body.bullet` / fast-body CCD with `enableContinuous: true` default.    |
-| Debug validation  | Included | Optional deduplicated warnings for invalid ECS structures.              |
+| Area              | Status   | Notes                                                                                     |
+| ----------------- | -------- | ----------------------------------------------------------------------------------------- |
+| Bodies            | Included | `Body`, `Position`, `Rotation`, velocities, and optional body tunables.                   |
+| Shapes            | Included | Child shape entities with exclusive geometry components.                                  |
+| Materials         | Included | Box2D-compatible defaults for density, friction, and restitution.                         |
+| Collision filters | Included | Category bits, mask bits, and group index.                                                |
+| Sensors           | Included | `Sensor` component on shape entities; `Detectable` marks solid shapes visible to sensors. |
+| Forces            | Included | Persistent `Force` and `Torque` components.                                               |
+| Impulses          | Included | Reactive one-shot `Impulse` and `AngularImpulse` components.                              |
+| Kinematic targets | Included | Target position and rotation components for kinematic bodies.                             |
+| Contact events    | Included | Shape-local `ContactEvents` component.                                                    |
+| Sensor events     | Included | Shape-local `SensorEvents` component.                                                     |
+| Hit events        | Included | Shape-local `HitEvents` component.                                                        |
+| Sleeping          | Included | `Sleep` component plus world `enableSleep: true` default.                                 |
+| Continuous CCD    | Included | `Body.bullet` / fast-body CCD with `enableContinuous: true` default.                      |
+| Debug validation  | Included | Optional deduplicated warnings for invalid ECS structures.                                |
 
 The goal for v1 is that this kind of game object should be straightforward:
 
@@ -36,6 +36,99 @@ world.entity().set(ChildOf, { target: player }).set(Box, { hx: 0.5, hy: 1 }).add
 
 player.set(Impulse, { x: 0, y: 8 });
 ```
+
+## Version 2 Additions
+
+Version 2 adds the `Detectable` marker component and an imperative, read-only query API via `physics(world)`.
+
+| Area                 | Status   | Notes                                                                                                        |
+| -------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `Detectable`         | Included | Marker component on a shape entity that makes a solid shape visible to sensors.                              |
+| Ray casts            | Included | `physics(world).rayCastClosest` and `physics(world).rayCastAll`.                                             |
+| AABB overlap queries | Included | `physics(world).overlapAABB` (broad-phase, fat AABB) and `physics(world).overlapCircle` (precise mid-phase). |
+
+### Ray Casts
+
+Ray casts answer the question: what shape would this ray hit?
+
+```ts
+import { physics } from "@vworlds/vecs-physics";
+
+const hit = physics(world).rayCastClosest({
+  from: { x: 0, y: 2 },
+  to: { x: 10, y: 2 },
+  filter: { categoryBits: 1, maskBits: 0xffffffff },
+});
+
+if (hit) {
+  console.log(hit.entity); // shape entity
+  console.log(hit.point.x, hit.point.y);
+  console.log(hit.normal.x, hit.normal.y);
+}
+```
+
+Use cases:
+
+- Line-of-sight checks.
+- Bullet traces.
+- Mouse picking.
+- Ground checks.
+- Sensor-like checks for fast projectiles.
+
+`rayCastAll` returns every shape the ray crosses, in fraction-ascending order, instead of only the closest:
+
+```ts
+const hits = physics(world).rayCastAll({
+  from: { x: -10, y: 0 },
+  to: { x: 10, y: 0 },
+});
+
+for (const hit of hits) {
+  console.log(hit.entity, hit.fraction);
+}
+```
+
+See [Queries](./queries.md) and [Materials And Filters](./materials-and-filters.md), [Events](./events.md).
+
+### AABB Overlap Queries
+
+Overlap queries answer the question: which shapes overlap this region?
+
+```ts
+import { physics } from "@vworlds/vecs-physics";
+
+const hits = physics(world).overlapAABB({
+  min: { x: -5, y: -5 },
+  max: { x: 5, y: 5 },
+});
+
+for (const entity of hits) {
+  console.log(entity); // shape entity
+}
+```
+
+Use cases:
+
+- Area triggers.
+- Editor selection.
+- Proximity checks.
+- Spawn validation.
+- Cheap broad-phase gameplay queries.
+
+`overlapAABB` is a broad-phase query against fat AABBs: it can over-report relative to exact shape overlap. `overlapCircle` is the precise mid-phase variant:
+
+```ts
+const hits = physics(world).overlapCircle({
+  center: { x: 0, y: 0 },
+  radius: 1.5,
+});
+
+for (const entity of hits) {
+  console.log(entity); // shape entity
+}
+```
+
+See [Queries](./queries.md).
 
 ## Deferred Features
 
@@ -51,71 +144,6 @@ The M5 closeout left four explicit v2 carries:
 - Dynamic `Sensor` marker toggle: switching solid ↔ sensor at runtime needs contact teardown, sensor-storage create/destroy, and mass/proxy invariant handling; recreating the shape is the v1 workaround.
 - CoM-shift velocity adjustment: v1 sleep state uses `v = ω = 0`, making the shift identically zero in the covered cases; revisit if v2 adds runtime center-of-mass changes that can affect sleeping bodies.
 - Sensor TOI hits queue: v1 sensor events use the regular overlap pass; TOI-precise sensor hits are deferred until sensor CCD use cases need them.
-
-### Ray Casts
-
-Ray casts answer the question: what shape would this ray hit?
-
-The upstream WASM backend exposes ray casts. The vecs-physics-side adapter and public API are still pending.
-
-Expected use cases:
-
-- Line-of-sight checks.
-- Bullet traces.
-- Mouse picking.
-- Ground checks.
-- Sensor-like checks for fast projectiles.
-
-Expected API direction:
-
-```ts
-const hit = physics.rayCastClosest({
-  from: { x: 0, y: 2 },
-  to: { x: 10, y: 2 },
-  filter: { categoryBits: 1, maskBits: 0xffffffff },
-});
-
-if (hit) {
-  console.log(hit.entity); // shape entity
-  console.log(hit.point.x, hit.point.y);
-  console.log(hit.normal.x, hit.normal.y);
-}
-```
-
-Ray casts are likely to be exposed through an imperative API returned by `PhysicsModule`, not through request components.
-
-Reason: ray casts are synchronous queries against the current physics world. They are usually easier to use as direct reads than as ECS state.
-
-See also: [Materials And Filters](./materials-and-filters.md), [Events](./events.md).
-
-### AABB Overlap Queries
-
-Overlap queries answer the question: which shapes overlap this box-shaped area?
-
-The upstream WASM backend exposes broad-phase overlap query primitives. The vecs-physics-side adapter and public API are still pending.
-
-Expected use cases:
-
-- Area triggers.
-- Editor selection.
-- Proximity checks.
-- Spawn validation.
-- Cheap broad-phase gameplay queries.
-
-Expected API direction:
-
-```ts
-const hits = physics.overlapAABB({
-  min: { x: -5, y: -5 },
-  max: { x: 5, y: 5 },
-});
-
-for (const hit of hits) {
-  console.log(hit.entity); // shape entity
-}
-```
-
-Like ray casts, overlap queries are expected to be imperative reads.
 
 ### Shape Casts
 
@@ -237,9 +265,9 @@ Recommended direction:
 
 ### Expecting Deferred Features In V1
 
-If you need ray casts, joints, or character movers immediately, they are not part of the first version.
+If you need joints, shape casts, or character movers immediately, they are not part of the first version.
 
-Use shape entities, sensors, and contact events for v1 gameplay when possible.
+Ray casts and overlap queries shipped in v2 via `physics(world)` — see [Queries](./queries.md). Use shape entities, sensors, and contact events for gameplay that does not yet have a dedicated query or constraint API.
 
 ### Building Public APIs Around Internal Handles
 
@@ -248,7 +276,7 @@ Future features should continue to return Vecs entities, not internal handles.
 Prefer this:
 
 ```ts
-const hit = physics.rayCastClosest(ray);
+const hit = physics(world).rayCastClosest(ray);
 console.log(hit?.entity);
 ```
 

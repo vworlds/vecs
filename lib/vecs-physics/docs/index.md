@@ -29,11 +29,12 @@ world.module(PhysicsModule, {
 - [Materials And Filters](./materials-and-filters.md) - density, friction, restitution, collision categories, masks, and groups.
 - [Forces And Impulses](./forces-and-impulses.md) - persistent forces, queued impulses, child force sources, and update semantics.
 - [Events](./events.md) - contact, hit, and sensor event components.
+- [Queries](./queries.md) - ray casts and overlap queries.
 - [Kinematic Motion](./kinematic-motion.md) - target position and target rotation for kinematic bodies.
 - [Systems And Phases](./systems-and-phases.md) - physics phases, fixed timestep assumptions, and frame ordering.
 - [Debug Validation](./debug-validation.md) - optional diagnostics for invalid ECS structures.
 - [Internals](./internals.md) - port architecture, broad phase, solver, islands, and Box2D lineage.
-- [Roadmap](./roadmap.md) - deferred features such as ray casts, overlap queries, shape casts, and joints.
+- [Roadmap](./roadmap.md) - deferred features such as shape casts, character movers, and joints.
 
 ## Design Principles
 
@@ -593,14 +594,11 @@ See [Debug Validation](./debug-validation.md).
 
 ## Deferred Features
 
-The first version focuses on bodies, shapes, materials, filters, forces, impulses, kinematic targets, and events.
+The first version focuses on bodies, shapes, materials, filters, forces, impulses, kinematic targets, and events. Version 2 adds the `Detectable` marker component and the `physics(world)` query API (ray casts and overlap queries) — see [Queries](./queries.md).
 
 Deferred to later versions:
 
-- Ray casts.
 - Shape casts.
-- AABB overlap queries.
-- Imperative physics query API.
 - Joints.
 - Character mover helpers.
 

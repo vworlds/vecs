@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-physics",
-  "version": "1.0.26",
+  "version": "2.0.0",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -27,7 +27,7 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
     "test": "vitest run",
     "bench": "tsx bench/index.ts",
-    "examples": "tsx --conditions=development examples/hello_world.ts && tsx --conditions=development examples/sensor_trigger.ts && tsx --conditions=development examples/kinematic_platform.ts && tsx --conditions=development examples/contact_events.ts"
+    "examples": "tsx --conditions=development examples/hello_world.ts && tsx --conditions=development examples/sensor_trigger.ts && tsx --conditions=development examples/kinematic_platform.ts && tsx --conditions=development examples/contact_events.ts && tsx --conditions=development examples/raycast.ts && tsx --conditions=development examples/overlap_query.ts && tsx --conditions=development examples/sensor_detectable.ts"
   },
   "dependencies": {
     "@vworlds/vecs": "1.0.26",
