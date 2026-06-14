@@ -7,7 +7,7 @@ import { type Entity, World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Material, Position, PhysicsModule } from "../../src/index.js";
-import { getPhysics } from "../../src/adapter/state.js";
+import { getPhysicsEngine } from "../../src/adapter/engine.js";
 
 const STEP_MS = 1000 / 60;
 
@@ -15,14 +15,14 @@ describe("test_world.c::DestroyAllBodiesWorld", () => {
   it("destroys every body and shape without leaving registered entities", () => {
     const world = new World();
     world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
-    const state = getPhysics(world);
+    const engine = getPhysicsEngine(world);
     const step = makeStepper(world);
 
     const { bodies, shapes } = makeContactingWorld(world);
     step(5);
 
     // Some contacts should have formed.
-    expect(state.entityByBodyIndex.size).toBeGreaterThan(0);
+    expect(engine.entityByBodyIndex.size).toBeGreaterThan(0);
 
     for (const shape of shapes) {
       shape.destroy();
@@ -33,10 +33,10 @@ describe("test_world.c::DestroyAllBodiesWorld", () => {
     step(1);
 
     // All entity → WASM mappings must be cleared.
-    expect(state.entityByBodyIndex.size).toBe(0);
-    expect(state.entityByShapeIndex.size).toBe(0);
+    expect(engine.entityByBodyIndex.size).toBe(0);
+    expect(engine.entityByShapeIndex.size).toBe(0);
     // The WASM world remains valid after all bodies are destroyed.
-    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
+    expect(engine.box2d.b2World_IsValid(engine.worldId)).toBe(true);
   });
 });
 

@@ -43,50 +43,49 @@ export interface ResolvedPhysicsOptions {
 export class PhysicsSystemTag {}
 
 export function registerInternalComponents(world: World): void {
-  world.component(PhysicsRoot);
+  world.component(PhysicsEngine);
   world.component(PhysicsSystemTag);
 }
 
-export function attachPhysics(world: World, state: PhysicsState): void {
-  world.component(PhysicsRoot).add(Singleton);
-  world.set(PhysicsRoot, { state });
+export function attachPhysicsEngine(world: World, engine: PhysicsEngine): void {
+  world.component(PhysicsEngine).add(Singleton);
+  world.component(PhysicsEngine).attach(PhysicsEngine, engine);
 }
 
-export function getPhysics(world: World): PhysicsState {
-  const root = world.get(PhysicsRoot) as PhysicsRoot | undefined;
-  if (!root) {
-    throw new Error("world.module(PhysicsModule) must be called before reading physics state");
+export function getPhysicsEngine(world: World): PhysicsEngine {
+  const engine = world.get(PhysicsEngine) as PhysicsEngine | undefined;
+  if (!engine) {
+    throw new Error("world.module(PhysicsModule) must be called before reading physics engine");
   }
-  return root.state;
+  return engine;
 }
 
-export function hasPhysics(world: World): boolean {
-  if (!world._classRegistry.has(PhysicsRoot)) {
+export function hasPhysicsEngine(world: World): boolean {
+  if (!world._classRegistry.has(PhysicsEngine)) {
     return false;
   }
-  const root = world.get(PhysicsRoot) as PhysicsRoot | undefined;
-  return root?.state !== undefined;
+  return world.get(PhysicsEngine) !== undefined;
 }
 
-export class PhysicsState {
+export class PhysicsEngine {
   public worldId!: b2WorldId;
-  public readonly box2d: Box2DModule;
+  public readonly box2d!: Box2DModule;
 
   // Resolved configuration (flattened from PhysicsOptions).
-  public readonly gravityX: number;
-  public readonly gravityY: number;
-  public readonly fixedTimeStep: number;
-  public readonly subSteps: number;
-  public readonly debug: boolean;
-  public readonly warn: WarnDedupe;
-  public readonly restitutionThreshold: number;
-  public readonly hitEventThreshold: number;
-  public readonly contactHertz: number;
-  public readonly contactDampingRatio: number;
-  public readonly contactSpeed: number;
-  public readonly maximumLinearSpeed: number;
-  public readonly enableSleep: boolean;
-  public readonly enableContinuous: boolean;
+  public readonly gravityX!: number;
+  public readonly gravityY!: number;
+  public readonly fixedTimeStep!: number;
+  public readonly subSteps!: number;
+  public readonly debug!: boolean;
+  public readonly warn!: WarnDedupe;
+  public readonly restitutionThreshold!: number;
+  public readonly hitEventThreshold!: number;
+  public readonly contactHertz!: number;
+  public readonly contactDampingRatio!: number;
+  public readonly contactSpeed!: number;
+  public readonly maximumLinearSpeed!: number;
+  public readonly enableSleep!: boolean;
+  public readonly enableContinuous!: boolean;
 
   // Forward handles live on components: Body._bodyId and Shape._shapeId.
   // Index-keyed reverse ArrayMaps resolve Box2D event IDs back to entities.
@@ -102,7 +101,7 @@ export class PhysicsState {
   public readonly dirtyMassBodies = new Set<EID>();
 
   // Per-step event tracking sets for PhysicsEvents (M7-8 should-fix: moved from
-  // closure-local to state so they survive future pause/resume cycles).
+  // closure-local to engine so they survive future pause/resume cycles).
   // Populated by PhysicsEvents at the end of each step; persist into the next
   // step to detect which entities stopped receiving events.
   public readonly prevTouchedContact = new Set<EID>();
@@ -126,10 +125,16 @@ export class PhysicsState {
 
   // Stable PhysicsQueries facade, constructed lazily by `physics(world)` and
   // cached here so repeated calls don't re-allocate. Type-only import above
-  // avoids a runtime import cycle (queries.ts imports state.ts at runtime).
+  // avoids a runtime import cycle (queries.ts imports engine.ts at runtime).
   public queries?: PhysicsQueries;
 
-  public constructor(box2d: Box2DModule, options: ResolvedPhysicsOptions, warnSink?: WarnSink) {
+  public constructor();
+  public constructor(box2d: Box2DModule, options: ResolvedPhysicsOptions, warnSink?: WarnSink);
+  public constructor(box2d?: Box2DModule, options?: ResolvedPhysicsOptions, warnSink?: WarnSink) {
+    if (box2d === undefined || options === undefined) {
+      return;
+    }
+
     this.box2d = box2d;
     this.gravityX = options.gravityX;
     this.gravityY = options.gravityY;
@@ -146,9 +151,4 @@ export class PhysicsState {
     this.enableSleep = options.enableSleep;
     this.enableContinuous = options.enableContinuous;
   }
-}
-
-// Internal singleton state holder. Never exported from the package public API.
-class PhysicsRoot {
-  public state!: PhysicsState;
 }

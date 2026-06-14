@@ -16,11 +16,11 @@ import { scr_b2AABB, scr_b2QueryFilter, scr_b2Vec2 } from "./runtime.js";
 import {
   b2AABB,
   b2QueryFilter,
-  getPhysics,
+  getPhysicsEngine,
   type b2RayCallbackResult,
   type b2ShapeId,
-  type PhysicsState,
-} from "./state.js";
+  type PhysicsEngine,
+} from "./engine.js";
 
 /** Category/mask filter applied to a query. Unlike a shape's own filter
  * (default `categoryBits = 1`), a query's default `categoryBits` is
@@ -73,23 +73,23 @@ export interface PhysicsQueries {
  * Returns the {@link PhysicsQueries} facade for `world`.
  *
  * Throws if `world.module(PhysicsModule)` has not been called (the error
- * message comes from `getPhysics`). The returned facade is stable: repeated
+ * message comes from `getPhysicsEngine`). The returned facade is stable: repeated
  * calls for the same world return the same instance, so it never
  * re-allocates.
  */
 export function physics(world: World): PhysicsQueries {
-  const state = getPhysics(world);
-  return (state.queries ??= new PhysicsQueriesImpl(world, state));
+  const engine = getPhysicsEngine(world);
+  return (engine.queries ??= new PhysicsQueriesImpl(world, engine));
 }
 
 class PhysicsQueriesImpl implements PhysicsQueries {
   public constructor(
     private readonly world: World,
-    private readonly state: PhysicsState
+    private readonly engine: PhysicsEngine
   ) {}
 
   public rayCastClosest(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit | undefined {
-    const { box2d, worldId } = this.state;
+    const { box2d, worldId } = this.engine;
 
     const origin = scr_b2Vec2[0];
     origin.Set(query.from.x, query.from.y);
@@ -108,7 +108,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
         return undefined;
       }
 
-      const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+      const entity = resolveShapeEntity(this.engine, this.world, result.shapeId);
       if (entity === undefined) {
         return undefined;
       }
@@ -125,7 +125,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
   }
 
   public rayCastAll(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit[] {
-    const { box2d, worldId } = this.state;
+    const { box2d, worldId } = this.engine;
 
     const origin = scr_b2Vec2[0];
     origin.Set(query.from.x, query.from.y);
@@ -140,7 +140,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
       translation,
       to_b2QueryFilter(query.filter),
       (result: b2RayCallbackResult) => {
-        const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+        const entity = resolveShapeEntity(this.engine, this.world, result.shapeId);
         if (entity !== undefined) {
           hits.push({
             entity,
@@ -157,7 +157,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
   }
 
   public overlapAABB(query: { min: Vec2; max: Vec2; filter?: QueryFilter }): Entity[] {
-    const { box2d, worldId } = this.state;
+    const { box2d, worldId } = this.engine;
 
     const aabb = scr_b2AABB!;
     aabb.lowerBound.Set(query.min.x, query.min.y);
@@ -170,7 +170,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
       aabb,
       to_b2QueryFilter(query.filter),
       (result: { shapeId: b2ShapeId }) => {
-        const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+        const entity = resolveShapeEntity(this.engine, this.world, result.shapeId);
         if (entity !== undefined && !seen.has(entity.eid)) {
           seen.add(entity.eid);
           entities.push(entity);
@@ -183,7 +183,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
   }
 
   public overlapCircle(query: { center: Vec2; radius: number; filter?: QueryFilter }): Entity[] {
-    const { box2d, worldId } = this.state;
+    const { box2d, worldId } = this.engine;
 
     const centerVec = scr_b2Vec2[0];
     centerVec.Set(query.center.x, query.center.y);
@@ -197,7 +197,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
         proxy,
         to_b2QueryFilter(query.filter),
         (result: { shapeId: b2ShapeId }) => {
-          const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+          const entity = resolveShapeEntity(this.engine, this.world, result.shapeId);
           if (entity !== undefined && !seen.has(entity.eid)) {
             seen.add(entity.eid);
             entities.push(entity);
@@ -232,11 +232,11 @@ function to_b2QueryFilter(filter: QueryFilter | undefined): b2QueryFilter {
  * `undefined` (drop silently) if the slot is empty or the entity has been
  * destroyed — the same rule as `PhysicsEvents`. */
 function resolveShapeEntity(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   world: World,
   shapeId: b2ShapeId
 ): Entity | undefined {
-  const eid = state.entityByShapeIndex.get(shapeId.index1);
+  const eid = engine.entityByShapeIndex.get(shapeId.index1);
   if (eid === undefined) {
     return undefined;
   }

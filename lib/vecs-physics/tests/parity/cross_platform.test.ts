@@ -13,7 +13,7 @@ import { World, type EID } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Material, Position, PhysicsModule } from "../../src/index.js";
-import { getPhysics } from "../../src/adapter/state.js";
+import { getPhysicsEngine } from "../../src/adapter/engine.js";
 
 const COLUMNS = 20;
 const ROWS = 10;
@@ -38,9 +38,9 @@ function runStackingSnapshot(): string {
   makeStack(world);
   step(world, STEPS);
 
-  const state = getPhysics(world);
+  const engine = getPhysicsEngine(world);
 
-  // Collect body states from WASM via body events and direct API calls.
+  // Collect body snapshots from WASM via body events and direct API calls.
   const bodies: Array<{
     eid: EID;
     x: number;
@@ -55,21 +55,21 @@ function runStackingSnapshot(): string {
   world.filter(Body).forEach((entity) => {
     const eid = entity.eid;
     const bodyId = entity.get(Body)?._bodyId;
-    if (bodyId === undefined || !state.box2d.b2Body_IsValid(bodyId)) {
+    if (bodyId === undefined || !engine.box2d.b2Body_IsValid(bodyId)) {
       return;
     }
 
-    const pos = state.box2d.b2Body_GetPosition(bodyId);
-    const rot = state.box2d.b2Body_GetRotation(bodyId);
-    const vel = state.box2d.b2Body_GetLinearVelocity(bodyId);
-    const omega = state.box2d.b2Body_GetAngularVelocity(bodyId);
+    const pos = engine.box2d.b2Body_GetPosition(bodyId);
+    const rot = engine.box2d.b2Body_GetRotation(bodyId);
+    const vel = engine.box2d.b2Body_GetLinearVelocity(bodyId);
+    const omega = engine.box2d.b2Body_GetAngularVelocity(bodyId);
 
     const x = pos.x;
     const y = pos.y;
     const angle = rot.GetAngle();
     const vx = vel.x;
     const vy = vel.y;
-    const awake = state.box2d.b2Body_IsAwake(bodyId);
+    const awake = engine.box2d.b2Body_IsAwake(bodyId);
 
     pos.delete();
     rot.delete();

@@ -31,24 +31,24 @@ The internal engine still has concepts equivalent to Box2D's:
 
 Application code should not depend on internal body ids, shape ids, contact ids, arrays, solver data, or broad-phase proxies.
 
-## Internal World State
+## Internal Physics Engine
 
-`world.module(PhysicsModule)` creates the internal physics world and registers Vecs systems that keep it synchronized with ECS state. Use `world.module(PhysicsModule, options)` for non-default physics options.
+`world.module(PhysicsModule)` creates the internal physics engine and registers Vecs systems that keep it synchronized with ECS components. Use `world.module(PhysicsModule, options)` for non-default physics options.
 
-Conceptually, the internal state owns:
+Conceptually, the internal engine owns:
 
 - Body storage.
 - Shape storage.
 - Contact storage.
 - Broad-phase acceleration structures.
 - Solver islands.
-- Sleeping state.
-- Continuous collision state for bullet and fast-body CCD.
+- Sleeping data.
+- Continuous collision data for bullet and fast-body CCD.
 - Event buffers.
 - Pending force and impulse queues.
 - Entity-to-physics-object mappings.
 
-This state is not exposed as normal user-facing ECS components. It may be stored in private structures owned by the physics plugin, in internal-only components, or both. That is an implementation detail.
+This engine data is not exposed as normal user-facing ECS components. It may be stored in private structures owned by the physics plugin, in internal-only components, or both. That is an implementation detail.
 
 The important public guarantee is this: Vecs components are the source of user intent, and the physics engine writes back only the public state it owns, such as `Position`, `Rotation`, velocities, and event components.
 

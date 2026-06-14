@@ -22,18 +22,18 @@ import {
   SensorEvents,
   Shape,
 } from "../../src/index.js";
-import { getPhysics, type b2ShapeId, type PhysicsState } from "../../src/adapter/state.js";
+import { getPhysicsEngine, type b2ShapeId, type PhysicsEngine } from "../../src/adapter/engine.js";
 
 const STEP_MS = 1000 / 60;
 
 let world: World;
-let state: PhysicsState;
+let engine: PhysicsEngine;
 let now: number;
 
 beforeEach(() => {
   world = new World();
   world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
-  state = getPhysics(world);
+  engine = getPhysicsEngine(world);
   now = 0;
 });
 
@@ -81,12 +81,12 @@ describe("runtime ContactEvents opt-in", () => {
 
     // Sanity: contact events enabled on the WASM shape.
     const shapeId = a.shapeEnt.get(Shape)!._shapeId as b2ShapeId;
-    expect(state.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(true);
 
     a.shapeEnt.remove(ContactEvents); // runtime opt-out
     step(1);
 
-    expect(state.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(false);
+    expect(engine.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(false);
     void b;
   });
 });
@@ -98,15 +98,15 @@ describe("runtime HitEvents opt-in", () => {
     const a = makeBox(0, 0);
     step(1);
     const shapeId = a.shapeEnt.get(Shape)!._shapeId as b2ShapeId;
-    expect(state.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(false);
+    expect(engine.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(false);
 
     a.shapeEnt.add(HitEvents);
     step(1);
-    expect(state.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(true);
 
     a.shapeEnt.remove(HitEvents);
     step(1);
-    expect(state.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(false);
+    expect(engine.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(false);
   });
 });
 

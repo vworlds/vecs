@@ -8,7 +8,7 @@
 // contract). No imports from systems/ or adapter/ beyond type-only `b2*Id`
 // handle types — components are pure data.
 
-import type { b2ChainId, b2ShapeId } from "../adapter/state.js";
+import type { b2ChainId, b2ShapeId } from "../adapter/engine.js";
 
 /** Plain 2D point used by {@link Polygon} and {@link Chain}. */
 export type Vec2 = { x: number; y: number };

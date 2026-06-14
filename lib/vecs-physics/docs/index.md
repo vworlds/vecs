@@ -107,7 +107,7 @@ await preloadPhysics();
 world.module(PhysicsModule);
 ```
 
-`PhysicsModule` registers physics components, declares the geometry components as mutually exclusive `Shape` implementers, registers physics systems, and creates the internal simulation state.
+`PhysicsModule` registers physics components, declares the geometry components as mutually exclusive `Shape` implementers, registers physics systems, and creates the internal physics engine.
 
 ```ts
 await preloadPhysics();

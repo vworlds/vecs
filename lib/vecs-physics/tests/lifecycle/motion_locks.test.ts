@@ -16,18 +16,18 @@ import {
   Position,
   PhysicsModule,
 } from "../../src/index.js";
-import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
+import { getPhysicsEngine, type PhysicsEngine } from "../../src/adapter/engine.js";
 
 const STEP_MS = 1000 / 60;
 
 let world: World;
-let state: PhysicsState;
+let engine: PhysicsEngine;
 let now: number;
 
 beforeEach(() => {
   world = new World();
   world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
-  state = getPhysics(world);
+  engine = getPhysicsEngine(world);
   now = 0;
 });
 
@@ -56,7 +56,7 @@ describe("MotionLocks flag seeding on enter", () => {
       .set(MotionLocks, { x: true, y: false, rotation: false });
     step();
 
-    const locks = state.box2d.b2Body_GetMotionLocks(wasmBodyId(e.eid));
+    const locks = engine.box2d.b2Body_GetMotionLocks(wasmBodyId(e.eid));
     try {
       expect(locks.linearX).toBe(true);
       expect(locks.linearY).toBe(false);
@@ -73,7 +73,7 @@ describe("MotionLocks flag seeding on enter", () => {
       .set(MotionLocks, { x: false, y: true, rotation: false });
     step();
 
-    const locks = state.box2d.b2Body_GetMotionLocks(wasmBodyId(e.eid));
+    const locks = engine.box2d.b2Body_GetMotionLocks(wasmBodyId(e.eid));
     try {
       expect(locks.linearY).toBe(true);
     } finally {
@@ -88,7 +88,7 @@ describe("MotionLocks flag seeding on enter", () => {
       .set(MotionLocks, { x: false, y: false, rotation: true });
     step();
 
-    const locks = state.box2d.b2Body_GetMotionLocks(wasmBodyId(e.eid));
+    const locks = engine.box2d.b2Body_GetMotionLocks(wasmBodyId(e.eid));
     try {
       expect(locks.angularZ).toBe(true);
     } finally {
@@ -100,7 +100,7 @@ describe("MotionLocks flag seeding on enter", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic });
     step();
 
-    const locks = state.box2d.b2Body_GetMotionLocks(wasmBodyId(e.eid));
+    const locks = engine.box2d.b2Body_GetMotionLocks(wasmBodyId(e.eid));
     try {
       expect(locks.linearX).toBe(false);
       expect(locks.linearY).toBe(false);
@@ -176,7 +176,7 @@ describe("MotionLocks update handler", () => {
     step();
 
     const bodyId = wasmBodyId(e.eid);
-    const locksBefore = state.box2d.b2Body_GetMotionLocks(bodyId);
+    const locksBefore = engine.box2d.b2Body_GetMotionLocks(bodyId);
     try {
       expect(locksBefore.linearY).toBe(false);
     } finally {
@@ -187,7 +187,7 @@ describe("MotionLocks update handler", () => {
     e.set(MotionLocks, { x: false, y: true, rotation: false });
     step();
 
-    const locksAfter = state.box2d.b2Body_GetMotionLocks(bodyId);
+    const locksAfter = engine.box2d.b2Body_GetMotionLocks(bodyId);
     try {
       expect(locksAfter.linearY).toBe(true);
     } finally {
@@ -203,7 +203,7 @@ describe("MotionLocks update handler", () => {
     step();
 
     const bodyId = wasmBodyId(e.eid);
-    const locksBefore = state.box2d.b2Body_GetMotionLocks(bodyId);
+    const locksBefore = engine.box2d.b2Body_GetMotionLocks(bodyId);
     try {
       expect(locksBefore.linearX).toBe(true);
     } finally {
@@ -213,7 +213,7 @@ describe("MotionLocks update handler", () => {
     e.set(MotionLocks, { x: false, y: false, rotation: false });
     step();
 
-    const locksAfter = state.box2d.b2Body_GetMotionLocks(bodyId);
+    const locksAfter = engine.box2d.b2Body_GetMotionLocks(bodyId);
     try {
       expect(locksAfter.linearX).toBe(false);
       expect(locksAfter.linearY).toBe(false);
@@ -233,7 +233,7 @@ describe("Body.allowFastRotation", () => {
     const e = world.entity().set(Body, { type: BodyType.Dynamic, allowFastRotation: false });
     step();
 
-    expect(state.box2d.b2Body_IsValid(wasmBodyId(e.eid))).toBe(true);
+    expect(engine.box2d.b2Body_IsValid(wasmBodyId(e.eid))).toBe(true);
 
     e.set(Body, { type: BodyType.Dynamic, allowFastRotation: true });
     expect(() => step()).not.toThrow();

@@ -7,18 +7,18 @@ import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Circle, Position, PhysicsModule } from "../../src/index.js";
-import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
+import { getPhysicsEngine, type PhysicsEngine } from "../../src/adapter/engine.js";
 
 const STEP_MS = 1000 / 60;
 
 let world: World;
-let state: PhysicsState;
+let engine: PhysicsEngine;
 let now: number;
 
 beforeEach(() => {
   world = new World();
   world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
-  state = getPhysics(world) as PhysicsState;
+  engine = getPhysicsEngine(world) as PhysicsEngine;
   now = 0;
 });
 
@@ -73,7 +73,7 @@ describe("contact teardown on shape destruction", () => {
 
     // Box2D owns the live contact graph after the WASM step migration; the public
     // contract here is that teardown is accepted without crashing.
-    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
+    expect(engine.box2d.b2World_IsValid(engine.worldId)).toBe(true);
   });
 
   it("removing the geometry component (shape exit) cleans up contacts", () => {
@@ -124,7 +124,7 @@ describe("contact teardown on body destruction", () => {
     // Box2D owns the live contact graph after the WASM step migration; the public
     // contract here is that teardown is accepted without crashing and the world
     // remains valid.
-    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
+    expect(engine.box2d.b2World_IsValid(engine.worldId)).toBe(true);
   });
 
   it("removing Body component with live contacts does not crash", () => {

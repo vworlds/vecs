@@ -2,9 +2,9 @@ import { type Entity, type World } from "@vworlds/vecs";
 
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "../components/body.js";
 import { scr_b2Vec2 } from "../adapter/runtime.js";
-import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsEngine } from "../adapter/engine.js";
 
-export function installPoseSyncIn(world: World, state: PhysicsState, phase: Entity): void {
+export function installPoseSyncIn(world: World, engine: PhysicsEngine, phase: Entity): void {
   const system = world.system("PhysicsPoseSyncIn").with(Body).phase(phase);
   system.entity.add(PhysicsSystemTag);
 
@@ -21,11 +21,11 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
         return;
       }
 
-      const rotation = state.box2d.b2Body_GetRotation(bodyId);
+      const rotation = engine.box2d.b2Body_GetRotation(bodyId);
       try {
         const vec = scr_b2Vec2[0];
         vec.Set(position.x, position.y);
-        state.box2d.b2Body_SetTransform(bodyId, vec, rotation);
+        engine.box2d.b2Body_SetTransform(bodyId, vec, rotation);
       } finally {
         rotation.delete();
       }
@@ -43,10 +43,10 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
         return;
       }
 
-      const position = state.box2d.b2Body_GetPosition(bodyId);
-      const wasmRotation = state.box2d.b2MakeRot(rotation.angle);
+      const position = engine.box2d.b2Body_GetPosition(bodyId);
+      const wasmRotation = engine.box2d.b2MakeRot(rotation.angle);
       try {
-        state.box2d.b2Body_SetTransform(bodyId, position, wasmRotation);
+        engine.box2d.b2Body_SetTransform(bodyId, position, wasmRotation);
       } finally {
         wasmRotation.delete();
         position.delete();
@@ -67,7 +67,7 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
 
       const vec = scr_b2Vec2[0];
       vec.Set(velocity.x, velocity.y);
-      state.box2d.b2Body_SetLinearVelocity(bodyId, vec);
+      engine.box2d.b2Body_SetLinearVelocity(bodyId, vec);
     });
   linearVelocitySystem.entity.add(PhysicsSystemTag);
 
@@ -82,7 +82,7 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
         return;
       }
 
-      state.box2d.b2Body_SetAngularVelocity(bodyId, velocity.value);
+      engine.box2d.b2Body_SetAngularVelocity(bodyId, velocity.value);
     });
   angularVelocitySystem.entity.add(PhysicsSystemTag);
 }

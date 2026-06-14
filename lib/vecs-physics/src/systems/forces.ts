@@ -3,11 +3,11 @@ import { ChildOf, type Entity, type World } from "@vworlds/vecs";
 import { Body } from "../components/body.js";
 import { Force, Torque } from "../components/force.js";
 import { scr_b2Vec2 } from "../adapter/runtime.js";
-import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsEngine } from "../adapter/engine.js";
 
 const forceTargetPredicate = { any: [Body, { parent: Body }] } as const;
 
-export function installForceGather(world: World, state: PhysicsState, phase: Entity): void {
+export function installForceGather(world: World, engine: PhysicsEngine, phase: Entity): void {
   const forceSystem = world
     .system("PhysicsForceGather:Force")
     .with(Force, forceTargetPredicate)
@@ -23,7 +23,7 @@ export function installForceGather(world: World, state: PhysicsState, phase: Ent
 
     const vec = scr_b2Vec2[0];
     vec.Set(force.x, force.y);
-    state.box2d.b2Body_ApplyForceToCenter(bodyId, vec, force.wake);
+    engine.box2d.b2Body_ApplyForceToCenter(bodyId, vec, force.wake);
   });
 
   const torqueSystem = world
@@ -37,7 +37,7 @@ export function installForceGather(world: World, state: PhysicsState, phase: Ent
         return;
       }
 
-      state.box2d.b2Body_ApplyTorque(bodyId, torque.value, torque.wake);
+      engine.box2d.b2Body_ApplyTorque(bodyId, torque.value, torque.wake);
     });
   torqueSystem.entity.add(PhysicsSystemTag);
 }

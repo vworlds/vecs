@@ -11,19 +11,19 @@ import {
   type b2ChainId,
   type b2ShapeId,
   PhysicsSystemTag,
-  type PhysicsState,
-} from "../adapter/state.js";
+  type PhysicsEngine,
+} from "../adapter/engine.js";
 import { withAllocated } from "../adapter/disposal.js";
 import { shapeWithBodyParent } from "./shape_predicates.js";
 
 const MAX_POLYGON_VERTICES = 8;
 
-export function installShapeLifecycle(world: World, state: PhysicsState, phase: Entity): void {
+export function installShapeLifecycle(world: World, engine: PhysicsEngine, phase: Entity): void {
   const system = world.system("PhysicsShapeLifecycle").with(shapeWithBodyParent).phase(phase);
   system.entity.add(PhysicsSystemTag);
 
   system.enter(Iter, [Shape, { target: [ChildOf, [Body]] }], (it, [shape, body]) => {
-    createShapeForEntity(state, it.entity, it.src[1], body, shape);
+    createShapeForEntity(engine, it.entity, it.src[1], body, shape);
   });
 
   // Inject `[ChildOf, Shape]` so the parent relationship and shape handle are
@@ -32,7 +32,7 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
   // after `_destroy` has cleared `entity._components` -- by then
   // `entity.target(ChildOf)` and `entity.get(Shape)` would return `undefined`.
   system.exit([ChildOf, Shape], (entity, [childOf, shape]) => {
-    destroyShapeForEntity(state, entity, true, childOf?.target, shape);
+    destroyShapeForEntity(engine, entity, true, childOf?.target, shape);
   });
 
   system.update(Iter, Shape, [{ target: [ChildOf, [Body]] }], (it, shape, [body]) => {
@@ -42,7 +42,7 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     ) {
       return;
     }
-    recreateShapeForEntity(state, it.entity, it.src[0], body, shape);
+    recreateShapeForEntity(engine, it.entity, it.src[0], body, shape);
   });
 
   const childOfSystem = world
@@ -51,24 +51,24 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
     .phase(phase)
     .update(Iter, ChildOf, [Shape, { target: [ChildOf, [Body]] }], (it, _childOf, tuple) => {
       const [shape, body] = tuple;
-      recreateShapeForEntity(state, it.entity, it.src[1], body, shape);
+      recreateShapeForEntity(engine, it.entity, it.src[1], body, shape);
     });
   childOfSystem.entity.add(PhysicsSystemTag);
 }
 
 export function recreateShapeForEntity(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   entity: Entity,
   parentEntity: Entity | undefined,
   parentBody: Body | undefined,
   shape: Shape | undefined
 ): void {
-  destroyShapeForEntity(state, entity, false, parentEntity, shape);
-  createShapeForEntity(state, entity, parentEntity, parentBody, shape);
+  destroyShapeForEntity(engine, entity, false, parentEntity, shape);
+  createShapeForEntity(engine, entity, parentEntity, parentBody, shape);
 }
 
 function createShapeForEntity(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   entity: Entity,
   parentEntity: Entity | undefined,
   parentBody: Body | undefined,
@@ -82,20 +82,20 @@ function createShapeForEntity(
   const options = readShapeOptions(entity);
   const pose = readLocalPose(entity);
   if (shape instanceof Chain) {
-    createChain(state, parentEntity, bodyId, shape, options, pose);
+    createChain(engine, parentEntity, bodyId, shape, options, pose);
     return;
   }
 
-  const shapeId = createSingleShape(state, bodyId, shape, options, pose);
+  const shapeId = createSingleShape(engine, bodyId, shape, options, pose);
   if (shapeId !== undefined) {
     shape._shapeId = shapeId;
-    state.entityByShapeIndex.set(shapeId.index1, entity.eid);
-    state.dirtyMassBodies.add(parentEntity.eid);
+    engine.entityByShapeIndex.set(shapeId.index1, entity.eid);
+    engine.dirtyMassBodies.add(parentEntity.eid);
   }
 }
 
 function destroyShapeForEntity(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   entity: Entity,
   allowCascadeSkip: boolean,
   parent?: Entity,
@@ -112,18 +112,18 @@ function destroyShapeForEntity(
     const chainId = handle as b2ChainId;
     // b2Chain_IsValid already returns false when the parent body was destroyed
     // and Box2D cascaded the chain, so it is the only guard the destroy needs.
-    if (state.box2d.b2Chain_IsValid(chainId)) {
-      state.box2d.b2DestroyChain(chainId);
+    if (engine.box2d.b2Chain_IsValid(chainId)) {
+      engine.box2d.b2DestroyChain(chainId);
     }
-    markParentBodyMassDirty(state, resolvedParent);
+    markParentBodyMassDirty(engine, resolvedParent);
   } else {
     const shapeId = handle as b2ShapeId;
     const parentBodyExists = parentBodyStillExists(resolvedParent);
-    if ((!allowCascadeSkip || parentBodyExists) && state.box2d.b2Shape_IsValid(shapeId)) {
-      state.box2d.b2DestroyShape(shapeId, true);
+    if ((!allowCascadeSkip || parentBodyExists) && engine.box2d.b2Shape_IsValid(shapeId)) {
+      engine.box2d.b2DestroyShape(shapeId, true);
     }
-    state.entityByShapeIndex.delete(shapeId.index1);
-    markParentBodyMassDirty(state, resolvedParent);
+    engine.entityByShapeIndex.delete(shapeId.index1);
+    markParentBodyMassDirty(engine, resolvedParent);
   }
 
   // Clear the handle on the live component if it still exists (e.g. the
@@ -138,13 +138,13 @@ function destroyShapeForEntity(
 }
 
 function createSingleShape(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   bodyId: b2BodyId,
   shape: Shape,
   options: ShapeOptions,
   pose: { x: number; y: number; angle: number }
 ): b2ShapeId | undefined {
-  const box2d = state.box2d;
+  const box2d = engine.box2d;
   return withAllocated(box2d.b2DefaultShapeDef, (def) => {
     applyShapeDef(def, options);
 
@@ -208,7 +208,7 @@ function createSingleShape(
     }
 
     if (shape instanceof Polygon) {
-      return createPolygonShape(state, bodyId, def, shape, pose);
+      return createPolygonShape(engine, bodyId, def, shape, pose);
     }
 
     return undefined;
@@ -216,7 +216,7 @@ function createSingleShape(
 }
 
 function createPolygonShape(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   bodyId: b2BodyId,
   def: ReturnType<Box2DModule["b2DefaultShapeDef"]>,
   polygon: Polygon,
@@ -226,7 +226,7 @@ function createPolygonShape(
     return undefined;
   }
 
-  const box2d = state.box2d;
+  const box2d = engine.box2d;
   const points = polygon.vertices.map((point) => new box2d.b2Vec2(point.x, point.y));
   try {
     const hull = box2d.b2ComputeHull(points);
@@ -251,7 +251,7 @@ function createPolygonShape(
 }
 
 function createChain(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   parent: Entity,
   bodyId: b2BodyId,
   chain: Chain,
@@ -262,7 +262,7 @@ function createChain(
     return;
   }
 
-  const box2d = state.box2d;
+  const box2d = engine.box2d;
   const points = chain.points.map((point) => new box2d.b2Vec2(point.x, point.y));
   try {
     const chainId = withAllocated(box2d.b2DefaultChainDef, (def) => {
@@ -273,7 +273,7 @@ function createChain(
       return box2d.b2CreateChain(bodyId, def);
     });
     chain._shapeId = chainId;
-    markParentBodyMassDirty(state, parent);
+    markParentBodyMassDirty(engine, parent);
   } finally {
     for (const point of points) {
       point.delete();
@@ -350,9 +350,9 @@ function parentBodyStillExists(parent?: Entity): boolean {
   return parent !== undefined && parent.get(Body)?._bodyId !== undefined;
 }
 
-function markParentBodyMassDirty(state: PhysicsState, parent?: Entity): void {
+function markParentBodyMassDirty(engine: PhysicsEngine, parent?: Entity): void {
   if (parent !== undefined && parent.get(Body)?._bodyId !== undefined) {
-    state.dirtyMassBodies.add(parent.eid);
+    engine.dirtyMassBodies.add(parent.eid);
   }
 }
 

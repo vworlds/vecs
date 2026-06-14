@@ -1,6 +1,6 @@
 // VP-22 / VP-21b: engine-side hit event scan and ECS HitEvents publishing.
 //
-// After VP-21b, `PhysicsEvents` clears `state.contactHitEvents` at the END of
+// After VP-21b, `PhysicsEvents` clears `engine.contactHitEvents` at the END of
 // physics-post (after publishing). World-level tests therefore check the ECS
 // `HitEvents` component arrays (the user-facing surface), not the raw engine
 // arrays, which are always empty after world.progress.

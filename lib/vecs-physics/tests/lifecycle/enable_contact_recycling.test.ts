@@ -8,7 +8,7 @@ import { World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Position, PhysicsModule } from "../../src/index.js";
-import { getPhysics } from "../../src/adapter/state.js";
+import { getPhysicsEngine } from "../../src/adapter/engine.js";
 
 const STEP_MS = 1000 / 60;
 
@@ -16,7 +16,7 @@ describe("test_world.c::EnableContactRecyclingTest", () => {
   it("destroys contacts on disable and recreates them on re-enable", () => {
     const world = new World();
     world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
-    const state = getPhysics(world);
+    const engine = getPhysicsEngine(world);
     const step = makeStepper(world);
 
     makeGround(world);
@@ -29,22 +29,22 @@ describe("test_world.c::EnableContactRecyclingTest", () => {
     step(5);
     const bodyId = body.get(Body)!._bodyId!;
     // Some contacts should have formed.
-    expect(state.box2d.b2Body_IsValid(bodyId)).toBe(true);
+    expect(engine.box2d.b2Body_IsValid(bodyId)).toBe(true);
 
     body.set(Body, { type: BodyType.Dynamic, enabled: false });
     step(1);
 
     // Body is now disabled in WASM.
-    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(false);
+    expect(engine.box2d.b2Body_IsEnabled(bodyId)).toBe(false);
     // WASM world is still valid.
-    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
+    expect(engine.box2d.b2World_IsValid(engine.worldId)).toBe(true);
 
     body.set(Body, { type: BodyType.Dynamic, enabled: true });
     step(1);
 
     // Body is re-enabled.
-    expect(state.box2d.b2Body_IsEnabled(bodyId)).toBe(true);
-    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
+    expect(engine.box2d.b2Body_IsEnabled(bodyId)).toBe(true);
+    expect(engine.box2d.b2World_IsValid(engine.worldId)).toBe(true);
   });
 });
 

@@ -34,7 +34,7 @@ import {
   Sleep,
   Torque,
 } from "../../src/index.js";
-import { getPhysics } from "../../src/adapter/state.js";
+import { getPhysicsEngine } from "../../src/adapter/engine.js";
 
 const PUBLIC_COMPONENTS = [
   Position,
@@ -128,31 +128,31 @@ describe("PhysicsModule", () => {
     expect(world.entity("physics-post").has(Phase)).toBe(true);
   });
 
-  it("attaches a PhysicsState reachable via getPhysics, with resolved defaults", () => {
+  it("attaches a PhysicsEngine reachable via getPhysicsEngine, with resolved defaults", () => {
     const world = new World();
     world.module(PhysicsModule);
-    const state = getPhysics(world);
-    expect(state.gravityX).toBe(0);
-    expect(state.gravityY).toBe(-10);
-    expect(state.fixedTimeStep).toBeCloseTo(1 / 60);
-    expect(state.subSteps).toBe(4);
-    expect(state.debug).toBe(false);
+    const engine = getPhysicsEngine(world);
+    expect(engine.gravityX).toBe(0);
+    expect(engine.gravityY).toBe(-10);
+    expect(engine.fixedTimeStep).toBeCloseTo(1 / 60);
+    expect(engine.subSteps).toBe(4);
+    expect(engine.debug).toBe(false);
     // World-def tunables must match box2d's b2DefaultWorldDef (types.c). These
     // are NOT covered by the per-component defaults test, which is how the
     // hitEventThreshold 10x error (M0-hitEventThreshold-default) slipped through.
-    expect(state.restitutionThreshold).toBe(1.0);
-    expect(state.hitEventThreshold).toBe(1.0);
-    expect(state.contactHertz).toBe(30);
-    expect(state.contactDampingRatio).toBe(10);
-    expect(state.contactSpeed).toBe(3.0);
-    expect(state.maximumLinearSpeed).toBe(400);
-    expect(state.enableSleep).toBe(true);
-    expect(state.enableContinuous).toBe(true);
-    expect(state.entityByBodyIndex.size).toBe(0);
-    expect(state.entityByShapeIndex.size).toBe(0);
+    expect(engine.restitutionThreshold).toBe(1.0);
+    expect(engine.hitEventThreshold).toBe(1.0);
+    expect(engine.contactHertz).toBe(30);
+    expect(engine.contactDampingRatio).toBe(10);
+    expect(engine.contactSpeed).toBe(3.0);
+    expect(engine.maximumLinearSpeed).toBe(400);
+    expect(engine.enableSleep).toBe(true);
+    expect(engine.enableContinuous).toBe(true);
+    expect(engine.entityByBodyIndex.size).toBe(0);
+    expect(engine.entityByShapeIndex.size).toBe(0);
   });
 
-  it("applies overridden options onto the PhysicsState", () => {
+  it("applies overridden options onto the PhysicsEngine", () => {
     const world = new World();
     world.module(PhysicsModule, {
       gravity: { x: 1, y: -3 },
@@ -161,19 +161,19 @@ describe("PhysicsModule", () => {
       debug: true,
       enableSleep: false,
     });
-    const state = getPhysics(world);
-    expect(state.gravityX).toBe(1);
-    expect(state.gravityY).toBe(-3);
-    expect(state.fixedTimeStep).toBeCloseTo(1 / 120);
-    expect(state.subSteps).toBe(8);
-    expect(state.debug).toBe(true);
-    expect(state.enableSleep).toBe(false);
+    const engine = getPhysicsEngine(world);
+    expect(engine.gravityX).toBe(1);
+    expect(engine.gravityY).toBe(-3);
+    expect(engine.fixedTimeStep).toBeCloseTo(1 / 120);
+    expect(engine.subSteps).toBe(8);
+    expect(engine.debug).toBe(true);
+    expect(engine.enableSleep).toBe(false);
   });
 
-  it("keeps physics state reachable after module registration", () => {
+  it("keeps physics engine reachable after module registration", () => {
     const world = new World();
     world.module(PhysicsModule);
-    expect(getPhysics(world).worldId).toBeDefined();
+    expect(getPhysicsEngine(world).worldId).toBeDefined();
   });
 
   it("is idempotent for the same module class", () => {

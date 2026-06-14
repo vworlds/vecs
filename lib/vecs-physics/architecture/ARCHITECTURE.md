@@ -157,7 +157,7 @@ world.module(PhysicsModule, opts); // with non-default options
 4. Create or look up the three physics phases and order them after `ON_UPDATE`.
 5. Create the Box2D world (`b2CreateWorld` + `b2World_SetContactTuning`).
 6. Register the physics systems (listed under **System and phase pipeline**), each tagged with `PhysicsSystemTag`.
-7. Allocate `PhysicsState` and bind it to the world via the `PhysicsRoot` singleton.
+7. Allocate `PhysicsEngine` and bind it to the world as the `PhysicsEngine` singleton.
 8. Throw if called twice on the same world.
 
 ### Authoritative component defaults
@@ -230,10 +230,10 @@ They are populated by the lifecycle systems and read by every system that needs 
 
 Two internal, non-exported components exist on the world for engine wiring:
 
-- **`PhysicsRoot`** — a `Singleton` component that holds `PhysicsState`. Reached via `world.get(PhysicsRoot)`, O(1). Never exported.
+- **`PhysicsEngine`** — a `Singleton` component that owns the Box2D world and per-step caches. Reached via `world.get(PhysicsEngine)`, O(1). Never exported from the package public API.
 - **`PhysicsSystemTag`** — marks every physics **system entity** so `PhysicsPoseSyncIn` can `ignoreSource([PhysicsSystemTag])` and drop the engine's own write-back. Lives on system entities only, never on user entities.
 
-There are **no private components on user entities.** Per-entity engine handles live on the public `Body`/`Shape` components as `@internal` fields; the remaining per-step caches live in `PhysicsState` keyed by entity id or Box2D index.
+There are **no private components on user entities.** Per-entity engine handles live on the public `Body`/`Shape` components as `@internal` fields; the remaining per-step caches live in `PhysicsEngine` keyed by entity id or Box2D index.
 
 ## Package layout
 
@@ -264,10 +264,10 @@ lib/vecs-physics/
 │   │   ├── event_opt_in_sync.ts, events.ts,
 │   │   ├── mass_recompute.ts, step.ts, debug.ts, index.ts
 │   │
-│   ├── adapter/                 box2d3-wasm runtime, state, disposal.
+│   ├── adapter/                 box2d3-wasm runtime, engine, disposal.
 │   │   ├── runtime.ts           preloadPhysics, getBox2D.
-│   │   ├── state.ts             PhysicsState + PhysicsRoot/PhysicsSystemTag
-│   │   │                        + registerInternalComponents + attachPhysics.
+│   │   ├── engine.ts            PhysicsEngine + PhysicsSystemTag
+│   │   │                        + registerInternalComponents + attachPhysicsEngine.
 │   │   └── disposal.ts          withAllocated — .delete() discipline.
 │   │
 │   └── util/
@@ -284,7 +284,7 @@ Module boundaries:
 
 - `src/components/` is pure data, no imports from `systems/` or `adapter/`.
 - `src/systems/` imports `components/` and `adapter/`. Never imports another system.
-- `src/adapter/` is the only place that imports `box2d3-wasm`. It exposes `PhysicsState`, `getBox2D()`, and the `withAllocated` disposal helper; systems reach the module through `state.box2d`, never by importing `box2d3-wasm` directly.
+- `src/adapter/` is the only place that imports `box2d3-wasm`. It exposes `PhysicsEngine`, `getBox2D()`, and the `withAllocated` disposal helper; systems reach the module through `engine.box2d`, never by importing `box2d3-wasm` directly.
 
 ## Vecs integration
 
@@ -300,22 +300,22 @@ Components register in this order so type ids are deterministic across module re
 6. `Force`, `Torque`, `Impulse`, `AngularImpulse`.
 7. `KinematicTargetPosition`, `KinematicTargetRotation`.
 8. `ContactEvents`, `SensorEvents`, `HitEvents`.
-9. Internal: `PhysicsRoot` (singleton), `PhysicsSystemTag`.
+9. Internal: `PhysicsEngine` (singleton), `PhysicsSystemTag`.
 10. `world.component(C).set(Implements, { interfaces: [Shape] })` for each of `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, `Chain`.
 11. Phase creation/lookup, ordered after `ON_UPDATE`.
 12. System creation; tag each physics system entity with `PhysicsSystemTag`.
-13. `PhysicsState` allocation and attach to `PhysicsRoot`.
+13. `PhysicsEngine` allocation and singleton attach.
 
 `ChildOf` is built into Vecs — referenced, never registered.
 
-### Internal-state attachment
+### Internal Engine Attachment
 
-`PhysicsState` lives on a world-scoped `Singleton` component (`PhysicsRoot`):
+`PhysicsEngine` lives on a world-scoped `Singleton` component:
 
-- Marking the component singleton auto-attaches the instance to the component's own meta entity. Retrieval is `world.get(PhysicsRoot)` — O(1).
+- The engine instance is attached to the `PhysicsEngine` component entity. Retrieval is `world.get(PhysicsEngine)` — O(1).
 - A second `PhysicsModule` registration throws after physics exists; duplicate and cross-world wiring bugs are caught for free.
-- It GCs with the world; `PhysicsRoot` is never exported.
-- A non-exported `getPhysics(world)` is the only legal way to reach state.
+- It GCs with the world; `PhysicsEngine` is never exported from the package public API.
+- A non-exported `getPhysicsEngine(world)` is the only legal way to reach the engine.
 
 ### Entity-reference safety
 
@@ -324,7 +324,7 @@ Components register in this order so type ids are deterministic across module re
 For event delivery:
 
 - Events are recorded internally by Box2D **shape index** (`b2ShapeId.index1`), not Entity reference.
-- At publish time we resolve `index1 → Entity` via `state.entityByShapeIndex`; if the entity has been destroyed, drop silently.
+- At publish time we resolve `index1 → Entity` via `engine.entityByShapeIndex`; if the entity has been destroyed, drop silently.
 
 A body destroyed during the same step still gets its `endEvents` correctly emitted to the **other** shape's `ContactEvents`, provided the other shape's entity is still alive.
 
@@ -360,7 +360,7 @@ User input/gameplay phases land before `physics-pre`; user render phases after `
 
 v1 uses **systems** for almost everything — they batch reactivity into a phase-bound run, give a single debuggable choke point, and queue safe deferred mutations.
 
-The one exception: `Impulse` and `AngularImpulse` accumulation uses `world.component(Impulse).onSet(...)` **hooks**, not `.update()` callbacks. Reason: a Vecs `entity.set` reuses the stored component instance (`Object.assign` in place), and a system inbox stores a **reference** to it; by drain time every queued update for that component reads the **last** value — three sets `x:1,2,3` would sum to `9` instead of the documented `6`. `onSet` fires synchronously inside `_notifyComponentSet` after each `Object.assign`, so it observes each set-time value and accumulates correctly. The hook only mutates `PhysicsState` (no structural ECS work), which is safe.
+The one exception: `Impulse` and `AngularImpulse` accumulation uses `world.component(Impulse).onSet(...)` **hooks**, not `.update()` callbacks. Reason: a Vecs `entity.set` reuses the stored component instance (`Object.assign` in place), and a system inbox stores a **reference** to it; by drain time every queued update for that component reads the **last** value — three sets `x:1,2,3` would sum to `9` instead of the documented `6`. `onSet` fires synchronously inside `_notifyComponentSet` after each `Object.assign`, so it observes each set-time value and accumulates correctly. The hook only mutates `PhysicsEngine` (no structural ECS work), which is safe.
 
 ## System and phase pipeline
 
@@ -370,7 +370,7 @@ Each system below: phase, responsibility, and the box2d3-wasm primitives it call
 
 Query: `Body`.
 
-- `.enter` — read `Body`, `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, optional tunables. Fill a `b2DefaultBodyDef()`. Call `b2CreateBody(worldId, def)`. Store the `b2BodyId` on `Body._bodyId` and register `state.entityByBodyIndex.set(bodyId.index1, entity.eid)`.
+- `.enter` — read `Body`, `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, optional tunables. Fill a `b2DefaultBodyDef()`. Call `b2CreateBody(worldId, def)`. Store the `b2BodyId` on `Body._bodyId` and register `engine.entityByBodyIndex.set(bodyId.index1, entity.eid)`.
 - `.exit` — read the body ID from the injected `Body` snapshot, call `b2DestroyBody(id)`, and clear the `entityByBodyIndex` slot. Box2D cascades shape destruction internally.
 - `.update(Body, …)` — `type` change → `b2Body_SetType`; `enabled` → `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`. `allowFastRotation` is create-time only under `box2d3-wasm@5.2.0`.
 
@@ -378,7 +378,7 @@ Query: `Body`.
 
 Query: `{ all: [Shape, { parent: Body }] }`. All six geometry types declare `Implements: [Shape]`, so this one predicate covers every geometry type. Membership tracks geometry-with-Body-parent — covers attachment, detachment, and reparenting via one query.
 
-- `.enter` — resolve parent body from the injected parent `Body._bodyId`. Build a `b2ShapeDef` from `Material` / `CollisionFilter` / `Sensor` / event opt-in flags / `ShapePosition` / `ShapeRotation`. Dispatch by geometry type (table below). Store the `b2ShapeId` (or `b2ChainId` for `Chain`) on `Shape._shapeId` and, for non-chain shapes, register `state.entityByShapeIndex.set(shapeId.index1, entity.eid)`.
+- `.enter` — resolve parent body from the injected parent `Body._bodyId`. Build a `b2ShapeDef` from `Material` / `CollisionFilter` / `Sensor` / event opt-in flags / `ShapePosition` / `ShapeRotation`. Dispatch by geometry type (table below). Store the `b2ShapeId` (or `b2ChainId` for `Chain`) on `Shape._shapeId` and, for non-chain shapes, register `engine.entityByShapeIndex.set(shapeId.index1, entity.eid)`.
 - `.exit` — injects `[ChildOf, Shape]` so the parent link and `_shapeId` are still readable from the exit snapshot. `b2DestroyShape` (or `b2DestroyChain` for chains, branching on `instanceof Chain`); clear the `entityByShapeIndex` slot for non-chain shapes.
 - `.update(Shape, …)` — single collapsed system for all six geometry types: destroy + recreate the shape, except `Capsule`/`Segment` updates with degenerate (near-zero-length) endpoints are ignored, preserving the existing valid shape (Box2D parity).
 - `.update(ChildOf, …)` — reparenting between bodies = destroy under old parent, recreate under new.
@@ -434,11 +434,11 @@ box2d3-wasm zeroes applied forces inside `b2World_Step` (matches Box2D), so no p
 
 ### `PhysicsImpulseAccumulate` (`physics-pre`)
 
-Hook-driven (see **Hooks vs systems**). `world.component(Impulse).onSet(...)` and `world.component(AngularImpulse).onSet(...)` fire synchronously on each `set`, accumulating into `state.pendingLinearImpulse` / `pendingAngularImpulse` keyed by `b2BodyId`. The phase system flushes accumulators via `b2Body_ApplyLinearImpulseToCenter` / `b2Body_ApplyAngularImpulse` for each body that received any.
+Hook-driven (see **Hooks vs systems**). `world.component(Impulse).onSet(...)` and `world.component(AngularImpulse).onSet(...)` fire synchronously on each `set`, accumulating into `engine.pendingLinearImpulse` / `pendingAngularImpulse` keyed by `b2BodyId`. The phase system flushes accumulators via `b2Body_ApplyLinearImpulseToCenter` / `b2Body_ApplyAngularImpulse` for each body that received any.
 
 ### `PhysicsMassRecompute` (`physics-pre`)
 
-box2d3-wasm auto-recomputes mass when `b2Shape_SetDensity` is called with `updateBodyMass = true`. For bodies in `state.dirtyMassBodies` (e.g. after shape add/remove), call `b2Body_ApplyMassFromShapes(bodyId)`. Most steady-state frames are no-ops.
+box2d3-wasm auto-recomputes mass when `b2Shape_SetDensity` is called with `updateBodyMass = true`. For bodies in `engine.dirtyMassBodies` (e.g. after shape add/remove), call `b2Body_ApplyMassFromShapes(bodyId)`. Most steady-state frames are no-ops.
 
 ### `PhysicsDebugValidation` (`physics-pre`, debug:true only)
 
@@ -460,7 +460,7 @@ Dedupe key: `(entity.eid, code)`. Structural changes (e.g. shape gets a parent b
 
 ### `PhysicsStep` (`physics-step`)
 
-`b2World_Step(state.worldId, state.fixedTimeStep, state.subSteps)`. In `debug` mode it first warns once on `delta-mismatch` if the supplied delta diverges from `fixedTimeStep`.
+`b2World_Step(engine.worldId, engine.fixedTimeStep, engine.subSteps)`. In `debug` mode it first warns once on `delta-mismatch` if the supplied delta diverges from `fixedTimeStep`.
 
 ### `PhysicsPoseSyncOut` (`physics-post`)
 
@@ -474,13 +474,13 @@ These set commands carry the `PhysicsSystemTag` source, so `PhysicsPoseSyncIn` f
 
 ### `PhysicsEvents` (`physics-post`)
 
-Poll once per step: `b2World_GetContactEvents`, `b2World_GetSensorEvents`, `b2World_GetBodyEvents`. Walk begin/end via `beginCount`/`GetBeginEvent(i)` and `endCount`/`GetEndEvent(i)`; sensor events with the same shape; hit events via `hitCount`/`GetHitEvent(i)`. Resolve `b2ShapeId.index1 → Entity` via `state.entityByShapeIndex`; push into the receiving entity's `ContactEvents.begin/end`, `SensorEvents.begin/end`, or `HitEvents.hits`. Mark the component modified once per receiving entity per step.
+Poll once per step: `b2World_GetContactEvents`, `b2World_GetSensorEvents`, `b2World_GetBodyEvents`. Walk begin/end via `beginCount`/`GetBeginEvent(i)` and `endCount`/`GetEndEvent(i)`; sensor events with the same shape; hit events via `hitCount`/`GetHitEvent(i)`. Resolve `b2ShapeId.index1 → Entity` via `engine.entityByShapeIndex`; push into the receiving entity's `ContactEvents.begin/end`, `SensorEvents.begin/end`, or `HitEvents.hits`. Mark the component modified once per receiving entity per step.
 
-Silent-clear semantics for shapes that received events last step but not this step: set `length = 0` without calling `modified`. Three independent "previously touched" sets (`prevTouchedContact`, `prevTouchedSensor`, `prevTouchedHit`) are tracked per event component in `PhysicsState`.
+Silent-clear semantics for shapes that received events last step but not this step: set `length = 0` without calling `modified`. Three independent "previously touched" sets (`prevTouchedContact`, `prevTouchedSensor`, `prevTouchedHit`) are tracked per event component in `PhysicsEngine`.
 
 ### `PhysicsImpulseZero` (`physics-post`, after `PhysicsEvents`)
 
-For every entity in `state.impulseEntitiesThisStep`, directly zero `Impulse.x/y` and `AngularImpulse.value` (no `modified`), then clear the set. This bypasses Vecs's modified-routing — the dirty bit stays clean and no query update events fire. `ignoreSource` cannot replace this: silent-zero must be invisible to **user** watchers too, not just to physics systems.
+For every entity in `engine.impulseEntitiesThisStep`, directly zero `Impulse.x/y` and `AngularImpulse.value` (no `modified`), then clear the set. This bypasses Vecs's modified-routing — the dirty bit stays clean and no query update events fire. `ignoreSource` cannot replace this: silent-zero must be invisible to **user** watchers too, not just to physics systems.
 
 ## Body lifecycle (semantics)
 
@@ -542,7 +542,7 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 | Capability                      | Vecs API                                                | Used by                                                       |
 | ------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------- |
 | Relationships (`ChildOf`)       | `set(ChildOf, …)`, `{ parent }`, `{ up: [ChildOf, …] }` | Shape↔body wiring, reparenting, force-target resolution.      |
-| World singleton                 | `world.component(C).add(Singleton)`; `world.get(C)`     | `PhysicsRoot` state holder.                                   |
+| World singleton                 | `world.component(C).add(Singleton)`; `world.get(C)`     | `PhysicsEngine` holder.                                       |
 | Relationship fan-out reactivity | `TargetTerm` re-evaluates sources on target membership  | Order-independent body/shape creation.                        |
 | System update silencing         | `System.ignoreSource(QueryDSL \| Query)`                | Pose-sync feedback suppression via `PhysicsSystemTag` marker. |
 | Interface/exclusivity           | `Implements` with a shared marker (`Shape`)             | Polymorphic geometry query + geometry mutual exclusivity.     |
@@ -550,8 +550,8 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 
 ## Settled decisions
 
-- **Internal state:** world-scoped `Singleton` component (`PhysicsRoot`).
-- **Forward handles on components:** `Body._bodyId`, `Shape._shapeId` (`@internal`). Reverse lookups via `index1`-keyed `ArrayMap`s on `PhysicsState`.
+- **Internal engine:** world-scoped `Singleton` component (`PhysicsEngine`).
+- **Forward handles on components:** `Body._bodyId`, `Shape._shapeId` (`@internal`). Reverse lookups via `index1`-keyed `ArrayMap`s on `PhysicsEngine`.
 - **Component registration order** as above; type ids deterministic.
 - **System reactivity:** systems for everything except `Impulse` / `AngularImpulse`, which use synchronous `onSet` hooks.
 - **Parent/child:** Vecs `ChildOf` relationship.

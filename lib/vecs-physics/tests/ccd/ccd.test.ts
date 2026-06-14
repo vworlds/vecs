@@ -23,7 +23,7 @@ import {
   Rotation,
   PhysicsModule,
 } from "../../src/index.js";
-import { getPhysics } from "../../src/adapter/state.js";
+import { getPhysicsEngine } from "../../src/adapter/engine.js";
 
 const STEP_MS = 1000 / 60;
 
@@ -44,35 +44,35 @@ describe("SetBulletDriftTest (flag persistence, box2d test_world.c:611-654)", ()
   it("bullet=false body: b2Body_IsBullet returns false, toggle to true returns true", () => {
     const world = new World();
     world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
-    const state = getPhysics(world);
+    const engine = getPhysicsEngine(world);
 
     const bodyEntity = world.entity().set(Body, { type: BodyType.Dynamic, bullet: false });
     runSteps(world, 1);
 
     const bodyId = bodyEntity.get(Body)!._bodyId!;
-    expect(state.box2d.b2Body_IsBullet(bodyId)).toBe(false);
+    expect(engine.box2d.b2Body_IsBullet(bodyId)).toBe(false);
 
     bodyEntity.set(Body, { type: BodyType.Dynamic, bullet: true });
     runSteps(world, 1);
 
-    expect(state.box2d.b2Body_IsBullet(bodyId)).toBe(true);
+    expect(engine.box2d.b2Body_IsBullet(bodyId)).toBe(true);
   });
 
   it("bullet=true body: b2Body_IsBullet returns true, toggle to false returns false", () => {
     const world = new World();
     world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
-    const state = getPhysics(world);
+    const engine = getPhysicsEngine(world);
 
     const bodyEntity = world.entity().set(Body, { type: BodyType.Dynamic, bullet: true });
     runSteps(world, 1);
 
     const bodyId = bodyEntity.get(Body)!._bodyId!;
-    expect(state.box2d.b2Body_IsBullet(bodyId)).toBe(true);
+    expect(engine.box2d.b2Body_IsBullet(bodyId)).toBe(true);
 
     bodyEntity.set(Body, { type: BodyType.Dynamic, bullet: false });
     runSteps(world, 1);
 
-    expect(state.box2d.b2Body_IsBullet(bodyId)).toBe(false);
+    expect(engine.box2d.b2Body_IsBullet(bodyId)).toBe(false);
   });
 });
 

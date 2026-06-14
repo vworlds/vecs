@@ -24,7 +24,7 @@
 
 import { type Entity, type World } from "@vworlds/vecs";
 
-import { type PhysicsState } from "../adapter/state.js";
+import { type PhysicsEngine } from "../adapter/engine.js";
 import { installDebugValidation } from "./debug.js";
 import { installEventOptInSync } from "./event_opt_in_sync.js";
 import { installEvents } from "./events.js";
@@ -54,42 +54,42 @@ export interface PhysicsSystemsOptions {
   debug?: boolean;
 }
 
-/** Register every physics system into `world`, bound to `state`. */
+/** Register every physics system into `world`, bound to `engine`. */
 export function registerPhysicsSystems(
   world: World,
-  state: PhysicsState,
+  engine: PhysicsEngine,
   phases: PhysicsPhases,
   opts: PhysicsSystemsOptions = {}
 ): void {
   // physics-pre: lifecycle + sync systems in dependency order.
-  installBodyLifecycle(world, state, phases.preStep);
-  installShapeLifecycle(world, state, phases.preStep);
-  installMaterialFilterSync(world, state, phases.preStep);
+  installBodyLifecycle(world, engine, phases.preStep);
+  installShapeLifecycle(world, engine, phases.preStep);
+  installMaterialFilterSync(world, engine, phases.preStep);
   // physics-pre: keep event opt-in flags in sync when ContactEvents/HitEvents/
   // SensorEvents are added/removed on a shape after creation (hook-based).
-  installEventOptInSync(world, state, phases.preStep);
-  installShapePoseSync(world, state, phases.preStep);
-  installPoseSyncIn(world, state, phases.preStep);
+  installEventOptInSync(world, engine, phases.preStep);
+  installShapePoseSync(world, engine, phases.preStep);
+  installPoseSyncIn(world, engine, phases.preStep);
   // physics-pre: kinematic target drive after PoseSyncIn, before ForceGather (VP-20).
-  installKinematicTargets(world, state, phases.preStep);
+  installKinematicTargets(world, engine, phases.preStep);
   // physics-pre: force/impulse systems after KinematicTargets, before MassRecompute (VP-19).
-  installForceGather(world, state, phases.preStep);
-  installImpulseAccumulate(world, state, phases.preStep);
+  installForceGather(world, engine, phases.preStep);
+  installImpulseAccumulate(world, engine, phases.preStep);
   // physics-pre: mass recompute — last pre-step, after all lifecycle/sync/force.
-  installMassRecompute(world, state, phases.preStep);
+  installMassRecompute(world, engine, phases.preStep);
   // physics-step: integrator.
-  installStep(world, state, phases.step);
+  installStep(world, engine, phases.step);
   // physics-post: write simulated pose back to ECS.
-  installPoseSyncOut(world, state, phases.postStep);
+  installPoseSyncOut(world, engine, phases.postStep);
   // physics-post: fan raw event arrays out to ECS event components (VP-21b).
   // Must run AFTER PoseSyncOut (so positions are up to date) and BEFORE ImpulseZero.
-  installEvents(world, state, phases.postStep);
+  installEvents(world, engine, phases.postStep);
   // physics-post: silently zero consumed Impulse/AngularImpulse (last in post).
-  installImpulseZero(world, state, phases.postStep);
+  installImpulseZero(world, engine, phases.postStep);
 
   // physics-pre: debug validation — LAST in physics-pre, ONLY when debug: true.
   // Runs after all lifecycle/sync/mass so the world is fully wired for the step.
   if (opts.debug === true) {
-    installDebugValidation(world, state, phases.preStep);
+    installDebugValidation(world, engine, phases.preStep);
   }
 }

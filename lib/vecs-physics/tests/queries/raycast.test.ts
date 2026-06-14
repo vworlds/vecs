@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, CollisionFilter, PhysicsModule, Position } from "../../src/index.js";
 import { physics } from "../../src/adapter/queries.js";
-import { getPhysics } from "../../src/adapter/state.js";
+import { getPhysicsEngine } from "../../src/adapter/engine.js";
 
 const STEP_MS = 1000 / 60;
 
@@ -222,18 +222,18 @@ describe("sleeping body not woken by a cast", () => {
       step(world);
     }
 
-    const state = getPhysics(world);
+    const engine = getPhysicsEngine(world);
     const bodyId = (
-      body.get(Body) as unknown as { _bodyId: Parameters<typeof state.box2d.b2Body_IsAwake>[0] }
+      body.get(Body) as unknown as { _bodyId: Parameters<typeof engine.box2d.b2Body_IsAwake>[0] }
     )._bodyId!;
 
-    expect(state.box2d.b2Body_IsAwake(bodyId)).toBe(false);
+    expect(engine.box2d.b2Body_IsAwake(bodyId)).toBe(false);
 
     for (let i = 0; i < 5; i++) {
       physics(world).rayCastClosest({ from: { x: -10, y: 0 }, to: { x: 10, y: 0 } });
       physics(world).rayCastAll({ from: { x: -10, y: 0 }, to: { x: 10, y: 0 } });
     }
 
-    expect(state.box2d.b2Body_IsAwake(bodyId)).toBe(false);
+    expect(engine.box2d.b2Body_IsAwake(bodyId)).toBe(false);
   });
 });

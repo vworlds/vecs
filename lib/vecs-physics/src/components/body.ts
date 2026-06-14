@@ -1,5 +1,5 @@
 // Body-level components: the entity-marking `Body` plus the canonical pose and
-// velocity state. Defaults match Box2D's `b2DefaultBodyDef()` (see
+// velocity data. Defaults match Box2D's `b2DefaultBodyDef()` (see
 // `box2d/src/types.c`). Public API — see `docs/components.md`.
 //
 // These are plain data classes: every field is initialised on the class body so
@@ -7,7 +7,7 @@
 // contract). No imports from systems/ or adapter/ beyond type-only `b2*Id`
 // handle types — components are pure data.
 
-import type { b2BodyId } from "../adapter/state.js";
+import type { b2BodyId } from "../adapter/engine.js";
 
 /** Simulation behaviour of a {@link Body}. */
 export enum BodyType {

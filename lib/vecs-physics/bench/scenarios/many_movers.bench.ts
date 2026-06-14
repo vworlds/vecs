@@ -13,7 +13,7 @@ import {
   Material,
   Position,
 } from "../../src/index.js";
-import { getPhysics } from "../../src/adapter/state.js";
+import { getPhysicsEngine } from "../../src/adapter/engine.js";
 
 const BODY_COUNT = 500;
 const LOOKUP_REPEATS = 100;
@@ -56,7 +56,7 @@ export function runManyMovers(): {
   }
   const totalMs = performance.now() - t0;
 
-  const state = getPhysics(world);
+  const engine = getPhysicsEngine(world);
   const entries: Array<{ bodyId: NonNullable<Body["_bodyId"]>; entityId: EID }> = [];
   world.filter(Body).forEach([Body], (entity, [body]) => {
     if (body?._bodyId !== undefined) {
@@ -78,7 +78,7 @@ export function runManyMovers(): {
   let indexChecksum = 0;
   for (let repeat = 0; repeat < LOOKUP_REPEATS; repeat++) {
     for (const bodyId of bodyIds) {
-      indexChecksum += state.entityByBodyIndex.get(bodyId.index1) ?? 0;
+      indexChecksum += engine.entityByBodyIndex.get(bodyId.index1) ?? 0;
     }
   }
   const lookupIndexMs = performance.now() - indexStart;

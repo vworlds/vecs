@@ -3,18 +3,18 @@ import { type Entity, type World } from "@vworlds/vecs";
 import { Chain, Shape } from "../components/geometry.js";
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
 import { Detectable } from "../components/material.js";
-import { PhysicsSystemTag, type b2ShapeId, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type b2ShapeId, type PhysicsEngine } from "../adapter/engine.js";
 
 type EventFlag = "contact" | "hit";
 
-export function installEventOptInSync(world: World, state: PhysicsState, phase: Entity): void {
-  world.component(ContactEvents).onAdd((entity) => setEventFlag(state, entity, "contact", true));
+export function installEventOptInSync(world: World, engine: PhysicsEngine, phase: Entity): void {
+  world.component(ContactEvents).onAdd((entity) => setEventFlag(engine, entity, "contact", true));
   world
     .component(ContactEvents)
-    .onRemove((entity) => setEventFlag(state, entity, "contact", false));
+    .onRemove((entity) => setEventFlag(engine, entity, "contact", false));
 
-  world.component(HitEvents).onAdd((entity) => setEventFlag(state, entity, "hit", true));
-  world.component(HitEvents).onRemove((entity) => setEventFlag(state, entity, "hit", false));
+  world.component(HitEvents).onAdd((entity) => setEventFlag(engine, entity, "hit", true));
+  world.component(HitEvents).onRemove((entity) => setEventFlag(engine, entity, "hit", false));
 
   // Sensor detection: enable if SensorEvents OR Detectable is present.
   // Query {all: [Shape, {any: [SensorEvents, Detectable]}]} matches entities
@@ -27,20 +27,20 @@ export function installEventOptInSync(world: World, state: PhysicsState, phase: 
     .enter([Shape], (_e, [shape]) => {
       const shapeId = readShapeId(shape);
       if (shapeId !== undefined) {
-        state.box2d.b2Shape_EnableSensorEvents(shapeId, true);
+        engine.box2d.b2Shape_EnableSensorEvents(shapeId, true);
       }
     })
     .exit([Shape], (_e, [shape]) => {
       const shapeId = readShapeId(shape);
       if (shapeId !== undefined) {
-        state.box2d.b2Shape_EnableSensorEvents(shapeId, false);
+        engine.box2d.b2Shape_EnableSensorEvents(shapeId, false);
       }
     });
   sensorSystem.entity.add(PhysicsSystemTag);
 }
 
 function setEventFlag(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   entity: Entity,
   flag: EventFlag,
   enabled: boolean
@@ -49,7 +49,7 @@ function setEventFlag(
   if (shape !== undefined) {
     const shapeId = readShapeId(shape);
     if (shapeId !== undefined) {
-      applyEventFlag(state, shapeId, flag, enabled);
+      applyEventFlag(engine, shapeId, flag, enabled);
     }
   }
 }
@@ -62,17 +62,17 @@ function readShapeId(shape: Shape): b2ShapeId | undefined {
 }
 
 function applyEventFlag(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   shapeId: b2ShapeId,
   flag: EventFlag,
   enabled: boolean
 ): void {
   switch (flag) {
     case "contact":
-      state.box2d.b2Shape_EnableContactEvents(shapeId, enabled);
+      engine.box2d.b2Shape_EnableContactEvents(shapeId, enabled);
       break;
     case "hit":
-      state.box2d.b2Shape_EnableHitEvents(shapeId, enabled);
+      engine.box2d.b2Shape_EnableHitEvents(shapeId, enabled);
       break;
   }
 }

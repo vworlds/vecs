@@ -40,14 +40,14 @@ Explicitly **not** in v2: joints, public shape casts, character movers, debug dr
 
 v1 is pure-component by design. v2 needs synchronous, read-only queries against the live world (ray casts, overlaps), which do not fit ECS state. We add **one** narrow imperative entry point, world-scoped, returning Vecs entities and never Box2D handles.
 
-**Accessor.** A free function, symmetric with the internal `getPhysics`:
+**Accessor.** A free function, symmetric with the internal `getPhysicsEngine`:
 
 ```ts
 export function physics(world: World): PhysicsQueries;
 ```
 
-- Throws if `PhysicsModule` is not installed on `world` (wraps `getPhysics`, which already throws).
-- Returns a stable facade object (constructed once per world, cached on `PhysicsState`) so repeated calls don't re-allocate.
+- Throws if `PhysicsModule` is not installed on `world` (wraps `getPhysicsEngine`, which already throws).
+- Returns a stable facade object (constructed once per world, cached on `PhysicsEngine`) so repeated calls don't re-allocate.
 - This is the **only** new non-component export besides the `Detectable` component.
 
 Rejected alternatives: methods on the `PhysicsModule` instance (module instances aren't the natural handle for per-frame queries); methods on `world` (would require Vecs core changes / pollute the core surface); request components (the roadmap already rules these out — queries are reads, not state).
@@ -82,7 +82,7 @@ export interface PhysicsQueries {
 
 ### 2.2 Shared mechanics (built in M8-3, used by M8-4/M8-5)
 
-**Entity resolution.** Reuse the existing reverse map: `state.entityByShapeIndex.get(shapeId.index1)` → `EID` → `world.entity(eid)`. If the slot is empty or the entity is destroyed, the hit is dropped silently (same rule as `PhysicsEvents`). Chains have no per-shape entity in this map; v2 queries over chain segments resolve to the chain entity only if its `index1` is registered — document that ray/overlap hits against chain shapes are out of scope for v2 (chains are static-collision geometry, not gameplay query targets) unless trivially supported.
+**Entity resolution.** Reuse the existing reverse map: `engine.entityByShapeIndex.get(shapeId.index1)` → `EID` → `world.entity(eid)`. If the slot is empty or the entity is destroyed, the hit is dropped silently (same rule as `PhysicsEvents`). Chains have no per-shape entity in this map; v2 queries over chain segments resolve to the chain entity only if its `index1` is registered — document that ray/overlap hits against chain shapes are out of scope for v2 (chains are static-collision geometry, not gameplay query targets) unless trivially supported.
 
 **Filter mapping.** `QueryFilter { categoryBits, maskBits }` → `b2QueryFilter`. Defaults are `0xffffffff`/`0xffffffff` (a query with no filter matches everything). Note the inversion vs a shape's own filter: a shape's default `maskBits` is `0xffffffff` and `categoryBits` is `1`; a _query's_ default `categoryBits` should be `0xffffffff` so it is not itself filtered out. Box2D collision rule between query filter Q and shape filter S: `(Q.category & S.mask) != 0 && (S.category & Q.mask) != 0`.
 
@@ -99,8 +99,8 @@ The callback variants take an `emscripten::val` JS callback. The collector patte
 
 ```ts
 const hits: RayHit[] = [];
-state.box2d.b2World_CastRay(state.worldId, origin, translation, filter, (result) => {
-  const entity = resolveShapeEntity(state, world, result.shapeId);
+engine.box2d.b2World_CastRay(engine.worldId, origin, translation, filter, (result) => {
+  const entity = resolveShapeEntity(engine, world, result.shapeId);
   if (entity) hits.push({ entity, point: { x: result.point.x, y: result.point.y } /* … */ });
   return 1; // continue collecting all hits
 });
@@ -127,7 +127,7 @@ export class Detectable {}
 Wiring:
 
 - `readShapeOptions`: `enableSensorEvents: entity.get(SensorEvents) !== undefined || entity.get(Detectable) !== undefined`.
-- `PhysicsEventOptInSync`: add `Detectable` `onAdd`/`onRemove` hooks calling `b2Shape_EnableSensorEvents(shapeId, …)`, OR-combined with the `SensorEvents` flag so removing one while the other is present does not disable detection. (Track effective state in `PhysicsState`, or recompute from both components on each toggle.)
+- `PhysicsEventOptInSync`: add `Detectable` `onAdd`/`onRemove` hooks calling `b2Shape_EnableSensorEvents(shapeId, …)`, OR-combined with the `SensorEvents` flag so removing one while the other is present does not disable detection. (Track effective state in `PhysicsEngine`, or recompute from both components on each toggle.)
 - Registration: add `Detectable` to the public component list next to `Sensor` (group 5). Regenerate `tests/api/exports.approved.json`. Component-type-id order changing affects only internal archetype ids, not Box2D output, so parity goldens are unaffected.
 
 Rejected alternatives: (a) auto-enable `enableSensorEvents` on every shape — changes Box2D-aligned defaults, adds sensor bookkeeping cost to shapes that never participate; (b) document "add `SensorEvents` to the solid" — works mechanically (it sets the flag) but is unintuitive and implies the solid receives events it never gets.
@@ -142,7 +142,7 @@ Rejected alternatives: (a) auto-enable `enableSensorEvents` on every shape — c
 
 **Step 1 — investigate (test-first).** Write the failing regression first (mirror spacerocks `startupCollision.test.ts`): create `Body` + child `Box`/`Circle` (+ `SensorEvents`/`Detectable`), then `preloadPhysics` + `world.module(PhysicsModule)`, step, assert the shape collides / fires events. Confirm the exact failure: body created but `Shape._shapeId` undefined. Determine whether Vecs replays pre-existing matches into a newly-registered system's `.enter` inbox, and whether the `{ parent: Body }` `TargetTerm` re-evaluates for shapes whose parent `Body` predates the system.
 
-**Step 2 — fix: explicit install-time reconciliation.** In `registerPhysics`, after systems are registered and `PhysicsState` is attached, run a deterministic backfill pass **in dependency order**:
+**Step 2 — fix: explicit install-time reconciliation.** In `registerPhysics`, after systems are registered and `PhysicsEngine` is attached, run a deterministic backfill pass **in dependency order**:
 
 1. Bodies first: for every entity with `Body` and no `_bodyId`, run the same body-creation path `PhysicsBodyLifecycle.enter` uses.
 2. Shapes next: for every entity with `Shape` whose immediate `ChildOf` parent has a `Body`, run the same shape-creation path `PhysicsShapeLifecycle.enter` uses (this also applies event opt-in flags, including `Detectable`).
@@ -201,8 +201,8 @@ Each ticket: goal, design pointer, files, box2d calls, tests (write first), gate
 
 - **Goal.** `physics(world)` accessor + `PhysicsQueries` facade skeleton + shared resolution/filter/disposal helpers. No query methods implemented yet beyond the plumbing (or implement `rayCastClosest` here as the smoke path — optional).
 - **Design.** § 2.1, § 2.2.
-- **Files.** new `src/adapter/queries.ts` (`physics`, facade class, `resolveShapeEntity`, `toQueryFilter`, scratch handling), `src/index.ts` (exports), `src/adapter/state.ts` (cache the facade + any query scratch on `PhysicsState`).
-- **box2d.** `b2QueryFilter`, `b2AABB`, `b2Vec2`, `b2MakeProxy` available via `state.box2d`.
+- **Files.** new `src/adapter/queries.ts` (`physics`, facade class, `resolveShapeEntity`, `toQueryFilter`, scratch handling), `src/index.ts` (exports), `src/adapter/engine.ts` (cache the facade + any query scratch on `PhysicsEngine`).
+- **box2d.** `b2QueryFilter`, `b2AABB`, `b2Vec2`, `b2MakeProxy` available via `engine.box2d`.
 - **Tests (first).** `tests/api/queries_install.test.ts`: `physics(world)` throws before install; returns a stable object after; filter defaults map correctly; no allocation leak across N calls (sanity via repeated calls + a step).
 - **Gate.** Full suite green; exports snapshot updated with `physics`/`PhysicsQueries`/`QueryFilter`/`RayHit`.
 
@@ -247,7 +247,7 @@ Covered by M8-1 (sensor docs) and M8-6 (queries doc, roadmap shuffle, examples).
 
 ## 7. Risks
 
-1. **Emscripten leaks in the hot query path.** Every `b2Vec2`/`b2AABB`/proxy per call must free. Mitigation: all query allocation funnels through `withAllocated` (or a pooled scratch set on `PhysicsState`) in `src/adapter/queries.ts`; a repeated-call leak sanity test in M8-3.
+1. **Emscripten leaks in the hot query path.** Every `b2Vec2`/`b2AABB`/proxy per call must free. Mitigation: all query allocation funnels through `withAllocated` (or a pooled scratch set on `PhysicsEngine`) in `src/adapter/queries.ts`; a repeated-call leak sanity test in M8-3.
 2. **Callback re-entrancy / safety.** The box2d3-wasm collector callback runs synchronously inside the C call. Keep callbacks pure (collect only); never mutate the world, create/destroy entities, or call back into physics from inside a query callback. Document it.
 3. **Backfill double-creation (UP-2).** If Vecs _does_ replay pre-existing entities into the new system's `.enter` after an explicit reconciliation pass, naïve code creates two bodies/shapes. Mitigation: idempotent guards on `_bodyId`/`_shapeId`; the M8-2 test asserts exactly one of each. Resolve the "does Vecs replay?" question in M8-2 step 1 before writing the fix.
 4. **Component-id order churn from `Detectable`.** Adding a component shifts internal type ids. Parity goldens are WASM-output-determined (unaffected); only `exports.approved.json` regenerates. Confirm no test hashes component type ids.

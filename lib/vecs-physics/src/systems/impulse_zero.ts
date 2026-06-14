@@ -1,14 +1,14 @@
 import { type Entity, type World } from "@vworlds/vecs";
 
 import { AngularImpulse, Impulse } from "../components/force.js";
-import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsEngine } from "../adapter/engine.js";
 
-export function installImpulseZero(world: World, state: PhysicsState, phase: Entity): void {
+export function installImpulseZero(world: World, engine: PhysicsEngine, phase: Entity): void {
   const system = world
     .system("PhysicsImpulseZero")
     .phase(phase)
     .run(() => {
-      for (const eid of state.impulseEntitiesThisStep) {
+      for (const eid of engine.impulseEntitiesThisStep) {
         const entity = world.getEntity(eid);
         if (entity === undefined) {
           continue;
@@ -26,7 +26,7 @@ export function installImpulseZero(world: World, state: PhysicsState, phase: Ent
         }
       }
 
-      state.impulseEntitiesThisStep.clear();
+      engine.impulseEntitiesThisStep.clear();
     });
   system.entity.add(PhysicsSystemTag);
 }

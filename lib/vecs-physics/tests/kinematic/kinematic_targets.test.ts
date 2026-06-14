@@ -1,7 +1,7 @@
 // VP-20: `PhysicsKinematicTargets` tests.
 //
 // Tests are world-level: install physics, create entities, run `world.progress`,
-// assert ECS component state. The same pattern as `tests/lifecycle/contacts.test.ts`.
+// assert ECS component values. The same pattern as `tests/lifecycle/contacts.test.ts`.
 //
 // Coverage:
 //   1. Convergence: kinematic body moves toward KinematicTargetPosition each step.
@@ -22,20 +22,20 @@ import {
   Rotation,
   PhysicsModule,
 } from "../../src/index.js";
-import { getPhysics, type PhysicsState, type b2BodyId } from "../../src/adapter/state.js";
+import { getPhysicsEngine, type PhysicsEngine, type b2BodyId } from "../../src/adapter/engine.js";
 
 const STEP_MS = 1000 / 60;
 const DT = 1 / 60;
 
 let world: World;
-let state: PhysicsState;
+let engine: PhysicsEngine;
 let now: number;
 
 beforeEach(() => {
   world = new World();
   // No gravity — we only care about kinematic motion, not free-fall.
   world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
-  state = getPhysics(world) as PhysicsState;
+  engine = getPhysicsEngine(world) as PhysicsEngine;
   now = 0;
 });
 
@@ -51,7 +51,7 @@ function bodySim(eid: EID) {
 }
 
 function bodyPosition(bodyId: b2BodyId): { x: number; y: number } {
-  const position = state.box2d.b2Body_GetPosition(bodyId);
+  const position = engine.box2d.b2Body_GetPosition(bodyId);
   try {
     return { x: position.x, y: position.y };
   } finally {
@@ -60,7 +60,7 @@ function bodyPosition(bodyId: b2BodyId): { x: number; y: number } {
 }
 
 function bodyAngle(bodyId: b2BodyId): number {
-  const rotation = state.box2d.b2Body_GetRotation(bodyId);
+  const rotation = engine.box2d.b2Body_GetRotation(bodyId);
   try {
     return rotation.GetAngle();
   } finally {
@@ -69,7 +69,7 @@ function bodyAngle(bodyId: b2BodyId): number {
 }
 
 function linearSpeed(bodyId: b2BodyId): number {
-  const velocity = state.box2d.b2Body_GetLinearVelocity(bodyId);
+  const velocity = engine.box2d.b2Body_GetLinearVelocity(bodyId);
   try {
     return Math.hypot(velocity.x, velocity.y);
   } finally {
@@ -197,7 +197,7 @@ describe("KinematicTargetPosition tolerance", () => {
     step(1); // arrive at x=1 (velocity 60 m/s drove it there)
     step(1); // next pre-step: dist = 0 <= tolerance → vx = vy = 0
 
-    // Body state must show zero linear velocity now that the target is reached.
+    // Body simulation must show zero linear velocity now that the target is reached.
     expect(linearSpeed(bodySim(e.eid))).toBeCloseTo(0, 6);
   });
 });
@@ -275,7 +275,7 @@ describe("KinematicTargetRotation", () => {
     step(1); // body drives toward 0.1 rad (well within angular cap)
     step(1); // pre-phase sees dist ≈ 0 → sets omega = 0
 
-    expect(Math.abs(state.box2d.b2Body_GetAngularVelocity(bodySim(e.eid)))).toBeCloseTo(0, 6);
+    expect(Math.abs(engine.box2d.b2Body_GetAngularVelocity(bodySim(e.eid)))).toBeCloseTo(0, 6);
   });
 });
 
@@ -306,7 +306,7 @@ describe("target on non-kinematic body is ignored", () => {
 
     expect(() => step(1)).not.toThrow();
 
-    // Static bodies have no body state; Position stays at origin.
+    // Static bodies are not driven by kinematic targets; Position stays at origin.
     expect(e.get(Position)!.x).toBe(0);
   });
 });

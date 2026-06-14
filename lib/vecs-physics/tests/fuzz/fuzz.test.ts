@@ -11,7 +11,7 @@ const MAX_SINGLE_STEP_MS = 5000;
 
 describe("seeded physics fuzz harness", () => {
   for (const seed of SEEDS) {
-    it(`seed ${seed} steps without non-finite body state or hangs`, () => {
+    it(`seed ${seed} steps without non-finite body values or hangs`, () => {
       const scene = buildFuzzScene(seed);
       let now = 0;
 

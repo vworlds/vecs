@@ -10,17 +10,17 @@ import {
 } from "../components/body.js";
 import { Damping, GravityScale, MotionLocks, Sleep } from "../components/body_tuning.js";
 import { type Box2DModule } from "../adapter/runtime.js";
-import { PhysicsSystemTag, type b2BodyId, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type b2BodyId, type PhysicsEngine } from "../adapter/engine.js";
 import { withAllocated } from "../adapter/disposal.js";
 
-export function installBodyLifecycle(world: World, state: PhysicsState, phase: Entity): void {
+export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase: Entity): void {
   const system = world.system("PhysicsBodyLifecycle").with(Body).phase(phase);
   system.entity.add(PhysicsSystemTag);
 
   system.enter([Body], (entity, [body]) => {
-    const bodyId = createWasmBodyId(state, entity, body);
+    const bodyId = createWasmBodyId(engine, entity, body);
     body._bodyId = bodyId;
-    state.entityByBodyIndex.set(bodyId.index1, entity.eid);
+    engine.entityByBodyIndex.set(bodyId.index1, entity.eid);
   });
 
   // Inject `[Body]` so the handle survives the post-`_destroy` snapshot -- by
@@ -31,8 +31,8 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     if (bodyId === undefined) {
       return;
     }
-    state.box2d.b2DestroyBody(bodyId);
-    state.entityByBodyIndex.delete(bodyId.index1);
+    engine.box2d.b2DestroyBody(bodyId);
+    engine.entityByBodyIndex.delete(bodyId.index1);
   });
 
   system.update(Body, (entity, body) => {
@@ -40,13 +40,13 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
     if (bodyId === undefined) {
       return;
     }
-    state.box2d.b2Body_SetType(bodyId, bodyTypeToBox2D(state.box2d, body.type));
+    engine.box2d.b2Body_SetType(bodyId, bodyTypeToBox2D(engine.box2d, body.type));
     if (body.enabled) {
-      state.box2d.b2Body_Enable(bodyId);
+      engine.box2d.b2Body_Enable(bodyId);
     } else {
-      state.box2d.b2Body_Disable(bodyId);
+      engine.box2d.b2Body_Disable(bodyId);
     }
-    state.box2d.b2Body_SetBullet(bodyId, body.bullet);
+    engine.box2d.b2Body_SetBullet(bodyId, body.bullet);
   });
 
   const dampingSystem = world
@@ -58,8 +58,8 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
       if (bodyId === undefined) {
         return;
       }
-      state.box2d.b2Body_SetLinearDamping(bodyId, damping.linear);
-      state.box2d.b2Body_SetAngularDamping(bodyId, damping.angular);
+      engine.box2d.b2Body_SetLinearDamping(bodyId, damping.linear);
+      engine.box2d.b2Body_SetAngularDamping(bodyId, damping.angular);
     });
   dampingSystem.entity.add(PhysicsSystemTag);
 
@@ -72,7 +72,7 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
       if (bodyId === undefined) {
         return;
       }
-      state.box2d.b2Body_SetGravityScale(bodyId, gravityScale.value);
+      engine.box2d.b2Body_SetGravityScale(bodyId, gravityScale.value);
     });
   gravityScaleSystem.entity.add(PhysicsSystemTag);
 
@@ -86,12 +86,12 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
         return;
       }
       withAllocated(
-        () => new state.box2d.b2MotionLocks(),
+        () => new engine.box2d.b2MotionLocks(),
         (motionLocks) => {
           motionLocks.linearX = locks.x;
           motionLocks.linearY = locks.y;
           motionLocks.angularZ = locks.rotation;
-          state.box2d.b2Body_SetMotionLocks(bodyId, motionLocks);
+          engine.box2d.b2Body_SetMotionLocks(bodyId, motionLocks);
         }
       );
     });
@@ -106,15 +106,15 @@ export function installBodyLifecycle(world: World, state: PhysicsState, phase: E
       if (bodyId === undefined) {
         return;
       }
-      state.box2d.b2Body_EnableSleep(bodyId, sleep.enabled);
-      state.box2d.b2Body_SetAwake(bodyId, sleep.awake);
-      state.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
+      engine.box2d.b2Body_EnableSleep(bodyId, sleep.enabled);
+      engine.box2d.b2Body_SetAwake(bodyId, sleep.awake);
+      engine.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
     });
   sleepSystem.entity.add(PhysicsSystemTag);
 }
 
-function createWasmBodyId(state: PhysicsState, entity: Entity, body: Body): b2BodyId {
-  const box2d = state.box2d;
+function createWasmBodyId(engine: PhysicsEngine, entity: Entity, body: Body): b2BodyId {
+  const box2d = engine.box2d;
   return withAllocated(box2d.b2DefaultBodyDef, (def) => {
     const position = entity.get(Position);
     const rotation = entity.get(Rotation);
@@ -143,7 +143,7 @@ function createWasmBodyId(state: PhysicsState, entity: Entity, body: Body): b2Bo
     def.isBullet = body.bullet;
     def.allowFastRotation = body.allowFastRotation;
 
-    return box2d.b2CreateBody(state.worldId, def);
+    return box2d.b2CreateBody(engine.worldId, def);
   });
 }
 

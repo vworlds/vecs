@@ -2,7 +2,7 @@ import { cpus } from "node:os";
 
 import Box2DFactory from "box2d3-wasm";
 
-import type { b2AABB, b2QueryFilter, b2Vec2 } from "./state.js";
+import type { b2AABB, b2QueryFilter, b2Vec2 } from "./engine.js";
 
 export type Box2DModule = Awaited<ReturnType<typeof Box2DFactory>>;
 

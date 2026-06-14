@@ -3,10 +3,10 @@ import { type Entity, type World } from "@vworlds/vecs";
 import { Body } from "../components/body.js";
 import { KinematicTargetPosition, KinematicTargetRotation } from "../components/target.js";
 import { scr_b2Vec2 } from "../adapter/runtime.js";
-import { PhysicsSystemTag, type PhysicsState, type b2BodyId } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsEngine, type b2BodyId } from "../adapter/engine.js";
 
-export function installKinematicTargets(world: World, state: PhysicsState, phase: Entity): void {
-  const dt = state.fixedTimeStep;
+export function installKinematicTargets(world: World, engine: PhysicsEngine, phase: Entity): void {
+  const dt = engine.fixedTimeStep;
   if (dt <= 0) {
     return;
   }
@@ -18,18 +18,18 @@ export function installKinematicTargets(world: World, state: PhysicsState, phase
     .each([Body, KinematicTargetPosition, KinematicTargetRotation], (_entity, tuple) => {
       const [body, positionTarget, rotationTarget] = tuple;
       const bodyId = body._bodyId;
-      if (bodyId === undefined || !isKinematicBody(state, bodyId)) {
+      if (bodyId === undefined || !isKinematicBody(engine, bodyId)) {
         return;
       }
 
-      drivePositionTarget(state, bodyId, positionTarget, dt);
-      driveRotationTarget(state, bodyId, rotationTarget, dt);
+      drivePositionTarget(engine, bodyId, positionTarget, dt);
+      driveRotationTarget(engine, bodyId, rotationTarget, dt);
     });
   system.entity.add(PhysicsSystemTag);
 }
 
 function drivePositionTarget(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   bodyId: b2BodyId,
   target: KinematicTargetPosition | undefined,
   dt: number
@@ -38,7 +38,7 @@ function drivePositionTarget(
     return;
   }
 
-  const position = state.box2d.b2Body_GetPosition(bodyId);
+  const position = engine.box2d.b2Body_GetPosition(bodyId);
   try {
     const dx = target.x - position.x;
     const dy = target.y - position.y;
@@ -47,17 +47,17 @@ function drivePositionTarget(
       let vx = dx / dt;
       let vy = dy / dt;
       const speed = Math.hypot(vx, vy);
-      if (speed > state.maximumLinearSpeed) {
-        const scale = state.maximumLinearSpeed / speed;
+      if (speed > engine.maximumLinearSpeed) {
+        const scale = engine.maximumLinearSpeed / speed;
         vx *= scale;
         vy *= scale;
       }
-      setLinearVelocity(state, bodyId, vx, vy);
+      setLinearVelocity(engine, bodyId, vx, vy);
       if (target.wake) {
-        state.box2d.b2Body_SetAwake(bodyId, true);
+        engine.box2d.b2Body_SetAwake(bodyId, true);
       }
     } else {
-      setLinearVelocity(state, bodyId, 0, 0);
+      setLinearVelocity(engine, bodyId, 0, 0);
     }
   } finally {
     position.delete();
@@ -65,7 +65,7 @@ function drivePositionTarget(
 }
 
 function driveRotationTarget(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   bodyId: b2BodyId,
   target: KinematicTargetRotation | undefined,
   dt: number
@@ -74,30 +74,30 @@ function driveRotationTarget(
     return;
   }
 
-  const rotation = state.box2d.b2Body_GetRotation(bodyId);
+  const rotation = engine.box2d.b2Body_GetRotation(bodyId);
   try {
     const da = wrap(target.angle - rotation.GetAngle(), -Math.PI, Math.PI);
     if (Math.abs(da) > target.tolerance) {
-      state.box2d.b2Body_SetAngularVelocity(bodyId, da / dt);
+      engine.box2d.b2Body_SetAngularVelocity(bodyId, da / dt);
       if (target.wake) {
-        state.box2d.b2Body_SetAwake(bodyId, true);
+        engine.box2d.b2Body_SetAwake(bodyId, true);
       }
     } else {
-      state.box2d.b2Body_SetAngularVelocity(bodyId, 0);
+      engine.box2d.b2Body_SetAngularVelocity(bodyId, 0);
     }
   } finally {
     rotation.delete();
   }
 }
 
-function isKinematicBody(state: PhysicsState, bodyId: b2BodyId): boolean {
-  return state.box2d.b2Body_GetType(bodyId) === state.box2d.b2BodyType.b2_kinematicBody;
+function isKinematicBody(engine: PhysicsEngine, bodyId: b2BodyId): boolean {
+  return engine.box2d.b2Body_GetType(bodyId) === engine.box2d.b2BodyType.b2_kinematicBody;
 }
 
-function setLinearVelocity(state: PhysicsState, bodyId: b2BodyId, x: number, y: number): void {
+function setLinearVelocity(engine: PhysicsEngine, bodyId: b2BodyId, x: number, y: number): void {
   const vec = scr_b2Vec2[0];
   vec.Set(x, y);
-  state.box2d.b2Body_SetLinearVelocity(bodyId, vec);
+  engine.box2d.b2Body_SetLinearVelocity(bodyId, vec);
 }
 
 function wrap(value: number, min: number, max: number): number {

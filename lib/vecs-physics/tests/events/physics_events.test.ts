@@ -210,7 +210,7 @@ describe("begin/end lifecycle", () => {
     // Strategy: a static floor at y=0 and a dynamic box resting on it. With
     // gravity the box settles onto the floor, producing a PERSISTENT touching
     // contact (resting, not just a momentary bounce). We then run enough steps
-    // to reach steady state, confirm the contact is touching, and destroy the
+    // to reach a steady resting contact, confirm the contact is touching, and destroy the
     // dynamic body. The surviving floor shape should get a contact end event
     // on the step after the destroy.
 

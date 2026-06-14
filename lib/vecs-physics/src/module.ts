@@ -3,7 +3,7 @@
 // (mutually exclusive: setting one evicts any previous geometry), ensures the
 // three physics phases exist, creates the Box2D world, installs the physics
 // systems (each tagged with `PhysicsSystemTag`), and attaches the private
-// `PhysicsState`.
+// `PhysicsEngine`.
 //
 // Registration order matters: Vecs assigns component type ids in registration
 // order, so keeping the order stable keeps ids deterministic across worlds.
@@ -29,12 +29,12 @@ import { ShapePosition, ShapeRotation } from "./components/shape_pose.js";
 import { getBox2D } from "./adapter/runtime.js";
 import { withAllocated } from "./adapter/disposal.js";
 import {
-  attachPhysics,
-  hasPhysics,
-  PhysicsState,
+  attachPhysicsEngine,
+  hasPhysicsEngine,
+  PhysicsEngine,
   registerInternalComponents,
   type ResolvedPhysicsOptions,
-} from "./adapter/state.js";
+} from "./adapter/engine.js";
 import { registerImpulseHooks } from "./systems/impulse_accumulate.js";
 import { registerPhysicsSystems } from "./systems/index.js";
 
@@ -78,7 +78,7 @@ export class PhysicsModule extends Module<PhysicsOptions | undefined> {
 }
 
 function registerPhysics(world: World, opts: PhysicsOptions): void {
-  if (hasPhysics(world)) {
+  if (hasPhysicsEngine(world)) {
     throw new Error("PhysicsModule has already been registered on this world");
   }
 
@@ -123,7 +123,7 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
   world.component(SensorEvents);
   world.component(HitEvents);
 
-  // 2. Internal, non-exported components (`PhysicsRoot`, `PhysicsSystemTag`),
+  // 2. Internal, non-exported components (`PhysicsEngine`, `PhysicsSystemTag`),
   //    registered in their documented order for deterministic type ids.
   registerInternalComponents(world);
 
@@ -146,29 +146,29 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
   insertPhaseAfter(step, preStep);
   insertPhaseAfter(postStep, step);
 
-  // 5. Allocate WASM state, create the Box2D world, register the systems (bound
+  // 5. Allocate WASM engine, create the Box2D world, register the systems (bound
   //    to it), then attach it.
   const box2d = getBox2D();
   const options = resolveOptions(opts);
-  const state = new PhysicsState(box2d, options, opts.debugSink);
-  state.worldId = createWorldId(state, options);
-  registerImpulseHooks(world, state);
+  const engine = new PhysicsEngine(box2d, options, opts.debugSink);
+  engine.worldId = createWorldId(engine, options);
+  registerImpulseHooks(world, engine);
   registerPhysicsSystems(
     world,
-    state,
+    engine,
     { preStep, step, postStep },
     {
       debug: opts.debug ?? false,
     }
   );
-  attachPhysics(world, state);
+  attachPhysicsEngine(world, engine);
 }
 
 function createWorldId(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   options: ResolvedPhysicsOptions
-): PhysicsState["worldId"] {
-  const box2d = state.box2d;
+): PhysicsEngine["worldId"] {
+  const box2d = engine.box2d;
   return withAllocated(box2d.b2DefaultWorldDef, (def) => {
     def.gravity.x = options.gravityX;
     def.gravity.y = options.gravityY;

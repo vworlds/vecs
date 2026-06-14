@@ -19,10 +19,10 @@ import {
   ShapeRotation,
   PhysicsModule,
 } from "../../src/index.js";
-import { getPhysics, type b2ShapeId, type PhysicsState } from "../../src/adapter/state.js";
+import { getPhysicsEngine, type b2ShapeId, type PhysicsEngine } from "../../src/adapter/engine.js";
 
 let world: World;
-let state: PhysicsState;
+let engine: PhysicsEngine;
 
 function makeBody(type: BodyType = BodyType.Static) {
   return world.entity().set(Body, { type });
@@ -30,10 +30,10 @@ function makeBody(type: BodyType = BodyType.Static) {
 
 function getShapeAABB(shapeEid: number) {
   const shapeId = world.getEntity(shapeEid)?.get(Shape)?._shapeId as b2ShapeId | undefined;
-  if (shapeId === undefined || !state.box2d.b2Shape_IsValid(shapeId)) {
+  if (shapeId === undefined || !engine.box2d.b2Shape_IsValid(shapeId)) {
     return undefined;
   }
-  const aabb = state.box2d.b2Shape_GetAABB(shapeId);
+  const aabb = engine.box2d.b2Shape_GetAABB(shapeId);
   const result = {
     minX: aabb.lowerBound.x,
     minY: aabb.lowerBound.y,
@@ -47,7 +47,7 @@ function getShapeAABB(shapeEid: number) {
 beforeEach(() => {
   world = new World();
   world.module(PhysicsModule);
-  state = getPhysics(world);
+  engine = getPhysicsEngine(world);
 });
 
 describe("PhysicsShapePoseSync.update(ShapePosition)", () => {
@@ -133,7 +133,7 @@ describe("PhysicsShapePoseSync marks body massDirty on local pose change", () =>
 
     // Mass should be non-zero.
     const bodyId = body.get(Body)!._bodyId!;
-    const massBefore = state.box2d.b2Body_GetMass(bodyId);
+    const massBefore = engine.box2d.b2Body_GetMass(bodyId);
     expect(massBefore).toBeGreaterThan(0);
 
     // Move the circle to (10, 0). PhysicsShapePoseSync must mark massDirty so
@@ -142,11 +142,11 @@ describe("PhysicsShapePoseSync marks body massDirty on local pose change", () =>
     world.progress(16, 16);
 
     // After progress, dirtyMassBodies is cleared.
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
     // Mass hasn't changed — shape area is the same.
-    expect(state.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(massBefore, 4);
+    expect(engine.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(massBefore, 4);
     // But center of mass position should have shifted.
-    const massData = state.box2d.b2Body_GetMassData(bodyId);
+    const massData = engine.box2d.b2Body_GetMassData(bodyId);
     try {
       expect(massData.center.x).toBeCloseTo(10, 2);
     } finally {
@@ -164,13 +164,13 @@ describe("PhysicsShapePoseSync marks body massDirty on local pose change", () =>
     world.progress(0, 16);
 
     // dirtyMassBodies is false after first progress (PhysicsMassRecompute cleared it).
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
 
     // Update rotation — must mark body dirty so the next progress recomputes.
     shapeEntity.set(ShapeRotation, { angle: Math.PI / 4 });
     world.progress(16, 16);
 
     // dirtyMassBodies cleared again by PhysicsMassRecompute.
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
   });
 });

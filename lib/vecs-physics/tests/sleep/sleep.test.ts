@@ -2,7 +2,7 @@ import { World, type EID } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import { Body, BodyType, Box, Position, Sleep, PhysicsModule } from "../../src/index.js";
-import { getPhysics, type b2BodyId, type PhysicsState } from "../../src/adapter/state.js";
+import { getPhysicsEngine, type b2BodyId, type PhysicsEngine } from "../../src/adapter/engine.js";
 
 const DT = 1 / 60;
 const STEP_MS = DT * 1000;
@@ -44,18 +44,18 @@ function getBodyId(world: World, eid: EID): b2BodyId {
 }
 
 function isAwake(world: World, eid: EID): boolean {
-  const state = getPhysics(world) as PhysicsState;
-  return state.box2d.b2Body_IsAwake(getBodyId(world, eid));
+  const engine = getPhysicsEngine(world) as PhysicsEngine;
+  return engine.box2d.b2Body_IsAwake(getBodyId(world, eid));
 }
 
 function isSleepEnabled(world: World, eid: EID): boolean {
-  const state = getPhysics(world) as PhysicsState;
-  return state.box2d.b2Body_IsSleepEnabled(getBodyId(world, eid));
+  const engine = getPhysicsEngine(world) as PhysicsEngine;
+  return engine.box2d.b2Body_IsSleepEnabled(getBodyId(world, eid));
 }
 
 function sleepThreshold(world: World, eid: EID): number {
-  const state = getPhysics(world) as PhysicsState;
-  return state.box2d.b2Body_GetSleepThreshold(getBodyId(world, eid));
+  const engine = getPhysicsEngine(world) as PhysicsEngine;
+  return engine.box2d.b2Body_GetSleepThreshold(getBodyId(world, eid));
 }
 
 describe("WASM sleep configuration", () => {

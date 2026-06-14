@@ -8,19 +8,19 @@ import {
   Position,
   Rotation,
 } from "../components/body.js";
-import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsEngine } from "../adapter/engine.js";
 
-export function installPoseSyncOut(world: World, state: PhysicsState, phase: Entity): void {
+export function installPoseSyncOut(world: World, engine: PhysicsEngine, phase: Entity): void {
   const system = world
     .system("PhysicsPoseSyncOut")
     .phase(phase)
     .run(() => {
-      const bodyEvents = state.box2d.b2World_GetBodyEvents(state.worldId);
+      const bodyEvents = engine.box2d.b2World_GetBodyEvents(engine.worldId);
       try {
         for (let i = 0; i < bodyEvents.moveCount; i++) {
           const move = bodyEvents.GetMoveEvent(i);
           try {
-            const entityId = state.entityByBodyIndex.get(move.bodyId.index1);
+            const entityId = engine.entityByBodyIndex.get(move.bodyId.index1);
             if (entityId === undefined) {
               continue;
             }
@@ -36,7 +36,7 @@ export function installPoseSyncOut(world: World, state: PhysicsState, phase: Ent
               entity.set(Rotation, { angle: move.transform.q.GetAngle() });
             }
             if (entity.get(LinearVelocity) !== undefined) {
-              const linear = state.box2d.b2Body_GetLinearVelocity(move.bodyId);
+              const linear = engine.box2d.b2Body_GetLinearVelocity(move.bodyId);
               try {
                 entity.set(LinearVelocity, { x: linear.x, y: linear.y });
               } finally {
@@ -45,7 +45,7 @@ export function installPoseSyncOut(world: World, state: PhysicsState, phase: Ent
             }
             if (entity.get(AngularVelocity) !== undefined) {
               entity.set(AngularVelocity, {
-                value: state.box2d.b2Body_GetAngularVelocity(move.bodyId),
+                value: engine.box2d.b2Body_GetAngularVelocity(move.bodyId),
               });
             }
           } finally {

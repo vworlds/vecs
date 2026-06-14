@@ -2,7 +2,7 @@
 //
 // Tests cover:
 //   - `physics(world)` throws before `world.module(PhysicsModule)` (message from
-//     `getPhysics`).
+//     `getPhysicsEngine`).
 //   - After install, `physics(world)` returns a stable facade (same instance on
 //     repeated calls).
 //   - Filter defaults map correctly: an empty world's `rayCastClosest` returns
@@ -28,7 +28,7 @@ describe("physics(world) accessor", () => {
   it("throws when called before world.module(PhysicsModule)", () => {
     const world = new World();
     expect(() => physics(world)).toThrow(
-      "world.module(PhysicsModule) must be called before reading physics state"
+      "world.module(PhysicsModule) must be called before reading physics engine"
     );
   });
 

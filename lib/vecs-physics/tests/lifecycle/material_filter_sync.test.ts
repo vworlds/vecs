@@ -21,23 +21,23 @@ import {
   PhysicsModule,
 } from "../../src/index.js";
 import {
-  getPhysics,
+  getPhysicsEngine,
   type b2ChainId,
   type b2ShapeId,
-  type PhysicsState,
-} from "../../src/adapter/state.js";
+  type PhysicsEngine,
+} from "../../src/adapter/engine.js";
 
 const PI = Math.PI;
 
 let world: World;
-let state: PhysicsState;
+let engine: PhysicsEngine;
 
 function makeBody(type: BodyType = BodyType.Dynamic) {
   return world.entity().set(Body, { type });
 }
 
 function getBodyMass(eid: EID): number {
-  return state.box2d.b2Body_GetMass(world.getEntity(eid)!.get(Body)!._bodyId!);
+  return engine.box2d.b2Body_GetMass(world.getEntity(eid)!.get(Body)!._bodyId!);
 }
 
 function getShapeMaterial(shapeEid: EID) {
@@ -45,9 +45,9 @@ function getShapeMaterial(shapeEid: EID) {
   if (shapeId === undefined) {
     return undefined;
   }
-  const mat = state.box2d.b2Shape_GetSurfaceMaterial(shapeId);
+  const mat = engine.box2d.b2Shape_GetSurfaceMaterial(shapeId);
   const result = {
-    density: state.box2d.b2Shape_GetDensity(shapeId),
+    density: engine.box2d.b2Shape_GetDensity(shapeId),
     friction: mat.friction,
     restitution: mat.restitution,
     rollingResistance: mat.rollingResistance,
@@ -62,7 +62,7 @@ function getShapeFilter(shapeEid: number) {
   if (shapeId === undefined) {
     return undefined;
   }
-  const filter = state.box2d.b2Shape_GetFilter(shapeId);
+  const filter = engine.box2d.b2Shape_GetFilter(shapeId);
   const result = {
     categoryBits: filter.categoryBits,
     maskBits: filter.maskBits,
@@ -90,7 +90,7 @@ function makeChainShape(body: ReturnType<typeof makeBody>) {
 beforeEach(() => {
   world = new World();
   world.module(PhysicsModule);
-  state = getPhysics(world);
+  engine = getPhysicsEngine(world);
 });
 
 // ─── Material updates ─────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     world.progress(0, 16);
 
     // After frame 0, dirtyMassBodies should be clear.
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
 
     // UPDATE with new density → b2Shape_SetDensity auto-recomputes mass.
     shape.set(Material, {
@@ -155,7 +155,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(16, 16);
 
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
     // box2d3-wasm@5.2.0 baseline: default Box area is 1, so mass = density 5.
     expect(getBodyMass(body.eid)).toBeCloseTo(5, 6);
   });
@@ -188,7 +188,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
 
     world.progress(16, 16);
 
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
     expect(getBodyMass(body.eid)).toBeCloseTo(massAfterFrame1, 6);
   });
 
@@ -218,7 +218,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     world.progress(16, 16);
 
     // b2Shape_SetDensity(..., true) auto-recomputes mass in box2d3-wasm@5.2.0.
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
     // Tight numeric baseline recorded from box2d3-wasm@5.2.0.
     expect(getBodyMass(body.eid)).toBeCloseTo(15.707963943481445, 6);
   });
@@ -235,7 +235,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(0, 16);
 
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
 
     // Update density on a static body — static bodies don't participate in mass.
     shape.set(Material, {
@@ -250,7 +250,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
 
     // Static bodies have mass 0 regardless of density.
     expect(getBodyMass(body.eid)).toBe(0);
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
   });
 
   it("recreates a WASM chain when a setter-backed Material field changes", () => {
@@ -278,8 +278,8 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     world.progress(16, 16);
 
     const newChainId = shape.get(Shape)!._shapeId as b2ChainId;
-    expect(state.box2d.b2Chain_IsValid(oldChainId)).toBe(false);
-    expect(state.box2d.b2Chain_IsValid(newChainId)).toBe(true);
+    expect(engine.box2d.b2Chain_IsValid(oldChainId)).toBe(false);
+    expect(engine.box2d.b2Chain_IsValid(newChainId)).toBe(true);
     expect(newChainId).not.toEqual(oldChainId);
   });
 });
@@ -322,8 +322,8 @@ describe("PhysicsMaterialFilterSync.update(CollisionFilter)", () => {
     world.progress(16, 16);
 
     const newChainId = shape.get(Shape)!._shapeId as b2ChainId;
-    expect(state.box2d.b2Chain_IsValid(oldChainId)).toBe(false);
-    expect(state.box2d.b2Chain_IsValid(newChainId)).toBe(true);
+    expect(engine.box2d.b2Chain_IsValid(oldChainId)).toBe(false);
+    expect(engine.box2d.b2Chain_IsValid(newChainId)).toBe(true);
     expect(newChainId).not.toEqual(oldChainId);
   });
 });

@@ -2,7 +2,7 @@
 //
 // World-level integration tests: the full Vecs world pipeline verifies
 // ContactEvents component arrays (the user-facing surface).
-// The raw contactBeginEvents / contactEndEvents arrays on PhysicsState were
+// The raw contactBeginEvents / contactEndEvents arrays on PhysicsEngine were
 // engine-internal; they have been removed in M7-10.
 
 import { World } from "@vworlds/vecs";

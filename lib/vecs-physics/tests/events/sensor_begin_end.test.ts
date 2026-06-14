@@ -28,7 +28,7 @@ import {
   Sensor,
   SensorEvents,
 } from "../../src/index.js";
-import { getPhysics } from "../../src/adapter/state.js";
+import { getPhysicsEngine } from "../../src/adapter/engine.js";
 
 const STEP_MS = 1000 / 60;
 
@@ -257,7 +257,7 @@ describe("same-body rejection", () => {
     step(world);
     step(world);
     expect(sensorShape.get(SensorEvents)!.begin.length).toBe(0);
-    void getPhysics(world);
+    void getPhysicsEngine(world);
   });
 });
 
@@ -283,7 +283,7 @@ describe("self-detection prevention", () => {
     step(world);
     step(world);
     expect(sensorShape.get(SensorEvents)!.begin.length).toBe(0);
-    void getPhysics(world);
+    void getPhysicsEngine(world);
   });
 });
 

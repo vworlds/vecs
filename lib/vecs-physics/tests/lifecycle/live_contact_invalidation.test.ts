@@ -15,18 +15,18 @@ import {
   Position,
   PhysicsModule,
 } from "../../src/index.js";
-import { getPhysics, type PhysicsState } from "../../src/adapter/state.js";
+import { getPhysicsEngine, type PhysicsEngine } from "../../src/adapter/engine.js";
 
 const STEP_MS = 1000 / 60;
 
 let world: World;
-let state: PhysicsState;
+let engine: PhysicsEngine;
 let now: number;
 
 beforeEach(() => {
   world = new World();
   world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });
-  state = getPhysics(world) as PhysicsState;
+  engine = getPhysicsEngine(world) as PhysicsEngine;
   now = 0;
 });
 
@@ -66,7 +66,7 @@ describe("contact invalidation on CollisionFilter change", () => {
 
     // Box2D owns contact invalidation after the WASM step migration; this gate
     // verifies the live mutation is accepted and leaves the world valid.
-    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
+    expect(engine.box2d.b2World_IsValid(engine.worldId)).toBe(true);
   });
 
   it("filter change does not crash when no contacts exist", () => {
@@ -100,7 +100,7 @@ describe("contact invalidation on geometry update", () => {
     // Progress to process the update. The old contact should be gone;
     // a new one may or may not form depending on position, but must not crash.
     expect(() => step(1)).not.toThrow();
-    expect(state.box2d.b2World_IsValid(state.worldId)).toBe(true);
+    expect(engine.box2d.b2World_IsValid(engine.worldId)).toBe(true);
   });
 
   it("replacing circle with box geometry destroys old contacts", () => {

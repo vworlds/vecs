@@ -1,7 +1,7 @@
 import { type EID, type Entity, type World } from "@vworlds/vecs";
 
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
-import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsEngine } from "../adapter/engine.js";
 import { type Box2DModule } from "../adapter/runtime.js";
 
 type ContactBeginEvent = ReturnType<
@@ -15,7 +15,7 @@ type ContactHitEvent = ReturnType<
 >;
 type SensorEvent = ReturnType<ReturnType<Box2DModule["b2World_GetSensorEvents"]>["GetBeginEvent"]>;
 
-export function installEvents(world: World, state: PhysicsState, phase: Entity): void {
+export function installEvents(world: World, engine: PhysicsEngine, phase: Entity): void {
   const system = world
     .system("PhysicsEvents")
     .phase(phase)
@@ -24,29 +24,29 @@ export function installEvents(world: World, state: PhysicsState, phase: Entity):
       const touchedSensor = new Set<EID>();
       const touchedHit = new Set<EID>();
 
-      publishContactAndHitEvents(world, state, touchedContact, touchedHit);
-      publishSensorEvents(world, state, touchedSensor);
+      publishContactAndHitEvents(world, engine, touchedContact, touchedHit);
+      publishSensorEvents(world, engine, touchedSensor);
 
       markModified(world, touchedContact, ContactEvents);
       markModified(world, touchedSensor, SensorEvents);
       markModified(world, touchedHit, HitEvents);
 
-      clearUntouchedContactEvents(world, state.prevTouchedContact, touchedContact);
-      clearUntouchedSensorEvents(world, state.prevTouchedSensor, touchedSensor);
-      clearUntouchedHitEvents(world, state.prevTouchedHit, touchedHit);
+      clearUntouchedContactEvents(world, engine.prevTouchedContact, touchedContact);
+      clearUntouchedSensorEvents(world, engine.prevTouchedSensor, touchedSensor);
+      clearUntouchedHitEvents(world, engine.prevTouchedHit, touchedHit);
 
-      // Store touched sets on state for the next step's clear pass.
-      state.prevTouchedContact.clear();
+      // Store touched sets on engine for the next step's clear pass.
+      engine.prevTouchedContact.clear();
       for (const eid of touchedContact) {
-        state.prevTouchedContact.add(eid);
+        engine.prevTouchedContact.add(eid);
       }
-      state.prevTouchedSensor.clear();
+      engine.prevTouchedSensor.clear();
       for (const eid of touchedSensor) {
-        state.prevTouchedSensor.add(eid);
+        engine.prevTouchedSensor.add(eid);
       }
-      state.prevTouchedHit.clear();
+      engine.prevTouchedHit.clear();
       for (const eid of touchedHit) {
-        state.prevTouchedHit.add(eid);
+        engine.prevTouchedHit.add(eid);
       }
     });
   system.entity.add(PhysicsSystemTag);
@@ -58,16 +58,16 @@ export function installEvents(world: World, state: PhysicsState, phase: Entity):
 // PhysicsEvents: "poll once per step").
 function publishContactAndHitEvents(
   world: World,
-  state: PhysicsState,
+  engine: PhysicsEngine,
   touchedContact: Set<EID>,
   touchedHit: Set<EID>
 ): void {
-  const events = state.box2d.b2World_GetContactEvents(state.worldId);
+  const events = engine.box2d.b2World_GetContactEvents(engine.worldId);
   try {
     for (let i = 0; i < events.beginCount; i++) {
       const event = events.GetBeginEvent(i);
       try {
-        emitContactEvent(world, state, touchedContact, event, "begin");
+        emitContactEvent(world, engine, touchedContact, event, "begin");
       } finally {
         deleteIfPresent(event);
       }
@@ -75,13 +75,13 @@ function publishContactAndHitEvents(
 
     for (let i = 0; i < events.endCount; i++) {
       const event = events.GetEndEvent(i);
-      emitContactEvent(world, state, touchedContact, event, "end");
+      emitContactEvent(world, engine, touchedContact, event, "end");
     }
 
     for (let i = 0; i < events.hitCount; i++) {
       const event = events.GetHitEvent(i);
       try {
-        emitHitEvent(world, state, touchedHit, event);
+        emitHitEvent(world, engine, touchedHit, event);
       } finally {
         event.delete();
       }
@@ -91,14 +91,14 @@ function publishContactAndHitEvents(
   }
 }
 
-function publishSensorEvents(world: World, state: PhysicsState, touched: Set<EID>): void {
-  const events = state.box2d.b2World_GetSensorEvents(state.worldId);
+function publishSensorEvents(world: World, engine: PhysicsEngine, touched: Set<EID>): void {
+  const events = engine.box2d.b2World_GetSensorEvents(engine.worldId);
   try {
     for (let i = 0; i < events.beginCount; i++) {
-      emitSensorEvent(world, state, touched, events.GetBeginEvent(i), "begin");
+      emitSensorEvent(world, engine, touched, events.GetBeginEvent(i), "begin");
     }
     for (let i = 0; i < events.endCount; i++) {
-      emitSensorEvent(world, state, touched, events.GetEndEvent(i), "end");
+      emitSensorEvent(world, engine, touched, events.GetEndEvent(i), "end");
     }
   } finally {
     events.delete();
@@ -107,13 +107,13 @@ function publishSensorEvents(world: World, state: PhysicsState, touched: Set<EID
 
 function emitContactEvent(
   world: World,
-  state: PhysicsState,
+  engine: PhysicsEngine,
   touched: Set<EID>,
   event: ContactBeginEvent | ContactEndEvent,
   kind: "begin" | "end"
 ): void {
-  const entityA = getLiveEntity(world, state.entityByShapeIndex.get(event.shapeIdA.index1));
-  const entityB = getLiveEntity(world, state.entityByShapeIndex.get(event.shapeIdB.index1));
+  const entityA = getLiveEntity(world, engine.entityByShapeIndex.get(event.shapeIdA.index1));
+  const entityB = getLiveEntity(world, engine.entityByShapeIndex.get(event.shapeIdB.index1));
   if (entityA === undefined || entityB === undefined) {
     return;
   }
@@ -124,13 +124,13 @@ function emitContactEvent(
 
 function emitSensorEvent(
   world: World,
-  state: PhysicsState,
+  engine: PhysicsEngine,
   touched: Set<EID>,
   event: SensorEvent,
   kind: "begin" | "end"
 ): void {
-  const sensor = getLiveEntity(world, state.entityByShapeIndex.get(event.sensorShapeId.index1));
-  const visitor = getLiveEntity(world, state.entityByShapeIndex.get(event.visitorShapeId.index1));
+  const sensor = getLiveEntity(world, engine.entityByShapeIndex.get(event.sensorShapeId.index1));
+  const visitor = getLiveEntity(world, engine.entityByShapeIndex.get(event.visitorShapeId.index1));
   if (sensor === undefined || visitor === undefined) {
     return;
   }
@@ -155,12 +155,12 @@ function emitSensorEvent(
 
 function emitHitEvent(
   world: World,
-  state: PhysicsState,
+  engine: PhysicsEngine,
   touched: Set<EID>,
   event: ContactHitEvent
 ): void {
-  const entityA = getLiveEntity(world, state.entityByShapeIndex.get(event.shapeIdA.index1));
-  const entityB = getLiveEntity(world, state.entityByShapeIndex.get(event.shapeIdB.index1));
+  const entityA = getLiveEntity(world, engine.entityByShapeIndex.get(event.shapeIdA.index1));
+  const entityB = getLiveEntity(world, engine.entityByShapeIndex.get(event.shapeIdB.index1));
   if (entityA === undefined || entityB === undefined) {
     return;
   }

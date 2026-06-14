@@ -253,12 +253,12 @@ The engine should provide geometry to caller-owned drawing code. It should not d
 
 Serialization is not part of the first version.
 
-Vecs already has related packages for networking and binary encoding. `vecs-physics` should remain compatible with ordinary component serialization where possible, but internal physics state should not be treated as authoritative save data.
+Vecs already has related packages for networking and binary encoding. `vecs-physics` should remain compatible with ordinary component serialization where possible, but internal physics engine data should not be treated as authoritative save data.
 
 Recommended direction:
 
 - Serialize public components such as `Position`, `Rotation`, `Body`, geometry, `Material`, and `CollisionFilter`.
-- Rebuild internal physics state when loading.
+- Rebuild the internal physics engine when loading.
 - Do not serialize internal broad-phase, contact, island, or solver data.
 
 ## Common Mistakes

@@ -10,7 +10,7 @@ These Box2D tests are intentionally not ported for v1 because `architecture/ARCH
 | Container tests         | Not ported       | Box2D container helpers exist for C; vecs-physics uses TypeScript arrays directly.                                               |
 | Hash-set tests          | Not ported       | Box2D hash-set behavior is C container coverage, not a vecs-physics public or engine contract.                                   |
 | `TestIsValid`           | Not ported       | Box2D world-id C API validation is outside the Vecs component API.                                                               |
-| `TestWorldRecycle`      | Not ported       | Box2D world-id recycling is C API lifecycle behavior; vecs-physics attaches state to a Vecs `World`.                             |
+| `TestWorldRecycle`      | Not ported       | Box2D world-id recycling is C API lifecycle behavior; vecs-physics attaches an engine to a Vecs `World`.                         |
 | `TestWorldCoverage`     | Not ported       | Broad C world API coverage exceeds the v1 component-first API surface.                                                           |
 | `TestSetWorkerCount`    | Not ported       | Worker-count configuration is multithreading API and v1 is single-threaded.                                                      |
 | `ChainSegmentShapeTest` | Partially ported | Physical one-sided chain behavior is covered; C API shape-type mutation is intentionally outside v1 and recorded at M4 closeout. |

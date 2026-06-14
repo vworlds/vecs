@@ -12,15 +12,15 @@ import {
   Shape,
   PhysicsModule,
 } from "../../src/index.js";
-import { getPhysics, type b2ShapeId, type PhysicsState } from "../../src/adapter/state.js";
+import { getPhysicsEngine, type b2ShapeId, type PhysicsEngine } from "../../src/adapter/engine.js";
 
 let world: World;
-let state: PhysicsState;
+let engine: PhysicsEngine;
 
 beforeEach(() => {
   world = new World();
   world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
-  state = getPhysics(world) as PhysicsState;
+  engine = getPhysicsEngine(world) as PhysicsEngine;
 });
 
 function bodyId(entity: Entity): NonNullable<Body["_bodyId"]> {
@@ -28,7 +28,7 @@ function bodyId(entity: Entity): NonNullable<Body["_bodyId"]> {
 }
 
 function readBodyPosition(entity: Entity): { x: number; y: number } {
-  const pos = state.box2d.b2Body_GetPosition(bodyId(entity));
+  const pos = engine.box2d.b2Body_GetPosition(bodyId(entity));
   try {
     return { x: pos.x, y: pos.y };
   } finally {
@@ -37,7 +37,7 @@ function readBodyPosition(entity: Entity): { x: number; y: number } {
 }
 
 function readBodyRotation(entity: Entity): number {
-  const rot = state.box2d.b2Body_GetRotation(bodyId(entity));
+  const rot = engine.box2d.b2Body_GetRotation(bodyId(entity));
   try {
     return rot.GetAngle();
   } finally {
@@ -46,7 +46,7 @@ function readBodyRotation(entity: Entity): number {
 }
 
 function readLinearVelocity(entity: Entity): { x: number; y: number } {
-  const velocity = state.box2d.b2Body_GetLinearVelocity(bodyId(entity));
+  const velocity = engine.box2d.b2Body_GetLinearVelocity(bodyId(entity));
   try {
     return { x: velocity.x, y: velocity.y };
   } finally {
@@ -55,10 +55,10 @@ function readLinearVelocity(entity: Entity): { x: number; y: number } {
 }
 
 function setWasmTransform(entity: Entity, x: number, y: number, angle = 0): void {
-  const pos = new state.box2d.b2Vec2(x, y);
-  const rot = state.box2d.b2MakeRot(angle);
+  const pos = new engine.box2d.b2Vec2(x, y);
+  const rot = engine.box2d.b2MakeRot(angle);
   try {
-    state.box2d.b2Body_SetTransform(bodyId(entity), pos, rot);
+    engine.box2d.b2Body_SetTransform(bodyId(entity), pos, rot);
   } finally {
     rot.delete();
     pos.delete();
@@ -67,7 +67,7 @@ function setWasmTransform(entity: Entity, x: number, y: number, angle = 0): void
 
 function readShapeCenterX(shape: Entity): number {
   const shapeId = shape.get(Shape)!._shapeId as b2ShapeId;
-  const aabb = state.box2d.b2Shape_GetAABB(shapeId);
+  const aabb = engine.box2d.b2Shape_GetAABB(shapeId);
   try {
     return (aabb.lowerBound.x + aabb.upperBound.x) / 2;
   } finally {
@@ -112,7 +112,7 @@ describe("PhysicsPoseSyncIn (user -> engine)", () => {
     world.progress(16, 16);
 
     expect(readLinearVelocity(entity)).toEqual({ x: 3, y: 4 });
-    expect(state.box2d.b2Body_GetAngularVelocity(bodyId(entity))).toBe(7);
+    expect(engine.box2d.b2Body_GetAngularVelocity(bodyId(entity))).toBe(7);
   });
 
   it("does not throw for velocity writes on a static body", () => {
@@ -204,7 +204,7 @@ describe("pose-sync feedback suppression", () => {
         lastSeenX = position.x;
         count++;
       });
-    const userState = getPhysics(userWorld) as PhysicsState;
+    const userState = getPhysicsEngine(userWorld) as PhysicsEngine;
     const entity = userWorld
       .entity()
       .set(Body, { type: BodyType.Dynamic })

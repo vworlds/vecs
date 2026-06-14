@@ -33,10 +33,10 @@
 //     intentionally trades hot-path structure for simple whole-world checks.
 //     An entity enters the relevant filter when it carries the matching
 //     component(s), and the validator re-checks it every step.
-//   - WarnDedupe instance is owned by PhysicsState (survives across systems).
+//   - WarnDedupe instance is owned by PhysicsEngine (survives across systems).
 //   - The injectable WarnSink in WarnDedupe is the test hook; pass it via
 //     PhysicsOptions.debugSink.
-//   - Does NOT modify any engine state — read-only pass.
+//   - Does NOT modify engine internals — read-only pass.
 //
 // Upstream docs: docs/debug-validation.md.
 // Polygon validity is checked via b2ComputeHull (box2d3-wasm); see isValidPolygon.
@@ -48,7 +48,7 @@ import { AngularImpulse, Force, Impulse, Torque } from "../components/force.js";
 import { Chain, Polygon, Shape } from "../components/geometry.js";
 import { Material } from "../components/material.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
-import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
+import { PhysicsSystemTag, type PhysicsEngine } from "../adapter/engine.js";
 import { type WarnDedupe } from "../util/warn.js";
 
 // ─── Issue codes ──────────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ const CODE_FORCE_WITHOUT_TARGET = "force-without-target";
 // ─── System factory ───────────────────────────────────────────────────────────
 
 /** Create `PhysicsDebugValidation` on `world` in `phase`. */
-export function installDebugValidation(world: World, state: PhysicsState, phase: Entity): void {
+export function installDebugValidation(world: World, engine: PhysicsEngine, phase: Entity): void {
   // ── Filters (non-reactive; walked every step) ─────────────────────────────
   // Geometry entities: any entity with at least one geometry component.
   const geomFilter: Filter = world.filter(Shape);
@@ -89,10 +89,10 @@ export function installDebugValidation(world: World, state: PhysicsState, phase:
     .system("PhysicsDebugValidation")
     .phase(phase)
     .run(() => {
-      _validateGeomEntities(state, geomFilter, state.warn);
-      _validateBodyEntities(geomFilter, bodyFilter, state.warn);
-      _validateBodyShapePositionEntities(bodyPoseFilter, prevBodyPoseEids, state.warn);
-      _validateForceEntities(forceFilter, state.warn);
+      _validateGeomEntities(engine, geomFilter, engine.warn);
+      _validateBodyEntities(geomFilter, bodyFilter, engine.warn);
+      _validateBodyShapePositionEntities(bodyPoseFilter, prevBodyPoseEids, engine.warn);
+      _validateForceEntities(forceFilter, engine.warn);
     });
   system.entity.add(PhysicsSystemTag);
 }
@@ -104,7 +104,11 @@ export function installDebugValidation(world: World, state: PhysicsState, phase:
  *   - chain-too-few-points      (code 3)
  *   - polygon-invalid           (code 4)
  *   - position-on-shape-entity  (code 6) */
-function _validateGeomEntities(state: PhysicsState, geomFilter: Filter, dedupe: WarnDedupe): void {
+function _validateGeomEntities(
+  engine: PhysicsEngine,
+  geomFilter: Filter,
+  dedupe: WarnDedupe
+): void {
   geomFilter.forEach((e) => {
     const eid: EID = e.eid;
 
@@ -138,7 +142,7 @@ function _validateGeomEntities(state: PhysicsState, geomFilter: Filter, dedupe: 
     // ── polygon-invalid (code 4) ─────────────────────────────────────────────
     const polygon = e.get(Polygon) as Polygon | undefined;
     if (polygon !== undefined) {
-      const valid = isValidPolygon(state, polygon.vertices);
+      const valid = isValidPolygon(engine, polygon.vertices);
       if (!valid) {
         dedupe.warnOnce(
           eid,
@@ -172,10 +176,10 @@ function _validateGeomEntities(state: PhysicsState, geomFilter: Filter, dedupe: 
  * A dynamic body must have at least one child shape with density > 0. Sensor
  * shapes count — Box2D parity skips only density === 0, not isSensor shapes.
  *
- * To find child shapes without engine-state access, we build a map of
+ * To find child shapes without engine-internal access, we build a map of
  * body-eid → geometry child entities by walking the geometry filter and checking
  * which have a direct Body parent. This is a read-only ECS walk with no
- * dependency on PhysicsState internals. */
+ * dependency on PhysicsEngine internals. */
 function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: WarnDedupe): void {
   // Build a map: body-eid → list of geometry child entities (per this step).
   const geomChildrenByBody = new ArrayMap<Entity[]>();
@@ -297,13 +301,13 @@ function _validateBodyShapePositionEntities(
  * and frees temporary b2Vec2 objects via the WASM heap.
  */
 function isValidPolygon(
-  state: PhysicsState,
+  engine: PhysicsEngine,
   vertices: ReadonlyArray<{ x: number; y: number }>
 ): boolean {
   if (vertices.length < 3) {
     return false;
   }
-  const box2d = state.box2d;
+  const box2d = engine.box2d;
   const points = vertices.map((v) => new box2d.b2Vec2(v.x, v.y));
   try {
     const hull = box2d.b2ComputeHull(points);

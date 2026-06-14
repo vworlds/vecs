@@ -26,16 +26,16 @@ import {
   PhysicsModule,
 } from "../../src/index.js";
 import {
-  getPhysics,
+  getPhysicsEngine,
   type b2ChainId,
   type b2ShapeId,
-  type PhysicsState,
-} from "../../src/adapter/state.js";
+  type PhysicsEngine,
+} from "../../src/adapter/engine.js";
 
 const LINEAR_SLOP = 0.005;
 
 let world: World;
-let state: PhysicsState;
+let engine: PhysicsEngine;
 
 function makeBody(type: BodyType = BodyType.Dynamic) {
   return world.entity().set(Body, { type });
@@ -69,7 +69,7 @@ function hasWasmShape(eid: EID): boolean {
   if (shapeId === undefined) {
     return false;
   }
-  return state.box2d.b2Shape_IsValid(shapeId);
+  return engine.box2d.b2Shape_IsValid(shapeId);
 }
 
 function getBodyMass(bodyEid: EID): number {
@@ -77,13 +77,13 @@ function getBodyMass(bodyEid: EID): number {
   if (bodyId === undefined) {
     return 0;
   }
-  return state.box2d.b2Body_GetMass(bodyId);
+  return engine.box2d.b2Body_GetMass(bodyId);
 }
 
 beforeEach(() => {
   world = new World();
   world.module(PhysicsModule);
-  state = getPhysics(world);
+  engine = getPhysicsEngine(world);
 });
 
 // ─── Enter ────────────────────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     expect(hasWasmShape(shape.eid)).toBe(true);
-    expect(state.entityByShapeIndex.has(getShapeId(shape.eid)!.index1)).toBe(true);
+    expect(engine.entityByShapeIndex.has(getShapeId(shape.eid)!.index1)).toBe(true);
   });
 
   it("computes mass on body after shape creation (VP-12 mass recompute)", () => {
@@ -104,7 +104,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     // dirtyMassBodies should be cleared after PhysicsMassRecompute runs.
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
     // Mass should be non-zero for dynamic body with density=1 shape.
     expect(getBodyMass(body.eid)).toBeGreaterThan(0);
   });
@@ -160,8 +160,8 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    expect(state.box2d.b2Shape_GetDensity(shapeId)).toBe(1);
-    const mat = state.box2d.b2Shape_GetSurfaceMaterial(shapeId);
+    expect(engine.box2d.b2Shape_GetDensity(shapeId)).toBe(1);
+    const mat = engine.box2d.b2Shape_GetSurfaceMaterial(shapeId);
     try {
       expect(mat.friction).toBeCloseTo(0.6);
       expect(mat.restitution).toBe(0);
@@ -183,8 +183,8 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    expect(state.box2d.b2Shape_GetDensity(shapeId)).toBe(2);
-    const mat = state.box2d.b2Shape_GetSurfaceMaterial(shapeId);
+    expect(engine.box2d.b2Shape_GetDensity(shapeId)).toBe(2);
+    const mat = engine.box2d.b2Shape_GetSurfaceMaterial(shapeId);
     try {
       expect(mat.friction).toBeCloseTo(0.4);
       expect(mat.restitution).toBeCloseTo(0.5);
@@ -199,7 +199,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    const filter = state.box2d.b2Shape_GetFilter(shapeId);
+    const filter = engine.box2d.b2Shape_GetFilter(shapeId);
     try {
       expect(filter.categoryBits).toBe(1);
       expect(filter.maskBits).toBe(0xffffffff);
@@ -219,7 +219,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    const filter = state.box2d.b2Shape_GetFilter(shapeId);
+    const filter = engine.box2d.b2Shape_GetFilter(shapeId);
     try {
       expect(filter.categoryBits).toBe(0x4);
       expect(filter.maskBits).toBe(0x3);
@@ -235,7 +235,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    expect(state.box2d.b2Shape_IsSensor(shapeId)).toBe(false);
+    expect(engine.box2d.b2Shape_IsSensor(shapeId)).toBe(false);
   });
 
   it("marks sensor=true when Sensor component is present", () => {
@@ -244,7 +244,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    expect(state.box2d.b2Shape_IsSensor(shapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_IsSensor(shapeId)).toBe(true);
   });
 
   it("enables contact events when ContactEvents is present", () => {
@@ -253,9 +253,9 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    expect(state.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(true);
-    expect(state.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(false);
-    expect(state.box2d.b2Shape_AreSensorEventsEnabled(shapeId)).toBe(false);
+    expect(engine.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(false);
+    expect(engine.box2d.b2Shape_AreSensorEventsEnabled(shapeId)).toBe(false);
   });
 
   it("enables all event flags when all event components are present", () => {
@@ -270,9 +270,9 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    expect(state.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(true);
-    expect(state.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(true);
-    expect(state.box2d.b2Shape_AreSensorEventsEnabled(shapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_AreSensorEventsEnabled(shapeId)).toBe(true);
   });
 
   it("uses the world AABB (body transform composed with local pose)", () => {
@@ -282,7 +282,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    const aabb = state.box2d.b2Shape_GetAABB(shapeId);
+    const aabb = engine.box2d.b2Shape_GetAABB(shapeId);
     try {
       const centerX = (aabb.lowerBound.x + aabb.upperBound.x) / 2;
       expect(centerX).toBeCloseTo(10, 1);
@@ -301,7 +301,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    const aabb = state.box2d.b2Shape_GetAABB(shapeId);
+    const aabb = engine.box2d.b2Shape_GetAABB(shapeId);
     try {
       const centerX = (aabb.lowerBound.x + aabb.upperBound.x) / 2;
       expect(centerX).toBeCloseTo(5, 1);
@@ -320,7 +320,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    const aabb = state.box2d.b2Shape_GetAABB(shapeId);
+    const aabb = engine.box2d.b2Shape_GetAABB(shapeId);
     try {
       // Rotated 90°: wide axis becomes tall.
       const width = aabb.upperBound.x - aabb.lowerBound.x;
@@ -384,7 +384,7 @@ describe("PhysicsShapeLifecycle — Chain shapes", () => {
 
     const chainId = getChainId(chain.eid);
     expect(chainId).toBeDefined();
-    expect(state.box2d.b2Chain_IsValid(chainId!)).toBe(true);
+    expect(engine.box2d.b2Chain_IsValid(chainId!)).toBe(true);
   });
 
   it("creates a WASM chain for a loop chain with >= 4 points", () => {
@@ -405,7 +405,7 @@ describe("PhysicsShapeLifecycle — Chain shapes", () => {
 
     const chainId = getChainId(chain.eid);
     expect(chainId).toBeDefined();
-    expect(state.box2d.b2Chain_IsValid(chainId!)).toBe(true);
+    expect(engine.box2d.b2Chain_IsValid(chainId!)).toBe(true);
   });
 });
 
@@ -417,13 +417,13 @@ describe("PhysicsShapeLifecycle.exit", () => {
     const shape = makeShape(body);
     world.progress(0, 16);
     const shapeId = getShapeId(shape.eid)!;
-    expect(state.box2d.b2Shape_IsValid(shapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_IsValid(shapeId)).toBe(true);
 
     shape.remove(Box);
     world.progress(16, 16);
 
     expect(getShapeId(shape.eid) !== undefined).toBe(false);
-    expect(state.box2d.b2Shape_IsValid(shapeId)).toBe(false);
+    expect(engine.box2d.b2Shape_IsValid(shapeId)).toBe(false);
   });
 
   it("marks the body mass dirty on shape removal (cleared by mass recompute)", () => {
@@ -439,7 +439,7 @@ describe("PhysicsShapeLifecycle.exit", () => {
 
     // Mass should be zero now (no shapes with density).
     expect(getBodyMass(body.eid)).toBe(0);
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
   });
 
   it("is idempotent — double-remove does not throw", () => {
@@ -468,13 +468,13 @@ describe("PhysicsShapeLifecycle.exit", () => {
       });
     world.progress(0, 16);
     const chainId = getChainId(chain.eid)!;
-    expect(state.box2d.b2Chain_IsValid(chainId)).toBe(true);
+    expect(engine.box2d.b2Chain_IsValid(chainId)).toBe(true);
 
     chain.remove(Chain);
     world.progress(16, 16);
 
     expect(getChainId(chain.eid) !== undefined).toBe(false);
-    expect(state.box2d.b2Chain_IsValid(chainId)).toBe(false);
+    expect(engine.box2d.b2Chain_IsValid(chainId)).toBe(false);
   });
 
   it("destroying the shape entity removes the WASM shape", () => {
@@ -496,15 +496,15 @@ describe("PhysicsShapeLifecycle.exit", () => {
     oldShape.remove(Box);
     world.progress(16, 16);
 
-    expect(state.entityByShapeIndex.get(oldShapeId.index1)).toBeUndefined();
+    expect(engine.entityByShapeIndex.get(oldShapeId.index1)).toBeUndefined();
 
     const newShape = makeShape(body);
     world.progress(32, 16);
     const newShapeId = getShapeId(newShape.eid)!;
 
     expect(newShapeId.index1).toBe(oldShapeId.index1);
-    expect(state.entityByShapeIndex.get(newShapeId.index1)).toBe(newShape.eid);
-    expect(state.entityByShapeIndex.get(newShapeId.index1)).not.toBe(oldShape.eid);
+    expect(engine.entityByShapeIndex.get(newShapeId.index1)).toBe(newShape.eid);
+    expect(engine.entityByShapeIndex.get(newShapeId.index1)).not.toBe(oldShape.eid);
   });
 
   it("body persists after its shape is removed", () => {
@@ -517,7 +517,7 @@ describe("PhysicsShapeLifecycle.exit", () => {
 
     const bodyId = body.get(Body)?._bodyId;
     expect(bodyId).toBeDefined();
-    expect(state.box2d.b2Body_IsValid(bodyId!)).toBe(true);
+    expect(engine.box2d.b2Body_IsValid(bodyId!)).toBe(true);
   });
 
   it("removing the parent body destroys the WASM shape (ChildOf cascade)", () => {
@@ -542,13 +542,13 @@ describe("PhysicsShapeLifecycle — geometry type swap", () => {
     world.progress(0, 16);
 
     const oldShapeId = getShapeId(shape.eid)!;
-    expect(state.box2d.b2Shape_IsValid(oldShapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_IsValid(oldShapeId)).toBe(true);
 
     shape.set(Circle, { radius: 1 });
     world.progress(16, 16);
 
     // Old shape was destroyed.
-    expect(state.box2d.b2Shape_IsValid(oldShapeId)).toBe(false);
+    expect(engine.box2d.b2Shape_IsValid(oldShapeId)).toBe(false);
     // New shape was created.
     expect(hasWasmShape(shape.eid)).toBe(true);
   });
@@ -581,13 +581,13 @@ describe("PhysicsShapeLifecycle — reparenting", () => {
     const shape = makeShape(bodyA);
     world.progress(0, 16);
 
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
 
     shape.childOf(bodyB);
     world.progress(16, 16);
 
     // PhysicsMassRecompute should have cleared dirtyMassBodies.
-    expect(state.dirtyMassBodies.size).toBe(0);
+    expect(engine.dirtyMassBodies.size).toBe(0);
   });
 });
 
@@ -642,7 +642,7 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
     world.progress(0, 16);
 
     const originalShapeId = getShapeId(e.eid)!;
-    expect(state.box2d.b2Shape_IsValid(originalShapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_IsValid(originalShapeId)).toBe(true);
 
     // Update to degenerate endpoints — should be ignored.
     e.set(Capsule, { x1: 0, y1: 0, x2: 0, y2: 0, radius: 0.5 });
@@ -650,7 +650,7 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
 
     // Shape should still be the same original shape.
     const currentShapeId = getShapeId(e.eid)!;
-    expect(state.box2d.b2Shape_IsValid(currentShapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_IsValid(currentShapeId)).toBe(true);
   });
 
   it("degenerate Segment update is ignored; old valid shape is preserved", () => {
@@ -659,12 +659,12 @@ describe("degenerate capsule/segment rejection (Box2D parity)", () => {
     world.progress(0, 16);
 
     const originalShapeId = getShapeId(e.eid)!;
-    expect(state.box2d.b2Shape_IsValid(originalShapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_IsValid(originalShapeId)).toBe(true);
 
     e.set(Segment, { x1: 0, y1: 0, x2: 0, y2: 0 });
     world.progress(16, 16);
 
     const currentShapeId = getShapeId(e.eid)!;
-    expect(state.box2d.b2Shape_IsValid(currentShapeId)).toBe(true);
+    expect(engine.box2d.b2Shape_IsValid(currentShapeId)).toBe(true);
   });
 });
