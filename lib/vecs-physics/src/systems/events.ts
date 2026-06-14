@@ -296,5 +296,5 @@ function deleteIfPresent(value: { delete?: () => void }): void {
 }
 
 function isDestroyed(entity: Entity): boolean {
-  return (entity as unknown as { _destroyed?: boolean })._destroyed === true;
+  return entity.destroyed;
 }

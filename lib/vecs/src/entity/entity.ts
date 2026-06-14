@@ -46,4 +46,14 @@ export class Entity extends IdentityEntity {
   public childOf(parent: Entity): this {
     return this.set(ChildOf, { target: parent });
   }
+
+  /** True if this entity has been destroyed (marked for deletion). */
+  public get destroyed(): boolean {
+    return this._destroyed;
+  }
+
+  /** True if this entity is alive (not destroyed). */
+  public get alive(): boolean {
+    return !this._destroyed;
+  }
 }

@@ -242,7 +242,7 @@ function resolveShapeEntity(
   }
 
   const entity = world.getEntity(eid);
-  if (entity === undefined || (entity as unknown as { _destroyed?: boolean })._destroyed === true) {
+  if (entity === undefined || entity.destroyed) {
     return undefined;
   }
 
