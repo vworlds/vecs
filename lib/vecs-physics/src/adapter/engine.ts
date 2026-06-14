@@ -87,7 +87,7 @@ export class PhysicsEngine {
   public readonly enableSleep!: boolean;
   public readonly enableContinuous!: boolean;
 
-  // Forward handles live on components: Body._bodyId and Shape._shapeId.
+  // Forward handles live on components: Body._bodyId, SingleShape._shapeId, and Chain._chainId.
   // Index-keyed reverse ArrayMaps resolve Box2D event IDs back to entities.
   // Emscripten returns fresh wrapper objects for b2*Id fields on events, so
   // Map<b2*Id, EntityId> misses by object identity. Public index1 slot 0 is

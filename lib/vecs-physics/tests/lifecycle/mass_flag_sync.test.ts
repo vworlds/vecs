@@ -8,8 +8,9 @@
 import { World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { Body, BodyType, Circle, Sensor, Shape, PhysicsModule } from "../../src/index.js";
+import { Body, BodyType, Circle, Sensor, PhysicsModule } from "../../src/index.js";
 import { getPhysicsEngine, type b2ShapeId } from "../../src/adapter/engine.js";
+import { SingleShape } from "../../src/components/geometry.js";
 
 const PI = Math.PI;
 
@@ -60,7 +61,7 @@ describe("PhysicsMassRecompute", () => {
 
     world.progress(0, 16);
     const bodyId = bodyEnt.get(Body)!._bodyId!;
-    const shapeId = shapeEnt.get(Shape)!._shapeId as b2ShapeId;
+    const shapeId = shapeEnt.get(SingleShape)!._shapeId as b2ShapeId;
     expect(engine.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(PI, 6);
 
     engine.box2d.b2Shape_SetDensity(shapeId, 5, false);
@@ -81,7 +82,7 @@ describe("PhysicsMassRecompute", () => {
 
     world.progress(0, 16);
     const bodyId = bodyEnt.get(Body)!._bodyId!;
-    const shapeId = shapeEnt.get(Shape)!._shapeId as b2ShapeId;
+    const shapeId = shapeEnt.get(SingleShape)!._shapeId as b2ShapeId;
 
     const massAfterFrame1 = engine.box2d.b2Body_GetMass(bodyId);
     engine.box2d.b2Shape_SetDensity(shapeId, 5, false);

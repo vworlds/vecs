@@ -6,16 +6,17 @@
 //
 // Physics-pre phase order (creation order = run order within a phase):
 //   1. PhysicsBodyLifecycle      — body must exist before any shape is inserted
-//   2. PhysicsShapeLifecycle     — creates/destroys shape records + broad-phase proxies
-//   3. PhysicsMaterialFilterSync — propagates Material/Filter/Sensor updates
-//   4. PhysicsEventOptInSync     — runtime ContactEvents/HitEvents/SensorEvents add/remove (hooks)
-//   5. PhysicsShapePoseSync      — propagates ShapePosition/ShapeRotation updates
-//   6. PhysicsPoseSyncIn         — syncs Position/Rotation/Velocity into body sims
-//   7. PhysicsKinematicTargets   — sets target-convergence velocity on kinematic bodies (VP-20)
-//   8. PhysicsForceGather:*      — applies Force and Torque to body sims each step (VP-19)
-//   9. PhysicsImpulseAccumulate  — drains Impulse/AngularImpulse into pendingImpulses (VP-19)
-//  10. PhysicsMassRecompute      — recomputes mass for dirty bodies (last pre-step)
-//  11. PhysicsDebugValidation    — structural validation (ONLY when debug: true, VP-25)
+//   2. PhysicsShapeLifecycle     — creates/destroys b2Shape records + broad-phase proxies
+//   3. PhysicsChainLifecycle     — creates/destroys b2Chain records + segment proxies
+//   4. PhysicsMaterialFilterSync — propagates Material/Filter/Sensor updates
+//   5. PhysicsEventOptInSync     — runtime ContactEvents/HitEvents/SensorEvents add/remove (hooks)
+//   6. PhysicsShapePoseSync      — propagates ShapePosition/ShapeRotation updates
+//   7. PhysicsPoseSyncIn         — syncs Position/Rotation/Velocity into body sims
+//   8. PhysicsKinematicTargets   — sets target-convergence velocity on kinematic bodies (VP-20)
+//   9. PhysicsForceGather:*      — applies Force and Torque to body sims each step (VP-19)
+//  10. PhysicsImpulseAccumulate  — drains Impulse/AngularImpulse into pendingImpulses (VP-19)
+//  11. PhysicsMassRecompute      — recomputes mass for dirty bodies (last pre-step)
+//  12. PhysicsDebugValidation    — structural validation (ONLY when debug: true, VP-25)
 //
 // Physics-post phase order:
 //   1. PhysicsPoseSyncOut  — write simulated pose back to ECS
@@ -25,6 +26,7 @@
 import { type Entity, type World } from "@vworlds/vecs";
 
 import { type PhysicsEngine } from "../adapter/engine.js";
+import { installChainLifecycle } from "./chain_lifecycle.js";
 import { installDebugValidation } from "./debug.js";
 import { installEventOptInSync } from "./event_opt_in_sync.js";
 import { installEvents } from "./events.js";
@@ -64,6 +66,7 @@ export function registerPhysicsSystems(
   // physics-pre: lifecycle + sync systems in dependency order.
   installBodyLifecycle(world, engine, phases.preStep);
   installShapeLifecycle(world, engine, phases.preStep);
+  installChainLifecycle(world, engine, phases.preStep);
   installMaterialFilterSync(world, engine, phases.preStep);
   // physics-pre: keep event opt-in flags in sync when ContactEvents/HitEvents/
   // SensorEvents are added/removed on a shape after creation (hook-based).

@@ -17,7 +17,6 @@ import {
   Circle,
   CollisionFilter,
   Material,
-  Shape,
   PhysicsModule,
 } from "../../src/index.js";
 import {
@@ -26,6 +25,7 @@ import {
   type b2ShapeId,
   type PhysicsEngine,
 } from "../../src/adapter/engine.js";
+import { SingleShape } from "../../src/components/geometry.js";
 
 const PI = Math.PI;
 
@@ -41,7 +41,7 @@ function getBodyMass(eid: EID): number {
 }
 
 function getShapeMaterial(shapeEid: EID) {
-  const shapeId = world.getEntity(shapeEid)?.get(Shape)?._shapeId as b2ShapeId | undefined;
+  const shapeId = world.getEntity(shapeEid)?.get(SingleShape)?._shapeId as b2ShapeId | undefined;
   if (shapeId === undefined) {
     return undefined;
   }
@@ -58,7 +58,7 @@ function getShapeMaterial(shapeEid: EID) {
 }
 
 function getShapeFilter(shapeEid: number) {
-  const shapeId = world.getEntity(shapeEid)?.get(Shape)?._shapeId as b2ShapeId | undefined;
+  const shapeId = world.getEntity(shapeEid)?.get(SingleShape)?._shapeId as b2ShapeId | undefined;
   if (shapeId === undefined) {
     return undefined;
   }
@@ -265,7 +265,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(0, 16);
 
-    const oldChainId = shape.get(Shape)!._shapeId as b2ChainId;
+    const oldChainId = shape.get(Chain)!._chainId as b2ChainId;
 
     shape.set(Material, {
       density: 1,
@@ -277,7 +277,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(16, 16);
 
-    const newChainId = shape.get(Shape)!._shapeId as b2ChainId;
+    const newChainId = shape.get(Chain)!._chainId as b2ChainId;
     expect(engine.box2d.b2Chain_IsValid(oldChainId)).toBe(false);
     expect(engine.box2d.b2Chain_IsValid(newChainId)).toBe(true);
     expect(newChainId).not.toEqual(oldChainId);
@@ -316,12 +316,12 @@ describe("PhysicsMaterialFilterSync.update(CollisionFilter)", () => {
     });
     world.progress(0, 16);
 
-    const oldChainId = shape.get(Shape)!._shapeId as b2ChainId;
+    const oldChainId = shape.get(Chain)!._chainId as b2ChainId;
 
     shape.set(CollisionFilter, { categoryBits: 0x8, maskBits: 0xff, groupIndex: 2 });
     world.progress(16, 16);
 
-    const newChainId = shape.get(Shape)!._shapeId as b2ChainId;
+    const newChainId = shape.get(Chain)!._chainId as b2ChainId;
     expect(engine.box2d.b2Chain_IsValid(oldChainId)).toBe(false);
     expect(engine.box2d.b2Chain_IsValid(newChainId)).toBe(true);
     expect(newChainId).not.toEqual(oldChainId);

@@ -20,9 +20,9 @@ import {
   Position,
   Sensor,
   SensorEvents,
-  Shape,
 } from "../../src/index.js";
 import { getPhysicsEngine, type b2ShapeId, type PhysicsEngine } from "../../src/adapter/engine.js";
+import { SingleShape } from "../../src/components/geometry.js";
 
 const STEP_MS = 1000 / 60;
 
@@ -80,7 +80,7 @@ describe("runtime ContactEvents opt-in", () => {
     step(1);
 
     // Sanity: contact events enabled on the WASM shape.
-    const shapeId = a.shapeEnt.get(Shape)!._shapeId as b2ShapeId;
+    const shapeId = a.shapeEnt.get(SingleShape)!._shapeId as b2ShapeId;
     expect(engine.box2d.b2Shape_AreContactEventsEnabled(shapeId)).toBe(true);
 
     a.shapeEnt.remove(ContactEvents); // runtime opt-out
@@ -97,7 +97,7 @@ describe("runtime HitEvents opt-in", () => {
   it("flips the WASM enableHitEvents flag when HitEvents is added then removed", () => {
     const a = makeBox(0, 0);
     step(1);
-    const shapeId = a.shapeEnt.get(Shape)!._shapeId as b2ShapeId;
+    const shapeId = a.shapeEnt.get(SingleShape)!._shapeId as b2ShapeId;
     expect(engine.box2d.b2Shape_AreHitEventsEnabled(shapeId)).toBe(false);
 
     a.shapeEnt.add(HitEvents);

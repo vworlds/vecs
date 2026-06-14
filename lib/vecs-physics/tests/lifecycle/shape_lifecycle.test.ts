@@ -20,7 +20,6 @@ import {
   Segment,
   Sensor,
   SensorEvents,
-  Shape,
   ShapePosition,
   ShapeRotation,
   PhysicsModule,
@@ -31,6 +30,7 @@ import {
   type b2ShapeId,
   type PhysicsEngine,
 } from "../../src/adapter/engine.js";
+import { SingleShape } from "../../src/components/geometry.js";
 
 const LINEAR_SLOP = 0.005;
 
@@ -49,19 +49,11 @@ function makeShape(parent: ReturnType<World["entity"]>, geom: object = new Box()
 }
 
 function getShapeId(eid: EID): b2ShapeId | undefined {
-  const shape = world.getEntity(eid)?.get(Shape);
-  if (shape === undefined || shape instanceof Chain) {
-    return undefined;
-  }
-  return shape._shapeId as b2ShapeId | undefined;
+  return world.getEntity(eid)?.get(SingleShape)?._shapeId;
 }
 
 function getChainId(eid: EID): b2ChainId | undefined {
-  const shape = world.getEntity(eid)?.get(Shape);
-  if (!(shape instanceof Chain)) {
-    return undefined;
-  }
-  return shape._shapeId as b2ChainId | undefined;
+  return world.getEntity(eid)?.get(Chain)?._chainId;
 }
 
 function hasWasmShape(eid: EID): boolean {

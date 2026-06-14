@@ -23,6 +23,8 @@ describe("public API exports", () => {
   });
 
   it("exports component classes, PhysicsModule, and BodyType with expected runtime kinds", () => {
+    expect("SingleShape" in api).toBe(false);
+
     for (const name of APPROVED_API.classExports) {
       const value = api[name as keyof typeof api];
       expect(typeof value).toBe("function");

@@ -1,9 +1,12 @@
-import { type Entity, type World } from "@vworlds/vecs";
+import { ChildOf, Iter, type Entity, type World } from "@vworlds/vecs";
 
-import { Chain, Shape } from "../components/geometry.js";
+import { Body } from "../components/body.js";
+import { Chain, SingleShape } from "../components/geometry.js";
 import { ContactEvents, HitEvents, SensorEvents } from "../components/events.js";
 import { Detectable } from "../components/material.js";
 import { PhysicsSystemTag, type b2ShapeId, type PhysicsEngine } from "../adapter/engine.js";
+import { recreateChainForEntity } from "./chain_lifecycle.js";
+import { chainWithBodyParent } from "./shape_predicates.js";
 
 type EventFlag = "contact" | "hit";
 
@@ -17,26 +20,39 @@ export function installEventOptInSync(world: World, engine: PhysicsEngine, phase
   world.component(HitEvents).onRemove((entity) => setEventFlag(engine, entity, "hit", false));
 
   // Sensor detection: enable if SensorEvents OR Detectable is present.
-  // Query {all: [Shape, {any: [SensorEvents, Detectable]}]} matches entities
-  // with a shape and at least one sensor opt-in component. Enter enables,
-  // exit disables (when the last opt-in component is removed).
+  // Query only single b2Shape geometries; chains have no runtime sensor-event
+  // setter and are recreated by the chain opt-in system below.
   const sensorSystem = world
     .system("PhysicsEventOptInSync:Sensor")
-    .with({ all: [Shape, { any: [SensorEvents, Detectable] }] })
+    .with({ all: [SingleShape, { any: [SensorEvents, Detectable] }] })
     .phase(phase)
-    .enter([Shape], (_e, [shape]) => {
-      const shapeId = readShapeId(shape);
+    .enter([SingleShape], (_e, [shape]) => {
+      const shapeId = shape._shapeId;
       if (shapeId !== undefined) {
         engine.box2d.b2Shape_EnableSensorEvents(shapeId, true);
       }
     })
-    .exit([Shape], (_e, [shape]) => {
-      const shapeId = readShapeId(shape);
+    .exit([SingleShape], (_e, [shape]) => {
+      const shapeId = shape._shapeId;
       if (shapeId !== undefined) {
         engine.box2d.b2Shape_EnableSensorEvents(shapeId, false);
       }
     });
   sensorSystem.entity.add(PhysicsSystemTag);
+
+  const chainSensorSystem = world
+    .system("PhysicsEventOptInSync:ChainSensor")
+    .with({ all: [Chain, { any: [SensorEvents, Detectable] }] }, chainWithBodyParent)
+    .phase(phase)
+    .enter(Iter, [Chain, { target: [ChildOf, [Body]] }], (it, [chain, body]) => {
+      recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+    })
+    .exit((entity) => {
+      const chain = entity.get(Chain);
+      const parent = entity.parent;
+      recreateChainForEntity(engine, entity, parent, parent?.get(Body), chain);
+    });
+  chainSensorSystem.entity.add(PhysicsSystemTag);
 }
 
 function setEventFlag(
@@ -45,20 +61,13 @@ function setEventFlag(
   flag: EventFlag,
   enabled: boolean
 ): void {
-  const shape = entity.get(Shape);
+  const shape = entity.get(SingleShape);
   if (shape !== undefined) {
-    const shapeId = readShapeId(shape);
+    const shapeId = shape._shapeId;
     if (shapeId !== undefined) {
       applyEventFlag(engine, shapeId, flag, enabled);
     }
   }
-}
-
-function readShapeId(shape: Shape): b2ShapeId | undefined {
-  if (shape instanceof Chain) {
-    return undefined;
-  }
-  return shape._shapeId as b2ShapeId | undefined;
 }
 
 function applyEventFlag(

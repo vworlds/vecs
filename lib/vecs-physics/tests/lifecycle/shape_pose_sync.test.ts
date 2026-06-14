@@ -14,12 +14,12 @@ import {
   BodyType,
   Box,
   Circle,
-  Shape,
   ShapePosition,
   ShapeRotation,
   PhysicsModule,
 } from "../../src/index.js";
 import { getPhysicsEngine, type b2ShapeId, type PhysicsEngine } from "../../src/adapter/engine.js";
+import { SingleShape } from "../../src/components/geometry.js";
 
 let world: World;
 let engine: PhysicsEngine;
@@ -29,7 +29,7 @@ function makeBody(type: BodyType = BodyType.Static) {
 }
 
 function getShapeAABB(shapeEid: number) {
-  const shapeId = world.getEntity(shapeEid)?.get(Shape)?._shapeId as b2ShapeId | undefined;
+  const shapeId = world.getEntity(shapeEid)?.get(SingleShape)?._shapeId as b2ShapeId | undefined;
   if (shapeId === undefined || !engine.box2d.b2Shape_IsValid(shapeId)) {
     return undefined;
   }

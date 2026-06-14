@@ -1,36 +1,62 @@
 import { ChildOf, Iter, type Entity, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
-import { Shape } from "../components/geometry.js";
+import { Chain, SingleShape } from "../components/geometry.js";
 import { ShapePosition, ShapeRotation } from "../components/shape_pose.js";
 import { PhysicsSystemTag, type PhysicsEngine } from "../adapter/engine.js";
-import { recreateShapeForEntity } from "./shape_lifecycle.js";
-import { shapeWithBodyParent } from "./shape_predicates.js";
+import { recreateChainForEntity } from "./chain_lifecycle.js";
+import { recreateSingleShapeForEntity } from "./shape_lifecycle.js";
+import { chainWithBodyParent, singleShapeWithBodyParent } from "./shape_predicates.js";
 
 export function installShapePoseSync(world: World, engine: PhysicsEngine, phase: Entity): void {
   const system = world
     .system("PhysicsShapePoseSync:Position")
-    .with(ShapePosition, shapeWithBodyParent)
+    .with(ShapePosition, singleShapeWithBodyParent)
     .phase(phase);
   system.entity.add(PhysicsSystemTag);
 
   system.update(
     Iter,
     ShapePosition,
-    [Shape, { target: [ChildOf, [Body]] }],
+    [SingleShape, { target: [ChildOf, [Body]] }],
     (it, _position, tuple) => {
       const [shape, body] = tuple;
-      recreateShapeForEntity(engine, it.entity, it.src[1], body, shape);
+      recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
     }
   );
 
+  const chainPositionSystem = world
+    .system("PhysicsShapePoseSync:ChainPosition")
+    .with(ShapePosition, chainWithBodyParent)
+    .phase(phase)
+    .update(Iter, ShapePosition, [Chain, { target: [ChildOf, [Body]] }], (it, _position, tuple) => {
+      const [chain, body] = tuple;
+      recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+    });
+  chainPositionSystem.entity.add(PhysicsSystemTag);
+
   const rotationSystem = world
     .system("PhysicsShapePoseSync:Rotation")
-    .with(ShapeRotation, shapeWithBodyParent)
+    .with(ShapeRotation, singleShapeWithBodyParent)
     .phase(phase)
-    .update(Iter, ShapeRotation, [Shape, { target: [ChildOf, [Body]] }], (it, _rotation, tuple) => {
-      const [shape, body] = tuple;
-      recreateShapeForEntity(engine, it.entity, it.src[1], body, shape);
-    });
+    .update(
+      Iter,
+      ShapeRotation,
+      [SingleShape, { target: [ChildOf, [Body]] }],
+      (it, _rotation, tuple) => {
+        const [shape, body] = tuple;
+        recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
+      }
+    );
   rotationSystem.entity.add(PhysicsSystemTag);
+
+  const chainRotationSystem = world
+    .system("PhysicsShapePoseSync:ChainRotation")
+    .with(ShapeRotation, chainWithBodyParent)
+    .phase(phase)
+    .update(Iter, ShapeRotation, [Chain, { target: [ChildOf, [Body]] }], (it, _rotation, tuple) => {
+      const [chain, body] = tuple;
+      recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+    });
+  chainRotationSystem.entity.add(PhysicsSystemTag);
 }

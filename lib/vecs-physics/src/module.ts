@@ -20,7 +20,16 @@ import {
 
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "./components/body.js";
 import { Damping, GravityScale, MotionLocks, Sleep } from "./components/body_tuning.js";
-import { Box, Capsule, Chain, Circle, Polygon, Segment, Shape } from "./components/geometry.js";
+import {
+  Box,
+  Capsule,
+  Chain,
+  Circle,
+  Polygon,
+  Segment,
+  Shape,
+  SingleShape,
+} from "./components/geometry.js";
 import { AngularImpulse, Force, Impulse, Torque } from "./components/force.js";
 import { CollisionFilter, Detectable, Material, Sensor } from "./components/material.js";
 import { ContactEvents, HitEvents, SensorEvents } from "./components/events.js";
@@ -99,6 +108,7 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
   world.component(ShapeRotation);
 
   world.component(Shape);
+  world.component(SingleShape);
   world.component(Box);
   world.component(Circle);
   world.component(Capsule);
@@ -127,14 +137,15 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
   //    registered in their documented order for deterministic type ids.
   registerInternalComponents(world);
 
-  // 3. Geometry components all implement `Shape`: queries/systems can match
-  //    `Shape` without enumerating every concrete type, and `Implements`
-  //    enforces mutual exclusivity (setting one evicts any previous geometry).
-  world.component(Box).set(Implements, { interfaces: [Shape] });
-  world.component(Circle).set(Implements, { interfaces: [Shape] });
-  world.component(Capsule).set(Implements, { interfaces: [Shape] });
-  world.component(Segment).set(Implements, { interfaces: [Shape] });
-  world.component(Polygon).set(Implements, { interfaces: [Shape] });
+  // 3. Geometry components implement `Shape` through either the internal
+  //    `SingleShape` tier or Chain's direct umbrella implementation. This keeps
+  //    geometry exclusivity while letting b2Shape-only systems query only singles.
+  world.component(SingleShape).set(Implements, { interfaces: [Shape] });
+  world.component(Box).set(Implements, { interfaces: [SingleShape] });
+  world.component(Circle).set(Implements, { interfaces: [SingleShape] });
+  world.component(Capsule).set(Implements, { interfaces: [SingleShape] });
+  world.component(Segment).set(Implements, { interfaces: [SingleShape] });
+  world.component(Polygon).set(Implements, { interfaces: [SingleShape] });
   world.component(Chain).set(Implements, { interfaces: [Shape] });
 
   // 4. Ensure the three physics phase entities exist and are ordered after update.

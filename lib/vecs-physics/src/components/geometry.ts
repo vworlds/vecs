@@ -1,6 +1,8 @@
-// Geometry components. Exactly one per shape entity; each declares
-// `Implements: [Shape]` so `PhysicsModule` enforces mutual exclusivity (setting
-// one evicts any previous geometry). Defaults match the documented shapes.
+// Geometry components. Exactly one per shape entity; every concrete geometry
+// implements the `Shape` umbrella so `PhysicsModule` enforces mutual exclusivity
+// (setting one evicts any previous geometry). Single Box2D shapes also implement
+// the internal `SingleShape` tier; `Chain` is separate because Box2D exposes it
+// through `b2ChainId` plus underlying segment shapes.
 // Public API — see `docs/components.md`.
 //
 // These are plain data classes: every field is initialised on the class body so
@@ -14,16 +16,21 @@ import type { b2ChainId, b2ShapeId } from "../adapter/engine.js";
 export type Vec2 = { x: number; y: number };
 
 /**
- * Abstract base for the six geometry components. Every shape entity carries
+ * Empty umbrella marker for the six geometry components. Every shape entity carries
  * exactly one concrete geometry (`Box`, `Circle`, `Capsule`, `Segment`,
- * `Polygon`, or `Chain`); each declares `Implements: [Shape]` so queries and
- * systems can match `Shape` without enumerating every concrete type.
+ * `Polygon`, or `Chain`); each implements `Shape` so queries and systems can
+ * match any geometry without enumerating every concrete type.
  */
-export abstract class Shape {
-  /** @internal Engine-owned box2d handle: a `b2ShapeId` for real shapes, a
-   *  `b2ChainId` for `Chain`. Set by the shape lifecycle system; undefined
-   *  until then. */
-  _shapeId: b2ShapeId | b2ChainId | undefined = undefined;
+export abstract class Shape {}
+
+/**
+ * Internal marker for geometries backed by one Box2D `b2ShapeId`. Chains are
+ * intentionally excluded because Box2D creates them through `b2ChainId` and
+ * exposes their collision segments separately.
+ */
+export abstract class SingleShape extends Shape {
+  /** @internal Engine-owned Box2D shape handle. Set by the single-shape lifecycle system. */
+  _shapeId: b2ShapeId | undefined = undefined;
 }
 
 /**
@@ -35,7 +42,7 @@ export abstract class Shape {
  * still go through `entity.set(Box, …)` or `entity.modified(Box)` for physics
  * to notice. See PLAN → Box accessors.
  */
-export class Box extends Shape {
+export class Box extends SingleShape {
   hx = 0.5;
   hy = 0.5;
 
@@ -57,12 +64,12 @@ export class Box extends Shape {
 }
 
 /** Circle geometry. */
-export class Circle extends Shape {
+export class Circle extends SingleShape {
   radius = 0.5;
 }
 
 /** Capsule geometry: two local endpoints joined by a radius. */
-export class Capsule extends Shape {
+export class Capsule extends SingleShape {
   x1 = -0.5;
   y1 = 0;
   x2 = 0.5;
@@ -71,7 +78,7 @@ export class Capsule extends Shape {
 }
 
 /** Line-segment geometry. */
-export class Segment extends Shape {
+export class Segment extends SingleShape {
   x1 = -0.5;
   y1 = 0;
   x2 = 0.5;
@@ -83,13 +90,17 @@ export class Segment extends Shape {
  * Convexity and vertex count are validated on shape creation, not on every
  * update. See PLAN → Vec2 in Polygon / Chain.
  */
-export class Polygon extends Shape {
+export class Polygon extends SingleShape {
   vertices: Vec2[] = [];
   radius = 0;
 }
 
 /** Chain geometry for static terrain. Needs at least four points. */
 export class Chain extends Shape {
+  /** @internal Engine-owned Box2D chain handle. Set by the chain lifecycle system. */
+  _chainId: b2ChainId | undefined = undefined;
+  /** @internal Public shape indices of the chain's generated segment shapes. */
+  _segmentIndices: number[] = [];
   points: Vec2[] = [];
   loop = false;
 }

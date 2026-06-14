@@ -1,4 +1,5 @@
 import { Body } from "../components/body.js";
-import { Shape } from "../components/geometry.js";
+import { Chain, SingleShape } from "../components/geometry.js";
 
-export const shapeWithBodyParent = { all: [Shape, { parent: Body }] } as const;
+export const singleShapeWithBodyParent = { all: [SingleShape, { parent: Body }] } as const;
+export const chainWithBodyParent = { all: [Chain, { parent: Body }] } as const;
