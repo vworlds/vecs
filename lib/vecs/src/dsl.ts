@@ -373,11 +373,13 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
   if ("not" in q) {
     return ["NOT", _canonicalDSLKey(q.not)];
   }
-  if ("target" in q) {
-    return ["TARGET", q.target[0], _canonicalDSLKey(q.target[1])];
+  if ("target" in q && Array.isArray((q as any).target)) {
+    const t = q as { target: readonly [ComponentRef, QueryDSL] };
+    return ["TARGET", t.target[0], _canonicalDSLKey(t.target[1])];
   }
-  if ("source" in q) {
-    return ["SOURCE", q.source[0], _canonicalDSLKey(q.source[1])];
+  if ("source" in q && Array.isArray((q as any).source)) {
+    const s = q as { source: readonly [ComponentRef, QueryDSL] };
+    return ["SOURCE", s.source[0], _canonicalDSLKey(s.source[1])];
   }
   if ("test" in q) {
     if (q.watch === undefined) {
@@ -706,10 +708,11 @@ function _compileQueryExpression(
     return `!(${_compileQueryExpression(world, q.not, context, entityRef)})`;
   }
 
-  if ("target" in q) {
-    const relEid = _resolveRelationship(q.target[0], world);
+  if ("target" in q && Array.isArray((q as any).target)) {
+    const t = q as { target: readonly [ComponentRef, QueryDSL] };
+    const relEid = _resolveRelationship(t.target[0], world);
     const relMask = _compileMask(context, [relEid], entityRef, "hasBitset");
-    const inner = _compileQueryExpression(world, q.target[1], context, "p");
+    const inner = _compileQueryExpression(world, t.target[1], context, "p");
     return `(${relMask})&&((p)=>p!==undefined&&(${inner}))(${entityRef}._get(${relEid})?.target)`;
   }
 

@@ -47,6 +47,20 @@ export class Entity extends IdentityEntity {
     return this.set(ChildOf, { target: parent });
   }
 
+  /** Get this entity's parent through the built-in `ChildOf` relationship, if present. */
+  public get parent(): Entity | undefined {
+    return this.target(ChildOf);
+  }
+
+  /** Set this entity's parent through the built-in `ChildOf` relationship. */
+  public set parent(parent: Entity | undefined) {
+    if (parent === undefined) {
+      this.remove(ChildOf);
+    } else {
+      this.childOf(parent);
+    }
+  }
+
   /** True if this entity has been destroyed (marked for deletion). */
   public get destroyed(): boolean {
     return this._destroyed;

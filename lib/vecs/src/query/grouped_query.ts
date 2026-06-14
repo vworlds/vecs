@@ -69,7 +69,7 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
       this._composeGroupMembership(components);
     } else {
       const relEid = _resolveRelationship(arg0 as ComponentRef, this.world);
-      keyOf = (e: Entity) => e.parent(relEid);
+      keyOf = (e: Entity) => e.target(relEid);
       watchEids = [relEid];
       this._composeGroupMembership([arg0 as ComponentRef]);
     }

@@ -535,7 +535,7 @@ function createDecorations(): void {
 
 function assignCell(entity: Entity, position: RenderPosition): void {
   const cell = cellEntities[getGridCellIndex(position)];
-  if (entity.parent(InCell) !== cell) {
+  if (entity.target(InCell) !== cell) {
     entity.set(InCell, { target: cell });
   }
 }

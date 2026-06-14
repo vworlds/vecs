@@ -107,10 +107,10 @@ describe("PhysicsModule", () => {
     expect(world.entity("physics-pre").has(Phase)).toBe(true);
     expect(world.entity("physics-step").has(Phase)).toBe(true);
     expect(world.entity("physics-post").has(Phase)).toBe(true);
-    expect(world.entity("physics-pre").parent(DependsOn)).toBe(world.entity(ON_UPDATE));
-    expect(world.entity("physics-step").parent(DependsOn)).toBe(world.entity("physics-pre"));
-    expect(world.entity("physics-post").parent(DependsOn)).toBe(world.entity("physics-step"));
-    expect(world.entity(ON_VALIDATE).parent(DependsOn)).toBe(world.entity("physics-post"));
+    expect(world.entity("physics-pre").target(DependsOn)).toBe(world.entity(ON_UPDATE));
+    expect(world.entity("physics-step").target(DependsOn)).toBe(world.entity("physics-pre"));
+    expect(world.entity("physics-post").target(DependsOn)).toBe(world.entity("physics-step"));
+    expect(world.entity(ON_VALIDATE).target(DependsOn)).toBe(world.entity("physics-post"));
   });
 
   it("reuses an existing phase passed by name and creates it under that name", () => {

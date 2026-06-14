@@ -12,6 +12,5 @@ export function resolveBodyId(entity: Entity): b2BodyId | undefined {
     return body._bodyId;
   }
 
-  const parent = entity.parent(ChildOf);
-  return parent?.get(Body)?._bodyId;
+  return entity.parent?.get(Body)?._bodyId;
 }

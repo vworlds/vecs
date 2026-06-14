@@ -19,7 +19,7 @@ export { ChildOf, DependsOn, SilenceSource, Traversable } from "./relationship_t
  * every entity's depth is updated when the relationship is added, retargeted,
  * or removed.
  *
- * Depth is computed by walking `entity.parent(relEid)` to the root. When an
+ * Depth is computed by walking `entity.target(relEid)` to the root. When an
  * entity's depth changes, every descendant is recursively recomputed.
  */
 export class RelationshipsModule extends Module {
@@ -93,7 +93,7 @@ export class RelationshipsModule extends Module {
 
     visited.add(entity);
 
-    const parent = entity.parent(relEid);
+    const parent = entity.target(relEid);
     if (!parent) {
       return 0;
     }

@@ -109,7 +109,7 @@ function _validateGeomEntities(state: PhysicsState, geomFilter: Filter, dedupe: 
     const eid: EID = e.eid;
 
     // ── shape-without-parent-body (code 1) ───────────────────────────────────
-    const parent = e.parent(ChildOf);
+    const parent = e.parent;
     const parentHasBody = parent !== undefined && parent.get(Body) !== undefined;
     if (!parentHasBody) {
       dedupe.warnOnce(
@@ -181,7 +181,7 @@ function _validateBodyEntities(geomFilter: Filter, bodyFilter: Filter, dedupe: W
   const geomChildrenByBody = new ArrayMap<Entity[]>();
 
   geomFilter.forEach((e) => {
-    const parent = e.parent(ChildOf);
+    const parent = e.parent;
     if (parent === undefined || parent.get(Body) === undefined) {
       return;
     }
@@ -324,7 +324,7 @@ function isValidPolygon(
 function _validateForceEntities(forceFilter: Filter, dedupe: WarnDedupe): void {
   forceFilter.forEach((e) => {
     const eid: EID = e.eid;
-    const parent = e.parent(ChildOf);
+    const parent = e.target(ChildOf);
     const hasTarget =
       e.get(Body) !== undefined || (parent !== undefined && parent.get(Body) !== undefined);
 

@@ -30,7 +30,7 @@ export function installShapeLifecycle(world: World, state: PhysicsState, phase: 
   // captured in the exit snapshot while the entity's components are still
   // present. The exit callback itself runs on the next tick's inbox drain,
   // after `_destroy` has cleared `entity._components` -- by then
-  // `entity.parent(ChildOf)` and `entity.get(Shape)` would return `undefined`.
+  // `entity.target(ChildOf)` and `entity.get(Shape)` would return `undefined`.
   system.exit([ChildOf, Shape], (entity, [childOf, shape]) => {
     destroyShapeForEntity(state, entity, true, childOf?.target, shape);
   });
@@ -101,7 +101,7 @@ function destroyShapeForEntity(
   parent?: Entity,
   shape?: Readonly<Shape>
 ): void {
-  const resolvedParent = parent ?? entity.parent(ChildOf);
+  const resolvedParent = parent ?? entity.parent;
   const resolvedShape = shape ?? entity.get(Shape);
   const handle = resolvedShape?._shapeId;
   if (handle === undefined) {

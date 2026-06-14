@@ -334,7 +334,7 @@ describe("World - pipeline", () => {
     const w = new World();
 
     for (let i = 1; i < BUILTIN_PIPELINE_PHASES.length; i++) {
-      expect(w.entity(BUILTIN_PIPELINE_PHASES[i]).parent(DependsOn)).toBe(
+      expect(w.entity(BUILTIN_PIPELINE_PHASES[i]).target(DependsOn)).toBe(
         w.entity(BUILTIN_PIPELINE_PHASES[i - 1])
       );
     }
@@ -387,9 +387,9 @@ describe("World - pipeline", () => {
 
     insertPhaseAfter(inserted, w.entity(ON_UPDATE));
 
-    expect(update.entity.parent(DependsOn)).toBe(w.entity(ON_UPDATE));
-    expect(inserted.parent(DependsOn)).toBe(w.entity(ON_UPDATE));
-    expect(w.entity(ON_VALIDATE).parent(DependsOn)).toBe(inserted);
+    expect(update.entity.target(DependsOn)).toBe(w.entity(ON_UPDATE));
+    expect(inserted.target(DependsOn)).toBe(w.entity(ON_UPDATE));
+    expect(w.entity(ON_VALIDATE).target(DependsOn)).toBe(inserted);
     w.progress(0, 0);
 
     expect(seen).toEqual(["update", "inserted", "validate"]);

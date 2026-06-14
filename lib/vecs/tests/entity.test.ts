@@ -522,7 +522,7 @@ describe("Entity — relationship navigation", () => {
     const parent = w.entity();
     const child = w.entity();
     expect(child.childOf(parent)).toBe(child);
-    expect(child.parent(ChildOf)).toBe(parent);
+    expect(child.target(ChildOf)).toBe(parent);
     expect(parent.children(ChildOf).has(child)).toBe(true);
   });
 
@@ -532,7 +532,7 @@ describe("Entity — relationship navigation", () => {
     const child = w.entity();
     child.childOf(parent);
     child.remove(ChildOf);
-    expect(child.parent(ChildOf)).toBeUndefined();
+    expect(child.target(ChildOf)).toBeUndefined();
     expect(parent.children(ChildOf).has(child)).toBe(false);
   });
 
@@ -543,7 +543,7 @@ describe("Entity — relationship navigation", () => {
     const child = w.entity();
     child.childOf(p1);
     child.childOf(p2);
-    expect(child.parent(ChildOf)).toBe(p2);
+    expect(child.target(ChildOf)).toBe(p2);
     expect(p1.children(ChildOf).has(child)).toBe(false);
     expect(p2.children(ChildOf).has(child)).toBe(true);
   });
@@ -560,7 +560,7 @@ describe("Entity — relationship navigation", () => {
     expect(() => child.getMut(ChildOf, mutate)).toThrow(/Relationship/);
 
     expect(mutate).not.toHaveBeenCalled();
-    expect(child.parent(ChildOf)).toBe(p1);
+    expect(child.target(ChildOf)).toBe(p1);
     expect(p1.children(ChildOf).has(child)).toBe(true);
     expect(p2.children(ChildOf).has(child)).toBe(false);
   });
@@ -579,10 +579,10 @@ describe("Entity — relationship navigation", () => {
     const child = w.entity();
     w.beginDefer();
     child.childOf(parent);
-    expect(child.parent(ChildOf)).toBeUndefined();
+    expect(child.target(ChildOf)).toBeUndefined();
     expect(parent.children(ChildOf).has(child)).toBe(false);
     w.endDefer();
-    expect(child.parent(ChildOf)).toBe(parent);
+    expect(child.target(ChildOf)).toBe(parent);
     expect(parent.children(ChildOf).has(child)).toBe(true);
   });
 });

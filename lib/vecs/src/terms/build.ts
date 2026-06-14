@@ -38,7 +38,7 @@
  * already have live consumers from other queries; building them just to tear
  * them down would leave stale subscription counts on shared leaves.
  */
-import { type ComponentRefArray } from "../component.js";
+import { type ComponentRef, type ComponentRefArray } from "../component.js";
 import {
   containsDownTerm,
   getDSLCacheKey,
@@ -218,8 +218,9 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
       onDestroy
     );
   }
-  if ("target" in dsl) {
-    return TargetTerm.build(world, dsl.target[0] as EID, dsl.target[1], key, getTerm, onDestroy);
+  if ("target" in dsl && Array.isArray((dsl as any).target)) {
+    const d = dsl as { target: readonly [ComponentRef, QueryDSL] };
+    return TargetTerm.build(world, d.target[0] as EID, d.target[1], key, getTerm, onDestroy);
   }
   throw new Error("Unrecognized query term");
 }
@@ -387,8 +388,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       })),
     ]);
   }
-  if ("target" in dsl) {
-    const relEid = dsl.target[0] as EID;
+  if ("target" in dsl && Array.isArray((dsl as any).target)) {
+    const d = dsl as { target: readonly [ComponentRef, QueryDSL] };
+    const relEid = d.target[0] as EID;
     return _mergeAnalyses([
       {
         leafKeys: new Set([`C:${relEid}`]) as Set<string>,
@@ -397,7 +399,7 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         containsOnly: false,
         containsTarget: true,
       },
-      { ..._analyzeDSL(dsl.target[1]), containsTarget: true },
+      { ..._analyzeDSL(d.target[1]), containsTarget: true },
     ]);
   }
   return {

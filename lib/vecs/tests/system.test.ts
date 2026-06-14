@@ -406,8 +406,8 @@ describe("System — pipeline", () => {
       .phase(ON_LOAD)
       .run(() => {});
     // DependsOn is single-target, so the OnUpdate set by the constructor is replaced.
-    expect(sys.entity.parent(DependsOn)).toBe(w.entity(ON_LOAD));
-    expect(sys.entity.parent(DependsOn)).not.toBe(w.entity(ON_UPDATE));
+    expect(sys.entity.target(DependsOn)).toBe(w.entity(ON_LOAD));
+    expect(sys.entity.target(DependsOn)).not.toBe(w.entity(ON_UPDATE));
   });
 });
 

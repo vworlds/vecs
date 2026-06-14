@@ -11,7 +11,7 @@ import { Queries } from "./entity.queries.js";
 
 export class Relationships extends Queries {
   /** Return this entity's target through relationship `ref`, if present. */
-  public parent(rel: ComponentRef): Entity | undefined {
+  public target(rel: ComponentRef): Entity | undefined {
     const relEid = typeof rel === "number" ? rel : this.world.entity(rel).eid;
     return (this._components.get(relEid) as Relationship | undefined)?.target;
   }
