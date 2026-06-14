@@ -124,10 +124,6 @@ export class PhysicsState {
   >();
   public readonly pendingAngularImpulse = new Map<b2BodyId, { value: number; wake: boolean }>();
 
-  // World-lifetime scratch vector reused by hot pose/velocity setters.
-  // It is intentionally not wrapped in withAllocated: teardown does not exist yet.
-  public readonly scratchVec2: b2Vec2;
-
   // Stable PhysicsQueries facade, constructed lazily by `physics(world)` and
   // cached here so repeated calls don't re-allocate. Type-only import above
   // avoids a runtime import cycle (queries.ts imports state.ts at runtime).
@@ -149,7 +145,6 @@ export class PhysicsState {
     this.maximumLinearSpeed = options.maximumLinearSpeed;
     this.enableSleep = options.enableSleep;
     this.enableContinuous = options.enableContinuous;
-    this.scratchVec2 = new box2d.b2Vec2();
   }
 }
 

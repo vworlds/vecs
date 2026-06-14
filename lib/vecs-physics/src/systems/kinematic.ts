@@ -2,6 +2,7 @@ import { type Entity, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { KinematicTargetPosition, KinematicTargetRotation } from "../components/target.js";
+import { scr_b2Vec2 } from "../adapter/runtime.js";
 import { PhysicsSystemTag, type PhysicsState, type b2BodyId } from "../adapter/state.js";
 
 export function installKinematicTargets(world: World, state: PhysicsState, phase: Entity): void {
@@ -94,8 +95,9 @@ function isKinematicBody(state: PhysicsState, bodyId: b2BodyId): boolean {
 }
 
 function setLinearVelocity(state: PhysicsState, bodyId: b2BodyId, x: number, y: number): void {
-  state.scratchVec2.Set(x, y);
-  state.box2d.b2Body_SetLinearVelocity(bodyId, state.scratchVec2);
+  const vec = scr_b2Vec2[0];
+  vec.Set(x, y);
+  state.box2d.b2Body_SetLinearVelocity(bodyId, vec);
 }
 
 function wrap(value: number, min: number, max: number): number {

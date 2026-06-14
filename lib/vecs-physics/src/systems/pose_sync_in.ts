@@ -1,6 +1,7 @@
 import { type Entity, type World } from "@vworlds/vecs";
 
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "../components/body.js";
+import { scr_b2Vec2 } from "../adapter/runtime.js";
 import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 
 export function installPoseSyncIn(world: World, state: PhysicsState, phase: Entity): void {
@@ -22,8 +23,9 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
 
       const rotation = state.box2d.b2Body_GetRotation(bodyId);
       try {
-        state.scratchVec2.Set(position.x, position.y);
-        state.box2d.b2Body_SetTransform(bodyId, state.scratchVec2, rotation);
+        const vec = scr_b2Vec2[0];
+        vec.Set(position.x, position.y);
+        state.box2d.b2Body_SetTransform(bodyId, vec, rotation);
       } finally {
         rotation.delete();
       }
@@ -63,8 +65,9 @@ export function installPoseSyncIn(world: World, state: PhysicsState, phase: Enti
         return;
       }
 
-      state.scratchVec2.Set(velocity.x, velocity.y);
-      state.box2d.b2Body_SetLinearVelocity(bodyId, state.scratchVec2);
+      const vec = scr_b2Vec2[0];
+      vec.Set(velocity.x, velocity.y);
+      state.box2d.b2Body_SetLinearVelocity(bodyId, vec);
     });
   linearVelocitySystem.entity.add(PhysicsSystemTag);
 

@@ -1,6 +1,7 @@
 import { type Entity, type World } from "@vworlds/vecs";
 
 import { AngularImpulse, Impulse } from "../components/force.js";
+import { scr_b2Vec2 } from "../adapter/runtime.js";
 import { PhysicsSystemTag, type b2BodyId, type PhysicsState } from "../adapter/state.js";
 import { resolveBodyId } from "../util/resolve_body.js";
 
@@ -50,8 +51,9 @@ function drainLinearImpulses(state: PhysicsState): void {
     if (!state.entityByBodyIndex.has(bodyId.index1)) {
       continue;
     }
-    state.scratchVec2.Set(impulse.x, impulse.y);
-    state.box2d.b2Body_ApplyLinearImpulseToCenter(bodyId, state.scratchVec2, impulse.wake);
+    const vec = scr_b2Vec2[0];
+    vec.Set(impulse.x, impulse.y);
+    state.box2d.b2Body_ApplyLinearImpulseToCenter(bodyId, vec, impulse.wake);
   }
   state.pendingLinearImpulse.clear();
 }

@@ -2,6 +2,7 @@ import { ChildOf, type Entity, type World } from "@vworlds/vecs";
 
 import { Body } from "../components/body.js";
 import { Force, Torque } from "../components/force.js";
+import { scr_b2Vec2 } from "../adapter/runtime.js";
 import { PhysicsSystemTag, type PhysicsState } from "../adapter/state.js";
 
 const forceTargetPredicate = { any: [Body, { parent: Body }] } as const;
@@ -20,8 +21,9 @@ export function installForceGather(world: World, state: PhysicsState, phase: Ent
       return;
     }
 
-    state.scratchVec2.Set(force.x, force.y);
-    state.box2d.b2Body_ApplyForceToCenter(bodyId, state.scratchVec2, force.wake);
+    const vec = scr_b2Vec2[0];
+    vec.Set(force.x, force.y);
+    state.box2d.b2Body_ApplyForceToCenter(bodyId, vec, force.wake);
   });
 
   const torqueSystem = world

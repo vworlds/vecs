@@ -108,7 +108,7 @@ state.box2d.b2World_CastRay(state.worldId, origin, translation, filter, (result)
 
 Read scalar fields off the callback `result` **inside** the callback — do not retain `result.point`/`result.normal` (they are transient Emscripten refs). For `rayCastClosest`, the `b2RayResult` is returned directly; copy its fields into a plain `RayHit` and stop.
 
-**Memory discipline.** `origin`, `translation`, `aabb` (`b2AABB`), and the circle `proxy` are Emscripten allocations and must be `.delete()`'d. Wrap every query body in `withAllocated` (or nested `withAllocated`) so the scratch objects free in `finally`, even if the user callback throws. Do not leak per-call `b2Vec2`s — or reuse a small pooled set on `PhysicsState` analogous to `scratchVec2`. Queries allocate inside `src/adapter/` (a new `src/adapter/queries.ts`) so the "only `adapter/` touches box2d3-wasm" boundary holds.
+**Memory discipline.** `origin`, `translation`, `aabb` (`b2AABB`), and the circle `proxy` are Emscripten allocations and must be `.delete()`'d. Wrap every query body in `withAllocated` (or nested `withAllocated`) so the scratch objects free in `finally`, even if the user callback throws. Do not leak per-call `b2Vec2`s — reuse the module-global scratch pool (`scr_b2Vec2`/`scr_b2QueryFilter`/`scr_b2AABB` in `src/adapter/runtime.ts`). Queries allocate inside `src/adapter/` (a new `src/adapter/queries.ts`) so the "only `adapter/` touches box2d3-wasm" boundary holds.
 
 **Wake / sleep.** Queries are read-only and must not wake bodies or mutate the world. `b2World_OverlapAABB` / `CastRay` are pure broad/mid-phase reads; confirm no body is woken (parity test asserts a sleeping body stays asleep after a query).
 

@@ -568,7 +568,7 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 ## Risks
 
 1. **WASM init lifecycle.** `preloadPhysics` is process-global and cached. Callers must `await preloadPhysics` exactly once before any `PhysicsModule`. Tests share a single `beforeAll(async () => { await preloadPhysics(); })` per file.
-2. **Emscripten manual cleanup.** Every `new b2Xxx()` and factory call leaks if not `.delete()`'d. The discipline is enforced through `withAllocated` in `src/adapter/disposal.ts`; allocations outside that helper are a review red flag. (Note: a long-lived `state.scratchVec2` and the world itself are intentionally not freed — **no world-teardown helper exists yet**; the world GCs with the process.)
+2. **Emscripten manual cleanup.** Every `new b2Xxx()` and factory call leaks if not `.delete()`'d. The discipline is enforced through `withAllocated` in `src/adapter/disposal.ts`; allocations outside that helper are a review red flag. (Note: the long-lived global scratch pools (`scr_b2Vec2`/`scr_b2QueryFilter`/`scr_b2AABB` in `src/adapter/runtime.ts`) and the world itself are intentionally not freed — **no world-teardown helper exists yet**; the world GCs with the process.)
 3. **box2d3-wasm version pinning.** Upstream changes can shift parity baselines. Pinned via `package.json` (`5.2.0`); document the version on every parity golden.
 4. **Node `navigator.hardwareConcurrency`.** box2d3-wasm reads it on init; `preloadPhysics` polyfills it from `os.cpus().length` when missing, guarded with `??=`.
 5. **Single-thread `compat` build vs threaded `deluxe` build.** vecs-physics targets the `compat` path (no `crossOriginIsolated` required). The deluxe path is opt-in by environment, not by API.
