@@ -16,30 +16,27 @@ export function installEventOptInSync(world: World, state: PhysicsState, phase: 
   world.component(HitEvents).onAdd((entity) => setEventFlag(state, entity, "hit", true));
   world.component(HitEvents).onRemove((entity) => setEventFlag(state, entity, "hit", false));
 
-  // Effective sensor detection is `SensorEvents present OR Detectable present`.
-  // Each hook reads only the *counterpart* component via `entity.get` — never
-  // its own component inside `onRemove`, since it may already be detached.
-  world
-    .component(SensorEvents)
-    .onAdd((entity) => syncSensorDetection(state, entity, true, Detectable));
-  world
-    .component(SensorEvents)
-    .onRemove((entity) => syncSensorDetection(state, entity, false, Detectable));
-
-  world
-    .component(Detectable)
-    .onAdd((entity) => syncSensorDetection(state, entity, true, SensorEvents));
-  world
-    .component(Detectable)
-    .onRemove((entity) => syncSensorDetection(state, entity, false, SensorEvents));
-
-  const system = world
-    .system("PhysicsEventOptInSync")
+  // Sensor detection: enable if SensorEvents OR Detectable is present.
+  // Query {all: [Shape, {any: [SensorEvents, Detectable]}]} matches entities
+  // with a shape and at least one sensor opt-in component. Enter enables,
+  // exit disables (when the last opt-in component is removed).
+  const sensorSystem = world
+    .system("PhysicsEventOptInSync:Sensor")
+    .with({ all: [Shape, { any: [SensorEvents, Detectable] }] })
     .phase(phase)
-    .run(() => {
-      // Hook-driven: onAdd/onRemove do the work synchronously during command drain.
+    .enter([Shape], (_e, [shape]) => {
+      const shapeId = readShapeId(shape);
+      if (shapeId !== undefined) {
+        state.box2d.b2Shape_EnableSensorEvents(shapeId, true);
+      }
+    })
+    .exit([Shape], (_e, [shape]) => {
+      const shapeId = readShapeId(shape);
+      if (shapeId !== undefined) {
+        state.box2d.b2Shape_EnableSensorEvents(shapeId, false);
+      }
     });
-  system.entity.add(PhysicsSystemTag);
+  sensorSystem.entity.add(PhysicsSystemTag);
 }
 
 function setEventFlag(
@@ -48,30 +45,17 @@ function setEventFlag(
   flag: EventFlag,
   enabled: boolean
 ): void {
-  const shapeId = readShapeId(entity);
-  if (shapeId !== undefined) {
-    applyEventFlag(state, shapeId, flag, enabled);
-  }
-}
-
-// effective = thisPresent || (counterpart present)
-function syncSensorDetection(
-  state: PhysicsState,
-  entity: Entity,
-  selfPresent: boolean,
-  counterpart: typeof SensorEvents | typeof Detectable
-): void {
-  const shapeId = readShapeId(entity);
-  if (shapeId === undefined) {
-    return;
-  }
-  const effective = selfPresent || entity.get(counterpart) !== undefined;
-  state.box2d.b2Shape_EnableSensorEvents(shapeId, effective);
-}
-
-function readShapeId(entity: Entity): b2ShapeId | undefined {
   const shape = entity.get(Shape);
-  if (shape === undefined || shape instanceof Chain) {
+  if (shape !== undefined) {
+    const shapeId = readShapeId(shape);
+    if (shapeId !== undefined) {
+      applyEventFlag(state, shapeId, flag, enabled);
+    }
+  }
+}
+
+function readShapeId(shape: Shape): b2ShapeId | undefined {
+  if (shape instanceof Chain) {
     return undefined;
   }
   return shape._shapeId as b2ShapeId | undefined;
