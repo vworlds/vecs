@@ -340,13 +340,15 @@ Missing `ShapeRotation` means local angle `0`.
 
 Every shape entity should have exactly one geometry component: `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, or `Chain`.
 
-Each of these declares `Implements: [Shape]`, an abstract marker exported from `vecs-physics`:
+`Shape` is an abstract umbrella marker exported from `vecs-physics`:
 
 ```ts
 export abstract class Shape {}
 ```
 
-`Shape` is registered as a Vecs interface (see `Implements` in `@vworlds/vecs`). Two consequences:
+Internally, `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement a non-exported single-shape tier, and that tier implements `Shape`. `Chain` implements `Shape` directly because Box2D represents chains with a `b2ChainId` plus generated segment shapes rather than one `b2ShapeId`.
+
+This interface setup has two public consequences:
 
 - **Mutual exclusivity.** Setting one geometry component removes any previous geometry component from that entity — `entity.set(Circle, { radius: 1 })` on an entity that already has `Box` removes `Box` first.
 - **Polymorphic queries.** `entity.get(Shape)` and `world.filter(Shape)`/`.with(Shape)` match whichever concrete geometry component is present, without enumerating all six types.
@@ -449,7 +451,9 @@ export class Chain {
 }
 ```
 
-Chains need at least four points. They are an advanced feature with Box2D-style one-sided collision behavior.
+Chains need at least four points. They honor `ShapePosition` and `ShapeRotation` by transforming every point before creation. They are an advanced feature with Box2D-style one-sided collision behavior.
+
+Chains can be detected by sensors when they carry `Detectable` or `SensorEvents`; chain segment events resolve back to the chain entity. Box2D chains expose sensor opt-in at creation time only and do not expose contact/hit event flags, so chains participate in sensor events but not contact or hit event opt-in.
 
 See [Shapes](./shapes.md) for details.
 

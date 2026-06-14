@@ -99,15 +99,16 @@ In this example, the circle is one meter above the body origin in body-local spa
 
 Each shape entity should have one geometry component.
 
-The geometry components are mutually exclusive. Adding one removes the previous one from the same entity. `PhysicsModule` sets this up by declaring each geometry component an implementer of the abstract `Shape` marker:
+The geometry components are mutually exclusive. Adding one removes the previous one from the same entity. `PhysicsModule` sets this up with two interface tiers: the public `Shape` umbrella for all geometry and an internal single-shape tier for `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon`.
 
 ```ts
-world.component(Box).set(Implements, { interfaces: [Shape] });
-world.component(Circle).set(Implements, { interfaces: [Shape] });
-// ...and so on for Capsule, Segment, Polygon, Chain.
+world.component(SingleShape).set(Implements, { interfaces: [Shape] });
+world.component(Box).set(Implements, { interfaces: [SingleShape] });
+// ...and so on for Circle, Capsule, Segment, Polygon.
+world.component(Chain).set(Implements, { interfaces: [Shape] });
 ```
 
-`entity.get(Shape)` and `world.filter(Shape)` match whichever concrete geometry component is present. See [Components](./components.md#geometry-components).
+`entity.get(Shape)` and `world.filter(Shape)` match whichever concrete geometry component is present, including `Chain`. The internal single-shape tier is not exported from the package public API; it exists so Box2D `b2ShapeId` systems do not accidentally match chains. See [Components](./components.md#geometry-components).
 
 ### Box
 
@@ -263,7 +264,7 @@ world
   });
 ```
 
-Chains need at least four points. They are an advanced shape type and should normally be attached to static bodies.
+Chains need at least four points. They honor `ShapePosition` and `ShapeRotation`; the local pose transforms every point before the chain is created. They are an advanced shape type and should normally be attached to static bodies.
 
 ## Compound Bodies
 
@@ -305,6 +306,8 @@ world
 Missing `Sensor` means the shape is solid.
 
 Sensor events are opt-in. Add `SensorEvents` only to shapes that should receive sensor begin/end events.
+
+Chains can participate in sensor events as the visited shape when they have `Detectable` or `SensorEvents`. Box2D exposes chain event participation only through creation-time `enableSensorEvents`, so `vecs-physics` recreates a chain when that opt-in changes and resolves chain segment hits back to the chain entity. Chains do not support contact or hit event opt-in because the Box2D chain definition does not expose contact/hit event flags.
 
 Changing an existing shape between solid and sensor by adding or removing the `Sensor` marker at runtime is deferred to v2. For v1, recreate the shape entity or swap the geometry component when gameplay needs a solid/sensor mode change.
 

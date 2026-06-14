@@ -87,6 +87,7 @@ import {
   Material,
   CollisionFilter,
   Sensor,
+  Detectable,
 
   // Forces & impulses
   Force,
@@ -153,7 +154,7 @@ world.module(PhysicsModule, opts); // with non-default options
 
 1. Throw if `preloadPhysics` has not resolved (`getBox2D()` throws).
 2. Register every public component via `world.component(...)` in the stable order in **Component registration order** below.
-3. Declare each geometry component an implementer of the abstract `Shape` marker via `world.component(C).set(Implements, { interfaces: [Shape] })`. This makes geometry components mutually exclusive (setting one evicts any previous geometry) and lets queries/systems match `Shape` polymorphically.
+3. Declare `SingleShape` as an internal implementer of the abstract `Shape` marker, declare `Box`/`Circle`/`Capsule`/`Segment`/`Polygon` as `SingleShape` implementers, and declare `Chain` as a direct `Shape` implementer. This keeps all geometry mutually exclusive while letting b2Shape-only systems query the internal single-shape tier.
 4. Create or look up the three physics phases and order them after `ON_UPDATE`.
 5. Create the Box2D world (`b2CreateWorld` + `b2World_SetContactTuning`).
 6. Register the physics systems (listed under **System and phase pipeline**), each tagged with `PhysicsSystemTag`.
@@ -217,14 +218,18 @@ All field initialisers belong on the class body so `new Component()` returns a v
 
 `type Vec2 = { x: number; y: number }`. Polygons accept up to 8 vertices (Box2D's `B2_MAX_POLYGON_VERTICES`). Validate `length <= 8` and convexity **on shape creation**, not on every update.
 
-### Forward handles on components
+### Geometry tiers and forward handles
 
-The Box2D forward handles live directly on the public component instances as `@internal` fields:
+`Shape` is the public umbrella marker for all six geometry components. `SingleShape` is an internal, non-exported marker for geometries backed by one Box2D `b2ShapeId`: `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon`. `Chain` implements `Shape` directly because Box2D represents it with a `b2ChainId` and generated segment shapes.
+
+The Box2D forward handles live directly on component instances as `@internal` fields:
 
 - `Body._bodyId: b2BodyId | undefined`
-- `Shape._shapeId: b2ShapeId | b2ChainId | undefined`
+- `SingleShape._shapeId: b2ShapeId | undefined`
+- `Chain._chainId: b2ChainId | undefined`
+- `Chain._segmentIndices: number[]`
 
-They are populated by the lifecycle systems and read by every system that needs to talk to Box2D. They are never part of the serialized/public shape of the component.
+`Chain._segmentIndices` records the `index1` slot of each generated chain segment shape so `PhysicsEvents` can resolve sensor events back to the chain entity and teardown can clear the reverse map before Box2D reuses indices. These fields are populated by lifecycle systems and read by systems that need to talk to Box2D. They are never part of the serialized/public shape of the component.
 
 ### Internal / private components
 
@@ -257,7 +262,7 @@ lib/vecs-physics/
 │   │   ├── material.ts, force.ts, target.ts, events.ts
 │   │
 │   ├── systems/                 Vecs↔Box2D adapter systems.
-│   │   ├── lifecycle.ts, shape_lifecycle.ts, shape_predicates.ts,
+│   │   ├── lifecycle.ts, shape_lifecycle.ts, chain_lifecycle.ts, shape_predicates.ts,
 │   │   ├── pose_sync_in.ts, pose_sync_out.ts,
 │   │   ├── kinematic.ts, forces.ts, impulse_accumulate.ts, impulse_zero.ts,
 │   │   ├── material_filter_sync.ts, shape_pose_sync.ts,
@@ -283,7 +288,7 @@ lib/vecs-physics/
 Module boundaries:
 
 - `src/components/` is pure data, no imports from `systems/` or `adapter/`.
-- `src/systems/` imports `components/` and `adapter/`. Never imports another system.
+- `src/systems/` imports `components/` and `adapter/`. Shared lifecycle helpers may be imported by adjacent lifecycle/sync systems; avoid broader system coupling.
 - `src/adapter/` is the only place that imports `box2d3-wasm`. It exposes `PhysicsEngine`, `getBox2D()`, and the `withAllocated` disposal helper; systems reach the module through `engine.box2d`, never by importing `box2d3-wasm` directly.
 
 ## Vecs integration
@@ -295,13 +300,13 @@ Components register in this order so type ids are deterministic across module re
 1. `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, `Body`.
 2. `Damping`, `GravityScale`, `MotionLocks`, `Sleep`.
 3. `ShapePosition`, `ShapeRotation`.
-4. `Shape`, `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, `Chain`.
+4. `Shape`, `SingleShape`, `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, `Chain`.
 5. `Material`, `CollisionFilter`, `Sensor`.
 6. `Force`, `Torque`, `Impulse`, `AngularImpulse`.
 7. `KinematicTargetPosition`, `KinematicTargetRotation`.
 8. `ContactEvents`, `SensorEvents`, `HitEvents`.
 9. Internal: `PhysicsEngine` (singleton), `PhysicsSystemTag`.
-10. `world.component(C).set(Implements, { interfaces: [Shape] })` for each of `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, `Chain`.
+10. `world.component(SingleShape).set(Implements, { interfaces: [Shape] })`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly.
 11. Phase creation/lookup, ordered after `ON_UPDATE`.
 12. System creation; tag each physics system entity with `PhysicsSystemTag`.
 13. `PhysicsEngine` allocation and singleton attach.
@@ -335,7 +340,8 @@ world.progress(now, delta):
   beginFrame(delta)
     physics-pre:
       PhysicsBodyLifecycle          (Body enter/exit/update)
-      PhysicsShapeLifecycle         (geometry enter/exit + ChildOf reparent)
+      PhysicsShapeLifecycle         (single-shape enter/exit + ChildOf reparent)
+      PhysicsChainLifecycle         (chain enter/exit + ChildOf reparent)
       PhysicsMaterialFilterSync     (Material / CollisionFilter / Sensor)
       PhysicsEventOptInSync         (ContactEvents / HitEvents / SensorEvents opt-in)
       PhysicsShapePoseSync          (ShapePosition / ShapeRotation)
@@ -376,11 +382,11 @@ Query: `Body`.
 
 ### `PhysicsShapeLifecycle` (`physics-pre`)
 
-Query: `{ all: [Shape, { parent: Body }] }`. All six geometry types declare `Implements: [Shape]`, so this one predicate covers every geometry type. Membership tracks geometry-with-Body-parent — covers attachment, detachment, and reparenting via one query.
+Query: `{ all: [SingleShape, { parent: Body }] }`. `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement the internal `SingleShape` tier, so b2Shape-only work never matches chains.
 
-- `.enter` — resolve parent body from the injected parent `Body._bodyId`. Build a `b2ShapeDef` from `Material` / `CollisionFilter` / `Sensor` / event opt-in flags / `ShapePosition` / `ShapeRotation`. Dispatch by geometry type (table below). Store the `b2ShapeId` (or `b2ChainId` for `Chain`) on `Shape._shapeId` and, for non-chain shapes, register `engine.entityByShapeIndex.set(shapeId.index1, entity.eid)`.
-- `.exit` — injects `[ChildOf, Shape]` so the parent link and `_shapeId` are still readable from the exit snapshot. `b2DestroyShape` (or `b2DestroyChain` for chains, branching on `instanceof Chain`); clear the `entityByShapeIndex` slot for non-chain shapes.
-- `.update(Shape, …)` — single collapsed system for all six geometry types: destroy + recreate the shape, except `Capsule`/`Segment` updates with degenerate (near-zero-length) endpoints are ignored, preserving the existing valid shape (Box2D parity).
+- `.enter` — resolve parent body from the injected parent `Body._bodyId`. Build a `b2ShapeDef` from `Material` / `CollisionFilter` / `Sensor` / event opt-in flags / `ShapePosition` / `ShapeRotation`. Dispatch by geometry type (table below). Store the `b2ShapeId` on `SingleShape._shapeId` and register `engine.entityByShapeIndex.set(shapeId.index1, entity.eid)`.
+- `.exit` — injects `[ChildOf, SingleShape]` so the parent link and `_shapeId` are still readable from the exit snapshot. `b2DestroyShape`; clear the `entityByShapeIndex` slot.
+- `.update(SingleShape, …)` — destroy + recreate the shape, except `Capsule`/`Segment` updates with degenerate (near-zero-length) endpoints are ignored, preserving the existing valid shape (Box2D parity).
 - `.update(ChildOf, …)` — reparenting between bodies = destroy under old parent, recreate under new.
 
 | Geometry      | Call                                                                                  |
@@ -390,23 +396,33 @@ Query: `{ all: [Shape, { parent: Body }] }`. All six geometry types declare `Imp
 | `Capsule`     | `b2CreateCapsuleShape(bodyId, def, capsule)`                                          |
 | `Segment`     | `b2CreateSegmentShape(bodyId, def, segment)`                                          |
 | `Polygon`     | `b2ComputeHull(points)` → `b2MakePolygon(hull, radius)` → `b2CreatePolygonShape(...)` |
-| `Chain`       | `b2DefaultChainDef()` + filter/material → `b2CreateChain(bodyId, chainDef)`           |
+
+### `PhysicsChainLifecycle` (`physics-pre`)
+
+Query: `{ all: [Chain, { parent: Body }] }`. Chain lifecycle is split from single-shape lifecycle because chains are backed by `b2ChainId`, not `b2ShapeId`, and Box2D exposes generated segment shapes for events.
+
+- `.enter` — resolve parent body, build a `b2ChainDef` from filter/material/sensor-event opt-in, transform each `Chain.points` entry by `ShapePosition` and `ShapeRotation`, call `b2CreateChain`, store `Chain._chainId`, then call `b2Chain_GetSegments` and register each returned segment `index1` in `engine.entityByShapeIndex` pointing to the chain entity.
+- `.exit` — injects `[ChildOf, Chain]`, clears every registered segment index, destroys the chain when `b2Chain_IsValid` is true, and clears `_chainId` on the live component if present.
+- `.update(Chain, …)` and `.update(ChildOf, …)` — destroy + recreate the chain.
+
+Chains participate in sensor events only. `b2ChainDef` exposes `enableSensorEvents` but not contact or hit event flags, so `ContactEvents`/`HitEvents` runtime toggles intentionally ignore chains. Sensor opt-in changes recreate the chain because Box2D has no per-chain runtime sensor-event setter.
 
 ### `PhysicsMaterialFilterSync` (`physics-pre`)
 
-- `.update(Material, …)` → `b2Shape_SetDensity(id, d, true)`, `b2Shape_SetFriction`, `b2Shape_SetRestitution`. Changes to `rollingResistance`, `tangentSpeed`, or `userMaterialId` recreate the shape because `box2d3-wasm@5.2.0` does not expose setters for those fields.
-- `.update(CollisionFilter, …)` → build a `b2Filter` (32-bit fields widen to Box2D's 64-bit by zero-padding upper bits) and call `b2Shape_SetFilter`.
-- `.update(Sensor, …)` — destroy + recreate the shape with `def.isSensor = true/false`. (Runtime solid↔sensor toggle has no in-place Box2D setter; recreate is the v1 path.)
+- Single-shape `.update(Material, …)` → `b2Shape_SetDensity(id, d, true)`, `b2Shape_SetFriction`, `b2Shape_SetRestitution`. Changes to `rollingResistance`, `tangentSpeed`, or `userMaterialId` recreate the shape because `box2d3-wasm@5.2.0` does not expose setters for those fields.
+- Single-shape `.update(CollisionFilter, …)` → build a `b2Filter` (32-bit fields widen to Box2D's 64-bit by zero-padding upper bits) and call `b2Shape_SetFilter`.
+- Single-shape `.update(Sensor, …)` — destroy + recreate the shape with `def.isSensor = true/false`. (Runtime solid↔sensor toggle has no in-place Box2D setter; recreate is the v1 path.)
+- Chain `Material`, `CollisionFilter`, and `Sensor` updates recreate the chain because Box2D does not expose in-place setters for chain material/filter/sensor state.
 
 ### `PhysicsEventOptInSync` (`physics-pre`)
 
-Hook-driven: when `ContactEvents` / `HitEvents` / `SensorEvents` is added or removed from a shape entity, call `b2Shape_EnableContactEvents` / `EnableHitEvents` / `EnableSensorEvents` on the corresponding `b2ShapeId`.
+Hook-driven for single shapes: when `ContactEvents` / `HitEvents` / `SensorEvents` is added or removed from a shape entity, call `b2Shape_EnableContactEvents` / `EnableHitEvents` / `EnableSensorEvents` on the corresponding `b2ShapeId`.
 
-> **Sensor-detection note (v1 limitation, addressed in v2).** Box2D v3 only delivers a sensor overlap when **both** the sensor shape and the _other_ (visited) shape have `enableSensorEvents == true` (`box2d/src/sensor.c`). vecs-physics derives `enableSensorEvents` from the presence of a `SensorEvents` component, so a plain solid shape is invisible to sensors. See `ROADMAP.md` / `PLAN-v2.md` (UP-1) for the v2 fix.
+Chains are excluded from those b2Shape setters. When `SensorEvents` or `Detectable` changes on a chain, `PhysicsEventOptInSync:ChainSensor` recreates the chain so the creation-time `b2ChainDef.enableSensorEvents` flag matches ECS state. Box2D v3 only delivers a sensor overlap when **both** the sensor shape and the visited shape have `enableSensorEvents == true` (`box2d/src/sensor.c`), so `Detectable` makes a solid shape or chain visible to sensors without giving it its own event arrays.
 
 ### `PhysicsShapePoseSync` (`physics-pre`)
 
-`.update(ShapePosition / ShapeRotation, …)` — destroy + recreate the shape under the body with the new local pose. (box2d3-wasm shapes do not expose a runtime local-pose setter; recreate is the cheap path.)
+`.update(ShapePosition / ShapeRotation, …)` — destroy + recreate the single shape or chain under the body with the new local pose. Chains transform every point by the local pose before `b2CreateChain`. box2d3-wasm shapes do not expose a runtime local-pose setter; recreate is the cheap path.
 
 ### `PhysicsPoseSyncIn` (`physics-pre`)
 
@@ -488,8 +504,8 @@ For every entity in `engine.impulseEntitiesThisStep`, directly zero `Impulse.x/y
 
 1. User: `entity.set(Body, {...})`.
 2. Vecs routes the Set command; `PhysicsBodyLifecycle.enter` queues.
-3. `TargetTerm` fan-out re-evaluates `ChildOf`-children with geometry — `PhysicsShapeLifecycle.enter` queues for them.
-4. Physics-pre runs: body system creates the `b2BodyId`; shape system creates each child shape attached to it.
+3. `TargetTerm` fan-out re-evaluates `ChildOf`-children with geometry — `PhysicsShapeLifecycle.enter` queues for single shapes and `PhysicsChainLifecycle.enter` queues for chains.
+4. Physics-pre runs: body system creates the `b2BodyId`; shape/chain systems create each child geometry attached to it.
 
 **Creation order does not matter** because `{ parent: Body }` is a `TargetTerm` with fan-out reactivity. Body-first and shape-first both work within the same frame. (Requirement: `PhysicsModule` must be installed _before_ physics components are added to entities — the module is what registers those component classes, and physics wires entities through reactive systems that only observe components added on or after install. Entities created before installation are not backfilled, by design; this is documented in `docs/installation.md`. Resolved UP-2 — v2 ships this as a documentation contract, not a backfill mechanism.)
 
@@ -506,7 +522,7 @@ For every entity in `engine.impulseEntitiesThisStep`, directly zero `Impulse.x/y
 - **Add geometry under a `Body`-parent**: `world.entity().set(ChildOf, { target: body }).set(Box, {…})` → `.enter` → `b2CreateXxxShape`. If the parent lacks `Body`, the query does not match and nothing is created; debug reports `shape-without-parent-body`.
 - **Change geometry component**: same component with props changed → in-place setter where box2d3-wasm exposes one (filter, density, friction, restitution), otherwise destroy + recreate (dimensions, local pose). Geometry type swap (Box → Circle) → exclusivity removes the old (`.exit` destroys), adds the new (`.enter` creates).
 - **Remove / reparent**: `.exit` destroys; `.update(ChildOf, …)` reparents by destroy + recreate under the new body.
-- **Chains**: `Chain` produces a `b2ChainId` representing N internal segments. Stored in the same `Shape._shapeId: b2ShapeId | b2ChainId | undefined` field; destroy/recreate branches on `instanceof Chain`.
+- **Chains**: `Chain` produces a `b2ChainId` representing N internal segments. The chain handle lives on `Chain._chainId`, and each segment `index1` is stored in `Chain._segmentIndices` and registered in `engine.entityByShapeIndex` for sensor-event resolution.
 
 ## Force, torque, impulse handling
 
@@ -551,7 +567,7 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 ## Settled decisions
 
 - **Internal engine:** world-scoped `Singleton` component (`PhysicsEngine`).
-- **Forward handles on components:** `Body._bodyId`, `Shape._shapeId` (`@internal`). Reverse lookups via `index1`-keyed `ArrayMap`s on `PhysicsEngine`.
+- **Forward handles on components:** `Body._bodyId`, `SingleShape._shapeId`, `Chain._chainId`, and `Chain._segmentIndices` (`@internal`). Reverse lookups via `index1`-keyed `ArrayMap`s on `PhysicsEngine`.
 - **Component registration order** as above; type ids deterministic.
 - **System reactivity:** systems for everything except `Impulse` / `AngularImpulse`, which use synchronous `onSet` hooks.
 - **Parent/child:** Vecs `ChildOf` relationship.
