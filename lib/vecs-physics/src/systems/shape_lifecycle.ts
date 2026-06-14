@@ -48,10 +48,14 @@ export function installShapeLifecycle(world: World, engine: PhysicsEngine, phase
     .system("PhysicsShapeLifecycle:ChildOf")
     .with(ChildOf, singleShapeWithBodyParent)
     .phase(phase)
-    .update(Iter, ChildOf, [SingleShape, { target: [ChildOf, [Body]] }], (it, _childOf, tuple) => {
-      const [shape, body] = tuple;
-      recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
-    });
+    .update(
+      Iter,
+      ChildOf,
+      [SingleShape, { target: [ChildOf, [Body]] }],
+      (it, _childOf, [shape, body]) => {
+        recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
+      }
+    );
   childOfSystem.entity.add(PhysicsSystemTag);
 }
 

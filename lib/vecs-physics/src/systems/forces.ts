@@ -14,24 +14,25 @@ export function installForceGather(world: World, engine: PhysicsEngine, phase: E
     .phase(phase);
   forceSystem.entity.add(PhysicsSystemTag);
 
-  forceSystem.each([Force, Body, { target: [ChildOf, [Body]] }], (_entity, tuple) => {
-    const [force, body, parentBody] = tuple;
-    const bodyId = body?._bodyId ?? parentBody?._bodyId;
-    if (bodyId === undefined) {
-      return;
-    }
+  forceSystem.each(
+    [Force, Body, { target: [ChildOf, [Body]] }],
+    (_entity, [force, body, parentBody]) => {
+      const bodyId = body?._bodyId ?? parentBody?._bodyId;
+      if (bodyId === undefined) {
+        return;
+      }
 
-    const vec = scr_b2Vec2[0];
-    vec.Set(force.x, force.y);
-    engine.box2d.b2Body_ApplyForceToCenter(bodyId, vec, force.wake);
-  });
+      const vec = scr_b2Vec2[0];
+      vec.Set(force.x, force.y);
+      engine.box2d.b2Body_ApplyForceToCenter(bodyId, vec, force.wake);
+    }
+  );
 
   const torqueSystem = world
     .system("PhysicsForceGather:Torque")
     .with(Torque, forceTargetPredicate)
     .phase(phase)
-    .each([Torque, Body, { target: [ChildOf, [Body]] }], (_entity, tuple) => {
-      const [torque, body, parentBody] = tuple;
+    .each([Torque, Body, { target: [ChildOf, [Body]] }], (_entity, [torque, body, parentBody]) => {
       const bodyId = body?._bodyId ?? parentBody?._bodyId;
       if (bodyId === undefined) {
         return;

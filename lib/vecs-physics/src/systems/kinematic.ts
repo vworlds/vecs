@@ -15,16 +15,18 @@ export function installKinematicTargets(world: World, engine: PhysicsEngine, pha
     .system("PhysicsKinematicTargets")
     .with({ all: [Body, { any: [KinematicTargetPosition, KinematicTargetRotation] }] })
     .phase(phase)
-    .each([Body, KinematicTargetPosition, KinematicTargetRotation], (_entity, tuple) => {
-      const [body, positionTarget, rotationTarget] = tuple;
-      const bodyId = body._bodyId;
-      if (bodyId === undefined || !isKinematicBody(engine, bodyId)) {
-        return;
-      }
+    .each(
+      [Body, KinematicTargetPosition, KinematicTargetRotation],
+      (_entity, [body, positionTarget, rotationTarget]) => {
+        const bodyId = body._bodyId;
+        if (bodyId === undefined || !isKinematicBody(engine, bodyId)) {
+          return;
+        }
 
-      drivePositionTarget(engine, bodyId, positionTarget, dt);
-      driveRotationTarget(engine, bodyId, rotationTarget, dt);
-    });
+        drivePositionTarget(engine, bodyId, positionTarget, dt);
+        driveRotationTarget(engine, bodyId, rotationTarget, dt);
+      }
+    );
   system.entity.add(PhysicsSystemTag);
 }
 

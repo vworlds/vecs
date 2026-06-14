@@ -19,8 +19,7 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
     Iter,
     ShapePosition,
     [SingleShape, { target: [ChildOf, [Body]] }],
-    (it, _position, tuple) => {
-      const [shape, body] = tuple;
+    (it, _position, [shape, body]) => {
       recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
     }
   );
@@ -29,10 +28,14 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
     .system("PhysicsShapePoseSync:ChainPosition")
     .with(ShapePosition, chainWithBodyParent)
     .phase(phase)
-    .update(Iter, ShapePosition, [Chain, { target: [ChildOf, [Body]] }], (it, _position, tuple) => {
-      const [chain, body] = tuple;
-      recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
-    });
+    .update(
+      Iter,
+      ShapePosition,
+      [Chain, { target: [ChildOf, [Body]] }],
+      (it, _position, [chain, body]) => {
+        recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+      }
+    );
   chainPositionSystem.entity.add(PhysicsSystemTag);
 
   const rotationSystem = world
@@ -43,8 +46,7 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
       Iter,
       ShapeRotation,
       [SingleShape, { target: [ChildOf, [Body]] }],
-      (it, _rotation, tuple) => {
-        const [shape, body] = tuple;
+      (it, _rotation, [shape, body]) => {
         recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
       }
     );
@@ -54,9 +56,13 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
     .system("PhysicsShapePoseSync:ChainRotation")
     .with(ShapeRotation, chainWithBodyParent)
     .phase(phase)
-    .update(Iter, ShapeRotation, [Chain, { target: [ChildOf, [Body]] }], (it, _rotation, tuple) => {
-      const [chain, body] = tuple;
-      recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
-    });
+    .update(
+      Iter,
+      ShapeRotation,
+      [Chain, { target: [ChildOf, [Body]] }],
+      (it, _rotation, [chain, body]) => {
+        recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+      }
+    );
   chainRotationSystem.entity.add(PhysicsSystemTag);
 }

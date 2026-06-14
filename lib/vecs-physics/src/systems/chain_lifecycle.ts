@@ -33,10 +33,14 @@ export function installChainLifecycle(world: World, engine: PhysicsEngine, phase
     .system("PhysicsChainLifecycle:ChildOf")
     .with(ChildOf, chainWithBodyParent)
     .phase(phase)
-    .update(Iter, ChildOf, [Chain, { target: [ChildOf, [Body]] }], (it, _childOf, tuple) => {
-      const [chain, body] = tuple;
-      recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
-    });
+    .update(
+      Iter,
+      ChildOf,
+      [Chain, { target: [ChildOf, [Body]] }],
+      (it, _childOf, [chain, body]) => {
+        recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+      }
+    );
   childOfSystem.entity.add(PhysicsSystemTag);
 }
 
