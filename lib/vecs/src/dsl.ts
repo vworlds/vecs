@@ -47,7 +47,26 @@ export type QueryDSL =
   | { source: readonly [ComponentRef, QueryDSL] }
   | { parent: QueryDSL }
   | { children: QueryDSL }
-  | { test: EntityTestFunc; watch?: readonly ComponentRef[] | ComponentRef };
+  | { test: EntityTestFunc; watch?: readonly ComponentRef[] | ComponentRef }
+  | SimplifiedQueryDSL;
+
+/**
+ * QueryDSL after simplification: bare classes and Entity instances resolved to
+ * numeric type ids, `parent`/`children` rewritten to `target`/`source`, all
+ * Component Refs resolved to EIDs.
+ */
+type SimplifiedQueryDSL =
+  | true
+  | false
+  | readonly EID[]
+  | EID
+  | { all: readonly SimplifiedQueryDSL[] }
+  | { any: readonly SimplifiedQueryDSL[] }
+  | { not: SimplifiedQueryDSL }
+  | { only: readonly EID[] | EID }
+  | { target: readonly [EID, SimplifiedQueryDSL] }
+  | { source: readonly [EID, SimplifiedQueryDSL] }
+  | { test: EntityTestFunc; watch?: readonly EID[] | EID };
 
 /**
  * A complete query specification combining a membership predicate with optional
@@ -176,13 +195,6 @@ function _componentRequirements(q: QueryDSL): readonly ComponentRef[] | undefine
   return undefined;
 }
 
-function _asShortestComponentRequirement(components: readonly ComponentRef[]): QueryDSL {
-  if (components.length === 0) {
-    return true;
-  }
-  return components.length === 1 ? components[0] : components;
-}
-
 function _calculateComponentBitmask(types: readonly EID[]): Bitset {
   const bitmask = new Bitset();
   types.forEach((type) => {
@@ -208,7 +220,7 @@ function _resolveChildOfRelationship(world: World): EID {
   return _resolveRelationship(ChildOf, world);
 }
 
-function _resolveBareComponent(component: ComponentRef, world: World): QueryDSL {
+function _resolveBareComponent(component: ComponentRef, world: World): EID {
   if (typeof component === "number") {
     return component;
   }
@@ -254,21 +266,19 @@ function _sortComponentRequirements(components: readonly ComponentRef[]): Compon
   return deduped;
 }
 
-function _asShortestHasOnlyRequirement(
-  components: readonly ComponentRef[]
-): readonly ComponentRef[] | ComponentRef {
-  return components.length === 1 ? components[0] : components;
-}
-
-function _asCanonicalComponentRequirement(
+// _canonicalizeComponents: resolve components → sort → pick shortest form
+// Called only from simplifyQueryDSL with ComponentRef[], returns SimplifiedQueryDSL
+function _canonicalizeComponents(
   components: readonly ComponentRef[],
   world: World
-): QueryDSL {
-  return _asShortestComponentRequirement(
-    _sortComponentRequirements(
-      components.map((component) => _resolveComponentRequirement(component, world))
-    )
-  );
+): SimplifiedQueryDSL {
+  const resolved = components.map((component) => _resolveComponentRequirement(component, world));
+  const sorted = _sortComponentRequirements(resolved) as EID[];
+  // Shortest form: empty → true, single → that component, multiple → array
+  if (sorted.length === 0) {
+    return true;
+  }
+  return sorted.length === 1 ? sorted[0] : sorted;
 }
 
 function _componentSortKey(q: QueryDSL): EID | undefined {
@@ -351,7 +361,7 @@ function _getDSLFunctionId(func: EntityTestFunc): number {
 // to `target` / `source`, and resolves relationship keys to numbers — so the
 // raw-form branches for those shapes are unreachable here and are intentionally
 // absent. Any unsimplified node falls through to the final throw.
-function _canonicalDSLKey(q: QueryDSL): unknown {
+function _canonicalDSLKey(q: SimplifiedQueryDSL): unknown {
   if (typeof q === "boolean") {
     return ["BOOL", q];
   }
@@ -373,13 +383,11 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
   if ("not" in q) {
     return ["NOT", _canonicalDSLKey(q.not)];
   }
-  if ("target" in q && Array.isArray((q as any).target)) {
-    const t = q as { target: readonly [ComponentRef, QueryDSL] };
-    return ["TARGET", t.target[0], _canonicalDSLKey(t.target[1])];
+  if ("target" in q) {
+    return ["TARGET", q.target[0], _canonicalDSLKey(q.target[1])];
   }
-  if ("source" in q && Array.isArray((q as any).source)) {
-    const s = q as { source: readonly [ComponentRef, QueryDSL] };
-    return ["SOURCE", s.source[0], _canonicalDSLKey(s.source[1])];
+  if ("source" in q) {
+    return ["SOURCE", q.source[0], _canonicalDSLKey(q.source[1])];
   }
   if ("test" in q) {
     if (q.watch === undefined) {
@@ -390,10 +398,10 @@ function _canonicalDSLKey(q: QueryDSL): unknown {
   throw new Error("Unrecognized query term");
 }
 
-function _sortCommutativeTerms(terms: QueryDSL[]): QueryDSL[] {
+function _sortCommutativeTerms(terms: SimplifiedQueryDSL[]): SimplifiedQueryDSL[] {
   const sorted = [...terms].sort((a, b) => _termSortKey(a).localeCompare(_termSortKey(b)));
-  const deduped: QueryDSL[] = [];
-  let previousTerm: QueryDSL | undefined;
+  const deduped: SimplifiedQueryDSL[] = [];
+  let previousTerm: SimplifiedQueryDSL | undefined;
   for (const term of sorted) {
     if (previousTerm !== undefined && term === previousTerm) {
       continue;
@@ -424,13 +432,13 @@ function _fnv1a32(input: string): number {
  * requirements, and coalesces positive component requirements into the DSL's
  * array shorthand. Explicit `{ test }` predicates are preserved as predicates.
  */
-export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
+export function simplifyQueryDSL(q: QueryDSL, world: World): SimplifiedQueryDSL {
   if (typeof q === "boolean") {
     return q;
   }
 
   if (q instanceof Array) {
-    return _asCanonicalComponentRequirement(q, world);
+    return _canonicalizeComponents(q, world);
   }
 
   if (typeof q === "number") {
@@ -450,17 +458,18 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
     return {
       only:
         components instanceof Array
-          ? _asShortestHasOnlyRequirement(
-              _sortComponentRequirements(
+          ? (() => {
+              const sorted = _sortComponentRequirements(
                 components.map((component) => _resolveComponentRequirement(component, world))
-              )
-            )
+              ) as EID[];
+              return sorted.length === 1 ? sorted[0] : sorted;
+            })()
           : _resolveComponentRequirement(components, world),
     };
   }
 
   if ("all" in q) {
-    const simplifiedTerms: QueryDSL[] = [];
+    const simplifiedTerms: SimplifiedQueryDSL[] = [];
     for (const term of q.all.map((term) => simplifyQueryDSL(term, world))) {
       if (term === false) {
         return false;
@@ -476,7 +485,7 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
     }
 
     const componentRequirements: ComponentRef[] = [];
-    const otherTerms: QueryDSL[] = [];
+    const otherTerms: SimplifiedQueryDSL[] = [];
     for (const term of simplifiedTerms) {
       const requirements = _componentRequirements(term);
       if (requirements) {
@@ -486,9 +495,9 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
       }
     }
 
-    const terms =
+    const terms: SimplifiedQueryDSL[] =
       componentRequirements.length > 0
-        ? [_asCanonicalComponentRequirement(componentRequirements, world), ...otherTerms]
+        ? [_canonicalizeComponents(componentRequirements, world), ...otherTerms]
         : otherTerms;
 
     if (terms.length === 0) {
@@ -501,7 +510,7 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
   }
 
   if ("any" in q) {
-    const terms: QueryDSL[] = [];
+    const terms: SimplifiedQueryDSL[] = [];
     for (const term of q.any.map((term) => simplifyQueryDSL(term, world))) {
       if (term === true) {
         return true;
@@ -570,7 +579,7 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): QueryDSL {
 
   if ("test" in q) {
     if (q.watch === undefined) {
-      return q;
+      return { test: q.test };
     }
     const watch = q.watch instanceof Array ? q.watch : [q.watch];
     const resolvedWatch = [
