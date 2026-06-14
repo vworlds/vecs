@@ -5,15 +5,17 @@
 // entities (shape entities) and plain data — never Box2D handles.
 //
 // box2d3-wasm imports are confined to `src/adapter/`; this file is part of
-// that boundary. Every `new b2Xxx()` allocation (and the `b2RayResult`
-// returned by value from `b2World_CastRayClosest`) is freed via
-// `withAllocated` or an explicit `finally { .delete() }`.
+// that boundary. Scratch allocations (b2Vec2, b2QueryFilter, b2AABB) reuse
+// global pools allocated at module load. Transient allocations like b2RayResult
+// are freed via explicit `finally { .delete() }`.
 
 import { type EID, type Entity, type World } from "@vworlds/vecs";
 
 import { type Vec2 } from "../components/geometry.js";
-import { withAllocated } from "./disposal.js";
+import { scr_b2AABB, scr_b2QueryFilter, scr_b2Vec2 } from "./runtime.js";
 import {
+  b2AABB,
+  b2QueryFilter,
   getPhysics,
   type b2RayCallbackResult,
   type b2ShapeId,
@@ -88,159 +90,140 @@ class PhysicsQueriesImpl implements PhysicsQueries {
 
   public rayCastClosest(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit | null {
     const { box2d, worldId } = this.state;
-    return withAllocated(
-      () => new box2d.b2Vec2(query.from.x, query.from.y),
-      (origin) =>
-        withAllocated(
-          () => new box2d.b2Vec2(query.to.x - query.from.x, query.to.y - query.from.y),
-          (translation) =>
-            withAllocated(
-              () => new box2d.b2QueryFilter(),
-              (filter) => {
-                applyQueryFilter(filter, query.filter);
 
-                const result = box2d.b2World_CastRayClosest(worldId, origin, translation, filter);
-                try {
-                  if (!result.hit) {
-                    return null;
-                  }
+    const origin = scr_b2Vec2[0];
+    origin.Set(query.from.x, query.from.y);
 
-                  const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
-                  if (entity === undefined) {
-                    return null;
-                  }
+    const translation = scr_b2Vec2[1];
+    translation.Set(query.to.x - query.from.x, query.to.y - query.from.y);
 
-                  return {
-                    entity,
-                    point: { x: result.point.x, y: result.point.y },
-                    normal: { x: result.normal.x, y: result.normal.y },
-                    fraction: result.fraction,
-                  };
-                } finally {
-                  result.delete();
-                }
-              }
-            )
-        )
+    const result = box2d.b2World_CastRayClosest(
+      worldId,
+      origin,
+      translation,
+      to_b2QueryFilter(query.filter)
     );
+    try {
+      if (!result.hit) {
+        return null;
+      }
+
+      const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+      if (entity === undefined) {
+        return null;
+      }
+
+      return {
+        entity,
+        point: { x: result.point.x, y: result.point.y },
+        normal: { x: result.normal.x, y: result.normal.y },
+        fraction: result.fraction,
+      };
+    } finally {
+      result.delete();
+    }
   }
 
   public rayCastAll(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit[] {
     const { box2d, worldId } = this.state;
-    return withAllocated(
-      () => new box2d.b2Vec2(query.from.x, query.from.y),
-      (origin) =>
-        withAllocated(
-          () => new box2d.b2Vec2(query.to.x - query.from.x, query.to.y - query.from.y),
-          (translation) =>
-            withAllocated(
-              () => new box2d.b2QueryFilter(),
-              (filter) => {
-                applyQueryFilter(filter, query.filter);
 
-                const hits: RayHit[] = [];
-                box2d.b2World_CastRay(
-                  worldId,
-                  origin,
-                  translation,
-                  filter,
-                  (result: b2RayCallbackResult) => {
-                    const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
-                    if (entity !== undefined) {
-                      hits.push({
-                        entity,
-                        point: { x: result.point.x, y: result.point.y },
-                        normal: { x: result.normal.x, y: result.normal.y },
-                        fraction: result.fraction,
-                      });
-                    }
-                    return 1;
-                  }
-                );
+    const origin = scr_b2Vec2[0];
+    origin.Set(query.from.x, query.from.y);
 
-                return hits;
-              }
-            )
-        )
+    const translation = scr_b2Vec2[1];
+    translation.Set(query.to.x - query.from.x, query.to.y - query.from.y);
+
+    const hits: RayHit[] = [];
+    box2d.b2World_CastRay(
+      worldId,
+      origin,
+      translation,
+      to_b2QueryFilter(query.filter),
+      (result: b2RayCallbackResult) => {
+        const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+        if (entity !== undefined) {
+          hits.push({
+            entity,
+            point: { x: result.point.x, y: result.point.y },
+            normal: { x: result.normal.x, y: result.normal.y },
+            fraction: result.fraction,
+          });
+        }
+        return 1;
+      }
     );
+
+    return hits;
   }
 
   public overlapAABB(query: { min: Vec2; max: Vec2; filter?: QueryFilter }): Entity[] {
     const { box2d, worldId } = this.state;
-    return withAllocated(
-      () => new box2d.b2AABB(),
-      (aabb) =>
-        withAllocated(
-          () => new box2d.b2QueryFilter(),
-          (filter) => {
-            aabb.lowerBound.Set(query.min.x, query.min.y);
-            aabb.upperBound.Set(query.max.x, query.max.y);
-            applyQueryFilter(filter, query.filter);
 
-            const entities: Entity[] = [];
-            const seen = new Set<EID>();
-            box2d.b2World_OverlapAABB(worldId, aabb, filter, (result: { shapeId: b2ShapeId }) => {
-              const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
-              if (entity !== undefined && !seen.has(entity.eid)) {
-                seen.add(entity.eid);
-                entities.push(entity);
-              }
-              return true;
-            });
+    const aabb = scr_b2AABB!;
+    aabb.lowerBound.Set(query.min.x, query.min.y);
+    aabb.upperBound.Set(query.max.x, query.max.y);
 
-            return entities;
-          }
-        )
+    const entities: Entity[] = [];
+    const seen = new Set<EID>();
+    box2d.b2World_OverlapAABB(
+      worldId,
+      aabb,
+      to_b2QueryFilter(query.filter),
+      (result: { shapeId: b2ShapeId }) => {
+        const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+        if (entity !== undefined && !seen.has(entity.eid)) {
+          seen.add(entity.eid);
+          entities.push(entity);
+        }
+        return true;
+      }
     );
+
+    return entities;
   }
 
   public overlapCircle(query: { center: Vec2; radius: number; filter?: QueryFilter }): Entity[] {
     const { box2d, worldId } = this.state;
-    return withAllocated(
-      () => new box2d.b2Vec2(query.center.x, query.center.y),
-      (centerVec) =>
-        withAllocated(
-          () => box2d.b2MakeProxy(centerVec, 1, query.radius),
-          (proxy) =>
-            withAllocated(
-              () => new box2d.b2QueryFilter(),
-              (filter) => {
-                applyQueryFilter(filter, query.filter);
 
-                const entities: Entity[] = [];
-                const seen = new Set<EID>();
-                box2d.b2World_OverlapShape(
-                  worldId,
-                  proxy,
-                  filter,
-                  (result: { shapeId: b2ShapeId }) => {
-                    const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
-                    if (entity !== undefined && !seen.has(entity.eid)) {
-                      seen.add(entity.eid);
-                      entities.push(entity);
-                    }
-                    return true;
-                  }
-                );
+    const centerVec = scr_b2Vec2[0];
+    centerVec.Set(query.center.x, query.center.y);
 
-                return entities;
-              }
-            )
-        )
-    );
+    const proxy = box2d.b2MakeProxy(centerVec, 1, query.radius);
+    try {
+      const entities: Entity[] = [];
+      const seen = new Set<EID>();
+      box2d.b2World_OverlapShape(
+        worldId,
+        proxy,
+        to_b2QueryFilter(query.filter),
+        (result: { shapeId: b2ShapeId }) => {
+          const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
+          if (entity !== undefined && !seen.has(entity.eid)) {
+            seen.add(entity.eid);
+            entities.push(entity);
+          }
+          return true;
+        }
+      );
+
+      return entities;
+    } finally {
+      proxy.delete();
+    }
   }
 }
 
 /** Maps a {@link QueryFilter} (default `0xffffffff`/`0xffffffff` — "sees and
- * is seen by everything") onto a `b2QueryFilter`. `b2QueryFilter` is not
+ * is seen by everything") and returns a scratch `b2QueryFilter`. `b2QueryFilter` is not
  * `b2DefaultQueryFilter` here: the default-constructed filter is all zeros,
- * which would match nothing. */
-function applyQueryFilter(
-  target: { categoryBits: number; maskBits: number },
-  filter: QueryFilter | undefined
-): void {
+ * which would match nothing.
+ * to_b2QueryFilter cannot be called again until the returned b2QueryFilter is no longer in use
+ * */
+function to_b2QueryFilter(filter: QueryFilter | undefined): b2QueryFilter {
+  const target = scr_b2QueryFilter[0];
   target.categoryBits = filter?.categoryBits ?? 0xffffffff;
   target.maskBits = filter?.maskBits ?? 0xffffffff;
+  return target;
 }
 
 /** Resolves a Box2D shape hit back to its Vecs shape entity, mirroring the

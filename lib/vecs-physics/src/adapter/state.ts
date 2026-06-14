@@ -10,6 +10,8 @@ export type b2BodyId = ReturnType<Box2DModule["b2CreateBody"]>;
 export type b2ShapeId = ReturnType<Box2DModule["b2CreateCircleShape"]>;
 export type b2ChainId = ReturnType<Box2DModule["b2CreateChain"]>;
 export type b2Vec2 = ReturnType<Box2DModule["b2Body_GetPosition"]>;
+export type b2QueryFilter = Parameters<Box2DModule["b2World_OverlapAABB"]>[2];
+export type b2AABB = Parameters<Box2DModule["b2World_OverlapAABB"]>[1];
 /** The transient result object passed to a `b2World_CastRay` collector callback
  * (the binding types the callback parameter as `any`). */
 export type b2RayCallbackResult = InstanceType<Box2DModule["b2RayCallbackResult"]>;
