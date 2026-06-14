@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- `PhysicsQueries.rayCastClosest` now returns `undefined` (instead of `null`) when the ray hits nothing, for consistency with the rest of the API.
+
 ## [2.0.0] - 2026-06-13
 
 ### Added

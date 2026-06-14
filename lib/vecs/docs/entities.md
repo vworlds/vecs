@@ -138,7 +138,7 @@ directly. This is how tag-like, runtime-created component types work without dec
 
 ## Relationships, in brief
 
-`e.parent(Rel)` returns the target of a relationship component, `e.children(Rel)` the set of
+`e.target(Rel)` returns the target of a relationship component, `e.children(Rel)` the set of
 entities targeting `e` through it, and `e.childOf(parent)` is shorthand for
 `e.set(ChildOf, { target: parent })`. The full model — retargeting, cleanup cascades, traversal —
 is in [Relationships](./relationships.md).
@@ -168,8 +168,10 @@ is in [Relationships](./relationships.md).
 | `modified(ref)`                                | Queue an `onSet`/`update` notification; coalesced while pending. Returns `this`.                    |
 | `remove(ref)`                                  | Detach a component; routes `exit`, then fires `onRemove`.                                           |
 | `destroy()`                                    | Remove all components, unregister, and apply incoming relationship cleanup.                         |
-| `parent(rel)`                                  | Target entity of relationship `rel`, or `undefined`.                                                |
+| `target(rel)`                                  | Target entity of relationship `rel`, or `undefined`.                                                |
 | `children(rel)`                                | `ReadonlySet<Entity>` of entities targeting this one through `rel`.                                 |
 | `childOf(parent)`                              | Shorthand for `set(ChildOf, { target: parent })`. Returns `this`.                                   |
+| `parent` / `parent = p`                        | Getter/setter for the built-in `ChildOf` target; assigning `undefined` removes `ChildOf`.           |
+| `destroyed` / `alive`                          | `true` when the entity has been / has not been destroyed (marked for deletion).                     |
 | `onAdd/onSet/onRemove(handler)`                | Register hooks for this entity used as a component key. Return `this`.                              |
 | `toString()`                                   | Returns `"EntityN"`.                                                                                |

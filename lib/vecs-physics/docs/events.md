@@ -154,7 +154,7 @@ world
   .with({ all: [Checkpoint, SensorEvents] })
   .update(SensorEvents, (checkpointShape, events) => {
     for (const event of events.begin) {
-      const otherBody = event.other.parent(ChildOf);
+      const otherBody = event.other.parent;
       if (otherBody?.get(Player)) {
         console.log("player entered checkpoint", checkpointShape.eid);
       }
@@ -203,7 +203,7 @@ world
   .system("ImpactDamage")
   .with({ all: [{ parent: Health }, HitEvents] })
   .update(HitEvents, (shape, events) => {
-    const body = shape.parent(ChildOf);
+    const body = shape.parent;
     const health = body?.getMut(Health);
     if (!health) return;
 
@@ -278,7 +278,7 @@ export type ContactEvent = {
 };
 ```
 
-Get the body from `event.other.parent(ChildOf)` because shape entities are immediate children of body entities.
+Get the body from `event.other.parent` because shape entities are immediate children of body entities.
 
 ## Common Mistakes
 

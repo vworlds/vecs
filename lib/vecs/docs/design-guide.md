@@ -166,7 +166,7 @@ A relationship is a component whose value points at another entity:
 ```ts
 class InCell extends Relationship {}
 entity.set(InCell, { target: cell }); // retarget freely
-entity.parent(InCell); // the target entity
+entity.target(InCell); // the target entity
 world.query("ByCell").with(Networked, Position).groupBy(InCell); // index by target
 ```
 

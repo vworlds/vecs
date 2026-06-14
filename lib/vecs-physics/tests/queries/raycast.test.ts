@@ -5,7 +5,7 @@
 //   - rayCastAll returns every crossed shape, fractions ascending / in [0,1].
 //   - Filter gating: rayCastAll honors maskBits; rayCastClosest skips a closer
 //     non-matching shape in favor of a farther matching one.
-//   - A ray that crosses nothing → rayCastClosest returns null, rayCastAll
+//   - A ray that crosses nothing → rayCastClosest returns undefined, rayCastAll
 //     returns [].
 //   - A destroyed shape entity's hit is dropped (resolveShapeEntity returns
 //     undefined once entityByShapeIndex is cleared on `.exit`).
@@ -162,8 +162,8 @@ describe("filter gating", () => {
   });
 });
 
-describe("miss returns null / []", () => {
-  it("rayCastClosest returns null and rayCastAll returns [] when nothing is crossed", () => {
+describe("miss returns undefined / []", () => {
+  it("rayCastClosest returns undefined and rayCastAll returns [] when nothing is crossed", () => {
     const world = makeWorld();
 
     const ground = world

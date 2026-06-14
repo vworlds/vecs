@@ -68,7 +68,7 @@ export interface RayHit {
 }
 
 export interface PhysicsQueries {
-  rayCastClosest(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit | null;
+  rayCastClosest(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit | undefined;
   rayCastAll(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit[];
   overlapAABB(query: { min: Vec2; max: Vec2; filter?: QueryFilter }): Entity[];
   overlapCircle(query: { center: Vec2; radius: number; filter?: QueryFilter }): Entity[];
@@ -77,7 +77,7 @@ export interface PhysicsQueries {
 
 - Object-argument form matches the direction already published in `docs/roadmap.md`.
 - Overlaps return `Entity[]` (the matched shape entities). Ray casts return `RayHit` records.
-- All results are **shape** entities. Callers get the body via `entity.parent(ChildOf)`.
+- All results are **shape** entities. Callers get the body via `entity.parent` (the shape's `ChildOf` parent).
 - `from`/`to` are world points; the Box2D call takes `origin = from`, `translation = to − from`.
 
 ### 2.2 Shared mechanics (built in M8-3, used by M8-4/M8-5)
@@ -212,7 +212,7 @@ Each ticket: goal, design pointer, files, box2d calls, tests (write first), gate
 - **Design.** § 2.1, § 2.2.
 - **Files.** `src/adapter/queries.ts`.
 - **box2d.** `b2World_CastRayClosest`; `b2World_CastRay` with a JS collector callback returning `1`.
-- **Tests (first).** `tests/queries/raycast.test.ts`: closest hit returns nearest shape entity with correct `point`/`normal`/`fraction`; `rayCastAll` returns all crossed shapes; filter excludes non-matching categories; a ray missing everything → `null` / `[]`; destroyed-entity hit dropped; sleeping body is not woken by a cast. Cross-check numbers against a `box2d/test` raycast port where one exists.
+- **Tests (first).** `tests/queries/raycast.test.ts`: closest hit returns nearest shape entity with correct `point`/`normal`/`fraction`; `rayCastAll` returns all crossed shapes; filter excludes non-matching categories; a ray missing everything → `undefined` / `[]`; destroyed-entity hit dropped; sleeping body is not woken by a cast. Cross-check numbers against a `box2d/test` raycast port where one exists.
 - **Gate.** Full suite green.
 
 ### M8-5 — Spatial queries (UP-4) — needs M8-3

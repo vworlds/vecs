@@ -266,7 +266,7 @@ The target body resolution is intentionally shallow:
 ```ts
 function resolveTarget(entity: Entity): Entity | undefined {
   if (entity.get(Body)) return entity;
-  if (entity.parent(ChildOf)?.get(Body)) return entity.parent(ChildOf);
+  if (entity.parent?.get(Body)) return entity.parent;
   return undefined;
 }
 ```
@@ -297,7 +297,7 @@ For a contact between shape A and shape B:
 - If shape B has `ContactEvents`, append `{ other: shapeAEntity }` to shape B's event array.
 - Mark only the event components that received new events as modified.
 
-Same idea for hit and sensor events. The public payload identity is the other shape entity; callers can recover the other body with `event.other.parent(ChildOf)`.
+Same idea for hit and sensor events. The public payload identity is the other shape entity; callers can recover the other body with `event.other.parent`.
 
 ## Debug Validation
 

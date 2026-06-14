@@ -310,8 +310,8 @@ const damage = world
   .phase("physics-post")
   .update(ContactEvents, (shapeEntity, events) => {
     for (const event of events.begin) {
-      const body = shapeEntity.parent(ChildOf);
-      const otherBody = event.other.parent(ChildOf);
+      const body = shapeEntity.parent;
+      const otherBody = event.other.parent;
 
       if (body?.get(Player) && otherBody?.get(Enemy)) {
         body.set(Health, { hp: body.get(Health)!.hp - 1 });

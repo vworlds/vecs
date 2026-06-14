@@ -545,7 +545,7 @@ export class HitEvents {
 
 Event arrays are cleared every physics step. If new events arrive, physics pushes events and calls `entity.modified(EventComponent)`. If a previous step had events and the next step has none, physics clears the arrays silently and does not call `modified`.
 
-Event payloads include the other shape entity. Get the body with `event.other.parent(ChildOf)` when needed.
+Event payloads include the other shape entity. Get the body with `event.other.parent` when needed.
 
 See [Events](./events.md).
 

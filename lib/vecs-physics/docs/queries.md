@@ -17,7 +17,7 @@ const q = physics(world);
 - `physics(world)` throws if `world.module(PhysicsModule)` has not been called yet. Call it only after installing `PhysicsModule`.
 - The returned `PhysicsQueries` facade is stable: repeated calls for the same `world` return the same instance, so calling `physics(world)` every frame does not allocate.
 - All four methods are synchronous, read-only, and never wake bodies, never create or destroy entities, and never mutate the world. You can call them freely from any system without affecting the simulation.
-- Results are always Vecs **shape entities** (or plain data describing a hit on one), never Box2D handles. To get the owning body, use `entity.parent(ChildOf)`.
+- Results are always Vecs **shape entities** (or plain data describing a hit on one), never Box2D handles. To get the owning body, use `entity.parent` (the shape's `ChildOf` parent).
 
 ## Ray Casts
 
@@ -34,7 +34,7 @@ export interface RayHit {
 
 ### `rayCastClosest`
 
-Returns the closest hit along the ray, or `null` if the ray hits nothing.
+Returns the closest hit along the ray, or `undefined` if the ray hits nothing.
 
 ```ts
 const hit = physics(world).rayCastClosest({
@@ -135,14 +135,14 @@ const hit = physics(world).rayCastClosest({
 
 ## Results Are Shape Entities
 
-Every result — `RayHit.entity`, and each entry of the `Entity[]` returned by `overlapAABB`/`overlapCircle` — is the **shape** entity, the same entity you created as a child of a body with `ChildOf`. Use `entity.parent(ChildOf)` to reach the body entity.
+Every result — `RayHit.entity`, and each entry of the `Entity[]` returned by `overlapAABB`/`overlapCircle` — is the **shape** entity, the same entity you created as a child of a body with `ChildOf`. Use `entity.parent` to reach the body entity.
 
 ```ts
 const hit = physics(world).rayCastClosest({ from: { x: -10, y: 0 }, to: { x: 10, y: 0 } });
 
 if (hit) {
   const shape = hit.entity;
-  const body = shape.parent(ChildOf);
+  const body = shape.parent;
   console.log("hit body", body?.eid, "via shape", shape.eid);
 }
 ```
@@ -161,7 +161,7 @@ const hit = physics(world).rayCastClosest({
   to: { x: targetPos.x, y: targetPos.y },
 });
 
-const canSeeTarget = hit !== null && hit.entity.eid === targetShape.eid;
+const canSeeTarget = hit !== undefined && hit.entity.eid === targetShape.eid;
 ```
 
 If a wall sits between the guard and the target, `rayCastClosest` returns the wall's shape first and `canSeeTarget` is `false`.

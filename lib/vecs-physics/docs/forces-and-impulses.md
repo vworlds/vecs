@@ -142,8 +142,8 @@ function resolveTarget(entity: Entity): Entity | undefined {
     return entity;
   }
 
-  if (entity.parent(ChildOf)?.get(Body)) {
-    return entity.parent(ChildOf);
+  if (entity.parent?.get(Body)) {
+    return entity.parent;
   }
 
   return undefined;
@@ -420,7 +420,7 @@ source.set(ChildOf, { target: body });
 source.set(Force, { x: 1, y: 0 });
 ```
 
-This does not work if `source.parent(ChildOf)` is not the entity with `Body`.
+This does not work if `source.parent` is not the entity with `Body`.
 
 ### Static Bodies Do Not Respond Like Dynamic Bodies
 

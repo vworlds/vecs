@@ -177,7 +177,7 @@ component is absent:
 
 ```ts
 .forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (e, [body, pos, vel]) => {
-  // body is from e; pos and vel are from e.parent(FriendOf).
+  // body is from e; pos and vel are from e.target(FriendOf).
 });
 ```
 
