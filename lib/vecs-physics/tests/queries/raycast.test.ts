@@ -49,7 +49,7 @@ describe("rayCastClosest geometry parity", () => {
 
     const hit = physics(world).rayCastClosest({ from: { x: -10, y: 0 }, to: { x: 10, y: 0 } });
 
-    expect(hit).not.toBeNull();
+    expect(hit).toBeDefined();
     expect(hit!.entity.eid).toBe(shape.eid);
     expect(hit!.point.x).toBeCloseTo(-1);
     expect(hit!.point.y).toBeCloseTo(0);
@@ -157,7 +157,7 @@ describe("filter gating", () => {
       filter: { maskBits: 0b01 },
     });
 
-    expect(hit).not.toBeNull();
+    expect(hit).toBeDefined();
     expect(hit!.entity.eid).toBe(shapeFar.eid);
   });
 });
@@ -177,7 +177,7 @@ describe("miss returns null / []", () => {
     // Horizontal ray at y=0 misses the box at y=10.
     expect(
       physics(world).rayCastClosest({ from: { x: -10, y: 0 }, to: { x: 10, y: 0 } })
-    ).toBeNull();
+    ).toBeUndefined();
     expect(physics(world).rayCastAll({ from: { x: -10, y: 0 }, to: { x: 10, y: 0 } })).toEqual([]);
   });
 });
@@ -197,14 +197,14 @@ describe("destroyed-entity hit dropped", () => {
     // Sanity: the shape is hit before destruction.
     expect(
       physics(world).rayCastClosest({ from: { x: -10, y: 0 }, to: { x: 10, y: 0 } })
-    ).not.toBeNull();
+    ).toBeDefined();
 
     shape.destroy();
     step(world);
 
     expect(
       physics(world).rayCastClosest({ from: { x: -10, y: 0 }, to: { x: 10, y: 0 } })
-    ).toBeNull();
+    ).toBeUndefined();
     expect(physics(world).rayCastAll({ from: { x: -10, y: 0 }, to: { x: 10, y: 0 } })).toEqual([]);
   });
 });

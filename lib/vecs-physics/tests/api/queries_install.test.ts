@@ -6,7 +6,7 @@
 //   - After install, `physics(world)` returns a stable facade (same instance on
 //     repeated calls).
 //   - Filter defaults map correctly: an empty world's `rayCastClosest` returns
-//     `null` (default 0xffffffff/0xffffffff, full alloc/dispose path).
+//     `undefined` (default 0xffffffff/0xffffffff, full alloc/dispose path).
 //   - No allocation leak / no crash across many calls, interleaved with steps.
 //   - A world with a static box: `rayCastClosest` through it resolves to the
 //     shape entity with `0 <= fraction <= 1`.
@@ -43,12 +43,12 @@ describe("physics(world) accessor", () => {
 });
 
 describe("rayCastClosest on an empty world", () => {
-  it("returns null with default filter (0xffffffff/0xffffffff)", () => {
+  it("returns undefined with default filter (0xffffffff/0xffffffff)", () => {
     const world = new World();
     world.module(PhysicsModule);
 
     const hit = physics(world).rayCastClosest({ from: { x: -5, y: 0 }, to: { x: 5, y: 0 } });
-    expect(hit).toBeNull();
+    expect(hit).toBeUndefined();
   });
 
   it("does not leak allocations or crash across many calls interleaved with steps", () => {
@@ -62,7 +62,7 @@ describe("rayCastClosest on an empty world", () => {
       ).not.toThrow();
       expect(
         physics(world).rayCastClosest({ from: { x: -5, y: 0 }, to: { x: 5, y: 0 } })
-      ).toBeNull();
+      ).toBeUndefined();
 
       if (i % 50 === 0) {
         now += STEP_MS;
@@ -91,7 +91,7 @@ describe("rayCastClosest against a static box", () => {
     // its right.
     const hit = physics(world).rayCastClosest({ from: { x: -10, y: 0 }, to: { x: 10, y: 0 } });
 
-    expect(hit).not.toBeNull();
+    expect(hit).toBeDefined();
     expect(hit!.entity.eid).toBe(shape.eid);
     expect(hit!.fraction).toBeGreaterThanOrEqual(0);
     expect(hit!.fraction).toBeLessThanOrEqual(1);

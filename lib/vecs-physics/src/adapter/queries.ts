@@ -51,10 +51,10 @@ export interface RayHit {
  * world, never creates or destroys entities, and never wakes bodies.
  */
 export interface PhysicsQueries {
-  /** Casts a ray from `from` to `to` and returns the closest hit, or `null`
+  /** Casts a ray from `from` to `to` and returns the closest hit, or `undefined`
    * if the ray hits nothing (or only hits shapes whose entity has since been
    * destroyed / removed). */
-  rayCastClosest(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit | null;
+  rayCastClosest(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit | undefined;
 
   /** Casts a ray from `from` to `to` and returns every hit along the way. */
   rayCastAll(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit[];
@@ -88,7 +88,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     private readonly state: PhysicsState
   ) {}
 
-  public rayCastClosest(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit | null {
+  public rayCastClosest(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit | undefined {
     const { box2d, worldId } = this.state;
 
     const origin = scr_b2Vec2[0];
@@ -105,12 +105,12 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     );
     try {
       if (!result.hit) {
-        return null;
+        return undefined;
       }
 
       const entity = resolveShapeEntity(this.state, this.world, result.shapeId);
       if (entity === undefined) {
-        return null;
+        return undefined;
       }
 
       return {
