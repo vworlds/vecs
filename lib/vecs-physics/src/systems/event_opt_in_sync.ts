@@ -34,7 +34,14 @@ export function installEventOptInSync(world: World, engine: PhysicsEngine, phase
     })
     .exit([SingleShape], (_e, [shape]) => {
       const shapeId = shape._shapeId;
-      if (shapeId !== undefined) {
+      // Stale shape-id guard. When a shape entity is destroyed, Box2D can recycle
+      // its shape-id slot to a shape created in the SAME frame. This exit's
+      // captured id keeps the old generation, but b2Shape_EnableSensorEvents does
+      // NOT validate the generation (unlike b2Shape_IsValid) -- it indexes by
+      // index1 and would clobber the live shape now occupying that slot, silently
+      // disabling sensor events on an unrelated, freshly-created shape. Match the
+      // validity guard already used in material_filter_sync.
+      if (shapeId !== undefined && engine.box2d.b2Shape_IsValid(shapeId)) {
         engine.box2d.b2Shape_EnableSensorEvents(shapeId, false);
       }
     });
@@ -64,7 +71,11 @@ function setEventFlag(
   const shape = entity.get(SingleShape);
   if (shape !== undefined) {
     const shapeId = shape._shapeId;
-    if (shapeId !== undefined) {
+    // Same stale shape-id guard as the sensor exit: never write a contact/hit
+    // flag through a destroyed/recycled shape id. Box2D contact/hit setters do
+    // not validate the id generation, so a stale id would clobber whichever live
+    // shape recycled that slot.
+    if (shapeId !== undefined && engine.box2d.b2Shape_IsValid(shapeId)) {
       applyEventFlag(engine, shapeId, flag, enabled);
     }
   }
