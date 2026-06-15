@@ -3,6 +3,12 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.28 (2026-06-15)
+
+- [repo]: Centralized package changelogs and physics roadmap notes under `architecture/`, and added repository metadata to published package manifests.
+- [vecs-physics]: Fixed stale recycled Box2D shape ids from mutating sensor/contact event opt-in flags on newly-created shapes, with regression coverage for recycled shape id reuse.
+- [vecs-physics]: Documented planned ghost-vertex traversal, per-segment chain materials, and in-place chain material update work.
+
 ## v1.0.27 (2026-06-14)
 
 - [vecs-physics]: Added `Detectable` so solid shapes can opt into sensor detection, matching Box2D v3's two-sided sensor-event opt-in requirement.
