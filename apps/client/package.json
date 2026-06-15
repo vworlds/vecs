@@ -17,7 +17,7 @@
     "phaser": "^4.1.0"
   },
   "devDependencies": {
-    "vite": "^5.4.21"
+    "vite": "^8.0.16"
   },
   "license": "UNLICENSED"
 }
