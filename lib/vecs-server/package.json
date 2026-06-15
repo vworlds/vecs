@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-server",
-  "version": "1.0.27",
+  "version": "1.0.28",
   "private": false,
   "type": "module",
   "main": "src/index.ts",
@@ -12,9 +12,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@vworlds/vecs": "1.0.27",
-    "@vworlds/vecs-protocol": "1.0.27",
-    "@vworlds/vecs-wire": "1.0.27",
+    "@vworlds/vecs": "1.0.28",
+    "@vworlds/vecs-protocol": "1.0.28",
+    "@vworlds/vecs-wire": "1.0.28",
     "@vworlds/dgram-server": "^1.0.8"
   },
   "license": "UNLICENSED",
