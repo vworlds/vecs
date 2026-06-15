@@ -24,29 +24,38 @@ export function makeEnterCallback(
   arg0: InjectTuple | ((e: Entity) => void) | typeof Entity | typeof Iter,
   arg1?: InjectTuple | Function,
   arg2?: Function
-): EntityCallback {
+): { callback: EntityCallback; snapshotTypes: EID[] | undefined } {
   if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
-    return arg0 as (e: Entity) => void;
+    // Wrap so the drain's extra snapshot argument never leaks to a plain
+    // (non-injecting) enter callback — it observes only the entity.
+    const fn = arg0 as (e: Entity) => void;
+    return { callback: (e: Entity) => fn(e), snapshotTypes: undefined };
   }
   const useIter = wantsIter(arg0);
   const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
   const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (eOrIt: unknown, injected: unknown) => void;
   const inject = mapInject(world, components);
+  // Mirror exit: capture the injected components so a System's inbox-queued enter
+  // still resolves them even if the entity is destroyed before the inbox drains.
+  // Snapshots store component references, so live entities see current values.
+  const snapshotTypes = directInjectEids(inject);
   const arity = injectArity(inject);
   if (useIter) {
-    return (e: Entity) => {
+    const callback = (e: Entity, enterSnapshot?: ArrayMap<ComponentInstance>) => {
       const injected = new Array(arity);
       const it = new Iter(arity);
       it.entity = e;
-      getInjectedWithSrc(e, inject, injected, it.src, true);
+      getInjectedWithSrc(e, inject, injected, it.src, true, enterSnapshot);
       cb(it, injected as any);
     };
+    return { callback, snapshotTypes };
   }
-  return (e: Entity) => {
+  const callback = (e: Entity, enterSnapshot?: ArrayMap<ComponentInstance>) => {
     const injected = new Array(arity);
-    getInjected(e, inject, true, injected);
+    getInjected(e, inject, true, injected, enterSnapshot);
     cb(e, injected as any);
   };
+  return { callback, snapshotTypes };
 }
 
 export function makeExitCallback(

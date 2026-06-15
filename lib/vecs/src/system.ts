@@ -48,7 +48,11 @@ const enum InboxCommand {
  * @internal
  */
 type _SystemInboxEvent =
-  | { kind: InboxCommand.Enter; entity: Entity }
+  | {
+      kind: InboxCommand.Enter;
+      entity: Entity;
+      snapshot: ArrayMap<ComponentInstance> | undefined;
+    }
   | {
       kind: InboxCommand.Exit;
       entity: Entity;
@@ -152,7 +156,20 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       return;
     }
     if (this._enterCallback !== undefined) {
-      this._inbox.push({ kind: InboxCommand.Enter, entity: e });
+      // Snapshot the injected components now (entity is present), mirroring exit,
+      // so the queued enter still resolves them if the entity is destroyed before
+      // the inbox drains — otherwise the injected read would crash on `undefined`.
+      let enterSnapshot: ArrayMap<ComponentInstance> | undefined;
+      if (this._enterSnapshotTypes && this._enterSnapshotTypes.length > 0) {
+        enterSnapshot = new ArrayMap<ComponentInstance>();
+        for (const ceid of this._enterSnapshotTypes) {
+          const c = e._get(ceid);
+          if (c) {
+            enterSnapshot.set(ceid, c);
+          }
+        }
+      }
+      this._inbox.push({ kind: InboxCommand.Enter, entity: e, snapshot: enterSnapshot });
     }
     e.components.forEach((c, ceid) => {
       if (!this._watchlistBitmask.has(ceid)) {
@@ -261,7 +278,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
         const event = this._inbox[i];
         switch (event.kind) {
           case InboxCommand.Enter:
-            this._enterCallback!(event.entity);
+            this._enterCallback!(event.entity, event.snapshot);
             break;
           case InboxCommand.Exit:
             this._exitCallback!(event.entity, event.snapshot);
