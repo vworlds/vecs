@@ -1062,3 +1062,58 @@ describe("System — stale inbox update after same-frame exit", () => {
     expect(seen).not.toContain(undefined);
   });
 });
+
+describe("System — inbox enter survives same-frame exit", () => {
+  // Companion to the exit-snapshot behaviour above. An injected Enter queued on
+  // the inbox must still resolve its components if the entity is destroyed (or
+  // loses a `.with` component) before the inbox drains — otherwise the lazy
+  // `.with` read comes back `undefined` and crashes the callback. Enter snapshots
+  // its injected components at routing time, exactly like exit, so enter/exit
+  // replay in arrival order and stay balanced.
+
+  it("resolves the snapshotted component when the entity is destroyed before the drain", () => {
+    const { w } = setup();
+    const cb = vi.fn();
+    w.system("test").with(Position).enter([Position], cb);
+    w.progress(0, 0); // build the system (no entities yet)
+
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!; // built system → enter queued on the inbox
+    e.destroy(); // queues the exit; entity is gone before the inbox drains
+    expect(() => w.progress(0, 0)).not.toThrow(); // no "query does not contain component"
+    expect(cb).toHaveBeenCalledWith(e, [pos]); // enter still resolves via the snapshot
+  });
+
+  it("resolves the snapshotted component when the entity loses a .with component before the drain", () => {
+    const { w } = setup();
+    const cb = vi.fn();
+    w.system("test").with(Position).enter([Position], cb);
+    w.progress(0, 0); // build the system
+
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!; // enter queued on the inbox
+    e.remove(Position); // exits the query before the drain (entity stays alive)
+    expect(() => w.progress(0, 0)).not.toThrow();
+    expect(cb).toHaveBeenCalledWith(e, [pos]);
+  });
+
+  it("keeps enter/exit balanced for an entity that enters and is destroyed before the drain", () => {
+    const { w } = setup();
+    let balance = 0;
+    w.system("test")
+      .with(Position)
+      .enter([Position], () => {
+        balance += 1;
+      })
+      .exit([Position], () => {
+        balance -= 1;
+      });
+    w.progress(0, 0); // build the system
+
+    w.entity().add(Position); // survives → enter only (+1)
+    w.entity().add(Position).destroy(); // transient → enter (+1) then exit (-1)
+    w.progress(0, 0);
+
+    expect(balance).toBe(1);
+  });
+});

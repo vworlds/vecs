@@ -73,6 +73,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public _exitCallback: EntityCallback | undefined = undefined;
   /** @internal Component eids the exit callback needs snapshotted before component removal. */
   public _exitSnapshotTypes: EID[] | undefined = undefined;
+  /** @internal Component eids the enter callback needs snapshotted, so a System's inbox-queued
+   * enter still resolves them if the entity is destroyed before the inbox drains. */
+  public _enterSnapshotTypes: EID[] | undefined = undefined;
   /** Materialized root term that owns membership for this query. */
   public rootTerm: Term | undefined;
   /** @internal Silence-domain query cache. */
@@ -358,7 +361,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg2?: Function
   ): this {
     this._assertConfigurable();
-    this._enterCallback = makeEnterCallback(this.world, arg0, arg1, arg2);
+    const enter = makeEnterCallback(this.world, arg0, arg1, arg2);
+    this._enterCallback = enter.callback;
+    this._enterSnapshotTypes = enter.snapshotTypes;
     return this;
   }
 
