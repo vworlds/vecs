@@ -3,6 +3,11 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.29 (2026-06-15)
+
+- [vecs]: Skipped stale system inbox update events after same-frame query exits, preventing destroyed entities or removed `.with` components from dispatching update callbacks with missing injected components.
+- [repo]: Bumped vulnerable npm dependencies, including Vitest, Vite, Express, and tsx.
+
 ## v1.0.28 (2026-06-15)
 
 - [repo]: Centralized package changelogs and physics roadmap notes under `architecture/`, and added repository metadata to published package manifests.
