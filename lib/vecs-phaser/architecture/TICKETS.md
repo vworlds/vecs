@@ -34,7 +34,9 @@ tickets; W3 in parallel with W2; VPH-20 may start right after W0.
 Create package skeletons for `@vworlds/vecs-phaser`, `@vworlds/vecs-phaser-client`,
 `@vworlds/vecs-phaser-server`, each with `package.json`, `tsconfig.json`,
 `tsconfig.build.json`, `vitest.config.ts`, `src/index.ts` (empty export), `tests/.gitkeep`,
-`README.md`, `CHANGELOG.md`, `LICENSE`. Copy shape/scripts from an existing `lib/vecs-*`.
+`README.md` and `LICENSE`. Release notes live in the central
+[`CHANGELOG.md`](../../../architecture/CHANGELOG.md); copy package shape/scripts from an
+existing `lib/vecs-*`.
 
 - Deps: `vecs-phaser` → `@vworlds/vecs`, `@vworlds/vecs-wire`. `vecs-phaser-client` →
   `@vworlds/vecs-phaser`, `@vworlds/vecs-client`; **`phaser@^4.1.0` as `peerDependency` +

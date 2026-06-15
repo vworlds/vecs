@@ -11,5 +11,10 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
     "test": "vitest run"
   },
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vworlds/vecs",
+    "directory": "lib/vecs-wire"
+  }
 }

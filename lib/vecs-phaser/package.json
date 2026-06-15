@@ -30,5 +30,10 @@
   "publishConfig": {
     "access": "public"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vworlds/vecs",
+    "directory": "lib/vecs-phaser"
+  }
 }

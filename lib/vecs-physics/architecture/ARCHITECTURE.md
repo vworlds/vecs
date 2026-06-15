@@ -4,10 +4,8 @@ Status: **active, shipped.** Public API frozen at v1 (published `@vworlds/vecs-p
 
 This document is the stable contract: what vecs-physics looks like from the outside (public exports, components, defaults, systems, phases, lifecycle semantics) and how the adapter is wired internally. It is what tests assert against and what eng architects read before touching the package.
 
-For where the package is going next, see:
-
-- [`ROADMAP.md`](./ROADMAP.md) — the v2 milestone and what is deferred beyond it.
-- [`PLAN-v2.md`](./PLAN-v2.md) — the detailed v2 execution plan.
+For where the suite is going next, see the central
+[`ROADMAP.md`](../../../architecture/ROADMAP.md).
 
 > **History note.** This file was previously `PLAN.md` and carried a second half describing Milestone 7, the migration from an in-house TypeScript Box2D port to box2d3-wasm. That migration is **complete** (the `src/engine/` TS port is deleted; the package is a thin adapter over box2d3-wasm). The migration mechanics have been removed; what remains is current reality.
 
@@ -36,13 +34,14 @@ ergonomic option via components+systems, such as one-off actions like a raycast.
 
 ### Non-goals (v1)
 
-These are deferred. The v2 milestone (see [`ROADMAP.md`](./ROADMAP.md)) takes on ray casts and spatial queries; the rest remain deferred.
+These are deferred. Ray casts and spatial queries have shipped; the remaining
+items live in the central [`ROADMAP.md`](../../../architecture/ROADMAP.md).
 
 - Joints, shape casts, character movers, debug rendering.
-- Ray casts and AABB/overlap queries — **scheduled for v2.**
 - Multithreading, SIMD. box2d3-wasm has a threaded "deluxe" build path but vecs-physics ships single-threaded (`compat` build).
 - Pre-solve / custom-filter callbacks.
-- A `Physics` global handle or imperative `physics.*` API. v1 is pure-component. (v2 introduces a narrow imperative **query** surface for ray casts and overlaps — see `PLAN-v2.md`.)
+- A broad imperative `Physics` global handle. The package exposes only the narrow
+  `physics(world)` read-only query surface where components are not ergonomic.
 - Cross-platform bit-identical floats. Target is x64 Linux Node; we guarantee deterministic _order_ and run-to-run reproducibility there.
 
 ## Public API contract
@@ -249,9 +248,7 @@ lib/vecs-physics/
 ├── vitest.config.ts
 ├── docs/                        (user-facing)
 ├── architecture/
-│   ├── ARCHITECTURE.md          (this document)
-│   ├── ROADMAP.md               (v2 roadmap)
-│   └── PLAN-v2.md               (v2 execution plan)
+│   └── ARCHITECTURE.md          (this document)
 ├── bench/                       (stacking / falling_balls / many_movers)
 ├── src/
 │   ├── index.ts                 Public exports.
