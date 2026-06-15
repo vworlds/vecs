@@ -2,6 +2,7 @@ import { type ComponentInstance, type ComponentType } from "../component.js";
 import { Entity, type EID } from "../entity/index.js";
 import {
   directInjectEids,
+  directInjectSnapshotTypes,
   getInjected,
   getInjectedWithSrc,
   injectArity,
@@ -10,13 +11,14 @@ import {
   mapInject,
   wantsIter,
   type InjectElement,
+  type InjectSnapshot,
+  type InjectSnapshotTypes,
   type InjectTuple,
 } from "../inject.js";
 import { OrderedSet } from "../util/ordered_set.js";
-import { type ArrayMap } from "../util/array_map.js";
 import { type World } from "../world/index.js";
 
-export type EntityCallback = (e: Entity, snapshot?: ArrayMap<ComponentInstance>) => void;
+export type EntityCallback = (e: Entity, snapshot?: InjectSnapshot) => void;
 export type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
 export function makeEnterCallback(
@@ -24,7 +26,7 @@ export function makeEnterCallback(
   arg0: InjectTuple | ((e: Entity) => void) | typeof Entity | typeof Iter,
   arg1?: InjectTuple | Function,
   arg2?: Function
-): { callback: EntityCallback; snapshotTypes: EID[] | undefined } {
+): { callback: EntityCallback; snapshotTypes: InjectSnapshotTypes | undefined } {
   if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
     // Wrap so the drain's extra snapshot argument never leaks to a plain
     // (non-injecting) enter callback — it observes only the entity.
@@ -38,10 +40,10 @@ export function makeEnterCallback(
   // Mirror exit: capture the injected components so a System's inbox-queued enter
   // still resolves them even if the entity is destroyed before the inbox drains.
   // Snapshots store component references, so live entities see current values.
-  const snapshotTypes = directInjectEids(inject);
+  const snapshotTypes = directInjectSnapshotTypes(inject);
   const arity = injectArity(inject);
   if (useIter) {
-    const callback = (e: Entity, enterSnapshot?: ArrayMap<ComponentInstance>) => {
+    const callback = (e: Entity, enterSnapshot?: InjectSnapshot) => {
       const injected = new Array(arity);
       const it = new Iter(arity);
       it.entity = e;
@@ -50,7 +52,7 @@ export function makeEnterCallback(
     };
     return { callback, snapshotTypes };
   }
-  const callback = (e: Entity, enterSnapshot?: ArrayMap<ComponentInstance>) => {
+  const callback = (e: Entity, enterSnapshot?: InjectSnapshot) => {
     const injected = new Array(arity);
     getInjected(e, inject, true, injected, enterSnapshot);
     cb(e, injected as any);
@@ -63,7 +65,7 @@ export function makeExitCallback(
   arg0: readonly unknown[] | ((e: Entity) => void) | typeof Entity | typeof Iter,
   arg1?: readonly unknown[] | ((...args: any[]) => void),
   arg2?: (...args: any[]) => void
-): { callback: EntityCallback; snapshotTypes: EID[] | undefined } {
+): { callback: EntityCallback; snapshotTypes: InjectSnapshotTypes | undefined } {
   if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
     return { callback: arg0 as (e: Entity) => void, snapshotTypes: undefined };
   }
@@ -71,10 +73,10 @@ export function makeExitCallback(
   const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
   const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (eOrIt: unknown, injected: unknown) => void;
   const inject = mapInject(world, components);
-  const snapshotTypes = directInjectEids(inject);
+  const snapshotTypes = directInjectSnapshotTypes(inject);
   const arity = injectArity(inject);
   if (useIter) {
-    const callback = (e: Entity, exitSnapshot?: ArrayMap<ComponentInstance>) => {
+    const callback = (e: Entity, exitSnapshot?: InjectSnapshot) => {
       const injected = new Array(arity);
       const it = new Iter(arity);
       it.entity = e;
@@ -83,7 +85,7 @@ export function makeExitCallback(
     };
     return { callback, snapshotTypes };
   }
-  const callback = (e: Entity, exitSnapshot?: ArrayMap<ComponentInstance>) => {
+  const callback = (e: Entity, exitSnapshot?: InjectSnapshot) => {
     const injected = new Array(arity);
     getInjected(e, inject, true, injected, exitSnapshot);
     cb(e, injected as any);

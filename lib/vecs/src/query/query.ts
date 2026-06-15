@@ -12,6 +12,7 @@ import {
   Iter,
   type FanInjectElement,
   type FanInjectTuple,
+  type InjectSnapshotTypes,
   type InjectElement,
   type InjectTuple,
   type MaybeResolvedInjectTuple,
@@ -72,10 +73,10 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** @internal `exit` callback (already wraps any injection logic). */
   public _exitCallback: EntityCallback | undefined = undefined;
   /** @internal Component eids the exit callback needs snapshotted before component removal. */
-  public _exitSnapshotTypes: EID[] | undefined = undefined;
+  public _exitSnapshotTypes: InjectSnapshotTypes | undefined = undefined;
   /** @internal Component eids the enter callback needs snapshotted, so a System's inbox-queued
    * enter still resolves them if the entity is destroyed before the inbox drains. */
-  public _enterSnapshotTypes: EID[] | undefined = undefined;
+  public _enterSnapshotTypes: InjectSnapshotTypes | undefined = undefined;
   /** Materialized root term that owns membership for this query. */
   public rootTerm: Term | undefined;
   /** @internal Silence-domain query cache. */

@@ -2,7 +2,6 @@ import { type ComponentInstance, type ComponentRef, type ComponentType } from ".
 import { Entity, type EID } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import { _resolveRelationship, type MaybeRequired } from "./dsl.js";
-import { type ArrayMap } from "./util/array_map.js";
 
 export type TargetInject<J extends readonly ComponentType[] = readonly ComponentType[]> = {
   target: readonly [ComponentRef, readonly [...J]];
@@ -18,6 +17,8 @@ export type ResolvedInjectTerm =
   | EID
   | { target: readonly [EID, readonly EID[]] }
   | { down: readonly [EID, readonly EID[]] };
+export type InjectSnapshot = readonly (ComponentInstance | undefined)[];
+export type InjectSnapshotTypes = readonly (EID | undefined)[];
 
 /** Resolves the component instance type for one injected component class. */
 type ResolvedComponentInstance<T> = T extends ComponentType ? InstanceType<T> : never;
@@ -95,12 +96,12 @@ export function getInjected(
   inject: readonly ResolvedInjectTerm[],
   requireDirectComponents: boolean,
   out: (ComponentInstance | undefined)[],
-  exitSnapshot?: ArrayMap<ComponentInstance>
+  snapshot?: InjectSnapshot
 ): void {
   let outIndex = 0;
-  inject.forEach((term) => {
+  inject.forEach((term, termIndex) => {
     if (typeof term === "number") {
-      const c = exitSnapshot?.get(term) ?? e._get(term);
+      const c = snapshot?.[termIndex] ?? e._get(term);
       if (requireDirectComponents && !c) {
         throw new Error("query does not contain component");
       }
@@ -127,12 +128,12 @@ export function getInjectedWithSrc(
   out: (ComponentInstance | undefined)[],
   src: (Entity | undefined)[],
   requireDirectComponents = false,
-  exitSnapshot?: ArrayMap<ComponentInstance>
+  exitSnapshot?: InjectSnapshot
 ): void {
   let outIndex = 0;
-  inject.forEach((term) => {
+  inject.forEach((term, termIndex) => {
     if (typeof term === "number") {
-      const c = exitSnapshot?.get(term) ?? e._get(term);
+      const c = exitSnapshot?.[termIndex] ?? e._get(term);
       if (requireDirectComponents && !c) {
         throw new Error("query does not contain component");
       }
@@ -157,6 +158,20 @@ export function getInjectedWithSrc(
 
 export function directInjectEids(inject: readonly ResolvedInjectTerm[]): EID[] {
   return inject.filter((term): term is EID => typeof term === "number");
+}
+
+export function directInjectSnapshotTypes(
+  inject: readonly ResolvedInjectTerm[]
+): InjectSnapshotTypes | undefined {
+  let hasDirectInject = false;
+  const snapshotTypes = inject.map((term) => {
+    if (typeof term === "number") {
+      hasDirectInject = true;
+      return term;
+    }
+    return undefined;
+  });
+  return hasDirectInject ? snapshotTypes : undefined;
 }
 
 /**

@@ -348,6 +348,48 @@ describe("Iter cursor", () => {
       expect(it.src[0]).toBe(e);
       expect(cb.mock.calls[0][1]).toEqual([pos]);
     });
+
+    it("snapshots direct inject terms by inject position", () => {
+      const w = new World();
+      w.component(Position);
+      w.component(Velocity);
+      w.component(FriendOf);
+      w.component(Tag);
+      const cb = vi.fn();
+      w.system("sys")
+        .with(Position)
+        .exit([Position, { target: [FriendOf, [Tag]] }, Velocity], cb);
+      const target = w.entity().add(Tag);
+      const e = w.entity().add(Position).add(Velocity).set(FriendOf, { target });
+      w.progress(0, 0);
+      const pos = e.get(Position);
+      const vel = e.get(Velocity);
+      e.destroy();
+      w.progress(0, 0);
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb.mock.calls[0][1]).toEqual([pos, undefined, vel]);
+    });
+
+    it("snapshots direct inject terms by inject position with Iter", () => {
+      const w = new World();
+      w.component(Position);
+      w.component(Velocity);
+      w.component(FriendOf);
+      w.component(Tag);
+      const cb = vi.fn();
+      w.system("sys")
+        .with(Position)
+        .exit(Iter, [Position, { target: [FriendOf, [Tag]] }, Velocity], cb);
+      const target = w.entity().add(Tag);
+      const e = w.entity().add(Position).add(Velocity).set(FriendOf, { target });
+      w.progress(0, 0);
+      const pos = e.get(Position);
+      const vel = e.get(Velocity);
+      e.destroy();
+      w.progress(0, 0);
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb.mock.calls[0][1]).toEqual([pos, undefined, vel]);
+    });
   });
 
   describe("System.update", () => {

@@ -6,6 +6,8 @@ import {
   wantsIter,
   type FanInjectElement,
   type FanInjectTuple,
+  type InjectSnapshot,
+  type InjectSnapshotTypes,
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
 import { SOURCE_TRACKED_QUERY_ERROR, Query } from "./query/index.js";
@@ -28,7 +30,6 @@ import {
   type ITickSource,
   RateTickSource,
 } from "./timer.js";
-import { ArrayMap } from "./util/array_map.js";
 
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
@@ -51,12 +52,12 @@ type _SystemInboxEvent =
   | {
       kind: InboxCommand.Enter;
       entity: Entity;
-      snapshot: ArrayMap<ComponentInstance> | undefined;
+      snapshot: InjectSnapshot | undefined;
     }
   | {
       kind: InboxCommand.Exit;
       entity: Entity;
-      snapshot: ArrayMap<ComponentInstance> | undefined;
+      snapshot: InjectSnapshot | undefined;
     }
   | {
       kind: InboxCommand.Update;
@@ -159,15 +160,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       // Snapshot the injected components now (entity is present), mirroring exit,
       // so the queued enter still resolves them if the entity is destroyed before
       // the inbox drains — otherwise the injected read would crash on `undefined`.
-      let enterSnapshot: ArrayMap<ComponentInstance> | undefined;
+      let enterSnapshot: InjectSnapshot | undefined;
       if (this._enterSnapshotTypes && this._enterSnapshotTypes.length > 0) {
-        enterSnapshot = new ArrayMap<ComponentInstance>();
-        for (const ceid of this._enterSnapshotTypes) {
-          const c = e._get(ceid);
-          if (c) {
-            enterSnapshot.set(ceid, c);
-          }
-        }
+        enterSnapshot = snapshotDirectInjects(e, this._enterSnapshotTypes);
       }
       this._inbox.push({ kind: InboxCommand.Enter, entity: e, snapshot: enterSnapshot });
     }
@@ -201,15 +196,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     // updates for staleness.
     this._exitedSinceDrain = true;
     if (this._exitCallback !== undefined) {
-      let exitSnapshot: ArrayMap<ComponentInstance> | undefined;
+      let exitSnapshot: InjectSnapshot | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
-        exitSnapshot = new ArrayMap<ComponentInstance>();
-        for (const ceid of this._exitSnapshotTypes) {
-          const c = e._get(ceid);
-          if (c) {
-            exitSnapshot.set(ceid, c);
-          }
-        }
+        exitSnapshot = snapshotDirectInjects(e, this._exitSnapshotTypes);
       }
       this._inbox.push({ kind: InboxCommand.Exit, entity: e, snapshot: exitSnapshot });
     }
@@ -613,4 +602,14 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this.disable();
     super.destroy();
   }
+}
+
+function snapshotDirectInjects(e: Entity, snapshotTypes: InjectSnapshotTypes): InjectSnapshot {
+  const snapshot = new Array<ComponentInstance | undefined>(snapshotTypes.length);
+  snapshotTypes.forEach((ceid, index) => {
+    if (ceid !== undefined) {
+      snapshot[index] = e._get(ceid);
+    }
+  });
+  return snapshot;
 }
