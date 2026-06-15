@@ -98,6 +98,13 @@ type _SystemInboxEvent =
 export class System<R extends ComponentType[] = []> extends Query<R> implements ITickSource {
   /** @internal Single inbox replayed in arrival order on every `_run`. */
   private readonly _inbox: _SystemInboxEvent[] = [];
+  /**
+   * @internal Set when any entity exits this system during the current inbox
+   * window (between drains). Gates the stale-update membership probe in
+   * {@link _runDeferred}: steady-state frames with no exits skip it entirely.
+   * Reset alongside the inbox after each drain.
+   */
+  private _exitedSinceDrain = false;
   /** @internal Callback registered via {@link run}, fired every tick. */
   private _runCallback: RunCallback | undefined;
   /** @internal Callback registered via {@link each}, fired per tracked entity every tick. */
@@ -173,6 +180,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     if (!this._enabled) {
       return;
     }
+    // Mark that membership shrank this window so the inbox drain knows to probe
+    // updates for staleness.
+    this._exitedSinceDrain = true;
     if (this._exitCallback !== undefined) {
       let exitSnapshot: ArrayMap<ComponentInstance> | undefined;
       if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
@@ -257,6 +267,20 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
             this._exitCallback!(event.entity, event.snapshot);
             break;
           case InboxCommand.Update:
+            // Stale-event guard: an Update queued for an entity that has since
+            // left this system (destroyed, or lost a `.with` component) before
+            // this inbox drained must not dispatch. Its injected `.with` reads
+            // are resolved lazily at dispatch time and would now resolve to
+            // `undefined`, crashing callbacks that assume the guaranteed
+            // components are present. A stale update is only possible when
+            // something exited this window, so `_exitedSinceDrain` gates the
+            // O(1) membership probe and steady-state frames pay nothing. A
+            // re-entered ("came back") entity is a member again here, so its
+            // update still fires. Exit events fire regardless — they carry
+            // their own snapshot.
+            if (this._exitedSinceDrain && !event.entity._isMemberOf(this)) {
+              break;
+            }
             const callback = this._componentUpdateCallbacks.get(event.eid);
             if (callback) {
               callback(event.entity, event.component);
@@ -265,6 +289,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
         }
       }
       this._inbox.length = 0;
+      this._exitedSinceDrain = false;
 
       if (this._runCallback) {
         this._runCallback(now, tickDelta);
@@ -545,6 +570,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public disable(): this {
     this._enabled = false;
     this._inbox.length = 0;
+    this._exitedSinceDrain = false;
     return this;
   }
 

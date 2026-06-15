@@ -27,4 +27,15 @@ export class Queries extends Base {
   public _removeQueryMembership(q: Query): void {
     this._queries.delete(q);
   }
+
+  /**
+   * @internal True when `q` currently tracks this entity. Used by {@link System}
+   * to drop inbox events queued for an entity that has since left the query
+   * (destroyed, or lost a `.with` component in the same frame, before the inbox
+   * drained). Membership is removed eagerly on exit, so a non-member here is
+   * provably stale.
+   */
+  public _isMemberOf(q: Query): boolean {
+    return this._queries.has(q);
+  }
 }

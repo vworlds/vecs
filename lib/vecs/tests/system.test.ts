@@ -990,3 +990,75 @@ describe("System — enable / disable", () => {
     expect(enter).not.toHaveBeenCalled();
   });
 });
+
+describe("System — stale inbox update after same-frame exit", () => {
+  // Regression for the phaser.sync.position crash:
+  //   world.system("phaser.sync.position")
+  //     .with(Position, Transform)
+  //     .update(Position, [Transform], (_e, p, [obj]) => obj.setPosition(...))
+  // A Position update queued in the inbox must not dispatch once the entity has
+  // left the query before the inbox drains. The `.with` read (here `Sprite`,
+  // standing in for the live Phaser GameObject) is resolved lazily at dispatch
+  // and would otherwise come back `undefined`, crashing the callback.
+
+  it("does not dispatch a queued update after the entity is destroyed the same frame", () => {
+    const { w } = setup();
+    const seen: Array<Sprite | undefined> = [];
+    w.system("test")
+      .with(Position, Sprite)
+      .update(Position, [Sprite], (_e, _p, [obj]) => seen.push(obj));
+
+    const e = w.entity().add(Position).add(Sprite);
+    w.progress(0, 0); // entry-time update fires cleanly (Sprite present)
+    seen.length = 0;
+
+    // Same frame: queue a Position update, then destroy the entity (clears its
+    // components and query membership) before the inbox drains.
+    e.set(Position, { x: 5, y: 5 });
+    e.destroy();
+    w.progress(1, 1);
+
+    expect(seen).toEqual([]); // stale update skipped, no `undefined` Sprite
+  });
+
+  it("does not dispatch a queued update after the entity loses a .with component the same frame", () => {
+    const { w } = setup();
+    const seen: Array<Sprite | undefined> = [];
+    w.system("test")
+      .with(Position, Sprite)
+      .update(Position, [Sprite], (_e, _p, [obj]) => seen.push(obj));
+
+    const e = w.entity().add(Position).add(Sprite);
+    w.progress(0, 0);
+    seen.length = 0;
+
+    e.set(Position, { x: 5, y: 5 });
+    e.remove(Sprite); // entity stays alive but exits the query
+    w.progress(1, 1);
+
+    expect(seen).toEqual([]);
+  });
+
+  it("still dispatches when the entity exits and re-enters the same frame (came back)", () => {
+    const { w } = setup();
+    const seen: Array<Sprite | undefined> = [];
+    w.system("test")
+      .with(Position, Sprite)
+      .update(Position, [Sprite], (_e, _p, [obj]) => seen.push(obj));
+
+    const e = w.entity().add(Position).add(Sprite);
+    w.progress(0, 0);
+    seen.length = 0;
+
+    // Queue an update, exit, then re-enter before the drain. The entity is a
+    // member again at dispatch time, so the update must still fire — with the
+    // re-added Sprite resolved, never `undefined`.
+    e.set(Position, { x: 5, y: 5 });
+    e.remove(Sprite);
+    e.add(Sprite);
+    w.progress(1, 1);
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen).not.toContain(undefined);
+  });
+});
