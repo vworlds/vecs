@@ -217,7 +217,7 @@ describe("Deferred mode — Query dispatches enter/exit/update immediately", () 
   it("Query.update callback fires immediately on c.modified()", () => {
     const { w } = setup();
     const update = vi.fn();
-    w.query("q").with(Position).update(Position, update).build();
+    w.query("q").with(Position).update({ watch: Position, enter: true }, update).build();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     update.mockClear();

@@ -18,7 +18,9 @@ world
   .system("Render")
   .with(Sprite, Position)
   .enter([Sprite, Position], (e, [sprite, pos]) => sprite.show(pos))
-  .update({ watch: Position, inject: [Sprite] }, (e, pos, [sprite]) => sprite.moveTo(pos.x, pos.y))
+  .update({ watch: Position, enter: true, inject: [Sprite] }, (e, pos, [sprite]) =>
+    sprite.moveTo(pos.x, pos.y)
+  )
   .exit([Sprite], (e, [sprite]) => sprite.hide());
 ```
 
@@ -89,21 +91,21 @@ Fires once when an entity starts matching the system:
 
 ### `.update(ComponentClass, callback)` / `.update(options, callback)`
 
-Fires when the watched component is set or marked modified on a tracked entity — and **on entry**
-for each watched component the entity already has. `update(ComponentClass, ...)` also adds
-`ComponentClass` to the membership predicate, so the system only matches entities that carry the
-watched component. The callback receives the entity first because component instances carry no owner
-reference:
+Fires when the watched component is set or marked modified on a tracked entity.
+`update(ComponentClass, ...)` also adds `ComponentClass` to the membership predicate, so the system
+only matches entities that carry the watched component. Pass `{ enter: true }` in the options form
+when the callback should also run as an entity enters with the watched component already present.
+The callback receives the entity first because component instances carry no owner reference:
 
 ```ts
 .update(Position, (entity, pos) => renderer.setPosition(entity.eid, pos.x, pos.y))
-.update({ watch: Position, inject: [Sprite] }, (entity, pos, [sprite]) =>
+.update({ watch: Position, enter: true, inject: [Sprite] }, (entity, pos, [sprite]) =>
   sprite.setPosition(pos.x, pos.y)
 )
 ```
 
-Because `update` fires on entry, a separate `enter` that applies the same value is redundant —
-lean on `update` alone for "apply current value when the entity appears, and again on change".
+Use `enter: true` for "apply current value when the entity appears, and again on change". Without
+it, `update` is change-only and a separate `enter` callback can own initialization.
 
 Use `.update(C, ...)` by itself when `C` is the membership shape and watched value. Use
 `.with(A).update(C, ...)` when the callback should run only for entities carrying both `A` and `C`.
@@ -313,7 +315,7 @@ While disabled, query membership is still maintained, so the tracked set is corr
 | `with(...specs)` / `without(dsl)`                                | Declare membership; see [the DSL](./queries-and-filters.md#the-query-dsl).                                                       |
 | `phase(anchor)`                                                  | Place after a phase anchor (name or entity). Default `ON_UPDATE`.                                                                |
 | `enter(cb)` / `enter(inject, cb)`                                | Fires once when an entity starts matching.                                                                                       |
-| `update(C, cb)` / `update(C, inject, cb)`                        | Fires on `set`/`modified` of `C` on a member, and on entry for present watched components.                                       |
+| `update(C, cb)` / `update(options, cb)`                          | Fires on `set`/`modified` of `C` on a member; `options.enter: true` also fires on entry for present watched components.          |
 | `exit(cb)` / `exit(inject, cb)`                                  | Fires when an entity stops matching; direct injection reads an exit-time snapshot.                                               |
 | `each([C...], cb)`                                               | Fires per tracked entity every tick. Implies `track`. One per system.                                                            |
 | `run(cb)`                                                        | Fires once per tick, `(now, delta)`.                                                                                             |

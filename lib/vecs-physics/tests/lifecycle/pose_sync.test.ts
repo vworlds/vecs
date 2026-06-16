@@ -200,7 +200,7 @@ describe("pose-sync feedback suppression", () => {
       .system("UserRender")
       .with(Body, Position)
       .phase(render)
-      .update(Position, (_entity, position) => {
+      .update({ watch: Position, enter: true }, (_entity, position) => {
         lastSeenX = position.x;
         count++;
       });

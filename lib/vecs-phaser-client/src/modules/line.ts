@@ -35,7 +35,7 @@ export class LineModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace
       .system("phaser.render.line.geometry")
       .with(Line, m.Vertices)
       .phase(ON_STORE)
-      .update({ watch: Line, inject: [m.Vertices] }, (_entity, line, [obj]) => {
+      .update({ watch: Line, enter: true, inject: [m.Vertices] }, (_entity, line, [obj]) => {
         obj.setTo(...linePoints(coords, line));
       });
   }

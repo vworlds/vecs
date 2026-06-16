@@ -279,7 +279,7 @@ describe("Iter cursor", () => {
       const q = w
         .query("q")
         .with(Position, Velocity)
-        .update({ watch: Position, cursor: Iter, inject: [Velocity] }, cb as any)
+        .update({ watch: Position, enter: true, cursor: Iter, inject: [Velocity] }, cb as any)
         .build();
       const e = w.entity().add(Position).add(Velocity);
       cb.mockClear();
@@ -301,7 +301,7 @@ describe("Iter cursor", () => {
       const q = w
         .query("q")
         .with(Position)
-        .update({ watch: Position, cursor: Iter, inject: [Position] }, ((it: Iter) =>
+        .update({ watch: Position, enter: true, cursor: Iter, inject: [Position] }, ((it: Iter) =>
           iters.push(it)) as any)
         .build();
       const e = w.entity().add(Position);
@@ -420,7 +420,7 @@ describe("Iter cursor", () => {
       const cb = vi.fn();
       w.system("sys")
         .with(Position)
-        .update({ watch: Position, cursor: Iter, inject: [Velocity] }, cb as any);
+        .update({ watch: Position, enter: true, cursor: Iter, inject: [Velocity] }, cb as any);
       const e = w.entity().add(Position).add(Velocity);
       w.progress(0, 0);
       cb.mockClear();
@@ -525,7 +525,7 @@ describe("Iter cursor", () => {
       const q = w
         .query("q")
         .with(Position, Velocity)
-        .update({ watch: Position, cursor: Entity, inject: [Velocity] }, cb)
+        .update({ watch: Position, enter: true, cursor: Entity, inject: [Velocity] }, cb)
         .build();
       const e = w.entity().add(Position).add(Velocity);
       cb.mockClear();

@@ -21,7 +21,9 @@ export class PoseSyncModule extends Module {
       .system("sync.position")
       .with(PhysicsPosition, RenderPosition)
       .phase(PRE_STORE)
-      .update(PhysicsPosition, (e, p) => e.set(RenderPosition, { x: p.x, y: p.y }));
+      .update({ watch: PhysicsPosition, enter: true }, (e, p) =>
+        e.set(RenderPosition, { x: p.x, y: p.y })
+      );
   }
 }
 

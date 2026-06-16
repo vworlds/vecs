@@ -16,12 +16,16 @@ export class PhaserServerModule extends Module<undefined> {
       .system("phaser.sync.position")
       .with(PhysicsPosition, RenderPosition)
       .phase(PRE_STORE)
-      .update(PhysicsPosition, (e, p) => e.set(RenderPosition, { x: p.x, y: p.y }));
+      .update({ watch: PhysicsPosition, enter: true }, (e, p) =>
+        e.set(RenderPosition, { x: p.x, y: p.y })
+      );
 
     world
       .system("phaser.sync.rotation")
       .with(PhysicsRotation, RenderRotation)
       .phase(PRE_STORE)
-      .update(PhysicsRotation, (e, r) => e.set(RenderRotation, { angle: r.angle }));
+      .update({ watch: PhysicsRotation, enter: true }, (e, r) =>
+        e.set(RenderRotation, { angle: r.angle })
+      );
   }
 }

@@ -79,14 +79,14 @@ describe("PhaserServerModule pose sync", () => {
       .system("RenderPositionObserver")
       .with(RenderPosition)
       .phase(ON_STORE)
-      .update(RenderPosition, () => {
+      .update({ watch: RenderPosition, enter: true }, () => {
         positionUpdates++;
       });
     world
       .system("RenderRotationObserver")
       .with(RenderRotation)
       .phase(ON_STORE)
-      .update(RenderRotation, () => {
+      .update({ watch: RenderRotation, enter: true }, () => {
         rotationUpdates++;
       });
 

@@ -35,7 +35,7 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
     engine.entityByBodyIndex.delete(bodyId.index1);
   });
 
-  system.update(Body, (entity, body) => {
+  system.update({ watch: Body, enter: true }, (entity, body) => {
     const bodyId = body._bodyId;
     if (bodyId === undefined) {
       return;
@@ -53,7 +53,7 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
     .system("PhysicsBodyLifecycle:Damping")
     .with(Body, Damping)
     .phase(phase)
-    .update({ watch: Damping, inject: [Body] }, (entity, damping, [body]) => {
+    .update({ watch: Damping, enter: true, inject: [Body] }, (entity, damping, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
@@ -67,20 +67,23 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
     .system("PhysicsBodyLifecycle:GravityScale")
     .with(Body, GravityScale)
     .phase(phase)
-    .update({ watch: GravityScale, inject: [Body] }, (entity, gravityScale, [body]) => {
-      const bodyId = body?._bodyId;
-      if (bodyId === undefined) {
-        return;
+    .update(
+      { watch: GravityScale, enter: true, inject: [Body] },
+      (entity, gravityScale, [body]) => {
+        const bodyId = body?._bodyId;
+        if (bodyId === undefined) {
+          return;
+        }
+        engine.box2d.b2Body_SetGravityScale(bodyId, gravityScale.value);
       }
-      engine.box2d.b2Body_SetGravityScale(bodyId, gravityScale.value);
-    });
+    );
   gravityScaleSystem.entity.add(PhysicsSystemTag);
 
   const motionLocksSystem = world
     .system("PhysicsBodyLifecycle:MotionLocks")
     .with(Body, MotionLocks)
     .phase(phase)
-    .update({ watch: MotionLocks, inject: [Body] }, (entity, locks, [body]) => {
+    .update({ watch: MotionLocks, enter: true, inject: [Body] }, (entity, locks, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
@@ -101,7 +104,7 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
     .system("PhysicsBodyLifecycle:Sleep")
     .with(Body, Sleep)
     .phase(phase)
-    .update({ watch: Sleep, inject: [Body] }, (entity, sleep, [body]) => {
+    .update({ watch: Sleep, enter: true, inject: [Body] }, (entity, sleep, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
