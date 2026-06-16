@@ -79,6 +79,7 @@ projectiles.count; // kept up to date automatically
 projectiles.has(e);
 for (const e of projectiles) { ... }
 projectiles.forEach([Position], (e, [pos]) => { ... });
+projectiles.forEach({ inject: [Position] }, (e, [pos]) => { ... });
 ```
 
 The crucial difference from systems: **standalone query callbacks fire synchronously** while the
@@ -131,19 +132,19 @@ interest management, any "find members in bucket K" — without re-scanning:
 const ballsByCell = world
   .query("ByCell")
   .with(Ball, Position)
-  .groupBy([Position], (_e, [p]) => cellIndex(p)); // re-buckets reactively as Position changes
+  .groupBy({ inject: [Position] }, (_e, [p]) => cellIndex(p)); // re-buckets reactively as Position changes
 
-ballsByCell.group(key)?.forEach([Position], (e, [p]) => { ... });
+ballsByCell.group(key)?.forEach({ inject: [Position] }, (e, [p]) => { ... });
 ballsByCell.group(key)?.count;
 for (const group of ballsByCell.groups()) { ... }
 ```
 
 Two forms (`lib/vecs/src/query/grouped_query.ts`):
 
-- `groupBy([components], keyFn)` — bucket by a computed key; injected components are watched, so
-  changing them re-keys the entity.
-- `groupBy(RelationshipClass)` — bucket by the relationship's target entity. Moving between
-  buckets is a retarget, a plain data change (see
+- `groupBy([components], keyFn)` / `groupBy({ inject: [components] }, keyFn)` — bucket by a
+  computed key; injected components are watched, so changing them re-keys the entity.
+- `groupBy(RelationshipClass)` / `groupBy({ relationship: RelationshipClass })` — bucket by the
+  relationship's target entity. Moving between buckets is a retarget, a plain data change (see
   [Relationships](./relationships.md#retargeting)).
 
 The result is a `GroupedQuery<K, R>` adding `group(key)`, `groups()`, `groupKeys()`, `groupCount`,

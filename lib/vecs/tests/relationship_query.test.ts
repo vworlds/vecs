@@ -236,9 +236,12 @@ describe("Relationship queries", () => {
     const q = w.query("down-iter").with(Body).build();
     const seen: unknown[][] = [];
 
-    q.forEach(Iter, [Body, { down: [FriendOf, [Position, Velocity]] }], (it, tuple) => {
-      seen.push([it.entity, ...it.src, ...tuple]);
-    });
+    q.forEach(
+      { cursor: Iter, inject: [Body, { down: [FriendOf, [Position, Velocity]] }] },
+      (it, tuple) => {
+        seen.push([it.entity, ...it.src, ...tuple]);
+      }
+    );
 
     expect(seen).toEqual([
       [parent, parent, child, child, parent.get(Body), child.get(Position), undefined],
@@ -254,8 +257,10 @@ describe("Relationship queries", () => {
     const seen: unknown[][] = [];
 
     q.forEach(
-      Iter,
-      [Body, { target: [FriendOf, [Velocity]] }, { down: [FriendOf, [Position]] }],
+      {
+        cursor: Iter,
+        inject: [Body, { target: [FriendOf, [Velocity]] }, { down: [FriendOf, [Position]] }],
+      },
       (it, tuple) => {
         seen.push([it.entity, ...it.src, ...tuple]);
       }
@@ -450,8 +455,7 @@ describe("Relationship queries", () => {
     const child = w.entity().childOf(parent).set(Position, { x: 5 });
     const results: { entity: any; src: any }[] = [];
     w.filter(Body).forEach(
-      Iter,
-      [Body, { down: [ChildOf, [Position]] }] as any,
+      { cursor: Iter, inject: [Body, { down: [ChildOf, [Position]] }] as any },
       (it: any, _tuple: any) => {
         results.push({ entity: it.entity, src: [...it.src] });
       }
@@ -527,8 +531,7 @@ describe("Relationship queries", () => {
     const child = w.entity().childOf(parent).set(Position, { x: 7 });
     const results: { src: any[] }[] = [];
     w.filter(Body).forEach(
-      Iter,
-      [{ down: [ChildOf, [Position]] }, Velocity] as any,
+      { cursor: Iter, inject: [{ down: [ChildOf, [Position]] }, Velocity] as any },
       (it: any, _tuple: any) => {
         results.push({ src: [...it.src] });
       }

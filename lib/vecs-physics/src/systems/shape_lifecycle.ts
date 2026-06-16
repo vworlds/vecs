@@ -21,9 +21,12 @@ export function installShapeLifecycle(world: World, engine: PhysicsEngine, phase
   const system = world.system("PhysicsShapeLifecycle").with(singleShapeWithBodyParent).phase(phase);
   system.entity.add(PhysicsSystemTag);
 
-  system.enter(Iter, [SingleShape, { target: [ChildOf, [Body]] }], (it, [shape, body]) => {
-    createShapeForEntity(engine, it.entity, it.src[1], body, shape);
-  });
+  system.enter(
+    { cursor: Iter, inject: [SingleShape, { target: [ChildOf, [Body]] }] },
+    (it, [shape, body]) => {
+      createShapeForEntity(engine, it.entity, it.src[1], body, shape);
+    }
+  );
 
   // Inject `[ChildOf, Shape]` so the parent relationship and shape handle are
   // captured in the exit snapshot while the entity's components are still
@@ -34,24 +37,25 @@ export function installShapeLifecycle(world: World, engine: PhysicsEngine, phase
     destroyShapeForEntity(engine, entity, true, childOf?.target, shape);
   });
 
-  system.update(Iter, SingleShape, [{ target: [ChildOf, [Body]] }], (it, shape, [body]) => {
-    if (
-      (shape instanceof Capsule && !hasValidEndpoints(shape.x1, shape.y1, shape.x2, shape.y2)) ||
-      (shape instanceof Segment && !hasValidEndpoints(shape.x1, shape.y1, shape.x2, shape.y2))
-    ) {
-      return;
+  system.update(
+    { cursor: Iter, component: SingleShape, inject: [{ target: [ChildOf, [Body]] }] },
+    (it, shape, [body]) => {
+      if (
+        (shape instanceof Capsule && !hasValidEndpoints(shape.x1, shape.y1, shape.x2, shape.y2)) ||
+        (shape instanceof Segment && !hasValidEndpoints(shape.x1, shape.y1, shape.x2, shape.y2))
+      ) {
+        return;
+      }
+      recreateSingleShapeForEntity(engine, it.entity, it.src[0], body, shape);
     }
-    recreateSingleShapeForEntity(engine, it.entity, it.src[0], body, shape);
-  });
+  );
 
   const childOfSystem = world
     .system("PhysicsShapeLifecycle:ChildOf")
     .with(ChildOf, singleShapeWithBodyParent)
     .phase(phase)
     .update(
-      Iter,
-      ChildOf,
-      [SingleShape, { target: [ChildOf, [Body]] }],
+      { cursor: Iter, component: ChildOf, inject: [SingleShape, { target: [ChildOf, [Body]] }] },
       (it, _childOf, [shape, body]) => {
         recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
       }

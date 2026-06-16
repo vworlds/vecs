@@ -1,5 +1,20 @@
 export { System, type SystemQuery } from "./system.js";
 export { Query, GroupedQuery, Group } from "./query/index.js";
+export type {
+  CascadeOptions,
+  ComponentOption,
+  CursorOption,
+  EntityCursorOption,
+  FanInjectCallbackOptions,
+  FanInjectOption,
+  GroupByOptions,
+  InjectCallbackOptions,
+  InjectOption,
+  IterCursorOption,
+  OrderByOptions,
+  RelationshipOption,
+  UpdateCallbackOptions,
+} from "./query/index.js";
 export type { EntityTestFunc, MaybeRequired, QueryDSL } from "./dsl.js";
 export { Iter } from "./inject.js";
 export type {

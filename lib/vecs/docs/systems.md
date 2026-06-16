@@ -18,7 +18,9 @@ world
   .system("Render")
   .with(Sprite, Position)
   .enter([Sprite, Position], (e, [sprite, pos]) => sprite.show(pos))
-  .update(Position, [Sprite], (e, pos, [sprite]) => sprite.moveTo(pos.x, pos.y))
+  .update({ component: Position, inject: [Sprite] }, (e, pos, [sprite]) =>
+    sprite.moveTo(pos.x, pos.y)
+  )
   .exit([Sprite], (e, [sprite]) => sprite.hide());
 ```
 
@@ -77,16 +79,17 @@ taxonomy, ordering rules, and custom phases are covered in
 Mutation events are routed into the system's inbox as the world applies commands; the inbox is
 replayed in arrival order at the top of the system's next run, inside a deferred scope.
 
-### `.enter(callback)` / `.enter(inject, callback)`
+### `.enter(callback)` / `.enter(inject, callback)` / `.enter(options, callback)`
 
 Fires once when an entity starts matching the system:
 
 ```ts
 .enter((e) => { ... })
 .enter([Position, Sprite], (e, [pos, sprite]) => sprite.setPosition(pos.x, pos.y))
+.enter({ inject: [Position, Sprite] }, (e, [pos, sprite]) => sprite.setPosition(pos.x, pos.y))
 ```
 
-### `.update(ComponentClass, callback)` / `.update(ComponentClass, inject, callback)`
+### `.update(ComponentClass, callback)` / `.update(options, callback)`
 
 Fires when the watched component is set or marked modified on a tracked entity — and **on entry**
 for each watched component the entity already has. `update(ComponentClass, ...)` also adds
@@ -96,7 +99,9 @@ reference:
 
 ```ts
 .update(Position, (entity, pos) => renderer.setPosition(entity.eid, pos.x, pos.y))
-.update(Position, [Sprite], (entity, pos, [sprite]) => sprite.setPosition(pos.x, pos.y))
+.update({ component: Position, inject: [Sprite] }, (entity, pos, [sprite]) =>
+  sprite.setPosition(pos.x, pos.y)
+)
 ```
 
 Because `update` fires on entry, a separate `enter` that applies the same value is redundant —
@@ -108,7 +113,7 @@ Use `.update(C, ...)` by itself when `C` is the membership shape and watched val
 A query or system can register only one `update(C, ...)` callback for each component. A duplicate
 registration throws instead of replacing the existing callback.
 
-### `.exit(callback)` / `.exit(inject, callback)`
+### `.exit(callback)` / `.exit(inject, callback)` / `.exit(options, callback)`
 
 Fires when an entity stops matching (component removed, or entity destroyed). Directly injected
 components are read from a **snapshot captured at exit time**, so they are still resolvable even
@@ -117,11 +122,12 @@ be `undefined`:
 
 ```ts
 .exit([Sprite], (e, [sprite]) => sprite.destroy());
+.exit({ inject: [Sprite] }, (e, [sprite]) => sprite.destroy());
 ```
 
 ## Per-tick callbacks: `each` and `run`
 
-### `.each(components, callback)`
+### `.each(components, callback)` / `.each(options, callback)`
 
 Fires every tick the system runs, once per tracked entity, regardless of change. Use it only for
 genuinely per-frame sweeps — when reacting to change suffices, prefer `update` (see
@@ -130,6 +136,10 @@ genuinely per-frame sweeps — when reacting to change suffices, prefer `update`
 ```ts
 .with(Position, Velocity)
 .each([Position, Velocity], (e, [pos, vel]) => {
+  pos.x += vel.vx;
+});
+
+.each({ inject: [Position, Velocity] }, (e, [pos, vel]) => {
   pos.x += vel.vx;
 });
 ```
@@ -157,11 +167,12 @@ then `each`.
 
 ## Component injection
 
-`enter`, `exit`, `update`, `each`, `orderBy`, and `forEach` accept an injection list of component
-classes, resolved per entity and passed as a typed tuple:
+`enter`, `exit`, `update`, `each`, `orderBy`, and `forEach` accept either a short injection list or
+an options object with `inject`, resolved per entity and passed as a typed tuple:
 
 ```ts
 .each([Position, Sprite], (e, [pos, sprite]) => { ... })
+.each({ inject: [Position, Sprite] }, (e, [pos, sprite]) => { ... })
 ```
 
 Nullability follows membership: components guaranteed by `with` (or `hint`) are non-nullable;
@@ -199,17 +210,20 @@ in `each` and `forEach`, at most once per tuple, and entities with zero children
 
 ### The `Iter` cursor
 
-Pass `Iter` (from `@vworlds/vecs`) as the first argument to `each`, `forEach`, `enter`, `exit`,
-`update`, or `orderBy` to receive a reusable cursor instead of the bare entity:
+Pass `{ cursor: Iter, ... }` to `each`, `forEach`, `enter`, `exit`, `update`, or `orderBy` to receive
+a reusable cursor instead of the bare entity:
 
 ```ts
 import { Iter } from "@vworlds/vecs";
 
-system.each(Iter, [Body, { target: [ChildOf, [Position]] }], (it, [body, pos]) => {
-  it.entity; // the visited entity
-  it.src[0]; // entity body was read from (the visited entity)
-  it.src[1]; // entity pos was read from (the ChildOf target), or undefined
-});
+system.each(
+  { cursor: Iter, inject: [Body, { target: [ChildOf, [Position]] }] },
+  (it, [body, pos]) => {
+    it.entity; // the visited entity
+    it.src[0]; // entity body was read from (the visited entity)
+    it.src[1]; // entity pos was read from (the ChildOf target), or undefined
+  }
+);
 ```
 
 `it.src` holds the source entity per tuple slot: the visited entity for direct components, the
@@ -217,11 +231,11 @@ relationship target for `target` slots, the specific child for `down` slots. Whe
 requested, the non-cursor path runs with zero per-entity overhead — dispatch happens once at setup
 time. `each`/`forEach`/`update`/`orderBy` reuse cursor and tuple instances across the pass, so
 snapshot what you need before triggering further mutations from inside a callback. Passing
-`Entity` as the first argument is also accepted and means the default entity-first signature.
+`{ cursor: Entity, ... }` is also accepted and means the default entity-first signature.
 
 ## Ordering and tracking
 
-### `.orderBy(components, compare)`
+### `.orderBy(components, compare)` / `.orderBy(options, compare)`
 
 Keep matched entities in a custom order. Iteration, `forEach`, and `each` then walk entities in
 sorted order. Implies tracking:
@@ -232,6 +246,12 @@ world
   .with(Position, Sprite)
   .orderBy([Position], (_ea, [a], _eb, [b]) => a.y - b.y)
   .each([Position, Sprite], (e, [pos, sprite]) => sprite.draw(pos.x, pos.y));
+
+world
+  .system("Render")
+  .with(Position, Sprite)
+  .orderBy({ inject: [Position] }, (_ea, [a], _eb, [b]) => a.y - b.y)
+  .each({ inject: [Position, Sprite] }, (e, [pos, sprite]) => sprite.draw(pos.x, pos.y));
 ```
 
 Ties break by entity id, so the order is deterministic.

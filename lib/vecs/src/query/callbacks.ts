@@ -6,7 +6,6 @@ import {
   getInjected,
   getInjectedWithSrc,
   injectArity,
-  isCursorMarker,
   Iter,
   mapInject,
   wantsIter,
@@ -15,6 +14,7 @@ import {
   type InjectSnapshotTypes,
   type InjectTuple,
 } from "../inject.js";
+import type { InjectCallbackOptions, OrderByOptions, UpdateCallbackOptions } from "./options.js";
 import { OrderedSet } from "../util/ordered_set.js";
 import { type World } from "../world/index.js";
 
@@ -23,19 +23,17 @@ export type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
 
 export function makeEnterCallback(
   world: World,
-  arg0: InjectTuple | ((e: Entity) => void) | typeof Entity | typeof Iter,
-  arg1?: InjectTuple | Function,
-  arg2?: Function
+  arg0: InjectTuple | InjectCallbackOptions<InjectTuple> | ((e: Entity) => void),
+  arg1?: Function
 ): { callback: EntityCallback; snapshotTypes: InjectSnapshotTypes | undefined } {
-  if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
+  if (typeof arg0 === "function") {
     // Wrap so the drain's extra snapshot argument never leaks to a plain
     // (non-injecting) enter callback — it observes only the entity.
     const fn = arg0 as (e: Entity) => void;
     return { callback: (e: Entity) => fn(e), snapshotTypes: undefined };
   }
-  const useIter = wantsIter(arg0);
-  const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
-  const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (eOrIt: unknown, injected: unknown) => void;
+  const { components, useIter } = normalizeInjectCallbackArgs(arg0);
+  const cb = arg1 as (eOrIt: unknown, injected: unknown) => void;
   const inject = mapInject(world, components);
   // Mirror exit: capture the injected components so a System's inbox-queued enter
   // still resolves them even if the entity is destroyed before the inbox drains.
@@ -62,16 +60,14 @@ export function makeEnterCallback(
 
 export function makeExitCallback(
   world: World,
-  arg0: readonly unknown[] | ((e: Entity) => void) | typeof Entity | typeof Iter,
-  arg1?: readonly unknown[] | ((...args: any[]) => void),
-  arg2?: (...args: any[]) => void
+  arg0: InjectTuple | InjectCallbackOptions<InjectTuple> | ((e: Entity) => void),
+  arg1?: (...args: any[]) => void
 ): { callback: EntityCallback; snapshotTypes: InjectSnapshotTypes | undefined } {
-  if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
+  if (typeof arg0 === "function") {
     return { callback: arg0 as (e: Entity) => void, snapshotTypes: undefined };
   }
-  const useIter = wantsIter(arg0);
-  const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
-  const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (eOrIt: unknown, injected: unknown) => void;
+  const { components, useIter } = normalizeInjectCallbackArgs(arg0);
+  const cb = arg1 as (eOrIt: unknown, injected: unknown) => void;
   const inject = mapInject(world, components);
   const snapshotTypes = directInjectSnapshotTypes(inject);
   const arity = injectArity(inject);
@@ -95,13 +91,11 @@ export function makeExitCallback(
 
 export function makeSortedEntitySet(
   world: World,
-  arg0: readonly InjectElement[] | typeof Entity | typeof Iter,
-  arg1?: readonly InjectElement[] | Function,
-  arg2?: Function
+  arg0: readonly InjectElement[] | OrderByOptions<InjectTuple>,
+  arg1?: Function
 ): { set: OrderedSet<Entity>; watchEids: EID[] } {
-  const useIter = wantsIter(arg0);
-  const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly InjectElement[];
-  const cb = (isCursorMarker(arg0) ? arg2 : arg1) as (...args: unknown[]) => number;
+  const { components, useIter } = normalizeInjectCallbackArgs(arg0);
+  const cb = arg1 as (...args: unknown[]) => number;
   const inject = mapInject(world, components);
   const arity = injectArity(inject);
   const watchEids = directInjectEids(inject);
@@ -131,24 +125,27 @@ export function makeSortedEntitySet(
 
 export function makeUpdateRegistration<C extends ComponentType>(
   world: World,
-  arg0: C | typeof Entity | typeof Iter,
-  arg1: C | readonly InjectElement[] | ((...args: any[]) => void),
-  arg2?: readonly InjectElement[] | ((...args: any[]) => void),
-  arg3?: (...args: any[]) => void
+  arg0: C | UpdateCallbackOptions<C, InjectTuple>,
+  arg1: (...args: any[]) => void
 ): { componentEid: EID; callback: ComponentCallback } {
-  const useIter = wantsIter(arg0);
-  if (isCursorMarker(arg0)) {
-    arg0 = arg1 as C;
-    arg1 = arg2 as readonly InjectElement[];
-    arg2 = arg3 as (...args: any[]) => void;
-  }
-  const ComponentClass = arg0 as C;
+  const normalized = normalizeUpdateCallbackArgs(arg0);
+  const { ComponentClass, components, useIter } = normalized;
   const componentEid = world.entity(ComponentClass).eid;
-  if (typeof arg1 === "function") {
+  if (components === undefined) {
+    const fn = arg1 as (eOrIt: unknown, c: InstanceType<C>) => void;
+    if (useIter) {
+      const it = new Iter(0);
+      return {
+        componentEid,
+        callback: (e: Entity, c: ComponentInstance) => {
+          it.entity = e;
+          fn(it, c as InstanceType<C>);
+        },
+      };
+    }
     return { componentEid, callback: arg1 as ComponentCallback };
   }
-  const components = arg1 as readonly InjectElement[];
-  const callback = arg2 as (...args: any[]) => void;
+  const callback = arg1 as (...args: any[]) => void;
   const inject = mapInject(world, components);
   const arity = injectArity(inject);
   const injected = new Array(arity);
@@ -166,4 +163,33 @@ export function makeUpdateRegistration<C extends ComponentType>(
     callback(e, c as InstanceType<C>, injected as any);
   };
   return { componentEid, callback: cb };
+}
+
+function isOptionsObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeInjectCallbackArgs(
+  arg0: readonly InjectElement[] | InjectCallbackOptions<InjectTuple>
+): { components: readonly InjectElement[]; useIter: boolean } {
+  if (isOptionsObject(arg0) && "inject" in arg0) {
+    return {
+      components: arg0.inject as readonly InjectElement[],
+      useIter: wantsIter(arg0.cursor),
+    };
+  }
+  return { components: arg0 as readonly InjectElement[], useIter: false };
+}
+
+function normalizeUpdateCallbackArgs<C extends ComponentType>(
+  arg0: C | UpdateCallbackOptions<C, InjectTuple>
+): { ComponentClass: C; components: readonly InjectElement[] | undefined; useIter: boolean } {
+  if (isOptionsObject(arg0) && "component" in arg0) {
+    return {
+      ComponentClass: arg0.component as C,
+      components: arg0.inject as readonly InjectElement[] | undefined,
+      useIter: wantsIter(arg0.cursor),
+    };
+  }
+  return { ComponentClass: arg0 as C, components: undefined, useIter: false };
 }

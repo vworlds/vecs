@@ -86,7 +86,7 @@ describe("Query — typing", () => {
     assertType<IsEqual<typeof typedRepeatedQuery, Query<[typeof Position, typeof Velocity]>>>();
 
     if (false) {
-      typedQuery.update(Position, [Velocity], (_e, p, [v]) => {
+      typedQuery.update({ component: Position, inject: [Velocity] }, (_e, p, [v]) => {
         assertType<IsEqual<typeof p, Position>>();
         assertType<IsEqual<typeof v, Velocity>>();
       });
@@ -713,6 +713,19 @@ describe("Query — enter/exit callbacks", () => {
     expect(cb).toHaveBeenCalledWith(e, [pos, vel]);
   });
 
+  it("enter accepts injection options", () => {
+    const { w, tick } = setup();
+    const cb = vi.fn();
+    w.query("test")
+      .with(Position, Velocity)
+      .enter({ inject: [Position, Velocity] }, cb);
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    const vel = e.add(Velocity).get(Velocity)!;
+    tick();
+    expect(cb).toHaveBeenCalledWith(e, [pos, vel]);
+  });
+
   it("exit fires when an entity stops matching", () => {
     const { w, tick } = setup();
     const cb = vi.fn();
@@ -729,6 +742,20 @@ describe("Query — enter/exit callbacks", () => {
     const { w, tick } = setup();
     const cb = vi.fn();
     w.query("test").with(Position).exit([Position], cb);
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    tick();
+    e.remove(Position);
+    tick();
+    expect(cb).toHaveBeenCalledWith(e, [pos]);
+  });
+
+  it("exit accepts injection options", () => {
+    const { w, tick } = setup();
+    const cb = vi.fn();
+    w.query("test")
+      .with(Position)
+      .exit({ inject: [Position] }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     tick();
@@ -886,6 +913,18 @@ describe("Query — orderBy", () => {
     expect(q.orderBy([Position], (_eA, [a], _eB, [b]) => a.x - b.x)).toBe(q);
   });
 
+  it("orderBy() accepts injection options", () => {
+    const { w, tick } = setup();
+    const q = w
+      .query("test")
+      .with(Position)
+      .orderBy({ inject: [Position] }, (_eA, [a], _eB, [b]) => a.x - b.x);
+    const e1 = w.entity().set(Position, { x: 2 });
+    const e2 = w.entity().set(Position, { x: 1 });
+    tick();
+    expect([...q]).toEqual([e2, e1]);
+  });
+
   it("cascade() orders entities breadth-first by relationship depth", () => {
     const { w, tick } = setup();
     w.component(Tag);
@@ -915,6 +954,17 @@ describe("Query — orderBy", () => {
     tick();
 
     expect([...q]).toEqual([root, gamma, beta, alpha]);
+  });
+
+  it("cascade() accepts relationship options", () => {
+    const { w, tick } = setup();
+    w.component(Tag);
+    const root = w.entity("root").add(Tag);
+    const child = w.entity("child").add(Tag).childOf(root);
+    const q = w.query("test").with(Tag).cascade({ relationship: ChildOf });
+    tick();
+
+    expect([...q]).toEqual([root, child]);
   });
 
   it("cascade() maintains order across simple insertions", () => {

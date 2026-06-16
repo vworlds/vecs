@@ -189,6 +189,22 @@ describe("Query.groupBy — value grouping", () => {
     expect(seen.sort((p, q) => p - q)).toEqual([120, 180]);
   });
 
+  it("Group.forEach accepts injection options", () => {
+    const { w, tick } = setup();
+    const byCell = w
+      .query("byCell")
+      .with(Position)
+      .groupBy([Position], (_e, [pos]) => cellOf(pos));
+    byCell.build();
+
+    w.entity().set(Position, { x: 120 });
+    tick();
+
+    const seen: number[] = [];
+    byCell.group(1)?.forEach({ inject: [Position] }, (_e, [pos]) => seen.push(pos!.x));
+    expect(seen).toEqual([120]);
+  });
+
   it("Group.forEach returns the group for chaining", () => {
     const { w, tick } = setup();
     const byCell = w
@@ -224,6 +240,32 @@ describe("Query.groupBy — relationship grouping", () => {
     expect(byZone.group(zoneA)?.has(a)).toBe(true);
     expect(byZone.group(zoneA)?.has(b)).toBe(true);
     expect(byZone.group(zoneB)?.has(c)).toBe(true);
+  });
+
+  it("accepts relationship options", () => {
+    const { w, tick } = setup();
+    const zone = w.entity();
+    const byZone = w.query("byZone").groupBy({ relationship: InZone });
+    byZone.build();
+
+    const e = w.entity().set(InZone, { target: zone });
+    tick();
+
+    expect(byZone.group(zone)?.has(e)).toBe(true);
+  });
+
+  it("accepts injection options", () => {
+    const { w, tick } = setup();
+    const byCell = w
+      .query("byCell")
+      .with(Position)
+      .groupBy({ inject: [Position] }, (_e, [pos]) => cellOf(pos));
+    byCell.build();
+
+    const e = w.entity().set(Position, { x: 120 });
+    tick();
+
+    expect(byCell.group(1)?.has(e)).toBe(true);
   });
 
   it("moves an entity to a new bucket when the relationship is retargeted", () => {

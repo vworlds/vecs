@@ -51,9 +51,12 @@ export function installEventOptInSync(world: World, engine: PhysicsEngine, phase
     .system("PhysicsEventOptInSync:ChainSensor")
     .with({ all: [Chain, { any: [SensorEvents, Detectable] }] }, chainWithBodyParent)
     .phase(phase)
-    .enter(Iter, [Chain, { target: [ChildOf, [Body]] }], (it, [chain, body]) => {
-      recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
-    })
+    .enter(
+      { cursor: Iter, inject: [Chain, { target: [ChildOf, [Body]] }] },
+      (it, [chain, body]) => {
+        recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+      }
+    )
     .exit((entity) => {
       const chain = entity.get(Chain);
       const parent = entity.parent;

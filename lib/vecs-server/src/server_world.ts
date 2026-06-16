@@ -102,7 +102,7 @@ export class ServerWorld extends NetworkWorld {
     this._clients = this.system(`ServerWorld:${this.name}:View`)
       .with(View, ServerClientSession)
       .phase(PRE_STORE)
-      .update(View, [ServerClientSession], (_entity, view, [_session]) => {
+      .update({ component: View, inject: [ServerClientSession] }, (_entity, view, [_session]) => {
         view._refreshTracker(this._trackerCache);
       })
       .exit([View, ServerClientSession], (_entity, [view, _session]) => {

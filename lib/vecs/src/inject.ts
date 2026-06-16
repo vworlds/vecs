@@ -180,7 +180,7 @@ export function directInjectSnapshotTypes(
  * the first argument:
  *
  * ```ts
- * system.each(Iter, [Body, { target: [ChildOf, [Position]] }], (it, [body, pos]) => {
+ * system.each({ cursor: Iter, inject: [Body, { target: [ChildOf, [Position]] }] }, (it, [body, pos]) => {
  *   it.entity;  // the visited entity
  *   it.src[0];  // entity `body` was read from (the visited entity)
  *   it.src[1];  // entity `pos` was read from (the ChildOf target), or undefined
@@ -220,8 +220,8 @@ export function wantsIter(x: unknown): x is typeof Iter {
 
 /**
  * Iterate `entities`, resolving injected components per the `forEach` /
- * `each` argument grammar (bare callback, `[components]`, `Entity`/`Iter`
- * cursor markers). Runs inside a deferred scope so mutations made by the
+ * `each` argument grammar (bare callback, `[components]`, or
+ * `{ cursor, inject }`). Runs inside a deferred scope so mutations made by the
  * callback are buffered and applied after iteration finishes.
  *
  * Shared by {@link Query.forEach} and {@link Group.forEach} so both honour the
@@ -231,24 +231,19 @@ export function forEachInjected(
   world: World,
   entities: Iterable<Entity>,
   arg0: unknown,
-  arg1?: unknown,
-  arg2?: unknown
+  arg1?: unknown
 ): void {
   world.beginDefer();
   try {
     // Bare `forEach(callback)`: a function that is not a cursor marker.
-    if (typeof arg0 === "function" && !isCursorMarker(arg0)) {
+    if (typeof arg0 === "function") {
       for (const entity of entities) {
         (arg0 as (e: Entity) => void)(entity);
       }
       return;
     }
-    const useIter = wantsIter(arg0);
-    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
-    const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
-      eOrIt: unknown,
-      resolved: unknown
-    ) => void;
+    const { components, useIter } = normalizeFanInjectCallbackArgs(arg0);
+    const callback = arg1 as (eOrIt: unknown, resolved: unknown) => void;
     const invoke = makeInjectedInvoker(world, components, useIter, callback);
     for (const entity of entities) {
       invoke(entity);
@@ -256,6 +251,20 @@ export function forEachInjected(
   } finally {
     world.endDefer();
   }
+}
+
+function normalizeFanInjectCallbackArgs(arg0: unknown): {
+  components: readonly FanInjectElement[];
+  useIter: boolean;
+} {
+  if (typeof arg0 === "object" && arg0 !== null && !Array.isArray(arg0) && "inject" in arg0) {
+    const options = arg0 as { cursor?: unknown; inject: readonly FanInjectElement[] };
+    return {
+      components: options.inject,
+      useIter: wantsIter(options.cursor),
+    };
+  }
+  return { components: arg0 as readonly FanInjectElement[], useIter: false };
 }
 
 export function makeInjectedInvoker(

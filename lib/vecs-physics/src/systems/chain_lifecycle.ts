@@ -17,26 +17,30 @@ export function installChainLifecycle(world: World, engine: PhysicsEngine, phase
   const system = world.system("PhysicsChainLifecycle").with(chainWithBodyParent).phase(phase);
   system.entity.add(PhysicsSystemTag);
 
-  system.enter(Iter, [Chain, { target: [ChildOf, [Body]] }], (it, [chain, body]) => {
-    createChainForEntity(engine, it.entity, it.src[1], body, chain);
-  });
+  system.enter(
+    { cursor: Iter, inject: [Chain, { target: [ChildOf, [Body]] }] },
+    (it, [chain, body]) => {
+      createChainForEntity(engine, it.entity, it.src[1], body, chain);
+    }
+  );
 
   system.exit([ChildOf, Chain], (entity, [childOf, chain]) => {
     destroyChainForEntity(engine, entity, true, childOf?.target, chain);
   });
 
-  system.update(Iter, Chain, [{ target: [ChildOf, [Body]] }], (it, chain, [body]) => {
-    recreateChainForEntity(engine, it.entity, it.src[0], body, chain);
-  });
+  system.update(
+    { cursor: Iter, component: Chain, inject: [{ target: [ChildOf, [Body]] }] },
+    (it, chain, [body]) => {
+      recreateChainForEntity(engine, it.entity, it.src[0], body, chain);
+    }
+  );
 
   const childOfSystem = world
     .system("PhysicsChainLifecycle:ChildOf")
     .with(ChildOf, chainWithBodyParent)
     .phase(phase)
     .update(
-      Iter,
-      ChildOf,
-      [Chain, { target: [ChildOf, [Body]] }],
+      { cursor: Iter, component: ChildOf, inject: [Chain, { target: [ChildOf, [Body]] }] },
       (it, _childOf, [chain, body]) => {
         recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
       }

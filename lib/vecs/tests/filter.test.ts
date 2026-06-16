@@ -149,6 +149,19 @@ describe("Filter — forEach with injection", () => {
     expect(received).toBe(pos);
   });
 
+  it("accepts injection options", () => {
+    const { w } = setup();
+    const e = w.entity();
+    const pos = e.set(Position, { x: 42 }).get(Position)!;
+
+    let received: Position | undefined;
+    w.filter([Position]).forEach({ inject: [Position] }, (_e, [p]) => {
+      received = p;
+    });
+
+    expect(received).toBe(pos);
+  });
+
   it("absent injected component is undefined", () => {
     const { w } = setup();
     w.entity().add(Position);

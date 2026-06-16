@@ -16,9 +16,11 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
   system.entity.add(PhysicsSystemTag);
 
   system.update(
-    Iter,
-    ShapePosition,
-    [SingleShape, { target: [ChildOf, [Body]] }],
+    {
+      cursor: Iter,
+      component: ShapePosition,
+      inject: [SingleShape, { target: [ChildOf, [Body]] }],
+    },
     (it, _position, [shape, body]) => {
       recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
     }
@@ -29,9 +31,7 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
     .with(ShapePosition, chainWithBodyParent)
     .phase(phase)
     .update(
-      Iter,
-      ShapePosition,
-      [Chain, { target: [ChildOf, [Body]] }],
+      { cursor: Iter, component: ShapePosition, inject: [Chain, { target: [ChildOf, [Body]] }] },
       (it, _position, [chain, body]) => {
         recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
       }
@@ -43,9 +43,11 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
     .with(ShapeRotation, singleShapeWithBodyParent)
     .phase(phase)
     .update(
-      Iter,
-      ShapeRotation,
-      [SingleShape, { target: [ChildOf, [Body]] }],
+      {
+        cursor: Iter,
+        component: ShapeRotation,
+        inject: [SingleShape, { target: [ChildOf, [Body]] }],
+      },
       (it, _rotation, [shape, body]) => {
         recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
       }
@@ -57,9 +59,7 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
     .with(ShapeRotation, chainWithBodyParent)
     .phase(phase)
     .update(
-      Iter,
-      ShapeRotation,
-      [Chain, { target: [ChildOf, [Body]] }],
+      { cursor: Iter, component: ShapeRotation, inject: [Chain, { target: [ChildOf, [Body]] }] },
       (it, _rotation, [chain, body]) => {
         recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
       }

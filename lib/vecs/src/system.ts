@@ -1,6 +1,5 @@
 import { type ComponentInstance, type ComponentType } from "./component.js";
 import {
-  isCursorMarker,
   Iter,
   makeInjectedInvoker,
   wantsIter,
@@ -11,6 +10,11 @@ import {
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
 import { SOURCE_TRACKED_QUERY_ERROR, Query } from "./query/index.js";
+import type {
+  EntityCursorOption,
+  FanInjectCallbackOptions,
+  IterCursorOption,
+} from "./query/index.js";
 import {
   containsDownTerm,
   type ExtractSpecsRequired,
@@ -482,40 +486,34 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   ): this;
 
   /**
-   * As above, but pass `Entity` first to make the entity-first signature
-   * explicit. Identical behavior to the no-marker form.
+   * As above, but pass `{ cursor: Entity, inject: [...] }` to make the
+   * entity-first signature explicit. Identical behavior to the array form.
    */
   public each<J extends FanInjectTuple>(
-    cursor: typeof Entity,
-    components: readonly [...J],
+    options: EntityCursorOption & FanInjectCallbackOptions<J>,
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
 
   /**
-   * As above, but pass `Iter` first to receive a reused {@link Iter}
-   * cursor instead of the bare entity. The cursor exposes the visited entity
-   * (`it.entity`) and, in `it.src`, the source entity each resolved component
-   * was read from (the visited entity for direct components, the relationship
-   * target for `target`-injected ones).
+   * As above, but pass `{ cursor: Iter, inject: [...] }` to receive a reused
+   * {@link Iter} cursor instead of the bare entity. The cursor exposes the
+   * visited entity (`it.entity`) and, in `it.src`, the source entity each
+   * resolved component was read from (the visited entity for direct components,
+   * the relationship target for `target`-injected ones).
    */
   public each<J extends FanInjectTuple>(
-    cursor: typeof Iter,
-    components: readonly [...J],
+    options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
 
-  public each(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
+  public each(arg0: unknown, arg1?: unknown): this {
     this._assertConfigurable();
     if (this._eachCallback) {
       throw new Error(`each already registered for system '${this.name}'`);
     }
     this.track();
-    const useIter = wantsIter(arg0);
-    const components = (isCursorMarker(arg0) ? arg1 : arg0) as readonly FanInjectElement[];
-    const callback = (isCursorMarker(arg0) ? arg2 : arg1) as (
-      eOrIt: unknown,
-      resolved: unknown
-    ) => void;
+    const { components, useIter } = normalizeFanInjectArgs(arg0);
+    const callback = arg1 as (eOrIt: unknown, resolved: unknown) => void;
     this._eachCallback = makeInjectedInvoker(this.world, components, useIter, callback);
     return this;
   }
@@ -602,6 +600,20 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this.disable();
     super.destroy();
   }
+}
+
+function normalizeFanInjectArgs(arg0: unknown): {
+  components: readonly FanInjectElement[];
+  useIter: boolean;
+} {
+  if (typeof arg0 === "object" && arg0 !== null && !Array.isArray(arg0) && "inject" in arg0) {
+    const options = arg0 as { cursor?: unknown; inject: readonly FanInjectElement[] };
+    return {
+      components: options.inject,
+      useIter: wantsIter(options.cursor),
+    };
+  }
+  return { components: arg0 as readonly FanInjectElement[], useIter: false };
 }
 
 function snapshotDirectInjects(e: Entity, snapshotTypes: InjectSnapshotTypes): InjectSnapshot {

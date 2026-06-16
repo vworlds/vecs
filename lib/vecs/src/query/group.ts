@@ -7,6 +7,7 @@ import {
   type MaybeResolvedInjectTuple,
 } from "../inject.js";
 import { type World } from "../world/index.js";
+import type { EntityCursorOption, FanInjectCallbackOptions, IterCursorOption } from "./options.js";
 
 export class Group<K = unknown, R extends ComponentType[] = []> {
   public readonly key: K;
@@ -32,17 +33,15 @@ export class Group<K = unknown, R extends ComponentType[] = []> {
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
   public forEach<J extends FanInjectTuple>(
-    cursor: typeof Entity,
-    components: readonly [...J],
+    options: EntityCursorOption & FanInjectCallbackOptions<J>,
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
   public forEach<J extends FanInjectTuple>(
-    cursor: typeof Iter,
-    components: readonly [...J],
+    options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach(arg0: unknown, arg1?: unknown, arg2?: unknown): this {
-    forEachInjected(this._world, this._entities, arg0, arg1, arg2);
+  public forEach(arg0: unknown, arg1?: unknown): this {
+    forEachInjected(this._world, this._entities, arg0, arg1);
     return this;
   }
 

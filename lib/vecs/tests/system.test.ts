@@ -108,7 +108,9 @@ describe("System — enter / exit / update", () => {
   it("update with injection delivers extra components", () => {
     const { w } = setup();
     const cb = vi.fn();
-    w.system("test").with(Position, Velocity).update(Velocity, [Position], cb);
+    w.system("test")
+      .with(Position, Velocity)
+      .update({ component: Velocity, inject: [Position] }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity).get(Velocity)!;
@@ -536,6 +538,20 @@ describe("System — each", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position, Velocity).each([Position, Velocity], cb);
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    const vel = e.add(Velocity).get(Velocity)!;
+    w.progress(0, 0);
+    w.progress(0, 0);
+    expect(cb).toHaveBeenCalledWith(e, [pos, vel]);
+  });
+
+  it("each accepts injection options", () => {
+    const { w } = setup();
+    const cb = vi.fn();
+    w.system("test")
+      .with(Position, Velocity)
+      .each({ inject: [Position, Velocity] }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity).get(Velocity)!;
@@ -995,7 +1011,7 @@ describe("System — stale inbox update after same-frame exit", () => {
   // Regression for the phaser.sync.position crash:
   //   world.system("phaser.sync.position")
   //     .with(Position, Transform)
-  //     .update(Position, [Transform], (_e, p, [obj]) => obj.setPosition(...))
+  //     .update({ component: Position, inject: [Transform] }, (_e, p, [obj]) => obj.setPosition(...))
   // A Position update queued in the inbox must not dispatch once the entity has
   // left the query before the inbox drains. The `.with` read (here `Sprite`,
   // standing in for the live Phaser GameObject) is resolved lazily at dispatch
@@ -1006,7 +1022,7 @@ describe("System — stale inbox update after same-frame exit", () => {
     const seen: Array<Sprite | undefined> = [];
     w.system("test")
       .with(Position, Sprite)
-      .update(Position, [Sprite], (_e, _p, [obj]) => seen.push(obj));
+      .update({ component: Position, inject: [Sprite] }, (_e, _p, [obj]) => seen.push(obj));
 
     const e = w.entity().add(Position).add(Sprite);
     w.progress(0, 0); // entry-time update fires cleanly (Sprite present)
@@ -1026,7 +1042,7 @@ describe("System — stale inbox update after same-frame exit", () => {
     const seen: Array<Sprite | undefined> = [];
     w.system("test")
       .with(Position, Sprite)
-      .update(Position, [Sprite], (_e, _p, [obj]) => seen.push(obj));
+      .update({ component: Position, inject: [Sprite] }, (_e, _p, [obj]) => seen.push(obj));
 
     const e = w.entity().add(Position).add(Sprite);
     w.progress(0, 0);
@@ -1044,7 +1060,7 @@ describe("System — stale inbox update after same-frame exit", () => {
     const seen: Array<Sprite | undefined> = [];
     w.system("test")
       .with(Position, Sprite)
-      .update(Position, [Sprite], (_e, _p, [obj]) => seen.push(obj));
+      .update({ component: Position, inject: [Sprite] }, (_e, _p, [obj]) => seen.push(obj));
 
     const e = w.entity().add(Position).add(Sprite);
     w.progress(0, 0);

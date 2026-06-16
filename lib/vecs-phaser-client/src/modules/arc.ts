@@ -37,7 +37,7 @@ export class ArcModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace 
       .system("phaser.render.arc.geometry")
       .with(Arc, m.Arc)
       .phase(ON_STORE)
-      .update(Arc, [m.Arc], (_entity, arc, [obj]) => {
+      .update({ component: Arc, inject: [m.Arc] }, (_entity, arc, [obj]) => {
         obj
           .setRadius(coords.len(arc.radius))
           .setStartAngle(coords.deg(arc.startAngle), arc.anticlockwise)

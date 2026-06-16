@@ -44,7 +44,7 @@ export class TriangleModule extends Module<{ scene: Phaser.Scene; coords: CoordS
       .system("phaser.render.triangle.geometry")
       .with(Triangle, m.Vertices)
       .phase(ON_STORE)
-      .update(Triangle, [m.Vertices], (_entity, triangle, [obj]) => {
+      .update({ component: Triangle, inject: [m.Vertices] }, (_entity, triangle, [obj]) => {
         obj.setTo(...triangleCoordinates(coords, triangle));
       });
   }

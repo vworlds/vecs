@@ -20,7 +20,7 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
       .system("phaser.sync.position")
       .with(Position, m.Transform)
       .phase(ON_STORE)
-      .update(Position, [m.Transform], (_e, p, [obj]) =>
+      .update({ component: Position, inject: [m.Transform] }, (_e, p, [obj]) =>
         obj.setPosition(coords.x(p.x), coords.y(p.y))
       );
 
@@ -28,31 +28,35 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
       .system("phaser.sync.rotation")
       .with(Rotation, m.Transform)
       .phase(ON_STORE)
-      .update(Rotation, [m.Transform], (_e, r, [obj]) => obj.setRotation(coords.rot(r.angle)));
+      .update({ component: Rotation, inject: [m.Transform] }, (_e, r, [obj]) =>
+        obj.setRotation(coords.rot(r.angle))
+      );
 
     world
       .system("phaser.sync.scale")
       .with(Scale, m.Transform)
       .phase(ON_STORE)
-      .update(Scale, [m.Transform], (_e, s, [obj]) => obj.setScale(s.x, s.y));
+      .update({ component: Scale, inject: [m.Transform] }, (_e, s, [obj]) =>
+        obj.setScale(s.x, s.y)
+      );
 
     world
       .system("phaser.sync.alpha")
       .with(Alpha, m.Alpha)
       .phase(ON_STORE)
-      .update(Alpha, [m.Alpha], (_e, a, [obj]) => obj.setAlpha(a.value));
+      .update({ component: Alpha, inject: [m.Alpha] }, (_e, a, [obj]) => obj.setAlpha(a.value));
 
     world
       .system("phaser.sync.depth")
       .with(Depth, m.Depth)
       .phase(ON_STORE)
-      .update(Depth, [m.Depth], (_e, d, [obj]) => obj.setDepth(d.value));
+      .update({ component: Depth, inject: [m.Depth] }, (_e, d, [obj]) => obj.setDepth(d.value));
 
     world
       .system("phaser.sync.size")
       .with(Size, m.Size)
       .phase(ON_STORE)
-      .update(Size, [m.Size], (_e, s, [obj]) =>
+      .update({ component: Size, inject: [m.Size] }, (_e, s, [obj]) =>
         obj.setSize(coords.len(s.width), coords.len(s.height))
       );
 
@@ -60,13 +64,15 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
       .system("phaser.sync.fill-style")
       .with(FillStyle, m.Fill)
       .phase(ON_STORE)
-      .update(FillStyle, [m.Fill], (_e, f, [obj]) => obj.setFillStyle(f.color, f.alpha));
+      .update({ component: FillStyle, inject: [m.Fill] }, (_e, f, [obj]) =>
+        obj.setFillStyle(f.color, f.alpha)
+      );
 
     world
       .system("phaser.sync.stroke-style")
       .with(StrokeStyle, m.Stroke)
       .phase(ON_STORE)
-      .update(StrokeStyle, [m.Stroke], (_e, s, [obj]) =>
+      .update({ component: StrokeStyle, inject: [m.Stroke] }, (_e, s, [obj]) =>
         obj.setStrokeStyle(s.width, s.color, s.alpha)
       );
   }
