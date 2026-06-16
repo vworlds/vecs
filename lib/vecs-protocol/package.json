@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-protocol",
-  "version": "1.0.31",
+  "version": "1.0.32",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -27,8 +27,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@vworlds/vecs": "1.0.31",
-    "@vworlds/vecs-wire": "1.0.31"
+    "@vworlds/vecs": "1.0.32",
+    "@vworlds/vecs-wire": "1.0.32"
   },
   "license": "UNLICENSED",
   "repository": {
