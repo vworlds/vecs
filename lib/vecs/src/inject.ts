@@ -210,13 +210,23 @@ export class Iter {
   }
 }
 
-export function isCursorMarker(x: unknown): x is typeof Entity | typeof Iter {
-  return x === Entity || x === Iter;
-}
-
 export function wantsIter(x: unknown): x is typeof Iter {
   return x === Iter;
 }
+
+export type FanInjectCallbackOptions<J extends FanInjectTuple = FanInjectTuple> = {
+  cursor?: typeof Entity | typeof Iter;
+  inject: readonly [...J];
+};
+
+export type FanInjectCallbackArg<J extends FanInjectTuple = FanInjectTuple> =
+  | readonly [...J]
+  | FanInjectCallbackOptions<J>;
+
+export type InjectedCallback = (
+  eOrIt: Entity | Iter,
+  resolved: readonly (ComponentInstance | undefined)[]
+) => void;
 
 /**
  * Iterate `entities`, resolving injected components per the `forEach` /
@@ -230,20 +240,20 @@ export function wantsIter(x: unknown): x is typeof Iter {
 export function forEachInjected(
   world: World,
   entities: Iterable<Entity>,
-  arg0: unknown,
-  arg1?: unknown
+  callbackOrInject: ((e: Entity) => void) | FanInjectCallbackArg,
+  injectedCallback?: InjectedCallback
 ): void {
   world.beginDefer();
   try {
     // Bare `forEach(callback)`: a function that is not a cursor marker.
-    if (typeof arg0 === "function") {
+    if (typeof callbackOrInject === "function") {
       for (const entity of entities) {
-        (arg0 as (e: Entity) => void)(entity);
+        callbackOrInject(entity);
       }
       return;
     }
-    const { components, useIter } = normalizeFanInjectCallbackArgs(arg0);
-    const callback = arg1 as (eOrIt: unknown, resolved: unknown) => void;
+    const { components, useIter } = normalizeFanInjectCallbackArgs(callbackOrInject);
+    const callback = injectedCallback as InjectedCallback;
     const invoke = makeInjectedInvoker(world, components, useIter, callback);
     for (const entity of entities) {
       invoke(entity);
@@ -253,25 +263,24 @@ export function forEachInjected(
   }
 }
 
-function normalizeFanInjectCallbackArgs(arg0: unknown): {
+export function normalizeFanInjectCallbackArgs(callbackOrInject: FanInjectCallbackArg): {
   components: readonly FanInjectElement[];
   useIter: boolean;
 } {
-  if (typeof arg0 === "object" && arg0 !== null && !Array.isArray(arg0) && "inject" in arg0) {
-    const options = arg0 as { cursor?: unknown; inject: readonly FanInjectElement[] };
+  if (!Array.isArray(callbackOrInject) && "inject" in callbackOrInject) {
     return {
-      components: options.inject,
-      useIter: wantsIter(options.cursor),
+      components: callbackOrInject.inject,
+      useIter: wantsIter(callbackOrInject.cursor),
     };
   }
-  return { components: arg0 as readonly FanInjectElement[], useIter: false };
+  return { components: callbackOrInject, useIter: false };
 }
 
 export function makeInjectedInvoker(
   world: World,
   components: readonly FanInjectElement[],
   useIter: boolean,
-  callback: (eOrIt: unknown, resolved: unknown) => void
+  callback: InjectedCallback
 ): (e: Entity) => void {
   const inject = mapInject(world, components);
   const arity = injectArity(inject);

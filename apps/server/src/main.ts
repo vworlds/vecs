@@ -310,7 +310,7 @@ world
   .enter([RenderPosition, View], (entity, [position, view]) =>
     updatePlayerView(entity, position, view)
   )
-  .update({ component: RenderPosition, inject: [View] }, (entity, position, [view]) =>
+  .update({ watch: RenderPosition, inject: [View] }, (entity, position, [view]) =>
     updatePlayerView(entity, position, view)
   );
 

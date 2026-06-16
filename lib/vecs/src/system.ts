@@ -2,9 +2,10 @@ import { type ComponentInstance, type ComponentType } from "./component.js";
 import {
   Iter,
   makeInjectedInvoker,
-  wantsIter,
-  type FanInjectElement,
+  normalizeFanInjectCallbackArgs,
+  type FanInjectCallbackArg,
   type FanInjectTuple,
+  type InjectedCallback,
   type InjectSnapshot,
   type InjectSnapshotTypes,
   type MaybeResolvedInjectTuple,
@@ -14,7 +15,7 @@ import type {
   EntityCursorOption,
   FanInjectCallbackOptions,
   IterCursorOption,
-} from "./query/index.js";
+} from "./query/options.js";
 import {
   containsDownTerm,
   type ExtractSpecsRequired,
@@ -38,7 +39,6 @@ import {
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
 type RunCallback = (now: number, delta: number) => void;
-
 /** Discriminator for {@link _SystemInboxEvent}. */
 const enum InboxCommand {
   Enter,
@@ -506,14 +506,14 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
 
-  public each(arg0: unknown, arg1?: unknown): this {
+  public each(arg0: FanInjectCallbackArg, arg1?: Function): this {
     this._assertConfigurable();
     if (this._eachCallback) {
       throw new Error(`each already registered for system '${this.name}'`);
     }
     this.track();
-    const { components, useIter } = normalizeFanInjectArgs(arg0);
-    const callback = arg1 as (eOrIt: unknown, resolved: unknown) => void;
+    const { components, useIter } = normalizeFanInjectCallbackArgs(arg0);
+    const callback = arg1 as InjectedCallback;
     this._eachCallback = makeInjectedInvoker(this.world, components, useIter, callback);
     return this;
   }
@@ -600,20 +600,6 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this.disable();
     super.destroy();
   }
-}
-
-function normalizeFanInjectArgs(arg0: unknown): {
-  components: readonly FanInjectElement[];
-  useIter: boolean;
-} {
-  if (typeof arg0 === "object" && arg0 !== null && !Array.isArray(arg0) && "inject" in arg0) {
-    const options = arg0 as { cursor?: unknown; inject: readonly FanInjectElement[] };
-    return {
-      components: options.inject,
-      useIter: wantsIter(options.cursor),
-    };
-  }
-  return { components: arg0 as readonly FanInjectElement[], useIter: false };
 }
 
 function snapshotDirectInjects(e: Entity, snapshotTypes: InjectSnapshotTypes): InjectSnapshot {

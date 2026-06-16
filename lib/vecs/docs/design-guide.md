@@ -213,10 +213,10 @@ classes or DSL objects (`{ all: [...] }`, `{ any: [...] }`, `{ parent: X }`, `{ 
 ```ts
 // ❌ redundant
 .enter([Rotation, VGameObject], (_e, [r, vgo]) => vgo.obj.setRotation(coords.rot(r.angle)))
-.update({ component: Rotation, inject: [VGameObject] }, (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
+.update({ watch: Rotation, inject: [VGameObject] }, (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
 
 // ✅ update fires on entry too
-.update({ component: Rotation, inject: [VGameObject] }, (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
+.update({ watch: Rotation, inject: [VGameObject] }, (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
 ```
 
 ### Injection
@@ -225,7 +225,7 @@ Pull components into the callback instead of `entity.get()`-ing them by hand:
 
 ```ts
 .enter([Arc], (entity, [arc]) => { /* … */ })
-.update({ component: Arc, inject: [VGameObject] }, (entity, arc, [vgo]) => { /* … */ })
+.update({ watch: Arc, inject: [VGameObject] }, (entity, arc, [vgo]) => { /* … */ })
 .exit([Arc, VGameObject], (entity, [arc, vgo]) => { /* … */ })
 .each([Position, Velocity], (entity, [pos, vel]) => { /* … */ })
 ```
@@ -382,7 +382,7 @@ world
   .system("render.arc")
   .with(Arc, VGameObject)
   .phase(ON_STORE)
-  .update({ component: Arc, inject: [VGameObject] }, (e, arc, [vgo]) =>
+  .update({ watch: Arc, inject: [VGameObject] }, (e, arc, [vgo]) =>
     (vgo.obj as ArcObject).setRadius(coords.len(arc.radius))
   );
 

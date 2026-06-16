@@ -6,16 +6,17 @@ import type { Term } from "./terms/term.js";
 import {
   Iter,
   makeInjectedInvoker,
-  wantsIter,
-  type FanInjectElement,
+  normalizeFanInjectCallbackArgs,
+  type FanInjectCallbackArg,
   type FanInjectTuple,
+  type InjectedCallback,
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
 import type {
   EntityCursorOption,
   FanInjectCallbackOptions,
   IterCursorOption,
-} from "./query/index.js";
+} from "./query/options.js";
 
 /**
  * A non-reactive, one-shot entity filter.
@@ -118,7 +119,7 @@ export class Filter<R extends ComponentType[] = []> {
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
 
-  public forEach(arg0: unknown, arg1?: unknown): this {
+  public forEach(arg0: ((e: Entity) => void) | FanInjectCallbackArg, arg1?: Function): this {
     // Bare `forEach(callback)`.
     if (typeof arg0 === "function") {
       const callback = arg0 as (e: Entity) => void;
@@ -127,8 +128,8 @@ export class Filter<R extends ComponentType[] = []> {
       });
       return this;
     }
-    const { components, useIter } = normalizeFanInjectArgs(arg0);
-    const callback = arg1 as (eOrIt: unknown, resolved: unknown) => void;
+    const { components, useIter } = normalizeFanInjectCallbackArgs(arg0);
+    const callback = arg1 as InjectedCallback;
     this.world.defer(() => {
       const invoke = makeInjectedInvoker(this.world, components, useIter, callback);
       this._forEachMatch(invoke);
@@ -150,18 +151,4 @@ export class Filter<R extends ComponentType[] = []> {
       }
     });
   }
-}
-
-function normalizeFanInjectArgs(arg0: unknown): {
-  components: readonly FanInjectElement[];
-  useIter: boolean;
-} {
-  if (typeof arg0 === "object" && arg0 !== null && !Array.isArray(arg0) && "inject" in arg0) {
-    const options = arg0 as { cursor?: unknown; inject: readonly FanInjectElement[] };
-    return {
-      components: options.inject,
-      useIter: wantsIter(options.cursor),
-    };
-  }
-  return { components: arg0 as readonly FanInjectElement[], useIter: false };
 }

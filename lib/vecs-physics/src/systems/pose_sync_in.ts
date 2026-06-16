@@ -15,7 +15,7 @@ export function installPoseSyncIn(world: World, engine: PhysicsEngine, phase: En
     .with(Body, Position)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update({ component: Position, inject: [Body] }, (entity, position, [body]) => {
+    .update({ watch: Position, inject: [Body] }, (entity, position, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
@@ -37,7 +37,7 @@ export function installPoseSyncIn(world: World, engine: PhysicsEngine, phase: En
     .with(Body, Rotation)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update({ component: Rotation, inject: [Body] }, (entity, rotation, [body]) => {
+    .update({ watch: Rotation, inject: [Body] }, (entity, rotation, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
@@ -59,7 +59,7 @@ export function installPoseSyncIn(world: World, engine: PhysicsEngine, phase: En
     .with(Body, LinearVelocity)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update({ component: LinearVelocity, inject: [Body] }, (entity, velocity, [body]) => {
+    .update({ watch: LinearVelocity, inject: [Body] }, (entity, velocity, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
@@ -76,7 +76,7 @@ export function installPoseSyncIn(world: World, engine: PhysicsEngine, phase: En
     .with(Body, AngularVelocity)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update({ component: AngularVelocity, inject: [Body] }, (entity, velocity, [body]) => {
+    .update({ watch: AngularVelocity, inject: [Body] }, (entity, velocity, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;

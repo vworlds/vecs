@@ -86,7 +86,7 @@ describe("Query — typing", () => {
     assertType<IsEqual<typeof typedRepeatedQuery, Query<[typeof Position, typeof Velocity]>>>();
 
     if (false) {
-      typedQuery.update({ component: Position, inject: [Velocity] }, (_e, p, [v]) => {
+      typedQuery.update({ watch: Position, inject: [Velocity] }, (_e, p, [v]) => {
         assertType<IsEqual<typeof p, Position>>();
         assertType<IsEqual<typeof v, Velocity>>();
       });

@@ -20,6 +20,14 @@ import { type World } from "../world/index.js";
 
 export type EntityCallback = (e: Entity, snapshot?: InjectSnapshot) => void;
 export type ComponentCallback = (e: Entity, c: ComponentInstance) => void;
+type CursorCallbackArg = Entity | Iter;
+type InjectedValues = readonly (ComponentInstance | undefined)[];
+type SortCallback = (
+  a: CursorCallbackArg,
+  aResolved: InjectedValues,
+  b: CursorCallbackArg,
+  bResolved: InjectedValues
+) => number;
 
 export function makeEnterCallback(
   world: World,
@@ -33,7 +41,7 @@ export function makeEnterCallback(
     return { callback: (e: Entity) => fn(e), snapshotTypes: undefined };
   }
   const { components, useIter } = normalizeInjectCallbackArgs(arg0);
-  const cb = arg1 as (eOrIt: unknown, injected: unknown) => void;
+  const cb = arg1 as (eOrIt: CursorCallbackArg, injected: InjectedValues) => void;
   const inject = mapInject(world, components);
   // Mirror exit: capture the injected components so a System's inbox-queued enter
   // still resolves them even if the entity is destroyed before the inbox drains.
@@ -67,7 +75,7 @@ export function makeExitCallback(
     return { callback: arg0 as (e: Entity) => void, snapshotTypes: undefined };
   }
   const { components, useIter } = normalizeInjectCallbackArgs(arg0);
-  const cb = arg1 as (eOrIt: unknown, injected: unknown) => void;
+  const cb = arg1 as (eOrIt: CursorCallbackArg, injected: InjectedValues) => void;
   const inject = mapInject(world, components);
   const snapshotTypes = directInjectSnapshotTypes(inject);
   const arity = injectArity(inject);
@@ -95,7 +103,7 @@ export function makeSortedEntitySet(
   arg1?: Function
 ): { set: OrderedSet<Entity>; watchEids: EID[] } {
   const { components, useIter } = normalizeInjectCallbackArgs(arg0);
-  const cb = arg1 as (...args: unknown[]) => number;
+  const cb = arg1 as SortCallback;
   const inject = mapInject(world, components);
   const arity = injectArity(inject);
   const watchEids = directInjectEids(inject);
@@ -132,7 +140,7 @@ export function makeUpdateRegistration<C extends ComponentType>(
   const { ComponentClass, components, useIter } = normalized;
   const componentEid = world.entity(ComponentClass).eid;
   if (components === undefined) {
-    const fn = arg1 as (eOrIt: unknown, c: InstanceType<C>) => void;
+    const fn = arg1 as (eOrIt: CursorCallbackArg, c: InstanceType<C>) => void;
     if (useIter) {
       const it = new Iter(0);
       return {
@@ -184,9 +192,9 @@ function normalizeInjectCallbackArgs(
 function normalizeUpdateCallbackArgs<C extends ComponentType>(
   arg0: C | UpdateCallbackOptions<C, InjectTuple>
 ): { ComponentClass: C; components: readonly InjectElement[] | undefined; useIter: boolean } {
-  if (isOptionsObject(arg0) && "component" in arg0) {
+  if (isOptionsObject(arg0) && "watch" in arg0) {
     return {
-      ComponentClass: arg0.component as C,
+      ComponentClass: arg0.watch as C,
       components: arg0.inject as readonly InjectElement[] | undefined,
       useIter: wantsIter(arg0.cursor),
     };

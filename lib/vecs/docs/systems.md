@@ -18,9 +18,7 @@ world
   .system("Render")
   .with(Sprite, Position)
   .enter([Sprite, Position], (e, [sprite, pos]) => sprite.show(pos))
-  .update({ component: Position, inject: [Sprite] }, (e, pos, [sprite]) =>
-    sprite.moveTo(pos.x, pos.y)
-  )
+  .update({ watch: Position, inject: [Sprite] }, (e, pos, [sprite]) => sprite.moveTo(pos.x, pos.y))
   .exit([Sprite], (e, [sprite]) => sprite.hide());
 ```
 
@@ -99,7 +97,7 @@ reference:
 
 ```ts
 .update(Position, (entity, pos) => renderer.setPosition(entity.eid, pos.x, pos.y))
-.update({ component: Position, inject: [Sprite] }, (entity, pos, [sprite]) =>
+.update({ watch: Position, inject: [Sprite] }, (entity, pos, [sprite]) =>
   sprite.setPosition(pos.x, pos.y)
 )
 ```

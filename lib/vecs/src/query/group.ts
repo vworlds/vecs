@@ -3,7 +3,9 @@ import { Entity } from "../entity/index.js";
 import {
   forEachInjected,
   Iter,
+  type FanInjectCallbackArg,
   type FanInjectTuple,
+  type InjectedCallback,
   type MaybeResolvedInjectTuple,
 } from "../inject.js";
 import { type World } from "../world/index.js";
@@ -40,8 +42,8 @@ export class Group<K = unknown, R extends ComponentType[] = []> {
     options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach(arg0: unknown, arg1?: unknown): this {
-    forEachInjected(this._world, this._entities, arg0, arg1);
+  public forEach(arg0: ((e: Entity) => void) | FanInjectCallbackArg, arg1?: Function): this {
+    forEachInjected(this._world, this._entities, arg0, arg1 as InjectedCallback);
     return this;
   }
 

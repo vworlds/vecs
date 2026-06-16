@@ -10,8 +10,10 @@ import { Entity, type EID } from "../entity/index.js";
 import {
   forEachInjected,
   Iter,
+  type FanInjectCallbackArg,
   type FanInjectElement,
   type FanInjectTuple,
+  type InjectedCallback,
   type InjectSnapshotTypes,
   type InjectElement,
   type InjectTuple,
@@ -47,7 +49,6 @@ import type {
 } from "./options.js";
 
 const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
-
 /**
  * A reactive, always-up-to-date set of entities matching a {@link QueryDSL}
  * predicate.
@@ -186,7 +187,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach(arg0: unknown, arg1?: unknown): this {
+  public forEach(arg0: ((e: Entity) => void) | FanInjectCallbackArg, arg1?: Function): this {
     this.changed = false;
     this._forEach(arg0, arg1);
     return this;
@@ -198,8 +199,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * tick and must not reset `changed` (that flag tracks whether membership or
    * watched data changed since the caller last read it).
    */
-  protected _forEach(arg0: unknown, arg1?: unknown): void {
-    forEachInjected(this.world, this._matchedEntities(), arg0, arg1);
+  protected _forEach(arg0: ((e: Entity) => void) | FanInjectCallbackArg, arg1?: Function): void {
+    forEachInjected(this.world, this._matchedEntities(), arg0, arg1 as InjectedCallback);
   }
 
   public toString(): string {
@@ -419,7 +420,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * Register one update callback for a watched component.
    *
    * `update(ComponentClass, callback)` keeps the common component-only form.
-   * Use `update({ component, inject, cursor }, callback)` when the callback
+   * Use `update({ watch, inject, cursor }, callback)` when the callback
    * needs injected components or an {@link Iter} cursor.
    *
    * `update` also adds the watched component to the query predicate, so the

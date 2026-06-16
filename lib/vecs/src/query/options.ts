@@ -10,21 +10,21 @@ export type IterCursorOption = {
   cursor: typeof Iter;
 };
 
-export type CursorOption = EntityCursorOption | IterCursorOption;
+type CursorOption = EntityCursorOption | IterCursorOption;
 
-export type InjectOption<J extends InjectTuple> = {
+type InjectOption<J extends InjectTuple> = {
   inject: readonly [...J];
 };
 
-export type FanInjectOption<J extends FanInjectTuple> = {
+type FanInjectOption<J extends FanInjectTuple> = {
   inject: readonly [...J];
 };
 
-export type ComponentOption<C extends ComponentType> = {
-  component: C;
+type WatchOption<C extends ComponentType> = {
+  watch: C;
 };
 
-export type RelationshipOption<R extends ComponentRef = ComponentRef> = {
+type RelationshipOption<R extends ComponentRef = ComponentRef> = {
   relationship: R;
 };
 
@@ -33,7 +33,7 @@ export type InjectCallbackOptions<J extends InjectTuple> = CursorOption & Inject
 export type FanInjectCallbackOptions<J extends FanInjectTuple> = CursorOption & FanInjectOption<J>;
 
 export type UpdateCallbackOptions<C extends ComponentType, J extends InjectTuple> = CursorOption &
-  ComponentOption<C> &
+  WatchOption<C> &
   Partial<InjectOption<J>>;
 
 export type OrderByOptions<J extends InjectTuple> = CursorOption & InjectOption<J>;
