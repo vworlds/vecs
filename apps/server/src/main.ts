@@ -300,7 +300,6 @@ world
   .system("AssignCells")
   .with(Networked, RenderPosition)
   .phase(PRE_STORE)
-  .enter([RenderPosition], (entity, [position]) => assignCell(entity, position))
   .update({ watch: RenderPosition, enter: true }, (entity, position) =>
     assignCell(entity, position)
   );
@@ -309,9 +308,6 @@ world
   .system("UpdatePlayerViews")
   .with(Networked, NetworkClient, RenderPosition, View)
   .phase(PRE_STORE)
-  .enter([RenderPosition, View], (entity, [position, view]) =>
-    updatePlayerView(entity, position, view)
-  )
   .update({ watch: RenderPosition, enter: true, inject: [View] }, (entity, position, [view]) =>
     updatePlayerView(entity, position, view)
   );
