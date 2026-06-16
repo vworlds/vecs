@@ -282,23 +282,28 @@ describe("Query — update predicate", () => {
     const velocityUpdate = vi.fn();
     const q = w
       .query("updated")
-      .update({ watch: Position, enter: true }, positionUpdate)
-      .update({ watch: Velocity, enter: true }, velocityUpdate)
+      .update(Position, positionUpdate)
+      .update(Velocity, velocityUpdate)
       .build();
 
     expect(q.has(e)).toBe(true);
+    expect(positionUpdate).not.toHaveBeenCalled();
+    expect(velocityUpdate).not.toHaveBeenCalled();
+
+    e.modified(Position);
+    tick();
     expect(positionUpdate).toHaveBeenCalledWith(e, e.get(Position));
+    expect(velocityUpdate).not.toHaveBeenCalled();
+
+    e.modified(Velocity);
+    tick();
     expect(velocityUpdate).toHaveBeenCalledWith(e, e.get(Velocity));
   });
 
   it("update() narrows an existing predicate to require the watched component", () => {
     const { w, tick } = setup();
     const update = vi.fn();
-    const q = w
-      .query("updated")
-      .with(Position)
-      .update({ watch: Velocity, enter: true }, update)
-      .build();
+    const q = w.query("updated").with(Position).update(Velocity, update).build();
 
     const positionOnly = w.entity().add(Position);
     tick();
@@ -308,14 +313,18 @@ describe("Query — update predicate", () => {
     const vel = positionOnly.set(Velocity, { vx: 1 }).get(Velocity)!;
     tick();
     expect(q.has(positionOnly)).toBe(true);
+    expect(update).not.toHaveBeenCalled();
+
+    positionOnly.modified(Velocity);
+    tick();
     expect(update).toHaveBeenCalledWith(positionOnly, vel);
   });
 
   it("throws when update() is registered twice for the same component", () => {
     const { w } = setup();
-    const q = w.query("updated").update({ watch: Position, enter: true }, () => {});
+    const q = w.query("updated").update(Position, () => {});
 
-    expect(() => q.update({ watch: Position, enter: true }, () => {})).toThrow(
+    expect(() => q.update(Position, () => {})).toThrow(
       "query 'updated' already has an update callback for component Position"
     );
   });
@@ -354,7 +363,7 @@ describe("Query — changed flag", () => {
     const q = w
       .query("changed")
       .with(Position)
-      .update({ watch: Position, enter: true }, () => {})
+      .update(Position, () => {})
       .build();
     const e = w.entity();
     e.add(Position);

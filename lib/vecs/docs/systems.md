@@ -107,6 +107,11 @@ The callback receives the entity first because component instances carry no owne
 Use `enter: true` for "apply current value when the entity appears, and again on change". Without
 it, `update` is change-only and a separate `enter` callback can own initialization.
 
+Because `update` adds `watch` to the membership predicate, `add(C)` can be the operation that makes
+an entity enter. Choose one update callback for `C`: `update({ watch: C, enter: true }, cb)` fires
+`cb` with the freshly added component, while `update(C, cb)` tracks the new member but waits for a
+later `set` or `modified`.
+
 Use `.update(C, ...)` by itself when `C` is the membership shape and watched value. Use
 `.with(A).update(C, ...)` when the callback should run only for entities carrying both `A` and `C`.
 

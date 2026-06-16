@@ -345,7 +345,7 @@ function cases(): BenchCase[] {
         w.query("events")
           .with(EmptyComponent)
           .update(
-            { watch: EmptyComponent, enter: true, inject: [PositionComponent, VelocityComponent] },
+            { watch: EmptyComponent, inject: [PositionComponent, VelocityComponent] },
             (_e, _event, [pos, vel]) => {
               checksum += (pos?.x ?? 0) + (vel?.x ?? 0);
             }

@@ -84,7 +84,7 @@ describe("System — enter / exit / update", () => {
   it("update fires on entity.modified(C)", () => {
     const { w } = setup();
     const cb = vi.fn();
-    w.system("test").with(Position).update({ watch: Position, enter: true }, cb);
+    w.system("test").with(Position).update(Position, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // entity entered
@@ -125,7 +125,7 @@ describe("System — enter / exit / update", () => {
     const cb = vi.fn();
     w.system("test")
       .with(Position, Velocity)
-      .update({ watch: Velocity, enter: true, inject: [Position] }, cb);
+      .update({ watch: Velocity, inject: [Position] }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity).get(Velocity)!;
@@ -216,7 +216,7 @@ describe("System — enter / exit / update", () => {
     const sys = w
       .system("test")
       .with(Position)
-      .update({ watch: Position, enter: true }, () => {});
+      .update(Position, () => {});
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -433,7 +433,7 @@ describe("System — query interaction with update watchlist", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test")
-      .update({ watch: Position, enter: true }, () => {})
+      .update(Position, () => {})
       .with(Velocity)
       .enter(cb);
 
@@ -919,11 +919,10 @@ describe("System — enable / disable", () => {
   it("disable() stops update callback from firing", () => {
     const { w } = setup();
     const cb = vi.fn();
-    const sys = w.system("test").with(Position).update({ watch: Position, enter: true }, cb);
+    const sys = w.system("test").with(Position).update(Position, cb);
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    w.progress(0, 0); // drain initial update
     cb.mockClear();
     sys.disable();
     e.modified(Position);
@@ -1029,7 +1028,7 @@ describe("System — stale inbox update after same-frame exit", () => {
   // Regression for the phaser.sync.position crash:
   //   world.system("phaser.sync.position")
   //     .with(Position, Transform)
-  //     .update({ watch: Position, enter: true, inject: [Transform] }, (_e, p, [obj]) => obj.setPosition(...))
+  //     .update({ watch: Position, inject: [Transform] }, (_e, p, [obj]) => obj.setPosition(...))
   // A Position update queued in the inbox must not dispatch once the entity has
   // left the query before the inbox drains. The `.with` read (here `Sprite`,
   // standing in for the live Phaser GameObject) is resolved lazily at dispatch
@@ -1040,12 +1039,10 @@ describe("System — stale inbox update after same-frame exit", () => {
     const seen: Array<Sprite | undefined> = [];
     w.system("test")
       .with(Position, Sprite)
-      .update({ watch: Position, enter: true, inject: [Sprite] }, (_e, _p, [obj]) =>
-        seen.push(obj)
-      );
+      .update({ watch: Position, inject: [Sprite] }, (_e, _p, [obj]) => seen.push(obj));
 
     const e = w.entity().add(Position).add(Sprite);
-    w.progress(0, 0); // entry-time update fires cleanly (Sprite present)
+    w.progress(0, 0); // entity enters the system
     seen.length = 0;
 
     // Same frame: queue a Position update, then destroy the entity (clears its
@@ -1062,9 +1059,7 @@ describe("System — stale inbox update after same-frame exit", () => {
     const seen: Array<Sprite | undefined> = [];
     w.system("test")
       .with(Position, Sprite)
-      .update({ watch: Position, enter: true, inject: [Sprite] }, (_e, _p, [obj]) =>
-        seen.push(obj)
-      );
+      .update({ watch: Position, inject: [Sprite] }, (_e, _p, [obj]) => seen.push(obj));
 
     const e = w.entity().add(Position).add(Sprite);
     w.progress(0, 0);
@@ -1082,9 +1077,7 @@ describe("System — stale inbox update after same-frame exit", () => {
     const seen: Array<Sprite | undefined> = [];
     w.system("test")
       .with(Position, Sprite)
-      .update({ watch: Position, enter: true, inject: [Sprite] }, (_e, _p, [obj]) =>
-        seen.push(obj)
-      );
+      .update({ watch: Position, inject: [Sprite] }, (_e, _p, [obj]) => seen.push(obj));
 
     const e = w.entity().add(Position).add(Sprite);
     w.progress(0, 0);

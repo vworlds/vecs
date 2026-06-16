@@ -79,7 +79,7 @@ type _SystemInboxEvent =
  * world.system("Move")
  *   .with(Position, Velocity)       // track entities with both components
  *   .enter([Position], (e, [pos]) => { pos.x = 0; })
- *   .update({ watch: Position, enter: true }, (e, pos) => { pos.x += pos.vx; })
+ *   .update(Position, (e, pos) => { pos.x += pos.vx; })
  *   .exit((e) => { console.log("entity left", e.eid); });
  * ```
  *

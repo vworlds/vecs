@@ -75,7 +75,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     w.system("Read")
       .with(Position)
       .ignoreSource([Physics])
-      .update({ watch: Position, enter: true }, () => readCb());
+      .update(Position, () => readCb());
     const write = w
       .system("Write")
       .with(Position)
@@ -87,7 +87,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     write.entity.add(Physics);
 
     const e = w.entity().add(Position);
-    w.progress(0, 0); // entry initializes Read
+    w.progress(0, 0); // enter Read; Write writes every frame, silenced for Read
     const afterEntry = readCb.mock.calls.length;
     w.progress(0, 0);
     w.progress(0, 0); // Write writes every frame, silenced for Read
@@ -106,7 +106,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     w.system("Read")
       .with(Position)
       .ignoreSource([Physics])
-      .update({ watch: Position, enter: true }, () => readCb());
+      .update(Position, () => readCb());
     // Not tagged Physics -> outside the silenced domain.
     w.system("Other")
       .with(Position)
@@ -117,7 +117,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       });
 
     w.entity().add(Position);
-    w.progress(0, 0); // entry (one call) + Other writes
+    w.progress(0, 0); // Other writes
     w.progress(0, 0);
     w.progress(0, 0);
     expect(readCb.mock.calls.length).toBeGreaterThan(1); // woken by Other beyond entry
@@ -150,7 +150,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .system("Read")
       .with(Position)
       .ignoreSource([Physics])
-      .update({ watch: Position, enter: true }, () => {});
+      .update(Position, () => {});
 
     const silenceEntity = read.entity.get(SilenceSource)!.target;
     const silenceQuery = silenceEntity.get(Query)!;
@@ -169,7 +169,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .query("ReadQ")
       .with(Position)
       .ignoreSource([Physics])
-      .update({ watch: Position, enter: true }, () => cb());
+      .update(Position, () => cb());
 
     const writer = w.system("Writer").run(() => {
       const e = w.entity();
@@ -200,7 +200,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .query("ReadQ")
       .with(Position)
       .ignoreSource([Physics])
-      .update({ watch: Position, enter: true }, () => {});
+      .update(Position, () => {});
 
     const silenceEntity = rq.entity.get(SilenceSource)!.target;
     const silenceQuery = silenceEntity.get(Query)!;
@@ -220,7 +220,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     w.system("Read")
       .with(Position)
       .ignoreSource(domain)
-      .update({ watch: Position, enter: true }, () => cb());
+      .update(Position, () => cb());
 
     const writer = w
       .system("Writer")
@@ -233,7 +233,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     writer.entity.add(Physics);
 
     const e = w.entity().add(Position);
-    w.progress(0, 0); // entry bridge
+    w.progress(0, 0); // enter Read; Writer writes, silenced
     const afterEntry = cb.mock.calls.length;
     w.progress(0, 0); // Writer writes, silenced
     expect(cb).toHaveBeenCalledTimes(afterEntry);
