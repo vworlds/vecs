@@ -308,9 +308,22 @@ world
   .system("UpdatePlayerViews")
   .with(Networked, NetworkClient, RenderPosition, View)
   .phase(PRE_STORE)
-  .update({ watch: RenderPosition, onEnter: true, inject: [View] }, (entity, position, [view]) =>
-    updatePlayerView(entity, position, view)
+  .update(
+    { watch: RenderPosition, onEnter: true, inject: [View, ViewAll] },
+    (entity, position, [view, viewAll]) =>
+      updatePlayerView(entity, position, view, viewAll !== undefined)
   );
+
+world
+  .system("UpdateViewAll")
+  .with(Networked, NetworkClient, RenderPosition, View, ViewAll)
+  .phase(PRE_STORE)
+  .enter([RenderPosition, View], (entity, [position, view]) => {
+    updatePlayerView(entity, position, view, true);
+  })
+  .exit([RenderPosition, View], (entity, [position, view]) => {
+    updatePlayerView(entity, position, view, false);
+  });
 
 createPhysicsWalls();
 createDecorations();
@@ -538,9 +551,13 @@ function assignCell(entity: Entity, position: RenderPosition): void {
   }
 }
 
-function updatePlayerView(entity: Entity, position: RenderPosition, view: View): void {
-  const dsl: QueryDSL =
-    entity.get(ViewAll) !== undefined ? true : cellViewDSL[getGridCellIndex(position)];
+function updatePlayerView(
+  entity: Entity,
+  position: RenderPosition,
+  view: View,
+  viewAll: boolean
+): void {
+  const dsl: QueryDSL = viewAll ? true : cellViewDSL[getGridCellIndex(position)];
   if (view.dsl !== dsl) {
     view.dsl = dsl;
     entity.modified(View);
