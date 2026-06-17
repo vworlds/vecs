@@ -276,7 +276,7 @@ world
   .system("ApplyLocalPositions")
   .with(RenderPosition, Offset)
   .cascade(ChildOf)
-  .phase(POST_UPDATE)
+  .phase(PRE_STORE)
   .each(
     [Offset, RenderPosition, { target: [ChildOf, [RenderPosition]] }],
     (entity, [offset, position, parentPosition]) => {

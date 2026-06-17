@@ -1,4 +1,4 @@
-import { Module, PRE_STORE } from "@vworlds/vecs";
+import { Module, POST_UPDATE } from "@vworlds/vecs";
 import {
   phaserRenderableComponents,
   Position as RenderPosition,
@@ -15,7 +15,7 @@ export class PhaserServerModule extends Module<undefined> {
     world
       .system("phaser.sync.position")
       .with(PhysicsPosition, RenderPosition)
-      .phase(PRE_STORE)
+      .phase(POST_UPDATE)
       .update({ watch: PhysicsPosition, onEnter: true }, (e, p) =>
         e.set(RenderPosition, { x: p.x, y: p.y })
       );
@@ -23,7 +23,7 @@ export class PhaserServerModule extends Module<undefined> {
     world
       .system("phaser.sync.rotation")
       .with(PhysicsRotation, RenderRotation)
-      .phase(PRE_STORE)
+      .phase(POST_UPDATE)
       .update({ watch: PhysicsRotation, onEnter: true }, (e, r) =>
         e.set(RenderRotation, { angle: r.angle })
       );

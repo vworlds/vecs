@@ -20,8 +20,9 @@ import {
   type ComponentClass,
   type EID,
   type Entity,
+  insertPhaseAfter,
   ON_STORE,
-  PRE_STORE,
+  Phase,
   type System,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
@@ -99,9 +100,19 @@ export class ServerWorld extends NetworkWorld {
       session.destroy();
     });
 
+    // Interest refresh, snapshot capture and send all run in a dedicated phase
+    // inserted after ON_STORE, so they execute strictly after every user system
+    // (in any phase, including PRE_STORE and ON_STORE). Phase order, not system
+    // registration order, enforces this: a client can retarget its own InCell or
+    // swap its View DSL from any user phase and the refresh here installs the new
+    // tracker the same tick, so the viewer is never dropped from its own view for
+    // a frame on a cell crossing.
+    const storePhase = this.entity(`ServerWorld:${this.name}:Store`).add(Phase);
+    insertPhaseAfter(storePhase, this.entity(ON_STORE));
+
     this._clients = this.system(`ServerWorld:${this.name}:View`)
       .with(View, ServerClientSession)
-      .phase(PRE_STORE)
+      .phase(storePhase)
       .update(
         { watch: View, onEnter: true, inject: [ServerClientSession] },
         (_entity, view, [_session]) => {
@@ -115,7 +126,7 @@ export class ServerWorld extends NetworkWorld {
     this._components.forEach((registered) => {
       this.system(`ServerWorld:${this.name}:${registered.Class.name}`)
         .with(Networked, registered.Class)
-        .phase(PRE_STORE)
+        .phase(storePhase)
         .update({ watch: registered.Class, onEnter: true }, (entity, component) => {
           this._snapshotCache.delete(cid_pack(entity.eid, registered.type));
           this._record(entity, registered.type, component);
@@ -128,7 +139,7 @@ export class ServerWorld extends NetworkWorld {
     });
 
     this.system(`ServerWorld:${this.name}:Send`)
-      .phase(ON_STORE)
+      .phase(storePhase)
       .run(() => this.send());
   }
 
