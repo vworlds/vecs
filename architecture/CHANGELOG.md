@@ -3,6 +3,18 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.32 (2026-06-16)
+
+- [vecs]: Replaced cursor-marker overloads with options objects for inject, query, filter, and system APIs.
+
+## v1.0.31 (2026-06-16)
+
+- [vecs]: Replaced ArrayMap snapshot with positional array for direct inject terms, reducing allocation overhead in the injection hot path.
+
+## v1.0.30 (2026-06-15)
+
+- [vecs]: Snapshot enter injection so an inbox-queued enter survives a same-frame exit, preventing stale enter callbacks from firing with destroyed entities.
+
 ## v1.0.29 (2026-06-15)
 
 - [vecs]: Skipped stale system inbox update events after same-frame query exits, preventing destroyed entities or removed `.with` components from dispatching update callbacks with missing injected components.
