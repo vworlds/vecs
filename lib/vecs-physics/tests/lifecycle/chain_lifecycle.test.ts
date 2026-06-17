@@ -27,6 +27,44 @@ function step(world: World, now: { value: number }, count = 1): void {
 }
 
 describe("PhysicsChainLifecycle", () => {
+  it("does not recreate the chain during initial creation", () => {
+    const world = new World();
+    world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
+    const engine = getPhysicsEngine(world);
+
+    const calls: unknown[] = [];
+    const originalDestroyChain = engine.box2d.b2DestroyChain;
+    engine.box2d.b2DestroyChain = ((chainId: unknown) => {
+      calls.push(chainId);
+      return originalDestroyChain(chainId as never);
+    }) as typeof engine.box2d.b2DestroyChain;
+
+    let chainShape: ReturnType<World["entity"]>;
+    try {
+      const chainBody = world.entity().set(Body, { type: BodyType.Static });
+      chainShape = world
+        .entity()
+        .childOf(chainBody)
+        .set(Chain, {
+          points: [
+            { x: 5, y: 0 },
+            { x: -5, y: 0 },
+            { x: -5, y: -2 },
+            { x: 5, y: -2 },
+          ],
+          loop: true,
+        });
+
+      const now = { value: 0 };
+      step(world, now, 1);
+    } finally {
+      engine.box2d.b2DestroyChain = originalDestroyChain;
+    }
+
+    expect(chainShape!.get(Chain)!._chainId).toBeDefined();
+    expect(calls).toHaveLength(0);
+  });
+
   it("applies ShapePosition and ShapeRotation to chain points", () => {
     const world = new World();
     world.module(PhysicsModule, { gravity: { x: 0, y: -10 } });

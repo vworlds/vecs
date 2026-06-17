@@ -86,7 +86,7 @@ describe("Query — typing", () => {
     assertType<IsEqual<typeof typedRepeatedQuery, Query<[typeof Position, typeof Velocity]>>>();
 
     if (false) {
-      typedQuery.update({ watch: Position, inject: [Velocity] }, (_e, p, [v]) => {
+      typedQuery.update({ watch: Position, onEnter: true, inject: [Velocity] }, (_e, p, [v]) => {
         assertType<IsEqual<typeof p, Position>>();
         assertType<IsEqual<typeof v, Velocity>>();
       });
@@ -239,7 +239,7 @@ describe("Query — construction", () => {
 });
 
 describe("Query — update predicate", () => {
-  it("update-only queries backfill existing entities after adding their watched component to the predicate", () => {
+  it("update callbacks do not fire on enter by default", () => {
     const { w, tick } = setup();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
@@ -247,6 +247,24 @@ describe("Query — update predicate", () => {
 
     const update = vi.fn();
     const q = w.query("updated").update(Position, update).build();
+
+    expect(q.belongs(e)).toBe(true);
+    expect(q.has(e)).toBe(true);
+    expect(update).not.toHaveBeenCalled();
+
+    e.modified(Position);
+    tick();
+    expect(update).toHaveBeenCalledWith(e, pos);
+  });
+
+  it("update-only queries backfill existing entities after adding their watched component to the predicate", () => {
+    const { w, tick } = setup();
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    tick();
+
+    const update = vi.fn();
+    const q = w.query("updated").update({ watch: Position, onEnter: true }, update).build();
 
     expect(q.belongs(e)).toBe(true);
     expect(q.has(e)).toBe(true);
@@ -269,7 +287,16 @@ describe("Query — update predicate", () => {
       .build();
 
     expect(q.has(e)).toBe(true);
+    expect(positionUpdate).not.toHaveBeenCalled();
+    expect(velocityUpdate).not.toHaveBeenCalled();
+
+    e.modified(Position);
+    tick();
     expect(positionUpdate).toHaveBeenCalledWith(e, e.get(Position));
+    expect(velocityUpdate).not.toHaveBeenCalled();
+
+    e.modified(Velocity);
+    tick();
     expect(velocityUpdate).toHaveBeenCalledWith(e, e.get(Velocity));
   });
 
@@ -286,6 +313,10 @@ describe("Query — update predicate", () => {
     const vel = positionOnly.set(Velocity, { vx: 1 }).get(Velocity)!;
     tick();
     expect(q.has(positionOnly)).toBe(true);
+    expect(update).not.toHaveBeenCalled();
+
+    positionOnly.modified(Velocity);
+    tick();
     expect(update).toHaveBeenCalledWith(positionOnly, vel);
   });
 

@@ -94,10 +94,25 @@ describe("System — enter / exit / update", () => {
     expect(cb).toHaveBeenCalledWith(e, pos);
   });
 
-  it("enter delivers an initial update for components already on the entity", () => {
+  it("update does not fire on entity enter by default", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test").with(Position).update(Position, cb);
+    const e = w.entity();
+    const pos = e.add(Position).get(Position)!;
+    w.progress(0, 0); // entity entered without enqueueing update
+    w.progress(0, 0); // no queued update to drain
+    expect(cb).not.toHaveBeenCalled();
+
+    e.modified(Position);
+    w.progress(0, 0);
+    expect(cb).toHaveBeenCalledWith(e, pos);
+  });
+
+  it("enter delivers an initial update for components already on the entity", () => {
+    const { w } = setup();
+    const cb = vi.fn();
+    w.system("test").with(Position).update({ watch: Position, onEnter: true }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // tick 1 enters the entity & queues pos
@@ -124,7 +139,7 @@ describe("System — enter / exit / update", () => {
   it("update without an explicit query requires its component", () => {
     const { w } = setup();
     const cb = vi.fn();
-    w.system("test").update(Position, cb);
+    w.system("test").update({ watch: Position, onEnter: true }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // enter
@@ -644,7 +659,10 @@ describe("System — each", () => {
     const { w } = setup();
     const eachCb = vi.fn();
     const updateCb = vi.fn();
-    w.system("test").with(Position).each([Position], eachCb).update(Position, updateCb);
+    w.system("test")
+      .with(Position)
+      .each([Position], eachCb)
+      .update({ watch: Position, onEnter: true }, updateCb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // entry queues pos for update
@@ -905,7 +923,6 @@ describe("System — enable / disable", () => {
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
-    w.progress(0, 0); // drain initial update
     cb.mockClear();
     sys.disable();
     e.modified(Position);
@@ -1025,7 +1042,7 @@ describe("System — stale inbox update after same-frame exit", () => {
       .update({ watch: Position, inject: [Sprite] }, (_e, _p, [obj]) => seen.push(obj));
 
     const e = w.entity().add(Position).add(Sprite);
-    w.progress(0, 0); // entry-time update fires cleanly (Sprite present)
+    w.progress(0, 0); // entity enters the system
     seen.length = 0;
 
     // Same frame: queue a Position update, then destroy the entity (clears its

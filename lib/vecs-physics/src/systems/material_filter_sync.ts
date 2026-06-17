@@ -21,7 +21,12 @@ export function installMaterialFilterSync(
   system.entity.add(PhysicsSystemTag);
 
   system.update(
-    { watch: Material, cursor: Iter, inject: [SingleShape, { target: [ChildOf, [Body]] }] },
+    {
+      watch: Material,
+      onEnter: true,
+      cursor: Iter,
+      inject: [SingleShape, { target: [ChildOf, [Body]] }],
+    },
     (it, material, [shape, body]) => {
       if (requiresMaterialRecreate(engine, shape, material)) {
         // box2d3-wasm@5.2.0 exposes no shape setters for rollingResistance,
@@ -44,7 +49,12 @@ export function installMaterialFilterSync(
     .with(Material, chainWithBodyParent)
     .phase(phase)
     .update(
-      { watch: Material, cursor: Iter, inject: [Chain, { target: [ChildOf, [Body]] }] },
+      {
+        watch: Material,
+        onEnter: true,
+        cursor: Iter,
+        inject: [Chain, { target: [ChildOf, [Body]] }],
+      },
       (it, _material, [chain, body]) => {
         recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
       }
@@ -58,6 +68,7 @@ export function installMaterialFilterSync(
     .update(
       {
         watch: CollisionFilter,
+        onEnter: true,
         cursor: Iter,
         inject: [SingleShape, { target: [ChildOf, [Body]] }],
       },
@@ -85,7 +96,12 @@ export function installMaterialFilterSync(
     .with(CollisionFilter, chainWithBodyParent)
     .phase(phase)
     .update(
-      { watch: CollisionFilter, cursor: Iter, inject: [Chain, { target: [ChildOf, [Body]] }] },
+      {
+        watch: CollisionFilter,
+        onEnter: true,
+        cursor: Iter,
+        inject: [Chain, { target: [ChildOf, [Body]] }],
+      },
       (it, _filter, [chain, body]) => {
         recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
       }
@@ -97,7 +113,12 @@ export function installMaterialFilterSync(
     .with(Sensor, singleShapeWithBodyParent)
     .phase(phase)
     .update(
-      { watch: Sensor, cursor: Iter, inject: [SingleShape, { target: [ChildOf, [Body]] }] },
+      {
+        watch: Sensor,
+        onEnter: true,
+        cursor: Iter,
+        inject: [SingleShape, { target: [ChildOf, [Body]] }],
+      },
       (it, _sensor, [shape, body]) => {
         recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
       }
@@ -109,7 +130,12 @@ export function installMaterialFilterSync(
     .with(Sensor, chainWithBodyParent)
     .phase(phase)
     .update(
-      { watch: Sensor, cursor: Iter, inject: [Chain, { target: [ChildOf, [Body]] }] },
+      {
+        watch: Sensor,
+        onEnter: true,
+        cursor: Iter,
+        inject: [Chain, { target: [ChildOf, [Body]] }],
+      },
       (it, _sensor, [chain, body]) => {
         recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
       }

@@ -147,8 +147,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   /**
    * @internal Routing entry: register query membership for `e`, push an
    * inbox `enter` event when an `enter` callback is registered, and bridge
-   * watched components through {@link _notifyModified} to surface them as
-   * inbox `update` events on entry.
+   * update callbacks that opted into entry-time dispatch into inbox `update`
+   * events on entry.
    *
    * Target relationship reactivity is handled by `TargetTerm`; systems only
    * translate root-term membership events into inbox commands here.
@@ -170,17 +170,18 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       }
       this._inbox.push({ kind: InboxCommand.Enter, entity: e, snapshot: enterSnapshot });
     }
-    e.components.forEach((c, ceid) => {
-      if (!this._watchlistBitmask.has(ceid)) {
-        return;
+    for (const ceid of this._onEnterUpdateEids) {
+      const c = e._get(ceid);
+      if (c === undefined) {
+        continue;
       }
       if (this._componentUpdateCallbacks.get(ceid) === undefined) {
-        return;
+        continue;
       }
       // Entry-time initialization bypasses the silence filter: an entity
       // introduced by an ignored source must still initialize in this system.
       this._pushUpdate(e, ceid, c);
-    });
+    }
   }
 
   /**

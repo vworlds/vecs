@@ -96,6 +96,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public _tracking = false;
   /** @internal Bitmask of component eids this query reacts to via `update`. */
   public _watchlistBitmask: Bitset = new Bitset();
+  /** @internal Update callback eids opted into entry-time dispatch. */
+  public _onEnterUpdateEids: EID[] = [];
 
   /** @internal `true` once this query has been registered with its world. */
   protected _built = false;
@@ -425,10 +427,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    *
    * `update` also adds the watched component to the query predicate, so the
    * callback only observes entities that carry it. The callback fires when the
-   * component is set or marked modified on a matched entity, and when a matched
-   * entity enters with the watched component already present. Calling `update`
-   * more than once for the same component on one query or system is rejected
-   * instead of replacing the previous callback.
+   * component is set or marked modified on a matched entity. Pass
+   * `{ watch: ComponentClass, onEnter: true }` when the callback should also fire
+   * when a matched entity enters with the watched component already present.
+   * Calling `update` more than once for the same component on one query or
+   * system is rejected instead of replacing the previous callback.
    *
    * @throws When this query has already been built, when `ComponentClass`
    *   already has an update callback on this query.
@@ -462,7 +465,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg1: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const { componentEid, callback } = makeUpdateRegistration(this.world, arg0, arg1);
+    const { componentEid, callback, onEnter } = makeUpdateRegistration(this.world, arg0, arg1);
     if (this._componentUpdateCallbacks.has(componentEid)) {
       const componentName = this.world.entity(componentEid).meta.Class.name;
       throw new Error(
@@ -471,6 +474,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     }
     this._componentUpdateCallbacks.set(componentEid, callback);
     this._watchlistBitmask.add(componentEid);
+    if (onEnter) {
+      this._onEnterUpdateEids.push(componentEid);
+    }
     return this.with(componentEid) as unknown as this;
   }
 
@@ -541,12 +547,12 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     this._entities?.add(e);
     e._addQueryMembership(this as any);
     this._enterCallback?.(e);
-    e.components.forEach((c, ceid) => {
-      if (!this._watchlistBitmask.has(ceid)) {
-        return;
+    for (const ceid of this._onEnterUpdateEids) {
+      const c = e._get(ceid);
+      if (c !== undefined) {
+        this._notifyModified(e, ceid, c);
       }
-      this._notifyModified(e, ceid, c);
-    });
+    }
   }
 
   /** Extension hook for subclasses that need to observe query membership exit. */

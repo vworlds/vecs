@@ -28,7 +28,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .system("Damp")
       .with(Position)
       .ignoreSource([Physics])
-      .update(Position, (e) => {
+      .update({ watch: Position, onEnter: true }, (e) => {
         cb();
         e.getMut(Position, (p) => {
           p.x += 1;
@@ -55,7 +55,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     const cb = vi.fn();
     w.system("Damp")
       .with(Position)
-      .update(Position, (e) => {
+      .update({ watch: Position, onEnter: true }, (e) => {
         cb();
         e.getMut(Position, (p) => {
           p.x += 1;
@@ -87,7 +87,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     write.entity.add(Physics);
 
     const e = w.entity().add(Position);
-    w.progress(0, 0); // entry initializes Read
+    w.progress(0, 0); // enter Read; Write writes every frame, silenced for Read
     const afterEntry = readCb.mock.calls.length;
     w.progress(0, 0);
     w.progress(0, 0); // Write writes every frame, silenced for Read
@@ -117,7 +117,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       });
 
     w.entity().add(Position);
-    w.progress(0, 0); // entry (one call) + Other writes
+    w.progress(0, 0); // Other writes
     w.progress(0, 0);
     w.progress(0, 0);
     expect(readCb.mock.calls.length).toBeGreaterThan(1); // woken by Other beyond entry
@@ -137,7 +137,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     w.system("Read")
       .with(Position)
       .ignoreSource([Physics])
-      .update(Position, (e) => readCb(e));
+      .update({ watch: Position, onEnter: true }, (e) => readCb(e));
 
     w.progress(0, 0); // Writer (sourced) adds Position; Read enters and initializes
     expect(readCb).toHaveBeenCalled();
@@ -233,7 +233,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     writer.entity.add(Physics);
 
     const e = w.entity().add(Position);
-    w.progress(0, 0); // entry bridge
+    w.progress(0, 0); // enter Read; Writer writes, silenced
     const afterEntry = cb.mock.calls.length;
     w.progress(0, 0); // Writer writes, silenced
     expect(cb).toHaveBeenCalledTimes(afterEntry);

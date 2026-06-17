@@ -89,8 +89,28 @@ describe("PhysicsPoseSyncIn (user -> engine)", () => {
     expect(readBodyPosition(entity)).toEqual({ x: 5, y: 6 });
   });
 
+  it("teleports the body origin when Position is added after body creation", () => {
+    const entity = world.entity().set(Body, { type: BodyType.Dynamic });
+    world.progress(0, 16);
+
+    entity.set(Position, { x: 5, y: 6 });
+    world.progress(16, 16);
+
+    expect(readBodyPosition(entity)).toEqual({ x: 5, y: 6 });
+  });
+
   it("teleports the body rotation when the user writes Rotation", () => {
     const entity = world.entity().set(Body, { type: BodyType.Dynamic }).set(Rotation, { angle: 0 });
+    world.progress(0, 16);
+
+    entity.set(Rotation, { angle: Math.PI / 2 });
+    world.progress(16, 16);
+
+    expect(readBodyRotation(entity)).toBeCloseTo(Math.PI / 2, 6);
+  });
+
+  it("teleports the body rotation when Rotation is added after body creation", () => {
+    const entity = world.entity().set(Body, { type: BodyType.Dynamic });
     world.progress(0, 16);
 
     entity.set(Rotation, { angle: Math.PI / 2 });
@@ -105,6 +125,18 @@ describe("PhysicsPoseSyncIn (user -> engine)", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(LinearVelocity, { x: 0, y: 0 })
       .set(AngularVelocity, { value: 0 });
+    world.progress(0, 16);
+
+    entity.set(LinearVelocity, { x: 3, y: 4 });
+    entity.set(AngularVelocity, { value: 7 });
+    world.progress(16, 16);
+
+    expect(readLinearVelocity(entity)).toEqual({ x: 3, y: 4 });
+    expect(engine.box2d.b2Body_GetAngularVelocity(bodyId(entity))).toBe(7);
+  });
+
+  it("applies user velocities when velocity components are added after body creation", () => {
+    const entity = world.entity().set(Body, { type: BodyType.Dynamic });
     world.progress(0, 16);
 
     entity.set(LinearVelocity, { x: 3, y: 4 });
@@ -200,7 +232,7 @@ describe("pose-sync feedback suppression", () => {
       .system("UserRender")
       .with(Body, Position)
       .phase(render)
-      .update(Position, (_entity, position) => {
+      .update({ watch: Position, onEnter: true }, (_entity, position) => {
         lastSeenX = position.x;
         count++;
       });

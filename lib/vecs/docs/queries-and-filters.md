@@ -120,8 +120,9 @@ tuple values before triggering further mutations from inside it.
 `query.ignoreSource(dsl | query)` makes the query drop `update` notifications whose originating
 system matches the given query — the standard cure for write feedback loops (A updates B, B's
 system writes back, A reacts again). The relationship is stored as the built-in `SilenceSource`
-component on the query's backing entity. Entry-time initialization bypasses the silence filter, so
-newly entered entities still initialize.
+component on the query's backing entity. Update callbacks that opt into `{ onEnter: true }` still run
+when newly entered entities initialize; for systems, that entry-time dispatch bypasses the silence
+filter.
 
 ## Grouped queries: `groupBy`
 

@@ -150,9 +150,9 @@ component:
 
 Three routing rules worth memorizing:
 
-- **`update(C)` fires on entry.** When an entity enters a system, the system pushes an `update`
-  event for every watched component already present. A single `.update(C, ...)` therefore
-  initializes on entry _and_ reacts to changes — don't write a duplicate `enter`.
+- **`update(C)` is change-only unless you opt into entry.** When an entity enters a system,
+  `{ onEnter: true }` update watchers push an `update` event for already-present watched components.
+  Use that for initialization; leave it off when a separate `enter` owns setup.
 - **`exit` reads a snapshot.** Components injected into an `exit` callback are captured when the
   exit is routed, so they are still resolvable even though they are being (or have been) removed.
 - **In-place mutation needs `modified`.** Assigning to component fields directly notifies no one.

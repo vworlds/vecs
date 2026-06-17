@@ -55,7 +55,11 @@ export function installShapeLifecycle(world: World, engine: PhysicsEngine, phase
     .with(ChildOf, singleShapeWithBodyParent)
     .phase(phase)
     .update(
-      { watch: ChildOf, cursor: Iter, inject: [SingleShape, { target: [ChildOf, [Body]] }] },
+      {
+        watch: ChildOf,
+        cursor: Iter,
+        inject: [SingleShape, { target: [ChildOf, [Body]] }],
+      },
       (it, _childOf, [shape, body]) => {
         recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
       }

@@ -8,7 +8,14 @@ import {
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
-import { POST_UPDATE, PRE_STORE, Relationship, type Entity, type World } from "@vworlds/vecs";
+import {
+  POST_UPDATE,
+  PRE_STORE,
+  type QueryDSL,
+  Relationship,
+  type Entity,
+  type World,
+} from "@vworlds/vecs";
 import { performance } from "node:perf_hooks";
 import {
   EntityTracker,
@@ -482,7 +489,7 @@ describe("ServerWorld", () => {
       .system("read-input")
       .with(Networked, NetworkInput)
       .phase(PRE_STORE)
-      .update(NetworkInput, (_e, ni) => {
+      .update({ watch: NetworkInput, onEnter: true }, (_e, ni) => {
         observed = ni.input;
       });
 
@@ -738,7 +745,6 @@ describe("ServerWorld", () => {
     server._attach(listener);
     let target: ReturnType<World["entity"]>;
     let viewer: ReturnType<World["entity"]>;
-    let observed = false;
 
     world
       .system("set-view")
@@ -746,17 +752,13 @@ describe("ServerWorld", () => {
       .run(() => {
         viewer!.set(View, { dsl: [Position] });
       });
-    world
-      .system("read-view")
-      .phase(PRE_STORE)
-      .run(() => {
-        observed = viewer!.get(View)?.tracker.has(target!) === true;
-      });
     target = world.entity().add(Networked).add(Position);
     viewer = connectSession(server, listener).session.entity;
     world.progress(0, 16);
 
-    expect(observed).toBe(true);
+    // ServerWorld refreshes interest in a phase after ON_STORE, so a View set
+    // mid-pipeline has its tracker built by the time the tick completes.
+    expect(viewer!.get(View)?.tracker.has(target!)).toBe(true);
   });
 
   it("releases active and old trackers when View is removed", () => {
@@ -1062,6 +1064,74 @@ describe("ServerWorld", () => {
     );
     expect(snapshotEids).toContain(entity.eid);
     expect(snapshotEids).toContain(entering.eid);
+  });
+
+  // Regression: a client that retargets its own InCell and swaps its View DSL
+  // to a new cell from a PRE_STORE system (the demo's AssignCells /
+  // UpdatePlayerViews pattern) must not be dropped for a tick. ServerWorld
+  // refreshes interest trackers, captures snapshots and sends in a dedicated
+  // phase inserted AFTER ON_STORE, so it runs strictly after every user system
+  // regardless of phase or registration order. The new tracker is therefore
+  // installed the same tick the DSL changes and the viewer stays visible to
+  // itself. Before that fix the refresh ran in PRE_STORE, registered ahead of
+  // user systems, so a PRE_STORE DSL change lagged a tick and emitted a spurious
+  // ALL_COMPONENTS removal: the viewer blinked on every grid-cell crossing.
+  it("does not drop a client that moves its own View to a new cell in PRE_STORE", () => {
+    const world = createWorld();
+    world.component(InCell);
+    world.component(CellA);
+    world.component(CellB);
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+
+    const cellA = world.entity().add(CellA);
+    const cellB = world.entity().add(CellB);
+    const dslA: QueryDSL = { target: [InCell, CellA] };
+    const dslB: QueryDSL = { target: [InCell, CellB] };
+
+    // Each client starts in cell A, viewing cell A (so it can see itself).
+    world.component(NetworkClient).onSet((entity) => {
+      entity.set(View, { dsl: dslA }).set(InCell, { target: cellA });
+    });
+
+    // Mirror the demo: derive the cell from position, then retarget InCell and
+    // swap the View DSL to match, in PRE_STORE. x < 5 is cell A, x >= 5 cell B.
+    world
+      .system("CrossCell")
+      .with(Networked, NetworkClient, Position, View)
+      .phase(PRE_STORE)
+      .update({ watch: Position, onEnter: true, inject: [View] }, (entity, position, [view]) => {
+        const cell = position.x < 5 ? cellA : cellB;
+        const dsl = position.x < 5 ? dslA : dslB;
+        if (entity.target(InCell) !== cell) {
+          entity.set(InCell, { target: cell });
+        }
+        if (view.dsl !== dsl) {
+          view.dsl = dsl;
+          entity.modified(View);
+        }
+      });
+
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+    const view = getSessionView(server, "client-1");
+
+    session.entity.set(Position, { x: 1, y: 1 });
+    world.progress(0, 16);
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 1 })));
+    const baseline = socket.sent.length;
+
+    // The crossing tick: CrossCell retargets InCell + View to cell B.
+    session.entity.set(Position, { x: 9, y: 9 });
+    world.progress(16, 16);
+
+    expect(view.canSee(session.entity)).toBe(true);
+    if (socket.sent.length > baseline) {
+      const message = decodeLastMessage(socket);
+      expect(message.diff!.removed).not.toContainEqual([session.entity.eid, ALL_COMPONENTS]);
+    }
   });
 
   it("queues all networked entities when a client View changes to true", () => {

@@ -40,7 +40,11 @@ export function installChainLifecycle(world: World, engine: PhysicsEngine, phase
     .with(ChildOf, chainWithBodyParent)
     .phase(phase)
     .update(
-      { watch: ChildOf, cursor: Iter, inject: [Chain, { target: [ChildOf, [Body]] }] },
+      {
+        watch: ChildOf,
+        cursor: Iter,
+        inject: [Chain, { target: [ChildOf, [Body]] }],
+      },
       (it, _childOf, [chain, body]) => {
         recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
       }
