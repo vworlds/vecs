@@ -210,6 +210,19 @@ classes or DSL objects (`{ all: [...] }`, `{ any: [...] }`, `{ parent: X }`, `{ 
   Its injected components are read from a **snapshot captured at exit time**, so they're still
   resolvable even though they're being removed.
 
+Choose `enter: true` by asking who owns the initial value:
+
+- Use **`enter: true`** for projection / sync callbacks: copying ECS data into a runtime object,
+  another component space, a network snapshot, a physics body, or an index/cache. If an entity
+  enters with `Position { x: 1, y: 2 }`, a renderer should not stay at its default `(0, 0)` until
+  the next position write.
+- Use **plain `update(C, cb)`** for mutation-only callbacks that should react only after the entity
+  is already live: expensive rebuilds, destructive recreate paths, validation/repair passes, or
+  post-construction setters where an `enter` callback already consumed the same component state.
+- Do not duplicate an `.enter(...)` body and an `.update({ enter: true })` body that perform the
+  same work. Pick one owner: explicit `.enter` for separate lifecycle setup, or one
+  `{ enter: true }` update callback for "initialize from current value, then keep synced."
+
 ```ts
 // ❌ redundant when update already owns initialization
 .enter([Rotation, VGameObject], (_e, [r, vgo]) => vgo.obj.setRotation(coords.rot(r.angle)))
@@ -415,12 +428,18 @@ No special-casing anywhere.
 
 ### Reactive sync between two component spaces
 
-Copy `A → B` only when `A` changes, gated on both existing (so you never _create_ `B`, you only
-keep an existing `B` in sync — pure-ECS: the owner decides whether `B` exists):
+Copy `A → B`, gated on both existing (so you never _create_ `B`, you only keep an existing `B` in
+sync — pure-ECS: the owner decides whether `B` exists). Use `{ enter: true }` when `B` must reflect
+the current `A` as soon as the entity enters the sync system:
 
 ```ts
-.with(PhysicsPosition, RenderPosition).update(PhysicsPosition, (e, p) => e.set(RenderPosition, { x: p.x, y: p.y }));
+.with(PhysicsPosition, RenderPosition).update({ watch: PhysicsPosition, enter: true }, (e, p) =>
+  e.set(RenderPosition, { x: p.x, y: p.y })
+);
 ```
+
+Leave `enter: true` off (or set `enter: false`) only when a separate `.enter(...)` already initializes `B`,
+or when the callback is intentionally "future changes only."
 
 ### Relationship retargeting + grouped queries for spatial/interest indexing
 
@@ -457,8 +476,9 @@ system after whatever produces the entity/companion.
 - **A system is in exactly one phase.** Plan splits accordingly.
 - **Structural changes are deferred and flushed _after_ each system** — visible to later systems
   this tick, not to the current system mid-iteration.
-- **`update(C)` is change-only by default.** Add `{ enter: true }` only when the update callback
-  should also initialize already-present watched components on entry.
+- **`update(C)` is change-only by default.** Add `{ enter: true }` for projection/sync callbacks
+  that must apply the current watched value on entry; leave it off for mutation-only callbacks or
+  when `.enter(...)` already owns initialization.
 - **Membership is fixed by `.with(...)` / `.without(...)` / `.update(C)`;** `update(C)` watches `C`
   and requires it.
 - **`exit` reads a snapshot** of the injected components captured at exit (they're being removed).
