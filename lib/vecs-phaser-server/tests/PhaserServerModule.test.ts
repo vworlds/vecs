@@ -49,6 +49,22 @@ describe("PhaserServerModule pose sync", () => {
     expect(entity.get(RenderRotation)).toMatchObject({ angle: Math.PI / 3 });
   });
 
+  it("copies existing physics pose when render pose is added later", () => {
+    const world = createWorld();
+    world.module(PhaserServerModule);
+    const entity = world
+      .entity()
+      .set(PhysicsPosition, { x: 1.5, y: -2.25 })
+      .set(PhysicsRotation, { angle: Math.PI / 3 });
+
+    world.progress(0, 16);
+    entity.set(RenderPosition, { x: 0, y: 0 }).set(RenderRotation, { angle: 0 });
+    world.progress(16, 16);
+
+    expect(entity.get(RenderPosition)).toMatchObject({ x: 1.5, y: -2.25 });
+    expect(entity.get(RenderRotation)).toMatchObject({ angle: Math.PI / 3 });
+  });
+
   it("does not create RenderPosition when entity lacks it", () => {
     const world = createWorld();
     world.module(PhaserServerModule);
@@ -79,14 +95,14 @@ describe("PhaserServerModule pose sync", () => {
       .system("RenderPositionObserver")
       .with(RenderPosition)
       .phase(ON_STORE)
-      .update({ watch: RenderPosition, enter: true }, () => {
+      .update(RenderPosition, () => {
         positionUpdates++;
       });
     world
       .system("RenderRotationObserver")
       .with(RenderRotation)
       .phase(ON_STORE)
-      .update({ watch: RenderRotation, enter: true }, () => {
+      .update(RenderRotation, () => {
         rotationUpdates++;
       });
 
@@ -100,19 +116,19 @@ describe("PhaserServerModule pose sync", () => {
     world.progress(0, 16);
     expect(entity.get(RenderPosition)).toMatchObject({ x: 1, y: 2 });
     expect(entity.get(RenderRotation)).toMatchObject({ angle: 0.5 });
-    expect(positionUpdates).toBe(2);
-    expect(rotationUpdates).toBe(2);
+    expect(positionUpdates).toBe(1);
+    expect(rotationUpdates).toBe(1);
 
     world.progress(16, 16);
-    expect(positionUpdates).toBe(2);
-    expect(rotationUpdates).toBe(2);
+    expect(positionUpdates).toBe(1);
+    expect(rotationUpdates).toBe(1);
 
     entity.set(PhysicsPosition, { x: 3, y: 4 }).set(PhysicsRotation, { angle: 1.25 });
     world.progress(32, 16);
     expect(entity.get(RenderPosition)).toMatchObject({ x: 3, y: 4 });
     expect(entity.get(RenderRotation)).toMatchObject({ angle: 1.25 });
-    expect(positionUpdates).toBe(3);
-    expect(rotationUpdates).toBe(3);
+    expect(positionUpdates).toBe(2);
+    expect(rotationUpdates).toBe(2);
   });
 
   it("leaves render rotation untouched when physics rotation is absent", () => {
