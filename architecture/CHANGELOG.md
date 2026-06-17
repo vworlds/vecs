@@ -3,6 +3,13 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.34 (2026-06-17)
+
+- [vecs]: Made `update` enter dispatch opt-in via the `onEnter` option (renamed from `enter`), reducing unnecessary enter callbacks for systems that only need update-phase iteration.
+- [vecs-server]: Fixed `ViewAll` add/remove tracking with enter/exit to keep the view DSL in sync when views are added or removed mid-frame.
+- [vecs-server]: Inserted the snapshot/send phase after `ON_STORE` to prevent viewer blink when an entity crosses cell boundaries.
+- [vecs-physics]: Prevented double-creation of chains and shapes when an entity spawns with both body and shape components in the same frame.
+
 ## v1.0.32 (2026-06-16)
 
 - [vecs]: Replaced cursor-marker overloads with options objects for inject, query, filter, and system APIs.
