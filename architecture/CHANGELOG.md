@@ -3,6 +3,10 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## Unreleased
+
+- [vecs-physics]: Routed all Box2D teardown through a single `PhysicsReaper`. Lifecycle exits now only do vecs-side bookkeeping and enqueue their handle; the reaper performs every `b2DestroyShape`/`b2DestroyChain`/`b2DestroyBody` at one point (children before parents), after every consumer has run on the still-live handle and before mass-recompute and the step. Because nothing is destroyed mid-pass, a freed shape slot is never recycled within a pass, fixing the shape-id slot-recycling race where a split-spawned child shape (created the same frame its parent body was destroyed) lost its `entityByShapeIndex` entry and became invisible to sensor/contact events. This removes the stale-id/cascade guards (`b2Shape_IsValid`/`b2Chain_IsValid`/`allowCascadeSkip`/`parentBodyStillExists`) from the shape, chain, and event-opt-in systems, since the "clear the slot before Box2D reuses index1" invariant now holds structurally.
+
 ## v1.0.34 (2026-06-17)
 
 - [vecs]: Made `update` enter dispatch opt-in via the `onEnter` option (renamed from `enter`), reducing unnecessary enter callbacks for systems that only need update-phase iteration.

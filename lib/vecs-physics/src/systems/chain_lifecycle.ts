@@ -8,7 +8,6 @@ import { chainWithBodyParent } from "./shape_predicates.js";
 import {
   applyChainDef,
   markParentBodyMassDirty,
-  parentBodyStillExists,
   readLocalPose,
   readShapeOptions,
 } from "./shape_lifecycle.js";
@@ -77,10 +76,13 @@ function createChainForEntity(
   createChain(engine, entity, parentEntity, bodyId, chain);
 }
 
+// `deferDestroy` mirrors destroyShapeForEntity: the exit defers the b2DestroyChain
+// to PhysicsReaper (chain still live until then), the in-place recreate destroys
+// now. No cascade/validity guard needed in either case.
 function destroyChainForEntity(
   engine: PhysicsEngine,
   entity: Entity,
-  allowCascadeSkip: boolean,
+  deferDestroy: boolean,
   parent?: Entity,
   chain?: Readonly<Chain>
 ): void {
@@ -97,8 +99,9 @@ function destroyChainForEntity(
     return;
   }
 
-  const parentBodyExists = parentBodyStillExists(resolvedParent);
-  if ((!allowCascadeSkip || parentBodyExists) && engine.box2d.b2Chain_IsValid(chainId)) {
+  if (deferDestroy) {
+    engine.pendingChainDestroys.push(chainId);
+  } else {
     engine.box2d.b2DestroyChain(chainId);
   }
   markParentBodyMassDirty(engine, resolvedParent);

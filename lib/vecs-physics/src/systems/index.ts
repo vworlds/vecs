@@ -34,7 +34,7 @@ import { installForceGather } from "./forces.js";
 import { installImpulseAccumulate } from "./impulse_accumulate.js";
 import { installImpulseZero } from "./impulse_zero.js";
 import { installKinematicTargets } from "./kinematic.js";
-import { installBodyLifecycle } from "./lifecycle.js";
+import { installBodyLifecycle, installPhysicsReaper } from "./lifecycle.js";
 import { installMassRecompute } from "./mass_recompute.js";
 import { installMaterialFilterSync } from "./material_filter_sync.js";
 import { installPoseSyncIn } from "./pose_sync_in.js";
@@ -71,6 +71,11 @@ export function registerPhysicsSystems(
   // physics-pre: keep event opt-in flags in sync when ContactEvents/HitEvents/
   // SensorEvents are added/removed on a shape after creation (hook-based).
   installEventOptInSync(world, engine, phases.preStep);
+  // physics-pre: reaper — perform all deferred b2Destroy* here, AFTER every
+  // exit/sync consumer above has run on the still-live handles, and BEFORE
+  // MassRecompute + the step. This is the single point where shape/chain/body
+  // slots are freed, so nothing recycles a slot mid-pass. See installPhysicsReaper.
+  installPhysicsReaper(world, engine, phases.preStep);
   installShapePoseSync(world, engine, phases.preStep);
   installPoseSyncIn(world, engine, phases.preStep);
   // physics-pre: kinematic target drive after PoseSyncIn, before ForceGather (VP-20).

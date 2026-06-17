@@ -100,10 +100,16 @@ function createShapeForEntity(
   }
 }
 
+// `deferDestroy` distinguishes the two callers: the lifecycle *exit* (entity
+// torn down -> defer the Box2D destroy to PhysicsReaper) vs an in-place
+// *recreate* (geometry/childOf/material change on a live shape -> destroy now).
+// Neither path needs a validity or cascade guard: the exit's shape is still live
+// when this runs (the reaper destroys it later, after every consumer), and the
+// recreate's shape is live by definition.
 function destroyShapeForEntity(
   engine: PhysicsEngine,
   entity: Entity,
-  allowCascadeSkip: boolean,
+  deferDestroy: boolean,
   parent?: Entity,
   shape?: Readonly<SingleShape>
 ): void {
@@ -114,11 +120,15 @@ function destroyShapeForEntity(
     return;
   }
 
-  const parentBodyExists = parentBodyStillExists(resolvedParent);
-  if ((!allowCascadeSkip || parentBodyExists) && engine.box2d.b2Shape_IsValid(shapeId)) {
+  if (deferDestroy) {
+    // Enqueue for PhysicsReaper, which clears the reverse-map slot in lockstep
+    // with the b2DestroyShape so the slot is never freed before its entry is
+    // cleared.
+    engine.pendingShapeDestroys.push(shapeId);
+  } else {
     engine.box2d.b2DestroyShape(shapeId, true);
+    engine.entityByShapeIndex.delete(shapeId.index1);
   }
-  engine.entityByShapeIndex.delete(shapeId.index1);
   markParentBodyMassDirty(engine, resolvedParent);
 
   // Clear the handle on the live component if it still exists (e.g. the
@@ -308,10 +318,6 @@ export function readLocalPose(entity: Entity): { x: number; y: number; angle: nu
     y: entity.get(ShapePosition)?.y ?? 0,
     angle: entity.get(ShapeRotation)?.angle ?? 0,
   };
-}
-
-export function parentBodyStillExists(parent?: Entity): boolean {
-  return parent !== undefined && parent.get(Body)?._bodyId !== undefined;
 }
 
 export function markParentBodyMassDirty(engine: PhysicsEngine, parent?: Entity): void {

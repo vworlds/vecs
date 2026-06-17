@@ -31,8 +31,14 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
     if (bodyId === undefined) {
       return;
     }
-    engine.box2d.b2DestroyBody(bodyId);
-    engine.entityByBodyIndex.delete(bodyId.index1);
+    // Defer the actual b2DestroyBody (and the reverse-map clear) until after
+    // shape + chain teardown -- see PhysicsBodyDestroyDeferred below and the
+    // pendingBodyDestroys note in PhysicsEngine. Destroying the body here would
+    // cascade-free its shapes' Box2D slots mid-pass, so a child shape created in
+    // the same flush could recycle a freed index1 before the dead shape's
+    // reverse-map entry is cleared, and the dead shape's exit would then wipe the
+    // live child's entry (dropping its sensor/contact events).
+    engine.pendingBodyDestroys.push(bodyId);
   });
 
   system.update(Body, (entity, body) => {
@@ -114,6 +120,44 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
       engine.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
     });
   sleepSystem.entity.add(PhysicsSystemTag);
+}
+
+// Single point of Box2D teardown. Every lifecycle exit enqueues its handle
+// (pendingShapeDestroys / pendingChainDestroys / pendingBodyDestroys) and does
+// only vecs-side bookkeeping; this reaper performs all the b2Destroy* calls at
+// once. Must be registered AFTER every system that touches a being-destroyed
+// shape/body on a still-live handle (shape/chain lifecycle, material+filter sync,
+// event opt-in sync) and BEFORE PhysicsMassRecompute and the step. Order within:
+// shapes and chains first, then bodies -- children before parents, so a body's
+// cascade never double-frees an already-reaped shape. Because nothing is
+// destroyed until here, no slot is freed-then-recycled mid-pass, which is why the
+// lifecycle exits and event opt-in carry no stale-id/cascade guards.
+export function installPhysicsReaper(world: World, engine: PhysicsEngine, phase: Entity): void {
+  const system = world
+    .system("PhysicsReaper")
+    .phase(phase)
+    .run(() => {
+      const shapes = engine.pendingShapeDestroys;
+      for (const shapeId of shapes) {
+        engine.entityByShapeIndex.delete(shapeId.index1);
+        engine.box2d.b2DestroyShape(shapeId, true);
+      }
+      shapes.length = 0;
+
+      const chains = engine.pendingChainDestroys;
+      for (const chainId of chains) {
+        engine.box2d.b2DestroyChain(chainId);
+      }
+      chains.length = 0;
+
+      const bodies = engine.pendingBodyDestroys;
+      for (const bodyId of bodies) {
+        engine.entityByBodyIndex.delete(bodyId.index1);
+        engine.box2d.b2DestroyBody(bodyId);
+      }
+      bodies.length = 0;
+    });
+  system.entity.add(PhysicsSystemTag);
 }
 
 function createWasmBodyId(engine: PhysicsEngine, entity: Entity, body: Body): b2BodyId {
