@@ -35,7 +35,7 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
     engine.entityByBodyIndex.delete(bodyId.index1);
   });
 
-  system.update({ watch: Body, enter: true }, (entity, body) => {
+  system.update(Body, (entity, body) => {
     const bodyId = body._bodyId;
     if (bodyId === undefined) {
       return;
