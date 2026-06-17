@@ -97,7 +97,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** @internal Bitmask of component eids this query reacts to via `update`. */
   public _watchlistBitmask: Bitset = new Bitset();
   /** @internal Update callback eids opted into entry-time dispatch. */
-  public _enterUpdateEids: EID[] = [];
+  public _onEnterUpdateEids: EID[] = [];
 
   /** @internal `true` once this query has been registered with its world. */
   protected _built = false;
@@ -428,7 +428,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * `update` also adds the watched component to the query predicate, so the
    * callback only observes entities that carry it. The callback fires when the
    * component is set or marked modified on a matched entity. Pass
-   * `{ watch: ComponentClass, enter: true }` when the callback should also fire
+   * `{ watch: ComponentClass, onEnter: true }` when the callback should also fire
    * when a matched entity enters with the watched component already present.
    * Calling `update` more than once for the same component on one query or
    * system is rejected instead of replacing the previous callback.
@@ -465,7 +465,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg1: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const { componentEid, callback, enter } = makeUpdateRegistration(this.world, arg0, arg1);
+    const { componentEid, callback, onEnter } = makeUpdateRegistration(this.world, arg0, arg1);
     if (this._componentUpdateCallbacks.has(componentEid)) {
       const componentName = this.world.entity(componentEid).meta.Class.name;
       throw new Error(
@@ -474,8 +474,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     }
     this._componentUpdateCallbacks.set(componentEid, callback);
     this._watchlistBitmask.add(componentEid);
-    if (enter) {
-      this._enterUpdateEids.push(componentEid);
+    if (onEnter) {
+      this._onEnterUpdateEids.push(componentEid);
     }
     return this.with(componentEid) as unknown as this;
   }
@@ -547,7 +547,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     this._entities?.add(e);
     e._addQueryMembership(this as any);
     this._enterCallback?.(e);
-    for (const ceid of this._enterUpdateEids) {
+    for (const ceid of this._onEnterUpdateEids) {
       const c = e._get(ceid);
       if (c !== undefined) {
         this._notifyModified(e, ceid, c);

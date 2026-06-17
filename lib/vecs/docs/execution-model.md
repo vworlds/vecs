@@ -151,7 +151,7 @@ component:
 Three routing rules worth memorizing:
 
 - **`update(C)` is change-only unless you opt into entry.** When an entity enters a system,
-  `{ enter: true }` update watchers push an `update` event for already-present watched components.
+  `{ onEnter: true }` update watchers push an `update` event for already-present watched components.
   Use that for initialization; leave it off when a separate `enter` owns setup.
 - **`exit` reads a snapshot.** Components injected into an `exit` callback are captured when the
   exit is routed, so they are still resolvable even though they are being (or have been) removed.

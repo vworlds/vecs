@@ -135,9 +135,9 @@ export function makeUpdateRegistration<C extends ComponentType>(
   world: World,
   arg0: C | UpdateCallbackOptions<C, InjectTuple>,
   arg1: (...args: any[]) => void
-): { componentEid: EID; callback: ComponentCallback; enter: boolean } {
+): { componentEid: EID; callback: ComponentCallback; onEnter: boolean } {
   const normalized = normalizeUpdateCallbackArgs(arg0);
-  const { ComponentClass, components, enter, useIter } = normalized;
+  const { ComponentClass, components, onEnter, useIter } = normalized;
   const componentEid = world.entity(ComponentClass).eid;
   if (components === undefined) {
     const fn = arg1 as (eOrIt: CursorCallbackArg, c: InstanceType<C>) => void;
@@ -145,14 +145,14 @@ export function makeUpdateRegistration<C extends ComponentType>(
       const it = new Iter(0);
       return {
         componentEid,
-        enter,
+        onEnter,
         callback: (e: Entity, c: ComponentInstance) => {
           it.entity = e;
           fn(it, c as InstanceType<C>);
         },
       };
     }
-    return { componentEid, enter, callback: arg1 as ComponentCallback };
+    return { componentEid, onEnter, callback: arg1 as ComponentCallback };
   }
   const callback = arg1 as (...args: any[]) => void;
   const inject = mapInject(world, components);
@@ -165,13 +165,13 @@ export function makeUpdateRegistration<C extends ComponentType>(
       getInjectedWithSrc(e, inject, injected, it.src);
       callback(it, c as InstanceType<C>, injected as any);
     };
-    return { componentEid, enter, callback: cb };
+    return { componentEid, onEnter, callback: cb };
   }
   const cb = (e: Entity, c: ComponentInstance) => {
     getInjected(e, inject, false, injected);
     callback(e, c as InstanceType<C>, injected as any);
   };
-  return { componentEid, enter, callback: cb };
+  return { componentEid, onEnter, callback: cb };
 }
 
 function isOptionsObject(value: unknown): value is Record<string, unknown> {
@@ -195,16 +195,16 @@ function normalizeUpdateCallbackArgs<C extends ComponentType>(
 ): {
   ComponentClass: C;
   components: readonly InjectElement[] | undefined;
-  enter: boolean;
+  onEnter: boolean;
   useIter: boolean;
 } {
   if (isOptionsObject(arg0) && "watch" in arg0) {
     return {
       ComponentClass: arg0.watch as C,
       components: arg0.inject as readonly InjectElement[] | undefined,
-      enter: arg0.enter === true,
+      onEnter: arg0.onEnter === true,
       useIter: wantsIter(arg0.cursor),
     };
   }
-  return { ComponentClass: arg0 as C, components: undefined, enter: false, useIter: false };
+  return { ComponentClass: arg0 as C, components: undefined, onEnter: false, useIter: false };
 }

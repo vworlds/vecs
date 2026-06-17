@@ -15,7 +15,7 @@ export function installPoseSyncIn(world: World, engine: PhysicsEngine, phase: En
     .with(Body, Position)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update({ watch: Position, enter: true, inject: [Body] }, (entity, position, [body]) => {
+    .update({ watch: Position, onEnter: true, inject: [Body] }, (entity, position, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
@@ -37,7 +37,7 @@ export function installPoseSyncIn(world: World, engine: PhysicsEngine, phase: En
     .with(Body, Rotation)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update({ watch: Rotation, enter: true, inject: [Body] }, (entity, rotation, [body]) => {
+    .update({ watch: Rotation, onEnter: true, inject: [Body] }, (entity, rotation, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
@@ -59,16 +59,19 @@ export function installPoseSyncIn(world: World, engine: PhysicsEngine, phase: En
     .with(Body, LinearVelocity)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update({ watch: LinearVelocity, enter: true, inject: [Body] }, (entity, velocity, [body]) => {
-      const bodyId = body?._bodyId;
-      if (bodyId === undefined) {
-        return;
-      }
+    .update(
+      { watch: LinearVelocity, onEnter: true, inject: [Body] },
+      (entity, velocity, [body]) => {
+        const bodyId = body?._bodyId;
+        if (bodyId === undefined) {
+          return;
+        }
 
-      const vec = scr_b2Vec2[0];
-      vec.Set(velocity.x, velocity.y);
-      engine.box2d.b2Body_SetLinearVelocity(bodyId, vec);
-    });
+        const vec = scr_b2Vec2[0];
+        vec.Set(velocity.x, velocity.y);
+        engine.box2d.b2Body_SetLinearVelocity(bodyId, vec);
+      }
+    );
   linearVelocitySystem.entity.add(PhysicsSystemTag);
 
   const angularVelocitySystem = world
@@ -76,13 +79,16 @@ export function installPoseSyncIn(world: World, engine: PhysicsEngine, phase: En
     .with(Body, AngularVelocity)
     .phase(phase)
     .ignoreSource([PhysicsSystemTag])
-    .update({ watch: AngularVelocity, enter: true, inject: [Body] }, (entity, velocity, [body]) => {
-      const bodyId = body?._bodyId;
-      if (bodyId === undefined) {
-        return;
-      }
+    .update(
+      { watch: AngularVelocity, onEnter: true, inject: [Body] },
+      (entity, velocity, [body]) => {
+        const bodyId = body?._bodyId;
+        if (bodyId === undefined) {
+          return;
+        }
 
-      engine.box2d.b2Body_SetAngularVelocity(bodyId, velocity.value);
-    });
+        engine.box2d.b2Body_SetAngularVelocity(bodyId, velocity.value);
+      }
+    );
   angularVelocitySystem.entity.add(PhysicsSystemTag);
 }

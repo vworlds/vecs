@@ -28,7 +28,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .system("Damp")
       .with(Position)
       .ignoreSource([Physics])
-      .update({ watch: Position, enter: true }, (e) => {
+      .update({ watch: Position, onEnter: true }, (e) => {
         cb();
         e.getMut(Position, (p) => {
           p.x += 1;
@@ -55,7 +55,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     const cb = vi.fn();
     w.system("Damp")
       .with(Position)
-      .update({ watch: Position, enter: true }, (e) => {
+      .update({ watch: Position, onEnter: true }, (e) => {
         cb();
         e.getMut(Position, (p) => {
           p.x += 1;
@@ -137,7 +137,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     w.system("Read")
       .with(Position)
       .ignoreSource([Physics])
-      .update({ watch: Position, enter: true }, (e) => readCb(e));
+      .update({ watch: Position, onEnter: true }, (e) => readCb(e));
 
     w.progress(0, 0); // Writer (sourced) adds Position; Read enters and initializes
     expect(readCb).toHaveBeenCalled();

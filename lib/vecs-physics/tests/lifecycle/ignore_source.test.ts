@@ -38,7 +38,7 @@ describe("Query.ignoreSource source attribution", () => {
       .with(Value)
       .phase(readPhase)
       .ignoreSource([Tag])
-      .update({ watch: Value, enter: true }, () => {
+      .update({ watch: Value, onEnter: true }, () => {
         readerCount++;
       });
 

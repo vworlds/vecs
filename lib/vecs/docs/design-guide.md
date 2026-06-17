@@ -203,33 +203,33 @@ classes or DSL objects (`{ all: [...] }`, `{ any: [...] }`, `{ parent: X }`, `{ 
 - **`enter`** — fires once when an entity _becomes_ a member. Use it for one-time setup
   (create the resource).
 - **`update(C, …)`** — adds `C` to the predicate and fires when watched component `C` is modified.
-  Pass `{ enter: true }` when it should also fire on entry for an already-present watched
+  Pass `{ onEnter: true }` when it should also fire on entry for an already-present watched
   component. Use that to initialize on entry _and_ react to changes; leave it off when a separate
   `.enter` owns initialization.
 - **`exit`** — fires when an entity stops matching (a component removed, or the entity destroyed).
   Its injected components are read from a **snapshot captured at exit time**, so they're still
   resolvable even though they're being removed.
 
-Choose `enter: true` by asking who owns the initial value:
+Choose `onEnter: true` by asking who owns the initial value:
 
-- Use **`enter: true`** for projection / sync callbacks: copying ECS data into a runtime object,
+- Use **`onEnter: true`** for projection / sync callbacks: copying ECS data into a runtime object,
   another component space, a network snapshot, a physics body, or an index/cache. If an entity
   enters with `Position { x: 1, y: 2 }`, a renderer should not stay at its default `(0, 0)` until
   the next position write.
 - Use **plain `update(C, cb)`** for mutation-only callbacks that should react only after the entity
   is already live: expensive rebuilds, destructive recreate paths, validation/repair passes, or
   post-construction setters where an `enter` callback already consumed the same component state.
-- Do not duplicate an `.enter(...)` body and an `.update({ enter: true })` body that perform the
+- Do not duplicate an `.enter(...)` body and an `.update({ onEnter: true })` body that perform the
   same work. Pick one owner: explicit `.enter` for separate lifecycle setup, or one
-  `{ enter: true }` update callback for "initialize from current value, then keep synced."
+  `{ onEnter: true }` update callback for "initialize from current value, then keep synced."
 
 ```ts
 // ❌ redundant when update already owns initialization
 .enter([Rotation, VGameObject], (_e, [r, vgo]) => vgo.obj.setRotation(coords.rot(r.angle)))
-.update({ watch: Rotation, enter: true, inject: [VGameObject] }, (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
+.update({ watch: Rotation, onEnter: true, inject: [VGameObject] }, (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
 
 // ✅ update opts into entry-time initialization
-.update({ watch: Rotation, enter: true, inject: [VGameObject] }, (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
+.update({ watch: Rotation, onEnter: true, inject: [VGameObject] }, (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
 ```
 
 ### Injection
@@ -238,7 +238,7 @@ Pull components into the callback instead of `entity.get()`-ing them by hand:
 
 ```ts
 .enter([Arc], (entity, [arc]) => { /* … */ })
-.update({ watch: Arc, enter: true, inject: [VGameObject] }, (entity, arc, [vgo]) => { /* … */ })
+.update({ watch: Arc, onEnter: true, inject: [VGameObject] }, (entity, arc, [vgo]) => { /* … */ })
 .exit([Arc, VGameObject], (entity, [arc, vgo]) => { /* … */ })
 .each([Position, Velocity], (entity, [pos, vel]) => { /* … */ })
 ```
@@ -324,14 +324,14 @@ export class PhaserServerModule extends Module<undefined> {
       .system("phaser.sync.position")
       .with(PhysicsPosition, RenderPosition)
       .phase(PRE_STORE)
-      .update({ watch: PhysicsPosition, enter: true }, (e, p) =>
+      .update({ watch: PhysicsPosition, onEnter: true }, (e, p) =>
         e.set(RenderPosition, { x: p.x, y: p.y })
       );
     world
       .system("phaser.sync.rotation")
       .with(PhysicsRotation, RenderRotation)
       .phase(PRE_STORE)
-      .update({ watch: PhysicsRotation, enter: true }, (e, r) =>
+      .update({ watch: PhysicsRotation, onEnter: true }, (e, r) =>
         e.set(RenderRotation, { angle: r.angle })
       );
   }
@@ -399,7 +399,7 @@ world
   .system("render.arc")
   .with(Arc, VGameObject)
   .phase(ON_STORE)
-  .update({ watch: Arc, enter: true, inject: [VGameObject] }, (e, arc, [vgo]) =>
+  .update({ watch: Arc, onEnter: true, inject: [VGameObject] }, (e, arc, [vgo]) =>
     (vgo.obj as ArcObject).setRadius(coords.len(arc.radius))
   );
 
@@ -429,16 +429,16 @@ No special-casing anywhere.
 ### Reactive sync between two component spaces
 
 Copy `A → B`, gated on both existing (so you never _create_ `B`, you only keep an existing `B` in
-sync — pure-ECS: the owner decides whether `B` exists). Use `{ enter: true }` when `B` must reflect
+sync — pure-ECS: the owner decides whether `B` exists). Use `{ onEnter: true }` when `B` must reflect
 the current `A` as soon as the entity enters the sync system:
 
 ```ts
-.with(PhysicsPosition, RenderPosition).update({ watch: PhysicsPosition, enter: true }, (e, p) =>
+.with(PhysicsPosition, RenderPosition).update({ watch: PhysicsPosition, onEnter: true }, (e, p) =>
   e.set(RenderPosition, { x: p.x, y: p.y })
 );
 ```
 
-Leave `enter: true` off (or set `enter: false`) only when a separate `.enter(...)` already initializes `B`,
+Leave `onEnter: true` off (or set `onEnter: false`) only when a separate `.enter(...)` already initializes `B`,
 or when the callback is intentionally "future changes only."
 
 ### Relationship retargeting + grouped queries for spatial/interest indexing
@@ -448,7 +448,7 @@ scanning. Moving between buckets is a retarget (data change), not a component sw
 
 ### Initialize via opt-in `update`-on-entry
 
-When an update callback owns both initialization and later changes, pass `{ enter: true }`. The
+When an update callback owns both initialization and later changes, pass `{ onEnter: true }`. The
 "apply current value when the entity appears" step then needs no separate `enter` — just order the
 system after whatever produces the entity/companion.
 
@@ -462,7 +462,7 @@ system after whatever produces the entity/companion.
 | An imperative runtime object with `start()/stop()/track/enable`        | A **module** + the world's own lifecycle (`clearAllEntities()`, closing the world). Systems live on the world; they don't need a wrapper to turn on. |
 | Builder/factory helpers that _create entities_ (`createArc(world, …)`) | Let callers `world.entity().add(Networked).set(Arc, …).set(FillStyle, …)`. Components are small and optional; the caller adds exactly what it wants. |
 | A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                        |
-| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, enter: true })` when update owns initialization.                                                                             |
+| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                           |
 | One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                               |
 | Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                        |
 | `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                        |
@@ -476,7 +476,7 @@ system after whatever produces the entity/companion.
 - **A system is in exactly one phase.** Plan splits accordingly.
 - **Structural changes are deferred and flushed _after_ each system** — visible to later systems
   this tick, not to the current system mid-iteration.
-- **`update(C)` is change-only by default.** Add `{ enter: true }` for projection/sync callbacks
+- **`update(C)` is change-only by default.** Add `{ onEnter: true }` for projection/sync callbacks
   that must apply the current watched value on entry; leave it off for mutation-only callbacks or
   when `.enter(...)` already owns initialization.
 - **Membership is fixed by `.with(...)` / `.without(...)` / `.update(C)`;** `update(C)` watches `C`
@@ -511,9 +511,9 @@ render code**.
   Per shape: a **creation** system (`.with(Shape).without(VGameObject).enter` → `scene.add.*` +
   `set(VGameObject)`) in `ON_STORE`; a **geometry** system (`.with(Shape, VGameObject).update`)
   in `ON_STORE`; a **teardown** system (`.exit → remove VGameObject`) in `PRE_STORE`. Shared
-  transform/style **sync** systems (`.with(Component, VGameObject).update({ watch: Component, enter: true })`)
+  transform/style **sync** systems (`.with(Component, VGameObject).update({ watch: Component, onEnter: true })`)
   apply position/rotation/scale/alpha/depth/fill/stroke — initialization is explicit via
-  `enter: true`, and the umbrella loads shape modules _before_ the sync module so creation
+  `onEnter: true`, and the umbrella loads shape modules _before_ the sync module so creation
   precedes sync within `ON_STORE`.
 - **Lifecycle that falls out for free:** a renderable **type swap** is handled by exclusivity +
   teardown(`PRE_STORE`)-before-create(`ON_STORE`); a **baseline reset / disconnect** is just

@@ -112,7 +112,7 @@ describe("System — enter / exit / update", () => {
   it("enter delivers an initial update for components already on the entity", () => {
     const { w } = setup();
     const cb = vi.fn();
-    w.system("test").with(Position).update({ watch: Position, enter: true }, cb);
+    w.system("test").with(Position).update({ watch: Position, onEnter: true }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // tick 1 enters the entity & queues pos
@@ -139,7 +139,7 @@ describe("System — enter / exit / update", () => {
   it("update without an explicit query requires its component", () => {
     const { w } = setup();
     const cb = vi.fn();
-    w.system("test").update({ watch: Position, enter: true }, cb);
+    w.system("test").update({ watch: Position, onEnter: true }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // enter
@@ -662,7 +662,7 @@ describe("System — each", () => {
     w.system("test")
       .with(Position)
       .each([Position], eachCb)
-      .update({ watch: Position, enter: true }, updateCb);
+      .update({ watch: Position, onEnter: true }, updateCb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // entry queues pos for update

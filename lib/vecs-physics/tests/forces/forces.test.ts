@@ -288,7 +288,7 @@ describe("PhysicsImpulseZero — silent zero", () => {
       .system("ImpulseWatcher")
       .with({ any: [Impulse] })
       .phase("physics-post")
-      .update({ watch: Impulse, enter: true }, () => {
+      .update({ watch: Impulse, onEnter: true }, () => {
         modifiedCount++;
       });
     let now = 0;
@@ -333,7 +333,7 @@ describe("PhysicsImpulseZero — silent zero", () => {
       .system("AngImpulseWatcher")
       .with({ any: [AngularImpulse] })
       .phase("physics-post")
-      .update({ watch: AngularImpulse, enter: true }, () => {
+      .update({ watch: AngularImpulse, onEnter: true }, () => {
         modifiedCount++;
       });
     let now = 0;

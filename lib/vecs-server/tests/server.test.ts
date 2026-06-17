@@ -482,7 +482,7 @@ describe("ServerWorld", () => {
       .system("read-input")
       .with(Networked, NetworkInput)
       .phase(PRE_STORE)
-      .update({ watch: NetworkInput, enter: true }, (_e, ni) => {
+      .update({ watch: NetworkInput, onEnter: true }, (_e, ni) => {
         observed = ni.input;
       });
 

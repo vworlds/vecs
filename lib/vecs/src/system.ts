@@ -170,7 +170,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       }
       this._inbox.push({ kind: InboxCommand.Enter, entity: e, snapshot: enterSnapshot });
     }
-    for (const ceid of this._enterUpdateEids) {
+    for (const ceid of this._onEnterUpdateEids) {
       const c = e._get(ceid);
       if (c === undefined) {
         continue;

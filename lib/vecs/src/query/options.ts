@@ -24,8 +24,8 @@ type WatchOption<C extends ComponentType> = {
   watch: C;
 };
 
-type EnterUpdateOption = {
-  enter?: boolean;
+type OnEnterUpdateOption = {
+  onEnter?: boolean;
 };
 
 type RelationshipOption<R extends ComponentRef = ComponentRef> = {
@@ -38,7 +38,7 @@ export type FanInjectCallbackOptions<J extends FanInjectTuple> = CursorOption & 
 
 export type UpdateCallbackOptions<C extends ComponentType, J extends InjectTuple> = CursorOption &
   WatchOption<C> &
-  EnterUpdateOption &
+  OnEnterUpdateOption &
   Partial<InjectOption<J>>;
 
 export type OrderByOptions<J extends InjectTuple> = CursorOption & InjectOption<J>;

@@ -16,7 +16,7 @@ export class PhaserServerModule extends Module<undefined> {
       .system("phaser.sync.position")
       .with(PhysicsPosition, RenderPosition)
       .phase(PRE_STORE)
-      .update({ watch: PhysicsPosition, enter: true }, (e, p) =>
+      .update({ watch: PhysicsPosition, onEnter: true }, (e, p) =>
         e.set(RenderPosition, { x: p.x, y: p.y })
       );
 
@@ -24,7 +24,7 @@ export class PhaserServerModule extends Module<undefined> {
       .system("phaser.sync.rotation")
       .with(PhysicsRotation, RenderRotation)
       .phase(PRE_STORE)
-      .update({ watch: PhysicsRotation, enter: true }, (e, r) =>
+      .update({ watch: PhysicsRotation, onEnter: true }, (e, r) =>
         e.set(RenderRotation, { angle: r.angle })
       );
   }

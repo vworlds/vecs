@@ -53,7 +53,7 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
     .system("PhysicsBodyLifecycle:Damping")
     .with(Body, Damping)
     .phase(phase)
-    .update({ watch: Damping, enter: true, inject: [Body] }, (entity, damping, [body]) => {
+    .update({ watch: Damping, onEnter: true, inject: [Body] }, (entity, damping, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
@@ -68,7 +68,7 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
     .with(Body, GravityScale)
     .phase(phase)
     .update(
-      { watch: GravityScale, enter: true, inject: [Body] },
+      { watch: GravityScale, onEnter: true, inject: [Body] },
       (entity, gravityScale, [body]) => {
         const bodyId = body?._bodyId;
         if (bodyId === undefined) {
@@ -83,7 +83,7 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
     .system("PhysicsBodyLifecycle:MotionLocks")
     .with(Body, MotionLocks)
     .phase(phase)
-    .update({ watch: MotionLocks, enter: true, inject: [Body] }, (entity, locks, [body]) => {
+    .update({ watch: MotionLocks, onEnter: true, inject: [Body] }, (entity, locks, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;
@@ -104,7 +104,7 @@ export function installBodyLifecycle(world: World, engine: PhysicsEngine, phase:
     .system("PhysicsBodyLifecycle:Sleep")
     .with(Body, Sleep)
     .phase(phase)
-    .update({ watch: Sleep, enter: true, inject: [Body] }, (entity, sleep, [body]) => {
+    .update({ watch: Sleep, onEnter: true, inject: [Body] }, (entity, sleep, [body]) => {
       const bodyId = body?._bodyId;
       if (bodyId === undefined) {
         return;

@@ -86,7 +86,7 @@ describe("Query — typing", () => {
     assertType<IsEqual<typeof typedRepeatedQuery, Query<[typeof Position, typeof Velocity]>>>();
 
     if (false) {
-      typedQuery.update({ watch: Position, enter: true, inject: [Velocity] }, (_e, p, [v]) => {
+      typedQuery.update({ watch: Position, onEnter: true, inject: [Velocity] }, (_e, p, [v]) => {
         assertType<IsEqual<typeof p, Position>>();
         assertType<IsEqual<typeof v, Velocity>>();
       });
@@ -264,7 +264,7 @@ describe("Query — update predicate", () => {
     tick();
 
     const update = vi.fn();
-    const q = w.query("updated").update({ watch: Position, enter: true }, update).build();
+    const q = w.query("updated").update({ watch: Position, onEnter: true }, update).build();
 
     expect(q.belongs(e)).toBe(true);
     expect(q.has(e)).toBe(true);

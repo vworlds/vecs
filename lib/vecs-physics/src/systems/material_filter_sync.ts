@@ -23,7 +23,7 @@ export function installMaterialFilterSync(
   system.update(
     {
       watch: Material,
-      enter: true,
+      onEnter: true,
       cursor: Iter,
       inject: [SingleShape, { target: [ChildOf, [Body]] }],
     },
@@ -51,7 +51,7 @@ export function installMaterialFilterSync(
     .update(
       {
         watch: Material,
-        enter: true,
+        onEnter: true,
         cursor: Iter,
         inject: [Chain, { target: [ChildOf, [Body]] }],
       },
@@ -68,7 +68,7 @@ export function installMaterialFilterSync(
     .update(
       {
         watch: CollisionFilter,
-        enter: true,
+        onEnter: true,
         cursor: Iter,
         inject: [SingleShape, { target: [ChildOf, [Body]] }],
       },
@@ -98,7 +98,7 @@ export function installMaterialFilterSync(
     .update(
       {
         watch: CollisionFilter,
-        enter: true,
+        onEnter: true,
         cursor: Iter,
         inject: [Chain, { target: [ChildOf, [Body]] }],
       },
@@ -115,7 +115,7 @@ export function installMaterialFilterSync(
     .update(
       {
         watch: Sensor,
-        enter: true,
+        onEnter: true,
         cursor: Iter,
         inject: [SingleShape, { target: [ChildOf, [Body]] }],
       },
@@ -132,7 +132,7 @@ export function installMaterialFilterSync(
     .update(
       {
         watch: Sensor,
-        enter: true,
+        onEnter: true,
         cursor: Iter,
         inject: [Chain, { target: [ChildOf, [Body]] }],
       },

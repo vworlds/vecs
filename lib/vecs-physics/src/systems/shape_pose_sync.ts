@@ -18,7 +18,7 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
   system.update(
     {
       watch: ShapePosition,
-      enter: true,
+      onEnter: true,
       cursor: Iter,
       inject: [SingleShape, { target: [ChildOf, [Body]] }],
     },
@@ -34,7 +34,7 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
     .update(
       {
         watch: ShapePosition,
-        enter: true,
+        onEnter: true,
         cursor: Iter,
         inject: [Chain, { target: [ChildOf, [Body]] }],
       },
@@ -51,7 +51,7 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
     .update(
       {
         watch: ShapeRotation,
-        enter: true,
+        onEnter: true,
         cursor: Iter,
         inject: [SingleShape, { target: [ChildOf, [Body]] }],
       },
@@ -68,7 +68,7 @@ export function installShapePoseSync(world: World, engine: PhysicsEngine, phase:
     .update(
       {
         watch: ShapeRotation,
-        enter: true,
+        onEnter: true,
         cursor: Iter,
         inject: [Chain, { target: [ChildOf, [Body]] }],
       },
