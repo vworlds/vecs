@@ -90,6 +90,28 @@ describe("PhysicsShapeLifecycle.enter", () => {
     expect(engine.entityByShapeIndex.has(getShapeId(shape.eid)!.index1)).toBe(true);
   });
 
+  it("does not recreate the shape during initial creation", () => {
+    const calls: unknown[] = [];
+    const originalDestroyShape = engine.box2d.b2DestroyShape;
+    engine.box2d.b2DestroyShape = ((shapeId: unknown, updateBodyMass: boolean) => {
+      calls.push([shapeId, updateBodyMass]);
+      return originalDestroyShape(shapeId as never, updateBodyMass);
+    }) as typeof engine.box2d.b2DestroyShape;
+
+    let shapeEid: EID;
+    try {
+      const body = makeBody();
+      const shape = makeShape(body);
+      shapeEid = shape.eid;
+      world.progress(0, 16);
+    } finally {
+      engine.box2d.b2DestroyShape = originalDestroyShape;
+    }
+
+    expect(hasWasmShape(shapeEid!)).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
   it("computes mass on body after shape creation (VP-12 mass recompute)", () => {
     const body = makeBody();
     makeShape(body); // default Box with density=1

@@ -38,7 +38,7 @@ export function installShapeLifecycle(world: World, engine: PhysicsEngine, phase
   });
 
   system.update(
-    { watch: SingleShape, enter: true, cursor: Iter, inject: [{ target: [ChildOf, [Body]] }] },
+    { watch: SingleShape, cursor: Iter, inject: [{ target: [ChildOf, [Body]] }] },
     (it, shape, [body]) => {
       if (
         (shape instanceof Capsule && !hasValidEndpoints(shape.x1, shape.y1, shape.x2, shape.y2)) ||
@@ -57,7 +57,6 @@ export function installShapeLifecycle(world: World, engine: PhysicsEngine, phase
     .update(
       {
         watch: ChildOf,
-        enter: true,
         cursor: Iter,
         inject: [SingleShape, { target: [ChildOf, [Body]] }],
       },
