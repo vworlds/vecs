@@ -13,6 +13,12 @@ subsystem guides — start with [Concepts](./concepts.md) and the
 > by the presence and change of components — not by imperative bookkeeping.** Almost every
 > good pattern below is a consequence of taking that seriously.
 
+> **How to use this guide.** You don't need to read all of it every time. Skim §1–§2 (the model
+> and the execution facts everything else follows from) and the §8 anti-patterns + §9 pitfalls
+> tables — together a fast TL;DR — then deep-read only the section your task touches: §3
+> Components, §4 Systems & queries, §5 Phases, §6 Modules, §7 Patterns. The §10 case study shows
+> all of it working together.
+
 ---
 
 ## 1. The model in one minute
