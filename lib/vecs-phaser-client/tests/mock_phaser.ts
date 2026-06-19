@@ -44,6 +44,10 @@ export class MockGameObject {
     return this.record("setDisplayOrigin", ...args);
   }
 
+  setDisplaySize(...args: readonly unknown[]): this {
+    return this.record("setDisplaySize", ...args);
+  }
+
   setOrigin(...args: readonly unknown[]): this {
     return this.record("setOrigin", ...args);
   }
@@ -100,6 +104,10 @@ export class MockGameObject {
     return this.record("setStrokeStyle", ...args);
   }
 
+  setTexture(...args: readonly unknown[]): this {
+    return this.record("setTexture", ...args);
+  }
+
   setTo(...args: readonly unknown[]): this {
     return this.record("setTo", ...args);
   }
@@ -113,6 +121,7 @@ export class MockGameObject {
 export interface MockSceneAdd {
   arc: (...args: readonly unknown[]) => MockGameObject;
   ellipse: (...args: readonly unknown[]) => MockGameObject;
+  image: (...args: readonly unknown[]) => MockGameObject;
   line: (...args: readonly unknown[]) => MockGameObject;
   polygon: (...args: readonly unknown[]) => MockGameObject;
   rectangle: (...args: readonly unknown[]) => MockGameObject;
@@ -125,6 +134,7 @@ export class MockScene {
   readonly add: MockSceneAdd = {
     arc: (...args) => this.create("arc", Phaser.GameObjects.Arc, args),
     ellipse: (...args) => this.create("ellipse", Phaser.GameObjects.Ellipse, args),
+    image: (...args) => this.create("image", Phaser.GameObjects.Image, args),
     line: (...args) => this.create("line", Phaser.GameObjects.Line, args),
     polygon: (...args) => this.create("polygon", Phaser.GameObjects.Polygon, args),
     rectangle: (...args) => this.create("rectangle", Phaser.GameObjects.Rectangle, args),

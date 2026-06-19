@@ -1,9 +1,11 @@
 import { Implements, Module } from "@vworlds/vecs";
 import Phaser from "phaser";
 import { CoordSpace } from "../coord_space.js";
+import { Catalog } from "../load_assets.js";
 import * as m from "../markers.js";
 import { ArcModule } from "./arc.js";
 import { EllipseModule } from "./ellipse.js";
+import { ImageModule } from "./image.js";
 import { LineModule } from "./line.js";
 import { PolygonModule } from "./polygon.js";
 import { RectangleModule } from "./rectangle.js";
@@ -13,6 +15,7 @@ import { TriangleModule } from "./triangle.js";
 import { SyncModule } from "./sync.js";
 
 export interface PhaserRenderModuleConfig {
+  readonly catalog?: Catalog;
   readonly scene: Phaser.Scene;
   readonly pixelsPerMeter?: number;
 }
@@ -35,6 +38,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
       m.Vertices,
       m.Star,
       m.Text,
+      m.Texture,
     ].forEach((Marker) => world.component(Marker));
 
     world.component(m.Shape).set(Implements, {
@@ -58,6 +62,9 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     world.component(Phaser.GameObjects.Text).set(Implements, {
       interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text],
     });
+    world.component(Phaser.GameObjects.Image).set(Implements, {
+      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Texture],
+    });
 
     world.component(m.GameObject).onRemove((_entity, obj) => obj.destroy());
 
@@ -69,6 +76,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     world.module(TriangleModule, { scene: config.scene, coords });
     world.module(StarModule, { scene: config.scene, coords });
     world.module(TextModule, { scene: config.scene });
+    world.module(ImageModule, { scene: config.scene, coords });
 
     world.module(SyncModule, { coords });
   }

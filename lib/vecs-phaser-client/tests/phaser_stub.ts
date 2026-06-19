@@ -1,5 +1,6 @@
 class Arc {}
 class Ellipse {}
+class Image {}
 class Line {}
 class Polygon {}
 class Rectangle {}
@@ -11,6 +12,7 @@ export default {
   GameObjects: {
     Arc,
     Ellipse,
+    Image,
     Line,
     Polygon,
     Rectangle,
