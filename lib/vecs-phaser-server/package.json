@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-phaser-server",
-  "version": "1.0.35",
+  "version": "1.0.36",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -24,10 +24,10 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@vworlds/vecs-phaser": "1.0.35",
-    "@vworlds/vecs-physics": "1.0.35",
-    "@vworlds/vecs-protocol": "1.0.35",
-    "@vworlds/vecs-server": "1.0.35"
+    "@vworlds/vecs-phaser": "1.0.36",
+    "@vworlds/vecs-physics": "1.0.36",
+    "@vworlds/vecs-protocol": "1.0.36",
+    "@vworlds/vecs-server": "1.0.36"
   },
   "peerDependencies": {
     "express": "^4.22.2"
