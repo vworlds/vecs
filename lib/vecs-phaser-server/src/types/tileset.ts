@@ -196,7 +196,9 @@ export interface TilesetRaw {
   tilewidth?: number;
   tileheight?: number;
   name?: string;
+  /** Tileset "Class" (Tiled >=1.9). */
   class?: string;
+  /** Tiled file-format discriminator (`"tileset"`/`"map"`) — NOT a class. */
   type?: string;
   properties?: AnyProperty[];
   tiles?: TileRaw[];

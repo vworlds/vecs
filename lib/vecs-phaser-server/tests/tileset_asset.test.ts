@@ -161,4 +161,18 @@ describe("TilesetAsset (terrain fixture)", () => {
   it("throws TilesetNotFoundError for a missing key", () => {
     expect(() => manager().getTileset("nope")).toThrow();
   });
+
+  it("does not treat a tileset's top-level Tiled `type` discriminator as its class", () => {
+    // Modern Tiled (>=1.10) emits a top-level `"type": "tileset"` file-format
+    // discriminator. It is NOT the tileset's Class, so a tileset with no
+    // `class` must expose `class === ""`, never `"tileset"`.
+    const ts = manager().getTileset("plain");
+    expect(ts.class).toBe("");
+    expect(ts.name).toBe("plain");
+  });
+
+  it("still reads a tile's `type` as that tile's class (tile-level alias unchanged)", () => {
+    const ts = manager().getTileset("plain");
+    expect(ts.tile(0)?.class).toBe("Foo");
+  });
 });

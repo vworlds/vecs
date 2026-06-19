@@ -221,7 +221,11 @@ export class AssetManager {
       raw.imagewidth ?? 0,
       raw.imageheight ?? 0,
       raw.name ?? "",
-      raw.class ?? raw.type ?? "",
+      // The tileset "Class" comes from `class` only. A tileset's top-level
+      // `type` is Tiled's file-format discriminator (`"tileset"`/`"map"`), not a
+      // class, so it must NOT be used as a fallback (unlike a *tile*'s `type`,
+      // which is that tile's class — see buildTile in tileset_asset.ts).
+      raw.class ?? "",
       raw.properties ?? ([] as AnyProperty[]),
       tiles
     );
