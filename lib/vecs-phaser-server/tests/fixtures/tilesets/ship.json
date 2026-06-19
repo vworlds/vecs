@@ -1,0 +1,19 @@
+{
+  "columns": 2,
+  "image": "ship.png",
+  "imagewidth": 64,
+  "imageheight": 64,
+  "margin": 1,
+  "spacing": 1,
+  "tilecount": 4,
+  "tilewidth": 32,
+  "tileheight": 32,
+  "name": "ship",
+  "tiles": [
+    {
+      "id": 0,
+      "class": "Hull",
+      "properties": [{ "name": "mass", "type": "float", "value": 12.5 }]
+    }
+  ]
+}
