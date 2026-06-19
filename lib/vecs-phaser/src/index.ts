@@ -3,6 +3,7 @@ import { type ComponentClass } from "@vworlds/vecs";
 export { Alpha, Depth, Position, Rotation, Scale } from "./components/transform.js";
 export { FillStyle, StrokeStyle } from "./components/style.js";
 export { Image } from "./components/image.js";
+export type { AssetCatalog, AssetDescriptor, SpritesheetDescriptor } from "./catalog.js";
 export {
   Arc,
   Ellipse,
