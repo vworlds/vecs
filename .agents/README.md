@@ -12,7 +12,7 @@ The structure is intentionally tool-agnostic. Any agent can read plain Markdown 
 Use this structure for repo-specific agent instructions:
 
 ```text
-.agent/
+.agents/
   README.md
   rules/
     commits.md
@@ -24,14 +24,14 @@ Use this structure for repo-specific agent instructions:
     feature.md
 ```
 
-Put durable rules in `.agent/rules/`:
+Put durable rules in `.agents/rules/`:
 
 - Commit message format and commit policy: `rules/commits.md`.
 - Documentation requirements, doc style, and doc/JSDoc sync: `rules/documentation.md`.
 - Formatting, linting, hooks, and CI checks: `rules/formatting.md`.
 - Test requirements, test locations, mocking style, and assertion standards: `rules/testing.md`.
 
-Put step-by-step procedures in `.agent/workflows/`:
+Put step-by-step procedures in `.agents/workflows/`:
 
 - Bug investigation and fix flow: `workflows/bug-fix.md`.
 - Feature implementation flow: `workflows/feature.md`.

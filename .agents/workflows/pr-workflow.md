@@ -11,9 +11,9 @@ git checkout -b <branch-name> origin/dev
 
 2. Review the relevant rules before preparing the PR:
 
-- `.agent/rules/commits.md` for commit message format and commit policy.
-- `.agent/rules/formatting.md` for formatting, linting, and hook expectations.
-- `.agent/rules/testing.md` for test expectations.
+- `.agents/rules/commits.md` for commit message format and commit policy.
+- `.agents/rules/formatting.md` for formatting, linting, and hook expectations.
+- `.agents/rules/testing.md` for test expectations.
 
 3. Push the branch to `origin`:
 

@@ -10,5 +10,5 @@ Also exports the shared asset catalog schema (`AssetDescriptor`, `SpritesheetDes
 
 Depends on `@vworlds/vecs` and `@vworlds/vecs-wire`.
 
-See [`./architecture/README.md`](./architecture/README.md) for the full design and
-[`./architecture/TICKETS.md`](./architecture/TICKETS.md) for the implementation plan.
+See [`./architecture/README.md`](./architecture/README.md) for the full design.
+Forward-looking work lives in the repo [`ROADMAP.md`](../../architecture/ROADMAP.md).

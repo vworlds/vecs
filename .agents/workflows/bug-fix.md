@@ -8,4 +8,4 @@ Use this workflow when fixing incorrect behavior, crashes, broken tests, or regr
 4. Make the smallest code change that fixes the root cause.
 5. Run the targeted test, then `npm run test` and `npm run typecheck`.
 
-Follow `.agent/rules/testing.md` for test placement, mocking style, and assertion quality.
+Follow `.agents/rules/testing.md` for test placement, mocking style, and assertion quality.

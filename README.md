@@ -64,4 +64,4 @@ npm run build
 ```
 
 Workspace-wide formatting uses Prettier (`npm run format` / `npm run format:check`). Repo
-conventions for commits, formatting, testing, and documentation live in [`.agent/`](./.agent/README.md).
+conventions for commits, formatting, testing, and documentation live in [`.agents/`](./.agents/README.md).
