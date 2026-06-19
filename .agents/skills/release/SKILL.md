@@ -59,8 +59,8 @@ be `v1.0.36`.
    context (the release script follows the same no-force, fast-forward-only
    discipline).
 2. Confirm the CHANGELOG.md's unreleased section reflects the to be published
-   changes accurately and that we're not missing significant features / bugfixes.
-   If so, propose a change and ask for confirmation.
+   changes accurately and that we're not missing significant features / bugfixes
+   since last release. If so, propose a change and ask for confirmation.
 3. Confirm the user wants to release now; the script pushes to `master` and
    triggers a public npm publish.
 4. Run the script and stream its output. Report the new version tag when it
