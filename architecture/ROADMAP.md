@@ -13,7 +13,7 @@ Planned features for the next version.
 - [vecs] **Injected mutation dirty tracking** — make `.each`/`.update`-injected component mutation reliably mark components modified, or provide an explicit ergonomic replacement if automatic tracking is not viable.
 - [vecs-phaser-client] **Parent-relative render transforms** — support render transforms relative to parent entities so scene graphs can express local offsets without manual pose baking.
 - [vecs-phaser-client] **Anchored UI and text origins** — add UI anchoring and text-origin controls for screen-space overlays and precise label alignment.
-- [vecs-phaser] **Sprite renderables** — add wire-serializable sprite components and matching server/client rendering support alongside the current primitive shapes.
+- [vecs-phaser] **Animated Sprite renderables** — add a separate wire-serializable animated `Sprite` renderable that reuses the shipped asset catalog and captured Tiled `animation` frames; static Tiled-backed `Image` rendering already ships.
 - [vecs-phaser-server] **Effect builders** — add particle/effect-oriented server helpers that create short-lived networked render entities with predictable lifecycle cleanup.
 
 ## Version +2
