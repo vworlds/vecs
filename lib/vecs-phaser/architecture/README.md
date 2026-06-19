@@ -141,13 +141,15 @@ build script).
 @vworlds/vecs-phaser-client     (render module) deps: vecs-phaser, vecs-client
         │  PhaserRenderModule, CoordSpace, interface markers, loadAssets  peer: phaser@^4.1
         ▼
-@vworlds/vecs-phaser-server     (helpers, optional)  deps: vecs-phaser, vecs-server
+@vworlds/vecs-phaser-server     (helpers, optional)  deps: vecs-phaser, vecs-server, vecs-physics, vecs-protocol
         │  PhaserServerModule + AssetManager/Tiled ingestion/HTTP serving  peer: express
 ```
 
 > **Note (intentional):** `vecs-phaser-server` expands beyond its earlier "thin pure-ECS,
-> no deps" character by owning the asset catalog — Tiled ingestion and HTTP serving.
-> The ECS helpers (`PhaserServerModule`) stay importable on their own.
+> no deps" character by owning the asset catalog — Tiled ingestion and HTTP serving. It
+> also depends on `vecs-physics` (the pose-sync systems read its `Position`/`Rotation`) and
+> `vecs-protocol` (`worldPath` for the catalog routes). The ECS helpers (`PhaserServerModule`)
+> stay importable on their own.
 
 ### 5.1 Public API surface (the contract)
 

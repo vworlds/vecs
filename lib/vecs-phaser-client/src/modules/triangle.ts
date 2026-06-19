@@ -23,11 +23,7 @@ export class TriangleModule extends Module<{ scene: Phaser.Scene; coords: CoordS
     const { scene, coords } = config;
     const world = this.world;
 
-    world.component(Triangle).onRemove((entity) => {
-      if (entity.has(Phaser.GameObjects.Triangle)) {
-        entity.remove(Phaser.GameObjects.Triangle);
-      }
-    });
+    world.component(Triangle).onRemove((entity) => entity.remove(Phaser.GameObjects.Triangle));
 
     world
       .system("phaser.new.triangle")

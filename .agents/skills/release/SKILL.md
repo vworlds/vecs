@@ -58,11 +58,14 @@ be `v1.0.36`.
 1. Read `.agents/rules/commits.md` and `.agents/workflows/pr-workflow.md` for
    context (the release script follows the same no-force, fast-forward-only
    discipline).
-2. Confirm the user wants to release now; the script pushes to `master` and
+2. Confirm the CHANGELOG.md's unreleased section reflects the to be published
+   changes accurately and that we're not missing significant features / bugfixes.
+   If so, propose a change and ask for confirmation.
+3. Confirm the user wants to release now; the script pushes to `master` and
    triggers a public npm publish.
-3. Run the script and stream its output. Report the new version tag when it
+4. Run the script and stream its output. Report the new version tag when it
    completes.
-4. If the script fails, do NOT attempt to fix git state by hand. Surface the
+5. If the script fails, do NOT attempt to fix git state by hand. Surface the
    error and the script's suggested remediation, and ask the user how to
    proceed.
 

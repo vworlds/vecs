@@ -9,11 +9,7 @@ export class TextModule extends Module<{ scene: Phaser.Scene }> {
     const { scene } = config;
     const world = this.world;
 
-    world.component(TextComponent).onRemove((entity) => {
-      if (entity.has(Phaser.GameObjects.Text)) {
-        entity.remove(Phaser.GameObjects.Text);
-      }
-    });
+    world.component(TextComponent).onRemove((entity) => entity.remove(Phaser.GameObjects.Text));
 
     world
       .system("phaser.new.text")

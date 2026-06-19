@@ -17,11 +17,7 @@ export class PolygonModule extends Module<{ scene: Phaser.Scene; coords: CoordSp
     const { scene, coords } = config;
     const world = this.world;
 
-    world.component(Polygon).onRemove((entity) => {
-      if (entity.has(Phaser.GameObjects.Polygon)) {
-        entity.remove(Phaser.GameObjects.Polygon);
-      }
-    });
+    world.component(Polygon).onRemove((entity) => entity.remove(Phaser.GameObjects.Polygon));
 
     world
       .system("phaser.new.polygon")

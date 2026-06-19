@@ -8,11 +8,7 @@ export class EllipseModule extends Module<{ scene: Phaser.Scene; coords: CoordSp
     const { scene, coords } = config;
     const world = this.world;
 
-    world.component(Ellipse).onRemove((entity) => {
-      if (entity.has(Phaser.GameObjects.Ellipse)) {
-        entity.remove(Phaser.GameObjects.Ellipse);
-      }
-    });
+    world.component(Ellipse).onRemove((entity) => entity.remove(Phaser.GameObjects.Ellipse));
 
     world
       .system("phaser.new.ellipse")
