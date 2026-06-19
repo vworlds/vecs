@@ -10,7 +10,7 @@ the module is registered. It is the unit of packaging for a feature: registering
 declaring systems, setting exclusivity and cleanup policy, and (rarely) inserting phases.
 
 ```ts
-import { Module, PRE_STORE } from "@vworlds/vecs";
+import { Module, POST_UPDATE } from "@vworlds/vecs";
 
 export class PoseSyncModule extends Module {
   public init(): void {
@@ -20,7 +20,7 @@ export class PoseSyncModule extends Module {
     world
       .system("sync.position")
       .with(PhysicsPosition, RenderPosition)
-      .phase(PRE_STORE)
+      .phase(POST_UPDATE)
       .update({ watch: PhysicsPosition, onEnter: true }, (e, p) =>
         e.set(RenderPosition, { x: p.x, y: p.y })
       );
@@ -62,7 +62,7 @@ is often one module per item plus a thin umbrella that composes them:
 ```ts
 export class PhaserRenderModule extends Module<{ scene: Scene }> {
   public init(cfg: { scene: Scene }): void {
-    this.world.component(VGameObject).onRemove((_e, vgo) => vgo.obj.destroy());
+    this.world.component(GameObject).onRemove((_e, obj) => obj.destroy()); // GameObject: Implements marker over every Phaser object
     this.world.module(ArcModule, { scene: cfg.scene });
     this.world.module(RectangleModule, { scene: cfg.scene });
     // … shape modules first …

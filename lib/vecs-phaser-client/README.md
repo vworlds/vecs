@@ -1,9 +1,11 @@
 # @vworlds/vecs-phaser-client
 
 Browser render adapter: registers a vecs module that observes a replicated `ClientWorld`
-and automatically creates, updates, and destroys Phaser GameObjects. GameObjects are stored
-on entities as the local `VGameObject` component. All pixel, PPM, and Y-flip conversion
-lives here at the Phaser frontier.
+and automatically creates, updates, and destroys Phaser GameObjects. Each live Phaser
+GameObject is attached to its entity **as a component** (`entity.attach(obj)`), and the
+renderer dispatches transform/style updates polymorphically through `Implements` interface
+markers (`GameObject`, `Transform`, `Fill`, …). All pixel, PPM, and Y-flip conversion lives
+here at the Phaser frontier.
 
 Depends on `@vworlds/vecs-phaser` and `@vworlds/vecs-client`. Requires `phaser@^4.1.0` as
 a peer dependency (provided by the application).

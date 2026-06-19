@@ -120,22 +120,25 @@ new ServerWorld({ networkComponents: [Position, Rotation, /* … */ Arc] });
 > their fields silently fail to register, that's the standard-vs-legacy mismatch. vecs-wire
 > supports both; if you author new decorators, preserve that.
 
-### Companion / wrapper components (hold non-ECS resources)
+### Resources as components (hold non-ECS objects)
 
-To attach a non-ECS resource (a Phaser `GameObject`, a WASM handle, a DOM node) to an entity,
-**wrap it in a local, non-networked component** instead of keeping a side `Map<eid, resource>`.
-The entity's component set _is_ the lifecycle; queries drive create/destroy; reset is free.
+To bind a non-ECS resource (a Phaser `GameObject`, a WASM handle, a DOM node) to an entity,
+**store the live object itself as a component** with `entity.attach(obj)` instead of keeping a
+side `Map<eid, resource>`. `attach` registers the instance under its own class, so the entity's
+component set _is_ the lifecycle; queries drive create/destroy; reset is free.
 
 ```ts
-export class VGameObject {
-  obj!: Phaser.GameObjects.GameObject;
-}
+const obj = scene.add.arc(0, 0); // a Phaser GameObject
+entity.attach(obj); // the GameObject is now a component, keyed by its class
 
-world.component(VGameObject).onRemove((_entity, vgo) => vgo.obj.destroy());
+world.component(Phaser.GameObjects.Arc).onRemove((_entity, obj) => obj.destroy());
 ```
 
-`onRemove` (below) releases the resource whenever the component leaves — whether removed
-explicitly or because the entity was destroyed.
+`onRemove` (below) releases the resource whenever it leaves — whether removed explicitly or
+because the entity was destroyed. When several resource types should share one cleanup hook or be
+queried together, give them a common **interface** with `Implements` (see §7 and the §10 case
+study). A plain wrapper component (`class Handle { obj }`) is still fine when you need extra fields
+beside the resource.
 
 ### Component lifecycle hooks: `onAdd` / `onSet` / `onRemove`
 
@@ -145,7 +148,7 @@ explicitly or because the entity was destroyed.
 world.component(Impulse).onSet((entity, impulse) => {
   /* accumulate */
 });
-world.component(VGameObject).onRemove((_entity, vgo) => vgo.obj.destroy());
+world.component(Phaser.GameObjects.Arc).onRemove((_entity, obj) => obj.destroy());
 ```
 
 Use them for resource management and cross-cutting reactions that aren't worth a system. (Note
@@ -230,12 +233,12 @@ Choose `onEnter: true` by asking who owns the initial value:
   `{ onEnter: true }` update callback for "initialize from current value, then keep synced."
 
 ```ts
-// ❌ redundant when update already owns initialization
-.enter([Rotation, VGameObject], (_e, [r, vgo]) => vgo.obj.setRotation(coords.rot(r.angle)))
-.update({ watch: Rotation, onEnter: true, inject: [VGameObject] }, (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
+// ❌ redundant when update already owns initialization (Transform = Implements marker → the attached GameObject)
+.enter([Rotation, Transform], (_e, [r, obj]) => obj.setRotation(coords.rot(r.angle)))
+.update({ watch: Rotation, onEnter: true, inject: [Transform] }, (_e, r, [obj]) => obj.setRotation(coords.rot(r.angle)));
 
 // ✅ update opts into entry-time initialization
-.update({ watch: Rotation, onEnter: true, inject: [VGameObject] }, (_e, r, [vgo]) => vgo.obj.setRotation(coords.rot(r.angle)));
+.update({ watch: Rotation, onEnter: true, inject: [Transform] }, (_e, r, [obj]) => obj.setRotation(coords.rot(r.angle)));
 ```
 
 ### Injection
@@ -244,8 +247,8 @@ Pull components into the callback instead of `entity.get()`-ing them by hand:
 
 ```ts
 .enter([Arc], (entity, [arc]) => { /* … */ })
-.update({ watch: Arc, onEnter: true, inject: [VGameObject] }, (entity, arc, [vgo]) => { /* … */ })
-.exit([Arc, VGameObject], (entity, [arc, vgo]) => { /* … */ })
+.update({ watch: Arc, onEnter: true, inject: [Transform] }, (entity, arc, [obj]) => { /* … */ })
+.exit([Arc, Transform], (entity, [arc, obj]) => { /* … */ })
 .each([Position, Velocity], (entity, [pos, vel]) => { /* … */ })
 ```
 
@@ -293,8 +296,9 @@ ballsByCell.group(k)?.count;
 ### One system = one phase
 
 A system lives in exactly **one** phase. If a concern needs part of its work earlier and part
-later, **split it into multiple systems** in different phases (e.g. teardown in `PRE_STORE`,
-build in `ON_STORE`). You cannot put a system's `.exit` in one phase and its `.update` in another.
+later, **split it into multiple systems** in different phases (e.g. validation in `ON_VALIDATE`,
+corrections in `POST_UPDATE`). You cannot put a system's `.exit` in one phase and its `.update` in
+another.
 
 ---
 
@@ -311,8 +315,8 @@ build in `ON_STORE`). You cannot put a system's `.exit` in one phase and its `.u
 - **Order within a phase = registration order**, which an umbrella module controls by the order
   it loads sub-modules. **Cross-module ordering should be expressed with phases, not registration
   order** — never rely on "module A happened to load before module B" for correctness when the two
-  are independent. (Example: teardown must run before creation across all shapes → put teardown
-  in `PRE_STORE` and creation in `ON_STORE`; then it holds no matter which shape module loaded
+  are independent. (Example: the server's physics-to-render pose-sync must run after the physics step → put it
+  in `POST_UPDATE`, which is after the physics phases, rather than hoping the physics module loaded
   first.)
 
 ---
@@ -329,14 +333,14 @@ export class PhaserServerModule extends Module<undefined> {
     world
       .system("phaser.sync.position")
       .with(PhysicsPosition, RenderPosition)
-      .phase(PRE_STORE)
+      .phase(POST_UPDATE)
       .update({ watch: PhysicsPosition, onEnter: true }, (e, p) =>
         e.set(RenderPosition, { x: p.x, y: p.y })
       );
     world
       .system("phaser.sync.rotation")
       .with(PhysicsRotation, RenderRotation)
-      .phase(PRE_STORE)
+      .phase(POST_UPDATE)
       .update({ watch: PhysicsRotation, onEnter: true }, (e, r) =>
         e.set(RenderRotation, { angle: r.angle })
       );
@@ -359,7 +363,7 @@ Guidelines:
   export class PhaserRenderModule extends Module<{ scene; pixelsPerMeter? }> {
     public init(cfg): void {
       const coords = new CoordSpace(cfg.scene, cfg.pixelsPerMeter);
-      this.world.component(VGameObject).onRemove((_e, vgo) => vgo.obj.destroy());
+      this.world.component(GameObject).onRemove((_e, obj) => obj.destroy()); // GameObject: Implements marker over every Phaser object
       this.world.module(ArcModule, { scene: cfg.scene, coords });
       this.world.module(RectangleModule, { scene: cfg.scene, coords });
       // … shape modules first …
@@ -380,57 +384,54 @@ Guidelines:
 
 ### Resource-as-component lifecycle (kills the `eid → object` map)
 
-The canonical pattern for binding an external object to entities, fully query-driven:
+The canonical pattern for binding an external object to entities, fully query-driven. **Attach the
+live object as its own component** and let a remove hook release it — no wrapper, no side map:
 
 ```ts
-class VGameObject {
-  obj!: RenderObject;
-}
-world.component(VGameObject).onRemove((_e, vgo) => vgo.obj.destroy()); // release on remove/destroy
+// Release the resource whenever its component leaves (explicit remove or entity destroy):
+world.component(Phaser.GameObjects.Arc).onRemove((_e, obj) => obj.destroy());
 
 // CREATE: a renderable that has no object yet
 world
   .system("new.arc")
   .with(Arc)
-  .without(VGameObject)
+  .without(Phaser.GameObjects.Arc)
   .phase(ON_STORE)
-  .enter([Arc], (e) => {
-    const obj = scene.add.arc(0, 0);
-    e.set(VGameObject, { obj });
+  .enter([Arc], (e, [arc]) => {
+    const obj = scene.add.arc(0, 0, coords.len(arc.radius));
+    e.attach(obj); // the GameObject is now a component, keyed by its class
   });
-//        ↑ set(VGameObject) is flushed after this system → the entity now matches the systems below, this same tick
+//        ↑ attach is flushed after this system → the entity now matches the systems below, this same tick
 
 // UPDATE geometry on the bound object (opts into entry + change)
 world
   .system("render.arc")
-  .with(Arc, VGameObject)
+  .with(Arc, Phaser.GameObjects.Arc)
   .phase(ON_STORE)
-  .update({ watch: Arc, onEnter: true, inject: [VGameObject] }, (e, arc, [vgo]) =>
-    (vgo.obj as ArcObject).setRadius(coords.len(arc.radius))
+  .update({ watch: Arc, inject: [Phaser.GameObjects.Arc] }, (e, arc, [obj]) =>
+    obj.setRadius(coords.len(arc.radius))
   );
 
-// TEARDOWN: when the shape leaves (type swap) or the entity dies, drop the companion → onRemove destroys
-world
-  .system("teardown.arc")
-  .with(Arc, VGameObject)
-  .phase(PRE_STORE)
-  .exit([Arc, VGameObject], (e) => {
-    if (e.has(VGameObject)) e.remove(VGameObject);
-  });
+// TEARDOWN: when the shape data leaves (type swap) or the entity dies, drop the object.
+// A component remove hook keeps this declarative — no exit system, no phase to coordinate:
+world.component(Arc).onRemove((e) => {
+  if (e.has(Phaser.GameObjects.Arc)) e.remove(Phaser.GameObjects.Arc);
+});
 ```
 
-Why it's good: no manual map; **destroy/reset is automatic** (destroying the entity removes
-`VGameObject` → `onRemove` releases the resource); **type changes work for free** via exclusivity
-(see below). Note the ordering: teardown in `PRE_STORE` runs before creation in `ON_STORE`, so an
-`Arc → Rectangle` swap removes the old companion _before_ the new shape's `.without(VGameObject)`
-creation query runs — same frame.
+Why it's good: no manual map; **destroy/reset is automatic** (destroying the entity removes the
+attached object → its `onRemove` releases the resource); **type changes work for free** via
+exclusivity (see below). Teardown is a remove **hook**, not a system, so it fires synchronously at
+the mutation site regardless of phase — no teardown-before-create ordering to get right. When many
+resource types share update/teardown logic, give them a common interface with `Implements` (§10)
+and query the interface instead of each concrete class.
 
 ### Exclusivity-driven type swap
 
 With `setExclusiveComponents(...renderables)`, replacing the renderable removes the old one. The
-old shape's teardown system (`.with(OldShape, VGameObject).exit`) fires and drops the companion;
-the new shape's creation system (`.with(NewShape).without(VGameObject).enter`) fires and rebinds.
-No special-casing anywhere.
+old shape data component's remove hook drops its attached object (→ `onRemove` destroys it); the
+new shape's creation system (`.with(NewShape).without(Phaser.GameObjects.NewKind).enter`) fires and
+rebinds. No teardown system, no special-casing anywhere.
 
 ### Reactive sync between two component spaces
 
@@ -505,26 +506,32 @@ small **render components**; the client turns them into Phaser `GameObject`s wit
 render code**.
 
 - **Data (`@vworlds/vecs-phaser`):** small, single-purpose, networked components — `Position`,
-  `Rotation`, `Scale`, `Alpha`, `Depth`, `FillStyle`, `StrokeStyle`, and one-of-N renderables
-  (`Arc`, `Rectangle`, `Text`, …). `networkComponents` order is the protocol.
+  `Rotation`, `Scale`, `Alpha`, `Depth`, `FillStyle`, `StrokeStyle`, `Size`, and one-of-N
+  renderables (`Arc`, `Rectangle`, `Text`, …). `networkComponents` order is the protocol.
 - **Server (`PhaserServerModule`, zero-config):** owns exclusivity
-  (`setExclusiveComponents(...renderables)`); two **reactive** pose-sync systems in `PRE_STORE`
+  (`setExclusiveComponents(...renderables)`); two **reactive** pose-sync systems in `POST_UPDATE`
   copy physics `Position`/`Rotation` → render pose only when physics moved (`.update`, not
   `.each`), and only for entities that already have a render pose (no creation — pure ECS). No
   builders: game code creates entities and adds the components it wants.
-- **Client (`PhaserRenderModule` umbrella → per-shape modules):** binds each entity's renderable
-  to a Phaser object stored in the **`VGameObject` companion component** (`onRemove → destroy`).
-  Per shape: a **creation** system (`.with(Shape).without(VGameObject).enter` → `scene.add.*` +
-  `set(VGameObject)`) in `ON_STORE`; a **geometry** system (`.with(Shape, VGameObject).update`)
-  in `ON_STORE`; a **teardown** system (`.exit → remove VGameObject`) in `PRE_STORE`. Shared
-  transform/style **sync** systems (`.with(Component, VGameObject).update({ watch: Component, onEnter: true })`)
-  apply position/rotation/scale/alpha/depth/fill/stroke — initialization is explicit via
-  `onEnter: true`, and the umbrella loads shape modules _before_ the sync module so creation
-  precedes sync within `ON_STORE`.
-- **Lifecycle that falls out for free:** a renderable **type swap** is handled by exclusivity +
-  teardown(`PRE_STORE`)-before-create(`ON_STORE`); a **baseline reset / disconnect** is just
-  `clearAllEntities()` → entities destroyed → `VGameObject` removed → `onRemove` destroys the
-  Phaser objects. No maps, no `start/stop`, no reset handler.
+- **Client (`PhaserRenderModule` umbrella → per-shape modules):** the live Phaser object is
+  attached to its entity **as the component** (`entity.attach(obj)`) — no wrapper. Each concrete
+  Phaser class declares the **interface markers** it satisfies with `Implements` (`GameObject`,
+  `Transform`, `Fill`, … plus a geometry marker like `Arc`/`Vertices`/`Text`), so one set of
+  systems drives every renderable polymorphically. Per shape: a **creation** system
+  (`.with(Shape).without(Phaser.GameObjects.Kind).enter` → `scene.add.*` + `entity.attach`) in
+  `ON_STORE`; a **geometry** system (`.with(Shape, m.Geometry).update`) in `ON_STORE`; and a
+  shape-data **remove hook** (`component(Shape).onRemove` → remove the Phaser object) instead of a
+  teardown system. Shared transform/style **sync** systems
+  (`.with(Component, m.Marker).update({ watch: Component, onEnter: true })`) apply
+  position/rotation/scale/alpha/depth/size/fill/stroke through the markers — initialization is
+  explicit via `onEnter: true`, and the umbrella loads shape modules _before_ the sync module so
+  creation precedes sync within `ON_STORE`.
+- **Lifecycle that falls out for free:** destruction is a single hook —
+  `component(GameObject).onRemove((_e, obj) => obj.destroy())`. A renderable **type swap**
+  (exclusivity removes the old shape data → its remove hook drops the attached object → it's
+  destroyed → the new shape's creation system rebinds) and a **baseline reset / disconnect**
+  (`clearAllEntities()` → entities destroyed → attached objects removed → destroyed) both work with
+  no maps, no `start/stop`, no reset handler.
 
 The whole thing is "server says _what exists, where, and what it looks like_; the client owns the
 Phaser lifecycle" — expressed entirely as small components + phased reactive systems + modules.

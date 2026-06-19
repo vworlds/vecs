@@ -49,7 +49,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 ## v1.0.26 (2026-06-12)
 
 - [vecs-phaser]: Added wire-serializable Phaser render components for transforms, styling, primitive shapes, and text, plus stable protocol arrays for network/renderable component ordering.
-- [vecs-phaser-client]: Added `CoordSpace`, `PhaserRenderModule`, local `VGameObject` lifecycle state, per-shape renderers, and rotation-aware interpolation support.
+- [vecs-phaser-client]: Added `CoordSpace`, `PhaserRenderModule`, GameObject-as-component lifecycle (live Phaser objects attached to entities via `entity.attach`, dispatched through `Implements` interface markers), per-shape renderers, and rotation-aware interpolation support.
 - [vecs-phaser-server]: Added the server-side Phaser module surface, render exclusivity registration, networked render-entity helpers, and physics-pose synchronization.
 - [vecs]: Added `Implements` for abstract/interface component aliases and a tag decorator for presence-only wire types.
 - [vecs]: Introduced strict update predicates, rejected duplicate `update()` registrations for the same component, and fixed deferred entity creation visibility for numeric lookups.

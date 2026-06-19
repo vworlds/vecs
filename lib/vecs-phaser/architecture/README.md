@@ -1,8 +1,8 @@
-# vecs-phaser — Architecture & Plan
+# vecs-phaser — Architecture
 
-**Status:** approved design, pre-implementation
+**Status:** shipped (v1.0.26+); this document tracks the implemented design
 **Audience:** engineering manager + implementing subagents
-**Companion:** [`TICKETS.md`](./TICKETS.md) — delegate-ready ticket breakdown
+**Companion:** [`ASSETS.md`](./ASSETS.md) — the post-MVP Images & Asset Catalog plan that builds on this layer
 
 ---
 
@@ -116,7 +116,7 @@ build script).
         │  components + protocol arrays + TextAlign           no phaser/client/server
         ▼
 @vworlds/vecs-phaser-client     (render module) deps: vecs-phaser, vecs-client
-        │  PhaserRenderModule, VGameObject, CoordSpace       peer: phaser@^4.1
+        │  PhaserRenderModule, CoordSpace, interface markers  peer: phaser@^4.1
         ▼
 @vworlds/vecs-phaser-server     (helpers, optional)  deps: vecs-phaser, vecs-server
            PhaserServerModule (zero-config ECS module)  no phaser
@@ -152,12 +152,8 @@ export class StrokeStyle {
 export class Arc {
   /*…*/
 }
-export class Ellipse {
-  /*…*/
-}
-export class Rectangle {
-  /*…*/
-}
+export class Ellipse {} // tag — dimensions live on the shared Size component
+export class Rectangle {} // tag — dimensions live on the shared Size component
 export class Polygon {
   /*…*/
 }
@@ -169,6 +165,9 @@ export class Triangle {
 }
 export class Star {
   /*…*/
+}
+export class Size {
+  /* width, height (meters) — shared by Ellipse & Rectangle */
 }
 export class Text {
   /*…*/
@@ -199,9 +198,9 @@ export interface PhaserRenderModuleConfig {
   scene: Phaser.Scene;
   pixelsPerMeter?: number; // default 64
 }
-export class VGameObject {
-  obj: Phaser.GameObjects.GameObject;
-}
+// No render-state component is exported: the live Phaser GameObject is attached
+// to its entity *as the component* (see §7). The interface markers it dispatches
+// through (GameObject, Transform, Fill, …) are internal to the client package.
 export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
   init(config: PhaserRenderModuleConfig): void;
 }
@@ -213,7 +212,7 @@ export const rotationInterpolator: ComponentInterpolator;
 
 ```ts
 export class PhaserServerModule extends Module<undefined> {
-  // zero-config: sets exclusive renderable components + two PRE_STORE reactive
+  // zero-config: sets exclusive renderable components + two POST_UPDATE reactive
   // pose-sync systems (copies vecs-physics Position/Rotation → render Position/Rotation)
 }
 ```
@@ -243,6 +242,7 @@ export const phaserNetworkComponents = [
   Triangle,
   Star,
   Text, // type 8..15
+  Size, // type 16 — dimensions for Ellipse/Rectangle (appended after Text)
 ] as const;
 
 export const phaserRenderableComponents = [
@@ -257,27 +257,29 @@ export const phaserRenderableComponents = [
 ] as const;
 ```
 
-| Component     | Fields (wire type)                                                                                                                                           | Units / notes                                   |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| `Position`    | `x:f32=0`, `y:f32=0`                                                                                                                                         | meters, +y up. **Type 1 → free interpolation.** |
-| `Rotation`    | `angle:f32=0`                                                                                                                                                | radians, CCW+. Frontier `rot()` negates.        |
-| `Scale`       | `x:f32=1`, `y:f32=1`                                                                                                                                         | unitless multiplier                             |
-| `Alpha`       | `value:f32=1`                                                                                                                                                | 0..1                                            |
-| `Depth`       | `value:i32=0`                                                                                                                                                | render order (unitless)                         |
-| `FillStyle`   | `color:u32=0xffffff`, `alpha:f32=1`                                                                                                                          | RGB int                                         |
-| `StrokeStyle` | `color:u32=0xffffff`, `alpha:f32=1`, `width:f32=1`                                                                                                           | width in **screen px**                          |
-| `Arc`         | `radius:f32=0.5`, `startAngle:f32=0`, `endAngle:f32=2π`, `anticlockwise:bool=false`, `iterations:f32=0.01`                                                   | radius meters; angles radians                   |
-| `Ellipse`     | `width:f32=2`, `height:f32=1`                                                                                                                                | meters                                          |
-| `Rectangle`   | `width:f32=2`, `height:f32=1`                                                                                                                                | meters                                          |
-| `Polygon`     | `points:["f32"]=[]`                                                                                                                                          | alternating x,y meters (relative)               |
-| `Line`        | `x1,y1,x2,y2:f32=0`                                                                                                                                          | meters (relative)                               |
-| `Triangle`    | `x1,y1,x2,y2,x3,y3:f32`                                                                                                                                      | meters (relative)                               |
-| `Star`        | `points:u8=5`, `innerRadius:f32=0.5`, `outerRadius:f32=1`                                                                                                    | radii meters                                    |
-| `Text`        | `value:string=""`, `fontFamily:string="sans-serif"`, `fontSize:u16=16`, `color:u32=0xffffff`, `backgroundColor:u32=0`, `backgroundAlpha:f32=0`, `align:u8=0` | fontSize in **screen px**; `align`→`TextAlign`  |
+| Component     | Fields (wire type)                                                                                                                                           | Units / notes                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `Position`    | `x:f32=0`, `y:f32=0`                                                                                                                                         | meters, +y up. **Type 1 → free interpolation.**                                  |
+| `Rotation`    | `angle:f32=0`                                                                                                                                                | radians, CCW+. Frontier `rot()` negates.                                         |
+| `Scale`       | `x:f32=1`, `y:f32=1`                                                                                                                                         | unitless multiplier                                                              |
+| `Alpha`       | `value:f32=1`                                                                                                                                                | 0..1                                                                             |
+| `Depth`       | `value:i32=0`                                                                                                                                                | render order (unitless)                                                          |
+| `FillStyle`   | `color:u32=0xffffff`, `alpha:f32=1`                                                                                                                          | RGB int                                                                          |
+| `StrokeStyle` | `color:u32=0xffffff`, `alpha:f32=1`, `width:f32=1`                                                                                                           | width in **screen px**                                                           |
+| `Arc`         | `radius:f32=0.5`, `startAngle:f32=0`, `endAngle:f32=2π`, `anticlockwise:bool=false`, `iterations:f32=0.01`                                                   | radius meters; angles radians                                                    |
+| `Ellipse`     | _tag_ (no fields) — dimensions on `Size`                                                                                                                     | sized via the shared `Size` component                                            |
+| `Rectangle`   | _tag_ (no fields) — dimensions on `Size`                                                                                                                     | sized via the shared `Size` component                                            |
+| `Polygon`     | `points:["f32"]=[]`                                                                                                                                          | alternating x,y meters (relative)                                                |
+| `Line`        | `x1,y1,x2,y2:f32=0`                                                                                                                                          | meters (relative)                                                                |
+| `Triangle`    | `x1,y1,x2,y2,x3,y3:f32`                                                                                                                                      | meters (relative)                                                                |
+| `Star`        | `points:u8=5`, `innerRadius:f32=0.5`, `outerRadius:f32=1`                                                                                                    | radii meters                                                                     |
+| `Text`        | `value:string=""`, `fontFamily:string="sans-serif"`, `fontSize:u16=16`, `color:u32=0xffffff`, `backgroundColor:u32=0`, `backgroundAlpha:f32=0`, `align:u8=0` | fontSize in **screen px**; `align`→`TextAlign`                                   |
+| `Size`        | `width:f32=2`, `height:f32=1`                                                                                                                                | meters; shared sizing for `Ellipse`/`Rectangle` (type 16, appended after `Text`) |
 
-Exactly one renderable per entity is enforced by `setExclusiveComponents(...phaserRenderableComponents)`
-when the server package is used; the client also defensively prefers the first present
-in `phaserRenderableComponents` order.
+Exactly one renderable per entity is enforced server-side by
+`setExclusiveComponents(...phaserRenderableComponents)` (installed by `PhaserServerModule`). The
+client trusts that invariant: each shape's `new` system reacts only to its own renderable, so the
+server's exclusivity is what guarantees one GameObject per entity.
 
 ---
 
@@ -290,49 +292,85 @@ ServerWorld (meters)                         ClientWorld (meters)            Pha
   entity.set(Arc/Position/…)                    progress(now, delta)
         │ collect snapshots (order §6)              │ apply() → decode → entity.attach()
         ▼ encode (f32)                              ▼ fires query enter/modified/exit
-  StateDiff ── dgram ──────────────────────▶  PhaserRenderModule systems
-                                                   │ new:    scene.add.*() + set VGameObject
-                                                   │ sync:   setPosition/…  ── CoordSpace ──▶ mutate
-                                                   └ exit:   remove VGameObject → destroy()
+  StateDiff ── dgram ──────────────────────▶  PhaserRenderModule systems (ON_STORE)
+                                                   │ new:   scene.add.*() → entity.attach(obj)
+                                                   │ sync:  setPosition/… ── CoordSpace ──▶ mutate
+                                                   └ exit:  remove shape data → obj.destroy()
 ```
 
 The app drives `clientWorld.progress(now, delta)` each frame (from the Phaser scene's
-`update` or rAF). `apply()` runs in phase `ON_LOAD`; render systems observe the routed
-events. Position is interpolated by the `DiffBuffer` _before_ `CoordSpace`, so motion is
-smooth between server ticks.
+`update` or rAF). `apply()` runs in phase `ON_LOAD`; the render systems run one phase later in
+`ON_STORE` and observe the routed enter/modified/exit events. Position is interpolated by the
+`DiffBuffer` _before_ `CoordSpace`, so motion is smooth between server ticks.
 
-### 7.2 Lifecycle & the enter-initialization invariant
+### 7.2 Render state: the GameObject **is** the component
 
-State: local `VGameObject` component on each rendered entity. It is not networked and has no
-`@wireType` fields. Looking up an object is `entity.get(VGameObject)?.obj`.
+There is no wrapper component. The live Phaser GameObject is attached to its entity **as a
+component** via `entity.attach(obj)`, keyed by its concrete Phaser class (e.g.
+`Phaser.GameObjects.Arc`). It is not networked and carries no `@wireType` fields. Systems never
+look it up by concrete class — they reach it through **interface markers**.
 
-**Two systems per renderable**:
+**Interface markers (`Implements`).** `markers.ts` declares abstract marker classes whose method
+signatures mirror the Phaser GameObject API the renderer calls: `GameObject`, `Shape`,
+`Transform`, `Alpha`, `Depth`, `Fill`, `Stroke`, `Size`, `Arc`, `Vertices`, `Star`, `Text`. At
+module init each concrete Phaser class declares which markers it satisfies:
 
-- `phaser.new.*` matches `.with(Shape).without(VGameObject)` and creates the GameObject via
-  `scene.add.<kind>(…)`, then sets `VGameObject` on the entity.
-- `phaser.render.*` matches `.with(Shape, VGameObject)`, mutates shape geometry on updates,
-  and removes `VGameObject` on exit. `VGameObject.onRemove` destroys the Phaser object, so
-  explicit entity destruction and `clearAllEntities()` also tear down immediately.
+```ts
+world.component(m.Shape).set(Implements, {
+  interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Fill, m.Stroke],
+});
+world.component(Phaser.GameObjects.Arc).set(Implements, { interfaces: [m.Shape, m.Arc] });
+world.component(Phaser.GameObjects.Text).set(Implements, {
+  interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text],
+});
+```
 
-The render/exit systems are registered before creation systems so a same-frame renderable
-type change can remove the old `VGameObject` before the new shape's `.without(VGameObject)`
-creation query runs. Sync systems still run after creation, preserving same-tick initial
-position/style.
+A query on a marker (`.with(Position, m.Transform)`, `inject: [m.Transform]`) then matches **any**
+entity whose attached GameObject implements that marker and injects the live object, typed to the
+marker's setters. This is how one shared sync system drives every renderable polymorphically — no
+per-type branching.
 
-**Shared transform/style sync systems** match `.with(Component, VGameObject)` for `Position`,
-`Rotation`, `Scale`, `Alpha`, `Depth`, `FillStyle`, and `StrokeStyle`. Each has both `enter`
-and `update`, so pre-present transform/style components initialize the GameObject in the same
-tick that creation sets `VGameObject`. Initial sync is query-driven rather than manual.
+**Destruction is one hook.** `world.component(m.GameObject).onRemove((_e, obj) => obj.destroy())`
+is registered once. Whenever the attached GameObject leaves an entity — explicit remove,
+exclusivity swap, or entity destruction — it is destroyed. `clearAllEntities()` therefore tears
+everything down for free.
 
-Renderable **type change** (e.g. `Arc`→`Rectangle`): exclusivity removes the old renderable
-→ old render system `.exit` removes `VGameObject`; its remove hook destroys the old object;
-the new shape's creation system creates the replacement.
+**Per-renderable systems (one module per shape).** Each shape module wires three things:
+
+- A shape-data remove hook: `world.component(Arc).onRemove(e => e.remove(Phaser.GameObjects.Arc))`.
+  When the shape **data** component leaves (exclusivity swap or destroy), it removes the attached
+  Phaser object, which triggers the `GameObject.onRemove` destroy above.
+- `phaser.new.<kind>` — `.with(<Shape>).without(Phaser.GameObjects.<Kind>).phase(ON_STORE)`; on
+  `.enter` calls `scene.add.<kind>(…)` (origin set to `0.5`, or `0,0` for vertex shapes) and
+  `entity.attach(obj)`.
+- `phaser.render.<kind>.geometry` — `.with(<Shape>, m.<marker>).phase(ON_STORE)`; on
+  `update({ watch: <Shape>, inject: [m.<marker>] })` mutates the geometry. Only shapes with mutable
+  geometry have one: **Arc, Line, Polygon, Triangle, Star, Text**. `Rectangle`/`Ellipse` have no
+  geometry system — their only dimension is `Size`, resized through the shared `Size` sync.
+
+**Shared transform/style sync (`SyncModule`).** One system per cross-cutting component, each
+matching the data component **plus the interface marker** and calling the injected object's setter:
+`Position`/`Rotation`/`Scale` → `m.Transform`, `Alpha` → `m.Alpha`, `Depth` → `m.Depth`, `Size` →
+`m.Size`, `FillStyle` → `m.Fill`, `StrokeStyle` → `m.Stroke`. Each uses
+`update({ watch: <Data>, onEnter: true, inject: [m.<marker>] })`.
+
+**Enter-init invariant.** Protocol order puts transform+style before shapes (§6), the `new` system
+attaches the object in `ON_STORE`, and the sync systems (also `ON_STORE`, `onEnter: true`) run
+after it within the same phase — so a pre-present `Position`/`FillStyle`/`Size` initializes the
+GameObject in the **same tick** it is created. Initialization is query-driven, not manual.
+
+Renderable **type change** (e.g. `Arc`→`Rectangle`): exclusivity (set by `PhaserServerModule`,
+§8) auto-removes the old renderable data component → its `onRemove` removes the old Phaser object
+→ the `GameObject.onRemove` hook destroys it; the new shape's `new` system creates the replacement.
+The swap is driven entirely by component hooks at the mutation site, so no system-registration
+ordering is required.
 
 ### 7.3 Reset
 
-Baseline reset or disconnect destroys/clears networked entities → `VGameObject` is removed →
-the remove hook destroys GameObjects. Reconnect builds a fresh `ClientWorld` and registers
-`PhaserRenderModule` again. No separate reset handler or entity-id object registry is needed.
+Baseline reset or disconnect destroys/clears networked entities → each renderable's shape-data
+and attached Phaser-object components leave → the `GameObject.onRemove` hook destroys the
+GameObjects. Reconnect builds a fresh `ClientWorld` and registers `PhaserRenderModule` again. No
+separate reset handler or entity-id object registry is needed.
 
 ### 7.4 Interpolation
 
@@ -371,7 +409,7 @@ import { PhaserServerModule } from "@vworlds/vecs-phaser-server";
 import { phaserNetworkComponents, Arc, Position, FillStyle } from "@vworlds/vecs-phaser";
 
 const world = new ServerWorld({ name: "main", networkComponents: phaserNetworkComponents });
-world.module(PhaserServerModule); // owns exclusivity + reactive pose-sync in PRE_STORE
+world.module(PhaserServerModule); // owns exclusivity + reactive pose-sync in POST_UPDATE
 
 world
   .entity()
@@ -384,11 +422,11 @@ world
 The `PhaserServerModule` (zero-config) handles everything in one call:
 
 - Sets exclusive renderable components (one shape per entity).
-- Installs two reactive pose-sync systems in `PRE_STORE` that copy
+- Installs two reactive pose-sync systems in `POST_UPDATE` that copy
   `vecs-physics` `Position`/`Rotation` → render `Position`/`Rotation` only
-  when physics actually changed the body pose. Entities must already have a
-  render pose (set by the user at creation); the module never creates render
-  components.
+  when physics actually changed the body pose (`update({ watch, onEnter: true })`).
+  Entities must already have a render pose (set by the user at creation); the
+  module never creates render components.
 
 ---
 
