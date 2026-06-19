@@ -53,3 +53,8 @@ export abstract class Text {
   public abstract setStyle(style: Phaser.Types.GameObjects.Text.TextStyle): this;
   public abstract setText(value: string): this;
 }
+
+export abstract class Texture {
+  public abstract setTexture(key: string, frame?: string | number): this;
+  public abstract setDisplaySize(width: number, height: number): this;
+}
