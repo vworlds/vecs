@@ -1,13 +1,21 @@
-# vecs-phaser — Ticket Breakdown
+# vecs-phaser — Ticket Breakdown: Images & Asset Catalog (v1.0.36)
 
-Delegate-ready tickets for the design in [`README.md`](./README.md). Each ticket is
-sized for one subagent and states scope, files, dependencies, and acceptance criteria.
-**Read `README.md` first** — it is the contract; tickets do not repeat component specs
-or the coordinate model.
+Delegate-ready tickets for the design in [`ASSETS.md`](./ASSETS.md). Each ticket is sized for
+one subagent and states scope, files, dependencies, and acceptance criteria. **Read
+`ASSETS.md` first** — it is the contract; tickets do not repeat the catalog schema, component
+spec, or sizing rules.
+
+> The original primitive-shape render layer (VPH-1…VPH-50) shipped; its breakdown lives in git
+> history. This file now tracks the Images & Asset Catalog feature, numbered **VPH-60+** to
+> avoid collision with those shipped ids.
 
 ## Conventions for every ticket
 
 - Match repo rules in `.agent/rules/` (commits, formatting, testing). Test-first where practical.
+- **Implementation tickets:** read the [vecs Design Guide](../../vecs/docs/design-guide.md) before
+  writing components/systems/modules — follow its idioms (resource-as-component lifecycle, reactive
+  sync over scanning, one-system-one-phase) and avoid its anti-patterns. Skip for pure
+  formatting/docs/release tickets.
 - Mirror an existing `lib/vecs-*` package for package.json / tsconfig / vitest shape.
 - TypeScript strict; ESM; no `any` leaks across public API.
 - A ticket is **Done** only when `npm run typecheck`, `lint`, and its `test` pass for its package.
@@ -15,233 +23,181 @@ or the coordinate model.
 ## Dependency graph (waves)
 
 ```
-W0 scaffolding ─┬─▶ W1 vecs-phaser (data) ─┬─▶ W2 vecs-phaser-client ─┐
-                │                           ├─▶ W3 vecs-phaser-server ─┤
-                └─▶ VPH-20 CoordSpace ──────┘                          ├─▶ W4 demo ─▶ W5 polish
+W0 vecs-phaser (data) ─┬─▶ W1 vecs-phaser-server ─┐
+   VPH-60, VPH-61      │      VPH-62              ├─▶ W3 demo ─▶ W4 docs
+                        └─▶ W2 vecs-phaser-client ──┘   VPH-65    VPH-66
+                               VPH-63, VPH-64
 ```
 
-Parallelizable: within W1 the component-group tickets; within W2 the two shape-renderer
-tickets; W3 in parallel with W2; VPH-20 may start right after W0.
+Parallelizable: VPH-62 (server) runs in parallel with VPH-63/64 (client) once W0 lands.
 
 ---
 
-## Wave 0 — Scaffolding
+## Wave 0 — `@vworlds/vecs-phaser` (data-only)
 
-### VPH-1 — Scaffold all three packages + root wiring
+### VPH-60 — `Image` component + protocol order
 
-**Package:** repo-wide · **Deps:** none · **Parallel:** no (touches shared root files)
+**Deps:** none · **Files:** `src/components/image.ts`, `src/index.ts`, `tests/image.test.ts`, `tests/protocol.test.ts`
 
-Create package skeletons for `@vworlds/vecs-phaser`, `@vworlds/vecs-phaser-client`,
-`@vworlds/vecs-phaser-server`, each with `package.json`, `tsconfig.json`,
-`tsconfig.build.json`, `vitest.config.ts`, `src/index.ts` (empty export), `tests/.gitkeep`,
-`README.md` and `LICENSE`. Release notes live in the central
-[`CHANGELOG.md`](../../../architecture/CHANGELOG.md); copy package shape/scripts from an
-existing `lib/vecs-*`.
+Add `Image { @u32 texture; @u16 frame }` per ASSETS.md §5. Append it to
+`phaserNetworkComponents` as **type 17** and to `phaserRenderableComponents`. Update the
+component-order JSDoc/table.
 
-- Deps: `vecs-phaser` → `@vworlds/vecs`, `@vworlds/vecs-wire`. `vecs-phaser-client` →
-  `@vworlds/vecs-phaser`, `@vworlds/vecs-client`; **`phaser@^4.1.0` as `peerDependency` +
-  `devDependency`**. `vecs-phaser-server` → `@vworlds/vecs-phaser`, `@vworlds/vecs-server`.
-- Root wiring: add the three `@vworlds/*` paths to `tsconfig.base.json`; add build steps to
-  the root `package.json` `build` script (order: after `vecs-server`/`vecs-physics`,
-  `vecs-phaser` → `vecs-phaser-server` → `vecs-phaser-client`). `workspaces` already globs `lib/*`.
-- Replace the placeholder `lib/vecs-phaser*/README.md` stubs created during planning.
+**Acceptance:** `Image` wire round-trip (texture, frame, defaults survive encode→decode); the
+`phaserNetworkComponents` order snapshot is updated and pins `Image` at index 16 (type 17);
+`phaserRenderableComponents` includes `Image`.
 
-**Acceptance:** `npm install` clean; `npm run typecheck -w @vworlds/vecs-phaser` (and the
-other two) pass on empty packages; `npm run build` includes them; the planning
-`architecture/` folder is preserved.
+### VPH-61 — Catalog schema types
+
+**Deps:** none (parallel with VPH-60) · **Files:** `src/catalog.ts`, `src/index.ts`, `tests/catalog.test.ts`
+
+Define the catalog schema per ASSETS.md §4 as plain TS types (no `@wireType`): a base
+`AssetDescriptor` (`{ id, key, kind: string }`) and `SpritesheetDescriptor extends
+AssetDescriptor` narrowing `kind: "spritesheet"` and adding the load fields (`url`,
+`frameWidth/Height`, `margin`, `spacing`, `columns`, `tileCount`, `imageWidth/Height`). Plus
+`AssetCatalog { worldName, assets: AssetDescriptor[] }`. Export all from the barrel. The base
+is open to future `*Descriptor extends AssetDescriptor` members without change.
+
+**Acceptance:** a `SpritesheetDescriptor` typechecks with all required fields and its `kind`
+narrows to `"spritesheet"`; an `AssetCatalog` with a spritesheet element typechecks against the
+heterogeneous `AssetDescriptor[]` (narrowed per element via `kind`); a `satisfies` assertion
+confirms `kind` is the only discriminant; no `phaser`/`@wireType` imports leak in.
 
 ---
 
-## Wave 1 — `@vworlds/vecs-phaser` (data-only)
+## Wave 1 — `@vworlds/vecs-phaser-server` (`AssetManager`)
 
-> Each component-group ticket creates its own module under `src/components/` and exports
-> from there; **VPH-13 owns `src/index.ts` and the protocol arrays** to avoid index merge
-> conflicts. VPH-10/11/12 may run in parallel.
+### VPH-62 — AssetManager, Asset/TilesetAsset/Tile, serve
 
-### VPH-10 — Transform + style components
+**Deps:** VPH-61 · **Files:** `src/asset_manager.ts`, `src/asset.ts`,
+`src/tileset_asset.ts`, `src/tile.ts`, `src/types/` (vendored Tiled schema), `src/index.ts`,
+`tests/asset_manager.test.ts`, `tests/tileset_asset.test.ts`, `tests/fixtures/tilesets/*`
 
-**Deps:** VPH-1 · **Files:** `src/components/transform.ts`, `src/components/style.ts`, `tests/transform.test.ts`, `tests/style.test.ts`
+Implement the typed-handle asset layer per ASSETS.md §6.1–§6.2:
 
-Implement `Position, Rotation, Scale, Alpha, Depth, FillStyle, StrokeStyle` per §6
-(plain `@wireType`). **Acceptance:** wire round-trip per component asserts field values
-and defaults survive encode→decode.
+- `src/types/` — vendor the **bare-minimum** Tiled schema interfaces from `@kayahr/tiled` (the
+  authoritative source) — only the fields v1.0.36 uses. Start with `Tileset`, `Tile`, `MapObject`,
+  `Frame`, `AnyProperty` (and its needed variants). **Drop the `?`** that `@kayahr/tiled` puts on
+  sparse fields (`properties?`, `tiles?`, `objectgroup?`, `class?`, …): our interfaces declare
+  them required, and our concrete classes supply non-null empty defaults (`[]`, empty `Map`, `""`)
+  so consumers never null-check. No `@kayahr/tiled` runtime dependency; these interfaces are the
+  type-check contract the concrete classes `implements`.
+- `AssetManager({ assetsPath })` — loader + `WeakMap<key, Asset>` cache.
+- `getTileset(key): TilesetAsset` — derive `assetsPath/tilesets/<key>.tsj` (fall back to
+  `<key>.json` if `.tsj` missing); `JSON.parse(text, reviver)` where the **reviver** constructs
+  the concrete `TilesetAsset`/`Tile`/`MapObject` instances (typed against `src/types/`) rather
+  than returning plain objects; resolve the tileset `image` relative to the file; cache the
+  `TilesetAsset`; return the same handle on repeat calls; verify the cached `Asset` is a
+  `TilesetAsset` (throw a typed error if a future non-tileset asset lives under that key).
+- `Asset` base — `{ id: number; key: string }`; ids are server-assigned, stable, append-only.
+- `TilesetAsset extends Asset` — `image`, `frameWidth/Height`, `margin`, `spacing`, `columns`,
+  `tileCount`, `imageWidth/Height`, `class`, `properties: AnyProperty[]`, `tile(id): Tile |
+undefined`, `sizeInMeters(ppm): { w, h }`.
+- `Tile` — `{ id: number; class: string; properties: AnyProperty[]; objects:
+Map<MapObject.id, MapObject>; animation: Frame[] }`. Objects keep Tiled shape flags
+  (`ellipse`/`polygon`/`polyline`/`point`) + `width`/`height`/`rotation`/`x`/`y`/`name`/`type`.
+- `toCatalog(worldName): AssetCatalog` and `mount(app)` — catalog JSON route + static file route
+  over `assetsPath`, under `worldPath(apiBasePath, worldName)`. Reject image-collection tilesets.
 
-### VPH-11 — Shape components
-
-**Deps:** VPH-1 · **Files:** `src/components/shapes.ts`, `tests/shapes.test.ts`
-
-Implement `Arc, Ellipse, Rectangle, Polygon, Line, Triangle, Star` per §6, including
-`Polygon.points` as `@wireType(["f32"])`. **Acceptance:** round-trip incl. a non-empty
-polygon points array and Arc defaults (`endAngle = 2π`).
-
-### VPH-12 — Text component + TextAlign
-
-**Deps:** VPH-1 · **Files:** `src/components/text.ts`, `tests/text.test.ts`
-
-Implement `Text` + `enum TextAlign`. **Acceptance:** round-trip incl. unicode `value`,
-empty string, and each `align` value.
-
-### VPH-13 — Protocol arrays + barrel exports
-
-**Deps:** VPH-10, VPH-11, VPH-12 · **Files:** `src/index.ts`, `tests/protocol.test.ts`
-
-Export everything; define `phaserNetworkComponents` and `phaserRenderableComponents` in
-the exact §6 order. **Acceptance:** a **snapshot test** pins `phaserNetworkComponents`
-names+order (changing it is a deliberate protocol break); a test asserts
-`phaserRenderableComponents` equals the 8 primary renderables in order.
+**Acceptance:** `getTileset("terrain")` from a `.tsj` fixture returns a live `TilesetAsset`
+instance (with its methods, not a plain object) whose spritesheet fields and resolved image url
+match the fixture; a `.json`-only fixture also loads (when no `.tsj` exists); a second
+`getTileset("terrain")` returns the same handle; `tile(id)` returns a `Tile` with the captured
+`class`, **typed** `properties` (`AnyProperty[]`, preserved not flattened), `objects` (`Map`
+keyed by `MapObject.id` with shape flags + dims), and `animation` for tiles that define them, and
+`undefined` for tiles that don't; **a tile (or tileset) whose Tiled source omits `properties`/
+`objects`/`class`/`animation` exposes non-null empty defaults (`[]`, empty `Map`, `""`) — never
+`undefined` — so no consumer null-check is needed**; `sizeInMeters(ppm)` returns `tileWidth ÷
+ppm`; ids are stable and append-only; `toCatalog` strips server-only metadata; `mount` serves
+the catalog JSON and the static `assetsPath` files (assert via a supertest/extract against a
+mock or real Express app); an image-collection tileset is rejected with a clear error;
+`package.json` has **no**
+`@kayahr/tiled` dependency.
 
 ---
 
 ## Wave 2 — `@vworlds/vecs-phaser-client`
 
-### VPH-20 — `CoordSpace` helper
+### VPH-63 — `loadAssets` helper + `Catalog`
 
-**Deps:** VPH-1 · **Parallel:** yes (early) · **Files:** `src/coord_space.ts`, `tests/coord_space.test.ts`
+**Deps:** VPH-61 · **Files:** `src/load_assets.ts`, `src/index.ts`, `tests/load_assets.test.ts`
 
-Implement `CoordSpace` per §4 using **plain math** (no `Phaser.Math`); read `cx/cy` from
-`scene.scale.width/height` each call. **Acceptance:** unit tests for `x/y/len/rx/ry/rot/deg`
-with a mock scene (`{ scale: { width, height } }`), including the worked example and angle
-negation; resizing the mock scene moves the center.
+Implement `loadAssets(scene, conn)` per ASSETS.md §6.3: fetch `{worldPath}/assets`, queue
+`scene.load.spritesheet(String(id), url, { frameWidth, frameHeight, margin, spacing })` for
+every descriptor (all v1.0.36 assets are spritesheets), `start()`, resolve a `Catalog`
+(`id → descriptor`) on loader `complete`, and surface progress. Keep `phaser` a type-only peer.
 
-### VPH-21 — `PhaserRenderModule` core
+**Acceptance:** with a mock loader + stubbed fetch, every descriptor queues `load.spritesheet`
+with `{frameWidth,frameHeight,margin,spacing}`; the promise resolves only after `complete`;
+progress is reported; the resolved `Catalog` looks ids up to descriptors.
 
-**Deps:** VPH-13, VPH-20 · **Files:** `src/module.ts`, `src/index.ts`, `tests/module.lifecycle.test.ts`
+### VPH-64 — Image renderer + sizing
 
-Implement the render module shell: `PhaserRenderModule`, local `VGameObject`, `CoordSpace`
-construction, and a registration point that VPH-22/23/24 plug systems into. Define a
-`MockScene`/`MockGameObject` test helper others reuse. **Acceptance:** `world.module(...)`
-registers render systems, and removing `VGameObject` destroys the Phaser object. Uses mock
-Phaser objects.
+**Deps:** VPH-60, VPH-63 (and the existing render module) · **Files:** `src/modules/image.ts`, `src/modules/phaser_render.ts`, `tests/image_renderer.test.ts`
 
-### VPH-22 — Shape renderers (set A: Arc, Rectangle, Polygon, Line, Text)
+Add the `Image` renderer mirroring the shape renderers (ASSETS.md §6.3): create
+`scene.add.image(0,0,String(texture),frame)` + `setOrigin(0.5)` on enter; on update apply
+`setTexture(String(texture), frame)` and size via `Size` (→ `setDisplaySize(len(w),len(h))`) or
+native; destroy on exit. Accept the resolved `catalog` in `PhaserRenderModuleConfig`. Reuse the
+existing transform/style sync for Position/Rotation/Scale/Alpha/Depth.
 
-**Deps:** VPH-21 · **Files:** `src/renderers/*.ts`, `tests/renderers.setA.test.ts`
-
-Per-renderable systems: `.enter` (create via `scene.add.<kind>`, init from present
-components per §7.2), `.update(<Shape>)` (geometry via CoordSpace), `.exit` (destroy).
-Text renderer sets `setOrigin(0.5)`.
-
-**Origin & rotation pivot (per §7.5) — required:** `Position` is the origin and rotation
-pivot for every shape. Centered primitives use Phaser's default 0.5 origin. **Vertex shapes
-(`Polygon`, `Line`) must pin geometry-local `(0,0)` to `Position`** (and keep the rotation
-pivot there) — position the GameObject at `Position` and set its display origin so local
-`(0,0)` is the anchor; do **not** rely on Phaser's bounding-box centering. Apply `rx/ry`
-(scale + Y-flip) to vertices.
-
-**Acceptance:** entering an `Arc` entity creates an arc sized via `len(radius)`; geometry
-updates apply; exit destroys; `polygon.setTo` called with scaled+flipped relative points;
-**a `Polygon`/`Line` with _asymmetric_ vertices (and a negative coordinate) renders with
-vertex `(0,0)` at `Position`** (assert the GameObject position and origin/offset, not the
-bounding-box center); **applying `Rotation` pivots the vertex shape about `Position`** (the
-shape does not drift). Use mock Phaser objects.
-
-### VPH-23 — Shape renderers (set B: Ellipse, Triangle, Star)
-
-**Deps:** VPH-21 · **Parallel:** with VPH-22 · **Files:** `src/renderers/*.ts`, `tests/renderers.setB.test.ts`
-
-Same pattern for `Ellipse, Triangle, Star`. `Ellipse`/`Star` are centered primitives;
-**`Triangle` is a vertex shape — apply the §7.5 origin & rotation-pivot contract (pin
-vertex `(0,0)` to `Position`), same as VPH-22's Polygon/Line.** **Acceptance:**
-create/update/exit verified per shape with CoordSpace-scaled dimensions; an asymmetric
-`Triangle` renders with vertex `(0,0)` at `Position` and rotates about it.
-
-### VPH-24 — Shared transform/style sync + rotation interpolation
-
-**Deps:** VPH-21 · **Files:** `src/sync.ts`, `tests/sync.test.ts`
-
-Systems `.with(Position|Rotation|Scale|Alpha|Depth|FillStyle|StrokeStyle)` applying the
-mapped GameObject setters via CoordSpace (guarding absence). Wire `interpolateRotation`
-into the `ClientWorld` `interpolators` for the `Rotation` type id (shortest-arc lerp).
-**Acceptance:** Position update → `setPosition(x(mx), y(my))`; Rotation → `setRotation(rot)`;
-fill/stroke applied; missing GameObject is a no-op; rotation interpolator registered when enabled.
-
-### VPH-25 — Client integration test (mock Phaser)
-
-**Deps:** VPH-22, VPH-23, VPH-24 · **Files:** `tests/integration.test.ts`
-
-Drive a `ClientWorld` with applied snapshots through the runtime end-to-end with mocks:
-enter-init ordering (Position/FillStyle present at shape enter), renderable-type change
-recreates, baseline `reset` rebuilds. **Acceptance:** all scenarios pass without a browser.
+**Acceptance:** entering an `Image` entity creates an image with the id-keyed texture + frame
+and origin 0.5; changing `texture`/`frame` calls `setTexture`/`setFrame`; with `Size` present
+`setDisplaySize` uses CoordSpace `len`, without it the native size is left; exit destroys; a
+moving `Image` tracks `Position` through the shared sync. Mock Phaser objects.
 
 ---
 
-## Wave 3 — `@vworlds/vecs-phaser-server` (optional, parallel with W2)
+## Wave 3 — Demo
 
-### VPH-30 — Exclusivity + shape builders
+### VPH-65 — Demo: register, serve, render, match a body
 
-**Deps:** VPH-13 · **Files:** `src/builders.ts`, `src/index.ts`, `tests/builders.test.ts`
+**Deps:** W1, W2 · **Files:** `apps/server/src/main.ts`, `apps/server/package.json`, `apps/client/src/main.ts`, `apps/client/package.json`, demo assets
 
-`registerRenderExclusivity(world)` wrapping `setExclusiveComponents(...phaserRenderableComponents)`;
-builders (`createArc`, `createRectangle`, `createText`, …) adding `Networked` + the one
-renderable + optional transform/style. **Acceptance:** builder-made entity carries
-`Networked` + intended renderable; setting a second renderable removes the first.
+Per ASSETS.md §9: server builds an `AssetManager`, registers two Tiled tilesets (placeholder
+until maintainer provides art), `mount(app)`, and creates `Image` entities (one per tileset, at
+a chosen frame), sizing one physics body via `sizeInMeters`. Client adds a `BootScene`
+(ASSETS.md §7 option 1) that `await loadAssets(...)` with a progress bar, then
+`this.scene.start("Game", { catalog })`; the game scene connects and passes the catalog to
+`PhaserRenderModule`. No per-entity render code added.
 
-### VPH-31 — `syncPhysicsPose` helper
-
-**Deps:** VPH-13, `@vworlds/vecs-physics` · **Files:** `src/pose.ts`, `tests/pose.test.ts`
-
-System copying vecs-physics `Position`/`Rotation` (meters/radians) → render
-`Position`/`Rotation`, only marking modified on change. **Acceptance:** render pose tracks
-physics pose; no redundant `modified` when unchanged.
+**Acceptance:** `npm run dev` (server + client) shows a loading scene that completes before the
+world connects, then the tileset frames rendered alongside the existing shapes; the
+body-matched entity's collision matches its art size.
 
 ---
 
-## Wave 4 — Demo migration
+## Wave 4 — Docs & release hygiene
 
-> Contract between VPH-40/41: `networkComponents = phaserNetworkComponents`; world in
-> meters, origin center, +y up; PPM = 100; client carries zero game components.
+### VPH-66 — Docs, CHANGELOG, ROADMAP
 
-### VPH-40 — Migrate server demo
+**Deps:** all · **Files:** package `README.md`s, `architecture/CHANGELOG.md`, `architecture/ROADMAP.md`, JSDoc
 
-**Deps:** W1 (+ VPH-30/31 if used) · **Files:** `apps/server/src/main.ts`, `apps/server/package.json`
+Update `vecs-phaser*` READMEs for the new component/helpers; add a CHANGELOG entry noting the
+**protocol bump (type 17 `Image`)**; in ROADMAP, reconcile the "Sprite renderables" line (v1.0.36
+ships static `Image` sourced from Tiled tilesets; animated `Sprite` remains future). Ensure
+JSDoc on every new public symbol per `.agent/rules/documentation.md`.
 
-Per README §9 server changes: switch to `phaserNetworkComponents`; keep `Ball`/`Player`
-local; recenter game math to meters/center-origin; replace pixel `SyncPhysicsBalls` with
-`syncPhysicsPose` (render pose = physics pose); map Ball→`Arc`+`FillStyle`,
-Player→`Rectangle`+`FillStyle`, score→child `Text`; add static decorative shapes covering
-all renderables; preserve interest management (`View` DSL / `InCell` / `viewAll`) in meters.
-**Acceptance:** server boots; entities carry render components; typecheck/lint pass.
-
-### VPH-41 — Migrate client demo to Phaser
-
-**Deps:** W2, VPH-40 contract · **Files:** `apps/client/src/main.ts`, `apps/client/index.html`, `apps/client/package.json`
-
-Replace canvas-2D with a Phaser game (one scene, 960×540); connect `ClientWorld` with
-`phaserNetworkComponents`; `world.module(PhaserRenderModule, { scene, pixelsPerMeter: 100 })`;
-`update()` does `setInput` + `progress`; **delete manual render systems**; keep arrows + `G`;
-draw cosmetic grid + instructions with Phaser `Graphics`/`Text`; preserve reconnect handling.
-Add `phaser@^4.1.0` to the app. **Acceptance:** `npm run dev` renders balls/players/scores/
-decoration; arrows move the player; `G` toggles view; no per-entity render code remains.
-
-### VPH-42 — End-to-end verification + docs
-
-**Deps:** VPH-40, VPH-41 · **Files:** demo READMEs, `architecture/` notes if needed
-
-Run server + client together; verify: origin-at-center & +y-up, smooth interpolated balls,
-spinning rotation, scores as Text, all shapes visible, entities create/destroy as they
-enter/leave the view, forced baseline reset rebuilds. Capture a screenshot/GIF. Document
-run steps. **Acceptance:** checklist verified and recorded.
+**Acceptance:** docs build/links resolve; `npm run format:check` clean; CHANGELOG and ROADMAP
+reflect what shipped vs. what remains.
 
 ---
 
-## Wave 5 — Polish
+## Future work (not in this wave)
 
-### VPH-50 — Workspace gates + release hygiene
+Deferred from v1.0.36 per ASSETS.md §8 — no protocol break when they land:
 
-**Deps:** all · **Files:** package versions, CHANGELOGs
-
-`npm run test|typecheck|lint|format` green across workspaces; align package versions with
-repo convention; fill CHANGELOGs; confirm `package.json` `exports`/`files` correct for
-publish. **Acceptance:** all gates pass; packages are publish-shaped.
+- **Dynamic assets** — in-band "asset added" message extends the catalog at runtime.
+- **Animated `Sprite` renderable** — reuses the catalog + captured Tiled `animation` frames.
+- **Physics-matched collision** — build vecs-physics bodies from captured Tiled `objectgroup`
+  shapes.
 
 ---
 
 ## Suggested delegation order
 
-1. **VPH-1** (solo).
-2. Parallel: **VPH-10, VPH-11, VPH-12, VPH-20**.
-3. **VPH-13** → then **VPH-21**.
-4. Parallel: **VPH-22, VPH-23, VPH-24** (+ **VPH-30, VPH-31**).
-5. **VPH-25**.
-6. **VPH-40** → **VPH-41** → **VPH-42**.
-7. **VPH-50**.
+1. Parallel: **VPH-60**, **VPH-61**.
+2. Parallel: **VPH-62** (server) alongside **VPH-63 → VPH-64** (client).
+3. **VPH-65** (demo).
+4. **VPH-66** (docs).
+   </content>

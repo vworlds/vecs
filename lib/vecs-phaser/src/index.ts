@@ -2,6 +2,8 @@ import { type ComponentClass } from "@vworlds/vecs";
 
 export { Alpha, Depth, Position, Rotation, Scale } from "./components/transform.js";
 export { FillStyle, StrokeStyle } from "./components/style.js";
+export { Image } from "./components/image.js";
+export type { AssetCatalog, AssetDescriptor, SpritesheetDescriptor } from "./catalog.js";
 export {
   Arc,
   Ellipse,
@@ -16,6 +18,7 @@ export { Text, TextAlign } from "./components/text.js";
 
 import { Alpha, Depth, Position, Rotation, Scale } from "./components/transform.js";
 import { FillStyle, StrokeStyle } from "./components/style.js";
+import { Image } from "./components/image.js";
 import {
   Arc,
   Ellipse,
@@ -49,6 +52,7 @@ import { Text } from "./components/text.js";
  *  14  Star
  *  15  Text
  *  16  Size
+ *  17  Image
  */
 export const phaserNetworkComponents = [
   Position,
@@ -67,6 +71,7 @@ export const phaserNetworkComponents = [
   Star,
   Text,
   Size,
+  Image,
 ] as const satisfies readonly ComponentClass[];
 
 /**
@@ -83,4 +88,5 @@ export const phaserRenderableComponents = [
   Triangle,
   Star,
   Text,
+  Image,
 ] as const satisfies readonly ComponentClass[];

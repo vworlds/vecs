@@ -212,22 +212,24 @@ world.get(Gravity)?.y; // world.component(Gravity).get(Gravity)
 `SingletonModule` enforces the constraint (`lib/vecs/src/modules/singleton.ts`); see
 [Modules](./modules.md#built-in-modules).
 
-## Companion components for non-ECS resources
+## Resources as components (non-ECS objects)
 
-To attach a non-ECS resource (a renderer object, a WASM handle, a DOM node) to an entity, wrap it
-in a local component instead of keeping a side `Map<eid, resource>`:
+To bind a non-ECS resource (a renderer object, a WASM handle, a DOM node) to an entity, **store
+the live object itself as a component** with `entity.attach(obj)` instead of keeping a side
+`Map<eid, resource>`:
 
 ```ts
-class VGameObject {
-  obj!: Phaser.GameObjects.GameObject;
-}
+const obj = scene.add.arc(0, 0); // a Phaser GameObject
+entity.attach(obj); // the GameObject is now a component, keyed by its class
 
-world.component(VGameObject).onRemove((_entity, vgo) => vgo.obj.destroy());
+world.component(Phaser.GameObjects.Arc).onRemove((_entity, obj) => obj.destroy());
 ```
 
 The entity's component set then _is_ the resource lifecycle: queries drive create/destroy, and
 `onRemove` releases the resource whether the component is removed explicitly or the entity is
-destroyed. The full pattern — including create/update/teardown phase placement — is in the
+destroyed. A plain wrapper component (`class Handle { obj }`) still works when you need extra fields
+beside the resource. The full pattern — create/update, the remove-hook teardown, and `Implements`
+interface markers for polymorphic dispatch — is in the
 [Design guide](./design-guide.md#7-patterns-reach-for-these).
 
 ## Reference

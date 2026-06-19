@@ -1,12 +1,44 @@
 # @vworlds/vecs-phaser-client
 
 Browser render adapter: registers a vecs module that observes a replicated `ClientWorld`
-and automatically creates, updates, and destroys Phaser GameObjects. GameObjects are stored
-on entities as the local `VGameObject` component. All pixel, PPM, and Y-flip conversion
-lives here at the Phaser frontier.
+and automatically creates, updates, and destroys Phaser GameObjects. Each live Phaser
+GameObject is attached to its entity **as a component** (`entity.attach(obj)`), and the
+renderer dispatches transform/style updates polymorphically through `Implements` interface
+markers (`GameObject`, `Transform`, `Fill`, …). All pixel, PPM, and Y-flip conversion lives
+here at the Phaser frontier.
 
 Depends on `@vworlds/vecs-phaser` and `@vworlds/vecs-client`. Requires `phaser@^4.1.0` as
 a peer dependency (provided by the application).
+
+## Asset Loading
+
+Load server-owned assets before connecting the world, then pass the resolved catalog to
+`PhaserRenderModule`:
+
+```ts
+import { ClientWorld } from "@vworlds/vecs-client";
+import { phaserNetworkComponents } from "@vworlds/vecs-phaser";
+import { PhaserRenderModule, loadAssets } from "@vworlds/vecs-phaser-client";
+
+const catalog = await loadAssets(scene, {
+  host: "localhost",
+  port: 8080,
+  worldName: "main",
+  onProgress: (value) => updateLoadingBar(value),
+});
+
+const world = await ClientWorld.connectDgram({
+  host: "localhost",
+  port: 8080,
+  worldName: "main",
+  networkComponents: phaserNetworkComponents,
+});
+
+world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64, catalog });
+```
+
+The `Image` renderer creates textured entities from replicated `Image` components with no
+per-entity client code, like the primitive shape renderers.
 
 ## Rotation Interpolation
 

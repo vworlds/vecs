@@ -26,7 +26,20 @@
   "dependencies": {
     "@vworlds/vecs-phaser": "1.0.35",
     "@vworlds/vecs-physics": "1.0.35",
+    "@vworlds/vecs-protocol": "1.0.35",
     "@vworlds/vecs-server": "1.0.35"
+  },
+  "peerDependencies": {
+    "express": "^4.22.2"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.14",
+    "express": "^4.22.2"
   },
   "publishConfig": {
     "access": "public"

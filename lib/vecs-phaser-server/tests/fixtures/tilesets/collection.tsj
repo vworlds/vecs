@@ -1,0 +1,15 @@
+{
+  "columns": 0,
+  "imagewidth": 0,
+  "imageheight": 0,
+  "margin": 0,
+  "spacing": 0,
+  "tilecount": 2,
+  "tilewidth": 32,
+  "tileheight": 32,
+  "name": "collection",
+  "tiles": [
+    { "id": 0, "image": "tile0.png" },
+    { "id": 1, "image": "tile1.png" }
+  ]
+}

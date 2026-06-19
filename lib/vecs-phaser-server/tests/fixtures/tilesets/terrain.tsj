@@ -1,0 +1,103 @@
+{
+  "columns": 4,
+  "image": "terrain.png",
+  "imagewidth": 128,
+  "imageheight": 128,
+  "margin": 0,
+  "spacing": 0,
+  "tilecount": 16,
+  "tilewidth": 32,
+  "tileheight": 32,
+  "name": "terrain",
+  "class": "TerrainTileset",
+  "properties": [
+    { "name": "author", "type": "string", "value": "vecs" },
+    { "name": "version", "type": "int", "value": 1 }
+  ],
+  "tiles": [
+    {
+      "id": 5,
+      "class": "Wall",
+      "properties": [
+        { "name": "hp", "type": "int", "value": 100 },
+        { "name": "tint", "type": "color", "value": "#ffaa00ff" }
+      ],
+      "objectgroup": {
+        "objects": [
+          {
+            "id": 1,
+            "name": "body",
+            "type": "Rect",
+            "x": 0,
+            "y": 0,
+            "width": 32,
+            "height": 32,
+            "rotation": 0
+          },
+          {
+            "id": 2,
+            "name": "circle",
+            "type": "Circle",
+            "x": 16,
+            "y": 16,
+            "width": 16,
+            "height": 16,
+            "rotation": 0,
+            "ellipse": true
+          },
+          {
+            "id": 3,
+            "name": "tri",
+            "type": "Poly",
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "rotation": 45,
+            "polygon": [
+              { "x": 0, "y": 0 },
+              { "x": 32, "y": 0 },
+              { "x": 16, "y": 32 }
+            ]
+          },
+          {
+            "id": 4,
+            "name": "line",
+            "type": "PolyLine",
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "rotation": 0,
+            "polyline": [
+              { "x": 0, "y": 0 },
+              { "x": 32, "y": 32 }
+            ]
+          },
+          {
+            "id": 5,
+            "name": "anchor",
+            "type": "Point",
+            "x": 16,
+            "y": 16,
+            "width": 0,
+            "height": 0,
+            "rotation": 0,
+            "point": true
+          }
+        ]
+      },
+      "animation": [
+        { "tileid": 5, "duration": 100 },
+        { "tileid": 6, "duration": 100 }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "OldStyleClass"
+    },
+    {
+      "id": 9
+    }
+  ]
+}

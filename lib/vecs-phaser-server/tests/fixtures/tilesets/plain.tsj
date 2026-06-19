@@ -1,0 +1,16 @@
+{
+  "columns": 2,
+  "image": "plain.png",
+  "imagewidth": 64,
+  "imageheight": 64,
+  "margin": 0,
+  "spacing": 0,
+  "name": "plain",
+  "tilecount": 4,
+  "tiledversion": "1.10.2",
+  "tileheight": 32,
+  "tilewidth": 32,
+  "type": "tileset",
+  "version": "1.10",
+  "tiles": [{ "id": 0, "type": "Foo" }]
+}
