@@ -146,10 +146,11 @@ PRE_PUSH_TAG="$(cat "$PRE_PUSH_TAG_FILE")"
 log "Pre-push master sha: $PRE_PUSH_MASTER_SHA"
 log "Pre-push latest tag: ${PRE_PUSH_TAG:-<none>}"
 
+# Switch to master before merging dev into it.
+log "Switching to $MASTER_BRANCH..."
+git checkout "$MASTER_BRANCH" >/dev/null 2>&1
+
 # Merge dev into master. Since dev is a descendant, this is a fast-forward.
-# We do NOT use --ff-only here because local master may be behind remote master
-# (handled above) — after the update above it is at $REMOTE_MASTER, so dev can
-# fast-forward onto it. Use --no-edit to avoid spawning an editor.
 log "Merging $DEV_BRANCH into $MASTER_BRANCH..."
 if ! git merge --ff-only "$DEV_BRANCH"; then
   err "Fast-forward merge of $DEV_BRANCH into $MASTER_BRANCH failed."
