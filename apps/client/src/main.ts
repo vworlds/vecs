@@ -1,6 +1,12 @@
 import { ClientWorld } from "@vworlds/vecs-client";
 import { phaserNetworkComponents } from "@vworlds/vecs-phaser";
-import { CoordSpace, PhaserRenderModule, phaserInterpolators } from "@vworlds/vecs-phaser-client";
+import {
+  type Catalog,
+  CoordSpace,
+  PhaserRenderModule,
+  loadAssets,
+  phaserInterpolators,
+} from "@vworlds/vecs-phaser-client";
 import Phaser from "phaser";
 
 const CANVAS_WIDTH = 960;
@@ -16,7 +22,7 @@ const WORLD_HALF_WIDTH_METERS = CANVAS_WIDTH / PIXELS_PER_METER / 2;
 const WORLD_HALF_HEIGHT_METERS = CANVAS_HEIGHT / PIXELS_PER_METER / 2;
 
 interface Session {
-  readonly scene: Phaser.Scene;
+  readonly scene: DemoScene;
   readonly world: ClientWorld;
 }
 
@@ -46,12 +52,81 @@ window.addEventListener("keyup", (event) => {
   }
 });
 
+class BootScene extends Phaser.Scene {
+  private _barFill: Phaser.GameObjects.Rectangle | undefined;
+  private _statusText: Phaser.GameObjects.Text | undefined;
+
+  public constructor() {
+    super("BootScene");
+  }
+
+  public create(): void {
+    const barWidth = 320;
+    const barHeight = 24;
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+
+    this.add
+      .rectangle(centerX, centerY, barWidth + 4, barHeight + 4, 0x334155)
+      .setStrokeStyle(2, 0x64748b)
+      .setDepth(1);
+    this._barFill = this.add
+      .rectangle(centerX - barWidth / 2, centerY, 0, barHeight, 0x66ccff)
+      .setOrigin(0, 0.5)
+      .setDepth(2);
+    this._statusText = this.add
+      .text(centerX, centerY + barHeight + 18, "Loading assets... 0%", {
+        color: "#e2e8f0",
+        fontFamily: "sans-serif",
+        fontSize: "14px",
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(2);
+
+    void this.loadCatalog();
+  }
+
+  private async loadCatalog(): Promise<void> {
+    try {
+      const catalog = await loadAssets(this, {
+        host: location.hostname,
+        port: SERVER_PORT,
+        worldName: "main",
+        onProgress: (value) => this.updateProgress(value),
+      });
+      this.scene.start("DemoScene", { catalog });
+    } catch (err: unknown) {
+      this._statusText?.setText(`Asset load failed: ${formatError(err)}. Retrying...`);
+      this.time.delayedCall(RECONNECT_DELAY_MS, () => void this.loadCatalog());
+    }
+  }
+
+  private updateProgress(value: number): void {
+    const barWidth = 320;
+    if (this._barFill) {
+      this._barFill.width = barWidth * value;
+    }
+    const percent = Math.round(value * 100);
+    this._statusText?.setText(`Loading assets... ${percent}%`);
+  }
+}
+
 class DemoScene extends Phaser.Scene {
+  private _catalog: Catalog | undefined;
   private _instructionsText: Phaser.GameObjects.Text | undefined;
   private _statusText: Phaser.GameObjects.Text | undefined;
 
   public constructor() {
     super("DemoScene");
+  }
+
+  public init(data: unknown): void {
+    this._catalog = (data as { catalog?: Catalog }).catalog;
+  }
+
+  /** Resolved asset catalog handed over by the boot scene; persists across reconnects. */
+  public get catalog(): Catalog | undefined {
+    return this._catalog;
   }
 
   public create(): void {
@@ -127,12 +202,12 @@ new Phaser.Game({
   backgroundColor: "#020617",
   height: CANVAS_HEIGHT,
   parent: "game",
-  scene: DemoScene,
+  scene: [BootScene, DemoScene],
   type: Phaser.AUTO,
   width: CANVAS_WIDTH,
 });
 
-async function connect(scene: Phaser.Scene): Promise<void> {
+async function connect(scene: DemoScene): Promise<void> {
   const generation = ++connectGeneration;
   connectionStatus = "Connecting to vecs demo server...";
 
@@ -154,7 +229,7 @@ async function connect(scene: Phaser.Scene): Promise<void> {
   }
 }
 
-async function createSession(scene: Phaser.Scene): Promise<Session> {
+async function createSession(scene: DemoScene): Promise<Session> {
   const world = await ClientWorld.connectDgram({
     host: location.hostname,
     interpolators: phaserInterpolators(),
@@ -163,7 +238,11 @@ async function createSession(scene: Phaser.Scene): Promise<Session> {
     port: SERVER_PORT,
     worldName: "main",
   });
-  world.module(PhaserRenderModule, { pixelsPerMeter: PIXELS_PER_METER, scene });
+  world.module(PhaserRenderModule, {
+    catalog: scene.catalog,
+    pixelsPerMeter: PIXELS_PER_METER,
+    scene,
+  });
 
   return { scene, world };
 }
@@ -179,7 +258,7 @@ function handleDisconnect(session: Session): void {
   scheduleReconnect("Disconnected. Reconnecting...", session.scene);
 }
 
-function scheduleReconnect(status: string, scene: Phaser.Scene): void {
+function scheduleReconnect(status: string, scene: DemoScene): void {
   keys.clear();
   connectionStatus = status;
   activeSession = undefined;

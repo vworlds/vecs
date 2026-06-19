@@ -12,6 +12,7 @@ import {
 import {
   Ellipse,
   FillStyle,
+  Image,
   Line,
   phaserNetworkComponents,
   Polygon,
@@ -25,11 +26,12 @@ import {
   TextAlign,
   Triangle,
 } from "@vworlds/vecs-phaser";
-import { PhaserServerModule } from "@vworlds/vecs-phaser-server";
+import { AssetManager, PhaserServerModule } from "@vworlds/vecs-phaser-server";
 import {
   AngularVelocity as PhysicsAngularVelocity,
   Body,
   BodyType,
+  Box,
   Chain,
   Circle,
   LinearVelocity as PhysicsVelocity,
@@ -156,6 +158,14 @@ cellTagComponents.forEach((CellTag) => {
 await preloadPhysics();
 world.module(PhysicsModule, { gravity: { x: 0, y: -10 }, fixedTimeStep: DT, subSteps: 4 });
 world.module(PhaserServerModule);
+
+// Asset catalog: the server owns the tileset, serves it over HTTP, and refers
+// to assets on the wire by short numeric ids. `mount` registers the catalog
+// JSON + static file routes on the Express app; it must run before the server
+// starts listening so the routes are live on day one.
+const assets = new AssetManager({ assetsPath: "assets" });
+const bricks = assets.getTileset("bricks");
+assets.mount(app, world.name);
 
 // One anchor entity per grid cell. Moving entities relate to these via InCell;
 // the per-cell View DSL targets each anchor's tag.
@@ -327,6 +337,7 @@ world
 
 createPhysicsWalls();
 createDecorations();
+createBrickShowcase();
 spawnBall(-3.7, 1.5);
 
 await vecsListener.listen(app, { ordered: false, maxRetransmits: 2 });
@@ -542,6 +553,64 @@ function createDecorations(): void {
     .set(RenderRotation, { angle: 0 })
     .set(StrokeStyle, { color: 0x88ccff, alpha: 1, width: 4 })
     .set(RotatingDecoration, { speed: 0.03 });
+}
+
+/**
+ * Spawn the `bricks` tileset showcase: a short row of static `Image` bricks at
+ * distinct frames (decoration, native frame size — 64px ÷ 100 PPM = 0.64 m,
+ * no `Size`), plus a lively batch of dynamic `Image` bricks whose `Box`
+ * colliders are matched to the art via `bricks.sizeInMeters`. Each dynamic
+ * brick drops in with a random frame, spin, and velocity and bounces around
+ * the arena (springy restitution) — just for fun.
+ */
+function createBrickShowcase(): void {
+  // Static showcase row near the top of the play area, distinct frames.
+  const staticFrames = [0, 2, 4, 5];
+  const rowY = WORLD_MAX_Y - 0.8;
+  const brickSpacing = 0.8;
+  const startX = -((staticFrames.length - 1) * brickSpacing) / 2;
+  for (let i = 0; i < staticFrames.length; i++) {
+    world
+      .entity()
+      .add(Networked)
+      .set(Image, { texture: bricks.id, frame: staticFrames[i] })
+      .set(RenderPosition, { x: startX + i * brickSpacing, y: rowY });
+  }
+
+  // A lively batch of dynamic bricks: each Box collider is matched to its art
+  // via sizeInMeters, and a high restitution plus a random spin and velocity
+  // make them tumble and bounce off the walls. PhaserServerModule syncs the
+  // physics transform back onto the render transform, so no extra wiring is
+  // needed.
+  const size = bricks.sizeInMeters(PIXELS_PER_METER);
+  const dynamicBrickCount = 6;
+  for (let i = 0; i < dynamicBrickCount; i++) {
+    const frame = randomInt(0, bricks.tileCount - 1);
+    const angle = randomFloat(0, Math.PI * 2);
+    const start = {
+      x: randomFloat(WORLD_MIN_X + size.w, WORLD_MAX_X - size.w),
+      y: WORLD_MAX_Y - 1.4 - i * 0.45,
+    };
+    const body = world
+      .entity()
+      .add(Networked)
+      .set(Image, { texture: bricks.id, frame })
+      .set(RenderPosition, start)
+      .set(RenderRotation, { angle })
+      .set(PhysicsPosition, start)
+      .set(PhysicsRotation, { angle })
+      .set(PhysicsAngularVelocity, { value: randomSignedFloat(3, 9) })
+      .set(PhysicsVelocity, {
+        x: randomSignedFloat(0.8, 2.4),
+        y: randomSignedFloat(0.4, 1.4),
+      })
+      .set(Body, { type: BodyType.Dynamic });
+    world
+      .entity()
+      .childOf(body)
+      .set(Box, { hx: size.w / 2, hy: size.h / 2 })
+      .set(Material, { friction: 0.4, restitution: 0.85 });
+  }
 }
 
 function assignCell(entity: Entity, position: RenderPosition): void {
