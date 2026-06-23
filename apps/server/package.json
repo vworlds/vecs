@@ -17,10 +17,10 @@
     "@vworlds/vecs-physics": "*",
     "@vworlds/vecs-server": "*",
     "@vworlds/vecs-wire": "*",
-    "express": "^4.22.2"
+    "express": "^5.2.1"
   },
   "devDependencies": {
-    "@types/express": "^4.17.14",
+    "@types/express": "^5.0.6",
     "tsx": "^4.22.4"
   },
   "license": "UNLICENSED"
