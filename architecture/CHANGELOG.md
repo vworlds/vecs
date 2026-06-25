@@ -5,6 +5,9 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-phaser]: Added the `Tint` style component to `phaserNetworkComponents` as type 18, an append-only protocol bump. It carries four corner colors (`topLeft`, `topRight`, `bottomLeft`, `bottomRight`, default `0xffffff` = no tint) plus a `monochromatic` flag, with a custom two-mode wire codec: mono mode sends one u32 applied to all corners, poly mode sends four independent u32s. A `value` setter writes all four corners and flips the flag for the common uniform-tint case.
+- [vecs-phaser-client]: Added a `Tint` interface marker and shared sync system (`phaser.sync.tint`) that applies all four corners via `setTint(tl, tr, bl, br)`; `Implements` declarations on `Shape`, `Text`, and `Image`.
+
 ## v1.0.36 (2026-06-19)
 
 - [vecs-phaser]: Added the `Image` renderable component (`texture` u32, `frame` u16) to `phaserNetworkComponents` as type 17, an append-only protocol bump, plus the data-only asset catalog schema (`AssetDescriptor`, `SpritesheetDescriptor`, `AssetCatalog`) shared by the server and client packages.

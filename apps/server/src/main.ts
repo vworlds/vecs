@@ -24,6 +24,7 @@ import {
   StrokeStyle,
   Text,
   TextAlign,
+  Tint,
   Triangle,
 } from "@vworlds/vecs-phaser";
 import { AssetManager, PhaserServerModule } from "@vworlds/vecs-phaser-server";
@@ -553,6 +554,29 @@ function createDecorations(): void {
     .set(RenderRotation, { angle: 0 })
     .set(StrokeStyle, { color: 0x88ccff, alpha: 1, width: 4 })
     .set(RotatingDecoration, { speed: 0.03 });
+
+  // A polychromatic-tinted text: four distinct corner tints blend across the
+  // surface, showing Tint's poly wire mode (one bool + four u32s). Text is one
+  // of the two Phaser GameObject kinds that mix in the Tint component (Image is
+  // the other); primitive shapes do not have setTint.
+  world
+    .entity()
+    .add(Networked)
+    .set(Text, {
+      value: "TINT",
+      fontFamily: "monospace",
+      fontSize: 32,
+      color: 0xffffff,
+      align: TextAlign.Center,
+    })
+    .set(RenderPosition, { x: 3.9, y: -2.05 })
+    .set(Tint, {
+      topLeft: 0xff0000,
+      topRight: 0x00ff00,
+      bottomLeft: 0x0000ff,
+      bottomRight: 0xffff00,
+      monochromatic: false,
+    } as Partial<Tint>);
 }
 
 /**
@@ -597,6 +621,7 @@ function createBrickShowcase(): void {
       .set(Image, { texture: bricks.id, frame })
       .set(RenderPosition, start)
       .set(RenderRotation, { angle })
+      .set(Tint, { value: randomBrickTint() } as Partial<Tint>)
       .set(PhysicsPosition, start)
       .set(PhysicsRotation, { angle })
       .set(PhysicsAngularVelocity, { value: randomSignedFloat(3, 9) })
@@ -680,6 +705,13 @@ function randomFillStyle(): Partial<FillStyle> {
   return {
     color: (r << 16) | (g << 8) | b,
   };
+}
+
+/** A warm uniform tint for the dynamic bricks, so each tumbling brick shifts hue. */
+function randomBrickTint(): number {
+  // Stay in the warm/cool mid-saturation range so the brick art stays visible.
+  const palette = [0xffcc88, 0x88ddff, 0xff88cc, 0xaaff88, 0xddaaff, 0xffaa66];
+  return palette[randomInt(0, palette.length - 1)]!;
 }
 
 function updateRenderPosition(

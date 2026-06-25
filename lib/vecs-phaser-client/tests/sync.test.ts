@@ -9,6 +9,8 @@ import {
   Rotation,
   Scale,
   StrokeStyle,
+  Text,
+  Tint,
 } from "@vworlds/vecs-phaser";
 import { describe, expect, it } from "vitest";
 
@@ -56,6 +58,34 @@ describe("PhaserRenderModule sync systems", () => {
 
     expectCall(obj, "setPosition", [448, 320]);
     expectCall(obj, "setFillStyle", [0x123456, 0.25]);
+  });
+
+  it("applies Tint enter values to a Text GameObject (Tint marker is on Text and Image, not shapes)", () => {
+    const { scene, world } = setup();
+    const entity = world.entity();
+
+    entity.set(Text, { value: "tinted", fontSize: 16, color: 0xffffff });
+    entity.set(Tint, { value: 0xff8800 } as Partial<Tint>);
+    world.progress(0, 0);
+
+    const obj = scene.created[0]!;
+    expectCall(obj, "setTint", [0xff8800, 0xff8800, 0xff8800, 0xff8800]);
+  });
+
+  it("applies later Tint updates to the stored Text GameObject", () => {
+    const { scene, world } = setup();
+    const entity = world.entity();
+
+    entity.set(Text, { value: "tinted", fontSize: 16, color: 0xffffff });
+    entity.set(Tint, { value: 0xff8800 } as Partial<Tint>);
+    world.progress(0, 0);
+
+    const obj = scene.created[0]!;
+    obj.calls.length = 0;
+    entity.set(Tint, { value: 0x112233 } as Partial<Tint>);
+    world.progress(1, 0);
+
+    expectCall(obj, "setTint", [0x112233, 0x112233, 0x112233, 0x112233]);
   });
 });
 

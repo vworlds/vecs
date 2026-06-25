@@ -108,6 +108,10 @@ export class MockGameObject {
     return this.record("setTexture", ...args);
   }
 
+  setTint(...args: readonly unknown[]): this {
+    return this.record("setTint", ...args);
+  }
+
   setTo(...args: readonly unknown[]): this {
     return this.record("setTo", ...args);
   }

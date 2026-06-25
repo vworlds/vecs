@@ -39,6 +39,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
       m.Star,
       m.Text,
       m.Texture,
+      m.Tint,
     ].forEach((Marker) => world.component(Marker));
 
     world.component(m.Shape).set(Implements, {
@@ -60,11 +61,16 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     });
     world.component(Phaser.GameObjects.Star).set(Implements, { interfaces: [m.Shape, m.Star] });
     world.component(Phaser.GameObjects.Text).set(Implements, {
-      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text],
+      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text, m.Tint],
     });
     world.component(Phaser.GameObjects.Image).set(Implements, {
-      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Texture],
+      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Texture, m.Tint],
     });
+    // TODO: when renderers are added for Sprite, TileSprite, Video, Extern,
+    // BitmapText, or Stamp, declare m.Tint on each — Phaser mixes the Tint
+    // component into all of them. Primitive shapes (Arc, Ellipse, Rectangle,
+    // Triangle, Polygon, Star, Line) do not have setTint and must NOT declare
+    // m.Tint (adding Tint data to a shape entity is a silent no-op by design).
 
     world.component(m.GameObject).onRemove((_entity, obj) => obj.destroy());
 

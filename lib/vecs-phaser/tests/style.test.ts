@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
-import { FillStyle, StrokeStyle } from "../src/components/style.js";
+import { FillStyle, StrokeStyle, Tint } from "../src/components/style.js";
 
 function roundTrip<T extends object>(C: new () => T, value: T): T {
   const enc = new Encoder(new Uint8Array(1024));
@@ -87,5 +87,43 @@ describe("StrokeStyle", () => {
     expect(decoded.color).toBe(0x000000);
     expect(decoded.alpha).toBe(1);
     expect(decoded.width).toBe(4);
+  });
+});
+
+describe("Tint", () => {
+  it("round-trips monochromatic defaults (white = no tint)", () => {
+    const decoded = roundTrip(Tint, new Tint());
+    expect(decoded).toBeInstanceOf(Tint);
+    expect(decoded.monochromatic).toBe(true);
+    expect(decoded.topLeft).toBe(0xffffff);
+    expect(decoded.topRight).toBe(0xffffff);
+    expect(decoded.bottomLeft).toBe(0xffffff);
+    expect(decoded.bottomRight).toBe(0xffffff);
+  });
+
+  it("round-trips a monochromatic tint set via the value setter", () => {
+    const t = new Tint();
+    t.value = 0xff8800;
+    const decoded = roundTrip(Tint, t);
+    expect(decoded.monochromatic).toBe(true);
+    expect(decoded.topLeft).toBe(0xff8800);
+    expect(decoded.topRight).toBe(0xff8800);
+    expect(decoded.bottomLeft).toBe(0xff8800);
+    expect(decoded.bottomRight).toBe(0xff8800);
+  });
+
+  it("round-trips a polychromatic tint with distinct corners", () => {
+    const t = new Tint();
+    t.monochromatic = false;
+    t.topLeft = 0xff0000;
+    t.topRight = 0x00ff00;
+    t.bottomLeft = 0x0000ff;
+    t.bottomRight = 0xffff00;
+    const decoded = roundTrip(Tint, t);
+    expect(decoded.monochromatic).toBe(false);
+    expect(decoded.topLeft).toBe(0xff0000);
+    expect(decoded.topRight).toBe(0x00ff00);
+    expect(decoded.bottomLeft).toBe(0x0000ff);
+    expect(decoded.bottomRight).toBe(0xffff00);
   });
 });

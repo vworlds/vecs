@@ -58,3 +58,12 @@ export abstract class Texture {
   public abstract setTexture(key: string, frame?: string | number): this;
   public abstract setDisplaySize(width: number, height: number): this;
 }
+
+export abstract class Tint {
+  public abstract setTint(
+    topLeft?: number,
+    topRight?: number,
+    bottomLeft?: number,
+    bottomRight?: number
+  ): this;
+}

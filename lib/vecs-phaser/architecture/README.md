@@ -209,6 +209,10 @@ export enum TextAlign {
 export class Image {
   /* texture: u32, frame: u16 — indexes the asset catalog */
 }
+export class Tint {
+  /* topLeft, topRight, bottomLeft, bottomRight: u32 = 0xffffff; monochromatic: bool = true */
+  /* value setter writes all four corners and sets monochromatic = true */
+}
 
 // Protocol arrays — ORDER IS PROTOCOL (type id = index + 1)
 export const phaserNetworkComponents: readonly ComponentClass[];
@@ -368,6 +372,7 @@ export const phaserNetworkComponents = [
   Text, // type 8..15
   Size, // type 16 — dimensions for Ellipse/Rectangle (appended after Text)
   Image, // type 17 — textured renderable (appended after Size)
+  Tint, // type 18 — multiplicative tint (appended after Image)
 ] as const;
 
 export const phaserRenderableComponents = [
@@ -383,25 +388,26 @@ export const phaserRenderableComponents = [
 ] as const;
 ```
 
-| Component     | Fields (wire type)                                                                                                                                           | Units / notes                                             |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| `Position`    | `x:f32=0`, `y:f32=0`                                                                                                                                         | meters, +y up. **Type 1 → free interpolation.**           |
-| `Rotation`    | `angle:f32=0`                                                                                                                                                | radians, CCW+. Frontier `rot()` negates.                  |
-| `Scale`       | `x:f32=1`, `y:f32=1`                                                                                                                                         | unitless multiplier                                       |
-| `Alpha`       | `value:f32=1`                                                                                                                                                | 0..1                                                      |
-| `Depth`       | `value:i32=0`                                                                                                                                                | render order (unitless)                                   |
-| `FillStyle`   | `color:u32=0xffffff`, `alpha:f32=1`                                                                                                                          | RGB int                                                   |
-| `StrokeStyle` | `color:u32=0xffffff`, `alpha:f32=1`, `width:f32=1`                                                                                                           | width in **screen px**                                    |
-| `Arc`         | `radius:f32=0.5`, `startAngle:f32=0`, `endAngle:f32=2π`, `anticlockwise:bool=false`, `iterations:f32=0.01`                                                   | radius meters; angles radians                             |
-| `Ellipse`     | _tag_ (no fields) — dimensions on `Size`                                                                                                                     | sized via the shared `Size` component                     |
-| `Rectangle`   | _tag_ (no fields) — dimensions on `Size`                                                                                                                     | sized via the shared `Size` component                     |
-| `Polygon`     | `points:["f32"]=[]`                                                                                                                                          | alternating x,y meters (relative)                         |
-| `Line`        | `x1,y1,x2,y2:f32=0`                                                                                                                                          | meters (relative)                                         |
-| `Triangle`    | `x1,y1,x2,y2,x3,y3:f32`                                                                                                                                      | meters (relative)                                         |
-| `Star`        | `points:u8=5`, `innerRadius:f32=0.5`, `outerRadius:f32=1`                                                                                                    | radii meters                                              |
-| `Text`        | `value:string=""`, `fontFamily:string="sans-serif"`, `fontSize:u16=16`, `color:u32=0xffffff`, `backgroundColor:u32=0`, `backgroundAlpha:f32=0`, `align:u8=0` | fontSize in **screen px**; `align`→`TextAlign`            |
-| `Size`        | `width:f32=2`, `height:f32=1`                                                                                                                                | meters; shared sizing for `Ellipse`/`Rectangle` (type 16) |
-| `Image`       | `texture:u32=0`, `frame:u16=0`                                                                                                                               | asset-catalog resource id + frame index (type 17)         |
+| Component     | Fields (wire type)                                                                                                                                           | Units / notes                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `Position`    | `x:f32=0`, `y:f32=0`                                                                                                                                         | meters, +y up. **Type 1 → free interpolation.**                                         |
+| `Rotation`    | `angle:f32=0`                                                                                                                                                | radians, CCW+. Frontier `rot()` negates.                                                |
+| `Scale`       | `x:f32=1`, `y:f32=1`                                                                                                                                         | unitless multiplier                                                                     |
+| `Alpha`       | `value:f32=1`                                                                                                                                                | 0..1                                                                                    |
+| `Depth`       | `value:i32=0`                                                                                                                                                | render order (unitless)                                                                 |
+| `FillStyle`   | `color:u32=0xffffff`, `alpha:f32=1`                                                                                                                          | RGB int                                                                                 |
+| `StrokeStyle` | `color:u32=0xffffff`, `alpha:f32=1`, `width:f32=1`                                                                                                           | width in **screen px**                                                                  |
+| `Arc`         | `radius:f32=0.5`, `startAngle:f32=0`, `endAngle:f32=2π`, `anticlockwise:bool=false`, `iterations:f32=0.01`                                                   | radius meters; angles radians                                                           |
+| `Ellipse`     | _tag_ (no fields) — dimensions on `Size`                                                                                                                     | sized via the shared `Size` component                                                   |
+| `Rectangle`   | _tag_ (no fields) — dimensions on `Size`                                                                                                                     | sized via the shared `Size` component                                                   |
+| `Polygon`     | `points:["f32"]=[]`                                                                                                                                          | alternating x,y meters (relative)                                                       |
+| `Line`        | `x1,y1,x2,y2:f32=0`                                                                                                                                          | meters (relative)                                                                       |
+| `Triangle`    | `x1,y1,x2,y2,x3,y3:f32`                                                                                                                                      | meters (relative)                                                                       |
+| `Star`        | `points:u8=5`, `innerRadius:f32=0.5`, `outerRadius:f32=1`                                                                                                    | radii meters                                                                            |
+| `Text`        | `value:string=""`, `fontFamily:string="sans-serif"`, `fontSize:u16=16`, `color:u32=0xffffff`, `backgroundColor:u32=0`, `backgroundAlpha:f32=0`, `align:u8=0` | fontSize in **screen px**; `align`→`TextAlign`                                          |
+| `Size`        | `width:f32=2`, `height:f32=1`                                                                                                                                | meters; shared sizing for `Ellipse`/`Rectangle` (type 16)                               |
+| `Image`       | `texture:u32=0`, `frame:u16=0`                                                                                                                               | asset-catalog resource id + frame index (type 17)                                       |
+| `Tint`        | `topLeft,topRight,bottomLeft,bottomRight:u32=0xffffff`, `monochromatic:bool=true`                                                                            | RGB int per corner; white = no tint; mono mode sends 1 u32, poly mode sends 4 (type 18) |
 
 Exactly one renderable per entity is enforced server-side by
 `setExclusiveComponents(...phaserRenderableComponents)` (installed by `PhaserServerModule`). The
@@ -451,7 +457,7 @@ component** via `entity.attach(obj)`, keyed by its concrete Phaser class (e.g.
 **Interface markers (`Implements`).** `markers.ts` declares abstract marker classes whose method
 signatures mirror the Phaser GameObject API the renderer calls: `GameObject`, `Shape`,
 `Transform`, `Alpha`, `Depth`, `Fill`, `Stroke`, `Size`, `Arc`, `Vertices`, `Star`, `Text`,
-`Texture`. At module init each concrete Phaser class declares which markers it satisfies:
+`Texture`, `Tint`. At module init each concrete Phaser class declares which markers it satisfies:
 
 ```ts
 world.component(m.Shape).set(Implements, {
@@ -459,10 +465,10 @@ world.component(m.Shape).set(Implements, {
 });
 world.component(Phaser.GameObjects.Arc).set(Implements, { interfaces: [m.Shape, m.Arc] });
 world.component(Phaser.GameObjects.Text).set(Implements, {
-  interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text],
+  interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text, m.Tint],
 });
 world.component(Phaser.GameObjects.Image).set(Implements, {
-  interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Texture],
+  interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Texture, m.Tint],
 });
 ```
 
@@ -492,7 +498,9 @@ everything down for free.
 **Shared transform/style sync (`SyncModule`).** One system per cross-cutting component, each
 matching the data component **plus the interface marker** and calling the injected object's setter:
 `Position`/`Rotation`/`Scale` → `m.Transform`, `Alpha` → `m.Alpha`, `Depth` → `m.Depth`, `Size` →
-`m.Size`, `FillStyle` → `m.Fill`, `StrokeStyle` → `m.Stroke`. Each uses
+`m.Size`, `FillStyle` → `m.Fill`, `StrokeStyle` → `m.Stroke`, `Tint` → `m.Tint` (only on
+GameObjects that mix in Phaser's Tint component: `Image` and `Text`; primitive shapes do
+not have `setTint`). Each uses
 `update({ watch: <Data>, onEnter: true, inject: [m.<marker>] })`.
 
 **Enter-init invariant.** Protocol order puts transform+style before shapes (§6), the `new` system
@@ -759,9 +767,10 @@ rebuild.
 ## 11. Testing strategy
 
 - **`vecs-phaser`:** per-component wire round-trip (incl. `Polygon` array, `Text` strings,
-  `TextAlign`, `Image` texture/frame); `phaserNetworkComponents` order snapshot (pins `Image` at
-  type 17); `phaserRenderableComponents` membership == primary renderables; catalog schema
-  type-level checks (`SpritesheetDescriptor` narrows `kind`, heterogeneous `AssetDescriptor[]`).
+  `TextAlign`, `Image` texture/frame, `Tint` mono/poly corners); `phaserNetworkComponents` order snapshot
+  (pins `Image` at type 17, `Tint` at type 18); `phaserRenderableComponents` membership ==
+  primary renderables; catalog schema type-level checks (`SpritesheetDescriptor` narrows
+  `kind`, heterogeneous `AssetDescriptor[]`).
 - **`vecs-phaser-client`:** `CoordSpace` math ((0,0)→center, (1,0)→+PPM, (0,1)→−PPM, angle
   negation, relative vs absolute). With **mock Phaser** objects (node env, no browser): load
   `PhaserRenderModule` on a `ClientWorld`; create on shape enter; initialize pre-present
@@ -798,6 +807,7 @@ rebuild.
 | `phaser` version/peering                                                      | `phaser` is a **type-only peer dep** of the client lib; the app provides the runtime; `CoordSpace` avoids `Phaser.Math` |
 | Catalog must exist before the first diff references an id                     | `await loadAssets(...)` before `connectDgram`; the load resolves only on loader `complete`                              |
 | Adding `Image` reorders/extends the protocol                                  | Append-only at type 17; the order snapshot test pins it; the bump is documented in CHANGELOG                            |
+| Adding `Tint` extends the protocol                                            | Append-only at type 18; the order snapshot test pins it; the bump is documented in CHANGELOG                            |
 | Tiled image path is relative to the `.tsj`                                    | Resolved against the `.tsj` directory at load time; served under `assetsPath`                                           |
 | Author key vs wire id confusion                                               | Key is server-only sugar; client keys textures by id; tests assert the key never crosses the wire                       |
 | Tiled top-level `type` discriminator misread as the tileset class             | Tileset `class` reads `class` only; tile-level `type` stays the tile-class alias; regression test pins it               |

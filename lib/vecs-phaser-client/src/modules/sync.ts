@@ -8,6 +8,7 @@ import {
   Scale,
   Size,
   StrokeStyle,
+  Tint,
 } from "@vworlds/vecs-phaser";
 import { CoordSpace } from "../coord_space.js";
 import * as m from "../markers.js";
@@ -78,6 +79,14 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
       .phase(ON_STORE)
       .update({ watch: StrokeStyle, onEnter: true, inject: [m.Stroke] }, (_e, s, [obj]) =>
         obj.setStrokeStyle(s.width, s.color, s.alpha)
+      );
+
+    world
+      .system("phaser.sync.tint")
+      .with(Tint, m.Tint)
+      .phase(ON_STORE)
+      .update({ watch: Tint, onEnter: true, inject: [m.Tint] }, (_e, t, [obj]) =>
+        obj.setTint(t.topLeft, t.topRight, t.bottomLeft, t.bottomRight)
       );
   }
 }
