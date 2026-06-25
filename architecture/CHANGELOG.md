@@ -6,7 +6,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 ## Unreleased
 
 - [vecs-phaser]: Added the `Tint` style component to `phaserNetworkComponents` as type 18, an append-only protocol bump. It carries four corner colors (`topLeft`, `topRight`, `bottomLeft`, `bottomRight`, default `0xffffff` = no tint) plus a `monochromatic` flag, with a custom two-mode wire codec: mono mode sends one u32 applied to all corners, poly mode sends four independent u32s. A `value` setter writes all four corners and flips the flag for the common uniform-tint case.
-- [vecs-phaser-client]: Added a `Tint` interface marker and shared sync system (`phaser.sync.tint`) that applies all four corners via `setTint(tl, tr, bl, br)`; `Implements` declarations on `Shape`, `Text`, and `Image`.
+- [vecs-phaser-client]: Added a `Tint` interface marker and shared sync system (`phaser.sync.tint`) that applies all four corners via `setTint(tl, tr, bl, br)`; `Implements` declarations on `Text` and `Image` only — Phaser mixes the Tint component into those plus Sprite, TileSprite, Video, Extern, BitmapText, and Stamp, but not into primitive shapes. Adding `Tint` to a shape entity is a silent no-op.
+- [repo]: Demo exercises both wire modes: a random uniform tint per dynamic brick (mono on Image) and a polychromatic-tinted Text decoration with four distinct corner colors (poly).
 
 ## v1.0.36 (2026-06-19)
 
