@@ -239,6 +239,7 @@ Before stepping, physics systems consume ECS changes such as:
 
 - New or removed `Body` components.
 - New, removed, or changed shape geometry components.
+- New or removed joints, and joint feature (motor/limit/spring) changes.
 - `Position` and `Rotation` changes that should teleport bodies.
 - `LinearVelocity` and `AngularVelocity` changes.
 - Persistent `Force` and `Torque` components.

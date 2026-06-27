@@ -8,6 +8,8 @@
 //   1. PhysicsBodyLifecycle      — body must exist before any shape is inserted
 //   2. PhysicsShapeLifecycle     — creates/destroys b2Shape records + broad-phase proxies
 //   3. PhysicsChainLifecycle     — creates/destroys b2Chain records + segment proxies
+//   3b. PhysicsJointLifecycle    — creates/destroys b2Joint records once both bodies exist
+//   3c. PhysicsJoint*Sync        — motor/limit/spring feature sync on live joints
 //   4. PhysicsMaterialFilterSync — propagates Material/Filter/Sensor updates
 //   5. PhysicsEventOptInSync     — runtime ContactEvents/HitEvents/SensorEvents add/remove (hooks)
 //   6. PhysicsShapePoseSync      — propagates ShapePosition/ShapeRotation updates
@@ -33,6 +35,8 @@ import { installEvents } from "./events.js";
 import { installForceGather } from "./forces.js";
 import { installImpulseAccumulate } from "./impulse_accumulate.js";
 import { installImpulseZero } from "./impulse_zero.js";
+import { installJointFeatures } from "./joint_features.js";
+import { installJointLifecycle } from "./joint_lifecycle.js";
 import { installKinematicTargets } from "./kinematic.js";
 import { installBodyLifecycle, installPhysicsReaper } from "./lifecycle.js";
 import { installMassRecompute } from "./mass_recompute.js";
@@ -67,6 +71,10 @@ export function registerPhysicsSystems(
   installBodyLifecycle(world, engine, phases.preStep);
   installShapeLifecycle(world, engine, phases.preStep);
   installChainLifecycle(world, engine, phases.preStep);
+  // physics-pre: joint lifecycle (after bodies/shapes exist) + feature sync. Both
+  // run before the reaper so a removed joint's teardown is queued this pass.
+  installJointLifecycle(world, engine, phases.preStep);
+  installJointFeatures(world, engine, phases.preStep);
   installMaterialFilterSync(world, engine, phases.preStep);
   // physics-pre: keep event opt-in flags in sync when ContactEvents/HitEvents/
   // SensorEvents are added/removed on a shape after creation (hook-based).

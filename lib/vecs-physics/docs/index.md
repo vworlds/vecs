@@ -30,11 +30,12 @@ world.module(PhysicsModule, {
 - [Forces And Impulses](./forces-and-impulses.md) - persistent forces, queued impulses, child force sources, and update semantics.
 - [Events](./events.md) - contact, hit, and sensor event components.
 - [Queries](./queries.md) - ray casts and overlap queries.
+- [Joints](./joints.md) - connecting two bodies with revolute, distance, weld, and filter constraints.
 - [Kinematic Motion](./kinematic-motion.md) - target position and target rotation for kinematic bodies.
 - [Systems And Phases](./systems-and-phases.md) - physics phases, fixed timestep assumptions, and frame ordering.
 - [Debug Validation](./debug-validation.md) - optional diagnostics for invalid ECS structures.
 - [Internals](./internals.md) - port architecture, broad phase, solver, islands, and Box2D lineage.
-- [Roadmap](./roadmap.md) - deferred features such as shape casts, character movers, and joints.
+- [Roadmap](./roadmap.md) - deferred features such as shape casts and character movers.
 
 ## Design Principles
 
@@ -553,16 +554,20 @@ See [Events](./events.md).
 
 Physics objects are created and destroyed from ECS structure.
 
-| ECS change                 | Physics behavior                                  |
-| -------------------------- | ------------------------------------------------- |
-| Add `Body`                 | Create a physics body.                            |
-| Remove `Body`              | Destroy the physics body and its internal shapes. |
-| Destroy body entity        | Destroy the physics body and its internal shapes. |
-| Add valid child geometry   | Create a shape on the parent body.                |
-| Remove geometry component  | Destroy the shape.                                |
-| Change geometry            | Update or recreate the shape.                     |
-| Reparent shape entity      | Destroy/recreate shape if parent body changes.    |
-| Set `Body.enabled = false` | Disable the body in the simulation.               |
+| ECS change                        | Physics behavior                                  |
+| --------------------------------- | ------------------------------------------------- |
+| Add `Body`                        | Create a physics body.                            |
+| Remove `Body`                     | Destroy the physics body and its internal shapes. |
+| Destroy body entity               | Destroy the physics body and its internal shapes. |
+| Add valid child geometry          | Create a shape on the parent body.                |
+| Remove geometry component         | Destroy the shape.                                |
+| Change geometry                   | Update or recreate the shape.                     |
+| Reparent shape entity             | Destroy/recreate shape if parent body changes.    |
+| Set `Body.enabled = false`        | Disable the body in the simulation.               |
+| Add a joint-type component        | Create a joint once both connected bodies exist.  |
+| Remove joint-type / destroy joint | Destroy the joint.                                |
+| Destroy a connected body          | Destroy the body's joints with it.                |
+| Add/remove a joint feature        | Enable/disable that feature's motor/limit/spring. |
 
 Normal mode ignores invalid structures efficiently. Debug mode warns about them.
 
@@ -596,10 +601,12 @@ See [Debug Validation](./debug-validation.md).
 
 The first version focuses on bodies, shapes, materials, filters, forces, impulses, kinematic targets, and events. Version 2 adds the `Detectable` marker component and the `physics(world)` query API (ray casts and overlap queries) — see [Queries](./queries.md).
 
+Revolute, distance, weld, and filter joints have shipped — see [Joints](./joints.md).
+
 Deferred to later versions:
 
 - Shape casts.
-- Joints.
+- Prismatic, wheel, and motor joints.
 - Character mover helpers.
 
 See [Roadmap](./roadmap.md).
@@ -616,5 +623,6 @@ Box2D terms still matter internally:
 - `Material` and `CollisionFilter` correspond to shape definition fields.
 - `Force`, `Torque`, `Impulse`, and `AngularImpulse` correspond to body force and impulse APIs.
 - `ContactEvents`, `SensorEvents`, and `HitEvents` correspond to post-step event arrays.
+- A joint entity (`JointBodyA`/`JointBodyB` + a joint-type component + `JointFrame`) corresponds to a Box2D joint.
 
 Users do not manage Box2D handles. They manage Vecs entities and components.

@@ -137,6 +137,18 @@ export function installPhysicsReaper(world: World, engine: PhysicsEngine, phase:
     .system("PhysicsReaper")
     .phase(phase)
     .run(() => {
+      // Joints first: a body destroy below cascade-destroys its joints, so we
+      // tear down explicitly-removed joints before their bodies disappear. Guard
+      // with b2Joint_IsValid because a joint queued from a cascaded body entity
+      // may already be gone.
+      const joints = engine.pendingJointDestroys;
+      for (const jointId of joints) {
+        if (engine.box2d.b2Joint_IsValid(jointId)) {
+          engine.box2d.b2DestroyJoint(jointId, true);
+        }
+      }
+      joints.length = 0;
+
       const shapes = engine.pendingShapeDestroys;
       for (const shapeId of shapes) {
         engine.entityByShapeIndex.delete(shapeId.index1);
