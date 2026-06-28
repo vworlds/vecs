@@ -35,11 +35,17 @@ import {
   Box,
   Chain,
   Circle,
+  DistanceJoint,
+  JointBodyA,
+  JointBodyB,
+  JointLinearSpring,
+  JointMotor,
   LinearVelocity as PhysicsVelocity,
   Material,
   PhysicsModule,
   Position as PhysicsPosition,
   preloadPhysics,
+  RevoluteJoint,
   Rotation as PhysicsRotation,
 } from "@vworlds/vecs-physics";
 import {
@@ -339,6 +345,7 @@ world
 createPhysicsWalls();
 createDecorations();
 createBrickShowcase();
+createJointShowcase();
 spawnBall(-3.7, 1.5);
 
 await vecsListener.listen(app, { ordered: false, maxRetransmits: 2 });
@@ -636,6 +643,70 @@ function createBrickShowcase(): void {
       .set(Box, { hx: size.w / 2, hy: size.h / 2 })
       .set(Material, { friction: 0.4, restitution: 0.85 });
   }
+}
+
+/**
+ * Joints showcase: two small constraints that are obvious in motion.
+ *
+ * - A motorized spinner: a static hinge pins a dynamic box at its center and a
+ *   `JointMotor` drives a constant spin. The pin holds the box in place while it
+ *   rotates, even as balls and bricks bounce off it.
+ * - A spring bob: a `DistanceJoint` with a soft `JointLinearSpring` suspends a box
+ *   below a fixed anchor so it bobs under gravity.
+ *
+ * Anchors are shapeless, non-networked static bodies (invisible). The visible
+ * boxes carry both render and physics transforms, so PhaserServerModule syncs the
+ * simulated pose back onto the render transform with no extra wiring.
+ */
+function createJointShowcase(): void {
+  const motorAnchorPos = { x: -3.9, y: 0.2 };
+  const motorAnchor = world
+    .entity()
+    .set(PhysicsPosition, motorAnchorPos)
+    .set(Body, { type: BodyType.Static });
+  const spinner = world
+    .entity()
+    .add(Networked)
+    .add(Rectangle)
+    .set(Size, { width: 0.5, height: 0.5 })
+    .set(FillStyle, { color: 0xffaa33, alpha: 1 })
+    .set(RenderPosition, motorAnchorPos)
+    .set(RenderRotation, { angle: 0 })
+    .set(PhysicsPosition, motorAnchorPos)
+    .set(PhysicsRotation, { angle: 0 })
+    .set(Body, { type: BodyType.Dynamic });
+  world.entity().childOf(spinner).set(Box, { hx: 0.25, hy: 0.25 }).set(Material, { density: 1 });
+  world
+    .entity()
+    .set(JointBodyA, { target: motorAnchor })
+    .set(JointBodyB, { target: spinner })
+    .add(RevoluteJoint)
+    .set(JointMotor, { targetSpeed: 3, maxForce: 80 });
+
+  const springAnchorPos = { x: -2.7, y: 1.0 };
+  const bobStart = { x: -2.7, y: 0.0 };
+  const springAnchor = world
+    .entity()
+    .set(PhysicsPosition, springAnchorPos)
+    .set(Body, { type: BodyType.Static });
+  const bob = world
+    .entity()
+    .add(Networked)
+    .add(Rectangle)
+    .set(Size, { width: 0.4, height: 0.4 })
+    .set(FillStyle, { color: 0x66ffcc, alpha: 1 })
+    .set(RenderPosition, bobStart)
+    .set(RenderRotation, { angle: 0 })
+    .set(PhysicsPosition, bobStart)
+    .set(PhysicsRotation, { angle: 0 })
+    .set(Body, { type: BodyType.Dynamic });
+  world.entity().childOf(bob).set(Box, { hx: 0.2, hy: 0.2 }).set(Material, { density: 1 });
+  world
+    .entity()
+    .set(JointBodyA, { target: springAnchor })
+    .set(JointBodyB, { target: bob })
+    .set(DistanceJoint, { length: 0.7 })
+    .set(JointLinearSpring, { hertz: 1.5, dampingRatio: 0.15 });
 }
 
 function assignCell(entity: Entity, position: RenderPosition): void {
