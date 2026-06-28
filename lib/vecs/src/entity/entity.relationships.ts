@@ -1,9 +1,4 @@
-import {
-  CleanupPolicy,
-  Relationship,
-  type ComponentMeta,
-  type ComponentRef,
-} from "../component_meta.js";
+import { Relationship, type ComponentMeta, type ComponentRef } from "../component_meta.js";
 import { IterableArrayMap } from "../util/array_map.js";
 import { DenseSet } from "../util/dense_set.js";
 import type { EID, Entity } from "./entity.js";
@@ -41,27 +36,6 @@ export class Relationships extends Queries {
       (target._incoming ??= new IterableArrayMap()).set(relEid, sources);
     }
     sources.add(this as unknown as Entity);
-  }
-
-  /** @internal */
-  protected _cleanupIncoming(): void {
-    this._incoming?.forEach((sources, relEid) => {
-      const relEntity = this.world.getEntity(relEid);
-      if (!relEntity) {
-        return;
-      }
-      const policy = relEntity.meta.onDeleteTarget;
-      for (const source of [...sources]) {
-        if (policy === CleanupPolicy.Delete) {
-          // If source is also an in-use component entity with onDelete Throw,
-          // this exotic cascade can still throw; revisit with the relationship rework.
-          source.destroy();
-        } else {
-          source.remove(relEid);
-        }
-      }
-    });
-    this._incoming = undefined;
   }
 
   /** @internal */

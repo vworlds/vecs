@@ -9,6 +9,8 @@ class Velocity {
   vx = 0;
 }
 class FriendOf extends Relationship {}
+class InRoom extends Relationship {}
+class Guards extends Relationship {}
 
 describe("Entity — components", () => {
   it("add returns the entity for chaining", () => {
@@ -415,9 +417,9 @@ describe("Entity — lifecycle and relationships", () => {
 
     parent.destroy();
     w.progress(0, 0);
-    expect(parent._destroyed).toBe(true);
-    expect(child._destroyed).toBe(true);
-    expect(grandchild._destroyed).toBe(true);
+    expect(parent.destroyed).toBe(true);
+    expect(child.destroyed).toBe(true);
+    expect(grandchild.destroyed).toBe(true);
     expect(() => w.entity(grandchild.eid)).toThrow();
     expect(() => w.entity(child.eid)).toThrow();
     expect(() => w.entity(parent.eid)).toThrow();
@@ -432,9 +434,116 @@ describe("Entity — lifecycle and relationships", () => {
     target.destroy();
     w.progress(0, 0);
 
-    expect(source._destroyed).toBe(false);
+    expect(source.destroyed).toBe(false);
     expect(source.get(FriendOf)).toBeUndefined();
     expect(() => w.entity(target.eid)).toThrow();
+  });
+
+  // Regression for issue #155: _cleanupIncoming's outer forEach over distinct
+  // relationship types was perturbed by re-entrant _removeIncoming deletes,
+  // causing it to skip types after the first. The fix buffers cleanup ops onto
+  // a world-level deletion scope and drains them after the scan completes.
+  it("destroy cleans up every incoming relationship type when multiple types target the same entity (Delete, shape-before-joint order)", () => {
+    const w = new World();
+    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
+    const room = w.entity();
+    const lamp = w.entity().set(InRoom, { target: room });
+    const guard = w.entity().set(Guards, { target: room });
+
+    room.destroy();
+    w.progress(0, 0);
+
+    expect(room.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(true);
+    expect(guard.destroyed).toBe(true);
+    expect(() => w.entity(room.eid)).toThrow();
+    expect(() => w.entity(lamp.eid)).toThrow();
+    expect(() => w.entity(guard.eid)).toThrow();
+  });
+
+  it("destroy cleans up every incoming relationship type when multiple types target the same entity (Delete, joint-before-shape order)", () => {
+    const w = new World();
+    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
+    const room = w.entity();
+    const guard = w.entity().set(Guards, { target: room });
+    const lamp = w.entity().set(InRoom, { target: room });
+
+    room.destroy();
+    w.progress(0, 0);
+
+    expect(room.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(true);
+    expect(guard.destroyed).toBe(true);
+    expect(() => w.entity(room.eid)).toThrow();
+    expect(() => w.entity(lamp.eid)).toThrow();
+    expect(() => w.entity(guard.eid)).toThrow();
+  });
+
+  it("destroy cleans up mixed Delete + Remove policies across two incoming relationship types", () => {
+    const w = new World();
+    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(FriendOf); // default Remove
+    const target = w.entity();
+    const lamp = w.entity().set(InRoom, { target });
+    const friend = w.entity().set(FriendOf, { target });
+
+    target.destroy();
+    w.progress(0, 0);
+
+    expect(target.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(true);
+    expect(friend.destroyed).toBe(false);
+    expect(friend.get(FriendOf)).toBeUndefined();
+    expect(() => w.entity(target.eid)).toThrow();
+    expect(() => w.entity(lamp.eid)).toThrow();
+    expect(w.entity(friend.eid)).toBe(friend);
+  });
+
+  it("destroy cleans up two default-policy (Remove) incoming relationship types", () => {
+    const w = new World();
+    w.component(InRoom); // default Remove
+    w.component(FriendOf); // default Remove
+    const target = w.entity();
+    const lamp = w.entity().set(InRoom, { target });
+    const friend = w.entity().set(FriendOf, { target });
+
+    target.destroy();
+    w.progress(0, 0);
+
+    expect(target.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(false);
+    expect(friend.destroyed).toBe(false);
+    expect(lamp.get(InRoom)).toBeUndefined();
+    expect(friend.get(FriendOf)).toBeUndefined();
+    expect(() => w.entity(target.eid)).toThrow();
+    expect(w.entity(lamp.eid)).toBe(lamp);
+    expect(w.entity(friend.eid)).toBe(friend);
+  });
+
+  it("destroy cleanup still runs after a prior destroy with no incoming relationships", () => {
+    const w = new World();
+    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
+    const unrelated = w.entity();
+    unrelated.destroy();
+
+    const target = w.entity();
+    const lamp = w.entity().set(InRoom, { target });
+    const guard = w.entity().set(Guards, { target });
+
+    target.destroy();
+    w.progress(0, 0);
+
+    expect(unrelated.destroyed).toBe(true);
+    expect(target.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(true);
+    expect(guard.destroyed).toBe(true);
+    expect(() => w.entity(unrelated.eid)).toThrow();
+    expect(() => w.entity(target.eid)).toThrow();
+    expect(() => w.entity(lamp.eid)).toThrow();
+    expect(() => w.entity(guard.eid)).toThrow();
   });
 
   it("destroy is re-entrant safe", () => {
@@ -446,7 +555,7 @@ describe("Entity — lifecycle and relationships", () => {
     e.add(Position);
     e.destroy();
     expect(cb).toHaveBeenCalledTimes(1);
-    expect(e._destroyed).toBe(true);
+    expect(e.destroyed).toBe(true);
     expect(() => w.entity(e.eid)).toThrow();
   });
 
@@ -467,12 +576,12 @@ describe("Entity — component entity onDelete", () => {
 
     componentEntity.destroy();
 
-    expect(a._destroyed).toBe(false);
-    expect(b._destroyed).toBe(false);
+    expect(a.destroyed).toBe(false);
+    expect(b.destroyed).toBe(false);
     expect(a._get(componentEntity.eid)).toBeUndefined();
     expect(b._get(componentEntity.eid)).toBeUndefined();
     expect(componentEntity.instanceCount()).toBe(0);
-    expect(componentEntity._destroyed).toBe(true);
+    expect(componentEntity.destroyed).toBe(true);
   });
 
   it("destroys carriers when onDelete is Delete", () => {
@@ -487,7 +596,7 @@ describe("Entity — component entity onDelete", () => {
     expect(() => w.entity(a.eid)).toThrow();
     expect(() => w.entity(b.eid)).toThrow();
     expect(() => w.entity(componentEntity.eid)).toThrow();
-    expect(componentEntity._destroyed).toBe(true);
+    expect(componentEntity.destroyed).toBe(true);
   });
 
   it("throws by default and leaves the component entity and carriers untouched", () => {
@@ -498,9 +607,9 @@ describe("Entity — component entity onDelete", () => {
 
     expect(() => componentEntity.destroy()).toThrow(/component eid is still in use/);
 
-    expect(componentEntity._destroyed).toBe(false);
+    expect(componentEntity.destroyed).toBe(false);
     expect(w.entity(componentEntity.eid)).toBe(componentEntity);
-    expect(carrier._destroyed).toBe(false);
+    expect(carrier.destroyed).toBe(false);
     expect(carrier.get(Position)).toBe(component);
     expect(componentEntity.instanceCount()).toBe(1);
   });
@@ -511,7 +620,7 @@ describe("Entity — component entity onDelete", () => {
     key.add(key);
 
     expect(() => key.destroy()).not.toThrow();
-    expect(key._destroyed).toBe(true);
+    expect(key.destroyed).toBe(true);
     expect(key.instanceCount()).toBe(0);
   });
 });
