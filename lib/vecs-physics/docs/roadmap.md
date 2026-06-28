@@ -212,13 +212,6 @@ Still pending:
   into the same component model as added def-builders and setter maps.
 - **Breakable-joint events.** Box2D exposes joint force/torque thresholds and
   joint events; a vecs-physics event surface for them is not yet wired.
-- **Cascade-deleting the joint entity on body destroy.** Today, destroying a
-  connected body _detaches_ the joint (its Box2D constraint is torn down) but
-  leaves the joint entity for you to manage; it is not cascade-deleted. This is a
-  deliberate workaround for a Vecs `_cleanupIncoming` bug that skips a cleanup when
-  an entity has multiple incoming relationship types
-  ([vworlds/vecs#155](https://github.com/vworlds/vecs/issues/155)). Once that is
-  fixed, joint→body relationships could opt back into delete-on-destroy.
 
 See also: [Bodies](./bodies.md), [Shapes](./shapes.md).
 

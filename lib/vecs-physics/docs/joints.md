@@ -164,12 +164,6 @@ entity is not destroyed** — it is yours to manage. You can re-point its
 `JointBodyA`/`JointBodyB` at another body to reconnect it, attach it to a manager
 entity with `ChildOf` so it is cleaned up with that, or destroy it directly.
 
-This is a deliberate choice: a joint references two bodies, and cascade-deleting
-the joint entity from a body destroy currently can't be done reliably in Vecs when
-the body also owns child shapes (see [vworlds/vecs#155](https://github.com/vworlds/vecs/issues/155)).
-Detaching instead of deleting keeps the behaviour predictable and the joint
-entity's lifecycle in your hands.
-
 ## Not yet included
 
 This version ships revolute, distance, weld, and filter joints. Prismatic,

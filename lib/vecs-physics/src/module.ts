@@ -190,12 +190,9 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
 
   // 3c. Joint→body relationships keep the default `CleanupPolicy.Remove`:
   //     destroying a connected body detaches the joint (its Box2D constraint is
-  //     torn down by the lifecycle membership exit when the body loses `Body`) but
-  //     leaves the joint entity for the user to manage. We deliberately avoid
-  //     `CleanupPolicy.Delete` because a body destroy with multiple incoming
-  //     relationship types (e.g. a child shape's `ChildOf` plus `JointBodyB`) can
-  //     skip a cascade in Vecs' `_cleanupIncoming` (vworlds/vecs#155). Remove
-  //     avoids depending on that cascade.
+  //     torn down by the lifecycle membership exit when the body loses `Body`) and
+  //     leaves the joint entity for the user to manage. Destroying a body is not
+  //     meant to destroy the joint entity, so `CleanupPolicy.Delete` is not used.
 
   // 4. Ensure the three physics phase entities exist and are ordered after update.
   const preStep = resolvePhase(world, opts.preStepPhase, DEFAULT_PRE_STEP_PHASE);
