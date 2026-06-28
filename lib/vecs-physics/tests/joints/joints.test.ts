@@ -229,25 +229,28 @@ describe("joint lifecycle", () => {
     expect(distance(b.get(Position)!, { x: 0, y: 0 })).toBeCloseTo(2, 1);
   });
 
-  it("destroying a connected body cascade-destroys the joint entity", () => {
-    const world = makeWorld();
-    // Destroy the (shapeless) static anchor: its only incoming relationship is
-    // the joint, so CleanupPolicy.Delete cleanly removes the joint entity.
-    const a = staticBody(world, 0, 0);
-    const b = dynamicBody(world, 3, 0);
+  it("destroying a connected body detaches the joint but leaves the joint entity", () => {
+    const world = makeWorld(-10);
+    // A distance joint hangs B two meters straight below the static anchor A, so
+    // B rests at (0, 8) while constrained.
+    const a = staticBody(world, 0, 10);
+    const b = dynamicBody(world, 0, 8);
     const joint = world
       .entity()
       .set(JointBodyA, { target: a })
       .set(JointBodyB, { target: b })
       .set(DistanceJoint, { length: 2 });
 
-    step(world, 5);
-    a.destroy();
-    step(world, 5);
+    step(world, 30);
+    expect(b.get(Position)!.y).toBeCloseTo(8, 1); // held by the joint
 
-    expect(joint.get(DistanceJoint)).toBeUndefined();
-    // The surviving body keeps simulating without error.
-    expect(b.get(Position)).toBeDefined();
+    a.destroy();
+    step(world, 60);
+
+    // The joint entity survives (it is not cascade-deleted)...
+    expect(joint.get(DistanceJoint)).toBeDefined();
+    // ...but its Box2D constraint is gone, so B is no longer held up and falls.
+    expect(b.get(Position)!.y).toBeLessThan(6);
   });
 
   it("destroying a shaped connected body tears down the joint safely", () => {

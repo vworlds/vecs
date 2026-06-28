@@ -146,20 +146,29 @@ joint.set(JointSettings, { collideConnected: true });
 
 ## Lifecycle
 
-| ECS change                               | Physics behavior                                       |
-| ---------------------------------------- | ------------------------------------------------------ |
-| Both bodies have `Body` + joint-type set | Create the joint.                                      |
-| Remove the joint-type component          | Destroy the joint.                                     |
-| Destroy the joint entity                 | Destroy the joint; bodies are unaffected.              |
-| Destroy a connected body                 | The body's joints are destroyed with it.               |
-| Retarget `JointBodyA`/`JointBodyB`       | Rebuild the joint on the new bodies.                   |
-| Change `JointFrame` / `DistanceJoint`    | Rebuild the joint with the new geometry.               |
-| Add/remove/change a feature component    | Enable/disable/retune that feature, waking the bodies. |
+| ECS change                               | Physics behavior                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------- |
+| Both bodies have `Body` + joint-type set | Create the joint.                                                         |
+| Remove the joint-type component          | Destroy the joint.                                                        |
+| Destroy the joint entity                 | Destroy the joint; bodies are unaffected.                                 |
+| Destroy a connected body                 | Detach the joint: its constraint is torn down, the joint entity survives. |
+| Retarget `JointBodyA`/`JointBodyB`       | Rebuild the joint on the new bodies.                                      |
+| Change `JointFrame` / `DistanceJoint`    | Rebuild the joint with the new geometry.                                  |
+| Add/remove/change a feature component    | Enable/disable/retune that feature, waking the bodies.                    |
 
-Destroying a connected body matches Box2D: the body's joints go with it. (When
-the body also owns child shapes, the joint's Box2D constraint is still torn down
-correctly; the joint entity itself may linger until next destroyed — see the note
-in the roadmap.)
+### Destroying a connected body
+
+When a connected body is destroyed, the joint's Box2D constraint is torn down (the
+joint stops matching once the body loses its `Body` component), but **the joint
+entity is not destroyed** — it is yours to manage. You can re-point its
+`JointBodyA`/`JointBodyB` at another body to reconnect it, attach it to a manager
+entity with `ChildOf` so it is cleaned up with that, or destroy it directly.
+
+This is a deliberate choice: a joint references two bodies, and cascade-deleting
+the joint entity from a body destroy currently can't be done reliably in Vecs when
+the body also owns child shapes (see [vworlds/vecs#155](https://github.com/vworlds/vecs/issues/155)).
+Detaching instead of deleting keeps the behaviour predictable and the joint
+entity's lifecycle in your hands.
 
 ## Not yet included
 

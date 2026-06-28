@@ -9,7 +9,6 @@
 // order, so keeping the order stable keeps ids deterministic across worlds.
 
 import {
-  CleanupPolicy,
   Implements,
   insertPhaseAfter,
   Module,
@@ -189,10 +188,14 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
   world.component(WeldJoint).set(Implements, { interfaces: [Joint] });
   world.component(FilterJoint).set(Implements, { interfaces: [Joint] });
 
-  // 3c. Destroying a connected body destroys the joint entity, matching Box2D
-  //     (a body's joints are destroyed with it). Same policy `ChildOf` uses.
-  world.component(JointBodyA).meta.onDeleteTarget = CleanupPolicy.Delete;
-  world.component(JointBodyB).meta.onDeleteTarget = CleanupPolicy.Delete;
+  // 3c. Joint→body relationships keep the default `CleanupPolicy.Remove`:
+  //     destroying a connected body detaches the joint (its Box2D constraint is
+  //     torn down by the lifecycle membership exit when the body loses `Body`) but
+  //     leaves the joint entity for the user to manage. We deliberately avoid
+  //     `CleanupPolicy.Delete` because a body destroy with multiple incoming
+  //     relationship types (e.g. a child shape's `ChildOf` plus `JointBodyB`) can
+  //     skip a cascade in Vecs' `_cleanupIncoming` (vworlds/vecs#155). Remove
+  //     avoids depending on that cascade.
 
   // 4. Ensure the three physics phase entities exist and are ordered after update.
   const preStep = resolvePhase(world, opts.preStepPhase, DEFAULT_PRE_STEP_PHASE);

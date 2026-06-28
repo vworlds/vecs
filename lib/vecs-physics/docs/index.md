@@ -566,7 +566,7 @@ Physics objects are created and destroyed from ECS structure.
 | Set `Body.enabled = false`        | Disable the body in the simulation.               |
 | Add a joint-type component        | Create a joint once both connected bodies exist.  |
 | Remove joint-type / destroy joint | Destroy the joint.                                |
-| Destroy a connected body          | Destroy the body's joints with it.                |
+| Destroy a connected body          | Detach the joint; the joint entity survives.      |
 | Add/remove a joint feature        | Enable/disable that feature's motor/limit/spring. |
 
 Normal mode ignores invalid structures efficiently. Debug mode warns about them.

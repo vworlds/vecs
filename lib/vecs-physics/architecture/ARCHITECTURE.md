@@ -329,7 +329,7 @@ Components register in this order so type ids are deterministic across module re
 8. `ContactEvents`, `SensorEvents`, `HitEvents`.
    8b. Joints (append-only, after events so existing ids are stable): `JointBodyA`, `JointBodyB`, `Joint`, `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, `FilterJoint`, `JointFrame`, `JointMotor`, `JointLimit`, `JointLinearSpring`, `JointAngularSpring`, `JointSettings`.
 9. Internal: `PhysicsEngine` (singleton), `PhysicsSystemTag`.
-10. `world.component(SingleShape).set(Implements, { interfaces: [Shape] })`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly. `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, and `FilterJoint` implement `Joint`. `JointBodyA`/`JointBodyB` get `meta.onDeleteTarget = CleanupPolicy.Delete`.
+10. `world.component(SingleShape).set(Implements, { interfaces: [Shape] })`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly. `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, and `FilterJoint` implement `Joint`. `JointBodyA`/`JointBodyB` keep the default `CleanupPolicy.Remove` (destroying a body detaches the joint rather than deleting the joint entity — see Settled decisions).
 11. Phase creation/lookup, ordered after `ON_UPDATE`.
 12. System creation; tag each physics system entity with `PhysicsSystemTag`.
 13. `PhysicsEngine` allocation and singleton attach.
@@ -580,21 +580,22 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 
 ## Vecs dependencies
 
-| Capability                      | Vecs API                                                                        | Used by                                                       |
-| ------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Relationships (`ChildOf`)       | `set(ChildOf, …)`, `{ parent }`, `{ up: [ChildOf, …] }`                         | Shape↔body wiring, reparenting, force-target resolution.      |
-| Relationships (joints)          | `JointBodyA`/`JointBodyB` (`{ target: [Rel, [Body]] }`), `CleanupPolicy.Delete` | Two-body joint refs; destroying a body destroys its joints.   |
-| World singleton                 | `world.component(C).add(Singleton)`; `world.get(C)`                             | `PhysicsEngine` holder.                                       |
-| Relationship fan-out reactivity | `TargetTerm` re-evaluates sources on target membership                          | Order-independent body/shape/joint creation.                  |
-| System update silencing         | `System.ignoreSource(QueryDSL \| Query)`                                        | Pose-sync feedback suppression via `PhysicsSystemTag` marker. |
-| Interface/exclusivity           | `Implements` with a shared marker (`Shape`, `Joint`)                            | Polymorphic geometry/joint query + mutual exclusivity.        |
-| Component hooks                 | `world.component(C).onSet/onAdd/onRemove`                                       | Impulse accumulation; event opt-in toggles.                   |
+| Capability                      | Vecs API                                                                                | Used by                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Relationships (`ChildOf`)       | `set(ChildOf, …)`, `{ parent }`, `{ up: [ChildOf, …] }`                                 | Shape↔body wiring, reparenting, force-target resolution.      |
+| Relationships (joints)          | `JointBodyA`/`JointBodyB` (`{ target: [Rel, [Body]] }`), default `CleanupPolicy.Remove` | Two-body joint refs; destroying a body detaches the joint.    |
+| World singleton                 | `world.component(C).add(Singleton)`; `world.get(C)`                                     | `PhysicsEngine` holder.                                       |
+| Relationship fan-out reactivity | `TargetTerm` re-evaluates sources on target membership                                  | Order-independent body/shape/joint creation.                  |
+| System update silencing         | `System.ignoreSource(QueryDSL \| Query)`                                                | Pose-sync feedback suppression via `PhysicsSystemTag` marker. |
+| Interface/exclusivity           | `Implements` with a shared marker (`Shape`, `Joint`)                                    | Polymorphic geometry/joint query + mutual exclusivity.        |
+| Component hooks                 | `world.component(C).onSet/onAdd/onRemove`                                               | Impulse accumulation; event opt-in toggles.                   |
 
 ## Settled decisions
 
 - **Internal engine:** world-scoped `Singleton` component (`PhysicsEngine`).
 - **Forward handles on components:** `Body._bodyId`, `SingleShape._shapeId`, `Chain._chainId`, `Chain._segmentIndices`, and `Joint._jointId` (`@internal`). Reverse lookups via `index1`-keyed `ArrayMap`s on `PhysicsEngine`.
-- **Joints:** a joint is its own entity with two body relationships (`JointBodyA`/`JointBodyB`, `CleanupPolicy.Delete`), one exclusive joint-type component (`Joint` umbrella via `Implements`), an optional shared `JointFrame`, and optional feature components (`JointMotor`/`JointLimit`/`JointLinearSpring`/`JointAngularSpring`) whose **presence is the enable flag**. The handle lives on the `Joint` base. `PhysicsJointLifecycle` builds the def with the box2d3-wasm local-frame API (anchors via `def.base.localFrameA.p.Set(...)`, reference angle via `localFrameA.q.SetAngle(...)`; no allocation beyond the def handle); feature sync systems apply in-place setters and call `b2Joint_WakeBodies`. `PhysicsReaper` drains `pendingJointDestroys` (before bodies) guarded by `b2Joint_IsValid`.
+- **Joints:** a joint is its own entity with two body relationships (`JointBodyA`/`JointBodyB`, default `CleanupPolicy.Remove`), one exclusive joint-type component (`Joint` umbrella via `Implements`), an optional shared `JointFrame`, and optional feature components (`JointMotor`/`JointLimit`/`JointLinearSpring`/`JointAngularSpring`) whose **presence is the enable flag**. The handle lives on the `Joint` base. `PhysicsJointLifecycle` builds the def with the box2d3-wasm local-frame API (anchors via `def.base.localFrameA.p.Set(...)`, reference angle via `localFrameA.q.SetAngle(...)`; no allocation beyond the def handle); feature sync systems apply in-place setters and call `b2Joint_WakeBodies`. `PhysicsReaper` drains `pendingJointDestroys` (before bodies) guarded by `b2Joint_IsValid`.
+- **Joint detach, not cascade-delete:** destroying a connected body tears down the joint's Box2D constraint via the lifecycle membership exit (the body loses `Body`, the joint stops matching `jointWithBothBodies`) but leaves the joint entity for the user. We avoid `CleanupPolicy.Delete` because a body destroy with multiple incoming relationship types (`ChildOf` from shapes + `JointBody*`) can skip a cascade in Vecs' `_cleanupIncoming` ([vworlds/vecs#155](https://github.com/vworlds/vecs/issues/155)).
 - **Component registration order** as above; type ids deterministic.
 - **System reactivity:** systems for everything except `Impulse` / `AngularImpulse`, which use synchronous `onSet` hooks.
 - **Parent/child:** Vecs `ChildOf` relationship.
