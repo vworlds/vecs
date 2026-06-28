@@ -9,6 +9,8 @@ class Velocity {
   vx = 0;
 }
 class FriendOf extends Relationship {}
+class InRoom extends Relationship {}
+class Guards extends Relationship {}
 
 describe("Entity — components", () => {
   it("add returns the entity for chaining", () => {
@@ -435,6 +437,89 @@ describe("Entity — lifecycle and relationships", () => {
     expect(source._destroyed).toBe(false);
     expect(source.get(FriendOf)).toBeUndefined();
     expect(() => w.entity(target.eid)).toThrow();
+  });
+
+  // Regression for issue #155: _cleanupIncoming's outer forEach over distinct
+  // relationship types was perturbed by re-entrant _removeIncoming deletes,
+  // causing it to skip types after the first. The fix buffers cleanup ops onto
+  // a world-level deletion scope and drains them after the scan completes.
+  it("destroy cleans up every incoming relationship type when multiple types target the same entity (Delete, shape-before-joint order)", () => {
+    const w = new World();
+    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
+    const room = w.entity();
+    const lamp = w.entity().set(InRoom, { target: room });
+    const guard = w.entity().set(Guards, { target: room });
+
+    room.destroy();
+    w.progress(0, 0);
+
+    expect(room._destroyed).toBe(true);
+    expect(lamp._destroyed).toBe(true);
+    expect(guard._destroyed).toBe(true);
+    expect(() => w.entity(room.eid)).toThrow();
+    expect(() => w.entity(lamp.eid)).toThrow();
+    expect(() => w.entity(guard.eid)).toThrow();
+  });
+
+  it("destroy cleans up every incoming relationship type when multiple types target the same entity (Delete, joint-before-shape order)", () => {
+    const w = new World();
+    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
+    const room = w.entity();
+    const guard = w.entity().set(Guards, { target: room });
+    const lamp = w.entity().set(InRoom, { target: room });
+
+    room.destroy();
+    w.progress(0, 0);
+
+    expect(room._destroyed).toBe(true);
+    expect(lamp._destroyed).toBe(true);
+    expect(guard._destroyed).toBe(true);
+    expect(() => w.entity(room.eid)).toThrow();
+    expect(() => w.entity(lamp.eid)).toThrow();
+    expect(() => w.entity(guard.eid)).toThrow();
+  });
+
+  it("destroy cleans up mixed Delete + Remove policies across two incoming relationship types", () => {
+    const w = new World();
+    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(FriendOf); // default Remove
+    const target = w.entity();
+    const lamp = w.entity().set(InRoom, { target });
+    const friend = w.entity().set(FriendOf, { target });
+
+    target.destroy();
+    w.progress(0, 0);
+
+    expect(target._destroyed).toBe(true);
+    expect(lamp._destroyed).toBe(true);
+    expect(friend._destroyed).toBe(false);
+    expect(friend.get(FriendOf)).toBeUndefined();
+    expect(() => w.entity(target.eid)).toThrow();
+    expect(() => w.entity(lamp.eid)).toThrow();
+    expect(w.entity(friend.eid)).toBe(friend);
+  });
+
+  it("destroy cleans up two default-policy (Remove) incoming relationship types", () => {
+    const w = new World();
+    w.component(InRoom); // default Remove
+    w.component(FriendOf); // default Remove
+    const target = w.entity();
+    const lamp = w.entity().set(InRoom, { target });
+    const friend = w.entity().set(FriendOf, { target });
+
+    target.destroy();
+    w.progress(0, 0);
+
+    expect(target._destroyed).toBe(true);
+    expect(lamp._destroyed).toBe(false);
+    expect(friend._destroyed).toBe(false);
+    expect(lamp.get(InRoom)).toBeUndefined();
+    expect(friend.get(FriendOf)).toBeUndefined();
+    expect(() => w.entity(target.eid)).toThrow();
+    expect(w.entity(lamp.eid)).toBe(lamp);
+    expect(w.entity(friend.eid)).toBe(friend);
   });
 
   it("destroy is re-entrant safe", () => {

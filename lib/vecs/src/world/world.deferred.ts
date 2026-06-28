@@ -9,6 +9,18 @@ export class Deferred extends Queries {
   /** @internal `true` while {@link _processCommandQueue} is iterating, to avoid re-entrant drains. */
   protected _draining = false;
 
+  /**
+   * @internal Buffered cleanup actions scheduled by `Entity._cleanupIncoming`.
+   *
+   * `undefined` outside an active `_destroy` cascade. The outermost `_destroy`
+   * call lazily allocates the scope, recursive `_destroy` calls append to the
+   * same scope, and the outermost call drains it to empty before returning.
+   * Set back to `undefined` during each flush pass so recursive destroys
+   * triggered by the flush buffer into a fresh scope and are drained by the
+   * outer `while` loop.
+   */
+  public _deletionScope: unknown[] | undefined;
+
   /** `true` while the world is in deferred mode. */
   public get deferred(): boolean {
     return this._deferredDepth > 0 || this._draining;
