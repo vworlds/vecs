@@ -685,11 +685,6 @@ function createBrickShowcase(): void {
   }
 }
 
-// A corner of the spinner box (half-extents 0.25), in the spinner's local frame.
-// The spring's distance joint attaches here, so the motor swings the spring's
-// upper end around as the box rotates.
-const SPINNER_CORNER = { x: 0.25, y: 0.25 };
-
 /**
  * Joints showcase: a motor and a spring that are obvious in motion.
  *
@@ -708,6 +703,10 @@ const SPINNER_CORNER = { x: 0.25, y: 0.25 };
  * simulated pose back onto the render transform with no extra wiring.
  */
 function createJointShowcase(): void {
+  // A corner of the spinner box (half-extents 0.25), in the spinner's local
+  // frame. The spring's distance joint attaches here, so the motor swings the
+  // spring's upper end around as the box rotates.
+  const spinnerCorner = { x: 0.25, y: 0.25 };
   const spinnerPos = { x: -3.4, y: 0.4 };
   const motorAnchor = world
     .entity()
@@ -756,7 +755,7 @@ function createJointShowcase(): void {
     .set(JointBodyB, { target: bob })
     .set(DistanceJoint, { length: 0.6 })
     .set(JointFrame, {
-      localAnchorA: SPINNER_CORNER,
+      localAnchorA: spinnerCorner,
       localAnchorB: { x: 0, y: 0 },
       referenceAngle: 0,
     })
