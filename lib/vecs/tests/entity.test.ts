@@ -522,6 +522,30 @@ describe("Entity — lifecycle and relationships", () => {
     expect(w.entity(friend.eid)).toBe(friend);
   });
 
+  it("destroy cleanup still runs after a prior destroy with no incoming relationships", () => {
+    const w = new World();
+    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
+    const unrelated = w.entity();
+    unrelated.destroy();
+
+    const target = w.entity();
+    const lamp = w.entity().set(InRoom, { target });
+    const guard = w.entity().set(Guards, { target });
+
+    target.destroy();
+    w.progress(0, 0);
+
+    expect(unrelated._destroyed).toBe(true);
+    expect(target._destroyed).toBe(true);
+    expect(lamp._destroyed).toBe(true);
+    expect(guard._destroyed).toBe(true);
+    expect(() => w.entity(unrelated.eid)).toThrow();
+    expect(() => w.entity(target.eid)).toThrow();
+    expect(() => w.entity(lamp.eid)).toThrow();
+    expect(() => w.entity(guard.eid)).toThrow();
+  });
+
   it("destroy is re-entrant safe", () => {
     const w = new World();
     w.component(Position);

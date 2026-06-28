@@ -100,7 +100,11 @@ export class Lifecycle extends Components {
       this._cleanupIncoming();
     } finally {
       if (ownsDeletionScope) {
-        this._flushDeletionScope();
+        try {
+          this._flushDeletionScope();
+        } finally {
+          this.world._deletionScope = undefined;
+        }
       }
     }
   }
