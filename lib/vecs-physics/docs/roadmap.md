@@ -198,38 +198,20 @@ This is deferred because character movement tends to become game-specific quickl
 
 ### Joints
 
-Joints connect two bodies with constraints.
+**Shipped: revolute, distance, weld, and filter joints.** See [Joints](./joints.md)
+for the full model. A joint is its own entity that references the two connected
+bodies through the `JointBodyA`/`JointBodyB` relationships, carries one exclusive
+joint-type component, and layers optional feature components (`JointMotor`,
+`JointLimit`, `JointLinearSpring`, `JointAngularSpring`) whose presence enables
+the feature.
 
-The upstream WASM backend exposes Box2D joint APIs. The vecs-physics-side ECS model and adapters are still pending.
+Still pending:
 
-Expected joint types:
-
-- Distance joints.
-- Motor joints.
-- Filter joints.
-- Prismatic joints.
-- Revolute joints.
-- Weld joints.
-- Wheel joints.
-
-Likely ECS model:
-
-```ts
-const joint = world
-  .entity()
-  .set(JointBodies, { a: bodyA, b: bodyB })
-  .set(RevoluteJoint, {
-    localAnchorA: { x: 0, y: 0 },
-    localAnchorB: { x: 0, y: 0 },
-    enableMotor: true,
-    motorSpeed: 2,
-    maxMotorTorque: 10,
-  });
-```
-
-Joint components should probably be exclusive in the same way geometry components are exclusive. One joint entity should represent one joint type.
-
-Joints are deferred because they introduce a second relationship model besides parent/child shapes. We need the body and shape lifecycle to be stable before adding cross-entity constraints.
+- **Prismatic, wheel, and motor joints.** These need an axis (prismatic/wheel) or
+  a velocity-drive model (motor) on top of the existing scaffolding; they slot
+  into the same component model as added def-builders and setter maps.
+- **Breakable-joint events.** Box2D exposes joint force/torque thresholds and
+  joint events; a vecs-physics event surface for them is not yet wired.
 
 See also: [Bodies](./bodies.md), [Shapes](./shapes.md).
 
@@ -265,9 +247,9 @@ Recommended direction:
 
 ### Expecting Deferred Features In V1
 
-If you need joints, shape casts, or character movers immediately, they are not part of the first version.
+If you need shape casts or character movers immediately, they are not part of the first version.
 
-Ray casts and overlap queries shipped in v2 via `physics(world)` — see [Queries](./queries.md). Use shape entities, sensors, and contact events for gameplay that does not yet have a dedicated query or constraint API.
+Ray casts and overlap queries shipped in v2 via `physics(world)` — see [Queries](./queries.md). Revolute, distance, weld, and filter joints have shipped — see [Joints](./joints.md). Use shape entities, sensors, and contact events for gameplay that does not yet have a dedicated query or constraint API.
 
 ### Building Public APIs Around Internal Handles
 
@@ -290,7 +272,7 @@ The whole point of `vecs-physics` is that users work with ECS entities and compo
 
 ### Adding Features Before The Core Model Is Stable
 
-Joints, casts, and character movers all depend on stable body and shape lifecycle rules. If those rules change later, every advanced API becomes harder to keep consistent.
+Casts and character movers depend on stable body and shape lifecycle rules. If those rules change later, every advanced API becomes harder to keep consistent. (Joints shipped on top of the now-stable body/shape lifecycle — see [Joints](./joints.md).)
 
 ## Related Pages
 

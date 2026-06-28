@@ -35,11 +35,18 @@ import {
   Box,
   Chain,
   Circle,
+  DistanceJoint,
+  JointBodyA,
+  JointBodyB,
+  JointFrame,
+  JointLinearSpring,
+  JointMotor,
   LinearVelocity as PhysicsVelocity,
   Material,
   PhysicsModule,
   Position as PhysicsPosition,
   preloadPhysics,
+  RevoluteJoint,
   Rotation as PhysicsRotation,
 } from "@vworlds/vecs-physics";
 import {
@@ -336,9 +343,49 @@ world
     updatePlayerView(entity, position, view, false);
   });
 
+// Redraw each spring's `Line` from the live poses of the two bodies it connects.
+// Runs in PRE_STORE, after PhaserServerModule has synced physics → render, so the
+// corner and bob render positions are current. The line's origin is moved to the
+// spinner corner (anchor render pose × the joint's `localAnchorA`), and its far
+// endpoint is the bob's center relative to that origin.
+world
+  .system("DrawSpringLines")
+  .with(Line, JointBodyA, JointBodyB, JointFrame, RenderPosition)
+  .phase(PRE_STORE)
+  .each([Line, RenderPosition, JointFrame], (entity, [line, renderPosition, frame]) => {
+    const anchor = entity.target(JointBodyA);
+    const bob = entity.target(JointBodyB);
+    if (anchor === undefined || bob === undefined) {
+      return;
+    }
+    const anchorPosition = anchor.get(RenderPosition);
+    const anchorRotation = anchor.get(RenderRotation);
+    const bobPosition = bob.get(RenderPosition);
+    if (anchorPosition === undefined || bobPosition === undefined) {
+      return;
+    }
+    const angle = anchorRotation?.angle ?? 0;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const cornerX = anchorPosition.x + frame.localAnchorA.x * cos - frame.localAnchorA.y * sin;
+    const cornerY = anchorPosition.y + frame.localAnchorA.x * sin + frame.localAnchorA.y * cos;
+    updateRenderPosition(entity, renderPosition, cornerX, cornerY);
+
+    const x2 = bobPosition.x - cornerX;
+    const y2 = bobPosition.y - cornerY;
+    if (line.x1 !== 0 || line.y1 !== 0 || line.x2 !== x2 || line.y2 !== y2) {
+      line.x1 = 0;
+      line.y1 = 0;
+      line.x2 = x2;
+      line.y2 = y2;
+      entity.modified(Line);
+    }
+  });
+
 createPhysicsWalls();
 createDecorations();
 createBrickShowcase();
+createJointShowcase();
 spawnBall(-3.7, 1.5);
 
 await vecsListener.listen(app, { ordered: false, maxRetransmits: 2 });
@@ -636,6 +683,86 @@ function createBrickShowcase(): void {
       .set(Box, { hx: size.w / 2, hy: size.h / 2 })
       .set(Material, { friction: 0.4, restitution: 0.85 });
   }
+}
+
+/**
+ * Joints showcase: a motor and a spring that are obvious in motion.
+ *
+ * - A motorized spinner: a static hinge pins a dynamic box at its center and a
+ *   `JointMotor` drives a constant spin. The pin holds it in place while it
+ *   rotates, even as balls and bricks bounce off it.
+ * - A spring bob hung off one corner of the spinner: a `DistanceJoint` with a soft
+ *   `JointLinearSpring` connects the spinner's corner to a small box, so the box
+ *   bobs around as the motor swings that corner.
+ *
+ * The spring itself is drawn as a `Line` carried on the joint entity, rewritten
+ * each frame by `DrawSpringLines` from the live corner and bob poses.
+ *
+ * Anchors are shapeless, non-networked static bodies (invisible). The visible
+ * boxes carry both render and physics transforms, so PhaserServerModule syncs the
+ * simulated pose back onto the render transform with no extra wiring.
+ */
+function createJointShowcase(): void {
+  // A corner of the spinner box (half-extents 0.25), in the spinner's local
+  // frame. The spring's distance joint attaches here, so the motor swings the
+  // spring's upper end around as the box rotates.
+  const spinnerCorner = { x: 0.25, y: 0.25 };
+  const spinnerPos = { x: -3.4, y: 0.4 };
+  const motorAnchor = world
+    .entity()
+    .set(PhysicsPosition, spinnerPos)
+    .set(Body, { type: BodyType.Static });
+  const spinner = world
+    .entity()
+    .add(Networked)
+    .add(Rectangle)
+    .set(Size, { width: 0.5, height: 0.5 })
+    .set(FillStyle, { color: 0xffaa33, alpha: 1 })
+    .set(RenderPosition, spinnerPos)
+    .set(RenderRotation, { angle: 0 })
+    .set(PhysicsPosition, spinnerPos)
+    .set(PhysicsRotation, { angle: 0 })
+    .set(Body, { type: BodyType.Dynamic });
+  world.entity().childOf(spinner).set(Box, { hx: 0.25, hy: 0.25 }).set(Material, { density: 1 });
+  world
+    .entity()
+    .set(JointBodyA, { target: motorAnchor })
+    .set(JointBodyB, { target: spinner })
+    .add(RevoluteJoint)
+    .set(JointMotor, { targetSpeed: 2, maxForce: 80 });
+
+  const bobStart = { x: spinnerPos.x, y: spinnerPos.y - 0.9 };
+  const bob = world
+    .entity()
+    .add(Networked)
+    .add(Rectangle)
+    .set(Size, { width: 0.4, height: 0.4 })
+    .set(FillStyle, { color: 0x66ffcc, alpha: 1 })
+    .set(RenderPosition, bobStart)
+    .set(RenderRotation, { angle: 0 })
+    .set(PhysicsPosition, bobStart)
+    .set(PhysicsRotation, { angle: 0 })
+    .set(Body, { type: BodyType.Dynamic });
+  world.entity().childOf(bob).set(Box, { hx: 0.2, hy: 0.2 }).set(Material, { density: 1 });
+
+  // The joint entity also carries the spring's render: a `Line` whose endpoints
+  // `DrawSpringLines` rewrites each frame. `localAnchorA` is the spinner corner;
+  // `localAnchorB` is the bob's center.
+  world
+    .entity()
+    .add(Networked)
+    .set(JointBodyA, { target: spinner })
+    .set(JointBodyB, { target: bob })
+    .set(DistanceJoint, { length: 0.6 })
+    .set(JointFrame, {
+      localAnchorA: spinnerCorner,
+      localAnchorB: { x: 0, y: 0 },
+      referenceAngle: 0,
+    })
+    .set(JointLinearSpring, { hertz: 1.2, dampingRatio: 0.1 })
+    .set(RenderPosition, { x: spinnerPos.x, y: spinnerPos.y })
+    .set(Line, { x1: 0, y1: 0, x2: 0, y2: 0 })
+    .set(StrokeStyle, { color: 0xffffff, alpha: 0.8, width: 2 });
 }
 
 function assignCell(entity: Entity, position: RenderPosition): void {

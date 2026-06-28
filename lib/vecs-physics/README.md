@@ -54,6 +54,7 @@ console.log(finalPosition.x.toFixed(3), finalPosition.y.toFixed(3));
 
 - `Detectable` - marker component that makes a solid shape visible to sensors (Box2D v3 requires both the sensor shape and the visited shape to opt in to sensor events).
 - `physics(world)` - imperative, read-only query API: `rayCastClosest`, `rayCastAll`, `overlapAABB` (broad-phase), and `overlapCircle` (precise mid-phase). Results are Vecs shape entities, never Box2D handles. See [Queries](./docs/queries.md).
+- Joints - revolute, distance, weld, and filter constraints between two bodies, modelled as a joint entity with `JointBodyA`/`JointBodyB` relationships, an exclusive joint-type component, and optional motor/limit/spring features. See [Joints](./docs/joints.md).
 
 ```ts
 import { physics } from "@vworlds/vecs-physics";
@@ -71,7 +72,6 @@ for (const entity of overlapping) {
 
 ## V1 Limitations
 
-- No joints.
 - No shape casts.
 - No public character mover helpers.
 - No debug drawing API.
@@ -93,9 +93,10 @@ tsx examples/contact_events.ts
 tsx examples/raycast.ts
 tsx examples/overlap_query.ts
 tsx examples/sensor_detectable.ts
+tsx examples/revolute_pendulum.ts
 ```
 
-Or run all seven in sequence via `npm run examples`.
+Or run them all in sequence via `npm run examples`.
 
 ## Learn More
 
@@ -105,6 +106,7 @@ Or run all seven in sequence via `npm run examples`.
 - [Shapes](./docs/shapes.md)
 - [Events](./docs/events.md)
 - [Queries](./docs/queries.md)
+- [Joints](./docs/joints.md)
 - [Systems And Phases](./docs/systems-and-phases.md)
 - [Debug Validation](./docs/debug-validation.md)
 - [Internals](./docs/internals.md)

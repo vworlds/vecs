@@ -43,6 +43,23 @@ export { Force, Torque, Impulse, AngularImpulse } from "./components/force.js";
 // Kinematic targets
 export { KinematicTargetPosition, KinematicTargetRotation } from "./components/target.js";
 
+// Joints
+export {
+  Joint,
+  JointBodyA,
+  JointBodyB,
+  JointFrame,
+  RevoluteJoint,
+  DistanceJoint,
+  WeldJoint,
+  FilterJoint,
+  JointMotor,
+  JointLimit,
+  JointLinearSpring,
+  JointAngularSpring,
+  JointSettings,
+} from "./components/joint.js";
+
 // Events
 export {
   ContactEvents,

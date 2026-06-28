@@ -9,6 +9,10 @@ export type b2WorldId = ReturnType<Box2DModule["b2CreateWorld"]>;
 export type b2BodyId = ReturnType<Box2DModule["b2CreateBody"]>;
 export type b2ShapeId = ReturnType<Box2DModule["b2CreateCircleShape"]>;
 export type b2ChainId = ReturnType<Box2DModule["b2CreateChain"]>;
+export type b2JointId = ReturnType<Box2DModule["b2CreateRevoluteJoint"]>;
+/** The shared base of every joint def (`localFrameA/B`, `bodyIdA/B`,
+ * `collideConnected`). All concrete joint defs expose it as `.base`. */
+export type b2JointDefBase = ReturnType<Box2DModule["b2DefaultRevoluteJointDef"]>["base"];
 export type b2Vec2 = ReturnType<Box2DModule["b2Body_GetPosition"]>;
 export type b2QueryFilter = Parameters<Box2DModule["b2World_OverlapAABB"]>[2];
 export type b2AABB = Parameters<Box2DModule["b2World_OverlapAABB"]>[1];
@@ -112,6 +116,12 @@ export class PhysicsEngine {
   public readonly pendingShapeDestroys: b2ShapeId[] = [];
   public readonly pendingChainDestroys: b2ChainId[] = [];
   public readonly pendingBodyDestroys: b2BodyId[] = [];
+
+  // Deferred joint teardown. A joint exit enqueues its handle here; the reaper
+  // drains it BEFORE pendingBodyDestroys and guards each with b2Joint_IsValid,
+  // because destroying a connected body already cascade-destroys its joints, so a
+  // joint queued from the cascaded entity may no longer exist by reap time.
+  public readonly pendingJointDestroys: b2JointId[] = [];
 
   // Per-step event tracking sets for PhysicsEvents (M7-8 should-fix: moved from
   // closure-local to engine so they survive future pause/resume cycles).

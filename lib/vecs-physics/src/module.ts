@@ -31,6 +31,21 @@ import {
   SingleShape,
 } from "./components/geometry.js";
 import { AngularImpulse, Force, Impulse, Torque } from "./components/force.js";
+import {
+  DistanceJoint,
+  FilterJoint,
+  Joint,
+  JointAngularSpring,
+  JointBodyA,
+  JointBodyB,
+  JointFrame,
+  JointLimit,
+  JointLinearSpring,
+  JointMotor,
+  JointSettings,
+  RevoluteJoint,
+  WeldJoint,
+} from "./components/joint.js";
 import { CollisionFilter, Detectable, Material, Sensor } from "./components/material.js";
 import { ContactEvents, HitEvents, SensorEvents } from "./components/events.js";
 import { KinematicTargetPosition, KinematicTargetRotation } from "./components/target.js";
@@ -133,6 +148,23 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
   world.component(SensorEvents);
   world.component(HitEvents);
 
+  // Joints: relationships to the two connected bodies, the exclusive joint-type
+  // umbrella + concrete types, the shared frame, and the optional feature/base
+  // components. Appended after events so existing component type ids are stable.
+  world.component(JointBodyA);
+  world.component(JointBodyB);
+  world.component(Joint);
+  world.component(RevoluteJoint);
+  world.component(DistanceJoint);
+  world.component(WeldJoint);
+  world.component(FilterJoint);
+  world.component(JointFrame);
+  world.component(JointMotor);
+  world.component(JointLimit);
+  world.component(JointLinearSpring);
+  world.component(JointAngularSpring);
+  world.component(JointSettings);
+
   // 2. Internal, non-exported components (`PhysicsEngine`, `PhysicsSystemTag`),
   //    registered in their documented order for deterministic type ids.
   registerInternalComponents(world);
@@ -147,6 +179,20 @@ function registerPhysics(world: World, opts: PhysicsOptions): void {
   world.component(Segment).set(Implements, { interfaces: [SingleShape] });
   world.component(Polygon).set(Implements, { interfaces: [SingleShape] });
   world.component(Chain).set(Implements, { interfaces: [Shape] });
+
+  // 3b. Concrete joint types implement the `Joint` umbrella, so they are mutually
+  //     exclusive (one joint type per joint entity) and `entity.get(Joint)`
+  //     resolves whichever concrete type is present.
+  world.component(RevoluteJoint).set(Implements, { interfaces: [Joint] });
+  world.component(DistanceJoint).set(Implements, { interfaces: [Joint] });
+  world.component(WeldJoint).set(Implements, { interfaces: [Joint] });
+  world.component(FilterJoint).set(Implements, { interfaces: [Joint] });
+
+  // 3c. Joint→body relationships keep the default `CleanupPolicy.Remove`:
+  //     destroying a connected body detaches the joint (its Box2D constraint is
+  //     torn down by the lifecycle membership exit when the body loses `Body`) and
+  //     leaves the joint entity for the user to manage. Destroying a body is not
+  //     meant to destroy the joint entity, so `CleanupPolicy.Delete` is not used.
 
   // 4. Ensure the three physics phase entities exist and are ordered after update.
   const preStep = resolvePhase(world, opts.preStepPhase, DEFAULT_PRE_STEP_PHASE);
