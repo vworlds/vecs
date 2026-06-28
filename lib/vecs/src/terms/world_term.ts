@@ -103,6 +103,6 @@ export class WorldTerm extends Term {
 
   /** @internal */
   protected _matches(entity: Entity): boolean {
-    return !entity._destroyed;
+    return entity.alive;
   }
 }

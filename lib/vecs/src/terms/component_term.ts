@@ -54,6 +54,6 @@ export class ComponentTerm extends Term {
 
   /** @internal */
   protected _matches(entity: Entity): boolean {
-    return !entity._destroyed && entity._get(this.componentEid) !== undefined;
+    return entity.alive && entity._get(this.componentEid) !== undefined;
   }
 }

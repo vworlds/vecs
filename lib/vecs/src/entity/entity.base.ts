@@ -29,8 +29,7 @@ export class Base {
    */
   public readonly componentBitmask = new Bitset();
 
-  /** @internal Set to `true` after the world has fully torn down this entity. */
-  public _destroyed: boolean = false;
+  protected _destroyed: boolean = false;
 
   constructor(
     /** World that owns this entity. */

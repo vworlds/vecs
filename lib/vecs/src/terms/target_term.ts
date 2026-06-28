@@ -94,7 +94,7 @@ export class TargetTerm extends Term {
 
   /** @internal */
   protected _matches(entity: Entity): boolean {
-    if (entity._destroyed) {
+    if (entity.destroyed) {
       return false;
     }
     const target = (entity._get(this._relationshipEid) as Relationship | undefined)?.target;

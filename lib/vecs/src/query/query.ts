@@ -536,7 +536,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     this._entities?.clear();
     this._entities = undefined;
     this._tracking = false;
-    if (!this.entity._destroyed && this.entity.get(this._queryComponentClass) !== undefined) {
+    if (this.entity.alive && this.entity.get(this._queryComponentClass) !== undefined) {
       this.entity.destroy();
     }
   }

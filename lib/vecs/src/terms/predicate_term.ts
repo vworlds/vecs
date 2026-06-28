@@ -162,7 +162,7 @@ export class PredicateTerm extends Term {
 
   /** @internal */
   protected _matches(entity: Entity): boolean {
-    return !entity._destroyed && (this._worldTerm?.has(entity) ?? true) && this._predicate(entity);
+    return entity.alive && (this._worldTerm?.has(entity) ?? true) && this._predicate(entity);
   }
 }
 
