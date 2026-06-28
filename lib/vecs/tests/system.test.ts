@@ -830,7 +830,7 @@ describe("System — destroy", () => {
     sys.destroy();
 
     expect(w.queries).not.toContain(sys);
-    expect(entity._destroyed).toBe(true);
+    expect(entity.destroyed).toBe(true);
     expect(w.getEntity(entity.eid)).toBeUndefined();
   });
 

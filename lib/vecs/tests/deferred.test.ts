@@ -375,10 +375,10 @@ describe("World.defer(fn)", () => {
         sentinel.add(Velocity);
       });
 
-      expect(carrier._destroyed).toBe(false);
+      expect(carrier.destroyed).toBe(false);
       expect(carrier._get(componentEntity.eid)).toBeUndefined();
       expect(sentinel.get(Velocity)).toBeInstanceOf(Velocity);
-      expect(componentEntity._destroyed).toBe(true);
+      expect(componentEntity.destroyed).toBe(true);
     }
 
     {
@@ -396,7 +396,7 @@ describe("World.defer(fn)", () => {
 
       expect(() => w.entity(carrier.eid)).toThrow();
       expect(sentinel.get(Velocity)).toBeInstanceOf(Velocity);
-      expect(componentEntity._destroyed).toBe(true);
+      expect(componentEntity.destroyed).toBe(true);
     }
   });
 });

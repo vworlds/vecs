@@ -234,7 +234,7 @@ describe("Query — construction", () => {
     const { w } = setup();
     const q = w.query("empty").build();
     expect(w.queries).not.toContain(q);
-    expect(q.entity._destroyed).toBe(true);
+    expect(q.entity.destroyed).toBe(true);
   });
 });
 
@@ -1207,7 +1207,7 @@ describe("Query — destroy", () => {
     const q = w.query("test").with(Position);
     const entity = q.entity;
     q.destroy();
-    expect(entity._destroyed).toBe(true);
+    expect(entity.destroyed).toBe(true);
     expect(w.getEntity(entity.eid)).toBeUndefined();
   });
 

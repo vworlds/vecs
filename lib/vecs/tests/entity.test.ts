@@ -417,9 +417,9 @@ describe("Entity — lifecycle and relationships", () => {
 
     parent.destroy();
     w.progress(0, 0);
-    expect(parent._destroyed).toBe(true);
-    expect(child._destroyed).toBe(true);
-    expect(grandchild._destroyed).toBe(true);
+    expect(parent.destroyed).toBe(true);
+    expect(child.destroyed).toBe(true);
+    expect(grandchild.destroyed).toBe(true);
     expect(() => w.entity(grandchild.eid)).toThrow();
     expect(() => w.entity(child.eid)).toThrow();
     expect(() => w.entity(parent.eid)).toThrow();
@@ -434,7 +434,7 @@ describe("Entity — lifecycle and relationships", () => {
     target.destroy();
     w.progress(0, 0);
 
-    expect(source._destroyed).toBe(false);
+    expect(source.destroyed).toBe(false);
     expect(source.get(FriendOf)).toBeUndefined();
     expect(() => w.entity(target.eid)).toThrow();
   });
@@ -454,9 +454,9 @@ describe("Entity — lifecycle and relationships", () => {
     room.destroy();
     w.progress(0, 0);
 
-    expect(room._destroyed).toBe(true);
-    expect(lamp._destroyed).toBe(true);
-    expect(guard._destroyed).toBe(true);
+    expect(room.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(true);
+    expect(guard.destroyed).toBe(true);
     expect(() => w.entity(room.eid)).toThrow();
     expect(() => w.entity(lamp.eid)).toThrow();
     expect(() => w.entity(guard.eid)).toThrow();
@@ -473,9 +473,9 @@ describe("Entity — lifecycle and relationships", () => {
     room.destroy();
     w.progress(0, 0);
 
-    expect(room._destroyed).toBe(true);
-    expect(lamp._destroyed).toBe(true);
-    expect(guard._destroyed).toBe(true);
+    expect(room.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(true);
+    expect(guard.destroyed).toBe(true);
     expect(() => w.entity(room.eid)).toThrow();
     expect(() => w.entity(lamp.eid)).toThrow();
     expect(() => w.entity(guard.eid)).toThrow();
@@ -492,9 +492,9 @@ describe("Entity — lifecycle and relationships", () => {
     target.destroy();
     w.progress(0, 0);
 
-    expect(target._destroyed).toBe(true);
-    expect(lamp._destroyed).toBe(true);
-    expect(friend._destroyed).toBe(false);
+    expect(target.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(true);
+    expect(friend.destroyed).toBe(false);
     expect(friend.get(FriendOf)).toBeUndefined();
     expect(() => w.entity(target.eid)).toThrow();
     expect(() => w.entity(lamp.eid)).toThrow();
@@ -512,9 +512,9 @@ describe("Entity — lifecycle and relationships", () => {
     target.destroy();
     w.progress(0, 0);
 
-    expect(target._destroyed).toBe(true);
-    expect(lamp._destroyed).toBe(false);
-    expect(friend._destroyed).toBe(false);
+    expect(target.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(false);
+    expect(friend.destroyed).toBe(false);
     expect(lamp.get(InRoom)).toBeUndefined();
     expect(friend.get(FriendOf)).toBeUndefined();
     expect(() => w.entity(target.eid)).toThrow();
@@ -536,10 +536,10 @@ describe("Entity — lifecycle and relationships", () => {
     target.destroy();
     w.progress(0, 0);
 
-    expect(unrelated._destroyed).toBe(true);
-    expect(target._destroyed).toBe(true);
-    expect(lamp._destroyed).toBe(true);
-    expect(guard._destroyed).toBe(true);
+    expect(unrelated.destroyed).toBe(true);
+    expect(target.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(true);
+    expect(guard.destroyed).toBe(true);
     expect(() => w.entity(unrelated.eid)).toThrow();
     expect(() => w.entity(target.eid)).toThrow();
     expect(() => w.entity(lamp.eid)).toThrow();
@@ -555,7 +555,7 @@ describe("Entity — lifecycle and relationships", () => {
     e.add(Position);
     e.destroy();
     expect(cb).toHaveBeenCalledTimes(1);
-    expect(e._destroyed).toBe(true);
+    expect(e.destroyed).toBe(true);
     expect(() => w.entity(e.eid)).toThrow();
   });
 
@@ -576,12 +576,12 @@ describe("Entity — component entity onDelete", () => {
 
     componentEntity.destroy();
 
-    expect(a._destroyed).toBe(false);
-    expect(b._destroyed).toBe(false);
+    expect(a.destroyed).toBe(false);
+    expect(b.destroyed).toBe(false);
     expect(a._get(componentEntity.eid)).toBeUndefined();
     expect(b._get(componentEntity.eid)).toBeUndefined();
     expect(componentEntity.instanceCount()).toBe(0);
-    expect(componentEntity._destroyed).toBe(true);
+    expect(componentEntity.destroyed).toBe(true);
   });
 
   it("destroys carriers when onDelete is Delete", () => {
@@ -596,7 +596,7 @@ describe("Entity — component entity onDelete", () => {
     expect(() => w.entity(a.eid)).toThrow();
     expect(() => w.entity(b.eid)).toThrow();
     expect(() => w.entity(componentEntity.eid)).toThrow();
-    expect(componentEntity._destroyed).toBe(true);
+    expect(componentEntity.destroyed).toBe(true);
   });
 
   it("throws by default and leaves the component entity and carriers untouched", () => {
@@ -607,9 +607,9 @@ describe("Entity — component entity onDelete", () => {
 
     expect(() => componentEntity.destroy()).toThrow(/component eid is still in use/);
 
-    expect(componentEntity._destroyed).toBe(false);
+    expect(componentEntity.destroyed).toBe(false);
     expect(w.entity(componentEntity.eid)).toBe(componentEntity);
-    expect(carrier._destroyed).toBe(false);
+    expect(carrier.destroyed).toBe(false);
     expect(carrier.get(Position)).toBe(component);
     expect(componentEntity.instanceCount()).toBe(1);
   });
@@ -620,7 +620,7 @@ describe("Entity — component entity onDelete", () => {
     key.add(key);
 
     expect(() => key.destroy()).not.toThrow();
-    expect(key._destroyed).toBe(true);
+    expect(key.destroyed).toBe(true);
     expect(key.instanceCount()).toBe(0);
   });
 });
