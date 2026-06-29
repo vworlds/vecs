@@ -22,6 +22,21 @@ Start the client in another shell after the server is running:
 npm run dev -w @vworlds/vecs-demo-client
 ```
 
+## Docker
+
+Build the server image from the workspace root:
+
+```bash
+docker build -f apps/server/docker/Dockerfile -t vecs-demo-server .
+```
+
+The runtime image contains the compiled server, production dependencies, and embedded demo assets.
+Set `PORT` to choose the HTTP port inside the container:
+
+```bash
+docker run --rm -p 3900:3900 -e PORT=3900 vecs-demo-server
+```
+
 ## Demo Behavior
 
 - World units are meters with origin at the canvas center and +y upward.
