@@ -384,10 +384,12 @@ export const interpolatePosition: ComponentInterpolator = (source, target, alpha
   if (!isPosition(source) || !isPosition(target)) {
     throw new Error(`Component type ${POSITION_COMPONENT_TYPE} must satisfy IPosition`);
   }
-  const result = new (target.constructor as new () => ComponentInstance & {
-    x: number;
-    y: number;
-  })();
+  const result = new (
+    target.constructor as new () => ComponentInstance & {
+      x: number;
+      y: number;
+    }
+  )();
   result.x = source.x + (target.x - source.x) * alpha;
   result.y = source.y + (target.y - source.y) * alpha;
   return result;

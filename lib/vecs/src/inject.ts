@@ -14,9 +14,7 @@ export type InjectTuple = readonly InjectElement[];
 export type FanInjectElement = InjectElement | DownInject;
 export type FanInjectTuple = readonly FanInjectElement[];
 export type ResolvedInjectTerm =
-  | EID
-  | { target: readonly [EID, readonly EID[]] }
-  | { down: readonly [EID, readonly EID[]] };
+  EID | { target: readonly [EID, readonly EID[]] } | { down: readonly [EID, readonly EID[]] };
 export type InjectSnapshot = readonly (ComponentInstance | undefined)[];
 export type InjectSnapshotTypes = readonly (EID | undefined)[];
 
@@ -220,8 +218,7 @@ export type FanInjectCallbackOptions<J extends FanInjectTuple = FanInjectTuple> 
 };
 
 export type FanInjectCallbackArg<J extends FanInjectTuple = FanInjectTuple> =
-  | readonly [...J]
-  | FanInjectCallbackOptions<J>;
+  readonly [...J] | FanInjectCallbackOptions<J>;
 
 export type InjectedCallback = (
   eOrIt: Entity | Iter,

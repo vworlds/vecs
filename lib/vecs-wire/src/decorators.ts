@@ -20,9 +20,7 @@ export type WireScalarType =
 
 export type WireConstructor<T = unknown> = new () => T;
 export type WireTypeSpec =
-  | WireScalarType
-  | WireConstructor
-  | readonly [WireScalarType | WireConstructor];
+  WireScalarType | WireConstructor | readonly [WireScalarType | WireConstructor];
 
 interface IWireField {
   key: string;

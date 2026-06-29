@@ -25,14 +25,7 @@
  * strings like `"#ffaa00ff"`.
  */
 export type PropertyType =
-  | "string"
-  | "int"
-  | "float"
-  | "bool"
-  | "color"
-  | "file"
-  | "object"
-  | "class";
+  "string" | "int" | "float" | "bool" | "color" | "file" | "object" | "class";
 
 /**
  * A single Tiled typed property. Preserved as-is (NOT flattened to a map) so
