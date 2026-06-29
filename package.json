@@ -40,6 +40,9 @@
   },
   "overrides": {
     "@reteps/dockerfmt": "^0.5.4",
+    "@vworlds/dgram-client": "1.0.9",
+    "@vworlds/dgram-common": "1.0.9",
+    "@vworlds/dgram-server": "1.0.9",
     "@types/node": "^24.0.0",
     "@typescript-eslint/eslint-plugin": "^8.59.1",
     "@typescript-eslint/parser": "^8.59.1",

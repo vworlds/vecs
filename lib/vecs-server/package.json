@@ -12,10 +12,10 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@vworlds/dgram-server": "^1.0.9",
     "@vworlds/vecs": "1.0.37",
     "@vworlds/vecs-protocol": "1.0.37",
-    "@vworlds/vecs-wire": "1.0.37",
-    "@vworlds/dgram-server": "^1.0.8"
+    "@vworlds/vecs-wire": "1.0.37"
   },
   "license": "UNLICENSED",
   "repository": {

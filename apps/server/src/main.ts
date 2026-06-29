@@ -57,6 +57,8 @@ import {
 } from "@vworlds/vecs-server";
 
 const PORT = readPortEnv("PORT", 3000);
+const VECS_HOST = readOptionalStringEnv("VECS_HOST");
+const WEBRTC_UDP_HOST = readOptionalStringEnv("VECS_WEBRTC_UDP_HOST") ?? VECS_HOST;
 const WEBRTC_UDP_PORT = readOptionalPortEnv("VECS_WEBRTC_UDP_PORT");
 const WIDTH = 960;
 const HEIGHT = 540;
@@ -431,9 +433,16 @@ function createDgramOptions(): Record<string, unknown> {
       ? {}
       : {
           enableIceUdpMux: true,
+          advertisedUdpHost: WEBRTC_UDP_HOST,
+          advertisedUdpPort: WEBRTC_UDP_PORT,
           portRange: { min: WEBRTC_UDP_PORT, max: WEBRTC_UDP_PORT },
         }),
   };
+}
+
+function readOptionalStringEnv(name: string): string | undefined {
+  const value = process.env[name];
+  return value === undefined || value === "" ? undefined : value;
 }
 
 function readOptionalPortEnv(name: string): number | undefined {
