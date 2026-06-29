@@ -1,0 +1,13 @@
+.agent
+.agents
+.claude
+.devcontainer
+.git
+.github
+.vscode
+.worktrees
+dist
+node_modules
+**/dist
+**/node_modules
+npm-debug.log*
