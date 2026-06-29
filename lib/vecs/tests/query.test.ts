@@ -29,6 +29,9 @@ class FriendOf extends Relationship {}
 class Sprite {}
 class Container {}
 class QueryTrait {}
+class Score {
+  value = 0;
+}
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
 type IsEqual<A, B> =
@@ -1161,6 +1164,93 @@ describe("Query — orderBy", () => {
     tick();
 
     expect([...q]).toEqual([milkyWay, solarSystem, earth, jupiter, moon, iss, crewDragon]);
+  });
+});
+
+describe("Query — entity forwarding (add/set/remove)", () => {
+  it("add attaches a component to the backing entity and returns the query", () => {
+    const { w, tick } = setup();
+    const name = "forward-add";
+    const q = w.query(name).with(Position).build();
+    expect(q.add(Velocity)).toBe(q);
+    expect(w.entity(name).has(Velocity)).toBe(true);
+    tick();
+  });
+
+  it("set applies props to a component on the backing entity and returns the query", () => {
+    const { w, tick } = setup();
+    w.component(Tag);
+    const name = "forward-set";
+    const q = w.query(name).with(Position).build();
+    expect(q.set(Tag, { active: false })).toBe(q);
+    expect(w.entity(name).get(Tag)?.active).toBe(false);
+    tick();
+  });
+
+  it("remove detaches a component from the backing entity and returns the query", () => {
+    const { w, tick } = setup();
+    w.component(Tag);
+    const name = "forward-remove";
+    const q = w.query(name).with(Position).build();
+    q.add(Tag);
+    tick();
+    expect(w.entity(name).has(Tag)).toBe(true);
+    expect(q.remove(Tag)).toBe(q);
+    expect(w.entity(name).has(Tag)).toBe(false);
+    tick();
+  });
+
+  it("add chains with builder methods to tag the query entity", () => {
+    const { w, tick } = setup();
+    w.component(Tag);
+    const name = "forward-chain";
+    w.query(name).with(Position).add(Tag).build();
+    expect(w.entity(name).has(Tag)).toBe(true);
+    tick();
+  });
+
+  it("add then remove round-trips the component on the backing entity", () => {
+    const { w, tick } = setup();
+    w.component(Tag);
+    const name = "forward-roundtrip";
+    const q = w.query(name).with(Position).build();
+    q.add(Tag);
+    expect(w.entity(name).has(Tag)).toBe(true);
+    q.remove(Tag);
+    expect(w.entity(name).has(Tag)).toBe(false);
+    tick();
+  });
+
+  it("add accepts a numeric component type id", () => {
+    const { w, tick } = setup();
+    w.component(Score, 99);
+    const name = "forward-add-eid";
+    const q = w.query(name).with(Position).build();
+    q.add(99);
+    expect(w.entity(name).has(Score)).toBe(true);
+    tick();
+  });
+
+  it("set accepts a numeric component type id", () => {
+    const { w, tick } = setup();
+    w.component(Score, 99);
+    const name = "forward-set-eid";
+    const q = w.query(name).with(Position).build();
+    q.set(99, { value: 5 });
+    expect(w.entity(name).get(Score)?.value).toBe(5);
+    tick();
+  });
+
+  it("remove accepts a numeric component type id", () => {
+    const { w, tick } = setup();
+    w.component(Score, 99);
+    const name = "forward-remove-eid";
+    const q = w.query(name).with(Position).build();
+    q.add(99);
+    expect(w.entity(name).has(Score)).toBe(true);
+    q.remove(99);
+    expect(w.entity(name).has(Score)).toBe(false);
+    tick();
   });
 });
 

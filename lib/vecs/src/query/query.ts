@@ -1,4 +1,9 @@
-import { type ComponentInstance, type ComponentRef, type ComponentType } from "../component.js";
+import {
+  type ComponentClass,
+  type ComponentInstance,
+  type ComponentRef,
+  type ComponentType,
+} from "../component.js";
 import {
   containsDownTerm,
   isQueryConfig,
@@ -363,12 +368,36 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return this;
   }
 
+  public add<C extends ComponentClass>(Class: C): this;
+  public add(ceid: EID): this;
+  public add(entity: Entity): this;
+  public add(ref: ComponentRef): this {
+    this.entity.add(ref as any);
+    return this;
+  }
+
+  public remove<C extends ComponentType>(Class: C): this;
+  public remove(ceid: EID): this;
+  public remove(entity: Entity): this;
+  public remove(ref: ComponentRef): this {
+    this.entity.remove(ref as any);
+    return this;
+  }
+
+  public set<C extends ComponentClass>(Class: C, props: Partial<InstanceType<C>>): this;
+  public set(ceid: EID, props: Partial<ComponentInstance>): this;
+  public set(entity: Entity, props: Partial<ComponentInstance>): this;
+  public set(ref: ComponentRef, props: Partial<ComponentInstance>): this {
+    this.entity.set(ref as any, props);
+    return this;
+  }
+
   /* -------------------------------------------------------------------------
    * Reactive Callback Configuration
    * -------------------------------------------------------------------------
    * Fluent builder methods that install user callbacks for membership entry,
    * membership exit, and watched component updates.
-   */
+   * ------------------------------------------------------------------------- */
 
   public enter<J extends InjectTuple>(
     inject: readonly [...J],
