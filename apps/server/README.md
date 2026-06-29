@@ -31,10 +31,11 @@ docker build -f apps/server/docker/Dockerfile -t vecs-demo-server .
 ```
 
 The runtime image contains the compiled server, production dependencies, and embedded demo assets.
-Set `PORT` to choose the HTTP port inside the container:
+Set `PORT` to choose the HTTP signaling/assets port inside the container. Set
+`VECS_WEBRTC_UDP_PORT` to force WebRTC data channels onto a single UDP port:
 
 ```bash
-docker run --rm -p 3900:3900 -e PORT=3900 vecs-demo-server
+docker run --rm -p 3900:3900 -p 3901:3901/udp -e PORT=3900 -e VECS_WEBRTC_UDP_PORT=3901 vecs-demo-server
 ```
 
 ## Demo Behavior

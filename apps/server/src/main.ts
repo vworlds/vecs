@@ -58,7 +58,8 @@ import {
   View,
 } from "@vworlds/vecs-server";
 
-const PORT = Number(process.env.PORT ?? 3000);
+const PORT = readPortEnv("PORT", 3000);
+const WEBRTC_UDP_PORT = readOptionalPortEnv("VECS_WEBRTC_UDP_PORT");
 const WIDTH = 960;
 const HEIGHT = 540;
 const PIXELS_PER_METER = 100;
@@ -388,7 +389,7 @@ createBrickShowcase();
 createJointShowcase();
 spawnBall(-3.7, 1.5);
 
-await vecsListener.listen(app, { ordered: false, maxRetransmits: 2 });
+await vecsListener.listen(app, createDgramOptions());
 
 app.get("/", (_req, res) => {
   res.type("text/plain").send("vecs demo server running. Start apps/client with Vite.");
@@ -422,6 +423,37 @@ loop();
 
 function simulate(dt: number, tick: number): void {
   world.progress((tick + 1) * DT_MS, dt * 1000);
+}
+
+function createDgramOptions(): Record<string, unknown> {
+  return {
+    ordered: false,
+    maxRetransmits: 2,
+    ...(WEBRTC_UDP_PORT === undefined
+      ? {}
+      : {
+          enableIceUdpMux: true,
+          portRange: { min: WEBRTC_UDP_PORT, max: WEBRTC_UDP_PORT },
+        }),
+  };
+}
+
+function readOptionalPortEnv(name: string): number | undefined {
+  const value = process.env[name];
+  return value === undefined || value === "" ? undefined : parsePort(name, value);
+}
+
+function readPortEnv(name: string, defaultValue: number): number {
+  const value = process.env[name];
+  return value === undefined || value === "" ? defaultValue : parsePort(name, value);
+}
+
+function parsePort(name: string, value: string): number {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${name} must be an integer between 1 and 65535`);
+  }
+  return port;
 }
 
 function nextPlayerSpawnPoint(): { x: number; y: number } {

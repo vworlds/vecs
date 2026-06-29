@@ -1,0 +1,27 @@
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: apps/server/docker/Dockerfile
+    environment:
+      VECS_WEBRTC_UDP_PORT: ${VECS_WEBRTC_UDP_PORT:-3001}
+    image: vecs-demo-server
+    ports:
+      - "${VECS_PORT:-3000}:3000"
+      - "${VECS_WEBRTC_UDP_PORT:-3001}:${VECS_WEBRTC_UDP_PORT:-3001}/udp"
+
+  client:
+    build:
+      context: ..
+      dockerfile: apps/client/docker/Dockerfile
+    image: vecs-demo-client
+    depends_on:
+      - server
+    environment:
+      VECS_HOST: ${VECS_HOST:-localhost}
+      VECS_PORT: ${VECS_PORT:-3000}
+      VECS_PROTOCOL: ${VECS_PROTOCOL:-http}
+      VECS_WORLD_NAME: ${VECS_WORLD_NAME:-main}
+      VECS_API_BASE_PATH: ${VECS_API_BASE_PATH:-}
+    ports:
+      - "${VECS_CLIENT_PORT:-8080}:80"

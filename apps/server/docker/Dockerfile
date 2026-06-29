@@ -53,10 +53,12 @@ FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV VECS_WEBRTC_UDP_PORT=3001
 
 COPY --from=runtime-deps /workspace/node_modules/ ./node_modules/
 COPY --from=build /workspace/apps/server/dist/ ./dist/
 COPY --from=build /workspace/apps/server/assets/ ./assets/
 
 EXPOSE 3000
+EXPOSE 3001/udp
 CMD ["node", "dist/main.js"]
