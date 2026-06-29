@@ -1,4 +1,3 @@
-import { type ComponentType } from "../component.js";
 import { isQueryConfig, type ExtractSpecRequired, type QueryDSL, type QuerySpec } from "../dsl.js";
 import type { EID, Entity } from "../entity/index.js";
 import { Filter } from "../filter.js";

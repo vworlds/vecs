@@ -7,7 +7,7 @@ import {
   Rotation as RenderRotation,
 } from "@vworlds/vecs-phaser";
 import { Position as PhysicsPosition, Rotation as PhysicsRotation } from "@vworlds/vecs-physics";
-import { Networked, ServerWorld } from "@vworlds/vecs-server";
+import { ServerWorld } from "@vworlds/vecs-server";
 import { describe, expect, it } from "vitest";
 
 import { PhaserServerModule } from "../src/index.js";

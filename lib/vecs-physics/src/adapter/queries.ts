@@ -14,7 +14,6 @@ import { type EID, type Entity, type World } from "@vworlds/vecs";
 import { type Vec2 } from "../shapes/components.js";
 import { scr_b2AABB, scr_b2QueryFilter, scr_b2Vec2 } from "./runtime.js";
 import {
-  b2AABB,
   b2QueryFilter,
   getPhysicsEngine,
   type b2RayCallbackResult,

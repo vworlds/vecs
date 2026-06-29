@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { ALL_COMPONENTS, cid_pack } from "@vworlds/vecs-protocol";
+import { cid_pack } from "@vworlds/vecs-protocol";
 import type { EID } from "@vworlds/vecs";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import {

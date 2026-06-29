@@ -1,4 +1,4 @@
-import { ChildOf, type Entity } from "@vworlds/vecs";
+import { type Entity } from "@vworlds/vecs";
 
 import { Body } from "../body/components.js";
 import { type b2BodyId } from "../adapter/engine.js";

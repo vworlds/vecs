@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type as wireType } from "@vworlds/vecs-wire";
-import { IterableArrayMap, type EID, type Entity } from "@vworlds/vecs";
+import { IterableArrayMap, type Entity } from "@vworlds/vecs";
 import type { VecsSocket, VecsSocketListener } from "@vworlds/vecs-protocol";
 import { Networked, NetworkClient, ServerWorld, View } from "@vworlds/vecs-server";
 import { ClientWorld } from "../src/index.js";

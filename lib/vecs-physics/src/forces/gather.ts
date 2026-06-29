@@ -1,6 +1,6 @@
 import { ChildOf, Module } from "@vworlds/vecs";
 
-import { getPhysicsEngine, PhysicsSystemTag, type PhysicsEngine } from "../adapter/engine.js";
+import { getPhysicsEngine, PhysicsSystemTag } from "../adapter/engine.js";
 import { Body } from "../body/components.js";
 import { Force, Torque } from "./components.js";
 import { scr_b2Vec2 } from "../adapter/runtime.js";

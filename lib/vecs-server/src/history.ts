@@ -1,4 +1,4 @@
-import { IterableArrayMap, type EID } from "@vworlds/vecs";
+import { IterableArrayMap } from "@vworlds/vecs";
 import {
   ALL_COMPONENTS,
   EncodedSnapshot,

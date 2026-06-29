@@ -19,9 +19,7 @@ import type {
 import {
   containsDownTerm,
   type ExtractSpecsRequired,
-  type MaybeRequired,
   type QueryConfig,
-  type QueryDSL,
   type QuerySpec,
 } from "./dsl.js";
 import { Entity, type EID } from "./entity/index.js";

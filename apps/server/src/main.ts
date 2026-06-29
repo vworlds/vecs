@@ -3,8 +3,6 @@ import {
   ChildOf,
   type ComponentClass,
   type Entity,
-  ON_UPDATE,
-  POST_UPDATE,
   PRE_STORE,
   type QueryDSL,
   Relationship,

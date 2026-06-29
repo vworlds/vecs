@@ -1,4 +1,3 @@
-import { Component } from "../component.js";
 import type { Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
 import { Term, type TermConsumer } from "./term.js";

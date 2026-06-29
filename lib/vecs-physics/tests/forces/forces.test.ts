@@ -18,7 +18,7 @@
 //   9. AngularImpulse accumulation + silent zero.
 
 import { type Entity, World } from "@vworlds/vecs";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   AngularImpulse,
