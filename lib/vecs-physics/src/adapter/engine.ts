@@ -1,4 +1,4 @@
-import { ArrayMap, Singleton, type EID, type World } from "@vworlds/vecs";
+import { ArrayMap, type EID, type Entity, type World } from "@vworlds/vecs";
 
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
 import { type PhysicsQueries } from "./queries.js";
@@ -39,22 +39,19 @@ export interface ResolvedPhysicsOptions {
   enableContinuous: boolean;
 }
 
+/** The three phases the physics systems split across. */
+export interface PhysicsPhases {
+  preStep: Entity;
+  step: Entity;
+  postStep: Entity;
+}
+
 /** Internal marker tagging every physics **system entity** (systems are entities
  * in Vecs). `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])` uses it as a
  * silence domain so the engine's own pose write-back is never mistaken for a
  * user teleport. Never exported from the package public API and only ever lives
  * on system entities, so it adds zero per-entity archetype churn. */
 export class PhysicsSystemTag {}
-
-export function registerInternalComponents(world: World): void {
-  world.component(PhysicsEngine);
-  world.component(PhysicsSystemTag);
-}
-
-export function attachPhysicsEngine(world: World, engine: PhysicsEngine): void {
-  world.component(PhysicsEngine).add(Singleton);
-  world.component(PhysicsEngine).attach(PhysicsEngine, engine);
-}
 
 export function getPhysicsEngine(world: World): PhysicsEngine {
   const engine = world.get(PhysicsEngine) as PhysicsEngine | undefined;
@@ -74,6 +71,7 @@ export function hasPhysicsEngine(world: World): boolean {
 export class PhysicsEngine {
   public worldId!: b2WorldId;
   public readonly box2d!: Box2DModule;
+  public readonly phases!: PhysicsPhases;
 
   // Resolved configuration (flattened from PhysicsOptions).
   public readonly gravityX!: number;
@@ -152,13 +150,24 @@ export class PhysicsEngine {
   public queries?: PhysicsQueries;
 
   public constructor();
-  public constructor(box2d: Box2DModule, options: ResolvedPhysicsOptions, warnSink?: WarnSink);
-  public constructor(box2d?: Box2DModule, options?: ResolvedPhysicsOptions, warnSink?: WarnSink) {
-    if (box2d === undefined || options === undefined) {
+  public constructor(
+    box2d: Box2DModule,
+    options: ResolvedPhysicsOptions,
+    phases: PhysicsPhases,
+    warnSink?: WarnSink
+  );
+  public constructor(
+    box2d?: Box2DModule,
+    options?: ResolvedPhysicsOptions,
+    phases?: PhysicsPhases,
+    warnSink?: WarnSink
+  ) {
+    if (box2d === undefined || options === undefined || phases === undefined) {
       return;
     }
 
     this.box2d = box2d;
+    this.phases = phases;
     this.gravityX = options.gravityX;
     this.gravityY = options.gravityY;
     this.fixedTimeStep = options.fixedTimeStep;

@@ -11,7 +11,7 @@
 
 import { type EID, type Entity, type World } from "@vworlds/vecs";
 
-import { type Vec2 } from "../components/geometry.js";
+import { type Vec2 } from "../shapes/components.js";
 import { scr_b2AABB, scr_b2QueryFilter, scr_b2Vec2 } from "./runtime.js";
 import {
   b2AABB,
@@ -227,7 +227,7 @@ function to_b2QueryFilter(filter: QueryFilter | undefined): b2QueryFilter {
 }
 
 /** Resolves a Box2D shape hit back to its Vecs shape entity, mirroring the
- * `PhysicsEvents` shape→entity resolution (`src/systems/events.ts`):
+ * `PhysicsEvents` shape→entity resolution (`src/events/publish.ts`):
  * `entityByShapeIndex.get(shapeId.index1)` → `EID` → live `Entity`. Returns
  * `undefined` (drop silently) if the slot is empty or the entity has been
  * destroyed — the same rule as `PhysicsEvents`. */

@@ -12,7 +12,7 @@ import {
   PhysicsModule,
 } from "../../src/index.js";
 import { getPhysicsEngine, type b2ShapeId, type PhysicsEngine } from "../../src/adapter/engine.js";
-import { SingleShape } from "../../src/components/geometry.js";
+import { SingleShape } from "../../src/shapes/components.js";
 
 let world: World;
 let engine: PhysicsEngine;

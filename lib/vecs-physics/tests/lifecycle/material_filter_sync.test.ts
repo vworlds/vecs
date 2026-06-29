@@ -25,7 +25,7 @@ import {
   type b2ShapeId,
   type PhysicsEngine,
 } from "../../src/adapter/engine.js";
-import { SingleShape } from "../../src/components/geometry.js";
+import { SingleShape } from "../../src/shapes/components.js";
 
 const PI = Math.PI;
 

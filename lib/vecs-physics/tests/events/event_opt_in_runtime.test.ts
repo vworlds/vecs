@@ -22,7 +22,7 @@ import {
   SensorEvents,
 } from "../../src/index.js";
 import { getPhysicsEngine, type b2ShapeId, type PhysicsEngine } from "../../src/adapter/engine.js";
-import { SingleShape } from "../../src/components/geometry.js";
+import { SingleShape } from "../../src/shapes/components.js";
 
 const STEP_MS = 1000 / 60;
 

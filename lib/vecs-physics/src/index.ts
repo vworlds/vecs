@@ -14,13 +14,13 @@ export {
   Rotation,
   LinearVelocity,
   AngularVelocity,
-} from "./components/body.js";
+} from "./body/components.js";
 
 // Body tunables
-export { Damping, GravityScale, MotionLocks, Sleep } from "./components/body_tuning.js";
+export { Damping, GravityScale, MotionLocks, Sleep } from "./body/tuning.js";
 
 // Shape pose
-export { ShapePosition, ShapeRotation } from "./components/shape_pose.js";
+export { ShapePosition, ShapeRotation } from "./shapes/pose_components.js";
 
 // Geometry
 export {
@@ -32,16 +32,16 @@ export {
   Polygon,
   Chain,
   type Vec2,
-} from "./components/geometry.js";
+} from "./shapes/components.js";
 
 // Material / filter / sensor
-export { Material, CollisionFilter, Sensor, Detectable } from "./components/material.js";
+export { Material, CollisionFilter, Sensor, Detectable } from "./materials/components.js";
 
 // Forces & impulses
-export { Force, Torque, Impulse, AngularImpulse } from "./components/force.js";
+export { Force, Torque, Impulse, AngularImpulse } from "./forces/components.js";
 
 // Kinematic targets
-export { KinematicTargetPosition, KinematicTargetRotation } from "./components/target.js";
+export { KinematicTargetPosition, KinematicTargetRotation } from "./kinematic/components.js";
 
 // Joints
 export {
@@ -58,7 +58,7 @@ export {
   JointLinearSpring,
   JointAngularSpring,
   JointSettings,
-} from "./components/joint.js";
+} from "./joints/components.js";
 
 // Events
 export {
@@ -68,7 +68,7 @@ export {
   type SensorEvent,
   HitEvents,
   type HitEvent,
-} from "./components/events.js";
+} from "./events/components.js";
 
 // Queries
 export { physics } from "./adapter/queries.js";

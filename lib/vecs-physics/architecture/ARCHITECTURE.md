@@ -166,14 +166,11 @@ world.module(PhysicsModule, opts); // with non-default options
 
 `PhysicsModule.init()` must:
 
-1. Throw if `preloadPhysics` has not resolved (`getBox2D()` throws).
-2. Register every public component via `world.component(...)` in the stable order in **Component registration order** below.
-3. Declare `SingleShape` as an internal implementer of the abstract `Shape` marker, declare `Box`/`Circle`/`Capsule`/`Segment`/`Polygon` as `SingleShape` implementers, and declare `Chain` as a direct `Shape` implementer. This keeps all geometry mutually exclusive while letting b2Shape-only systems query the internal single-shape tier.
-4. Create or look up the three physics phases and order them after `ON_UPDATE`.
-5. Create the Box2D world (`b2CreateWorld` + `b2World_SetContactTuning`).
-6. Register the physics systems (listed under **System and phase pipeline**), each tagged with `PhysicsSystemTag`.
-7. Allocate `PhysicsEngine` and bind it to the world as the `PhysicsEngine` singleton.
-8. Throw if called twice on the same world.
+1. Register `PhysicsCoreModule` with the user's options. Core throws if `preloadPhysics` has not resolved (`getBox2D()` throws), creates or looks up the three physics phases, creates the Box2D world (`b2CreateWorld` + `b2World_SetContactTuning`), allocates `PhysicsEngine`, and binds it as the `PhysicsEngine` singleton.
+2. Register feature modules in the canonical system order listed under **System and phase pipeline**. Each feature module owns its components and systems, and every system is tagged with `PhysicsSystemTag`.
+3. Keep startup simple for users: `await preloadPhysics(); world.module(PhysicsModule, opts)` installs everything needed for physics.
+4. Let feature modules obtain `PhysicsEngine` from the singleton (`getPhysicsEngine(world)`) instead of receiving it through umbrella-module parameters.
+5. Throw if called twice on the same world with configuration, via normal Vecs module semantics.
 
 ### Authoritative component defaults
 
@@ -277,19 +274,17 @@ lib/vecs-physics/
 ├── bench/                       (stacking / falling_balls / many_movers)
 ├── src/
 │   ├── index.ts                 Public exports.
-│   ├── module.ts                PhysicsModule + options parsing + phase setup.
+│   ├── module.ts                Public PhysicsModule umbrella.
 │   │
-│   ├── components/              ECS data classes — no Box2D imports.
-│   │   ├── body.ts, body_tuning.ts, shape_pose.ts, geometry.ts,
-│   │   ├── material.ts, force.ts, target.ts, events.ts
-│   │
-│   ├── systems/                 Vecs↔Box2D adapter systems.
-│   │   ├── lifecycle.ts, shape_lifecycle.ts, chain_lifecycle.ts, shape_predicates.ts,
-│   │   ├── pose_sync_in.ts, pose_sync_out.ts,
-│   │   ├── kinematic.ts, forces.ts, impulse_accumulate.ts, impulse_zero.ts,
-│   │   ├── material_filter_sync.ts, shape_pose_sync.ts,
-│   │   ├── event_opt_in_sync.ts, events.ts,
-│   │   ├── mass_recompute.ts, step.ts, debug.ts, index.ts
+│   ├── core/                    PhysicsCoreModule, phases, step/reaper modules.
+│   ├── body/                    Body components + lifecycle, pose sync, mass modules.
+│   ├── shapes/                  Shape components + lifecycle, chain, pose modules.
+│   ├── materials/               Material/filter/sensor components + sync module.
+│   ├── forces/                  Force/impulse components + gather/zero modules.
+│   ├── kinematic/               Kinematic target components + target module.
+│   ├── events/                  Event components + opt-in/publish modules.
+│   ├── joints/                  Joint components + lifecycle/feature modules.
+│   ├── debug/                   Debug validation module.
 │   │
 │   ├── adapter/                 box2d3-wasm runtime, engine, disposal.
 │   │   ├── runtime.ts           preloadPhysics, getBox2D.
@@ -309,32 +304,29 @@ lib/vecs-physics/
 
 Module boundaries:
 
-- `src/components/` is pure data, no imports from `systems/` or `adapter/`.
-- `src/systems/` imports `components/` and `adapter/`. Shared lifecycle helpers may be imported by adjacent lifecycle/sync systems; avoid broader system coupling.
+- Each feature folder owns its ECS data classes, systems, and Vecs module wrappers. Components stay plain data; systems and modules perform behavior.
+- Feature module dependencies use `world.module(DependencyModule)` without config; re-registering is a no-op.
+- Modules that need the engine read it from the `PhysicsEngine` singleton via `getPhysicsEngine(world)` after `PhysicsCoreModule` has installed it.
 - `src/adapter/` is the only place that imports `box2d3-wasm`. It exposes `PhysicsEngine`, `getBox2D()`, and the `withAllocated` disposal helper; systems reach the module through `engine.box2d`, never by importing `box2d3-wasm` directly.
 
 ## Vecs integration
 
-### Component registration order
+### Feature module ownership
 
-Components register in this order so type ids are deterministic across module registrations:
+Feature modules register the components they own and the systems that implement their behavior:
 
-1. `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, `Body`.
-2. `Damping`, `GravityScale`, `MotionLocks`, `Sleep`.
-3. `ShapePosition`, `ShapeRotation`.
-4. `Shape`, `SingleShape`, `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, `Chain`.
-5. `Material`, `CollisionFilter`, `Sensor`.
-6. `Force`, `Torque`, `Impulse`, `AngularImpulse`.
-7. `KinematicTargetPosition`, `KinematicTargetRotation`.
-8. `ContactEvents`, `SensorEvents`, `HitEvents`.
-   8b. Joints (append-only, after events so existing ids are stable): `JointBodyA`, `JointBodyB`, `Joint`, `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, `FilterJoint`, `JointFrame`, `JointMotor`, `JointLimit`, `JointLinearSpring`, `JointAngularSpring`, `JointSettings`.
-9. Internal: `PhysicsEngine` (singleton), `PhysicsSystemTag`.
-10. `world.component(SingleShape).set(Implements, { interfaces: [Shape] })`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly. `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, and `FilterJoint` implement `Joint`. `JointBodyA`/`JointBodyB` keep the default `CleanupPolicy.Remove` (destroying a body detaches the joint rather than deleting the joint entity — see Settled decisions).
-11. Phase creation/lookup, ordered after `ON_UPDATE`.
-12. System creation; tag each physics system entity with `PhysicsSystemTag`.
-13. `PhysicsEngine` allocation and singleton attach.
+1. `PhysicsCoreModule`: `PhysicsEngine`, `PhysicsSystemTag`, phases, Box2D world.
+2. `BodyModule`: `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, `Body`, `Damping`, `GravityScale`, `MotionLocks`, `Sleep`, plus body lifecycle systems.
+3. `ShapesModule`: `ShapePosition`, `ShapeRotation`, `Shape`, `SingleShape`, `Box`, `Circle`, `Capsule`, `Segment`, `Polygon`, `Chain`, shape `Implements` metadata, plus shape and chain lifecycle systems.
+4. `MaterialsModule`: `Material`, `CollisionFilter`, `Sensor`, `Detectable`, plus material/filter/sensor sync systems.
+5. `ForcesModule`: `Force`, `Torque`, `Impulse`, `AngularImpulse`, impulse hooks, force gather, and impulse drain.
+6. `KinematicModule`: `KinematicTargetPosition`, `KinematicTargetRotation`, plus kinematic target driving.
+7. `EventsModule`: `ContactEvents`, `SensorEvents`, `HitEvents`.
+8. `JointsModule`: `JointBodyA`, `JointBodyB`, `Joint`, `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, `FilterJoint`, `JointFrame`, `JointMotor`, `JointLimit`, `JointLinearSpring`, `JointAngularSpring`, `JointSettings`, joint `Implements` metadata, plus joint lifecycle and feature sync systems.
 
 `ChildOf` is built into Vecs — referenced, never registered.
+
+`Shape` metadata: `SingleShape` implements `Shape`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly. Joint metadata: `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, and `FilterJoint` implement `Joint`. `JointBodyA`/`JointBodyB` keep the default `CleanupPolicy.Remove` (destroying a body detaches the joint rather than deleting the joint entity — see Settled decisions).
 
 ### Internal Engine Attachment
 

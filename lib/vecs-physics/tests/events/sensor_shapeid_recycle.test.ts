@@ -8,7 +8,7 @@
 // it indexes by index1 and would clobber the freshly-created shape that recycled
 // the slot, silently disabling its sensor events. The fix guards the setter with
 // b2Shape_IsValid (which does check generation). See
-// systems/event_opt_in_sync.ts.
+// events/opt_in.ts.
 //
 // Mirrors the spacerocks bug where split-spawned asteroids (created the same
 // frame the parent + bullet were destroyed) were invisible to all projectiles.

@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { Body, BodyType, Circle, Sensor, PhysicsModule } from "../../src/index.js";
 import { getPhysicsEngine, type b2ShapeId } from "../../src/adapter/engine.js";
-import { SingleShape } from "../../src/components/geometry.js";
+import { SingleShape } from "../../src/shapes/components.js";
 
 const PI = Math.PI;
 

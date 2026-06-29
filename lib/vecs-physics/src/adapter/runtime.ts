@@ -41,7 +41,7 @@ function initializeScratchPools(box2d: Box2DModule): void {
     scr_b2Vec2.push(new box2d.b2Vec2());
   }
 
-  // b2QueryFilter: queries and material_filter_sync each need at most 1 simultaneously.
+  // b2QueryFilter: queries and material sync each need at most 1 simultaneously.
   // Allocate 2 for safety.
   for (let i = 0; i < 2; i++) {
     scr_b2QueryFilter.push(new box2d.b2QueryFilter());

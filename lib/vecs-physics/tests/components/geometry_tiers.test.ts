@@ -12,7 +12,7 @@ import {
   Segment,
   Shape,
 } from "../../src/index.js";
-import { SingleShape } from "../../src/components/geometry.js";
+import { SingleShape } from "../../src/shapes/components.js";
 
 describe("geometry interface tiers", () => {
   it("keeps Shape exclusivity across Chain and single-shape geometries", () => {

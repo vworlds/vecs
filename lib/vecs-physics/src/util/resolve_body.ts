@@ -1,6 +1,6 @@
 import { ChildOf, type Entity } from "@vworlds/vecs";
 
-import { Body } from "../components/body.js";
+import { Body } from "../body/components.js";
 import { type b2BodyId } from "../adapter/engine.js";
 
 /** Resolve the WASM body id for a force/impulse target entity.

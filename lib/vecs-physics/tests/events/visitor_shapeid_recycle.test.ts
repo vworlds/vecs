@@ -9,7 +9,7 @@
 // delete wiped the fresh shape's reverse-map entry. PhysicsEvents.emitSensorEvent
 // then resolved the visitor to `undefined` and silently dropped the begin event.
 // The fix only deletes the mapping when it still points at us. See
-// systems/shape_lifecycle.ts.
+// shapes/lifecycle.ts.
 //
 // Mirrors the spacerocks bug where a split-spawned child asteroid (a Detectable
 // visitor created the same frame the parent + bullet were destroyed, recycling
