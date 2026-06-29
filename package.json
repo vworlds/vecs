@@ -16,13 +16,14 @@
     "build": "npm run build -w @vworlds/vecs && npm run build -w @vworlds/vecs-wire && npm run build -w @vworlds/vecs-protocol && npm run build -w @vworlds/vecs-client && npm run build -w @vworlds/vecs-server && npm run build -w @vworlds/vecs-physics && npm run build -w @vworlds/vecs-phaser && npm run build -w @vworlds/vecs-phaser-server && npm run build -w @vworlds/vecs-phaser-client && npm run build -w @vworlds/vecs-demo-client --if-present && npm run build -w @vworlds/vecs-demo-server --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format": "prettier --write . --ignore-unknown && prettier --write --plugin=prettier-plugin-sh \"apps/*/docker/*.sh\" && prettier --write --plugin=prettier-plugin-nginx --parser nginx \"apps/*/docker/nginx.conf\" && dockerfmt -w -n apps/*/docker/Dockerfile",
+    "format:check": "prettier --check . --ignore-unknown && prettier --check --plugin=prettier-plugin-sh \"apps/*/docker/*.sh\" && prettier --check --plugin=prettier-plugin-nginx --parser nginx \"apps/*/docker/nginx.conf\" && dockerfmt -c -n apps/*/docker/Dockerfile",
     "test": "npm run test --workspaces --if-present",
     "bench:vecs": "npm run bench:ecs -w @vworlds/vecs",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@reteps/dockerfmt": "^0.5.4",
     "@types/node": "^24.0.0",
     "@typescript-eslint/eslint-plugin": "^8.59.1",
     "@typescript-eslint/parser": "^8.59.1",
@@ -30,11 +31,14 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.3",
+    "prettier-plugin-nginx": "^1.0.3",
+    "prettier-plugin-sh": "^0.18.1",
     "rimraf": "^5.0.0",
     "typescript": "5.4.5",
     "vitest": "^4.1.9"
   },
   "overrides": {
+    "@reteps/dockerfmt": "^0.5.4",
     "@types/node": "^24.0.0",
     "@typescript-eslint/eslint-plugin": "^8.59.1",
     "@typescript-eslint/parser": "^8.59.1",
@@ -47,11 +51,14 @@
     "vitest": "^4.1.9"
   },
   "lint-staged": {
-    "*.ts": [
+    "Dockerfile": "dockerfmt -w -n",
+    "*.{ts,tsx}": [
       "prettier --write",
       "eslint --fix"
     ],
-    "*.md": "prettier --write"
+    "*.sh": "prettier --write --plugin=prettier-plugin-sh",
+    "nginx.conf": "prettier --write --plugin=prettier-plugin-nginx --parser nginx",
+    "*.{js,jsx,mjs,cjs,json,jsonc,yml,yaml,md,html,css,scss}": "prettier --write"
   },
   "license": "UNLICENSED"
 }
