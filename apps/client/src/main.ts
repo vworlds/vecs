@@ -16,10 +16,25 @@ const GRID_ROWS = 3;
 const LOCAL_ENTITY_START = 100_000;
 const PIXELS_PER_METER = 100;
 const RECONNECT_DELAY_MS = 1_000;
-const SERVER_PORT = 3000;
 const VIEW_ALL_KEY = "g";
 const WORLD_HALF_WIDTH_METERS = CANVAS_WIDTH / PIXELS_PER_METER / 2;
 const WORLD_HALF_HEIGHT_METERS = CANVAS_HEIGHT / PIXELS_PER_METER / 2;
+
+interface VecsConnectionOptions {
+  readonly host: string;
+  readonly port: number;
+  readonly protocol: "http" | "https";
+  readonly worldName: string;
+  readonly apiBasePath?: string;
+}
+
+declare global {
+  interface Window {
+    vecsConnectionOptions?: Partial<VecsConnectionOptions>;
+  }
+}
+
+const connectionOptions = readConnectionOptions();
 
 interface Session {
   readonly scene: DemoScene;
@@ -89,9 +104,7 @@ class BootScene extends Phaser.Scene {
   private async loadCatalog(): Promise<void> {
     try {
       const catalog = await loadAssets(this, {
-        host: location.hostname,
-        port: SERVER_PORT,
-        worldName: "main",
+        ...connectionOptions,
         onProgress: (value) => this.updateProgress(value),
       });
       this.scene.start("DemoScene", { catalog });
@@ -231,12 +244,10 @@ async function connect(scene: DemoScene): Promise<void> {
 
 async function createSession(scene: DemoScene): Promise<Session> {
   const world = await ClientWorld.connectDgram({
-    host: location.hostname,
+    ...connectionOptions,
     interpolators: phaserInterpolators(),
     localEntityIdStart: LOCAL_ENTITY_START,
     networkComponents: phaserNetworkComponents,
-    port: SERVER_PORT,
-    worldName: "main",
   });
   world.module(PhaserRenderModule, {
     catalog: scene.catalog,
@@ -281,4 +292,15 @@ function isViewAllKey(key: string): boolean {
 
 function formatError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function readConnectionOptions(): VecsConnectionOptions {
+  const options = window.vecsConnectionOptions;
+  return {
+    host: options?.host ?? window.location.hostname,
+    port: options?.port ?? 3000,
+    protocol: options?.protocol ?? (window.location.protocol === "https:" ? "https" : "http"),
+    worldName: options?.worldName ?? "main",
+    apiBasePath: options?.apiBasePath,
+  };
 }
