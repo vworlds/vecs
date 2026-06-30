@@ -15,7 +15,7 @@ export class AssetsModule extends Module<AssetsModuleConfig> {
     world.component(DemoAssets);
 
     const bricks = config.assets.getTileset("bricks");
-    world.entity().set(DemoAssets, { bricks });
+    world.set(DemoAssets, { bricks });
     config.assets.mount(config.app, config.worldName);
   }
 }

@@ -19,7 +19,7 @@ export class SpatialInterestModule extends Module {
     const cellViewDSL: QueryDSL[] = cellTagComponents.map((_CellTag, index) =>
       createCellViewDSL(index)
     );
-    world.entity().set(InterestGridState, { cellEntities, cellViewDSL });
+    world.set(InterestGridState, { cellEntities, cellViewDSL });
 
     world.component(NetworkClient).onSet((entity) => {
       entity.set(View, { dsl: false });
