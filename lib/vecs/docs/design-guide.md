@@ -378,6 +378,85 @@ Guidelines:
 - **Modules own cross-cutting policy:** exclusivity (`setExclusiveComponents`), phase placement,
   component registration. Keep that out of application code.
 
+### Feature modules: a recommended application layout
+
+For medium-sized game/application code, a useful convention is to organize each cohesive feature as
+a folder with one main module and a few local support files. This is **a recommendation, not a vecs
+requirement**: skip the ceremony for small examples, one-off demos, or reusable library modules
+where another structure is clearer.
+
+```txt
+modules/
+  combat/
+    module.ts
+    components.ts
+    factories.ts
+    targeting.ts
+```
+
+Use the files like this:
+
+| File            | Role                                                                                                                                                                               |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `module.ts`     | The feature install point: load dependencies, load local component registration, then declare systems inline in `init()`.                                                          |
+| `components.ts` | Component classes owned by this feature, plus a small registration module for those classes. Omit it when the feature owns no components.                                          |
+| `factories.ts`  | Optional helpers for repeated aggregate creation. Keep them thin and transparent; prefer call-site composition for simple entities, and never register components or systems here. |
+| other files     | Local helpers or submodules. Keep imports acyclic; if two features need each other, extract the shared piece downward instead of creating a cycle.                                 |
+
+Example:
+
+```ts
+class Shield {
+  time = 0;
+}
+
+class CombatComponents extends Module {
+  public init(): void {
+    this.world.component(Shield);
+  }
+}
+
+export class CombatModule extends Module {
+  public init(): void {
+    const world = this.world;
+    world.module(CombatComponents);
+    world
+      .system("combat.shield.decay")
+      .with(Shield)
+      .each([Shield], (entity, [shield]) => {
+        shield.time -= 1;
+        if (shield.time <= 0) {
+          entity.remove(Shield);
+        } else {
+          entity.modified(Shield);
+        }
+      });
+  }
+}
+```
+
+Feature-module rules of thumb:
+
+- **Register components you own.** If a component belongs to another feature, package, or engine
+  module, load that owner module instead of registering the class again in this feature. The same
+  class can be looked up idempotently, but ownership stays clear.
+- **Load dependencies, don't assume them.** If a system references `C` in `.with(C)`, make sure the
+  module that registers `C` has loaded before that system is declared. `world.module(DepModule)` is
+  idempotent, so repeating a dependency load is fine.
+- **Use modules to provide guaranteed state.** Prefer loading the module that creates a required
+  singleton/resource over scattering defensive `if (!dep) throw` guards. Still guard genuinely
+  optional state, including optional injections.
+- **Use phases for independent ordering.** The order an umbrella module loads feature modules sets
+  same-phase system order, which is useful inside one feature. Across independent features, encode
+  ordering with phases.
+- **Keep networked singleton-like state as an entity.** `Singleton` stores data on the component
+  entity, which is a good fit for server-local world state. For replicated game state that should
+  have exactly one instance, create one `Networked` gameplay entity and have the owning module
+  enforce that invariant.
+- **Mirror dependencies in tests.** A focused test world should load the same framework and feature
+  dependencies that production relies on, or use a shared test helper for the small foundation that
+  production worlds auto-register.
+
 ---
 
 ## 7. Patterns (reach for these)
