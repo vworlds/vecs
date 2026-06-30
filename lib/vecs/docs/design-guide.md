@@ -443,6 +443,11 @@ Feature-module rules of thumb:
 - **Load dependencies, don't assume them.** If a system references `C` in `.with(C)`, make sure the
   module that registers `C` has loaded before that system is declared. `world.module(DepModule)` is
   idempotent, so repeating a dependency load is fine.
+- **Depend on behavior through the feature module, not its component registrar.** Loading a
+  feature's `Components` module is only for data-only use: registration for factories, marker
+  checks, observer systems, or test setup that intentionally excludes behavior. If your feature
+  requires what that component _does_ (decay ticks, input translation, spawning, collision handling,
+  rendering, etc.), load the owning feature module so its systems and policy are installed too.
 - **Use modules to provide guaranteed state.** Prefer loading the module that creates a required
   singleton/resource over scattering defensive `if (!dep) throw` guards. Still guard genuinely
   optional state, including optional injections.
