@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+## v1.0.39 (2026-07-01)
+
 - [vecs-phaser]: Simplified the asset catalog DTO so spritesheet descriptors carry only the stable wire `id`, `kind`, relative `image` path, and Phaser load metadata; author keys and server-built URLs are no longer sent to clients.
 - [vecs-phaser-server]: Refactored `AssetManager` to eagerly scan and load all supported asset files at construction time, store them under namespaced internal keys such as `spritesheets/<key>`, and delegate catalog descriptor creation to each concrete `Asset` via `descriptor()`. `TilesetAsset` now owns its own static `load(assetsPath, key)` path, including Tiled parsing and image-path resolution.
 - [vecs-phaser-client]: Updated `loadAssets` to assemble spritesheet file URLs from the connection origin, world asset route, and each descriptor's relative `image` path instead of consuming a server-provided URL.
