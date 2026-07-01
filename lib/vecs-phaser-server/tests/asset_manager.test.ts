@@ -144,8 +144,8 @@ describe("AssetManager.toCatalog", () => {
     expect(ss.imageWidth).toBe(128);
     expect(ss.imageHeight).toBe(128);
 
-    // URL matches the documented scheme.
-    expect(ss.url).toBe(`/rtc/v1/world/main/assets/files/${terrain.image}`);
+    // Image path is asset-root-relative; the client assembles the static route URL.
+    expect(ss.image).toBe(terrain.image);
 
     // Server-only metadata stripped from the descriptor.
     expect(ss.properties).toBeUndefined();
@@ -153,22 +153,21 @@ describe("AssetManager.toCatalog", () => {
     expect(ss.animation).toBeUndefined();
     expect(ss.class).toBeUndefined();
 
-    // The ship descriptor url also matches the scheme.
+    // The ship descriptor image path also stays asset-root-relative.
     const shipDesc = catalog.assets.find((a) => a.id === ship.id);
     expect(shipDesc?.key).toBe("ship");
-    expect((shipDesc as unknown as Record<string, unknown>).url).toBe(
-      `/rtc/v1/world/main/assets/files/tilesets/ship.png`
-    );
+    expect((shipDesc as unknown as Record<string, unknown>).image).toBe(`tilesets/ship.png`);
   });
 
-  it("honors a custom apiBasePath", () => {
+  it("does not embed apiBasePath in descriptors", () => {
     const m = manager(["terrain"]);
     const catalog = m.toCatalog("game", "/api/world");
     const ss = catalog.assets.find((asset) => asset.key === "terrain") as unknown as Record<
       string,
       unknown
     >;
-    expect(ss.url).toBe(`/api/world/game/assets/files/tilesets/terrain.png`);
+    expect(ss.image).toBe(`tilesets/terrain.png`);
+    expect(ss.url).toBeUndefined();
   });
 });
 
@@ -202,7 +201,8 @@ describe("AssetManager.mount", () => {
       expect(catalog.assets).toHaveLength(1);
       const desc = (catalog.assets[0] as Record<string, unknown>) ?? {};
       expect(desc.kind).toBe("spritesheet");
-      expect(desc.url).toBe(`/rtc/v1/world/main/assets/files/tilesets/terrain.png`);
+      expect(desc.image).toBe(`tilesets/terrain.png`);
+      expect(desc.url).toBeUndefined();
     } finally {
       await close();
     }

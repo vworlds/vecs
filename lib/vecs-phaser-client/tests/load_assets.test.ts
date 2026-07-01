@@ -72,7 +72,7 @@ const spritesheets: SpritesheetDescriptor[] = [
     id: 7,
     key: "terrain",
     kind: "spritesheet",
-    url: "/rtc/v1/world/arena/assets/tilesets/terrain.png",
+    image: "tilesets/terrain.png",
     frameWidth: 16,
     frameHeight: 24,
     margin: 1,
@@ -86,7 +86,7 @@ const spritesheets: SpritesheetDescriptor[] = [
     id: 42,
     key: "ship",
     kind: "spritesheet",
-    url: "/rtc/v1/world/arena/assets/tilesets/ship.png",
+    image: "tilesets/ship.png",
     frameWidth: 32,
     frameHeight: 48,
     margin: 3,
@@ -145,12 +145,12 @@ describe("loadAssets", () => {
     expect(loader.spritesheetCalls).toEqual([
       {
         key: "7",
-        url: "http://game.local:7777/rtc/v1/world/arena/assets/tilesets/terrain.png",
+        url: "http://game.local:7777/custom/world/arena/assets/files/tilesets/terrain.png",
         config: { frameWidth: 16, frameHeight: 24, margin: 1, spacing: 2 },
       },
       {
         key: "42",
-        url: "http://game.local:7777/rtc/v1/world/arena/assets/tilesets/ship.png",
+        url: "http://game.local:7777/custom/world/arena/assets/files/tilesets/ship.png",
         config: { frameWidth: 32, frameHeight: 48, margin: 3, spacing: 4 },
       },
     ]);

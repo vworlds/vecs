@@ -226,7 +226,7 @@ export interface AssetDescriptor {
 }
 export interface SpritesheetDescriptor extends AssetDescriptor {
   kind: "spritesheet";
-  url: string;
+  image: string;
   frameWidth: number;
   frameHeight: number;
   margin: number;
@@ -665,13 +665,14 @@ their own `image`) are rejected with `ImageCollectionTilesetError`. No `.tmj` ma
 CORS is already configured at the app level. Image **bytes** are never read server-side — only
 metadata; bytes are served over HTTP to the client by `mount`.
 
-**Catalog DTO.** `toCatalog` enumerates cached assets into the wire `AssetCatalog` DTO. The
+**Catalog DTO.** `toCatalog` enumerates loaded assets into the wire `AssetCatalog` DTO. The
 catalog travels as JSON over HTTP (so its types carry no `@wireType`), and it lives in
 `vecs-phaser` so both ends agree. v1.0.36 has a single asset kind — **spritesheet** — because every
 asset is a Tiled tileset. The schema is split by extension: a base `AssetDescriptor` carries the
 identity triple (`id`, `key`, `kind`), and `SpritesheetDescriptor extends AssetDescriptor` narrows
-`kind` to `"spritesheet"` and adds the load fields (including `url`). New kinds append a new
-`*Descriptor extends AssetDescriptor` — the base never changes.
+`kind` to `"spritesheet"` and adds the load fields, including `image`, the source image path
+relative to `assetsPath`. New kinds append a new `*Descriptor extends AssetDescriptor` — the base
+never changes.
 
 **Per-tile Tiled metadata (properties, animations, collision shapes) is intentionally excluded**
 from the catalog DTO — it is server-only game-logic data; the client only ever needs `(id, frame)`
@@ -684,8 +685,8 @@ to render.
 `loadAssets(scene, conn)` fetches the catalog, queues every spritesheet in Phaser, and resolves a
 `Catalog` (an `id → descriptor` lookup) on loader `complete`. It surfaces the loader's progress for a
 loading bar. The fetch URL mirrors `connectDgram`'s: `${protocol}://${host}:${port}${worldPath(apiBasePath,
-worldName)}/assets`; the descriptor `url` is server-root-relative, so each spritesheet is queued with
-an origin-prefixed url.
+worldName)}/assets`; each descriptor's `image` is asset-root-relative, so each spritesheet is queued
+from `${origin}${worldPath(apiBasePath, worldName)}/assets/files/${image}`.
 
 ```ts
 const catalog = await loadAssets(scene, {
@@ -782,7 +783,7 @@ rebuild.
 - **`vecs-phaser-server`:** `PhaserServerModule` enforces exclusivity; reactive pose-sync copies
   physics `Position`/`Rotation` → render (only when physics changed; no create). `AssetManager`
   loads a `.tsj`/`.json` fixture into a live `TilesetAsset` with the correct spritesheet fields +
-  resolved image url, caches (same handle on re-get), type-checks (non-tileset under the same key
+  resolved image path, caches (same handle on re-get), type-checks (non-tileset under the same key
   throws), rejects image-collection tilesets; `tile(id)` returns a `Tile` with captured `class`,
   typed `properties`, `objects` `Map`, and `animation`; non-null empty defaults when Tiled omits
   fields; ids are stable/append-only; `sizeInMeters`; `toCatalog` strips server-only metadata;

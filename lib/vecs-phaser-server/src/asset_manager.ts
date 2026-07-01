@@ -94,15 +94,14 @@ export class AssetManager {
   /**
    * Enumerate all loaded assets into a wire `AssetCatalog` DTO, stripping
    * server-only metadata (no properties/objects/animation/class on the
-   * descriptors). Each spritesheet descriptor's `url` is the server path the
-   * static route serves.
+   * descriptors). Each spritesheet descriptor's `image` is relative to
+   * `assetsPath`; the client combines it with the static assets route.
    *
    * @param worldName    - Name of the world this catalog describes.
-   * @param apiBasePath   - API base path (default `"/rtc/v1/world"`).
+   * @param _apiBasePath  - Kept for source compatibility; descriptors no longer embed URLs.
    * @returns The `AssetCatalog` DTO.
    */
-  public toCatalog(worldName: string, apiBasePath: string = "/rtc/v1/world"): AssetCatalog {
-    const base = worldPath(apiBasePath, worldName);
+  public toCatalog(worldName: string, _apiBasePath: string = "/rtc/v1/world"): AssetCatalog {
     const assets: AssetDescriptor[] = [];
     for (const asset of this._assets.values()) {
       if (asset instanceof TilesetAsset) {
@@ -110,7 +109,7 @@ export class AssetManager {
           id: asset.id,
           key: asset.key,
           kind: "spritesheet",
-          url: `${base}/assets/files/${asset.image}`,
+          image: asset.image,
           frameWidth: asset.frameWidth,
           frameHeight: asset.frameHeight,
           margin: asset.margin,

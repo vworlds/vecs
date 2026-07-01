@@ -16,7 +16,7 @@ describe("asset catalog type contract", () => {
       id: 7,
       key: "terrain",
       kind: "spritesheet",
-      url: "/assets/terrain.png",
+      image: "tilesets/terrain.png",
       frameWidth: 16,
       frameHeight: 16,
       margin: 1,
@@ -37,7 +37,7 @@ describe("asset catalog type contract", () => {
       id: 7,
       key: "terrain",
       kind: "spritesheet",
-      url: "/assets/terrain.png",
+      image: "tilesets/terrain.png",
       frameWidth: 16,
       frameHeight: 16,
       margin: 1,
@@ -52,16 +52,16 @@ describe("asset catalog type contract", () => {
       worldName: "demo",
       assets,
     } satisfies AssetCatalog;
-    const urls: string[] = [];
+    const images: string[] = [];
 
     for (const asset of catalog.assets) {
       if (asset.kind === "spritesheet") {
-        urls.push(asset.url);
+        images.push(asset.image);
       }
     }
 
     expect(catalog.worldName).toBe("demo");
-    expect(urls).toEqual(["/assets/terrain.png"]);
+    expect(images).toEqual(["tilesets/terrain.png"]);
   });
 
   it("keeps kind as the only base discriminant", () => {

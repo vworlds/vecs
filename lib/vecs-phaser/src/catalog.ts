@@ -12,8 +12,8 @@ export interface AssetDescriptor {
 export interface SpritesheetDescriptor extends AssetDescriptor {
   /** Spritesheet catalog discriminant. */
   kind: "spritesheet";
-  /** HTTP url the client loads the source image from. */
-  url: string;
+  /** Source image path relative to the server asset root. */
+  image: string;
   /** Tile width (px). */
   frameWidth: number;
   /** Tile height (px). */

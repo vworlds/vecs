@@ -65,7 +65,7 @@ export async function loadAssets(scene: Phaser.Scene, conn: LoadAssetsOptions): 
   for (const descriptor of catalog.assets) {
     if (descriptor.kind === "spritesheet") {
       const ss = descriptor as SpritesheetDescriptor;
-      scene.load.spritesheet(String(ss.id), `${origin}${ss.url}`, {
+      scene.load.spritesheet(String(ss.id), `${origin}${basePath}/assets/files/${ss.image}`, {
         frameWidth: ss.frameWidth,
         frameHeight: ss.frameHeight,
         margin: ss.margin,
