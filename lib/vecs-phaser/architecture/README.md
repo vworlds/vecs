@@ -221,7 +221,6 @@ export const phaserRenderableComponents: readonly ComponentClass[];
 // Asset catalog schema (JSON over HTTP; no @wireType)
 export interface AssetDescriptor {
   id: number;
-  key: string;
   kind: string;
 }
 export interface SpritesheetDescriptor extends AssetDescriptor {
@@ -303,6 +302,7 @@ export class AssetManager {
 export class Asset {
   id: number;
   key: string;
+  descriptor(): AssetDescriptor;
 } // base class
 export class TilesetAsset extends Asset {
   image: string;
@@ -317,6 +317,7 @@ export class TilesetAsset extends Asset {
   name: string;
   class: string;
   properties: AnyProperty[];
+  descriptor(): SpritesheetDescriptor;
   tile(id: number): Tile | undefined;
   sizeInMeters(ppm: number): { w: number; h: number };
 }
@@ -669,10 +670,11 @@ metadata; bytes are served over HTTP to the client by `mount`.
 catalog travels as JSON over HTTP (so its types carry no `@wireType`), and it lives in
 `vecs-phaser` so both ends agree. v1.0.36 has a single asset kind — **spritesheet** — because every
 asset is a Tiled tileset. The schema is split by extension: a base `AssetDescriptor` carries the
-identity triple (`id`, `key`, `kind`), and `SpritesheetDescriptor extends AssetDescriptor` narrows
-`kind` to `"spritesheet"` and adds the load fields, including `image`, the source image path
-relative to `assetsPath`. New kinds append a new `*Descriptor extends AssetDescriptor` — the base
-never changes.
+wire id and discriminant (`id`, `kind`), and `SpritesheetDescriptor extends AssetDescriptor`
+narrows `kind` to `"spritesheet"` and adds the load fields, including `image`, the source image
+path relative to `assetsPath`. New kinds append a new `*Descriptor extends AssetDescriptor` — the
+base never changes. Each concrete server asset owns its descriptor creation through
+`Asset.descriptor()`, so `AssetManager.toCatalog` stays agnostic to asset kinds.
 
 **Per-tile Tiled metadata (properties, animations, collision shapes) is intentionally excluded**
 from the catalog DTO — it is server-only game-logic data; the client only ever needs `(id, frame)`
@@ -786,7 +788,7 @@ rebuild.
   resolved image path, caches (same handle on re-get), type-checks (non-tileset under the same key
   throws), rejects image-collection tilesets; `tile(id)` returns a `Tile` with captured `class`,
   typed `properties`, `objects` `Map`, and `animation`; non-null empty defaults when Tiled omits
-  fields; ids are stable/append-only; `sizeInMeters`; `toCatalog` strips server-only metadata;
+  fields; ids are stable/append-only; `sizeInMeters`; `descriptor` strips server-only metadata;
   `mount` serves catalog JSON + static files (real Express listen on port 0 + `fetch`); the
   tileset top-level `type` discriminator is not treated as the class.
 - **Demo:** manual end-to-end (`npm run dev`): loading scene completes before the world connects,

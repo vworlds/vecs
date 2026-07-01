@@ -14,7 +14,6 @@ describe("asset catalog type contract", () => {
   it("accepts complete spritesheet descriptors", () => {
     const spritesheet = {
       id: 7,
-      key: "terrain",
       kind: "spritesheet",
       image: "tilesets/terrain.png",
       frameWidth: 16,
@@ -35,7 +34,6 @@ describe("asset catalog type contract", () => {
   it("narrows heterogeneous catalog assets by kind", () => {
     const spritesheet = {
       id: 7,
-      key: "terrain",
       kind: "spritesheet",
       image: "tilesets/terrain.png",
       frameWidth: 16,
@@ -67,7 +65,6 @@ describe("asset catalog type contract", () => {
   it("keeps kind as the only base discriminant", () => {
     const baseOnly = {
       id: 7,
-      key: "terrain",
       kind: "spritesheet",
     } satisfies AssetDescriptor;
 

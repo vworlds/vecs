@@ -2,8 +2,6 @@
 export interface AssetDescriptor {
   /** Wire id (stable, append-only). */
   id: number;
-  /** Author key, authoring/debug only. */
-  key: string;
   /** Discriminant; narrowed by each subtype to its literal. */
   kind: string;
 }

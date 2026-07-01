@@ -1,3 +1,5 @@
+import type { AssetDescriptor } from "@vworlds/vecs-phaser";
+
 /**
  * Base class for every asset the server owns. v1.0.36 has one concrete kind —
  * `TilesetAsset` — but future kinds (audio, etc.) extend this with their own
@@ -32,4 +34,7 @@ export abstract class Asset {
   public static _resetIds(): void {
     Asset._nextId = 1;
   }
+
+  /** Build this asset's wire catalog descriptor. */
+  public abstract descriptor(): AssetDescriptor;
 }

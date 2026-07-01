@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 
+import type { SpritesheetDescriptor } from "@vworlds/vecs-phaser";
+
 import { Asset } from "./asset.js";
 import { ImageCollectionTilesetError, TilesetNotFoundError } from "./asset_errors.js";
 import { MapObject, Tile } from "./tile.js";
@@ -197,9 +199,21 @@ export class TilesetAsset extends Asset implements Tileset {
     this._tiles = tiles;
   }
 
-  /** Look up a tile by numeric id; `undefined` when not present. */
-  public tile(id: number): Tile | undefined {
-    return this._tiles.get(id);
+  /** Build this tileset's spritesheet catalog descriptor. */
+  public descriptor(): SpritesheetDescriptor {
+    return {
+      id: this.id,
+      kind: "spritesheet",
+      image: this.image,
+      frameWidth: this.frameWidth,
+      frameHeight: this.frameHeight,
+      margin: this.margin,
+      spacing: this.spacing,
+      columns: this.columns,
+      tileCount: this.tileCount,
+      imageWidth: this.imageWidth,
+      imageHeight: this.imageHeight,
+    };
   }
 
   /**
@@ -211,6 +225,11 @@ export class TilesetAsset extends Asset implements Tileset {
    */
   public sizeInMeters(ppm: number): { w: number; h: number } {
     return { w: this.frameWidth / ppm, h: this.frameHeight / ppm };
+  }
+
+  /** Look up a tile by numeric id; `undefined` when not present. */
+  public tile(id: number): Tile | undefined {
+    return this._tiles.get(id);
   }
 }
 

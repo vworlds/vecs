@@ -70,7 +70,6 @@ class MockLoader {
 const spritesheets: SpritesheetDescriptor[] = [
   {
     id: 7,
-    key: "terrain",
     kind: "spritesheet",
     image: "tilesets/terrain.png",
     frameWidth: 16,
@@ -84,7 +83,6 @@ const spritesheets: SpritesheetDescriptor[] = [
   },
   {
     id: 42,
-    key: "ship",
     kind: "spritesheet",
     image: "tilesets/ship.png",
     frameWidth: 32,

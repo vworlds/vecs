@@ -60,7 +60,10 @@ describe("AssetManager caching", () => {
 
   it("loads every discovered asset during construction", () => {
     const catalog = manager().toCatalog("main");
-    expect(catalog.assets.map((asset) => asset.key).sort()).toEqual(["ship", "terrain"]);
+    expect(catalog.assets.map((asset) => asset.id)).toEqual([1, 2]);
+    expect(
+      catalog.assets.map((asset) => (asset as unknown as Record<string, unknown>).image).sort()
+    ).toEqual(["tilesets/ship.png", "tilesets/terrain.png"]);
   });
 
   it("stores loaded assets under namespaced keys", () => {
@@ -130,7 +133,6 @@ describe("AssetManager.toCatalog", () => {
     const desc = catalog.assets.find((a) => a.id === terrain.id);
     expect(desc).toBeDefined();
     expect(desc?.kind).toBe("spritesheet");
-    expect(desc?.key).toBe("terrain");
     expect(desc?.id).toBe(terrain.id);
 
     // Spritesheet load fields present.
@@ -152,17 +154,18 @@ describe("AssetManager.toCatalog", () => {
     expect(ss.objects).toBeUndefined();
     expect(ss.animation).toBeUndefined();
     expect(ss.class).toBeUndefined();
+    expect(ss.key).toBeUndefined();
 
     // The ship descriptor image path also stays asset-root-relative.
     const shipDesc = catalog.assets.find((a) => a.id === ship.id);
-    expect(shipDesc?.key).toBe("ship");
     expect((shipDesc as unknown as Record<string, unknown>).image).toBe(`tilesets/ship.png`);
   });
 
   it("does not embed apiBasePath in descriptors", () => {
     const m = manager(["terrain"]);
     const catalog = m.toCatalog("game", "/api/world");
-    const ss = catalog.assets.find((asset) => asset.key === "terrain") as unknown as Record<
+    const terrain = m.getTileset("terrain");
+    const ss = catalog.assets.find((asset) => asset.id === terrain.id) as unknown as Record<
       string,
       unknown
     >;
@@ -202,6 +205,7 @@ describe("AssetManager.mount", () => {
       const desc = (catalog.assets[0] as Record<string, unknown>) ?? {};
       expect(desc.kind).toBe("spritesheet");
       expect(desc.image).toBe(`tilesets/terrain.png`);
+      expect(desc.key).toBeUndefined();
       expect(desc.url).toBeUndefined();
     } finally {
       await close();

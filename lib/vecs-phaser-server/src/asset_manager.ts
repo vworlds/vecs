@@ -2,11 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { extname, join, parse } from "node:path";
 
 import express from "express";
-import {
-  type AssetCatalog,
-  type AssetDescriptor,
-  type SpritesheetDescriptor,
-} from "@vworlds/vecs-phaser";
+import { type AssetCatalog } from "@vworlds/vecs-phaser";
 import { worldPath } from "@vworlds/vecs-protocol";
 
 import { Asset } from "./asset.js";
@@ -92,37 +88,15 @@ export class AssetManager {
   }
 
   /**
-   * Enumerate all loaded assets into a wire `AssetCatalog` DTO, stripping
-   * server-only metadata (no properties/objects/animation/class on the
-   * descriptors). Each spritesheet descriptor's `image` is relative to
-   * `assetsPath`; the client combines it with the static assets route.
+   * Enumerate all loaded assets into a wire `AssetCatalog` DTO. Each asset kind
+   * owns its own descriptor shape and strips server-only metadata there.
    *
    * @param worldName    - Name of the world this catalog describes.
    * @param _apiBasePath  - Kept for source compatibility; descriptors no longer embed URLs.
    * @returns The `AssetCatalog` DTO.
    */
   public toCatalog(worldName: string, _apiBasePath: string = "/rtc/v1/world"): AssetCatalog {
-    const assets: AssetDescriptor[] = [];
-    for (const asset of this._assets.values()) {
-      if (asset instanceof TilesetAsset) {
-        const descriptor: SpritesheetDescriptor = {
-          id: asset.id,
-          key: asset.key,
-          kind: "spritesheet",
-          image: asset.image,
-          frameWidth: asset.frameWidth,
-          frameHeight: asset.frameHeight,
-          margin: asset.margin,
-          spacing: asset.spacing,
-          columns: asset.columns,
-          tileCount: asset.tileCount,
-          imageWidth: asset.imageWidth,
-          imageHeight: asset.imageHeight,
-        };
-        assets.push(descriptor);
-      }
-    }
-    return { worldName, assets };
+    return { worldName, assets: [...this._assets.values()].map((asset) => asset.descriptor()) };
   }
 
   /**
