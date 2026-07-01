@@ -10,8 +10,8 @@ dependency.
 Depends on `@vworlds/vecs-phaser`, `@vworlds/vecs-server`, and `@vworlds/vecs-physics`.
 
 `AssetManager` owns the server-side Tiled tileset catalog. Construct it with
-`new AssetManager({ assetsPath })`, then call `getTileset(key)` to get a typed `TilesetAsset`
-with frame dimensions, `tile(id)` metadata, and `sizeInMeters(ppm)` for matching physics bodies
-to art. `mount(app, worldName)` serves the catalog JSON and static image files over the same
-Express app. The Tiled schema used for ingestion is vendored and minimal; there is no
-`@kayahr/tiled` runtime dependency.
+`new AssetManager({ assetsPath })` to scan and load every supported asset under `assetsPath`, then
+call `getTileset(key)` to get a typed `TilesetAsset` with frame dimensions, `tile(id)` metadata,
+and `sizeInMeters(ppm)` for matching physics bodies to art. `mount(app, worldName)` serves the
+catalog JSON and static image files over the same Express app. The Tiled schema used for ingestion
+is vendored and minimal; there is no `@kayahr/tiled` runtime dependency.

@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import express from "express";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   AssetManager,
@@ -15,10 +16,37 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, "fixtures");
 const PKG = join(HERE, "..", "package.json");
+const TEMP_DIRS: string[] = [];
+
+afterEach(() => {
+  for (const dir of TEMP_DIRS.splice(0)) {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
 
 /** Helper: a fresh AssetManager pointed at the fixtures dir. */
-function manager(): AssetManager {
-  return new AssetManager({ assetsPath: FIXTURES });
+function manager(keys: string[] = ["terrain", "ship"]): AssetManager {
+  return new AssetManager({ assetsPath: validAssets(keys) });
+}
+
+function validAssets(keys: string[]): string {
+  const assetsPath = mkdtempSync(join(tmpdir(), "vecs-phaser-assets-"));
+  TEMP_DIRS.push(assetsPath);
+  mkdirSync(join(assetsPath, "tilesets"));
+  for (const key of keys) {
+    const metadataName = key === "ship" ? `${key}.json` : `${key}.tsj`;
+    copyFileSync(
+      join(FIXTURES, "tilesets", metadataName),
+      join(assetsPath, "tilesets", metadataName)
+    );
+    if (key !== "plain") {
+      copyFileSync(
+        join(FIXTURES, "tilesets", `${key}.png`),
+        join(assetsPath, "tilesets", `${key}.png`)
+      );
+    }
+  }
+  return assetsPath;
 }
 
 describe("AssetManager caching", () => {
@@ -28,6 +56,18 @@ describe("AssetManager caching", () => {
     const b = m.getTileset("terrain");
     expect(a).toBe(b);
     expect(a).toBeInstanceOf(TilesetAsset);
+  });
+
+  it("loads every discovered asset during construction", () => {
+    const catalog = manager().toCatalog("main");
+    expect(catalog.assets.map((asset) => asset.key).sort()).toEqual(["ship", "terrain"]);
+  });
+
+  it("stores loaded assets under namespaced keys", () => {
+    const m = manager();
+    const assets = (m as unknown as { _assets: Map<string, unknown> })._assets;
+    expect([...assets.keys()].sort()).toEqual(["spritesheets/ship", "spritesheets/terrain"]);
+    expect(assets.has("terrain")).toBe(false);
   });
 
   it(".json fallback loads when no .tsj exists", () => {
@@ -41,14 +81,14 @@ describe("AssetManager caching", () => {
 });
 
 describe("AssetManager id assignment", () => {
-  it("ids are stable and append-only across calls; re-get keeps id", () => {
+  it("ids are assigned in alphabetical order by filename and stable across calls", () => {
     const m = manager();
     const terrain = m.getTileset("terrain");
     const ship = m.getTileset("ship");
-    expect(terrain.id).toBe(1);
-    expect(ship.id).toBe(2);
-    expect(m.getTileset("terrain").id).toBe(1);
-    expect(m.getTileset("ship").id).toBe(2);
+    expect(ship.id).toBe(1);
+    expect(terrain.id).toBe(2);
+    expect(m.getTileset("terrain").id).toBe(terrain.id);
+    expect(m.getTileset("ship").id).toBe(ship.id);
   });
 
   it("two keys get distinct stable ids", () => {
@@ -63,15 +103,17 @@ describe("AssetManager id assignment", () => {
 
 describe("AssetManager type guard", () => {
   it("throws AssetKindMismatchError when a non-TilesetAsset is cached under a key", () => {
-    const m = manager();
-    // Seed the cache with a non-TilesetAsset by casting to the internal cache.
+    const m = manager(["terrain"]);
+    // Seed the assets map with a non-TilesetAsset by casting to the internal store.
     const fakeAsset = { id: 99, key: "fake", constructor: { name: "FakeAsset" } } as never;
-    (m as unknown as { _cache: Map<string, unknown> })._cache.set("fake", fakeAsset);
+    (m as unknown as { _assets: Map<string, unknown> })._assets.set("spritesheets/fake", fakeAsset);
     expect(() => m.getTileset("fake")).toThrowError(AssetKindMismatchError);
   });
 
   it("throws ImageCollectionTilesetError on an image-collection file", () => {
-    expect(() => manager().getTileset("collection")).toThrowError(ImageCollectionTilesetError);
+    expect(() => new AssetManager({ assetsPath: FIXTURES })).toThrowError(
+      ImageCollectionTilesetError
+    );
   });
 });
 
@@ -120,10 +162,12 @@ describe("AssetManager.toCatalog", () => {
   });
 
   it("honors a custom apiBasePath", () => {
-    const m = manager();
-    m.getTileset("terrain");
+    const m = manager(["terrain"]);
     const catalog = m.toCatalog("game", "/api/world");
-    const ss = catalog.assets[0] as unknown as Record<string, unknown>;
+    const ss = catalog.assets.find((asset) => asset.key === "terrain") as unknown as Record<
+      string,
+      unknown
+    >;
     expect(ss.url).toBe(`/api/world/game/assets/files/tilesets/terrain.png`);
   });
 });
@@ -148,8 +192,7 @@ describe("AssetManager.mount", () => {
   }
 
   it("serves the catalog JSON at {worldPath}/assets", async () => {
-    const m = manager();
-    m.getTileset("terrain");
+    const m = manager(["terrain"]);
     const { base, close } = startApp(m, "main");
     try {
       const res = await fetch(`${base}/assets`);
@@ -166,8 +209,7 @@ describe("AssetManager.mount", () => {
   });
 
   it("serves a static file at {worldPath}/assets/files/<image>", async () => {
-    const m = manager();
-    m.getTileset("terrain");
+    const m = manager(["terrain"]);
     const { base, close } = startApp(m, "main");
     try {
       const res = await fetch(`${base}/assets/files/tilesets/terrain.png`);

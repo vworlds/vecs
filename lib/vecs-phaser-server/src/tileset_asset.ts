@@ -1,10 +1,15 @@
+import { readFileSync } from "node:fs";
+import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
+
 import { Asset } from "./asset.js";
+import { ImageCollectionTilesetError, TilesetNotFoundError } from "./asset_errors.js";
 import { MapObject, Tile } from "./tile.js";
 import {
   type AnyProperty,
   type MapObjectRaw,
   type Point,
   type Tileset,
+  type TilesetRaw,
   type TileRaw,
 } from "./types/tileset.js";
 
@@ -24,6 +29,15 @@ import {
  * `sizeInMeters(ppm)` sizes a physics body to match the art in one call.
  */
 export class TilesetAsset extends Asset implements Tileset {
+  /** Directory under `assetsPath` where Tiled tilesets live. */
+  public static readonly assetDirectory = "tilesets";
+
+  /** AssetManager namespace; tilesets are emitted as Phaser spritesheets. */
+  public static readonly assetNamespace = "spritesheets";
+
+  /** Metadata file extensions, in load preference order. */
+  public static readonly supportedExtensions = [".tsj", ".json"] as const;
+
   /** Resolved image path relative to `assetsPath`, POSIX-separated. */
   public image: string;
 
@@ -64,7 +78,78 @@ export class TilesetAsset extends Asset implements Tileset {
   private readonly _tiles: Map<number, Tile>;
 
   /**
-   * @param id          - Server-assigned stable wire id (from `AssetManager`).
+   * Load a `TilesetAsset` by human key from `assetsPath/tilesets`, preferring
+   * `.tsj` over `.json` when both exist.
+   *
+   * @param assetsPath - Root asset directory.
+   * @param key        - Human key (filename stem).
+   * @returns The loaded `TilesetAsset`.
+   * @throws {TilesetNotFoundError} when neither `<key>.tsj` nor `<key>.json` exists.
+   * @throws {ImageCollectionTilesetError} when the tileset is an image-collection.
+   */
+  public static load(assetsPath: string, key: string): TilesetAsset {
+    const tsjPath = join(assetsPath, TilesetAsset.assetDirectory, `${key}.tsj`);
+    const jsonPath = join(assetsPath, TilesetAsset.assetDirectory, `${key}.json`);
+    let text: string;
+    let filePath: string;
+    try {
+      text = readFileSync(tsjPath, "utf8");
+      filePath = tsjPath;
+    } catch {
+      try {
+        text = readFileSync(jsonPath, "utf8");
+        filePath = jsonPath;
+      } catch {
+        throw new TilesetNotFoundError(`No tileset "${key}" found at ${tsjPath} or ${jsonPath}`);
+      }
+    }
+
+    return JSON.parse(text, (revKey, value) => {
+      if (revKey !== "") {
+        return value;
+      }
+
+      const raw = value as TilesetRaw;
+      if (raw.image === undefined || raw.image === "") {
+        throw new ImageCollectionTilesetError(
+          `Tileset "${key}" has no top-level image (image-collection tilesets are not supported)`
+        );
+      }
+      if (raw.tiles) {
+        for (const tile of raw.tiles) {
+          if (tile.image !== undefined && tile.image !== "") {
+            throw new ImageCollectionTilesetError(
+              `Tileset "${key}" tile ${tile.id} carries its own image (image-collection tilesets are not supported)`
+            );
+          }
+        }
+      }
+
+      const tilesetImage = raw.image;
+      return new TilesetAsset(
+        key,
+        resolveImageRelative(assetsPath, filePath, tilesetImage),
+        raw.tilewidth ?? 0,
+        raw.tileheight ?? 0,
+        raw.margin ?? 0,
+        raw.spacing ?? 0,
+        raw.columns ?? 0,
+        raw.tilecount ?? 0,
+        raw.imagewidth ?? 0,
+        raw.imageheight ?? 0,
+        raw.name ?? "",
+        // The tileset "Class" comes from `class` only. A tileset's top-level
+        // `type` is Tiled's file-format discriminator (`"tileset"`/`"map"`), not a
+        // class, so it must NOT be used as a fallback (unlike a *tile*'s `type`,
+        // which is that tile's class — see buildTile below).
+        raw.class ?? "",
+        raw.properties ?? ([] as AnyProperty[]),
+        buildTiles(raw.tiles)
+      );
+    }) as TilesetAsset;
+  }
+
+  /**
    * @param key         - Human authoring/debug key (filename stem).
    * @param image       - Resolved image path relative to `assetsPath`, POSIX.
    * @param frameWidth  - Tile width (px).
@@ -81,7 +166,6 @@ export class TilesetAsset extends Asset implements Tileset {
    * @param tiles       - Tiles keyed by numeric id (may be empty).
    */
   constructor(
-    id: number,
     key: string,
     image: string,
     frameWidth: number,
@@ -97,7 +181,7 @@ export class TilesetAsset extends Asset implements Tileset {
     properties: AnyProperty[],
     tiles: Map<number, Tile>
   ) {
-    super(id, key);
+    super(key);
     this.image = image;
     this.frameWidth = frameWidth;
     this.frameHeight = frameHeight;
@@ -187,4 +271,12 @@ function buildObjects(
     map.set(obj.id, obj);
   }
   return map;
+}
+
+/** Resolve a tileset image path relative to `assetsPath`, POSIX-separated. */
+function resolveImageRelative(assetsPath: string, filePath: string, image: string): string {
+  const fileDir = dirname(filePath);
+  const absoluteImage = isAbsolute(image) ? image : join(fileDir, image);
+  const rel = relative(assetsPath, absoluteImage);
+  return normalize(rel).split(sep).join("/");
 }

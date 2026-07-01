@@ -1,17 +1,46 @@
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { Tile, TilesetAsset } from "../src/index.js";
 import { AssetManager } from "../src/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, "fixtures");
+const TEMP_DIRS: string[] = [];
+
+afterEach(() => {
+  for (const dir of TEMP_DIRS.splice(0)) {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
 
 /** Helper: a fresh AssetManager pointed at the fixtures dir. */
 function manager(): AssetManager {
-  return new AssetManager({ assetsPath: FIXTURES });
+  return new AssetManager({ assetsPath: validAssets(["terrain", "ship", "plain"]) });
+}
+
+function validAssets(keys: string[]): string {
+  const assetsPath = mkdtempSync(join(tmpdir(), "vecs-phaser-assets-"));
+  TEMP_DIRS.push(assetsPath);
+  mkdirSync(join(assetsPath, "tilesets"));
+  for (const key of keys) {
+    const metadataName = key === "ship" ? `${key}.json` : `${key}.tsj`;
+    copyFileSync(
+      join(FIXTURES, "tilesets", metadataName),
+      join(assetsPath, "tilesets", metadataName)
+    );
+    if (key !== "plain") {
+      copyFileSync(
+        join(FIXTURES, "tilesets", `${key}.png`),
+        join(assetsPath, "tilesets", `${key}.png`)
+      );
+    }
+  }
+  return assetsPath;
 }
 
 describe("TilesetAsset (terrain fixture)", () => {
@@ -154,8 +183,7 @@ describe("TilesetAsset (terrain fixture)", () => {
   });
 
   it("rejects an image-collection tileset (tiles carry their own image)", () => {
-    const m = manager();
-    expect(() => m.getTileset("collection")).toThrowError(/image-collection/);
+    expect(() => new AssetManager({ assetsPath: FIXTURES })).toThrowError(/image-collection/);
   });
 
   it("throws TilesetNotFoundError for a missing key", () => {
