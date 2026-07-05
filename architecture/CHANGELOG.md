@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-physics]: Added shape casts to the `physics(world)` query facade: `shapeCastClosest` and `shapeCastAll` sweep a `CastGeometry` — the same geometry component classes shape entities use (`Box`, `Circle`, `Capsule`, `Segment`, `Polygon`; `Chain` excluded) — from `from` to `to`, with an optional `rotation` (radians) and the same `QueryFilter` as ray casts and overlaps. Results are `ShapeCastHit`s (shape `entity`, world-space contact `point`, unit `normal`, and `fraction` along the sweep; `fraction: 0` with a zero normal means the cast started overlapping). Hits on destroyed shape entities are silently dropped without masking farther hits. Built on `b2World_CastShape` with a pooled scratch `b2ShapeProxy`, so casts allocate nothing on the Box2D side per call. See `docs/queries.md`.
+
 ## v1.0.39 (2026-07-01)
 
 - [vecs-phaser]: Simplified the asset catalog DTO so spritesheet descriptors carry only the stable wire `id`, `kind`, relative `image` path, and Phaser load metadata; author keys and server-built URLs are no longer sent to clients.

@@ -72,4 +72,10 @@ export {
 
 // Queries
 export { physics } from "./adapter/queries.js";
-export type { PhysicsQueries, QueryFilter, RayHit } from "./adapter/queries.js";
+export type {
+  CastGeometry,
+  PhysicsQueries,
+  QueryFilter,
+  RayHit,
+  ShapeCastHit,
+} from "./adapter/queries.js";
