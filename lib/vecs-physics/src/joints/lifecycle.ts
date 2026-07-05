@@ -35,8 +35,11 @@ import {
   JointLinearSpring,
   JointMotor,
   JointSettings,
+  MotorJoint,
+  PrismaticJoint,
   RevoluteJoint,
   WeldJoint,
+  WheelJoint,
 } from "./components.js";
 import { withAllocated } from "../adapter/disposal.js";
 import { PhysicsCoreModule } from "../core/module.js";
@@ -253,10 +256,79 @@ function createBox2dJoint(
     });
   }
 
+  if (joint instanceof PrismaticJoint) {
+    return withAllocated(box2d.b2DefaultPrismaticJointDef, (def) => {
+      applyBase(def.base);
+      if (motor !== undefined) {
+        def.enableMotor = true;
+        def.motorSpeed = motor.targetSpeed;
+        def.maxMotorForce = motor.maxForce;
+      }
+      if (limit !== undefined) {
+        def.enableLimit = true;
+        def.lowerTranslation = limit.lower;
+        def.upperTranslation = limit.upper;
+      }
+      if (linearSpring !== undefined) {
+        def.enableSpring = true;
+        def.hertz = linearSpring.hertz;
+        def.dampingRatio = linearSpring.dampingRatio;
+      }
+      return box2d.b2CreatePrismaticJoint(engine.worldId, def);
+    });
+  }
+
+  if (joint instanceof WheelJoint) {
+    return withAllocated(box2d.b2DefaultWheelJointDef, (def) => {
+      applyBase(def.base);
+      if (motor !== undefined) {
+        def.enableMotor = true;
+        def.motorSpeed = motor.targetSpeed;
+        def.maxMotorTorque = motor.maxForce;
+      }
+      if (limit !== undefined) {
+        def.enableLimit = true;
+        def.lowerTranslation = limit.lower;
+        def.upperTranslation = limit.upper;
+      }
+      if (linearSpring !== undefined) {
+        def.enableSpring = true;
+        def.hertz = linearSpring.hertz;
+        def.dampingRatio = linearSpring.dampingRatio;
+      }
+      return box2d.b2CreateWheelJoint(engine.worldId, def);
+    });
+  }
+
   if (joint instanceof FilterJoint) {
     return withAllocated(box2d.b2DefaultFilterJointDef, (def) => {
       applyBase(def.base);
       return box2d.b2CreateFilterJoint(engine.worldId, def);
+    });
+  }
+
+  if (joint instanceof MotorJoint) {
+    return withAllocated(box2d.b2DefaultMotorJointDef, (def) => {
+      applyBase(def.base);
+      // Unlike `base.localFrameA.p`, `def.linearVelocity` is a plain value
+      // property, not a mutable reference: `.Set(...)` on the getter's result
+      // is silently discarded. Assign a real (copied-by-value) `b2Vec2` instead.
+      withAllocated(
+        () => new box2d.b2Vec2(joint.linearVelocity.x, joint.linearVelocity.y),
+        (linearVelocity) => {
+          def.linearVelocity = linearVelocity;
+        }
+      );
+      def.maxVelocityForce = joint.maxVelocityForce;
+      def.angularVelocity = joint.angularVelocity;
+      def.maxVelocityTorque = joint.maxVelocityTorque;
+      def.linearHertz = joint.linearHertz;
+      def.linearDampingRatio = joint.linearDampingRatio;
+      def.maxSpringForce = joint.maxSpringForce;
+      def.angularHertz = joint.angularHertz;
+      def.angularDampingRatio = joint.angularDampingRatio;
+      def.maxSpringTorque = joint.maxSpringTorque;
+      return box2d.b2CreateMotorJoint(engine.worldId, def);
     });
   }
 

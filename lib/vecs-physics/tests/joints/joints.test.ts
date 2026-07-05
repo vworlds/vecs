@@ -2,12 +2,15 @@
 // world.progress) and asserts observable body state, never internal handles.
 //
 // Cases:
-//   Distance — rigid joint holds two anchors at `length`.
-//   Revolute — pin holds a body's center; motor spins it; limit clamps the angle.
-//   Weld     — rigidly fixes a dynamic body welded to a static one.
-//   Filter   — disables collision between the two connected bodies.
-//   Lifecycle — order-independent creation, cascade delete on body destroy.
-//   Features  — motor added at runtime drives an already-created joint.
+//   Distance   — rigid joint holds two anchors at `length`.
+//   Revolute   — pin holds a body's center; motor spins it; limit clamps the angle.
+//   Prismatic  — locks translation perpendicular to the axis; motor and limit drive/bound the slide.
+//   Wheel      — like prismatic but leaves rotation free; motor spins the wheel.
+//   Weld       — rigidly fixes a dynamic body welded to a static one.
+//   Filter     — disables collision between the two connected bodies.
+//   Motor      — drives body B toward a target velocity and/or pose relative to body A.
+//   Lifecycle  — order-independent creation, cascade delete on body destroy.
+//   Features   — motor added at runtime drives an already-created joint.
 
 import { type Entity, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -24,11 +27,15 @@ import {
   JointFrame,
   JointLimit,
   JointMotor,
+  LinearVelocity,
+  MotorJoint,
   PhysicsModule,
   Position,
+  PrismaticJoint,
   RevoluteJoint,
   Rotation,
   WeldJoint,
+  WheelJoint,
 } from "../../src/index.js";
 
 const DT = 1 / 60;
@@ -157,6 +164,116 @@ describe("RevoluteJoint", () => {
   });
 });
 
+describe("PrismaticJoint", () => {
+  it("locks translation perpendicular to the slide axis", () => {
+    const world = makeWorld(-10);
+    const a = staticBody(world, 0, 0);
+    const b = dynamicBody(world, 2, 0);
+
+    // Default JointFrame: axis is body A's local x-axis (referenceAngle 0), so
+    // the slide line runs through both bodies' starting y. Gravity pulls along
+    // y, perpendicular to the axis, so it should not move B at all.
+    world
+      .entity()
+      .set(JointBodyA, { target: a })
+      .set(JointBodyB, { target: b })
+      .add(PrismaticJoint);
+
+    step(world, 90);
+
+    expect(b.get(Position)!.y).toBeCloseTo(0, 1);
+  });
+
+  it("motor drives translation along the slide axis (m/s, force)", () => {
+    const world = makeWorld();
+    const a = staticBody(world, 0, 0);
+    const b = dynamicBody(world, 2, 0);
+    b.add(LinearVelocity);
+
+    world
+      .entity()
+      .set(JointBodyA, { target: a })
+      .set(JointBodyB, { target: b })
+      .add(PrismaticJoint)
+      .set(JointMotor, { targetSpeed: 5, maxForce: 1000 });
+
+    step(world, 120);
+
+    expect(b.get(LinearVelocity)!.x).toBeGreaterThan(4);
+  });
+
+  it("limit clamps the slide translation", () => {
+    const world = makeWorld();
+    const a = staticBody(world, 0, 0);
+    // Translation is measured from body A's anchor, so start B coincident with
+    // it (translation 0) — connected bodies never collide, so overlap is fine.
+    const b = dynamicBody(world, 0, 0);
+
+    world
+      .entity()
+      .set(JointBodyA, { target: a })
+      .set(JointBodyB, { target: b })
+      .add(PrismaticJoint)
+      .set(JointMotor, { targetSpeed: 10, maxForce: 1000 })
+      .set(JointLimit, { lower: 0, upper: 1 });
+
+    step(world, 180);
+
+    expect(b.get(Position)!.x).toBeLessThan(1.1);
+    expect(b.get(Position)!.x).toBeGreaterThan(0.8);
+  });
+});
+
+describe("WheelJoint", () => {
+  it("leaves relative rotation free, unlike PrismaticJoint which locks it", () => {
+    // `Rotation.angle` wraps to [-π, π], so compare `AngularVelocity` instead:
+    // it stays free-spinning under `WheelJoint` but gets zeroed every step under
+    // `PrismaticJoint`'s relative-angle lock.
+    const wheeled = makeWorld();
+    const wa = staticBody(wheeled, 0, 0);
+    const wb = dynamicBody(wheeled, 2, 0);
+    wb.set(AngularVelocity, { value: 5 });
+    wheeled
+      .entity()
+      .set(JointBodyA, { target: wa })
+      .set(JointBodyB, { target: wb })
+      .add(WheelJoint);
+
+    const locked = makeWorld();
+    const la = staticBody(locked, 0, 0);
+    const lb = dynamicBody(locked, 2, 0);
+    lb.set(AngularVelocity, { value: 5 });
+    locked
+      .entity()
+      .set(JointBodyA, { target: la })
+      .set(JointBodyB, { target: lb })
+      .add(PrismaticJoint);
+
+    step(wheeled, 60);
+    step(locked, 60);
+
+    expect(wb.get(AngularVelocity)!.value).toBeCloseTo(5, 1); // spun freely
+    expect(Math.abs(lb.get(AngularVelocity)!.value)).toBeLessThan(0.1); // locked
+  });
+
+  it("motor spins the wheel (rad/s, torque), like RevoluteJoint", () => {
+    const world = makeWorld();
+    const a = staticBody(world, 0, 0);
+    const b = dynamicBody(world, 2, 0);
+
+    world
+      .entity()
+      .set(JointBodyA, { target: a })
+      .set(JointBodyB, { target: b })
+      .add(WheelJoint)
+      .set(JointMotor, { targetSpeed: 5, maxForce: 1000 });
+
+    step(world, 120);
+
+    expect(b.get(AngularVelocity)!.value).toBeGreaterThan(4);
+  });
+});
+
 describe("WeldJoint", () => {
   it("rigidly fixes a dynamic body welded to a static one", () => {
     const world = makeWorld(-10);
@@ -204,6 +321,41 @@ describe("FilterJoint", () => {
     step(world, 90);
 
     expect(distance(a.get(Position)!, b.get(Position)!)).toBeGreaterThan(0.8);
+  });
+});
+
+describe("MotorJoint", () => {
+  it("drives body B toward the target linear velocity", () => {
+    const world = makeWorld();
+    const a = staticBody(world, 0, 0);
+    const b = dynamicBody(world, 0, 0);
+    b.add(LinearVelocity);
+
+    world
+      .entity()
+      .set(JointBodyA, { target: a })
+      .set(JointBodyB, { target: b })
+      .set(MotorJoint, { linearVelocity: { x: 5, y: 0 }, maxVelocityForce: 1000 });
+
+    step(world, 120);
+
+    expect(b.get(LinearVelocity)!.x).toBeGreaterThan(4);
+  });
+
+  it("spring pulls body B toward the frame's target pose", () => {
+    const world = makeWorld();
+    const a = staticBody(world, 0, 5);
+    const b = dynamicBody(world, 3, 5);
+
+    world.entity().set(JointBodyA, { target: a }).set(JointBodyB, { target: b }).set(MotorJoint, {
+      linearHertz: 2,
+      linearDampingRatio: 1,
+      maxSpringForce: 1000,
+    });
+
+    step(world, 180);
+
+    expect(distance(b.get(Position)!, { x: 0, y: 5 })).toBeLessThan(0.5);
   });
 });
 
@@ -297,5 +449,24 @@ describe("joint features (runtime)", () => {
     step(world, 120);
 
     expect(b.get(AngularVelocity)!.value).toBeGreaterThan(4);
+  });
+
+  it("adding a motor after creation drives an existing wheel joint", () => {
+    const wheelWorld = makeWorld();
+    const wheelA = staticBody(wheelWorld, 0, 0);
+    const wheelB = dynamicBody(wheelWorld, 0, 0);
+    const wheelJoint = wheelWorld
+      .entity()
+      .set(JointBodyA, { target: wheelA })
+      .set(JointBodyB, { target: wheelB })
+      .add(WheelJoint);
+
+    step(wheelWorld, 30);
+    expect(Math.abs(wheelB.get(AngularVelocity)!.value)).toBeLessThan(0.01);
+
+    wheelJoint.set(JointMotor, { targetSpeed: 5, maxForce: 1000 });
+    step(wheelWorld, 120);
+
+    expect(wheelB.get(AngularVelocity)!.value).toBeGreaterThan(4);
   });
 });

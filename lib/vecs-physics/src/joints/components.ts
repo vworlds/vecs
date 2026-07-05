@@ -21,10 +21,11 @@ import type { b2JointId } from "../adapter/engine.js";
 
 /**
  * Empty umbrella marker for every concrete joint type. A joint entity carries
- * exactly one of `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, or `FilterJoint`;
- * each implements `Joint` so queries and systems can match any joint without
- * enumerating every concrete type. Holds the single Box2D handle, since every
- * joint type maps to exactly one `b2JointId`.
+ * exactly one of `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`,
+ * `WheelJoint`, `WeldJoint`, `FilterJoint`, or `MotorJoint`; each implements
+ * `Joint` so queries and systems can match any joint without enumerating every
+ * concrete type. Holds the single Box2D handle, since every joint type maps to
+ * exactly one `b2JointId`.
  */
 export abstract class Joint {
   /** @internal Engine-owned Box2D joint handle. Set by the joint lifecycle system. */
@@ -53,7 +54,11 @@ export class JointBodyB extends Relationship {}
  * `referenceAngle` is body B's angle relative to body A at rest (radians).
  *
  * Optional: a missing `JointFrame` anchors both bodies at their origins with a
- * zero reference angle. `DistanceJoint` ignores `referenceAngle`.
+ * zero reference angle. `DistanceJoint` and `FilterJoint` ignore
+ * `referenceAngle`. `PrismaticJoint` and `WheelJoint` read it instead as their
+ * sliding axis's angle in body A's local frame (0 = body A's local x-axis);
+ * `PrismaticJoint` additionally locks the bodies' relative angle at that value
+ * (like `WeldJoint`), while `WheelJoint` leaves rotation free.
  */
 export class JointFrame {
   localAnchorA: Vec2 = { x: 0, y: 0 };
@@ -80,6 +85,26 @@ export class DistanceJoint extends Joint {
 }
 
 /**
+ * Prismatic joint: locks the two bodies' relative angle (like {@link WeldJoint})
+ * but lets body B slide along one axis relative to body A. The axis is body A's
+ * local x-axis, rotated by {@link JointFrame.referenceAngle}. Add
+ * {@link JointMotor} to drive the slide (m/s, force), {@link JointLimit} to
+ * bound the translation (meters), or {@link JointLinearSpring} for a soft rest
+ * position along the axis.
+ */
+export class PrismaticJoint extends Joint {}
+
+/**
+ * Wheel joint: like {@link PrismaticJoint} — body B slides along an axis fixed
+ * by {@link JointFrame.referenceAngle} — but leaves the bodies' relative
+ * rotation completely free (a wheel spinning on its axle) instead of locking
+ * it. Add {@link JointMotor} to drive that rotation (rad/s, torque, like
+ * {@link RevoluteJoint}), {@link JointLimit} to bound the suspension travel
+ * (meters), or {@link JointLinearSpring} for the suspension spring.
+ */
+export class WheelJoint extends Joint {}
+
+/**
  * Weld joint: rigidly fixes the two bodies' relative position and orientation
  * (at the reference angle). Add {@link JointLinearSpring} and/or
  * {@link JointAngularSpring} to make the weld soft along each axis.
@@ -94,10 +119,44 @@ export class WeldJoint extends Joint {}
 export class FilterJoint extends Joint {}
 
 /**
+ * Motor joint: drives body B toward a target pose relative to body A —
+ * {@link JointFrame}'s anchors and `referenceAngle` set that target — using a
+ * velocity-tracking motor and a positional spring that are both always active.
+ * Unlike every other joint type, Box2D has no enable flags for this behaviour,
+ * so it does not compose with {@link JointMotor}, {@link JointLimit},
+ * {@link JointLinearSpring}, or {@link JointAngularSpring}: it carries its own
+ * fields directly, mirroring `DistanceJoint.length`. Common use: kinematic-feel
+ * player or platform control that still collides normally.
+ */
+export class MotorJoint extends Joint {
+  /** Target linear velocity of body B relative to body A (m/s), tracked by the velocity motor. */
+  linearVelocity: Vec2 = { x: 0, y: 0 };
+  /** Maximum force (N) the velocity motor may use to track `linearVelocity`. */
+  maxVelocityForce = 0;
+  /** Target angular velocity of body B relative to body A (rad/s), tracked by the velocity motor. */
+  angularVelocity = 0;
+  /** Maximum torque (N·m) the velocity motor may use to track `angularVelocity`. */
+  maxVelocityTorque = 0;
+  /** Linear spring stiffness (Hz) pulling body B toward the frame's target position. Zero disables the spring's pull, leaving only the velocity motor. */
+  linearHertz = 0;
+  /** Linear spring damping ratio. */
+  linearDampingRatio = 0;
+  /** Maximum force (N) the linear spring may use. */
+  maxSpringForce = 0;
+  /** Angular spring stiffness (Hz) pulling body B toward the frame's reference angle. Zero disables the spring's pull, leaving only the velocity motor. */
+  angularHertz = 0;
+  /** Angular spring damping ratio. */
+  angularDampingRatio = 0;
+  /** Maximum torque (N·m) the angular spring may use. */
+  maxSpringTorque = 0;
+}
+
+/**
  * Optional motor feature. Present = motor enabled. Drives the joint toward
- * `targetSpeed` (rad/s for revolute, m/s for distance) bounded by `maxForce`
- * (interpreted as a torque for angular joints). Applies to `RevoluteJoint` and
- * `DistanceJoint`.
+ * `targetSpeed` bounded by `maxForce`. Angular joints (`RevoluteJoint`,
+ * `WheelJoint`) interpret this as rad/s and a torque; linear joints
+ * (`DistanceJoint`, `PrismaticJoint`) interpret it as m/s and a force. Does not
+ * apply to `WeldJoint`, `FilterJoint`, or `MotorJoint`.
  */
 export class JointMotor {
   targetSpeed = 0;
@@ -106,8 +165,9 @@ export class JointMotor {
 
 /**
  * Optional limit feature. Present = limit enabled. `lower`/`upper` are an angle
- * range (radians) for `RevoluteJoint` and a length range (meters) for
- * `DistanceJoint`.
+ * range (radians) for `RevoluteJoint` and a length/translation range (meters)
+ * for `DistanceJoint`, `PrismaticJoint`, and `WheelJoint`. Does not apply to
+ * `WeldJoint`, `FilterJoint`, or `MotorJoint`.
  */
 export class JointLimit {
   lower = 0;
@@ -117,7 +177,8 @@ export class JointLimit {
 /**
  * Optional linear spring feature (soft constraint along the joint's linear axis).
  * Present = spring enabled. `hertz` is the stiffness frequency, `dampingRatio`
- * the damping. Applies to `DistanceJoint` and the linear axis of `WeldJoint`.
+ * the damping. Applies to `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, and
+ * the linear axis of `WeldJoint`.
  */
 export class JointLinearSpring {
   hertz = 0;

@@ -5,7 +5,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
-## v1.0.39 (2026-07-01)
+- [vecs-physics]: Added the remaining Box2D joint types — `PrismaticJoint`, `WheelJoint`, and `MotorJoint` — completing joint coverage alongside the already-shipped `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, and `FilterJoint`. `PrismaticJoint` locks the bodies' relative angle and slides body B along an axis (body A's local x-axis, rotated by `JointFrame.referenceAngle`); `WheelJoint` is the same slider but leaves relative rotation free. Both reuse the existing `JointMotor`/`JointLimit`/`JointLinearSpring` feature components for their axis motor, translation limit, and suspension/slide spring — no new feature components needed. `MotorJoint` drives body B toward a target pose using a velocity-tracking motor and a positional spring that Box2D always keeps active (no enable flags), so it carries its own fields directly instead of composing with the shared feature components, mirroring how `DistanceJoint` carries `length`. See `docs/joints.md`.
 
 - [vecs-phaser]: Simplified the asset catalog DTO so spritesheet descriptors carry only the stable wire `id`, `kind`, relative `image` path, and Phaser load metadata; author keys and server-built URLs are no longer sent to clients.
 - [vecs-phaser-server]: Refactored `AssetManager` to eagerly scan and load all supported asset files at construction time, store them under namespaced internal keys such as `spritesheets/<key>`, and delegate catalog descriptor creation to each concrete `Asset` via `descriptor()`. `TilesetAsset` now owns its own static `load(assetsPath, key)` path, including Tiled parsing and image-path resolution.
