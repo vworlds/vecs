@@ -16,6 +16,7 @@ export type b2JointDefBase = ReturnType<Box2DModule["b2DefaultRevoluteJointDef"]
 export type b2Vec2 = ReturnType<Box2DModule["b2Body_GetPosition"]>;
 export type b2QueryFilter = Parameters<Box2DModule["b2World_OverlapAABB"]>[2];
 export type b2AABB = Parameters<Box2DModule["b2World_OverlapAABB"]>[1];
+export type b2ShapeProxy = ReturnType<Box2DModule["b2MakeProxy"]>;
 /** The transient result object passed to a `b2World_CastRay` collector callback
  * (the binding types the callback parameter as `any`). */
 export type b2RayCallbackResult = InstanceType<Box2DModule["b2RayCallbackResult"]>;

@@ -34,10 +34,10 @@ ergonomic option via components+systems, such as one-off actions like a raycast.
 
 ### Non-goals (v1)
 
-These are deferred. Ray casts and spatial queries have shipped; the remaining
-items live in the central [`ROADMAP.md`](../../../architecture/ROADMAP.md).
+These are deferred. Ray casts, shape casts, and spatial queries have shipped; the
+remaining items live in the central [`ROADMAP.md`](../../../architecture/ROADMAP.md).
 
-- Shape casts, character movers, debug rendering. (Every Box2D joint type has shipped — see `docs/joints.md`; breakable-joint events remain deferred.)
+- Character movers, debug rendering. (Shape casts have shipped — see `docs/queries.md`; every Box2D joint type has shipped — see `docs/joints.md`; breakable-joint events remain deferred.)
 - Multithreading, SIMD. box2d3-wasm has a threaded "deluxe" build path but vecs-physics ships single-threaded (`compat` build).
 - Pre-solve / custom-filter callbacks.
 - A broad imperative `Physics` global handle. The package exposes only the narrow

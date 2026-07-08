@@ -25,7 +25,7 @@ Planned features for the next version.
 
 Planned features for the subsequent version.
 
-- [vecs-physics] **Shape casts and character movers** — expose public shape-cast helpers and build character-movement primitives on top of the query foundation.
+- [vecs-physics] **Character movers** — build character-movement primitives (Box2D mover-style helpers) on top of the shipped ray-cast and shape-cast query foundation.
 - [vecs-physics] **Debug draw bridge** — provide geometry callbacks that let callers render Box2D debug data through their own renderer.
 - [vecs-physics] **World teardown and serialization** — add explicit Box2D world destruction, pool cleanup, and a rebuild-from-components load path.
 - [vecs-physics] **Per-segment chain materials** — let each chain segment carry its own surface material (friction, restitution, rolling resistance, tangent speed) via Box2D's `materials[]`/`materialCount` chain def, instead of one uniform material per chain.

@@ -147,28 +147,25 @@ The M5 closeout left four explicit v2 carries:
 
 ### Shape Casts
 
-Shape casts answer the question: if this shape moved along this vector, what would it hit?
-
-The upstream WASM backend exposes shape casts. The vecs-physics-side adapter and public API are still pending.
-
-Expected use cases:
-
-- Swept collision checks.
-- Fast projectile prediction.
-- Character movement.
-- Placement previews.
-
-Expected API direction:
+**Shipped: `physics(world).shapeCastClosest` and `physics(world).shapeCastAll`.** See
+[Queries](./queries.md) for the full model. A shape cast sweeps a `CastGeometry` — the
+same geometry component classes shape entities use (`Box`, `Circle`, `Capsule`,
+`Segment`, `Polygon`) — from `from` to `to` and reports `ShapeCastHit`s (shape entity,
+contact point, normal, fraction):
 
 ```ts
-const hit = physics.shapeCast({
-  shape: new Circle({ radius: 0.5 }),
+const probe = new Circle();
+probe.radius = 0.5;
+
+const hit = physics(world).shapeCastClosest({
+  shape: probe,
   from: { x: 0, y: 1 },
-  translation: { x: 10, y: 0 },
+  to: { x: 10, y: 1 },
 });
 ```
 
-The exact shape construction API is not settled. It should reuse the same geometry concepts as shape entities where possible.
+Use cases: swept collision checks, fast projectile prediction, character movement,
+and placement previews.
 
 ### Character Movement Helpers
 
@@ -247,9 +244,9 @@ Recommended direction:
 
 ### Expecting Deferred Features In V1
 
-If you need shape casts or character movers immediately, they are not part of the first version.
+If you need character movers immediately, they are not part of the first version.
 
-Ray casts and overlap queries shipped in v2 via `physics(world)` — see [Queries](./queries.md). Every Box2D joint type — revolute, distance, prismatic, wheel, weld, filter, and motor — has shipped, see [Joints](./joints.md). Use shape entities, sensors, and contact events for gameplay that does not yet have a dedicated query or constraint API.
+Ray casts and overlap queries shipped in v2 via `physics(world)`, and shape casts have shipped on the same facade — see [Queries](./queries.md). Every Box2D joint type — revolute, distance, prismatic, wheel, weld, filter, and motor — has shipped, see [Joints](./joints.md). Use shape entities, sensors, and contact events for gameplay that does not yet have a dedicated query or constraint API.
 
 ### Building Public APIs Around Internal Handles
 
@@ -272,7 +269,7 @@ The whole point of `vecs-physics` is that users work with ECS entities and compo
 
 ### Adding Features Before The Core Model Is Stable
 
-Casts and character movers depend on stable body and shape lifecycle rules. If those rules change later, every advanced API becomes harder to keep consistent. (Joints shipped on top of the now-stable body/shape lifecycle — see [Joints](./joints.md).)
+Character movers depend on stable body and shape lifecycle rules. If those rules change later, every advanced API becomes harder to keep consistent. (Joints and shape casts shipped on top of the now-stable body/shape lifecycle — see [Joints](./joints.md) and [Queries](./queries.md).)
 
 ## Related Pages
 

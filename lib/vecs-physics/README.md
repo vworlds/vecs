@@ -53,16 +53,24 @@ console.log(finalPosition.x.toFixed(3), finalPosition.y.toFixed(3));
 ## New In V2
 
 - `Detectable` - marker component that makes a solid shape visible to sensors (Box2D v3 requires both the sensor shape and the visited shape to opt in to sensor events).
-- `physics(world)` - imperative, read-only query API: `rayCastClosest`, `rayCastAll`, `overlapAABB` (broad-phase), and `overlapCircle` (precise mid-phase). Results are Vecs shape entities, never Box2D handles. See [Queries](./docs/queries.md).
 - Joints - revolute, distance, prismatic, wheel, weld, filter, and motor constraints between two bodies, modelled as a joint entity with `JointBodyA`/`JointBodyB` relationships, an exclusive joint-type component, and optional motor/limit/spring features. See [Joints](./docs/joints.md).
+- `physics(world)` - imperative, read-only query API: `rayCastClosest`, `rayCastAll`, `shapeCastClosest`, `shapeCastAll`, `overlapAABB` (broad-phase), and `overlapCircle` (precise mid-phase). Results are Vecs shape entities, never Box2D handles. See [Queries](./docs/queries.md).
 
 ```ts
-import { physics } from "@vworlds/vecs-physics";
+import { Circle, physics } from "@vworlds/vecs-physics";
 
 const hit = physics(world).rayCastClosest({ from: { x: 0, y: 2 }, to: { x: 10, y: 2 } });
 if (hit) {
   console.log(hit.entity, hit.point, hit.normal, hit.fraction);
 }
+
+const probe = new Circle();
+const swept = physics(world).shapeCastClosest({
+  shape: probe,
+  from: { x: 0, y: 2 },
+  to: { x: 10, y: 2 },
+});
+console.log(swept?.fraction);
 
 const overlapping = physics(world).overlapAABB({ min: { x: -5, y: -5 }, max: { x: 5, y: 5 } });
 for (const entity of overlapping) {
@@ -72,7 +80,6 @@ for (const entity of overlapping) {
 
 ## V1 Limitations
 
-- No shape casts.
 - No public character mover helpers.
 - No debug drawing API.
 - Single-threaded solver only.
