@@ -49,7 +49,17 @@ export class NetworkWorld extends World {
     this.networkComponents = networkComponents.map((Class, index) => {
       const type = index + 1;
       cid_pack(0, type);
-      this.component(Class, type);
+      // Register the component if not already registered. Built-in
+      // relationships like ChildOf are pre-registered by RelationshipsModule
+      // with a local eid — re-registering with a network type id would
+      // throw, so we skip the eid and let the existing registration stand.
+      // The network type id (index + 1) is tracked separately for wire
+      // encoding and is independent of the component's internal eid.
+      if ((this as unknown as { _classRegistry: Map<object, unknown> })._classRegistry.has(Class)) {
+        this.component(Class);
+      } else {
+        this.component(Class, type);
+      }
       const registered = { Class, type };
       this._networkComponentsByType.set(type, registered);
       return registered;

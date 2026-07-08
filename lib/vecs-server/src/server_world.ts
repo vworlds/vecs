@@ -292,7 +292,7 @@ export class ServerWorld extends NetworkWorld {
 
   private _pushEntitySnapshots(entity: Entity, snapshots: EncodedSnapshot[]): void {
     this._components.forEach((registered) => {
-      const component = entity.get(registered.type);
+      const component = entity.get(registered.Class);
       if (!component) {
         return;
       }

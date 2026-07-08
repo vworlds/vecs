@@ -12,7 +12,16 @@ import {
   type VecsSocket,
   worldPath,
 } from "@vworlds/vecs-protocol";
-import { type ComponentInstance, type EID, Events, Query, ON_LOAD } from "@vworlds/vecs";
+import {
+  type ComponentInstance,
+  type ComponentClass,
+  type EID,
+  type Entity,
+  Events,
+  Query,
+  ON_LOAD,
+  Relationship,
+} from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import {
   ComponentSnapshot,
@@ -75,6 +84,10 @@ export class ClientWorld extends NetworkWorld {
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
   private _forceBaselineReset = false;
+  private readonly _pendingRelationships = new Map<
+    EID,
+    { child: Entity; relClass: ComponentClass }[]
+  >();
 
   public constructor(options: ClientWorldOptions = {}) {
     const localEntityIdStart = options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START;
@@ -229,7 +242,50 @@ export class ClientWorld extends NetworkWorld {
   private _applySnapshot(snapshot: ComponentSnapshot): void {
     const component = this.decodeComponentSnapshot(snapshot);
     const entity = this.getOrCreateEntity(snapshot.eid, (e) => e.add(Networked));
+
+    if (component instanceof Relationship) {
+      this._applyRelationshipSnapshot(entity, component);
+      this._resolvePendingRelationships(entity);
+      return;
+    }
+
     entity.attach(component as object);
+    this._resolvePendingRelationships(entity);
+  }
+
+  private _applyRelationshipSnapshot(entity: Entity, component: Relationship): void {
+    const relClass = component.constructor as ComponentClass;
+    const targetEid = component.target as unknown as EID;
+
+    if (!targetEid) {
+      if (entity.get(relClass)) {
+        entity.remove(relClass);
+      }
+      return;
+    }
+
+    const target = this.getEntity(targetEid);
+    if (target) {
+      entity.set(relClass, { target });
+    } else {
+      const pending = this._pendingRelationships.get(targetEid) ?? [];
+      pending.push({ child: entity, relClass });
+      this._pendingRelationships.set(targetEid, pending);
+    }
+  }
+
+  private _resolvePendingRelationships(entity: Entity): void {
+    const pending = this._pendingRelationships.get(entity.eid);
+    if (!pending) {
+      return;
+    }
+    for (const entry of pending) {
+      if (entry.child.get(entry.relClass)) {
+        continue;
+      }
+      entry.child.set(entry.relClass, { target: entity });
+    }
+    this._pendingRelationships.delete(entity.eid);
   }
 
   private _removeComponent(eid: EID, type: number): void {
@@ -243,8 +299,9 @@ export class ClientWorld extends NetworkWorld {
       entity.destroy();
       return;
     }
-    if (this.getNetworkComponent(type) && entity.get(type)) {
-      entity.remove(type);
+    const registered = this.getNetworkComponent(type);
+    if (registered && entity.get(registered.Class)) {
+      entity.remove(registered.Class);
     }
   }
 
@@ -253,6 +310,7 @@ export class ClientWorld extends NetworkWorld {
   // beginDefer/endDefer, so destroying inside the callback is safe.
   private _destroyNetworkEntities(): void {
     this._networkedQuery.forEach((entity) => entity.destroy());
+    this._pendingRelationships.clear();
   }
 
   private _handleDisconnect(): void {
