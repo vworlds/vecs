@@ -99,6 +99,7 @@
   "functionExports": ["physics", "preloadPhysics"],
   "valueExports": ["BodyType"],
   "typeExports": [
+    "CastGeometry",
     "ContactEvent",
     "HitEvent",
     "PhysicsOptions",
@@ -106,6 +107,7 @@
     "QueryFilter",
     "RayHit",
     "SensorEvent",
+    "ShapeCastHit",
     "Vec2"
   ]
 }

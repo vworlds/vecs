@@ -2,7 +2,7 @@ import { cpus } from "node:os";
 
 import Box2DFactory from "box2d3-wasm";
 
-import type { b2AABB, b2QueryFilter, b2Vec2 } from "./engine.js";
+import type { b2AABB, b2QueryFilter, b2ShapeProxy, b2Vec2 } from "./engine.js";
 
 export type Box2DModule = Awaited<ReturnType<typeof Box2DFactory>>;
 
@@ -14,6 +14,7 @@ let module: Box2DModule | null = null;
 export const scr_b2Vec2: b2Vec2[] = [];
 export const scr_b2QueryFilter: b2QueryFilter[] = [];
 export let scr_b2AABB: b2AABB | null = null;
+export let scr_b2ShapeProxy: b2ShapeProxy | null = null;
 
 export async function preloadPhysics(): Promise<void> {
   if (modulePromise) {
@@ -35,8 +36,9 @@ export async function preloadPhysics(): Promise<void> {
 }
 
 function initializeScratchPools(box2d: Box2DModule): void {
-  // b2Vec2: ray casts need 2 simultaneous (origin + translation), polygon/chain creation
-  // can reuse serially. Allocate 3 for safety margin.
+  // b2Vec2: ray and shape casts need 2 simultaneous (origin/proxy point +
+  // translation), polygon/chain creation can reuse serially. Allocate 3 for
+  // safety margin.
   for (let i = 0; i < 3; i++) {
     scr_b2Vec2.push(new box2d.b2Vec2());
   }
@@ -49,6 +51,10 @@ function initializeScratchPools(box2d: Box2DModule): void {
 
   // b2AABB: overlapAABB needs exactly 1.
   scr_b2AABB = new box2d.b2AABB();
+
+  // b2ShapeProxy: shape casts need exactly 1 (proxy points are copied in by
+  // value, so the pool entry is free again as soon as the cast returns).
+  scr_b2ShapeProxy = new box2d.b2ShapeProxy();
 }
 
 export function getBox2D(): Box2DModule {

@@ -5,21 +5,32 @@
 // entities (shape entities) and plain data — never Box2D handles.
 //
 // box2d3-wasm imports are confined to `src/adapter/`; this file is part of
-// that boundary. Scratch allocations (b2Vec2, b2QueryFilter, b2AABB) reuse
-// global pools allocated at module load. Transient allocations like b2RayResult
-// are freed via explicit `finally { .delete() }`.
+// that boundary. Scratch allocations (b2Vec2, b2QueryFilter, b2AABB,
+// b2ShapeProxy) reuse global pools allocated at module load. Transient
+// allocations like b2RayResult are freed via explicit `finally { .delete() }`.
 
 import { type EID, type Entity, type World } from "@vworlds/vecs";
 
-import { type Vec2 } from "../shapes/components.js";
-import { scr_b2AABB, scr_b2QueryFilter, scr_b2Vec2 } from "./runtime.js";
+import { Box, Capsule, Circle, Polygon, Segment, type Vec2 } from "../shapes/components.js";
+import {
+  scr_b2AABB,
+  scr_b2QueryFilter,
+  scr_b2ShapeProxy,
+  scr_b2Vec2,
+  type Box2DModule,
+} from "./runtime.js";
 import {
   b2QueryFilter,
   getPhysicsEngine,
   type b2RayCallbackResult,
   type b2ShapeId,
+  type b2ShapeProxy,
   type PhysicsEngine,
 } from "./engine.js";
+
+/** Box2D's `B2_MAX_POLYGON_VERTICES` — the most points a cast {@link Polygon}
+ * (and a `b2ShapeProxy`) can carry. Mirrors `src/shapes/lifecycle.ts`. */
+const MAX_POLYGON_VERTICES = 8;
 
 /** Category/mask filter applied to a query. Unlike a shape's own filter
  * (default `categoryBits = 1`), a query's default `categoryBits` is
@@ -45,9 +56,33 @@ export interface RayHit {
 }
 
 /**
+ * Geometry accepted by shape casts: any single-shape geometry component, in
+ * local space exactly as it would sit on a shape entity. Pass a live entity's
+ * component (`entity.get(Circle)!`) or a standalone instance (`new Circle()`).
+ * `Chain` is excluded — Box2D cannot sweep a chain.
+ */
+export type CastGeometry = Box | Capsule | Circle | Polygon | Segment;
+
+/** A single shape-cast hit, resolved to a Vecs shape entity with plain-data
+ * geometry — never a Box2D handle. */
+export interface ShapeCastHit {
+  /** The shape entity that was hit. */
+  entity: Entity;
+  /** World-space contact point at first touch. */
+  point: Vec2;
+  /** World-space unit surface normal at the contact point. Zero vector when
+   * `fraction` is `0` (cast started overlapping this shape). */
+  normal: Vec2;
+  /** Fraction along `from` → `to` at first touch, in `[0, 1]`. `0` means the
+   * cast geometry already touches or overlaps this shape at `from`. */
+  fraction: number;
+}
+
+/**
  * Stable, world-scoped facade for synchronous read-only physics queries: ray
- * casts and spatial overlaps. Obtained via {@link physics}. Never mutates the
- * world, never creates or destroys entities, and never wakes bodies.
+ * casts, shape casts, and spatial overlaps. Obtained via {@link physics}.
+ * Never mutates the world, never creates or destroys entities, and never
+ * wakes bodies.
  */
 export interface PhysicsQueries {
   /** Casts a ray from `from` to `to` and returns the closest hit, or `undefined`
@@ -57,6 +92,29 @@ export interface PhysicsQueries {
 
   /** Casts a ray from `from` to `to` and returns every hit along the way. */
   rayCastAll(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit[];
+
+  /** Sweeps `shape` — placed with its local origin at `from`, rotated by
+   * `rotation` radians (default `0`) — until the origin reaches `to`, and
+   * returns the closest hit, or `undefined` if the sweep touches nothing.
+   * Throws if `shape` is a {@link Polygon} with no vertices or more than 8. */
+  shapeCastClosest(query: {
+    shape: CastGeometry;
+    from: Vec2;
+    to: Vec2;
+    rotation?: number;
+    filter?: QueryFilter;
+  }): ShapeCastHit | undefined;
+
+  /** Sweeps `shape` along `from` → `to` like {@link shapeCastClosest} and
+   * returns every shape the sweep would touch, each with its own
+   * first-contact point, normal, and fraction. */
+  shapeCastAll(query: {
+    shape: CastGeometry;
+    from: Vec2;
+    to: Vec2;
+    rotation?: number;
+    filter?: QueryFilter;
+  }): ShapeCastHit[];
 
   /** Returns every shape entity whose fat AABB overlaps `[min, max]`. This is
    * a broad-phase query: it can over-report relative to exact shape
@@ -155,6 +213,86 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     return hits;
   }
 
+  public shapeCastClosest(query: {
+    shape: CastGeometry;
+    from: Vec2;
+    to: Vec2;
+    rotation?: number;
+    filter?: QueryFilter;
+  }): ShapeCastHit | undefined {
+    const { box2d, worldId } = this.engine;
+
+    const proxy = to_b2ShapeProxy(box2d, query.shape, query.from, query.rotation ?? 0);
+
+    const translation = scr_b2Vec2[1];
+    translation.Set(query.to.x - query.from.x, query.to.y - query.from.y);
+
+    let closest: ShapeCastHit | undefined;
+    box2d.b2World_CastShape(
+      worldId,
+      proxy,
+      translation,
+      to_b2QueryFilter(query.filter),
+      (result: b2RayCallbackResult) => {
+        const entity = resolveShapeEntity(this.engine, this.world, result.shapeId);
+        if (entity === undefined) {
+          // -1 filters the hit out without tightening the clip fraction.
+          return -1;
+        }
+
+        if (closest === undefined || result.fraction < closest.fraction) {
+          closest = {
+            entity,
+            point: { x: result.point.x, y: result.point.y },
+            normal: { x: result.normal.x, y: result.normal.y },
+            fraction: result.fraction,
+          };
+        }
+        // Clip the sweep so only nearer hits are reported from here on.
+        return result.fraction;
+      }
+    );
+
+    return closest;
+  }
+
+  public shapeCastAll(query: {
+    shape: CastGeometry;
+    from: Vec2;
+    to: Vec2;
+    rotation?: number;
+    filter?: QueryFilter;
+  }): ShapeCastHit[] {
+    const { box2d, worldId } = this.engine;
+
+    const proxy = to_b2ShapeProxy(box2d, query.shape, query.from, query.rotation ?? 0);
+
+    const translation = scr_b2Vec2[1];
+    translation.Set(query.to.x - query.from.x, query.to.y - query.from.y);
+
+    const hits: ShapeCastHit[] = [];
+    box2d.b2World_CastShape(
+      worldId,
+      proxy,
+      translation,
+      to_b2QueryFilter(query.filter),
+      (result: b2RayCallbackResult) => {
+        const entity = resolveShapeEntity(this.engine, this.world, result.shapeId);
+        if (entity !== undefined) {
+          hits.push({
+            entity,
+            point: { x: result.point.x, y: result.point.y },
+            normal: { x: result.normal.x, y: result.normal.y },
+            fraction: result.fraction,
+          });
+        }
+        return 1;
+      }
+    );
+
+    return hits;
+  }
+
   public overlapAABB(query: { min: Vec2; max: Vec2; filter?: QueryFilter }): Entity[] {
     const { box2d, worldId } = this.engine;
 
@@ -210,6 +348,66 @@ class PhysicsQueriesImpl implements PhysicsQueries {
       proxy.delete();
     }
   }
+}
+
+/** Fills the scratch `b2ShapeProxy` with `shape`'s geometry transformed to
+ * world space: each local point is rotated by `rotation` and translated by
+ * `at`. `setPoint` copies by value, so the scratch `b2Vec2` and the returned
+ * proxy are free for reuse as soon as the consuming cast returns. Throws for
+ * a {@link Polygon} whose vertex count Box2D cannot represent (0, or more
+ * than `B2_MAX_POLYGON_VERTICES` = 8). */
+function to_b2ShapeProxy(
+  box2d: Box2DModule,
+  shape: CastGeometry,
+  at: Vec2,
+  rotation: number
+): b2ShapeProxy {
+  const proxy = scr_b2ShapeProxy!;
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const point = scr_b2Vec2[0];
+
+  const setPoint = (index: number, x: number, y: number): void => {
+    point.Set(at.x + cos * x - sin * y, at.y + sin * x + cos * y);
+    proxy.setPoint(index, point);
+  };
+
+  if (shape instanceof Box) {
+    setPoint(0, -shape.hx, -shape.hy);
+    setPoint(1, shape.hx, -shape.hy);
+    setPoint(2, shape.hx, shape.hy);
+    setPoint(3, -shape.hx, shape.hy);
+    proxy.count = 4;
+    proxy.radius = 0;
+  } else if (shape instanceof Circle) {
+    setPoint(0, 0, 0);
+    proxy.count = 1;
+    proxy.radius = shape.radius;
+  } else if (shape instanceof Capsule) {
+    setPoint(0, shape.x1, shape.y1);
+    setPoint(1, shape.x2, shape.y2);
+    proxy.count = 2;
+    proxy.radius = shape.radius;
+  } else if (shape instanceof Segment) {
+    setPoint(0, shape.x1, shape.y1);
+    setPoint(1, shape.x2, shape.y2);
+    proxy.count = 2;
+    proxy.radius = 0;
+  } else {
+    const count = shape.vertices.length;
+    if (count < 1 || count > MAX_POLYGON_VERTICES) {
+      throw new Error(
+        `shape cast Polygon must have 1 to ${MAX_POLYGON_VERTICES} vertices, got ${count}`
+      );
+    }
+    for (let i = 0; i < count; i++) {
+      setPoint(i, shape.vertices[i].x, shape.vertices[i].y);
+    }
+    proxy.count = count;
+    proxy.radius = shape.radius;
+  }
+
+  return proxy;
 }
 
 /** Maps a {@link QueryFilter} (default `0xffffffff`/`0xffffffff` — "sees and
