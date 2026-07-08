@@ -29,8 +29,8 @@ world.module(PhysicsModule, {
 - [Materials And Filters](./materials-and-filters.md) - density, friction, restitution, collision categories, masks, and groups.
 - [Forces And Impulses](./forces-and-impulses.md) - persistent forces, queued impulses, child force sources, and update semantics.
 - [Events](./events.md) - contact, hit, and sensor event components.
+- [Joints](./joints.md) - connecting two bodies with revolute, distance, prismatic, wheel, weld, filter, and motor constraints.
 - [Queries](./queries.md) - ray casts, shape casts, and overlap queries.
-- [Joints](./joints.md) - connecting two bodies with revolute, distance, weld, and filter constraints.
 - [Kinematic Motion](./kinematic-motion.md) - target position and target rotation for kinematic bodies.
 - [Systems And Phases](./systems-and-phases.md) - physics phases, fixed timestep assumptions, and frame ordering.
 - [Debug Validation](./debug-validation.md) - optional diagnostics for invalid ECS structures.
@@ -599,13 +599,13 @@ See [Debug Validation](./debug-validation.md).
 
 ## Deferred Features
 
-The first version focuses on bodies, shapes, materials, filters, forces, impulses, kinematic targets, and events. Version 2 adds the `Detectable` marker component and the `physics(world)` query API (ray casts and overlap queries) — see [Queries](./queries.md).
+The first version focuses on bodies, shapes, materials, filters, forces, impulses, kinematic targets, and events. Version 2 adds the `Detectable` marker component and the `physics(world)` query API (ray casts, shape casts, and overlap queries) — see [Queries](./queries.md).
 
-Revolute, distance, weld, and filter joints have shipped — see [Joints](./joints.md). Shape casts have shipped on the `physics(world)` facade — see [Queries](./queries.md).
+Every Box2D joint type — revolute, distance, prismatic, wheel, weld, filter, and motor — has shipped, see [Joints](./joints.md).
 
 Deferred to later versions:
 
-- Prismatic, wheel, and motor joints.
+- Breakable-joint events.
 - Character mover helpers.
 
 See [Roadmap](./roadmap.md).

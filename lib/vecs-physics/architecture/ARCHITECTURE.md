@@ -37,7 +37,7 @@ ergonomic option via components+systems, such as one-off actions like a raycast.
 These are deferred. Ray casts, shape casts, and spatial queries have shipped; the
 remaining items live in the central [`ROADMAP.md`](../../../architecture/ROADMAP.md).
 
-- Character movers, debug rendering. (Revolute/distance/weld/filter joints have shipped — see `docs/joints.md`; prismatic/wheel/motor joints and breakable-joint events remain deferred. Shape casts have shipped — see `docs/queries.md`.)
+- Character movers, debug rendering. (Shape casts have shipped — see `docs/queries.md`; every Box2D joint type has shipped — see `docs/joints.md`; breakable-joint events remain deferred.)
 - Multithreading, SIMD. box2d3-wasm has a threaded "deluxe" build path but vecs-physics ships single-threaded (`compat` build).
 - Pre-solve / custom-filter callbacks.
 - A broad imperative `Physics` global handle. The package exposes only the narrow
@@ -99,14 +99,17 @@ import {
   KinematicTargetRotation,
 
   // Joints
-  Joint, // abstract umbrella; the four concrete types implement it
+  Joint, // abstract umbrella; the seven concrete types implement it
   JointBodyA,
   JointBodyB,
   JointFrame,
   RevoluteJoint,
   DistanceJoint,
+  PrismaticJoint,
+  WheelJoint,
   WeldJoint,
   FilterJoint,
+  MotorJoint,
   JointMotor,
   JointLimit,
   JointLinearSpring,
@@ -176,51 +179,55 @@ world.module(PhysicsModule, opts); // with non-default options
 
 Part of the contract. Match Box2D's `b2DefaultBodyDef()`, `b2DefaultShapeDef()`, `b2DefaultFilter()`, `b2DefaultSurfaceMaterial()`.
 
-| Component                                 | Field                             | Default                  |
-| ----------------------------------------- | --------------------------------- | ------------------------ |
-| `Body`                                    | `type`                            | `BodyType.Static`        |
-|                                           | `bullet`                          | `false`                  |
-|                                           | `enabled`                         | `true`                   |
-|                                           | `allowFastRotation`               | `false`                  |
-| `Position`                                | `x, y`                            | `0, 0`                   |
-| `Rotation`                                | `angle`                           | `0`                      |
-| `LinearVelocity`                          | `x, y`                            | `0, 0`                   |
-| `AngularVelocity`                         | `value`                           | `0`                      |
-| `Damping`                                 | `linear, angular`                 | `0, 0`                   |
-| `GravityScale`                            | `value`                           | `1`                      |
-| `MotionLocks`                             | `x, y, rotation`                  | `false, false, false`    |
-| `Sleep`                                   | `enabled, awake, threshold`       | `true, true, 0.05`       |
-| `ShapePosition`                           | `x, y`                            | `0, 0`                   |
-| `ShapeRotation`                           | `angle`                           | `0`                      |
-| `Box`                                     | `hx, hy`                          | `0.5, 0.5`               |
-| `Circle`                                  | `radius`                          | `0.5`                    |
-| `Capsule`                                 | `x1, y1, x2, y2, radius`          | `-0.5, 0, 0.5, 0, 0.25`  |
-| `Segment`                                 | `x1, y1, x2, y2`                  | `-0.5, 0, 0.5, 0`        |
-| `Polygon`                                 | `vertices, radius`                | `[], 0`                  |
-| `Chain`                                   | `points, loop`                    | `[], false`              |
-| `Material`                                | `density`                         | `1`                      |
-|                                           | `friction`                        | `0.6`                    |
-|                                           | `restitution`                     | `0`                      |
-|                                           | `rollingResistance, tangentSpeed` | `0, 0`                   |
-|                                           | `userMaterialId`                  | `0`                      |
-| `CollisionFilter`                         | `categoryBits`                    | `1`                      |
-|                                           | `maskBits`                        | `0xffffffff`             |
-|                                           | `groupIndex`                      | `0`                      |
-| `Force` / `Impulse`                       | `x, y, wake`                      | `0, 0, true`             |
-| `Torque` / `AngularImpulse`               | `value, wake`                     | `0, true`                |
-| `KinematicTargetPosition`                 | `x, y, tolerance, wake`           | `0, 0, 0.001, true`      |
-| `KinematicTargetRotation`                 | `angle, tolerance, wake`          | `0, 0.001, true`         |
-| `ContactEvents`/`SensorEvents`            | `begin, end`                      | `[], []`                 |
-| `HitEvents`                               | `hits`                            | `[]`                     |
-| `JointBodyA`/`JointBodyB`                 | `target`                          | (relationship; required) |
-| `JointFrame`                              | `localAnchorA, localAnchorB`      | `{0,0}, {0,0}`           |
-|                                           | `referenceAngle`                  | `0`                      |
-| `DistanceJoint`                           | `length`                          | `1`                      |
-| `RevoluteJoint`/`WeldJoint`/`FilterJoint` | (marker)                          | —                        |
-| `JointMotor`                              | `targetSpeed, maxForce`           | `0, 0`                   |
-| `JointLimit`                              | `lower, upper`                    | `0, 0`                   |
-| `JointLinearSpring`/`JointAngularSpring`  | `hertz, dampingRatio`             | `0, 0`                   |
-| `JointSettings`                           | `collideConnected`                | `false`                  |
+| Component                                                               | Field                                                | Default                  |
+| ----------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------ |
+| `Body`                                                                  | `type`                                               | `BodyType.Static`        |
+|                                                                         | `bullet`                                             | `false`                  |
+|                                                                         | `enabled`                                            | `true`                   |
+|                                                                         | `allowFastRotation`                                  | `false`                  |
+| `Position`                                                              | `x, y`                                               | `0, 0`                   |
+| `Rotation`                                                              | `angle`                                              | `0`                      |
+| `LinearVelocity`                                                        | `x, y`                                               | `0, 0`                   |
+| `AngularVelocity`                                                       | `value`                                              | `0`                      |
+| `Damping`                                                               | `linear, angular`                                    | `0, 0`                   |
+| `GravityScale`                                                          | `value`                                              | `1`                      |
+| `MotionLocks`                                                           | `x, y, rotation`                                     | `false, false, false`    |
+| `Sleep`                                                                 | `enabled, awake, threshold`                          | `true, true, 0.05`       |
+| `ShapePosition`                                                         | `x, y`                                               | `0, 0`                   |
+| `ShapeRotation`                                                         | `angle`                                              | `0`                      |
+| `Box`                                                                   | `hx, hy`                                             | `0.5, 0.5`               |
+| `Circle`                                                                | `radius`                                             | `0.5`                    |
+| `Capsule`                                                               | `x1, y1, x2, y2, radius`                             | `-0.5, 0, 0.5, 0, 0.25`  |
+| `Segment`                                                               | `x1, y1, x2, y2`                                     | `-0.5, 0, 0.5, 0`        |
+| `Polygon`                                                               | `vertices, radius`                                   | `[], 0`                  |
+| `Chain`                                                                 | `points, loop`                                       | `[], false`              |
+| `Material`                                                              | `density`                                            | `1`                      |
+|                                                                         | `friction`                                           | `0.6`                    |
+|                                                                         | `restitution`                                        | `0`                      |
+|                                                                         | `rollingResistance, tangentSpeed`                    | `0, 0`                   |
+|                                                                         | `userMaterialId`                                     | `0`                      |
+| `CollisionFilter`                                                       | `categoryBits`                                       | `1`                      |
+|                                                                         | `maskBits`                                           | `0xffffffff`             |
+|                                                                         | `groupIndex`                                         | `0`                      |
+| `Force` / `Impulse`                                                     | `x, y, wake`                                         | `0, 0, true`             |
+| `Torque` / `AngularImpulse`                                             | `value, wake`                                        | `0, true`                |
+| `KinematicTargetPosition`                                               | `x, y, tolerance, wake`                              | `0, 0, 0.001, true`      |
+| `KinematicTargetRotation`                                               | `angle, tolerance, wake`                             | `0, 0.001, true`         |
+| `ContactEvents`/`SensorEvents`                                          | `begin, end`                                         | `[], []`                 |
+| `HitEvents`                                                             | `hits`                                               | `[]`                     |
+| `JointBodyA`/`JointBodyB`                                               | `target`                                             | (relationship; required) |
+| `JointFrame`                                                            | `localAnchorA, localAnchorB`                         | `{0,0}, {0,0}`           |
+|                                                                         | `referenceAngle`                                     | `0`                      |
+| `DistanceJoint`                                                         | `length`                                             | `1`                      |
+| `RevoluteJoint`/`PrismaticJoint`/`WheelJoint`/`WeldJoint`/`FilterJoint` | (marker)                                             | —                        |
+| `MotorJoint`                                                            | `linearVelocity, maxVelocityForce`                   | `{0,0}, 0`               |
+|                                                                         | `angularVelocity, maxVelocityTorque`                 | `0, 0`                   |
+|                                                                         | `linearHertz, linearDampingRatio, maxSpringForce`    | `0, 0, 0`                |
+|                                                                         | `angularHertz, angularDampingRatio, maxSpringTorque` | `0, 0, 0`                |
+| `JointMotor`                                                            | `targetSpeed, maxForce`                              | `0, 0`                   |
+| `JointLimit`                                                            | `lower, upper`                                       | `0, 0`                   |
+| `JointLinearSpring`/`JointAngularSpring`                                | `hertz, dampingRatio`                                | `0, 0`                   |
+| `JointSettings`                                                         | `collideConnected`                                   | `false`                  |
 
 All field initialisers belong on the class body so `new Component()` returns a valid, default-shaped instance — every component must work zero-arg.
 
@@ -322,11 +329,11 @@ Feature modules register the components they own and the systems that implement 
 5. `ForcesModule`: `Force`, `Torque`, `Impulse`, `AngularImpulse`, impulse hooks, force gather, and impulse drain.
 6. `KinematicModule`: `KinematicTargetPosition`, `KinematicTargetRotation`, plus kinematic target driving.
 7. `EventsModule`: `ContactEvents`, `SensorEvents`, `HitEvents`.
-8. `JointsModule`: `JointBodyA`, `JointBodyB`, `Joint`, `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, `FilterJoint`, `JointFrame`, `JointMotor`, `JointLimit`, `JointLinearSpring`, `JointAngularSpring`, `JointSettings`, joint `Implements` metadata, plus joint lifecycle and feature sync systems.
+8. `JointsModule`: `JointBodyA`, `JointBodyB`, `Joint`, `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, `WeldJoint`, `FilterJoint`, `MotorJoint`, `JointFrame`, `JointMotor`, `JointLimit`, `JointLinearSpring`, `JointAngularSpring`, `JointSettings`, joint `Implements` metadata, plus joint lifecycle and feature sync systems.
 
 `ChildOf` is built into Vecs — referenced, never registered.
 
-`Shape` metadata: `SingleShape` implements `Shape`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly. Joint metadata: `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, and `FilterJoint` implement `Joint`. `JointBodyA`/`JointBodyB` keep the default `CleanupPolicy.Remove` (destroying a body detaches the joint rather than deleting the joint entity — see Settled decisions).
+`Shape` metadata: `SingleShape` implements `Shape`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly. Joint metadata: `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, `WeldJoint`, `FilterJoint`, and `MotorJoint` implement `Joint`. `JointBodyA`/`JointBodyB` keep the default `CleanupPolicy.Remove` (destroying a body detaches the joint rather than deleting the joint entity — see Settled decisions).
 
 ### Internal Engine Attachment
 

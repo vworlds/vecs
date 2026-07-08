@@ -24,8 +24,10 @@ import {
   JointLimit,
   JointLinearSpring,
   JointMotor,
+  PrismaticJoint,
   RevoluteJoint,
   WeldJoint,
+  WheelJoint,
 } from "./components.js";
 import { type Box2DModule } from "../adapter/runtime.js";
 import { PhysicsCoreModule } from "../core/module.js";
@@ -119,6 +121,14 @@ function applyMotor(box2d: Box2DModule, joint: Joint, jointId: b2JointId, motor:
     box2d.b2DistanceJoint_EnableMotor(jointId, true);
     box2d.b2DistanceJoint_SetMotorSpeed(jointId, motor.targetSpeed);
     box2d.b2DistanceJoint_SetMaxMotorForce(jointId, motor.maxForce);
+  } else if (joint instanceof PrismaticJoint) {
+    box2d.b2PrismaticJoint_EnableMotor(jointId, true);
+    box2d.b2PrismaticJoint_SetMotorSpeed(jointId, motor.targetSpeed);
+    box2d.b2PrismaticJoint_SetMaxMotorForce(jointId, motor.maxForce);
+  } else if (joint instanceof WheelJoint) {
+    box2d.b2WheelJoint_EnableMotor(jointId, true);
+    box2d.b2WheelJoint_SetMotorSpeed(jointId, motor.targetSpeed);
+    box2d.b2WheelJoint_SetMaxMotorTorque(jointId, motor.maxForce);
   }
 }
 
@@ -127,6 +137,10 @@ function disableMotor(box2d: Box2DModule, joint: Joint, jointId: b2JointId): voi
     box2d.b2RevoluteJoint_EnableMotor(jointId, false);
   } else if (joint instanceof DistanceJoint) {
     box2d.b2DistanceJoint_EnableMotor(jointId, false);
+  } else if (joint instanceof PrismaticJoint) {
+    box2d.b2PrismaticJoint_EnableMotor(jointId, false);
+  } else if (joint instanceof WheelJoint) {
+    box2d.b2WheelJoint_EnableMotor(jointId, false);
   }
 }
 
@@ -137,6 +151,12 @@ function applyLimit(box2d: Box2DModule, joint: Joint, jointId: b2JointId, limit:
   } else if (joint instanceof DistanceJoint) {
     box2d.b2DistanceJoint_EnableLimit(jointId, true);
     box2d.b2DistanceJoint_SetLengthRange(jointId, limit.lower, limit.upper);
+  } else if (joint instanceof PrismaticJoint) {
+    box2d.b2PrismaticJoint_EnableLimit(jointId, true);
+    box2d.b2PrismaticJoint_SetLimits(jointId, limit.lower, limit.upper);
+  } else if (joint instanceof WheelJoint) {
+    box2d.b2WheelJoint_EnableLimit(jointId, true);
+    box2d.b2WheelJoint_SetLimits(jointId, limit.lower, limit.upper);
   }
 }
 
@@ -145,6 +165,10 @@ function disableLimit(box2d: Box2DModule, joint: Joint, jointId: b2JointId): voi
     box2d.b2RevoluteJoint_EnableLimit(jointId, false);
   } else if (joint instanceof DistanceJoint) {
     box2d.b2DistanceJoint_EnableLimit(jointId, false);
+  } else if (joint instanceof PrismaticJoint) {
+    box2d.b2PrismaticJoint_EnableLimit(jointId, false);
+  } else if (joint instanceof WheelJoint) {
+    box2d.b2WheelJoint_EnableLimit(jointId, false);
   }
 }
 
@@ -158,6 +182,14 @@ function applyLinearSpring(
     box2d.b2DistanceJoint_EnableSpring(jointId, true);
     box2d.b2DistanceJoint_SetSpringHertz(jointId, spring.hertz);
     box2d.b2DistanceJoint_SetSpringDampingRatio(jointId, spring.dampingRatio);
+  } else if (joint instanceof PrismaticJoint) {
+    box2d.b2PrismaticJoint_EnableSpring(jointId, true);
+    box2d.b2PrismaticJoint_SetSpringHertz(jointId, spring.hertz);
+    box2d.b2PrismaticJoint_SetSpringDampingRatio(jointId, spring.dampingRatio);
+  } else if (joint instanceof WheelJoint) {
+    box2d.b2WheelJoint_EnableSpring(jointId, true);
+    box2d.b2WheelJoint_SetSpringHertz(jointId, spring.hertz);
+    box2d.b2WheelJoint_SetSpringDampingRatio(jointId, spring.dampingRatio);
   } else if (joint instanceof WeldJoint) {
     box2d.b2WeldJoint_SetLinearHertz(jointId, spring.hertz);
     box2d.b2WeldJoint_SetLinearDampingRatio(jointId, spring.dampingRatio);
@@ -167,6 +199,10 @@ function applyLinearSpring(
 function disableLinearSpring(box2d: Box2DModule, joint: Joint, jointId: b2JointId): void {
   if (joint instanceof DistanceJoint) {
     box2d.b2DistanceJoint_EnableSpring(jointId, false);
+  } else if (joint instanceof PrismaticJoint) {
+    box2d.b2PrismaticJoint_EnableSpring(jointId, false);
+  } else if (joint instanceof WheelJoint) {
+    box2d.b2WheelJoint_EnableSpring(jointId, false);
   } else if (joint instanceof WeldJoint) {
     // A weld has no spring enable flag; zero hertz is a rigid weld.
     box2d.b2WeldJoint_SetLinearHertz(jointId, 0);

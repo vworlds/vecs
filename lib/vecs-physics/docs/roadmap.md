@@ -195,18 +195,18 @@ This is deferred because character movement tends to become game-specific quickl
 
 ### Joints
 
-**Shipped: revolute, distance, weld, and filter joints.** See [Joints](./joints.md)
-for the full model. A joint is its own entity that references the two connected
-bodies through the `JointBodyA`/`JointBodyB` relationships, carries one exclusive
+**Shipped: revolute, distance, prismatic, wheel, weld, filter, and motor
+joints — every Box2D joint type.** See [Joints](./joints.md) for the full
+model. A joint is its own entity that references the two connected bodies
+through the `JointBodyA`/`JointBodyB` relationships, carries one exclusive
 joint-type component, and layers optional feature components (`JointMotor`,
 `JointLimit`, `JointLinearSpring`, `JointAngularSpring`) whose presence enables
-the feature.
+the feature. `PrismaticJoint` and `WheelJoint` reuse those same feature
+components for their axis motor/limit/spring; `MotorJoint` carries its own
+always-on velocity/spring fields instead, since Box2D gives it no enable flags.
 
 Still pending:
 
-- **Prismatic, wheel, and motor joints.** These need an axis (prismatic/wheel) or
-  a velocity-drive model (motor) on top of the existing scaffolding; they slot
-  into the same component model as added def-builders and setter maps.
 - **Breakable-joint events.** Box2D exposes joint force/torque thresholds and
   joint events; a vecs-physics event surface for them is not yet wired.
 
@@ -246,7 +246,7 @@ Recommended direction:
 
 If you need character movers immediately, they are not part of the first version.
 
-Ray casts and overlap queries shipped in v2 via `physics(world)`, and shape casts have shipped on the same facade — see [Queries](./queries.md). Revolute, distance, weld, and filter joints have shipped — see [Joints](./joints.md). Use shape entities, sensors, and contact events for gameplay that does not yet have a dedicated query or constraint API.
+Ray casts and overlap queries shipped in v2 via `physics(world)`, and shape casts have shipped on the same facade — see [Queries](./queries.md). Every Box2D joint type — revolute, distance, prismatic, wheel, weld, filter, and motor — has shipped, see [Joints](./joints.md). Use shape entities, sensors, and contact events for gameplay that does not yet have a dedicated query or constraint API.
 
 ### Building Public APIs Around Internal Handles
 

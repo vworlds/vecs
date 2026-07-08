@@ -77,17 +77,70 @@ angle. Anchors and the reference angle are fixed at creation; changing
 ## Joint types
 
 Exactly one joint-type component lives on a joint entity (they are mutually
-exclusive, like geometry components). This version ships four types:
+exclusive, like geometry components). This version ships seven types:
 
-| Type            | Constraint                                                             |
-| --------------- | ---------------------------------------------------------------------- |
-| `RevoluteJoint` | Hinge: pins the bodies at a shared anchor, free relative rotation.     |
-| `DistanceJoint` | Keeps the two anchors a fixed `length` apart (a rigid rod by default). |
-| `WeldJoint`     | Rigidly fixes the relative position and orientation.                   |
-| `FilterJoint`   | Disables collision between the two bodies without constraining them.   |
+| Type             | Constraint                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| `RevoluteJoint`  | Hinge: pins the bodies at a shared anchor, free relative rotation.                    |
+| `DistanceJoint`  | Keeps the two anchors a fixed `length` apart (a rigid rod by default).                |
+| `PrismaticJoint` | Slider: locks relative rotation, lets body B slide along one axis.                    |
+| `WheelJoint`     | Like `PrismaticJoint`, but leaves relative rotation free (a wheel on a suspension).   |
+| `WeldJoint`      | Rigidly fixes the relative position and orientation.                                  |
+| `FilterJoint`    | Disables collision between the two bodies without constraining them.                  |
+| `MotorJoint`     | Drives body B toward a target pose relative to body A (velocity + spring, always on). |
 
-`DistanceJoint` carries a `length` field; the other three are markers whose
-behaviour is shaped by the frame and feature components.
+`DistanceJoint` carries a `length` field, `MotorJoint` carries its own set of
+velocity/spring fields (see [Motor joint](#motor-joint) below), and the rest are
+markers whose behaviour is shaped by the frame and feature components.
+
+### The sliding axis (`PrismaticJoint`, `WheelJoint`)
+
+`PrismaticJoint` and `WheelJoint` slide body B along an axis instead of pinning
+it at a point. That axis is body A's local x-axis, rotated by
+`JointFrame.referenceAngle` — 0 means the axis runs along body A's own local
+x-axis:
+
+```ts
+import { JointFrame, PrismaticJoint } from "@vworlds/vecs-physics";
+
+world
+  .entity()
+  .set(JointBodyA, { target: cart })
+  .set(JointBodyB, { target: piston })
+  .add(PrismaticJoint)
+  .set(JointFrame, { referenceAngle: Math.PI / 2 }); // slide straight up/down
+```
+
+`PrismaticJoint` additionally locks the bodies' relative angle at that same
+value (like `WeldJoint`); `WheelJoint` leaves rotation completely free, so the
+connected body can spin like a wheel on an axle while its suspension travels
+along the axis.
+
+### Motor joint
+
+`MotorJoint` does not fit the shared feature model: Box2D gives it no enable
+flags, so its velocity motor and positional spring are both always active. It
+carries its own fields directly, the same way `DistanceJoint` carries `length`:
+
+```ts
+import { MotorJoint } from "@vworlds/vecs-physics";
+
+world
+  .entity()
+  .set(JointBodyA, { target: ground })
+  .set(JointBodyB, { target: player })
+  .set(MotorJoint, {
+    linearVelocity: { x: 3, y: 0 }, // drive body B at 3 m/s relative to body A
+    maxVelocityForce: 200, // clamp the velocity motor's force
+    linearHertz: 5, // soften the positional spring pulling B toward the frame's target
+    linearDampingRatio: 0.7,
+    maxSpringForce: 500,
+  });
+```
+
+`JointFrame`'s anchors and `referenceAngle` set the target relative pose the
+spring pulls toward. `JointMotor`, `JointLimit`, `JointLinearSpring`, and
+`JointAngularSpring` do not apply to `MotorJoint`.
 
 ## Features: motor, limit, spring
 
@@ -111,27 +164,33 @@ hinge.set(JointLimit, { lower: -0.5, upper: 0.5 }); // clamp the angle (radians)
 hinge.remove(JointMotor); // stop driving; the hinge swings freely again
 ```
 
-- `JointMotor { targetSpeed, maxForce }` — drives the joint toward `targetSpeed`
-  (rad/s for revolute, m/s for distance), bounded by `maxForce` (a torque on
-  angular joints).
-- `JointLimit { lower, upper }` — an angle range (radians) for revolute, a length
-  range (meters) for distance.
+- `JointMotor { targetSpeed, maxForce }` — drives the joint toward `targetSpeed`,
+  bounded by `maxForce`. Angular joints (revolute, wheel) interpret this as
+  rad/s and a torque; linear joints (distance, prismatic) interpret it as m/s
+  and a force.
+- `JointLimit { lower, upper }` — an angle range (radians) for revolute, a
+  length/translation range (meters) for distance, prismatic, and wheel.
 - `JointLinearSpring { hertz, dampingRatio }` — a soft constraint along the
-  linear axis (distance, and the linear axis of weld).
+  linear axis (distance, prismatic, wheel, and the linear axis of weld).
 - `JointAngularSpring { hertz, dampingRatio }` — a soft constraint on the
   relative angle (revolute, and the angular axis of weld). Split from the linear
   spring so a weld can carry both at once.
 
 ### Which features apply to which type
 
-| Type            | Motor | Limit | Linear spring | Angular spring |
-| --------------- | :---: | :---: | :-----------: | :------------: |
-| `RevoluteJoint` |  yes  |  yes  |       —       |      yes       |
-| `DistanceJoint` |  yes  |  yes  |      yes      |       —        |
-| `WeldJoint`     |   —   |   —   |      yes      |      yes       |
-| `FilterJoint`   |   —   |   —   |       —       |       —        |
+| Type             | Motor | Limit | Linear spring | Angular spring |
+| ---------------- | :---: | :---: | :-----------: | :------------: |
+| `RevoluteJoint`  |  yes  |  yes  |       —       |      yes       |
+| `DistanceJoint`  |  yes  |  yes  |      yes      |       —        |
+| `PrismaticJoint` |  yes  |  yes  |      yes      |       —        |
+| `WheelJoint`     |  yes  |  yes  |      yes      |       —        |
+| `WeldJoint`      |   —   |   —   |      yes      |      yes       |
+| `FilterJoint`    |   —   |   —   |       —       |       —        |
+| `MotorJoint`     |   —   |   —   |       —       |       —        |
 
-A feature component on a type that does not support it is ignored.
+A feature component on a type that does not support it is ignored. `MotorJoint`
+has its own always-on velocity/spring fields instead — see
+[Motor joint](#motor-joint).
 
 ## Letting the connected bodies collide
 
@@ -146,15 +205,15 @@ joint.set(JointSettings, { collideConnected: true });
 
 ## Lifecycle
 
-| ECS change                               | Physics behavior                                                          |
-| ---------------------------------------- | ------------------------------------------------------------------------- |
-| Both bodies have `Body` + joint-type set | Create the joint.                                                         |
-| Remove the joint-type component          | Destroy the joint.                                                        |
-| Destroy the joint entity                 | Destroy the joint; bodies are unaffected.                                 |
-| Destroy a connected body                 | Detach the joint: its constraint is torn down, the joint entity survives. |
-| Retarget `JointBodyA`/`JointBodyB`       | Rebuild the joint on the new bodies.                                      |
-| Change `JointFrame` / `DistanceJoint`    | Rebuild the joint with the new geometry.                                  |
-| Add/remove/change a feature component    | Enable/disable/retune that feature, waking the bodies.                    |
+| ECS change                                           | Physics behavior                                                          |
+| ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| Both bodies have `Body` + joint-type set             | Create the joint.                                                         |
+| Remove the joint-type component                      | Destroy the joint.                                                        |
+| Destroy the joint entity                             | Destroy the joint; bodies are unaffected.                                 |
+| Destroy a connected body                             | Detach the joint: its constraint is torn down, the joint entity survives. |
+| Retarget `JointBodyA`/`JointBodyB`                   | Rebuild the joint on the new bodies.                                      |
+| Change `JointFrame` / `DistanceJoint` / `MotorJoint` | Rebuild the joint with the new geometry/fields.                           |
+| Add/remove/change a feature component                | Enable/disable/retune that feature, waking the bodies.                    |
 
 ### Destroying a connected body
 
@@ -166,11 +225,9 @@ entity with `ChildOf` so it is cleaned up with that, or destroy it directly.
 
 ## Not yet included
 
-This version ships revolute, distance, weld, and filter joints. Prismatic,
-wheel, and motor joints, and breakable-joint events, are planned — see
-[Roadmap](./roadmap.md). The component model (relationships + exclusive
-type components + reusable feature components) is designed so they slot in
-without changing the existing API.
+This version ships revolute, distance, prismatic, wheel, weld, filter, and
+motor joints — every Box2D joint type. Breakable-joint events are planned —
+see [Roadmap](./roadmap.md).
 
 ## Related Pages
 
