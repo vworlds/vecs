@@ -375,4 +375,62 @@ describe("type decorator", () => {
 
     expect(roundTrip(Flag, new Flag())).toBeInstanceOf(Flag);
   });
+
+  it("encodes an entity field by writing .eid and decodes to a raw number", () => {
+    class Ref {
+      @type("entity")
+      public target: { eid: number } = { eid: 0 };
+    }
+
+    const value = new Ref();
+    value.target = { eid: 42 };
+
+    const encoder = new Encoder(new Uint8Array(128));
+    encoder.write(value);
+
+    const decoded = new Decoder(encoder.getBuffer()).read(Ref);
+    expect(decoded.target).toBe(42);
+  });
+
+  it("round-trips an entity field alongside scalar fields", () => {
+    class Node {
+      @type("u32")
+      public id = 0;
+
+      @type("entity")
+      public parent: { eid: number } = { eid: 0 };
+
+      @type("string")
+      public name = "";
+    }
+
+    const value = new Node();
+    value.id = 7;
+    value.parent = { eid: 99 };
+    value.name = "child";
+
+    const decoded = roundTrip(Node, value);
+    expect(decoded.id).toBe(7);
+    expect((decoded as unknown as { parent: number }).parent).toBe(99);
+    expect(decoded.name).toBe("child");
+  });
+
+  it("subclasses inherit wire fields from the parent and decode to the correct subclass", () => {
+    class Base {
+      @type("entity")
+      public target: { eid: number } = { eid: 0 };
+    }
+
+    class Derived extends Base {}
+
+    const value = new Derived();
+    value.target = { eid: 55 };
+
+    const encoder = new Encoder(new Uint8Array(128));
+    encoder.write(value);
+
+    const decoded = new Decoder(encoder.getBuffer()).read(Derived);
+    expect(decoded).toBeInstanceOf(Derived);
+    expect((decoded as unknown as { target: number }).target).toBe(55);
+  });
 });

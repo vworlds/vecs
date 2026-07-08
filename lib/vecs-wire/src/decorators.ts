@@ -16,7 +16,8 @@ export type WireScalarType =
   | "f64"
   | "string"
   | "bytes"
-  | "any";
+  | "any"
+  | "entity";
 
 export type WireConstructor<T = unknown> = new () => T;
 export type WireTypeSpec =
@@ -56,6 +57,9 @@ const scalarMethods: Record<WireScalarType, { read: string; write: string }> = {
   string: { read: "read_string", write: "write_string" },
   bytes: { read: "read_bytes", write: "write_buffer" },
   any: { read: "read_any", write: "write_any" },
+  // "entity" uses a custom codegen path (encode accesses .eid, decode returns
+  // a raw number). These entries satisfy the Record type but are never called.
+  entity: { read: "read_u32", write: "write_u32" },
 };
 
 const fieldsByConstructor = new WeakMap<Function, IWireField[]>();
@@ -131,15 +135,15 @@ function registerField(C: DecoratedConstructor, key: string, spec: WireTypeSpec)
 function installTrampolines(C: DecoratedConstructor): void {
   if (!Object.prototype.hasOwnProperty.call(C.prototype, "wireEncode")) {
     C.prototype.wireEncode = function wireEncode(this: IEncodable, encoder: Encoder): void {
-      compileWireType(C);
+      compileWireType(this.constructor as DecoratedConstructor);
       this.wireEncode(encoder);
     };
   }
 
   if (!Object.prototype.hasOwnProperty.call(C, "wireDecode")) {
-    C.wireDecode = function wireDecode(decoder: Decoder): unknown {
-      compileWireType(C);
-      return C.wireDecode!(decoder);
+    C.wireDecode = function wireDecode(this: DecoratedConstructor, decoder: Decoder): unknown {
+      compileWireType(this);
+      return this.wireDecode!(decoder);
     };
   }
 }
@@ -149,9 +153,23 @@ function compileWireType(C: DecoratedConstructor): void {
     return;
   }
 
-  const fields = fieldsByConstructor.get(C);
+  let fields = fieldsByConstructor.get(C);
   if (fields === undefined) {
-    throw new Error(`vecs-wire/type ${C.name || "anonymous class"} is not a wire type`);
+    // Walk the prototype chain to find inherited wire fields. This lets a
+    // subclass (e.g. ChildOf extends Relationship) inherit the wire type
+    // definition from its parent and still compile its own wireEncode /
+    // wireDecode so `new C()` creates the correct subclass instance.
+    let proto = Object.getPrototypeOf(C);
+    while (proto !== null && proto !== Function.prototype) {
+      fields = fieldsByConstructor.get(proto);
+      if (fields !== undefined) {
+        break;
+      }
+      proto = Object.getPrototypeOf(proto);
+    }
+    if (fields === undefined) {
+      throw new Error(`vecs-wire/type ${C.name || "anonymous class"} is not a wire type`);
+    }
   }
 
   const nestedTypes: WireConstructor[] = [];
@@ -225,6 +243,9 @@ function emitDecodeField(
 }
 
 function emitEncodeValue(valueExpr: string, spec: WireScalarType | WireConstructor): string {
+  if (spec === "entity") {
+    return `encoder.write_u32(${valueExpr}.eid >>> 0);`;
+  }
   if (isScalarSpec(spec)) {
     return `encoder.${scalarMethods[spec].write}(${valueExpr});`;
   }
@@ -236,6 +257,9 @@ function emitDecodeValue(
   spec: WireScalarType | WireConstructor,
   nestedTypes: WireConstructor[]
 ): string {
+  if (spec === "entity") {
+    return `decoder.read_u32()`;
+  }
   if (isScalarSpec(spec)) {
     return `decoder.${scalarMethods[spec].read}()`;
   }
@@ -258,7 +282,7 @@ function assertValidSpec(spec: WireTypeSpec): void {
 }
 
 function assertValidElementSpec(spec: WireScalarType | WireConstructor): void {
-  if (isScalarSpec(spec) || typeof spec === "function") {
+  if (spec === "entity" || isScalarSpec(spec) || typeof spec === "function") {
     return;
   }
 
