@@ -10,7 +10,7 @@ import {
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import type { EID } from "@vworlds/vecs";
-import { ClientWorld, type ClientWorldOptions } from "../src/index.js";
+import { ClientWorld, interpolatePosition, type ClientWorldOptions } from "../src/index.js";
 
 class Position {
   @wireType("i32")
@@ -80,7 +80,11 @@ function posSnapshot(eid: EID, x: number, y: number): EncodedSnapshot {
 }
 
 function createClientWorld(options: ClientWorldOptions = {}): ClientWorld {
-  return new ClientWorld({ networkComponents: [Position], ...options });
+  return new ClientWorld({
+    networkComponents: [Position],
+    interpolators: [[1, interpolatePosition]],
+    ...options,
+  });
 }
 
 describe("ClientWorld", () => {

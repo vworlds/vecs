@@ -1,4 +1,5 @@
 import { ClientWorld } from "@vworlds/vecs-client";
+import { interpolatePosition } from "@vworlds/vecs-client";
 import {
   Alpha,
   Arc,
@@ -125,13 +126,17 @@ describe("rotationInterpolator", () => {
 });
 
 describe("phaserInterpolators", () => {
-  it("includes the derived Rotation wire type by default", () => {
+  it("installs interpolatePosition on the Position wire type and rotationInterpolator on Rotation by default", () => {
+    expect(phaserNetworkComponents.indexOf(Position) + 1).toBe(1);
     expect(phaserNetworkComponents.indexOf(Rotation) + 1).toBe(2);
-    expect(phaserInterpolators()).toEqual([[2, rotationInterpolator]]);
+    expect(phaserInterpolators()).toEqual([
+      [1, interpolatePosition],
+      [2, rotationInterpolator],
+    ]);
   });
 
-  it("returns no interpolators when rotation interpolation is disabled", () => {
-    expect(phaserInterpolators({ interpolateRotation: false })).toEqual([]);
+  it("still installs interpolatePosition when rotation interpolation is disabled", () => {
+    expect(phaserInterpolators({ interpolateRotation: false })).toEqual([[1, interpolatePosition]]);
   });
 });
 

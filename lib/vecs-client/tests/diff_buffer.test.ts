@@ -6,6 +6,7 @@ import {
   ComponentSnapshot,
   Diff,
   DiffBuffer,
+  interpolatePosition,
   merge,
   type ComponentInterpolator,
 } from "../src/diff_buffer.js";
@@ -105,7 +106,9 @@ function decodePosition(snapshot: ComponentSnapshot): Position {
 }
 
 function newDiffBuffer(maxLength: number, serverTickInterval: number): DiffBuffer {
-  return new DiffBuffer(maxLength, serverTickInterval, decodePosition);
+  return new DiffBuffer(maxLength, serverTickInterval, decodePosition, [
+    [PositionWireType, interpolatePosition],
+  ]);
 }
 
 const A = 1;

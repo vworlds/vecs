@@ -10,15 +10,13 @@ import { Decoder } from "@vworlds/vecs-wire";
 import { type ComponentInstance, type EID } from "@vworlds/vecs";
 
 const MAX_LENGTH = 3;
-const POSITION_WIRE_TYPE = 1;
 
 export interface IPosition {
-  readonly x: number;
-  readonly y: number;
+  x: number;
+  y: number;
 }
 
 type DecodeComponentSnapshot = (snapshot: ComponentSnapshot) => ComponentInstance;
-type PositionComponent = ComponentInstance & IPosition;
 
 /**
  * Blends a source and target component toward render time. `alpha` is the
@@ -137,16 +135,16 @@ export class DiffBuffer {
 
   // componentInterpolators maps a wire type id to the function used to
   // blend it between server frames. Types without an entry are snapped to their
-  // latest value.
+  // latest value. No interpolators are registered by default; callers must opt
+  // in by passing an entry (e.g. wiring `interpolatePosition` to the wire type
+  // of their position-like component).
   private readonly _componentInterpolators: Map<number, ComponentInterpolator>;
 
   public constructor(
     private max_length: number = MAX_LENGTH, // max bucket length
     private server_tick_interval: number = 1000 / 60, // server tick interval FPS configuration
     private readonly _decodeComponentSnapshot?: DecodeComponentSnapshot,
-    componentInterpolators: Iterable<readonly [number, ComponentInterpolator]> = [
-      [POSITION_WIRE_TYPE, interpolatePosition],
-    ]
+    componentInterpolators: Iterable<readonly [number, ComponentInterpolator]> = []
   ) {
     if (max_length < 2) {
       throw new Error("minimum interpolation bucket length is 2");
@@ -370,30 +368,24 @@ export class DiffBuffer {
   }
 }
 
-function isPosition(component: ComponentInstance): component is PositionComponent {
-  const candidate = component as Partial<IPosition>;
-  return typeof candidate.x === "number" && typeof candidate.y === "number";
-}
-
 /**
- * Default {@link ComponentInterpolator} for 2D point components: linearly
- * interpolates the `x` and `y` fields. Exported so callers can interpolate
- * their own position-like components without reimplementing the math.
+ * Built-in {@link ComponentInterpolator} for 2D point components: linearly
+ * interpolates the `x` and `y` fields. Not registered by default; callers that
+ * want position interpolation must wire it to their position-like component's
+ * wire type explicitly, e.g. `[[Position.wireType, interpolatePosition]]`.
+ * Exported so callers can interpolate their own position-like components
+ * without reimplementing the math.
  */
-export const interpolatePosition: ComponentInterpolator = (source, target, alpha) => {
-  if (!isPosition(source) || !isPosition(target)) {
-    throw new Error(`Component wire type ${POSITION_WIRE_TYPE} must satisfy IPosition`);
-  }
-  const result = new (
-    target.constructor as new () => ComponentInstance & {
-      x: number;
-      y: number;
-    }
-  )();
+export const interpolatePosition: ComponentInterpolator = ((
+  source: object & IPosition,
+  target: object & IPosition & { constructor: new () => ComponentInstance },
+  alpha: number
+) => {
+  const result = new target.constructor() as IPosition;
   result.x = source.x + (target.x - source.x) * alpha;
   result.y = source.y + (target.y - source.y) * alpha;
   return result;
-};
+}) as ComponentInterpolator;
 
 // helper function to add items to a set
 function addToSet<T>(set: Set<T>, data: Iterable<T> | undefined): void {

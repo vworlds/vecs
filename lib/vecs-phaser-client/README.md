@@ -40,11 +40,14 @@ world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64, catalog });
 The `Image` renderer creates textured entities from replicated `Image` components with no
 per-entity client code, like the primitive shape renderers.
 
-## Rotation Interpolation
+## Interpolation
 
-`ClientWorld` interpolation is configured at construction/connect time. To smooth Phaser
-`Rotation` components with shortest-arc angular interpolation, pass `phaserInterpolators()`
-when connecting the world:
+`ClientWorld` interpolation is configured at construction/connect time. No
+interpolators are registered by default — pass `phaserInterpolators()` to opt
+into interpolation for the standard Phaser transform components. It installs
+`interpolatePosition` (linear `{x,y}` lerp) on the `Position` wire type and
+`rotationInterpolator` (shortest-arc angular lerp) on the `Rotation` wire
+type, both looked up from `phaserNetworkComponents`:
 
 ```ts
 import { ClientWorld } from "@vworlds/vecs-client";
@@ -62,5 +65,6 @@ const world = await ClientWorld.connectDgram({
 world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64 });
 ```
 
-Rotation interpolation is a connect-time concern. Pass
-`phaserInterpolators({ interpolateRotation: false })` to snap rotation updates instead.
+Pass `phaserInterpolators({ interpolateRotation: false })` to snap rotation
+updates while still interpolating `Position`. To disable interpolation
+entirely, omit `interpolators` (or pass an empty list).

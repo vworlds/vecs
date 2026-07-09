@@ -56,8 +56,9 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
   /**
    * Component types to interpolate between server frames, keyed by wire
    * type id, with the function used to blend each one. Types without an entry
-   * are snapped to their latest received value. Defaults to interpolating the
-   * first network component (wire type 1) as a 2D position via `interpolatePosition`.
+   * are snapped to their latest received value. No interpolators are registered
+   * by default; pass an entry to opt in (e.g. wiring `interpolatePosition` to
+   * your position-like component's wire type).
    */
   interpolators?: Iterable<readonly [number, ComponentInterpolator]>;
 }

@@ -39,30 +39,30 @@ repo [`ROADMAP.md`](../../../architecture/ROADMAP.md); completed work lives in
 
 These were confirmed by reading the code; implementers can rely on them.
 
-| Fact                                                                                                                                               | Where                                                                      |
-| -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Client applies replicated snapshots via `entity.attach()`                                                                                          | `lib/vecs-client/src/client_world.ts:230`                                  |
-| `_attach` fires `onAdd`/`onSet` and routes query `enter`/`modified`/`exit` ("as if `set`")                                                         | `lib/vecs/src/entity/entity.components.ts:19-30`, `:386-399`               |
-| Baseline reset destroys all networked entities (→ fires our `exit`) then rebuilds                                                                  | `lib/vecs-client/src/client_world.ts:208,255-257`                          |
-| `reset` event: `{ initial, fromFrame, toFrame }`                                                                                                   | `client_world.ts:211`                                                      |
-| EIDs are stable across the wire (`getOrCreateEntity(snapshot.eid)`)                                                                                | `client_world.ts:232`                                                      |
-| Snapshots emitted in `networkComponents` registration order                                                                                        | `lib/vecs-server/src/server_world.ts:280`                                  |
-| Network wire type id = array index + 1 (order is the protocol)                                                                                     | `lib/vecs-protocol/src/network_world.ts`                                   |
-| Native exclusivity group: `world.setExclusiveComponents(...)`                                                                                      | `lib/vecs/src/world/world.components.ts:101`                               |
-| `_storeComponent` auto-removes conflicting exclusive components                                                                                    | `entity.components.ts:402-426`                                             |
-| Decorator import: `import { wireType } from "@vworlds/vecs-wire"`                                                                                  | `lib/vecs-wire/src/index.ts:2`                                             |
-| Wire scalar types: `bool,u8,i8,u16,i16,u32,i32,u64,i64,enum,f32,f64,string,bytes,any`; arrays `["f32"]`; nested classes                            | `lib/vecs-wire/src/decorators.ts`                                          |
-| Default client interpolation blends network component **type 1** as 2D `{x,y}`; others snapped; configurable via `interpolators`                   | `lib/vecs-client/src/client_world.ts` (`ClientWorldOptions.interpolators`) |
-| `Relationship.target` is an `Entity` (not serializable); `Encoder.write` throws without `wireEncode` → relationships are **not** networkable       | `lib/vecs/src/component_meta.ts:11-13`, `lib/vecs-wire/src/encoder.ts:271` |
-| vecs-physics pose: `Position {x,y}` (meters), `Rotation {angle}` (radians)                                                                         | `lib/vecs-physics/src/components/body.ts`                                  |
-| System/query API: `.with().enter().update().exit().each().run().phase()`                                                                           | `lib/vecs/src/system.ts`, `lib/vecs/src/query/query.ts`                    |
-| `update({ watch })` auto-adds the watched component to the query predicate                                                                         | `lib/vecs/src/query/query.ts:428`                                          |
-| `connectDgram` performs an HTTP handshake against `worldPath(apiBasePath, worldName)` before the channel opens                                     | `lib/vecs-client/src/client_world.ts:105`                                  |
-| The dgram transport is WebRTC datachannel with HTTP signaling mounted on the app's Express instance                                                | `node_modules/@vworlds/dgram-server/.../socket-listener.js`                |
-| Phaser: `scene.load.spritesheet(key, url, { frameWidth, frameHeight, margin, spacing })`; frames are row-major numeric                             | Phaser `SpriteSheetFile`                                                   |
-| Phaser: `scene.add.image(x, y, key, frame)` / `image.setTexture(key, frame)` / `setDisplaySize(w, h)`                                              | Phaser `ImageFactory`, `Texture` component                                 |
-| Tiled standalone tileset (`.tsj`): `image`, `imagewidth/height`, `tilewidth/height`, `margin`, `spacing`, `columns`, `tilecount`, sparse `tiles[]` | https://doc.mapeditor.org/en/stable/reference/json-map-format/             |
-| Tiled tile local id ordering is **row-major** → tile id == Phaser spritesheet frame index                                                          | Tiled JSON reference; Phaser `SpriteSheetFile`                             |
+| Fact                                                                                                                                                              | Where                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Client applies replicated snapshots via `entity.attach()`                                                                                                         | `lib/vecs-client/src/client_world.ts:230`                                                                        |
+| `_attach` fires `onAdd`/`onSet` and routes query `enter`/`modified`/`exit` ("as if `set`")                                                                        | `lib/vecs/src/entity/entity.components.ts:19-30`, `:386-399`                                                     |
+| Baseline reset destroys all networked entities (→ fires our `exit`) then rebuilds                                                                                 | `lib/vecs-client/src/client_world.ts:208,255-257`                                                                |
+| `reset` event: `{ initial, fromFrame, toFrame }`                                                                                                                  | `client_world.ts:211`                                                                                            |
+| EIDs are stable across the wire (`getOrCreateEntity(snapshot.eid)`)                                                                                               | `client_world.ts:232`                                                                                            |
+| Snapshots emitted in `networkComponents` registration order                                                                                                       | `lib/vecs-server/src/server_world.ts:280`                                                                        |
+| Network wire type id = array index + 1 (order is the protocol)                                                                                                    | `lib/vecs-protocol/src/network_world.ts`                                                                         |
+| Native exclusivity group: `world.setExclusiveComponents(...)`                                                                                                     | `lib/vecs/src/world/world.components.ts:101`                                                                     |
+| `_storeComponent` auto-removes conflicting exclusive components                                                                                                   | `entity.components.ts:402-426`                                                                                   |
+| Decorator import: `import { wireType } from "@vworlds/vecs-wire"`                                                                                                 | `lib/vecs-wire/src/index.ts:2`                                                                                   |
+| Wire scalar types: `bool,u8,i8,u16,i16,u32,i32,u64,i64,enum,f32,f64,string,bytes,any`; arrays `["f32"]`; nested classes                                           | `lib/vecs-wire/src/decorators.ts`                                                                                |
+| No client interpolators are registered by default; callers opt in per wire type via `interpolators` (e.g. `phaserInterpolators()` installs `Position`+`Rotation`) | `lib/vecs-client/src/client_world.ts` (`ClientWorldOptions.interpolators`), `lib/vecs-phaser-client/src/sync.ts` |
+| `Relationship.target` is an `Entity` (not serializable); `Encoder.write` throws without `wireEncode` → relationships are **not** networkable                      | `lib/vecs/src/component_meta.ts:11-13`, `lib/vecs-wire/src/encoder.ts:271`                                       |
+| vecs-physics pose: `Position {x,y}` (meters), `Rotation {angle}` (radians)                                                                                        | `lib/vecs-physics/src/components/body.ts`                                                                        |
+| System/query API: `.with().enter().update().exit().each().run().phase()`                                                                                          | `lib/vecs/src/system.ts`, `lib/vecs/src/query/query.ts`                                                          |
+| `update({ watch })` auto-adds the watched component to the query predicate                                                                                        | `lib/vecs/src/query/query.ts:428`                                                                                |
+| `connectDgram` performs an HTTP handshake against `worldPath(apiBasePath, worldName)` before the channel opens                                                    | `lib/vecs-client/src/client_world.ts:105`                                                                        |
+| The dgram transport is WebRTC datachannel with HTTP signaling mounted on the app's Express instance                                                               | `node_modules/@vworlds/dgram-server/.../socket-listener.js`                                                      |
+| Phaser: `scene.load.spritesheet(key, url, { frameWidth, frameHeight, margin, spacing })`; frames are row-major numeric                                            | Phaser `SpriteSheetFile`                                                                                         |
+| Phaser: `scene.add.image(x, y, key, frame)` / `image.setTexture(key, frame)` / `setDisplaySize(w, h)`                                                             | Phaser `ImageFactory`, `Texture` component                                                                       |
+| Tiled standalone tileset (`.tsj`): `image`, `imagewidth/height`, `tilewidth/height`, `margin`, `spacing`, `columns`, `tilecount`, sparse `tiles[]`                | https://doc.mapeditor.org/en/stable/reference/json-map-format/                                                   |
+| Tiled tile local id ordering is **row-major** → tile id == Phaser spritesheet frame index                                                                         | Tiled JSON reference; Phaser `SpriteSheetFile`                                                                   |
 
 ---
 
@@ -391,7 +391,7 @@ export const phaserRenderableComponents = [
 
 | Component     | Fields (wire type)                                                                                                                                           | Units / notes                                                                           |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `Position`    | `x:f32=0`, `y:f32=0`                                                                                                                                         | meters, +y up. **Type 1 → free interpolation.**                                         |
+| `Position`    | `x:f32=0`, `y:f32=0`                                                                                                                                         | meters, +y up. Type 1; interpolation opt-in via `phaserInterpolators()`.                |
 | `Rotation`    | `angle:f32=0`                                                                                                                                                | radians, CCW+. Frontier `rot()` negates.                                                |
 | `Scale`       | `x:f32=1`, `y:f32=1`                                                                                                                                         | unitless multiplier                                                                     |
 | `Alpha`       | `value:f32=1`                                                                                                                                                | 0..1                                                                                    |
@@ -444,8 +444,9 @@ ServerWorld (meters)                         ClientWorld (meters)            Pha
 
 The app drives `clientWorld.progress(now, delta)` each frame (from the Phaser scene's
 `update` or rAF). `apply()` runs in phase `ON_LOAD`; the render systems run one phase later in
-`ON_STORE` and observe the routed enter/modified/exit events. Position is interpolated by the
-`DiffBuffer` _before_ `CoordSpace`, so motion is smooth between server ticks.
+`ON_STORE` and observe the routed enter/modified/exit events. When `phaserInterpolators()` is
+passed at connect time, `Position` (and `Rotation`) are interpolated by the `DiffBuffer` _before_
+`CoordSpace`, so motion is smooth between server ticks.
 
 ### 7.2 Render state: the GameObject **is** the component
 
@@ -524,10 +525,14 @@ separate reset handler or entity-id object registry is needed.
 
 ### 7.4 Interpolation
 
-`Position` (type 1) is smoothed by default. Rotation interpolation is configured at
-`ClientWorld.connectDgram` time by passing `phaserInterpolators()`, which adds a `Rotation`
-type-id interpolator doing **shortest-arc angular lerp** in radians. It is not a render module
-option. All other components snap to latest.
+No interpolators are registered by default. `phaserInterpolators()` (from
+`vecs-phaser-client`) opts in: it installs `interpolatePosition` (linear `{x,y}`
+lerp) on the `Position` wire type and `rotationInterpolator` (shortest-arc
+angular lerp in radians) on the `Rotation` wire type, both looked up from
+`phaserNetworkComponents`. Pass it at `ClientWorld.connectDgram` time via
+`interpolators: phaserInterpolators()`. Pass
+`phaserInterpolators({ interpolateRotation: false })` to snap rotation while
+still interpolating `Position`. All other components snap to latest.
 
 ### 7.5 Origin & rotation pivot
 
