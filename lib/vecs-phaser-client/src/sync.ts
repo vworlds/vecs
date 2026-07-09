@@ -1,6 +1,6 @@
 import type { ComponentInstance } from "@vworlds/vecs";
 import { interpolatePosition, type ComponentInterpolator } from "@vworlds/vecs-client";
-import { phaserNetworkComponents, Position, Rotation } from "@vworlds/vecs-phaser";
+import { Position, Rotation } from "@vworlds/vecs-phaser";
 
 const TWO_PI = Math.PI * 2;
 
@@ -28,27 +28,27 @@ export const rotationInterpolator: ComponentInterpolator = (source, target, alph
 };
 
 /**
- * Returns vecs-client interpolator entries for Phaser render components.
+ * Returns vecs-client interpolator entries (keyed by component class) for
+ * Phaser render components: `interpolatePosition` on `Position` and
+ * `rotationInterpolator` on `Rotation`. `ClientWorld` resolves each class to
+ * its wire type at construction time.
  *
- * Installs `interpolatePosition` on the `Position` wire type and
- * `rotationInterpolator` on the `Rotation` wire type (looked up from
- * `phaserNetworkComponents`). Pass `interpolateRotation: false` to snap
- * rotation updates instead. Position interpolation is always installed;
- * pass an empty `interpolators` to `ClientWorld` to disable it too.
+ * Pass `interpolateRotation: false` to snap rotation updates instead. Position
+ * interpolation is always installed; pass an empty `interpolators` to
+ * `ClientWorld` to disable it too.
  *
  * Pass this at `ClientWorld` construction/connect time, for example:
  * `ClientWorld.connectDgram({ networkComponents: phaserNetworkComponents, interpolators: phaserInterpolators() })`.
  */
 export function phaserInterpolators(options?: {
   interpolateRotation?: boolean;
-}): Array<readonly [number, ComponentInterpolator]> {
-  const interpolators: Array<readonly [number, ComponentInterpolator]> = [
-    [positionWireType(), interpolatePosition],
-  ];
+}): Array<readonly [typeof Position | typeof Rotation, ComponentInterpolator]> {
+  const interpolators: Array<readonly [typeof Position | typeof Rotation, ComponentInterpolator]> =
+    [[Position, interpolatePosition]];
   if (options?.interpolateRotation === false) {
     return interpolators;
   }
-  interpolators.push([rotationWireType(), rotationInterpolator]);
+  interpolators.push([Rotation, rotationInterpolator]);
   return interpolators;
 }
 
@@ -62,14 +62,6 @@ function assertRotation(component: ComponentInstance, label: string): Rotation {
 function normalizeAngle(angle: number): number {
   const normalized = angle % TWO_PI;
   return normalized < 0 ? normalized + TWO_PI : normalized;
-}
-
-function positionWireType(): number {
-  return phaserNetworkComponents.indexOf(Position) + 1;
-}
-
-function rotationWireType(): number {
-  return phaserNetworkComponents.indexOf(Rotation) + 1;
 }
 
 function shortestAngleDelta(source: number, target: number): number {

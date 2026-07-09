@@ -82,7 +82,7 @@ function posSnapshot(eid: EID, x: number, y: number): EncodedSnapshot {
 function createClientWorld(options: ClientWorldOptions = {}): ClientWorld {
   return new ClientWorld({
     networkComponents: [Position],
-    interpolators: [[1, interpolatePosition]],
+    interpolators: [[Position, interpolatePosition]],
     ...options,
   });
 }

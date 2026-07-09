@@ -126,17 +126,17 @@ describe("rotationInterpolator", () => {
 });
 
 describe("phaserInterpolators", () => {
-  it("installs interpolatePosition on the Position wire type and rotationInterpolator on Rotation by default", () => {
-    expect(phaserNetworkComponents.indexOf(Position) + 1).toBe(1);
-    expect(phaserNetworkComponents.indexOf(Rotation) + 1).toBe(2);
+  it("installs interpolatePosition on Position and rotationInterpolator on Rotation by default", () => {
     expect(phaserInterpolators()).toEqual([
-      [1, interpolatePosition],
-      [2, rotationInterpolator],
+      [Position, interpolatePosition],
+      [Rotation, rotationInterpolator],
     ]);
   });
 
   it("still installs interpolatePosition when rotation interpolation is disabled", () => {
-    expect(phaserInterpolators({ interpolateRotation: false })).toEqual([[1, interpolatePosition]]);
+    expect(phaserInterpolators({ interpolateRotation: false })).toEqual([
+      [Position, interpolatePosition],
+    ]);
   });
 });
 
