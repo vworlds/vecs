@@ -84,10 +84,6 @@ export class ClientWorld extends NetworkWorld {
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
   private _forceBaselineReset = false;
-  private readonly _pendingRelationships = new Map<
-    EID,
-    { child: Entity; relClass: ComponentClass }[]
-  >();
 
   public constructor(options: ClientWorldOptions = {}) {
     const localEntityIdStart = options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START;
@@ -241,10 +237,7 @@ export class ClientWorld extends NetworkWorld {
 
   private _applySnapshot(snapshot: ComponentSnapshot): void {
     const component = this.decodeComponentSnapshot(snapshot);
-    const entity = this.getOrCreateEntity(snapshot.eid, (e) => {
-      e.add(Networked);
-      this._resolvePendingRelationships(e);
-    });
+    const entity = this.getOrCreateEntity(snapshot.eid, (e) => e.add(Networked));
 
     if (component instanceof Relationship) {
       this._applyRelationshipSnapshot(entity, component);
@@ -265,28 +258,13 @@ export class ClientWorld extends NetworkWorld {
       return;
     }
 
-    const target = this.getEntity(targetEid);
-    if (target) {
-      entity.set(relClass, { target });
-    } else {
-      const pending = this._pendingRelationships.get(targetEid) ?? [];
-      pending.push({ child: entity, relClass });
-      this._pendingRelationships.set(targetEid, pending);
-    }
-  }
-
-  private _resolvePendingRelationships(entity: Entity): void {
-    const pending = this._pendingRelationships.get(entity.eid);
-    if (!pending) {
-      return;
-    }
-    for (const entry of pending) {
-      if (entry.child.get(entry.relClass)) {
-        continue;
-      }
-      entry.child.set(entry.relClass, { target: entity });
-    }
-    this._pendingRelationships.delete(entity.eid);
+    // Create the target as an empty Networked ghost if it doesn't exist yet.
+    // Its real components arrive in later snapshots and attach to the same
+    // entity. This avoids any pending-link bookkeeping: retargeting,
+    // child-destruction, and baseline resets all work through normal ECS
+    // lifecycle without stale references.
+    const target = this.getOrCreateEntity(targetEid, (e) => e.add(Networked));
+    entity.set(relClass, { target });
   }
 
   private _removeComponent(eid: EID, type: number): void {
@@ -311,7 +289,6 @@ export class ClientWorld extends NetworkWorld {
   // beginDefer/endDefer, so destroying inside the callback is safe.
   private _destroyNetworkEntities(): void {
     this._networkedQuery.forEach((entity) => entity.destroy());
-    this._pendingRelationships.clear();
   }
 
   private _handleDisconnect(): void {

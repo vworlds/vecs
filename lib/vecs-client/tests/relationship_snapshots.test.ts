@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALL_COMPONENTS,
   ComponentSnapshot,
   EncodedSnapshot,
   Server2Client,
@@ -113,7 +114,7 @@ describe("ClientWorld relationship snapshots", () => {
     expect(child.target(ChildOf)).toBe(parent);
   });
 
-  it("defers resolution when the parent arrives after the child", () => {
+  it("creates a ghost target when the parent arrives after the child", () => {
     const world = new ClientWorld({
       networkComponents: [Position, ChildOf],
       serverTickIntervalMs: 10,
@@ -136,9 +137,13 @@ describe("ClientWorld relationship snapshots", () => {
     world.progress(0, 0);
 
     const child = world.getEntity(1001)!;
-    expect(child.target(ChildOf)).toBeUndefined();
+    // Ghost parent is created immediately — the relationship resolves right away.
+    const ghost = world.getEntity(1000)!;
+    expect(child.target(ChildOf)).toBe(ghost);
+    // Ghost has Networked but no Position yet.
+    expect(ghost.get(Position)).toBeUndefined();
 
-    // Parent arrives in a later frame.
+    // Parent's real data arrives in a later frame — attaches to the same entity.
     socket.receive(
       encodeMessage(
         new Server2Client({
@@ -153,7 +158,123 @@ describe("ClientWorld relationship snapshots", () => {
     world.progress(20, 20);
 
     const parent = world.getEntity(1000)!;
+    expect(parent).toBe(ghost);
+    expect(parent.get(Position)).toMatchObject({ x: 1, y: 1 });
     expect(child.target(ChildOf)).toBe(parent);
+  });
+
+  it("retargeting before the original target arrives does not leave stale links", () => {
+    const world = new ClientWorld({
+      networkComponents: [Position, ChildOf],
+      serverTickIntervalMs: 10,
+    });
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+
+    // ChildOf → 1000 arrives, parent 1000 missing → ghost 1000 created.
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(1001, 2, 2), childOfSnapshot(1001, 1000)],
+          }),
+        })
+      )
+    );
+    world.progress(0, 0);
+
+    const child = world.getEntity(1001)!;
+    expect(child.target(ChildOf)).toBe(world.getEntity(1000)!);
+
+    // Retarget: ChildOf → 1002 arrives, parent 1002 also missing → ghost 1002 created.
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 1,
+            toFrame: 2,
+            snapshots: [childOfSnapshot(1001, 1002)],
+          }),
+        })
+      )
+    );
+    world.progress(20, 20);
+
+    expect(child.target(ChildOf)).toBe(world.getEntity(1002)!);
+
+    // Original target 1000 arrives — must NOT overwrite the retargeted link.
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 2,
+            toFrame: 3,
+            snapshots: [posSnapshot(1000, 1, 1)],
+          }),
+        })
+      )
+    );
+    world.progress(40, 20);
+
+    expect(child.target(ChildOf)).toBe(world.getEntity(1002)!);
+  });
+
+  it("child destroyed before the target arrives leaves no stale resolution", () => {
+    const world = new ClientWorld({
+      networkComponents: [Position, ChildOf],
+      serverTickIntervalMs: 10,
+    });
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+
+    // ChildOf → 1000 arrives, parent 1000 missing → ghost 1000 created.
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(1001, 2, 2), childOfSnapshot(1001, 1000)],
+          }),
+        })
+      )
+    );
+    world.progress(0, 0);
+
+    expect(world.getEntity(1001)!.target(ChildOf)).toBe(world.getEntity(1000)!);
+
+    // Child is destroyed before parent 1000 ever arrives.
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 1,
+            toFrame: 2,
+            removed: [[1001, ALL_COMPONENTS]],
+          }),
+        })
+      )
+    );
+    world.progress(20, 20);
+
+    expect(world.getEntity(1001)).toBeUndefined();
+
+    // Parent 1000 arrives — no crash, no stale resolution.
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 2,
+            toFrame: 3,
+            snapshots: [posSnapshot(1000, 1, 1)],
+          }),
+        })
+      )
+    );
+    expect(() => world.progress(40, 20)).not.toThrow();
+    expect(world.getEntity(1000)!.get(Position)).toMatchObject({ x: 1, y: 1 });
   });
 
   it("removes a relationship when a component removal is received", () => {
@@ -201,7 +322,7 @@ describe("ClientWorld relationship snapshots", () => {
     expect(child.target(ChildOf)).toBeUndefined();
   });
 
-  it("survives a baseline reset clearing pending relationships", () => {
+  it("survives a baseline reset clearing ghost entities", () => {
     const world = new ClientWorld({
       networkComponents: [Position, ChildOf],
       serverTickIntervalMs: 10,
@@ -210,6 +331,7 @@ describe("ClientWorld relationship snapshots", () => {
     world.attachSocket(socket);
 
     // Child arrives with a ChildOf to a parent that never comes.
+    // A ghost entity 9999 is created to hold the link.
     socket.receive(
       encodeMessage(
         new Server2Client({
@@ -222,9 +344,9 @@ describe("ClientWorld relationship snapshots", () => {
       )
     );
     world.progress(0, 0);
-    expect(world.getEntity(1001)!.target(ChildOf)).toBeUndefined();
+    expect(world.getEntity(1001)!.target(ChildOf)).toBe(world.getEntity(9999)!);
 
-    // Baseline reset: destroy everything and recreate.
+    // Baseline reset: destroy everything (including the ghost) and recreate.
     socket.receive(
       encodeMessage(
         new Server2Client({
