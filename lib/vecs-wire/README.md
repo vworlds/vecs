@@ -24,7 +24,7 @@ import { Decoder, Encoder } from "@vworlds/vecs-wire";
 | `Decoder`    | Reads typed values from an encoded `Uint8Array`.                         |
 | `IEncodable` | Interface for custom classes with a `wireEncode(encoder)` method.        |
 | `IDecodable` | Interface for custom classes with a static `wireDecode(decoder)` method. |
-| `@type`      | Decorator that generates `wireEncode` / `wireDecode` for simple classes. |
+| `@wireType`  | Decorator that generates `wireEncode` / `wireDecode` for simple classes. |
 | `any`        | Tagged dynamic payload format for arbitrary input and RPC parameters.    |
 
 ## Basic Usage
@@ -117,27 +117,27 @@ Use this style when a message needs optional fields, field tags, version handlin
 
 ## Decorated Classes
 
-The `type` decorator can generate `wireEncode` and `wireDecode` for classes with a fixed field order.
+The `wireType` decorator can generate `wireEncode` and `wireDecode` for classes with a fixed field order.
 
 ```ts
-import { Decoder, Encoder, type } from "@vworlds/vecs-wire";
+import { Decoder, Encoder, wireType } from "@vworlds/vecs-wire";
 
 class Position {
-  @type("f32")
+  @wireType("f32")
   public x = 0;
 
-  @type("f32")
+  @wireType("f32")
   public y = 0;
 }
 
 class Snapshot {
-  @type("u32")
+  @wireType("u32")
   public entityId = 0;
 
-  @type(Position)
+  @wireType(Position)
   public position = new Position();
 
-  @type(["u32"])
+  @wireType(["u32"])
   public visibleTo: number[] = [];
 }
 
@@ -156,13 +156,13 @@ const decoded = new Decoder(encoder.getBuffer()).read(Snapshot);
 Decorator specs can be scalar names, decorated classes, or single-element arrays of scalar names or decorated classes.
 
 ```ts
-@type("u32")
+@wireType("u32")
 public id = 0;
 
-@type(Position)
+@wireType(Position)
 public position = new Position();
 
-@type([Position])
+@wireType([Position])
 public trail: Position[] = [];
 ```
 

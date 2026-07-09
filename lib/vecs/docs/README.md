@@ -46,5 +46,5 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 | [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.    |
 | [glossary.md](./glossary.md)                       | ECS and vecs terminology.                                                                    |
 
-Networking (wire encoding with `@type`, protocol component ordering, replication) lives in the
+Networking (wire encoding with `@wireType`, protocol component ordering, replication) lives in the
 `@vworlds/vecs-wire` and `@vworlds/vecs-protocol` packages and is only cross-referenced here.

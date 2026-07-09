@@ -6,12 +6,14 @@ class Velocity {}
 class LocalOnly {}
 
 describe("NetworkWorld", () => {
-  it("registers network components in the network id pool", () => {
+  it("registers network components with wire type ids and auto-allocated eids", () => {
     const world = new NetworkWorld({ networkComponents: [Position] });
 
     expect(world.localComponentMin).toBe(2);
-    expect(world.entity(Position).eid).toBe(1);
-    expect(world.networkComponents).toEqual([{ Class: Position, wireType: 1, eid: 1 }]);
+    expect(world.entity(Position).eid).toBeGreaterThanOrEqual(1);
+    expect(world.networkComponents).toEqual([
+      { Class: Position, wireType: 1, eid: world.entity(Position).eid },
+    ]);
     expect(cid_pack(42, 1)).toBeGreaterThan(0);
   });
 
@@ -24,7 +26,7 @@ describe("NetworkWorld", () => {
     const nextLocalComponentEid = world.peekNextEid("component");
     const nextLocalEntityEid = world.peekNextEid("entity");
 
-    expect(nextLocalComponentEid).toBeGreaterThanOrEqual(world.localComponentMin);
+    expect(nextLocalComponentEid).toBeGreaterThanOrEqual(1);
     expect(world.component(LocalOnly).eid).toBe(nextLocalComponentEid);
     expect(world.pools).toContainEqual({ name: "module", min: 900, max: 999 });
     expect(world.getOrCreateEntity(1000).eid).toBe(1000);

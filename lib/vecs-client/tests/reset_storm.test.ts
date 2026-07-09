@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type as wireType, Decoder } from "@vworlds/vecs-wire";
+import { wireType, Decoder } from "@vworlds/vecs-wire";
 import { ArrayMap, IterableArrayMap, type EID, type Entity } from "@vworlds/vecs";
 import {
   ALL_COMPONENTS,
@@ -144,7 +144,9 @@ function serverState(live: Set<Entity>): IterableArrayMap<{ x: number; y: number
 
 function diffRemoves(packet: Uint8Array, eid: EID): boolean {
   const message = new Decoder(packet).read(Server2Client);
-  return message.diff?.removed.some(([e, type]) => e === eid && type === ALL_COMPONENTS) ?? false;
+  return (
+    message.diff?.removed.some(([e, wireType]) => e === eid && wireType === ALL_COMPONENTS) ?? false
+  );
 }
 
 describe("reset storm (inactive tab)", () => {

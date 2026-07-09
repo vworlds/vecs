@@ -20,7 +20,7 @@ describe("protocol messages", () => {
   it("round-trips server diffs with snapshots, removals, and RPC", () => {
     const payload = Uint8Array.from([1, 2, 3]);
     const snapshotCid = cid_pack(12, 3);
-    const snapshotBytes = encodeMessage(new ComponentSnapshot({ eid: 12, type: 3, payload }));
+    const snapshotBytes = encodeMessage(new ComponentSnapshot({ eid: 12, wireType: 3, payload }));
     const legacySnapshotBytes = new Encoder(new Uint8Array(64));
     legacySnapshotBytes.write_u32(snapshotCid);
     legacySnapshotBytes.write_buffer(payload);
@@ -40,10 +40,10 @@ describe("protocol messages", () => {
     expect(decoded.diff?.toFrame).toBe(6);
     expect(decoded.diff?.removed).toEqual([[12, 4]]);
     expect(decoded.diff!.snapshots[0].eid).toBe(0);
-    expect(decoded.diff!.snapshots[0].type).toBe(0);
+    expect(decoded.diff!.snapshots[0].wireType).toBe(0);
     expect(snapshotBytes).toEqual(legacySnapshotBytes.getBuffer());
     expect(new Decoder(decoded.diff!.snapshots[0].bytes).read(ComponentSnapshot)).toEqual(
-      new ComponentSnapshot({ eid: 12, type: 3, payload })
+      new ComponentSnapshot({ eid: 12, wireType: 3, payload })
     );
     expect(decoded.rpc[0].params).toEqual(["ok"]);
   });

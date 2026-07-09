@@ -58,7 +58,7 @@ class ServerClientSession {
 
 interface Update {
   entity: Entity;
-  type: number;
+  wireType: number;
   component: ComponentInstance | undefined; // undefined => removal
 }
 
@@ -191,9 +191,9 @@ export class ServerWorld extends NetworkWorld {
           return;
         }
         if (u.component) {
-          snapshots.push(this._encodeSnapshot(u.entity.eid, u.type, u.component));
+          snapshots.push(this._encodeSnapshot(u.entity.eid, u.wireType, u.component));
         } else {
-          removed.push([u.entity.eid, u.type]);
+          removed.push([u.entity.eid, u.wireType]);
         }
       });
 
@@ -287,8 +287,12 @@ export class ServerWorld extends NetworkWorld {
     }
   }
 
-  private _record(entity: Entity, type: number, component: ComponentInstance | undefined): void {
-    this._updates.set(cid_pack(entity.eid, type), { entity, type, component });
+  private _record(
+    entity: Entity,
+    wireType: number,
+    component: ComponentInstance | undefined
+  ): void {
+    this._updates.set(cid_pack(entity.eid, wireType), { entity, wireType, component });
   }
 
   private _pushEntitySnapshots(entity: Entity, snapshots: EncodedSnapshot[]): void {
@@ -316,7 +320,7 @@ export class ServerWorld extends NetworkWorld {
     payloadEncoder.write(component);
     const payload = payloadEncoder.getBuffer().slice();
     const snapshot = new EncodedSnapshot(
-      this._encode(new ComponentSnapshot({ eid, type: wireType, payload })),
+      this._encode(new ComponentSnapshot({ eid, wireType, payload })),
       eid,
       wireType
     );

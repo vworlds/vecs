@@ -92,11 +92,11 @@ function applyDiff(entities: IterableArrayMap<EntityHistory>, diff: StateDiff): 
       entities.set(snapshot.eid, entity);
     }
 
-    entity.set(snapshot.type, snapshot);
+    entity.set(snapshot.wireType, snapshot);
   });
 
-  diff.removed.forEach(([eid, type]) => {
-    if (type === ALL_COMPONENTS) {
+  diff.removed.forEach(([eid, wireType]) => {
+    if (wireType === ALL_COMPONENTS) {
       entities.set(eid, REMOVED);
       return;
     }
@@ -107,7 +107,7 @@ function applyDiff(entities: IterableArrayMap<EntityHistory>, diff: StateDiff): 
     }
 
     const components = entity ?? new IterableArrayMap<Slot>();
-    components.set(type, REMOVED);
+    components.set(wireType, REMOVED);
     entities.set(eid, components);
   });
 }
@@ -122,9 +122,9 @@ function forgeDiff(from: number, to: number, entities: IterableArrayMap<EntityHi
       return;
     }
 
-    entity.forEach((slot, type) => {
+    entity.forEach((slot, wireType) => {
       if (slot === REMOVED) {
-        removed.push([eid, type]);
+        removed.push([eid, wireType]);
       } else {
         snapshots.push(slot);
       }

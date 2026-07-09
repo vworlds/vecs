@@ -39,7 +39,7 @@ export function phaserInterpolators(options?: {
   if (options?.interpolateRotation === false) {
     return [];
   }
-  return [[rotationTypeId(), rotationInterpolator]];
+  return [[rotationWireType(), rotationInterpolator]];
 }
 
 function assertRotation(component: ComponentInstance, label: string): Rotation {
@@ -54,7 +54,7 @@ function normalizeAngle(angle: number): number {
   return normalized < 0 ? normalized + TWO_PI : normalized;
 }
 
-function rotationTypeId(): number {
+function rotationWireType(): number {
   return phaserNetworkComponents.indexOf(Rotation) + 1;
 }
 

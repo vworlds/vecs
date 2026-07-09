@@ -1,4 +1,4 @@
-import { type as wireType, tag as wireTag } from "@vworlds/vecs-wire";
+import { wireType, tag as wireTag } from "@vworlds/vecs-wire";
 
 /**
  * Arc shape. All dimensions in meters; angles in radians (CCW+).

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Decoder, Encoder, tag, type, type WireTypeSpec } from "../src/index.js";
+import { Decoder, Encoder, tag, wireType, type WireTypeSpec } from "../src/index.js";
 
 interface IStandardFieldDecoratorContext {
   kind: string;
@@ -31,7 +31,7 @@ function standardDecorated<TBase extends EmptyConstructor>(
   const initializers: Array<(this: object) => void> = [];
 
   fields.forEach((field) => {
-    const decorator = type(field.spec) as unknown as StandardTypeDecorator;
+    const decorator = wireType(field.spec) as unknown as StandardTypeDecorator;
     decorator(undefined, {
       kind: "field",
       name: field.name,
@@ -54,52 +54,52 @@ function standardDecorated<TBase extends EmptyConstructor>(
   return StandardDecorated as unknown as TBase;
 }
 
-describe("type decorator", () => {
+describe("wireType decorator", () => {
   it("generates wireEncode and wireDecode for primitive fields", () => {
     class Scalars {
-      @type("bool")
+      @wireType("bool")
       public enabled = false;
 
-      @type("u8")
+      @wireType("u8")
       public u8 = 0;
 
-      @type("i8")
+      @wireType("i8")
       public i8 = 0;
 
-      @type("u16")
+      @wireType("u16")
       public u16 = 0;
 
-      @type("i16")
+      @wireType("i16")
       public i16 = 0;
 
-      @type("u32")
+      @wireType("u32")
       public u32 = 0;
 
-      @type("i32")
+      @wireType("i32")
       public i32 = 0;
 
-      @type("u64")
+      @wireType("u64")
       public u64 = 0n;
 
-      @type("i64")
+      @wireType("i64")
       public i64 = 0n;
 
-      @type("enum")
+      @wireType("enum")
       public state = 0;
 
-      @type("f32")
+      @wireType("f32")
       public f32 = 0;
 
-      @type("f64")
+      @wireType("f64")
       public f64 = 0;
 
-      @type("string")
+      @wireType("string")
       public name = "";
 
-      @type("bytes")
+      @wireType("bytes")
       public payload = new Uint8Array();
 
-      @type("any")
+      @wireType("any")
       public extra: unknown = null;
     }
 
@@ -142,10 +142,10 @@ describe("type decorator", () => {
 
   it("rejects unsigned decorated fields with negative values", () => {
     class Position {
-      @type("u16")
+      @wireType("u16")
       public x = 0;
 
-      @type("u16")
+      @wireType("u16")
       public y = 0;
     }
 
@@ -160,7 +160,7 @@ describe("type decorator", () => {
 
   it("encodes arrays as a u32 length followed by elements", () => {
     class NumberList {
-      @type(["u32"])
+      @wireType(["u32"])
       public values: number[] = [];
     }
 
@@ -176,7 +176,7 @@ describe("type decorator", () => {
 
   it("round-trips empty arrays", () => {
     class EmptyList {
-      @type(["string"])
+      @wireType(["string"])
       public values: string[] = [];
     }
 
@@ -185,15 +185,15 @@ describe("type decorator", () => {
 
   it("round-trips nested decorated classes", () => {
     class Position {
-      @type("u32")
+      @wireType("u32")
       public x = 0;
 
-      @type("u32")
+      @wireType("u32")
       public y = 0;
     }
 
     class Player {
-      @type(Position)
+      @wireType(Position)
       public position = new Position();
     }
 
@@ -211,15 +211,15 @@ describe("type decorator", () => {
 
   it("round-trips arrays of nested decorated classes", () => {
     class Position {
-      @type("i32")
+      @wireType("i32")
       public x = 0;
 
-      @type("i32")
+      @wireType("i32")
       public y = 0;
     }
 
     class Trail {
-      @type([Position])
+      @wireType([Position])
       public points: Position[] = [];
     }
 
@@ -285,7 +285,7 @@ describe("type decorator", () => {
   });
 
   it("rejects unsupported standard decorator contexts", () => {
-    const decorator = type("u32") as unknown as StandardTypeDecorator;
+    const decorator = wireType("u32") as unknown as StandardTypeDecorator;
     const baseContext = {
       kind: "field",
       name: "value",
@@ -295,16 +295,16 @@ describe("type decorator", () => {
     } satisfies IStandardFieldDecoratorContext;
 
     expect(() => decorator(undefined, { ...baseContext, kind: "method" })).toThrow(
-      "vecs-wire/type only supports standard field decorators"
+      "vecs-wire/wireType only supports standard field decorators"
     );
     expect(() => decorator(undefined, { ...baseContext, static: true })).toThrow(
-      "vecs-wire/type does not support static fields"
+      "vecs-wire/wireType does not support static fields"
     );
     expect(() => decorator(undefined, { ...baseContext, private: true })).toThrow(
-      "vecs-wire/type does not support private fields"
+      "vecs-wire/wireType does not support private fields"
     );
     expect(() => decorator(undefined, { ...baseContext, name: Symbol("value") })).toThrow(
-      "vecs-wire/type only supports string property keys"
+      "vecs-wire/wireType only supports string property keys"
     );
   });
 
@@ -319,17 +319,17 @@ describe("type decorator", () => {
       ]
     );
 
-    expect(() => new Conflicting()).toThrow("vecs-wire/type duplicate field value");
+    expect(() => new Conflicting()).toThrow("vecs-wire/wireType duplicate field value");
   });
 
   it("does not share metadata between classes", () => {
     class A {
-      @type("u32")
+      @wireType("u32")
       public value = 1;
     }
 
     class B {
-      @type("string")
+      @wireType("string")
       public value = "b";
     }
 
@@ -344,7 +344,7 @@ describe("type decorator", () => {
 
   it("throws when an array field is not an array", () => {
     class NumberList {
-      @type(["u32"])
+      @wireType(["u32"])
       public values: unknown = [];
     }
 
@@ -378,7 +378,7 @@ describe("type decorator", () => {
 
   it("encodes an entity field by writing .eid and decodes to a raw number", () => {
     class Ref {
-      @type("entity")
+      @wireType("entity")
       public target: { eid: number } = { eid: 0 };
     }
 
@@ -394,13 +394,13 @@ describe("type decorator", () => {
 
   it("round-trips an entity field alongside scalar fields", () => {
     class Node {
-      @type("u32")
+      @wireType("u32")
       public id = 0;
 
-      @type("entity")
+      @wireType("entity")
       public parent: { eid: number } = { eid: 0 };
 
-      @type("string")
+      @wireType("string")
       public name = "";
     }
 
@@ -417,7 +417,7 @@ describe("type decorator", () => {
 
   it("subclasses inherit wire fields from the parent and decode to the correct subclass", () => {
     class Base {
-      @type("entity")
+      @wireType("entity")
       public target: { eid: number } = { eid: 0 };
     }
 

@@ -10,7 +10,7 @@ import { Decoder } from "@vworlds/vecs-wire";
 import { type ComponentInstance, type EID } from "@vworlds/vecs";
 
 const MAX_LENGTH = 3;
-const POSITION_COMPONENT_TYPE = 1;
+const POSITION_WIRE_TYPE = 1;
 
 export interface IPosition {
   readonly x: number;
@@ -34,15 +34,15 @@ export type ComponentInterpolator = (
 
 export class ComponentSnapshot {
   public readonly eid: EID;
-  public readonly type: number;
+  public readonly wireType: number;
   public payload: Uint8Array | ComponentInstance;
   public readonly cid: CID;
 
-  public constructor(eid: EID, type: number, payload: Uint8Array | ComponentInstance) {
+  public constructor(eid: EID, wireType: number, payload: Uint8Array | ComponentInstance) {
     this.eid = eid;
-    this.type = type;
+    this.wireType = wireType;
     this.payload = payload;
-    this.cid = cid_pack(eid, type);
+    this.cid = cid_pack(eid, wireType);
   }
 }
 
@@ -106,9 +106,9 @@ export function diffFromStateDiff(sd: StateDiff): Diff {
   const d = new Diff(sd.fromFrame, sd.toFrame);
   d.snapshots = sd.snapshots.map((snapshot) => {
     const wire = new Decoder(snapshot.bytes).read(WireComponentSnapshot);
-    return new ComponentSnapshot(wire.eid, wire.type, wire.payload);
+    return new ComponentSnapshot(wire.eid, wire.wireType, wire.payload);
   });
-  d.removed = sd.removed.map(([eid, type]) => cid_pack(eid, type));
+  d.removed = sd.removed.map(([eid, wireType]) => cid_pack(eid, wireType));
   return d;
 }
 
@@ -135,7 +135,7 @@ export class DiffBuffer {
   // the moving interpolation baseline when pull() is called before tServ.
   private _lastTime = -1;
 
-  // componentInterpolators maps a component type id to the function used to
+  // componentInterpolators maps a wire type id to the function used to
   // blend it between server frames. Types without an entry are snapped to their
   // latest value.
   private readonly _componentInterpolators: Map<number, ComponentInterpolator>;
@@ -145,7 +145,7 @@ export class DiffBuffer {
     private server_tick_interval: number = 1000 / 60, // server tick interval FPS configuration
     private readonly _decodeComponentSnapshot?: DecodeComponentSnapshot,
     componentInterpolators: Iterable<readonly [number, ComponentInterpolator]> = [
-      [POSITION_COMPONENT_TYPE, interpolatePosition],
+      [POSITION_WIRE_TYPE, interpolatePosition],
     ]
   ) {
     if (max_length < 2) {
@@ -161,8 +161,8 @@ export class DiffBuffer {
       this._state.set(s.cid, s);
     });
     (sd.removed as number[] | undefined)?.forEach((r) => {
-      const [eid, type] = cid_unpack(r);
-      if (type === ALL_COMPONENTS) {
+      const [eid, wireType] = cid_unpack(r);
+      if (wireType === ALL_COMPONENTS) {
         this._state.forEach((_, cid) => {
           if (cid_unpack(cid)[0] === eid) {
             this._state.delete(cid);
@@ -348,7 +348,7 @@ export class DiffBuffer {
     }
     const alpha = end === start ? 1 : (now - start) / (end - start);
     target.snapshots.forEach((targetSnapshot) => {
-      const interpolate = this._componentInterpolators.get(targetSnapshot.type);
+      const interpolate = this._componentInterpolators.get(targetSnapshot.wireType);
       if (!interpolate) {
         return;
       }
@@ -362,7 +362,7 @@ export class DiffBuffer {
       sd.upsertSnapshot(
         new ComponentSnapshot(
           targetSnapshot.eid,
-          targetSnapshot.type,
+          targetSnapshot.wireType,
           interpolate(source, targetComponent, alpha)
         )
       );
@@ -382,7 +382,7 @@ function isPosition(component: ComponentInstance): component is PositionComponen
  */
 export const interpolatePosition: ComponentInterpolator = (source, target, alpha) => {
   if (!isPosition(source) || !isPosition(target)) {
-    throw new Error(`Component type ${POSITION_COMPONENT_TYPE} must satisfy IPosition`);
+    throw new Error(`Component wire type ${POSITION_WIRE_TYPE} must satisfy IPosition`);
   }
   const result = new (
     target.constructor as new () => ComponentInstance & {

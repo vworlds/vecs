@@ -65,7 +65,7 @@ const scalarMethods: Record<WireScalarType, { read: string; write: string }> = {
 const fieldsByConstructor = new WeakMap<Function, IWireField[]>();
 const compiledConstructors = new WeakSet<Function>();
 
-export function type(spec: WireTypeSpec): PropertyDecorator {
+export function wireType(spec: WireTypeSpec): PropertyDecorator {
   assertValidSpec(spec);
 
   return (target, propertyKey) => {
@@ -75,7 +75,7 @@ export function type(spec: WireTypeSpec): PropertyDecorator {
     }
 
     if (typeof propertyKey !== "string") {
-      throw new TypeError("vecs-wire/type only supports string property keys");
+      throw new TypeError("vecs-wire/wireType only supports string property keys");
     }
 
     registerField(target.constructor as DecoratedConstructor, propertyKey, spec);
@@ -98,16 +98,16 @@ export function tag<T extends WireConstructor>(C: T): T {
 
 function registerStandardField(context: IStandardFieldDecoratorContext, spec: WireTypeSpec): void {
   if (context.kind !== "field") {
-    throw new TypeError("vecs-wire/type only supports standard field decorators");
+    throw new TypeError("vecs-wire/wireType only supports standard field decorators");
   }
   if (context.static) {
-    throw new TypeError("vecs-wire/type does not support static fields");
+    throw new TypeError("vecs-wire/wireType does not support static fields");
   }
   if (context.private) {
-    throw new TypeError("vecs-wire/type does not support private fields");
+    throw new TypeError("vecs-wire/wireType does not support private fields");
   }
   if (typeof context.name !== "string") {
-    throw new TypeError("vecs-wire/type only supports string property keys");
+    throw new TypeError("vecs-wire/wireType only supports string property keys");
   }
 
   const key = context.name;
@@ -123,7 +123,7 @@ function registerField(C: DecoratedConstructor, key: string, spec: WireTypeSpec)
     if (wireTypeSpecsEqual(existing.spec, spec)) {
       return;
     }
-    throw new Error(`vecs-wire/type duplicate field ${key}`);
+    throw new Error(`vecs-wire/wireType duplicate field ${key}`);
   }
 
   fields.push({ key, spec });
@@ -168,7 +168,7 @@ function compileWireType(C: DecoratedConstructor): void {
       proto = Object.getPrototypeOf(proto);
     }
     if (fields === undefined) {
-      throw new Error(`vecs-wire/type ${C.name || "anonymous class"} is not a wire type`);
+      throw new Error(`vecs-wire/wireType ${C.name || "anonymous class"} is not a wire type`);
     }
   }
 
@@ -272,7 +272,7 @@ function emitDecodeValue(
 function assertValidSpec(spec: WireTypeSpec): void {
   if (isArraySpec(spec)) {
     if (spec.length !== 1) {
-      throw new TypeError("vecs-wire/type array specs must contain exactly one element type");
+      throw new TypeError("vecs-wire/wireType array specs must contain exactly one element type");
     }
     assertValidElementSpec(spec[0]);
     return;
@@ -286,7 +286,7 @@ function assertValidElementSpec(spec: WireScalarType | WireConstructor): void {
     return;
   }
 
-  throw new TypeError(`vecs-wire/type unsupported type spec ${String(spec)}`);
+  throw new TypeError(`vecs-wire/wireType unsupported type spec ${String(spec)}`);
 }
 
 function isArraySpec(spec: WireTypeSpec): spec is readonly [WireScalarType | WireConstructor] {

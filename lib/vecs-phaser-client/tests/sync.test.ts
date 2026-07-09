@@ -125,7 +125,7 @@ describe("rotationInterpolator", () => {
 });
 
 describe("phaserInterpolators", () => {
-  it("includes the derived Rotation type id by default", () => {
+  it("includes the derived Rotation wire type by default", () => {
     expect(phaserNetworkComponents.indexOf(Rotation) + 1).toBe(2);
     expect(phaserInterpolators()).toEqual([[2, rotationInterpolator]]);
   });

@@ -8,7 +8,7 @@ import {
   StateDiff,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
-import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
+import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import type { EID } from "@vworlds/vecs";
 import { ClientWorld, type ClientWorldOptions } from "../src/index.js";
 
@@ -64,11 +64,11 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
   return encoder.getBuffer();
 }
 
-function makeSnapshot(eid: EID, type: number, payload: Uint8Array): EncodedSnapshot {
+function makeSnapshot(eid: EID, wireType: number, payload: Uint8Array): EncodedSnapshot {
   return new EncodedSnapshot(
-    encodeMessage(new ComponentSnapshot({ eid, type, payload })),
+    encodeMessage(new ComponentSnapshot({ eid, wireType, payload })),
     eid,
-    type
+    wireType
   );
 }
 

@@ -47,10 +47,10 @@ These were confirmed by reading the code; implementers can rely on them.
 | `reset` event: `{ initial, fromFrame, toFrame }`                                                                                                   | `client_world.ts:211`                                                      |
 | EIDs are stable across the wire (`getOrCreateEntity(snapshot.eid)`)                                                                                | `client_world.ts:232`                                                      |
 | Snapshots emitted in `networkComponents` registration order                                                                                        | `lib/vecs-server/src/server_world.ts:280`                                  |
-| Network type id = array index + 1 (order is the protocol)                                                                                          | `lib/vecs-protocol/src/network_world.ts`                                   |
+| Network wire type id = array index + 1 (order is the protocol)                                                                                     | `lib/vecs-protocol/src/network_world.ts`                                   |
 | Native exclusivity group: `world.setExclusiveComponents(...)`                                                                                      | `lib/vecs/src/world/world.components.ts:101`                               |
 | `_storeComponent` auto-removes conflicting exclusive components                                                                                    | `entity.components.ts:402-426`                                             |
-| Decorator import: `import { type as wireType } from "@vworlds/vecs-wire"`                                                                          | `lib/vecs-wire/src/index.ts:2`                                             |
+| Decorator import: `import { wireType } from "@vworlds/vecs-wire"`                                                                                  | `lib/vecs-wire/src/index.ts:2`                                             |
 | Wire scalar types: `bool,u8,i8,u16,i16,u32,i32,u64,i64,enum,f32,f64,string,bytes,any`; arrays `["f32"]`; nested classes                            | `lib/vecs-wire/src/decorators.ts`                                          |
 | Default client interpolation blends network component **type 1** as 2D `{x,y}`; others snapped; configurable via `interpolators`                   | `lib/vecs-client/src/client_world.ts` (`ClientWorldOptions.interpolators`) |
 | `Relationship.target` is an `Entity` (not serializable); `Encoder.write` throws without `wireEncode` → relationships are **not** networkable       | `lib/vecs/src/component_meta.ts:11-13`, `lib/vecs-wire/src/encoder.ts:271` |
@@ -214,7 +214,7 @@ export class Tint {
   /* value setter writes all four corners and sets monochromatic = true */
 }
 
-// Protocol arrays — ORDER IS PROTOCOL (type id = index + 1)
+// Protocol arrays — ORDER IS PROTOCOL (wire type id = index + 1)
 export const phaserNetworkComponents: readonly ComponentClass[];
 export const phaserRenderableComponents: readonly ComponentClass[];
 

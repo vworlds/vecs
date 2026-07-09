@@ -1,4 +1,4 @@
-import { type as wireType } from "@vworlds/vecs-wire";
+import { wireType } from "@vworlds/vecs-wire";
 
 /** Horizontal text alignment, maps to Phaser text align settings. */
 export enum TextAlign {

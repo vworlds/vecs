@@ -105,8 +105,7 @@ how often a system fires. [Systems](./systems.md#cadence-interval-rate-and-tick-
 **Watchlist** — the set of component types a query or system reacts to via `update`, stored as a
 bitmask. [Systems](./systems.md#reactive-callbacks-enter-update-exit).
 
-**Wire type** — a field-level encoding declaration (`@type` from `@vworlds/vecs-wire`, commonly
-imported as `wireType`) used by the networking packages to serialize components. Networking is
+**Wire type** — a field-level encoding declaration (`@wireType` from `@vworlds/vecs-wire`) used by the networking packages to serialize components. Networking is
 documented with `@vworlds/vecs-wire` / `@vworlds/vecs-protocol`, not here.
 
 **World** — the central container owning entities, component registrations, queries, systems, and

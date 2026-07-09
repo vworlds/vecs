@@ -5,7 +5,7 @@ import {
   type VecsSocket,
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
-import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
+import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import { ChildOf, type World } from "@vworlds/vecs";
 import { NetworkClient, Networked, ServerWorld, View } from "../src/index.js";
 
@@ -99,15 +99,15 @@ describe("ServerWorld relationship serialization", () => {
     const message = decodeLastMessage(socket);
     const decoded = message.diff!.snapshots.map((s) => {
       const snap = new Decoder(s.bytes).read(ComponentSnapshot);
-      return { eid: snap.eid, type: snap.type };
+      return { eid: snap.eid, wireType: snap.wireType };
     });
 
-    const childLink = decoded.find((s) => s.eid === child.eid && s.type === 2);
+    const childLink = decoded.find((s) => s.eid === child.eid && s.wireType === 2);
     expect(childLink).toBeDefined();
 
     const rawSnapshot = message.diff!.snapshots.find((s) => {
       const snap = new Decoder(s.bytes).read(ComponentSnapshot);
-      return snap.eid === child.eid && snap.type === 2;
+      return snap.eid === child.eid && snap.wireType === 2;
     })!;
     const snapshot = new Decoder(rawSnapshot.bytes).read(ComponentSnapshot);
     const rel = new Decoder(snapshot.payload).read(ChildOf) as unknown as { target: number };
@@ -152,12 +152,12 @@ describe("ServerWorld relationship serialization", () => {
     const message = decodeLastMessage(socket);
     const decoded = message.diff!.snapshots.map((s) => {
       const snap = new Decoder(s.bytes).read(ComponentSnapshot);
-      return { eid: snap.eid, type: snap.type };
+      return { eid: snap.eid, wireType: snap.wireType };
     });
 
     const entitySnaps = decoded.filter((s) => s.eid === entity.eid);
-    // Only Position (type 1), no ChildOf (type 2) since entity has no ChildOf
+    // Only Position (wire type 1), no ChildOf (wire type 2) since entity has no ChildOf
     expect(entitySnaps).toHaveLength(1);
-    expect(entitySnaps[0].type).toBe(1);
+    expect(entitySnaps[0].wireType).toBe(1);
   });
 });

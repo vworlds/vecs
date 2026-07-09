@@ -54,10 +54,10 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
   serverTickIntervalMs?: number;
   ackIntervalMs?: number;
   /**
-   * Component types to interpolate between server frames, keyed by component
+   * Component types to interpolate between server frames, keyed by wire
    * type id, with the function used to blend each one. Types without an entry
    * are snapped to their latest received value. Defaults to interpolating the
-   * first network component (type 1) as a 2D position via `interpolatePosition`.
+   * first network component (wire type 1) as a 2D position via `interpolatePosition`.
    */
   interpolators?: Iterable<readonly [number, ComponentInterpolator]>;
 }
@@ -155,8 +155,8 @@ export class ClientWorld extends NetworkWorld {
     const diff = this._diffBuffer.pull(now);
     diff.snapshots.forEach((snapshot) => this._applySnapshot(snapshot));
     (diff.removed as number[] | undefined)?.forEach((key) => {
-      const [eid, type] = cid_unpack(key);
-      this._removeComponent(eid, type);
+      const [eid, wireType] = cid_unpack(key);
+      this._removeComponent(eid, wireType);
     });
   }
 
@@ -226,9 +226,11 @@ export class ClientWorld extends NetworkWorld {
     if (!(snapshot.payload instanceof Uint8Array)) {
       return snapshot.payload;
     }
-    const registered = this.getNetworkComponent(snapshot.type);
+    const registered = this.getNetworkComponent(snapshot.wireType);
     if (!registered) {
-      throw new Error(`Received snapshot for unregistered component type ${snapshot.type}`);
+      throw new Error(
+        `Received snapshot for unregistered component wire type ${snapshot.wireType}`
+      );
     }
     return (snapshot.payload = new Decoder(snapshot.payload).read(
       registered.Class
@@ -267,18 +269,18 @@ export class ClientWorld extends NetworkWorld {
     entity.set(relClass, { target });
   }
 
-  private _removeComponent(eid: EID, type: number): void {
+  private _removeComponent(eid: EID, wireType: number): void {
     // Merged/interpolated client diffs can contain a net removal for an entity
     // whose create snapshot was compressed away before it materialized locally.
     const entity = this.getEntity(eid);
     if (!entity) {
       return;
     }
-    if (type === ALL_COMPONENTS) {
+    if (wireType === ALL_COMPONENTS) {
       entity.destroy();
       return;
     }
-    const registered = this.getNetworkComponent(type);
+    const registered = this.getNetworkComponent(wireType);
     if (registered && entity.get(registered.Class)) {
       entity.remove(registered.Class);
     }

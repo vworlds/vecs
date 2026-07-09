@@ -1,4 +1,4 @@
-import { type as wireType } from "@vworlds/vecs-wire";
+import { wireType } from "@vworlds/vecs-wire";
 
 /** Textured renderable. Both fields index the asset catalog. */
 export class Image {

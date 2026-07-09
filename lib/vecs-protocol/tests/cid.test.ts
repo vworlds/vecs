@@ -12,21 +12,21 @@ describe("cid_pack", () => {
     setLocalComponentMin(256);
   });
 
-  it("packs and unpacks entity 0 with type 0", () => {
+  it("packs and unpacks entity 0 with wire type 0", () => {
     const cid = cid_pack(0, 0);
-    const [eid, type] = cid_unpack(cid);
+    const [eid, wireType] = cid_unpack(cid);
     expect(eid).toBe(0);
-    expect(type).toBe(0);
+    expect(wireType).toBe(0);
   });
 
   it("packs and unpacks default boundary case", () => {
     const maxEid = 16777215;
-    const maxType = 255;
+    const maxWireType = 255;
 
-    const cid = cid_pack(maxEid, maxType);
-    const [eid, type] = cid_unpack(cid);
+    const cid = cid_pack(maxEid, maxWireType);
+    const [eid, wireType] = cid_unpack(cid);
     expect(eid).toBe(maxEid);
-    expect(type).toBe(maxType);
+    expect(wireType).toBe(maxWireType);
   });
 
   it("reverses cid_pack with cid_unpack", () => {
@@ -38,10 +38,10 @@ describe("cid_pack", () => {
       [1000, 100],
     ];
 
-    for (const [eid, type] of testCases) {
-      const cid = cid_pack(eid, type);
-      const [unpackedEid, unpackedType] = cid_unpack(cid);
-      expect([unpackedEid, unpackedType]).toEqual([eid, type]);
+    for (const [eid, wireType] of testCases) {
+      const cid = cid_pack(eid, wireType);
+      const [unpackedEid, unpackedWireType] = cid_unpack(cid);
+      expect([unpackedEid, unpackedWireType]).toEqual([eid, wireType]);
     }
   });
 
@@ -59,55 +59,55 @@ describe("cid_pack", () => {
     expect(() => cid_pack(2 ** 30, 0)).toThrow(/exceeds maximum/);
   });
 
-  it("throws on negative type id", () => {
-    expect(() => cid_pack(0, -1)).toThrow(/type id must be non-negative/);
+  it("throws on negative wire type id", () => {
+    expect(() => cid_pack(0, -1)).toThrow(/wire type id must be non-negative/);
   });
 
-  it("throws on type id exceeding componentTypeMask", () => {
-    expect(() => cid_pack(0, 256)).toThrow(/exceeds maximum component type/);
+  it("throws on wire type id exceeding wireTypeMask", () => {
+    expect(() => cid_pack(0, 256)).toThrow(/exceeds maximum wire type/);
   });
 
-  it("accepts type id equal to ALL_COMPONENTS sentinel", () => {
+  it("accepts wire type id equal to ALL_COMPONENTS sentinel", () => {
     expect(() => cid_pack(0, ALL_COMPONENTS)).not.toThrow();
     const cid = cid_pack(0, ALL_COMPONENTS);
-    const [eid, type] = cid_unpack(cid);
+    const [eid, wireType] = cid_unpack(cid);
     expect(eid).toBe(0);
-    expect(type).toBe(ALL_COMPONENTS);
+    expect(wireType).toBe(ALL_COMPONENTS);
   });
 
   it("works with custom LOCAL_COMPONENT_MIN = 64", () => {
     setLocalComponentMin(64);
-    const componentTypeShift = 6;
-    const maxEid = (1 << (32 - componentTypeShift)) - 1;
+    const wireTypeShift = 6;
+    const maxEid = (1 << (32 - wireTypeShift)) - 1;
 
     const cid = cid_pack(maxEid, 63);
-    const [eid, type] = cid_unpack(cid);
+    const [eid, wireType] = cid_unpack(cid);
     expect(eid).toBe(maxEid);
-    expect(type).toBe(63);
+    expect(wireType).toBe(63);
     expect(() => cid_pack(maxEid + 1, 0)).toThrow(/exceeds maximum/);
   });
 
   it("works with custom LOCAL_COMPONENT_MIN = 1024", () => {
     setLocalComponentMin(1024);
-    const componentTypeShift = 10;
-    const maxEid = (1 << (32 - componentTypeShift)) - 1;
+    const wireTypeShift = 10;
+    const maxEid = (1 << (32 - wireTypeShift)) - 1;
 
     const cid = cid_pack(maxEid, 1023);
-    const [eid, type] = cid_unpack(cid);
+    const [eid, wireType] = cid_unpack(cid);
     expect(eid).toBe(maxEid);
-    expect(type).toBe(1023);
+    expect(wireType).toBe(1023);
     expect(() => cid_pack(maxEid + 1, 0)).toThrow(/exceeds maximum/);
   });
 
   it("works with minimum LOCAL_COMPONENT_MIN = 2", () => {
     setLocalComponentMin(2);
-    const componentTypeShift = 1;
-    const maxEid = 2 ** (32 - componentTypeShift) - 1;
+    const wireTypeShift = 1;
+    const maxEid = 2 ** (32 - wireTypeShift) - 1;
 
     const cid = cid_pack(maxEid, 1);
-    const [eid, type] = cid_unpack(cid);
+    const [eid, wireType] = cid_unpack(cid);
     expect(eid).toBe(maxEid);
-    expect(type).toBe(1);
+    expect(wireType).toBe(1);
     expect(() => cid_pack(maxEid + 1, 0)).toThrow(/exceeds maximum/);
   });
 });

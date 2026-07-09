@@ -10,16 +10,16 @@ import {
   type ComponentInterpolator,
 } from "../src/diff_buffer.js";
 
-const PositionType = 1;
-const ColorType = 6;
+const PositionWireType = 1;
+const ColorWireType = 6;
 
 class Position {
   public x = 0;
   public y = 0;
 }
 
-function CID(eid: EID, type: number): number {
-  return cid_pack(eid, type);
+function CID(eid: EID, wireType: number): number {
+  return cid_pack(eid, wireType);
 }
 
 function sortSnapshots(snapshots: ComponentSnapshot[]): ComponentSnapshot[] {
@@ -40,11 +40,11 @@ function encodeColor(color: string): Uint8Array {
 }
 
 function makePosComponent(eid: EID, x: number, y: number): ComponentSnapshot {
-  return new ComponentSnapshot(eid, PositionType, encodePos(x, y));
+  return new ComponentSnapshot(eid, PositionWireType, encodePos(x, y));
 }
 
 function makeColorComponent(eid: EID, color: string): ComponentSnapshot {
-  return new ComponentSnapshot(eid, ColorType, encodeColor(color));
+  return new ComponentSnapshot(eid, ColorWireType, encodeColor(color));
 }
 
 // test snapshot generator: returns Position + Color components for one entity
@@ -69,7 +69,7 @@ function hasMaterializedSnapshotMap(diff: Diff): boolean {
 }
 
 function Color(sd: Diff, id: EID): string | undefined {
-  const s = sd.smap.get(CID(id, ColorType));
+  const s = sd.smap.get(CID(id, ColorWireType));
   if (!s) {
     return undefined;
   }
@@ -80,7 +80,7 @@ function Color(sd: Diff, id: EID): string | undefined {
 }
 
 function Pos(sd: Diff, id: EID): { x: number; y: number } | undefined {
-  const s = sd.smap.get(CID(id, PositionType));
+  const s = sd.smap.get(CID(id, PositionWireType));
   if (!s) {
     return undefined;
   }
@@ -306,7 +306,7 @@ function createMergeRemoveDiffs(): {
   const sd2 = SD({
     from: 1,
     to: 2,
-    removed: [CID(A, ColorType)], // A's color component is removed; position remains
+    removed: [CID(A, ColorWireType)], // A's color component is removed; position remains
     snapshots: [],
   });
   const sd3 = SD({ from: 2, to: 3, snapshots: C3 });
@@ -332,7 +332,7 @@ test("merge-remove", () => {
   expect(r1).toMatchObject({
     from: 0,
     to: 2,
-    removed: [CID(A, ColorType)],
+    removed: [CID(A, ColorWireType)],
     snapshots: [makePosComponent(A, 0, 0)],
   });
 
@@ -376,7 +376,7 @@ test("Diff.getSnapshot works before and after smap materialization", () => {
   const sd = SD({ from: 0, to: 1, snapshots: [position, color] });
 
   expect(sd.getSnapshot(position.cid)).toBe(position);
-  expect(sd.getSnapshot(CID(B, PositionType))).toBeUndefined();
+  expect(sd.getSnapshot(CID(B, PositionWireType))).toBeUndefined();
   expect(hasMaterializedSnapshotMap(sd)).toBe(false);
 
   expect(sd.smap.get(color.cid)).toBe(color);
@@ -419,7 +419,7 @@ test("interpolated snapshots carry Position instances as payload", () => {
 
   ip.pull(100);
   const sd105 = ip.pull(105);
-  const snapshot = sd105.getSnapshot(CID(A, PositionType));
+  const snapshot = sd105.getSnapshot(CID(A, PositionWireType));
 
   expect(hasMaterializedSnapshotMap(sd105)).toBe(false);
   expect(snapshot?.payload).toBeInstanceOf(Position);
@@ -470,7 +470,7 @@ test("interpolates using a custom component interpolator supplied via config", (
     alphas.push(alpha);
     return target;
   };
-  const ip = new DiffBuffer(3, 10, decodePosition, [[PositionType, snapToTarget]]);
+  const ip = new DiffBuffer(3, 10, decodePosition, [[PositionWireType, snapToTarget]]);
   const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
   const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 10, 20)] });
 

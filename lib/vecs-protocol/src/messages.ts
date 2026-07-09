@@ -9,7 +9,7 @@ const FIELD_INPUT = 3;
 
 export class ComponentSnapshot implements IEncodable {
   public eid: EID = 0;
-  public type = 0;
+  public wireType = 0;
   public payload = new Uint8Array();
 
   public constructor(values?: Partial<ComponentSnapshot>) {
@@ -19,15 +19,15 @@ export class ComponentSnapshot implements IEncodable {
   }
 
   public wireEncode(encoder: Encoder): void {
-    encoder.write_u32(cid_pack(this.eid, this.type));
+    encoder.write_u32(cid_pack(this.eid, this.wireType));
     encoder.write_buffer(this.payload);
   }
 
   public static wireDecode(decoder: Decoder): ComponentSnapshot {
-    const [eid, type] = cid_unpack(decoder.read_u32());
+    const [eid, wireType] = cid_unpack(decoder.read_u32());
     return new ComponentSnapshot({
       eid,
-      type,
+      wireType,
       payload: decoder.read_bytes(),
     });
   }
@@ -37,11 +37,11 @@ export class EncodedSnapshot {
   public constructor(
     public bytes: Uint8Array, // contains an already-encoded ComponentSnapshot
     public eid: EID = 0,
-    public type = 0
+    public wireType = 0
   ) {}
 }
 
-export type RemovedComponent = [eid: EID, type: number];
+export type RemovedComponent = [eid: EID, wireType: number];
 
 export class StateDiff implements IEncodable {
   public toFrame = 0;
@@ -61,7 +61,7 @@ export class StateDiff implements IEncodable {
     encoder.write_u32(this.snapshots.length);
     this.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
     encoder.write_u32(this.removed.length);
-    this.removed.forEach(([eid, type]) => encoder.write_u32(cid_pack(eid, type)));
+    this.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
   }
 
   public static wireDecode(decoder: Decoder): StateDiff {

@@ -1,5 +1,5 @@
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
-import { type as wireType } from "@vworlds/vecs-wire";
+import { wireType } from "@vworlds/vecs-wire";
 
 /** Fill color (RGB integer, e.g. 0xff0000) and opacity 0..1. */
 export class FillStyle {

@@ -6,7 +6,7 @@ describe("phaserNetworkComponents", () => {
     expect(phaserNetworkComponents.length).toBe(18);
   });
 
-  it("contains components in the exact protocol order (type id = index + 1)", () => {
+  it("contains components in the exact protocol order (wire type = index + 1)", () => {
     expect(phaserNetworkComponents.map((c) => c.name)).toEqual([
       "Position",
       "Rotation",

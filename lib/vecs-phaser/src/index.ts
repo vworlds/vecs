@@ -33,9 +33,9 @@ import { Text } from "./components/text.js";
 
 /**
  * All components that participate in the network protocol, in registration order.
- * ORDER IS THE PROTOCOL — type id = index + 1. Do not reorder without a protocol version bump.
+ * ORDER IS THE PROTOCOL — wire type id = index + 1. Do not reorder without a protocol version bump.
  *
- * Type ids:
+ * Wire type ids:
  *   1  Position
  *   2  Rotation
  *   3  Scale
@@ -50,10 +50,10 @@ import { Text } from "./components/text.js";
  *  12  Line
  *  13  Triangle
  *  14  Star
- *   15  Text
- *   16  Size
- *   17  Image
- *   18  Tint
+ *  15  Text
+ *  16  Size
+ *  17  Image
+ *  18  Tint
  */
 export const phaserNetworkComponents = [
   Position,

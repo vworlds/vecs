@@ -1,4 +1,4 @@
-import { type as wireType } from "@vworlds/vecs-wire";
+import { wireType } from "@vworlds/vecs-wire";
 
 /** Entity position in meters, +y up (math convention). */
 export class Position {

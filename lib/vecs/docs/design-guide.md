@@ -102,9 +102,8 @@ export class Rotation {
 
 ### Networked components
 
-Mark wire fields with `@type` from `@vworlds/vecs-wire` (conventionally imported as
-`import { type as wireType }`). The
-**order** you pass components in `networkComponents` _is the wire protocol_ (type id = index + 1).
+Mark wire fields with `@wireType` from `@vworlds/vecs-wire` (`import { wireType }`). The
+**order** you pass components in `networkComponents` _is the wire protocol_ (wire type id = index + 1).
 Reordering is a breaking protocol change — snapshot-test the order.
 
 ```ts
@@ -114,7 +113,7 @@ class Arc {
 new ServerWorld({ networkComponents: [Position, Rotation, /* … */ Arc] });
 ```
 
-> **Decorator gotcha.** `@type` must work under both _legacy_ (`experimentalDecorators`, used by
+> **Decorator gotcha.** `@wireType` must work under both _legacy_ (`experimentalDecorators`, used by
 > `tsc`) and _standard_ TC39 decorators (what esbuild — `tsx`/Vite — emits for source files).
 > If you load decorated component classes from **source** through an esbuild-based runtime and
 > their fields silently fail to register, that's the standard-vs-legacy mismatch. vecs-wire
@@ -576,7 +575,7 @@ system after whatever produces the entity/companion.
 - **Within a phase, order = registration order;** across phases, the spine guarantees order. Don't
   use registration order for cross-module correctness — use phases.
 - **Networked component order = wire protocol.** Reordering breaks the protocol.
-- **`@type`/`@wireType` must survive esbuild's standard decorators** when components load from
+- **`@wireType` must survive esbuild's standard decorators** when components load from
   source (tsx/Vite). Otherwise fields silently don't register.
 - **`Relationship.target` is an `Entity`** — not wire-encodable.
 - **`world.module(M)` runs `init` once.** Re-registering with a different config throws.

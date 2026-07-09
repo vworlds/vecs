@@ -6,7 +6,7 @@ import {
   type WorldOptions,
   Relationship,
 } from "@vworlds/vecs";
-import { type as wireType } from "@vworlds/vecs-wire";
+import { wireType } from "@vworlds/vecs-wire";
 import { cid_pack, setLocalComponentMin } from "./cid.js";
 
 // Register Relationship.target as an "entity" wire field so every Relationship
@@ -43,33 +43,27 @@ export class NetworkWorld extends World {
     const localComponentMin = getLocalComponentMinFor(networkComponents.length);
     configureLocalComponentMin(localComponentMin);
     super({
-      idPools: buildNetworkIdPools(localComponentMin, options),
+      idPools: buildNetworkIdPools(options),
     });
 
     this.localComponentMin = localComponentMin;
     this.networkComponents = networkComponents.map((Class, index) => {
       const wireType = index + 1;
       cid_pack(0, wireType);
-      let eid: EID;
-      // Register the component if not already registered. Built-in
-      // relationships like ChildOf are pre-registered by RelationshipsModule
-      // with a local eid — re-registering with a network type id would
-      // throw, so we skip the eid and let the existing registration stand.
-      // The network type id (index + 1) is tracked separately for wire
-      // encoding and is independent of the component's internal eid.
-      if ((this as unknown as { _classRegistry: Map<object, unknown> })._classRegistry.has(Class)) {
-        eid = this.component(Class).eid;
-      } else {
-        eid = this.component(Class, wireType).eid;
-      }
+      // Auto-allocate the component's internal eid from the "component" pool.
+      // The wire type id (index + 1) is tracked separately for wire encoding
+      // and is independent of the component's internal eid. Built-in
+      // relationships like ChildOf are pre-registered by RelationshipsModule;
+      // this.component returns the existing entity in that case.
+      const eid = this.component(Class).eid;
       const registered = { Class, wireType, eid };
       this._networkComponentsByType.set(wireType, registered);
       return registered;
     });
   }
 
-  public getNetworkComponent(type: number): RegisteredNetworkComponent | undefined {
-    return this._networkComponentsByType.get(type);
+  public getNetworkComponent(wireType: number): RegisteredNetworkComponent | undefined {
+    return this._networkComponentsByType.get(wireType);
   }
 }
 
@@ -87,23 +81,16 @@ function configureLocalComponentMin(localComponentMin: number): void {
   setLocalComponentMin(localComponentMin);
 }
 
-function buildNetworkIdPools(
-  localComponentMin: number,
-  options: NetworkWorldOptions
-): IdPoolConfig[] {
+function buildNetworkIdPools(options: NetworkWorldOptions): IdPoolConfig[] {
   const entityIdStart = options.entityIdStart ?? DEFAULT_ENTITY_ID_START;
   validateEntityStart("entityIdStart", entityIdStart);
-  if (entityIdStart <= localComponentMin) {
-    throw new Error("entityIdStart must leave room for local component ids");
-  }
   const moduleIdStart = entityIdStart - MODULE_ID_RANGE_SIZE;
-  if (moduleIdStart <= localComponentMin) {
-    throw new Error("entityIdStart must leave room for local component and module ids");
+  if (moduleIdStart <= 0) {
+    throw new Error("entityIdStart must leave room for module ids");
   }
 
   const pools: IdPoolConfig[] = [
-    { name: "network", min: 1, max: localComponentMin - 1 },
-    { name: "component", min: localComponentMin, max: moduleIdStart - 1 },
+    { name: "component", min: 1, max: moduleIdStart - 1 },
     { name: "module", min: moduleIdStart, max: entityIdStart - 1 },
   ];
 

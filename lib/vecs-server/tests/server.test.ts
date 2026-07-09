@@ -7,7 +7,7 @@ import {
   type VecsSocket,
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
-import { Decoder, Encoder, type IEncodable, type as wireType } from "@vworlds/vecs-wire";
+import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import {
   POST_UPDATE,
   PRE_STORE,
@@ -179,7 +179,7 @@ describe("ServerWorld", () => {
     const snapshot = new Decoder(message.diff!.snapshots[0].bytes).read(ComponentSnapshot);
     const position = new Decoder(snapshot.payload).read(Position);
 
-    expect(snapshot).toMatchObject({ eid: entity.eid, type: 1 });
+    expect(snapshot).toMatchObject({ eid: entity.eid, wireType: 1 });
     expect(position).toMatchObject({ x: 10, y: 20 });
     expect(message.diff!.removed).toEqual([]);
   });
@@ -551,7 +551,7 @@ describe("ServerWorld", () => {
     expect(lastDiff?.removed ?? []).toEqual([]);
     expect(lastDiff?.snapshots.length).toBe(1);
     const snap = new Decoder(lastDiff!.snapshots[0].bytes).read(ComponentSnapshot);
-    expect(snap).toMatchObject({ eid: entity.eid, type: 1 });
+    expect(snap).toMatchObject({ eid: entity.eid, wireType: 1 });
     const pos = new Decoder(snap.payload).read(Position);
     expect(pos).toMatchObject({ x: 7, y: 7 });
   });
