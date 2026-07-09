@@ -8,7 +8,6 @@ import {
   cid_unpack,
   NetworkWorld,
   type NetworkWorldOptions,
-  type RegisteredNetworkComponent,
   type RPCHandler,
   type VecsSocket,
   worldPath,
@@ -62,7 +61,7 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
    * your position-like component class). Each class must be a registered
    * network component; an unregistered class throws at construction time.
    */
-  interpolators?: Iterable<readonly [ComponentClass, ComponentInterpolator]>;
+  interpolators?: Array<readonly [ComponentClass, ComponentInterpolator]>;
 }
 
 export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> {
@@ -103,7 +102,15 @@ export class ClientWorld extends NetworkWorld {
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,
       (snapshot) => this.decodeComponentSnapshot(snapshot),
-      resolveInterpolators(options.interpolators, this.networkComponents)
+      options.interpolators?.map(([Class, interpolator]) => {
+        const registered = this.networkComponents.find((r) => r.Class === Class);
+        if (!registered) {
+          throw new Error(
+            `interpolators: ${Class.name ?? "component"} is not a registered network component`
+          );
+        }
+        return [registered.wireType, interpolator] as const;
+      }) ?? []
     );
     this.system("ClientWorld:Apply")
       .phase(ON_LOAD)
@@ -322,29 +329,4 @@ export class ClientWorld extends NetworkWorld {
     clearInterval(this._ackTimer);
     this._ackTimer = undefined;
   }
-}
-
-// resolveInterpolators translates the public [ComponentClass, ComponentInterpolator]
-// mapping into the [wireType, ComponentInterpolator] entries DiffBuffer consumes,
-// by looking up each class in the registered network components. A class that is
-// not a registered network component throws — interpolators only apply to
-// networked types.
-function resolveInterpolators(
-  interpolators: Iterable<readonly [ComponentClass, ComponentInterpolator]> | undefined,
-  registered: readonly RegisteredNetworkComponent[]
-): Array<readonly [number, ComponentInterpolator]> {
-  if (!interpolators) {
-    return [];
-  }
-  const resolved: Array<readonly [number, ComponentInterpolator]> = [];
-  for (const [Class, interpolator] of interpolators) {
-    const entry = registered.find((r) => r.Class === Class);
-    if (!entry) {
-      throw new Error(
-        `interpolators: ${Class.name ?? "component"} is not a registered network component`
-      );
-    }
-    resolved.push([entry.wireType, interpolator]);
-  }
-  return resolved;
 }
