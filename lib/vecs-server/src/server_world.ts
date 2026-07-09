@@ -32,7 +32,8 @@ import { TrackerCache, View } from "./view.js";
 
 interface RegisteredComponent {
   Class: ComponentClass;
-  type: number;
+  wireType: number;
+  eid: EID;
 }
 
 class ServerClientSession {
@@ -128,12 +129,12 @@ export class ServerWorld extends NetworkWorld {
         .with(Networked, registered.Class)
         .phase(storePhase)
         .update({ watch: registered.Class, onEnter: true }, (entity, component) => {
-          this._snapshotCache.delete(cid_pack(entity.eid, registered.type));
-          this._record(entity, registered.type, component);
+          this._snapshotCache.delete(cid_pack(entity.eid, registered.wireType));
+          this._record(entity, registered.wireType, component);
         })
         .exit((entity) => {
-          this._snapshotCache.delete(cid_pack(entity.eid, registered.type));
-          this._record(entity, registered.type, undefined);
+          this._snapshotCache.delete(cid_pack(entity.eid, registered.wireType));
+          this._record(entity, registered.wireType, undefined);
         })
         .track();
     });
@@ -292,16 +293,20 @@ export class ServerWorld extends NetworkWorld {
 
   private _pushEntitySnapshots(entity: Entity, snapshots: EncodedSnapshot[]): void {
     this._components.forEach((registered) => {
-      const component = entity.get(registered.Class);
+      const component = entity.get(registered.eid);
       if (!component) {
         return;
       }
-      snapshots.push(this._encodeSnapshot(entity.eid, registered.type, component));
+      snapshots.push(this._encodeSnapshot(entity.eid, registered.wireType, component));
     });
   }
 
-  private _encodeSnapshot(eid: EID, type: number, component: ComponentInstance): EncodedSnapshot {
-    const cid = cid_pack(eid, type);
+  private _encodeSnapshot(
+    eid: EID,
+    wireType: number,
+    component: ComponentInstance
+  ): EncodedSnapshot {
+    const cid = cid_pack(eid, wireType);
     const cached = this._snapshotCache.get(cid);
     if (cached) {
       return cached;
@@ -311,9 +316,9 @@ export class ServerWorld extends NetworkWorld {
     payloadEncoder.write(component);
     const payload = payloadEncoder.getBuffer().slice();
     const snapshot = new EncodedSnapshot(
-      this._encode(new ComponentSnapshot({ eid, type, payload })),
+      this._encode(new ComponentSnapshot({ eid, type: wireType, payload })),
       eid,
-      type
+      wireType
     );
     this._snapshotCache.set(cid, snapshot);
     return snapshot;

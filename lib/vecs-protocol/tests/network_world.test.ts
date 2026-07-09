@@ -11,7 +11,7 @@ describe("NetworkWorld", () => {
 
     expect(world.localComponentMin).toBe(2);
     expect(world.entity(Position).eid).toBe(1);
-    expect(world.networkComponents).toEqual([{ Class: Position, type: 1 }]);
+    expect(world.networkComponents).toEqual([{ Class: Position, wireType: 1, eid: 1 }]);
     expect(cid_pack(42, 1)).toBeGreaterThan(0);
   });
 

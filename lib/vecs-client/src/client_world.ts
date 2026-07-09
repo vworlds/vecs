@@ -241,16 +241,17 @@ export class ClientWorld extends NetworkWorld {
 
   private _applySnapshot(snapshot: ComponentSnapshot): void {
     const component = this.decodeComponentSnapshot(snapshot);
-    const entity = this.getOrCreateEntity(snapshot.eid, (e) => e.add(Networked));
+    const entity = this.getOrCreateEntity(snapshot.eid, (e) => {
+      e.add(Networked);
+      this._resolvePendingRelationships(e);
+    });
 
     if (component instanceof Relationship) {
       this._applyRelationshipSnapshot(entity, component);
-      this._resolvePendingRelationships(entity);
       return;
     }
 
     entity.attach(component as object);
-    this._resolvePendingRelationships(entity);
   }
 
   private _applyRelationshipSnapshot(entity: Entity, component: Relationship): void {

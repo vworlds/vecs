@@ -22,7 +22,8 @@ let configuredLocalComponentMin: number | undefined;
 
 export interface RegisteredNetworkComponent {
   Class: ComponentClass;
-  type: number;
+  wireType: number;
+  eid: EID;
 }
 
 export interface NetworkWorldOptions extends Omit<WorldOptions, "idPools"> {
@@ -47,8 +48,9 @@ export class NetworkWorld extends World {
 
     this.localComponentMin = localComponentMin;
     this.networkComponents = networkComponents.map((Class, index) => {
-      const type = index + 1;
-      cid_pack(0, type);
+      const wireType = index + 1;
+      cid_pack(0, wireType);
+      let eid: EID;
       // Register the component if not already registered. Built-in
       // relationships like ChildOf are pre-registered by RelationshipsModule
       // with a local eid — re-registering with a network type id would
@@ -56,12 +58,12 @@ export class NetworkWorld extends World {
       // The network type id (index + 1) is tracked separately for wire
       // encoding and is independent of the component's internal eid.
       if ((this as unknown as { _classRegistry: Map<object, unknown> })._classRegistry.has(Class)) {
-        this.component(Class);
+        eid = this.component(Class).eid;
       } else {
-        this.component(Class, type);
+        eid = this.component(Class, wireType).eid;
       }
-      const registered = { Class, type };
-      this._networkComponentsByType.set(type, registered);
+      const registered = { Class, wireType, eid };
+      this._networkComponentsByType.set(wireType, registered);
       return registered;
     });
   }
