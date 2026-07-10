@@ -93,7 +93,7 @@ export class Filter<R extends ComponentType[] = []> {
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<J extends FanInjectTuple>(
+  public forEach<const J extends FanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
@@ -102,7 +102,7 @@ export class Filter<R extends ComponentType[] = []> {
    * As above, but pass `{ cursor: Entity, inject: [...] }` to make the
    * entity-first signature explicit. Identical behavior to the array form.
    */
-  public forEach<J extends FanInjectTuple>(
+  public forEach<const J extends FanInjectTuple>(
     options: EntityCursorOption & FanInjectCallbackOptions<J>,
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
@@ -114,7 +114,7 @@ export class Filter<R extends ComponentType[] = []> {
    * resolved component was read from (the visited entity for direct components,
    * the relationship's target entity for ones injected via `target`).
    */
-  public forEach<J extends FanInjectTuple>(
+  public forEach<const J extends FanInjectTuple>(
     options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
