@@ -175,6 +175,13 @@ class Container extends MockGameObject {
     child.displayList = null;
     return this;
   }
+
+  override destroy(): void {
+    // Phaser's Container.destroy() removes all children from the display list.
+    // It does NOT destroy them (destroyChild defaults to false via removeAll).
+    [...this.list].forEach((child) => this.remove(child, false));
+    super.destroy();
+  }
 }
 
 const Arc = makeShapeClass("arc");

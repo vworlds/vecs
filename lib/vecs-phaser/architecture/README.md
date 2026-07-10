@@ -581,6 +581,110 @@ needs only the texture key + frame.
 
 ---
 
+## 7.1 Parent-relative rendering (`DrawIn`, `Container`, `Offset`)
+
+### Two relationships, two concerns
+
+Parent-relative rendering uses two distinct relationships that often point at the
+same parent entity but serve different purposes:
+
+|                    | `ChildOf`                                  | `DrawIn`                                                   |
+| ------------------ | ------------------------------------------ | ---------------------------------------------------------- |
+| **Purpose**        | Ownership / lifecycle                      | Display hierarchy                                          |
+| **Networked?**     | No — server-local only                     | Yes — wire type 19, in `phaserNetworkComponents`           |
+| **Cleanup policy** | `Delete` (cascade-destroy children)        | `Remove` (detach children, they survive)                   |
+| **Configured by**  | `RelationshipsModule` (built-in)           | `ContainerModule` (vecs-phaser-client)                     |
+| **Traversable?**   | Yes (built-in)                             | Yes (configured by `ContainerModule`)                      |
+| **Entity sugar**   | `entity.childOf(parent)` / `entity.parent` | `entity.set(DrawIn, { target })` / `entity.target(DrawIn)` |
+
+**Why two?** A bullet may belong to a player (`ChildOf` for score assignment + cleanup
+cascade) but render as a root entity with its own `Position`. A ball's visual shape
+belongs to the ball (`ChildOf` for destroy cascade) and also draws inside the ball's
+Container (`DrawIn` for transform composition). Overloading a single relationship
+for both concerns would force every ownership child into the display hierarchy
+whether it belongs there or not.
+
+**Coexistence:** An entity can carry both. `ChildOf` handles lifecycle (server-side
+`Delete` cascade when the ownership parent is destroyed); `DrawIn` handles display
+(networked, `Remove` policy detaches the child when the display parent is destroyed
+without destroying the child itself). They can point at the same or different
+entities.
+
+### Three rendering cases
+
+An entity with a renderable component (shape, image, text, or `Container`) falls
+into one of three cases based on its components:
+
+**Root** — `[Position, GameObject]`, no `DrawIn`. Placed on the scene display list
+via `scene.add.existing(obj)`. Positioned by `phaser.sync.position`. This is the
+default; unchanged from the pre-parenting architecture.
+
+**Native parenting** — `[Offset, Renderable]` + `DrawIn → Container parent`. The
+child has `Offset` but no `Position`. The child's Phaser GameObject is added to the
+parent's Container via `parentContainer.add(obj)`. Phaser composes transforms
+natively — moving/rotating the Container moves/rotates all children. `Offset` sets
+the child's local position inside the container via `phaser.sync.offset` (relative
+coords, `rx`/`ry`). Rotation inheritance is automatic. Zero per-frame JS for the
+child. Interpolation is free — the parent's interpolated `Position` is applied to
+the Container; Phaser propagates to children.
+
+**Computed parenting** — `[Offset, Position, Renderable]` + `DrawIn → Renderable
+parent` (no Container). The child has both `Offset` and `Position`. A client-side
+system (`OffsetResolveModule`) derives the child's world `Position` from the parent's
+interpolated `Position` plus `Offset` rotated by the parent's `Rotation`. The
+`Position` is client-local — never networked. The existing `phaser.sync.position`
+then applies it. Per-frame JS cost, but only for this case.
+
+Distinguish native vs computed by the presence of `Position` on the child: no
+`Position` = native (inside a Container), `Position` = computed.
+
+### Display-list placement (`DisplayModule`)
+
+Shape modules create GameObjects via `new Phaser.GameObjects.X(scene, …)` (no
+display-list entry). `DisplayModule` is the single point that adds each GameObject
+to the correct display parent:
+
+- **Root entities** (no `DrawIn`): `scene.add.existing(obj)`.
+- **Children of a Container**: `parentContainer.add(obj)`.
+- **Children of a Renderable** (no Container) or **ghost-parent** (parent not yet
+  arrived): skipped; stays off-display until the parent's Container materialises
+  (handled by `ContainerModule`'s adoption loop) or the compute system derives a
+  `Position`.
+
+`DrawIn` is checked before the Container-vs-renderable distinction so a Container
+that is itself a child (e.g. an intermediate orbit Container) is nested inside its
+parent, not placed on the scene.
+
+### Reparenting
+
+The `phaser.display.reparent` system (`.with(m.GameObject, DrawIn).update({ watch:
+DrawIn })`) handles retargeting and removal in `ON_STORE`:
+
+- **Retarget:** if the new parent has a Container, `parentContainer.add(obj)`
+  (Phaser auto-removes from the old parent).
+- **Removal (exit):** detach from the old Container, re-add to the scene. If the
+  Container was already destroyed (cascade ordering), skip the detach — Phaser's
+  `Container.destroy()` already removed children from the display list.
+
+### Ghost-parent handling
+
+When a child's `DrawIn` target arrives before the parent's `Container` component
+(e.g. during baseline rebuild), the child's GameObject stays off-display (invisible).
+When the parent's `Container` arrives, `ContainerModule`'s enter system scans
+`entity.children(DrawIn)` for unplaced GameObjects and adopts them into the new
+Container.
+
+### Container lifetime
+
+`DrawIn` uses `CleanupPolicy.Remove`: destroying a display parent **detaches**
+children, does not destroy them. The reparent `exit` re-adds orphaned children to
+the scene. If the child also has `ChildOf` to the same parent (common for display
+children that should be cleaned up with their parent), `ChildOf`'s `Delete` policy
+destroys the child entity first — the `DrawIn` `Remove` policy then fires on an
+already-destroyed entity, which is a no-op.
+
+---
+
 ## 8. Server-side usage (pure ECS)
 
 ```ts

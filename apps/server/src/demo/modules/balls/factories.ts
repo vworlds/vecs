@@ -1,6 +1,7 @@
 import { type Entity, type World } from "@vworlds/vecs";
 import {
   Container,
+  DrawIn,
   Ellipse,
   FillStyle,
   Offset,
@@ -42,16 +43,19 @@ export function spawnBall(world: World, point: { x: number; y: number }): void {
       y: randomSignedFloat(0.6, 1.2),
     });
 
-  // Visual shape: a child of the ball Container at local (0,0).
+  // Visual shape: a display child of the ball Container at local (0,0).
+  // ChildOf ensures the ball's destruction cascades to this child (Delete
+  // policy); DrawIn drives the display hierarchy (networked).
   world
     .entity()
     .childOf(body)
+    .set(DrawIn, { target: body })
     .add(Networked)
     .set(Polygon, { points: regularHexagonPoints(BALL_RADIUS) })
     .set(FillStyle, randomFillStyle())
     .set(Offset, { x: 0, y: 0 });
 
-  // Collider: unchanged, a physics-only child.
+  // Collider: a physics-only child (server-local ChildOf, not networked).
   world
     .entity()
     .childOf(body)
@@ -67,9 +71,11 @@ function createElectron(world: World, ball: Entity): Entity {
 
   // Intermediate orbit Container: rotating this orbits the electron around
   // the ball centre. The electron is at a fixed Offset inside it.
+  // ChildOf the ball for lifecycle; DrawIn the ball for display.
   const orbit = world
     .entity()
     .childOf(ball)
+    .set(DrawIn, { target: ball })
     .add(Networked)
     .add(Container)
     .set(RenderRotation, { angle })
@@ -79,9 +85,11 @@ function createElectron(world: World, ball: Entity): Entity {
       speed: randomSignedFloat(0.08, 0.16),
     });
 
+  // ChildOf the orbit for lifecycle; DrawIn the orbit for display.
   return world
     .entity()
     .childOf(orbit)
+    .set(DrawIn, { target: orbit })
     .add(Networked)
     .add(Ellipse)
     .set(Size, { width: ELECTRON_SIZE, height: ELECTRON_SIZE })

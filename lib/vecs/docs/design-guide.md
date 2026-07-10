@@ -181,9 +181,12 @@ world.query("ByCell").with(Networked, Position).groupBy(InCell); // index by tar
 - **`Relationship.target` is an `Entity` — not directly serialisable, but
   relationships can be networked** when listed in `networkComponents`.
   `vecs-protocol` registers `Relationship.prototype.target` as an `"entity"`
-  wire field (u32 eid), so subclasses like `ChildOf` serialise their target
-  as a raw entity id. The client resolves the id to a live entity (creating a
-  ghost placeholder if the parent hasn't arrived yet).
+  wire field (u32 eid), so subclasses serialise their target as a raw entity
+  id. The client resolves the id to a live entity (creating a ghost
+  placeholder if the parent hasn't arrived yet). Use a dedicated relationship
+  class per concern — e.g. `ChildOf` for server-local ownership/lifecycle,
+  `DrawIn` (in vecs-phaser) for networked display hierarchy — so the two
+  concerns don't overload a single relationship.
 - **Retargeting is a plain data change** (no archetype churn). Prefer retargeting a relationship
   over swapping marker components to express "which bucket this entity is in."
 

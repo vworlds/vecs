@@ -5,9 +5,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
-## v1.0.41 (2026-07-10)
-
-- [vecs-phaser]: Added `Container` and `Offset` render components for parent-relative transform hierarchies, plus a networked `ChildOf` relationship to synchronize parent-child render trees across the wire. `Container` is a `@tag`-decorated presence component that groups children under a shared transform; `Offset` carries local position/rotation/scale relative to the parent. The `InCell` spatial-interest system now cascades to parented children so child entities remain visible when their parent is in-range.
+- [vecs-phaser]: Added `Container`, `Offset`, and `DrawIn` render components for parent-relative transform hierarchies. `Container` is a `@tag`-decorated presence component that groups children under a shared transform; `Offset` carries local position relative to the parent in the parent's rotated frame. `DrawIn` is a networked `Relationship` subclass (wire type 19) for display hierarchy — distinct from the server-local `ChildOf` (ownership/lifecycle). `DrawIn` uses `CleanupPolicy.Remove` (detaches children on parent destroy, does not destroy them); `ChildOf` uses `CleanupPolicy.Delete` (cascade-destroys). An entity can carry both: `ChildOf` for lifecycle, `DrawIn` for display. The `InCell` spatial-interest system cascades to `DrawIn` children so child entities remain visible when their parent is in-range.
 - [vecs-client]: Resolved relationship snapshots on the client via entity wire type, enabling networked parent-child hierarchies. Replaced pending-link bookkeeping with ghost target entities for cleaner relationship deserialization. Removed the network component pool and renamed `type` to `wireType` throughout the client/server networking layer.
 - [vecs-server]: Added entity wire spec for serializing relationships. Registered network components now track `eid` alongside `wireType`.
 - [vecs-phaser-client]: Made `Position` interpolation opt-in and installed it via vecs-phaser. Keyed ClientWorld interpolators by component class instead of wire type for cleaner dispatch.

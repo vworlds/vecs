@@ -37,7 +37,7 @@ export class Depth {
 }
 
 /**
- * Local position offset relative to the parent entity (the `ChildOf` target),
+ * Local position offset relative to the parent entity (the `DrawIn` target),
  * expressed in the parent's local (rotated) frame in meters.
  *
  * Parent-relative rendering has two modes, depending on whether the parent
