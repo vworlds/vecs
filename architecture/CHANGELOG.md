@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+## v1.0.41 (2026-07-10)
+
 - [vecs-phaser]: Added `Container` and `Offset` render components for parent-relative transform hierarchies, plus a networked `ChildOf` relationship to synchronize parent-child render trees across the wire. `Container` is a `@tag`-decorated presence component that groups children under a shared transform; `Offset` carries local position/rotation/scale relative to the parent. The `InCell` spatial-interest system now cascades to parented children so child entities remain visible when their parent is in-range.
 - [vecs-client]: Resolved relationship snapshots on the client via entity wire type, enabling networked parent-child hierarchies. Replaced pending-link bookkeeping with ghost target entities for cleaner relationship deserialization. Removed the network component pool and renamed `type` to `wireType` throughout the client/server networking layer.
 - [vecs-server]: Added entity wire spec for serializing relationships. Registered network components now track `eid` alongside `wireType`.
