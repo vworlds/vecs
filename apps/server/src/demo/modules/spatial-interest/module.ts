@@ -1,4 +1,4 @@
-import { Module, PRE_STORE, type Entity, type QueryDSL } from "@vworlds/vecs";
+import { ChildOf, Module, PRE_STORE, type Entity, type QueryDSL } from "@vworlds/vecs";
 import { Position as RenderPosition } from "@vworlds/vecs-phaser";
 import { NetworkClient, Networked, View } from "@vworlds/vecs-server";
 import {
@@ -32,6 +32,31 @@ export class SpatialInterestModule extends Module {
       .update({ watch: RenderPosition, onEnter: true }, (entity, position) =>
         assignCell(entity, position, cellEntities)
       );
+
+    // Cascade InCell from parent to children that don't have their own
+    // RenderPosition (e.g. child shapes parented via ChildOf to a Container).
+    // Without this, parented children are invisible in cell-based views
+    // because they never get an InCell assignment. Uses InCell onSet/onRemove
+    // hooks so the cascade is immediate — a child assigned the same frame
+    // its parent gets a cell, no frame delay.
+    world.component(InCell).onSet((entity) => {
+      const cell = entity.target(InCell);
+      for (const child of entity.children(ChildOf)) {
+        if (child.has(Networked) && !child.has(RenderPosition)) {
+          if (child.target(InCell) !== cell) {
+            child.set(InCell, { target: cell! });
+          }
+        }
+      }
+    });
+
+    world.component(InCell).onRemove((entity) => {
+      for (const child of entity.children(ChildOf)) {
+        if (child.has(Networked) && !child.has(RenderPosition) && child.has(InCell)) {
+          child.remove(InCell);
+        }
+      }
+    });
 
     world
       .system("UpdatePlayerViews")
