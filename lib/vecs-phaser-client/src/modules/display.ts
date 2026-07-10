@@ -92,8 +92,14 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
         if (!obj || (obj as unknown as { destroyed: boolean }).destroyed) {
           return;
         }
-        if (obj.parentContainer !== null) {
-          (obj.parentContainer as Phaser.GameObjects.Container).remove(obj, false);
+        // The parent Container may have been destroyed already (cascade
+        // ordering: m.GameObject.onRemove destroys the Phaser Container,
+        // which destroys its children; then DrawIn's Remove policy fires
+        // the exit). If the parent is gone, just clear the reference.
+        const parent = obj.parentContainer as
+          (Phaser.GameObjects.Container & { destroyed?: boolean }) | null;
+        if (parent && !parent.destroyed) {
+          parent.remove(obj, false);
         }
         if (obj.displayList === null) {
           scene.add.existing(obj);
