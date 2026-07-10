@@ -33,8 +33,8 @@ trap 'rm -f "$PRE_PUSH_MASTER_FILE" "$PRE_PUSH_TAG_FILE"' EXIT
 # worktrees via `git worktree list --porcelain`.
 is_linked_worktree() {
   local common_dir toplevel
-  common_dir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-  toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  common_dir="$(git rev-parse --git-common-dir 2> /dev/null || true)"
+  toplevel="$(git rev-parse --show-toplevel 2> /dev/null || true)"
   # In a linked worktree, --git-common-dir points at the main repo's .git,
   # while --git-dir points at the worktree's private dir. They differ.
   [ -n "$common_dir" ] && [ "$common_dir" != "$(git rev-parse --git-dir)" ]
@@ -42,7 +42,7 @@ is_linked_worktree() {
 
 if is_linked_worktree; then
   err "This skill must run in the repo's main worktree, not a linked worktree."
-  err "Run it from the primary checkout (usually $(git rev-parse --git-common-dir 2>/dev/null | sed 's#/\.git$##'))."
+  err "Run it from the primary checkout (usually $(git rev-parse --git-common-dir 2> /dev/null | sed 's#/\.git$##'))."
   exit 1
 fi
 
@@ -82,11 +82,11 @@ git fetch --tags --prune "$REMOTE"
 REMOTE_DEV="$REMOTE/$DEV_BRANCH"
 REMOTE_MASTER="$REMOTE/$MASTER_BRANCH"
 
-if ! git rev-parse --verify "$REMOTE_DEV" >/dev/null 2>&1; then
+if ! git rev-parse --verify "$REMOTE_DEV" > /dev/null 2>&1; then
   err "Remote branch '$REMOTE_DEV' not found."
   exit 1
 fi
-if ! git rev-parse --verify "$REMOTE_MASTER" >/dev/null 2>&1; then
+if ! git rev-parse --verify "$REMOTE_MASTER" > /dev/null 2>&1; then
   err "Remote branch '$REMOTE_MASTER' not found."
   exit 1
 fi
@@ -123,7 +123,7 @@ fi
 # ---------------------------------------------------------------------------
 log "Updating local $MASTER_BRANCH to $REMOTE_MASTER..."
 # Ensure local master exists and is fast-forwardable to remote master.
-if ! git rev-parse --verify "$MASTER_BRANCH" >/dev/null 2>&1; then
+if ! git rev-parse --verify "$MASTER_BRANCH" > /dev/null 2>&1; then
   # Create local master tracking remote master.
   git branch --track "$MASTER_BRANCH" "$REMOTE_MASTER"
 else
@@ -140,7 +140,7 @@ fi
 # Record pre-push state so we can detect the CI bump commit later.
 git rev-parse "$MASTER_BRANCH" > "$PRE_PUSH_MASTER_FILE"
 # Record the newest existing tag so we can detect the new one.
-git describe --tags --abbrev=0 "$REMOTE_MASTER" 2>/dev/null > "$PRE_PUSH_TAG_FILE" || echo "" > "$PRE_PUSH_TAG_FILE"
+git describe --tags --abbrev=0 "$REMOTE_MASTER" 2> /dev/null > "$PRE_PUSH_TAG_FILE" || echo "" > "$PRE_PUSH_TAG_FILE"
 PRE_PUSH_MASTER_SHA="$(cat "$PRE_PUSH_MASTER_FILE")"
 PRE_PUSH_TAG="$(cat "$PRE_PUSH_TAG_FILE")"
 log "Pre-push master sha: $PRE_PUSH_MASTER_SHA"
@@ -148,7 +148,7 @@ log "Pre-push latest tag: ${PRE_PUSH_TAG:-<none>}"
 
 # Switch to master before merging dev into it.
 log "Switching to $MASTER_BRANCH..."
-git checkout "$MASTER_BRANCH" >/dev/null 2>&1
+git checkout "$MASTER_BRANCH" > /dev/null 2>&1
 
 # Merge dev into master. Since dev is a descendant, this is a fast-forward.
 log "Merging $DEV_BRANCH into $MASTER_BRANCH..."
@@ -179,15 +179,12 @@ if [ ! -f "$CHANGELOG" ]; then
   exit 1
 fi
 
-# Compute the next version from the latest tag (PRE_PUSH_TAG, e.g. "v1.0.35").
-if [ -z "$PRE_PUSH_TAG" ]; then
-  err "No existing tag found; cannot compute the next version."
-  exit 1
-fi
-TAG_VERSION="${PRE_PUSH_TAG#v}" # strip leading 'v'
-IFS='.' read -r MAJ MIN PAT <<<"$TAG_VERSION"
+# Compute the next version the same way CI does: current package version + 1.
+# This keeps changelog labelling correct when an unpublished version is skipped.
+CURRENT_PACKAGE_VERSION="$(node -p "require('./lib/vecs/package.json').version")"
+IFS='.' read -r MAJ MIN PAT <<< "$CURRENT_PACKAGE_VERSION"
 if ! [[ "$MAJ" =~ ^[0-9]+$ && "$MIN" =~ ^[0-9]+$ && "$PAT" =~ ^[0-9]+$ ]]; then
-  err "Could not parse version from tag '$PRE_PUSH_TAG'."
+  err "Could not parse version from package version '$CURRENT_PACKAGE_VERSION'."
   exit 1
 fi
 NEXT_VERSION="$MAJ.$MIN.$((PAT + 1))"
@@ -217,7 +214,7 @@ fi
 if ! git diff --quiet -- "$CHANGELOG"; then
   log "Committing changelog update for v$NEXT_VERSION..."
   git add "$CHANGELOG"
-  if ! git commit -m "docs: label changelog for v$NEXT_VERSION release" >/dev/null 2>&1; then
+  if ! git commit -m "docs: label changelog for v$NEXT_VERSION release" > /dev/null 2>&1; then
     err "Failed to commit changelog update."
     exit 1
   fi
@@ -256,9 +253,9 @@ while [ "$ELAPSED" -lt "$MAX_WAIT_SEC" ]; do
   ELAPSED=$((ELAPSED + POLL_INTERVAL_SEC))
 
   # Refresh remote refs without touching local branches.
-  git fetch --tags --prune "$REMOTE" >/dev/null 2>&1 || true
+  git fetch --tags --prune "$REMOTE" > /dev/null 2>&1 || true
 
-  REMOTE_MASTER_SHA="$(git rev-parse "$REMOTE/$MASTER_BRANCH" 2>/dev/null || echo "")"
+  REMOTE_MASTER_SHA="$(git rev-parse "$REMOTE/$MASTER_BRANCH" 2> /dev/null || echo "")"
   if [ -z "$REMOTE_MASTER_SHA" ]; then
     log "  (${ELAPSED}s) origin/master not visible yet..."
     continue
@@ -267,7 +264,7 @@ while [ "$ELAPSED" -lt "$MAX_WAIT_SEC" ]; do
   # Check whether origin/master advanced past our pushed commit. The publish
   # workflow pushes a "[skip ci]" bump commit on top of our push.
   if git merge-base --is-ancestor "$NEW_MASTER_SHA" "$REMOTE_MASTER_SHA" \
-     && [ "$REMOTE_MASTER_SHA" != "$NEW_MASTER_SHA" ]; then
+    && [ "$REMOTE_MASTER_SHA" != "$NEW_MASTER_SHA" ]; then
     BUMP_COMMIT="$REMOTE_MASTER_SHA"
     log "  (${ELAPSED}s) origin/master advanced to $BUMP_COMMIT."
   else
@@ -277,12 +274,12 @@ while [ "$ELAPSED" -lt "$MAX_WAIT_SEC" ]; do
   # Look for a new tag pointing at the bump commit (or any commit after our push).
   # CI tags with "vX.Y.Z". Find the newest tag reachable from origin/master that
   # is newer than PRE_PUSH_TAG and not equal to it.
-  LATEST_TAG="$(git describe --tags --abbrev=0 "$REMOTE/$MASTER_BRANCH" 2>/dev/null || echo "")"
+  LATEST_TAG="$(git describe --tags --abbrev=0 "$REMOTE/$MASTER_BRANCH" 2> /dev/null || echo "")"
   if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$PRE_PUSH_TAG" ]; then
-    TAG_TARGET="$(git rev-list -n 1 "$LATEST_TAG" 2>/dev/null || echo "")"
+    TAG_TARGET="$(git rev-list -n 1 "$LATEST_TAG" 2> /dev/null || echo "")"
     # Accept the tag if it points at or after our pushed commit.
     if [ -n "$TAG_TARGET" ] \
-       && git merge-base --is-ancestor "$NEW_MASTER_SHA" "$TAG_TARGET"; then
+      && git merge-base --is-ancestor "$NEW_MASTER_SHA" "$TAG_TARGET"; then
       NEW_TAG="$LATEST_TAG"
       log "  (${ELAPSED}s) New tag detected: $NEW_TAG -> $TAG_TARGET."
     fi
@@ -305,12 +302,12 @@ fi
 # 7. Pull master locally so it matches the bumped origin/master.
 # ---------------------------------------------------------------------------
 log "Fast-forwarding local $MASTER_BRANCH to $REMOTE/$MASTER_BRANCH..."
-git checkout "$MASTER_BRANCH" >/dev/null 2>&1
+git checkout "$MASTER_BRANCH" > /dev/null 2>&1
 if ! git merge --ff-only "$REMOTE/$MASTER_BRANCH"; then
   err "Could not fast-forward local $MASTER_BRANCH to $REMOTE/$MASTER_BRANCH."
   err "Resolve manually: git checkout $MASTER_BRANCH && git reset --hard $REMOTE/$MASTER_BRANCH"
   # Restore the user's original branch context as best we can.
-  git checkout "$DEV_BRANCH" >/dev/null 2>&1 || true
+  git checkout "$DEV_BRANCH" > /dev/null 2>&1 || true
   exit 1
 fi
 log "Local $MASTER_BRANCH at $(git rev-parse $MASTER_BRANCH)."
@@ -319,7 +316,7 @@ log "Local $MASTER_BRANCH at $(git rev-parse $MASTER_BRANCH)."
 # 8. Reset dev to master (fast-forward only — never destroy dev history).
 # ---------------------------------------------------------------------------
 log "Fast-forwarding $DEV_BRANCH to $MASTER_BRANCH..."
-git checkout "$DEV_BRANCH" >/dev/null 2>&1
+git checkout "$DEV_BRANCH" > /dev/null 2>&1
 
 # dev should be an ancestor of the new master (we only added a bump commit on
 # top of our merge), so a fast-forward is always possible. Refuse anything else.
@@ -331,7 +328,7 @@ fi
 
 # Push dev so origin/dev matches.
 LOCAL_DEV_TIP="$(git rev-parse "$DEV_BRANCH")"
-REMOTE_DEV_TIP="$(git rev-parse "$REMOTE/$DEV_BRANCH" 2>/dev/null || echo "")"
+REMOTE_DEV_TIP="$(git rev-parse "$REMOTE/$DEV_BRANCH" 2> /dev/null || echo "")"
 if [ "$LOCAL_DEV_TIP" != "$REMOTE_DEV_TIP" ]; then
   log "Pushing $DEV_BRANCH to $REMOTE..."
   if ! git push "$REMOTE" "$DEV_BRANCH:$DEV_BRANCH"; then
