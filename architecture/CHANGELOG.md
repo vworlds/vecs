@@ -5,6 +5,12 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-phaser]: Added `Container` and `Offset` render components for parent-relative transform hierarchies, plus a networked `ChildOf` relationship to synchronize parent-child render trees across the wire. `Container` is a `@tag`-decorated presence component that groups children under a shared transform; `Offset` carries local position/rotation/scale relative to the parent. The `InCell` spatial-interest system now cascades to parented children so child entities remain visible when their parent is in-range.
+- [vecs-client]: Resolved relationship snapshots on the client via entity wire type, enabling networked parent-child hierarchies. Replaced pending-link bookkeeping with ghost target entities for cleaner relationship deserialization. Removed the network component pool and renamed `type` to `wireType` throughout the client/server networking layer.
+- [vecs-server]: Added entity wire spec for serializing relationships. Registered network components now track `eid` alongside `wireType`.
+- [vecs-phaser-client]: Made `Position` interpolation opt-in and installed it via vecs-phaser. Keyed ClientWorld interpolators by component class instead of wire type for cleaner dispatch.
+- [vecs]: Fixed tuple inference preservation in `inject` callbacks. Removed unnecessary type casts in `offset_resolve` and inject tuple annotations.
+
 ## v1.0.40 (2026-07-08)
 
 - [vecs-physics]: Added the remaining Box2D joint types — `PrismaticJoint`, `WheelJoint`, and `MotorJoint` — completing joint coverage alongside the already-shipped `RevoluteJoint`, `DistanceJoint`, `WeldJoint`, and `FilterJoint`. `PrismaticJoint` locks the bodies' relative angle and slides body B along an axis (body A's local x-axis, rotated by `JointFrame.referenceAngle`); `WheelJoint` is the same slider but leaves relative rotation free. Both reuse the existing `JointMotor`/`JointLimit`/`JointLinearSpring` feature components for their axis motor, translation limit, and suspension/slide spring — no new feature components needed. `MotorJoint` drives body B toward a target pose using a velocity-tracking motor and a positional spring that Box2D always keeps active (no enable flags), so it carries its own fields directly instead of composing with the shared feature components, mirroring how `DistanceJoint` carries `length`. See `docs/joints.md`.
