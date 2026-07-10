@@ -17,7 +17,8 @@ export class StarModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace
       .without(Phaser.GameObjects.Star)
       .phase(ON_STORE)
       .enter([Star], (entity, [star]) => {
-        const obj = scene.add.star(
+        const obj = new Phaser.GameObjects.Star(
+          scene,
           0,
           0,
           star.points,

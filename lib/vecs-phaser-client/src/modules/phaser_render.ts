@@ -4,9 +4,12 @@ import { CoordSpace } from "../coord_space.js";
 import { Catalog } from "../load_assets.js";
 import * as m from "../markers.js";
 import { ArcModule } from "./arc.js";
+import { ContainerModule } from "./container.js";
+import { DisplayModule } from "./display.js";
 import { EllipseModule } from "./ellipse.js";
 import { ImageModule } from "./image.js";
 import { LineModule } from "./line.js";
+import { OffsetResolveModule } from "./offset_resolve.js";
 import { PolygonModule } from "./polygon.js";
 import { RectangleModule } from "./rectangle.js";
 import { StarModule } from "./star.js";
@@ -74,6 +77,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
 
     world.component(m.GameObject).onRemove((_entity, obj) => obj.destroy());
 
+    world.module(ContainerModule, { scene: config.scene });
     world.module(ArcModule, { scene: config.scene, coords });
     world.module(EllipseModule, { scene: config.scene, coords });
     world.module(RectangleModule, { scene: config.scene, coords });
@@ -83,6 +87,9 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     world.module(StarModule, { scene: config.scene, coords });
     world.module(TextModule, { scene: config.scene });
     world.module(ImageModule, { scene: config.scene, coords });
+
+    world.module(DisplayModule, { scene: config.scene });
+    world.module(OffsetResolveModule);
 
     world.module(SyncModule, { coords });
   }

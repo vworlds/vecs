@@ -17,7 +17,13 @@ export class ImageModule extends Module<{ scene: Phaser.Scene; coords: CoordSpac
       .without(Phaser.GameObjects.Image)
       .phase(ON_STORE)
       .enter([Image], (entity, [image]) => {
-        const obj = scene.add.image(0, 0, String(image.texture), image.frame).setOrigin(0.5);
+        const obj = new Phaser.GameObjects.Image(
+          scene,
+          0,
+          0,
+          String(image.texture),
+          image.frame
+        ).setOrigin(0.5);
         entity.attach(obj);
       });
 

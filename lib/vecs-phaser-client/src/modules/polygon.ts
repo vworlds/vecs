@@ -25,7 +25,7 @@ export class PolygonModule extends Module<{ scene: Phaser.Scene; coords: CoordSp
       .without(Phaser.GameObjects.Polygon)
       .phase(ON_STORE)
       .enter([Polygon], (entity, [polygon]) => {
-        const obj = scene.add.polygon(0, 0, polygonPoints(coords, polygon));
+        const obj = new Phaser.GameObjects.Polygon(scene, 0, 0, polygonPoints(coords, polygon));
         obj.setOrigin(0, 0);
         entity.attach(obj);
       });

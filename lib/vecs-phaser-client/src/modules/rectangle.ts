@@ -16,7 +16,13 @@ export class RectangleModule extends Module<{ scene: Phaser.Scene; coords: Coord
       .without(Phaser.GameObjects.Rectangle)
       .phase(ON_STORE)
       .enter([Size], (entity, [size]) => {
-        const obj = scene.add.rectangle(0, 0, coords.len(size.width), coords.len(size.height));
+        const obj = new Phaser.GameObjects.Rectangle(
+          scene,
+          0,
+          0,
+          coords.len(size.width),
+          coords.len(size.height)
+        );
         entity.attach(obj);
       });
   }

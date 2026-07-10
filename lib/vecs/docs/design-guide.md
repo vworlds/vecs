@@ -178,8 +178,12 @@ entity.target(InCell); // the target entity
 world.query("ByCell").with(Networked, Position).groupBy(InCell); // index by target
 ```
 
-- **`Relationship.target` is an `Entity` — not serializable, so relationships are not
-  networkable.** Don't try to replicate them.
+- **`Relationship.target` is an `Entity` — not directly serialisable, but
+  relationships can be networked** when listed in `networkComponents`.
+  `vecs-protocol` registers `Relationship.prototype.target` as an `"entity"`
+  wire field (u32 eid), so subclasses like `ChildOf` serialise their target
+  as a raw entity id. The client resolves the id to a live entity (creating a
+  ghost placeholder if the parent hasn't arrived yet).
 - **Retargeting is a plain data change** (no archetype churn). Prefer retargeting a relationship
   over swapping marker components to express "which bucket this entity is in."
 
@@ -546,18 +550,18 @@ system after whatever produces the entity/companion.
 
 ## 8. Anti-patterns (keep ECS semantics)
 
-| Smell                                                                  | Do instead                                                                                                                                           |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A side `Map<eid, resource>`                                            | Store the resource in a **companion component**; let queries drive its lifecycle; release in `onRemove`.                                             |
-| An imperative runtime object with `start()/stop()/track/enable`        | A **module** + the world's own lifecycle (`clearAllEntities()`, closing the world). Systems live on the world; they don't need a wrapper to turn on. |
-| Builder/factory helpers that _create entities_ (`createArc(world, …)`) | Let callers `world.entity().add(Networked).set(Arc, …).set(FillStyle, …)`. Components are small and optional; the caller adds exactly what it wants. |
-| A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                        |
-| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                           |
-| One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                               |
-| Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                        |
-| `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                        |
-| Networking a relationship                                              | You can't (target is an `Entity`); replicate a plain id/tag instead, or keep the relationship server-local.                                          |
-| A `registerFooSystem(world)` wrapper per system                        | Declare the system inline in the module's `init`.                                                                                                    |
+| Smell                                                                  | Do instead                                                                                                                                                                                                |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A side `Map<eid, resource>`                                            | Store the resource in a **companion component**; let queries drive its lifecycle; release in `onRemove`.                                                                                                  |
+| An imperative runtime object with `start()/stop()/track/enable`        | A **module** + the world's own lifecycle (`clearAllEntities()`, closing the world). Systems live on the world; they don't need a wrapper to turn on.                                                      |
+| Builder/factory helpers that _create entities_ (`createArc(world, …)`) | Let callers `world.entity().add(Networked).set(Arc, …).set(FillStyle, …)`. Components are small and optional; the caller adds exactly what it wants.                                                      |
+| A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                                                                             |
+| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                                                                                |
+| One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                                                                                    |
+| Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                                                                             |
+| `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                                                                             |
+| Networking a relationship                                              | Relationships can be networked when listed in `networkComponents`: `Relationship.target` serialises as a u32 entity id. List `ChildOf` (or custom subclasses) explicitly to replicate parent-child links. |
+| A `registerFooSystem(world)` wrapper per system                        | Declare the system inline in the module's `init`.                                                                                                                                                         |
 
 ---
 
@@ -577,7 +581,10 @@ system after whatever produces the entity/companion.
 - **Networked component order = wire protocol.** Reordering breaks the protocol.
 - **`@wireType` must survive esbuild's standard decorators** when components load from
   source (tsx/Vite). Otherwise fields silently don't register.
-- **`Relationship.target` is an `Entity`** — not wire-encodable.
+- **`Relationship.target` is an `Entity`** — not directly wire-encodable, but
+  `vecs-protocol` registers it as an `"entity"` wire field (u32 eid) at module
+  load, so `Relationship` subclasses listed in `networkComponents` serialise
+  correctly.
 - **`world.module(M)` runs `init` once.** Re-registering with a different config throws.
 
 ---

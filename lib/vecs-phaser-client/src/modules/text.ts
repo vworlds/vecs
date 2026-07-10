@@ -17,7 +17,7 @@ export class TextModule extends Module<{ scene: Phaser.Scene }> {
       .without(Phaser.GameObjects.Text)
       .phase(ON_STORE)
       .enter([TextComponent], (entity, [text]) => {
-        const obj = scene.add.text(0, 0, text.value, textStyle(text));
+        const obj = new Phaser.GameObjects.Text(scene, 0, 0, text.value, textStyle(text));
         obj.setOrigin(0.5);
         entity.attach(obj);
       });

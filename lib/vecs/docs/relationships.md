@@ -26,8 +26,12 @@ with `children(ref)` through a reverse index the world maintains automatically. 
 most one instance of a given relationship class (like any component), so multi-target links are
 modeled with one relationship class per meaning, or child entities.
 
-Because `target` is an `Entity` reference, **relationships are not wire-serializable — don't try
-to network them**. Replicate a plain id or tag instead, or keep the relationship server-local.
+Because `target` is an `Entity` reference, relationships are not wire-serializable by default.
+However, `vecs-protocol` registers `Relationship.prototype.target` as an `"entity"` wire field
+(u32 eid) at module load, so **relationship subclasses listed in `networkComponents` are
+networkable**: the target serialises as a raw entity id, and the client resolves it to a live
+entity (creating a ghost placeholder if the parent hasn't arrived yet). List `ChildOf` (or custom
+subclasses) explicitly in your `networkComponents` array to replicate parent-child links.
 
 ## Built-in relationships
 

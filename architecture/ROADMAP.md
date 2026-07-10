@@ -11,7 +11,6 @@ Planned features for the next version.
 - [vecs-physics] **Joints** — add the next major physics surface with a second cross-entity relationship model (`JointBodies`) plus per-type joint components.
 - [vecs-physics] **Open-chain sharp-endpoint ghost vertices** — replace the reflection approximation at open-chain endpoints with real Box2D ghost-vertex parity so sharp endpoints collide correctly; loop chains already use real neighbor ghosts.
 - [vecs] **Injected mutation dirty tracking** — make `.each`/`.update`-injected component mutation reliably mark components modified, or provide an explicit ergonomic replacement if automatic tracking is not viable.
-- [vecs-phaser-client] **Parent-relative render transforms** — support render transforms relative to parent entities so scene graphs can express local offsets without manual pose baking.
 - [vecs-phaser-client] **Anchored UI and text origins** — add UI anchoring and text-origin controls for screen-space overlays and precise label alignment.
 - [vecs-phaser] **Animated Sprite renderables** — add a separate wire-serializable animated `Sprite` renderable that reuses the shipped asset catalog and captured Tiled `animation` frames; static Tiled-backed `Image` rendering already ships.
 - [vecs-phaser] **Dynamic assets** — add an in-band "asset added" message that extends the `AssetCatalog` at runtime and triggers a Phaser load before the referencing entity renders. The append-only wire id space and id-only wire encoding already ship, so this lands without a protocol break.

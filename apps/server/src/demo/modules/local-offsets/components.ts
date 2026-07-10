@@ -6,14 +6,8 @@ export class Electron {
   public speed = 0.12;
 }
 
-export class Offset {
-  public x = 0;
-  public y = 0;
-}
-
 export class LocalOffsetComponents extends Module {
   public init(): void {
     this.world.component(Electron);
-    this.world.component(Offset);
   }
 }

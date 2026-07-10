@@ -1,6 +1,15 @@
 import { type ComponentClass } from "@vworlds/vecs";
 
-export { Alpha, Depth, Position, Rotation, Scale } from "./components/transform.js";
+export {
+  ChildOf,
+  Alpha,
+  Container,
+  Depth,
+  Offset,
+  Position,
+  Rotation,
+  Scale,
+} from "./components/transform.js";
 export { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 export { Image } from "./components/image.js";
 export type { AssetCatalog, AssetDescriptor, SpritesheetDescriptor } from "./catalog.js";
@@ -16,7 +25,16 @@ export {
 } from "./components/shapes.js";
 export { Text, TextAlign } from "./components/text.js";
 
-import { Alpha, Depth, Position, Rotation, Scale } from "./components/transform.js";
+import {
+  ChildOf,
+  Alpha,
+  Container,
+  Depth,
+  Offset,
+  Position,
+  Rotation,
+  Scale,
+} from "./components/transform.js";
 import { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 import { Image } from "./components/image.js";
 import {
@@ -54,6 +72,9 @@ import { Text } from "./components/text.js";
  *  16  Size
  *  17  Image
  *  18  Tint
+ *  19  ChildOf
+ *  20  Container
+ *  21  Offset
  */
 export const phaserNetworkComponents = [
   Position,
@@ -74,12 +95,17 @@ export const phaserNetworkComponents = [
   Size,
   Image,
   Tint,
+  ChildOf,
+  Container,
+  Offset,
 ] as const satisfies readonly ComponentClass[];
 
 /**
- * The subset of network components that represent renderable shapes.
- * Exactly one of these should be present on each renderable entity.
- * Order matches phaserNetworkComponents (shapes section).
+ * The subset of network components that represent renderable GameObjects — shapes,
+ * images, text, and `Container`. Exactly one of these should be present on each
+ * renderable entity. `Container` is exclusive with all shapes: an entity is either
+ * a container (for parenting) or a direct renderable, never both.
+ * Order matches phaserNetworkComponents (renderable section).
  */
 export const phaserRenderableComponents = [
   Arc,
@@ -91,4 +117,5 @@ export const phaserRenderableComponents = [
   Star,
   Text,
   Image,
+  Container,
 ] as const satisfies readonly ComponentClass[];

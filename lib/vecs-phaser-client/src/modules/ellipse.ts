@@ -16,7 +16,13 @@ export class EllipseModule extends Module<{ scene: Phaser.Scene; coords: CoordSp
       .without(Phaser.GameObjects.Ellipse)
       .phase(ON_STORE)
       .enter([Size], (entity, [size]) => {
-        const obj = scene.add.ellipse(0, 0, coords.len(size.width), coords.len(size.height));
+        const obj = new Phaser.GameObjects.Ellipse(
+          scene,
+          0,
+          0,
+          coords.len(size.width),
+          coords.len(size.height)
+        );
         entity.attach(obj);
       });
   }

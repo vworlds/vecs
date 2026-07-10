@@ -17,7 +17,8 @@ export class ArcModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace 
       .without(Phaser.GameObjects.Arc)
       .phase(ON_STORE)
       .enter([Arc], (entity, [arc]) => {
-        const obj = scene.add.arc(
+        const obj = new Phaser.GameObjects.Arc(
+          scene,
           0,
           0,
           coords.len(arc.radius),

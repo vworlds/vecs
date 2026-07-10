@@ -3,6 +3,7 @@ import {
   Alpha,
   Depth,
   FillStyle,
+  Offset,
   Position,
   Rotation,
   Scale,
@@ -87,6 +88,17 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
       .phase(ON_STORE)
       .update({ watch: Tint, onEnter: true, inject: [m.Tint] }, (_e, t, [obj]) =>
         obj.setTint(t.topLeft, t.topRight, t.bottomLeft, t.bottomRight)
+      );
+
+    // Offset → local position inside a parent Container (case B). Uses relative
+    // coords (rx/ry) because the position is local to the container, not
+    // absolute screen coords.
+    world
+      .system("phaser.sync.offset")
+      .with(Offset, m.Transform)
+      .phase(ON_STORE)
+      .update({ watch: Offset, onEnter: true, inject: [m.Transform] }, (_e, o, [obj]) =>
+        obj.setPosition(coords.rx(o.x), coords.ry(o.y))
       );
   }
 }

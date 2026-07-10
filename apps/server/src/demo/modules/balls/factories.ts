@@ -1,7 +1,9 @@
 import { ChildOf, type Entity, type World } from "@vworlds/vecs";
 import {
+  Container,
   Ellipse,
   FillStyle,
+  Offset,
   Polygon,
   Position as RenderPosition,
   Rotation as RenderRotation,
@@ -20,7 +22,7 @@ import {
 import { Networked } from "@vworlds/vecs-server";
 import { BALL_RADIUS, ELECTRON_DISTANCE, ELECTRON_SIZE } from "../../config.js";
 import { randomFloat, randomInt, randomSignedFloat } from "../../math.js";
-import { Electron, Offset } from "../local-offsets/components.js";
+import { Electron } from "../local-offsets/components.js";
 import { Ball } from "./components.js";
 
 export function spawnBall(world: World, point: { x: number; y: number }): void {
@@ -28,8 +30,7 @@ export function spawnBall(world: World, point: { x: number; y: number }): void {
     .entity()
     .add(Networked)
     .add(Ball)
-    .set(Polygon, { points: regularHexagonPoints(BALL_RADIUS) })
-    .set(FillStyle, randomFillStyle())
+    .add(Container)
     .set(RenderPosition, point)
     .set(RenderRotation, { angle: 0 })
     .set(PhysicsPosition, point)
@@ -41,41 +42,51 @@ export function spawnBall(world: World, point: { x: number; y: number }): void {
       y: randomSignedFloat(0.6, 1.2),
     });
 
+  // Visual shape: a child of the ball Container at local (0,0).
+  world
+    .entity()
+    .set(ChildOf, { target: body })
+    .add(Networked)
+    .set(Polygon, { points: regularHexagonPoints(BALL_RADIUS) })
+    .set(FillStyle, randomFillStyle())
+    .set(Offset, { x: 0, y: 0 });
+
+  // Collider: unchanged, a physics-only child.
   world
     .entity()
     .childOf(body)
     .set(Circle, { radius: BALL_RADIUS })
     .set(Material, { friction: 0.6, restitution: 0.7 });
 
-  createElectron(world, body, point);
+  createElectron(world, body);
 }
 
-function createElectron(
-  world: World,
-  ball: Entity,
-  ballPosition: { x: number; y: number }
-): Entity {
+function createElectron(world: World, ball: Entity): Entity {
   const angle = randomFloat(0, Math.PI * 2);
   const radius = randomFloat(ELECTRON_DISTANCE * 0.85, ELECTRON_DISTANCE * 1.2);
-  const offset = {
-    x: Math.cos(angle) * radius,
-    y: Math.sin(angle) * radius,
-  };
 
-  return world
+  // Intermediate orbit Container: rotating this orbits the electron around
+  // the ball centre. The electron is at a fixed Offset inside it.
+  const orbit = world
     .entity()
     .set(ChildOf, { target: ball })
     .add(Networked)
-    .add(Ellipse)
-    .set(Size, { width: ELECTRON_SIZE, height: ELECTRON_SIZE })
-    .set(FillStyle, { color: 0x9bf6ff, alpha: 1 })
-    .set(RenderPosition, { x: ballPosition.x + offset.x, y: ballPosition.y + offset.y })
-    .set(Offset, offset)
+    .add(Container)
+    .set(RenderRotation, { angle })
     .set(Electron, {
       angle,
       radius,
       speed: randomSignedFloat(0.08, 0.16),
     });
+
+  return world
+    .entity()
+    .set(ChildOf, { target: orbit })
+    .add(Networked)
+    .add(Ellipse)
+    .set(Size, { width: ELECTRON_SIZE, height: ELECTRON_SIZE })
+    .set(FillStyle, { color: 0x9bf6ff, alpha: 1 })
+    .set(Offset, { x: radius, y: 0 });
 }
 
 function regularHexagonPoints(radius: number): number[] {

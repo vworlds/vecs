@@ -31,7 +31,12 @@ export class TriangleModule extends Module<{ scene: Phaser.Scene; coords: CoordS
       .without(Phaser.GameObjects.Triangle)
       .phase(ON_STORE)
       .enter([Triangle], (entity, [triangle]) => {
-        const obj = scene.add.triangle(0, 0, ...triangleCoordinates(coords, triangle));
+        const obj = new Phaser.GameObjects.Triangle(
+          scene,
+          0,
+          0,
+          ...triangleCoordinates(coords, triangle)
+        );
         obj.setOrigin(0, 0);
         entity.attach(obj);
       });

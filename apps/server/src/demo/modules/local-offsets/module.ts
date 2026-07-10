@@ -1,43 +1,25 @@
-import { ChildOf, Module, PRE_STORE } from "@vworlds/vecs";
-import { Position as RenderPosition } from "@vworlds/vecs-phaser";
-import { updateRenderPosition } from "../../math.js";
-import { Electron, LocalOffsetComponents, Offset } from "./components.js";
+import { Module } from "@vworlds/vecs";
+import { Rotation as RenderRotation } from "@vworlds/vecs-phaser";
+import { Electron, LocalOffsetComponents } from "./components.js";
 
 export class LocalOffsetsModule extends Module {
   public init(): void {
     const world = this.world;
     world.module(LocalOffsetComponents);
 
+    // Orbit electrons by rotating their intermediate Container, not by
+    // updating Offset. The electron sits at a fixed Offset inside the
+    // orbit Container; rotating the Container orbits the electron around
+    // the ball centre. This sends 1 f32/tick (Rotation) instead of 2
+    // (Offset.x/y).
     world
       .system("OrbitElectrons")
-      .with(Offset, Electron)
-      .each([Offset, Electron], (entity, [offset, electron]) => {
+      .with(Electron, RenderRotation)
+      .each([Electron, RenderRotation], (entity, [electron, rotation]) => {
         electron.angle += electron.speed;
-        offset.x = Math.cos(electron.angle) * electron.radius;
-        offset.y = Math.sin(electron.angle) * electron.radius;
+        rotation.angle = electron.angle;
         entity.modified(Electron);
-        entity.modified(Offset);
+        entity.modified(RenderRotation);
       });
-
-    world
-      .system("ApplyLocalPositions")
-      .with(RenderPosition, Offset)
-      .cascade(ChildOf)
-      .phase(PRE_STORE)
-      .each(
-        [Offset, RenderPosition, { target: [ChildOf, [RenderPosition]] }],
-        (entity, [offset, position, parentPosition]) => {
-          if (parentPosition === undefined) {
-            return;
-          }
-
-          updateRenderPosition(
-            entity,
-            position,
-            parentPosition.x + offset.x,
-            parentPosition.y + offset.y
-          );
-        }
-      );
   }
 }

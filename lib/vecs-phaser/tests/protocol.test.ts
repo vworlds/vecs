@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { phaserNetworkComponents, phaserRenderableComponents } from "../src/index.js";
 
 describe("phaserNetworkComponents", () => {
-  it("has exactly 18 entries", () => {
-    expect(phaserNetworkComponents.length).toBe(18);
+  it("has exactly 21 entries", () => {
+    expect(phaserNetworkComponents.length).toBe(21);
   });
 
   it("contains components in the exact protocol order (wire type = index + 1)", () => {
@@ -26,12 +26,15 @@ describe("phaserNetworkComponents", () => {
       "Size",
       "Image",
       "Tint",
+      "ChildOf",
+      "Container",
+      "Offset",
     ]);
   });
 });
 
 describe("phaserRenderableComponents", () => {
-  it("contains the 9 primary renderable components in order", () => {
+  it("contains the 10 renderable components in order (9 shapes + Container)", () => {
     expect(phaserRenderableComponents.map((c) => c.name)).toEqual([
       "Arc",
       "Ellipse",
@@ -42,6 +45,7 @@ describe("phaserRenderableComponents", () => {
       "Star",
       "Text",
       "Image",
+      "Container",
     ]);
   });
 

@@ -22,7 +22,15 @@ export class LineModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace
       .phase(ON_STORE)
       .enter([Line], (entity, [line]) => {
         const points = linePoints(coords, line);
-        const obj = scene.add.line(0, 0, points[0], points[1], points[2], points[3]);
+        const obj = new Phaser.GameObjects.Line(
+          scene,
+          0,
+          0,
+          points[0],
+          points[1],
+          points[2],
+          points[3]
+        );
         obj.setOrigin(0, 0);
         entity.attach(obj);
       });
