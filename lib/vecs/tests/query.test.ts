@@ -707,7 +707,7 @@ describe("Query — entity tracking via world pipeline", () => {
     tick();
     let velSeen: Velocity | undefined;
     q.forEach([Position, Velocity], (_e, [_p, v]) => {
-      velSeen = v as Velocity | undefined;
+      velSeen = v;
     });
     expect(velSeen).toBeUndefined();
   });
