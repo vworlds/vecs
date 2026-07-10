@@ -1,7 +1,5 @@
 import { wireType } from "@vworlds/vecs-wire";
 
-export { ChildOf } from "@vworlds/vecs";
-
 /** Entity position in meters, +y up (math convention). */
 export class Position {
   @wireType("f32")
@@ -39,29 +37,26 @@ export class Depth {
 }
 
 /**
- * Marker component: the entity renders as a Phaser {@link Phaser.GameObjects.Container},
- * not a renderable shape. Exclusive with all renderable components (`Arc`, `Image`, …).
- *
- * Add this to entities that have children via {@link ChildOf} so those children can be
- * reparented into the Container for native scene-graph transform composition. The
- * entity's own visual (if any) moves to a separate `ChildOf` sub-entity.
- *
- * Carries a single placeholder wire field so the wire codec can serialise its
- * presence/absence. The value is always 0 and carries no semantic meaning.
- */
-export class Container {
-  @wireType("u8")
-  public placeholder = 0;
-}
-
-/**
- * Local position offset relative to the parent entity (the {@link ChildOf} target),
+ * Local position offset relative to the parent entity (the `ChildOf` target),
  * expressed in the parent's local (rotated) frame in meters.
  *
- * On a child of a `Container` parent, the offset is applied as a Phaser local position
- * inside the container — Phaser composes the transform natively (case B). On a child
- * of a renderable parent, a client-side system computes the world position from the
- * parent's interpolated `Position` + this offset (case C).
+ * Parent-relative rendering has two modes, depending on whether the parent
+ * renders as a `Container` or a direct renderable (shape/image/text):
+ *
+ * - **Native parenting** — child has `Offset` but no `Position`, parent has
+ *   `Container`. The child's Phaser GameObject is added to the parent's
+ *   Container. Phaser composes transforms natively: moving/rotating the
+ *   Container moves/rotates all children. `Offset` sets the child's local
+ *   position inside the container. Zero per-frame JS.
+ *
+ * - **Computed parenting** — child has both `Offset` and `Position`, parent
+ *   is a renderable (no `Container`). A client-side system derives the
+ *   child's world `Position` from the parent's interpolated `Position` plus
+ *   `Offset` rotated by the parent's `Rotation`. The `Position` is
+ *   client-local (never networked).
+ *
+ * Distinguish the two by the presence of `Position` on the child: no
+ * `Position` = native (inside a Container), `Position` = computed.
  */
 export class Offset {
   @wireType("f32")

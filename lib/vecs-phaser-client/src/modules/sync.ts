@@ -90,9 +90,9 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
         obj.setTint(t.topLeft, t.topRight, t.bottomLeft, t.bottomRight)
       );
 
-    // Offset → local position inside a parent Container (case B). Uses relative
-    // coords (rx/ry) because the position is local to the container, not
-    // absolute screen coords.
+    // Offset → local position inside a parent Container (native parenting).
+    // Uses relative coords (rx/ry) because the position is local to the
+    // container, not absolute screen coords.
     world
       .system("phaser.sync.offset")
       .with(Offset, m.Transform)

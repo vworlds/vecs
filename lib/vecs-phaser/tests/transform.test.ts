@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
-import {
-  Alpha,
-  Container,
-  Depth,
-  Offset,
-  Position,
-  Rotation,
-  Scale,
-} from "../src/components/transform.js";
+import { Container } from "../src/components/container.js";
+import { Alpha, Depth, Offset, Position, Rotation, Scale } from "../src/components/transform.js";
 
 function roundTrip<T extends object>(C: new () => T, value: T): T {
   const enc = new Encoder(new Uint8Array(1024));

@@ -2,10 +2,10 @@ import { ChildOf, Module, ON_STORE } from "@vworlds/vecs";
 import { Offset, Position, Rotation } from "@vworlds/vecs-phaser";
 
 /**
- * Case C compute: derives a child's world `Position` from the parent's
- * interpolated `Position` + rotated `Offset`, when the parent is a Renderable
- * (no `Container`). The child has both `Offset` and `Position` — the `Position`
- * is client-local (never networked) and overwritten each frame.
+ * Computed parenting: derives a child's world `Position` from the parent's
+ * interpolated `Position` + rotated `Offset`, when the parent is a renderable
+ * (no `Container`). The child has both `Offset` and `Position` — the
+ * `Position` is client-local (never networked) and overwritten each frame.
  *
  * The offset vector is rotated by the parent's `Rotation` before being added
  * to the parent's position, so children swing around a rotating parent.

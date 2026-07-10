@@ -1,15 +1,7 @@
 import { type ComponentClass } from "@vworlds/vecs";
 
-export {
-  ChildOf,
-  Alpha,
-  Container,
-  Depth,
-  Offset,
-  Position,
-  Rotation,
-  Scale,
-} from "./components/transform.js";
+export { ChildOf, Container } from "./components/container.js";
+export { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
 export { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 export { Image } from "./components/image.js";
 export type { AssetCatalog, AssetDescriptor, SpritesheetDescriptor } from "./catalog.js";
@@ -25,16 +17,8 @@ export {
 } from "./components/shapes.js";
 export { Text, TextAlign } from "./components/text.js";
 
-import {
-  ChildOf,
-  Alpha,
-  Container,
-  Depth,
-  Offset,
-  Position,
-  Rotation,
-  Scale,
-} from "./components/transform.js";
+import { ChildOf, Container } from "./components/container.js";
+import { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
 import { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 import { Image } from "./components/image.js";
 import {

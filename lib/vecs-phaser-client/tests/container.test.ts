@@ -1,4 +1,3 @@
-import { ChildOf } from "@vworlds/vecs";
 import { ClientWorld } from "@vworlds/vecs-client";
 import {
   Container,
@@ -74,7 +73,7 @@ describe("Container rendering", () => {
   });
 });
 
-describe("Case B: child of Container with Offset", () => {
+describe("Native parenting: child of Container with Offset", () => {
   it("adds the child Renderable to the parent Container", () => {
     const { scene, world } = setup();
     const parent = world.entity();
@@ -85,7 +84,7 @@ describe("Case B: child of Container with Offset", () => {
 
     const child = world.entity();
     child
-      .set(ChildOf, { target: parent })
+      .childOf(parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -105,7 +104,7 @@ describe("Case B: child of Container with Offset", () => {
 
     const child = world.entity();
     child
-      .set(ChildOf, { target: parent })
+      .childOf(parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -125,7 +124,7 @@ describe("Case B: child of Container with Offset", () => {
 
     const child = world.entity();
     child
-      .set(ChildOf, { target: parent })
+      .childOf(parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -142,7 +141,7 @@ describe("Case B: child of Container with Offset", () => {
   });
 });
 
-describe("Case C: child of Renderable with Offset + Position", () => {
+describe("Computed parenting: child of Renderable with Offset + Position", () => {
   it("computes world Position from parent Position + rotated Offset", () => {
     const { scene, world } = setup();
     const parent = world.entity();
@@ -156,7 +155,7 @@ describe("Case C: child of Renderable with Offset + Position", () => {
 
     const child = world.entity();
     child
-      .set(ChildOf, { target: parent })
+      .childOf(parent)
       .set(Position, { x: 0, y: 0 })
       .set(Offset, { x: 1, y: 0 })
       .add(Ellipse)
@@ -181,7 +180,7 @@ describe("Case C: child of Renderable with Offset + Position", () => {
 
     const child = world.entity();
     child
-      .set(ChildOf, { target: parent })
+      .childOf(parent)
       .set(Position, { x: 0, y: 0 })
       .set(Offset, { x: 1, y: 0 })
       .add(Ellipse)
@@ -206,7 +205,7 @@ describe("Ghost parent", () => {
     const parentGhost = world.entity();
     const child = world.entity();
     child
-      .set(ChildOf, { target: parentGhost })
+      .childOf(parentGhost)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -226,7 +225,7 @@ describe("Ghost parent", () => {
     const parent = world.entity();
     const child = world.entity();
     child
-      .set(ChildOf, { target: parent })
+      .childOf(parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -254,7 +253,7 @@ describe("Container lifetime", () => {
 
     const child = world.entity();
     child
-      .set(ChildOf, { target: parent })
+      .childOf(parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -309,7 +308,7 @@ describe("Reparenting", () => {
 
     const child = world.entity();
     child
-      .set(ChildOf, { target: parent1 })
+      .childOf(parent1)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -321,7 +320,7 @@ describe("Reparenting", () => {
     expect(ellipse.parentContainer).toBe(containers[0]);
 
     // Retarget to parent2
-    child.set(ChildOf, { target: parent2 });
+    child.childOf(parent2);
     world.progress(2, 0);
 
     expect(ellipse.parentContainer).toBe(containers[1]);
@@ -335,7 +334,7 @@ describe("Reparenting", () => {
 
     const child = world.entity();
     child
-      .set(ChildOf, { target: parent })
+      .childOf(parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -345,7 +344,7 @@ describe("Reparenting", () => {
     const ellipse = scene.created.find((obj) => obj.kind === "ellipse")!;
     expect(ellipse.parentContainer).not.toBe(null);
 
-    child.remove(ChildOf);
+    child.parent = undefined;
     world.progress(2, 0);
 
     expect(ellipse.parentContainer).toBe(null);
@@ -361,7 +360,7 @@ describe("Nested Containers", () => {
     world.progress(0, 0);
 
     const childContainer = world.entity();
-    childContainer.set(ChildOf, { target: parent }).add(Container).set(Rotation, { angle: 0.5 });
+    childContainer.childOf(parent).add(Container).set(Rotation, { angle: 0.5 });
     world.progress(1, 0);
 
     const containers = scene.created.filter((obj) => obj.kind === "container");

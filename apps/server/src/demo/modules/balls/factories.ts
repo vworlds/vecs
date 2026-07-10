@@ -1,4 +1,4 @@
-import { ChildOf, type Entity, type World } from "@vworlds/vecs";
+import { type Entity, type World } from "@vworlds/vecs";
 import {
   Container,
   Ellipse,
@@ -45,7 +45,7 @@ export function spawnBall(world: World, point: { x: number; y: number }): void {
   // Visual shape: a child of the ball Container at local (0,0).
   world
     .entity()
-    .set(ChildOf, { target: body })
+    .childOf(body)
     .add(Networked)
     .set(Polygon, { points: regularHexagonPoints(BALL_RADIUS) })
     .set(FillStyle, randomFillStyle())
@@ -69,7 +69,7 @@ function createElectron(world: World, ball: Entity): Entity {
   // the ball centre. The electron is at a fixed Offset inside it.
   const orbit = world
     .entity()
-    .set(ChildOf, { target: ball })
+    .childOf(ball)
     .add(Networked)
     .add(Container)
     .set(RenderRotation, { angle })
@@ -81,7 +81,7 @@ function createElectron(world: World, ball: Entity): Entity {
 
   return world
     .entity()
-    .set(ChildOf, { target: orbit })
+    .childOf(orbit)
     .add(Networked)
     .add(Ellipse)
     .set(Size, { width: ELECTRON_SIZE, height: ELECTRON_SIZE })
