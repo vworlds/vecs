@@ -28,14 +28,12 @@ export class OffsetResolveModule extends Module {
           if (!parentPos) {
             return;
           }
-          const pos = parentPos as Position;
-          const rot = parentRot as Rotation | undefined;
-          const angle = rot?.angle ?? 0;
+          const angle = parentRot?.angle ?? 0;
           const cos = Math.cos(angle);
           const sin = Math.sin(angle);
           entity.set(Position, {
-            x: pos.x + offset.x * cos - offset.y * sin,
-            y: pos.y + offset.x * sin + offset.y * cos,
+            x: parentPos.x + offset.x * cos - offset.y * sin,
+            y: parentPos.y + offset.x * sin + offset.y * cos,
           });
         }
       );
