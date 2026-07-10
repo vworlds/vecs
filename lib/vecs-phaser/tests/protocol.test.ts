@@ -26,7 +26,7 @@ describe("phaserNetworkComponents", () => {
       "Size",
       "Image",
       "Tint",
-      "ChildOf",
+      "DrawIn",
       "Container",
       "Offset",
     ]);

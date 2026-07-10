@@ -1,6 +1,7 @@
 import { type Entity, type World } from "@vworlds/vecs";
 import {
   Container,
+  DrawIn,
   Ellipse,
   FillStyle,
   Offset,
@@ -42,16 +43,16 @@ export function spawnBall(world: World, point: { x: number; y: number }): void {
       y: randomSignedFloat(0.6, 1.2),
     });
 
-  // Visual shape: a child of the ball Container at local (0,0).
+  // Visual shape: a display child of the ball Container at local (0,0).
   world
     .entity()
-    .childOf(body)
+    .set(DrawIn, { target: body })
     .add(Networked)
     .set(Polygon, { points: regularHexagonPoints(BALL_RADIUS) })
     .set(FillStyle, randomFillStyle())
     .set(Offset, { x: 0, y: 0 });
 
-  // Collider: unchanged, a physics-only child.
+  // Collider: a physics-only child (server-local ChildOf, not networked).
   world
     .entity()
     .childOf(body)
@@ -69,7 +70,7 @@ function createElectron(world: World, ball: Entity): Entity {
   // the ball centre. The electron is at a fixed Offset inside it.
   const orbit = world
     .entity()
-    .childOf(ball)
+    .set(DrawIn, { target: ball })
     .add(Networked)
     .add(Container)
     .set(RenderRotation, { angle })
@@ -81,7 +82,7 @@ function createElectron(world: World, ball: Entity): Entity {
 
   return world
     .entity()
-    .childOf(orbit)
+    .set(DrawIn, { target: orbit })
     .add(Networked)
     .add(Ellipse)
     .set(Size, { width: ELECTRON_SIZE, height: ELECTRON_SIZE })

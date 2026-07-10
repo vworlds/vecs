@@ -1,5 +1,5 @@
-import { ChildOf, Module, PRE_STORE, type Entity, type QueryDSL } from "@vworlds/vecs";
-import { Position as RenderPosition } from "@vworlds/vecs-phaser";
+import { Module, PRE_STORE, type Entity, type QueryDSL } from "@vworlds/vecs";
+import { DrawIn, Position as RenderPosition } from "@vworlds/vecs-phaser";
 import { NetworkClient, Networked, View } from "@vworlds/vecs-server";
 import {
   cellTagComponents,
@@ -33,15 +33,15 @@ export class SpatialInterestModule extends Module {
         assignCell(entity, position, cellEntities)
       );
 
-    // Cascade InCell from parent to children that don't have their own
-    // RenderPosition (e.g. child shapes parented via ChildOf to a Container).
+    // Cascade InCell from parent to display children that don't have their own
+    // RenderPosition (e.g. child shapes parented via DrawIn to a Container).
     // Without this, parented children are invisible in cell-based views
     // because they never get an InCell assignment. Uses InCell onSet/onRemove
     // hooks so the cascade is immediate — a child assigned the same frame
     // its parent gets a cell, no frame delay.
     world.component(InCell).onSet((entity) => {
       const cell = entity.target(InCell);
-      for (const child of entity.children(ChildOf)) {
+      for (const child of entity.children(DrawIn)) {
         if (child.has(Networked) && !child.has(RenderPosition)) {
           if (child.target(InCell) !== cell) {
             child.set(InCell, { target: cell! });
@@ -51,7 +51,7 @@ export class SpatialInterestModule extends Module {
     });
 
     world.component(InCell).onRemove((entity) => {
-      for (const child of entity.children(ChildOf)) {
+      for (const child of entity.children(DrawIn)) {
         if (child.has(Networked) && !child.has(RenderPosition) && child.has(InCell)) {
           child.remove(InCell);
         }

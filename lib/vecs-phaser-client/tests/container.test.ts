@@ -1,6 +1,8 @@
+import { ChildOf } from "@vworlds/vecs";
 import { ClientWorld } from "@vworlds/vecs-client";
 import {
   Container,
+  DrawIn,
   Ellipse,
   FillStyle,
   Offset,
@@ -84,7 +86,7 @@ describe("Native parenting: child of Container with Offset", () => {
 
     const child = world.entity();
     child
-      .childOf(parent)
+      .set(DrawIn, { target: parent })
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -104,7 +106,7 @@ describe("Native parenting: child of Container with Offset", () => {
 
     const child = world.entity();
     child
-      .childOf(parent)
+      .set(DrawIn, { target: parent })
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -124,7 +126,7 @@ describe("Native parenting: child of Container with Offset", () => {
 
     const child = world.entity();
     child
-      .childOf(parent)
+      .set(DrawIn, { target: parent })
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -155,7 +157,7 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
 
     const child = world.entity();
     child
-      .childOf(parent)
+      .set(DrawIn, { target: parent })
       .set(Position, { x: 0, y: 0 })
       .set(Offset, { x: 1, y: 0 })
       .add(Ellipse)
@@ -180,7 +182,7 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
 
     const child = world.entity();
     child
-      .childOf(parent)
+      .set(DrawIn, { target: parent })
       .set(Position, { x: 0, y: 0 })
       .set(Offset, { x: 1, y: 0 })
       .add(Ellipse)
@@ -189,8 +191,7 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
     world.progress(1, 0);
 
     // Parent at (0,0), rotation PI/2, offset (1,0) →
-    // cos(PI/2)=0, sin(PI/2)=1 → child at (0*1 - 0*0, 0*1 + 1*0) = (0, 1)
-    // Actually: x = 0 + 1*cos(PI/2) - 0*sin(PI/2) = 0, y = 0 + 1*sin(PI/2) + 0*cos(PI/2) = 1
+    // cos(PI/2)≈0, sin(PI/2)=1 → child at (0, 1)
     const pos = child.get(Position)!;
     expect(pos.x).toBeCloseTo(0, 5);
     expect(pos.y).toBeCloseTo(1, 5);
@@ -201,11 +202,11 @@ describe("Ghost parent", () => {
   it("keeps the child off-display when parent Container does not exist yet", () => {
     const { scene, world } = setup();
 
-    // Create a child referencing a parent that doesn't exist yet
+    // Create a child referencing a parent that doesn't have a Container yet
     const parentGhost = world.entity();
     const child = world.entity();
     child
-      .childOf(parentGhost)
+      .set(DrawIn, { target: parentGhost })
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -225,7 +226,7 @@ describe("Ghost parent", () => {
     const parent = world.entity();
     const child = world.entity();
     child
-      .childOf(parent)
+      .set(DrawIn, { target: parent })
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -244,8 +245,8 @@ describe("Ghost parent", () => {
   });
 });
 
-describe("Container lifetime", () => {
-  it("destroys child GameObjects when the parent Container entity is destroyed", () => {
+describe("Container lifetime (DrawIn = Remove policy)", () => {
+  it("detaches display children when the parent Container is destroyed", () => {
     const { scene, world } = setup();
     const parent = world.entity();
     parent.add(Container).set(Position, { x: 0, y: 0 });
@@ -253,7 +254,7 @@ describe("Container lifetime", () => {
 
     const child = world.entity();
     child
-      .childOf(parent)
+      .set(DrawIn, { target: parent })
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -263,11 +264,107 @@ describe("Container lifetime", () => {
     const ellipse = scene.created.find((obj) => obj.kind === "ellipse")!;
     expect(ellipse.destroyed).toBe(false);
 
-    // Destroying the parent should cascade to the child (ChildOf → Delete)
+    // Destroying the parent removes the DrawIn link (Remove policy).
+    // The child survives; the reparent exit re-adds it to the scene.
     parent.destroy();
     world.progress(2, 0);
 
+    expect(ellipse.destroyed).toBe(false);
+    expect(child.has(DrawIn)).toBe(false);
+    expect(ellipse.parentContainer).toBe(null);
+    expect(ellipse.displayList).not.toBe(null);
+  });
+});
+
+describe("ChildOf + DrawIn coexistence", () => {
+  it("an entity can have both ChildOf (ownership) and DrawIn (display)", () => {
+    const { scene, world } = setup();
+    const owner = world.entity();
+    owner.add(Container).set(Position, { x: 0, y: 0 });
+    world.progress(0, 0);
+
+    // A display child that also has an ownership parent (different entity).
+    // DrawIn points at the display parent (Container); ChildOf points at the
+    // ownership parent (could be the same or a different entity).
+    const displayParent = owner;
+    const ownershipParent = world.entity();
+
+    const child = world.entity();
+    child
+      .childOf(ownershipParent)
+      .set(DrawIn, { target: displayParent })
+      .add(Ellipse)
+      .set(Size, { width: 0.1, height: 0.1 })
+      .set(FillStyle, { color: 0xff0000, alpha: 1 })
+      .set(Offset, { x: 0, y: 0 });
+    world.progress(1, 0);
+
+    // DrawIn drives display placement — the ellipse is inside the Container.
+    const container = findContainer(scene)!;
+    const ellipse = scene.created.find((obj) => obj.kind === "ellipse")!;
+    expect(ellipse.parentContainer).toBe(container);
+
+    // ChildOf drives ownership — the child's parent is the ownership parent.
+    expect(child.parent).toBe(ownershipParent);
+
+    // Both relationships coexist independently.
+    expect(child.has(ChildOf)).toBe(true);
+    expect(child.has(DrawIn)).toBe(true);
+  });
+
+  it("destroying the ownership parent destroys the child (ChildOf Delete cascade)", () => {
+    const { scene, world } = setup();
+    const displayParent = world.entity();
+    displayParent.add(Container).set(Position, { x: 0, y: 0 });
+    const ownershipParent = world.entity();
+    world.progress(0, 0);
+
+    const child = world.entity();
+    child
+      .childOf(ownershipParent)
+      .set(DrawIn, { target: displayParent })
+      .add(Ellipse)
+      .set(Size, { width: 0.1, height: 0.1 })
+      .set(FillStyle, { color: 0xff0000, alpha: 1 })
+      .set(Offset, { x: 0, y: 0 });
+    world.progress(1, 0);
+
+    const ellipse = scene.created.find((obj) => obj.kind === "ellipse")!;
+
+    // Destroying the ownership parent cascades Delete via ChildOf.
+    ownershipParent.destroy();
+    world.progress(2, 0);
+
     expect(ellipse.destroyed).toBe(true);
+  });
+
+  it("destroying the display parent detaches but does not destroy the child", () => {
+    const { scene, world } = setup();
+    const displayParent = world.entity();
+    displayParent.add(Container).set(Position, { x: 0, y: 0 });
+    const ownershipParent = world.entity();
+    world.progress(0, 0);
+
+    const child = world.entity();
+    child
+      .childOf(ownershipParent)
+      .set(DrawIn, { target: displayParent })
+      .add(Ellipse)
+      .set(Size, { width: 0.1, height: 0.1 })
+      .set(FillStyle, { color: 0xff0000, alpha: 1 })
+      .set(Offset, { x: 0, y: 0 });
+    world.progress(1, 0);
+
+    const ellipse = scene.created.find((obj) => obj.kind === "ellipse")!;
+
+    // Destroying the display parent removes DrawIn (Remove policy) but
+    // the child survives because ChildOf points elsewhere.
+    displayParent.destroy();
+    world.progress(2, 0);
+
+    expect(ellipse.destroyed).toBe(false);
+    expect(child.has(DrawIn)).toBe(false);
+    expect(child.has(ChildOf)).toBe(true);
   });
 });
 
@@ -298,7 +395,7 @@ describe("Container exclusivity", () => {
 });
 
 describe("Reparenting", () => {
-  it("moves child to new parent Container when ChildOf is retargeted", () => {
+  it("moves child to new parent Container when DrawIn is retargeted", () => {
     const { scene, world } = setup();
     const parent1 = world.entity();
     parent1.add(Container).set(Position, { x: 0, y: 0 });
@@ -308,7 +405,7 @@ describe("Reparenting", () => {
 
     const child = world.entity();
     child
-      .childOf(parent1)
+      .set(DrawIn, { target: parent1 })
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -320,13 +417,13 @@ describe("Reparenting", () => {
     expect(ellipse.parentContainer).toBe(containers[0]);
 
     // Retarget to parent2
-    child.childOf(parent2);
+    child.set(DrawIn, { target: parent2 });
     world.progress(2, 0);
 
     expect(ellipse.parentContainer).toBe(containers[1]);
   });
 
-  it("moves child to scene display list when ChildOf is removed", () => {
+  it("moves child to scene display list when DrawIn is removed", () => {
     const { scene, world } = setup();
     const parent = world.entity();
     parent.add(Container).set(Position, { x: 0, y: 0 });
@@ -334,7 +431,7 @@ describe("Reparenting", () => {
 
     const child = world.entity();
     child
-      .childOf(parent)
+      .set(DrawIn, { target: parent })
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -344,7 +441,7 @@ describe("Reparenting", () => {
     const ellipse = scene.created.find((obj) => obj.kind === "ellipse")!;
     expect(ellipse.parentContainer).not.toBe(null);
 
-    child.parent = undefined;
+    child.remove(DrawIn);
     world.progress(2, 0);
 
     expect(ellipse.parentContainer).toBe(null);
@@ -360,7 +457,7 @@ describe("Nested Containers", () => {
     world.progress(0, 0);
 
     const childContainer = world.entity();
-    childContainer.childOf(parent).add(Container).set(Rotation, { angle: 0.5 });
+    childContainer.set(DrawIn, { target: parent }).add(Container).set(Rotation, { angle: 0.5 });
     world.progress(1, 0);
 
     const containers = scene.created.filter((obj) => obj.kind === "container");

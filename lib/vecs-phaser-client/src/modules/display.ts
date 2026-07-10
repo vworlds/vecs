@@ -1,5 +1,6 @@
-import { ChildOf, Module, ON_STORE } from "@vworlds/vecs";
+import { Module, ON_STORE } from "@vworlds/vecs";
 import Phaser from "phaser";
+import { DrawIn } from "@vworlds/vecs-phaser";
 import * as m from "../markers.js";
 
 /**
@@ -9,7 +10,7 @@ import * as m from "../markers.js";
  * (no display-list entry). This module is the single point that adds each
  * GameObject to the correct display parent:
  *
- * - **Root entities** (no parent): `scene.add.existing(obj)`.
+ * - **Root entities** (no `DrawIn` parent): `scene.add.existing(obj)`.
  * - **Children of a Container** (native parenting): `parentContainer.add(obj)`.
  *   Phaser composes transforms natively — moving the Container moves all
  *   children, rotation/scale propagate for free.
@@ -19,10 +20,10 @@ import * as m from "../markers.js";
  *   compute system derives a `Position`.
  *
  * A `Container` that is itself a child (e.g. an intermediate orbit Container) is
- * nested inside its parent Container, not placed on the scene — `entity.parent`
- * is checked before the Container-vs-renderable distinction.
+ * nested inside its parent Container, not placed on the scene — `DrawIn` is
+ * checked before the Container-vs-renderable distinction.
  *
- * Reparenting on `ChildOf` retarget or removal is handled by the
+ * Reparenting on `DrawIn` retarget or removal is handled by the
  * `phaser.display.reparent` system, which runs in `ON_STORE` after shape
  * creation so the display list is updated at a controlled phase.
  */
@@ -43,11 +44,11 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
           return;
         }
 
-        // Children via ChildOf: place inside the parent's Container if it
+        // Children via DrawIn: place inside the parent's Container if it
         // exists. Otherwise skip — the object stays invisible until the
         // parent's Container arrives (ContainerModule adopts it) or the
         // compute system derives a Position.
-        const parent = entity.parent;
+        const parent = entity.target(DrawIn);
         if (parent) {
           if (parent.has(containerClass)) {
             const parentContainer = parent.get(containerClass) as Phaser.GameObjects.Container;
@@ -62,17 +63,17 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
         scene.add.existing(obj);
       });
 
-    // Reparent when ChildOf changes or is removed. Runs in ON_STORE so the
+    // Reparent when DrawIn changes or is removed. Runs in ON_STORE so the
     // display list is updated at a controlled phase, after shape creation.
     world
       .system("phaser.display.reparent")
-      .with(m.GameObject, ChildOf)
+      .with(m.GameObject, DrawIn)
       .phase(ON_STORE)
       .update(
-        { watch: ChildOf, onEnter: true, inject: [m.GameObject] },
-        (entity, _childOf, [obj]) => {
+        { watch: DrawIn, onEnter: true, inject: [m.GameObject] },
+        (entity, _drawIn, [obj]) => {
           const phaserObj = obj as Phaser.GameObjects.GameObject;
-          const parent = entity.parent;
+          const parent = entity.target(DrawIn);
           const parentContainer =
             parent && parent.has(containerClass)
               ? (parent.get(containerClass) as Phaser.GameObjects.Container)
@@ -84,7 +85,7 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
         }
       )
       .exit((entity) => {
-        // ChildOf was removed: detach from parent Container, re-add to scene.
+        // DrawIn was removed: detach from parent Container, re-add to scene.
         // If the GameObject itself was removed (shape change/destroy), the
         // object is already destroyed — skip.
         const obj = entity.get(m.GameObject) as Phaser.GameObjects.GameObject | undefined;

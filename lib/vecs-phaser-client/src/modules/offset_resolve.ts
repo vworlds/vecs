@@ -1,5 +1,5 @@
-import { ChildOf, Module, ON_STORE } from "@vworlds/vecs";
-import { Offset, Position, Rotation } from "@vworlds/vecs-phaser";
+import { Module, ON_STORE } from "@vworlds/vecs";
+import { DrawIn, Offset, Position, Rotation } from "@vworlds/vecs-phaser";
 
 /**
  * Computed parenting: derives a child's world `Position` from the parent's
@@ -20,20 +20,22 @@ export class OffsetResolveModule extends Module {
     world
       .system("phaser.resolve.offset")
       .with(Offset, Position)
-      .cascade(ChildOf)
+      .cascade(DrawIn)
       .phase(ON_STORE)
       .each(
-        [Offset, { target: [ChildOf, [Position, Rotation]] }],
+        [Offset, { target: [DrawIn, [Position, Rotation]] }],
         (entity, [offset, parentPos, parentRot]) => {
           if (!parentPos) {
             return;
           }
-          const angle = parentRot?.angle ?? 0;
+          const pos = parentPos as Position;
+          const rot = parentRot as Rotation | undefined;
+          const angle = rot?.angle ?? 0;
           const cos = Math.cos(angle);
           const sin = Math.sin(angle);
           entity.set(Position, {
-            x: parentPos.x + offset.x * cos - offset.y * sin,
-            y: parentPos.y + offset.x * sin + offset.y * cos,
+            x: pos.x + offset.x * cos - offset.y * sin,
+            y: pos.y + offset.x * sin + offset.y * cos,
           });
         }
       );

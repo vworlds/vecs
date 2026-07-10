@@ -1,6 +1,6 @@
 import { type ComponentClass } from "@vworlds/vecs";
 
-export { ChildOf, Container } from "./components/container.js";
+export { Container, DrawIn } from "./components/container.js";
 export { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
 export { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 export { Image } from "./components/image.js";
@@ -17,7 +17,7 @@ export {
 } from "./components/shapes.js";
 export { Text, TextAlign } from "./components/text.js";
 
-import { ChildOf, Container } from "./components/container.js";
+import { Container, DrawIn } from "./components/container.js";
 import { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
 import { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 import { Image } from "./components/image.js";
@@ -56,7 +56,7 @@ import { Text } from "./components/text.js";
  *  16  Size
  *  17  Image
  *  18  Tint
- *  19  ChildOf
+ *  19  DrawIn
  *  20  Container
  *  21  Offset
  */
@@ -79,7 +79,7 @@ export const phaserNetworkComponents = [
   Size,
   Image,
   Tint,
-  ChildOf,
+  DrawIn,
   Container,
   Offset,
 ] as const satisfies readonly ComponentClass[];

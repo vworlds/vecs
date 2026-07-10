@@ -1,6 +1,7 @@
 import { Module, PRE_STORE, type Entity } from "@vworlds/vecs";
 import {
   Container,
+  DrawIn,
   FillStyle,
   Line,
   Offset,
@@ -109,10 +110,10 @@ function createJointShowcase(world: { entity(): Entity }): void {
     .set(Body, { type: BodyType.Dynamic });
   world.entity().childOf(bob).set(Box, { hx: 0.2, hy: 0.2 }).set(Material, { density: 1 });
 
-  // Bob visual: a child Rectangle at local (0,0).
+  // Bob visual: a display child Rectangle at local (0,0).
   world
     .entity()
-    .childOf(bob)
+    .set(DrawIn, { target: bob })
     .add(Networked)
     .add(Rectangle)
     .set(Size, { width: 0.4, height: 0.4 })
@@ -125,7 +126,7 @@ function createJointShowcase(world: { entity(): Entity }): void {
   // rotates, the star follows for free (native parenting).
   world
     .entity()
-    .childOf(bob)
+    .set(DrawIn, { target: bob })
     .add(Networked)
     .set(Star, { innerRadius: 0.03, outerRadius: 0.06 })
     .set(FillStyle, { color: 0xffee55, alpha: 1 })
