@@ -1,11 +1,14 @@
 import { Module, PRE_STORE, type Entity } from "@vworlds/vecs";
 import {
+  Container,
   FillStyle,
   Line,
+  Offset,
   Position as RenderPosition,
   Rectangle,
   Rotation as RenderRotation,
   Size,
+  Star,
   StrokeStyle,
 } from "@vworlds/vecs-phaser";
 import {
@@ -98,15 +101,35 @@ function createJointShowcase(world: { entity(): Entity }): void {
   const bob = world
     .entity()
     .add(Networked)
-    .add(Rectangle)
-    .set(Size, { width: 0.4, height: 0.4 })
-    .set(FillStyle, { color: 0x66ffcc, alpha: 1 })
+    .add(Container)
     .set(RenderPosition, bobStart)
     .set(RenderRotation, { angle: 0 })
     .set(PhysicsPosition, bobStart)
     .set(PhysicsRotation, { angle: 0 })
     .set(Body, { type: BodyType.Dynamic });
   world.entity().childOf(bob).set(Box, { hx: 0.2, hy: 0.2 }).set(Material, { density: 1 });
+
+  // Bob visual: a child Rectangle at local (0,0).
+  world
+    .entity()
+    .childOf(bob)
+    .add(Networked)
+    .add(Rectangle)
+    .set(Size, { width: 0.4, height: 0.4 })
+    .set(FillStyle, { color: 0x66ffcc, alpha: 1 })
+    .set(Offset, { x: 0, y: 0 });
+
+  // A small star pinned to the top-right corner of the bob. The Offset is
+  // fixed — it never changes — so the server sends it once. The client
+  // composes the transform via the parent Container: as the bob swings and
+  // rotates, the star follows for free (native parenting).
+  world
+    .entity()
+    .childOf(bob)
+    .add(Networked)
+    .set(Star, { innerRadius: 0.03, outerRadius: 0.06 })
+    .set(FillStyle, { color: 0xffee55, alpha: 1 })
+    .set(Offset, { x: 0.2, y: 0.2 });
 
   world
     .entity()
