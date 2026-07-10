@@ -111,8 +111,10 @@ function createJointShowcase(world: { entity(): Entity }): void {
   world.entity().childOf(bob).set(Box, { hx: 0.2, hy: 0.2 }).set(Material, { density: 1 });
 
   // Bob visual: a display child Rectangle at local (0,0).
+  // ChildOf the bob for lifecycle; DrawIn the bob for display.
   world
     .entity()
+    .childOf(bob)
     .set(DrawIn, { target: bob })
     .add(Networked)
     .add(Rectangle)
@@ -126,6 +128,7 @@ function createJointShowcase(world: { entity(): Entity }): void {
   // rotates, the star follows for free (native parenting).
   world
     .entity()
+    .childOf(bob)
     .set(DrawIn, { target: bob })
     .add(Networked)
     .set(Star, { innerRadius: 0.03, outerRadius: 0.06 })
