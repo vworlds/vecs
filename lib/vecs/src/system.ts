@@ -479,7 +479,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *   });
    * ```
    */
-  public each<J extends FanInjectTuple>(
+  public each<const J extends FanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
@@ -488,7 +488,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * As above, but pass `{ cursor: Entity, inject: [...] }` to make the
    * entity-first signature explicit. Identical behavior to the array form.
    */
-  public each<J extends FanInjectTuple>(
+  public each<const J extends FanInjectTuple>(
     options: EntityCursorOption & FanInjectCallbackOptions<J>,
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
@@ -500,7 +500,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * resolved component was read from (the visited entity for direct components,
    * the relationship target for `target`-injected ones).
    */
-  public each<J extends FanInjectTuple>(
+  public each<const J extends FanInjectTuple>(
     options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;

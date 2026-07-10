@@ -30,15 +30,15 @@ export class Group<K = unknown, R extends ComponentType[] = []> {
   }
 
   public forEach(callback: (e: Entity) => void): this;
-  public forEach<J extends FanInjectTuple>(
+  public forEach<const J extends FanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach<J extends FanInjectTuple>(
+  public forEach<const J extends FanInjectTuple>(
     options: EntityCursorOption & FanInjectCallbackOptions<J>,
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach<J extends FanInjectTuple>(
+  public forEach<const J extends FanInjectTuple>(
     options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;

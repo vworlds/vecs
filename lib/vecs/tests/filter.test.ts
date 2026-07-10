@@ -168,7 +168,7 @@ describe("Filter — forEach with injection", () => {
 
     let vel: Velocity | undefined;
     w.filter([Position]).forEach([Position, Velocity], (_e, [_p, v]) => {
-      vel = v as Velocity | undefined;
+      vel = v;
     });
 
     expect(vel).toBeUndefined();

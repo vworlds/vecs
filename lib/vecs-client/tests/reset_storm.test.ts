@@ -169,7 +169,7 @@ describe("reset storm (inactive tab)", () => {
     client
       .query("view")
       .with(Sprite)
-      .enter([Sprite], (entity: Entity, [sprite]: [Sprite]) => {
+      .enter([Sprite], (entity: Entity, [sprite]) => {
         enters.set(entity.eid, (enters.get(entity.eid) ?? 0) + 1);
         sprite.view = "built";
       })

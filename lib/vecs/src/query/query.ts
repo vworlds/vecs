@@ -182,15 +182,15 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   }
 
   public forEach(callback: (e: Entity) => void): this;
-  public forEach<J extends FanInjectTuple>(
+  public forEach<const J extends FanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach<J extends FanInjectTuple>(
+  public forEach<const J extends FanInjectTuple>(
     options: EntityCursorOption & FanInjectCallbackOptions<J>,
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach<J extends FanInjectTuple>(
+  public forEach<const J extends FanInjectTuple>(
     options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
@@ -258,7 +258,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return this;
   }
 
-  public orderBy<J extends InjectTuple>(
+  public orderBy<const J extends InjectTuple>(
     components: readonly [...J],
     compare: (
       entityA: Entity,
@@ -267,7 +267,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       b: MaybeResolvedInjectTuple<J, R>
     ) => number
   ): this;
-  public orderBy<J extends InjectTuple>(
+  public orderBy<const J extends InjectTuple>(
     options: EntityCursorOption & OrderByOptions<J>,
     compare: (
       entityA: Entity,
@@ -276,7 +276,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       b: MaybeResolvedInjectTuple<J, R>
     ) => number
   ): this;
-  public orderBy<J extends InjectTuple>(
+  public orderBy<const J extends InjectTuple>(
     options: IterCursorOption & OrderByOptions<J>,
     compare: (
       a: Iter,
@@ -328,11 +328,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return this;
   }
 
-  public groupBy<K, J extends FanInjectTuple>(
+  public groupBy<K, const J extends FanInjectTuple>(
     components: readonly [...J],
     key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
   ): GroupedQuery<K, R>;
-  public groupBy<K, J extends FanInjectTuple>(
+  public groupBy<K, const J extends FanInjectTuple>(
     options: GroupByOptions<J>,
     key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
   ): GroupedQuery<K, R>;
@@ -399,20 +399,20 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * membership exit, and watched component updates.
    * ------------------------------------------------------------------------- */
 
-  public enter<J extends InjectTuple>(
+  public enter<const J extends InjectTuple>(
     inject: readonly [...J],
     callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
-  public enter<J extends InjectTuple>(
+  public enter<const J extends InjectTuple>(
     options: EntityCursorOption & InjectCallbackOptions<J>,
     callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
-  public enter<J extends InjectTuple>(
+  public enter<const J extends InjectTuple>(
     options: IterCursorOption & InjectCallbackOptions<J>,
     callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
   public enter(callback: (e: Entity) => void): this;
-  public enter<J extends InjectTuple>(
+  public enter<const J extends InjectTuple>(
     arg0: InjectTuple | InjectCallbackOptions<J> | ((e: Entity) => void),
     arg1?: Function
   ): this {
@@ -423,20 +423,20 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return this;
   }
 
-  public exit<J extends InjectTuple>(
+  public exit<const J extends InjectTuple>(
     inject: readonly [...J],
     callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
-  public exit<J extends InjectTuple>(
+  public exit<const J extends InjectTuple>(
     options: EntityCursorOption & InjectCallbackOptions<J>,
     callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
-  public exit<J extends InjectTuple>(
+  public exit<const J extends InjectTuple>(
     options: IterCursorOption & InjectCallbackOptions<J>,
     callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
   public exit(callback: (e: Entity) => void): this;
-  public exit<J extends InjectTuple>(
+  public exit<const J extends InjectTuple>(
     arg0: readonly [...J] | InjectCallbackOptions<J> | ((e: Entity) => void),
     arg1?: (...args: any[]) => void
   ): this {
@@ -469,11 +469,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     ComponentClass: C,
     callback: (e: Entity, c: InstanceType<C>) => void
   ): this;
-  public update<C extends ComponentType, J extends InjectTuple>(
+  public update<C extends ComponentType, const J extends InjectTuple>(
     options: EntityCursorOption & UpdateCallbackOptions<C, J> & { inject: readonly [...J] },
     callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public update<C extends ComponentType, J extends InjectTuple>(
+  public update<C extends ComponentType, const J extends InjectTuple>(
     options: IterCursorOption & UpdateCallbackOptions<C, J> & { inject: readonly [...J] },
     callback: (it: Iter, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
