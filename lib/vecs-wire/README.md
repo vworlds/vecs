@@ -168,6 +168,19 @@ public trail: Position[] = [];
 
 Decorated classes are best for compact fixed-layout payloads. They do not write field names or optional field tags, so changing the decorated field list changes the wire format.
 
+## Presence-Only Tags
+
+Some components carry no data — their mere presence on an entity is the entire payload. Use the `tag` decorator to register a class as a zero-byte wire type. It encodes to nothing and decodes to a fresh `new C()`.
+
+```ts
+import { Decoder, Encoder, tag } from "@vworlds/vecs-wire";
+
+@tag
+class Container {}
+```
+
+You can also call `tag(C)` directly instead of using it as a class decorator. A tagged class still needs to be registered in the network component array so it receives a wire type id; `tag` only governs encode/decode, not id assignment.
+
 ## Dynamic `any` Values
 
 `write_any` and `read_any` encode a tagged dynamic value. This format is used for flexible payloads such as client input and RPC parameters.

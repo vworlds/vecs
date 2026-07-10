@@ -1,4 +1,4 @@
-import { wireType } from "@vworlds/vecs-wire";
+import { tag } from "@vworlds/vecs-wire";
 
 export { ChildOf } from "@vworlds/vecs";
 
@@ -10,10 +10,8 @@ export { ChildOf } from "@vworlds/vecs";
  * reparented into the Container for native scene-graph transform composition. The
  * entity's own visual (if any) moves to a separate `ChildOf` sub-entity.
  *
- * Carries a single placeholder wire field so the wire codec can serialise its
- * presence/absence. The value is always 0 and carries no semantic meaning.
+ * Registered as a presence-only wire tag: it encodes to zero bytes and its mere
+ * presence on an entity is the payload.
  */
-export class Container {
-  @wireType("u8")
-  public placeholder = 0;
-}
+@tag
+export class Container {}

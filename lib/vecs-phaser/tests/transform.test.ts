@@ -160,6 +160,5 @@ describe("Container", () => {
   it("round-trips as a marker component", () => {
     const decoded = roundTrip(Container, new Container());
     expect(decoded).toBeInstanceOf(Container);
-    expect((decoded as Container).placeholder).toBe(0);
   });
 });
