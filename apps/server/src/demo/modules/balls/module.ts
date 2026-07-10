@@ -31,9 +31,7 @@ export class BallsModule extends Module {
     const ballsByCell = world
       .query("BallsByCell")
       .with(Networked, Ball, RenderPosition)
-      .groupBy([RenderPosition], (_entity, [position]) =>
-        getGridCellIndex(position)
-      );
+      .groupBy([RenderPosition], (_entity, [position]) => getGridCellIndex(position));
 
     const occupancyByCell = world
       .query("OccupancyByCell")

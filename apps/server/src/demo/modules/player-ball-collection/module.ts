@@ -17,9 +17,7 @@ export class PlayerBallCollectionModule extends Module {
     const ballsByCell = world
       .query("CollectableBallsByCell")
       .with(Networked, Ball, RenderPosition)
-      .groupBy([RenderPosition], (_entity, [position]) =>
-        getGridCellIndex(position)
-      );
+      .groupBy([RenderPosition], (_entity, [position]) => getGridCellIndex(position));
 
     world
       .system("CollectBalls")
