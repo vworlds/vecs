@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+## v1.0.43 (2026-07-11)
+
 - [vecs-phaser]: Split display parenting into explicit modes: `DrawIn` remains native Phaser `Container` parenting, and new `DrawBy` (wire type 22) represents computed parenting against a renderable parent. `DrawIn` and `DrawBy` are exclusive, both detach children with `CleanupPolicy.Remove`, and `DrawBy` participates in traversal so cascade queries can reach computed display children.
 - [vecs-phaser-client]: Added computed `DrawBy` placement. The client auto-adds a local, non-networked `Position` for `DrawBy` children, resolves it each frame from the parent `Position` plus optional `Offset` (defaulting to zero), and places the child on the scene root instead of inside a `Container`, so parent rotation/container effects do not affect the child. Display setup now keeps `DrawIn` children off-display until their parent `Container` exists and `DrawBy` children off-display until their parent has a real `Position`.
 - [vecs-phaser-client]: Guarded transform sync by parenting mode: `phaser.sync.offset` now only handles `DrawIn` children, while `phaser.sync.position` ignores `DrawIn` children to prevent native container children from being double-positioned with world coordinates.
