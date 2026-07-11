@@ -5,6 +5,11 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-phaser]: Split display parenting into explicit modes: `DrawIn` remains native Phaser `Container` parenting, and new `DrawBy` (wire type 22) represents computed parenting against a renderable parent. `DrawIn` and `DrawBy` are exclusive, both detach children with `CleanupPolicy.Remove`, and `DrawBy` participates in traversal so cascade queries can reach computed display children.
+- [vecs-phaser-client]: Added computed `DrawBy` placement. The client auto-adds a local, non-networked `Position` for `DrawBy` children, resolves it each frame from the parent `Position` plus optional `Offset` (defaulting to zero), and places the child on the scene root instead of inside a `Container`, so parent rotation/container effects do not affect the child. Display setup now keeps `DrawIn` children off-display until their parent `Container` exists and `DrawBy` children off-display until their parent has a real `Position`.
+- [vecs-phaser-client]: Guarded transform sync by parenting mode: `phaser.sync.offset` now only handles `DrawIn` children, while `phaser.sync.position` ignores `DrawIn` children to prevent native container children from being double-positioned with world coordinates.
+- [repo]: Updated demo spatial-interest cascading to include `DrawBy` display children, and added joint-showcase coverage demonstrating native `DrawIn` parenting alongside computed `DrawBy` parenting.
+
 ## v1.0.42 (2026-07-10)
 
 - [vecs-phaser]: Added `Container`, `Offset`, and `DrawIn` render components for parent-relative transform hierarchies. `Container` is a `@tag`-decorated presence component that groups children under a shared transform; `Offset` carries local position relative to the parent in the parent's rotated frame. `DrawIn` is a networked `Relationship` subclass (wire type 19) for display hierarchy — distinct from the server-local `ChildOf` (ownership/lifecycle). `DrawIn` uses `CleanupPolicy.Remove` (detaches children on parent destroy, does not destroy them); `ChildOf` uses `CleanupPolicy.Delete` (cascade-destroys). An entity can carry both: `ChildOf` for lifecycle, `DrawIn` for display. The `InCell` spatial-interest system cascades to `DrawIn` children so child entities remain visible when their parent is in-range.
