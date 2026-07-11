@@ -1,6 +1,6 @@
 import { Module, ON_STORE } from "@vworlds/vecs";
 import Phaser from "phaser";
-import { DrawIn } from "@vworlds/vecs-phaser";
+import { DrawBy, DrawIn, Position } from "@vworlds/vecs-phaser";
 import * as m from "../markers.js";
 
 /**
@@ -10,14 +10,18 @@ import * as m from "../markers.js";
  * (no display-list entry). This module is the single point that adds each
  * GameObject to the correct display parent:
  *
- * - **Root entities** (no `DrawIn` parent): `scene.add.existing(obj)`.
- * - **Children of a Container** (native parenting): `parentContainer.add(obj)`.
- *   Phaser composes transforms natively — moving the Container moves all
- *   children, rotation/scale propagate for free.
- * - **Children of a Renderable** (computed parenting) or **ghost-parent**
- *   (parent not yet arrived): skipped; the object stays off-display until
- *   the parent's Container materialises (handled by ContainerModule) or the
- *   compute system derives a `Position`.
+ * - **Root entities** (no `DrawIn`/`DrawBy`): `scene.add.existing(obj)`.
+ * - **Native children** (`DrawIn`, parent has `Container`):
+ *   `parentContainer.add(obj)`. Phaser composes transforms natively — moving
+ *   the Container moves all children, rotation/scale propagate for free.
+ * - **Computed children** (`DrawBy`, parent is a renderable): placed on the
+ *   scene root (like a root entity), but only after the parent has arrived and
+ *   has a `Position`. If the parent is a ghost (not yet arrived or no
+ *   `Position`), the child stays off-display until the parent materialises.
+ * - **Ghost-parent** (parent not yet arrived): skipped; the object stays
+ *   off-display until the parent's Container arrives (handled by
+ *   ContainerModule) or the parent gets a `Position` (handled by
+ *   `phaser.display.drawby-place`).
  *
  * A `Container` that is itself a child (e.g. an intermediate orbit Container) is
  * nested inside its parent Container, not placed on the scene — `DrawIn` is
@@ -44,17 +48,29 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
           return;
         }
 
-        // Children via DrawIn: place inside the parent's Container if it
-        // exists. Otherwise skip — the object stays invisible until the
-        // parent's Container arrives (ContainerModule adopts it) or the
-        // compute system derives a Position.
-        const parent = entity.target(DrawIn);
-        if (parent) {
-          if (parent.has(containerClass)) {
-            const parentContainer = parent.get(containerClass) as Phaser.GameObjects.Container;
+        // Native children via DrawIn: place inside the parent's Container if
+        // it exists. Otherwise skip — the object stays invisible until the
+        // parent's Container arrives (ContainerModule adopts it).
+        const drawInParent = entity.target(DrawIn);
+        if (drawInParent) {
+          if (drawInParent.has(containerClass)) {
+            const parentContainer = drawInParent.get(containerClass) as
+              Phaser.GameObjects.Container | undefined;
             if (parentContainer) {
               parentContainer.add(obj);
             }
+          }
+          return;
+        }
+
+        // Computed children via DrawBy: place on the scene root, but only if
+        // the parent has arrived and has a Position. If the parent is a ghost,
+        // skip — the child stays invisible until the parent materialises
+        // (phaser.display.drawby-place re-evaluates each frame).
+        const drawByParent = entity.target(DrawBy);
+        if (drawByParent) {
+          if (drawByParent.has(Position)) {
+            scene.add.existing(obj);
           }
           return;
         }
@@ -103,6 +119,26 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
         }
         if (obj.displayList === null) {
           scene.add.existing(obj);
+        }
+      });
+
+    // DrawBy ghost-parent placement: each frame, place any DrawBy child whose
+    // GameObject has no display list and whose parent has arrived with a
+    // Position. Idempotent — skips already-placed objects. Handles the case
+    // where the child entered the scene before its parent materialised.
+    world
+      .system("phaser.display.drawby-place")
+      .with(DrawBy, m.GameObject)
+      .without(DrawIn)
+      .phase(ON_STORE)
+      .each([m.GameObject], (entity, [obj]) => {
+        const phaserObj = obj as Phaser.GameObjects.GameObject;
+        if (phaserObj.displayList !== null) {
+          return;
+        }
+        const parent = entity.target(DrawBy);
+        if (parent && parent.has(Position)) {
+          scene.add.existing(phaserObj);
         }
       });
   }

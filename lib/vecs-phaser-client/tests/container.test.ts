@@ -2,6 +2,7 @@ import { ChildOf } from "@vworlds/vecs";
 import { ClientWorld } from "@vworlds/vecs-client";
 import {
   Container,
+  DrawBy,
   DrawIn,
   Ellipse,
   FillStyle,
@@ -157,14 +158,14 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
 
     const child = world.entity();
     child
-      .set(DrawIn, { target: parent })
-      .set(Position, { x: 0, y: 0 })
+      .set(DrawBy, { target: parent })
       .set(Offset, { x: 1, y: 0 })
       .add(Ellipse)
       .set(Size, { width: 0.05, height: 0.05 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 });
     world.progress(1, 0);
 
+    // DrawBy auto-adds Position at {0,0}; resolve computes from parent.
     // Parent at (2,3), no rotation, offset (1,0) → child at (3,3)
     expect(child.get(Position)).toMatchObject({ x: 3, y: 3 });
   });
@@ -182,8 +183,7 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
 
     const child = world.entity();
     child
-      .set(DrawIn, { target: parent })
-      .set(Position, { x: 0, y: 0 })
+      .set(DrawBy, { target: parent })
       .set(Offset, { x: 1, y: 0 })
       .add(Ellipse)
       .set(Size, { width: 0.05, height: 0.05 })
@@ -195,6 +195,30 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
     const pos = child.get(Position)!;
     expect(pos.x).toBeCloseTo(0, 5);
     expect(pos.y).toBeCloseTo(1, 5);
+  });
+
+  it("auto-adds Position when DrawBy is set", () => {
+    const { scene, world } = setup();
+    const parent = world.entity();
+    parent
+      .set(Position, { x: 5, y: 5 })
+      .add(Ellipse)
+      .set(Size, { width: 0.2, height: 0.2 })
+      .set(FillStyle, { color: 0x00ff00, alpha: 1 });
+    world.progress(0, 0);
+
+    const child = world.entity();
+    child
+      .set(DrawBy, { target: parent })
+      .add(Ellipse)
+      .set(Size, { width: 0.05, height: 0.05 })
+      .set(FillStyle, { color: 0xff0000, alpha: 1 });
+    world.progress(1, 0);
+
+    // DrawBy auto-adds Position; Offset is optional (defaults 0,0).
+    // Parent at (5,5), offset (0,0) → child at (5,5).
+    expect(child.has(Position)).toBe(true);
+    expect(child.get(Position)).toMatchObject({ x: 5, y: 5 });
   });
 });
 
@@ -470,5 +494,178 @@ describe("Nested Containers", () => {
 
     // The child Container should be inside the parent Container, NOT on the scene.
     expect(childObj.parentContainer).toBe(parentObj);
+  });
+});
+
+describe("DrawIn / DrawBy exclusivity", () => {
+  it("adding DrawBy removes DrawIn", () => {
+    const { scene, world } = setup();
+    const parent = world.entity();
+    parent.add(Container).set(Position, { x: 0, y: 0 });
+    world.progress(0, 0);
+
+    const child = world.entity();
+    child.set(DrawIn, { target: parent }).add(Ellipse).set(Size, { width: 0.1, height: 0.1 });
+    expect(child.has(DrawIn)).toBe(true);
+    expect(child.has(DrawBy)).toBe(false);
+
+    child.set(DrawBy, { target: parent });
+    expect(child.has(DrawIn)).toBe(false);
+    expect(child.has(DrawBy)).toBe(true);
+  });
+
+  it("adding DrawIn removes DrawBy", () => {
+    const { scene, world } = setup();
+    const parent = world.entity();
+    parent.add(Container).set(Position, { x: 0, y: 0 });
+    world.progress(0, 0);
+
+    const child = world.entity();
+    child.set(DrawBy, { target: parent }).add(Ellipse).set(Size, { width: 0.1, height: 0.1 });
+    expect(child.has(DrawBy)).toBe(true);
+
+    child.set(DrawIn, { target: parent });
+    expect(child.has(DrawBy)).toBe(false);
+    expect(child.has(DrawIn)).toBe(true);
+  });
+});
+
+describe("phaser.sync.position guard (DrawIn)", () => {
+  it("does not call setPosition with world coords on a DrawIn child", () => {
+    const { scene, world } = setup();
+    const parent = world.entity();
+    parent.add(Container).set(Position, { x: 0, y: 0 });
+    world.progress(0, 0);
+
+    const child = world.entity();
+    child
+      .set(DrawIn, { target: parent })
+      .set(Position, { x: 10, y: 10 })
+      .add(Ellipse)
+      .set(Size, { width: 0.1, height: 0.1 })
+      .set(FillStyle, { color: 0xff0000, alpha: 1 })
+      .set(Offset, { x: 1, y: 0 });
+    world.progress(1, 0);
+
+    const ellipse = scene.created.find((obj) => obj.kind === "ellipse")!;
+    // Only the local offset setPosition should fire (rx(1)=100), never the
+    // world-coords setPosition from Position (the .without(DrawIn) guard).
+    const positionCalls = methods(ellipse, "setPosition");
+    expect(positionCalls).toHaveLength(1);
+    expect(positionCalls[0]![0]).toBe(100);
+  });
+});
+
+describe("DrawBy ghost parent", () => {
+  it("keeps the child off-display when parent has no Position", () => {
+    const { scene, world } = setup();
+
+    // Parent exists as an entity but has no Position yet (ghost).
+    const parent = world.entity();
+    parent
+      .add(Ellipse)
+      .set(Size, { width: 0.2, height: 0.2 })
+      .set(FillStyle, { color: 0x00ff00, alpha: 1 });
+    world.progress(0, 0);
+
+    const child = world.entity();
+    child
+      .set(DrawBy, { target: parent })
+      .add(Ellipse)
+      .set(Size, { width: 0.05, height: 0.05 })
+      .set(FillStyle, { color: 0xff0000, alpha: 1 });
+    world.progress(1, 0);
+
+    const ellipses = scene.created.filter((obj) => obj.kind === "ellipse");
+    const childEllipse = ellipses[1]!;
+    expect(childEllipse).toBeDefined();
+    // Child stays off-display until parent gets a Position.
+    expect(childEllipse.displayList).toBe(null);
+  });
+
+  it("places the child on the scene when the parent materialises with Position", () => {
+    const { scene, world } = setup();
+
+    const parent = world.entity();
+    parent
+      .add(Ellipse)
+      .set(Size, { width: 0.2, height: 0.2 })
+      .set(FillStyle, { color: 0x00ff00, alpha: 1 });
+    world.progress(0, 0);
+
+    const child = world.entity();
+    child
+      .set(DrawBy, { target: parent })
+      .add(Ellipse)
+      .set(Size, { width: 0.05, height: 0.05 })
+      .set(FillStyle, { color: 0xff0000, alpha: 1 });
+    world.progress(1, 0);
+
+    const ellipses = scene.created.filter((obj) => obj.kind === "ellipse");
+    const childEllipse = ellipses[1]!;
+    expect(childEllipse.displayList).toBe(null);
+
+    // Parent gets a Position — child should be placed on the scene.
+    parent.set(Position, { x: 1, y: 1 });
+    world.progress(2, 0);
+
+    expect(childEllipse.displayList).not.toBe(null);
+  });
+});
+
+describe("DrawBy optional Offset (defaults to 0,0)", () => {
+  it("derives Position as parent Position when no Offset is set", () => {
+    const { scene, world } = setup();
+    const parent = world.entity();
+    parent
+      .set(Position, { x: 3, y: 4 })
+      .add(Ellipse)
+      .set(Size, { width: 0.2, height: 0.2 })
+      .set(FillStyle, { color: 0x00ff00, alpha: 1 });
+    world.progress(0, 0);
+
+    const child = world.entity();
+    child
+      .set(DrawBy, { target: parent })
+      .add(Ellipse)
+      .set(Size, { width: 0.05, height: 0.05 })
+      .set(FillStyle, { color: 0xff0000, alpha: 1 });
+    world.progress(1, 0);
+
+    // No Offset component — defaults to (0,0), child sits at parent (3,4).
+    expect(child.get(Position)).toMatchObject({ x: 3, y: 4 });
+  });
+});
+
+describe("DrawBy lifetime (Remove policy)", () => {
+  it("detaches but does not destroy the child when the parent is destroyed", () => {
+    const { scene, world } = setup();
+    const parent = world.entity();
+    parent
+      .set(Position, { x: 0, y: 0 })
+      .add(Ellipse)
+      .set(Size, { width: 0.2, height: 0.2 })
+      .set(FillStyle, { color: 0x00ff00, alpha: 1 });
+    world.progress(0, 0);
+
+    const child = world.entity();
+    child
+      .set(DrawBy, { target: parent })
+      .add(Ellipse)
+      .set(Size, { width: 0.05, height: 0.05 })
+      .set(FillStyle, { color: 0xff0000, alpha: 1 });
+    world.progress(1, 0);
+
+    const ellipses = scene.created.filter((obj) => obj.kind === "ellipse");
+    const childEllipse = ellipses[1]!;
+    expect(childEllipse.destroyed).toBe(false);
+
+    // Destroying the parent removes the DrawBy link (Remove policy).
+    // The child survives on the scene.
+    parent.destroy();
+    world.progress(2, 0);
+
+    expect(childEllipse.destroyed).toBe(false);
+    expect(child.has(DrawBy)).toBe(false);
   });
 });

@@ -2,6 +2,7 @@ import { Module, ON_STORE } from "@vworlds/vecs";
 import {
   Alpha,
   Depth,
+  DrawIn,
   FillStyle,
   Offset,
   Position,
@@ -21,6 +22,7 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
     world
       .system("phaser.sync.position")
       .with(Position, m.Transform)
+      .without(DrawIn)
       .phase(ON_STORE)
       .update({ watch: Position, onEnter: true, inject: [m.Transform] }, (_e, p, [obj]) =>
         obj.setPosition(coords.x(p.x), coords.y(p.y))
@@ -95,7 +97,7 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
     // container, not absolute screen coords.
     world
       .system("phaser.sync.offset")
-      .with(Offset, m.Transform)
+      .with(Offset, DrawIn, m.Transform)
       .phase(ON_STORE)
       .update({ watch: Offset, onEnter: true, inject: [m.Transform] }, (_e, o, [obj]) =>
         obj.setPosition(coords.rx(o.x), coords.ry(o.y))
