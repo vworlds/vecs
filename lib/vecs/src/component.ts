@@ -70,6 +70,7 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * - `entity.attach(instance)` stores an existing instance.
    * - `entity.modified(C)` is called after in-place mutation.
    * - A system's `getMut(C)` marks the component dirty.
+   * - `entity.ensure(C)` creates or marks the component dirty.
    *
    * The handler receives the owning entity and the current component instance.
    * Component instances do not carry entity references, which is why the entity

@@ -37,7 +37,7 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 | [concepts.md](./concepts.md)                       | The core vocabulary and how the pieces relate.                                               |
 | [execution-model.md](./execution-model.md)         | `world.progress`, the 8 built-in phases, deferred commands, flush boundaries, event routing. |
 | [components.md](./components.md)                   | `world.component`, hooks, exclusive groups, `CleanupPolicy`, `Implements`, `Singleton`.      |
-| [entities.md](./entities.md)                       | `world.entity`, `add`/`set`/`get`/`remove`/`destroy`, deferred read semantics.               |
+| [entities.md](./entities.md)                       | `world.entity`, `add`/`set`/`getMut`/`ensure`/`remove`/`destroy`, deferred read semantics.   |
 | [systems.md](./systems.md)                         | `world.system`, `with`/`without`, `enter`/`update`/`exit`, callback options, tick sources.   |
 | [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`.                                    |
 | [relationships.md](./relationships.md)             | `Relationship`, `ChildOf`/`DependsOn`, `parent`/`children`, `Traversable`, cascades.         |

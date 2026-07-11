@@ -81,6 +81,7 @@ export interface Hook<C extends ComponentInstance = ComponentInstance> {
    * - `entity.attach(instance)` stores an existing instance.
    * - `entity.modified(C)` is called after in-place mutation.
    * - A system's `getMut(C)` marks the component dirty.
+   * - `entity.ensure(C)` creates or marks the component dirty.
    *
    * @param handler - Receives the entity and component instance whose data changed.
    * @returns This hook, for chaining.

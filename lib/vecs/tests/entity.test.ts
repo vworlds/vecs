@@ -89,7 +89,7 @@ describe("Entity — components", () => {
     expect(pos).toBeInstanceOf(Position);
   });
 
-  it("set/get/getMut/remove work with entity component refs", () => {
+  it("set/get/getMut/ensure/remove work with entity component refs", () => {
     const w = new World();
     const key = w.entity();
     const e = w.entity();
@@ -99,6 +99,10 @@ describe("Entity — components", () => {
     expect(e.get(key)).toMatchObject({ enabled: true });
     const component = e.getMut(key, (value) => Object.assign(value, { enabled: false }));
     expect(component).toMatchObject({ enabled: false });
+    e.remove(key);
+    const ensured = e.ensure(key, (value) => Object.assign(value, { enabled: true }));
+    expect(ensured).toMatchObject({ enabled: true });
+    expect(e.get(key)).toBe(ensured);
     e.remove(key);
     expect(e.get(key)).toBeUndefined();
   });
@@ -303,6 +307,71 @@ describe("Entity — components", () => {
     const pos = e.add(808).getMut(808, (value) => Object.assign(value, { x: 4 }));
     expect(pos).toBeInstanceOf(Position);
     expect((pos as Position | undefined)?.x).toBe(4);
+  });
+
+  it("ensure creates a missing component and invokes the callback", () => {
+    const w = new World();
+    w.component(Position);
+    const onAdd = vi.fn();
+    const onSet = vi.fn();
+    w.component(Position).onAdd(onAdd).onSet(onSet);
+    const e = w.entity();
+
+    const pos = e.ensure(Position, (value) => {
+      value.x = 3;
+    });
+
+    expect(pos).toBeInstanceOf(Position);
+    expect(e.get(Position)).toBe(pos);
+    expect(pos?.x).toBe(3);
+    expect(onAdd).toHaveBeenCalledWith(e, pos);
+    expect(onSet).toHaveBeenCalledWith(e, pos);
+    expect(onSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("ensure with a callback marks an existing component as modified after the callback", () => {
+    const w = new World();
+    w.component(Position);
+    const onSet = vi.fn();
+    w.component(Position).onSet(onSet);
+    const e = w.entity();
+    const pos = e.add(Position).ensure(Position, (value) => {
+      value.x = 3;
+      expect(onSet).not.toHaveBeenCalled();
+    })!;
+    expect(pos).toBe(e.get(Position));
+    expect(pos.x).toBe(3);
+    expect(onSet).toHaveBeenCalledWith(e, pos);
+  });
+
+  it("ensure without a callback throws outside deferred mode", () => {
+    const w = new World();
+    w.component(Position);
+    const e = w.entity();
+    expect(() => e.ensure(Position)).toThrow("deferred mode");
+  });
+
+  it("ensure throws immediately on a destroyed entity", () => {
+    const w = new World();
+    w.component(Position);
+    const e = w.entity();
+    const callback = vi.fn();
+
+    e.destroy();
+
+    expect(() => e.ensure(Position)).toThrow("destroyed entity");
+    expect(() => e.ensure(Position, callback)).toThrow("destroyed entity");
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("ensure(typeId) works with numeric type ids", () => {
+    const w = new World();
+    w.component(Position, 808);
+    const e = w.entity();
+    const pos = e.ensure(808, (value) => Object.assign(value, { x: 4 }));
+    expect(pos).toBeInstanceOf(Position);
+    expect((pos as Position | undefined)?.x).toBe(4);
+    expect(e.get(808)).toBe(pos);
   });
 
   it("remove detaches a component", () => {
@@ -667,6 +736,23 @@ describe("Entity — relationship navigation", () => {
     });
 
     expect(() => child.getMut(ChildOf, mutate)).toThrow(/Relationship/);
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(child.target(ChildOf)).toBe(p1);
+    expect(p1.children(ChildOf).has(child)).toBe(true);
+    expect(p2.children(ChildOf).has(child)).toBe(false);
+  });
+
+  it("ensure rejects relationship retargets and leaves incoming sets consistent", () => {
+    const w = new World();
+    const p1 = w.entity();
+    const p2 = w.entity();
+    const child = w.entity().childOf(p1);
+    const mutate = vi.fn((rel: ChildOf) => {
+      rel.target = p2;
+    });
+
+    expect(() => child.ensure(ChildOf, mutate)).toThrow(/Relationship/);
 
     expect(mutate).not.toHaveBeenCalled();
     expect(child.target(ChildOf)).toBe(p1);

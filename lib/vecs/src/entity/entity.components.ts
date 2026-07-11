@@ -178,16 +178,7 @@ export class Components extends Relationships {
     const instance = component ?? classOrComponent;
     const componentMeta = this.world.entity(ComponentKey as ComponentRef).meta;
     this._throwIfInterface(componentMeta, "attach");
-    if (this.world.deferred) {
-      this.world._enqueue({
-        kind: CommandKind.Attach,
-        entity: this as unknown as Entity,
-        meta: componentMeta,
-        component: instance,
-      });
-    } else {
-      this._attach(componentMeta, instance);
-    }
+    this._attach_or_enqueue(componentMeta, instance);
     return this;
   }
 
@@ -275,6 +266,67 @@ export class Components extends Relationships {
   }
 
   /**
+   * Look up a component for mutation, creating and attaching it when missing.
+   *
+   * Outside deferred mode, pass a callback so creation/modified notifications
+   * fire after the mutation callback returns. Inside deferred mode, the callback
+   * is optional and the returned component may be mutated before the queue drains.
+   *
+   * @param typeOrClass - Component class or numeric type id.
+   * @returns The mutable component instance.
+   */
+  public ensure<C extends ComponentType>(Class: C): InstanceType<C>;
+
+  /** Look up or create a component, mutate it in `callback`, then notify watchers. */
+  public ensure<C extends ComponentType>(
+    Class: C,
+    callback: (component: InstanceType<C>) => void
+  ): Readonly<InstanceType<C>>;
+
+  /** Look up or create a component by numeric type id for mutation. */
+  public ensure(ceid: EID): ComponentInstance;
+
+  /** Look up or create a component by numeric type id, mutate it in `callback`, then notify watchers. */
+  public ensure(
+    ceid: EID,
+    callback: (component: ComponentInstance) => void
+  ): Readonly<ComponentInstance>;
+
+  public ensure(entity: Entity): ComponentInstance;
+
+  public ensure(
+    entity: Entity,
+    callback: (component: ComponentInstance) => void
+  ): Readonly<ComponentInstance>;
+
+  public ensure(
+    ref: ComponentRef,
+    callback?: (component: ComponentInstance) => void
+  ): ComponentInstance {
+    if (this._destroyed) {
+      throw new Error(`Cannot ensure component on destroyed entity ${this.eid}`);
+    }
+    if (callback === undefined && !this.world.deferred) {
+      throw new Error("Entity.ensure without a callback is only allowed in deferred mode");
+    }
+    const componentMeta = this.world.entity(ref).meta;
+    if (componentMeta.isRelationship) {
+      throw new Error("Entity.ensure cannot mutate Relationship components; retarget with set");
+    }
+    this._throwIfInterface(componentMeta, "ensure");
+    const existing = this._get(componentMeta.eid);
+    if (existing) {
+      callback?.(existing);
+      this._markModified(componentMeta);
+      return existing;
+    }
+    const component = new (componentMeta.Class as ComponentClass)();
+    callback?.(component);
+    this._attach_or_enqueue(componentMeta, component);
+    return component;
+  }
+
+  /**
    * Mark a component type as having changed, queueing the corresponding `onSet` / `update`
    * notifications.
    *
@@ -303,6 +355,20 @@ export class Components extends Relationships {
       this._modified(meta);
     }
     return this;
+  }
+
+  /** @internal Attach immediately or enqueue the attach while deferred. */
+  protected _attach_or_enqueue(meta: ComponentMeta, component: ComponentInstance): void {
+    if (this.world.deferred) {
+      this.world._enqueue({
+        kind: CommandKind.Attach,
+        entity: this as unknown as Entity,
+        meta,
+        component,
+      });
+    } else {
+      this._attach(meta, component);
+    }
   }
 
   /**

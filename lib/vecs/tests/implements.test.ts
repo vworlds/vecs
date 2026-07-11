@@ -199,6 +199,9 @@ describe("Implements", () => {
     expect(() => entity.getMut(Food, () => {})).toThrow(
       "Cannot getMut the abstract interface Food; operate via the concrete component"
     );
+    expect(() => entity.ensure(Food, () => {})).toThrow(
+      "Cannot ensure the abstract interface Food; operate via the concrete component"
+    );
     expect(() => entity.attach(Food, entity.get(Orange)! as Orange)).toThrow(
       "Cannot attach the abstract interface Food; operate via the concrete component"
     );

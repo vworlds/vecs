@@ -97,9 +97,9 @@ built-in taxonomy.
 ## Deferred mutation and flush boundaries
 
 Inside a system body, a `Query.forEach` / `Filter.forEach` iteration, or any `world.defer(...)`
-block, the world is in **deferred mode**: entity mutations (`add` / `attach` / `set` / `remove` /
-`destroy` / `modified`, and `world.entity()` creation) are queued as commands instead of applied
-inline. The queue drains when the scope that opened deferral ends.
+block, the world is in **deferred mode**: entity mutations (`add` / `attach` / `set` / `ensure` /
+`remove` / `destroy` / `modified`, and `world.entity()` creation) are queued as commands instead of
+applied inline. The queue drains when the scope that opened deferral ends.
 
 For the pipeline this means: **a structural change made by system A is applied in the flush
 immediately after A finishes, so it is visible to every later system in the same tick** — later in
@@ -116,6 +116,7 @@ While a mutation is queued but not yet applied, reads return the pre-mutation st
 | `entity.add(C)`           | `undefined` — no instance has been created yet.            |
 | `entity.attach(instance)` | `undefined`, if `C` was absent before.                     |
 | `entity.set(C, props)`    | The **previous** value (or `undefined` if `C` was absent). |
+| `entity.ensure(C)`        | A mutable component, even when newly created.              |
 | `entity.remove(C)`        | Still the component instance.                              |
 
 Outside any deferred scope (top-level user code), the same calls execute inline and effects are
@@ -156,7 +157,7 @@ Three routing rules worth memorizing:
 - **`exit` reads a snapshot.** Components injected into an `exit` callback are captured when the
   exit is routed, so they are still resolvable even though they are being (or have been) removed.
 - **In-place mutation needs `modified`.** Assigning to component fields directly notifies no one.
-  Call `entity.modified(C)` (or use `set` / `getMut`) to route the change.
+  Call `entity.modified(C)` (or use `set` / `getMut` / `ensure`) to route the change.
 
 ## Why the patterns work
 

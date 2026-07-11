@@ -47,6 +47,7 @@ for end-of-session teardown, not selective resets.
 e.add(Position); // attach with default field values (idempotent)
 e.set(Position, { x: 100 }); // attach if needed, assign props, fire onSet/update
 e.get(Position); // Readonly<Position> | undefined
+e.ensure(Position, (pos) => (pos.x += 1)); // create if needed, then mutate and notify
 e.has(Position); // boolean
 e.remove(Position); // detach; fires exit callbacks, then onRemove
 e.modified(Position); // mark changed after in-place mutation
@@ -63,10 +64,12 @@ key.
   `onSet`.
 - `set(C, props)` attaches if needed (firing `onAdd`), copies `props` onto the instance, and fires
   `onSet` plus `update` callbacks.
+- `ensure(C, callback)` creates the component if missing, then lets you mutate it and fires
+  `onAdd` followed by one `onSet`. When the component already exists, it behaves like `getMut`.
 - `modified(C)` fires `onSet`/`update` for data you already mutated in place. Repeated calls are
   coalesced until the world routes the notification.
 
-### `getMut`: mutating in place
+### `getMut` and `ensure`: mutating in place
 
 `get` returns a `Readonly` view. To mutate, use `getMut`, which marks the component modified for
 you:
@@ -83,8 +86,18 @@ e.getMut(Velocity, (vel) => {
 });
 ```
 
-Calling `getMut(C)` without a callback outside deferred mode throws. `getMut` also throws for
-relationship components (retarget with `set` instead — see
+Use `ensure` when absence should mean "create with defaults, then mutate":
+
+```ts
+e.ensure(Velocity, (vel) => {
+  vel.vx = 2;
+});
+```
+
+`ensure` always returns a component for a live entity. Calling it on a destroyed entity throws.
+
+Calling `getMut(C)` or `ensure(C)` without a callback outside deferred mode throws. Both methods
+also throw for relationship components (retarget with `set` instead — see
 [Relationships](./relationships.md#retargeting)) and for `Implements` interface aliases.
 
 ### `attach`: storing an existing instance
@@ -111,6 +124,8 @@ Inside a system body, a `forEach`, or a `world.defer` block, all of the mutators
 commands instead of applying immediately, and reads return the pre-mutation state until the queue
 drains. The exact read-after-write rules are tabulated in
 [Execution model — deferred mutation](./execution-model.md#deferred-mutation-and-flush-boundaries).
+`ensure(C)` is the exception for mutable access: it returns a mutable component immediately, but a
+newly created component does not appear in `get(C)` until the queue drains.
 
 Deferred entity creation is idempotent within one deferred scope: if `world.entity()` or
 `getOrCreateEntity(eid)` creates a new entity, `getEntity(eid)`, `entity(eid)`, and later
@@ -164,6 +179,7 @@ is in [Relationships](./relationships.md).
 | `set(ref, props)`                              | Attach if needed and assign `props`; fires `onSet` and `update` callbacks. Returns `this`.          |
 | `get(ref)`                                     | Read-only component lookup, or `undefined`.                                                         |
 | `getMut(ref)` / `getMut(ref, callback)`        | Mutable lookup that marks the component modified. Callback form required outside deferred mode.     |
+| `ensure(ref)` / `ensure(ref, callback)`        | Mutable lookup that creates when missing. Callback form required outside deferred mode.             |
 | `has(ref)`                                     | `true` when the component is attached.                                                              |
 | `modified(ref)`                                | Queue an `onSet`/`update` notification; coalesced while pending. Returns `this`.                    |
 | `remove(ref)`                                  | Detach a component; routes `exit`, then fires `onRemove`.                                           |

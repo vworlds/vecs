@@ -83,11 +83,11 @@ world
   .onRemove((entity, sprite) => sprite.destroy(scene, entity));
 ```
 
-| Hook       | Fires when…                                                                                                                                    |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `onAdd`    | The component is first attached (`add`, or `set` on an entity that lacked it).                                                                 |
-| `onSet`    | `entity.set(C, props)` applies data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` marks it dirty. |
-| `onRemove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                             |
+| Hook       | Fires when…                                                                                                                                               |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `onAdd`    | The component is first attached (`add`, or `set` on an entity that lacked it).                                                                            |
+| `onSet`    | `entity.set(C, props)` applies data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
+| `onRemove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                        |
 
 Handlers receive `(entity, componentInstance)` — component instances do not carry entity
 references, so the entity is passed explicitly. Hooks fire synchronously when the corresponding
@@ -183,7 +183,7 @@ Rules (enforced by `ImplementsModule`, `lib/vecs/src/modules/implements.ts`):
 
 - **Aliases are read/query only.** `get`, `has`, `with`, `filter`, and injection accept an
   interface type; mutation must go through the concrete component. `add`, `set`, `remove`,
-  `modified`, `getMut`, and `attach` on an interface throw at runtime (and `add`/`set` are
+  `modified`, `getMut`, `ensure`, and `attach` on an interface throw at runtime (and `add`/`set` are
   rejected by TypeScript for abstract classes).
 - **Declarations are transitive.** `Orange` implements `Fruit`, `Fruit` implements `Food`, so an
   entity with `Orange` matches `with(Food)`. Cyclic declarations throw.

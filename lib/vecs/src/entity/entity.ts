@@ -28,7 +28,7 @@ export type EntityClass<T extends Entity = Entity> = new (
  * ## Deferred semantics
  *
  * Inside a system body or `forEach` iteration the world is in **deferred
- * mode**: `add` / `attach` / `set` / `modified` / `remove` / `destroy` only
+ * mode**: `add` / `attach` / `set` / `ensure` / `modified` / `remove` / `destroy` only
  * enqueue commands. The data layer (the components map and
  * `componentBitmask`) is mutated when the world drains its queue. Concretely,
  * while deferred:
@@ -36,6 +36,7 @@ export type EntityClass<T extends Entity = Entity> = new (
  * - `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.add(C)` (no instance yet).
  * - `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.attach(instance)` if C was absent.
  * - `entity.get(C)` / `entity.getMut(C)` returns the previous value after `entity.set(C, props)`.
+ * - `entity.ensure(C)` returns a mutable component immediately, but `entity.get(C)` does not see it until the queue drains.
  * - `entity.get(C)` / `entity.getMut(C)` still returns the component after `entity.remove(C)`.
  *
  * Outside deferred mode the same calls execute inline and mutations are

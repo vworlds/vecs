@@ -104,6 +104,29 @@ describe("Deferred mode — data-layer visibility", () => {
     expect(onSet).not.toHaveBeenCalled();
   });
 
+  it("entity.ensure(C) without a callback creates a mutable component inside defer", () => {
+    const { w } = setup();
+    const onAdd = vi.fn();
+    const onSet = vi.fn();
+    w.component(Position).onAdd(onAdd).onSet(onSet);
+    const e = w.entity();
+
+    let observed: Position | undefined;
+    w.defer(() => {
+      observed = e.ensure(Position);
+      observed!.x = 3;
+      expect(e.get(Position)).toBeUndefined();
+      expect(onAdd).not.toHaveBeenCalled();
+      expect(onSet).not.toHaveBeenCalled();
+    });
+
+    expect(e.get(Position)).toBe(observed);
+    expect(observed?.x).toBe(3);
+    expect(onAdd).toHaveBeenCalledWith(e, observed);
+    expect(onSet).toHaveBeenCalledWith(e, observed);
+    expect(onSet).toHaveBeenCalledTimes(1);
+  });
+
   it("at top level, mutations are immediately visible", () => {
     const { w } = setup();
     const e = w.entity();
