@@ -3,7 +3,7 @@ import Phaser from "phaser";
 import { Container, DrawBy, DrawIn, Position } from "@vworlds/vecs-phaser";
 import * as m from "../markers.js";
 
-export class ContainerModule extends Module<{ scene: Phaser.Scene }> {
+export class DisplaySetupModule extends Module<{ scene: Phaser.Scene }> {
   public init(config: { scene: Phaser.Scene }): void {
     const { scene } = config;
     const world = this.world;

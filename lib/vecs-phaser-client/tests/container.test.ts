@@ -170,7 +170,7 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
     expect(child.get(Position)).toMatchObject({ x: 3, y: 3 });
   });
 
-  it("rotates the offset by the parent's Rotation", () => {
+  it("adds offset without parent rotation (rotation conditioned by tag in future)", () => {
     const { scene, world } = setup();
     const parent = world.entity();
     parent
@@ -190,11 +190,11 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
       .set(FillStyle, { color: 0xff0000, alpha: 1 });
     world.progress(1, 0);
 
-    // Parent at (0,0), rotation PI/2, offset (1,0) →
-    // cos(PI/2)≈0, sin(PI/2)=1 → child at (0, 1)
+    // Parent at (0,0), offset (1,0) → child at (1,0). Parent rotation
+    // is not applied to the offset (will be conditioned by a tag later).
     const pos = child.get(Position)!;
-    expect(pos.x).toBeCloseTo(0, 5);
-    expect(pos.y).toBeCloseTo(1, 5);
+    expect(pos.x).toBeCloseTo(1, 5);
+    expect(pos.y).toBeCloseTo(0, 5);
   });
 
   it("auto-adds Position when DrawBy is set", () => {

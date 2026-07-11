@@ -1,6 +1,6 @@
 import { type ComponentClass } from "@vworlds/vecs";
 
-export { Container, DrawBy, DrawIn } from "./components/container.js";
+export { Container, DrawBy, DrawIn } from "./components/parenting.js";
 export { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
 export { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 export { Image } from "./components/image.js";
@@ -17,7 +17,7 @@ export {
 } from "./components/shapes.js";
 export { Text, TextAlign } from "./components/text.js";
 
-import { Container, DrawBy, DrawIn } from "./components/container.js";
+import { Container, DrawBy, DrawIn } from "./components/parenting.js";
 import { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
 import { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 import { Image } from "./components/image.js";

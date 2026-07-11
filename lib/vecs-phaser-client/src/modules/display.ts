@@ -7,29 +7,26 @@ import * as m from "../markers.js";
  * Display-list placement for Phaser GameObjects.
  *
  * Shape modules create GameObjects via `new Phaser.GameObjects.X(scene, …)`
- * (no display-list entry). This module is the single point that adds each
- * GameObject to the correct display parent:
+ * (no display-list entry). This module adds each GameObject to the correct
+ * display parent, split into three systems matching the three rendering modes:
  *
- * - **Root entities** (no `DrawIn`/`DrawBy`): `scene.add.existing(obj)`.
- * - **Native children** (`DrawIn`, parent has `Container`):
- *   `parentContainer.add(obj)`. Phaser composes transforms natively — moving
- *   the Container moves all children, rotation/scale propagate for free.
- * - **Computed children** (`DrawBy`, parent is a renderable): placed on the
- *   scene root (like a root entity), but only after the parent has arrived and
- *   has a `Position`. If the parent is a ghost (not yet arrived or no
- *   `Position`), the child stays off-display until the parent materialises.
- * - **Ghost-parent** (parent not yet arrived): skipped; the object stays
- *   off-display until the parent's Container arrives (handled by
- *   ContainerModule) or the parent gets a `Position` (handled by
- *   `phaser.display.drawby-place`).
+ * - **A — Root** (`phaser.display.root`): entities with `m.GameObject` but no
+ *   `DrawIn`/`DrawBy`. Placed on the scene display list.
+ * - **B — Native** (`phaser.display.native`): entities with `DrawIn` whose
+ *   parent (via DrawIn) has a `Phaser.GameObjects.Container`. The child's
+ *   GameObject is added to the parent Container. Phaser composes transforms
+ *   natively. The query only matches when the parent has arrived with a
+ *   Container, so ghost-parented children stay off-display until the parent
+ *   materialises (at which point `enter` fires automatically).
+ * - **C — Computed** (`phaser.display.computed`): entities with `DrawBy`
+ *   whose parent (via DrawBy) has a `Position`. Placed on the scene display
+ *   list (not inside a Container). The query only matches when the parent
+ *   has arrived with a Position, so ghost-parented children stay off-display
+ *   until the parent materialises.
  *
- * A `Container` that is itself a child (e.g. an intermediate orbit Container) is
- * nested inside its parent Container, not placed on the scene — `DrawIn` is
- * checked before the Container-vs-renderable distinction.
- *
- * Reparenting on `DrawIn` retarget or removal is handled by the
- * `phaser.display.reparent` system, which runs in `ON_STORE` after shape
- * creation so the display list is updated at a controlled phase.
+ * Reparenting (DrawIn/DrawBy retarget) is handled by `update` watching the
+ * relationship — the entity exits the old query and enters the new one,
+ * triggering `exit` (detach from old parent) and `enter` (attach to new parent).
  */
 export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
   public init(config: { scene: Phaser.Scene }): void {
@@ -38,80 +35,45 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
 
     const containerClass = Phaser.GameObjects.Container;
 
+    // A — Root: no DrawIn, no DrawBy.
     world
-      .system("phaser.display.place")
+      .system("phaser.display.root")
       .with(m.GameObject)
+      .without(DrawIn)
+      .without(DrawBy)
       .phase(ON_STORE)
-      .enter((entity) => {
-        const obj = entity.get(m.GameObject) as Phaser.GameObjects.GameObject | undefined;
-        if (!obj || obj.displayList !== null) {
+      .enter([m.GameObject], (_entity, [obj]) => {
+        const phaserObj = obj as Phaser.GameObjects.GameObject;
+        if (phaserObj.displayList !== null) {
           return;
         }
-
-        // Native children via DrawIn: place inside the parent's Container if
-        // it exists. Otherwise skip — the object stays invisible until the
-        // parent's Container arrives (ContainerModule adopts it).
-        const drawInParent = entity.target(DrawIn);
-        if (drawInParent) {
-          if (drawInParent.has(containerClass)) {
-            const parentContainer = drawInParent.get(containerClass) as
-              Phaser.GameObjects.Container | undefined;
-            if (parentContainer) {
-              parentContainer.add(obj);
-            }
-          }
-          return;
-        }
-
-        // Computed children via DrawBy: place on the scene root, but only if
-        // the parent has arrived and has a Position. If the parent is a ghost,
-        // skip — the child stays invisible until the parent materialises
-        // (phaser.display.drawby-place re-evaluates each frame).
-        const drawByParent = entity.target(DrawBy);
-        if (drawByParent) {
-          if (drawByParent.has(Position)) {
-            scene.add.existing(obj);
-          }
-          return;
-        }
-
-        // Root entity: place on the scene.
-        scene.add.existing(obj);
+        scene.add.existing(phaserObj);
       });
 
-    // Reparent when DrawIn changes or is removed. Runs in ON_STORE so the
-    // display list is updated at a controlled phase, after shape creation.
+    // B — Native: DrawIn target has a Phaser Container.
     world
-      .system("phaser.display.reparent")
-      .with(m.GameObject, DrawIn)
+      .system("phaser.display.native")
+      .with(m.GameObject, { target: [DrawIn, containerClass] })
       .phase(ON_STORE)
       .update(
-        { watch: DrawIn, onEnter: true, inject: [m.GameObject] },
-        (entity, _drawIn, [obj]) => {
+        {
+          watch: DrawIn,
+          onEnter: true,
+          inject: [m.GameObject, { target: [DrawIn, [containerClass]] }],
+        },
+        (entity, _drawIn, [obj, parentContainerInjected]) => {
           const phaserObj = obj as Phaser.GameObjects.GameObject;
-          const parent = entity.target(DrawIn);
-          const parentContainer =
-            parent && parent.has(containerClass)
-              ? (parent.get(containerClass) as Phaser.GameObjects.Container)
-              : undefined;
-
-          if (parentContainer && phaserObj.parentContainer !== parentContainer) {
+          const parentContainer = parentContainerInjected as Phaser.GameObjects.Container;
+          if (phaserObj.parentContainer !== parentContainer) {
             parentContainer.add(phaserObj);
           }
         }
       )
       .exit((entity) => {
-        // DrawIn was removed: detach from parent Container, re-add to scene.
-        // If the GameObject itself was removed (shape change/destroy), the
-        // object is already destroyed — skip.
         const obj = entity.get(m.GameObject) as Phaser.GameObjects.GameObject | undefined;
         if (!obj || (obj as unknown as { destroyed: boolean }).destroyed) {
           return;
         }
-        // The parent Container may have been destroyed already (cascade
-        // ordering: m.GameObject.onRemove destroys the Phaser Container,
-        // which destroys its children; then DrawIn's Remove policy fires
-        // the exit). If the parent is gone, just clear the reference.
         const parent = obj.parentContainer as
           (Phaser.GameObjects.Container & { destroyed?: boolean }) | null;
         if (parent && !parent.destroyed) {
@@ -122,24 +84,29 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
         }
       });
 
-    // DrawBy ghost-parent placement: each frame, place any DrawBy child whose
-    // GameObject has no display list and whose parent has arrived with a
-    // Position. Idempotent — skips already-placed objects. Handles the case
-    // where the child entered the scene before its parent materialised.
+    // C — Computed: DrawBy target has a Position.
     world
-      .system("phaser.display.drawby-place")
-      .with(DrawBy, m.GameObject)
-      .without(DrawIn)
+      .system("phaser.display.computed")
+      .with(m.GameObject, { target: [DrawBy, Position] })
       .phase(ON_STORE)
-      .each([m.GameObject], (entity, [obj]) => {
-        const phaserObj = obj as Phaser.GameObjects.GameObject;
-        if (phaserObj.displayList !== null) {
+      .update(
+        { watch: DrawBy, onEnter: true, inject: [m.GameObject] },
+        (entity, _drawBy, [obj]) => {
+          const phaserObj = obj as Phaser.GameObjects.GameObject;
+          if (phaserObj.displayList === null) {
+            scene.add.existing(phaserObj);
+          }
+        }
+      )
+      .exit((entity) => {
+        // DrawBy removed or parent lost Position — child stays on scene.
+        // No Container to detach from; if the GameObject is being destroyed
+        // it's already gone.
+        const obj = entity.get(m.GameObject) as Phaser.GameObjects.GameObject | undefined;
+        if (!obj || (obj as unknown as { destroyed: boolean }).destroyed) {
           return;
         }
-        const parent = entity.target(DrawBy);
-        if (parent && parent.has(Position)) {
-          scene.add.existing(phaserObj);
-        }
+        // The child remains on the scene root. Nothing to do.
       });
   }
 }
