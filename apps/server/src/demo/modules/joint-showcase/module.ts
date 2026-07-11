@@ -11,6 +11,7 @@ import {
   Size,
   Star,
   StrokeStyle,
+  DrawBy,
 } from "@vworlds/vecs-phaser";
 import {
   Body,
@@ -134,6 +135,19 @@ function createJointShowcase(world: { entity(): Entity }): void {
     .set(Star, { innerRadius: 0.03, outerRadius: 0.06 })
     .set(FillStyle, { color: 0xffee55, alpha: 1 })
     .set(Offset, { x: 0.2, y: 0.2 });
+
+  // A small star pinned to the bottom-right corner of the bob. The Offset is
+  // fixed — it never changes. We use DrawBy instead of DrawIn, so the client
+  // computes the world Position each frame from the parent's Position + Offset
+  // and does not keep same rotation.
+  world
+    .entity()
+    .childOf(bob)
+    .set(DrawBy, { target: bob })
+    .add(Networked)
+    .set(Star, { innerRadius: 0.03, outerRadius: 0.06 })
+    .set(FillStyle, { color: 0xff0055, alpha: 1 })
+    .set(Offset, { x: -0.2, y: -0.2 });
 
   world
     .entity()

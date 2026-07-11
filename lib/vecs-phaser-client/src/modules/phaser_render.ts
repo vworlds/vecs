@@ -4,7 +4,7 @@ import { CoordSpace } from "../coord_space.js";
 import { Catalog } from "../load_assets.js";
 import * as m from "../markers.js";
 import { ArcModule } from "./arc.js";
-import { ContainerModule } from "./container.js";
+import { DisplaySetupModule } from "./display_setup.js";
 import { DisplayModule } from "./display.js";
 import { EllipseModule } from "./ellipse.js";
 import { ImageModule } from "./image.js";
@@ -77,7 +77,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
 
     world.component(m.GameObject).onRemove((_entity, obj) => obj.destroy());
 
-    world.module(ContainerModule, { scene: config.scene });
+    world.module(DisplaySetupModule, { scene: config.scene });
     world.module(ArcModule, { scene: config.scene, coords });
     world.module(EllipseModule, { scene: config.scene, coords });
     world.module(RectangleModule, { scene: config.scene, coords });

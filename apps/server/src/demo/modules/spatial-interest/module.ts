@@ -1,5 +1,5 @@
-import { Module, PRE_STORE, type Entity, type QueryDSL } from "@vworlds/vecs";
-import { DrawIn, Position as RenderPosition } from "@vworlds/vecs-phaser";
+import { type ComponentClass, Module, PRE_STORE, type Entity, type QueryDSL } from "@vworlds/vecs";
+import { DrawBy, DrawIn, Position as RenderPosition } from "@vworlds/vecs-phaser";
 import { NetworkClient, Networked, View } from "@vworlds/vecs-server";
 import {
   cellTagComponents,
@@ -9,6 +9,8 @@ import {
   ViewAll,
 } from "./components.js";
 import { createCellViewDSL, getGridCellIndex } from "./grid.js";
+
+const DISPLAY_RELATIONSHIPS: readonly ComponentClass[] = [DrawIn, DrawBy];
 
 export class SpatialInterestModule extends Module {
   public init(): void {
@@ -34,28 +36,17 @@ export class SpatialInterestModule extends Module {
       );
 
     // Cascade InCell from parent to display children that don't have their own
-    // RenderPosition (e.g. child shapes parented via DrawIn to a Container).
-    // Without this, parented children are invisible in cell-based views
-    // because they never get an InCell assignment. Uses InCell onSet/onRemove
-    // hooks so the cascade is immediate — a child assigned the same frame
-    // its parent gets a cell, no frame delay.
+    // RenderPosition. Without this, parented children are invisible in
+    // cell-based views because they never get an InCell assignment. Uses
+    // InCell onSet/onRemove hooks so the cascade is immediate — a child
+    // assigned the same frame its parent gets a cell, no frame delay.
     world.component(InCell).onSet((entity) => {
       const cell = entity.target(InCell);
-      for (const child of entity.children(DrawIn)) {
-        if (child.has(Networked) && !child.has(RenderPosition)) {
-          if (child.target(InCell) !== cell) {
-            child.set(InCell, { target: cell! });
-          }
-        }
-      }
+      cascadeInCell(entity, cell, true);
     });
 
     world.component(InCell).onRemove((entity) => {
-      for (const child of entity.children(DrawIn)) {
-        if (child.has(Networked) && !child.has(RenderPosition) && child.has(InCell)) {
-          child.remove(InCell);
-        }
-      }
+      cascadeInCell(entity, undefined, false);
     });
 
     world
@@ -99,5 +90,22 @@ function updatePlayerView(
   if (view.dsl !== dsl) {
     view.dsl = dsl;
     entity.modified(View);
+  }
+}
+
+function cascadeInCell(entity: Entity, cell: Entity | undefined, assign: boolean): void {
+  for (const Rel of DISPLAY_RELATIONSHIPS) {
+    for (const child of entity.children(Rel)) {
+      if (!child.has(Networked) || child.has(RenderPosition)) {
+        continue;
+      }
+      if (assign) {
+        if (child.target(InCell) !== cell) {
+          child.set(InCell, { target: cell! });
+        }
+      } else if (child.has(InCell)) {
+        child.remove(InCell);
+      }
+    }
   }
 }

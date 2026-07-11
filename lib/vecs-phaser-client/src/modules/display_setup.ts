@@ -1,9 +1,9 @@
 import { CleanupPolicy, Implements, Module, ON_STORE, Traversable } from "@vworlds/vecs";
 import Phaser from "phaser";
-import { Container, DrawIn } from "@vworlds/vecs-phaser";
+import { Container, DrawBy, DrawIn, Position } from "@vworlds/vecs-phaser";
 import * as m from "../markers.js";
 
-export class ContainerModule extends Module<{ scene: Phaser.Scene }> {
+export class DisplaySetupModule extends Module<{ scene: Phaser.Scene }> {
   public init(config: { scene: Phaser.Scene }): void {
     const { scene } = config;
     const world = this.world;
@@ -12,11 +12,26 @@ export class ContainerModule extends Module<{ scene: Phaser.Scene }> {
       interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth],
     });
 
-    // DrawIn: detaching (not destroying) children when a display parent is
-    // destroyed. The reparent system re-adds orphaned children to the scene.
+    // DrawIn: native parenting — child of a Container. Detaching (not
+    // destroying) children when a display parent is destroyed. The reparent
+    // system re-adds orphaned children to the scene. No Traversable: native
+    // children are added to the Phaser Container directly, no ECS cascade.
     const drawIn = world.component(DrawIn);
     drawIn.meta.onDeleteTarget = CleanupPolicy.Remove;
-    drawIn.add(Traversable);
+
+    // DrawBy: computed parenting — child of a renderable, world Position
+    // derived each frame. Same Remove policy. Traversable so cascade queries
+    // (phaser.resolve.offset, InCell cascade) can reach DrawBy children.
+    const drawBy = world.component(DrawBy);
+    drawBy.meta.onDeleteTarget = CleanupPolicy.Remove;
+    drawBy.add(Traversable);
+
+    // DrawIn and DrawBy are exclusive: adding one removes the other.
+    world.setExclusiveComponents(DrawIn, DrawBy);
+
+    // DrawBy auto-adds Position on the client to store the computed value.
+    // The Position is client-local (never networked back to the server).
+    world.component(DrawBy).onAdd((entity) => entity.add(Position));
 
     world.component(Container).onRemove((entity) => entity.remove(Phaser.GameObjects.Container));
 
