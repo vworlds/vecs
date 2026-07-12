@@ -97,6 +97,27 @@ describe("CoordSpace", () => {
     });
   });
 
+  describe("inverse mapping mx/my", () => {
+    const scene = { scale: { width: 1024, height: 768 } } as unknown as Phaser.Scene;
+    const cs = new CoordSpace(scene, 64);
+
+    it("mx inverts x for center, positive, and negative meters", () => {
+      expect(cs.mx(cs.x(0))).toBe(0);
+      expect(cs.mx(cs.x(1.5))).toBe(1.5);
+      expect(cs.mx(cs.x(-2.25))).toBe(-2.25);
+    });
+
+    it("my inverts y with the Y flip", () => {
+      expect(cs.my(cs.y(0))).toBe(0);
+      expect(cs.my(cs.y(2))).toBe(2);
+      expect(cs.my(cs.y(-0.5))).toBe(-0.5);
+    });
+
+    it("my(0) is the top edge in meters (+y up)", () => {
+      expect(cs.my(0)).toBe(6);
+    });
+  });
+
   describe("resize reflects in subsequent calls", () => {
     const scale = { width: 800, height: 600 };
     const scene = { scale } as unknown as Phaser.Scene;
