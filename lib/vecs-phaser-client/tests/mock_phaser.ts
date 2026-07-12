@@ -58,28 +58,28 @@ export class MockCamera {
   }
 
   removeBounds(): this {
-    return this.record("removeBounds");
+    return this._record("removeBounds");
   }
 
   setBounds(...args: readonly unknown[]): this {
-    return this.record("setBounds", ...args);
+    return this._record("setBounds", ...args);
   }
 
   setScroll(x: number, y: number): this {
     this.scrollX = x;
     this.scrollY = y;
-    return this.record("setScroll", x, y);
+    return this._record("setScroll", x, y);
   }
 
   setZoom(...args: readonly unknown[]): this {
-    return this.record("setZoom", ...args);
+    return this._record("setZoom", ...args);
   }
 
   shake(...args: readonly unknown[]): this {
-    return this.record("shake", ...args);
+    return this._record("shake", ...args);
   }
 
-  private record(method: string, ...args: readonly unknown[]): this {
+  private _record(method: string, ...args: readonly unknown[]): this {
     this.calls.push({ method, args });
     return this;
   }
