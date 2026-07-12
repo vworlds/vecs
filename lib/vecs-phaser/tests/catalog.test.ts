@@ -24,6 +24,7 @@ describe("asset catalog type contract", () => {
       tileCount: 64,
       imageWidth: 128,
       imageHeight: 128,
+      animations: [],
     } satisfies SpritesheetDescriptor;
 
     expect(spritesheet.kind).toBe("spritesheet");
@@ -44,6 +45,7 @@ describe("asset catalog type contract", () => {
       tileCount: 64,
       imageWidth: 128,
       imageHeight: 128,
+      animations: [],
     } satisfies SpritesheetDescriptor;
     const assets = [spritesheet] satisfies AssetDescriptor[];
     const catalog = {

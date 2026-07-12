@@ -8,6 +8,7 @@ export interface RecordedCall {
 let nextId = 0;
 
 class MockGameObject {
+  readonly anims = { timeScale: 1 };
   readonly calls: RecordedCall[] = [];
   destroyed = false;
   displayList: unknown = null;
@@ -80,8 +81,16 @@ class MockGameObject {
     return this.record("setScale", ...args);
   }
 
+  play(...args: readonly unknown[]): this {
+    return this.record("play", ...args);
+  }
+
   setScrollFactor(...args: readonly unknown[]): this {
     return this.record("setScrollFactor", ...args);
+  }
+
+  stop(): this {
+    return this.record("stop");
   }
 
   setVisible(...args: readonly unknown[]): this {
@@ -199,6 +208,7 @@ class Container extends MockGameObject {
 const Arc = makeShapeClass("arc");
 const Ellipse = makeShapeClass("ellipse");
 const Image = makeShapeClass("image");
+const Sprite = makeShapeClass("sprite");
 const Line = makeShapeClass("line");
 const Polygon = makeShapeClass("polygon");
 const Rectangle = makeShapeClass("rectangle");
@@ -215,6 +225,7 @@ export default {
     Line,
     Polygon,
     Rectangle,
+    Sprite,
     Star,
     Text,
     Triangle,

@@ -15,7 +15,14 @@ export {
 } from "./components/transform.js";
 export { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 export { Image } from "./components/image.js";
-export type { AssetCatalog, AssetDescriptor, SpritesheetDescriptor } from "./catalog.js";
+export type {
+  AnimationDescriptor,
+  AnimationFrameDescriptor,
+  AssetCatalog,
+  AssetDescriptor,
+  SpritesheetDescriptor,
+} from "./catalog.js";
+export { Animation, Sprite } from "./components/sprite.js";
 export { actionMask, hasAction } from "./input.js";
 export type { InputPayload } from "./input.js";
 export {
@@ -55,6 +62,7 @@ import {
   Star,
   Triangle,
 } from "./components/shapes.js";
+import { Animation, Sprite } from "./components/sprite.js";
 import { Text } from "./components/text.js";
 
 /**
@@ -92,6 +100,8 @@ import { Text } from "./components/text.js";
  *  28  CameraZoom
  *  29  CameraBounds
  *  30  CameraShake
+ *  31  Sprite
+ *  32  Animation
  */
 export const phaserNetworkComponents = [
   Position,
@@ -124,6 +134,8 @@ export const phaserNetworkComponents = [
   CameraZoom,
   CameraBounds,
   CameraShake,
+  Sprite,
+  Animation,
 ] as const satisfies readonly ComponentClass[];
 
 /**
@@ -144,4 +156,5 @@ export const phaserRenderableComponents = [
   Text,
   Image,
   Container,
+  Sprite,
 ] as const satisfies readonly ComponentClass[];

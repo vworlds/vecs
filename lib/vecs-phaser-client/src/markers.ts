@@ -72,6 +72,12 @@ export abstract class Flip {
   public abstract setFlip(x: boolean, y: boolean): this;
 }
 
+export abstract class Animated {
+  public abstract readonly anims: { timeScale: number };
+  public abstract play(key: string, ignoreIfPlaying?: boolean): this;
+  public abstract stop(): this;
+}
+
 export abstract class Tint {
   public abstract setTint(
     topLeft?: number,
