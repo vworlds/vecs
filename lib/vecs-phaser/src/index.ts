@@ -2,7 +2,16 @@ import { type ComponentClass } from "@vworlds/vecs";
 
 export { Container, DrawBy, DrawIn } from "./components/parenting.js";
 export { Flip, Hidden } from "./components/display.js";
-export { Alpha, Depth, Offset, Origin, Position, Rotation, Scale } from "./components/transform.js";
+export {
+  Alpha,
+  Depth,
+  Offset,
+  Origin,
+  Position,
+  Rotation,
+  Scale,
+  ScreenAnchor,
+} from "./components/transform.js";
 export { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 export { Image } from "./components/image.js";
 export type { AssetCatalog, AssetDescriptor, SpritesheetDescriptor } from "./catalog.js";
@@ -20,7 +29,16 @@ export { Text, TextAlign } from "./components/text.js";
 
 import { Container, DrawBy, DrawIn } from "./components/parenting.js";
 import { Flip, Hidden } from "./components/display.js";
-import { Alpha, Depth, Offset, Origin, Position, Rotation, Scale } from "./components/transform.js";
+import {
+  Alpha,
+  Depth,
+  Offset,
+  Origin,
+  Position,
+  Rotation,
+  Scale,
+  ScreenAnchor,
+} from "./components/transform.js";
 import { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 import { Image } from "./components/image.js";
 import {
@@ -65,6 +83,7 @@ import { Text } from "./components/text.js";
  *  23  Hidden
  *  24  Flip
  *  25  Origin
+ *  26  ScreenAnchor
  */
 export const phaserNetworkComponents = [
   Position,
@@ -92,6 +111,7 @@ export const phaserNetworkComponents = [
   Hidden,
   Flip,
   Origin,
+  ScreenAnchor,
 ] as const satisfies readonly ComponentClass[];
 
 /**

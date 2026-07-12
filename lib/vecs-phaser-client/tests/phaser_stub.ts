@@ -80,6 +80,10 @@ class MockGameObject {
     return this.record("setScale", ...args);
   }
 
+  setScrollFactor(...args: readonly unknown[]): this {
+    return this.record("setScrollFactor", ...args);
+  }
+
   setVisible(...args: readonly unknown[]): this {
     return this.record("setVisible", ...args);
   }

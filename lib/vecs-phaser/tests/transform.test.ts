@@ -9,6 +9,7 @@ import {
   Position,
   Rotation,
   Scale,
+  ScreenAnchor,
 } from "../src/components/transform.js";
 
 function roundTrip<T extends object>(C: new () => T, value: T): T {
@@ -188,6 +189,30 @@ describe("Origin", () => {
     const decoded = roundTrip(Origin, o);
     expect(decoded.x).toBe(0);
     expect(decoded.y).toBe(1);
+  });
+});
+
+describe("ScreenAnchor", () => {
+  it("round-trips centered defaults with zero offsets", () => {
+    const decoded = roundTrip(ScreenAnchor, new ScreenAnchor());
+    expect(decoded).toBeInstanceOf(ScreenAnchor);
+    expect(decoded.x).toBe(0.5);
+    expect(decoded.y).toBe(0.5);
+    expect(decoded.offsetX).toBe(0);
+    expect(decoded.offsetY).toBe(0);
+  });
+
+  it("round-trips a top-left anchor with meter offsets", () => {
+    const a = new ScreenAnchor();
+    a.x = 0;
+    a.y = 1;
+    a.offsetX = 0.25;
+    a.offsetY = -0.5;
+    const decoded = roundTrip(ScreenAnchor, a);
+    expect(decoded.x).toBe(0);
+    expect(decoded.y).toBe(1);
+    expect(decoded.offsetX).toBe(0.25);
+    expect(decoded.offsetY).toBe(-0.5);
   });
 });
 
