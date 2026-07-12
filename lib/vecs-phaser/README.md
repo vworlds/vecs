@@ -1,14 +1,24 @@
 # @vworlds/vecs-phaser
 
-Data-only package providing wire-serializable Phaser render components (`Position`, `Arc`,
-`Text`, `Image`, …) and the `phaserNetworkComponents` protocol order. `Image` is the first
-textured renderable and is protocol type 17. No `phaser` dependency.
+Data-only package for the vecs Phaser game kit: 35 wire-serializable
+components — transforms, shapes, `Text`, `Image`, animated `Sprite`,
+parenting relationships, display state (`Hidden`, `Flip`, `Origin`,
+`ScreenAnchor`, `Tint`), server-driven camera components, audio
+(`Sound`/`Music`), and `ParticleBurst` — plus the `phaserNetworkComponents`
+protocol order (**the order is the wire protocol**; append-only).
 
-Also exports the shared asset catalog schema (`AssetDescriptor`, `SpritesheetDescriptor`,
-`AssetCatalog`) used by `@vworlds/vecs-phaser-server` to describe server-owned assets and by
-`@vworlds/vecs-phaser-client` to load them before rendering.
+Also exports the shared asset-catalog schema (`AssetCatalog`,
+`SpritesheetDescriptor` with tile animations, `AudioDescriptor`) and the
+input contract (`InputPayload`, `actionMask`/`hasAction`). No `phaser`
+dependency.
 
 Depends on `@vworlds/vecs` and `@vworlds/vecs-wire`.
 
-See [`./architecture/README.md`](./architecture/README.md) for the full design.
-Forward-looking work lives in the repo [`ROADMAP.md`](../../architecture/ROADMAP.md).
+- **Guides:** [`./docs`](./docs/README.md) — start with
+  [getting started](./docs/getting-started.md) and the
+  [design guide](./docs/design-guide.md).
+- **Architecture:** [`./architecture/README.md`](./architecture/README.md).
+- **Reference demo:** Tank Arena
+  ([`apps/demo-server`](../../apps/demo-server/README.md) +
+  [`apps/demo-client`](../../apps/demo-client/README.md)).
+- Forward-looking work: repo [`ROADMAP.md`](../../architecture/ROADMAP.md).
