@@ -1,0 +1,23 @@
+{
+  "name": "@vworlds/vecs-tanks-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" --no-error-on-unmatched-pattern",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@vworlds/vecs-client": "*",
+    "@vworlds/vecs-phaser": "*",
+    "@vworlds/vecs-phaser-client": "*",
+    "phaser": "^4.1.0"
+  },
+  "devDependencies": {
+    "vite": "^8.0.16"
+  },
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@vworlds/vecs-tanks-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --tsconfig tsconfig.json src/main.ts",
+    "build": "rimraf dist && esbuild src/main.ts --bundle --platform=node --format=esm --target=node24 --tsconfig=tsconfig.json --external:express --external:@vworlds/dgram-server --external:node-datachannel --external:box2d3-wasm --outfile=dist/main.js",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@vworlds/vecs": "*",
+    "@vworlds/vecs-phaser": "*",
+    "@vworlds/vecs-phaser-server": "*",
+    "@vworlds/vecs-physics": "*",
+    "@vworlds/vecs-server": "*",
+    "@vworlds/vecs-wire": "*",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.22.4"
+  },
+  "license": "UNLICENSED"
+}
