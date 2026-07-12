@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [repo]: Added the Tank Arena teaching demo (`apps/demo-server` + `apps/demo-client`): a multiplayer arcade game exercising the full stack (physics, sprites/animation, audio, camera, HUD, particles, input toolkit) with generated committed assets and physics-driven integration tests.
+- [vecs-phaser]: Added the `lib/vecs-phaser/docs/` guide set (getting started, components/protocol reference, rendering, parenting, assets, sprites & animation, audio, camera & UI, input, effects, networking) plus an opinionated multiplayer-game design guide; rewrote `architecture/README.md` to the implemented state and refreshed the three package READMEs. Shipped roadmap items (anchored UI/text origins, animated sprites, effect builders) moved off the roadmap.
 - [vecs-phaser]: Added `ParticleBurst` (wire type 35) — a one-shot particle burst described by a single component (texture/frame, count, speed, lifespan, scale, gravity, tint), the flagship of the client-expansion pattern: no per-particle replication.
 - [vecs-phaser-client]: Added `EffectsModule` — expands `ParticleBurst` into a Phaser particle emitter at the entity's `Position` on every set, and disposes the emitter after the particles die.
 - [vecs-phaser]: Added replicated audio components: `Sound` (wire type 33, one-shot per set) and `Music` (wire type 34, plays while present; live volume/loop updates). The catalog gains the `audio` asset kind (`AudioDescriptor`).
