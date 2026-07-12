@@ -5,6 +5,9 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-phaser]: Added replicated audio components: `Sound` (wire type 33, one-shot per set) and `Music` (wire type 34, plays while present; live volume/loop updates). The catalog gains the `audio` asset kind (`AudioDescriptor`).
+- [vecs-phaser-server]: `AssetManager` now ingests `assets/audio/*` files as `AudioAsset` handles (`getAudio(key)`), served through the existing catalog + static routes. Added `Lifetime`/`LifetimeModule` — a server-local countdown that destroys the entity when it expires, the idiomatic driver for one-shot effect entities.
+- [vecs-phaser-client]: `loadAssets` queues catalog audio through Phaser's audio loader; new `AudioModule` plays `Sound` one-shots and manages `Music` playback lifecycle through a `MusicPlayback` remove hook (baseline resets stop the music for free).
 - [vecs-phaser]: Added the animated `Sprite` renderable (wire type 31) and the `Animation` component (wire type 32): presence plays a looped tileset animation (`tile` picks the Tiled animation, `speed` scales playback), removal stops it and restores the static frame. The catalog `SpritesheetDescriptor` gains `animations` (tile id + authored frame durations), completing the roadmap item "Animated Sprite renderables".
 - [vecs-phaser-server]: `TilesetAsset.descriptor()` now emits the captured Tiled tile animations as catalog animation descriptors.
 - [vecs-phaser-client]: `loadAssets` registers every tileset animation as the Phaser animation `"<assetId>:<tile>"` (exact authored durations) after the loader completes; new `SpriteModule` renders `Sprite` entities and drives play/stop/retarget/speed through the new `Animated` marker.

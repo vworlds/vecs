@@ -51,6 +51,14 @@ export interface SpritesheetDescriptor extends AssetDescriptor {
   animations: AnimationDescriptor[];
 }
 
+/** An audio asset the client loads via Phaser's audio loader. */
+export interface AudioDescriptor extends AssetDescriptor {
+  /** Audio catalog discriminant. */
+  kind: "audio";
+  /** Source audio file path relative to the server asset root. */
+  file: string;
+}
+
 /** Per-world asset catalog served as JSON over HTTP. */
 export interface AssetCatalog {
   /** Name of the world this catalog describes. */
