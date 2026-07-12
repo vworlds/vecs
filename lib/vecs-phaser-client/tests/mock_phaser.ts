@@ -6,9 +6,44 @@ import { MockGameObject } from "./phaser_stub.js";
 
 type ComponentType = abstract new (...args: any[]) => object;
 
+export class MockEmitter {
+  destroyed = false;
+  exploded: number[] = [];
+
+  constructor(
+    readonly x: number,
+    readonly y: number,
+    readonly key: string,
+    readonly config: Record<string, unknown>
+  ) {}
+
+  destroy(): void {
+    this.destroyed = true;
+  }
+
+  explode(count: number): void {
+    this.exploded.push(count);
+  }
+}
+
+export class MockClock {
+  readonly scheduled: { ms: number; callback: () => void }[] = [];
+
+  delayedCall(ms: number, callback: () => void): void {
+    this.scheduled.push({ ms, callback });
+  }
+
+  flush(): void {
+    for (const entry of this.scheduled.splice(0)) {
+      entry.callback();
+    }
+  }
+}
+
 export interface MockSceneAdd {
   arc: (...args: readonly unknown[]) => MockGameObject;
   ellipse: (...args: readonly unknown[]) => MockGameObject;
+  particles: (x: number, y: number, key: string, config: Record<string, unknown>) => MockEmitter;
   existing: (child: MockGameObject) => MockGameObject;
   image: (...args: readonly unknown[]) => MockGameObject;
   line: (...args: readonly unknown[]) => MockGameObject;
@@ -145,7 +180,9 @@ export class MockSoundManager {
 }
 
 export class MockScene {
+  readonly emitters: MockEmitter[] = [];
   readonly sound = new MockSoundManager();
+  readonly time = new MockClock();
   readonly anims = {
     created: [] as unknown[],
     create: (config: unknown): unknown => {
@@ -169,6 +206,11 @@ export class MockScene {
     },
     image: (...args) => this.create("image", Phaser.GameObjects.Image, args),
     line: (...args) => this.create("line", Phaser.GameObjects.Line, args),
+    particles: (x, y, key, config) => {
+      const emitter = new MockEmitter(x, y, key, config);
+      this.emitters.push(emitter);
+      return emitter;
+    },
     polygon: (...args) => this.create("polygon", Phaser.GameObjects.Polygon, args),
     rectangle: (...args) => this.create("rectangle", Phaser.GameObjects.Rectangle, args),
     star: (...args) => this.create("star", Phaser.GameObjects.Star, args),

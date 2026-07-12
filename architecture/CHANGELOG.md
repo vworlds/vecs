@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-phaser]: Added `ParticleBurst` (wire type 35) — a one-shot particle burst described by a single component (texture/frame, count, speed, lifespan, scale, gravity, tint), the flagship of the client-expansion pattern: no per-particle replication.
+- [vecs-phaser-client]: Added `EffectsModule` — expands `ParticleBurst` into a Phaser particle emitter at the entity's `Position` on every set, and disposes the emitter after the particles die.
 - [vecs-phaser]: Added replicated audio components: `Sound` (wire type 33, one-shot per set) and `Music` (wire type 34, plays while present; live volume/loop updates). The catalog gains the `audio` asset kind (`AudioDescriptor`).
 - [vecs-phaser-server]: `AssetManager` now ingests `assets/audio/*` files as `AudioAsset` handles (`getAudio(key)`), served through the existing catalog + static routes. Added `Lifetime`/`LifetimeModule` — a server-local countdown that destroys the entity when it expires, the idiomatic driver for one-shot effect entities.
 - [vecs-phaser-client]: `loadAssets` queues catalog audio through Phaser's audio loader; new `AudioModule` plays `Sound` one-shots and manages `Music` playback lifecycle through a `MusicPlayback` remove hook (baseline resets stop the music for free).
