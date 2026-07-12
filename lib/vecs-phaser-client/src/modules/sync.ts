@@ -11,6 +11,7 @@ import {
   Position,
   Rotation,
   Scale,
+  ScreenAnchor,
   Size,
   StrokeStyle,
   Tint,
@@ -26,6 +27,7 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
       .system("phaser.sync.position")
       .with(Position, m.Transform)
       .without(DrawIn)
+      .without(ScreenAnchor)
       .phase(ON_STORE)
       .update({ watch: Position, onEnter: true, inject: [m.Transform] }, (_e, p, [obj]) =>
         obj.setPosition(coords.x(p.x), coords.y(p.y))

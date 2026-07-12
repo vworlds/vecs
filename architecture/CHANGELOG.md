@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-phaser]: Added `ScreenAnchor` (wire type 26): screen-space placement for HUD/UI entities using normalized math-convention screen fractions plus meter offsets. Mutually exclusive with `Position` (enforced by `PhaserServerModule`).
+- [vecs-phaser-client]: Added `ScreenAnchorModule` — positions anchored GameObjects in screen pixels, pins them to the camera (scroll factor 0), and re-lays them out when the canvas resizes. `phaser.sync.position` now ignores `ScreenAnchor` entities.
 - [vecs-phaser]: Added `Origin` (wire type 25): a normalized display anchor for textured renderables and text, authored in math convention (`y = 0` anchors the bottom edge). Default `(0.5, 0.5)` matches the previous fixed centering.
 - [vecs-phaser-client]: Added the `Origin` interface marker (implemented by `Text` and `Image`) and the `phaser.sync.origin` system, which converts math-convention anchors to Phaser's y-down origin at the frontier. Centered primitives and vertex shapes keep their fixed origins; `Origin` on those entities is a silent no-op.
 - [vecs-phaser]: Added `Hidden` (wire type 23) and `Flip` (wire type 24) display components. `Hidden` is a `@tag` presence component that hides an entity's GameObject without destroying it; `Flip` mirrors textured renderables and text horizontally/vertically.

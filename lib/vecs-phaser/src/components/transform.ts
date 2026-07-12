@@ -63,6 +63,38 @@ export class Origin {
 }
 
 /**
+ * Screen-space placement for HUD/UI entities, replacing world `Position`.
+ *
+ * `x`/`y` are normalized screen fractions in **math convention** (`0, 0` is
+ * the bottom-left corner, `1, 1` the top-right); `offsetX`/`offsetY` nudge
+ * the object from that anchor point in meters (+y up). The client positions
+ * the GameObject in screen pixels, pins it to the camera (scroll factor 0),
+ * and re-lays it out when the canvas resizes.
+ *
+ * `ScreenAnchor` and `Position` are mutually exclusive (enforced by
+ * `PhaserServerModule`): an entity renders either in the world or on the
+ * screen, never both. Score HUDs, timers, and banners are ordinary networked
+ * entities with a `ScreenAnchor` instead of a `Position`.
+ */
+export class ScreenAnchor {
+  /** Normalized horizontal anchor: 0 = left edge, 1 = right edge. */
+  @wireType("f32")
+  public x = 0.5;
+
+  /** Normalized vertical anchor in math convention: 0 = bottom, 1 = top. */
+  @wireType("f32")
+  public y = 0.5;
+
+  /** Horizontal nudge from the anchor point, in meters. */
+  @wireType("f32")
+  public offsetX = 0;
+
+  /** Vertical nudge from the anchor point, in meters (+y up). */
+  @wireType("f32")
+  public offsetY = 0;
+}
+
+/**
  * Local position offset relative to the parent entity, expressed in the
  * parent's local (rotated) frame in meters.
  *

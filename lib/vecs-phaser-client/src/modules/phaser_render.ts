@@ -11,6 +11,7 @@ import { ImageModule } from "./image.js";
 import { LineModule } from "./line.js";
 import { OffsetResolveModule } from "./offset_resolve.js";
 import { PolygonModule } from "./polygon.js";
+import { ScreenAnchorModule } from "./screen_anchor.js";
 import { RectangleModule } from "./rectangle.js";
 import { StarModule } from "./star.js";
 import { TextModule } from "./text.js";
@@ -114,6 +115,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     world.module(DisplayModule, { scene: config.scene });
     world.module(OffsetResolveModule);
 
+    world.module(ScreenAnchorModule, { scene: config.scene, coords });
     world.module(SyncModule, { coords });
   }
 }

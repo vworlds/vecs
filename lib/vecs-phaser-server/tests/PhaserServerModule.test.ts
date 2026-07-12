@@ -5,6 +5,7 @@ import {
   Position as RenderPosition,
   Rectangle,
   Rotation as RenderRotation,
+  ScreenAnchor,
 } from "@vworlds/vecs-phaser";
 import { Position as PhysicsPosition, Rotation as PhysicsRotation } from "@vworlds/vecs-physics";
 import { ServerWorld } from "@vworlds/vecs-server";
@@ -29,6 +30,20 @@ describe("PhaserServerModule exclusivity", () => {
 
     expect(entity.has(Rectangle)).toBe(false);
     expect(entity.has(phaserRenderableComponents[0])).toBe(true);
+  });
+
+  it("removes Position when ScreenAnchor is set, and vice versa", () => {
+    const world = createWorld();
+    world.module(PhaserServerModule);
+    const entity = world.entity().set(RenderPosition, { x: 1, y: 2 });
+
+    entity.set(ScreenAnchor, { x: 0, y: 1 });
+    expect(entity.has(RenderPosition)).toBe(false);
+    expect(entity.has(ScreenAnchor)).toBe(true);
+
+    entity.set(RenderPosition, { x: 3, y: 4 });
+    expect(entity.has(ScreenAnchor)).toBe(false);
+    expect(entity.has(RenderPosition)).toBe(true);
   });
 });
 

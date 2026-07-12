@@ -3,6 +3,7 @@ import {
   phaserRenderableComponents,
   Position as RenderPosition,
   Rotation as RenderRotation,
+  ScreenAnchor,
 } from "@vworlds/vecs-phaser";
 import { Position as PhysicsPosition, Rotation as PhysicsRotation } from "@vworlds/vecs-physics";
 
@@ -11,6 +12,10 @@ export class PhaserServerModule extends Module<undefined> {
     const world = this.world;
 
     world.setExclusiveComponents(...phaserRenderableComponents);
+
+    // An entity renders either in the world (Position) or pinned to the
+    // screen (ScreenAnchor), never both.
+    world.setExclusiveComponents(RenderPosition, ScreenAnchor);
 
     world
       .system("phaser.sync.position")

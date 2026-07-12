@@ -10,6 +10,7 @@ export abstract class Transform {
   public abstract setPosition(x: number, y: number): this;
   public abstract setRotation(radians: number): this;
   public abstract setScale(x: number, y?: number): this;
+  public abstract setScrollFactor(x: number, y?: number): this;
 }
 
 export abstract class Alpha {
