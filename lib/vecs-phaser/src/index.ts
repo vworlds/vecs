@@ -25,6 +25,7 @@ export type {
 } from "./catalog.js";
 export { Animation, Sprite } from "./components/sprite.js";
 export { Music, Sound } from "./components/audio.js";
+export { ParticleBurst } from "./components/effects.js";
 export { actionMask, hasAction } from "./input.js";
 export type { InputPayload } from "./input.js";
 export {
@@ -66,6 +67,7 @@ import {
 } from "./components/shapes.js";
 import { Animation, Sprite } from "./components/sprite.js";
 import { Music, Sound } from "./components/audio.js";
+import { ParticleBurst } from "./components/effects.js";
 import { Text } from "./components/text.js";
 
 /**
@@ -107,6 +109,7 @@ import { Text } from "./components/text.js";
  *  32  Animation
  *  33  Sound
  *  34  Music
+ *  35  ParticleBurst
  */
 export const phaserNetworkComponents = [
   Position,
@@ -143,6 +146,7 @@ export const phaserNetworkComponents = [
   Animation,
   Sound,
   Music,
+  ParticleBurst,
 ] as const satisfies readonly ComponentClass[];
 
 /**

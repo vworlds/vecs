@@ -1,5 +1,7 @@
 export { AudioModule, MusicPlayback } from "./modules/audio.js";
 export { CameraModule } from "./modules/camera.js";
+export { EffectsModule } from "./modules/effects.js";
+export type { EffectsModuleConfig } from "./modules/effects.js";
 export type { AudioModuleConfig } from "./modules/audio.js";
 export { CoordSpace } from "./coord_space.js";
 export { Catalog, loadAssets } from "./load_assets.js";
