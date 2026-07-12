@@ -1,5 +1,10 @@
 export { PhaserServerModule } from "./PhaserServerModule.js";
+export { InputDecodeModule, PlayerInput } from "./input_decode.js";
+export { AudioNotFoundError } from "./asset_errors.js";
+export type { InputDecodeModuleConfig } from "./input_decode.js";
+export { Lifetime, LifetimeModule } from "./lifetime.js";
 export { Asset } from "./asset.js";
+export { AudioAsset } from "./audio_asset.js";
 export { MapObject, Tile } from "./tile.js";
 export { TilesetAsset } from "./tileset_asset.js";
 export {

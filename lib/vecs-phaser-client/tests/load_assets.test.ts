@@ -80,6 +80,15 @@ const spritesheets: SpritesheetDescriptor[] = [
     tileCount: 64,
     imageWidth: 146,
     imageHeight: 210,
+    animations: [
+      {
+        tile: 5,
+        frames: [
+          { frame: 5, durationMs: 100 },
+          { frame: 6, durationMs: 150 },
+        ],
+      },
+    ],
   },
   {
     id: 42,
@@ -93,6 +102,7 @@ const spritesheets: SpritesheetDescriptor[] = [
     tileCount: 16,
     imageWidth: 144,
     imageHeight: 204,
+    animations: [],
   },
 ];
 
@@ -119,7 +129,11 @@ describe("loadAssets", () => {
     }));
     vi.stubGlobal("fetch", fetch);
     const loader = new MockLoader();
-    const scene = { load: loader } as unknown as Phaser.Scene;
+    const animsCreated: unknown[] = [];
+    const scene = {
+      anims: { create: (config: unknown) => animsCreated.push(config) },
+      load: loader,
+    } as unknown as Phaser.Scene;
     const progress = vi.fn();
 
     let resolved = false;
@@ -154,9 +168,22 @@ describe("loadAssets", () => {
     ]);
     expect(progress).toHaveBeenCalledWith(0.5);
     expect(resolved).toBe(false);
+    expect(animsCreated).toEqual([]); // animations register only after load completes
 
     loader.complete();
     const catalog = await promise;
+
+    expect(animsCreated).toEqual([
+      {
+        key: "7:5",
+        frames: [
+          { key: "7", frame: 5, duration: 99 },
+          { key: "7", frame: 6, duration: 149 },
+        ],
+        frameRate: 1000,
+        repeat: -1,
+      },
+    ]);
 
     expect(resolved).toBe(true);
     expect(catalog.worldName).toBe("arena");

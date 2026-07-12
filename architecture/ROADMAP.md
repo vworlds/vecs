@@ -11,14 +11,12 @@ Planned features for the next version.
 - [vecs-physics] **Joints** — add the next major physics surface with a second cross-entity relationship model (`JointBodies`) plus per-type joint components.
 - [vecs-physics] **Open-chain sharp-endpoint ghost vertices** — replace the reflection approximation at open-chain endpoints with real Box2D ghost-vertex parity so sharp endpoints collide correctly; loop chains already use real neighbor ghosts.
 - [vecs] **Injected mutation dirty tracking** — make `.each`/`.update`-injected component mutation reliably mark components modified, or provide an explicit ergonomic replacement if automatic tracking is not viable.
-- [vecs-phaser-client] **Anchored UI and text origins** — add UI anchoring and text-origin controls for screen-space overlays and precise label alignment.
-- [vecs-phaser] **Animated Sprite renderables** — add a separate wire-serializable animated `Sprite` renderable that reuses the shipped asset catalog and captured Tiled `animation` frames; static Tiled-backed `Image` rendering already ships.
 - [vecs-phaser] **Dynamic assets** — add an in-band "asset added" message that extends the `AssetCatalog` at runtime and triggers a Phaser load before the referencing entity renders. The append-only wire id space and id-only wire encoding already ship, so this lands without a protocol break.
 - [vecs-phaser-server] **Physics-matched collision from Tiled objects** — build `vecs-physics` bodies from the captured Tiled `objectgroup` shapes so collision matches the art; `TilesetAsset.sizeInMeters` already covers the simple rectangular case.
 - [vecs-phaser-server] **Full Tiled maps** — parse `.tmj` tile-layer layout in addition to the standalone single-image `.tsj` tilesets already ingested.
 - [vecs-phaser-server] **Image-collection tilesets** — support tilesets where individual tiles carry their own `image` (currently rejected by a scope guard).
 - [vecs-phaser-client] **Multi-scene rendering** — support multiple Phaser scenes with `Scene`/`InScene` networking, building on the single-scene MVP.
-- [vecs-phaser-server] **Effect builders** — add particle/effect-oriented server helpers that create short-lived networked render entities with predictable lifecycle cleanup.
+- [vecs-phaser-client] **Spatial audio** — distance-based attenuation/panning for replicated `Sound`/`Music`, building on the shipped audio pipeline.
 
 ## Version +2
 

@@ -11,6 +11,8 @@ import { ImageModule } from "./image.js";
 import { LineModule } from "./line.js";
 import { OffsetResolveModule } from "./offset_resolve.js";
 import { PolygonModule } from "./polygon.js";
+import { ScreenAnchorModule } from "./screen_anchor.js";
+import { SpriteModule } from "./sprite.js";
 import { RectangleModule } from "./rectangle.js";
 import { StarModule } from "./star.js";
 import { TextModule } from "./text.js";
@@ -43,10 +45,14 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
       m.Text,
       m.Texture,
       m.Tint,
+      m.Visible,
+      m.Flip,
+      m.Origin,
+      m.Animated,
     ].forEach((Marker) => world.component(Marker));
 
     world.component(m.Shape).set(Implements, {
-      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Fill, m.Stroke],
+      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Fill, m.Stroke, m.Visible],
     });
     world.component(Phaser.GameObjects.Arc).set(Implements, { interfaces: [m.Shape, m.Arc] });
     world.component(Phaser.GameObjects.Rectangle).set(Implements, {
@@ -64,12 +70,46 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     });
     world.component(Phaser.GameObjects.Star).set(Implements, { interfaces: [m.Shape, m.Star] });
     world.component(Phaser.GameObjects.Text).set(Implements, {
-      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text, m.Tint],
+      interfaces: [
+        m.GameObject,
+        m.Transform,
+        m.Alpha,
+        m.Depth,
+        m.Text,
+        m.Tint,
+        m.Visible,
+        m.Flip,
+        m.Origin,
+      ],
     });
     world.component(Phaser.GameObjects.Image).set(Implements, {
-      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Texture, m.Tint],
+      interfaces: [
+        m.GameObject,
+        m.Transform,
+        m.Alpha,
+        m.Depth,
+        m.Texture,
+        m.Tint,
+        m.Visible,
+        m.Flip,
+        m.Origin,
+      ],
     });
-    // TODO: when renderers are added for Sprite, TileSprite, Video, Extern,
+    world.component(Phaser.GameObjects.Sprite).set(Implements, {
+      interfaces: [
+        m.GameObject,
+        m.Transform,
+        m.Alpha,
+        m.Depth,
+        m.Texture,
+        m.Tint,
+        m.Visible,
+        m.Flip,
+        m.Origin,
+        m.Animated,
+      ],
+    });
+    // TODO: when renderers are added for TileSprite, Video, Extern,
     // BitmapText, or Stamp, declare m.Tint on each — Phaser mixes the Tint
     // component into all of them. Primitive shapes (Arc, Ellipse, Rectangle,
     // Triangle, Polygon, Star, Line) do not have setTint and must NOT declare
@@ -87,10 +127,12 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     world.module(StarModule, { scene: config.scene, coords });
     world.module(TextModule, { scene: config.scene });
     world.module(ImageModule, { scene: config.scene, coords });
+    world.module(SpriteModule, { scene: config.scene, coords });
 
     world.module(DisplayModule, { scene: config.scene });
     world.module(OffsetResolveModule);
 
+    world.module(ScreenAnchorModule, { scene: config.scene, coords });
     world.module(SyncModule, { coords });
   }
 }

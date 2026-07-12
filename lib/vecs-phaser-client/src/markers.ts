@@ -10,6 +10,7 @@ export abstract class Transform {
   public abstract setPosition(x: number, y: number): this;
   public abstract setRotation(radians: number): this;
   public abstract setScale(x: number, y?: number): this;
+  public abstract setScrollFactor(x: number, y?: number): this;
 }
 
 export abstract class Alpha {
@@ -57,6 +58,24 @@ export abstract class Text {
 export abstract class Texture {
   public abstract setTexture(key: string, frame?: string | number): this;
   public abstract setDisplaySize(width: number, height: number): this;
+}
+
+export abstract class Origin {
+  public abstract setOrigin(x: number, y?: number): this;
+}
+
+export abstract class Visible {
+  public abstract setVisible(value: boolean): this;
+}
+
+export abstract class Flip {
+  public abstract setFlip(x: boolean, y: boolean): this;
+}
+
+export abstract class Animated {
+  public abstract readonly anims: { timeScale: number };
+  public abstract play(key: string, ignoreIfPlaying?: boolean): this;
+  public abstract stop(): this;
 }
 
 export abstract class Tint {

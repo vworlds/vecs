@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { phaserNetworkComponents, phaserRenderableComponents } from "../src/index.js";
 
 describe("phaserNetworkComponents", () => {
-  it("has exactly 22 entries", () => {
-    expect(phaserNetworkComponents.length).toBe(22);
+  it("has exactly 35 entries", () => {
+    expect(phaserNetworkComponents.length).toBe(35);
   });
 
   it("contains components in the exact protocol order (wire type = index + 1)", () => {
@@ -30,12 +30,25 @@ describe("phaserNetworkComponents", () => {
       "Container",
       "Offset",
       "DrawBy",
+      "Hidden",
+      "Flip",
+      "Origin",
+      "ScreenAnchor",
+      "CameraFollow",
+      "CameraZoom",
+      "CameraBounds",
+      "CameraShake",
+      "Sprite",
+      "Animation",
+      "Sound",
+      "Music",
+      "ParticleBurst",
     ]);
   });
 });
 
 describe("phaserRenderableComponents", () => {
-  it("contains the 10 renderable components in order (9 shapes + Container)", () => {
+  it("contains the 11 renderable components in order (10 renderables + Container)", () => {
     expect(phaserRenderableComponents.map((c) => c.name)).toEqual([
       "Arc",
       "Ellipse",
@@ -47,6 +60,7 @@ describe("phaserRenderableComponents", () => {
       "Text",
       "Image",
       "Container",
+      "Sprite",
     ]);
   });
 

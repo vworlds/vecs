@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 
-import type { SpritesheetDescriptor } from "@vworlds/vecs-phaser";
+import type { AnimationDescriptor, SpritesheetDescriptor } from "@vworlds/vecs-phaser";
 
 import { Asset } from "./asset.js";
 import { ImageCollectionTilesetError, TilesetNotFoundError } from "./asset_errors.js";
@@ -213,6 +213,7 @@ export class TilesetAsset extends Asset implements Tileset {
       tileCount: this.tileCount,
       imageWidth: this.imageWidth,
       imageHeight: this.imageHeight,
+      animations: this._animations(),
     };
   }
 
@@ -225,6 +226,28 @@ export class TilesetAsset extends Asset implements Tileset {
    */
   public sizeInMeters(ppm: number): { w: number; h: number } {
     return { w: this.frameWidth / ppm, h: this.frameHeight / ppm };
+  }
+
+  /**
+   * Animations authored on this tileset's tiles, as catalog descriptors.
+   * Tiled tile ids double as spritesheet frame indices (both row-major), so
+   * each frame reference maps 1:1.
+   */
+  private _animations(): AnimationDescriptor[] {
+    const animations: AnimationDescriptor[] = [];
+    for (const tile of this._tiles.values()) {
+      if (tile.animation.length === 0) {
+        continue;
+      }
+      animations.push({
+        tile: tile.id,
+        frames: tile.animation.map((frame) => ({
+          frame: frame.tileid,
+          durationMs: frame.duration,
+        })),
+      });
+    }
+    return animations;
   }
 
   /** Look up a tile by numeric id; `undefined` when not present. */

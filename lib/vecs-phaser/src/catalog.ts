@@ -6,6 +6,25 @@ export interface AssetDescriptor {
   kind: string;
 }
 
+/** One animation frame reference within a spritesheet animation. */
+export interface AnimationFrameDescriptor {
+  /** Spritesheet frame index shown during this step. */
+  frame: number;
+  /** How long the frame is shown, in milliseconds. */
+  durationMs: number;
+}
+
+/**
+ * A tileset animation, keyed by the Tiled tile id that owns it. The client
+ * registers it as the Phaser animation `"<assetId>:<tile>"`.
+ */
+export interface AnimationDescriptor {
+  /** Tiled tile id that owns the animation (== its frame index). */
+  tile: number;
+  /** Ordered frames with authored durations. */
+  frames: AnimationFrameDescriptor[];
+}
+
 /** A Tiled-tileset-backed spritesheet asset the client loads via Phaser's spritesheet loader. */
 export interface SpritesheetDescriptor extends AssetDescriptor {
   /** Spritesheet catalog discriminant. */
@@ -28,6 +47,16 @@ export interface SpritesheetDescriptor extends AssetDescriptor {
   imageWidth: number;
   /** Source image height (px). */
   imageHeight: number;
+  /** Animations authored on this tileset's tiles (`[]` when none). */
+  animations: AnimationDescriptor[];
+}
+
+/** An audio asset the client loads via Phaser's audio loader. */
+export interface AudioDescriptor extends AssetDescriptor {
+  /** Audio catalog discriminant. */
+  kind: "audio";
+  /** Source audio file path relative to the server asset root. */
+  file: string;
 }
 
 /** Per-world asset catalog served as JSON over HTTP. */

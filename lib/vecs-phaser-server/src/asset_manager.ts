@@ -6,11 +6,17 @@ import { type AssetCatalog } from "@vworlds/vecs-phaser";
 import { worldPath } from "@vworlds/vecs-protocol";
 
 import { Asset } from "./asset.js";
-import { AssetKindMismatchError, TilesetNotFoundError } from "./asset_errors.js";
+import {
+  AssetKindMismatchError,
+  AudioNotFoundError,
+  TilesetNotFoundError,
+} from "./asset_errors.js";
+import { AudioAsset } from "./audio_asset.js";
 import { TilesetAsset } from "./tileset_asset.js";
 
 export {
   AssetKindMismatchError,
+  AudioNotFoundError,
   ImageCollectionTilesetError,
   TilesetNotFoundError,
 } from "./asset_errors.js";
@@ -22,7 +28,9 @@ interface AssetType<TAsset extends Asset> {
   load(assetsPath: string, key: string): TAsset;
 }
 
-const assetTypes = [TilesetAsset].sort((a, b) => a.assetNamespace.localeCompare(b.assetNamespace));
+const assetTypes: readonly AssetType<Asset>[] = [TilesetAsset, AudioAsset].sort((a, b) =>
+  a.assetNamespace.localeCompare(b.assetNamespace)
+);
 
 /** Constructor options for {@link AssetManager}. */
 export interface AssetManagerOptions {
@@ -62,6 +70,28 @@ export class AssetManager {
     for (const assetType of assetTypes) {
       this._loadAssets(assetType);
     }
+  }
+
+  /**
+   * Return a preloaded `AudioAsset` by human key.
+   *
+   * @param key - Human key (filename stem under `audio/`).
+   * @returns The loaded `AudioAsset`.
+   * @throws {AudioNotFoundError} when no preloaded audio exists for `key`.
+   * @throws {AssetKindMismatchError} when a different asset kind is loaded under `key`.
+   */
+  public getAudio(key: string): AudioAsset {
+    const assetKey = this._assetKey(AudioAsset.assetNamespace, key);
+    const asset = this._assets.get(assetKey);
+    if (asset === undefined) {
+      throw new AudioNotFoundError(`No audio "${key}" loaded from ${this.assetsPath}`);
+    }
+    if (!(asset instanceof AudioAsset)) {
+      throw new AssetKindMismatchError(
+        `Asset "${assetKey}" is not an AudioAsset (got ${asset.constructor.name})`
+      );
+    }
+    return asset;
   }
 
   /**

@@ -1,0 +1,111 @@
+{
+  "columns": 8,
+  "image": "arena.png",
+  "imagewidth": 256,
+  "imageheight": 64,
+  "margin": 0,
+  "name": "arena",
+  "spacing": 0,
+  "tilecount": 16,
+  "tiledversion": "1.10.2",
+  "tileheight": 32,
+  "tilewidth": 32,
+  "type": "tileset",
+  "version": "1.10",
+  "tiles": [
+    {
+      "id": 0,
+      "class": "TankGreen",
+      "animation": [
+        {
+          "tileid": 0,
+          "duration": 120
+        },
+        {
+          "tileid": 1,
+          "duration": 120
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "class": "TankBlue",
+      "animation": [
+        {
+          "tileid": 2,
+          "duration": 120
+        },
+        {
+          "tileid": 3,
+          "duration": 120
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "class": "TankRed",
+      "animation": [
+        {
+          "tileid": 4,
+          "duration": 120
+        },
+        {
+          "tileid": 5,
+          "duration": 120
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "class": "TankYellow",
+      "animation": [
+        {
+          "tileid": 6,
+          "duration": 120
+        },
+        {
+          "tileid": 7,
+          "duration": 120
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "class": "Shell"
+    },
+    {
+      "id": 9,
+      "class": "Explosion",
+      "animation": [
+        {
+          "tileid": 9,
+          "duration": 70
+        },
+        {
+          "tileid": 10,
+          "duration": 70
+        },
+        {
+          "tileid": 11,
+          "duration": 70
+        },
+        {
+          "tileid": 12,
+          "duration": 70
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "class": "Spark"
+    },
+    {
+      "id": 14,
+      "class": "Wall"
+    },
+    {
+      "id": 15,
+      "class": "Floor"
+    }
+  ]
+}

@@ -37,6 +37,64 @@ export class Depth {
 }
 
 /**
+ * Normalized display origin (anchor) for textured renderables and text.
+ *
+ * `(0.5, 0.5)` (the default) centers the object on its `Position`, matching
+ * the behavior of every renderable when `Origin` is absent. Coordinates are
+ * normalized 0..1 in **math convention**: `y = 0` anchors the bottom edge,
+ * `y = 1` the top edge (the client converts to Phaser's y-down origin at the
+ * frontier). `{ x: 0.5, y: 0 }` plants a character sprite's feet on its
+ * `Position`; `{ x: 0, y: 1 }` top-left-aligns a HUD label.
+ *
+ * Applies to GameObjects with a configurable origin (`Image`, `Text`, and
+ * future textured renderables). Centered primitives keep their fixed center
+ * origin, and vertex shapes (`Polygon`, `Line`, `Triangle`) keep vertex-space
+ * `(0, 0)` pinned to `Position`; `Origin` on those entities is a silent
+ * no-op by design.
+ */
+export class Origin {
+  /** Normalized horizontal anchor: 0 = left edge, 1 = right edge. */
+  @wireType("f32")
+  public x = 0.5;
+
+  /** Normalized vertical anchor in math convention: 0 = bottom, 1 = top. */
+  @wireType("f32")
+  public y = 0.5;
+}
+
+/**
+ * Screen-space placement for HUD/UI entities, replacing world `Position`.
+ *
+ * `x`/`y` are normalized screen fractions in **math convention** (`0, 0` is
+ * the bottom-left corner, `1, 1` the top-right); `offsetX`/`offsetY` nudge
+ * the object from that anchor point in meters (+y up). The client positions
+ * the GameObject in screen pixels, pins it to the camera (scroll factor 0),
+ * and re-lays it out when the canvas resizes.
+ *
+ * `ScreenAnchor` and `Position` are mutually exclusive (enforced by
+ * `PhaserServerModule`): an entity renders either in the world or on the
+ * screen, never both. Score HUDs, timers, and banners are ordinary networked
+ * entities with a `ScreenAnchor` instead of a `Position`.
+ */
+export class ScreenAnchor {
+  /** Normalized horizontal anchor: 0 = left edge, 1 = right edge. */
+  @wireType("f32")
+  public x = 0.5;
+
+  /** Normalized vertical anchor in math convention: 0 = bottom, 1 = top. */
+  @wireType("f32")
+  public y = 0.5;
+
+  /** Horizontal nudge from the anchor point, in meters. */
+  @wireType("f32")
+  public offsetX = 0;
+
+  /** Vertical nudge from the anchor point, in meters (+y up). */
+  @wireType("f32")
+  public offsetY = 0;
+}
+
+/**
  * Local position offset relative to the parent entity, expressed in the
  * parent's local (rotated) frame in meters.
  *

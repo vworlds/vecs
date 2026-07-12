@@ -433,4 +433,53 @@ describe("wireType decorator", () => {
     expect(decoded).toBeInstanceOf(Derived);
     expect((decoded as unknown as { target: number }).target).toBe(55);
   });
+
+  it("subclasses with own fields keep the inherited parent fields (base fields first)", () => {
+    class Base {
+      @wireType("entity")
+      public target: { eid: number } = { eid: 0 };
+    }
+
+    class Derived extends Base {
+      @wireType("f32")
+      public lerp = 1;
+    }
+
+    const value = new Derived();
+    value.target = { eid: 55 };
+    value.lerp = 0.25;
+
+    const encoder = new Encoder(new Uint8Array(128));
+    encoder.write(value);
+    // entity (u32 varint) encodes before the subclass f32 — base fields first.
+    expect(encoder.getBuffer().length).toBe(1 + 4);
+
+    const decoded = new Decoder(encoder.getBuffer()).read(Derived);
+    expect(decoded).toBeInstanceOf(Derived);
+    expect((decoded as unknown as { target: number }).target).toBe(55);
+    expect(decoded.lerp).toBe(0.25);
+  });
+
+  it("a subclass redeclaring an inherited key overrides the spec in place", () => {
+    class Base {
+      @wireType("u8")
+      public kind = 0;
+
+      @wireType("u8")
+      public size = 0;
+    }
+
+    class Derived extends Base {
+      @wireType("u16")
+      declare public size;
+    }
+
+    const value = new Derived();
+    value.kind = 3;
+    value.size = 5000; // does not fit u8 — the override must win
+
+    const decoded = roundTrip(Derived, value);
+    expect(decoded.kind).toBe(3);
+    expect(decoded.size).toBe(5000);
+  });
 });

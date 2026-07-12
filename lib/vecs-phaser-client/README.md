@@ -1,11 +1,18 @@
 # @vworlds/vecs-phaser-client
 
-Browser render adapter: registers a vecs module that observes a replicated `ClientWorld`
-and automatically creates, updates, and destroys Phaser GameObjects. Each live Phaser
-GameObject is attached to its entity **as a component** (`entity.attach(obj)`), and the
-renderer dispatches transform/style updates polymorphically through `Implements` interface
-markers (`GameObject`, `Transform`, `Fill`, …). All pixel, PPM, and Y-flip conversion lives
-here at the Phaser frontier.
+The browser side of the vecs Phaser game kit. `PhaserRenderModule` observes a
+replicated `ClientWorld` and automatically creates, updates, and destroys
+Phaser GameObjects — each live GameObject is attached to its entity **as a
+component** (`entity.attach(obj)`), and every sync system dispatches
+polymorphically through `Implements` interface markers. All pixel, PPM, and
+Y-flip conversion lives here at the Phaser frontier (`CoordSpace`).
+
+Beyond rendering, the package ships four optional modules: `CameraModule`
+(server-driven follow/zoom/bounds/shake via the session entity),
+`AudioModule` (replicated `Sound`/`Music`), `EffectsModule` (`ParticleBurst`
+expansion), and `InputCaptureModule` (keyboard + pointer/touch →
+`setInput`). See the guides in
+[`../vecs-phaser/docs`](../vecs-phaser/docs/README.md).
 
 Depends on `@vworlds/vecs-phaser` and `@vworlds/vecs-client`. Requires `phaser@^4.1.0` as
 a peer dependency (provided by the application).

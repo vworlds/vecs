@@ -9,7 +9,7 @@ export class DisplaySetupModule extends Module<{ scene: Phaser.Scene }> {
     const world = this.world;
 
     world.component(Phaser.GameObjects.Container).set(Implements, {
-      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth],
+      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Visible],
     });
 
     // DrawIn: native parenting — child of a Container. Detaching (not

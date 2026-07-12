@@ -1,10 +1,33 @@
 import { type ComponentClass } from "@vworlds/vecs";
 
 export { Container, DrawBy, DrawIn } from "./components/parenting.js";
-export { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
+export { CameraBounds, CameraFollow, CameraShake, CameraZoom } from "./components/camera.js";
+export { Flip, Hidden } from "./components/display.js";
+export {
+  Alpha,
+  Depth,
+  Offset,
+  Origin,
+  Position,
+  Rotation,
+  Scale,
+  ScreenAnchor,
+} from "./components/transform.js";
 export { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 export { Image } from "./components/image.js";
-export type { AssetCatalog, AssetDescriptor, SpritesheetDescriptor } from "./catalog.js";
+export type {
+  AnimationDescriptor,
+  AnimationFrameDescriptor,
+  AssetCatalog,
+  AssetDescriptor,
+  AudioDescriptor,
+  SpritesheetDescriptor,
+} from "./catalog.js";
+export { Animation, Sprite } from "./components/sprite.js";
+export { Music, Sound } from "./components/audio.js";
+export { ParticleBurst } from "./components/effects.js";
+export { actionMask, hasAction } from "./input.js";
+export type { InputPayload } from "./input.js";
 export {
   Arc,
   Ellipse,
@@ -18,7 +41,18 @@ export {
 export { Text, TextAlign } from "./components/text.js";
 
 import { Container, DrawBy, DrawIn } from "./components/parenting.js";
-import { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
+import { CameraBounds, CameraFollow, CameraShake, CameraZoom } from "./components/camera.js";
+import { Flip, Hidden } from "./components/display.js";
+import {
+  Alpha,
+  Depth,
+  Offset,
+  Origin,
+  Position,
+  Rotation,
+  Scale,
+  ScreenAnchor,
+} from "./components/transform.js";
 import { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 import { Image } from "./components/image.js";
 import {
@@ -31,6 +65,9 @@ import {
   Star,
   Triangle,
 } from "./components/shapes.js";
+import { Animation, Sprite } from "./components/sprite.js";
+import { Music, Sound } from "./components/audio.js";
+import { ParticleBurst } from "./components/effects.js";
 import { Text } from "./components/text.js";
 
 /**
@@ -60,6 +97,19 @@ import { Text } from "./components/text.js";
  *  20  Container
  *  21  Offset
  *  22  DrawBy
+ *  23  Hidden
+ *  24  Flip
+ *  25  Origin
+ *  26  ScreenAnchor
+ *  27  CameraFollow
+ *  28  CameraZoom
+ *  29  CameraBounds
+ *  30  CameraShake
+ *  31  Sprite
+ *  32  Animation
+ *  33  Sound
+ *  34  Music
+ *  35  ParticleBurst
  */
 export const phaserNetworkComponents = [
   Position,
@@ -84,6 +134,19 @@ export const phaserNetworkComponents = [
   Container,
   Offset,
   DrawBy,
+  Hidden,
+  Flip,
+  Origin,
+  ScreenAnchor,
+  CameraFollow,
+  CameraZoom,
+  CameraBounds,
+  CameraShake,
+  Sprite,
+  Animation,
+  Sound,
+  Music,
+  ParticleBurst,
 ] as const satisfies readonly ComponentClass[];
 
 /**
@@ -104,4 +167,5 @@ export const phaserRenderableComponents = [
   Text,
   Image,
   Container,
+  Sprite,
 ] as const satisfies readonly ComponentClass[];

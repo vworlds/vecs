@@ -3,6 +3,7 @@ import {
   ComponentSnapshot,
   EncodedSnapshot,
   Server2Client,
+  SESSION_ENTITY_RPC_ID,
   SessionRPC,
   StateDiff,
   ALL_COMPONENTS,
@@ -253,6 +254,7 @@ export class ServerWorld extends NetworkWorld {
     session.lastSeenMs = performance.now();
     entity.attach(session);
     entity.set(NetworkClient, { id: socket.id });
+    session.rpc.listen(SESSION_ENTITY_RPC_ID, () => [entity.eid]);
     this._rpcHandlers.forEach((handler, rpcId) => session.rpc.listen(rpcId, handler));
     this._sessions.set(socket.id, session);
 
