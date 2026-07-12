@@ -7,6 +7,7 @@ import {
   Flip,
   Hidden,
   Offset,
+  Origin,
   Position,
   Rotation,
   Scale,
@@ -92,6 +93,16 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
       .phase(ON_STORE)
       .update({ watch: Tint, onEnter: true, inject: [m.Tint] }, (_e, t, [obj]) =>
         obj.setTint(t.topLeft, t.topRight, t.bottomLeft, t.bottomRight)
+      );
+
+    // Origin y is authored in math convention (0 = bottom); Phaser's origin
+    // is y-down, so the frontier flips it.
+    world
+      .system("phaser.sync.origin")
+      .with(Origin, m.Origin)
+      .phase(ON_STORE)
+      .update({ watch: Origin, onEnter: true, inject: [m.Origin] }, (_e, o, [obj]) =>
+        obj.setOrigin(o.x, 1 - o.y)
       );
 
     // Hidden is presence-driven: entering the query hides the GameObject,

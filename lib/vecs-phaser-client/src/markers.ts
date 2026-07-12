@@ -59,6 +59,10 @@ export abstract class Texture {
   public abstract setDisplaySize(width: number, height: number): this;
 }
 
+export abstract class Origin {
+  public abstract setOrigin(x: number, y?: number): this;
+}
+
 export abstract class Visible {
   public abstract setVisible(value: boolean): this;
 }

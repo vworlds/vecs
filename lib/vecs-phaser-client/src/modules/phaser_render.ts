@@ -45,6 +45,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
       m.Tint,
       m.Visible,
       m.Flip,
+      m.Origin,
     ].forEach((Marker) => world.component(Marker));
 
     world.component(m.Shape).set(Implements, {
@@ -66,7 +67,17 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     });
     world.component(Phaser.GameObjects.Star).set(Implements, { interfaces: [m.Shape, m.Star] });
     world.component(Phaser.GameObjects.Text).set(Implements, {
-      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text, m.Tint, m.Visible, m.Flip],
+      interfaces: [
+        m.GameObject,
+        m.Transform,
+        m.Alpha,
+        m.Depth,
+        m.Text,
+        m.Tint,
+        m.Visible,
+        m.Flip,
+        m.Origin,
+      ],
     });
     world.component(Phaser.GameObjects.Image).set(Implements, {
       interfaces: [
@@ -78,6 +89,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
         m.Tint,
         m.Visible,
         m.Flip,
+        m.Origin,
       ],
     });
     // TODO: when renderers are added for Sprite, TileSprite, Video, Extern,

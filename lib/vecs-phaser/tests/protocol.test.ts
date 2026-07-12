@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { phaserNetworkComponents, phaserRenderableComponents } from "../src/index.js";
 
 describe("phaserNetworkComponents", () => {
-  it("has exactly 24 entries", () => {
-    expect(phaserNetworkComponents.length).toBe(24);
+  it("has exactly 25 entries", () => {
+    expect(phaserNetworkComponents.length).toBe(25);
   });
 
   it("contains components in the exact protocol order (wire type = index + 1)", () => {
@@ -32,6 +32,7 @@ describe("phaserNetworkComponents", () => {
       "DrawBy",
       "Hidden",
       "Flip",
+      "Origin",
     ]);
   });
 });

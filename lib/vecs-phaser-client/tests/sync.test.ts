@@ -8,6 +8,7 @@ import {
   Flip,
   Hidden,
   Image,
+  Origin,
   phaserNetworkComponents,
   Position,
   Rotation,
@@ -140,6 +141,36 @@ describe("PhaserRenderModule sync systems", () => {
     world.progress(1, 0);
 
     expectCall(obj, "setFlip", [false, true]);
+  });
+
+  it("applies Origin to a Text GameObject with the math-convention y flip", () => {
+    const { scene, world } = setup();
+    const entity = world.entity();
+
+    entity.set(Text, { value: "label" });
+    entity.set(Origin, { x: 0.5, y: 0 });
+    world.progress(0, 0);
+
+    const obj = scene.created[0]!;
+    expectCall(obj, "setOrigin", [0.5, 1]);
+
+    obj.calls.length = 0;
+    entity.set(Origin, { x: 0, y: 1 });
+    world.progress(1, 0);
+
+    expectCall(obj, "setOrigin", [0, 0]);
+  });
+
+  it("does not change the origin of primitive shapes (no Origin marker)", () => {
+    const { scene, world } = setup();
+    const entity = world.entity();
+
+    entity.set(Arc, { radius: 0.5 });
+    entity.set(Origin, { x: 0, y: 0 });
+    world.progress(0, 0);
+
+    const obj = scene.created[0]!;
+    expect(obj.calls.some((call) => call.method === "setOrigin")).toBe(false);
   });
 
   it("does not flip primitive shapes (no Flip marker)", () => {

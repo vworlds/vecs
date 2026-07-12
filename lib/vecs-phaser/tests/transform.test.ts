@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { Container } from "../src/components/parenting.js";
-import { Alpha, Depth, Offset, Position, Rotation, Scale } from "../src/components/transform.js";
+import {
+  Alpha,
+  Depth,
+  Offset,
+  Origin,
+  Position,
+  Rotation,
+  Scale,
+} from "../src/components/transform.js";
 
 function roundTrip<T extends object>(C: new () => T, value: T): T {
   const enc = new Encoder(new Uint8Array(1024));
@@ -153,6 +161,33 @@ describe("Offset", () => {
     const decoded = roundTrip(Offset, o);
     expect(decoded.x).toBe(0.25);
     expect(decoded.y).toBe(0.5);
+  });
+});
+
+describe("Origin", () => {
+  it("round-trips centered defaults", () => {
+    const decoded = roundTrip(Origin, new Origin());
+    expect(decoded).toBeInstanceOf(Origin);
+    expect(decoded.x).toBe(0.5);
+    expect(decoded.y).toBe(0.5);
+  });
+
+  it("round-trips a bottom-center anchor", () => {
+    const o = new Origin();
+    o.x = 0.5;
+    o.y = 0;
+    const decoded = roundTrip(Origin, o);
+    expect(decoded.x).toBe(0.5);
+    expect(decoded.y).toBe(0);
+  });
+
+  it("round-trips a top-left anchor (math convention)", () => {
+    const o = new Origin();
+    o.x = 0;
+    o.y = 1;
+    const decoded = roundTrip(Origin, o);
+    expect(decoded.x).toBe(0);
+    expect(decoded.y).toBe(1);
   });
 });
 
