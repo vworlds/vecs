@@ -91,6 +91,13 @@ interface RecordedCallEntry {
 }
 
 export class MockScene {
+  readonly anims = {
+    created: [] as unknown[],
+    create: (config: unknown): unknown => {
+      this.anims.created.push(config);
+      return config;
+    },
+  };
   readonly input = {
     activePointer: new MockPointer(),
     keyboard: new MockKeyboard(),

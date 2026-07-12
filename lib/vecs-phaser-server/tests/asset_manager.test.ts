@@ -149,6 +149,17 @@ describe("AssetManager.toCatalog", () => {
     // Image path is asset-root-relative; the client assembles the static route URL.
     expect(ss.image).toBe(terrain.image);
 
+    // Tile animations are exposed as catalog animation descriptors.
+    expect(ss.animations).toEqual([
+      {
+        tile: 5,
+        frames: [
+          { frame: 5, durationMs: 100 },
+          { frame: 6, durationMs: 100 },
+        ],
+      },
+    ]);
+
     // Server-only metadata stripped from the descriptor.
     expect(ss.properties).toBeUndefined();
     expect(ss.objects).toBeUndefined();

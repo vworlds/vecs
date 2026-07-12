@@ -80,7 +80,38 @@ export async function loadAssets(scene: Phaser.Scene, conn: LoadAssetsOptions): 
 
   return new Promise((resolve) => {
     scene.load.on("progress", (value: number) => conn.onProgress?.(value));
-    scene.load.once("complete", () => resolve(new Catalog(catalog)));
+    scene.load.once("complete", () => {
+      registerAnimations(scene, catalog);
+      resolve(new Catalog(catalog));
+    });
     scene.load.start();
   });
+}
+
+/**
+ * Registers every tileset animation as the Phaser animation
+ * `"<assetId>:<tile>"`, honoring the authored per-frame durations. A high
+ * base frame rate makes the per-frame additive `duration` carry the whole
+ * timing (base 1ms + durationMs − 1), so Tiled timings replay exactly.
+ * Runs after the loader completes, so the textures exist.
+ */
+function registerAnimations(scene: Phaser.Scene, catalog: AssetCatalog): void {
+  for (const descriptor of catalog.assets) {
+    if (descriptor.kind !== "spritesheet") {
+      continue;
+    }
+    const ss = descriptor as SpritesheetDescriptor;
+    for (const animation of ss.animations ?? []) {
+      scene.anims.create({
+        key: `${ss.id}:${animation.tile}`,
+        frames: animation.frames.map((frame) => ({
+          key: String(ss.id),
+          frame: frame.frame,
+          duration: frame.durationMs - 1,
+        })),
+        frameRate: 1000,
+        repeat: -1,
+      });
+    }
+  }
 }
