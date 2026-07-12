@@ -2,6 +2,7 @@ import {
   Client2Server,
   RPC,
   Server2Client,
+  SESSION_ENTITY_RPC_ID,
   SessionRPC,
   StateDiff,
   ALL_COMPONENTS,
@@ -86,6 +87,7 @@ export class ClientWorld extends NetworkWorld {
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
   private _forceBaselineReset = false;
+  private _sessionEntity: Promise<Entity> | undefined;
 
   public constructor(options: ClientWorldOptions = {}) {
     const localEntityIdStart = options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START;
@@ -151,6 +153,27 @@ export class ClientWorld extends NetworkWorld {
 
   public invoke(rpcId: number, params: unknown[] = []): Promise<unknown[]> {
     return this._rpc.invoke(rpcId, params).then((response) => response.params);
+  }
+
+  /**
+   * Resolves the entity that represents this client's session on the server
+   * (the entity carrying `NetworkClient`/`View`/`NetworkInput` server-side).
+   * Resolved through a system RPC and cached for the lifetime of this world;
+   * a reconnect builds a new `ClientWorld`, so the cache never goes stale.
+   *
+   * The entity is created locally as a `Networked` ghost if no snapshot for
+   * it has arrived yet — its replicated components (when the server includes
+   * the session entity in this client's view) attach to the same entity later.
+   */
+  public sessionEntity(): Promise<Entity> {
+    this._sessionEntity ??= this._rpc.invokeSystem(SESSION_ENTITY_RPC_ID).then((response) => {
+      const eid = Number(response.params[0]);
+      if (!Number.isInteger(eid) || eid <= 0) {
+        throw new Error(`Invalid session entity id: ${String(response.params[0])}`);
+      }
+      return this.getOrCreateEntity(eid, (e) => e.add(Networked));
+    });
+    return this._sessionEntity;
   }
 
   public listen(rpcId: number, handler: RPCHandler): void {
@@ -276,7 +299,10 @@ export class ClientWorld extends NetworkWorld {
     // child-destruction, and baseline resets all work through normal ECS
     // lifecycle without stale references.
     const target = this.getOrCreateEntity(targetEid, (e) => e.add(Networked));
-    entity.set(relClass, { target });
+    // Preserve any payload fields the relationship subclass carries beside
+    // `target` (e.g. a camera-follow lerp factor) — spread the decoded
+    // instance and only replace the raw eid with the resolved entity.
+    entity.set(relClass, { ...component, target });
   }
 
   private _removeComponent(eid: EID, wireType: number): void {

@@ -8,7 +8,7 @@ import {
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
 import { Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
-import { ChildOf, type EID } from "@vworlds/vecs";
+import { ChildOf, Relationship, type EID } from "@vworlds/vecs";
 import { ClientWorld } from "../src/index.js";
 
 class Position {
@@ -219,6 +219,45 @@ describe("ClientWorld relationship snapshots", () => {
     world.progress(40, 20);
 
     expect(child.target(ChildOf)).toBe(world.getEntity(1002)!);
+  });
+
+  it("preserves payload fields carried by a relationship subclass", () => {
+    class Follow extends Relationship {
+      @wireType("f32")
+      public lerp = 1;
+    }
+
+    const world = new ClientWorld({
+      networkComponents: [Position, Follow],
+      serverTickIntervalMs: 10,
+    });
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+
+    const follow = new Follow();
+    (follow as unknown as { target: { eid: number } }).target = { eid: 1000 };
+    follow.lerp = 0.25;
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [
+              posSnapshot(1000, 1, 1),
+              posSnapshot(1001, 2, 2),
+              makeSnapshot(1001, 2, encodeComponent(follow)),
+            ],
+          }),
+        })
+      )
+    );
+    world.progress(0, 0);
+
+    const child = world.getEntity(1001)!;
+    expect(child.target(Follow)).toBe(world.getEntity(1000)!);
+    expect(child.get(Follow)!.lerp).toBe(0.25);
   });
 
   it("child destroyed before the target arrives leaves no stale resolution", () => {

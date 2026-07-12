@@ -3,6 +3,13 @@ import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 export const RPC_RESPONSE_ID = 0;
 export const FIRST_USER_RPC_ID = 101;
 
+/**
+ * System RPC: resolves the caller's session entity id. Registered by
+ * `ServerWorld` for every connection; invoked by `ClientWorld.sessionEntity()`.
+ * Returns `[eid]`.
+ */
+export const SESSION_ENTITY_RPC_ID = 1;
+
 export class RPC implements IEncodable {
   public rpcId = 0;
   public callId = 0;
@@ -79,6 +86,22 @@ export class SessionRPC {
     if (rpcId < FIRST_USER_RPC_ID) {
       throw new Error(`RPC ids 0-${FIRST_USER_RPC_ID - 1} are reserved`);
     }
+    return this._invoke(rpcId, params, ttl);
+  }
+
+  /**
+   * Invokes a reserved system RPC (ids 1..100). For vecs-suite internals such
+   * as {@link SESSION_ENTITY_RPC_ID}; application code should use
+   * {@link invoke} with ids >= {@link FIRST_USER_RPC_ID}.
+   */
+  public invokeSystem(rpcId: number, params: unknown[] = [], ttl = this._defaultTTL): Promise<RPC> {
+    if (rpcId <= RPC_RESPONSE_ID || rpcId >= FIRST_USER_RPC_ID) {
+      throw new Error(`System RPC ids must be 1-${FIRST_USER_RPC_ID - 1}`);
+    }
+    return this._invoke(rpcId, params, ttl);
+  }
+
+  private _invoke(rpcId: number, params: unknown[], ttl: number): Promise<RPC> {
     const callId = this._nextCallId++;
     const request = new RPC({ rpcId, callId, params });
     return new Promise((resolve, reject) => {

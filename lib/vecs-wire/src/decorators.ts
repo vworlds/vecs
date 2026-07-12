@@ -148,28 +148,53 @@ function installTrampolines(C: DecoratedConstructor): void {
   }
 }
 
+/**
+ * Collects the wire fields for `C` by walking the whole prototype chain and
+ * merging, base-class fields first. This lets a subclass both inherit its
+ * parent's wire definition (e.g. `ChildOf extends Relationship` inherits
+ * `target`) and add payload fields of its own — the parent fields keep their
+ * wire position, and a subclass redeclaring an inherited key overrides the
+ * spec in place. Returns undefined when no class in the chain registered any
+ * fields.
+ */
+function collectWireFields(C: DecoratedConstructor): IWireField[] | undefined {
+  const chain: IWireField[][] = [];
+  let ctor: unknown = C;
+  while (typeof ctor === "function" && ctor !== Function.prototype) {
+    const own = fieldsByConstructor.get(ctor);
+    if (own !== undefined) {
+      chain.push(own);
+    }
+    ctor = Object.getPrototypeOf(ctor);
+  }
+  if (chain.length === 0) {
+    return undefined;
+  }
+
+  const merged: IWireField[] = [];
+  const indexByKey = new Map<string, number>();
+  for (let i = chain.length - 1; i >= 0; i--) {
+    for (const field of chain[i]) {
+      const existing = indexByKey.get(field.key);
+      if (existing !== undefined) {
+        merged[existing] = field;
+      } else {
+        indexByKey.set(field.key, merged.length);
+        merged.push(field);
+      }
+    }
+  }
+  return merged;
+}
+
 function compileWireType(C: DecoratedConstructor): void {
   if (compiledConstructors.has(C)) {
     return;
   }
 
-  let fields = fieldsByConstructor.get(C);
+  const fields = collectWireFields(C);
   if (fields === undefined) {
-    // Walk the prototype chain to find inherited wire fields. This lets a
-    // subclass (e.g. ChildOf extends Relationship) inherit the wire type
-    // definition from its parent and still compile its own wireEncode /
-    // wireDecode so `new C()` creates the correct subclass instance.
-    let proto = Object.getPrototypeOf(C);
-    while (proto !== null && proto !== Function.prototype) {
-      fields = fieldsByConstructor.get(proto);
-      if (fields !== undefined) {
-        break;
-      }
-      proto = Object.getPrototypeOf(proto);
-    }
-    if (fields === undefined) {
-      throw new Error(`vecs-wire/wireType ${C.name || "anonymous class"} is not a wire type`);
-    }
+    throw new Error(`vecs-wire/wireType ${C.name || "anonymous class"} is not a wire type`);
   }
 
   const nestedTypes: WireConstructor[] = [];
