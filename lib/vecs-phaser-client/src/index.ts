@@ -1,5 +1,7 @@
+export { CameraModule } from "./modules/camera.js";
 export { CoordSpace } from "./coord_space.js";
 export { Catalog, loadAssets } from "./load_assets.js";
+export type { CameraModuleConfig } from "./modules/camera.js";
 export { InputCaptureModule, LocalInput } from "./modules/input_capture.js";
 export { PhaserRenderModule } from "./modules/phaser_render.js";
 export { phaserInterpolators, rotationInterpolator } from "./sync.js";

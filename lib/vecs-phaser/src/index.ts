@@ -1,6 +1,7 @@
 import { type ComponentClass } from "@vworlds/vecs";
 
 export { Container, DrawBy, DrawIn } from "./components/parenting.js";
+export { CameraBounds, CameraFollow, CameraShake, CameraZoom } from "./components/camera.js";
 export { Flip, Hidden } from "./components/display.js";
 export {
   Alpha,
@@ -30,6 +31,7 @@ export {
 export { Text, TextAlign } from "./components/text.js";
 
 import { Container, DrawBy, DrawIn } from "./components/parenting.js";
+import { CameraBounds, CameraFollow, CameraShake, CameraZoom } from "./components/camera.js";
 import { Flip, Hidden } from "./components/display.js";
 import {
   Alpha,
@@ -86,6 +88,10 @@ import { Text } from "./components/text.js";
  *  24  Flip
  *  25  Origin
  *  26  ScreenAnchor
+ *  27  CameraFollow
+ *  28  CameraZoom
+ *  29  CameraBounds
+ *  30  CameraShake
  */
 export const phaserNetworkComponents = [
   Position,
@@ -114,6 +120,10 @@ export const phaserNetworkComponents = [
   Flip,
   Origin,
   ScreenAnchor,
+  CameraFollow,
+  CameraZoom,
+  CameraBounds,
+  CameraShake,
 ] as const satisfies readonly ComponentClass[];
 
 /**
