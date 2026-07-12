@@ -59,6 +59,14 @@ export abstract class Texture {
   public abstract setDisplaySize(width: number, height: number): this;
 }
 
+export abstract class Visible {
+  public abstract setVisible(value: boolean): this;
+}
+
+export abstract class Flip {
+  public abstract setFlip(x: boolean, y: boolean): this;
+}
+
 export abstract class Tint {
   public abstract setTint(
     topLeft?: number,

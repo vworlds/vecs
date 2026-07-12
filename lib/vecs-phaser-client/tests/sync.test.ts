@@ -5,6 +5,9 @@ import {
   Arc,
   Depth,
   FillStyle,
+  Flip,
+  Hidden,
+  Image,
   phaserNetworkComponents,
   Position,
   Rotation,
@@ -87,6 +90,68 @@ describe("PhaserRenderModule sync systems", () => {
     world.progress(1, 0);
 
     expectCall(obj, "setTint", [0x112233, 0x112233, 0x112233, 0x112233]);
+  });
+  it("hides a GameObject while Hidden is present and shows it again on removal", () => {
+    const { scene, world } = setup();
+    const entity = world.entity();
+
+    entity.set(Arc, { radius: 0.5 });
+    entity.add(Hidden);
+    world.progress(0, 0);
+
+    const obj = scene.created[0]!;
+    expectCall(obj, "setVisible", [false]);
+
+    obj.calls.length = 0;
+    entity.remove(Hidden);
+    world.progress(1, 0);
+
+    expectCall(obj, "setVisible", [true]);
+  });
+
+  it("hides a GameObject when Hidden arrives after creation", () => {
+    const { scene, world } = setup();
+    const entity = world.entity();
+
+    entity.set(Arc, { radius: 0.5 });
+    world.progress(0, 0);
+
+    const obj = scene.created[0]!;
+    obj.calls.length = 0;
+    entity.add(Hidden);
+    world.progress(1, 0);
+
+    expectCall(obj, "setVisible", [false]);
+  });
+
+  it("applies Flip enter values and later updates to an Image GameObject", () => {
+    const { scene, world } = setup();
+    const entity = world.entity();
+
+    entity.set(Image, { texture: 1, frame: 0 });
+    entity.set(Flip, { x: true, y: false });
+    world.progress(0, 0);
+
+    const obj = scene.created[0]!;
+    expectCall(obj, "setFlip", [true, false]);
+
+    obj.calls.length = 0;
+    entity.set(Flip, { x: false, y: true });
+    world.progress(1, 0);
+
+    expectCall(obj, "setFlip", [false, true]);
+  });
+
+  it("does not flip primitive shapes (no Flip marker)", () => {
+    const { scene, world } = setup();
+    const entity = world.entity();
+
+    entity.set(Arc, { radius: 0.5 });
+    entity.set(Flip, { x: true, y: true });
+    world.progress(0, 0);
+
+    const obj = scene.created[0]!;
+    expect(obj.calls.some((call) => call.method === "setFlip")).toBe(false);
   });
 });
 

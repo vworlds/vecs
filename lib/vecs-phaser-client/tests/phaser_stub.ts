@@ -72,8 +72,16 @@ class MockGameObject {
     return this.record("setOuterRadius", ...args);
   }
 
+  setFlip(...args: readonly unknown[]): this {
+    return this.record("setFlip", ...args);
+  }
+
   setScale(...args: readonly unknown[]): this {
     return this.record("setScale", ...args);
+  }
+
+  setVisible(...args: readonly unknown[]): this {
+    return this.record("setVisible", ...args);
   }
 
   setEndAngle(...args: readonly unknown[]): this {

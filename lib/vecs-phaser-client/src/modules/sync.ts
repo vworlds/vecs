@@ -4,6 +4,8 @@ import {
   Depth,
   DrawIn,
   FillStyle,
+  Flip,
+  Hidden,
   Offset,
   Position,
   Rotation,
@@ -90,6 +92,25 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
       .phase(ON_STORE)
       .update({ watch: Tint, onEnter: true, inject: [m.Tint] }, (_e, t, [obj]) =>
         obj.setTint(t.topLeft, t.topRight, t.bottomLeft, t.bottomRight)
+      );
+
+    // Hidden is presence-driven: entering the query hides the GameObject,
+    // leaving it (tag removed, or GameObject swapped) shows it again. The
+    // exit snapshot still resolves the marker while the entity is being
+    // torn down; a destroyed GameObject ignores the setVisible call.
+    world
+      .system("phaser.sync.hidden")
+      .with(Hidden, m.Visible)
+      .phase(ON_STORE)
+      .enter([m.Visible], (_e, [obj]) => obj.setVisible(false))
+      .exit([m.Visible], (_e, [obj]) => obj.setVisible(true));
+
+    world
+      .system("phaser.sync.flip")
+      .with(Flip, m.Flip)
+      .phase(ON_STORE)
+      .update({ watch: Flip, onEnter: true, inject: [m.Flip] }, (_e, f, [obj]) =>
+        obj.setFlip(f.x, f.y)
       );
 
     // Offset → local position inside a parent Container (native parenting).

@@ -43,10 +43,12 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
       m.Text,
       m.Texture,
       m.Tint,
+      m.Visible,
+      m.Flip,
     ].forEach((Marker) => world.component(Marker));
 
     world.component(m.Shape).set(Implements, {
-      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Fill, m.Stroke],
+      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Fill, m.Stroke, m.Visible],
     });
     world.component(Phaser.GameObjects.Arc).set(Implements, { interfaces: [m.Shape, m.Arc] });
     world.component(Phaser.GameObjects.Rectangle).set(Implements, {
@@ -64,10 +66,19 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     });
     world.component(Phaser.GameObjects.Star).set(Implements, { interfaces: [m.Shape, m.Star] });
     world.component(Phaser.GameObjects.Text).set(Implements, {
-      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text, m.Tint],
+      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text, m.Tint, m.Visible, m.Flip],
     });
     world.component(Phaser.GameObjects.Image).set(Implements, {
-      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Texture, m.Tint],
+      interfaces: [
+        m.GameObject,
+        m.Transform,
+        m.Alpha,
+        m.Depth,
+        m.Texture,
+        m.Tint,
+        m.Visible,
+        m.Flip,
+      ],
     });
     // TODO: when renderers are added for Sprite, TileSprite, Video, Extern,
     // BitmapText, or Stamp, declare m.Tint on each — Phaser mixes the Tint
