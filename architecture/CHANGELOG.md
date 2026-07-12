@@ -5,6 +5,10 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-wire]: Fixed wire-field inheritance: a subclass that declares its own `@wireType` fields now keeps the parent's fields too (base fields first in the wire layout; redeclaring an inherited key overrides its spec in place). Previously the subclass's own fields silently replaced the whole inherited set — a `Relationship` subclass with payload fields would drop `target` on the wire.
+- [vecs-protocol]: Added `SESSION_ENTITY_RPC_ID` (system RPC id 1) and `SessionRPC.invokeSystem` for the reserved id range (1–100), keeping `invoke` strictly for user ids.
+- [vecs-server]: Every new connection now answers the session-entity system RPC with the session entity's eid.
+- [vecs-client]: Added `ClientWorld.sessionEntity()` — resolves (and caches) the entity representing this client's session via the system RPC, creating a `Networked` ghost locally until its snapshots arrive. Relationship snapshots now preserve payload fields carried by `Relationship` subclasses instead of copying only the resolved target.
 - [vecs-phaser]: Added the shared input contract: the `InputPayload` shape sent through `ClientWorld.setInput`, plus `actionMask`/`hasAction` helpers that pack and read action bitmasks against a shared ordered action list.
 - [vecs-phaser-client]: Added `InputCaptureModule` — declarative action-to-key mapping captured via Phaser's keyboard plugin (reconnect-safe: `addKey` caches by keycode), pointer/touch position converted to world meters, `setInput` called each tick in `ON_LOAD`, and the same snapshot mirrored into the client-local `LocalInput` world-global component. `CoordSpace` gains the `mx`/`my` pixel→meter inverses.
 - [vecs-phaser-server]: Added `InputDecodeModule` and the `PlayerInput` component — reactively decodes and sanitizes the raw `NetworkInput` blob (unknown action bits masked off, pointer values checked finite and clamped) onto the session entity in `POST_LOAD`, so gameplay systems read typed input instead of raw blobs.

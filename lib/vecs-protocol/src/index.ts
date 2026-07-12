@@ -25,6 +25,7 @@ export {
   RPC,
   RPC_RESPONSE_ID,
   RPC_TIMEOUT_ERROR,
+  SESSION_ENTITY_RPC_ID,
   SessionRPC,
   type RPCHandler,
 } from "./rpc.js";

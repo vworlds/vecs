@@ -3,7 +3,10 @@ import {
   ALL_COMPONENTS,
   Client2Server,
   ComponentSnapshot,
+  RPC,
+  RPC_RESPONSE_ID,
   Server2Client,
+  SESSION_ENTITY_RPC_ID,
   type VecsSocket,
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
@@ -608,6 +611,32 @@ describe("ServerWorld", () => {
     const latePosition = decodeFirstSnapshotPayload(late.sent[late.sent.length - 1]);
     expect(firstPosition).toMatchObject({ x: 3, y: 4 });
     expect(latePosition).toMatchObject({ x: 3, y: 4 });
+  });
+
+  it("answers the session-entity system RPC with the session's entity id", async () => {
+    const world = createWorld();
+    allowAllClientViews(world);
+    const listener = new MockListener();
+    world._attach(listener);
+    const { session, socket } = connectSession(world, listener);
+
+    socket.receive(
+      encodeClient2Server(
+        new Client2Server({
+          ackFrame: 0,
+          rpc: [new RPC({ rpcId: SESSION_ENTITY_RPC_ID, callId: 7, params: [] })],
+        })
+      )
+    );
+    await Promise.resolve(); // request handlers settle on a microtask
+    world.progress(0, 16);
+
+    const message = decodeLastMessage(socket);
+    const response = message.rpc.find((rpc) => rpc.callId === 7);
+    expect(response).toBeDefined();
+    expect(response!.rpcId).toBe(RPC_RESPONSE_ID);
+    expect(response!.error).toBe(0);
+    expect(response!.params).toEqual([session.entity.eid]);
   });
 
   it("renames listen to handleRpc and applies registered handlers to new sessions", () => {
