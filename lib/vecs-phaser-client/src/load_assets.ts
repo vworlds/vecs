@@ -1,5 +1,10 @@
 import { worldPath } from "@vworlds/vecs-client";
-import type { AssetCatalog, AssetDescriptor, SpritesheetDescriptor } from "@vworlds/vecs-phaser";
+import type {
+  AssetCatalog,
+  AssetDescriptor,
+  AudioDescriptor,
+  SpritesheetDescriptor,
+} from "@vworlds/vecs-phaser";
 import type Phaser from "phaser";
 
 /** Connection and progress options for loading a world's Phaser assets. */
@@ -71,6 +76,9 @@ export async function loadAssets(scene: Phaser.Scene, conn: LoadAssetsOptions): 
         margin: ss.margin,
         spacing: ss.spacing,
       });
+    } else if (descriptor.kind === "audio") {
+      const audio = descriptor as AudioDescriptor;
+      scene.load.audio(String(audio.id), [`${origin}${basePath}/assets/files/${audio.file}`]);
     }
   }
 

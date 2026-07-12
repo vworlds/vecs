@@ -90,7 +90,62 @@ interface RecordedCallEntry {
   readonly args: readonly unknown[];
 }
 
+export class MockSound {
+  readonly calls: RecordedCallEntry[] = [];
+  destroyed = false;
+  stopped = false;
+
+  constructor(
+    readonly key: string,
+    readonly config: unknown
+  ) {}
+
+  destroy(): void {
+    this.destroyed = true;
+    this._record("destroy");
+  }
+
+  play(...args: readonly unknown[]): this {
+    return this._record("play", ...args);
+  }
+
+  setLoop(...args: readonly unknown[]): this {
+    return this._record("setLoop", ...args);
+  }
+
+  setVolume(...args: readonly unknown[]): this {
+    return this._record("setVolume", ...args);
+  }
+
+  stop(): this {
+    this.stopped = true;
+    return this._record("stop");
+  }
+
+  private _record(method: string, ...args: readonly unknown[]): this {
+    this.calls.push({ method, args });
+    return this;
+  }
+}
+
+export class MockSoundManager {
+  readonly added: MockSound[] = [];
+  readonly played: { key: string; config: unknown }[] = [];
+
+  add(key: string, config?: unknown): MockSound {
+    const sound = new MockSound(key, config);
+    this.added.push(sound);
+    return sound;
+  }
+
+  play(key: string, config?: unknown): boolean {
+    this.played.push({ key, config });
+    return true;
+  }
+}
+
 export class MockScene {
+  readonly sound = new MockSoundManager();
   readonly anims = {
     created: [] as unknown[],
     create: (config: unknown): unknown => {

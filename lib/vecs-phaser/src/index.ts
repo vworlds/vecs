@@ -20,9 +20,11 @@ export type {
   AnimationFrameDescriptor,
   AssetCatalog,
   AssetDescriptor,
+  AudioDescriptor,
   SpritesheetDescriptor,
 } from "./catalog.js";
 export { Animation, Sprite } from "./components/sprite.js";
+export { Music, Sound } from "./components/audio.js";
 export { actionMask, hasAction } from "./input.js";
 export type { InputPayload } from "./input.js";
 export {
@@ -63,6 +65,7 @@ import {
   Triangle,
 } from "./components/shapes.js";
 import { Animation, Sprite } from "./components/sprite.js";
+import { Music, Sound } from "./components/audio.js";
 import { Text } from "./components/text.js";
 
 /**
@@ -102,6 +105,8 @@ import { Text } from "./components/text.js";
  *  30  CameraShake
  *  31  Sprite
  *  32  Animation
+ *  33  Sound
+ *  34  Music
  */
 export const phaserNetworkComponents = [
   Position,
@@ -136,6 +141,8 @@ export const phaserNetworkComponents = [
   CameraShake,
   Sprite,
   Animation,
+  Sound,
+  Music,
 ] as const satisfies readonly ComponentClass[];
 
 /**

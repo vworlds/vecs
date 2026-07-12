@@ -24,3 +24,12 @@ export class TilesetNotFoundError extends Error {
     this.name = "TilesetNotFoundError";
   }
 }
+
+/** Error thrown when an audio asset cannot be found on disk. */
+export class AudioNotFoundError extends Error {
+  /** @param message - Human-readable error message. */
+  public constructor(message: string) {
+    super(message);
+    this.name = "AudioNotFoundError";
+  }
+}
