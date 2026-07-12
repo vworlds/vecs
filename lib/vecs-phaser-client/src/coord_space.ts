@@ -33,6 +33,16 @@ export class CoordSpace {
     return this._ppm * m;
   }
 
+  /** Inverse of {@link x}: absolute pixel X back to meters. */
+  mx(px: number): number {
+    return (px - this._scene.scale.width / 2) / this._ppm;
+  }
+
+  /** Inverse of {@link y}: absolute pixel Y back to meters (Y flip). */
+  my(py: number): number {
+    return (this._scene.scale.height / 2 - py) / this._ppm;
+  }
+
   /** Relative X pixel (no center offset): ppm * meter-x. */
   rx(mx: number): number {
     return this._ppm * mx;

@@ -5,6 +5,9 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-phaser]: Added the shared input contract: the `InputPayload` shape sent through `ClientWorld.setInput`, plus `actionMask`/`hasAction` helpers that pack and read action bitmasks against a shared ordered action list.
+- [vecs-phaser-client]: Added `InputCaptureModule` — declarative action-to-key mapping captured via Phaser's keyboard plugin (reconnect-safe: `addKey` caches by keycode), pointer/touch position converted to world meters, `setInput` called each tick in `ON_LOAD`, and the same snapshot mirrored into the client-local `LocalInput` world-global component. `CoordSpace` gains the `mx`/`my` pixel→meter inverses.
+- [vecs-phaser-server]: Added `InputDecodeModule` and the `PlayerInput` component — reactively decodes and sanitizes the raw `NetworkInput` blob (unknown action bits masked off, pointer values checked finite and clamped) onto the session entity in `POST_LOAD`, so gameplay systems read typed input instead of raw blobs.
 - [vecs-phaser]: Added `ScreenAnchor` (wire type 26): screen-space placement for HUD/UI entities using normalized math-convention screen fractions plus meter offsets. Mutually exclusive with `Position` (enforced by `PhaserServerModule`).
 - [vecs-phaser-client]: Added `ScreenAnchorModule` — positions anchored GameObjects in screen pixels, pins them to the camera (scroll factor 0), and re-lays them out when the canvas resizes. `phaser.sync.position` now ignores `ScreenAnchor` entities.
 - [vecs-phaser]: Added `Origin` (wire type 25): a normalized display anchor for textured renderables and text, authored in math convention (`y = 0` anchors the bottom edge). Default `(0.5, 0.5)` matches the previous fixed centering.

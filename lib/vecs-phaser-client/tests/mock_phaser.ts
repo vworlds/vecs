@@ -19,7 +19,34 @@ export interface MockSceneAdd {
   triangle: (...args: readonly unknown[]) => MockGameObject;
 }
 
+export class MockKey {
+  isDown = false;
+}
+
+export class MockPointer {
+  worldX = 0;
+  worldY = 0;
+  isDown = false;
+}
+
+export class MockKeyboard {
+  private readonly _keys = new Map<string | number, MockKey>();
+
+  addKey(ref: string | number, _enableCapture?: boolean): MockKey {
+    let key = this._keys.get(ref);
+    if (!key) {
+      key = new MockKey();
+      this._keys.set(ref, key);
+    }
+    return key;
+  }
+}
+
 export class MockScene {
+  readonly input = {
+    activePointer: new MockPointer(),
+    keyboard: new MockKeyboard(),
+  };
   readonly add: MockSceneAdd = {
     arc: (...args) => this.create("arc", Phaser.GameObjects.Arc, args),
     ellipse: (...args) => this.create("ellipse", Phaser.GameObjects.Ellipse, args),

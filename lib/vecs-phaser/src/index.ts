@@ -15,6 +15,8 @@ export {
 export { FillStyle, StrokeStyle, Tint } from "./components/style.js";
 export { Image } from "./components/image.js";
 export type { AssetCatalog, AssetDescriptor, SpritesheetDescriptor } from "./catalog.js";
+export { actionMask, hasAction } from "./input.js";
+export type { InputPayload } from "./input.js";
 export {
   Arc,
   Ellipse,
