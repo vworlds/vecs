@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-phaser]: Added server-driven camera components (wire types 27–30): `CameraFollow` (a relationship with a `lerp` payload — the first to use wire-field inheritance), `CameraZoom`, `CameraBounds` (bottom-left-anchored meters), and `CameraShake` (one-shot per set). They live on the client's session entity; each client obeys only its own session's camera.
+- [vecs-phaser-client]: Added `CameraModule` — drives `scene.cameras.main` from the session entity's camera components: reactive zoom/bounds/shake systems plus a per-tick follow system that centers on the followed entity's interpolated `Position` with configurable easing. The session entity resolves automatically via `ClientWorld.sessionEntity()` (or an explicit `sessionEid` for tests).
 - [vecs-wire]: Fixed wire-field inheritance: a subclass that declares its own `@wireType` fields now keeps the parent's fields too (base fields first in the wire layout; redeclaring an inherited key overrides its spec in place). Previously the subclass's own fields silently replaced the whole inherited set — a `Relationship` subclass with payload fields would drop `target` on the wire.
 - [vecs-protocol]: Added `SESSION_ENTITY_RPC_ID` (system RPC id 1) and `SessionRPC.invokeSystem` for the reserved id range (1–100), keeping `invoke` strictly for user ids.
 - [vecs-server]: Every new connection now answers the session-entity system RPC with the session entity's eid.
