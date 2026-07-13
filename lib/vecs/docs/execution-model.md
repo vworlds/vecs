@@ -98,8 +98,8 @@ built-in taxonomy.
 
 Inside a system body, a `Query.forEach` / `Filter.forEach` iteration, or any `world.defer(...)`
 block, the world is in **deferred mode**: entity mutations (`add` / `attach` / `set` / `ensure` /
-`remove` / `destroy` / `modified`, and `world.entity()` creation) are queued as commands instead of
-applied inline. The queue drains when the scope that opened deferral ends.
+`ensureTarget` / `remove` / `destroy` / `modified`, and `world.entity()` creation) are queued as
+commands instead of applied inline. The queue drains when the scope that opened deferral ends.
 
 For the pipeline this means: **a structural change made by system A is applied in the flush
 immediately after A finishes, so it is visible to every later system in the same tick** — later in
@@ -118,6 +118,9 @@ While a mutation is queued but not yet applied, reads return the pre-mutation st
 | `entity.set(C, props)`    | The **previous** value (or `undefined` if `C` was absent). |
 | `entity.ensure(C)`        | A mutable component, even when newly created.              |
 | `entity.remove(C)`        | Still the component instance.                              |
+
+`entity.ensureTarget(R)` similarly returns one shared pending target while `entity.target(R)`
+continues to return the previously committed target until flush.
 
 Outside any deferred scope (top-level user code), the same calls execute inline and effects are
 visible immediately.

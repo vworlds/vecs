@@ -43,6 +43,28 @@ subclasses) explicitly in your `networkComponents` array to replicate parent-chi
 
 `entity.childOf(parent)` is shorthand for `entity.set(ChildOf, { target: parent })`.
 
+## Ensuring a target
+
+Use `ensureTarget` when a registered relationship should always have some target and a new,
+independent entity is the correct default:
+
+```ts
+world.component(FriendOf);
+
+const friend = entity.ensureTarget(FriendOf);
+entity.ensureTarget(FriendOf) === friend; // true
+entity.target(FriendOf) === friend; // true
+```
+
+The method returns the existing target when present. Otherwise it creates an entity, initializes
+the relationship with that target, and attaches the relationship. During deferred execution,
+repeated calls share one pending relationship and return the same target; `target(FriendOf)` still
+returns `undefined` until flush.
+
+The generated target is independent: `ensureTarget` does not add `ChildOf`, and destroying the
+source does not destroy the target. Add ownership explicitly when your model requires it. The
+relationship class must be registered before calling `ensureTarget`.
+
 ## Retargeting
 
 Point a relationship somewhere else with a plain `set`:
@@ -145,6 +167,7 @@ the box — the world's default pipeline is itself a `cascade: DependsOn` query 
 | `e.target(R)`                                       | The target entity through relationship `R`, or `undefined`.                             |
 | `e.children(R)`                                     | `ReadonlySet<Entity>` of sources targeting `e` through `R`.                             |
 | `e.childOf(parent)`                                 | Shorthand for `e.set(ChildOf, { target: parent })`.                                     |
+| `e.ensureTarget(R)`                                 | Return `R`'s target, creating an independent entity when absent.                        |
 | `e.parent` / `e.parent = p`                         | Getter/setter for the built-in `ChildOf` target; setting `undefined` removes `ChildOf`. |
 | `meta.onDeleteTarget`                               | `Remove` (default) or `Delete` cascade when a target is destroyed.                      |
 | `world.component(R).add(Traversable)`               | Enable depth tracking for `cascade` ordering.                                           |

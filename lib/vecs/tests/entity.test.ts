@@ -780,4 +780,67 @@ describe("Entity — relationship navigation", () => {
     expect(child.target(ChildOf)).toBe(parent);
     expect(parent.children(ChildOf).has(child)).toBe(true);
   });
+
+  it("ensureTarget creates and reuses an independent relationship target", () => {
+    const w = new World();
+    w.component(FriendOf);
+    const source = w.entity();
+
+    const target = source.ensureTarget(FriendOf);
+
+    expect(source.ensureTarget(FriendOf)).toBe(target);
+    expect(source.target(FriendOf)).toBe(target);
+    expect(target.parent).toBeUndefined();
+
+    source.destroy();
+    expect(target.alive).toBe(true);
+    expect(w.entity(target.eid)).toBe(target);
+  });
+
+  it("ensureTarget returns one pending target across repeated deferred calls", () => {
+    const w = new World();
+    const relationship = w.component(FriendOf);
+    const onAdd = vi.fn();
+    const onSet = vi.fn();
+    relationship.onAdd(onAdd).onSet(onSet);
+    const source = w.entity();
+    let first: Entity | undefined;
+    let second: Entity | undefined;
+
+    w.defer(() => {
+      first = source.ensureTarget(FriendOf);
+      second = source.ensureTarget(FriendOf);
+
+      expect(second).toBe(first);
+      expect(source.target(FriendOf)).toBeUndefined();
+    });
+
+    expect(source.target(FriendOf)).toBe(first);
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(onSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("ensureTarget recreates a target after the previous target is destroyed", () => {
+    const w = new World();
+    w.component(FriendOf);
+    const source = w.entity();
+    const first = source.ensureTarget(FriendOf);
+
+    first.destroy();
+    const second = source.ensureTarget(FriendOf);
+
+    expect(second).not.toBe(first);
+    expect(source.target(FriendOf)).toBe(second);
+  });
+
+  it("ensureTarget requires a registered relationship component", () => {
+    const w = new World();
+    w.component(Position);
+    const source = w.entity();
+
+    expect(() => source.ensureTarget(FriendOf)).toThrow(/unregistered component entity/);
+    expect(() => source.ensureTarget(Position as unknown as typeof FriendOf)).toThrow(
+      /requires a Relationship/
+    );
+  });
 });

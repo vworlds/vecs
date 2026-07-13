@@ -305,6 +305,7 @@ export class Components extends Relationships {
   ): Readonly<ComponentInstance>;
 
   public ensure(
+    this: Entity,
     ref: ComponentRef,
     callback?: (component: ComponentInstance) => void
   ): ComponentInstance {
@@ -325,16 +326,59 @@ export class Components extends Relationships {
       this._markModified(componentMeta);
       return existing;
     }
-    const entity = this as unknown as Entity;
-    const pending = componentMeta._pendingEnsures?.get(entity);
+    return this._ensureMissingInstance(componentMeta, callback);
+  }
+
+  /**
+   * Return the target of relationship `Class`, creating and targeting a new
+   * independent entity when the relationship is absent.
+   *
+   * The relationship class must already be registered in this world. Repeated
+   * calls during deferred execution return the same pending target.
+   *
+   * @param Class - Registered relationship component class.
+   * @returns The existing or newly created relationship target.
+   */
+  public ensureTarget(this: Entity, Class: ComponentType<Relationship>): Entity {
+    if (this._destroyed) {
+      throw new Error(`Cannot ensure relationship target on destroyed entity ${this.eid}`);
+    }
+    const componentMeta = this.world.entity(Class).meta;
+    if (!componentMeta.isRelationship) {
+      throw new Error("Entity.ensureTarget requires a Relationship component");
+    }
+    const existing = this._get(componentMeta.eid) as Relationship | undefined;
+    if (existing) {
+      return existing.target;
+    }
+    const relationship = this._ensureMissingInstance(
+      componentMeta,
+      (component) => {
+        (component as Relationship).target = this.world.entity();
+      },
+      false
+    ) as Relationship;
+    return relationship.target;
+  }
+
+  /** @internal Return a pending instance, or create and attach one. The caller checked storage. */
+  protected _ensureMissingInstance(
+    this: Entity,
+    componentMeta: ComponentMeta,
+    callback?: (component: ComponentInstance) => void,
+    initializePending = true
+  ): ComponentInstance {
+    const pending = componentMeta._pendingEnsures?.get(this);
     if (pending) {
-      callback?.(pending);
+      if (initializePending) {
+        callback?.(pending);
+      }
       return pending;
     }
     const component = new (componentMeta.Class as ComponentClass)();
     callback?.(component);
     if (this.world.deferred) {
-      (componentMeta._pendingEnsures ??= new WeakMap()).set(entity, component);
+      (componentMeta._pendingEnsures ??= new WeakMap()).set(this, component);
     }
     this._attach_or_enqueue(componentMeta, component);
     return component;

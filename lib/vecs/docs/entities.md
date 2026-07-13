@@ -48,6 +48,7 @@ e.add(Position); // attach with default field values (idempotent)
 e.set(Position, { x: 100 }); // attach if needed, assign props, fire onSet/update
 e.get(Position); // Readonly<Position> | undefined
 e.ensure(Position, (pos) => (pos.x += 1)); // create if needed, then mutate and notify
+e.ensureTarget(FriendOf); // get or create an independent relationship target
 e.has(Position); // boolean
 e.remove(Position); // detach; fires exit callbacks, then onRemove
 e.modified(Position); // mark changed after in-place mutation
@@ -98,6 +99,21 @@ e.ensure(Velocity, (vel) => {
 When several calls ensure the same missing component during one deferred scope, they return the
 same pending instance. The instance remains hidden from `get` and queries until the queue drains,
 but every ensure callback mutates that shared pending value.
+
+Use `ensureTarget` for the corresponding get-or-create operation on a registered relationship:
+
+```ts
+world.component(FriendOf);
+
+const friend = entity.ensureTarget(FriendOf);
+entity.ensureTarget(FriendOf) === friend; // true
+entity.target(FriendOf) === friend; // true after deferred changes flush
+```
+
+When the relationship is absent, `ensureTarget` creates an independent entity and points the
+relationship at it. It does not add `ChildOf`; destroying the source does not destroy the generated
+target. Repeated calls during one deferred scope return the same pending target, while `target`
+continues to expose only committed state until the queue drains.
 
 Calling `getMut(C)` or `ensure(C)` without a callback outside deferred mode throws. Both methods
 also throw for relationship components (retarget with `set` instead — see
@@ -183,6 +199,7 @@ is in [Relationships](./relationships.md).
 | `get(ref)`                                     | Read-only component lookup, or `undefined`.                                                         |
 | `getMut(ref)` / `getMut(ref, callback)`        | Mutable lookup that marks the component modified. Callback form required outside deferred mode.     |
 | `ensure(ref)` / `ensure(ref, callback)`        | Mutable lookup that creates when missing. Callback form required outside deferred mode.             |
+| `ensureTarget(Relationship)`                   | Return a relationship target, creating an independent target when absent.                           |
 | `has(ref)`                                     | `true` when the component is attached.                                                              |
 | `modified(ref)`                                | Queue an `onSet`/`update` notification; coalesced while pending. Returns `this`.                    |
 | `remove(ref)`                                  | Detach a component; routes `exit`, then fires `onRemove`.                                           |
