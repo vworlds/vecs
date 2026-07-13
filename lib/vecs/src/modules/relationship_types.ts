@@ -19,6 +19,21 @@ export class DependsOn extends Relationship {}
 export class SilenceSource extends Relationship {}
 
 /**
+ * Marker component that makes every target of a relationship a `ChildOf` child
+ * of the relationship source.
+ *
+ * Add during world setup, before creating relationship instances:
+ *
+ * ```ts
+ * world.component(Inventory).add(OwnedTarget);
+ * ```
+ *
+ * Ownership is sticky: retargeting or removing the marked relationship does
+ * not remove `ChildOf` from targets it previously owned.
+ */
+export class OwnedTarget {}
+
+/**
  * Marker component used to tag a relationship component as traversable.
  *
  * Attach to a relationship-component entity (e.g. `ChildOf`) to enable

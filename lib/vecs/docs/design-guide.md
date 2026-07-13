@@ -178,6 +178,17 @@ entity.target(InCell); // the target entity
 world.query("ByCell").with(Networked, Position).groupBy(InCell); // index by target
 ```
 
+Use `entity.ensureTarget(InCell)` when an absent relationship should default to a new independent
+entity. For aggregate parts whose lifetime should remain bound to the source once assigned, attach
+`OwnedTarget` during setup:
+
+```ts
+world.component(Inventory).add(OwnedTarget);
+const inventory = player.ensureTarget(Inventory); // inventory is ChildOf player
+```
+
+`OwnedTarget` ownership is sticky across retargeting and relationship removal.
+
 - **`Relationship.target` is an `Entity` — not directly serialisable, but
   relationships can be networked** when listed in `networkComponents`.
   `vecs-protocol` registers `Relationship.prototype.target` as an `"entity"`

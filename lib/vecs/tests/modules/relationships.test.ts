@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { ChildOf, Relationship, Traversable, World } from "../../src/index.js";
+import {
+  ChildOf,
+  type Entity,
+  OwnedTarget,
+  Relationship,
+  Traversable,
+  World,
+} from "../../src/index.js";
 
 class ParentOf extends Relationship {}
+class Inventory extends Relationship {}
+class NotRelationship {}
 
 function depthOf(w: World, entity: unknown): number | undefined {
   return w
@@ -11,6 +20,91 @@ function depthOf(w: World, entity: unknown): number | undefined {
 }
 
 describe("RelationshipsModule", () => {
+  it("registers OwnedTarget", () => {
+    const w = new World();
+    expect(w.entity(OwnedTarget)).toBe(w.component(OwnedTarget));
+  });
+
+  it("makes an ensured relationship target a child of its source", () => {
+    const w = new World();
+    w.component(Inventory).add(OwnedTarget);
+    const player = w.entity();
+
+    const inventory = player.ensureTarget(Inventory);
+
+    expect(inventory.parent).toBe(player);
+    player.destroy();
+    expect(inventory.destroyed).toBe(true);
+  });
+
+  it("parents an ensured target when deferred changes flush", () => {
+    const w = new World();
+    w.component(Inventory).add(OwnedTarget);
+    const player = w.entity();
+    let inventory: Entity | undefined;
+
+    w.defer(() => {
+      inventory = player.ensureTarget(Inventory);
+      expect(inventory.parent).toBeUndefined();
+    });
+
+    expect(inventory?.parent).toBe(player);
+  });
+
+  it("applies ownership to targets assigned with set", () => {
+    const w = new World();
+    w.component(Inventory).add(OwnedTarget);
+    const player = w.entity();
+    const inventory = w.entity();
+
+    player.set(Inventory, { target: inventory });
+
+    expect(inventory.parent).toBe(player);
+  });
+
+  it("does not backfill targets assigned before OwnedTarget is configured", () => {
+    const w = new World();
+    const relationship = w.component(Inventory);
+    const player = w.entity();
+    const inventory = w.entity();
+    player.set(Inventory, { target: inventory });
+
+    relationship.add(OwnedTarget);
+
+    expect(inventory.parent).toBeUndefined();
+  });
+
+  it("keeps ownership sticky across retarget and relationship removal", () => {
+    const w = new World();
+    w.component(Inventory).add(OwnedTarget);
+    const player = w.entity();
+    const first = w.entity();
+    const second = w.entity();
+
+    player.set(Inventory, { target: first });
+    player.set(Inventory, { target: second });
+    player.remove(Inventory);
+
+    expect(first.parent).toBe(player);
+    expect(second.parent).toBe(player);
+    player.destroy();
+    expect(first.destroyed).toBe(true);
+    expect(second.destroyed).toBe(true);
+  });
+
+  it("rejects OwnedTarget on non-relationships and ChildOf", () => {
+    const first = new World();
+    first.component(NotRelationship);
+    expect(() => first.component(NotRelationship).add(OwnedTarget)).toThrow(
+      "OwnedTarget can only be added to a Relationship component"
+    );
+
+    const second = new World();
+    expect(() => second.component(ChildOf).add(OwnedTarget)).toThrow(
+      "OwnedTarget cannot be added to ChildOf"
+    );
+  });
+
   it("marks ChildOf as Traversable by default", () => {
     const w = new World();
     expect(w.entity(ChildOf).get(Traversable)).toBeInstanceOf(Traversable);

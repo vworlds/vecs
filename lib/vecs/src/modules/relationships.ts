@@ -1,13 +1,19 @@
-import { CleanupPolicy } from "../component_meta.js";
+import { CleanupPolicy, Relationship } from "../component_meta.js";
 import { type EID, type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
-import { ChildOf, Traversable } from "./relationship_types.js";
+import { ChildOf, OwnedTarget, Traversable } from "./relationship_types.js";
 
-export { ChildOf, DependsOn, SilenceSource, Traversable } from "./relationship_types.js";
+export {
+  ChildOf,
+  DependsOn,
+  OwnedTarget,
+  SilenceSource,
+  Traversable,
+} from "./relationship_types.js";
 
 /**
  * Built-in world module that registers the `ChildOf` relationship and
- * maintains depth tracking for traversable relationships.
+ * maintains ownership and depth tracking policies for relationship traits.
  *
  * Registered automatically by every {@link World}. It sets `ChildOf`'s
  * `onDeleteTarget` cleanup policy to {@link CleanupPolicy.Delete}, so
@@ -19,6 +25,11 @@ export { ChildOf, DependsOn, SilenceSource, Traversable } from "./relationship_t
  * every entity's depth is updated when the relationship is added, retargeted,
  * or removed.
  *
+ * When a relationship component entity has `OwnedTarget` attached, the module
+ * installs an `onSet` hook that makes each relationship target a `ChildOf`
+ * child of its source. Configure this trait during world setup, before creating
+ * relationship instances.
+ *
  * Depth is computed by walking `entity.target(relEid)` to the root. When an
  * entity's depth changes, every descendant is recursively recomputed.
  */
@@ -26,9 +37,22 @@ export class RelationshipsModule extends Module {
   public init(): void {
     const world = this.world;
     const childOf = world.component(ChildOf);
+    const ownedTarget = world.component(OwnedTarget);
     const traversable = world.component(Traversable);
 
     childOf.meta.onDeleteTarget = CleanupPolicy.Delete;
+
+    ownedTarget.onAdd((rel): void => {
+      if (!rel.meta.isRelationship) {
+        throw new Error("OwnedTarget can only be added to a Relationship component");
+      }
+      if (rel === childOf) {
+        throw new Error("OwnedTarget cannot be added to ChildOf");
+      }
+      rel.onSet((source: Entity, relationship): void => {
+        (relationship as Relationship).target.childOf(source);
+      });
+    });
 
     traversable.onAdd((rel, traversable): void => {
       const relEid = rel.eid;

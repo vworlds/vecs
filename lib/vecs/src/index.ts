@@ -14,7 +14,7 @@ export type {
 } from "./inject.js";
 export { DEFAULT_POOLS, World, type WorldOptions } from "./world/index.js";
 export { Filter } from "./filter.js";
-export { ChildOf, DependsOn, SilenceSource } from "./modules/relationships.js";
+export { ChildOf, DependsOn, OwnedTarget, SilenceSource } from "./modules/relationships.js";
 export {
   CleanupPolicy,
   Component,

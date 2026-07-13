@@ -115,6 +115,19 @@ relationship at it. It does not add `ChildOf`; destroying the source does not de
 target. Repeated calls during one deferred scope return the same pending target, while `target`
 continues to expose only committed state until the queue drains.
 
+Mark the relationship with `OwnedTarget` during world setup when its targets should instead be
+owned by their sources:
+
+```ts
+world.component(Inventory).add(OwnedTarget);
+
+const inventory = player.ensureTarget(Inventory);
+inventory.parent === player; // true after deferred changes flush
+```
+
+The relationship module adds `ChildOf` whenever `Inventory` is set, so destroying `player` also
+destroys `inventory`. See [Relationships](./relationships.md#owned-targets).
+
 Calling `getMut(C)` or `ensure(C)` without a callback outside deferred mode throws. Both methods
 also throw for relationship components (retarget with `set` instead — see
 [Relationships](./relationships.md#retargeting)) and for `Implements` interface aliases.

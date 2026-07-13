@@ -65,6 +65,34 @@ The generated target is independent: `ensureTarget` does not add `ChildOf`, and 
 source does not destroy the target. Add ownership explicitly when your model requires it. The
 relationship class must be registered before calling `ensureTarget`.
 
+## Owned targets
+
+Mark a relationship component with `OwnedTarget` during world setup when every target assigned
+through that relationship should become a `ChildOf` child of its source:
+
+```ts
+import { OwnedTarget, Relationship } from "@vworlds/vecs";
+
+class Inventory extends Relationship {}
+
+world.component(Inventory).add(OwnedTarget);
+
+const inventory = player.ensureTarget(Inventory);
+inventory.parent === player; // true
+
+player.destroy();
+inventory.destroyed === true; // ChildOf cascades deletion
+```
+
+`OwnedTarget` installs an `onSet` hook on `Inventory`. It therefore applies to targets created by
+`ensureTarget`, assigned with `set`, attached as relationship instances, or assigned by later
+retargeting. During deferred execution, the corresponding `ChildOf` is visible after flush.
+
+Configure the trait before creating relationship instances; it does not backfill existing targets.
+Ownership is sticky: retargeting or removing `Inventory` does not remove `ChildOf` from a target
+that was previously assigned. Do not share one owned target between several sources, because the
+latest assignment reparents it. `OwnedTarget` rejects ordinary components and `ChildOf` itself.
+
 ## Retargeting
 
 Point a relationship somewhere else with a plain `set`:
@@ -168,6 +196,7 @@ the box — the world's default pipeline is itself a `cascade: DependsOn` query 
 | `e.children(R)`                                     | `ReadonlySet<Entity>` of sources targeting `e` through `R`.                             |
 | `e.childOf(parent)`                                 | Shorthand for `e.set(ChildOf, { target: parent })`.                                     |
 | `e.ensureTarget(R)`                                 | Return `R`'s target, creating an independent entity when absent.                        |
+| `world.component(R).add(OwnedTarget)`               | Make targets assigned through `R` into `ChildOf` children of their sources.             |
 | `e.parent` / `e.parent = p`                         | Getter/setter for the built-in `ChildOf` target; setting `undefined` removes `ChildOf`. |
 | `meta.onDeleteTarget`                               | `Remove` (default) or `Delete` cascade when a target is destroyed.                      |
 | `world.component(R).add(Traversable)`               | Enable depth tracking for `cascade` ordering.                                           |
