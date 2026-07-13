@@ -95,6 +95,9 @@ e.ensure(Velocity, (vel) => {
 ```
 
 `ensure` always returns a component for a live entity. Calling it on a destroyed entity throws.
+When several calls ensure the same missing component during one deferred scope, they return the
+same pending instance. The instance remains hidden from `get` and queries until the queue drains,
+but every ensure callback mutates that shared pending value.
 
 Calling `getMut(C)` or `ensure(C)` without a callback outside deferred mode throws. Both methods
 also throw for relationship components (retarget with `set` instead — see

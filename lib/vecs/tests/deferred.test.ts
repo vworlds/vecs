@@ -12,6 +12,14 @@ class Walking {}
 class Running {}
 class DeferredRemove {}
 class DeferredDelete {}
+class Counted {
+  public static constructions = 0;
+  public value = 0;
+
+  public constructor() {
+    Counted.constructions++;
+  }
+}
 
 function setup() {
   const w = new World();
@@ -125,6 +133,54 @@ describe("Deferred mode — data-layer visibility", () => {
     expect(onAdd).toHaveBeenCalledWith(e, observed);
     expect(onSet).toHaveBeenCalledWith(e, observed);
     expect(onSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("repeated ensure calls share one pending component instance", () => {
+    const { w } = setup();
+    Counted.constructions = 0;
+    const component = w.component(Counted);
+    const onAdd = vi.fn();
+    const onSet = vi.fn();
+    component.onAdd(onAdd).onSet(onSet);
+    const e = w.entity();
+
+    let first: Counted | undefined;
+    let second: Counted | undefined;
+    w.defer(() => {
+      first = e.ensure(Counted, (value) => {
+        value.value = 1;
+      });
+      second = e.ensure(Counted, (value) => {
+        value.value++;
+      });
+
+      expect(second).toBe(first);
+      expect(second.value).toBe(2);
+      expect(e.get(Counted)).toBeUndefined();
+      expect(component.meta._pendingEnsures?.get(e)).toBe(first);
+    });
+
+    expect(Counted.constructions).toBe(1);
+    expect(e.get(Counted)).toBe(first);
+    expect(e.get(Counted)?.value).toBe(2);
+    expect(component.meta._pendingEnsures?.get(e)).toBeUndefined();
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(onSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a pending ensure when its attachment reaches a destroyed entity", () => {
+    const { w } = setup();
+    const component = w.component(Counted);
+    const e = w.entity();
+
+    w.defer(() => {
+      e.destroy();
+      e.ensure(Counted);
+      expect(component.meta._pendingEnsures?.has(e)).toBe(true);
+    });
+
+    expect(e.destroyed).toBe(true);
+    expect(component.meta._pendingEnsures?.has(e)).toBe(false);
   });
 
   it("at top level, mutations are immediately visible", () => {

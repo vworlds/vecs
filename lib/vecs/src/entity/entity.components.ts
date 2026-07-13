@@ -17,6 +17,10 @@ export class Components extends Relationships {
    * caller had performed a `set` operation.
    */
   public _attach(meta: ComponentMeta, component: ComponentInstance): void {
+    const entity = this as unknown as Entity;
+    if (meta._pendingEnsures?.get(entity) === component) {
+      meta._pendingEnsures.delete(entity);
+    }
     if (this._destroyed) {
       return;
     }
@@ -271,6 +275,7 @@ export class Components extends Relationships {
    * Outside deferred mode, pass a callback so creation/modified notifications
    * fire after the mutation callback returns. Inside deferred mode, the callback
    * is optional and the returned component may be mutated before the queue drains.
+   * Repeated calls before that drain return the same pending component instance.
    *
    * @param typeOrClass - Component class or numeric type id.
    * @returns The mutable component instance.
@@ -320,8 +325,17 @@ export class Components extends Relationships {
       this._markModified(componentMeta);
       return existing;
     }
+    const entity = this as unknown as Entity;
+    const pending = componentMeta._pendingEnsures?.get(entity);
+    if (pending) {
+      callback?.(pending);
+      return pending;
+    }
     const component = new (componentMeta.Class as ComponentClass)();
     callback?.(component);
+    if (this.world.deferred) {
+      (componentMeta._pendingEnsures ??= new WeakMap()).set(entity, component);
+    }
     this._attach_or_enqueue(componentMeta, component);
     return component;
   }

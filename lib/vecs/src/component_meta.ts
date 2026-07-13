@@ -125,6 +125,9 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** @internal Whether this component meta is an abstract/interface alias. */
   public _isInterface = false;
 
+  /** @internal Component instances created by `ensure` but not yet attached. */
+  public _pendingEnsures: WeakMap<Entity, ComponentInstance> | undefined;
+
   /** @internal `onAdd` handlers, lazily allocated and prepended by {@link onAdd}. */
   public _onAddHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
   /** @internal `onRemove` handlers, lazily allocated and prepended by {@link onRemove}. */
