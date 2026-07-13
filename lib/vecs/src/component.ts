@@ -12,6 +12,7 @@ export {
   type ComponentRefArray,
   type ComponentType,
   type Hook,
+  type RetargetHandler,
 } from "./component_meta.js";
 
 /** A component entity created by {@link World.component}. */

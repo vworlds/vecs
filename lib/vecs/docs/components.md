@@ -71,7 +71,7 @@ Pass `idPools` to the `World` constructor to change ranges (each entry is an `Id
 released this frame is not immediately recycled. `world.peekNextEid(poolName)` returns the next id
 a pool would allocate without reserving it. Id 0 is reserved.
 
-## Hooks: `onAdd`, `onSet`, `onRemove`
+## Hooks: `onAdd`, `onSet`, `onRemove`, `onRetarget`
 
 The `Component` entity exposes lifecycle hooks fired for every entity carrying the component:
 
@@ -88,6 +88,10 @@ world
 | `onAdd`    | The component is first attached (`add`, or `set` on an entity that lacked it).                                                                            |
 | `onSet`    | `entity.set(C, props)` applies data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
 | `onRemove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                        |
+
+Relationship component entities additionally expose `onRetarget`. It fires after an existing
+relationship changes to a different target, once `target` and `children` already reflect the new
+reverse-index state. Initial assignment, same-target `set`, and removal do not fire it.
 
 Handlers receive `(entity, componentInstance)` — component instances do not carry entity
 references, so the entity is passed explicitly. Hooks fire synchronously when the corresponding
@@ -249,12 +253,13 @@ interface markers for polymorphic dispatch — is in the
 A `Component<T>` is an `Entity` subclass, so the full [entity API](./entities.md#reference)
 applies. On top of it:
 
-| Member              | Description                                                      |
-| ------------------- | ---------------------------------------------------------------- |
-| `onAdd(handler)`    | Register an add hook. Returns the component entity for chaining. |
-| `onRemove(handler)` | Register a remove hook.                                          |
-| `onSet(handler)`    | Register a set/modified hook.                                    |
-| `meta`              | The `ComponentMeta` bookkeeping record.                          |
+| Member                | Description                                                          |
+| --------------------- | -------------------------------------------------------------------- |
+| `onAdd(handler)`      | Register an add hook. Returns the component entity for chaining.     |
+| `onRemove(handler)`   | Register a remove hook.                                              |
+| `onRetarget(handler)` | Register a relationship retarget hook. Throws for non-relationships. |
+| `onSet(handler)`      | Register a set/modified hook.                                        |
+| `meta`                | The `ComponentMeta` bookkeeping record.                              |
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 

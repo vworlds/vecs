@@ -26,9 +26,9 @@ export {
  * or removed.
  *
  * When a relationship component entity has `OwnedTarget` attached, the module
- * installs an `onSet` hook that makes each relationship target a `ChildOf`
- * child of its source. Configure this trait during world setup, before creating
- * relationship instances.
+ * installs hooks that make each target a `ChildOf` child of its source and
+ * destroy targets when displaced or removed. Configure this trait during world
+ * setup, before creating relationship instances.
  *
  * Depth is computed by walking `entity.target(relEid)` to the root. When an
  * entity's depth changes, every descendant is recursively recomputed.
@@ -49,9 +49,16 @@ export class RelationshipsModule extends Module {
       if (rel === childOf) {
         throw new Error("OwnedTarget cannot be added to ChildOf");
       }
-      rel.onSet((source: Entity, relationship): void => {
-        (relationship as Relationship).target.childOf(source);
-      });
+      rel
+        .onSet((source: Entity, relationship): void => {
+          (relationship as Relationship).target.childOf(source);
+        })
+        .onRetarget((_source: Entity, oldTarget: Entity): void => {
+          oldTarget.destroy();
+        })
+        .onRemove((_source: Entity, relationship): void => {
+          (relationship as Relationship).target.destroy();
+        });
     });
 
     traversable.onAdd((rel, traversable): void => {

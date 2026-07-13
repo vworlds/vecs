@@ -74,7 +74,7 @@ describe("RelationshipsModule", () => {
     expect(inventory.parent).toBeUndefined();
   });
 
-  it("keeps ownership sticky across retarget and relationship removal", () => {
+  it("destroys displaced and removed owned targets", () => {
     const w = new World();
     w.component(Inventory).add(OwnedTarget);
     const player = w.entity();
@@ -83,12 +83,12 @@ describe("RelationshipsModule", () => {
 
     player.set(Inventory, { target: first });
     player.set(Inventory, { target: second });
+
+    expect(first.destroyed).toBe(true);
+    expect(second.parent).toBe(player);
+
     player.remove(Inventory);
 
-    expect(first.parent).toBe(player);
-    expect(second.parent).toBe(player);
-    player.destroy();
-    expect(first.destroyed).toBe(true);
     expect(second.destroyed).toBe(true);
   });
 

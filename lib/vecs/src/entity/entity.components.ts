@@ -5,6 +5,7 @@ import {
   type ComponentInstance,
   type ComponentRef,
   type ComponentType,
+  type RetargetHandler,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { Relationships } from "./entity.relationships.js";
@@ -612,6 +613,17 @@ export class Components extends Relationships {
 
   public onRemove(handler: (entity: Entity, c: ComponentInstance) => void): this {
     this.meta.onRemove(handler);
+    return this;
+  }
+
+  /**
+   * Register a handler fired after this relationship moves between existing targets.
+   *
+   * @param handler - Receives the source entity, previous target, and current target.
+   * @returns This entity, for chaining.
+   */
+  public onRetarget(handler: RetargetHandler): this {
+    this.meta.onRetarget(handler);
     return this;
   }
 

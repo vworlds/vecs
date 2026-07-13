@@ -12,6 +12,9 @@ export abstract class Relationship {
   public target!: Entity;
 }
 
+/** Callback fired after a relationship moves from one existing target to another. */
+export type RetargetHandler = (source: Entity, oldTarget: Entity, newTarget: Entity) => void;
+
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
 
@@ -132,6 +135,8 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   public _onAddHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
   /** @internal `onRemove` handlers, lazily allocated and prepended by {@link onRemove}. */
   public _onRemoveHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
+  /** @internal Relationship retarget handlers, lazily allocated and prepended. */
+  public _onRetargetHandlers: RetargetHandler[] | undefined;
   /** @internal `onSet` handlers, lazily allocated and prepended by {@link onSet}. */
   public _onSetHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
 
@@ -170,6 +175,20 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** @inheritdoc */
   public onRemove(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
     (this._onRemoveHandlers ??= []).unshift(handler);
+    return this;
+  }
+
+  /**
+   * Register a handler fired after this relationship changes between two existing targets.
+   *
+   * @param handler - Receives the source entity, previous target, and current target.
+   * @returns This metadata object, for chaining.
+   */
+  public onRetarget(handler: RetargetHandler): ComponentMeta {
+    if (!this.isRelationship) {
+      throw new Error("onRetarget can only be registered on a Relationship component");
+    }
+    (this._onRetargetHandlers ??= []).unshift(handler);
     return this;
   }
 

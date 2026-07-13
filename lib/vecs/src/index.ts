@@ -24,6 +24,7 @@ export {
   type ComponentClass,
   type ComponentMeta,
   type ComponentRef,
+  type RetargetHandler,
 } from "./component.js";
 export { Entity, type EID, type EntityClass, Identity } from "./entity/index.js";
 export { Module, type ModuleConfig } from "./module.js";

@@ -28,8 +28,8 @@ export class SilenceSource extends Relationship {}
  * world.component(Inventory).add(OwnedTarget);
  * ```
  *
- * Ownership is sticky: retargeting or removing the marked relationship does
- * not remove `ChildOf` from targets it previously owned.
+ * Retargeting destroys the displaced target, and removing the relationship
+ * destroys its current target.
  */
 export class OwnedTarget {}
 

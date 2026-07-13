@@ -187,7 +187,8 @@ world.component(Inventory).add(OwnedTarget);
 const inventory = player.ensureTarget(Inventory); // inventory is ChildOf player
 ```
 
-`OwnedTarget` ownership is sticky across retargeting and relationship removal.
+`OwnedTarget` destroys displaced targets on retarget and destroys the current target when the
+relationship is removed, keeping aggregate cleanup aligned with the active relationship.
 
 - **`Relationship.target` is an `Entity` — not directly serialisable, but
   relationships can be networked** when listed in `networkComponents`.

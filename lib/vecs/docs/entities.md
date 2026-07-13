@@ -125,8 +125,9 @@ const inventory = player.ensureTarget(Inventory);
 inventory.parent === player; // true after deferred changes flush
 ```
 
-The relationship module adds `ChildOf` whenever `Inventory` is set, so destroying `player` also
-destroys `inventory`. See [Relationships](./relationships.md#owned-targets).
+The relationship module adds `ChildOf` whenever `Inventory` is set, destroys displaced targets on
+retarget, and destroys the current target when the relationship is removed. Destroying `player`
+therefore also destroys `inventory`. See [Relationships](./relationships.md#owned-targets).
 
 Calling `getMut(C)` or `ensure(C)` without a callback outside deferred mode throws. Both methods
 also throw for relationship components (retarget with `set` instead — see
@@ -182,6 +183,7 @@ Any entity can serve as a component key: `other.add(keyEntity)` attaches a marke
 type id is the key entity's eid. The key entity's `meta` (created lazily) carries the same hook
 and policy surface as a registered class, and `keyEntity.onAdd/onSet/onRemove(...)` register hooks
 directly. This is how tag-like, runtime-created component types work without declaring a class.
+Registered relationship component entities additionally expose `onRetarget(...)`.
 
 ## Relationships, in brief
 
@@ -223,4 +225,5 @@ is in [Relationships](./relationships.md).
 | `parent` / `parent = p`                        | Getter/setter for the built-in `ChildOf` target; assigning `undefined` removes `ChildOf`.           |
 | `destroyed` / `alive`                          | `true` when the entity has been / has not been destroyed (marked for deletion).                     |
 | `onAdd/onSet/onRemove(handler)`                | Register hooks for this entity used as a component key. Return `this`.                              |
+| `onRetarget(handler)`                          | Register a retarget hook on a relationship component entity.                                        |
 | `toString()`                                   | Returns `"EntityN"`.                                                                                |

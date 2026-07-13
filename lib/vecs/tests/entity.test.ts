@@ -843,4 +843,73 @@ describe("Entity — relationship navigation", () => {
       /requires a Relationship/
     );
   });
+
+  it("onRetarget fires only after an existing relationship changes targets", () => {
+    const w = new World();
+    const relationship = w.component(FriendOf);
+    const source = w.entity();
+    const first = w.entity();
+    const second = w.entity();
+    const onRetarget = vi.fn((entity: Entity, oldTarget: Entity, newTarget: Entity) => {
+      expect(entity.target(FriendOf)).toBe(newTarget);
+      expect(oldTarget.children(FriendOf).has(entity)).toBe(false);
+      expect(newTarget.children(FriendOf).has(entity)).toBe(true);
+    });
+    relationship.onRetarget(onRetarget);
+
+    source.set(FriendOf, { target: first });
+    source.set(FriendOf, { target: first });
+    expect(onRetarget).not.toHaveBeenCalled();
+
+    source.set(FriendOf, { target: second });
+    expect(onRetarget).toHaveBeenCalledOnce();
+    expect(onRetarget).toHaveBeenCalledWith(source, first, second);
+
+    source.remove(FriendOf);
+    expect(onRetarget).toHaveBeenCalledOnce();
+  });
+
+  it("onRetarget handles attach replacement and deferred dispatch", () => {
+    const w = new World();
+    const relationship = w.component(FriendOf);
+    const source = w.entity();
+    const first = w.entity();
+    const second = w.entity();
+    const onRetarget = vi.fn();
+    relationship.onRetarget(onRetarget);
+    source.set(FriendOf, { target: first });
+    const replacement = new FriendOf();
+    replacement.target = second;
+
+    w.defer(() => {
+      source.attach(replacement);
+      expect(onRetarget).not.toHaveBeenCalled();
+    });
+
+    expect(onRetarget).toHaveBeenCalledWith(source, first, second);
+  });
+
+  it("onRetarget fires before onSet for a retarget", () => {
+    const w = new World();
+    const relationship = w.component(FriendOf);
+    const source = w.entity();
+    const events: string[] = [];
+    relationship.onSet(() => events.push("set"));
+    relationship.onRetarget(() => events.push("retarget"));
+    source.set(FriendOf, { target: w.entity() });
+    events.length = 0;
+
+    source.set(FriendOf, { target: w.entity() });
+
+    expect(events).toEqual(["retarget", "set"]);
+  });
+
+  it("onRetarget rejects non-relationship components", () => {
+    const w = new World();
+    const position = w.component(Position);
+
+    expect(() => position.onRetarget(vi.fn())).toThrow(
+      "onRetarget can only be registered on a Relationship component"
+    );
+  });
 });
