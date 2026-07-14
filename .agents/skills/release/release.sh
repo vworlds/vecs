@@ -128,12 +128,13 @@ if ! git rev-parse --verify "$MASTER_BRANCH" > /dev/null 2>&1; then
   git branch --track "$MASTER_BRANCH" "$REMOTE_MASTER"
 else
   LOCAL_MASTER_TIP="$(git rev-parse "$MASTER_BRANCH")"
-  if ! git merge-base --is-ancestor "$LOCAL_MASTER_TIP" "$REMOTE_MASTER"; then
+  if git merge-base --is-ancestor "$REMOTE_MASTER" "$LOCAL_MASTER_TIP"; then
+    : # Local master already contains the remote master.
+  elif git merge-base --is-ancestor "$LOCAL_MASTER_TIP" "$REMOTE_MASTER"; then
+    git merge --ff-only "$REMOTE_MASTER"
+  else
     err "Local $MASTER_BRANCH has diverged from $REMOTE_MASTER. Resolve manually."
     exit 1
-  fi
-  if [ "$LOCAL_MASTER_TIP" != "$MASTER_TIP" ]; then
-    git merge --ff-only "$REMOTE_MASTER"
   fi
 fi
 
