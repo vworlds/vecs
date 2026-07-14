@@ -5,6 +5,10 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs]: Added `Entity.ensure` for get-or-create mutation of missing components, including deferred-mode routing and validation for destroyed entities, relationships, interface aliases, and duplicate pending creation.
+- [vecs]: Added `Entity.ensureTarget` for independently creating or reusing relationship targets, including deferred deduplication and safe handling when targets are destroyed.
+- [vecs]: Added the `OwnedTarget` relationship trait, which makes relationship targets children of their source and now destroys displaced targets on retarget and the active target on relationship removal.
+- [vecs]: Added the relationship `onRetarget` lifecycle hook, fired after an existing relationship changes to a different target and after reverse indexes reflect the new target.
 - [vecs]: Added comprehensive documentation for component traits (`Singleton`, `Implements`, `Traversable`, `OwnedTarget`) and the owned target entity pattern across the docs suite. New `lib/vecs/skills/vecs/SKILL.md` agent skill for vecs application development codifying ECS-first design principles.
 
 ## v1.0.43 (2026-07-11)
