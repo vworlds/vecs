@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs]: Added comprehensive documentation for component traits (`Singleton`, `Implements`, `Traversable`, `OwnedTarget`) and the owned target entity pattern across the docs suite. New `lib/vecs/skills/vecs/SKILL.md` agent skill for vecs application development codifying ECS-first design principles.
+
 ## v1.0.43 (2026-07-11)
 
 - [vecs-phaser]: Split display parenting into explicit modes: `DrawIn` remains native Phaser `Container` parenting, and new `DrawBy` (wire type 22) represents computed parenting against a renderable parent. `DrawIn` and `DrawBy` are exclusive, both detach children with `CleanupPolicy.Remove`, and `DrawBy` participates in traversal so cascade queries can reach computed display children.
