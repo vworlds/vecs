@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-phaser",
-  "version": "1.0.44",
+  "version": "1.0.45",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -24,8 +24,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@vworlds/vecs": "1.0.44",
-    "@vworlds/vecs-wire": "1.0.44"
+    "@vworlds/vecs": "1.0.45",
+    "@vworlds/vecs-wire": "1.0.45"
   },
   "publishConfig": {
     "access": "public"
