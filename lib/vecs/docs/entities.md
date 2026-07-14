@@ -123,11 +123,14 @@ world.component(Inventory).add(OwnedTarget);
 
 const inventory = player.ensureTarget(Inventory);
 inventory.parent === player; // true after deferred changes flush
+
+player.add(Inventory); // also creates an owned target
 ```
 
-The relationship module adds `ChildOf` whenever `Inventory` is set, destroys displaced targets on
-retarget, and destroys the current target when the relationship is removed. Destroying `player`
-therefore also destroys `inventory`. See [Relationships](./relationships.md#owned-targets).
+The relationship module creates a target when an owned relationship is added, adds `ChildOf`
+whenever `Inventory` is assigned, destroys displaced targets on retarget, and destroys the current
+target when the relationship is removed. Destroying `player` therefore also destroys `inventory`.
+See [Relationships](./relationships.md#owned-targets).
 
 Calling `getMut(C)` or `ensure(C)` without a callback outside deferred mode throws. Both methods
 also throw for relationship components (retarget with `set` instead — see

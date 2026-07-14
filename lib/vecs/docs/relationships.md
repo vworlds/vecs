@@ -84,12 +84,26 @@ player.destroy();
 inventory.destroyed === true; // ChildOf cascades deletion
 ```
 
-`OwnedTarget` installs `onSet`, `onRetarget`, and `onRemove` hooks on `Inventory`. New targets become
-`ChildOf` children, displaced targets are destroyed on retarget, and the current target is destroyed
-when the relationship is removed (including source destruction). During deferred execution, these
+Use `add` when the relationship itself represents a feature and initialization belongs in an
+`onAdd` hook or system `enter` callback:
+
+```ts
+world.component(Inventory).add(OwnedTarget);
+
+player.add(Inventory);
+const inventory = player.target(Inventory)!; // target was created by OwnedTarget
+```
+
+`OwnedTarget` wraps `onAdd`, `onSet`, `onRetarget`, and `onRemove` on `Inventory`. Adding the
+relationship creates a target when needed. New targets become `ChildOf` children, displaced targets
+are destroyed on retarget, and the current target is destroyed when the relationship is removed
+(including source destruction). Ownership behavior runs before the relationship owner's existing
+hook, so owner hooks and query entry observe an initialized target. During deferred execution, these
 changes apply while the command queue drains.
 
 Configure the trait before creating relationship instances; it does not backfill existing targets.
+Configure owner lifecycle hooks before attaching the trait, because later hook assignment replaces
+the wrapper and its ownership behavior.
 Do not share one owned target between several sources: retargeting or removing any owning
 relationship can destroy it. `OwnedTarget` rejects ordinary components and `ChildOf` itself.
 
@@ -210,7 +224,7 @@ the box — the world's default pipeline is itself a `cascade: DependsOn` query 
 | `e.children(R)`                                     | `ReadonlySet<Entity>` of sources targeting `e` through `R`.                             |
 | `e.childOf(parent)`                                 | Shorthand for `e.set(ChildOf, { target: parent })`.                                     |
 | `e.ensureTarget(R)`                                 | Return `R`'s target, creating an independent entity when absent.                        |
-| `world.component(R).add(OwnedTarget)`               | Make targets assigned through `R` into `ChildOf` children of their sources.             |
+| `world.component(R).add(OwnedTarget)`               | Create and own `R` targets as `ChildOf` children of their sources.                      |
 | `world.component(R).onRetarget(handler?)`           | Get, set, or remove the single retarget handler.                                        |
 | `e.parent` / `e.parent = p`                         | Getter/setter for the built-in `ChildOf` target; setting `undefined` removes `ChildOf`. |
 | `meta.onDeleteTarget`                               | `Remove` (default) or `Delete` cascade when a target is destroyed.                      |

@@ -26,9 +26,10 @@ export {
  * or removed.
  *
  * When a relationship component entity has `OwnedTarget` attached, the module
- * installs hooks that make each target a `ChildOf` child of its source and
- * destroy targets when displaced or removed. Configure this trait during world
- * setup, before creating relationship instances.
+ * wraps its hooks so adding the relationship creates a target when needed,
+ * every target becomes a `ChildOf` child of its source, and targets are
+ * destroyed when displaced or removed. Configure this trait after the
+ * relationship's owner hooks and before creating relationship instances.
  *
  * Depth is computed by walking `entity.target(relEid)` to the root. When an
  * entity's depth changes, every descendant is recursively recomputed.
@@ -49,15 +50,30 @@ export class RelationshipsModule extends Module {
       if (rel === childOf) {
         throw new Error("OwnedTarget cannot be added to ChildOf");
       }
+
+      const onAdd = rel.onAdd();
+      const onSet = rel.onSet();
+      const onRetarget = rel.onRetarget();
+      const onRemove = rel.onRemove();
+
       rel
+        .onAdd((source: Entity, component): void => {
+          const relationship = component as Relationship;
+          relationship.target ??= world.entity();
+          relationship.target.childOf(source);
+          onAdd?.(source, component);
+        })
         .onSet((source: Entity, relationship): void => {
           (relationship as Relationship).target.childOf(source);
+          onSet?.(source, relationship);
         })
-        .onRetarget((_source: Entity, oldTarget: Entity): void => {
+        .onRetarget((source: Entity, oldTarget: Entity, newTarget: Entity): void => {
           oldTarget.destroy();
+          onRetarget?.(source, oldTarget, newTarget);
         })
-        .onRemove((_source: Entity, relationship): void => {
+        .onRemove((source: Entity, relationship): void => {
           (relationship as Relationship).target.destroy();
+          onRemove?.(source, relationship);
         });
     });
 

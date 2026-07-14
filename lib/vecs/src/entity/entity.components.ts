@@ -104,17 +104,34 @@ export class Components extends Relationships {
     if (this._destroyed) {
       return;
     }
+
+    if (meta.isRelationship) {
+      const existing = this._components.get(meta.eid) as Relationship | undefined;
+      const oldTarget = existing?.target;
+      let relationship = existing;
+
+      if (relationship) {
+        if (props === undefined) {
+          return;
+        }
+        Object.assign(relationship, props);
+      } else {
+        relationship = this._new(meta, props) as Relationship;
+      }
+
+      this._updateIncoming(meta, oldTarget, relationship.target);
+      if (props !== undefined) {
+        this._notifyComponentSet(meta, relationship, existing !== undefined);
+      }
+      return;
+    }
+
     const existing = this._components.get(meta.eid);
-    const oldTarget = meta.isRelationship
-      ? (existing as Relationship | undefined)?.target
-      : undefined;
     const c = existing ?? this._new(meta, props);
     if (props !== undefined) {
       if (existing) {
         Object.assign(c, props);
       }
-      const newTarget = (c as Relationship).target;
-      this._updateIncoming(meta, oldTarget, newTarget);
       this._notifyComponentSet(meta, c, existing !== undefined);
     }
   }

@@ -10,6 +10,7 @@ import {
 
 class ParentOf extends Relationship {}
 class Inventory extends Relationship {}
+class InventoryState {}
 class NotRelationship {}
 
 function depthOf(w: World, entity: unknown): number | undefined {
@@ -35,6 +36,48 @@ describe("RelationshipsModule", () => {
     expect(inventory.parent).toBe(player);
     player.destroy();
     expect(inventory.destroyed).toBe(true);
+  });
+
+  it("creates an owned target when the relationship is added", () => {
+    const w = new World();
+    w.component(Inventory).add(OwnedTarget);
+    const player = w.entity().add(Inventory);
+
+    const inventory = player.target(Inventory)!;
+
+    expect(inventory.parent).toBe(player);
+    expect(inventory.children(Inventory)).toContain(player);
+  });
+
+  it("initializes an added target before the owner's onAdd hook", () => {
+    const w = new World();
+    const relationship = w.component(Inventory);
+    const targets: Entity[] = [];
+    relationship.onAdd((source, inventory) => {
+      expect(inventory.target.parent).toBe(source);
+      targets.push(inventory.target);
+    });
+    relationship.add(OwnedTarget);
+    const player = w.entity();
+
+    player.add(Inventory);
+
+    expect(targets).toEqual([player.target(Inventory)]);
+  });
+
+  it("makes an added target available to deferred query entry", () => {
+    const w = new World();
+    w.component(Inventory).add(OwnedTarget);
+    w.component(InventoryState);
+    w.query("inventory setup")
+      .with(Inventory)
+      .enter((player) => player.target(Inventory)!.add(InventoryState))
+      .build();
+    const player = w.entity();
+
+    w.defer(() => player.add(Inventory));
+
+    expect(player.target(Inventory)?.has(InventoryState)).toBe(true);
   });
 
   it("parents an ensured target when deferred changes flush", () => {
@@ -90,6 +133,37 @@ describe("RelationshipsModule", () => {
     player.remove(Inventory);
 
     expect(second.destroyed).toBe(true);
+  });
+
+  it("chains existing owner hooks after OwnedTarget behavior", () => {
+    const w = new World();
+    const relationship = w.component(Inventory);
+    const calls: string[] = [];
+    relationship
+      .onSet((_source, inventory) => {
+        calls.push(`set:${inventory.target.parent?.eid}`);
+      })
+      .onRetarget((_source, oldTarget) => {
+        calls.push(`retarget:${oldTarget.destroyed}`);
+      })
+      .onRemove((_source, inventory) => {
+        calls.push(`remove:${inventory.target.destroyed}`);
+      })
+      .add(OwnedTarget);
+    const player = w.entity();
+    const first = w.entity();
+    const second = w.entity();
+
+    player.set(Inventory, { target: first });
+    player.set(Inventory, { target: second });
+    player.remove(Inventory);
+
+    expect(calls).toEqual([
+      `set:${player.eid}`,
+      "retarget:true",
+      `set:${player.eid}`,
+      "remove:true",
+    ]);
   });
 
   it("rejects OwnedTarget on non-relationships and ChildOf", () => {

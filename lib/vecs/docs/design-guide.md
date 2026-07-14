@@ -211,10 +211,13 @@ entity. For aggregate parts whose lifetime should remain bound to the source onc
 ```ts
 world.component(Inventory).add(OwnedTarget);
 const inventory = player.ensureTarget(Inventory); // inventory is ChildOf player
+player.add(Inventory); // also creates an owned target
 ```
 
-`OwnedTarget` destroys displaced targets on retarget and destroys the current target when the
-relationship is removed, keeping aggregate cleanup aligned with the active relationship.
+`OwnedTarget` creates a target when the relationship is added, destroys displaced targets on
+retarget, and destroys the current target when the relationship is removed, keeping aggregate
+cleanup aligned with the active relationship. Configure the relationship owner's lifecycle hooks
+before attaching the trait; it wraps those hooks and runs ownership first.
 
 - **`Relationship.target` is an `Entity` — not directly serialisable, but
   relationships can be networked** when listed in `networkComponents`.
@@ -627,6 +630,7 @@ The lifecycle follows from the relationship and trait:
 
 | Operation                              | Result                                   |
 | -------------------------------------- | ---------------------------------------- |
+| `player.add(Inventory)`                | Creates the inventory entity             |
 | First `player.ensureTarget(Inventory)` | Creates and returns the inventory entity |
 | Later `ensureTarget(Inventory)`        | Returns the same target                  |
 | Retarget `Inventory`                   | Destroys the displaced inventory         |

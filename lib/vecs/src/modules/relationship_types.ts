@@ -26,10 +26,13 @@ export class SilenceSource extends Relationship {}
  *
  * ```ts
  * world.component(Inventory).add(OwnedTarget);
+ * player.add(Inventory); // creates an owned target
  * ```
  *
- * Retargeting destroys the displaced target, and removing the relationship
- * destroys its current target.
+ * Adding the relationship creates a target when none was supplied. Retargeting
+ * destroys the displaced target, and removing the relationship destroys its
+ * current target. Configure owner lifecycle hooks before attaching this trait;
+ * the trait wraps them and runs ownership behavior first.
  */
 export class OwnedTarget {}
 

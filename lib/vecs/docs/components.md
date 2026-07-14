@@ -129,7 +129,8 @@ enforce it. Configure traits in feature-module setup rather than opportunistical
 Do not assume all traits have the same lifecycle:
 
 - Add `Singleton` before component instances exist.
-- Add `OwnedTarget` before relationship instances exist; it does not backfill.
+- Configure owner hooks, then add `OwnedTarget`, before relationship instances exist; it wraps the
+  current hooks and does not backfill.
 - `Traversable` backfills existing relationship instances.
 - Setting or removing `Implements` recomputes interface aliases.
 
