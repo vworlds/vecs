@@ -82,10 +82,7 @@ export class Lifecycle extends Components {
         this.componentBitmask.deleteBit(componentMeta.bitPtr);
         this.world._notifyComponentRemoved(ceid, entity);
         componentMeta._decrementUsage();
-        const removeHandlers = componentMeta._onRemoveHandlers;
-        if (removeHandlers) {
-          removeHandlers.forEach((handler) => handler(entity, c));
-        }
+        componentMeta._onRemove?.(entity, c);
       });
       this._dirtyComponentBitmask.clear();
       this._queries.clear();

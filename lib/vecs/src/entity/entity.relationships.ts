@@ -62,9 +62,7 @@ export class Relationships extends Queries {
     this._removeIncoming(oldTarget, meta.eid);
     this._addIncoming(newTarget, meta.eid);
     if (oldTarget && newTarget) {
-      meta._onRetargetHandlers?.forEach((handler) =>
-        handler(this as unknown as Entity, oldTarget, newTarget)
-      );
+      meta._onRetarget?.(this as unknown as Entity, oldTarget, newTarget);
     }
   }
 }

@@ -180,22 +180,40 @@ describe("Hook", () => {
     expect(result).toBe(w.component(Health));
   });
 
-  it("repeated hook registrations stack in registration order", () => {
+  it("hook handlers can be read, replaced, and removed", () => {
     const w = new World();
-    w.component(Health);
+    const component = w.component(Health);
     const calls: string[] = [];
-    w.component(Health)
-      .onAdd(() => calls.push("add 1"))
-      .onAdd(() => calls.push("add 2"))
-      .onSet(() => calls.push("set 1"))
-      .onSet(() => calls.push("set 2"))
-      .onRemove(() => calls.push("remove 1"))
-      .onRemove(() => calls.push("remove 2"));
+    const add = () => calls.push("add");
+    const set = () => calls.push("set");
+    const remove = () => calls.push("remove");
+
+    expect(component.onAdd()).toBeUndefined();
+    expect(component.onSet()).toBeUndefined();
+    expect(component.onRemove()).toBeUndefined();
+
+    component.onAdd(() => calls.push("replaced add")).onAdd(add);
+    component.onSet(() => calls.push("replaced set")).onSet(set);
+    component.onRemove(() => calls.push("replaced remove")).onRemove(remove);
+
+    expect(component.onAdd()).toBe(add);
+    expect(component.onSet()).toBe(set);
+    expect(component.onRemove()).toBe(remove);
 
     const e = w.entity();
     e.set(Health, {});
     e.remove(Health);
 
-    expect(calls).toEqual(["add 2", "add 1", "set 2", "set 1", "remove 2", "remove 1"]);
+    expect(calls).toEqual(["add", "set", "remove"]);
+
+    expect(component.onAdd(undefined)).toBe(component);
+    expect(component.onSet(undefined)).toBe(component);
+    expect(component.onRemove(undefined)).toBe(component);
+    expect(component.onAdd()).toBeUndefined();
+    expect(component.onSet()).toBeUndefined();
+    expect(component.onRemove()).toBeUndefined();
+
+    w.entity().set(Health, {}).remove(Health);
+    expect(calls).toEqual(["add", "set", "remove"]);
   });
 });

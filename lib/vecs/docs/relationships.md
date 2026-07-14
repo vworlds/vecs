@@ -202,19 +202,19 @@ the box — the world's default pipeline is itself a `cascade: DependsOn` query 
 
 ## Reference
 
-| API                                                 | Description                                                                              |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `class R extends Relationship {}`                   | Declare a relationship component with a `target: Entity` field.                          |
-| `e.set(R, { target })`                              | Create or retarget the relationship.                                                     |
-| `e.target(R)`                                       | The target entity through relationship `R`, or `undefined`.                              |
-| `e.children(R)`                                     | `ReadonlySet<Entity>` of sources targeting `e` through `R`.                              |
-| `e.childOf(parent)`                                 | Shorthand for `e.set(ChildOf, { target: parent })`.                                      |
-| `e.ensureTarget(R)`                                 | Return `R`'s target, creating an independent entity when absent.                         |
-| `world.component(R).add(OwnedTarget)`               | Make targets assigned through `R` into `ChildOf` children of their sources.              |
-| `world.component(R).onRetarget(handler)`            | React after `R` moves between existing targets; receives source, old target, new target. |
-| `e.parent` / `e.parent = p`                         | Getter/setter for the built-in `ChildOf` target; setting `undefined` removes `ChildOf`.  |
-| `meta.onDeleteTarget`                               | `Remove` (default) or `Delete` cascade when a target is destroyed.                       |
-| `world.component(R).add(Traversable)`               | Enable depth tracking for `cascade` ordering.                                            |
-| `{ target: [R, q] }` / `{ parent: q }`              | Reactive DSL operators through the relationship.                                         |
-| `{ source: [R, q] }` / `{ children: q }`            | Filter-only DSL operators down the reverse index.                                        |
-| `{ target: [R, [C...]] }` / `{ down: [R, [C...]] }` | Injection markers; see [Systems](./systems.md#relationship-injection-target-and-down).   |
+| API                                                 | Description                                                                             |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `class R extends Relationship {}`                   | Declare a relationship component with a `target: Entity` field.                         |
+| `e.set(R, { target })`                              | Create or retarget the relationship.                                                    |
+| `e.target(R)`                                       | The target entity through relationship `R`, or `undefined`.                             |
+| `e.children(R)`                                     | `ReadonlySet<Entity>` of sources targeting `e` through `R`.                             |
+| `e.childOf(parent)`                                 | Shorthand for `e.set(ChildOf, { target: parent })`.                                     |
+| `e.ensureTarget(R)`                                 | Return `R`'s target, creating an independent entity when absent.                        |
+| `world.component(R).add(OwnedTarget)`               | Make targets assigned through `R` into `ChildOf` children of their sources.             |
+| `world.component(R).onRetarget(handler?)`           | Get, set, or remove the single retarget handler.                                        |
+| `e.parent` / `e.parent = p`                         | Getter/setter for the built-in `ChildOf` target; setting `undefined` removes `ChildOf`. |
+| `meta.onDeleteTarget`                               | `Remove` (default) or `Delete` cascade when a target is destroyed.                      |
+| `world.component(R).add(Traversable)`               | Enable depth tracking for `cascade` ordering.                                           |
+| `{ target: [R, q] }` / `{ parent: q }`              | Reactive DSL operators through the relationship.                                        |
+| `{ source: [R, q] }` / `{ children: q }`            | Filter-only DSL operators down the reverse index.                                       |
+| `{ target: [R, [C...]] }` / `{ down: [R, [C...]] }` | Injection markers; see [Systems](./systems.md#relationship-injection-target-and-down).  |

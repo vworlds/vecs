@@ -1,5 +1,5 @@
 import { Entity } from "./entity/index.js";
-import type { ComponentInstance, ComponentType } from "./component_meta.js";
+import type { ComponentType, HookHandler } from "./component_meta.js";
 
 export {
   CleanupPolicy,
@@ -12,58 +12,71 @@ export {
   type ComponentRefArray,
   type ComponentType,
   type Hook,
+  type HookHandler,
   type RetargetHandler,
 } from "./component_meta.js";
 
 /** A component entity created by {@link World.component}. */
 export class Component<T extends ComponentType = ComponentType> extends Entity {
   /**
-   * Register a callback fired each time this component is **added** to an entity.
+   * Get or set the callback fired each time this component is **added** to an entity.
    *
    * The handler is called with the owning entity and the freshly created
    * component instance. Use it to initialise external state (e.g. scene objects)
    * that should exist for the lifetime of the component.
    *
-   * @param handler - Callback invoked with `(entity, componentInstance)`.
-   * @returns This `Component` entity, for chaining.
+   * Call without an argument to return the current handler. Pass `undefined` to remove it.
+   *
+   * @param handler - Callback invoked with `(entity, componentInstance)`, or `undefined`.
+   * @returns The current handler when called without an argument; otherwise this component.
    *
    * @example
    * ```ts
    * world.component(Sprite).onAdd((entity, sprite) => sprite.initialize(scene));
    * ```
    */
-  public override onAdd(handler: (entity: Entity, c: InstanceType<T>) => void): this;
-  public override onAdd(handler: (entity: Entity, c: ComponentInstance) => void): this;
-  public override onAdd(handler: (entity: Entity, c: any) => void): this {
-    super.onAdd(handler as (entity: Entity, c: ComponentInstance) => void);
+  public override onAdd(): HookHandler | undefined;
+  public override onAdd(handler: HookHandler<InstanceType<T>> | undefined): this;
+  public override onAdd(handler: HookHandler | undefined): this;
+  public override onAdd(handler?: any): this | HookHandler | undefined {
+    if (arguments.length === 0) {
+      return super.onAdd();
+    }
+    super.onAdd(handler);
     return this;
   }
 
   /**
-   * Register a callback fired each time this component is **removed** from an
+   * Get or set the callback fired each time this component is **removed** from an
    * entity, or when the owning entity is destroyed.
    *
    * The handler is called with the owning entity and the component instance that
    * is about to be detached. Use it to clean up any external state associated
    * with the component.
    *
-   * @param handler - Callback invoked with `(entity, componentInstance)`.
-   * @returns This `Component` entity, for chaining.
+   * Call without an argument to return the current handler. Pass `undefined` to remove it.
+   *
+   * @param handler - Callback invoked with `(entity, componentInstance)`, or `undefined`.
+   * @returns The current handler when called without an argument; otherwise this component.
    *
    * @example
    * ```ts
    * world.component(Sprite).onRemove((entity, sprite) => sprite.destroy(scene));
    * ```
    */
-  public override onRemove(handler: (entity: Entity, c: InstanceType<T>) => void): this;
-  public override onRemove(handler: (entity: Entity, c: ComponentInstance) => void): this;
-  public override onRemove(handler: (entity: Entity, c: any) => void): this {
-    super.onRemove(handler as (entity: Entity, c: ComponentInstance) => void);
+  public override onRemove(): HookHandler | undefined;
+  public override onRemove(handler: HookHandler<InstanceType<T>> | undefined): this;
+  public override onRemove(handler: HookHandler | undefined): this;
+  public override onRemove(handler?: any): this | HookHandler | undefined {
+    if (arguments.length === 0) {
+      return super.onRemove();
+    }
+    super.onRemove(handler);
     return this;
   }
 
   /**
-   * Register a callback fired each time this component's data is **set or
+   * Get or set the callback fired each time this component's data is **set or
    * modified**.
    *
    * Fires when:
@@ -77,18 +90,24 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * Component instances do not carry entity references, which is why the entity
    * is passed explicitly.
    *
-   * @param handler - Callback invoked with `(entity, componentInstance)`.
-   * @returns This `Component` entity, for chaining.
+   * Call without an argument to return the current handler. Pass `undefined` to remove it.
+   *
+   * @param handler - Callback invoked with `(entity, componentInstance)`, or `undefined`.
+   * @returns The current handler when called without an argument; otherwise this component.
    *
    * @example
    * ```ts
    * world.component(Transform).onSet((entity, t) => renderer.syncTransform(entity.eid, t));
    * ```
    */
-  public override onSet(handler: (entity: Entity, c: InstanceType<T>) => void): this;
-  public override onSet(handler: (entity: Entity, c: ComponentInstance) => void): this;
-  public override onSet(handler: (entity: Entity, c: any) => void): this {
-    super.onSet(handler as (entity: Entity, c: ComponentInstance) => void);
+  public override onSet(): HookHandler | undefined;
+  public override onSet(handler: HookHandler<InstanceType<T>> | undefined): this;
+  public override onSet(handler: HookHandler | undefined): this;
+  public override onSet(handler?: any): this | HookHandler | undefined {
+    if (arguments.length === 0) {
+      return super.onSet();
+    }
+    super.onSet(handler);
     return this;
   }
 }

@@ -5,6 +5,7 @@ import {
   type ComponentInstance,
   type ComponentRef,
   type ComponentType,
+  type HookHandler,
   type RetargetHandler,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
@@ -91,10 +92,7 @@ export class Components extends Relationships {
     this._components.delete(meta.eid);
     this.world._notifyComponentChanged(meta.eid, this as unknown as Entity);
     meta._decrementUsage();
-    const removeHandlers = meta._onRemoveHandlers;
-    if (removeHandlers) {
-      removeHandlers.forEach((handler) => handler(this as unknown as Entity, c));
-    }
+    meta._onRemove?.(this as unknown as Entity, c);
   }
 
   /**
@@ -542,7 +540,7 @@ export class Components extends Relationships {
 
   /** @internal Perform one set-side hook and query update without expanding aliases. */
   protected _notifyRaw(meta: ComponentMeta, instance: ComponentInstance, isUpdate: boolean): void {
-    meta._onSetHandlers?.forEach((handler) => handler(this as unknown as Entity, instance));
+    meta._onSet?.(this as unknown as Entity, instance);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (isUpdate) {
       this.world._notifyComponentChanged(meta.eid, this as unknown as Entity);
@@ -591,7 +589,7 @@ export class Components extends Relationships {
       meta._incrementUsage();
     }
     if (isAdd && !existing) {
-      meta._onAddHandlers?.forEach((handler) => handler(this as unknown as Entity, instance));
+      meta._onAdd?.(this as unknown as Entity, instance);
     }
     if (!existing) {
       this.world._notifyComponentAdded(meta.eid, this as unknown as Entity);
@@ -606,28 +604,66 @@ export class Components extends Relationships {
     }
   }
 
-  public onAdd(handler: (entity: Entity, c: ComponentInstance) => void): this {
+  /** Return the current add hook, or `undefined` when none is set. */
+  public onAdd(): HookHandler | undefined;
+
+  /** Set the add hook, or remove it by passing `undefined`. */
+  public onAdd(handler: HookHandler | undefined): this;
+
+  public onAdd(handler?: HookHandler): this | HookHandler | undefined {
+    if (arguments.length === 0) {
+      return this.meta.onAdd();
+    }
     this.meta.onAdd(handler);
     return this;
   }
 
-  public onRemove(handler: (entity: Entity, c: ComponentInstance) => void): this {
+  /** Return the current remove hook, or `undefined` when none is set. */
+  public onRemove(): HookHandler | undefined;
+
+  /** Set the remove hook, or remove it by passing `undefined`. */
+  public onRemove(handler: HookHandler | undefined): this;
+
+  public onRemove(handler?: HookHandler): this | HookHandler | undefined {
+    if (arguments.length === 0) {
+      return this.meta.onRemove();
+    }
     this.meta.onRemove(handler);
     return this;
   }
 
   /**
-   * Register a handler fired after this relationship moves between existing targets.
+   * Return the current retarget hook, or `undefined` when none is set.
+   */
+  public onRetarget(): RetargetHandler | undefined;
+
+  /**
+   * Set the handler fired after this relationship moves between existing targets. Pass
+   * `undefined` to remove the current handler.
    *
    * @param handler - Receives the source entity, previous target, and current target.
    * @returns This entity, for chaining.
    */
-  public onRetarget(handler: RetargetHandler): this {
+  public onRetarget(handler: RetargetHandler | undefined): this;
+
+  public onRetarget(handler?: RetargetHandler): this | RetargetHandler | undefined {
+    if (arguments.length === 0) {
+      return this.meta.onRetarget();
+    }
     this.meta.onRetarget(handler);
     return this;
   }
 
-  public onSet(handler: (entity: Entity, c: ComponentInstance) => void): this {
+  /** Return the current set hook, or `undefined` when none is set. */
+  public onSet(): HookHandler | undefined;
+
+  /** Set the set hook, or remove it by passing `undefined`. */
+  public onSet(handler: HookHandler | undefined): this;
+
+  public onSet(handler?: HookHandler): this | HookHandler | undefined {
+    if (arguments.length === 0) {
+      return this.meta.onSet();
+    }
     this.meta.onSet(handler);
     return this;
   }

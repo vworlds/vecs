@@ -15,6 +15,12 @@ export abstract class Relationship {
 /** Callback fired after a relationship moves from one existing target to another. */
 export type RetargetHandler = (source: Entity, oldTarget: Entity, newTarget: Entity) => void;
 
+/** Callback fired for a component lifecycle event. */
+export type HookHandler<C extends ComponentInstance = ComponentInstance> = (
+  entity: Entity,
+  component: C
+) => void;
+
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
 
@@ -56,28 +62,38 @@ export class Implements {
  * @typeParam C - Component class this hook is bound to.
  */
 export interface Hook<C extends ComponentInstance = ComponentInstance> {
+  /** Return the current add handler, or `undefined` when none is set. */
+  onAdd(): HookHandler<C> | undefined;
+
   /**
-   * Register a handler invoked when a component of this type is first attached
-   * to an entity (`entity.add(C)` or `entity.set(C, ...)` on an entity that
-   * does not yet have the component).
+   * Set the handler invoked when a component of this type is first attached to
+   * an entity (`entity.add(C)` or `entity.set(C, ...)` on an entity that does
+   * not yet have the component). Pass `undefined` to remove the current handler.
    *
    * @param handler - Receives the entity and freshly created component instance.
    * @returns This hook, for chaining.
    */
-  onAdd(handler: (entity: Entity, c: C) => void): Hook<C>;
+  onAdd(handler: HookHandler<C> | undefined): Hook<C>;
+
+  /** Return the current remove handler, or `undefined` when none is set. */
+  onRemove(): HookHandler<C> | undefined;
 
   /**
-   * Register a handler invoked when a component of this type is removed from
-   * an entity (explicit `entity.remove(C)` or implicit removal during
-   * `entity.destroy()`).
+   * Set the handler invoked when a component of this type is removed from an
+   * entity (explicit `entity.remove(C)` or implicit removal during
+   * `entity.destroy()`). Pass `undefined` to remove the current handler.
    *
    * @param handler - Receives the entity and component instance that was removed.
    * @returns This hook, for chaining.
    */
-  onRemove(handler: (entity: Entity, c: C) => void): Hook<C>;
+  onRemove(handler: HookHandler<C> | undefined): Hook<C>;
+
+  /** Return the current set handler, or `undefined` when none is set. */
+  onSet(): HookHandler<C> | undefined;
 
   /**
-   * Register a handler invoked when a component's data is set or modified.
+   * Set the handler invoked when a component's data is set or modified. Pass
+   * `undefined` to remove the current handler.
    *
    * Fires when:
    * - `entity.set(C, props)` applies data to the component.
@@ -89,7 +105,7 @@ export interface Hook<C extends ComponentInstance = ComponentInstance> {
    * @param handler - Receives the entity and component instance whose data changed.
    * @returns This hook, for chaining.
    */
-  onSet(handler: (entity: Entity, c: C) => void): Hook<C>;
+  onSet(handler: HookHandler<C> | undefined): Hook<C>;
 }
 
 /**
@@ -131,14 +147,14 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** @internal Component instances created by ensure operations but not yet attached. */
   public _pendingEnsures: WeakMap<Entity, ComponentInstance> | undefined;
 
-  /** @internal `onAdd` handlers, lazily allocated and prepended by {@link onAdd}. */
-  public _onAddHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
-  /** @internal `onRemove` handlers, lazily allocated and prepended by {@link onRemove}. */
-  public _onRemoveHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
-  /** @internal Relationship retarget handlers, lazily allocated and prepended. */
-  public _onRetargetHandlers: RetargetHandler[] | undefined;
-  /** @internal `onSet` handlers, lazily allocated and prepended by {@link onSet}. */
-  public _onSetHandlers: ((entity: Entity, c: ComponentInstance) => void)[] | undefined;
+  /** @internal Current `onAdd` handler. */
+  public _onAdd: HookHandler | undefined;
+  /** @internal Current `onRemove` handler. */
+  public _onRemove: HookHandler | undefined;
+  /** @internal Current relationship retarget handler. */
+  public _onRetarget: RetargetHandler | undefined;
+  /** @internal Current `onSet` handler. */
+  public _onSet: HookHandler | undefined;
 
   private _usageCount = 0;
 
@@ -167,34 +183,59 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   }
 
   /** @inheritdoc */
-  public onAdd(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
-    (this._onAddHandlers ??= []).unshift(handler);
+  public onAdd(): HookHandler | undefined;
+  public onAdd(handler: HookHandler | undefined): ComponentMeta;
+  public onAdd(handler?: HookHandler): ComponentMeta | HookHandler | undefined {
+    if (arguments.length === 0) {
+      return this._onAdd;
+    }
+    this._onAdd = handler;
     return this;
   }
 
   /** @inheritdoc */
-  public onRemove(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
-    (this._onRemoveHandlers ??= []).unshift(handler);
+  public onRemove(): HookHandler | undefined;
+  public onRemove(handler: HookHandler | undefined): ComponentMeta;
+  public onRemove(handler?: HookHandler): ComponentMeta | HookHandler | undefined {
+    if (arguments.length === 0) {
+      return this._onRemove;
+    }
+    this._onRemove = handler;
     return this;
   }
 
   /**
-   * Register a handler fired after this relationship changes between two existing targets.
+   * Return the current retarget handler, or `undefined` when none is set.
+   */
+  public onRetarget(): RetargetHandler | undefined;
+
+  /**
+   * Set the handler fired after this relationship changes between two existing targets. Pass
+   * `undefined` to remove the current handler.
    *
    * @param handler - Receives the source entity, previous target, and current target.
    * @returns This metadata object, for chaining.
    */
-  public onRetarget(handler: RetargetHandler): ComponentMeta {
+  public onRetarget(handler: RetargetHandler | undefined): ComponentMeta;
+  public onRetarget(handler?: RetargetHandler): ComponentMeta | RetargetHandler | undefined {
     if (!this.isRelationship) {
       throw new Error("onRetarget can only be registered on a Relationship component");
     }
-    (this._onRetargetHandlers ??= []).unshift(handler);
+    if (arguments.length === 0) {
+      return this._onRetarget;
+    }
+    this._onRetarget = handler;
     return this;
   }
 
   /** @inheritdoc */
-  public onSet(handler: (entity: Entity, c: ComponentInstance) => void): ComponentMeta {
-    (this._onSetHandlers ??= []).unshift(handler);
+  public onSet(): HookHandler | undefined;
+  public onSet(handler: HookHandler | undefined): ComponentMeta;
+  public onSet(handler?: HookHandler): ComponentMeta | HookHandler | undefined {
+    if (arguments.length === 0) {
+      return this._onSet;
+    }
+    this._onSet = handler;
     return this;
   }
 }

@@ -889,6 +889,31 @@ describe("Entity — relationship navigation", () => {
     expect(onRetarget).toHaveBeenCalledWith(source, first, second);
   });
 
+  it("onRetarget can be read, replaced, and removed", () => {
+    const w = new World();
+    const relationship = w.component(FriendOf);
+    const source = w.entity();
+    const first = w.entity();
+    const second = w.entity();
+    const third = w.entity();
+    const replaced = vi.fn();
+    const current = vi.fn();
+
+    expect(relationship.onRetarget()).toBeUndefined();
+    relationship.onRetarget(replaced).onRetarget(current);
+    expect(relationship.onRetarget()).toBe(current);
+
+    source.set(FriendOf, { target: first });
+    source.set(FriendOf, { target: second });
+    expect(replaced).not.toHaveBeenCalled();
+    expect(current).toHaveBeenCalledOnce();
+
+    expect(relationship.onRetarget(undefined)).toBe(relationship);
+    expect(relationship.onRetarget()).toBeUndefined();
+    source.set(FriendOf, { target: third });
+    expect(current).toHaveBeenCalledOnce();
+  });
+
   it("onRetarget fires before onSet for a retarget", () => {
     const w = new World();
     const relationship = w.component(FriendOf);

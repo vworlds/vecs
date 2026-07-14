@@ -99,6 +99,11 @@ command is applied (see [Execution model](./execution-model.md#reactive-routing)
 resource management and cross-cutting reactions that aren't worth a system; use systems when the
 reaction belongs to a phase.
 
+Each lifecycle event has one handler slot per component. Calling `onAdd(handler)`,
+`onSet(handler)`, `onRemove(handler)`, or `onRetarget(handler)` replaces the current handler and
+returns the component entity for chaining. Call the method without an argument to read the current
+handler, or pass `undefined` to remove it.
+
 ## Component traits: policy on component entities
 
 Registered components are themselves entities. Attach a configuration component to a component
@@ -306,13 +311,13 @@ interface markers for polymorphic dispatch — is in the
 A `Component<T>` is an `Entity` subclass, so the full [entity API](./entities.md#reference)
 applies. On top of it:
 
-| Member                | Description                                                          |
-| --------------------- | -------------------------------------------------------------------- |
-| `onAdd(handler)`      | Register an add hook. Returns the component entity for chaining.     |
-| `onRemove(handler)`   | Register a remove hook.                                              |
-| `onRetarget(handler)` | Register a relationship retarget hook. Throws for non-relationships. |
-| `onSet(handler)`      | Register a set/modified hook.                                        |
-| `meta`                | The `ComponentMeta` bookkeeping record.                              |
+| Member                 | Description                                                                |
+| ---------------------- | -------------------------------------------------------------------------- |
+| `onAdd(handler?)`      | Get, set, or remove the single add hook. Setter returns the component.     |
+| `onRemove(handler?)`   | Get, set, or remove the single remove hook.                                |
+| `onRetarget(handler?)` | Get, set, or remove the relationship retarget hook. Rejects non-relations. |
+| `onSet(handler?)`      | Get, set, or remove the single set/modified hook.                          |
+| `meta`                 | The `ComponentMeta` bookkeeping record.                                    |
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 

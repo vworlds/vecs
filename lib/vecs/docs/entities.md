@@ -181,9 +181,10 @@ it throws while carriers remain ([Components — cleanup policies](./components.
 
 Any entity can serve as a component key: `other.add(keyEntity)` attaches a marker component whose
 type id is the key entity's eid. The key entity's `meta` (created lazily) carries the same hook
-and policy surface as a registered class, and `keyEntity.onAdd/onSet/onRemove(...)` register hooks
-directly. This is how tag-like, runtime-created component types work without declaring a class.
-Registered relationship component entities additionally expose `onRetarget(...)`.
+and policy surface as a registered class, and `keyEntity.onAdd/onSet/onRemove(...)` get, set, or
+remove its single lifecycle handlers directly. This is how tag-like, runtime-created component
+types work without declaring a class. Registered relationship component entities additionally
+expose `onRetarget(...)`.
 
 ## Relationships, in brief
 
@@ -224,6 +225,6 @@ is in [Relationships](./relationships.md).
 | `childOf(parent)`                              | Shorthand for `set(ChildOf, { target: parent })`. Returns `this`.                                   |
 | `parent` / `parent = p`                        | Getter/setter for the built-in `ChildOf` target; assigning `undefined` removes `ChildOf`.           |
 | `destroyed` / `alive`                          | `true` when the entity has been / has not been destroyed (marked for deletion).                     |
-| `onAdd/onSet/onRemove(handler)`                | Register hooks for this entity used as a component key. Return `this`.                              |
-| `onRetarget(handler)`                          | Register a retarget hook on a relationship component entity.                                        |
+| `onAdd/onSet/onRemove(handler?)`               | Get, set, or remove this component key's single hook. Setters return `this`.                        |
+| `onRetarget(handler?)`                         | Get, set, or remove a relationship component entity's single retarget hook.                         |
 | `toString()`                                   | Returns `"EntityN"`.                                                                                |
