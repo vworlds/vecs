@@ -20,9 +20,10 @@ every idiom in the [Design guide](./design-guide.md) is a consequence of taking 
 | **System**               | A `Query` plus per-tick logic (`update`, `each`, `run`), assigned to one pipeline phase.                    |
 | **Query**                | A reactive, always-up-to-date set of entities matching a predicate, with `enter`/`exit`/`update` callbacks. |
 | **Filter**               | A non-reactive, one-shot scan: walks all world entities on each `forEach` call.                             |
-| **Hook**                 | Lightweight `onAdd` / `onRemove` / `onSet` callbacks registered per component class.                        |
+| **Hook**                 | Lightweight component callbacks (`onAdd` / `onSet` / `onRemove`, plus relationship `onRetarget`).           |
 | **Phase**                | Marker component for entities used as pipeline ordering anchors.                                            |
 | **Relationship**         | A component whose `target` field points at another entity, with reverse lookup and cleanup cascades.        |
+| **Component trait**      | Policy attached to a component entity, configuring every use of that component type.                        |
 | **Module**               | A unit of packaging: a class whose `init()` registers components, systems, phases, and policy.              |
 | **Exclusive components** | A group of components where at most one may exist on any entity at a time.                                  |
 | **Implements**           | Declares abstract/interface component aliases for a concrete component, for polymorphic queries.            |
@@ -42,6 +43,11 @@ It carries no methods that act on the world, no reference to its entity, and no 
 own. All behavior lives in systems (and, for small cross-cutting reactions, in hooks). This split
 is what makes composition work: any system can operate on any entity that happens to carry the
 right components, and adding a capability to an entity is just adding a component.
+
+Because a registered component is also an entity, it can itself carry components. Built-in
+**component traits** use that meta-ECS layer to declare reusable policy: `Singleton` constrains a
+component, `Implements` declares aliases, and `Traversable` / `OwnedTarget` configure relationships.
+The trait remains data; a module owns the hooks and metadata behavior it activates.
 
 Prefer many small, single-purpose components over one large one. An entity that never rotates
 simply omits `Rotation`; absence encodes "not applicable". See
@@ -77,7 +83,7 @@ on component combinations. The canonical example is the companion-component patt
 
 ## Where each topic lives
 
-- Registering, configuring, and hooking components → [Components](./components.md)
+- Registering, configuring, hooking, and applying traits to components → [Components](./components.md)
 - Creating, mutating, and destroying entities → [Entities](./entities.md)
 - System membership, callbacks, and cadence → [Systems](./systems.md)
 - The query DSL, live queries, filters, grouping → [Queries and filters](./queries-and-filters.md)

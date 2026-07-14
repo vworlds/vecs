@@ -99,6 +99,59 @@ command is applied (see [Execution model](./execution-model.md#reactive-routing)
 resource management and cross-cutting reactions that aren't worth a system; use systems when the
 reaction belongs to a phase.
 
+## Component traits: policy on component entities
+
+Registered components are themselves entities. Attach a configuration component to a component
+entity to change policy for every use of that component type. vecs calls these configuration
+components **component traits**:
+
+```ts
+world.component(Gravity).add(Singleton);
+world.component(Inventory).add(OwnedTarget);
+world.component(ChildOf).add(Traversable);
+world.component(Orange).set(Implements, { interfaces: [Fruit] });
+```
+
+| Trait/declaration | Applies to                         | Effect                                                               |
+| ----------------- | ---------------------------------- | -------------------------------------------------------------------- |
+| `Singleton`       | Concrete components                | Allows at most one carrier entity                                    |
+| `Implements`      | Non-relationship components        | Exposes concrete data through abstract aliases                       |
+| `Traversable`     | Relationships                      | Maintains hierarchy depth for cascade ordering                       |
+| `OwnedTarget`     | Relationships other than `ChildOf` | Owns the active target through `ChildOf` and destructive replacement |
+
+Traits declare policy; their built-in modules install the hooks and maintain the metadata that
+enforce it. Configure traits in feature-module setup rather than opportunistically inside systems.
+Do not assume all traits have the same lifecycle:
+
+- Add `Singleton` before component instances exist.
+- Add `OwnedTarget` before relationship instances exist; it does not backfill.
+- `Traversable` backfills existing relationship instances.
+- Setting or removing `Implements` recomputes interface aliases.
+
+Treat traits as setup policy unless their documentation explicitly supports runtime changes. Before
+writing custom component-type bookkeeping, check whether an existing trait already expresses the
+invariant.
+
+Custom traits use the same mechanism. Keep the trait class as data and put its behavior in a module:
+
+```ts
+class Audited {}
+
+class AuditModule extends Module {
+  public init(): void {
+    this.world.component(Audited).onAdd((component) => {
+      component.onSet((entity) => console.log("changed", component.meta.Class.name, entity.eid));
+    });
+  }
+}
+
+world.module(AuditModule);
+world.component(Position).add(Audited);
+```
+
+Create a custom trait only when several component types need the same reusable, declarative policy.
+For one component type, register hooks directly in its owning module.
+
 ## Exclusive component groups
 
 `world.setExclusiveComponents(A, B, C)` declares a mutually exclusive group: setting one

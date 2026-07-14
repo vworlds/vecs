@@ -154,6 +154,31 @@ Use them for resource management and cross-cutting reactions that aren't worth a
 the difference from systems: hooks are per-component-instance and run at the mutation site;
 systems are queries that run in a phase.)
 
+### Component traits: policy on component entities
+
+A registered component is also an entity. Components attached to that component entity can declare
+policy for every use of the component type; these configuration components are **component traits**:
+
+```ts
+world.component(Gravity).add(Singleton);
+world.component(Inventory).add(OwnedTarget);
+world.component(ChildOf).add(Traversable);
+world.component(Orange).set(Implements, { interfaces: [Fruit] });
+```
+
+| Trait/declaration | Reach for it when                                                          |
+| ----------------- | -------------------------------------------------------------------------- |
+| `Singleton`       | At most one entity may carry the component                                 |
+| `Implements`      | Concrete components should be queryable through abstract aliases           |
+| `Traversable`     | A relationship hierarchy needs depth or cascade ordering                   |
+| `OwnedTarget`     | A relationship is an exclusively owned, zero-or-one entity-valued property |
+
+Traits declare policy; modules implement it through hooks and metadata. Configure them in module
+setup, not inside systems. Lifecycle differs by trait: `OwnedTarget` and `Singleton` are setup-time
+policy, `Traversable` backfills, and `Implements` recomputes declarations. Do not assume traits are
+dynamically removable. See the [Components guide](./components.md#component-traits-policy-on-component-entities)
+for the full model and custom-trait guidance.
+
 ### Exclusive component groups
 
 `world.setExclusiveComponents(A, B, C)` declares a mutually exclusive set: setting one
@@ -555,6 +580,86 @@ or when the callback is intentionally "future changes only."
 Bucket entities by a relationship target (or a derived key) and look up buckets in O(1) instead of
 scanning. Moving between buckets is a retarget (data change), not a component swap.
 
+### Owned target entities (entity-valued properties)
+
+Before adding a nested object to a component or a side map from owner eid to state, ask whether the
+value is really one ECS sub-entity. Use an owned target when all of these are true:
+
+- The owner has zero or one value for the concern.
+- The value needs its own optional components, systems, or query identity.
+- The value is exclusively owned and never shared.
+- Replacement, relationship removal, and owner destruction should destroy it.
+
+```ts
+class Inventory extends Relationship {}
+class InventoryState {}
+class Capacity {
+  slots = 0;
+}
+class Weight {
+  current = 0;
+}
+
+world.component(Inventory).add(OwnedTarget);
+world.component(InventoryState);
+world.component(Capacity);
+world.component(Weight);
+
+const inventory = player.ensureTarget(Inventory);
+inventory.add(InventoryState).set(Capacity, { slots: 20 }).set(Weight, { current: 0 });
+```
+
+`Inventory` is an entity-valued property of `player`, but it remains entirely inside the ECS.
+Inventory systems operate on inventory entities without adding inventory-specific state to every
+player archetype:
+
+```ts
+world
+  .system("inventory.weight")
+  .with(InventoryState, Weight)
+  .each([Weight], (_inventory, [weight]) => {
+    void weight.current;
+  });
+```
+
+The lifecycle follows from the relationship and trait:
+
+| Operation                              | Result                                   |
+| -------------------------------------- | ---------------------------------------- |
+| First `player.ensureTarget(Inventory)` | Creates and returns the inventory entity |
+| Later `ensureTarget(Inventory)`        | Returns the same target                  |
+| Retarget `Inventory`                   | Destroys the displaced inventory         |
+| Remove `Inventory`                     | Destroys the current inventory           |
+| Destroy `player`                       | `ChildOf` destroys the inventory         |
+
+Inside deferred execution, mutate the entity returned by `ensureTarget`; do not immediately re-read
+the relationship:
+
+```ts
+world.defer(() => {
+  const inventory = player.ensureTarget(Inventory);
+  inventory.set(Capacity, { slots: 20 }); // correct: pending entity is usable
+  player.target(Inventory); // still undefined until flush
+});
+```
+
+Use the narrowest model that fits:
+
+| Need                                                | Model                                      |
+| --------------------------------------------------- | ------------------------------------------ |
+| A few fields sharing the owner's identity/lifecycle | Components directly on the owner           |
+| One composable, exclusively owned sub-entity        | `ensureTarget` + `OwnedTarget`             |
+| One shared or independently living linked entity    | Relationship without `OwnedTarget`         |
+| Zero-to-many subobjects                             | Child entities with identifying components |
+| A non-ECS runtime object                            | `attach(instance)`                         |
+| World-global state                                  | Singleton/component entity                 |
+
+Good fits include an inventory aggregate, equipment loadout, character progression sheet, AI
+blackboard, quest journal, ability book, or unique vehicle subsystem. Individual inventory items,
+abilities, objectives, and other collections should remain separate entities. Networking remains
+explicit: register the relationship and replicate the target's required components; `OwnedTarget`
+itself is local lifecycle policy.
+
 ### Initialize via opt-in `update`-on-entry
 
 When an update callback owns both initialization and later changes, pass `{ onEnter: true }`. The
@@ -571,6 +676,10 @@ system after whatever produces the entity/companion.
 | An imperative runtime object with `start()/stop()/track/enable`        | A **module** + the world's own lifecycle (`clearAllEntities()`, closing the world). Systems live on the world; they don't need a wrapper to turn on.                                                      |
 | Builder/factory helpers that _create entities_ (`createArc(world, …)`) | Let callers `world.entity().add(Networked).set(Arc, …).set(FillStyle, …)`. Components are small and optional; the caller adds exactly what it wants.                                                      |
 | A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                                                                             |
+| A large nested `inventory`, `brain`, or progression object             | Use an owned target entity when the subobject needs its own components, systems, and lifecycle.                                                                                                           |
+| A side `Map<ownerEid, SubsystemState>`                                 | Use `owner.ensureTarget(Rel)`; add `OwnedTarget` only for exclusive destructive ownership.                                                                                                                |
+| `OwnedTarget` on `CurrentEnemy`, `InCell`, `Team`, or shared state     | Use a normal relationship; retargeting or removal of an owned relationship destroys its target.                                                                                                           |
+| One owned target used as a collection                                  | Use multiple child/item entities; owned targets model zero-or-one aggregates.                                                                                                                             |
 | Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                                                                                |
 | One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                                                                                    |
 | Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                                                                             |
@@ -600,6 +709,14 @@ system after whatever produces the entity/companion.
   `vecs-protocol` registers it as an `"entity"` wire field (u32 eid) at module
   load, so `Relationship` subclasses listed in `networkComponents` serialise
   correctly.
+- **Component traits have trait-specific setup semantics.** In particular, configure `OwnedTarget`
+  before creating relationship instances; it does not backfill.
+- **`OwnedTarget` is destructive and exclusive.** Retargeting destroys the old target, removing the
+  relationship destroys the current target, and owner destruction cascades through `ChildOf`.
+  Never use it for shared teams, cells, enemies, definitions, or other world entities.
+- **Owned targets are zero-or-one.** Use child entities for collections, and during deferred
+  execution mutate the entity returned by `ensureTarget` instead of re-reading `target(R)` before
+  flush.
 - **`world.module(M)` runs `init` once.** Re-registering with a different config throws.
 
 ---

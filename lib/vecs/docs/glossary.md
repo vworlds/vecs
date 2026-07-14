@@ -50,8 +50,9 @@ entity lifecycle API. [Utilities](./utilities.md#events).
 **Filter** — a non-reactive, one-shot predicate that scans world entities on each `forEach`.
 [Queries and filters](./queries-and-filters.md#filters-one-shot-scans).
 
-**Hook** — an `onAdd` / `onSet` / `onRemove` callback registered per component class, fired
-synchronously at the mutation site. [Components](./components.md#hooks-onadd-onset-onremove).
+**Hook** — an `onAdd` / `onSet` / `onRemove` callback registered per component class, or an
+`onRetarget` callback for relationships, fired synchronously at the mutation site.
+[Components](./components.md#hooks-onadd-onset-onremove-onretarget).
 
 **Implements / interface alias** — a declaration that a concrete component is queryable through
 abstract/interface component types; aliases are read-only views of the same instance.
@@ -70,6 +71,10 @@ visited entity and the source entity of each injected slot.
 
 **Module** — a packaging unit (`class M extends Module<Config>`) whose `init()` registers
 components, systems, and policy once per world. [Modules](./modules.md).
+
+**Owned target entity** — a zero-or-one aggregate entity targeted through a relationship carrying
+the `OwnedTarget` trait. It is parented to the source and destroyed when displaced, when the
+relationship is removed, or when the source dies. [Relationships](./relationships.md#owned-targets).
 
 **Phase** — an entity used as a pipeline ordering anchor (tagged with the `Phase` component);
 systems attach to exactly one phase via `DependsOn`.
@@ -101,6 +106,10 @@ assigned to one phase. [Systems](./systems.md).
 
 **Tick source** — a clock (`IntervalTickSource`, `RateTickSource`, or another system) that gates
 how often a system fires. [Systems](./systems.md#cadence-interval-rate-and-tick-sources).
+
+**Trait (component trait)** — policy attached as a component to a registered component entity,
+configuring every use of that component type. Built-ins include `Singleton`, `Implements`,
+`Traversable`, and `OwnedTarget`. [Components](./components.md#component-traits-policy-on-component-entities).
 
 **Watchlist** — the set of component types a query or system reacts to via `update`, stored as a
 bitmask. [Systems](./systems.md#reactive-callbacks-enter-update-exit).

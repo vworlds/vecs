@@ -14,7 +14,7 @@ Read in this order the first time through:
 3. [Execution model](./execution-model.md) — phases, the pipeline, deferred mutation, reactive
    routing. Read this before designing anything non-trivial.
 4. Subsystem guides, in any order:
-   - [Components](./components.md) — registration, hooks, exclusivity, cleanup policies,
+   - [Components](./components.md) — registration, hooks, traits, exclusivity, cleanup policies,
      interfaces, singletons.
    - [Entities](./entities.md) — creation, lookup, the component API, relationship targets, lifecycle.
    - [Systems](./systems.md) — membership, reactive callbacks, callback options, `each`/`run`, cadence, injection.
@@ -36,7 +36,7 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 | [getting-started.md](./getting-started.md)         | A runnable tutorial from `npm install` to a ticking world.                                   |
 | [concepts.md](./concepts.md)                       | The core vocabulary and how the pieces relate.                                               |
 | [execution-model.md](./execution-model.md)         | `world.progress`, the 8 built-in phases, deferred commands, flush boundaries, event routing. |
-| [components.md](./components.md)                   | `world.component`, hooks, exclusive groups, `CleanupPolicy`, `Implements`, `Singleton`.      |
+| [components.md](./components.md)                   | Component registration, hooks, traits, exclusivity, cleanup, aliases, and singletons.        |
 | [entities.md](./entities.md)                       | Entity creation, component mutation, relationship targets, lifecycle, deferred reads.        |
 | [systems.md](./systems.md)                         | `world.system`, `with`/`without`, `enter`/`update`/`exit`, callback options, tick sources.   |
 | [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`.                                    |
