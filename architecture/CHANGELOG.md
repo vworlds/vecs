@@ -5,6 +5,9 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs]: `OwnedTarget` now creates the target entity when the relationship is added (not just on set/ensureTarget), and wraps existing lifecycle hooks instead of replacing them — ownership behavior runs first so owner hooks and query entry observe an initialized target.
+- [vecs]: Replaced stacked lifecycle hooks (`onAdd`, `onSet`, `onRemove`, `onRetarget`) with a single-handler model. Each method now supports get/set/remove calling conventions, eliminating array allocation overhead and simplifying the mental model.
+
 ## v1.0.44 (2026-07-14)
 
 - [vecs]: Added `Entity.ensure` for get-or-create mutation of missing components, including deferred-mode routing and validation for destroyed entities, relationships, interface aliases, and duplicate pending creation.
