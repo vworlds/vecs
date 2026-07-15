@@ -17,10 +17,12 @@ Read in this order the first time through:
    - [Components](./components.md) — registration, hooks, traits, exclusivity, cleanup policies,
      interfaces, singletons.
    - [Entities](./entities.md) — creation, lookup, the component API, relationship targets, lifecycle.
-   - [Systems](./systems.md) — membership, reactive callbacks, callback options, `each`/`run`, cadence, injection.
+   - [Systems](./systems.md) — membership, reactive callbacks, callback options, `each`/`run`, cadence,
+     component and relationship injection.
    - [Queries and filters](./queries-and-filters.md) — the query DSL, live queries, one-shot
      filters, grouped queries, `Bitset`.
-   - [Relationships](./relationships.md) — links, target creation and ownership, hierarchy, cleanup cascades.
+   - [Relationships](./relationships.md) — links, target creation and projection, ownership, hierarchy,
+     cleanup cascades.
    - [Modules](./modules.md) — packaging features, composition, the built-in modules.
 5. [Design guide](./design-guide.md) — opinionated patterns and anti-patterns distilled from real
    designs. Read it once you know the machinery.
@@ -38,9 +40,9 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 | [execution-model.md](./execution-model.md)         | `world.progress`, the 8 built-in phases, deferred commands, flush boundaries, event routing. |
 | [components.md](./components.md)                   | Component registration, hooks, traits, exclusivity, cleanup, aliases, and singletons.        |
 | [entities.md](./entities.md)                       | Entity creation, component mutation, relationship targets, lifecycle, deferred reads.        |
-| [systems.md](./systems.md)                         | `world.system`, `with`/`without`, `enter`/`update`/`exit`, callback options, tick sources.   |
+| [systems.md](./systems.md)                         | `world.system`, callbacks, injection, ordering, cadence, and tick sources.                   |
 | [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`.                                    |
-| [relationships.md](./relationships.md)             | Relationships, target creation and ownership, hierarchy, traversal, and cleanup cascades.    |
+| [relationships.md](./relationships.md)             | Relationships, target creation, projection and ownership, hierarchy, traversal, and cleanup. |
 | [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, composition, built-in modules.                             |
 | [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                               |
 | [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.    |

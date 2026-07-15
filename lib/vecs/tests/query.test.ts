@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   ChildOf,
+  Entity,
   Query,
   Relationship,
   SilenceSource,
@@ -71,6 +72,28 @@ describe("Query — typing", () => {
         assertType<IsEqual<typeof v, Velocity>>();
       });
       assertType<IsEqual<typeof typedForEach, Query<[typeof Position, typeof Velocity]>>>();
+
+      typedRequired.forEach(
+        [
+          { target: [FriendOf, Entity] },
+          { target: [FriendOf, Position] },
+          { target: [FriendOf, [Entity, Position]] },
+        ],
+        (_e, [target, targetPosition, mixedTarget, mixedPosition]) => {
+          assertType<IsEqual<typeof target, Entity | undefined>>();
+          assertType<IsEqual<typeof targetPosition, Position | undefined>>();
+          assertType<IsEqual<typeof mixedTarget, Entity | undefined>>();
+          assertType<IsEqual<typeof mixedPosition, Position | undefined>>();
+        }
+      );
+
+      typedRequired.enter(
+        [{ target: [FriendOf, [Entity, Position]] }],
+        (_e, [target, targetPosition]) => {
+          assertType<IsEqual<typeof target, Entity | undefined>>();
+          assertType<IsEqual<typeof targetPosition, Position | undefined>>();
+        }
+      );
     }
 
     const typedQuery = w.query("typed-query").with({ all: [Position, Velocity] });

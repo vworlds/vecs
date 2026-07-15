@@ -122,8 +122,8 @@ registration throws instead of replacing the existing callback.
 
 Fires when an entity stops matching (component removed, or entity destroyed). Directly injected
 components are read from a **snapshot captured at exit time**, so they are still resolvable even
-though they are being removed; `target`-injected components resolve live at callback time and may
-be `undefined`:
+though they are being removed; `target` projections resolve live at callback time and may be
+`undefined`:
 
 ```ts
 .exit([Sprite], (e, [sprite]) => sprite.destroy());
@@ -187,19 +187,31 @@ guarantees.)
 
 ### Relationship injection: `target` and `down`
 
-`{ target: [Rel, [C1, C2]] }` follows the entity's relationship to its target and flattens the
-target's components into the tuple. Target-side slots are `undefined` when the relationship or the
-component is absent:
+`{ target: [Rel, projection] }` follows the entity's relationship to its target and flattens the
+projection into the callback tuple. Use a component class to inject one target-side component, use
+`Entity` to inject the target itself, or use a tuple to inject several values in order:
 
 ```ts
-.forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (e, [body, pos, vel]) => {
-  // body is from e; pos and vel are from e.target(FriendOf).
+.enter([{ target: [FriendOf, Entity] }], (source, [friend]) => {
+  // friend is source.target(FriendOf), or undefined.
+});
+
+.forEach([Body, { target: [FriendOf, Position] }], (source, [body, pos]) => {
+  // body is from source; pos is from source.target(FriendOf).
+});
+
+.forEach([{ target: [FriendOf, [Entity, Position, Velocity]] }], (source, [friend, pos, vel]) => {
+  // friend, pos, and vel all project from the same FriendOf target.
 });
 ```
 
-With two or more components in the inner tuple, TypeScript widens the slot types to a union;
-mark the inner tuple `as const` (`{ target: [FriendOf, [Position, Velocity] as const] }`) to get
-precise per-slot types. Single-component tuples infer precisely as-is.
+Every target projection is optional. If the source lacks `Rel`, every projected slot is
+`undefined`. If the relationship exists, an `Entity` slot is the target while each component slot
+is `undefined` when that target lacks the component. Target projections resolve live rather than
+from the direct-component snapshot used by `enter` and `exit`.
+
+Inline projection tuples infer precise slot types. When reusing a projection tuple stored in a
+variable, declare it `as const` to preserve each position's type.
 
 `{ down: [Rel, [C1]] }` fans out: the callback fires once per child targeting the visited entity
 through `Rel`, with that child's components filling the slots (nullable). `down` is allowed only

@@ -3,8 +3,31 @@ import { Entity, type EID } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import { _resolveRelationship, type MaybeRequired } from "./dsl.js";
 
-export type TargetInject<J extends readonly ComponentType[] = readonly ComponentType[]> = {
-  target: readonly [ComponentRef, readonly [...J]];
+// EID 0 is reserved, keeping target projection arrays numeric and SMI-friendly.
+const TARGET_ENTITY = 0;
+
+type TargetInjectProjection = ComponentType | typeof Entity;
+
+/**
+ * Follows a relationship and injects values from its target into a callback tuple.
+ *
+ * Pass one component class or {@link Entity} directly for a single slot, or pass
+ * a tuple to project several slots in order:
+ *
+ * ```ts
+ * { target: [FriendOf, Position] }          // Position | undefined
+ * { target: [FriendOf, Entity] }            // Entity | undefined
+ * { target: [FriendOf, [Entity, Position]] } // Entity | undefined, Position | undefined
+ * ```
+ *
+ * Every projected slot is optional because the relationship or target-side
+ * component may be absent when the callback runs.
+ */
+export type TargetInject<
+  P extends TargetInjectProjection | readonly TargetInjectProjection[] =
+    TargetInjectProjection | readonly TargetInjectProjection[],
+> = {
+  target: readonly [ComponentRef, P];
 };
 export type DownInject<J extends readonly ComponentType[] = readonly ComponentType[]> = {
   down: readonly [ComponentRef, readonly [...J]];
@@ -23,17 +46,25 @@ type ResolvedComponentInstance<T> = T extends ComponentType ? InstanceType<T> : 
 type OptionalResolvedComponentInstances<J extends readonly ComponentType[]> = {
   [K in keyof J]: InstanceType<J[K]> | undefined;
 };
+type OptionalResolvedTargetProjection<P> = P extends typeof Entity
+  ? Entity | undefined
+  : P extends ComponentType
+    ? InstanceType<P> | undefined
+    : never;
+type OptionalResolvedTargetProjections<P> = P extends readonly TargetInjectProjection[]
+  ? { [K in keyof P]: OptionalResolvedTargetProjection<P[K]> }
+  : [OptionalResolvedTargetProjection<P>];
 type MaybeResolvedInjectElement<T, R extends ComponentType[]> = T extends ComponentType
   ? [MaybeRequired<T, R>]
-  : T extends TargetInject<infer J>
-    ? OptionalResolvedComponentInstances<J>
+  : T extends TargetInject<infer P>
+    ? OptionalResolvedTargetProjections<P>
     : T extends DownInject<infer J>
       ? OptionalResolvedComponentInstances<J>
       : [];
 type RequiredResolvedInjectElement<T> = T extends ComponentType
   ? [ResolvedComponentInstance<T>]
-  : T extends TargetInject<infer J>
-    ? OptionalResolvedComponentInstances<J>
+  : T extends TargetInject<infer P>
+    ? OptionalResolvedTargetProjections<P>
     : T extends DownInject<infer J>
       ? OptionalResolvedComponentInstances<J>
       : [];
@@ -58,13 +89,33 @@ function _isDownInject(value: FanInjectElement): value is DownInject {
   return typeof value === "object" && value !== null && "down" in value;
 }
 
+function _isTargetProjectionArray(
+  value: TargetInjectProjection | readonly TargetInjectProjection[]
+): value is readonly TargetInjectProjection[] {
+  return Array.isArray(value);
+}
+
+function _resolveTargetProjection(
+  target: Entity | undefined,
+  projection: EID
+): ComponentInstance | undefined {
+  if (projection === TARGET_ENTITY) {
+    return target;
+  }
+  return target?.has(projection) ? target._get(projection) : undefined;
+}
+
 export function mapInject(world: World, inject: readonly FanInjectElement[]): ResolvedInjectTerm[] {
   return inject.map((term) => {
     if (_isTargetInject(term)) {
+      const projection = term.target[1];
+      const projections: readonly TargetInjectProjection[] = _isTargetProjectionArray(projection)
+        ? projection
+        : [projection];
       return {
         target: [
           _resolveRelationship(term.target[0], world),
-          term.target[1].map((C) => world.entity(C).eid),
+          projections.map((C) => (C === Entity ? TARGET_ENTITY : world.entity(C).eid)),
         ],
       };
     }
@@ -112,10 +163,8 @@ export function getInjected(
     const targetEntity = e.has(term.target[0])
       ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
-    term.target[1].forEach((componentEid) => {
-      out[outIndex++] = targetEntity?.has(componentEid)
-        ? targetEntity._get(componentEid)
-        : undefined;
+    term.target[1].forEach((projection) => {
+      out[outIndex++] = _resolveTargetProjection(targetEntity, projection);
     });
   });
 }
@@ -146,8 +195,8 @@ export function getInjectedWithSrc(
     const targetEntity = e.has(term.target[0])
       ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
-    term.target[1].forEach((componentEid) => {
-      out[outIndex] = targetEntity?.has(componentEid) ? targetEntity._get(componentEid) : undefined;
+    term.target[1].forEach((projection) => {
+      out[outIndex] = _resolveTargetProjection(targetEntity, projection);
       src[outIndex] = targetEntity;
       outIndex++;
     });
@@ -382,10 +431,8 @@ function getInjectedSkippingDown(
     const targetEntity = e.has(term.target[0])
       ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
-    term.target[1].forEach((componentEid) => {
-      out[outIndex++] = targetEntity?.has(componentEid)
-        ? targetEntity._get(componentEid)
-        : undefined;
+    term.target[1].forEach((projection) => {
+      out[outIndex++] = _resolveTargetProjection(targetEntity, projection);
     });
   });
 }
@@ -411,8 +458,8 @@ function getInjectedWithSrcSkippingDown(
     const targetEntity = e.has(term.target[0])
       ? (e._get(term.target[0]) as { target?: Entity } | undefined)?.target
       : undefined;
-    term.target[1].forEach((componentEid) => {
-      out[outIndex] = targetEntity?.has(componentEid) ? targetEntity._get(componentEid) : undefined;
+    term.target[1].forEach((projection) => {
+      out[outIndex] = _resolveTargetProjection(targetEntity, projection);
       src[outIndex] = targetEntity;
       outIndex++;
     });
