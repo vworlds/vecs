@@ -99,6 +99,7 @@ export class Components extends Entities {
 
   /** Declare a group of mutually exclusive components. */
   public setExclusiveComponents(this: World, ...components: ComponentClass[]): void {
+    this._assertStructuralMutationAllowed();
     const componentMetas = components.map((C) => this.entity(C).meta);
     for (let i = 0; i < componentMetas.length; i++) {
       componentMetas[i]._exclusive = componentMetas.filter((_, j) => j !== i);
@@ -119,6 +120,7 @@ export class Components extends Entities {
 
     const existingComponent = this._classRegistry.get(ComponentClass) as T | undefined;
     if (existingComponent) {
+      existingComponent.meta._assertActive();
       if (ceid === undefined || ceid === existingComponent.eid) {
         return existingComponent;
       }
@@ -126,6 +128,7 @@ export class Components extends Entities {
         `Component class ${ComponentClass.name} is already registered with eid ${existingComponent.eid}`
       );
     }
+    this._assertStructuralMutationAllowed();
     if (ceid === undefined) {
       ceid = pool.alloc();
     } else {

@@ -260,6 +260,38 @@ describe("Implements", () => {
     expect(foods[0].calories).toBe(7);
   });
 
+  it("replaces the same concrete attachment without membership or usage churn", () => {
+    const world = setup();
+    const orangeQuery = world.query("oranges").with(Orange).build();
+    const fruitQuery = world.query("fruits").with(Fruit).build();
+    const orangeEnter = vi.fn();
+    const orangeExit = vi.fn();
+    const fruitEnter = vi.fn();
+    const fruitExit = vi.fn();
+    world.query("orange events").with(Orange).enter(orangeEnter).exit(orangeExit).build();
+    world.query("fruit events").with(Fruit).enter(fruitEnter).exit(fruitExit).build();
+    const component = world.component(Orange);
+    const original = new Orange();
+    const replacement = new Orange();
+    const entity = world.entity().attach(original);
+    orangeEnter.mockClear();
+    fruitEnter.mockClear();
+
+    entity.attach(replacement);
+
+    expect(entity.get(Orange)).toBe(replacement);
+    expect(entity.get(Fruit)).toBe(replacement);
+    expect(entity.get(Food)).toBe(replacement);
+    expect(entity.get(Foreign)).toBe(replacement);
+    expect(component.instanceCount()).toBe(1);
+    expect(orangeQuery.has(entity)).toBe(true);
+    expect(fruitQuery.has(entity)).toBe(true);
+    expect(orangeEnter).not.toHaveBeenCalled();
+    expect(orangeExit).not.toHaveBeenCalled();
+    expect(fruitEnter).not.toHaveBeenCalled();
+    expect(fruitExit).not.toHaveBeenCalled();
+  });
+
   it("evicts a prior implementer when attaching a second implementer", () => {
     const world = setup();
     world.component(Apple).set(Implements, { interfaces: [Fruit] });

@@ -87,7 +87,18 @@ export class TargetTerm extends Term {
       this._sync(entity);
       return;
     }
-    entity._childrenByEid(this._relationshipEid)?.forEach((source) => this._sync(source));
+    let firstError: unknown;
+    const sources = [...(entity._childrenByEid(this._relationshipEid) ?? [])];
+    for (const source of sources) {
+      try {
+        this._sync(source);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError !== undefined) {
+      throw firstError;
+    }
   }
 
   /** @internal */
@@ -95,6 +106,13 @@ export class TargetTerm extends Term {
     if (entity.destroyed) {
       return false;
     }
-    return entity._someTargetByEid(this._relationshipEid, (target) => this._innerTerm.has(target));
+    const currentMeta = this.world.getEntity(this._relationshipEid)?.meta;
+    if (currentMeta?.isRelationship !== true) {
+      return false;
+    }
+    return (
+      entity._hasLive(this._relationshipEid) &&
+      entity._someTargetByEid(this._relationshipEid, (target) => this._innerTerm.has(target))
+    );
   }
 }

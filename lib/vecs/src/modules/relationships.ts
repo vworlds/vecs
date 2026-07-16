@@ -88,8 +88,13 @@ export class RelationshipsModule extends Module {
     ownedTarget.meta._onPolicyAdd = (rel): void => {
       (rel.meta._targetAddPolicies ??= new Map()).set(
         ownedTarget.eid,
-        (source: Entity, _relationship: Relationship, target: Entity): void => {
+        (source: Entity, _relationship: Relationship, target: Entity): (() => void) => {
           target.add(ChildOf, source);
+          return () => {
+            if (target.alive && target.target(ChildOf) === source) {
+              target.remove(ChildOf, source);
+            }
+          };
         }
       );
       (rel.meta._targetRemovePolicies ??= new Map()).set(
@@ -117,18 +122,14 @@ export class RelationshipsModule extends Module {
       const relEid = rel.eid;
       (rel.meta._targetAddPolicies ??= new Map()).set(
         traversableTrait.eid,
-        (entity: Entity): void => {
+        (entity: Entity): (() => void) => {
           this._cascadeUpdate(entity, relEid, traversable);
+          return () => this._removeDepth(entity, relEid, traversable);
         }
       );
       (rel.meta._targetRemovePolicies ??= new Map()).set(
         traversableTrait.eid,
-        (entity: Entity): void => {
-          traversable.depths.delete(entity);
-          for (const child of entity._childrenByEid(relEid) ?? []) {
-            this._cascadeUpdate(child, relEid, traversable);
-          }
-        }
+        (entity: Entity): void => this._removeDepth(entity, relEid, traversable)
       );
 
       world.entities.forEach((entity) => {
@@ -194,5 +195,12 @@ export class RelationshipsModule extends Module {
     }
 
     return this._depthOf(parent, relEid, traversable, visited) + 1;
+  }
+
+  private _removeDepth(entity: Entity, relEid: EID, traversable: Traversable): void {
+    traversable.depths.delete(entity);
+    for (const child of entity._childrenByEid(relEid) ?? []) {
+      this._cascadeUpdate(child, relEid, traversable);
+    }
   }
 }

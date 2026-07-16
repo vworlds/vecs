@@ -103,6 +103,24 @@ command is applied (see [Execution model](./execution-model.md#reactive-routing)
 resource management and cross-cutting reactions that aren't worth a system; use systems when the
 reaction belongs to a phase.
 
+Treat `onAdd` as the component's constructor boundary. vecs stores the new instance and includes it
+in `instanceCount()` before calling the concrete component and `Implements` alias handlers, so the
+handler can read and initialize the instance directly. The attachment does not enter component
+terms or reactive queries until every add handler succeeds. Query/system construction and uncached
+term materialization are rejected during this boundary; cached terms remain readable.
+
+An add handler cannot eliminate the attachment that caused it. Removing or replacing that
+component, destroying its carrier or component key, displacing it through exclusivity or another
+implementer, or removing the final edge of an initializing relationship throws. An idempotent
+`add(C)` remains a no-op. If an add handler throws, vecs rolls back that new attachment, its bits,
+relationship reverse indexes, and framework policy effects without firing query `enter`, edge
+remove hooks, or public `onRemove`. Other side effects the handler deliberately completed or queued
+are outside that rollback; components displaced before initialization are not restored.
+
+After successful initialization, reactive publication is a committed observer step. If an `enter`
+callback throws, vecs finishes publishing coherent membership to the other observers and rethrows
+the first error; the successfully initialized component remains attached.
+
 Each lifecycle event has one handler slot per component. Calling `onAdd(handler)`,
 `onSet(handler)`, `onRemove(handler)`, `onTargetAdd(handler)`, or `onTargetRemove(handler)` replaces
 the current public handler and returns the component entity for chaining. Call the method without
@@ -208,7 +226,17 @@ world.component(Temporary).destroy(); // strips Temporary from all carriers
 ```
 
 The `Throw` default also applies to plain entities used as component keys (`entity.add(keyEntity)`).
-A failed destroy leaves the component entity, its carriers, and the usage count untouched.
+A destroy first builds a deduplicated dependency plan from component carrier indexes and incoming
+relationship indexes. It resolves transitive `Delete` cascades and validates every planned `Remove`
+exactly once before changing framework state. A blocked policy or validator leaves the component
+entity, carriers, relationships, queries, and usage counts untouched. Once accepted, vecs freezes
+every doomed entity and executes the collected removals and destroys as a linear commit without
+rescanning the world or rediscovering dependencies.
+
+Deletion validators are preflight checks, not mutation hooks. Structural mutation, query/term
+materialization, entity creation, component registration, and deferral changes are rejected while a
+validator runs. During deferred command application, a plan that became blocked since enqueue is
+consumed as an atomic no-op so later FIFO commands can continue.
 
 Relationship components have a second, independent policy — `meta.onDeleteTarget` — that governs
 what happens to _sources_ when a relationship **target** is destroyed. See

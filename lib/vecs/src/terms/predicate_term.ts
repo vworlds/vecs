@@ -2,6 +2,7 @@ import { _compile, type EntityTestFunc, type QueryDSL } from "../dsl.js";
 import type { EID, Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
 import { Term } from "./term.js";
+import { ComponentTerm } from "./component_term.js";
 import { WorldTerm } from "./world_term.js";
 import type { getTerm as GetTermFn } from "./build.js";
 
@@ -41,6 +42,7 @@ export type MergedInfo = {
  */
 export class PredicateTerm extends Term {
   private readonly _predicate: EntityTestFunc;
+  private readonly _watchedComponentTerms: readonly ComponentTerm[];
   private readonly _worldTerm: Term | undefined;
   private readonly _usesShapeRefresh: boolean;
 
@@ -56,6 +58,9 @@ export class PredicateTerm extends Term {
   ) {
     super(world, key, kind, false, onDestroy);
     this._predicate = predicate;
+    this._watchedComponentTerms = watchedTerms.filter(
+      (term): term is ComponentTerm => term instanceof ComponentTerm
+    );
     this._worldTerm = worldTerm;
     this._usesShapeRefresh = usesShapeRefresh;
     this._setChildren(worldTerm ? [worldTerm, ...watchedTerms] : watchedTerms);
@@ -162,7 +167,14 @@ export class PredicateTerm extends Term {
 
   /** @internal */
   protected _matches(entity: Entity): boolean {
-    return entity.alive && (this._worldTerm?.has(entity) ?? true) && this._predicate(entity);
+    return (
+      entity.alive &&
+      (this._worldTerm?.has(entity) ?? true) &&
+      !this._watchedComponentTerms.some(
+        (term) => entity.has(term.componentEid) && !term.has(entity)
+      ) &&
+      this._predicate(entity)
+    );
   }
 }
 

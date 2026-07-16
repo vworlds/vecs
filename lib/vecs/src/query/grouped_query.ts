@@ -1,4 +1,9 @@
-import { type ComponentInstance, type ComponentRef, type ComponentType } from "../component.js";
+import {
+  type ComponentInstance,
+  type ComponentMeta,
+  type ComponentRef,
+  type ComponentType,
+} from "../component.js";
 import { _resolveRelationship } from "../dsl.js";
 import { Entity, type EID } from "../entity/index.js";
 import {
@@ -42,8 +47,11 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
 
   /** @internal */
   protected override _exit(e: Entity): void {
-    super._exit(e);
-    this._grouping.exit(e);
+    try {
+      super._exit(e);
+    } finally {
+      this._grouping.exit(e);
+    }
   }
 
   /** @internal */
@@ -69,9 +77,12 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
       this._composeGroupMembership(components);
     } else {
       const relEid = _resolveRelationship(arg0 as ComponentRef, this.world);
-      keysOf = (e: Entity) => e.targets(relEid);
+      const relationshipMeta = this.world.entity(relEid).meta;
+      const isCurrentGeneration = (): boolean =>
+        this.world.getEntity(relEid)?.meta._generation === relationshipMeta._generation;
+      keysOf = (e: Entity) => (isCurrentGeneration() ? e.targets(relEid) : []);
       watchEids = [relEid];
-      this._composeGroupMembership([arg0 as ComponentRef]);
+      this._composeRelationshipGroupMembership(relationshipMeta);
     }
     for (const ceid of watchEids) {
       this._watchlistBitmask.add(ceid);
@@ -145,6 +156,22 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
     }
     const existing: any = this._dsl ?? true;
     this._dsl = { all: [existing, ...componentRefs] };
+    this._hasExplicitQuery = true;
+  }
+
+  private _composeRelationshipGroupMembership(meta: ComponentMeta): void {
+    const existing: any = this._dsl ?? true;
+    this._dsl = {
+      all: [
+        existing,
+        {
+          test: (entity: Entity) =>
+            this.world.getEntity(meta.eid)?.meta._generation === meta._generation &&
+            meta._isLive(entity),
+          watch: [meta.eid],
+        },
+      ],
+    };
     this._hasExplicitQuery = true;
   }
 }

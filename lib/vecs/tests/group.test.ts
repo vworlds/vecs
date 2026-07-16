@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Exclusive, Relationship, World } from "../src/index.js";
+import { CleanupPolicy, Exclusive, Relationship, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -225,6 +225,48 @@ describe("Query.groupBy — value grouping", () => {
 });
 
 describe("Query.groupBy — relationship grouping", () => {
+  it.each(["ordinary", "relationship"] as const)(
+    "does not reinterpret groups after relationship eid reuse by a %s component",
+    (replacementKind) => {
+      class OriginalRelationship extends Relationship {}
+      class OtherRelationship extends Relationship {}
+      class Ordinary {}
+      const world = new World({
+        idPools: [
+          { name: "component", min: 1, max: 899, reuseWaitFrames: 0 },
+          { name: "module", min: 900, max: 999 },
+          { name: "entity", min: 1000 },
+        ],
+      });
+      const original = world.component(OriginalRelationship, 700);
+      original.meta.onDelete = CleanupPolicy.Remove;
+      const originalTarget = world.entity();
+      const source = world.entity().add(OriginalRelationship, originalTarget);
+      const grouped = world.query("original groups").groupBy(OriginalRelationship).build();
+      expect(grouped.group(originalTarget)?.has(source)).toBe(true);
+
+      original.destroy();
+      if (replacementKind === "ordinary") {
+        world.component(Ordinary, 700);
+        expect(() => source.add(Ordinary)).not.toThrow();
+      } else {
+        world.component(OtherRelationship, 700);
+        const replacementTarget = world.entity();
+        expect(() => source.add(OtherRelationship, replacementTarget)).not.toThrow();
+        const replacementGrouped = world
+          .query("replacement groups")
+          .groupBy(OtherRelationship)
+          .build();
+        expect(replacementGrouped.group(replacementTarget)?.has(source)).toBe(true);
+      }
+
+      expect(grouped.has(source)).toBe(false);
+      expect(grouped.belongs(source)).toBe(false);
+      expect(grouped.count).toBe(0);
+      expect(grouped.groupCount).toBe(0);
+    }
+  );
+
   it("places a many-target relationship in every bucket and reconciles edges", () => {
     const { w } = setup();
     const regionA = w.entity();

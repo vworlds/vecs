@@ -9,18 +9,6 @@ export class Deferred extends Queries {
   /** @internal `true` while {@link _processCommandQueue} is iterating, to avoid re-entrant drains. */
   protected _draining = false;
 
-  /**
-   * @internal Buffered cleanup actions scheduled by `Entity._cleanupIncoming`.
-   *
-   * `undefined` outside an active `_destroy` cascade. The outermost `_destroy`
-   * call lazily allocates the scope, recursive `_destroy` calls append to the
-   * same scope, and the outermost call drains it to empty before returning.
-   * Set back to `undefined` during each flush pass so recursive destroys
-   * triggered by the flush buffer into a fresh scope and are drained by the
-   * outer `while` loop.
-   */
-  public _deletionScope: unknown[] | undefined;
-
   /** `true` while the world is in deferred mode. */
   public get deferred(): boolean {
     return this._deferredDepth > 0 || this._draining;
@@ -28,12 +16,14 @@ export class Deferred extends Queries {
 
   /** @internal Append a command to the deferred-mode queue. */
   public _enqueue(cmd: Command): void {
+    this._assertStructuralMutationAllowed();
     cmd.source = this._currentSource;
     this._commandQueue.push(cmd);
   }
 
   /** Enter deferred mode. */
   public beginDefer(): void {
+    this._assertStructuralMutationAllowed();
     this._deferredDepth++;
   }
 
@@ -49,12 +39,14 @@ export class Deferred extends Queries {
 
   /** Leave deferred mode and drain at the outermost scope. */
   public endDefer(): void {
+    this._assertStructuralMutationAllowed();
     this._deferredDepth--;
     this.flush();
   }
 
   /** Build pending queries and drain queued commands at the top level. */
   public flush(): void {
+    this._assertStructuralMutationAllowed();
     if (this._deferredDepth === 0) {
       this._buildPendingQueries();
       this._processCommandQueue();
@@ -64,6 +56,15 @@ export class Deferred extends Queries {
   /** @internal Run one command's side effects. */
   protected _executeCommand(cmd: Command): void {
     this._routingSource = cmd.source;
+    if ("meta" in cmd && cmd.meta._isRetired) {
+      if (
+        cmd.kind === CommandKind.Attach &&
+        cmd.meta._pendingEnsures?.get(cmd.entity) === cmd.component
+      ) {
+        cmd.meta._pendingEnsures.delete(cmd.entity);
+      }
+      return;
+    }
     switch (cmd.kind) {
       case CommandKind.CreateEntity:
         this._entities.set(cmd.entity.eid, cmd.entity);
@@ -104,11 +105,16 @@ export class Deferred extends Queries {
       return;
     }
     this._draining = true;
+    let consumed = 0;
     try {
       for (let i = 0; i < this._commandQueue.length; i++) {
+        consumed = i + 1;
         this._executeCommand(this._commandQueue[i]);
       }
       this._commandQueue.length = 0;
+    } catch (error) {
+      this._commandQueue.splice(0, consumed);
+      throw error;
     } finally {
       this._routingSource = undefined;
       this._draining = false;

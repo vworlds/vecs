@@ -154,6 +154,7 @@ export abstract class Term implements TermConsumer {
    * Pinned terms (`WorldTerm`, `ComponentTerm`, `EmptyTerm`) ignore this call.
    */
   public destroy(): void {
+    this.world._assertStructuralMutationAllowed();
     if (this._destroyed || this._pinned) {
       return;
     }
@@ -185,7 +186,17 @@ export abstract class Term implements TermConsumer {
 
   /** @internal Propagate a refresh hint to all consumers (both channels). */
   protected _emitRefresh(entity: Entity): void {
-    this._consumers.forEach((consumer) => consumer.onTermRefresh?.(entity));
+    let firstError: unknown;
+    for (const consumer of [...this._consumers]) {
+      try {
+        consumer.onTermRefresh?.(entity);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError !== undefined) {
+      throw firstError;
+    }
   }
 
   /** @internal Register an additional cleanup callback run during `destroy`. */
@@ -270,7 +281,24 @@ export abstract class Term implements TermConsumer {
     }
   }
 
-  private _emit(kind: TermEventKind, entity: Entity): void {
-    this._consumers.forEach((consumer) => consumer.onTermEvent(kind, entity));
+  /** @internal Emit a membership transition without changing this term's local set. */
+  protected _emit(kind: TermEventKind, entity: Entity): void {
+    let firstError: unknown;
+    for (const consumer of [...this._consumers]) {
+      if (
+        (kind === TermEventKind.Enter && !this.has(entity)) ||
+        (kind === TermEventKind.Exit && this.has(entity))
+      ) {
+        break;
+      }
+      try {
+        consumer.onTermEvent(kind, entity);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError !== undefined) {
+      throw firstError;
+    }
   }
 }

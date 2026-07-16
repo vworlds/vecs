@@ -41,6 +41,7 @@ export class Queries extends Storage {
 
   /** @internal Register and index a freshly built {@link Query}. */
   public _addQuery(this: World, q: Query): void {
+    this._assertStructuralMutationAllowed();
     if (this._frameInProgress && !this._buildingPendingQueries) {
       throw new Error("queries cannot be built while a frame is in progress");
     }
@@ -77,6 +78,7 @@ export class Queries extends Storage {
 
   /** Create and return a standalone {@link Query}, ready for fluent configuration. */
   public query(this: World, name: string): Query {
+    this._assertQueryCreationAllowed();
     return new Query(name, this);
   }
 
@@ -131,6 +133,22 @@ export class Queries extends Storage {
       pending.forEach((q) => q._build());
     } finally {
       this._buildingPendingQueries = false;
+    }
+  }
+
+  /** @internal Reject query/system construction from constructor-like add hooks. */
+  protected _assertQueryCreationAllowed(): void {
+    this._assertStructuralMutationAllowed();
+    if (this._initializationDepth > 0) {
+      throw new Error("queries cannot be built while component add hooks are initializing");
+    }
+  }
+
+  /** @internal Allow cached term reads but reject materialization during guarded callbacks. */
+  public _assertTermCreationAllowed(): void {
+    this._assertStructuralMutationAllowed();
+    if (this._initializationDepth > 0) {
+      throw new Error("terms cannot be materialized while component add hooks are initializing");
     }
   }
 }

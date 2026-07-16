@@ -66,6 +66,7 @@ export class Pipeline extends Modules {
 
   /** Create and return a new {@link System}, ready for fluent configuration. */
   public system(name: string): System {
+    this._assertQueryCreationAllowed();
     return new System(name, this);
   }
 

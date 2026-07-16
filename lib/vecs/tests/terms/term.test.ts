@@ -519,6 +519,30 @@ describe("Term — OnlyTerm (exact component set)", () => {
     e.add(Velocity);
     expect(exit).toHaveBeenCalledWith(e);
   });
+
+  it("continues shape fanout from a throwing OnlyTerm to a merged consumer", () => {
+    const w = setup();
+    const only = w
+      .query("throwing only")
+      .with({ only: [Position] })
+      .exit(() => {
+        throw new Error("shape consumer failed");
+      })
+      .build();
+    const mergedDSL = {
+      any: [{ only: [Position] }, { all: [{ only: [Position] }, Velocity] }],
+    } as const;
+    const merged = w.query("later merged").with(mergedDSL).build();
+    expect(merged.rootTerm?.kind).toBe("merged");
+    const entity = w.entity().add(Position);
+    expect(only.has(entity)).toBe(true);
+    expect(merged.has(entity)).toBe(true);
+
+    expect(() => entity.add(Velocity)).toThrow("shape consumer failed");
+
+    expect(only.has(entity)).toBe(false);
+    expect(merged.has(entity)).toBe(false);
+  });
 });
 
 describe("Term — PredicateTerm (test + watch)", () => {

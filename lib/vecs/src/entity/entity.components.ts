@@ -13,6 +13,8 @@ import { Relationships } from "./entity.relationships.js";
 import type { EID, Entity } from "./entity.js";
 
 export class Components extends Relationships {
+  private readonly _relationshipInitializationRollbacks = new Map<EID, (() => void)[]>();
+
   /**
    * @internal Apply an `Attach` command: store the provided component instance,
    * replacing any previous instance for this type. Events are fired as if the
@@ -23,7 +25,7 @@ export class Components extends Relationships {
     if (meta._pendingEnsures?.get(entity) === component) {
       meta._pendingEnsures.delete(entity);
     }
-    if (this._destroyed) {
+    if (this._destroyed || meta._isRetired) {
       return;
     }
     if (meta.isRelationship) {
@@ -33,6 +35,7 @@ export class Components extends Relationships {
     if (existing === undefined) {
       meta._validateAdd?.(entity);
     } else if (existing !== component) {
+      meta._assertCanDetach(entity);
       meta._onPolicyRemove?.(entity, existing);
     }
     this._storeComponent(meta, component, existing === undefined);
@@ -51,16 +54,33 @@ export class Components extends Relationships {
     return this._components.get(ceid);
   }
 
+  /** @internal Test authoritative live membership by component eid. */
+  public _hasLive(ceid: EID): boolean {
+    return this.world.getEntity(ceid)?.meta._isLive(this as unknown as Entity) ?? false;
+  }
+
+  /** @internal Count authoritative live component eids carried by this entity. */
+  public _liveComponentCount(): number {
+    let count = 0;
+    this._components.forEach((_component, ceid) => {
+      if (this._hasLive(ceid)) {
+        count++;
+      }
+    });
+    return count;
+  }
+
   /**
    * @internal Apply a `Modified` command: fire `onSet` and route modified
    * events to every query that watches the component type.
    */
   public _modified(meta: ComponentMeta): void {
-    if (this._destroyed) {
+    if (this._destroyed || meta._isRetired) {
       return;
     }
     const c = this._components.get(meta.eid);
     if (!c) {
+      this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
       return;
     }
     this._notifyComponentSet(meta, c, true);
@@ -71,38 +91,71 @@ export class Components extends Relationships {
    * detach the component, and fire `onRemove`.
    */
   public _remove(meta: ComponentMeta): void {
-    if (this._destroyed) {
+    if (this._destroyed || meta._isRetired) {
       return;
     }
     const c = this._components.get(meta.eid);
     if (!c) {
       return;
     }
-    meta._validateRemove?.(this as unknown as Entity);
+    meta._assertCanDetach(this as unknown as Entity);
+    if (meta._validateRemove) {
+      this.world._runDeletionPreflight(() => meta._validateRemove!(this as unknown as Entity));
+    }
     if (meta._implementsClosure) {
       for (const aliasMeta of meta._implementsClosure) {
         if (this._components.get(aliasMeta.eid) === c) {
-          this._removeRaw(aliasMeta, c);
+          this._removeAttachmentUnchecked(aliasMeta, c);
         }
       }
     }
-    this._removeRaw(meta, c);
+    this._removeAttachmentUnchecked(meta, c);
   }
 
-  /** @internal Apply one remove without expanding interface aliases. */
-  protected _removeRaw(meta: ComponentMeta, c: ComponentInstance): void {
+  /** @internal Apply one already-validated attachment removal without expanding aliases. */
+  public _removeAttachmentUnchecked(meta: ComponentMeta, c: ComponentInstance): void {
+    if (this._components.get(meta.eid) !== c) {
+      return;
+    }
     if (meta.isRelationship) {
       this._detachRelationship(meta, c as Relationship);
       return;
     }
+    const entity = this as unknown as Entity;
+    let firstError: unknown;
+    const wasPublished = meta._isLive(entity);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this.world._notifyComponentRemoved(meta.eid, this as unknown as Entity);
+    meta._detachAttachmentUnchecked(entity);
+    this._cleanupRetiredMetaRegistry(meta);
+    if (wasPublished) {
+      try {
+        this.world._notifyComponentRemoved(meta.eid, entity);
+      } catch (error) {
+        firstError = error;
+      }
+    }
     this._components.delete(meta.eid);
-    this.world._notifyComponentChanged(meta.eid, this as unknown as Entity);
-    meta._decrementUsage();
-    meta._onPolicyRemove?.(this as unknown as Entity, c);
-    meta._onRemove?.(this as unknown as Entity, c);
+    if (wasPublished) {
+      try {
+        this.world._notifyComponentChanged(meta.eid, entity);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    try {
+      meta._onPolicyRemove?.(entity, c);
+    } catch (error) {
+      firstError ??= error;
+    }
+    try {
+      meta._onRemove?.(entity, c);
+    } catch (error) {
+      firstError ??= error;
+    }
+    if (firstError !== undefined) {
+      throw firstError;
+    }
   }
 
   /**
@@ -111,7 +164,7 @@ export class Components extends Relationships {
    * query that watches the component type.
    */
   public _set(meta: ComponentMeta, props: Partial<ComponentInstance> | undefined): void {
-    if (this._destroyed) {
+    if (this._destroyed || meta._isRetired) {
       return;
     }
 
@@ -164,13 +217,16 @@ export class Components extends Relationships {
   public add(entity: Entity, target?: Entity): this;
 
   public add(ref: ComponentRef, target?: Entity): this {
+    this.world._assertStructuralMutationAllowed();
     const componentMeta = this.world.entity(ref).meta;
+    componentMeta._assertActive();
     this._throwIfInterface(componentMeta, "add");
     if (componentMeta.isRelationship) {
       if (target === undefined) {
         throw new Error("Entity.add requires a target for Relationship components");
       }
       this._assertTargetWorld(target);
+      this._assertCanAddTarget(componentMeta, target);
       if (this.world.deferred) {
         this.world._enqueue({
           kind: CommandKind.AddTarget,
@@ -186,6 +242,7 @@ export class Components extends Relationships {
     if (target !== undefined) {
       throw new Error("Entity.add target argument requires a Relationship component");
     }
+    this._assertCanStore(componentMeta);
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Set,
@@ -220,6 +277,7 @@ export class Components extends Relationships {
     classOrComponent: ComponentType<C> | ComponentInstance,
     component?: C
   ): this {
+    this.world._assertStructuralMutationAllowed();
     const ComponentKey = component === undefined ? classOrComponent.constructor : classOrComponent;
     const instance = component ?? classOrComponent;
     const componentMeta = this.world.entity(ComponentKey as ComponentRef).meta;
@@ -227,6 +285,7 @@ export class Components extends Relationships {
     if (componentMeta.isRelationship) {
       throw new Error("Entity.attach cannot attach Relationship components; add explicit targets");
     }
+    this._assertCanStore(componentMeta, instance);
     this._attach_or_enqueue(componentMeta, instance);
     return this;
   }
@@ -297,10 +356,12 @@ export class Components extends Relationships {
     ref: ComponentRef,
     callback?: (component: ComponentInstance) => void
   ): ComponentInstance | undefined {
+    this.world._assertStructuralMutationAllowed();
     if (callback === undefined && !this.world.deferred) {
       throw new Error("Entity.getMut without a callback is only allowed in deferred mode");
     }
     const componentMeta = this.world.entity(ref).meta;
+    componentMeta._assertActive();
     if (componentMeta.isRelationship) {
       throw new Error("Entity.getMut cannot mutate Relationship components; retarget with set");
     }
@@ -354,6 +415,7 @@ export class Components extends Relationships {
     ref: ComponentRef,
     callback?: (component: ComponentInstance) => void
   ): ComponentInstance {
+    this.world._assertStructuralMutationAllowed();
     if (this._destroyed) {
       throw new Error(`Cannot ensure component on destroyed entity ${this.eid}`);
     }
@@ -361,6 +423,7 @@ export class Components extends Relationships {
       throw new Error("Entity.ensure without a callback is only allowed in deferred mode");
     }
     const componentMeta = this.world.entity(ref).meta;
+    componentMeta._assertActive();
     if (componentMeta.isRelationship) {
       throw new Error("Entity.ensure cannot mutate Relationship components; retarget with set");
     }
@@ -408,14 +471,24 @@ export class Components extends Relationships {
    * @returns This entity, for chaining.
    */
   public modified(ref: ComponentRef): this {
+    this.world._assertStructuralMutationAllowed();
+    if (this._destroyed) {
+      return this;
+    }
     const componentMeta = this.world.entity(ref).meta;
+    componentMeta._assertActive();
     this._throwIfInterface(componentMeta, "modify");
     return this._markModified(componentMeta);
   }
 
   /** @internal Mark a component changed, coalescing duplicate pending notifications. */
   protected _markModified(meta: ComponentMeta): this {
+    this.world._assertStructuralMutationAllowed();
+    meta._assertActive();
     this._throwIfInterface(meta, "modify");
+    if (this._components.get(meta.eid) === undefined) {
+      return this;
+    }
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return this;
     }
@@ -466,13 +539,21 @@ export class Components extends Relationships {
   public remove(entity: Entity, target?: Entity): void;
 
   public remove(ref: ComponentRef, target?: Entity): void {
+    this.world._assertStructuralMutationAllowed();
     const componentMeta = this.world.entity(ref).meta;
+    componentMeta._assertActive();
     this._throwIfInterface(componentMeta, "remove");
     if (target !== undefined) {
       if (!componentMeta.isRelationship) {
         throw new Error("Entity.remove target argument requires a Relationship component");
       }
       this._assertTargetWorld(target);
+      if (
+        componentMeta._isInitializing(this as unknown as Entity) &&
+        (this._components.get(componentMeta.eid) as Relationship | undefined)?._targetCount() === 1
+      ) {
+        componentMeta._assertCanDetach(this as unknown as Entity);
+      }
       if (this.world.deferred) {
         this.world._enqueue({
           kind: CommandKind.RemoveTarget,
@@ -485,6 +566,7 @@ export class Components extends Relationships {
       }
       return;
     }
+    componentMeta._assertCanDetach(this as unknown as Entity);
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Remove,
@@ -522,8 +604,11 @@ export class Components extends Relationships {
   public set(entity: Entity, props: Partial<ComponentInstance>): this;
 
   public set(ref: ComponentRef, props: Partial<ComponentInstance>): this {
+    this.world._assertStructuralMutationAllowed();
     const componentMeta = this.world.entity(ref).meta;
+    componentMeta._assertActive();
     this._throwIfInterface(componentMeta, "set");
+    this._assertCanStore(componentMeta);
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Set,
@@ -561,13 +646,16 @@ export class Components extends Relationships {
   /** @internal Apply one relationship-edge addition. */
   public _addTarget(meta: ComponentMeta, target: Entity): void {
     this._assertTargetWorld(target);
-    if (this._destroyed || target._destroyed) {
+    if (this._destroyed || target._destroyed || meta._isRetired) {
       return;
     }
     const entity = this as unknown as Entity;
     const existing = this._components.get(meta.eid) as Relationship | undefined;
     if (existing?._hasTarget(target)) {
       return;
+    }
+    if (existing && meta._isInitializing(entity) && meta.relationshipExclusive) {
+      meta._assertCanDetach(entity);
     }
     if (existing && meta.relationshipExclusive) {
       const previous = existing._replaceTarget(target);
@@ -589,6 +677,19 @@ export class Components extends Relationships {
     if (existing) {
       existing._addTarget(target);
       this._addIncoming(target, meta.eid);
+      if (meta._isInitializing(entity)) {
+        const rollbacks = this._relationshipInitializationRollbacks.get(meta.eid)!;
+        const rollbackStart = rollbacks.length;
+        try {
+          this._emitTargetAdd(meta, existing, target, undefined, rollbacks);
+        } catch (error) {
+          existing._removeTarget(target);
+          this._removeIncoming(target, meta.eid);
+          this._runPolicyRollbacks(rollbacks, rollbackStart);
+          throw error;
+        }
+        return;
+      }
       const reflectsAdd = (): boolean =>
         this._components.get(meta.eid) === existing && existing._hasTarget(target);
       if (!this._emitTargetAdd(meta, existing, target, reflectsAdd)) {
@@ -598,26 +699,45 @@ export class Components extends Relationships {
       return;
     }
 
+    this._assertCanStore(meta);
     const relationship = new (meta.Class as ComponentClass)() as Relationship;
     relationship._addTarget(target);
-    this._storeRelationship(meta, relationship);
+    this._prepareStore(meta, relationship);
+    const generation = meta._beginAttachment(entity);
+    this._components.set(meta.eid, relationship);
+    this.componentBitmask.addBit(meta.bitPtr);
     this._addIncoming(target, meta.eid);
-    const reflectsAdd = (): boolean =>
-      this._components.get(meta.eid) === relationship && relationship._hasTarget(target);
-    if (!this._emitTargetAdd(meta, relationship, target, reflectsAdd)) {
-      return;
+    const policyRollbacks: (() => void)[] = [];
+    this._relationshipInitializationRollbacks.set(meta.eid, policyRollbacks);
+    try {
+      this.world._runInitializer(() => {
+        this._emitTargetAdd(meta, relationship, target, undefined, policyRollbacks);
+        meta._onAdd?.(entity, relationship);
+      });
+    } catch (error) {
+      for (const addedTarget of relationship._takeTargets()) {
+        this._removeIncoming(addedTarget, meta.eid);
+      }
+      if (this._components.get(meta.eid) === relationship) {
+        this._components.delete(meta.eid);
+        this.componentBitmask.deleteBit(meta.bitPtr);
+      }
+      this._runPolicyRollbacks(policyRollbacks);
+      meta._rollbackAttachment(entity, generation);
+      throw error;
+    } finally {
+      this._relationshipInitializationRollbacks.delete(meta.eid);
     }
-    meta._onAdd?.(entity, relationship);
-    if (!reflectsAdd()) {
-      return;
+    meta._commitAttachment(entity, generation);
+    if (meta._publishAttachment(entity, generation)) {
+      this.world._notifyComponentAdded(meta.eid, entity);
     }
-    this.world._notifyComponentAdded(meta.eid, entity);
   }
 
   /** @internal Apply one relationship-edge removal. */
   public _removeTarget(meta: ComponentMeta, target: Entity): void {
     this._assertTargetWorld(target);
-    if (this._destroyed) {
+    if (this._destroyed || meta._isRetired) {
       return;
     }
     const relationship = this._components.get(meta.eid) as Relationship | undefined;
@@ -625,17 +745,45 @@ export class Components extends Relationships {
       return;
     }
     if (relationship._targetCount() === 1) {
+      meta._assertCanDetach(this as unknown as Entity);
       this._remove(meta);
+      return;
+    }
+    this._removeTargetUnchecked(meta, target);
+  }
+
+  /** @internal Remove one already-validated relationship edge. */
+  public _removeTargetUnchecked(meta: ComponentMeta, target: Entity): void {
+    const relationship = this._components.get(meta.eid) as Relationship | undefined;
+    if (!relationship?._hasTarget(target)) {
+      return;
+    }
+    if (relationship._targetCount() === 1) {
+      this._removeAttachmentUnchecked(meta, relationship);
       return;
     }
     relationship._removeTarget(target);
     this._removeIncoming(target, meta.eid);
     const reflectsRemove = (): boolean =>
       this._components.get(meta.eid) === relationship && !relationship._hasTarget(target);
-    if (!this._emitTargetRemove(meta, relationship, target, reflectsRemove)) {
-      return;
+    let firstError: unknown;
+    let current = false;
+    try {
+      current = this._emitTargetRemove(meta, relationship, target, reflectsRemove);
+    } catch (error) {
+      firstError = error;
+      current = reflectsRemove();
     }
-    this._notifyRelationshipChanged(meta, relationship);
+    if (current) {
+      try {
+        this._notifyRelationshipChanged(meta, relationship);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError !== undefined) {
+      throw firstError;
+    }
   }
 
   /** @internal Perform the shared set-side hook and query update routing. */
@@ -647,6 +795,9 @@ export class Components extends Relationships {
     this._notifyRaw(meta, instance, isUpdate);
     if (meta._implementsClosure) {
       for (const aliasMeta of meta._implementsClosure) {
+        if (aliasMeta._isRetired) {
+          continue;
+        }
         this._notifyRaw(aliasMeta, instance, isUpdate);
       }
     }
@@ -655,12 +806,27 @@ export class Components extends Relationships {
   /** @internal Detach a whole relationship before exposing its zero-target snapshot to hooks. */
   protected _detachRelationship(meta: ComponentMeta, relationship: Relationship): void {
     const entity = this as unknown as Entity;
+    let firstError: unknown;
+    const wasPublished = meta._isLive(entity);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this.world._notifyComponentRemoved(meta.eid, entity);
+    meta._detachAttachmentUnchecked(entity);
+    this._cleanupRetiredMetaRegistry(meta);
+    if (wasPublished) {
+      try {
+        this.world._notifyComponentRemoved(meta.eid, entity);
+      } catch (error) {
+        firstError = error;
+      }
+    }
     this._components.delete(meta.eid);
-    this.world._notifyComponentChanged(meta.eid, entity);
-    meta._decrementUsage();
+    if (wasPublished) {
+      try {
+        this.world._notifyComponentChanged(meta.eid, entity);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
     const targets = relationship._takeTargets();
     for (const target of targets) {
       this._removeIncoming(target, meta.eid);
@@ -668,23 +834,25 @@ export class Components extends Relationships {
     for (const target of targets) {
       const reflectsRemove = (): boolean =>
         this._components.get(meta.eid) !== relationship && !relationship._hasTarget(target);
-      this._emitTargetRemove(meta, relationship, target, reflectsRemove);
-    }
-    meta._onRemove?.(entity, relationship);
-  }
-
-  /** @internal Store a newly attached relationship without firing hooks or query entry early. */
-  private _storeRelationship(meta: ComponentMeta, relationship: Relationship): void {
-    if (meta._exclusive) {
-      for (const exclusiveMeta of meta._exclusive) {
-        if (this._components.has(exclusiveMeta.eid)) {
-          this._remove(exclusiveMeta);
-        }
+      try {
+        this._emitTargetRemove(meta, relationship, target, reflectsRemove);
+      } catch (error) {
+        firstError ??= error;
       }
     }
-    this._components.set(meta.eid, relationship);
-    this.componentBitmask.addBit(meta.bitPtr);
-    meta._incrementUsage();
+    try {
+      meta._onPolicyRemove?.(entity, relationship);
+    } catch (error) {
+      firstError ??= error;
+    }
+    try {
+      meta._onRemove?.(entity, relationship);
+    } catch (error) {
+      firstError ??= error;
+    }
+    if (firstError !== undefined) {
+      throw firstError;
+    }
   }
 
   /** Assign relationship data while ignoring all target-storage spellings. */
@@ -704,13 +872,12 @@ export class Components extends Relationships {
 
   /** @internal Perform one set-side hook and query update without expanding aliases. */
   protected _notifyRaw(meta: ComponentMeta, instance: ComponentInstance, isUpdate: boolean): void {
-    meta._onSet?.(this as unknown as Entity, instance);
+    const entity = this as unknown as Entity;
+    meta._onSet?.(entity, instance);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
-    if (isUpdate) {
-      this.world._notifyComponentChanged(meta.eid, this as unknown as Entity);
-      this._queries.forEach((q) =>
-        q._notifyModified(this as unknown as Entity, meta.eid, instance)
-      );
+    if (isUpdate && meta._isLive(entity)) {
+      this.world._notifyComponentChanged(meta.eid, entity);
+      this._queries.forEach((q) => q._notifyModified(entity, meta.eid, instance));
     }
   }
 
@@ -720,45 +887,157 @@ export class Components extends Relationships {
     instance: ComponentInstance,
     isAdd: boolean
   ): void {
-    if (meta._exclusive) {
-      for (const exclusiveMeta of meta._exclusive) {
-        if (this._components.has(exclusiveMeta.eid)) {
-          this._remove(exclusiveMeta);
+    this._prepareStore(meta, instance);
+    const metas = [meta, ...(meta._implementsClosure ?? []).filter((alias) => !alias._isRetired)];
+    if (!isAdd) {
+      metas.forEach((componentMeta) => this._storeRaw(componentMeta, instance));
+      return;
+    }
+
+    const entity = this as unknown as Entity;
+    const attachments = metas
+      .filter((componentMeta) => !this._components.has(componentMeta.eid))
+      .map((componentMeta) => ({
+        meta: componentMeta,
+        generation: componentMeta._beginAttachment(entity),
+        policyApplied: false,
+      }));
+    attachments.forEach(({ meta: componentMeta }) => this._storeRaw(componentMeta, instance));
+
+    try {
+      this.world._runInitializer(() => {
+        for (const attachment of attachments) {
+          attachment.policyApplied = attachment.meta._onPolicyAdd !== undefined;
+          attachment.meta._onPolicyAdd?.(entity, instance);
+          attachment.meta._onAdd?.(entity, instance);
         }
+      });
+    } catch (error) {
+      for (let i = attachments.length - 1; i >= 0; i--) {
+        const attachment = attachments[i];
+        if (attachment.policyApplied) {
+          try {
+            attachment.meta._onPolicyRemove?.(entity, instance);
+          } catch {
+            // Preserve the constructor failure while completing local rollback.
+          }
+        }
+        if (this._components.get(attachment.meta.eid) === instance) {
+          this._components.delete(attachment.meta.eid);
+          this.componentBitmask.deleteBit(attachment.meta.bitPtr);
+        }
+        attachment.meta._rollbackAttachment(entity, attachment.generation);
+      }
+      throw error;
+    }
+
+    for (const attachment of attachments) {
+      attachment.meta._commitAttachment(entity, attachment.generation);
+    }
+    let firstError: unknown;
+    for (const attachment of attachments) {
+      if (!attachment.meta._publishAttachment(entity, attachment.generation)) {
+        continue;
+      }
+      try {
+        this.world._notifyComponentAdded(attachment.meta.eid, entity);
+      } catch (error) {
+        firstError ??= error;
       }
     }
-    if (meta._implementsClosure) {
-      for (const aliasMeta of meta._implementsClosure) {
-        const prev = this._components.get(aliasMeta.eid);
-        if (prev !== undefined && prev !== instance) {
-          const concreteMeta = this.world.entity((prev as any).constructor).meta;
-          this._remove(concreteMeta);
-        }
+    if (firstError !== undefined) {
+      throw firstError;
+    }
+  }
+
+  /** @internal Store one component eid without hooks, authority, or publication. */
+  protected _storeRaw(meta: ComponentMeta, instance: ComponentInstance): void {
+    this._components.set(meta.eid, instance);
+    this.componentBitmask.addBit(meta.bitPtr);
+  }
+
+  private _assertCanAddTarget(meta: ComponentMeta, target: Entity): void {
+    const relationship = this._components.get(meta.eid) as Relationship | undefined;
+    if (
+      relationship &&
+      !relationship._hasTarget(target) &&
+      meta.relationshipExclusive &&
+      meta._isInitializing(this as unknown as Entity)
+    ) {
+      meta._assertCanDetach(this as unknown as Entity);
+    }
+  }
+
+  private _cleanupRetiredMetaRegistry(meta: ComponentMeta): void {
+    if (!meta._isRetired || meta.usageCount !== 0 || meta.Class === Object) {
+      return;
+    }
+    const definition = this.world._classRegistry.get(meta.Class);
+    if (definition?.meta === meta && this.world.getEntity(definition.eid) !== definition) {
+      this.world._classRegistry.delete(meta.Class);
+    }
+  }
+
+  private _assertCanStore(meta: ComponentMeta, instance?: ComponentInstance): void {
+    const entity = this as unknown as Entity;
+    meta._assertActive();
+    if (this.world.getEntity(meta.eid)?.destroyed) {
+      throw new Error(`Cannot attach destroyed component ${meta.Class.name}`);
+    }
+    const existing = this._components.get(meta.eid);
+    if (existing !== undefined) {
+      if (instance === undefined || existing === instance) {
+        return;
+      }
+      meta._assertCanDetach(entity);
+    }
+    for (const exclusiveMeta of meta._exclusive ?? []) {
+      if (this._components.has(exclusiveMeta.eid)) {
+        exclusiveMeta._assertCanDetach(entity);
       }
     }
-    this._storeRaw(meta, instance, isAdd);
-    if (meta._implementsClosure) {
-      for (const aliasMeta of meta._implementsClosure) {
-        this._storeRaw(aliasMeta, instance, isAdd);
+    for (const aliasMeta of meta._implementsClosure ?? []) {
+      if (aliasMeta._isRetired) {
+        continue;
+      }
+      const previous = this._components.get(aliasMeta.eid);
+      if (previous !== undefined && previous !== instance) {
+        const concreteMeta = this.world.entity((previous as any).constructor).meta;
+        concreteMeta._assertCanDetach(entity);
       }
     }
   }
 
-  /** @internal Store one component eid without expanding interface aliases. */
-  protected _storeRaw(meta: ComponentMeta, instance: ComponentInstance, isAdd: boolean): void {
-    const existing = this._components.has(meta.eid);
-    this._components.set(meta.eid, instance);
-    this.componentBitmask.addBit(meta.bitPtr);
-    if (!existing) {
-      meta._incrementUsage();
+  private _prepareStore(meta: ComponentMeta, instance: ComponentInstance): void {
+    this._assertCanStore(meta, instance);
+    for (const exclusiveMeta of meta._exclusive ?? []) {
+      if (this._components.has(exclusiveMeta.eid)) {
+        this._remove(exclusiveMeta);
+      }
     }
-    if (isAdd && !existing) {
-      meta._onPolicyAdd?.(this as unknown as Entity, instance);
-      meta._onAdd?.(this as unknown as Entity, instance);
+    for (const aliasMeta of meta._implementsClosure ?? []) {
+      if (aliasMeta._isRetired) {
+        continue;
+      }
+      const previous = this._components.get(aliasMeta.eid);
+      if (previous !== undefined && previous !== instance) {
+        const concreteMeta = this.world.entity((previous as any).constructor).meta;
+        if (concreteMeta !== meta) {
+          this._remove(concreteMeta);
+        }
+      }
     }
-    if (!existing) {
-      this.world._notifyComponentAdded(meta.eid, this as unknown as Entity);
+  }
+
+  private _runPolicyRollbacks(rollbacks: (() => void)[], start = 0): void {
+    for (let i = rollbacks.length - 1; i >= start; i--) {
+      try {
+        rollbacks[i]();
+      } catch {
+        // Preserve the constructor failure while completing local rollback.
+      }
     }
+    rollbacks.length = start;
   }
 
   private _throwIfInterface(meta: ComponentMeta, op: string): void {
@@ -779,18 +1058,23 @@ export class Components extends Relationships {
     meta: ComponentMeta,
     relationship: Relationship,
     target: Entity,
-    isCurrent: () => boolean
+    isCurrent?: () => boolean,
+    policyRollbacks?: (() => void)[]
   ): boolean {
+    const current = isCurrent ?? (() => true);
     if (meta._targetAddPolicies) {
       for (const policy of meta._targetAddPolicies.values()) {
-        policy(this as unknown as Entity, relationship, target);
-        if (!isCurrent()) {
+        const rollback = policy(this as unknown as Entity, relationship, target);
+        if (rollback) {
+          policyRollbacks?.push(rollback);
+        }
+        if (!current()) {
           return false;
         }
       }
     }
     meta._onTargetAdd?.(this as unknown as Entity, relationship, target);
-    return isCurrent();
+    return current();
   }
 
   private _emitTargetRemove(

@@ -101,6 +101,13 @@ export type TargetHandler<C extends Relationship = Relationship> = (
   target: Entity
 ) => void;
 
+/** @internal Framework target policy that may return an initialization rollback. */
+type TargetPolicyHandler = (
+  source: Entity,
+  relationship: Relationship,
+  target: Entity
+) => void | (() => void);
+
 /** Callback fired for a component lifecycle event. */
 export type HookHandler<C extends ComponentInstance = ComponentInstance> = (
   entity: Entity,
@@ -123,6 +130,19 @@ export type ComponentClass<T extends ComponentInstance = ComponentInstance> = ne
 
 /** A component class constructor, component eid, or entity component key. */
 export type ComponentRef = EID | ComponentType | EntityClass | Entity;
+
+const enum AttachmentState {
+  Initializing,
+  PendingPublication,
+  Live,
+}
+
+let componentMetaGeneration = 0;
+
+type Attachment = {
+  generation: number;
+  state: AttachmentState;
+};
 
 /** Built-in component declaring abstract/interface component aliases. */
 export class Implements {
@@ -158,6 +178,14 @@ export interface Hook<C extends ComponentInstance = ComponentInstance> {
    * Set the handler invoked when a component of this type is first attached to
    * an entity (`entity.add(C)` or `entity.set(C, ...)` on an entity that does
    * not yet have the component). Pass `undefined` to remove the current handler.
+   *
+   * The component is stored before the handler runs, so direct reads and
+   * `instanceCount()` include it. Reactive query membership is published only
+   * after every concrete and interface add handler succeeds. The handler may
+   * initialize the supplied instance, but cannot remove or replace that
+   * attachment, destroy its carrier, or build a query or uncached term. If the
+   * handler throws, vecs rolls back the new attachment and framework policy
+   * effects without firing `onRemove` or query `enter`.
    *
    * @param handler - Receives the entity and freshly created component instance.
    * @returns This hook, for chaining.
@@ -214,6 +242,8 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   public readonly bitPtr: BitPtr;
   /** Whether this component is a relationship pointing at another entity. */
   public readonly isRelationship: boolean;
+  /** @internal Unique identity for this definition, independent of eid reuse. */
+  public readonly _generation = ++componentMetaGeneration;
   /** Whether this relationship permits only one target. */
   public relationshipExclusive = false;
 
@@ -257,13 +287,16 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** @internal Current relationship target-remove handler. */
   public _onTargetRemove: TargetHandler | undefined;
   /** @internal Target-add policies keyed by the trait component eid that installed them. */
-  public _targetAddPolicies: Map<EID, TargetHandler> | undefined;
+  public _targetAddPolicies: Map<EID, TargetPolicyHandler> | undefined;
   /** @internal Target-remove policies keyed by the trait component eid that installed them. */
   public _targetRemovePolicies: Map<EID, TargetHandler> | undefined;
   /** @internal Current `onSet` handler. */
   public _onSet: HookHandler | undefined;
 
-  private _usageCount = 0;
+  private readonly _attachments = new Map<Entity, Attachment>();
+  private _attachmentGeneration = 0;
+  private _liveCount = 0;
+  private _retired = false;
 
   constructor(Class: ComponentType, ceid: EID) {
     this.Class = Class;
@@ -274,19 +307,141 @@ export class ComponentMeta implements Hook<ComponentInstance> {
 
   /** Number of entities currently carrying this component eid. */
   public get usageCount(): number {
-    return this._usageCount;
+    return this._attachments.size;
   }
 
-  /** @internal */
-  public _incrementUsage(): void {
-    this._usageCount++;
-  }
-
-  /** @internal */
-  public _decrementUsage(): void {
-    if (this._usageCount > 0) {
-      this._usageCount--;
+  /** @internal Begin an attachment and return its unique generation. */
+  public _beginAttachment(entity: Entity): number {
+    if (this._attachments.has(entity)) {
+      throw new Error(`Entity ${entity.eid} already carries component ${this.Class.name}`);
     }
+    const generation = ++this._attachmentGeneration;
+    this._attachments.set(entity, { generation, state: AttachmentState.Initializing });
+    return generation;
+  }
+
+  /** @internal Commit initialized authority before observer publication. */
+  public _commitAttachment(entity: Entity, generation: number): boolean {
+    const attachment = this._attachments.get(entity);
+    if (
+      attachment?.generation !== generation ||
+      attachment.state !== AttachmentState.Initializing
+    ) {
+      return false;
+    }
+    attachment.state = AttachmentState.PendingPublication;
+    return true;
+  }
+
+  /** @internal Publish one committed attachment exactly once. */
+  public _publishAttachment(entity: Entity, generation: number): boolean {
+    const attachment = this._attachments.get(entity);
+    if (
+      attachment?.generation !== generation ||
+      attachment.state !== AttachmentState.PendingPublication
+    ) {
+      return false;
+    }
+    attachment.state = AttachmentState.Live;
+    this._liveCount++;
+    return true;
+  }
+
+  /** @internal Remove a live attachment, rejecting constructor-time elimination. */
+  public _detachAttachment(entity: Entity): boolean {
+    this._assertCanDetach(entity);
+    return this._detachAttachmentUnchecked(entity);
+  }
+
+  /** @internal Remove an attachment after its enclosing operation has been preflighted. */
+  public _detachAttachmentUnchecked(entity: Entity): boolean {
+    const attachment = this._attachments.get(entity);
+    if (!attachment) {
+      return false;
+    }
+    this._attachments.delete(entity);
+    if (attachment.state === AttachmentState.Live) {
+      this._liveCount--;
+    }
+    return true;
+  }
+
+  /** @internal Roll back only the exact initializing generation supplied by the caller. */
+  public _rollbackAttachment(entity: Entity, generation: number): boolean {
+    const attachment = this._attachments.get(entity);
+    if (
+      attachment?.generation !== generation ||
+      attachment.state !== AttachmentState.Initializing
+    ) {
+      return false;
+    }
+    this._attachments.delete(entity);
+    return true;
+  }
+
+  /** @internal Reject an operation that would eliminate this initializing attachment. */
+  public _assertCanDetach(entity: Entity): void {
+    if (this._attachments.get(entity)?.state === AttachmentState.Initializing) {
+      throw new Error(
+        `Cannot remove or replace component ${this.Class.name} on entity ${entity.eid} while its add hooks are initializing it`
+      );
+    }
+  }
+
+  /** @internal Reject public use after the component definition enters destruction commit. */
+  public _assertActive(): void {
+    if (this._retired) {
+      throw new Error(`Cannot use destroyed component ${this.Class.name}`);
+    }
+  }
+
+  /** @internal Whether deferred commands holding this definition are still current. */
+  public get _isRetired(): boolean {
+    return this._retired;
+  }
+
+  /** @internal Retire this exact generation before destruction callbacks run. */
+  public _retire(): void {
+    this._retired = true;
+  }
+
+  /** @internal Number of carriers visible to component terms and queries. */
+  public _getLiveCount(): number {
+    return this._liveCount;
+  }
+
+  /** @internal Whether this carrier is visible to component terms and queries. */
+  public _isLive(entity: Entity): boolean {
+    return this._attachments.get(entity)?.state === AttachmentState.Live;
+  }
+
+  /** @internal Whether this carrier is currently running constructor hooks. */
+  public _isInitializing(entity: Entity): boolean {
+    return this._attachments.get(entity)?.state === AttachmentState.Initializing;
+  }
+
+  /** @internal Whether any carrier is still inside constructor-like hooks. */
+  public _hasInitializingAttachments(): boolean {
+    for (const attachment of this._attachments.values()) {
+      if (attachment.state === AttachmentState.Initializing) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** @internal Iterate authoritative live carriers without allocating a second index. */
+  public *_liveCarriers(): IterableIterator<Entity> {
+    for (const [entity, attachment] of this._attachments) {
+      if (attachment.state === AttachmentState.Live) {
+        yield entity;
+      }
+    }
+  }
+
+  /** @internal Iterate every authoritative carrier, including initializing attachments. */
+  public *_carriers(): IterableIterator<Entity> {
+    yield* this._attachments.keys();
   }
 
   /** @inheritdoc */

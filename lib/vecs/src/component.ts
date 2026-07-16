@@ -58,6 +58,12 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * component instance. Use it to initialise external state (e.g. scene objects)
    * that should exist for the lifetime of the component.
    *
+   * The attachment is directly readable while this constructor-like callback
+   * runs, but it does not enter reactive queries until the callback succeeds.
+   * Removing or replacing the attachment, destroying its carrier, or building
+   * a query or uncached term from the callback throws. If the callback throws,
+   * vecs rolls back the new attachment without firing `onRemove` or `enter`.
+   *
    * Call without an argument to return the current handler. Pass `undefined` to remove it.
    *
    * @param handler - Callback invoked with `(entity, componentInstance)`, or `undefined`.

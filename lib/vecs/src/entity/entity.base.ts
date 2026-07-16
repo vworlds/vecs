@@ -69,7 +69,7 @@ export class Base {
     return (this._meta ??= new ComponentMeta(Object, this.eid));
   }
 
-  /** Number of live component instances currently attached for this entity's component key. */
+  /** Number of attached component instances, including one currently running its add hooks. */
   public instanceCount(): number {
     return this._meta?.usageCount ?? 0;
   }

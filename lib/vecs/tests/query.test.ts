@@ -750,6 +750,46 @@ describe("Query — entity tracking via world pipeline", () => {
 });
 
 describe("Query — enter/exit callbacks", () => {
+  it("fans Enter out after an earlier query callback throws and keeps memberships coherent", () => {
+    const { w } = setup();
+    const later = vi.fn();
+    const first = w
+      .query("first")
+      .with(Position)
+      .enter(() => {
+        throw new Error("enter failed");
+      })
+      .build();
+    const second = w.query("second").with(Position).enter(later).build();
+    const entity = w.entity();
+
+    expect(() => entity.add(Position)).toThrow("enter failed");
+
+    expect(first.has(entity)).toBe(true);
+    expect(second.has(entity)).toBe(true);
+    expect(later).toHaveBeenCalledWith(entity);
+  });
+
+  it("fans Exit out after an earlier query callback throws and clears memberships", () => {
+    const { w } = setup();
+    const later = vi.fn();
+    const first = w
+      .query("first")
+      .with(Position)
+      .exit(() => {
+        throw new Error("exit failed");
+      })
+      .build();
+    const second = w.query("second").with(Position).exit(later).build();
+    const entity = w.entity().add(Position);
+
+    expect(() => entity.remove(Position)).toThrow("exit failed");
+
+    expect(first.has(entity)).toBe(false);
+    expect(second.has(entity)).toBe(false);
+    expect(later).toHaveBeenCalledWith(entity);
+  });
+
   it("enter fires when an entity first matches the query", () => {
     const { w, tick } = setup();
     const cb = vi.fn();

@@ -71,6 +71,13 @@ key.
 - `modified(C)` fires `onSet`/`update` for data you already mutated in place. Repeated calls are
   coalesced until the world routes the notification.
 
+For a newly attached component, `onAdd` is constructor-like: direct `get`/`has` reads and
+`instanceCount()` see the initializing attachment, while component terms and reactive queries do
+not see it until every add hook succeeds. The hook can initialize the supplied object but cannot
+remove or replace that attachment, destroy its carrier, or construct a query or uncached term. A
+throw rolls back the new attachment without `enter` or `onRemove`; deliberate side effects outside
+that attachment are not rolled back. See [Components — hooks](./components.md#hooks-component-and-relationship-edges).
+
 Relationships use a stricter API: `add(R, target)` creates a unique edge, `remove(R, target)`
 removes one edge, and `remove(R)` removes every edge. `set(R, props)` updates only ordinary fields
 on an existing relationship and never creates or changes edges. See
@@ -149,11 +156,18 @@ drains.
 
 ## Destroying entities
 
-`e.destroy()` removes every component (firing each `onRemove` hook and query `exit`), emits the
-entity's `"destroy"` event just before teardown, unregisters the entity from the world, and
-applies incoming relationship cleanup policies (see
-[Relationships](./relationships.md#cleanup-when-a-target-dies)). After destruction the entity must
-not be used.
+`e.destroy()` plans the complete transitive cleanup before changing the world. The plan follows
+indexed component carriers and incoming relationship sources, validates every planned removal,
+then freezes all doomed entities and executes the collected query exits, component removals,
+relationship-edge removals, and unregister operations. A blocked immediate destroy throws without
+partial cleanup. After destruction the entity must not be used.
+
+During commit, query exits run before their component's `onRemove`, component data remains available
+to exit snapshots, and an entity's remaining sibling components stay readable by earlier
+`onRemove` hooks. Incoming `CleanupPolicy.Remove` edges are cleaned after their target is
+unregistered; `CleanupPolicy.Delete` sources are already part of the accepted plan. If an observer
+or removal hook throws during commit, vecs completes mandatory structural cleanup and rethrows the
+first error afterward.
 
 If the entity is itself in use as a component key, `destroy` honors `meta.onDelete` — by default
 it throws while carriers remain ([Components — cleanup policies](./components.md#cleanup-policies-destroying-a-component-entity)).

@@ -135,6 +135,14 @@ calls `onRemove`. An exclusive replacement calls `onTargetRemove` for the old ta
 relationship-dependent query updates, but do not call `onSet`; `onSet` is reserved for ordinary
 relationship data changed through `set`.
 
+The first edge and relationship instance share the component initialization boundary. The edge and
+reverse index exist while `onTargetAdd` and `onAdd` run, but relationship queries enter only after
+both handlers succeed. Those handlers may add more non-exclusive edges, but cannot remove the
+initializing relationship, remove its final edge, replace its exclusive target, destroy a target
+whose cleanup would eliminate it, or build a query or uncached term. A throw rolls back the new
+relationship, every edge added by that initialization, reverse indexes, and built-in policy effects
+without firing remove hooks.
+
 Call `onTargetAdd()` or `onTargetRemove()` without an argument to read the current handler, pass a
 handler to replace it, or pass `undefined` to clear it. Framework traits install separate internal
 policies, so adding or removing a trait does not replace these public hooks.
@@ -194,6 +202,11 @@ parent.destroy(); // child and its own ChildOf children are destroyed too
 With the default `Remove`, cleanup follows normal per-edge semantics: `onTargetRemove` receives the
 destroyed target, and the relationship component remains if another edge survives. Removing the
 last edge also removes the component.
+
+Target destruction is preflighted with the rest of its transitive deletion graph. Every source
+selected by `Delete` must itself be destroyable, and a final-edge `Remove` validator must succeed,
+before the target is frozen. A blocker leaves the complete graph unchanged. Commit then destroys
+sources or removes only the collected target edges without rescanning unrelated entities.
 
 `onDeleteTarget` is independent from `onDelete`: `onDeleteTarget` applies when a relationship
 **target** is destroyed; `onDelete` applies when the relationship **component entity itself** is

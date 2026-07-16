@@ -94,7 +94,7 @@ export class OnlyTerm extends Term {
     return (
       this._children[0].has(entity) &&
       this._children[1].has(entity) &&
-      entity.components.size === this._componentEids.length
+      entity._liveComponentCount() === this._componentEids.length
     );
   }
 }

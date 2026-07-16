@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { ChildOf, Entity, Exclusive, Iter, Relationship, World } from "../src/index.js";
+import {
+  ChildOf,
+  CleanupPolicy,
+  Entity,
+  Exclusive,
+  Iter,
+  Relationship,
+  World,
+} from "../src/index.js";
 
 class Body {}
 class Position {
@@ -25,6 +33,110 @@ function setup() {
 }
 
 describe("Relationship queries", () => {
+  it.each(["ordinary", "relationship"] as const)(
+    "does not reinterpret a cached target after relationship eid reuse by a %s component",
+    (replacementKind) => {
+      class Ordinary {}
+      class OtherRelationship extends Relationship {}
+      const world = new World({
+        idPools: [
+          { name: "component", min: 1, max: 899, reuseWaitFrames: 0 },
+          { name: "module", min: 900, max: 999 },
+          { name: "entity", min: 1000 },
+        ],
+      });
+      world.component(Position);
+      const relationship = world.component(Knows, 700);
+      relationship.meta.onDelete = CleanupPolicy.Remove;
+      const target = world.entity().add(Position);
+      const source = world.entity().add(Knows, target);
+      const query = world
+        .query("cached target")
+        .with({ target: [Knows, Position] })
+        .build();
+      expect(query.has(source)).toBe(true);
+
+      relationship.destroy();
+      if (replacementKind === "ordinary") {
+        world.component(Ordinary, 700);
+        expect(() => source.add(Ordinary)).not.toThrow();
+        expect(query.has(source)).toBe(false);
+      } else {
+        world.component(OtherRelationship, 700);
+        expect(() => source.add(OtherRelationship, target)).not.toThrow();
+        const replacementQuery = world
+          .query("replacement target")
+          .with({ target: [OtherRelationship, Position] })
+          .build();
+        expect(query.has(source)).toBe(true);
+        expect(replacementQuery.has(source)).toBe(true);
+      }
+
+      expect(() => target.modified(Position)).not.toThrow();
+    }
+  );
+
+  it("keeps persistent compiled filters and target injectors safe after ordinary eid reuse", () => {
+    class Ordinary {}
+    const world = new World({
+      idPools: [
+        { name: "component", min: 1, max: 899, reuseWaitFrames: 0 },
+        { name: "module", min: 900, max: 999 },
+        { name: "entity", min: 1000 },
+      ],
+    });
+    world.component(Position);
+    world.component(Body);
+    const relationship = world.component(Knows, 700);
+    const filter = world.filter({ target: [Knows, Position] });
+    const injected: unknown[][] = [];
+    world
+      .query("persistent target injection")
+      .with(Body)
+      .enter([{ target: [Knows, Entity] }, { targets: [Knows, Entity] }], (_entity, values) =>
+        injected.push(values)
+      )
+      .build();
+
+    relationship.destroy();
+    world.component(Ordinary, 700);
+    const candidate = world.entity().add(Ordinary).add(Body);
+    const filtered: Entity[] = [];
+
+    expect(() => filter.forEach((entity) => filtered.push(entity))).not.toThrow();
+    expect(candidate.target(700)).toBeUndefined();
+    expect(candidate.targets(700)).toEqual([]);
+    expect(candidate.hasTarget(700, candidate)).toBe(false);
+    expect(filtered).not.toContain(candidate);
+    expect(injected).toEqual([[undefined, []]]);
+  });
+
+  it("fans target exits to a stable snapshot when the first source removes its edge", () => {
+    const { w } = setup();
+    const target = w.entity().add(Position);
+    const first = w.entity().add(Knows, target);
+    const second = w.entity().add(Knows, target);
+    const exits: Entity[] = [];
+    const query = w
+      .query("reentrant target exits")
+      .with({ target: [Knows, Position] })
+      .exit((source) => {
+        exits.push(source);
+        if (source === first) {
+          first.remove(Knows, target);
+        }
+      })
+      .build();
+    expect(query.has(first)).toBe(true);
+    expect(query.has(second)).toBe(true);
+
+    target.remove(Position);
+
+    expect(exits).toEqual([first, second]);
+    expect(query.has(first)).toBe(false);
+    expect(query.has(second)).toBe(false);
+  });
+
   it("matches when any target satisfies nested target terms", () => {
     const { w } = setup();
     const leaf = w.entity().add(Tag);

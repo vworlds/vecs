@@ -3,6 +3,7 @@ import {
   ChildOf,
   CleanupPolicy,
   Exclusive,
+  Implements,
   Relationship,
   type Entity,
   World,
@@ -519,10 +520,8 @@ describe("Entity — lifecycle and relationships", () => {
     expect(() => w.entity(target.eid)).toThrow();
   });
 
-  // Regression for issue #155: _cleanupIncoming's outer forEach over distinct
-  // relationship types was perturbed by re-entrant _removeIncoming deletes,
-  // causing it to skip types after the first. The fix buffers cleanup ops onto
-  // a world-level deletion scope and drains them after the scan completes.
+  // Regression for issue #155: cleanup must snapshot every indexed incoming
+  // relationship type before commit mutates the reverse indexes.
   it("destroy cleans up every incoming relationship type when multiple types target the same entity (Delete, shape-before-joint order)", () => {
     const w = new World();
     w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
@@ -676,6 +675,7 @@ describe("Entity — component entity onDelete", () => {
     expect(() => w.entity(a.eid)).toThrow();
     expect(() => w.entity(b.eid)).toThrow();
     expect(() => w.entity(componentEntity.eid)).toThrow();
+    expect(w.getEntity(Position)).toBeUndefined();
     expect(componentEntity.destroyed).toBe(true);
   });
 
@@ -702,6 +702,497 @@ describe("Entity — component entity onDelete", () => {
     expect(() => key.destroy()).not.toThrow();
     expect(key.destroyed).toBe(true);
     expect(key.instanceCount()).toBe(0);
+  });
+});
+
+describe("Entity — indexed deletion planner", () => {
+  it.each([CleanupPolicy.Remove, CleanupPolicy.Delete])(
+    "does not scan world entities for component-key %s cleanup",
+    (policy) => {
+      const world = new World();
+      const component = world.component(Position);
+      const componentEid = component.eid;
+      component.meta.onDelete = policy;
+      const first = world.entity().add(Position);
+      const second = world.entity().add(Position);
+      world.entity();
+      world.entity();
+      const scan = vi.spyOn(world.entities, "forEach");
+
+      component.destroy();
+
+      expect(scan).not.toHaveBeenCalled();
+      expect(component.destroyed).toBe(true);
+      if (policy === CleanupPolicy.Remove) {
+        expect(first._get(componentEid)).toBeUndefined();
+        expect(second._get(componentEid)).toBeUndefined();
+      } else {
+        expect(first.destroyed).toBe(true);
+        expect(second.destroyed).toBe(true);
+      }
+    }
+  );
+
+  it("validates every planned Remove exactly once before removing anything", () => {
+    const world = new World();
+    const component = world.component(Position);
+    const componentEid = component.eid;
+    component.meta.onDelete = CleanupPolicy.Remove;
+    const first = world.entity().add(Position);
+    const second = world.entity().add(Position);
+    const validations: Entity[] = [];
+    component.meta._validateRemove = (carrier) => {
+      expect(first.has(Position)).toBe(true);
+      expect(second.has(Position)).toBe(true);
+      validations.push(carrier);
+    };
+
+    component.destroy();
+
+    expect(validations).toEqual([first, second]);
+    expect(first._get(componentEid)).toBeUndefined();
+    expect(second._get(componentEid)).toBeUndefined();
+  });
+
+  it("leaves the root and every carrier unchanged when Remove validation fails", () => {
+    const world = new World();
+    const component = world.component(Position);
+    component.meta.onDelete = CleanupPolicy.Remove;
+    const first = world.entity().add(Position);
+    const second = world.entity().add(Position);
+    const firstValue = first.get(Position);
+    const secondValue = second.get(Position);
+    let validations = 0;
+    component.meta._validateRemove = () => {
+      if (++validations === 2) {
+        throw new Error("blocked removal");
+      }
+    };
+
+    expect(() => component.destroy()).toThrow("blocked removal");
+
+    expect(validations).toBe(2);
+    expect(component.destroyed).toBe(false);
+    expect(world.entity(component.eid)).toBe(component);
+    expect(first.get(Position)).toBe(firstValue);
+    expect(second.get(Position)).toBe(secondValue);
+    expect(component.instanceCount()).toBe(2);
+  });
+
+  it("leaves a direct Delete cascade unchanged when its carrier is a blocked component key", () => {
+    class RootComponent {}
+    const world = new World();
+    const root = world.component(RootComponent);
+    root.meta.onDelete = CleanupPolicy.Delete;
+    const blockedCarrier = world.entity().add(RootComponent);
+    const holder = world.entity().add(blockedCarrier);
+
+    expect(() => root.destroy()).toThrow(/component eid is still in use/);
+
+    expect(root.destroyed).toBe(false);
+    expect(blockedCarrier.destroyed).toBe(false);
+    expect(blockedCarrier.has(RootComponent)).toBe(true);
+    expect(holder.has(blockedCarrier)).toBe(true);
+  });
+
+  it("leaves a transitive Delete cascade unchanged when a nested carrier is blocked", () => {
+    class RootComponent {}
+    class NestedComponent {}
+    const world = new World();
+    const root = world.component(RootComponent);
+    const nested = world.component(NestedComponent).add(RootComponent);
+    root.meta.onDelete = CleanupPolicy.Delete;
+    nested.meta.onDelete = CleanupPolicy.Delete;
+    const blockedCarrier = world.entity().add(NestedComponent);
+    const holder = world.entity().add(blockedCarrier);
+
+    expect(() => root.destroy()).toThrow(/component eid is still in use/);
+
+    expect(root.destroyed).toBe(false);
+    expect(nested.destroyed).toBe(false);
+    expect(blockedCarrier.destroyed).toBe(false);
+    expect(nested.has(RootComponent)).toBe(true);
+    expect(blockedCarrier.has(NestedComponent)).toBe(true);
+    expect(holder.has(blockedCarrier)).toBe(true);
+  });
+
+  it("leaves a target and graph unchanged when an incoming Delete source is blocked", () => {
+    class CascadesTo extends Relationship {}
+    const world = new World();
+    world.component(CascadesTo).meta.onDeleteTarget = CleanupPolicy.Delete;
+    const target = world.entity();
+    const blockedSource = world.entity().add(CascadesTo, target);
+    const holder = world.entity().add(blockedSource);
+
+    expect(() => target.destroy()).toThrow(/component eid is still in use/);
+
+    expect(target.destroyed).toBe(false);
+    expect(blockedSource.destroyed).toBe(false);
+    expect(blockedSource.hasTarget(CascadesTo, target)).toBe(true);
+    expect(target.children(CascadesTo)).toContain(blockedSource);
+    expect(holder.has(blockedSource)).toBe(true);
+  });
+
+  it("deduplicates cyclic and overlapping Delete cascades without dangling references", () => {
+    class CascadesTo extends Relationship {}
+    const world = new World();
+    const relationship = world.component(CascadesTo);
+    relationship.meta.onDeleteTarget = CleanupPolicy.Delete;
+    const removed = vi.fn();
+    relationship.onRemove(removed);
+    const first = world.entity();
+    const second = world.entity();
+    const overlap = world.entity();
+    first.add(CascadesTo, second);
+    second.add(CascadesTo, first);
+    overlap.add(CascadesTo, first).add(CascadesTo, second);
+
+    first.destroy();
+
+    expect(first.destroyed).toBe(true);
+    expect(second.destroyed).toBe(true);
+    expect(overlap.destroyed).toBe(true);
+    expect(removed).toHaveBeenCalledTimes(3);
+    expect(relationship.instanceCount()).toBe(0);
+    expect(first.children(CascadesTo).size).toBe(0);
+    expect(second.children(CascadesTo).size).toBe(0);
+  });
+
+  it("removes only the destroyed edge from a multi-target Remove relationship", () => {
+    const world = new World();
+    world.component(FriendOf);
+    const destroyedTarget = world.entity();
+    const survivingTarget = world.entity();
+    const source = world.entity().add(FriendOf, destroyedTarget).add(FriendOf, survivingTarget);
+
+    destroyedTarget.destroy();
+
+    expect(source.destroyed).toBe(false);
+    expect(source.targets(FriendOf)).toEqual([survivingTarget]);
+    expect(source.has(FriendOf)).toBe(true);
+    expect(destroyedTarget.children(FriendOf).size).toBe(0);
+    expect(survivingTarget.children(FriendOf)).toContain(source);
+  });
+
+  it("removes Implements aliases with a destroyed concrete component definition", () => {
+    abstract class Located {}
+    class Point {}
+    const world = new World();
+    const located = world.component(Located);
+    const point = world.component(Point).set(Implements, { interfaces: [Located] });
+    const pointEid = point.eid;
+    const locatedEid = located.eid;
+    point.meta.onDelete = CleanupPolicy.Remove;
+    const carrier = world.entity().add(Point);
+
+    point.destroy();
+
+    expect(carrier.destroyed).toBe(false);
+    expect(carrier._get(pointEid)).toBeUndefined();
+    expect(carrier._get(locatedEid)).toBeUndefined();
+  });
+
+  it("handles self-carry while removing a component definition from other carriers", () => {
+    const world = new World();
+    const key = world.entity();
+    const keyEid = key.eid;
+    key.meta.onDelete = CleanupPolicy.Remove;
+    key.add(key);
+    const carrier = world.entity().add(key);
+
+    key.destroy();
+
+    expect(key.destroyed).toBe(true);
+    expect(carrier.destroyed).toBe(false);
+    expect(carrier._get(keyEid)).toBeUndefined();
+    expect(key.instanceCount()).toBe(0);
+  });
+
+  it("tears down relationship component definitions and their reverse indexes", () => {
+    class ConnectedTo extends Relationship {}
+    const world = new World();
+    const relationship = world.component(ConnectedTo).add(Exclusive);
+    const relationshipEid = relationship.eid;
+    relationship.meta.onDelete = CleanupPolicy.Remove;
+    const target = world.entity();
+    const source = world.entity().add(ConnectedTo, target);
+
+    relationship.destroy();
+
+    expect(relationship.destroyed).toBe(true);
+    expect(source.destroyed).toBe(false);
+    expect(source._get(relationshipEid)).toBeUndefined();
+    expect(target.children(relationshipEid).size).toBe(0);
+  });
+
+  it("consumes a deferred blocked plan without partial mutation and keeps FIFO usable", () => {
+    class CascadesTo extends Relationship {}
+    const world = new World();
+    world.component(CascadesTo).meta.onDeleteTarget = CleanupPolicy.Delete;
+    world.component(Position);
+    const target = world.entity();
+    const blockedSource = world.entity().add(CascadesTo, target);
+    const holder = world.entity().add(blockedSource);
+    const later = world.entity();
+
+    world.defer(() => {
+      target.destroy();
+      later.add(Position);
+    });
+
+    expect(target.destroyed).toBe(false);
+    expect(blockedSource.destroyed).toBe(false);
+    expect(blockedSource.hasTarget(CascadesTo, target)).toBe(true);
+    expect(target.children(CascadesTo)).toContain(blockedSource);
+    expect(holder.has(blockedSource)).toBe(true);
+    expect(later.has(Position)).toBe(true);
+
+    expect(() => world.defer(() => later.remove(Position))).not.toThrow();
+    expect(later.has(Position)).toBe(false);
+  });
+
+  it("forbids and contains structural mutation attempted by Remove validators", () => {
+    class RegisteredDuringValidation {}
+    const world = new World();
+    const component = world.component(Position);
+    world.component(Velocity);
+    world.component(FriendOf);
+    component.meta.onDelete = CleanupPolicy.Remove;
+    const carrier = world.entity().add(Position);
+    const untouched = world.entity();
+    const mutable = world.entity().set(Velocity, { vx: 1 });
+    const mutate = vi.fn((velocity: Velocity) => {
+      velocity.vx = 99;
+    });
+    const relationshipTarget = world.entity();
+    const relationshipSource = world.entity().add(FriendOf, relationshipTarget);
+    const cached = world.getTerm(Position);
+    const queryCount = world.queries.length;
+    let validations = 0;
+    component.meta._validateRemove = () => {
+      validations++;
+      expect(world.getTerm(Position)).toBe(cached);
+      const attempts = [
+        () => untouched.add(Velocity),
+        () => untouched.set(Velocity, {}),
+        () => untouched.attach(new Velocity()),
+        () => untouched.ensure(Velocity, () => {}),
+        () => untouched.modified(Velocity),
+        () => mutable.getMut(Velocity, mutate),
+        () => carrier.remove(Position),
+        () => relationshipSource.add(FriendOf, untouched),
+        () => relationshipSource.remove(FriendOf, relationshipTarget),
+        () => untouched.destroy(),
+        () => world.entity(),
+        () => world.getOrCreateEntity(50_000),
+        () => world.component(RegisteredDuringValidation),
+        () => world.query("forbidden"),
+        () => world.getTerm(Velocity),
+        () => world.beginDefer(),
+        () => world.endDefer(),
+        () => world.defer(() => untouched.add(Velocity)),
+      ];
+      attempts.forEach((attempt) => expect(attempt).toThrow(/deletion preflight/));
+    };
+
+    component.destroy();
+
+    expect(validations).toBe(1);
+    expect(untouched.empty).toBe(true);
+    expect(untouched.destroyed).toBe(false);
+    expect(mutable.get(Velocity)?.vx).toBe(1);
+    expect(mutate).not.toHaveBeenCalled();
+    expect(world.deferred).toBe(false);
+    expect((world as any)._deferredDepth).toBe(0);
+    expect(relationshipSource.targets(FriendOf)).toEqual([relationshipTarget]);
+    expect(relationshipTarget.children(FriendOf)).toContain(relationshipSource);
+    expect(world.getEntity(50_000)).toBeUndefined();
+    expect(world.getEntity(RegisteredDuringValidation)).toBeUndefined();
+    expect(world.queries).toHaveLength(queryCount);
+    expect(world._getCachedTerm(Velocity)).toBeUndefined();
+  });
+
+  it("no-ops a stale component command queued after definition destruction", () => {
+    const world = new World();
+    const component = world.component(Position);
+    component.meta.onDelete = CleanupPolicy.Remove;
+    const componentEid = component.eid;
+    const carrier = world.entity();
+
+    world.defer(() => {
+      component.destroy();
+      carrier.set(Position, { x: 99 });
+    });
+
+    expect(component.destroyed).toBe(true);
+    expect(carrier._get(componentEid)).toBeUndefined();
+  });
+
+  it("does not let a stale meta mutate a replacement definition at a reused eid", () => {
+    class Replacement {
+      value = 0;
+    }
+    const world = new World({
+      idPools: [
+        { name: "component", min: 1, max: 899, reuseWaitFrames: 0 },
+        { name: "module", min: 900, max: 999 },
+        { name: "entity", min: 1000 },
+      ],
+    });
+    const oldDefinition = world.component(Position, 700);
+    const oldMeta = oldDefinition.meta;
+    oldMeta.onDelete = CleanupPolicy.Remove;
+    oldDefinition.onRemove(() => {
+      throw new Error("teardown observer failed");
+    });
+    const carrier = world.entity().add(Position);
+
+    expect(() =>
+      world.defer(() => {
+        oldDefinition.destroy();
+        carrier.set(Position, { x: 99 });
+      })
+    ).toThrow("teardown observer failed");
+
+    const replacement = world.component(Replacement, 700);
+    carrier.set(Replacement, { value: 7 });
+    expect(replacement.meta._generation).not.toBe(oldMeta._generation);
+
+    expect(() => world.flush()).not.toThrow();
+    expect(carrier.get(Replacement)).toEqual({ value: 7 });
+    expect(carrier.get(Replacement)).not.toHaveProperty("x");
+    expect(replacement.instanceCount()).toBe(1);
+  });
+
+  it("freezes later Delete dependents before root exit callbacks can mutate them", () => {
+    const world = new World();
+    const velocity = world.component(Velocity);
+    world.component(FriendOf);
+    const root = world.entity();
+    const dependent = world.entity().childOf(root);
+    const survivingTarget = world.entity();
+    const exits: Entity[] = [];
+    world
+      .query("all entities")
+      .with(true)
+      .exit((entity) => {
+        if (entity === root) {
+          dependent.add(Velocity);
+          dependent.add(FriendOf, survivingTarget);
+        }
+        if (entity === root || entity === dependent) {
+          exits.push(entity);
+        }
+      })
+      .build();
+
+    root.destroy();
+
+    expect(exits).toEqual([root, dependent]);
+    expect(root.destroyed).toBe(true);
+    expect(dependent.destroyed).toBe(true);
+    expect(velocity.instanceCount()).toBe(0);
+    expect(survivingTarget.children(FriendOf).size).toBe(0);
+  });
+
+  it("allows a Throw carrier that is independently doomed by the same Delete closure", () => {
+    class CascadesTo extends Relationship {}
+    const world = new World();
+    world.component(CascadesTo).meta.onDeleteTarget = CleanupPolicy.Delete;
+    const root = world.entity();
+    const key = world.entity().add(CascadesTo, root);
+    const carrier = world.entity().add(CascadesTo, root).add(key);
+
+    expect(() => root.destroy()).not.toThrow();
+
+    expect(root.destroyed).toBe(true);
+    expect(key.destroyed).toBe(true);
+    expect(carrier.destroyed).toBe(true);
+    expect(key.instanceCount()).toBe(0);
+  });
+
+  it("runs component-key Remove before key teardown and incoming Remove after target finalization", () => {
+    class Marker {}
+    const world = new World();
+    const events: string[] = [];
+    const component = world.component(Position);
+    world.component(FriendOf);
+    component.meta.onDelete = CleanupPolicy.Remove;
+    world.component(Position).onRemove((entity) => {
+      if (entity !== component) {
+        events.push("carrier remove");
+      }
+    });
+    world.component(Marker).onRemove((entity) => {
+      if (entity === component) {
+        events.push("key teardown");
+      }
+    });
+    component.add(Marker);
+    world.entity().add(Position);
+
+    component.destroy();
+
+    expect(events).toEqual(["carrier remove", "key teardown"]);
+
+    const target = world.entity();
+    const source = world.entity().add(FriendOf, target);
+    world.component(FriendOf).onTargetRemove((_source, _relationship, removed) => {
+      expect(removed).toBe(target);
+      expect(world.getEntity(target.eid)).toBeUndefined();
+      events.push("incoming remove");
+    });
+    target.destroy();
+    expect(source.has(FriendOf)).toBe(false);
+    expect(events.at(-1)).toBe("incoming remove");
+  });
+
+  it("completes planned teardown after query and removal callbacks throw", () => {
+    const world = new World();
+    const position = world.component(Position);
+    const relationship = world.component(FriendOf);
+    const laterExit = vi.fn();
+    let target: Entity;
+    world
+      .query("throwing exit")
+      .with(true)
+      .exit((entity) => {
+        if (entity === target) {
+          throw new Error("query exit failed");
+        }
+      })
+      .build();
+    world
+      .query("later exit")
+      .with(true)
+      .exit((entity) => {
+        if (entity === target) {
+          laterExit(entity);
+        }
+      })
+      .build();
+    const onRemove = vi.fn(() => {
+      throw new Error("remove failed");
+    });
+    const onTargetRemove = vi.fn(() => {
+      throw new Error("target remove failed");
+    });
+    position.onRemove(onRemove);
+    relationship.onTargetRemove(onTargetRemove);
+    target = world.entity().add(Position);
+    const source = world.entity().add(FriendOf, target);
+    const targetEid = target.eid;
+
+    expect(() => target.destroy()).toThrow("query exit failed");
+
+    expect(target.destroyed).toBe(true);
+    expect(world.getEntity(targetEid)).toBeUndefined();
+    expect(position.instanceCount()).toBe(0);
+    expect(source.has(FriendOf)).toBe(false);
+    expect(target.children(FriendOf).size).toBe(0);
+    expect(laterExit).toHaveBeenCalledWith(target);
+    expect(onRemove).toHaveBeenCalledOnce();
+    expect(onTargetRemove).toHaveBeenCalledOnce();
   });
 });
 
@@ -889,7 +1380,7 @@ describe("Entity — relationship navigation", () => {
     expect(events).toEqual(["target-add", "add", "target-remove", "remove"]);
   });
 
-  it("does not publish phantom query membership when onTargetAdd removes the relationship", () => {
+  it("rejects removing the initializing relationship from onTargetAdd and rolls it back", () => {
     const w = new World();
     const relationship = w.component(FriendOf);
     const query = w.query("reentrant relationship add").with(FriendOf).build();
@@ -899,7 +1390,7 @@ describe("Entity — relationship navigation", () => {
     const source = w.entity();
     const target = w.entity();
 
-    source.add(FriendOf, target);
+    expect(() => source.add(FriendOf, target)).toThrow(/while its add hooks are initializing it/);
 
     expect(onTargetAdd).toHaveBeenCalledOnce();
     expect(onAdd).not.toHaveBeenCalled();

@@ -162,6 +162,19 @@ component:
   their next run (`lib/vecs/src/system.ts`). So systems react to change without scanning, and they
   react _in their own phase slot_, in event arrival order.
 
+New attachments have an initialization boundary inside that routing. vecs stores the component,
+runs its framework policies and `onAdd` handlers, then publishes term/query `enter` only after all
+concrete and interface handlers succeed. Direct reads can inspect the initializing instance, but
+reactive membership cannot. Query/system construction and uncached term materialization are
+rejected from add hooks so backfill cannot observe a half-initialized attachment. A failed add hook
+rolls back the new attachment; other commands or immediate side effects deliberately issued by the
+hook retain normal FIFO/call-order semantics.
+
+Destruction uses the complementary two-stage boundary: indexed graph discovery and validation run
+first, then an accepted frozen plan executes without further discovery or validation. Validators
+cannot structurally mutate the world. Observer errors during commit are isolated so later observers
+and mandatory teardown still run before the first error is rethrown.
+
 Three routing rules worth memorizing:
 
 - **`update(C)` is change-only unless you opt into entry.** When an entity enters a system,

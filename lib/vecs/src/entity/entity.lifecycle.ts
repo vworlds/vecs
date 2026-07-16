@@ -1,122 +1,69 @@
-import { CleanupPolicy } from "../component_meta.js";
+import { CleanupPolicy, Relationship } from "../component_meta.js";
 import type { ComponentInstance, ComponentMeta } from "../component_meta.js";
-import { Relationship } from "../component_meta.js";
 import { CommandKind } from "../command.js";
 import { Components } from "./entity.components.js";
 import type { Entity } from "./entity.js";
 
-/**
- * @internal Discriminant for {@link DeletionOp} tuples. `const enum` so the
- * values are inlined at compile time and no enum object is emitted.
- */
-const enum DeletionOpKind {
-  Destroy,
-  Remove,
+/** @internal Result of applying a queued or immediate destroy request. */
+export const enum DestructionResult {
+  Destroyed,
+  AlreadyDestroyed,
+  Blocked,
 }
 
-/**
- * @internal One buffered cleanup action scheduled by `_cleanupIncoming`.
- *
- * `Entity._destroy` walks an entity's incoming relationships and, instead of
- * destroying or removing the source entities inline (which perturbs the very
- * map being iterated, see issue #155), pushes one of these ops onto the
- * world's deletion scope. The outermost `_destroy` call drains the scope
- * after its own teardown completes.
- *
- * Tuples rather than objects: the op is internal, short-lived, and allocated
- * only during a destroy cascade — tuple allocation is cheaper than object
- * allocation and the discriminant is a `const enum` value inlined to a
- * number at compile time.
- */
-type DeletionOp =
-  [DeletionOpKind.Destroy, Entity] | [DeletionOpKind.Remove, Entity, ComponentMeta, Entity];
+const enum DeletionOpKind {
+  Destroy,
+  RemoveAttachment,
+  RemoveTarget,
+  FinalizeDestroy,
+}
+
+type DestroyOp = { kind: DeletionOpKind.Destroy; entity: Entity };
+type RemoveAttachmentOp = {
+  kind: DeletionOpKind.RemoveAttachment;
+  entity: Entity;
+  meta: ComponentMeta;
+  component: ComponentInstance;
+  validate: boolean;
+  cleanupOwner: Entity | undefined;
+};
+type RemoveTargetOp = {
+  kind: DeletionOpKind.RemoveTarget;
+  source: Entity;
+  meta: ComponentMeta;
+  target: Entity;
+};
+type FinalizeDestroyOp = { kind: DeletionOpKind.FinalizeDestroy; entity: Entity };
+type DeletionOp = DestroyOp | RemoveAttachmentOp | RemoveTargetOp | FinalizeDestroyOp;
+
+type DeletionPlan = {
+  destroyOrder: Entity[];
+  operations: DeletionOp[];
+};
 
 export class Lifecycle extends Components {
   /**
-   * @internal Apply a `Destroy` command: fire `_exit` on every query, then
-   * `onRemove` on every component, unregister from the world, and apply
-   * incoming relationship cleanup policies.
+   * @internal Apply a `Destroy` command through a fully preflighted indexed plan.
+   * Deferred conflicts return `Blocked`; immediate public destruction asks this
+   * method to rethrow the preflight error instead.
    */
-  public _destroy(): void {
+  public _destroy(throwOnBlocked = false): DestructionResult {
     if (this._destroyed) {
-      return;
+      return DestructionResult.AlreadyDestroyed;
     }
-    // The outermost _destroy in a cascade owns the deletion scope. Recursive
-    // _destroy calls (triggered by _applyOnDelete below, or by the scope flush)
-    // find the field already set and append to it, deferring their own incoming
-    // cleanup to the outer flush. This keeps _cleanupIncoming's read-only scan
-    // free of mid-iteration mutation, see issue #155.
-    const ownsDeletionScope = !this.world._deletionScope;
-    if (ownsDeletionScope) {
-      this.world._deletionScope = [];
-    }
+
+    let plan: DeletionPlan;
     try {
-      const entityMeta = this._meta;
-      let carriers: Lifecycle[] | undefined;
-      let selfCarry = 0;
-      if (entityMeta) {
-        selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
-        if (entityMeta.usageCount > selfCarry) {
-          if (entityMeta.onDelete === CleanupPolicy.Throw) {
-            // The public `destroy()` already throws when an in-use component is
-            // destroyed; reaching here means usage grew between that check and
-            // this deferred apply. Abort instead of throwing so a mid-drain
-            // `_processCommandQueue` is not left half-applied, and revive the
-            // entity since nothing has been torn down yet.
-            return;
-          }
-          carriers = this._collectCarriers(entityMeta, selfCarry);
-          if (entityMeta.onDelete === CleanupPolicy.Remove) {
-            for (const carrier of carriers) {
-              entityMeta._validateRemove?.(carrier as unknown as Entity);
-            }
-          }
-        }
+      plan = this._buildDeletionPlan();
+    } catch (error) {
+      if (throwOnBlocked) {
+        throw error;
       }
-
-      // Mark destroyed before applying cleanup so a carrier cascade that
-      // re-enters this entity cannot tear it down twice.
-      this._destroyed = true;
-      if (carriers !== undefined) {
-        this._applyOnDelete(entityMeta!, carriers);
-      }
-
-      const entity = this as unknown as Entity;
-      this.world._notifyEntityDestroyed(entity);
-
-      const components: Array<[ComponentInstance, number]> = [];
-      this._components.forEach((component, ceid) => components.push([component, ceid]));
-      for (const [c, ceid] of components) {
-        const componentMeta = this.world.entity(ceid).meta;
-        if (componentMeta.isRelationship) {
-          this._detachRelationship(componentMeta, c as Relationship);
-          continue;
-        }
-        this.componentBitmask.deleteBit(componentMeta.bitPtr);
-        this.world._notifyComponentRemoved(ceid, entity);
-        componentMeta._decrementUsage();
-        componentMeta._onRemove?.(entity, c);
-      }
-      this._dirtyComponentBitmask.clear();
-      this._queries.clear();
-
-      this._components.clear();
-
-      if (entityMeta && entityMeta.usageCount === 0 && entityMeta.Class !== Object) {
-        this.world._classRegistry.delete(entityMeta.Class);
-      }
-
-      this.world._unregisterEntity(entity);
-      this._cleanupIncoming();
-    } finally {
-      if (ownsDeletionScope) {
-        try {
-          this._flushDeletionScope();
-        } finally {
-          this.world._deletionScope = undefined;
-        }
-      }
+      return DestructionResult.Blocked;
     }
+
+    this._commitDeletionPlan(plan);
+    return DestructionResult.Destroyed;
   }
 
   /**
@@ -127,119 +74,356 @@ export class Lifecycle extends Components {
    * destruction the entity must not be used.
    */
   public destroy(): void {
+    this.world._assertStructuralMutationAllowed();
+    if (this._destroyed) {
+      return;
+    }
+
+    // Constructor-time calls must fail synchronously so the surrounding add
+    // transaction can roll back instead of enqueueing a later destroy.
+    this._assertNoInitializingAttachments();
+    this._assertIncomingInitializationIntegrity();
     const entityMeta = this._meta;
-    if (
-      entityMeta &&
-      entityMeta.onDelete === CleanupPolicy.Throw &&
-      entityMeta.usageCount > (this._components.has(entityMeta.eid) ? 1 : 0)
-    ) {
-      throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
+    if (entityMeta?._hasInitializingAttachments()) {
+      throw new Error(
+        `Cannot destroy entity ${this.eid}; its component eid has an initializing attachment`
+      );
     }
     if (this.world.deferred) {
       this.world._enqueue({ kind: CommandKind.Destroy, entity: this as unknown as Entity });
     } else {
-      this._destroy();
+      this._destroy(true);
     }
   }
 
-  // Collect carriers first, then act: the scan must not mutate `world.entities`
-  // while iterating, and `_destroy` idempotency makes overlapping Delete
-  // cascades safe. Carriers are cleaned via the internal `_remove`/`_destroy`
-  // (not the deferred-aware public methods) so `usageCount` drops synchronously
-  // and the `usageCount === 0` classRegistry cleanup in `_destroy` stays correct.
-  // Edge: if a Delete carrier is itself an in-use component key with
-  // `onDelete = Throw`, its `_destroy` safe-aborts and it survives still holding
-  // this now-destroyed component eid. This is the same exotic policy-interaction
-  // class flagged in `_cleanupIncoming`; left for the relationship/query rework.
-  private _collectCarriers(entityMeta: ComponentMeta, selfCarry: number): Lifecycle[] {
-    const ceid = entityMeta.eid;
-    const carriers: Lifecycle[] = [];
-    let remaining = entityMeta.usageCount - selfCarry;
-    this.world.entities.forEach((e) => {
-      if (remaining > 0 && e !== (this as unknown as Entity) && e._get(ceid) !== undefined) {
-        carriers.push(e);
-        remaining--;
+  /** Discover and validate the complete graph without framework-owned mutation. */
+  private _buildDeletionPlan(): DeletionPlan {
+    const root = this as unknown as Entity;
+    const destroyOrder: Entity[] = [root];
+    const destroyed = new Set<Entity>(destroyOrder);
+
+    for (let i = 0; i < destroyOrder.length; i++) {
+      const entity = destroyOrder[i];
+      const entityMeta = entity._meta;
+      if (entityMeta) {
+        for (const carrier of entityMeta._carriers()) {
+          if (carrier === entity) {
+            continue;
+          }
+          if (entityMeta.onDelete === CleanupPolicy.Delete && !destroyed.has(carrier)) {
+            destroyed.add(carrier);
+            destroyOrder.push(carrier);
+          }
+        }
       }
-    });
-    return carriers;
-  }
 
-  private _applyOnDelete(entityMeta: ComponentMeta, carriers: Lifecycle[]): void {
-    const shouldDelete = entityMeta.onDelete === CleanupPolicy.Delete;
-    for (const carrier of carriers) {
-      if (shouldDelete) {
-        carrier._destroy();
-      } else {
-        carrier._remove(entityMeta);
+      entity._incoming?.forEach((sources, relEid) => {
+        const relationshipMeta = entity.world.getEntity(relEid)?.meta;
+        if (relationshipMeta?.onDeleteTarget !== CleanupPolicy.Delete) {
+          return;
+        }
+        for (const source of sources) {
+          if (!destroyed.has(source)) {
+            destroyed.add(source);
+            destroyOrder.push(source);
+          }
+        }
+      });
+    }
+
+    for (const entity of destroyOrder) {
+      const entityMeta = entity._meta;
+      if (entityMeta?.onDelete !== CleanupPolicy.Throw) {
+        continue;
+      }
+      for (const carrier of entityMeta._carriers()) {
+        if (carrier !== entity && !destroyed.has(carrier)) {
+          throw new Error(`Cannot destroy entity ${entity.eid}; component eid is still in use`);
+        }
       }
     }
-  }
 
-  /**
-   * Walk this entity's incoming relationships and buffer cleanup ops onto the
-   * world's deletion scope instead of acting inline.
-   *
-   * Acting inline (source.destroy() / source.remove()) re-enters
-   * `_removeIncoming` on this entity, which deletes from the iterated map
-   * mid-scan; `IterableArrayMap.delete` swaps the last entry into the vacated
-   * slot, so the outer `forEach` skips it. Buffering the work onto the scope
-   * keeps this scan pure; the outermost `_destroy` drains the scope via
-   * `_flushDeletionScope` after all scans in the cascade complete.
-   * See issue #155.
-   */
-  private _cleanupIncoming(): void {
-    if (!this._incoming) {
-      return;
-    }
-    const incoming = this._incoming;
-    this._incoming = undefined;
-    const scope = this.world._deletionScope as DeletionOp[];
-    incoming.forEach((sources, relEid) => {
-      const relEntity = this.world.getEntity(relEid);
-      if (!relEntity) {
+    const attachmentOps = new Map<Entity, Map<ComponentMeta, RemoveAttachmentOp>>();
+    const edgeOps = new Map<Entity, Map<ComponentMeta, Map<Entity, RemoveTargetOp>>>();
+
+    const addAttachment = (
+      entity: Entity,
+      meta: ComponentMeta,
+      component: ComponentInstance,
+      validate: boolean,
+      cleanupOwner?: Entity
+    ): RemoveAttachmentOp => {
+      let byMeta = attachmentOps.get(entity);
+      if (!byMeta) {
+        byMeta = new Map();
+        attachmentOps.set(entity, byMeta);
+      }
+      const existing = byMeta.get(meta);
+      if (existing) {
+        existing.validate ||= validate;
+        existing.cleanupOwner ??= cleanupOwner;
+        return existing;
+      }
+      const operation: RemoveAttachmentOp = {
+        kind: DeletionOpKind.RemoveAttachment,
+        entity,
+        meta,
+        component,
+        validate,
+        cleanupOwner,
+      };
+      byMeta.set(meta, operation);
+      return operation;
+    };
+
+    const addAttachmentWithAliases = (
+      entity: Entity,
+      meta: ComponentMeta,
+      validate: boolean,
+      cleanupOwner: Entity
+    ): void => {
+      const component = entity._get(meta.eid);
+      if (!component) {
         return;
       }
-      const policy = relEntity.meta.onDeleteTarget;
-      for (const source of sources) {
-        // `sources` is iterated read-only here; re-entrant _removeIncoming
-        // mutates it during the scope flush (after this scan completes), not
-        // during this forEach, so no snapshot is needed.
-        const sourceEntity = source as unknown as Entity;
-        if (policy === CleanupPolicy.Delete) {
-          // If source is also an in-use component entity with onDelete Throw,
-          // this exotic cascade can still throw; revisit with the relationship rework.
-          scope.push([DeletionOpKind.Destroy, sourceEntity]);
-        } else {
-          scope.push([
-            DeletionOpKind.Remove,
-            sourceEntity,
-            relEntity.meta,
-            this as unknown as Entity,
-          ]);
+      for (const aliasMeta of meta._implementsClosure ?? []) {
+        if (entity._get(aliasMeta.eid) === component) {
+          addAttachment(entity, aliasMeta, component, false, cleanupOwner);
         }
       }
+      addAttachment(entity, meta, component, validate, cleanupOwner);
+    };
+
+    for (const entity of destroyOrder) {
+      const entityMeta = entity._meta;
+      if (entityMeta?.onDelete === CleanupPolicy.Remove) {
+        for (const carrier of entityMeta._carriers()) {
+          if (carrier !== entity && !destroyed.has(carrier)) {
+            addAttachmentWithAliases(carrier, entityMeta, true, entity);
+          }
+        }
+      }
+
+      entity._incoming?.forEach((sources, relEid) => {
+        const relationshipMeta = entity.world.getEntity(relEid)?.meta;
+        if (!relationshipMeta || relationshipMeta.onDeleteTarget !== CleanupPolicy.Remove) {
+          return;
+        }
+        for (const source of sources) {
+          if (destroyed.has(source)) {
+            continue;
+          }
+          const relationship = source._get(relEid) as Relationship | undefined;
+          if (!relationship?._hasTarget(entity)) {
+            continue;
+          }
+          let byMeta = edgeOps.get(source);
+          if (!byMeta) {
+            byMeta = new Map();
+            edgeOps.set(source, byMeta);
+          }
+          let byTarget = byMeta.get(relationshipMeta);
+          if (!byTarget) {
+            byTarget = new Map();
+            byMeta.set(relationshipMeta, byTarget);
+          }
+          if (!byTarget.has(entity)) {
+            byTarget.set(entity, {
+              kind: DeletionOpKind.RemoveTarget,
+              source,
+              meta: relationshipMeta,
+              target: entity,
+            });
+          }
+        }
+      });
+    }
+
+    edgeOps.forEach((byMeta, source) => {
+      const removedAttachments = attachmentOps.get(source);
+      if (!removedAttachments) {
+        return;
+      }
+      for (const meta of removedAttachments.keys()) {
+        byMeta.delete(meta);
+      }
+    });
+
+    for (const entity of destroyOrder) {
+      entity._components.forEach((component, ceid) => {
+        const componentMeta = entity.world.getEntity(ceid)?.meta;
+        if (!componentMeta) {
+          throw new Error(`Cannot destroy entity ${entity.eid}; component ${ceid} is unregistered`);
+        }
+        addAttachment(entity, componentMeta, component, false);
+      });
+    }
+
+    // Initialization guards and validators are intentionally a separate pass:
+    // every callback succeeds before the first framework-owned mutation begins.
+    for (const entity of destroyOrder) {
+      entity._components.forEach((_component, ceid) => {
+        entity.world.getEntity(ceid)?.meta._assertCanDetach(entity);
+      });
+    }
+    const validatedAttachments = new Map<Entity, Set<ComponentMeta>>();
+    attachmentOps.forEach((byMeta, entity) => {
+      byMeta.forEach((operation) => {
+        operation.meta._assertCanDetach(entity);
+        if (operation.validate) {
+          if (operation.meta._validateRemove) {
+            entity.world._runDeletionPreflight(() => operation.meta._validateRemove!(entity));
+          }
+          let metas = validatedAttachments.get(entity);
+          if (!metas) {
+            metas = new Set();
+            validatedAttachments.set(entity, metas);
+          }
+          metas.add(operation.meta);
+        }
+      });
+    });
+    edgeOps.forEach((byMeta, source) => {
+      byMeta.forEach((byTarget, meta) => {
+        meta._assertCanDetach(source);
+        const relationship = source._get(meta.eid) as Relationship | undefined;
+        if (
+          relationship &&
+          relationship._targetArray().every((target) => byTarget.has(target)) &&
+          !validatedAttachments.get(source)?.has(meta)
+        ) {
+          if (meta._validateRemove) {
+            source.world._runDeletionPreflight(() => meta._validateRemove!(source));
+          }
+        }
+      });
+    });
+
+    const cleanupByOwner = new Map<Entity, RemoveAttachmentOp[]>();
+    const ownByEntity = new Map<Entity, RemoveAttachmentOp[]>();
+    attachmentOps.forEach((byMeta, entity) => {
+      byMeta.forEach((operation) => {
+        if (operation.cleanupOwner) {
+          let cleanup = cleanupByOwner.get(operation.cleanupOwner);
+          if (!cleanup) {
+            cleanup = [];
+            cleanupByOwner.set(operation.cleanupOwner, cleanup);
+          }
+          cleanup.push(operation);
+        } else if (destroyed.has(entity)) {
+          let own = ownByEntity.get(entity);
+          if (!own) {
+            own = [];
+            ownByEntity.set(entity, own);
+          }
+          own.push(operation);
+        }
+      });
+    });
+    const edgesByTarget = new Map<Entity, RemoveTargetOp[]>();
+    edgeOps.forEach((byMeta) =>
+      byMeta.forEach((byTarget) =>
+        byTarget.forEach((operation) => {
+          let edges = edgesByTarget.get(operation.target);
+          if (!edges) {
+            edges = [];
+            edgesByTarget.set(operation.target, edges);
+          }
+          edges.push(operation);
+        })
+      )
+    );
+    const operations: DeletionOp[] = [];
+    for (const entity of destroyOrder) {
+      operations.push(...(cleanupByOwner.get(entity) ?? []));
+      operations.push({ kind: DeletionOpKind.Destroy, entity });
+      operations.push(...(ownByEntity.get(entity) ?? []));
+      operations.push({ kind: DeletionOpKind.FinalizeDestroy, entity });
+      operations.push(...(edgesByTarget.get(entity) ?? []));
+    }
+
+    return { destroyOrder, operations };
+  }
+
+  /** Execute only the frozen operations; dependency discovery and validation are forbidden here. */
+  private _commitDeletionPlan(plan: DeletionPlan): void {
+    let firstError: unknown;
+    // Freeze the complete accepted snapshot before any observer can re-enter.
+    for (const entity of plan.destroyOrder) {
+      entity._destroyed = true;
+      entity._meta?._retire();
+    }
+    for (const operation of plan.operations) {
+      try {
+        switch (operation.kind) {
+          case DeletionOpKind.Destroy:
+            operation.entity.world._notifyEntityDestroyed(operation.entity);
+            break;
+          case DeletionOpKind.RemoveAttachment:
+            operation.entity._removeAttachmentUnchecked(operation.meta, operation.component);
+            break;
+          case DeletionOpKind.RemoveTarget:
+            operation.source._removeTargetUnchecked(operation.meta, operation.target);
+            break;
+          case DeletionOpKind.FinalizeDestroy:
+            operation.entity._finalizeDestroy();
+            break;
+        }
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+
+    // User hooks and Exit callbacks run during commit. A callback failure is
+    // reported only after every mandatory planned teardown operation has run,
+    // preventing authoritative attachments or reverse edges from being stranded.
+    if (firstError !== undefined) {
+      throw firstError;
+    }
+  }
+
+  /** Finish a planned entity destruction after all attachment and edge operations. */
+  private _finalizeDestroy(): void {
+    const entity = this as unknown as Entity;
+    const entityMeta = this._meta;
+    this._dirtyComponentBitmask.clear();
+    this._queries.clear();
+    this._components.clear();
+    this._incoming = undefined;
+    if (
+      entityMeta &&
+      entityMeta.usageCount === 0 &&
+      entityMeta.Class !== Object &&
+      this.world._classRegistry.get(entityMeta.Class) === entity
+    ) {
+      this.world._classRegistry.delete(entityMeta.Class);
+    }
+    this.world._unregisterEntity(entity);
+  }
+
+  private _assertNoInitializingAttachments(): void {
+    const entity = this as unknown as Entity;
+    this._components.forEach((_component, ceid) => {
+      this.world.getEntity(ceid)?.meta._assertCanDetach(entity);
     });
   }
 
-  /**
-   * Drain the deletion scope to empty.
-   *
-   * Called by the outermost `Entity._destroy` after its own teardown. Each pass
-   * detaches the current scope so recursive destroys triggered by the ops
-   * buffer into a fresh scope, which the `while` loop drains in the next
-   * iteration. Exits when a full pass appended nothing new.
-   */
-  private _flushDeletionScope(): void {
-    while (this.world._deletionScope && this.world._deletionScope.length > 0) {
-      const ops = this.world._deletionScope as DeletionOp[];
-      this.world._deletionScope = undefined;
-      for (const op of ops) {
-        if (op[0] === DeletionOpKind.Destroy) {
-          op[1]._destroy();
-        } else {
-          op[1]._removeTarget(op[2], op[3]);
+  private _assertIncomingInitializationIntegrity(): void {
+    this._incoming?.forEach((sources, relEid) => {
+      const relationshipMeta = this.world.getEntity(relEid)?.meta;
+      if (!relationshipMeta) {
+        return;
+      }
+      for (const source of sources) {
+        if (relationshipMeta.onDeleteTarget === CleanupPolicy.Delete) {
+          source._assertNoInitializingAttachments();
+          continue;
+        }
+        const relationship = source._get(relEid) as Relationship | undefined;
+        if (relationship?._targetCount() === 1) {
+          relationshipMeta._assertCanDetach(source);
         }
       }
-    }
+    });
   }
 }

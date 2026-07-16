@@ -118,6 +118,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   protected _queryComponentClass: ComponentType;
   /** @internal Root term subscription handle. */
   protected _unsubscribeTerm: (() => void) | undefined;
+  /** @internal Membership transitions already routed to this query. */
+  private readonly _routedMembership = new Set<Entity>();
   /**
    * @internal Component eids read by the `orderBy` comparator's inject tuple
    * (plus, for `cascade`, the relationship eid). When one of these changes on
@@ -526,6 +528,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     if (this.built) {
       return this;
     }
+    this._assertCanBuildNow();
     if (this.world.deferred) {
       this.world._addUnbuiltQuery(this as any);
       return this;
@@ -538,6 +541,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     if (this.built) {
       return this;
     }
+    this._assertCanBuildNow();
     if (!this._isBuildable()) {
       this.destroy();
       return this;
@@ -563,12 +567,14 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   }
 
   public destroy(): void {
+    this.world._assertStructuralMutationAllowed();
     if (this._destroyed) {
       return;
     }
     this._destroyed = true;
     this.world._removeQuery(this as any);
     this._entities?.clear();
+    this._routedMembership.clear();
     this._entities = undefined;
     this._tracking = false;
     if (this.entity.alive && this.entity.get(this._queryComponentClass) !== undefined) {
@@ -593,9 +599,12 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** Extension hook for subclasses that need to observe query membership exit. */
   protected _exit(e: Entity): void {
     this.changed = true;
-    this._exitCallback?.(e);
-    this._entities?.delete(e);
-    e._removeQueryMembership(this as any);
+    try {
+      this._exitCallback?.(e);
+    } finally {
+      this._entities?.delete(e);
+      e._removeQueryMembership(this as any);
+    }
   }
 
   /** @internal */
@@ -618,8 +627,15 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
 
   public onTermEvent(kind: TermEventKind, entity: Entity): void {
     if (kind === TermEventKind.Enter) {
+      if (this._routedMembership.has(entity)) {
+        return;
+      }
+      this._routedMembership.add(entity);
       this._enter(entity);
     } else {
+      if (!this._routedMembership.delete(entity)) {
+        return;
+      }
       this._exit(entity);
     }
   }
@@ -650,7 +666,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     }
     this.world.defer(() => {
       for (const e of this.rootTerm ?? EMPTY_ENTITIES) {
-        this._enter(e);
+        this.onTermEvent(TermEventKind.Enter, e);
       }
     });
   }
@@ -688,6 +704,12 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     const q = this.world.query(`${this.name}:silence`).with(dsl);
     q.entity.childOf(this.entity);
     return q;
+  }
+
+  private _assertCanBuildNow(): void {
+    if (this.world._initializationDepth > 0) {
+      throw new Error("queries cannot be built while component add hooks are initializing");
+    }
   }
 
   /**

@@ -95,6 +95,11 @@ A query is **built** — its predicate materialized and registered — at the ne
 query with callbacks) **backfill**: entities that already match are routed through `enter` at
 build time. Builder methods throw once the query is built; `built` reports the state.
 
+Do not create or build queries from a component or relationship add hook. Add hooks are the
+constructor boundary before reactive membership is published, so vecs rejects query/system
+construction and uncached term materialization until initialization completes. An already-cached
+term remains readable for diagnostics and reports only fully initialized attachments.
+
 `query.destroy()` permanently removes the query: entity references are purged silently (no `exit`
 fires), the tracked set is cleared, and further use of the object is undefined behavior. Use a
 standalone query when you need a reactive set you can destroy mid-session.

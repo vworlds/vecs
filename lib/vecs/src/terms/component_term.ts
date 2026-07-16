@@ -1,15 +1,15 @@
 import type { EID, Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
-import { Term } from "./term.js";
+import { Term, TermEventKind } from "./term.js";
 
 /**
  * World-pinned leaf term that matches every entity carrying a specific
  * component type.
  *
- * `ComponentTerm` is the component-presence index. It maintains the live set
- * of entities that have the component identified by `componentEid`. The world
- * routes `add`, `remove`, and `set`/`modified` commands here via the
- * `notifyComponent*` helpers in `build.ts`.
+ * `ComponentTerm` delegates component-presence storage to the current
+ * `ComponentMeta` for `componentEid`. The world routes `add`, `remove`, and
+ * `set`/`modified` commands here via the `notifyComponent*` helpers in
+ * `build.ts`.
  *
  * - **Membership** events (`componentAdded` / `componentRemoved`) propagate
  *   via the standard `_add`/`_delete` path and fan out to all consumers as
@@ -27,12 +27,25 @@ export class ComponentTerm extends Term {
     onDestroy: (term: Term) => void
   ) {
     super(world, key, "component", true, onDestroy);
-    this._initializeFromWorld();
+  }
+
+  public override get count(): number {
+    return this._meta()?._getLiveCount() ?? 0;
+  }
+
+  public override [Symbol.iterator](): IterableIterator<Entity> {
+    return this._meta()?._liveCarriers() ?? [][Symbol.iterator]();
+  }
+
+  public override has(entity: Entity): boolean {
+    return this._meta()?._isLive(entity) ?? false;
   }
 
   /** Called by `build.ts` when the component is added to `entity`. */
   public componentAdded(entity: Entity): void {
-    this._add(entity);
+    if (this.has(entity)) {
+      this._emit(TermEventKind.Enter, entity);
+    }
   }
 
   /**
@@ -49,11 +62,17 @@ export class ComponentTerm extends Term {
 
   /** Called by `build.ts` when the component is removed from `entity`. */
   public componentRemoved(entity: Entity): void {
-    this._delete(entity);
+    if (!this.has(entity)) {
+      this._emit(TermEventKind.Exit, entity);
+    }
   }
 
   /** @internal */
   protected _matches(entity: Entity): boolean {
-    return entity.alive && entity._get(this.componentEid) !== undefined;
+    return entity.alive && this.has(entity);
+  }
+
+  private _meta() {
+    return this.world.getEntity(this.componentEid)?.meta;
   }
 }

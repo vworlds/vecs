@@ -70,8 +70,19 @@ export class WorldTerm extends Term {
    * term itself does not track.
    */
   public entityShapeChanged(entity: Entity): void {
-    if (this.has(entity)) {
-      this._shapeConsumers.forEach((consumer) => consumer.onTermRefresh?.(entity));
+    if (!this.has(entity)) {
+      return;
+    }
+    let firstError: unknown;
+    for (const consumer of [...this._shapeConsumers]) {
+      try {
+        consumer.onTermRefresh?.(entity);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError !== undefined) {
+      throw firstError;
     }
   }
 
