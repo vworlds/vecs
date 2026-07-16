@@ -52,6 +52,7 @@ export class Lifecycle extends Components {
     }
     try {
       const entityMeta = this._meta;
+      let carriers: Lifecycle[] | undefined;
       let selfCarry = 0;
       if (entityMeta) {
         selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
@@ -64,8 +65,11 @@ export class Lifecycle extends Components {
             // entity since nothing has been torn down yet.
             return;
           }
+          carriers = this._collectCarriers(entityMeta, selfCarry);
           if (entityMeta.onDelete === CleanupPolicy.Remove) {
-            this._validateOnDeleteRemovals(entityMeta, selfCarry);
+            for (const carrier of carriers) {
+              entityMeta._validateRemove?.(carrier as unknown as Entity);
+            }
           }
         }
       }
@@ -73,8 +77,8 @@ export class Lifecycle extends Components {
       // Mark destroyed before applying cleanup so a carrier cascade that
       // re-enters this entity cannot tear it down twice.
       this._destroyed = true;
-      if (entityMeta && entityMeta.usageCount > selfCarry) {
-        this._applyOnDelete(entityMeta, selfCarry);
+      if (carriers !== undefined) {
+        this._applyOnDelete(entityMeta!, carriers);
       }
 
       const entity = this as unknown as Entity;
@@ -147,7 +151,7 @@ export class Lifecycle extends Components {
   // `onDelete = Throw`, its `_destroy` safe-aborts and it survives still holding
   // this now-destroyed component eid. This is the same exotic policy-interaction
   // class flagged in `_cleanupIncoming`; left for the relationship/query rework.
-  private _applyOnDelete(entityMeta: ComponentMeta, selfCarry: number): void {
+  private _collectCarriers(entityMeta: ComponentMeta, selfCarry: number): Lifecycle[] {
     const ceid = entityMeta.eid;
     const carriers: Lifecycle[] = [];
     let remaining = entityMeta.usageCount - selfCarry;
@@ -157,6 +161,10 @@ export class Lifecycle extends Components {
         remaining--;
       }
     });
+    return carriers;
+  }
+
+  private _applyOnDelete(entityMeta: ComponentMeta, carriers: Lifecycle[]): void {
     const shouldDelete = entityMeta.onDelete === CleanupPolicy.Delete;
     for (const carrier of carriers) {
       if (shouldDelete) {
@@ -165,21 +173,6 @@ export class Lifecycle extends Components {
         carrier._remove(entityMeta);
       }
     }
-  }
-
-  /** Validate every carrier removal before mutating any entity in the cleanup pass. */
-  private _validateOnDeleteRemovals(entityMeta: ComponentMeta, selfCarry: number): void {
-    let remaining = entityMeta.usageCount - selfCarry;
-    this.world.entities.forEach((entity) => {
-      if (
-        remaining > 0 &&
-        entity !== (this as unknown as Entity) &&
-        entity._get(entityMeta.eid) !== undefined
-      ) {
-        entityMeta._validateRemove?.(entity);
-        remaining--;
-      }
-    });
   }
 
   /**
