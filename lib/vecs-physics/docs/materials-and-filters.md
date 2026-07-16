@@ -11,7 +11,7 @@ Materials control how a shape behaves physically. Filters control which other sh
 ```ts
 world
   .entity()
-  .set(ChildOf, { target: body })
+  .add(ChildOf, body)
   .set(Box, { hx: 0.5, hy: 0.5 })
   .set(Material, { density: 1, friction: 0.6 })
   .set(CollisionFilter, { categoryBits: 0b0010 });
@@ -20,7 +20,7 @@ world
 If either component is missing, `vecs-physics` uses Box2D-compatible defaults. A bare shape is still physical, has mass, has friction, and collides with everything.
 
 ```ts
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 That shape uses:
@@ -61,7 +61,7 @@ export class Material {
 ```ts
 const ball = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: ball }).set(Circle, { radius: 0.5 }).set(Material, {
+world.entity().add(ChildOf, ball).set(Circle, { radius: 0.5 }).set(Material, {
   density: 1,
   friction: 0.2,
   restitution: 0.8,
@@ -77,7 +77,7 @@ Static bodies do not need density for movement, but shape material still matters
 ```ts
 const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
-world.entity().set(ChildOf, { target: ground }).set(Box, { hx: 25, hy: 1 }).set(Material, {
+world.entity().add(ChildOf, ground).set(Box, { hx: 25, hy: 1 }).set(Material, {
   friction: 0.9,
   restitution: 0,
 });
@@ -90,7 +90,7 @@ This ground is high-friction and non-bouncy.
 `tangentSpeed` can model a moving surface such as a conveyor belt.
 
 ```ts
-world.entity().set(ChildOf, { target: conveyorBody }).set(Box, { hx: 4, hy: 0.25 }).set(Material, {
+world.entity().add(ChildOf, conveyorBody).set(Box, { hx: 4, hy: 0.25 }).set(Material, {
   friction: 0.8,
   tangentSpeed: 2,
 });
@@ -147,7 +147,7 @@ sensors (such as the pickup below) can see the player shape.
 ```ts
 world
   .entity()
-  .set(ChildOf, { target: player })
+  .add(ChildOf, player)
   .set(Box, { hx: 0.5, hy: 1 })
   .add(Detectable)
   .set(CollisionFilter, {
@@ -161,7 +161,7 @@ Terrain collides with players and enemies.
 ```ts
 world
   .entity()
-  .set(ChildOf, { target: ground })
+  .add(ChildOf, ground)
   .set(Box, { hx: 25, hy: 1 })
   .set(CollisionFilter, {
     categoryBits: CollisionCategory.Terrain,
@@ -174,7 +174,7 @@ Pickups overlap players only when paired with a sensor shape.
 ```ts
 world
   .entity()
-  .set(ChildOf, { target: pickup })
+  .add(ChildOf, pickup)
   .set(Circle, { radius: 0.25 })
   .add(Sensor)
   .add(SensorEvents)
@@ -197,7 +197,7 @@ Use a negative group index to prevent shapes in the same group from colliding wi
 ```ts
 const playerSelfCollisionGroup = -1;
 
-world.entity().set(ChildOf, { target: player }).set(Box, { hx: 0.5, hy: 1 }).set(CollisionFilter, {
+world.entity().add(ChildOf, player).set(Box, { hx: 0.5, hy: 1 }).set(CollisionFilter, {
   categoryBits: CollisionCategory.Player,
   maskBits: 0xffffffff,
   groupIndex: playerSelfCollisionGroup,
@@ -205,7 +205,7 @@ world.entity().set(ChildOf, { target: player }).set(Box, { hx: 0.5, hy: 1 }).set
 
 world
   .entity()
-  .set(ChildOf, { target: player })
+  .add(ChildOf, player)
   .set(Circle, { radius: 0.25 })
   .set(ShapePosition, { x: 0, y: 1.1 })
   .set(CollisionFilter, {
@@ -254,7 +254,7 @@ if (filter) {
 You do not need to add `Material` or `CollisionFilter` for normal collisions.
 
 ```ts
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 This is equivalent to:
@@ -262,7 +262,7 @@ This is equivalent to:
 ```ts
 world
   .entity()
-  .set(ChildOf, { target: body })
+  .add(ChildOf, body)
   .set(Box, { hx: 0.5, hy: 0.5 })
   .set(Material, {
     density: 1,

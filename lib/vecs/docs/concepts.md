@@ -12,21 +12,22 @@ every idiom in the [Design guide](./design-guide.md) is a consequence of taking 
 
 ## The pieces
 
-| Concept                  | What it is                                                                                                  |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| **World**                | Central container. Owns every entity, registered component, query, system, and the flat system pipeline.    |
-| **Entity**               | A numeric id (`eid`) with a set of components attached. Created via the world.                              |
-| **Component**            | A registered plain data class with a no-argument constructor. No behavior.                                  |
-| **System**               | A `Query` plus per-tick logic (`update`, `each`, `run`), assigned to one pipeline phase.                    |
-| **Query**                | A reactive, always-up-to-date set of entities matching a predicate, with `enter`/`exit`/`update` callbacks. |
-| **Filter**               | A non-reactive, one-shot scan: walks all world entities on each `forEach` call.                             |
-| **Hook**                 | Lightweight component callbacks (`onAdd` / `onSet` / `onRemove`, plus relationship `onRetarget`).           |
-| **Phase**                | Marker component for entities used as pipeline ordering anchors.                                            |
-| **Relationship**         | A component whose `target` field points at another entity, with reverse lookup and cleanup cascades.        |
-| **Component trait**      | Policy attached to a component entity, configuring every use of that component type.                        |
-| **Module**               | A unit of packaging: a class whose `init()` registers components, systems, phases, and policy.              |
-| **Exclusive components** | A group of components where at most one may exist on any entity at a time.                                  |
-| **Implements**           | Declares abstract/interface component aliases for a concrete component, for polymorphic queries.            |
+| Concept                    | What it is                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **World**                  | Central container. Owns every entity, registered component, query, system, and the flat system pipeline.     |
+| **Entity**                 | A numeric id (`eid`) with a set of components attached. Created via the world.                               |
+| **Component**              | A registered plain data class with a no-argument constructor. No behavior.                                   |
+| **System**                 | A `Query` plus per-tick logic (`update`, `each`, `run`), assigned to one pipeline phase.                     |
+| **Query**                  | A reactive, always-up-to-date set of entities matching a predicate, with `enter`/`exit`/`update` callbacks.  |
+| **Filter**                 | A non-reactive, one-shot scan: walks all world entities on each `forEach` call.                              |
+| **Hook**                   | Lightweight component callbacks (`onAdd` / `onSet` / `onRemove`, plus relationship edge hooks).              |
+| **Phase**                  | Marker component for entities used as pipeline ordering anchors.                                             |
+| **Relationship**           | A component holding explicit edges to one or more target entities, with reverse lookup and cleanup cascades. |
+| **Component trait**        | Policy attached to a component entity, configuring every use of that component type.                         |
+| **Module**                 | A unit of packaging: a class whose `init()` registers components, systems, phases, and policy.               |
+| **Exclusive components**   | A group of components where at most one may exist on any entity at a time.                                   |
+| **Exclusive relationship** | A relationship carrying `Exclusive`, restricting each source to at most one target.                          |
+| **Implements**             | Declares abstract/interface component aliases for a concrete component, for polymorphic queries.             |
 
 ## Data vs. behavior
 
@@ -46,8 +47,11 @@ right components, and adding a capability to an entity is just adding a componen
 
 Because a registered component is also an entity, it can itself carry components. Built-in
 **component traits** use that meta-ECS layer to declare reusable policy: `Singleton` constrains a
-component, `Implements` declares aliases, and `Traversable` / `OwnedTarget` configure relationships.
-The trait remains data; a module owns the hooks and metadata behavior it activates.
+component, `Implements` declares aliases, `Exclusive` constrains relationship cardinality, and
+`Traversable` / `OwnedTarget` configure exclusive relationships. The trait remains data; a module
+owns the hooks and metadata behavior it activates. Relationship `Exclusive` is unrelated to an
+exclusive component group: one limits edge count, while the other limits coexisting component
+types.
 
 Prefer many small, single-purpose components over one large one. An entity that never rotates
 simply omits `Rotation`; absence encodes "not applicable". See

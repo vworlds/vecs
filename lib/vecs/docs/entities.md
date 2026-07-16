@@ -46,9 +46,10 @@ for end-of-session teardown, not selective resets.
 ```ts
 e.add(Position); // attach with default field values (idempotent)
 e.set(Position, { x: 100 }); // attach if needed, assign props, fire onSet/update
+e.add(FriendOf, friend); // relationship edges require an explicit target
+e.remove(FriendOf, friend); // remove one relationship edge
 e.get(Position); // Readonly<Position> | undefined
 e.ensure(Position, (pos) => (pos.x += 1)); // create if needed, then mutate and notify
-e.ensureTarget(FriendOf); // get or create an independent relationship target
 e.has(Position); // boolean
 e.remove(Position); // detach; fires exit callbacks, then onRemove
 e.modified(Position); // mark changed after in-place mutation
@@ -63,12 +64,17 @@ key.
 
 - `add(C)` attaches with defaults and fires `onAdd` only. It is idempotent and does **not** fire
   `onSet`.
-- `set(C, props)` attaches if needed (firing `onAdd`), copies `props` onto the instance, and fires
-  `onSet` plus `update` callbacks.
+- For ordinary components, `set(C, props)` attaches if needed (firing `onAdd`), copies `props` onto
+  the instance, and fires `onSet` plus `update` callbacks.
 - `ensure(C, callback)` creates the component if missing, then lets you mutate it and fires
   `onAdd` followed by one `onSet`. When the component already exists, it behaves like `getMut`.
 - `modified(C)` fires `onSet`/`update` for data you already mutated in place. Repeated calls are
   coalesced until the world routes the notification.
+
+Relationships use a stricter API: `add(R, target)` creates a unique edge, `remove(R, target)`
+removes one edge, and `remove(R)` removes every edge. `set(R, props)` updates only ordinary fields
+on an existing relationship and never creates or changes edges. See
+[Relationships](./relationships.md#adding-removing-and-setting).
 
 ### `getMut` and `ensure`: mutating in place
 
@@ -100,41 +106,10 @@ When several calls ensure the same missing component during one deferred scope, 
 same pending instance. The instance remains hidden from `get` and queries until the queue drains,
 but every ensure callback mutates that shared pending value.
 
-Use `ensureTarget` for the corresponding get-or-create operation on a registered relationship:
-
-```ts
-world.component(FriendOf);
-
-const friend = entity.ensureTarget(FriendOf);
-entity.ensureTarget(FriendOf) === friend; // true
-entity.target(FriendOf) === friend; // true after deferred changes flush
-```
-
-When the relationship is absent, `ensureTarget` creates an independent entity and points the
-relationship at it. It does not add `ChildOf`; destroying the source does not destroy the generated
-target. Repeated calls during one deferred scope return the same pending target, while `target`
-continues to expose only committed state until the queue drains.
-
-Mark the relationship with `OwnedTarget` during world setup when its targets should instead be
-owned by their sources:
-
-```ts
-world.component(Inventory).add(OwnedTarget);
-
-const inventory = player.ensureTarget(Inventory);
-inventory.parent === player; // true after deferred changes flush
-
-player.add(Inventory); // also creates an owned target
-```
-
-The relationship module creates a target when an owned relationship is added, adds `ChildOf`
-whenever `Inventory` is assigned, destroys displaced targets on retarget, and destroys the current
-target when the relationship is removed. Destroying `player` therefore also destroys `inventory`.
-See [Relationships](./relationships.md#owned-targets).
-
 Calling `getMut(C)` or `ensure(C)` without a callback outside deferred mode throws. Both methods
-also throw for relationship components (retarget with `set` instead — see
-[Relationships](./relationships.md#retargeting)) and for `Implements` interface aliases.
+also throw for relationship components (change edges with `add` / `remove` and ordinary data with
+`set`) and for `Implements` interface aliases. `attach` rejects relationships for the same reason:
+their private edge storage must remain under vecs's control.
 
 ### `attach`: storing an existing instance
 
@@ -163,6 +138,9 @@ drains. The exact read-after-write rules are tabulated in
 `ensure(C)` is the exception for mutable access: it returns a mutable component immediately, but a
 newly created component does not appear in `get(C)` until the queue drains.
 
+Relationship edge commands share the same FIFO queue. Until it drains, `has(R)`, `target(R)`,
+`targets(R)`, `hasTarget(R, target)`, and `children(R)` expose only committed edges.
+
 Deferred entity creation is idempotent within one deferred scope: if `world.entity()` or
 `getOrCreateEntity(eid)` creates a new entity, `getEntity(eid)`, `entity(eid)`, and later
 `getOrCreateEntity(eid)` calls before the drain return that same pending entity. Collection-style
@@ -187,14 +165,14 @@ type id is the key entity's eid. The key entity's `meta` (created lazily) carrie
 and policy surface as a registered class, and `keyEntity.onAdd/onSet/onRemove(...)` get, set, or
 remove its single lifecycle handlers directly. This is how tag-like, runtime-created component
 types work without declaring a class. Registered relationship component entities additionally
-expose `onRetarget(...)`.
+expose `onTargetAdd(...)` and `onTargetRemove(...)`.
 
 ## Relationships, in brief
 
-`e.target(Rel)` returns the target of a relationship component, `e.children(Rel)` the set of
-entities targeting `e` through it, and `e.childOf(parent)` is shorthand for
-`e.set(ChildOf, { target: parent })`. The full model — retargeting, cleanup cascades, traversal —
-is in [Relationships](./relationships.md).
+`e.target(Rel)` returns one current target, `e.targets(Rel)` a readonly snapshot of every target,
+`e.hasTarget(Rel, target)` tests one edge, and `e.children(Rel)` returns the sources targeting `e`.
+`e.childOf(parent)` is shorthand for `e.add(ChildOf, parent)`. The full model is in
+[Relationships](./relationships.md).
 
 ## Reference
 
@@ -212,22 +190,23 @@ is in [Relationships](./relationships.md).
 | `properties`                                   | Free-form `Map<string, any>` for module-level bookkeeping.                                          |
 | `meta`                                         | `ComponentMeta` for using this entity as a component key (created lazily).                          |
 | `instanceCount()`                              | Number of entities currently carrying this entity's eid as a component.                             |
-| `add(ref)`                                     | Attach a component with default values (idempotent). Returns `this`.                                |
+| `add(ref)` / `add(Relationship, target)`       | Attach an ordinary component, or add one explicit relationship edge. Returns `this`.                |
 | `attach(instance)` / `attach(Class, instance)` | Store an existing instance, replacing any previous one; fires set-side events. Returns `this`.      |
-| `set(ref, props)`                              | Attach if needed and assign `props`; fires `onSet` and `update` callbacks. Returns `this`.          |
+| `set(ref, props)`                              | Attach/set ordinary data; relationships must exist and only ordinary fields are assigned.           |
 | `get(ref)`                                     | Read-only component lookup, or `undefined`.                                                         |
 | `getMut(ref)` / `getMut(ref, callback)`        | Mutable lookup that marks the component modified. Callback form required outside deferred mode.     |
 | `ensure(ref)` / `ensure(ref, callback)`        | Mutable lookup that creates when missing. Callback form required outside deferred mode.             |
-| `ensureTarget(Relationship)`                   | Return a relationship target, creating an independent target when absent.                           |
 | `has(ref)`                                     | `true` when the component is attached.                                                              |
 | `modified(ref)`                                | Queue an `onSet`/`update` notification; coalesced while pending. Returns `this`.                    |
-| `remove(ref)`                                  | Detach a component; routes `exit`, then fires `onRemove`.                                           |
+| `remove(ref)` / `remove(Relationship, target)` | Detach a component/all edges, or remove one relationship edge.                                      |
 | `destroy()`                                    | Remove all components, unregister, and apply incoming relationship cleanup.                         |
-| `target(rel)`                                  | Target entity of relationship `rel`, or `undefined`.                                                |
+| `target(rel)`                                  | One current target entity of relationship `rel`, or `undefined`; not a stable selection policy.     |
+| `targets(rel)`                                 | Readonly snapshot of all targets; ordering is unspecified.                                          |
+| `hasTarget(rel, target)`                       | `true` when the specific relationship edge exists.                                                  |
 | `children(rel)`                                | `ReadonlySet<Entity>` of entities targeting this one through `rel`.                                 |
-| `childOf(parent)`                              | Shorthand for `set(ChildOf, { target: parent })`. Returns `this`.                                   |
+| `childOf(parent)`                              | Shorthand for `add(ChildOf, parent)`. Returns `this`.                                               |
 | `parent` / `parent = p`                        | Getter/setter for the built-in `ChildOf` target; assigning `undefined` removes `ChildOf`.           |
 | `destroyed` / `alive`                          | `true` when the entity has been / has not been destroyed (marked for deletion).                     |
 | `onAdd/onSet/onRemove(handler?)`               | Get, set, or remove this component key's single hook. Setters return `this`.                        |
-| `onRetarget(handler?)`                         | Get, set, or remove a relationship component entity's single retarget hook.                         |
+| `onTargetAdd/onTargetRemove(handler?)`         | Get, set, or remove a relationship component entity's edge hooks.                                   |
 | `toString()`                                   | Returns `"EntityN"`.                                                                                |

@@ -433,4 +433,24 @@ describe("wireType decorator", () => {
     expect(decoded).toBeInstanceOf(Derived);
     expect((decoded as unknown as { target: number }).target).toBe(55);
   });
+
+  it("composes inherited and subclass-declared wire fields", () => {
+    class Base {
+      @wireType("u32")
+      public inherited = 0;
+    }
+
+    class Derived extends Base {
+      @wireType("string")
+      public declared = "";
+    }
+
+    const value = new Derived();
+    value.inherited = 42;
+    value.declared = "kept";
+
+    const decoded = roundTrip(Derived, value);
+    expect(decoded).toBeInstanceOf(Derived);
+    expect(decoded).toMatchObject({ inherited: 42, declared: "kept" });
+  });
 });

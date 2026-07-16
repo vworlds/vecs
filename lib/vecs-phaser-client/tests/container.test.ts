@@ -87,7 +87,7 @@ describe("Native parenting: child of Container with Offset", () => {
 
     const child = world.entity();
     child
-      .set(DrawIn, { target: parent })
+      .add(DrawIn, parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -107,7 +107,7 @@ describe("Native parenting: child of Container with Offset", () => {
 
     const child = world.entity();
     child
-      .set(DrawIn, { target: parent })
+      .add(DrawIn, parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -127,7 +127,7 @@ describe("Native parenting: child of Container with Offset", () => {
 
     const child = world.entity();
     child
-      .set(DrawIn, { target: parent })
+      .add(DrawIn, parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -158,7 +158,7 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
 
     const child = world.entity();
     child
-      .set(DrawBy, { target: parent })
+      .add(DrawBy, parent)
       .set(Offset, { x: 1, y: 0 })
       .add(Ellipse)
       .set(Size, { width: 0.05, height: 0.05 })
@@ -183,7 +183,7 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
 
     const child = world.entity();
     child
-      .set(DrawBy, { target: parent })
+      .add(DrawBy, parent)
       .set(Offset, { x: 1, y: 0 })
       .add(Ellipse)
       .set(Size, { width: 0.05, height: 0.05 })
@@ -209,7 +209,7 @@ describe("Computed parenting: child of Renderable with Offset + Position", () =>
 
     const child = world.entity();
     child
-      .set(DrawBy, { target: parent })
+      .add(DrawBy, parent)
       .add(Ellipse)
       .set(Size, { width: 0.05, height: 0.05 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 });
@@ -230,7 +230,7 @@ describe("Ghost parent", () => {
     const parentGhost = world.entity();
     const child = world.entity();
     child
-      .set(DrawIn, { target: parentGhost })
+      .add(DrawIn, parentGhost)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -250,7 +250,7 @@ describe("Ghost parent", () => {
     const parent = world.entity();
     const child = world.entity();
     child
-      .set(DrawIn, { target: parent })
+      .add(DrawIn, parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -278,7 +278,7 @@ describe("Container lifetime (DrawIn = Remove policy)", () => {
 
     const child = world.entity();
     child
-      .set(DrawIn, { target: parent })
+      .add(DrawIn, parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -316,7 +316,7 @@ describe("ChildOf + DrawIn coexistence", () => {
     const child = world.entity();
     child
       .childOf(ownershipParent)
-      .set(DrawIn, { target: displayParent })
+      .add(DrawIn, displayParent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -346,7 +346,7 @@ describe("ChildOf + DrawIn coexistence", () => {
     const child = world.entity();
     child
       .childOf(ownershipParent)
-      .set(DrawIn, { target: displayParent })
+      .add(DrawIn, displayParent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -372,7 +372,7 @@ describe("ChildOf + DrawIn coexistence", () => {
     const child = world.entity();
     child
       .childOf(ownershipParent)
-      .set(DrawIn, { target: displayParent })
+      .add(DrawIn, displayParent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -429,7 +429,7 @@ describe("Reparenting", () => {
 
     const child = world.entity();
     child
-      .set(DrawIn, { target: parent1 })
+      .add(DrawIn, parent1)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -441,7 +441,7 @@ describe("Reparenting", () => {
     expect(ellipse.parentContainer).toBe(containers[0]);
 
     // Retarget to parent2
-    child.set(DrawIn, { target: parent2 });
+    child.add(DrawIn, parent2);
     world.progress(2, 0);
 
     expect(ellipse.parentContainer).toBe(containers[1]);
@@ -455,7 +455,7 @@ describe("Reparenting", () => {
 
     const child = world.entity();
     child
-      .set(DrawIn, { target: parent })
+      .add(DrawIn, parent)
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 })
@@ -481,7 +481,7 @@ describe("Nested Containers", () => {
     world.progress(0, 0);
 
     const childContainer = world.entity();
-    childContainer.set(DrawIn, { target: parent }).add(Container).set(Rotation, { angle: 0.5 });
+    childContainer.add(DrawIn, parent).add(Container).set(Rotation, { angle: 0.5 });
     world.progress(1, 0);
 
     const containers = scene.created.filter((obj) => obj.kind === "container");
@@ -505,11 +505,11 @@ describe("DrawIn / DrawBy exclusivity", () => {
     world.progress(0, 0);
 
     const child = world.entity();
-    child.set(DrawIn, { target: parent }).add(Ellipse).set(Size, { width: 0.1, height: 0.1 });
+    child.add(DrawIn, parent).add(Ellipse).set(Size, { width: 0.1, height: 0.1 });
     expect(child.has(DrawIn)).toBe(true);
     expect(child.has(DrawBy)).toBe(false);
 
-    child.set(DrawBy, { target: parent });
+    child.add(DrawBy, parent);
     expect(child.has(DrawIn)).toBe(false);
     expect(child.has(DrawBy)).toBe(true);
   });
@@ -521,10 +521,10 @@ describe("DrawIn / DrawBy exclusivity", () => {
     world.progress(0, 0);
 
     const child = world.entity();
-    child.set(DrawBy, { target: parent }).add(Ellipse).set(Size, { width: 0.1, height: 0.1 });
+    child.add(DrawBy, parent).add(Ellipse).set(Size, { width: 0.1, height: 0.1 });
     expect(child.has(DrawBy)).toBe(true);
 
-    child.set(DrawIn, { target: parent });
+    child.add(DrawIn, parent);
     expect(child.has(DrawBy)).toBe(false);
     expect(child.has(DrawIn)).toBe(true);
   });
@@ -539,7 +539,7 @@ describe("phaser.sync.position guard (DrawIn)", () => {
 
     const child = world.entity();
     child
-      .set(DrawIn, { target: parent })
+      .add(DrawIn, parent)
       .set(Position, { x: 10, y: 10 })
       .add(Ellipse)
       .set(Size, { width: 0.1, height: 0.1 })
@@ -570,7 +570,7 @@ describe("DrawBy ghost parent", () => {
 
     const child = world.entity();
     child
-      .set(DrawBy, { target: parent })
+      .add(DrawBy, parent)
       .add(Ellipse)
       .set(Size, { width: 0.05, height: 0.05 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 });
@@ -595,7 +595,7 @@ describe("DrawBy ghost parent", () => {
 
     const child = world.entity();
     child
-      .set(DrawBy, { target: parent })
+      .add(DrawBy, parent)
       .add(Ellipse)
       .set(Size, { width: 0.05, height: 0.05 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 });
@@ -626,7 +626,7 @@ describe("DrawBy optional Offset (defaults to 0,0)", () => {
 
     const child = world.entity();
     child
-      .set(DrawBy, { target: parent })
+      .add(DrawBy, parent)
       .add(Ellipse)
       .set(Size, { width: 0.05, height: 0.05 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 });
@@ -650,7 +650,7 @@ describe("DrawBy lifetime (Remove policy)", () => {
 
     const child = world.entity();
     child
-      .set(DrawBy, { target: parent })
+      .add(DrawBy, parent)
       .add(Ellipse)
       .set(Size, { width: 0.05, height: 0.05 })
       .set(FillStyle, { color: 0xff0000, alpha: 1 });

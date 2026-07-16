@@ -153,23 +153,9 @@ function compileWireType(C: DecoratedConstructor): void {
     return;
   }
 
-  let fields = fieldsByConstructor.get(C);
-  if (fields === undefined) {
-    // Walk the prototype chain to find inherited wire fields. This lets a
-    // subclass (e.g. ChildOf extends Relationship) inherit the wire type
-    // definition from its parent and still compile its own wireEncode /
-    // wireDecode so `new C()` creates the correct subclass instance.
-    let proto = Object.getPrototypeOf(C);
-    while (proto !== null && proto !== Function.prototype) {
-      fields = fieldsByConstructor.get(proto);
-      if (fields !== undefined) {
-        break;
-      }
-      proto = Object.getPrototypeOf(proto);
-    }
-    if (fields === undefined) {
-      throw new Error(`vecs-wire/wireType ${C.name || "anonymous class"} is not a wire type`);
-    }
+  const fields = getWireFields(C);
+  if (fields.length === 0 && !hasRegisteredWireType(C)) {
+    throw new Error(`vecs-wire/wireType ${C.name || "anonymous class"} is not a wire type`);
   }
 
   const nestedTypes: WireConstructor[] = [];
@@ -198,6 +184,41 @@ function compileWireType(C: DecoratedConstructor): void {
   C.prototype.wireEncode = encodeFactory(...args);
   C.wireDecode = decodeFactory(...args);
   compiledConstructors.add(C);
+}
+
+function getWireFields(C: DecoratedConstructor): IWireField[] {
+  const constructors: Function[] = [];
+  let current: Function | null = C;
+  while (current !== null && current !== Function.prototype) {
+    constructors.push(current);
+    current = Object.getPrototypeOf(current) as Function | null;
+  }
+
+  const fields: IWireField[] = [];
+  constructors.reverse().forEach((constructor) => {
+    fieldsByConstructor.get(constructor)?.forEach((field) => {
+      const inherited = fields.find((candidate) => candidate.key === field.key);
+      if (inherited === undefined) {
+        fields.push(field);
+        return;
+      }
+      if (!wireTypeSpecsEqual(inherited.spec, field.spec)) {
+        throw new Error(`vecs-wire/wireType duplicate inherited field ${field.key}`);
+      }
+    });
+  });
+  return fields;
+}
+
+function hasRegisteredWireType(C: DecoratedConstructor): boolean {
+  let current: Function | null = C;
+  while (current !== null && current !== Function.prototype) {
+    if (fieldsByConstructor.has(current)) {
+      return true;
+    }
+    current = Object.getPrototypeOf(current) as Function | null;
+  }
+  return false;
 }
 
 function emitEncodeField(lines: string[], field: IWireField, index: number): void {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   ChildOf,
   Entity,
+  Exclusive,
   Query,
   Relationship,
   SilenceSource,
@@ -1055,11 +1056,11 @@ describe("Query — orderBy", () => {
   it("cascade() works with custom Traversable relationships", () => {
     const { w, tick } = setup();
     w.component(Tag);
-    w.component(FriendOf).add(Traversable);
+    w.component(FriendOf).add(Exclusive).add(Traversable);
     const alice = w.entity("Alice").add(Tag);
-    const bob = w.entity("Bob").add(Tag).set(FriendOf, { target: alice });
-    const charley = w.entity("Charley").add(Tag).set(FriendOf, { target: bob });
-    const david = w.entity("David").add(Tag).set(FriendOf, { target: alice });
+    const bob = w.entity("Bob").add(Tag).add(FriendOf, alice);
+    const charley = w.entity("Charley").add(Tag).add(FriendOf, bob);
+    const david = w.entity("David").add(Tag).add(FriendOf, alice);
     const q = w
       .query("friend-depth")
       .with(Tag)
@@ -1072,13 +1073,13 @@ describe("Query — orderBy", () => {
   it("with() uses the last cascade from multiple specs", () => {
     const { w, tick } = setup();
     w.component(Tag);
-    w.component(FriendOf).add(Traversable);
+    w.component(FriendOf).add(Exclusive).add(Traversable);
 
     const charley = w.entity("Charley").add(Tag);
     const bob = w.entity("Bob").add(Tag);
     const alice = w.entity("Alice").add(Tag);
-    bob.set(FriendOf, { target: alice });
-    charley.set(FriendOf, { target: bob });
+    bob.add(FriendOf, alice);
+    charley.add(FriendOf, bob);
 
     const q = w
       .query("cascade-precedence")
@@ -1091,13 +1092,13 @@ describe("Query — orderBy", () => {
   it("repeated with calls use the last cascade", () => {
     const { w, tick } = setup();
     w.component(Tag);
-    w.component(FriendOf).add(Traversable);
+    w.component(FriendOf).add(Exclusive).add(Traversable);
 
     const charley = w.entity("Charley").add(Tag);
     const bob = w.entity("Bob").add(Tag);
     const alice = w.entity("Alice").add(Tag);
-    bob.set(FriendOf, { target: alice });
-    charley.set(FriendOf, { target: bob });
+    bob.add(FriendOf, alice);
+    charley.add(FriendOf, bob);
 
     const q = w
       .query("cascade-precedence-repeated")
@@ -1198,6 +1199,16 @@ describe("Query — entity forwarding (add/set/remove)", () => {
     expect(q.add(Velocity)).toBe(q);
     expect(w.entity(name).has(Velocity)).toBe(true);
     tick();
+  });
+
+  it("add forwards relationship targets to the backing entity", () => {
+    const { w } = setup();
+    w.component(FriendOf);
+    const target = w.entity();
+    const q = w.query("forward-relationship").with(Position);
+
+    expect(q.add(FriendOf, target)).toBe(q);
+    expect(q.entity.targets(FriendOf)).toEqual([target]);
   });
 
   it("set applies props to a component on the backing entity and returns the query", () => {

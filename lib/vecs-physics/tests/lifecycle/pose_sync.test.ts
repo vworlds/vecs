@@ -224,7 +224,7 @@ describe("pose-sync feedback suppression", () => {
     const render = userWorld
       .entity("render")
       .add(Phase)
-      .set(DependsOn, { target: userWorld.entity("physics-post") });
+      .add(DependsOn, userWorld.entity("physics-post"));
 
     let lastSeenX: number | undefined;
     let count = 0;

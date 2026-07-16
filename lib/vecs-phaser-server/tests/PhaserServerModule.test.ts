@@ -1,5 +1,7 @@
-import { ON_STORE } from "@vworlds/vecs";
+import { Exclusive, ON_STORE, Traversable } from "@vworlds/vecs";
 import {
+  DrawBy,
+  DrawIn,
   phaserNetworkComponents,
   phaserRenderableComponents,
   Position as RenderPosition,
@@ -20,6 +22,15 @@ function createWorld(): ServerWorld {
 }
 
 describe("PhaserServerModule exclusivity", () => {
+  it("configures display relationships consistently with the client", () => {
+    const world = createWorld();
+    world.module(PhaserServerModule);
+
+    expect(world.component(DrawIn).has(Exclusive)).toBe(true);
+    expect(world.component(DrawBy).has(Exclusive)).toBe(true);
+    expect(world.component(DrawBy).has(Traversable)).toBe(true);
+  });
+
   it("removes an existing renderable when a second renderable is set", () => {
     const world = createWorld();
     world.module(PhaserServerModule);

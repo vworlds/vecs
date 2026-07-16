@@ -49,9 +49,9 @@ world.system("Render").phase(ON_STORE).with(Sprite, Position).each([Sprite, Posi
 ```
 
 `.phase(anchor)` accepts a phase name or an entity. It sets `DependsOn` on the system's backing
-entity (replacing any previous target) and tags the anchor with `Phase`, creating the anchor
-entity if the name is new. **A system lives in exactly one phase.** If a concern needs work in two
-phases, split it into two systems.
+entity (atomically replacing its previous exclusive edge) and tags the anchor with `Phase`,
+creating the anchor entity if the name is new. **A system lives in exactly one phase.** If a concern
+needs work in two phases, split it into two systems.
 
 ### Ordering guarantees
 
@@ -81,7 +81,7 @@ to the spec so the result flattens to systems.
 ### Custom phases: `insertPhaseAfter`
 
 `insertPhaseAfter(phase, anchor)` splices an existing `Phase` entity into the spine directly after
-`anchor`, retargeting the anchor's downstream phases onto the new one:
+`anchor`, replacing the anchor's downstream `DependsOn` edges with edges to the new one:
 
 ```ts
 import { insertPhaseAfter, ON_UPDATE, Phase } from "@vworlds/vecs";
@@ -98,8 +98,14 @@ built-in taxonomy.
 
 Inside a system body, a `Query.forEach` / `Filter.forEach` iteration, or any `world.defer(...)`
 block, the world is in **deferred mode**: entity mutations (`add` / `attach` / `set` / `ensure` /
-`ensureTarget` / `remove` / `destroy` / `modified`, and `world.entity()` creation) are queued as
-commands instead of applied inline. The queue drains when the scope that opened deferral ends.
+`remove` / `destroy` / `modified`, explicit relationship edge additions/removals, and
+`world.entity()` creation) are queued as commands instead of applied inline. The queue drains when
+the scope that opened deferral ends.
+
+All commands share one FIFO queue, including relationship edge commands and commands enqueued by
+hooks while that queue is draining. Their final state is therefore determined by call order. For
+example, deferred `add(R, a)`, `add(R, b)`, `remove(R, a)` leaves only `b`; on an `Exclusive`
+relationship each queued addition atomically replaces the edge present when that command executes.
 
 For the pipeline this means: **a structural change made by system A is applied in the flush
 immediately after A finishes, so it is visible to every later system in the same tick** — later in
@@ -119,8 +125,10 @@ While a mutation is queued but not yet applied, reads return the pre-mutation st
 | `entity.ensure(C)`        | A mutable component, even when newly created.              |
 | `entity.remove(C)`        | Still the component instance.                              |
 
-`entity.ensureTarget(R)` similarly returns one shared pending target while `entity.target(R)`
-continues to return the previously committed target until flush.
+Relationship reads follow the same committed-state rule. After queued `add(R, target)` or
+`remove(R, target)`, `has(R)`, `target(R)`, `targets(R)`, `hasTarget(R, target)`, and reverse
+`children(R)` continue to report the state from before the deferred scope until the FIFO queue
+applies those edge commands.
 
 Outside any deferred scope (top-level user code), the same calls execute inline and effects are
 visible immediately.
@@ -146,6 +154,8 @@ component:
 
 - **Hooks** (`onAdd` / `onSet` / `onRemove`) fire synchronously at the moment the command is
   applied — inline outside deferred mode, or during the drain.
+- **Relationship edge hooks** (`onTargetAdd` / `onTargetRemove`) fire synchronously after each
+  edge and reverse-index change. Edge changes do not fire `onSet`.
 - **Standalone `Query` callbacks** (`enter` / `update` / `exit`) also fire synchronously during
   routing.
 - **Systems** queue events into an ordered **inbox** instead, and replay the inbox at the top of
@@ -157,8 +167,10 @@ Three routing rules worth memorizing:
 - **`update(C)` is change-only unless you opt into entry.** When an entity enters a system,
   `{ onEnter: true }` update watchers push an `update` event for already-present watched components.
   Use that for initialization; leave it off when a separate `enter` owns setup.
-- **`exit` reads a snapshot.** Components injected into an `exit` callback are captured when the
-  exit is routed, so they are still resolvable even though they are being (or have been) removed.
+- **`enter` and `exit` injection read snapshots.** Direct components, singular/plural target
+  projections, and `Iter.src` are captured when the event is routed, so inbox replay retains those
+  component and entity references even if storage or edges change before the system runs. Component
+  objects are not deep-cloned.
 - **In-place mutation needs `modified`.** Assigning to component fields directly notifies no one.
   Call `entity.modified(C)` (or use `set` / `getMut` / `ensure`) to route the change.
 

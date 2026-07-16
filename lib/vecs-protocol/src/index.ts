@@ -13,6 +13,11 @@ export {
   type RegisteredNetworkComponent,
 } from "./network_world.js";
 export {
+  decodeRelationshipSnapshot,
+  encodeRelationshipSnapshot,
+  type DecodedRelationshipSnapshot,
+} from "./relationship_snapshot.js";
+export {
   Client2Server,
   ComponentSnapshot,
   EncodedSnapshot,

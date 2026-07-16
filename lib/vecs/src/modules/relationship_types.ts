@@ -18,21 +18,22 @@ export class DependsOn extends Relationship {}
  */
 export class SilenceSource extends Relationship {}
 
+/** Marker trait restricting a relationship to one target. */
+export class Exclusive {}
+
 /**
- * Marker component that makes every target of a relationship a `ChildOf` child
+ * Marker component that makes every explicit target of a relationship a `ChildOf` child
  * of the relationship source.
  *
  * Add during world setup, before creating relationship instances:
  *
  * ```ts
  * world.component(Inventory).add(OwnedTarget);
- * player.add(Inventory); // creates an owned target
+ * player.add(Inventory, inventory);
  * ```
  *
- * Adding the relationship creates a target when none was supplied. Retargeting
- * destroys the displaced target, and removing the relationship destroys its
- * current target. Configure owner lifecycle hooks before attaching this trait;
- * the trait wraps them and runs ownership behavior first.
+ * The relationship must also carry {@link Exclusive}. Removing or replacing an
+ * edge destroys its target.
  */
 export class OwnedTarget {}
 

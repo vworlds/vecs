@@ -13,10 +13,10 @@ Add a component to opt into a behavior. Remove it to opt out. Missing optional c
 ```ts
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
-The body entity owns body-level state. Shape entities are immediate children of body entities, linked with Vecs' built-in `ChildOf` relationship (`shape.set(ChildOf, { target: body })`; `ChildOf` is exported from `@vworlds/vecs`). Re-targeting or removing that link is observed by physics on the next step.
+The body entity owns body-level state. Shape entities are immediate children of body entities, linked with Vecs' built-in `ChildOf` relationship (`shape.add(ChildOf, body)`; `ChildOf` is exported from `@vworlds/vecs`). Adding `ChildOf` with a different body or removing that link is observed by physics on the next step.
 
 ## Defaults
 
@@ -126,6 +126,11 @@ This table is checked against the default value produced by `new C()` for each p
 | `JointAngularSpring`      | `dampingRatio`        | `0`             |
 | `JointSettings`           | `collideConnected`    | `false`         |
 
+`JointBodyA` and `JointBodyB` are relationship slots, not marker components.
+`JointsModule` configures each as `Exclusive`, so adding the same relationship
+with a different body replaces that slot's target. This relationship
+cardinality is separate from the mutual exclusivity of joint-type components.
+
 ## Minimal Example
 
 This is the smallest dynamic body with one box shape.
@@ -133,7 +138,7 @@ This is the smallest dynamic body with one box shape.
 ```ts
 const box = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: box }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, box).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 The child shape uses default material and collision filtering:
@@ -347,7 +352,7 @@ export class ShapePosition {
 ```ts
 world
   .entity()
-  .set(ChildOf, { target: body })
+  .add(ChildOf, body)
   .set(ShapePosition, { x: 0, y: -0.5 })
   .set(Box, { hx: 0.5, hy: 1 });
 ```
@@ -544,12 +549,7 @@ export class Sensor {}
 Sensors do not create collision response. Add event components if you want overlap events.
 
 ```ts
-world
-  .entity()
-  .set(ChildOf, { target: body })
-  .set(Box, { hx: 2, hy: 1 })
-  .add(Sensor)
-  .add(SensorEvents);
+world.entity().add(ChildOf, body).set(Box, { hx: 2, hy: 1 }).add(Sensor).add(SensorEvents);
 ```
 
 Missing `Sensor` means the shape is solid.
@@ -570,7 +570,7 @@ giving it `SensorEvents` of its own — the overlap is still reported to the
 sensor shape, not to the detectable shape.
 
 ```ts
-world.entity().set(ChildOf, { target: player }).set(Box, { hx: 0.5, hy: 0.5 }).add(Detectable);
+world.entity().add(ChildOf, player).set(Box, { hx: 0.5, hy: 0.5 }).add(Detectable);
 ```
 
 Missing `Detectable` means a solid shape is not reported to sensors. See
@@ -601,7 +601,7 @@ player.set(Force, { x: 1, y: 2 });
 Child force source:
 
 ```ts
-world.entity().set(ChildOf, { target: player }).set(Force, { x: 10, y: 22 });
+world.entity().add(ChildOf, player).set(Force, { x: 10, y: 22 });
 ```
 
 ### `Torque`
@@ -743,13 +743,13 @@ See [Events](./events.md).
 This works:
 
 ```ts
-shape.set(ChildOf, { target: body });
+shape.add(ChildOf, body);
 ```
 
 This is ignored because physics does not search grandparents:
 
 ```ts
-grandchildShape.set(ChildOf, { target: someChildOfBody });
+grandchildShape.add(ChildOf, someChildOfBody);
 ```
 
 ### `Rotation` Is Optional

@@ -5,6 +5,12 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs]: Relationships now support multiple explicit target edges with private target storage and public `Entity.target`, `Entity.targets`, and `Entity.hasTarget` reads. Add edges with `entity.add(Relationship, target)` and remove one edge with `entity.remove(Relationship, target)`; `Relationship.target`, `{ target }` mutation, and `Entity.ensureTarget` are removed.
+- [vecs]: Added the `Exclusive` relationship trait for single-target cardinality and replaced `onRetarget` with per-edge `onTargetAdd` / `onTargetRemove` hooks. `Traversable` and `OwnedTarget` now require `Exclusive`; `OwnedTarget` owns only explicitly added targets and no longer creates an implicit target on add.
+- [vecs-protocol] [vecs-server] [vecs-client]: Added generic relationship snapshots encoded as a target count, target EIDs, then the relationship's ordinary payload. Servers serialize every edge and validate `Exclusive` cardinality; clients ghost every missing target and reconcile the complete edge set on each snapshot.
+- [vecs-phaser] [vecs-phaser-client] [vecs-phaser-server]: Migrated `DrawIn` and `DrawBy` to explicit target-edge mutation. Both endpoint modules configure each as `Exclusive`, only `DrawBy` is `Traversable`, and client display setup separately keeps the `DrawIn` and `DrawBy` component types mutually exclusive.
+- [vecs-physics] [repo]: Migrated joint, display-parenting, spatial-interest, pipeline, and demo relationship call sites from `{ target }` payload assignment to explicit edge addition. Physics joint body relationships and other logically single-target downstream relationships now declare `Exclusive`, and downstream hook users use edge hooks where target identity is required.
+
 ## v1.0.45 (2026-07-14)
 
 - [vecs]: `OwnedTarget` now creates the target entity when the relationship is added (not just on set/ensureTarget), and wraps existing lifecycle hooks instead of replacing them — ownership behavior runs first so owner hooks and query entry observe an initialized target.

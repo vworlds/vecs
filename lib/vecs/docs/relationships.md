@@ -1,13 +1,13 @@
 # Relationships
 
-Link entities to entities with relationship components: hierarchy, reverse lookup, retargeting,
-cleanup cascades, and depth-ordered traversal.
+Link entities to entities with relationship components: many-target edges, reverse lookup,
+one-target constraints, ownership, cleanup cascades, and depth-ordered traversal.
 
 ## What a relationship is
 
-A relationship is a component whose `target` field points at another entity. Define one by
-extending the abstract `Relationship` base (`lib/vecs/src/component_meta.ts`) and registering it
-like any component:
+A relationship is a component with private target storage managed by vecs. Define one by extending
+the abstract `Relationship` base (`lib/vecs/src/component_meta.ts`) and register it like any
+component:
 
 ```ts
 import { Relationship } from "@vworlds/vecs";
@@ -16,153 +16,187 @@ class EquippedBy extends Relationship {}
 
 world.component(EquippedBy);
 
-item.set(EquippedBy, { target: player });
+item.add(EquippedBy, player);
 item.target(EquippedBy); // player
+item.targets(EquippedBy); // readonly snapshot: [player]
+item.hasTarget(EquippedBy, player); // true
 player.children(EquippedBy).has(item); // true
 ```
 
-The **source** entity stores the relationship component; the **target** can enumerate its sources
-with `children(ref)` through a reverse index the world maintains automatically. An entity holds at
-most one instance of a given relationship class (like any component), so multi-target links are
-modeled with one relationship class per meaning, or child entities.
+The **source** entity stores the relationship component; each **target** can enumerate its sources
+with `children(ref)` through a reverse index the world maintains automatically. Relationships allow
+many targets by default. Each source/relationship/target edge is unique, so adding the same target
+again is idempotent. Target ordering is not a public contract.
 
-Because `target` is an `Entity` reference, relationships are not wire-serializable by default.
-However, `vecs-protocol` registers `Relationship.prototype.target` as an `"entity"` wire field
-(u32 eid) at module load, so **relationship subclasses listed in `networkComponents` are
-networkable**: the target serialises as a raw entity id, and the client resolves it to a live
-entity (creating a ghost placeholder if the parent hasn't arrived yet). List `ChildOf` (or custom
-subclasses) explicitly in your `networkComponents` array to replicate parent-child links.
+`target(ref)` is a singular convenience that returns one current target, or `undefined`. Use
+`targets(ref)` for all targets; it returns a safe readonly array snapshot, not vecs's internal
+storage. For a non-exclusive relationship, do not use `target(ref)` as a stable selection policy.
+Use `hasTarget(ref, target)` to test one edge without allocating a snapshot.
 
 ## Built-in relationships
 
 | Class           | Purpose                                                                                                                    |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `ChildOf`       | General parent/child hierarchy. `onDeleteTarget = Delete`: destroying a parent destroys its `ChildOf` children.            |
-| `DependsOn`     | Pipeline ordering: phases chain to each other and systems attach to phases through it.                                     |
-| `SilenceSource` | Marks a query's silence domain; configured via [`ignoreSource`](./queries-and-filters.md#silencing-feedback-ignoresource). |
+| `ChildOf`       | Exclusive parent/child hierarchy. `onDeleteTarget = Delete`: destroying a parent destroys its `ChildOf` children.          |
+| `DependsOn`     | Exclusive pipeline ordering: phases chain to each other and systems attach to phases through it.                           |
+| `SilenceSource` | Exclusive query silence domain; configured via [`ignoreSource`](./queries-and-filters.md#silencing-feedback-ignoresource). |
 
-`entity.childOf(parent)` is shorthand for `entity.set(ChildOf, { target: parent })`.
+`ChildOf` and `DependsOn` are also `Traversable`; all three built-ins above are `Exclusive`.
 
-## Ensuring a target
+## Adding, removing, and setting
 
-Use `ensureTarget` when a registered relationship should always have some target and a new,
-independent entity is the correct default:
+Create edges explicitly with `add(Relationship, target)`:
 
 ```ts
-world.component(FriendOf);
+unit.add(VisibleTo, playerA).add(VisibleTo, playerB);
 
-const friend = entity.ensureTarget(FriendOf);
-entity.ensureTarget(FriendOf) === friend; // true
-entity.target(FriendOf) === friend; // true
+unit.remove(VisibleTo, playerA); // remove one edge
+unit.remove(VisibleTo); // remove the component and every remaining edge
 ```
 
-The method returns the existing target when present. Otherwise it creates an entity, initializes
-the relationship with that target, and attaches the relationship. During deferred execution,
-repeated calls share one pending relationship and return the same target; `target(FriendOf)` still
-returns `undefined` until flush.
+`add(Relationship)` without a target is invalid. Targets must be live entities in the same world as
+the source. Removing a missing edge is a no-op; removing the final edge also removes the
+relationship component.
 
-The generated target is independent: `ensureTarget` does not add `ChildOf`, and destroying the
-source does not destroy the target. Add ownership explicitly when your model requires it. The
-relationship class must be registered before calling `ensureTarget`.
+A relationship subclass can still declare ordinary data fields:
+
+```ts
+class WeightedLink extends Relationship {
+  weight = 0;
+}
+
+source.add(WeightedLink, target);
+source.set(WeightedLink, { weight: 10 });
+```
+
+For relationships, `set` is **existing-only and data-only**. It updates ordinary fields on an
+attached relationship, but does nothing when the relationship is absent and ignores target-storage
+spellings. Edge changes must use `add` and `remove`; they never fire `onSet`.
+
+`attach`, `ensure`, and `getMut` reject relationship components because replacing or mutating an
+instance could bypass edge uniqueness, reverse indexes, and cleanup policies. Target storage is
+private: there is no public `target` or `targets` field to assign. The former `ensureTarget` and
+`onRetarget` APIs have been removed.
+
+`entity.childOf(parent)` is shorthand for `entity.add(ChildOf, parent)`. The `parent` property reads
+the first `ChildOf` target; assigning a parent adds or replaces that target because `ChildOf` is
+exclusive, while assigning `undefined` removes `ChildOf`.
+
+## Exclusive one-target relationships
+
+Add the `Exclusive` trait to restrict a relationship to one target:
+
+```ts
+import { Exclusive, Relationship } from "@vworlds/vecs";
+
+class InCell extends Relationship {}
+
+world.component(InCell).add(Exclusive);
+
+unit.add(InCell, oldCell);
+unit.add(InCell, newCell); // atomically replaces oldCell with newCell
+```
+
+Adding a different target atomically replaces the existing edge. Observers never see two targets:
+the reverse indexes already reflect the replacement when the old edge's remove hook runs, followed
+by the new edge's add hook. Re-adding the current target is a no-op.
+
+`ChildOf`, `DependsOn`, and `SilenceSource` are `Exclusive` out of the box. Configure `Exclusive`
+before relationship instances exist; vecs rejects first-time configuration or removal while the
+relationship is in use (re-adding an already attached trait is an idempotent no-op), and rejects
+removing it while `OwnedTarget` or `Traversable` depends on it.
+
+Do not confuse this trait with `world.setExclusiveComponents(A, B)`. `Exclusive` limits **one
+relationship class** to one target. `setExclusiveComponents` declares that **different component
+classes** cannot coexist on one entity (see
+[Components](./components.md#exclusive-component-groups)).
+
+## Edge hooks
+
+Relationship component entities expose one public hook slot for edge addition and one for edge
+removal:
+
+```ts
+world
+  .component(InCell)
+  .onTargetAdd((source, relationship, target) => {
+    // The edge and reverse index already exist.
+  })
+  .onTargetRemove((source, relationship, target) => {
+    // The edge and reverse index are already gone.
+  });
+```
+
+Both handlers receive `(source, relationshipInstance, target)`. For a new relationship,
+`onTargetAdd` runs before `onAdd`; query entry follows `onAdd`. Removing the whole relationship
+routes query exit and detaches all edges, calls `onTargetRemove` once per edge, then
+calls `onRemove`. An exclusive replacement calls `onTargetRemove` for the old target before
+`onTargetAdd` for the new target without removing and re-adding the component. Edge changes route
+relationship-dependent query updates, but do not call `onSet`; `onSet` is reserved for ordinary
+relationship data changed through `set`.
+
+Call `onTargetAdd()` or `onTargetRemove()` without an argument to read the current handler, pass a
+handler to replace it, or pass `undefined` to clear it. Framework traits install separate internal
+policies, so adding or removing a trait does not replace these public hooks.
 
 ## Owned targets
 
-Mark a relationship component with `OwnedTarget` during world setup when every target assigned
-through that relationship should become a `ChildOf` child of its source:
+Use `OwnedTarget` when an exclusive relationship explicitly owns its target:
 
 ```ts
-import { OwnedTarget, Relationship } from "@vworlds/vecs";
+import { Exclusive, OwnedTarget, Relationship } from "@vworlds/vecs";
 
 class Inventory extends Relationship {}
 
-world.component(Inventory).add(OwnedTarget);
+world.component(Inventory).add(Exclusive).add(OwnedTarget);
 
-const inventory = player.ensureTarget(Inventory);
+const inventory = world.entity();
+player.add(Inventory, inventory);
 inventory.parent === player; // true
 
-player.destroy();
-inventory.destroyed === true; // ChildOf cascades deletion
+player.remove(Inventory); // destroys inventory
 ```
 
-Use `add` when the relationship itself represents a feature and initialization belongs in an
-`onAdd` hook or system `enter` callback:
+`OwnedTarget` requires `Exclusive`, rejects ordinary components and `ChildOf`, and never creates a
+target implicitly. You must create the target and pass it to `add`. When an edge is added, the target
+becomes a `ChildOf` child of its source before the public `onTargetAdd` hook runs. When that edge is
+removed, its target is destroyed before the public `onTargetRemove` hook runs. Exclusive replacement
+therefore destroys the displaced target and adopts the replacement atomically; removing the
+relationship or destroying its source destroys the current target.
 
-```ts
-world.component(Inventory).add(OwnedTarget);
-
-player.add(Inventory);
-const inventory = player.target(Inventory)!; // target was created by OwnedTarget
-```
-
-`OwnedTarget` wraps `onAdd`, `onSet`, `onRetarget`, and `onRemove` on `Inventory`. Adding the
-relationship creates a target when needed. New targets become `ChildOf` children, displaced targets
-are destroyed on retarget, and the current target is destroyed when the relationship is removed
-(including source destruction). Ownership behavior runs before the relationship owner's existing
-hook, so owner hooks and query entry observe an initialized target. During deferred execution, these
-changes apply while the command queue drains.
-
-Configure the trait before creating relationship instances; it does not backfill existing targets.
-Configure owner lifecycle hooks before attaching the trait, because later hook assignment replaces
-the wrapper and its ownership behavior.
-Do not share one owned target between several sources: retargeting or removing any owning
-relationship can destroy it. `OwnedTarget` rejects ordinary components and `ChildOf` itself.
-
-## Retargeting
-
-Point a relationship somewhere else with a plain `set`:
-
-```ts
-unit.set(InCell, { target: newCell }); // reverse index updates automatically
-```
-
-Retargeting is a **data change, not an archetype change** — no component is added or removed, so
-no `enter`/`exit` churn. Prefer retargeting a relationship over swapping marker components to
-express "which bucket this entity is in", and pair it with
-[`groupBy(Relationship)`](./queries-and-filters.md#grouped-queries-groupby) for O(1) bucket
-lookups.
-
-`getMut` throws for relationship components: in-place target mutation would bypass the reverse
-index used by `children()` and the cleanup cascades. Always retarget with `set`.
-
-Register `onRetarget` when behavior needs both targets:
-
-```ts
-world.component(InCell).onRetarget((entity, oldCell, newCell) => {
-  // entity.target(InCell) is newCell here.
-  // oldCell.children(InCell) no longer contains entity.
-  // newCell.children(InCell) already contains entity.
-});
-```
-
-It fires only when an existing relationship moves to a different existing target, after reverse
-indexes update and before `onSet`. Initial assignment, same-target writes, and removal do not fire
-`onRetarget`; use `onSet` and `onRemove` for those lifecycle points.
+Configure the traits before creating relationship instances. Removing `OwnedTarget` removes only
+its ownership policy; public edge hooks remain installed. Do not share an owned target between
+sources because either owner can destroy it when its edge is removed.
 
 ## Cleanup when a target dies
 
-What happens to sources when their target entity is destroyed is governed by the relationship's
-`meta.onDeleteTarget`:
+What happens to each incoming edge when its target entity is destroyed is governed by the
+relationship's `meta.onDeleteTarget`:
 
-| Policy                 | Meaning                                                                                   |
-| ---------------------- | ----------------------------------------------------------------------------------------- |
-| `CleanupPolicy.Remove` | Default. The relationship component is removed from each source.                          |
-| `CleanupPolicy.Delete` | Each source entity targeting the destroyed entity through this relationship is destroyed. |
+| Policy                 | Meaning                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `CleanupPolicy.Remove` | Default. Remove only the edge to the destroyed target; other targets remain attached.      |
+| `CleanupPolicy.Delete` | Destroy each source entity that has an edge to the destroyed target through this relation. |
 
 ```ts
 import { CleanupPolicy } from "@vworlds/vecs";
 
-world.component(MyRel).meta.onDeleteTarget = CleanupPolicy.Delete; // cascade like ChildOf
+world.component(MyRel).meta.onDeleteTarget = CleanupPolicy.Delete;
 ```
 
 `ChildOf` ships with `Delete`, so destroying a parent recursively destroys its subtree:
 
 ```ts
-child.set(ChildOf, { target: parent });
-parent.destroy(); // child (and its own ChildOf children) are destroyed too
+child.add(ChildOf, parent);
+parent.destroy(); // child and its own ChildOf children are destroyed too
 ```
 
-`onDeleteTarget` is independent from `onDelete`: `onDeleteTarget` runs when a relationship
-**target** is destroyed; `onDelete` runs when the relationship **component entity itself** is
+With the default `Remove`, cleanup follows normal per-edge semantics: `onTargetRemove` receives the
+destroyed target, and the relationship component remains if another edge survives. Removing the
+last edge also removes the component.
+
+`onDeleteTarget` is independent from `onDelete`: `onDeleteTarget` applies when a relationship
+**target** is destroyed; `onDelete` applies when the relationship **component entity itself** is
 destroyed (see
 [Components — cleanup policies](./components.md#cleanup-policies-destroying-a-component-entity)).
 
@@ -172,7 +206,7 @@ The DSL follows relationships in both directions
 ([operator table](./queries-and-filters.md#the-query-dsl)):
 
 ```ts
-// Reactive: candidates whose FriendOf target has Position and Velocity.
+// Reactive: candidates with any FriendOf target that has Position and Velocity.
 world.query("body-friends").with({ all: [Body, { target: [FriendOf, [Position, Velocity]] }] });
 
 // Reactive: candidates whose ChildOf parent has Body.
@@ -182,55 +216,74 @@ world.query("positioned-children").with({ all: [Position, { parent: Body }] });
 world.filter({ all: [Body, { children: Position }] }).forEach((parent) => { ... });
 ```
 
-`target` / `parent` queries are **live on both sides**: adding or removing the relationship on the
-candidate re-routes it normally, and changing the _target's_ components refreshes every candidate
-pointing at it — across multiple nested `target` hops. `source` / `children` look down the reverse
-index and are **non-reactive**: exact for each `Filter` scan but rejected by tracked queries and
-systems.
+`target` is existential: a source matches when **any** target through the relationship matches the
+inner DSL. `target` / `parent` queries are live on both sides: edge changes re-evaluate the source,
+and changes to any target's components refresh every source pointing at it, across nested `target`
+hops. `source` / `children` look down the reverse index and are non-reactive: exact for each
+`Filter` scan but rejected by tracked queries and systems.
 
-To pull a target entity, its components, or children's components into callbacks, use `target` /
-`down` injection — see
-[Systems — relationship injection](./systems.md#relationship-injection-target-and-down).
+To pull one current target or all targets into callbacks, use singular `target` or plural `targets`
+injection; see [Systems — relationship injection](./systems.md#relationship-injection).
 
 ## Traversal order: `Traversable` and `cascade`
 
-Tag a relationship component entity with `Traversable` to enable automatic depth tracking: every
-entity carrying the relationship gets a depth (hops to its root), maintained reactively by
-`RelationshipsModule` (`lib/vecs/src/modules/relationships.ts`):
+Tag an exclusive relationship component entity with `Traversable` to enable automatic depth
+tracking: every entity carrying the relationship gets a depth (hops to its root), maintained
+reactively by `RelationshipsModule` (`lib/vecs/src/modules/relationships.ts`):
 
 ```ts
-import { Traversable } from "@vworlds/vecs";
+import { Exclusive, Traversable } from "@vworlds/vecs";
 
-world.component(InCell).add(Traversable);
+world.component(InCell).add(Exclusive).add(Traversable);
 ```
 
-A query can then order its members depth-first along the relationship with `cascade`:
+`Traversable` requires `Exclusive` because a node needs one unambiguous parent. It backfills existing
+exclusive edges when attached. A query can then order members depth-first with `cascade`:
 
 ```ts
 world.query("tree").with({ with: Node, cascade: ChildOf });
 ```
 
-Parents sort before children. Retargeting updates relationship depths, and cascade-ordered queries
-refresh their order before the next iteration. `ChildOf` and `DependsOn` are `Traversable` out of
-the box — the world's default pipeline is itself a `cascade: DependsOn` query (see
-[Execution model](./execution-model.md#the-pipeline-is-a-query)).
+Parents sort before children. Replacing an exclusive edge updates relationship depths, and
+cascade-ordered queries refresh before the next iteration. `ChildOf` and `DependsOn` are
+`Exclusive` and `Traversable` out of the box; the world's default pipeline is itself a
+`cascade: DependsOn` query (see [Execution model](./execution-model.md#the-pipeline-is-a-query)).
+
+## Network snapshots
+
+Relationship subclasses listed in a server/client world's `networkComponents` are networkable.
+Their payload writes a u32 target count, every target eid, then the relationship's ordinary wire
+fields. Target ids are sorted by the server for deterministic snapshots; duplicate, zero, or empty
+target lists are rejected, and an `Exclusive` relationship rejects a payload with more than one
+target.
+
+The client reconciles every received edge and applies ordinary fields. If a target entity has not
+arrived, it creates a networked ghost for that eid immediately; each missing target in a many-target
+payload gets its own ghost. List `ChildOf` or a custom relationship explicitly in
+`networkComponents` when those edges must replicate.
 
 ## Reference
 
-| API                                                         | Description                                                                                                                    |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `class R extends Relationship {}`                           | Declare a relationship component with a `target: Entity` field.                                                                |
-| `e.set(R, { target })`                                      | Create or retarget the relationship.                                                                                           |
-| `e.target(R)`                                               | The target entity through relationship `R`, or `undefined`.                                                                    |
-| `e.children(R)`                                             | `ReadonlySet<Entity>` of sources targeting `e` through `R`.                                                                    |
-| `e.childOf(parent)`                                         | Shorthand for `e.set(ChildOf, { target: parent })`.                                                                            |
-| `e.ensureTarget(R)`                                         | Return `R`'s target, creating an independent entity when absent.                                                               |
-| `world.component(R).add(OwnedTarget)`                       | Create and own `R` targets as `ChildOf` children of their sources.                                                             |
-| `world.component(R).onRetarget(handler?)`                   | Get, set, or remove the single retarget handler.                                                                               |
-| `e.parent` / `e.parent = p`                                 | Getter/setter for the built-in `ChildOf` target; setting `undefined` removes `ChildOf`.                                        |
-| `meta.onDeleteTarget`                                       | `Remove` (default) or `Delete` cascade when a target is destroyed.                                                             |
-| `world.component(R).add(Traversable)`                       | Enable depth tracking for `cascade` ordering.                                                                                  |
-| `{ target: [R, q] }` / `{ parent: q }`                      | Reactive DSL operators through the relationship.                                                                               |
-| `{ source: [R, q] }` / `{ children: q }`                    | Filter-only DSL operators down the reverse index.                                                                              |
-| `{ target: [R, C] }` / `{ target: [R, Entity] }`            | Inject one component from the target or inject the target itself.                                                              |
-| `{ target: [R, [Entity, C...]] }` / `{ down: [R, [C...]] }` | Inject several target projections or fan out over sources; see [Systems](./systems.md#relationship-injection-target-and-down). |
+| API                                           | Description                                                                                         |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `class R extends Relationship {}`             | Declare a many-target relationship with private target storage.                                     |
+| `e.add(R, target)`                            | Add one unique edge; atomically replace the edge when `R` is `Exclusive`.                           |
+| `e.remove(R, target)` / `e.remove(R)`         | Remove one edge, or remove the relationship and all edges.                                          |
+| `e.set(R, ordinaryProps)`                     | Update ordinary data on an existing relationship; never creates or changes edges.                   |
+| `e.target(R)`                                 | First target through `R`, or `undefined`.                                                           |
+| `e.targets(R)`                                | Readonly snapshot of every target through `R`; ordering is unspecified.                             |
+| `e.hasTarget(R, target)`                      | Test whether one edge exists.                                                                       |
+| `e.children(R)`                               | `ReadonlySet<Entity>` of sources targeting `e` through `R`.                                         |
+| `e.childOf(parent)`                           | Shorthand for `e.add(ChildOf, parent)`.                                                             |
+| `e.parent` / `e.parent = p`                   | First built-in `ChildOf` target; assignment replaces it or removes `ChildOf` for `undefined`.       |
+| `world.component(R).add(Exclusive)`           | Restrict `R` to one target.                                                                         |
+| `world.component(R).onTargetAdd(handler?)`    | Get, set, or clear the `(source, relationship, target)` edge-add handler.                           |
+| `world.component(R).onTargetRemove(handler?)` | Get, set, or clear the `(source, relationship, target)` edge-remove handler.                        |
+| `world.component(R).add(OwnedTarget)`         | Adopt and destroy explicit targets; requires `Exclusive`.                                           |
+| `meta.onDeleteTarget`                         | `Remove` (default) per edge or `Delete` the source when a target dies.                              |
+| `world.component(R).add(Traversable)`         | Enable depth tracking for cascade ordering; requires `Exclusive`.                                   |
+| `{ target: [R, q] }` / `{ parent: q }`        | Reactive existential DSL operators through relationship targets.                                    |
+| `{ source: [R, q] }` / `{ children: q }`      | Filter-only DSL operators down the reverse index.                                                   |
+| `{ target: [R, projection] }`                 | Inject projections from one current target; selection is unspecified for non-exclusive relations.   |
+| `{ targets: [R, projection] }`                | Inject one row-array slot covering all targets; see [Systems](./systems.md#relationship-injection). |
+| `{ down: [R, [C...]] }`                       | Fan out over sources; see [Systems](./systems.md#relationship-injection).                           |

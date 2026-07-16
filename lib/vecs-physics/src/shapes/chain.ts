@@ -1,4 +1,4 @@
-import { ChildOf, Iter, Module, type Entity } from "@vworlds/vecs";
+import { ChildOf, Entity, Iter, Module } from "@vworlds/vecs";
 
 import {
   getPhysicsEngine,
@@ -32,16 +32,16 @@ export class ChainLifecycleModule extends Module {
       .enter(
         { cursor: Iter, inject: [Chain, { target: [ChildOf, [Body]] }] },
         (it, [chain, body]) => {
-          createChainForEntity(engine, it.entity, it.src[1], body, chain);
+          createChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
-      .exit([ChildOf, Chain], (entity, [childOf, chain]) => {
-        destroyChainForEntity(engine, entity, true, childOf?.target, chain);
+      .exit([Chain, { target: [ChildOf, Entity] }], (entity, [chain, parent]) => {
+        destroyChainForEntity(engine, entity, true, parent, chain);
       })
       .update(
         { watch: Chain, cursor: Iter, inject: [{ target: [ChildOf, [Body]] }] },
         (it, chain, [body]) => {
-          recreateChainForEntity(engine, it.entity, it.src[0], body, chain);
+          recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
       .add(PhysicsSystemTag);
@@ -57,7 +57,7 @@ export class ChainLifecycleModule extends Module {
           inject: [Chain, { target: [ChildOf, [Body]] }],
         },
         (it, _childOf, [chain, body]) => {
-          recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+          recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
       .add(PhysicsSystemTag);

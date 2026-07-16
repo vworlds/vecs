@@ -8,7 +8,26 @@ export class Relationships extends Queries {
   /** Return this entity's target through relationship `ref`, if present. */
   public target(rel: ComponentRef): Entity | undefined {
     const relEid = typeof rel === "number" ? rel : this.world.entity(rel).eid;
-    return (this._components.get(relEid) as Relationship | undefined)?.target;
+    return (this._components.get(relEid) as Relationship | undefined)?._target();
+  }
+
+  /** Return a safe readonly snapshot of all targets through relationship `ref`. */
+  public targets(rel: ComponentRef): readonly Entity[] {
+    const relEid = typeof rel === "number" ? rel : this.world.entity(rel).eid;
+    return (this._components.get(relEid) as Relationship | undefined)?._targetArray() ?? [];
+  }
+
+  /** Return whether this entity targets `target` through relationship `ref`. */
+  public hasTarget(rel: ComponentRef, target: Entity): boolean {
+    const relEid = typeof rel === "number" ? rel : this.world.entity(rel).eid;
+    return (this._components.get(relEid) as Relationship | undefined)?._hasTarget(target) ?? false;
+  }
+
+  /** @internal Test targets by relationship eid without allocating a snapshot. */
+  public _someTargetByEid(relEid: EID, predicate: (target: Entity) => boolean): boolean {
+    return (
+      (this._components.get(relEid) as Relationship | undefined)?._someTarget(predicate) ?? false
+    );
   }
 
   /** Return entities targeting this one through relationship `ref`. */
@@ -51,18 +70,9 @@ export class Relationships extends Queries {
   }
 
   /** @internal */
-  protected _updateIncoming(
-    meta: ComponentMeta,
-    oldTarget: Entity | undefined,
-    newTarget: Entity | undefined
-  ): void {
-    if (!meta.isRelationship || oldTarget === newTarget) {
-      return;
-    }
-    this._removeIncoming(oldTarget, meta.eid);
-    this._addIncoming(newTarget, meta.eid);
-    if (oldTarget && newTarget) {
-      meta._onRetarget?.(this as unknown as Entity, oldTarget, newTarget);
-    }
+  protected _notifyRelationshipChanged(meta: ComponentMeta, relationship: Relationship): void {
+    const entity = this as unknown as Entity;
+    this.world._notifyComponentChanged(meta.eid, entity);
+    this._queries.forEach((query) => query._notifyModified(entity, meta.eid, relationship));
   }
 }

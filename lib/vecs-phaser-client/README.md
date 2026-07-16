@@ -40,6 +40,19 @@ world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64, catalog });
 The `Image` renderer creates textured entities from replicated `Image` components with no
 per-entity client code, like the primitive shape renderers.
 
+## Display Relationships
+
+`DisplaySetupModule` configures `DrawIn` and `DrawBy` as `Exclusive` relationships, so each has at
+most one target. It separately makes the two component types mutually exclusive on an entity.
+`DrawBy` is `Traversable`; `DrawIn` is not. Replicated relationship snapshots ghost every missing
+target and reconcile all target edges before display placement, so children can arrive before their
+parents.
+
+Use `entity.add(DrawIn, parent)` for native Phaser Container parenting or
+`entity.add(DrawBy, parent)` for computed scene-root parenting. Root GameObjects have neither
+relationship. The computed resolver reads the `DrawBy` parent and adds `Offset` directly to its
+`Position`; it does not use `DrawIn` or apply parent rotation.
+
 ## Interpolation
 
 `ClientWorld` interpolation is configured at construction/connect time. No

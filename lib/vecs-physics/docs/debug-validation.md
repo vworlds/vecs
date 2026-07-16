@@ -91,7 +91,7 @@ for (let frame = 0; frame < 600; frame++) {
 If the issue changes, a new warning can be emitted.
 
 ```ts
-shape.set(ChildOf, { target: bodyWithoutBodyComponent });
+shape.add(ChildOf, bodyWithoutBodyComponent);
 // New structure, possibly a new validation issue.
 ```
 
@@ -115,7 +115,7 @@ Correct structure:
 ```ts
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 Incorrect structure:
@@ -141,7 +141,7 @@ This works:
 ```ts
 const player = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: player }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, player).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 This is ignored by physics:
@@ -149,9 +149,9 @@ This is ignored by physics:
 ```ts
 const player = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
 
-const container = world.entity().set(ChildOf, { target: player });
+const container = world.entity().add(ChildOf, player);
 
-world.entity().set(ChildOf, { target: container }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, container).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 To fix it, make the shape an immediate child of `player`, or add `Body` to `container` if it should be its own physics body.
@@ -165,21 +165,13 @@ This can be invalid:
 ```ts
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .set(ChildOf, { target: body })
-  .set(Box, { hx: 0.5, hy: 0.5 })
-  .set(Material, { density: 0 });
+world.entity().add(ChildOf, body).set(Box, { hx: 0.5, hy: 0.5 }).set(Material, { density: 0 });
 ```
 
 Use a positive density for ordinary dynamic bodies.
 
 ```ts
-world
-  .entity()
-  .set(ChildOf, { target: body })
-  .set(Box, { hx: 0.5, hy: 0.5 })
-  .set(Material, { density: 1 });
+world.entity().add(ChildOf, body).set(Box, { hx: 0.5, hy: 0.5 }).set(Material, { density: 1 });
 ```
 
 Missing `Material` is fine. It uses the default density `1`.

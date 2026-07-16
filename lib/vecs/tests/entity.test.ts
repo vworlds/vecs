@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { ChildOf, CleanupPolicy, Relationship, type Entity, World } from "../src/index.js";
+import {
+  ChildOf,
+  CleanupPolicy,
+  Exclusive,
+  Relationship,
+  type Entity,
+  World,
+} from "../src/index.js";
 
 class Position {
   x = 0;
@@ -8,9 +15,13 @@ class Position {
 class Velocity {
   vx = 0;
 }
-class FriendOf extends Relationship {}
+class FriendOf extends Relationship {
+  label = "";
+}
 class InRoom extends Relationship {}
 class Guards extends Relationship {}
+class SecondTarget {}
+class ThirdTarget {}
 
 describe("Entity — components", () => {
   it("add returns the entity for chaining", () => {
@@ -498,7 +509,7 @@ describe("Entity — lifecycle and relationships", () => {
     const w = new World();
     w.component(FriendOf);
     const target = w.entity();
-    const source = w.entity().set(FriendOf, { target });
+    const source = w.entity().add(FriendOf, target);
 
     target.destroy();
     w.progress(0, 0);
@@ -517,8 +528,8 @@ describe("Entity — lifecycle and relationships", () => {
     w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
     w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
     const room = w.entity();
-    const lamp = w.entity().set(InRoom, { target: room });
-    const guard = w.entity().set(Guards, { target: room });
+    const lamp = w.entity().add(InRoom, room);
+    const guard = w.entity().add(Guards, room);
 
     room.destroy();
     w.progress(0, 0);
@@ -536,8 +547,8 @@ describe("Entity — lifecycle and relationships", () => {
     w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
     w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
     const room = w.entity();
-    const guard = w.entity().set(Guards, { target: room });
-    const lamp = w.entity().set(InRoom, { target: room });
+    const guard = w.entity().add(Guards, room);
+    const lamp = w.entity().add(InRoom, room);
 
     room.destroy();
     w.progress(0, 0);
@@ -555,8 +566,8 @@ describe("Entity — lifecycle and relationships", () => {
     w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
     w.component(FriendOf); // default Remove
     const target = w.entity();
-    const lamp = w.entity().set(InRoom, { target });
-    const friend = w.entity().set(FriendOf, { target });
+    const lamp = w.entity().add(InRoom, target);
+    const friend = w.entity().add(FriendOf, target);
 
     target.destroy();
     w.progress(0, 0);
@@ -575,8 +586,8 @@ describe("Entity — lifecycle and relationships", () => {
     w.component(InRoom); // default Remove
     w.component(FriendOf); // default Remove
     const target = w.entity();
-    const lamp = w.entity().set(InRoom, { target });
-    const friend = w.entity().set(FriendOf, { target });
+    const lamp = w.entity().add(InRoom, target);
+    const friend = w.entity().add(FriendOf, target);
 
     target.destroy();
     w.progress(0, 0);
@@ -599,8 +610,8 @@ describe("Entity — lifecycle and relationships", () => {
     unrelated.destroy();
 
     const target = w.entity();
-    const lamp = w.entity().set(InRoom, { target });
-    const guard = w.entity().set(Guards, { target });
+    const lamp = w.entity().add(InRoom, target);
+    const guard = w.entity().add(Guards, target);
 
     target.destroy();
     w.progress(0, 0);
@@ -731,9 +742,7 @@ describe("Entity — relationship navigation", () => {
     const p1 = w.entity();
     const p2 = w.entity();
     const child = w.entity().childOf(p1);
-    const mutate = vi.fn((rel: ChildOf) => {
-      rel.target = p2;
-    });
+    const mutate = vi.fn((_rel: ChildOf) => void p2);
 
     expect(() => child.getMut(ChildOf, mutate)).toThrow(/Relationship/);
 
@@ -748,9 +757,7 @@ describe("Entity — relationship navigation", () => {
     const p1 = w.entity();
     const p2 = w.entity();
     const child = w.entity().childOf(p1);
-    const mutate = vi.fn((rel: ChildOf) => {
-      rel.target = p2;
-    });
+    const mutate = vi.fn((_rel: ChildOf) => void p2);
 
     expect(() => child.ensure(ChildOf, mutate)).toThrow(/Relationship/);
 
@@ -781,160 +788,218 @@ describe("Entity — relationship navigation", () => {
     expect(parent.children(ChildOf).has(child)).toBe(true);
   });
 
-  it("ensureTarget creates and reuses an independent relationship target", () => {
+  it("stores multiple idempotent targets without exposing its backing array", () => {
     const w = new World();
     w.component(FriendOf);
     const source = w.entity();
+    const first = w.entity();
+    const second = w.entity();
 
-    const target = source.ensureTarget(FriendOf);
-
-    expect(source.ensureTarget(FriendOf)).toBe(target);
-    expect(source.target(FriendOf)).toBe(target);
-    expect(target.parent).toBeUndefined();
-
-    source.destroy();
-    expect(target.alive).toBe(true);
-    expect(w.entity(target.eid)).toBe(target);
-  });
-
-  it("ensureTarget returns one pending target across repeated deferred calls", () => {
-    const w = new World();
-    const relationship = w.component(FriendOf);
-    const onAdd = vi.fn();
-    const onSet = vi.fn();
-    relationship.onAdd(onAdd).onSet(onSet);
-    const source = w.entity();
-    let first: Entity | undefined;
-    let second: Entity | undefined;
-
-    w.defer(() => {
-      first = source.ensureTarget(FriendOf);
-      second = source.ensureTarget(FriendOf);
-
-      expect(second).toBe(first);
-      expect(source.target(FriendOf)).toBeUndefined();
-    });
+    source.add(FriendOf, first).add(FriendOf, second).add(FriendOf, first);
+    const targets = source.targets(FriendOf);
 
     expect(source.target(FriendOf)).toBe(first);
-    expect(onAdd).toHaveBeenCalledTimes(1);
-    expect(onSet).toHaveBeenCalledTimes(1);
+    expect(targets).toEqual([first, second]);
+    expect(source.hasTarget(FriendOf, second)).toBe(true);
+    (targets as Entity[]).pop();
+    expect(source.targets(FriendOf)).toEqual([first, second]);
+    expect(first.children(FriendOf)).toContain(source);
+    expect(second.children(FriendOf)).toContain(source);
   });
 
-  it("ensureTarget recreates a target after the previous target is destroyed", () => {
+  it("removes one edge or the whole relationship idempotently", () => {
     const w = new World();
     w.component(FriendOf);
     const source = w.entity();
-    const first = source.ensureTarget(FriendOf);
-
-    first.destroy();
-    const second = source.ensureTarget(FriendOf);
-
-    expect(second).not.toBe(first);
-    expect(source.target(FriendOf)).toBe(second);
-  });
-
-  it("ensureTarget requires a registered relationship component", () => {
-    const w = new World();
-    w.component(Position);
-    const source = w.entity();
-
-    expect(() => source.ensureTarget(FriendOf)).toThrow(/unregistered component entity/);
-    expect(() => source.ensureTarget(Position as unknown as typeof FriendOf)).toThrow(
-      /requires a Relationship/
-    );
-  });
-
-  it("onRetarget fires only after an existing relationship changes targets", () => {
-    const w = new World();
-    const relationship = w.component(FriendOf);
-    const source = w.entity();
     const first = w.entity();
     const second = w.entity();
-    const onRetarget = vi.fn((entity: Entity, oldTarget: Entity, newTarget: Entity) => {
-      expect(entity.target(FriendOf)).toBe(newTarget);
-      expect(oldTarget.children(FriendOf).has(entity)).toBe(false);
-      expect(newTarget.children(FriendOf).has(entity)).toBe(true);
-    });
-    relationship.onRetarget(onRetarget);
+    source.add(FriendOf, first).add(FriendOf, second);
 
-    source.set(FriendOf, { target: first });
-    source.set(FriendOf, { target: first });
-    expect(onRetarget).not.toHaveBeenCalled();
-
-    source.set(FriendOf, { target: second });
-    expect(onRetarget).toHaveBeenCalledOnce();
-    expect(onRetarget).toHaveBeenCalledWith(source, first, second);
+    source.remove(FriendOf, first);
+    source.remove(FriendOf, first);
+    expect(source.targets(FriendOf)).toEqual([second]);
+    expect(first.children(FriendOf)).not.toContain(source);
 
     source.remove(FriendOf);
-    expect(onRetarget).toHaveBeenCalledOnce();
+    expect(source.has(FriendOf)).toBe(false);
+    expect(second.children(FriendOf)).not.toContain(source);
   });
 
-  it("onRetarget handles attach replacement and deferred dispatch", () => {
+  it("validates relationship targets and rejects relationship attachment", () => {
+    const w = new World();
+    w.component(FriendOf);
+    w.component(Position);
+    const source = w.entity();
+    const target = w.entity();
+
+    expect(() => source.add(FriendOf)).toThrow(/requires a target/);
+    expect(() => source.add(Position, target)).toThrow(/requires a Relationship/);
+    expect(() => source.remove(Position, target)).toThrow(/requires a Relationship/);
+    expect(() => source.attach(new FriendOf())).toThrow(/cannot attach Relationship/);
+  });
+
+  it("set updates relationship data only when the relationship exists", () => {
     const w = new World();
     const relationship = w.component(FriendOf);
+    const onSet = vi.fn();
+    relationship.onSet(onSet);
     const source = w.entity();
     const first = w.entity();
     const second = w.entity();
-    const onRetarget = vi.fn();
-    relationship.onRetarget(onRetarget);
-    source.set(FriendOf, { target: first });
-    const replacement = new FriendOf();
-    replacement.target = second;
 
-    w.defer(() => {
-      source.attach(replacement);
-      expect(onRetarget).not.toHaveBeenCalled();
-    });
+    source.set(FriendOf, { label: "absent" });
+    expect(source.has(FriendOf)).toBe(false);
 
-    expect(onRetarget).toHaveBeenCalledWith(source, first, second);
+    source.add(FriendOf, first);
+    source.set(FriendOf, { label: "present", target: second } as any);
+    expect(source.get(FriendOf)?.label).toBe("present");
+    expect(source.targets(FriendOf)).toEqual([first]);
+    expect(onSet).toHaveBeenCalledOnce();
+
+    source.set(FriendOf, { target: second } as any);
+    expect(source.targets(FriendOf)).toEqual([first]);
+    expect(onSet).toHaveBeenCalledOnce();
   });
 
-  it("onRetarget can be read, replaced, and removed", () => {
+  it("fires edge hooks with finalized indexes and detaches before final removal hooks", () => {
     const w = new World();
     const relationship = w.component(FriendOf);
-    const source = w.entity();
-    const first = w.entity();
-    const second = w.entity();
-    const third = w.entity();
-    const replaced = vi.fn();
-    const current = vi.fn();
-
-    expect(relationship.onRetarget()).toBeUndefined();
-    relationship.onRetarget(replaced).onRetarget(current);
-    expect(relationship.onRetarget()).toBe(current);
-
-    source.set(FriendOf, { target: first });
-    source.set(FriendOf, { target: second });
-    expect(replaced).not.toHaveBeenCalled();
-    expect(current).toHaveBeenCalledOnce();
-
-    expect(relationship.onRetarget(undefined)).toBe(relationship);
-    expect(relationship.onRetarget()).toBeUndefined();
-    source.set(FriendOf, { target: third });
-    expect(current).toHaveBeenCalledOnce();
-  });
-
-  it("onRetarget fires before onSet for a retarget", () => {
-    const w = new World();
-    const relationship = w.component(FriendOf);
-    const source = w.entity();
     const events: string[] = [];
-    relationship.onSet(() => events.push("set"));
-    relationship.onRetarget(() => events.push("retarget"));
-    source.set(FriendOf, { target: w.entity() });
-    events.length = 0;
+    const source = w.entity();
+    const target = w.entity();
+    relationship
+      .onTargetAdd((entity, instance, added) => {
+        expect(entity.hasTarget(FriendOf, added)).toBe(true);
+        expect(added.children(FriendOf)).toContain(entity);
+        expect(instance).toBe(entity.get(FriendOf));
+        events.push("target-add");
+      })
+      .onAdd(() => events.push("add"))
+      .onTargetRemove((entity, instance, removed) => {
+        expect(entity.has(FriendOf)).toBe(false);
+        expect(instance._target()).toBeUndefined();
+        expect(removed.children(FriendOf)).not.toContain(entity);
+        events.push("target-remove");
+      })
+      .onRemove(() => events.push("remove"));
 
-    source.set(FriendOf, { target: w.entity() });
+    source.add(FriendOf, target);
+    source.remove(FriendOf, target);
 
-    expect(events).toEqual(["retarget", "set"]);
+    expect(events).toEqual(["target-add", "add", "target-remove", "remove"]);
   });
 
-  it("onRetarget rejects non-relationship components", () => {
+  it("does not publish phantom query membership when onTargetAdd removes the relationship", () => {
     const w = new World();
-    const position = w.component(Position);
+    const relationship = w.component(FriendOf);
+    const query = w.query("reentrant relationship add").with(FriendOf).build();
+    const onAdd = vi.fn();
+    const onTargetAdd = vi.fn((source: Entity) => source.remove(FriendOf));
+    relationship.onTargetAdd(onTargetAdd).onAdd(onAdd);
+    const source = w.entity();
+    const target = w.entity();
 
-    expect(() => position.onRetarget(vi.fn())).toThrow(
-      "onRetarget can only be registered on a Relationship component"
-    );
+    source.add(FriendOf, target);
+
+    expect(onTargetAdd).toHaveBeenCalledOnce();
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(source.has(FriendOf)).toBe(false);
+    expect(target.children(FriendOf)).not.toContain(source);
+    expect(query.has(source)).toBe(false);
+  });
+
+  it("suppresses stale exclusive hooks and query updates after a nested replacement", () => {
+    const w = new World();
+    const relationship = w.component(FriendOf).add(Exclusive);
+    w.component(SecondTarget);
+    w.component(ThirdTarget);
+    const source = w.entity();
+    const first = w.entity();
+    const second = w.entity().add(SecondTarget);
+    const third = w.entity().add(ThirdTarget);
+    const secondQuery = w
+      .query("second target")
+      .with({ target: [FriendOf, SecondTarget] })
+      .build();
+    const thirdQuery = w
+      .query("third target")
+      .with({ target: [FriendOf, ThirdTarget] })
+      .build();
+    const updates = vi.fn();
+    w.query("relationship updates").with(FriendOf).update(FriendOf, updates).build();
+    const removed: Entity[] = [];
+    const added: Entity[] = [];
+    relationship
+      .onTargetRemove((entity, _instance, target) => {
+        removed.push(target);
+        if (target === first) {
+          entity.add(FriendOf, third);
+        }
+      })
+      .onTargetAdd((entity, _instance, target) => {
+        expect(entity.target(FriendOf)).toBe(target);
+        expect(target.children(FriendOf)).toContain(entity);
+        added.push(target);
+      });
+    source.add(FriendOf, first);
+    removed.length = 0;
+    added.length = 0;
+    updates.mockClear();
+
+    source.add(FriendOf, second);
+
+    expect(source.target(FriendOf)).toBe(third);
+    expect(removed).toEqual([first, second]);
+    expect(added).toEqual([third]);
+    expect(updates).toHaveBeenCalledOnce();
+    expect(secondQuery.has(source)).toBe(false);
+    expect(thirdQuery.has(source)).toBe(true);
+  });
+
+  it("exclusive relationships replace targets while preserving data", () => {
+    const w = new World();
+    const relationship = w.component(FriendOf).add(Exclusive);
+    const removed = vi.fn();
+    const added = vi.fn();
+    relationship.onTargetRemove(removed).onTargetAdd(added);
+    const source = w.entity();
+    const first = w.entity();
+    const second = w.entity();
+    source.add(FriendOf, first).set(FriendOf, { label: "kept" });
+    const instance = source.get(FriendOf);
+
+    source.add(FriendOf, second);
+
+    expect(source.get(FriendOf)).toBe(instance);
+    expect(source.get(FriendOf)?.label).toBe("kept");
+    expect(source.targets(FriendOf)).toEqual([second]);
+    expect(removed).toHaveBeenCalledWith(source, instance, first);
+    expect(added).toHaveBeenLastCalledWith(source, instance, second);
+  });
+
+  it("rejects changing Exclusive while relationship instances exist", () => {
+    const w = new World();
+    const relationship = w.component(FriendOf);
+    const source = w.entity().add(FriendOf, w.entity());
+
+    expect(() => relationship.add(Exclusive)).toThrow(/while the relationship is in use/);
+    source.remove(FriendOf);
+    relationship.add(Exclusive);
+    source.add(FriendOf, w.entity());
+    expect(() => relationship.remove(Exclusive)).toThrow(/while the relationship is in use/);
+  });
+
+  it("rejects cross-world relationship targets without creating reverse edges", () => {
+    const sourceWorld = new World();
+    const targetWorld = new World();
+    const relationship = sourceWorld.component(FriendOf);
+    targetWorld.component(FriendOf);
+    const source = sourceWorld.entity();
+    const foreignTarget = targetWorld.entity();
+
+    expect(() => source.add(FriendOf, foreignTarget)).toThrow(/same World/);
+    expect(() => source._addTarget(relationship.meta, foreignTarget)).toThrow(/same World/);
+    expect(source.has(FriendOf)).toBe(false);
+    expect(foreignTarget.children(FriendOf)).not.toContain(source);
   });
 });

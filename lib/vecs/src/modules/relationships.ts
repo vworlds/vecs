@@ -1,11 +1,19 @@
 import { CleanupPolicy, Relationship } from "../component_meta.js";
 import { type EID, type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
-import { ChildOf, OwnedTarget, Traversable } from "./relationship_types.js";
+import {
+  ChildOf,
+  DependsOn,
+  Exclusive,
+  OwnedTarget,
+  SilenceSource,
+  Traversable,
+} from "./relationship_types.js";
 
 export {
   ChildOf,
   DependsOn,
+  Exclusive,
   OwnedTarget,
   SilenceSource,
   Traversable,
@@ -20,16 +28,14 @@ export {
  * destroying a parent recursively destroys the children that target it through
  * `ChildOf` (custom relationships default to `Remove`).
  *
- * When a relationship component entity has `Traversable` attached, the module
- * installs `onAdd`, `onSet`, and `onRemove` hooks on that relationship so that
- * every entity's depth is updated when the relationship is added, retargeted,
- * or removed.
+ * `Traversable` requires `Exclusive`. The module wraps target-edge hooks on a
+ * traversable relationship so every entity's depth is updated when its edge is
+ * added, replaced, or removed.
  *
  * When a relationship component entity has `OwnedTarget` attached, the module
- * wraps its hooks so adding the relationship creates a target when needed,
- * every target becomes a `ChildOf` child of its source, and targets are
- * destroyed when displaced or removed. Configure this trait after the
- * relationship's owner hooks and before creating relationship instances.
+ * wraps its target-edge hooks so every explicitly added target becomes a
+ * `ChildOf` child of its source and is destroyed when displaced or removed.
+ * `OwnedTarget` requires `Exclusive` and never creates a target implicitly.
  *
  * Depth is computed by walking `entity.target(relEid)` to the root. When an
  * entity's depth changes, every descendant is recursively recomputed.
@@ -38,71 +44,108 @@ export class RelationshipsModule extends Module {
   public init(): void {
     const world = this.world;
     const childOf = world.component(ChildOf);
+    const dependsOn = world.component(DependsOn);
+    const exclusive = world.component(Exclusive);
     const ownedTarget = world.component(OwnedTarget);
-    const traversable = world.component(Traversable);
+    const silenceSource = world.component(SilenceSource);
+    const traversableTrait = world.component(Traversable);
 
     childOf.meta.onDeleteTarget = CleanupPolicy.Delete;
+    exclusive.meta._validateAdd = (relationship): void => {
+      if (!relationship.meta.isRelationship) {
+        throw new Error("Exclusive can only be added to a Relationship component");
+      }
+      if (relationship.meta.usageCount > 0) {
+        throw new Error("Exclusive cannot be added or removed while the relationship is in use");
+      }
+    };
+    exclusive.meta._validateRemove = (relationship): void => {
+      if (relationship.has(OwnedTarget) || relationship.has(Traversable)) {
+        throw new Error("Exclusive cannot be removed while a dependent relationship trait exists");
+      }
+      if (relationship.meta.usageCount > 0) {
+        throw new Error("Exclusive cannot be added or removed while the relationship is in use");
+      }
+    };
+    exclusive.meta._onPolicyAdd = (relationship): void => {
+      relationship.meta.relationshipExclusive = true;
+    };
+    exclusive.meta._onPolicyRemove = (relationship): void => {
+      relationship.meta.relationshipExclusive = false;
+    };
 
-    ownedTarget.onAdd((rel): void => {
+    ownedTarget.meta._validateAdd = (rel): void => {
       if (!rel.meta.isRelationship) {
         throw new Error("OwnedTarget can only be added to a Relationship component");
       }
       if (rel === childOf) {
         throw new Error("OwnedTarget cannot be added to ChildOf");
       }
+      if (!rel.has(Exclusive)) {
+        throw new Error("OwnedTarget requires Exclusive");
+      }
+    };
+    ownedTarget.meta._onPolicyAdd = (rel): void => {
+      (rel.meta._targetAddPolicies ??= new Map()).set(
+        ownedTarget.eid,
+        (source: Entity, _relationship: Relationship, target: Entity): void => {
+          target.add(ChildOf, source);
+        }
+      );
+      (rel.meta._targetRemovePolicies ??= new Map()).set(
+        ownedTarget.eid,
+        (_source: Entity, _relationship: Relationship, target: Entity): void => {
+          target.destroy();
+        }
+      );
+    };
+    ownedTarget.meta._onPolicyRemove = (rel): void => {
+      rel.meta._targetAddPolicies?.delete(ownedTarget.eid);
+      rel.meta._targetRemovePolicies?.delete(ownedTarget.eid);
+    };
 
-      const onAdd = rel.onAdd();
-      const onSet = rel.onSet();
-      const onRetarget = rel.onRetarget();
-      const onRemove = rel.onRemove();
-
-      rel
-        .onAdd((source: Entity, component): void => {
-          const relationship = component as Relationship;
-          relationship.target ??= world.entity();
-          relationship.target.childOf(source);
-          onAdd?.(source, component);
-        })
-        .onSet((source: Entity, relationship): void => {
-          (relationship as Relationship).target.childOf(source);
-          onSet?.(source, relationship);
-        })
-        .onRetarget((source: Entity, oldTarget: Entity, newTarget: Entity): void => {
-          oldTarget.destroy();
-          onRetarget?.(source, oldTarget, newTarget);
-        })
-        .onRemove((source: Entity, relationship): void => {
-          (relationship as Relationship).target.destroy();
-          onRemove?.(source, relationship);
-        });
-    });
-
-    traversable.onAdd((rel, traversable): void => {
+    traversableTrait.meta._validateAdd = (rel): void => {
+      if (!rel.meta.isRelationship) {
+        throw new Error("Traversable can only be added to a Relationship component");
+      }
+      if (!rel.has(Exclusive)) {
+        throw new Error("Traversable requires Exclusive");
+      }
+    };
+    traversableTrait.meta._onPolicyAdd = (rel, component): void => {
+      const traversable = component as Traversable;
       const relEid = rel.eid;
-
-      rel
-        .onAdd((entity: Entity) => {
+      (rel.meta._targetAddPolicies ??= new Map()).set(
+        traversableTrait.eid,
+        (entity: Entity): void => {
           this._cascadeUpdate(entity, relEid, traversable);
-        })
-        .onSet((entity: Entity) => {
-          this._cascadeUpdate(entity, relEid, traversable);
-        })
-        .onRemove((entity: Entity) => {
+        }
+      );
+      (rel.meta._targetRemovePolicies ??= new Map()).set(
+        traversableTrait.eid,
+        (entity: Entity): void => {
           traversable.depths.delete(entity);
-
           for (const child of entity._childrenByEid(relEid) ?? []) {
             this._cascadeUpdate(child, relEid, traversable);
           }
-        });
+        }
+      );
 
       world.entities.forEach((entity) => {
         if (entity.has(relEid)) {
           this._cascadeUpdate(entity, relEid, traversable);
         }
       });
-    });
+    };
+    traversableTrait.meta._onPolicyRemove = (rel, component): void => {
+      rel.meta._targetAddPolicies?.delete(traversableTrait.eid);
+      rel.meta._targetRemovePolicies?.delete(traversableTrait.eid);
+      (component as Traversable).depths.clear();
+    };
 
-    childOf.add(Traversable);
+    childOf.add(Exclusive).add(Traversable);
+    dependsOn.add(Exclusive).add(Traversable);
+    silenceSource.add(Exclusive);
   }
 
   private _cascadeUpdate(

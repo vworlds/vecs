@@ -1,4 +1,4 @@
-import { DependsOn, ON_UPDATE, ON_VALIDATE, Phase, World } from "@vworlds/vecs";
+import { DependsOn, Exclusive, ON_UPDATE, ON_VALIDATE, Phase, World } from "@vworlds/vecs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,6 +16,8 @@ import {
   GravityScale,
   HitEvents,
   Impulse,
+  JointBodyA,
+  JointBodyB,
   PhysicsModule,
   KinematicTargetPosition,
   KinematicTargetRotation,
@@ -99,6 +101,14 @@ describe("PhysicsModule", () => {
     expect(entity.has(Box)).toBe(false);
     expect(entity.has(Circle)).toBe(true);
     expect(entity.get(Shape)).toBe(entity.get(Circle));
+  });
+
+  it("marks joint body relationships as exclusive", () => {
+    const world = new World();
+    world.module(PhysicsModule);
+
+    expect(world.component(JointBodyA).has(Exclusive)).toBe(true);
+    expect(world.component(JointBodyB).has(Exclusive)).toBe(true);
   });
 
   it("creates the three default physics phases", () => {

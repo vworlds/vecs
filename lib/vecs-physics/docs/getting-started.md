@@ -22,12 +22,12 @@ A physics object is usually two entities:
 ```ts
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 The body entity controls simulation behavior. The child entity defines the collision shape. Multiple child shapes create a compound body.
 
-The parent/child link is Vecs' built-in `ChildOf` relationship: `shape.set(ChildOf, { target: body })` makes `shape` an immediate child of `body`. `ChildOf` is exported from `@vworlds/vecs`. Physics reads the link reactively, so re-targeting a shape to a different body (or removing the link) updates the simulation on the next step.
+The parent/child link is Vecs' built-in `ChildOf` relationship: `shape.add(ChildOf, body)` makes `shape` an immediate child of `body`. `ChildOf` is exported from `@vworlds/vecs`. Physics reads the link reactively, so adding `ChildOf` with a different body (or removing the link) updates the simulation on the next step.
 
 ## Minimal Falling Box
 
@@ -56,11 +56,11 @@ world.module(PhysicsModule, {
 
 const ground = world.entity().set(Position, { x: 0, y: -1 }).add(Body);
 
-world.entity().set(ChildOf, { target: ground }).set(Box, { hx: 25, hy: 1 });
+world.entity().add(ChildOf, ground).set(Box, { hx: 25, hy: 1 });
 
 const box = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: box }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, box).set(Box, { hx: 0.5, hy: 0.5 });
 
 world.progress(performance.now(), 1000 / 60);
 ```
@@ -112,11 +112,11 @@ import { ShapePosition } from "@vworlds/vecs-physics";
 
 const ship = world.entity().set(Position, { x: 0, y: 5 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: ship }).set(Box, { hx: 1, hy: 0.25 });
+world.entity().add(ChildOf, ship).set(Box, { hx: 1, hy: 0.25 });
 
 world
   .entity()
-  .set(ChildOf, { target: ship })
+  .add(ChildOf, ship)
   .set(ShapePosition, { x: 0, y: 0.5 })
   .set(Box, { hx: 0.25, hy: 0.75 });
 ```
@@ -132,7 +132,7 @@ import { ContactEvents } from "@vworlds/vecs-physics";
 
 const playerShape = world
   .entity()
-  .set(ChildOf, { target: box })
+  .add(ChildOf, box)
   .set(Box, { hx: 0.5, hy: 0.5 })
   .add(ContactEvents);
 
@@ -161,7 +161,7 @@ box.set(Force, { x: 10, y: 0 });
 You can also place a force on an immediate child of a body entity. This is useful when multiple independent effects act on the same body.
 
 ```ts
-const tractorBeam = world.entity().set(ChildOf, { target: box }).set(Force, { x: 25, y: 0 });
+const tractorBeam = world.entity().add(ChildOf, box).set(Force, { x: 25, y: 0 });
 
 // Later:
 tractorBeam.remove(Force);
@@ -253,7 +253,7 @@ Shapes should be child entities of the body entity.
 ```ts
 // Good
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 ### Forgetting `Body`
@@ -278,8 +278,8 @@ sprite.y = -position.y * pixelsPerMeter;
 Forces and impulses target the current entity if it has `Body`, or the immediate parent if that parent has `Body`. Grandparents are ignored.
 
 ```ts
-const child = world.entity().set(ChildOf, { target: box });
-world.entity().set(ChildOf, { target: child }).set(Force, { x: 10, y: 0 }); // Ignored unless child has Body
+const child = world.entity().add(ChildOf, box);
+world.entity().add(ChildOf, child).set(Force, { x: 10, y: 0 }); // Ignored unless child has Body
 ```
 
 ## Related Pages

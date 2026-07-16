@@ -13,6 +13,8 @@ export const enum CommandKind {
   Remove,
   Destroy,
   Attach,
+  AddTarget,
+  RemoveTarget,
 }
 
 /**
@@ -61,4 +63,6 @@ type CommandBody =
     }
   | { kind: CommandKind.Modified; entity: Entity; meta: ComponentMeta }
   | { kind: CommandKind.Remove; entity: Entity; meta: ComponentMeta }
+  | { kind: CommandKind.AddTarget; entity: Entity; meta: ComponentMeta; target: Entity }
+  | { kind: CommandKind.RemoveTarget; entity: Entity; meta: ComponentMeta; target: Entity }
   | { kind: CommandKind.Destroy; entity: Entity };

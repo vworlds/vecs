@@ -4,17 +4,8 @@ import {
   type EID,
   type IdPoolConfig,
   type WorldOptions,
-  Relationship,
 } from "@vworlds/vecs";
-import { wireType } from "@vworlds/vecs-wire";
 import { cid_pack, setLocalComponentMin } from "./cid.js";
-
-// Register Relationship.target as an "entity" wire field so every Relationship
-// subclass (ChildOf, custom relationships, etc.) inherits the wire serialization
-// of target as a u32 entity id. The decoder writes a raw number into `target`;
-// the client resolves it to a live Entity in _applySnapshot. This must run once
-// at module load, before any Relationship subclass is encoded or decoded.
-wireType("entity")(Relationship.prototype, "target");
 
 const DEFAULT_ENTITY_ID_START = 1000;
 const MODULE_ID_RANGE_SIZE = 100;

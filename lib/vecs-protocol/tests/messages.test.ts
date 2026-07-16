@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
+import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
+import { Relationship } from "@vworlds/vecs";
 import {
   Client2Server,
   ComponentSnapshot,
@@ -8,7 +9,16 @@ import {
   Server2Client,
   StateDiff,
   cid_pack,
+  decodeRelationshipSnapshot,
+  encodeRelationshipSnapshot,
 } from "../src/index.js";
+
+class WeightedLink extends Relationship {
+  @wireType("i32")
+  public weight = 0;
+}
+
+class EmptyLink extends Relationship {}
 
 function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
   const encoder = new Encoder(new Uint8Array(size));
@@ -60,5 +70,46 @@ describe("protocol messages", () => {
     expect(decoded.ackFrame).toBe(7);
     expect(decoded.input).toEqual({ keys: ["up"], aim: 90 });
     expect(decoded.rpc[0].rpcId).toBe(101);
+  });
+
+  it("round-trips all relationship targets and ordinary fields", () => {
+    const relationship = new WeightedLink();
+    relationship.weight = 17;
+    const encoder = new Encoder(new Uint8Array(128));
+    encodeRelationshipSnapshot(encoder, [1001, 1004, 1010], relationship);
+
+    const decoded = decodeRelationshipSnapshot(new Decoder(encoder.getBuffer()), WeightedLink);
+
+    expect(decoded.targetEids).toEqual([1001, 1004, 1010]);
+    expect(decoded.component).toMatchObject({ weight: 17 });
+  });
+
+  it("round-trips a fieldless relationship subclass", () => {
+    const encoder = new Encoder(new Uint8Array(128));
+    encodeRelationshipSnapshot(encoder, [1001], new EmptyLink());
+
+    const decoded = decodeRelationshipSnapshot(new Decoder(encoder.getBuffer()), EmptyLink);
+
+    expect(decoded.targetEids).toEqual([1001]);
+    expect(decoded.component).toBeInstanceOf(EmptyLink);
+  });
+
+  it("rejects malformed relationship targets", () => {
+    const duplicateEncoder = new Encoder(new Uint8Array(128));
+    duplicateEncoder.write_u32(2);
+    duplicateEncoder.write_u32(1001);
+    duplicateEncoder.write_u32(1001);
+    duplicateEncoder.write(new WeightedLink());
+
+    expect(() =>
+      decodeRelationshipSnapshot(new Decoder(duplicateEncoder.getBuffer()), WeightedLink)
+    ).toThrow("duplicate target eid 1001");
+
+    const emptyEncoder = new Encoder(new Uint8Array(128));
+    emptyEncoder.write_u32(0);
+    emptyEncoder.write(new WeightedLink());
+    expect(() =>
+      decodeRelationshipSnapshot(new Decoder(emptyEncoder.getBuffer()), WeightedLink)
+    ).toThrow("at least one target");
   });
 });

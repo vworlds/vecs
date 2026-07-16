@@ -83,11 +83,7 @@ describe("DistanceJoint", () => {
     const a = staticBody(world, 0, 0);
     const b = dynamicBody(world, 3, 0);
 
-    world
-      .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
-      .set(DistanceJoint, { length: 2 });
+    world.entity().add(JointBodyA, a).add(JointBodyB, b).set(DistanceJoint, { length: 2 });
 
     step(world, 180);
 
@@ -101,7 +97,7 @@ describe("RevoluteJoint", () => {
     const a = staticBody(world, 0, 5);
     const b = dynamicBody(world, 0, 5);
 
-    world.entity().set(JointBodyA, { target: a }).set(JointBodyB, { target: b }).add(RevoluteJoint);
+    world.entity().add(JointBodyA, a).add(JointBodyB, b).add(RevoluteJoint);
 
     step(world, 180);
 
@@ -117,8 +113,8 @@ describe("RevoluteJoint", () => {
 
     world
       .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
+      .add(JointBodyA, a)
+      .add(JointBodyB, b)
       .add(RevoluteJoint)
       .set(JointMotor, { targetSpeed: 5, maxForce: 1000 });
 
@@ -133,8 +129,8 @@ describe("RevoluteJoint", () => {
     const b1 = dynamicBody(limited, 1, 5);
     limited
       .entity()
-      .set(JointBodyA, { target: a1 })
-      .set(JointBodyB, { target: b1 })
+      .add(JointBodyA, a1)
+      .add(JointBodyB, b1)
       .add(RevoluteJoint)
       .set(JointFrame, {
         localAnchorA: { x: 0, y: 0 },
@@ -149,8 +145,8 @@ describe("RevoluteJoint", () => {
     const b2 = dynamicBody(free, 1, 5);
     free
       .entity()
-      .set(JointBodyA, { target: a2 })
-      .set(JointBodyB, { target: b2 })
+      .add(JointBodyA, a2)
+      .add(JointBodyB, b2)
       .add(RevoluteJoint)
       .set(JointFrame, {
         localAnchorA: { x: 0, y: 0 },
@@ -173,11 +169,7 @@ describe("PrismaticJoint", () => {
     // Default JointFrame: axis is body A's local x-axis (referenceAngle 0), so
     // the slide line runs through both bodies' starting y. Gravity pulls along
     // y, perpendicular to the axis, so it should not move B at all.
-    world
-      .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
-      .add(PrismaticJoint);
+    world.entity().add(JointBodyA, a).add(JointBodyB, b).add(PrismaticJoint);
 
     step(world, 90);
 
@@ -192,8 +184,8 @@ describe("PrismaticJoint", () => {
 
     world
       .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
+      .add(JointBodyA, a)
+      .add(JointBodyB, b)
       .add(PrismaticJoint)
       .set(JointMotor, { targetSpeed: 5, maxForce: 1000 });
 
@@ -211,8 +203,8 @@ describe("PrismaticJoint", () => {
 
     world
       .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
+      .add(JointBodyA, a)
+      .add(JointBodyB, b)
       .add(PrismaticJoint)
       .set(JointMotor, { targetSpeed: 10, maxForce: 1000 })
       .set(JointLimit, { lower: 0, upper: 1 });
@@ -233,21 +225,13 @@ describe("WheelJoint", () => {
     const wa = staticBody(wheeled, 0, 0);
     const wb = dynamicBody(wheeled, 2, 0);
     wb.set(AngularVelocity, { value: 5 });
-    wheeled
-      .entity()
-      .set(JointBodyA, { target: wa })
-      .set(JointBodyB, { target: wb })
-      .add(WheelJoint);
+    wheeled.entity().add(JointBodyA, wa).add(JointBodyB, wb).add(WheelJoint);
 
     const locked = makeWorld();
     const la = staticBody(locked, 0, 0);
     const lb = dynamicBody(locked, 2, 0);
     lb.set(AngularVelocity, { value: 5 });
-    locked
-      .entity()
-      .set(JointBodyA, { target: la })
-      .set(JointBodyB, { target: lb })
-      .add(PrismaticJoint);
+    locked.entity().add(JointBodyA, la).add(JointBodyB, lb).add(PrismaticJoint);
 
     step(wheeled, 60);
     step(locked, 60);
@@ -263,8 +247,8 @@ describe("WheelJoint", () => {
 
     world
       .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
+      .add(JointBodyA, a)
+      .add(JointBodyB, b)
       .add(WheelJoint)
       .set(JointMotor, { targetSpeed: 5, maxForce: 1000 });
 
@@ -282,8 +266,8 @@ describe("WeldJoint", () => {
 
     world
       .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
+      .add(JointBodyA, a)
+      .add(JointBodyB, b)
       .add(WeldJoint)
       .set(JointFrame, {
         localAnchorA: { x: 1, y: 0 },
@@ -305,7 +289,7 @@ describe("FilterJoint", () => {
     const world = makeWorld();
     const a = dynamicBody(world, 0, 0);
     const b = dynamicBody(world, 0.3, 0);
-    world.entity().set(JointBodyA, { target: a }).set(JointBodyB, { target: b }).add(FilterJoint);
+    world.entity().add(JointBodyA, a).add(JointBodyB, b).add(FilterJoint);
 
     step(world, 90);
 
@@ -333,8 +317,8 @@ describe("MotorJoint", () => {
 
     world
       .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
+      .add(JointBodyA, a)
+      .add(JointBodyB, b)
       .set(MotorJoint, { linearVelocity: { x: 5, y: 0 }, maxVelocityForce: 1000 });
 
     step(world, 120);
@@ -347,7 +331,7 @@ describe("MotorJoint", () => {
     const a = staticBody(world, 0, 5);
     const b = dynamicBody(world, 3, 5);
 
-    world.entity().set(JointBodyA, { target: a }).set(JointBodyB, { target: b }).set(MotorJoint, {
+    world.entity().add(JointBodyA, a).add(JointBodyB, b).set(MotorJoint, {
       linearHertz: 2,
       linearDampingRatio: 1,
       maxSpringForce: 1000,
@@ -366,11 +350,7 @@ describe("joint lifecycle", () => {
     const a = world.entity();
     const b = world.entity();
 
-    world
-      .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
-      .set(DistanceJoint, { length: 2 });
+    world.entity().add(JointBodyA, a).add(JointBodyB, b).set(DistanceJoint, { length: 2 });
 
     a.set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: 0 });
     b.set(Body, { type: BodyType.Dynamic }).set(Position, { x: 3, y: 0 });
@@ -389,8 +369,8 @@ describe("joint lifecycle", () => {
     const b = dynamicBody(world, 0, 8);
     const joint = world
       .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
+      .add(JointBodyA, a)
+      .add(JointBodyB, b)
       .set(DistanceJoint, { length: 2 });
 
     step(world, 30);
@@ -409,11 +389,7 @@ describe("joint lifecycle", () => {
     const world = makeWorld();
     const a = staticBody(world, 0, 0);
     const b = dynamicBody(world, 3, 0);
-    world
-      .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
-      .set(DistanceJoint, { length: 2 });
+    world.entity().add(JointBodyA, a).add(JointBodyB, b).set(DistanceJoint, { length: 2 });
 
     step(world, 5);
     expect(() => {
@@ -434,11 +410,7 @@ describe("joint features (runtime)", () => {
     world = makeWorld();
     const a = staticBody(world, 0, 0);
     b = dynamicBody(world, 0, 0);
-    joint = world
-      .entity()
-      .set(JointBodyA, { target: a })
-      .set(JointBodyB, { target: b })
-      .add(RevoluteJoint);
+    joint = world.entity().add(JointBodyA, a).add(JointBodyB, b).add(RevoluteJoint);
   });
 
   it("adding a motor after creation drives the existing joint", () => {
@@ -457,8 +429,8 @@ describe("joint features (runtime)", () => {
     const wheelB = dynamicBody(wheelWorld, 0, 0);
     const wheelJoint = wheelWorld
       .entity()
-      .set(JointBodyA, { target: wheelA })
-      .set(JointBodyB, { target: wheelB })
+      .add(JointBodyA, wheelA)
+      .add(JointBodyB, wheelB)
       .add(WheelJoint);
 
     step(wheelWorld, 30);

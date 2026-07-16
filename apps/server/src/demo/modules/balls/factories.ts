@@ -49,7 +49,7 @@ export function spawnBall(world: World, point: { x: number; y: number }): void {
   world
     .entity()
     .childOf(body)
-    .set(DrawIn, { target: body })
+    .add(DrawIn, body)
     .add(Networked)
     .set(Polygon, { points: regularHexagonPoints(BALL_RADIUS) })
     .set(FillStyle, randomFillStyle())
@@ -75,7 +75,7 @@ function createElectron(world: World, ball: Entity): Entity {
   const orbit = world
     .entity()
     .childOf(ball)
-    .set(DrawIn, { target: ball })
+    .add(DrawIn, ball)
     .add(Networked)
     .add(Container)
     .set(RenderRotation, { angle })
@@ -89,7 +89,7 @@ function createElectron(world: World, ball: Entity): Entity {
   return world
     .entity()
     .childOf(orbit)
-    .set(DrawIn, { target: orbit })
+    .add(DrawIn, orbit)
     .add(Networked)
     .add(Ellipse)
     .set(Size, { width: ELECTRON_SIZE, height: ELECTRON_SIZE })

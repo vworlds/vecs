@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   ComponentSnapshot,
   Server2Client,
+  decodeRelationshipSnapshot,
   type VecsSocket,
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
-import { ChildOf, type World } from "@vworlds/vecs";
+import { ChildOf, Relationship, type World } from "@vworlds/vecs";
 import { NetworkClient, Networked, ServerWorld, View } from "../src/index.js";
 
 class Position {
@@ -15,6 +16,11 @@ class Position {
 
   @wireType("i32")
   public y = 0;
+}
+
+class WeightedLink extends Relationship {
+  @wireType("i32")
+  public weight = 0;
 }
 
 type SocketHandler = (arg?: unknown) => void;
@@ -110,8 +116,57 @@ describe("ServerWorld relationship serialization", () => {
       return snap.eid === child.eid && snap.wireType === 2;
     })!;
     const snapshot = new Decoder(rawSnapshot.bytes).read(ComponentSnapshot);
-    const rel = new Decoder(snapshot.payload).read(ChildOf) as unknown as { target: number };
-    expect(rel.target).toBe(parent.eid);
+    const rel = decodeRelationshipSnapshot(new Decoder(snapshot.payload), ChildOf);
+    expect(rel.targetEids).toEqual([parent.eid]);
+  });
+
+  it("serializes sorted many-target relationships with ordinary fields", () => {
+    const world = new ServerWorld({ networkComponents: [Position, WeightedLink] });
+    allowAllClientViews(world);
+    const socket = new MemorySocket("client-1");
+    const listener = new MockListener();
+    world._attach(listener);
+    listener.connect(socket);
+
+    const low = world.entity().add(Networked);
+    const high = world.entity().add(Networked);
+    const source = world.entity().add(Networked).add(WeightedLink, high).add(WeightedLink, low);
+    source.set(WeightedLink, { weight: 23 });
+    world.progress(0, 16);
+
+    const message = decodeLastMessage(socket);
+    const wire = message
+      .diff!.snapshots.map((snapshot) => new Decoder(snapshot.bytes).read(ComponentSnapshot))
+      .find((snapshot) => snapshot.eid === source.eid && snapshot.wireType === 2)!;
+    const decoded = decodeRelationshipSnapshot(new Decoder(wire.payload), WeightedLink);
+
+    expect(decoded.targetEids).toEqual([low.eid, high.eid].sort((a, b) => a - b));
+    expect(decoded.component).toMatchObject({ weight: 23 });
+  });
+
+  it("invalidates a cached relationship snapshot when its target set changes", () => {
+    const world = new ServerWorld({ networkComponents: [Position, WeightedLink] });
+    allowAllClientViews(world);
+    const socket = new MemorySocket("client-1");
+    const listener = new MockListener();
+    world._attach(listener);
+    listener.connect(socket);
+
+    const first = world.entity().add(Networked);
+    const second = world.entity().add(Networked);
+    const source = world.entity().add(Networked).add(WeightedLink, first);
+    world.progress(0, 16);
+
+    source.add(WeightedLink, second);
+    world.progress(16, 16);
+
+    const message = decodeLastMessage(socket);
+    const wire = message
+      .diff!.snapshots.map((snapshot) => new Decoder(snapshot.bytes).read(ComponentSnapshot))
+      .find((snapshot) => snapshot.eid === source.eid && snapshot.wireType === 2)!;
+    expect(decodeRelationshipSnapshot(new Decoder(wire.payload), WeightedLink).targetEids).toEqual(
+      [first.eid, second.eid].sort((a, b) => a - b)
+    );
   });
 
   it("serializes relationship removal as a component removal", () => {

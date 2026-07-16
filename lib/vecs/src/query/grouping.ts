@@ -4,16 +4,20 @@ import { Group } from "./group.js";
 
 export class Grouping {
   public readonly groups = new Map<unknown, Group>();
-  private readonly _entityKeys = new Map<Entity, unknown>();
-  private readonly _keyOf: (e: Entity) => unknown;
+  private readonly _entityKeys = new Map<Entity, ReadonlySet<unknown>>();
+  private readonly _keysOf: (e: Entity) => Iterable<unknown>;
   private readonly _watchEids: Set<EID>;
   private readonly _world: World;
   private _onGroupEnter: ((group: Group) => void) | undefined;
   private _onGroupExit: ((key: unknown, group: Group) => void) | undefined;
 
-  public constructor(world: World, keyOf: (e: Entity) => unknown, watchEids: Iterable<EID>) {
+  public constructor(
+    world: World,
+    keysOf: (e: Entity) => Iterable<unknown>,
+    watchEids: Iterable<EID>
+  ) {
     this._world = world;
-    this._keyOf = keyOf;
+    this._keysOf = keysOf;
     this._watchEids = new Set(watchEids);
   }
 
@@ -23,14 +27,11 @@ export class Grouping {
   }
 
   public enter(e: Entity): void {
-    this._assign(e, this._keyOf(e));
+    this._assign(e, this._keysOf(e));
   }
 
   public exit(e: Entity): void {
-    const key = this._entityKeys.get(e);
-    if (key !== undefined) {
-      this._removeFromBucket(e, key);
-    }
+    this._entityKeys.get(e)?.forEach((key) => this._removeFromBucket(e, key));
     this._entityKeys.delete(e);
   }
 
@@ -46,7 +47,7 @@ export class Grouping {
     if (!this._watchEids.has(ceid)) {
       return;
     }
-    this._assign(e, this._keyOf(e));
+    this._assign(e, this._keysOf(e));
   }
 
   public setOnGroupEnter(callback: (group: Group) => void): void {
@@ -69,20 +70,24 @@ export class Grouping {
     group._add(e);
   }
 
-  private _assign(e: Entity, newKey: unknown): void {
-    const oldKey = this._entityKeys.get(e);
-    if (oldKey === newKey) {
-      return;
-    }
-    if (oldKey !== undefined) {
-      this._removeFromBucket(e, oldKey);
-    }
-    if (newKey === undefined) {
+  private _assign(e: Entity, keys: Iterable<unknown>): void {
+    const oldKeys = this._entityKeys.get(e) ?? new Set();
+    const newKeys = new Set([...keys].filter((key) => key !== undefined));
+    oldKeys.forEach((key) => {
+      if (!newKeys.has(key)) {
+        this._removeFromBucket(e, key);
+      }
+    });
+    newKeys.forEach((key) => {
+      if (!oldKeys.has(key)) {
+        this._addToBucket(e, key);
+      }
+    });
+    if (newKeys.size === 0) {
       this._entityKeys.delete(e);
       return;
     }
-    this._addToBucket(e, newKey);
-    this._entityKeys.set(e, newKey);
+    this._entityKeys.set(e, newKeys);
   }
 
   private _removeFromBucket(e: Entity, key: unknown): void {

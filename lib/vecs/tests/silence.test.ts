@@ -152,7 +152,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .ignoreSource([Physics])
       .update(Position, () => {});
 
-    const silenceEntity = read.entity.get(SilenceSource)!.target;
+    const silenceEntity = read.entity.target(SilenceSource)!;
     const silenceQuery = silenceEntity.get(Query)!;
     read.build();
     silenceQuery.build();
@@ -202,7 +202,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .ignoreSource([Physics])
       .update(Position, () => {});
 
-    const silenceEntity = rq.entity.get(SilenceSource)!.target;
+    const silenceEntity = rq.entity.target(SilenceSource)!;
     const silenceQuery = silenceEntity.get(Query)!;
     rq.build();
     silenceQuery.build();

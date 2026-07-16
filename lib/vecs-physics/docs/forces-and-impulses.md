@@ -22,7 +22,7 @@ player.set(Force, { x: 10, y: 0 });
 ```
 
 ```ts
-world.entity().set(ChildOf, { target: player }).set(Force, { x: 10, y: 0 });
+world.entity().add(ChildOf, player).set(Force, { x: 10, y: 0 });
 ```
 
 Physics resolves the target body using only the current entity and its immediate parent. It does not search grandparents or deeper ancestors.
@@ -113,15 +113,9 @@ player.set(Force, { x: 0, y: 20 });
 For advanced cases, put each force or impulse source on its own child entity.
 
 ```ts
-const leftTractorBeam = world
-  .entity()
-  .set(ChildOf, { target: player })
-  .set(Force, { x: -15, y: 5 });
+const leftTractorBeam = world.entity().add(ChildOf, player).set(Force, { x: -15, y: 5 });
 
-const rightTractorBeam = world
-  .entity()
-  .set(ChildOf, { target: player })
-  .set(Force, { x: 10, y: 12 });
+const rightTractorBeam = world.entity().add(ChildOf, player).set(Force, { x: 10, y: 12 });
 ```
 
 This is useful when multiple independent systems contribute forces to the same body. For example, a ship might have thrust, gravity, wind, and two tractor beams all active at the same time.
@@ -160,15 +154,15 @@ player.set(Force, { x: 1, y: 0 });
 This also applies:
 
 ```ts
-world.entity().set(ChildOf, { target: player }).set(Force, { x: 1, y: 0 });
+world.entity().add(ChildOf, player).set(Force, { x: 1, y: 0 });
 ```
 
 This does not apply, because the force entity is a grandchild of the body entity:
 
 ```ts
-const source = world.entity().set(ChildOf, { target: player });
+const source = world.entity().add(ChildOf, player);
 
-world.entity().set(ChildOf, { target: source }).set(Force, { x: 1, y: 0 });
+world.entity().add(ChildOf, source).set(Force, { x: 1, y: 0 });
 ```
 
 In normal mode, invalid force sources are ignored. In debug mode, `vecs-physics` can warn once per invalid entity. See [Debug Validation](./debug-validation.md).
@@ -213,7 +207,7 @@ ship.set(Torque, { value: 12 });
 Or attach it as a child source.
 
 ```ts
-world.entity().set(ChildOf, { target: ship }).set(Torque, { value: -8 });
+world.entity().add(ChildOf, ship).set(Torque, { value: -8 });
 ```
 
 Remove the component to stop applying torque.
@@ -279,7 +273,7 @@ After physics applies the pending angular impulse, it silently resets `value` to
 Like forces, impulses can live on child entities.
 
 ```ts
-world.entity().set(ChildOf, { target: player }).set(Impulse, { x: 0, y: 6 });
+world.entity().add(ChildOf, player).set(Impulse, { x: 0, y: 6 });
 ```
 
 This can be useful when a gameplay system wants to own the source of the impulse separately from the body.
@@ -287,7 +281,7 @@ This can be useful when a gameplay system wants to own the source of the impulse
 For example, a temporary explosion entity can be parented to the body for one frame, set an impulse, and then be destroyed later by gameplay code.
 
 ```ts
-const explosionKick = world.entity().set(ChildOf, { target: enemy }).set(Impulse, { x: 12, y: 4 });
+const explosionKick = world.entity().add(ChildOf, enemy).set(Impulse, { x: 12, y: 4 });
 ```
 
 Physics consumes the impulse and resets it to zero. Gameplay code decides whether the child entity should stay or be destroyed.
@@ -348,9 +342,9 @@ function stopThrust(ship: Entity): void {
 ### Multiple Tractor Beams
 
 ```ts
-const beamA = world.entity().set(ChildOf, { target: player }).set(Force, { x: -20, y: 5 });
+const beamA = world.entity().add(ChildOf, player).set(Force, { x: -20, y: 5 });
 
-const beamB = world.entity().set(ChildOf, { target: player }).set(Force, { x: 15, y: 10 });
+const beamB = world.entity().add(ChildOf, player).set(Force, { x: 15, y: 10 });
 ```
 
 Remove one beam without affecting the other.
@@ -416,7 +410,7 @@ entity.set(Impulse, { x: 0, y: 5 });
 This works:
 
 ```ts
-source.set(ChildOf, { target: body });
+source.add(ChildOf, body);
 source.set(Force, { x: 1, y: 0 });
 ```
 

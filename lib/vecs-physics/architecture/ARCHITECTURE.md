@@ -179,55 +179,55 @@ world.module(PhysicsModule, opts); // with non-default options
 
 Part of the contract. Match Box2D's `b2DefaultBodyDef()`, `b2DefaultShapeDef()`, `b2DefaultFilter()`, `b2DefaultSurfaceMaterial()`.
 
-| Component                                                               | Field                                                | Default                  |
-| ----------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------ |
-| `Body`                                                                  | `type`                                               | `BodyType.Static`        |
-|                                                                         | `bullet`                                             | `false`                  |
-|                                                                         | `enabled`                                            | `true`                   |
-|                                                                         | `allowFastRotation`                                  | `false`                  |
-| `Position`                                                              | `x, y`                                               | `0, 0`                   |
-| `Rotation`                                                              | `angle`                                              | `0`                      |
-| `LinearVelocity`                                                        | `x, y`                                               | `0, 0`                   |
-| `AngularVelocity`                                                       | `value`                                              | `0`                      |
-| `Damping`                                                               | `linear, angular`                                    | `0, 0`                   |
-| `GravityScale`                                                          | `value`                                              | `1`                      |
-| `MotionLocks`                                                           | `x, y, rotation`                                     | `false, false, false`    |
-| `Sleep`                                                                 | `enabled, awake, threshold`                          | `true, true, 0.05`       |
-| `ShapePosition`                                                         | `x, y`                                               | `0, 0`                   |
-| `ShapeRotation`                                                         | `angle`                                              | `0`                      |
-| `Box`                                                                   | `hx, hy`                                             | `0.5, 0.5`               |
-| `Circle`                                                                | `radius`                                             | `0.5`                    |
-| `Capsule`                                                               | `x1, y1, x2, y2, radius`                             | `-0.5, 0, 0.5, 0, 0.25`  |
-| `Segment`                                                               | `x1, y1, x2, y2`                                     | `-0.5, 0, 0.5, 0`        |
-| `Polygon`                                                               | `vertices, radius`                                   | `[], 0`                  |
-| `Chain`                                                                 | `points, loop`                                       | `[], false`              |
-| `Material`                                                              | `density`                                            | `1`                      |
-|                                                                         | `friction`                                           | `0.6`                    |
-|                                                                         | `restitution`                                        | `0`                      |
-|                                                                         | `rollingResistance, tangentSpeed`                    | `0, 0`                   |
-|                                                                         | `userMaterialId`                                     | `0`                      |
-| `CollisionFilter`                                                       | `categoryBits`                                       | `1`                      |
-|                                                                         | `maskBits`                                           | `0xffffffff`             |
-|                                                                         | `groupIndex`                                         | `0`                      |
-| `Force` / `Impulse`                                                     | `x, y, wake`                                         | `0, 0, true`             |
-| `Torque` / `AngularImpulse`                                             | `value, wake`                                        | `0, true`                |
-| `KinematicTargetPosition`                                               | `x, y, tolerance, wake`                              | `0, 0, 0.001, true`      |
-| `KinematicTargetRotation`                                               | `angle, tolerance, wake`                             | `0, 0.001, true`         |
-| `ContactEvents`/`SensorEvents`                                          | `begin, end`                                         | `[], []`                 |
-| `HitEvents`                                                             | `hits`                                               | `[]`                     |
-| `JointBodyA`/`JointBodyB`                                               | `target`                                             | (relationship; required) |
-| `JointFrame`                                                            | `localAnchorA, localAnchorB`                         | `{0,0}, {0,0}`           |
-|                                                                         | `referenceAngle`                                     | `0`                      |
-| `DistanceJoint`                                                         | `length`                                             | `1`                      |
-| `RevoluteJoint`/`PrismaticJoint`/`WheelJoint`/`WeldJoint`/`FilterJoint` | (marker)                                             | —                        |
-| `MotorJoint`                                                            | `linearVelocity, maxVelocityForce`                   | `{0,0}, 0`               |
-|                                                                         | `angularVelocity, maxVelocityTorque`                 | `0, 0`                   |
-|                                                                         | `linearHertz, linearDampingRatio, maxSpringForce`    | `0, 0, 0`                |
-|                                                                         | `angularHertz, angularDampingRatio, maxSpringTorque` | `0, 0, 0`                |
-| `JointMotor`                                                            | `targetSpeed, maxForce`                              | `0, 0`                   |
-| `JointLimit`                                                            | `lower, upper`                                       | `0, 0`                   |
-| `JointLinearSpring`/`JointAngularSpring`                                | `hertz, dampingRatio`                                | `0, 0`                   |
-| `JointSettings`                                                         | `collideConnected`                                   | `false`                  |
+| Component                                                               | Field                                                | Default                 |
+| ----------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------- |
+| `Body`                                                                  | `type`                                               | `BodyType.Static`       |
+|                                                                         | `bullet`                                             | `false`                 |
+|                                                                         | `enabled`                                            | `true`                  |
+|                                                                         | `allowFastRotation`                                  | `false`                 |
+| `Position`                                                              | `x, y`                                               | `0, 0`                  |
+| `Rotation`                                                              | `angle`                                              | `0`                     |
+| `LinearVelocity`                                                        | `x, y`                                               | `0, 0`                  |
+| `AngularVelocity`                                                       | `value`                                              | `0`                     |
+| `Damping`                                                               | `linear, angular`                                    | `0, 0`                  |
+| `GravityScale`                                                          | `value`                                              | `1`                     |
+| `MotionLocks`                                                           | `x, y, rotation`                                     | `false, false, false`   |
+| `Sleep`                                                                 | `enabled, awake, threshold`                          | `true, true, 0.05`      |
+| `ShapePosition`                                                         | `x, y`                                               | `0, 0`                  |
+| `ShapeRotation`                                                         | `angle`                                              | `0`                     |
+| `Box`                                                                   | `hx, hy`                                             | `0.5, 0.5`              |
+| `Circle`                                                                | `radius`                                             | `0.5`                   |
+| `Capsule`                                                               | `x1, y1, x2, y2, radius`                             | `-0.5, 0, 0.5, 0, 0.25` |
+| `Segment`                                                               | `x1, y1, x2, y2`                                     | `-0.5, 0, 0.5, 0`       |
+| `Polygon`                                                               | `vertices, radius`                                   | `[], 0`                 |
+| `Chain`                                                                 | `points, loop`                                       | `[], false`             |
+| `Material`                                                              | `density`                                            | `1`                     |
+|                                                                         | `friction`                                           | `0.6`                   |
+|                                                                         | `restitution`                                        | `0`                     |
+|                                                                         | `rollingResistance, tangentSpeed`                    | `0, 0`                  |
+|                                                                         | `userMaterialId`                                     | `0`                     |
+| `CollisionFilter`                                                       | `categoryBits`                                       | `1`                     |
+|                                                                         | `maskBits`                                           | `0xffffffff`            |
+|                                                                         | `groupIndex`                                         | `0`                     |
+| `Force` / `Impulse`                                                     | `x, y, wake`                                         | `0, 0, true`            |
+| `Torque` / `AngularImpulse`                                             | `value, wake`                                        | `0, true`               |
+| `KinematicTargetPosition`                                               | `x, y, tolerance, wake`                              | `0, 0, 0.001, true`     |
+| `KinematicTargetRotation`                                               | `angle, tolerance, wake`                             | `0, 0.001, true`        |
+| `ContactEvents`/`SensorEvents`                                          | `begin, end`                                         | `[], []`                |
+| `HitEvents`                                                             | `hits`                                               | `[]`                    |
+| `JointBodyA`/`JointBodyB`                                               | exclusive relationship slot                          | target required         |
+| `JointFrame`                                                            | `localAnchorA, localAnchorB`                         | `{0,0}, {0,0}`          |
+|                                                                         | `referenceAngle`                                     | `0`                     |
+| `DistanceJoint`                                                         | `length`                                             | `1`                     |
+| `RevoluteJoint`/`PrismaticJoint`/`WheelJoint`/`WeldJoint`/`FilterJoint` | (marker)                                             | —                       |
+| `MotorJoint`                                                            | `linearVelocity, maxVelocityForce`                   | `{0,0}, 0`              |
+|                                                                         | `angularVelocity, maxVelocityTorque`                 | `0, 0`                  |
+|                                                                         | `linearHertz, linearDampingRatio, maxSpringForce`    | `0, 0, 0`               |
+|                                                                         | `angularHertz, angularDampingRatio, maxSpringTorque` | `0, 0, 0`               |
+| `JointMotor`                                                            | `targetSpeed, maxForce`                              | `0, 0`                  |
+| `JointLimit`                                                            | `lower, upper`                                       | `0, 0`                  |
+| `JointLinearSpring`/`JointAngularSpring`                                | `hertz, dampingRatio`                                | `0, 0`                  |
+| `JointSettings`                                                         | `collideConnected`                                   | `false`                 |
 
 All field initialisers belong on the class body so `new Component()` returns a valid, default-shaped instance — every component must work zero-arg.
 
@@ -329,11 +329,11 @@ Feature modules register the components they own and the systems that implement 
 5. `ForcesModule`: `Force`, `Torque`, `Impulse`, `AngularImpulse`, impulse hooks, force gather, and impulse drain.
 6. `KinematicModule`: `KinematicTargetPosition`, `KinematicTargetRotation`, plus kinematic target driving.
 7. `EventsModule`: `ContactEvents`, `SensorEvents`, `HitEvents`.
-8. `JointsModule`: `JointBodyA`, `JointBodyB`, `Joint`, `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, `WeldJoint`, `FilterJoint`, `MotorJoint`, `JointFrame`, `JointMotor`, `JointLimit`, `JointLinearSpring`, `JointAngularSpring`, `JointSettings`, joint `Implements` metadata, plus joint lifecycle and feature sync systems.
+8. `JointsModule`: `JointBodyA`, `JointBodyB`, `Joint`, `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, `WeldJoint`, `FilterJoint`, `MotorJoint`, `JointFrame`, `JointMotor`, `JointLimit`, `JointLinearSpring`, `JointAngularSpring`, `JointSettings`, exclusive relationship metadata for both body slots, joint `Implements` metadata, plus joint lifecycle and feature sync systems.
 
 `ChildOf` is built into Vecs — referenced, never registered.
 
-`Shape` metadata: `SingleShape` implements `Shape`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly. Joint metadata: `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, `WeldJoint`, `FilterJoint`, and `MotorJoint` implement `Joint`. `JointBodyA`/`JointBodyB` keep the default `CleanupPolicy.Remove` (destroying a body detaches the joint rather than deleting the joint entity — see Settled decisions).
+`Shape` metadata: `SingleShape` implements `Shape`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly. Joint metadata: `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, `WeldJoint`, `FilterJoint`, and `MotorJoint` implement `Joint`. `JointsModule` configures `JointBodyA` and `JointBodyB` as `Exclusive` relationship slots, so adding either relationship with a different body replaces that slot's target. This relationship cardinality is separate from the mutual exclusivity of joint-type components. Both relationships keep the default `CleanupPolicy.Remove` (destroying a body detaches the joint rather than deleting the joint entity — see Settled decisions).
 
 ### Internal Engine Attachment
 
@@ -409,7 +409,7 @@ Query: `Body`.
 Query: `{ all: [SingleShape, { parent: Body }] }`. `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement the internal `SingleShape` tier, so b2Shape-only work never matches chains.
 
 - `.enter` — resolve parent body from the injected parent `Body._bodyId`. Build a `b2ShapeDef` from `Material` / `CollisionFilter` / `Sensor` / event opt-in flags / `ShapePosition` / `ShapeRotation`. Dispatch by geometry type (table below). Store the `b2ShapeId` on `SingleShape._shapeId` and register `engine.entityByShapeIndex.set(shapeId.index1, entity.eid)`.
-- `.exit` — injects `[ChildOf, SingleShape]` so the parent link and `_shapeId` are still readable from the exit snapshot. `b2DestroyShape`; clear the `entityByShapeIndex` slot.
+- `.exit` — injects `[SingleShape, { target: [ChildOf, Entity] }]` so the parent entity and `_shapeId` are still readable from the exit snapshot. `b2DestroyShape`; clear the `entityByShapeIndex` slot.
 - `.update(SingleShape, …)` — destroy + recreate the shape, except `Capsule`/`Segment` updates with degenerate (near-zero-length) endpoints are ignored, preserving the existing valid shape (Box2D parity).
 - `.update(ChildOf, …)` — reparenting between bodies = destroy under old parent, recreate under new.
 
@@ -426,7 +426,7 @@ Query: `{ all: [SingleShape, { parent: Body }] }`. `Box`, `Circle`, `Capsule`, `
 Query: `{ all: [Chain, { parent: Body }] }`. Chain lifecycle is split from single-shape lifecycle because chains are backed by `b2ChainId`, not `b2ShapeId`, and Box2D exposes generated segment shapes for events.
 
 - `.enter` — resolve parent body, build a `b2ChainDef` from filter/material/sensor-event opt-in, transform each `Chain.points` entry by `ShapePosition` and `ShapeRotation`, call `b2CreateChain`, store `Chain._chainId`, then call `b2Chain_GetSegments` and register each returned segment `index1` in `engine.entityByShapeIndex` pointing to the chain entity.
-- `.exit` — injects `[ChildOf, Chain]`, clears every registered segment index, destroys the chain when `b2Chain_IsValid` is true, and clears `_chainId` on the live component if present.
+- `.exit` — injects `[Chain, { target: [ChildOf, Entity] }]`, clears every registered segment index, destroys the chain when `b2Chain_IsValid` is true, and clears `_chainId` on the live component if present.
 - `.update(Chain, …)` and `.update(ChildOf, …)` — destroy + recreate the chain.
 
 Chains participate in sensor events only. `b2ChainDef` exposes `enableSensorEvents` but not contact or hit event flags, so `ContactEvents`/`HitEvents` runtime toggles intentionally ignore chains. Sensor opt-in changes recreate the chain because Box2D has no per-chain runtime sensor-event setter.
@@ -465,7 +465,7 @@ For each kinematic body with `KinematicTargetPosition` / `KinematicTargetRotatio
 
 ### `PhysicsForceGather` (`physics-pre`)
 
-Non-reactive — re-scans force sources every step (the contract: "Force applies every physics step while it is present"). Query: `{ any: [Force, Torque] }`, with `{ up: [ChildOf, [Body]] }` injecting the parent's `Body` for the immediate-parent fallback. For each:
+Non-reactive — re-scans force sources every step (the contract: "Force applies every physics step while it is present"). Query: `{ any: [Force, Torque] }`, with `{ target: [ChildOf, [Body]] }` injecting the parent's `Body` for the immediate-parent fallback. For each:
 
 - `Force` → `b2Body_ApplyForceToCenter(bodyId, {x, y}, wake)`
 - `Torque` → `b2Body_ApplyTorque(bodyId, value, wake)`
@@ -543,7 +543,7 @@ For every entity in `engine.impulseEntitiesThisStep`, directly zero `Impulse.x/y
 
 ## Shape lifecycle (semantics)
 
-- **Add geometry under a `Body`-parent**: `world.entity().set(ChildOf, { target: body }).set(Box, {…})` → `.enter` → `b2CreateXxxShape`. If the parent lacks `Body`, the query does not match and nothing is created; debug reports `shape-without-parent-body`.
+- **Add geometry under a `Body`-parent**: `world.entity().add(ChildOf, body).set(Box, {…})` → `.enter` → `b2CreateXxxShape`. If the parent lacks `Body`, the query does not match and nothing is created; debug reports `shape-without-parent-body`.
 - **Change geometry component**: same component with props changed → in-place setter where box2d3-wasm exposes one (filter, density, friction, restitution), otherwise destroy + recreate (dimensions, local pose). Geometry type swap (Box → Circle) → exclusivity removes the old (`.exit` destroys), adds the new (`.enter` creates).
 - **Remove / reparent**: `.exit` destroys; `.update(ChildOf, …)` reparents by destroy + recreate under the new body.
 - **Chains**: `Chain` produces a `b2ChainId` representing N internal segments. The chain handle lives on `Chain._chainId`, and each segment `index1` is stored in `Chain._segmentIndices` and registered in `engine.entityByShapeIndex` for sensor-event resolution.
@@ -581,7 +581,7 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 
 | Capability                      | Vecs API                                                                                | Used by                                                       |
 | ------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Relationships (`ChildOf`)       | `set(ChildOf, …)`, `{ parent }`, `{ up: [ChildOf, …] }`                                 | Shape↔body wiring, reparenting, force-target resolution.      |
+| Relationships (`ChildOf`)       | `add(ChildOf, target)`, `{ parent: … }`, `{ target: [ChildOf, …] }`                     | Shape↔body wiring, reparenting, force-target resolution.      |
 | Relationships (joints)          | `JointBodyA`/`JointBodyB` (`{ target: [Rel, [Body]] }`), default `CleanupPolicy.Remove` | Two-body joint refs; destroying a body detaches the joint.    |
 | World singleton                 | `world.component(C).add(Singleton)`; `world.get(C)`                                     | `PhysicsEngine` holder.                                       |
 | Relationship fan-out reactivity | `TargetTerm` re-evaluates sources on target membership                                  | Order-independent body/shape/joint creation.                  |
@@ -593,7 +593,7 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 
 - **Internal engine:** world-scoped `Singleton` component (`PhysicsEngine`).
 - **Forward handles on components:** `Body._bodyId`, `SingleShape._shapeId`, `Chain._chainId`, `Chain._segmentIndices`, and `Joint._jointId` (`@internal`). Reverse lookups via `index1`-keyed `ArrayMap`s on `PhysicsEngine`.
-- **Joints:** a joint is its own entity with two body relationships (`JointBodyA`/`JointBodyB`, default `CleanupPolicy.Remove`), one exclusive joint-type component (`Joint` umbrella via `Implements`), an optional shared `JointFrame`, and optional feature components (`JointMotor`/`JointLimit`/`JointLinearSpring`/`JointAngularSpring`) whose **presence is the enable flag**. The handle lives on the `Joint` base. `PhysicsJointLifecycle` builds the def with the box2d3-wasm local-frame API (anchors via `def.base.localFrameA.p.Set(...)`, reference angle via `localFrameA.q.SetAngle(...)`; no allocation beyond the def handle); feature sync systems apply in-place setters and call `b2Joint_WakeBodies`. `PhysicsReaper` drains `pendingJointDestroys` (before bodies) guarded by `b2Joint_IsValid`.
+- **Joints:** a joint is its own entity with two exclusive body relationship slots (`JointBodyA`/`JointBodyB`, configured by `JointsModule`, default `CleanupPolicy.Remove`), one exclusive joint-type component (`Joint` umbrella via `Implements`), an optional shared `JointFrame`, and optional feature components (`JointMotor`/`JointLimit`/`JointLinearSpring`/`JointAngularSpring`) whose **presence is the enable flag**. Adding a different body to either relationship replaces that slot's target; this relationship cardinality is independent of joint-type component exclusivity. The handle lives on the `Joint` base. `PhysicsJointLifecycle` builds the def with the box2d3-wasm local-frame API (anchors via `def.base.localFrameA.p.Set(...)`, reference angle via `localFrameA.q.SetAngle(...)`; no allocation beyond the def handle); feature sync systems apply in-place setters and call `b2Joint_WakeBodies`. `PhysicsReaper` drains `pendingJointDestroys` (before bodies) guarded by `b2Joint_IsValid`.
 - **Joint detach, not cascade-delete:** destroying a connected body tears down the joint's Box2D constraint via the lifecycle membership exit (the body loses `Body`, the joint stops matching `jointWithBothBodies`) but leaves the joint entity for the user. Destroying a body is not meant to destroy the joint entity, so joint→body relationships keep the default `CleanupPolicy.Remove`.
 - **Component registration order** as above; wire type ids deterministic.
 - **System reactivity:** systems for everything except `Impulse` / `AngularImpulse`, which use synchronous `onSet` hooks.

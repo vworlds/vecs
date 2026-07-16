@@ -41,7 +41,7 @@ These were confirmed by reading the code; implementers can rely on them.
 
 | Fact                                                                                                                                                                                                                  | Where                                                                                                            |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Client applies replicated snapshots via `entity.attach()`                                                                                                                                                             | `lib/vecs-client/src/client_world.ts:230`                                                                        |
+| Client applies ordinary replicated components via `entity.attach()`; relationship snapshots reconcile target edges with `add`/`remove`, then apply ordinary fields with `set`                                         | `lib/vecs-client/src/client_world.ts`                                                                            |
 | `_attach` fires `onAdd`/`onSet` and routes query `enter`/`modified`/`exit` ("as if `set`")                                                                                                                            | `lib/vecs/src/entity/entity.components.ts:19-30`, `:386-399`                                                     |
 | Baseline reset destroys all networked entities (→ fires our `exit`) then rebuilds                                                                                                                                     | `lib/vecs-client/src/client_world.ts:208,255-257`                                                                |
 | `reset` event: `{ initial, fromFrame, toFrame }`                                                                                                                                                                      | `client_world.ts:211`                                                                                            |
@@ -53,7 +53,8 @@ These were confirmed by reading the code; implementers can rely on them.
 | Decorator import: `import { wireType } from "@vworlds/vecs-wire"`                                                                                                                                                     | `lib/vecs-wire/src/index.ts:2`                                                                                   |
 | Wire scalar types: `bool,u8,i8,u16,i16,u32,i32,u64,i64,enum,f32,f64,string,bytes,any`; arrays `["f32"]`; nested classes                                                                                               | `lib/vecs-wire/src/decorators.ts`                                                                                |
 | No client interpolators are registered by default; callers opt in per component class via `interpolators` (e.g. `phaserInterpolators()` installs `Position`+`Rotation`); `ClientWorld` resolves classes to wire types | `lib/vecs-client/src/client_world.ts` (`ClientWorldOptions.interpolators`), `lib/vecs-phaser-client/src/sync.ts` |
-| `Relationship.target` is an `Entity` (not serializable); `Encoder.write` throws without `wireEncode` → relationships are **not** networkable                                                                          | `lib/vecs/src/component_meta.ts:11-13`, `lib/vecs-wire/src/encoder.ts:271`                                       |
+| `Relationship` has no public `target` field; edges are read through `Entity.target()` / `Entity.targets()` and changed with targeted `add` / `remove` calls                                                           | `lib/vecs/src/component_meta.ts`, `lib/vecs/src/entity/entity.relationships.ts`                                  |
+| A network relationship payload is `u32 target count`, that many target EIDs, then the relationship's ordinary encoded fields; clients ghost and reconcile every target                                                | `lib/vecs-protocol/src/relationship_snapshot.ts`, `lib/vecs-client/src/client_world.ts`                          |
 | vecs-physics pose: `Position {x,y}` (meters), `Rotation {angle}` (radians)                                                                                                                                            | `lib/vecs-physics/src/components/body.ts`                                                                        |
 | System/query API: `.with().enter().update().exit().each().run().phase()`                                                                                                                                              | `lib/vecs/src/system.ts`, `lib/vecs/src/query/query.ts`                                                          |
 | `update({ watch })` auto-adds the watched component to the query predicate                                                                                                                                            | `lib/vecs/src/query/query.ts:428`                                                                                |
@@ -68,8 +69,9 @@ These were confirmed by reading the code; implementers can rely on them.
 
 ## 3. Locked design decisions
 
-1. **No scenes in MVP.** One configured Phaser scene. Drop `Scene`/`InScene` and all
-   relationship networking (relationships are not wire-encodable). Multi-scene is future work.
+1. **No scenes in MVP.** One configured Phaser scene. Drop `Scene`/`InScene`; the generic
+   relationship wire format is used only for display-parenting relationships here. Multi-scene is
+   future work.
 2. **Adapter = vecs systems/queries** on the `ClientWorld` (not component hooks), for
    explicit control over _when_ things run.
 3. **Render-only MVP.** Live entity/component editing already works through the ECS; live
@@ -213,6 +215,12 @@ export class Tint {
   /* topLeft, topRight, bottomLeft, bottomRight: u32 = 0xffffff; monochromatic: bool = true */
   /* value setter writes all four corners and sets monochromatic = true */
 }
+export class DrawIn extends Relationship {} // native Container parent, wire type 19
+export class Container {} // tag, wire type 20
+export class Offset {
+  /* x,y */
+} // wire type 21
+export class DrawBy extends Relationship {} // computed parent, wire type 22
 
 // Protocol arrays — ORDER IS PROTOCOL (wire type id = index + 1)
 export const phaserNetworkComponents: readonly ComponentClass[];
@@ -374,6 +382,10 @@ export const phaserNetworkComponents = [
   Size, // type 16 — dimensions for Ellipse/Rectangle (appended after Text)
   Image, // type 17 — textured renderable (appended after Size)
   Tint, // type 18 — multiplicative tint (appended after Image)
+  DrawIn, // type 19 — native Container parenting relationship
+  Container, // type 20 — presence-only renderable
+  Offset, // type 21 — parent-relative position
+  DrawBy, // type 22 — computed parenting relationship
 ] as const;
 
 export const phaserRenderableComponents = [
@@ -386,6 +398,7 @@ export const phaserRenderableComponents = [
   Star,
   Text,
   Image,
+  Container,
 ] as const;
 ```
 
@@ -409,11 +422,20 @@ export const phaserRenderableComponents = [
 | `Size`        | `width:f32=2`, `height:f32=1`                                                                                                                                | meters; shared sizing for `Ellipse`/`Rectangle` (type 16)                               |
 | `Image`       | `texture:u32=0`, `frame:u16=0`                                                                                                                               | asset-catalog resource id + frame index (type 17)                                       |
 | `Tint`        | `topLeft,topRight,bottomLeft,bottomRight:u32=0xffffff`, `monochromatic:bool=true`                                                                            | RGB int per corner; white = no tint; mono mode sends 1 u32, poly mode sends 4 (type 18) |
+| `DrawIn`      | Relationship edges                                                                                                                                           | native Container parenting (type 19); `Exclusive`, not `Traversable`                    |
+| `Container`   | _tag_ (no fields)                                                                                                                                            | Phaser Container renderable (type 20)                                                   |
+| `Offset`      | `x:f32=0`, `y:f32=0`                                                                                                                                         | parent-relative meters (type 21)                                                        |
+| `DrawBy`      | Relationship edges                                                                                                                                           | computed scene-root parenting (type 22); `Exclusive` and `Traversable`                  |
 
 Exactly one renderable per entity is enforced server-side by
 `setExclusiveComponents(...phaserRenderableComponents)` (installed by `PhaserServerModule`). The
 client trusts that invariant: each shape's `new` system reacts only to its own renderable, so the
 server's exclusivity is what guarantees one GameObject per entity.
+
+Relationship cardinality is configured separately: both endpoint modules add the `Exclusive`
+trait to `DrawIn` and `DrawBy`, limiting each relationship to one target. `DrawBy` also receives
+`Traversable`; `DrawIn` does not. On the client, `DisplaySetupModule` additionally calls
+`setExclusiveComponents(DrawIn, DrawBy)`, so an entity cannot use both parenting modes at once.
 
 **`Image` sizing is "Both":** if the entity also carries `Size` (meters), the `Image` renderer
 calls `setDisplaySize(coords.len(width), coords.len(height))`; otherwise it leaves Phaser's
@@ -434,8 +456,10 @@ so `FillStyle`/`StrokeStyle` never target `Image`.
 ```
 ServerWorld (meters)                         ClientWorld (meters)            Phaser (pixels)
   entity.set(Arc/Position/Image/…)             progress(now, delta)
-        │ collect snapshots (order §6)              │ apply() → decode → entity.attach()
-        ▼ encode (f32)                              ▼ fires query enter/modified/exit
+        │ collect snapshots (order §6)              │ apply() → decode
+        ▼ encode (fields; relationships add          │ ordinary → entity.attach()
+          count + target EIDs first)                 │ relationship → reconcile add/remove + set fields
+                                                     ▼ fires query enter/modified/exit
   StateDiff ── dgram ──────────────────────▶  PhaserRenderModule systems (ON_STORE)
                                                     │ new:   scene.add.*() → entity.attach(obj)
                                                     │ sync:  setPosition/… ── CoordSpace ──▶ mutate
@@ -581,46 +605,42 @@ needs only the texture key + frame.
 
 ---
 
-## 7.1 Parent-relative rendering (`DrawIn`, `Container`, `Offset`)
+## 7.7 Parent-relative rendering (`DrawIn`, `DrawBy`, `Container`, `Offset`)
 
-### Two relationships, two concerns
+### Three relationships, separate concerns
 
-Parent-relative rendering uses two distinct relationships that often point at the
-same parent entity but serve different purposes:
+|                    | `ChildOf`                                  | `DrawIn`                          | `DrawBy`                          |
+| ------------------ | ------------------------------------------ | --------------------------------- | --------------------------------- |
+| **Purpose**        | Ownership / lifecycle                      | Native Phaser Container parenting | Computed scene-root parenting     |
+| **Networked?**     | No — server-local only                     | Yes — wire type 19                | Yes — wire type 22                |
+| **Cleanup policy** | `Delete` (cascade-destroy children)        | `Remove` (detach; child survives) | `Remove` (detach; child survives) |
+| **Cardinality**    | `Exclusive` (one target)                   | `Exclusive` (one target)          | `Exclusive` (one target)          |
+| **Traversable?**   | Yes                                        | No                                | Yes                               |
+| **Mutation**       | `entity.childOf(parent)`                   | `entity.add(DrawIn, parent)`      | `entity.add(DrawBy, parent)`      |
+| **Read target**    | `entity.parent` / `entity.target(ChildOf)` | `entity.target(DrawIn)`           | `entity.target(DrawBy)`           |
 
-|                    | `ChildOf`                                  | `DrawIn`                                                   |
-| ------------------ | ------------------------------------------ | ---------------------------------------------------------- |
-| **Purpose**        | Ownership / lifecycle                      | Display hierarchy                                          |
-| **Networked?**     | No — server-local only                     | Yes — wire type 19, in `phaserNetworkComponents`           |
-| **Cleanup policy** | `Delete` (cascade-destroy children)        | `Remove` (detach children, they survive)                   |
-| **Configured by**  | `RelationshipsModule` (built-in)           | `ContainerModule` (vecs-phaser-client)                     |
-| **Traversable?**   | Yes (built-in)                             | Yes (configured by `ContainerModule`)                      |
-| **Entity sugar**   | `entity.childOf(parent)` / `entity.parent` | `entity.set(DrawIn, { target })` / `entity.target(DrawIn)` |
+`ChildOf` can coexist with either display relationship and may target the same or a different
+entity. It answers ownership and destruction questions, while `DrawIn` and `DrawBy` tell the client
+how to place the GameObject. On the client, the two display component types are mutually exclusive:
+adding one removes the other. This is distinct from each relationship carrying the `Exclusive`
+trait, which limits that relationship to one target.
 
-**Why two?** A bullet may belong to a player (`ChildOf` for score assignment + cleanup
-cascade) but render as a root entity with its own `Position`. A ball's visual shape
-belongs to the ball (`ChildOf` for destroy cascade) and also draws inside the ball's
-Container (`DrawIn` for transform composition). Overloading a single relationship
-for both concerns would force every ownership child into the display hierarchy
-whether it belongs there or not.
-
-**Coexistence:** An entity can carry both. `ChildOf` handles lifecycle (server-side
-`Delete` cascade when the ownership parent is destroyed); `DrawIn` handles display
-(networked, `Remove` policy detaches the child when the display parent is destroyed
-without destroying the child itself). They can point at the same or different
-entities.
+The relationship object itself exposes no public target field. Add or replace an exclusive edge
+with `entity.add(DrawIn, parent)` / `entity.add(DrawBy, parent)`, inspect it with
+`entity.target(...)`, and remove it with `entity.remove(RelationshipClass)` or the targeted
+`entity.remove(RelationshipClass, parent)` form.
 
 ### Three rendering cases
 
 An entity with a renderable component (shape, image, text, or `Container`) falls
 into one of three cases based on its components:
 
-**Root** — `[Position, GameObject]`, no `DrawIn`. Placed on the scene display list
-via `scene.add.existing(obj)`. Positioned by `phaser.sync.position`. This is the
+**Root** — `[GameObject]`, no `DrawIn` or `DrawBy`. Placed on the scene display list via
+`scene.add.existing(obj)`. If it has `Position`, `phaser.sync.position` positions it. This is the
 default; unchanged from the pre-parenting architecture.
 
-**Native parenting** — `[Offset, Renderable]` + `DrawIn → Container parent`. The
-child has `Offset` but no `Position`. The child's Phaser GameObject is added to the
+**Native parenting** — `[Renderable]` + `DrawIn → Container parent`, with optional `Offset`. The
+child has no world `Position`. The child's Phaser GameObject is added to the
 parent's Container via `parentContainer.add(obj)`. Phaser composes transforms
 natively — moving/rotating the Container moves/rotates all children. `Offset` sets
 the child's local position inside the container via `phaser.sync.offset` (relative
@@ -628,15 +648,15 @@ coords, `rx`/`ry`). Rotation inheritance is automatic. Zero per-frame JS for the
 child. Interpolation is free — the parent's interpolated `Position` is applied to
 the Container; Phaser propagates to children.
 
-**Computed parenting** — `[Offset, Position, Renderable]` + `DrawIn → Renderable
-parent` (no Container). The child has both `Offset` and `Position`. A client-side
+**Computed parenting** — `[Position, Renderable]` + `DrawBy → Renderable parent` (no Container),
+with optional `Offset`. The child has a client-local `Position`. A client-side
 system (`OffsetResolveModule`) derives the child's world `Position` from the parent's
-interpolated `Position` plus `Offset` rotated by the parent's `Rotation`. The
+interpolated `Position` plus `Offset` (default `(0, 0)`; parent rotation is not applied). The
 `Position` is client-local — never networked. The existing `phaser.sync.position`
 then applies it. Per-frame JS cost, but only for this case.
 
-Distinguish native vs computed by the presence of `Position` on the child: no
-`Position` = native (inside a Container), `Position` = computed.
+The relationship type, not the presence of `Position`, classifies parenting. `DrawIn` is native;
+`DrawBy` is computed and client setup auto-adds the local `Position` used by the resolver.
 
 ### Display-list placement (`DisplayModule`)
 
@@ -644,44 +664,39 @@ Shape modules create GameObjects via `new Phaser.GameObjects.X(scene, …)` (no
 display-list entry). `DisplayModule` is the single point that adds each GameObject
 to the correct display parent:
 
-- **Root entities** (no `DrawIn`): `scene.add.existing(obj)`.
+- **Root entities** (no `DrawIn` or `DrawBy`): `scene.add.existing(obj)`.
 - **Children of a Container**: `parentContainer.add(obj)`.
-- **Children of a Renderable** (no Container) or **ghost-parent** (parent not yet
-  arrived): skipped; stays off-display until the parent's Container materialises
-  (handled by `ContainerModule`'s adoption loop) or the compute system derives a
-  `Position`.
+- **`DrawBy` children whose target has `Position`**: `scene.add.existing(obj)`; they remain on the
+  scene root while `OffsetResolveModule` computes world position.
+- **Ghost-parent children**: stay off-display until a `DrawIn` target gains its Phaser Container or
+  a `DrawBy` target gains `Position`.
 
-`DrawIn` is checked before the Container-vs-renderable distinction so a Container
-that is itself a child (e.g. an intermediate orbit Container) is nested inside its
-parent, not placed on the scene.
+Both relationship types are checked before root placement, so a parented Container is not also
+placed independently on the scene root.
 
 ### Reparenting
 
-The `phaser.display.reparent` system (`.with(m.GameObject, DrawIn).update({ watch:
-DrawIn })`) handles retargeting and removal in `ON_STORE`:
-
-- **Retarget:** if the new parent has a Container, `parentContainer.add(obj)`
-  (Phaser auto-removes from the old parent).
-- **Removal (exit):** detach from the old Container, re-add to the scene. If the
-  Container was already destroyed (cascade ordering), skip the detach — Phaser's
-  `Container.destroy()` already removed children from the display list.
+`DisplayModule` uses separate root, native, and computed queries. Replacing an exclusive target
+updates the relationship without removing its component. `DisplayModule` watches `DrawIn` and
+`DrawBy`, so it detaches a native child from the old Container and adopts it into the new one when
+available. Query exit or entry occurs only when the replacement changes whether the target satisfies
+the query predicate. `DrawBy` children remain on the scene root while their computed query follows
+the new target's `Position`.
 
 ### Ghost-parent handling
 
-When a child's `DrawIn` target arrives before the parent's `Container` component
-(e.g. during baseline rebuild), the child's GameObject stays off-display (invisible).
-When the parent's `Container` arrives, `ContainerModule`'s enter system scans
-`entity.children(DrawIn)` for unplaced GameObjects and adopts them into the new
-Container.
+Relationship snapshots carry all target EIDs before ordinary relationship fields. The client
+creates a `Networked` ghost for every missing target and reconciles the complete local edge set on
+each snapshot. For these `Exclusive` display relationships that set contains one target. If a
+`DrawIn` ghost has not received `Container` yet, the child stays off-display; container setup later
+scans `entity.children(DrawIn)` and adopts it. A `DrawBy` child similarly waits until its target has
+`Position` before scene-root placement and offset resolution match.
 
 ### Container lifetime
 
-`DrawIn` uses `CleanupPolicy.Remove`: destroying a display parent **detaches**
-children, does not destroy them. The reparent `exit` re-adds orphaned children to
-the scene. If the child also has `ChildOf` to the same parent (common for display
-children that should be cleaned up with their parent), `ChildOf`'s `Delete` policy
-destroys the child entity first — the `DrawIn` `Remove` policy then fires on an
-already-destroyed entity, which is a no-op.
+Both display relationships use `CleanupPolicy.Remove`: destroying a display parent detaches
+children instead of destroying them. If the child also has `ChildOf` to that parent, `ChildOf`'s
+`Delete` policy owns the destruction cascade.
 
 ---
 
@@ -693,7 +708,7 @@ import { PhaserServerModule } from "@vworlds/vecs-phaser-server";
 import { phaserNetworkComponents, Arc, Position, FillStyle } from "@vworlds/vecs-phaser";
 
 const world = new ServerWorld({ name: "main", networkComponents: phaserNetworkComponents });
-world.module(PhaserServerModule); // owns exclusivity + reactive pose-sync in POST_UPDATE
+world.module(PhaserServerModule); // owns relationship traits, render exclusivity, and pose sync
 
 world
   .entity()
@@ -706,6 +721,9 @@ world
 The `PhaserServerModule` (zero-config) handles everything in one call:
 
 - Sets exclusive renderable components (one shape per entity).
+- Marks `DrawIn` and `DrawBy` as single-target with `Exclusive`; marks only `DrawBy` as
+  `Traversable`. The client module repeats these cardinality traits and separately makes the two
+  parenting component types mutually exclusive locally.
 - Installs two reactive pose-sync systems in `POST_UPDATE` that copy
   `vecs-physics` `Position`/`Rotation` → render `Position`/`Rotation` only
   when physics actually changed the body pose (`update({ watch, onEnter: true })`).

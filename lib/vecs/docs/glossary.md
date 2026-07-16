@@ -25,7 +25,7 @@ sources strip/die). [Components](./components.md#cleanup-policies-destroying-a-c
 
 **Companion (wrapper) component** — a local, non-networked component holding a non-ECS resource
 (render object, WASM handle) so the entity's component set drives the resource lifecycle.
-[Components](./components.md#companion-components-for-non-ecs-resources).
+[Components](./components.md#resources-as-components-non-ecs-objects).
 
 **Component** — a registered plain data class with a no-argument constructor; pure data, no
 behavior. [Components](./components.md).
@@ -44,6 +44,10 @@ pipeline). [Execution model](./execution-model.md#deferred-mutation-and-flush-bo
 **Exclusive components** — a declared group where at most one member may exist on an entity;
 setting one removes the others. [Components](./components.md#exclusive-component-groups).
 
+**Exclusive relationship** — a relationship carrying the `Exclusive` trait, restricting each
+source to at most one target. Adding a different edge replaces the current edge. This is separate
+from an exclusive component group. [Relationships](./relationships.md).
+
 **Events** — a minimal typed event emitter helper exported for package-level events. It is not an
 entity lifecycle API. [Utilities](./utilities.md#events).
 
@@ -51,8 +55,8 @@ entity lifecycle API. [Utilities](./utilities.md#events).
 [Queries and filters](./queries-and-filters.md#filters-one-shot-scans).
 
 **Hook** — an `onAdd` / `onSet` / `onRemove` callback registered per component class, or an
-`onRetarget` callback for relationships, fired synchronously at the mutation site.
-[Components](./components.md#hooks-onadd-onset-onremove-onretarget).
+`onTargetAdd` / `onTargetRemove` callback for relationship edges, fired synchronously at the
+mutation site. [Components](./components.md#hooks-component-and-relationship-edges).
 
 **Implements / interface alias** — a declaration that a concrete component is queryable through
 abstract/interface component types; aliases are read-only views of the same instance.
@@ -62,7 +66,8 @@ abstract/interface component types; aliases are read-only views of the same inst
 top of the system's run. [Execution model](./execution-model.md#reactive-routing).
 
 **Injection** — resolving component instances per entity into a typed callback tuple, including
-`target` (relationship target's components) and `down` (fan-out over children) markers.
+singular `target` (the first relationship target), plural `targets` (one projection row per target),
+and `down` (fan-out over children) markers.
 [Systems](./systems.md#component-injection).
 
 **Iter** — an opt-in reusable cursor passed to callbacks instead of the bare entity, exposing the
@@ -72,9 +77,10 @@ visited entity and the source entity of each injected slot.
 **Module** — a packaging unit (`class M extends Module<Config>`) whose `init()` registers
 components, systems, and policy once per world. [Modules](./modules.md).
 
-**Owned target entity** — a zero-or-one aggregate entity targeted through a relationship carrying
-the `OwnedTarget` trait. It is parented to the source and destroyed when displaced, when the
-relationship is removed, or when the source dies. [Relationships](./relationships.md#owned-targets).
+**Owned target entity** — an explicitly created zero-or-one aggregate entity targeted through a
+relationship carrying both `Exclusive` and `OwnedTarget`. It is parented to the source and destroyed
+when displaced, when its edge or relationship is removed, or when the source dies.
+[Relationships](./relationships.md#owned-targets).
 
 **Phase** — an entity used as a pipeline ordering anchor (tagged with the `Phase` component);
 systems attach to exactly one phase via `DependsOn`.
@@ -90,8 +96,10 @@ ordered query over system entities. [Execution model](./execution-model.md#the-p
 `source` / `parent` / `children` / `test`).
 [Queries and filters](./queries-and-filters.md#the-query-dsl).
 
-**Relationship** — a component with a `target: Entity` field linking its source entity to a target,
-with reverse lookup (`children`) and cleanup cascades. [Relationships](./relationships.md).
+**Relationship** — a component holding explicit edges from its source entity to one or more targets,
+with `target` / `targets` / `hasTarget` lookup, reverse lookup (`children`), and cleanup cascades.
+Target storage is private; mutate edges with `add(Rel, target)` and `remove(Rel, target)`.
+[Relationships](./relationships.md).
 
 **Silence domain / `ignoreSource`** — a query configuration that drops `update` events originating
 from systems matching another query, breaking write feedback loops.
@@ -109,7 +117,8 @@ how often a system fires. [Systems](./systems.md#cadence-interval-rate-and-tick-
 
 **Trait (component trait)** — policy attached as a component to a registered component entity,
 configuring every use of that component type. Built-ins include `Singleton`, `Implements`,
-`Traversable`, and `OwnedTarget`. [Components](./components.md#component-traits-policy-on-component-entities).
+`Exclusive`, `Traversable`, and `OwnedTarget`.
+[Components](./components.md#component-traits-policy-on-component-entities).
 
 **Watchlist** — the set of component types a query or system reacts to via `update`, stored as a
 bitmask. [Systems](./systems.md#reactive-callbacks-enter-update-exit).

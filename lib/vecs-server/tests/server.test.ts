@@ -11,6 +11,7 @@ import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire"
 import {
   POST_UPDATE,
   PRE_STORE,
+  Exclusive,
   type QueryDSL,
   Relationship,
   type Entity,
@@ -1026,7 +1027,7 @@ describe("ServerWorld", () => {
 
   it("refreshes set View DSL changes before sending relationship visibility changes", () => {
     const world = createWorld();
-    world.component(InCell);
+    world.component(InCell).add(Exclusive);
     world.component(CellA);
     world.component(CellB);
     const server = world;
@@ -1035,12 +1036,8 @@ describe("ServerWorld", () => {
 
     const cellA = world.entity().add(CellA);
     const cellB = world.entity().add(CellB);
-    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).set(InCell, {
-      target: cellA,
-    });
-    const entering = world.entity().add(Networked).set(Position, { x: 2, y: 2 }).set(InCell, {
-      target: cellB,
-    });
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 }).add(InCell, cellA);
+    const entering = world.entity().add(Networked).set(Position, { x: 2, y: 2 }).add(InCell, cellB);
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
     const session = getSession(server, "client-1");
@@ -1051,7 +1048,7 @@ describe("ServerWorld", () => {
     const baseline = socket.sent.length;
 
     entity.set(Position, { x: 3, y: 3 });
-    entity.set(InCell, { target: cellB });
+    entity.add(InCell, cellB);
     session.entity.set(View, { dsl: { target: [InCell, CellB] } });
     world.progress(16, 16);
 
@@ -1078,7 +1075,7 @@ describe("ServerWorld", () => {
   // ALL_COMPONENTS removal: the viewer blinked on every grid-cell crossing.
   it("does not drop a client that moves its own View to a new cell in PRE_STORE", () => {
     const world = createWorld();
-    world.component(InCell);
+    world.component(InCell).add(Exclusive);
     world.component(CellA);
     world.component(CellB);
     const server = world;
@@ -1092,7 +1089,7 @@ describe("ServerWorld", () => {
 
     // Each client starts in cell A, viewing cell A (so it can see itself).
     world.component(NetworkClient).onSet((entity) => {
-      entity.set(View, { dsl: dslA }).set(InCell, { target: cellA });
+      entity.set(View, { dsl: dslA }).add(InCell, cellA);
     });
 
     // Mirror the demo: derive the cell from position, then retarget InCell and
@@ -1105,7 +1102,7 @@ describe("ServerWorld", () => {
         const cell = position.x < 5 ? cellA : cellB;
         const dsl = position.x < 5 ? dslA : dslB;
         if (entity.target(InCell) !== cell) {
-          entity.set(InCell, { target: cell });
+          entity.add(InCell, cell);
         }
         if (view.dsl !== dsl) {
           view.dsl = dsl;

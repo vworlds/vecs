@@ -81,14 +81,11 @@ Most projects can use `world.progress(now, delta)` and let Vecs run systems in d
 If your app already has phase entities, pass phase names or entities to `PhysicsModule`. Use the built-in anchors for common app work: input and gameplay systems usually stay in the default `vecs::OnUpdate`, while systems that need final physics results should target `physics-post` or a custom phase after it.
 
 ```ts
-const gameplay = world
-  .entity("gameplay")
-  .add(Phase)
-  .set(DependsOn, { target: world.entity(ON_UPDATE) });
-const physicsPre = world.entity("physics-pre").add(Phase).set(DependsOn, { target: gameplay });
-const physicsStep = world.entity("physics-step").add(Phase).set(DependsOn, { target: physicsPre });
-const physicsPost = world.entity("physics-post").add(Phase).set(DependsOn, { target: physicsStep });
-const render = world.entity("render").add(Phase).set(DependsOn, { target: physicsPost });
+const gameplay = world.entity("gameplay").add(Phase).add(DependsOn, world.entity(ON_UPDATE));
+const physicsPre = world.entity("physics-pre").add(Phase).add(DependsOn, gameplay);
+const physicsStep = world.entity("physics-step").add(Phase).add(DependsOn, physicsPre);
+const physicsPost = world.entity("physics-post").add(Phase).add(DependsOn, physicsStep);
+const render = world.entity("render").add(Phase).add(DependsOn, physicsPost);
 
 world.module(PhysicsModule, {
   preStepPhase: physicsPre,
@@ -128,14 +125,11 @@ In this layout:
 Example:
 
 ```ts
-const gameplay = world
-  .entity("gameplay")
-  .add(Phase)
-  .set(DependsOn, { target: world.entity(ON_UPDATE) });
-const physicsPre = world.entity("physics-pre").add(Phase).set(DependsOn, { target: gameplay });
-const physicsStep = world.entity("physics-step").add(Phase).set(DependsOn, { target: physicsPre });
-const physicsPost = world.entity("physics-post").add(Phase).set(DependsOn, { target: physicsStep });
-const render = world.entity("render").add(Phase).set(DependsOn, { target: physicsPost });
+const gameplay = world.entity("gameplay").add(Phase).add(DependsOn, world.entity(ON_UPDATE));
+const physicsPre = world.entity("physics-pre").add(Phase).add(DependsOn, gameplay);
+const physicsStep = world.entity("physics-step").add(Phase).add(DependsOn, physicsPre);
+const physicsPost = world.entity("physics-post").add(Phase).add(DependsOn, physicsStep);
+const render = world.entity("render").add(Phase).add(DependsOn, physicsPost);
 
 world.module(PhysicsModule, {
   preStepPhase: physicsPre,
@@ -210,7 +204,8 @@ The default recommendation is `4`, matching Box2D guidance.
 
 Higher values improve stability for difficult constraints and fast interactions, but cost more CPU. Lower values are faster but less accurate.
 
-For the first version of `vecs-physics`, joints are deferred, so most projects should start with `4` and only tune if contacts feel unstable.
+Joints and contacts use the same world substep count, so most projects should start with `4` and
+only tune if constraints or contacts feel unstable.
 
 ## World Options
 
@@ -382,10 +377,10 @@ Physics does not search grandparents.
 
 ```ts
 // Applies to player.
-world.entity().set(ChildOf, { target: player }).set(Force, { x: 1, y: 0 });
+world.entity().add(ChildOf, player).set(Force, { x: 1, y: 0 });
 
 // Does not apply unless tractorBeam itself has Body.
-world.entity().set(ChildOf, { target: tractorBeam }).set(Force, { x: 1, y: 0 });
+world.entity().add(ChildOf, tractorBeam).set(Force, { x: 1, y: 0 });
 ```
 
 ## Related Pages

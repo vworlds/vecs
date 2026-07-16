@@ -19,7 +19,7 @@ describe("Query.ignoreSource source attribution", () => {
     world.component(Value);
     world.component(Tag);
     const writePhase = world.entity("write").add(Phase);
-    const readPhase = world.entity("read").add(Phase).set(DependsOn, { target: writePhase });
+    const readPhase = world.entity("read").add(Phase).add(DependsOn, writePhase);
 
     let readerCount = 0;
 

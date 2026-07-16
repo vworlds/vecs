@@ -1,4 +1,4 @@
-import { Module, type Entity, type QueryDSL } from "@vworlds/vecs";
+import { Exclusive, Module, type Entity, type QueryDSL } from "@vworlds/vecs";
 import { cellTagComponents, InCell } from "./grid.js";
 
 export class ViewAll {}
@@ -10,7 +10,7 @@ export class InterestGridState {
 
 export class SpatialInterestComponents extends Module {
   public init(): void {
-    this.world.component(InCell);
+    this.world.component(InCell).add(Exclusive);
     this.world.component(InterestGridState);
     this.world.component(ViewAll);
     cellTagComponents.forEach((CellTag) => {

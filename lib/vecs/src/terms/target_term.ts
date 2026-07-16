@@ -1,4 +1,3 @@
-import { Relationship } from "../component_meta.js";
 import type { QueryDSL } from "../dsl.js";
 import type { EID, Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
@@ -10,8 +9,7 @@ import type { getTerm as GetTermFn } from "./build.js";
  * given inner predicate.
  *
  * An entity `e` matches when it carries the relationship component
- * `_relationshipEid` **and** the target entity stored in that component
- * satisfies `_innerTerm`.
+ * `_relationshipEid` **and** at least one target entity satisfies `_innerTerm`.
  *
  * Children: `[relationshipTerm, innerTerm]`.
  * - `children[0]` (`relationshipTerm`): the `ComponentTerm` for the
@@ -97,7 +95,6 @@ export class TargetTerm extends Term {
     if (entity.destroyed) {
       return false;
     }
-    const target = (entity._get(this._relationshipEid) as Relationship | undefined)?.target;
-    return target !== undefined && this._innerTerm.has(target);
+    return entity._someTargetByEid(this._relationshipEid, (target) => this._innerTerm.has(target));
   }
 }

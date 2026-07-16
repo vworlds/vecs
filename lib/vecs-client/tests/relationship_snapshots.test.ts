@@ -3,12 +3,13 @@ import {
   ALL_COMPONENTS,
   ComponentSnapshot,
   EncodedSnapshot,
+  encodeRelationshipSnapshot,
   Server2Client,
   StateDiff,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
 import { Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
-import { ChildOf, type EID } from "@vworlds/vecs";
+import { ChildOf, Exclusive, Relationship, type ComponentClass, type EID } from "@vworlds/vecs";
 import { ClientWorld } from "../src/index.js";
 
 class Position {
@@ -18,6 +19,13 @@ class Position {
   @wireType("i32")
   public y = 0;
 }
+
+class WeightedLink extends Relationship {
+  @wireType("i32")
+  public weight = 0;
+}
+
+class ExclusiveLink extends Relationship {}
 
 type SocketHandler = (arg?: unknown) => void;
 
@@ -74,16 +82,115 @@ function posSnapshot(eid: EID, x: number, y: number): EncodedSnapshot {
   return makeSnapshot(eid, 1, encodeComponent(p));
 }
 
+function relationshipSnapshot<R extends Relationship>(
+  eid: EID,
+  Class: ComponentClass<R>,
+  targetEids: EID[],
+  values?: Partial<R>
+): EncodedSnapshot {
+  const relationship = Object.assign(new Class(), values);
+  const encoder = new Encoder(new Uint8Array(1024));
+  encodeRelationshipSnapshot(encoder, targetEids, relationship);
+  return makeSnapshot(eid, 2, encoder.getBuffer());
+}
+
 function childOfSnapshot(eid: EID, targetEid: EID): EncodedSnapshot {
-  const rel = new ChildOf();
-  (rel as unknown as { target: { eid: number } }).target = { eid: targetEid };
-  return makeSnapshot(eid, 2, encodeComponent(rel));
+  return relationshipSnapshot(eid, ChildOf, [targetEid]);
 }
 
 // These tests use [Position, ChildOf] (2 components, localComponentMin = 4).
 // Separate file so the global localComponentMin doesn't conflict with the
 // existing client tests that use [Position] (localComponentMin = 2).
 describe("ClientWorld relationship snapshots", () => {
+  it("reconciles many targets, creates every ghost, and applies ordinary fields", () => {
+    const world = new ClientWorld({
+      networkComponents: [Position, WeightedLink],
+      serverTickIntervalMs: 10,
+    });
+    let addCount = 0;
+    let removeCount = 0;
+    world
+      .component(WeightedLink)
+      .onAdd(() => addCount++)
+      .onRemove(() => removeCount++);
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [
+              posSnapshot(1000, 1, 1),
+              relationshipSnapshot(1000, WeightedLink, [1001, 1002, 1003], { weight: 7 }),
+            ],
+          }),
+        })
+      )
+    );
+    world.progress(0, 0);
+
+    const source = world.getEntity(1000)!;
+    expect(
+      [...source.targets(WeightedLink)].map((target) => target.eid).sort((a, b) => a - b)
+    ).toEqual([1001, 1002, 1003]);
+    expect(source.get(WeightedLink)).toMatchObject({ weight: 7 });
+    expect(world.getEntity(1001)).toBeDefined();
+    expect(world.getEntity(1002)).toBeDefined();
+    expect(world.getEntity(1003)).toBeDefined();
+    expect(addCount).toBe(1);
+    expect(removeCount).toBe(0);
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 1,
+            toFrame: 2,
+            snapshots: [relationshipSnapshot(1000, WeightedLink, [1002, 1004], { weight: 11 })],
+          }),
+        })
+      )
+    );
+    world.progress(20, 20);
+
+    expect(
+      [...source.targets(WeightedLink)].map((target) => target.eid).sort((a, b) => a - b)
+    ).toEqual([1002, 1004]);
+    expect(source.hasTarget(WeightedLink, world.getEntity(1001)!)).toBe(false);
+    expect(source.hasTarget(WeightedLink, world.getEntity(1002)!)).toBe(true);
+    expect(source.get(WeightedLink)).toMatchObject({ weight: 11 });
+    expect(addCount).toBe(1);
+    expect(removeCount).toBe(0);
+  });
+
+  it("rejects an Exclusive relationship payload with multiple targets", () => {
+    const world = new ClientWorld({
+      networkComponents: [Position, ExclusiveLink],
+      serverTickIntervalMs: 10,
+    });
+    world.component(ExclusiveLink).add(Exclusive);
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [relationshipSnapshot(1000, ExclusiveLink, [1001, 1002])],
+          }),
+        })
+      )
+    );
+
+    expect(() => world.progress(0, 0)).toThrow(
+      "Exclusive relationship ExclusiveLink snapshot has 2 targets"
+    );
+  });
+
   it("resolves a ChildOf snapshot when the parent already exists", () => {
     const world = new ClientWorld({
       networkComponents: [Position, ChildOf],

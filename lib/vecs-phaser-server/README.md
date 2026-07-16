@@ -1,11 +1,17 @@
 # @vworlds/vecs-phaser-server
 
 Server helpers for vecs-backed Phaser worlds. `PhaserServerModule`, when installed on a
-`ServerWorld`, makes the renderable components mutually exclusive
+`ServerWorld`, marks `DrawIn` and `DrawBy` as single-target (`Exclusive`) relationships, marks only
+`DrawBy` as `Traversable`, makes the renderable components mutually exclusive
 (`setExclusiveComponents(...phaserRenderableComponents)` — one shape per entity) and installs
 two reactive `POST_UPDATE` pose-sync systems that copy `vecs-physics` `Position`/`Rotation`
 into the render `Position`/`Rotation` whenever the physics body pose changes. No `phaser`
 dependency.
+
+Create display edges with `entity.add(DrawIn, parent)` or `entity.add(DrawBy, parent)`. Relationship
+targets are not component payload properties, and the server module does not make the two display
+relationship component types mutually exclusive; `DisplaySetupModule` applies that local invariant
+on clients.
 
 Depends on `@vworlds/vecs-phaser`, `@vworlds/vecs-server`, and `@vworlds/vecs-physics`.
 

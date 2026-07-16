@@ -6,7 +6,7 @@ import {
   type ComponentRef,
   type ComponentType,
   type HookHandler,
-  type RetargetHandler,
+  type TargetHandler,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { Relationships } from "./entity.relationships.js";
@@ -26,12 +26,19 @@ export class Components extends Relationships {
     if (this._destroyed) {
       return;
     }
+    if (meta.isRelationship) {
+      throw new Error("Entity.attach cannot attach Relationship components; add explicit targets");
+    }
     const existing = this._components.get(meta.eid);
-    const oldTarget = meta.isRelationship
-      ? (existing as Relationship | undefined)?.target
-      : undefined;
+    if (existing === undefined) {
+      meta._validateAdd?.(entity);
+    } else if (existing !== component) {
+      meta._onPolicyRemove?.(entity, existing);
+    }
     this._storeComponent(meta, component, existing === undefined);
-    this._updateIncoming(meta, oldTarget, (component as Relationship).target);
+    if (existing !== undefined && existing !== component) {
+      meta._onPolicyAdd?.(entity, component);
+    }
     this._notifyComponentSet(meta, component, existing !== undefined);
   }
 
@@ -71,6 +78,7 @@ export class Components extends Relationships {
     if (!c) {
       return;
     }
+    meta._validateRemove?.(this as unknown as Entity);
     if (meta._implementsClosure) {
       for (const aliasMeta of meta._implementsClosure) {
         if (this._components.get(aliasMeta.eid) === c) {
@@ -84,7 +92,8 @@ export class Components extends Relationships {
   /** @internal Apply one remove without expanding interface aliases. */
   protected _removeRaw(meta: ComponentMeta, c: ComponentInstance): void {
     if (meta.isRelationship) {
-      this._removeIncoming((c as Relationship).target, meta.eid);
+      this._detachRelationship(meta, c as Relationship);
+      return;
     }
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
@@ -92,6 +101,7 @@ export class Components extends Relationships {
     this._components.delete(meta.eid);
     this.world._notifyComponentChanged(meta.eid, this as unknown as Entity);
     meta._decrementUsage();
+    meta._onPolicyRemove?.(this as unknown as Entity, c);
     meta._onRemove?.(this as unknown as Entity, c);
   }
 
@@ -106,27 +116,20 @@ export class Components extends Relationships {
     }
 
     if (meta.isRelationship) {
-      const existing = this._components.get(meta.eid) as Relationship | undefined;
-      const oldTarget = existing?.target;
-      let relationship = existing;
-
-      if (relationship) {
-        if (props === undefined) {
-          return;
-        }
-        Object.assign(relationship, props);
-      } else {
-        relationship = this._new(meta, props) as Relationship;
+      const relationship = this._components.get(meta.eid) as Relationship | undefined;
+      if (!relationship || props === undefined) {
+        return;
       }
-
-      this._updateIncoming(meta, oldTarget, relationship.target);
-      if (props !== undefined) {
-        this._notifyComponentSet(meta, relationship, existing !== undefined);
+      if (this._assignRelationshipProps(relationship, props)) {
+        this._notifyComponentSet(meta, relationship, true);
       }
       return;
     }
 
     const existing = this._components.get(meta.eid);
+    if (existing === undefined) {
+      meta._validateAdd?.(this as unknown as Entity);
+    }
     const c = existing ?? this._new(meta, props);
     if (props !== undefined) {
       if (existing) {
@@ -145,7 +148,10 @@ export class Components extends Relationships {
    * @param Class - Component class to instantiate.
    * @returns This entity, for chaining.
    */
-  public add<C extends ComponentClass>(Class: C): this;
+  public add<C extends ComponentClass>(
+    Class: C,
+    ...target: InstanceType<C> extends Relationship ? [target: Entity] : []
+  ): this;
 
   /**
    * Attach a component by numeric type id.
@@ -153,13 +159,33 @@ export class Components extends Relationships {
    * @param type - Numeric component type id.
    * @returns This entity, for chaining.
    */
-  public add(ceid: EID): this;
+  public add(ceid: EID, target?: Entity): this;
 
-  public add(entity: Entity): this;
+  public add(entity: Entity, target?: Entity): this;
 
-  public add(ref: ComponentRef): this {
+  public add(ref: ComponentRef, target?: Entity): this {
     const componentMeta = this.world.entity(ref).meta;
     this._throwIfInterface(componentMeta, "add");
+    if (componentMeta.isRelationship) {
+      if (target === undefined) {
+        throw new Error("Entity.add requires a target for Relationship components");
+      }
+      this._assertTargetWorld(target);
+      if (this.world.deferred) {
+        this.world._enqueue({
+          kind: CommandKind.AddTarget,
+          entity: this as unknown as Entity,
+          meta: componentMeta,
+          target,
+        });
+      } else {
+        this._addTarget(componentMeta, target);
+      }
+      return this;
+    }
+    if (target !== undefined) {
+      throw new Error("Entity.add target argument requires a Relationship component");
+    }
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Set,
@@ -198,6 +224,9 @@ export class Components extends Relationships {
     const instance = component ?? classOrComponent;
     const componentMeta = this.world.entity(ComponentKey as ComponentRef).meta;
     this._throwIfInterface(componentMeta, "attach");
+    if (componentMeta.isRelationship) {
+      throw new Error("Entity.attach cannot attach Relationship components; add explicit targets");
+    }
     this._attach_or_enqueue(componentMeta, instance);
     return this;
   }
@@ -345,38 +374,6 @@ export class Components extends Relationships {
     return this._ensureMissingInstance(componentMeta, callback);
   }
 
-  /**
-   * Return the target of relationship `Class`, creating and targeting a new
-   * independent entity when the relationship is absent.
-   *
-   * The relationship class must already be registered in this world. Repeated
-   * calls during deferred execution return the same pending target.
-   *
-   * @param Class - Registered relationship component class.
-   * @returns The existing or newly created relationship target.
-   */
-  public ensureTarget(this: Entity, Class: ComponentType<Relationship>): Entity {
-    if (this._destroyed) {
-      throw new Error(`Cannot ensure relationship target on destroyed entity ${this.eid}`);
-    }
-    const componentMeta = this.world.entity(Class).meta;
-    if (!componentMeta.isRelationship) {
-      throw new Error("Entity.ensureTarget requires a Relationship component");
-    }
-    const existing = this._get(componentMeta.eid) as Relationship | undefined;
-    if (existing) {
-      return existing.target;
-    }
-    const relationship = this._ensureMissingInstance(
-      componentMeta,
-      (component) => {
-        (component as Relationship).target = this.world.entity();
-      },
-      false
-    ) as Relationship;
-    return relationship.target;
-  }
-
   /** @internal Return a pending instance, or create and attach one. The caller checked storage. */
   protected _ensureMissingInstance(
     this: Entity,
@@ -454,20 +451,40 @@ export class Components extends Relationships {
    *
    * @param Class - Component class to detach.
    */
-  public remove<C extends ComponentType>(Class: C): void;
+  public remove<C extends ComponentType>(
+    Class: C,
+    ...target: InstanceType<C> extends Relationship ? [target?: Entity] : []
+  ): void;
 
   /**
    * Detach a component by numeric type id.
    *
    * @param type - Numeric component type id.
    */
-  public remove(ceid: EID): void;
+  public remove(ceid: EID, target?: Entity): void;
 
-  public remove(entity: Entity): void;
+  public remove(entity: Entity, target?: Entity): void;
 
-  public remove(ref: ComponentRef): void {
+  public remove(ref: ComponentRef, target?: Entity): void {
     const componentMeta = this.world.entity(ref).meta;
     this._throwIfInterface(componentMeta, "remove");
+    if (target !== undefined) {
+      if (!componentMeta.isRelationship) {
+        throw new Error("Entity.remove target argument requires a Relationship component");
+      }
+      this._assertTargetWorld(target);
+      if (this.world.deferred) {
+        this.world._enqueue({
+          kind: CommandKind.RemoveTarget,
+          entity: this as unknown as Entity,
+          meta: componentMeta,
+          target,
+        });
+      } else {
+        this._removeTarget(componentMeta, target);
+      }
+      return;
+    }
     if (this.world.deferred) {
       this.world._enqueue({
         kind: CommandKind.Remove,
@@ -541,6 +558,86 @@ export class Components extends Relationships {
     return c;
   }
 
+  /** @internal Apply one relationship-edge addition. */
+  public _addTarget(meta: ComponentMeta, target: Entity): void {
+    this._assertTargetWorld(target);
+    if (this._destroyed || target._destroyed) {
+      return;
+    }
+    const entity = this as unknown as Entity;
+    const existing = this._components.get(meta.eid) as Relationship | undefined;
+    if (existing?._hasTarget(target)) {
+      return;
+    }
+    if (existing && meta.relationshipExclusive) {
+      const previous = existing._replaceTarget(target);
+      this._removeIncoming(previous, meta.eid);
+      this._addIncoming(target, meta.eid);
+      const reflectsReplacement = (): boolean =>
+        this._components.get(meta.eid) === existing &&
+        existing._hasTarget(target) &&
+        !existing._hasTarget(previous);
+      if (!this._emitTargetRemove(meta, existing, previous, reflectsReplacement)) {
+        return;
+      }
+      if (!this._emitTargetAdd(meta, existing, target, reflectsReplacement)) {
+        return;
+      }
+      this._notifyRelationshipChanged(meta, existing);
+      return;
+    }
+    if (existing) {
+      existing._addTarget(target);
+      this._addIncoming(target, meta.eid);
+      const reflectsAdd = (): boolean =>
+        this._components.get(meta.eid) === existing && existing._hasTarget(target);
+      if (!this._emitTargetAdd(meta, existing, target, reflectsAdd)) {
+        return;
+      }
+      this._notifyRelationshipChanged(meta, existing);
+      return;
+    }
+
+    const relationship = new (meta.Class as ComponentClass)() as Relationship;
+    relationship._addTarget(target);
+    this._storeRelationship(meta, relationship);
+    this._addIncoming(target, meta.eid);
+    const reflectsAdd = (): boolean =>
+      this._components.get(meta.eid) === relationship && relationship._hasTarget(target);
+    if (!this._emitTargetAdd(meta, relationship, target, reflectsAdd)) {
+      return;
+    }
+    meta._onAdd?.(entity, relationship);
+    if (!reflectsAdd()) {
+      return;
+    }
+    this.world._notifyComponentAdded(meta.eid, entity);
+  }
+
+  /** @internal Apply one relationship-edge removal. */
+  public _removeTarget(meta: ComponentMeta, target: Entity): void {
+    this._assertTargetWorld(target);
+    if (this._destroyed) {
+      return;
+    }
+    const relationship = this._components.get(meta.eid) as Relationship | undefined;
+    if (!relationship?._hasTarget(target)) {
+      return;
+    }
+    if (relationship._targetCount() === 1) {
+      this._remove(meta);
+      return;
+    }
+    relationship._removeTarget(target);
+    this._removeIncoming(target, meta.eid);
+    const reflectsRemove = (): boolean =>
+      this._components.get(meta.eid) === relationship && !relationship._hasTarget(target);
+    if (!this._emitTargetRemove(meta, relationship, target, reflectsRemove)) {
+      return;
+    }
+    this._notifyRelationshipChanged(meta, relationship);
+  }
+
   /** @internal Perform the shared set-side hook and query update routing. */
   protected _notifyComponentSet(
     meta: ComponentMeta,
@@ -553,6 +650,56 @@ export class Components extends Relationships {
         this._notifyRaw(aliasMeta, instance, isUpdate);
       }
     }
+  }
+
+  /** @internal Detach a whole relationship before exposing its zero-target snapshot to hooks. */
+  protected _detachRelationship(meta: ComponentMeta, relationship: Relationship): void {
+    const entity = this as unknown as Entity;
+    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    this.componentBitmask.deleteBit(meta.bitPtr);
+    this.world._notifyComponentRemoved(meta.eid, entity);
+    this._components.delete(meta.eid);
+    this.world._notifyComponentChanged(meta.eid, entity);
+    meta._decrementUsage();
+    const targets = relationship._takeTargets();
+    for (const target of targets) {
+      this._removeIncoming(target, meta.eid);
+    }
+    for (const target of targets) {
+      const reflectsRemove = (): boolean =>
+        this._components.get(meta.eid) !== relationship && !relationship._hasTarget(target);
+      this._emitTargetRemove(meta, relationship, target, reflectsRemove);
+    }
+    meta._onRemove?.(entity, relationship);
+  }
+
+  /** @internal Store a newly attached relationship without firing hooks or query entry early. */
+  private _storeRelationship(meta: ComponentMeta, relationship: Relationship): void {
+    if (meta._exclusive) {
+      for (const exclusiveMeta of meta._exclusive) {
+        if (this._components.has(exclusiveMeta.eid)) {
+          this._remove(exclusiveMeta);
+        }
+      }
+    }
+    this._components.set(meta.eid, relationship);
+    this.componentBitmask.addBit(meta.bitPtr);
+    meta._incrementUsage();
+  }
+
+  /** Assign relationship data while ignoring all target-storage spellings. */
+  private _assignRelationshipProps(
+    relationship: Relationship,
+    props: Partial<ComponentInstance>
+  ): boolean {
+    let assigned = false;
+    for (const [key, value] of Object.entries(props)) {
+      if (key !== "target" && key !== "targets" && key !== "_targets") {
+        (relationship as unknown as Record<string, unknown>)[key] = value;
+        assigned = true;
+      }
+    }
+    return assigned;
   }
 
   /** @internal Perform one set-side hook and query update without expanding aliases. */
@@ -606,6 +753,7 @@ export class Components extends Relationships {
       meta._incrementUsage();
     }
     if (isAdd && !existing) {
+      meta._onPolicyAdd?.(this as unknown as Entity, instance);
       meta._onAdd?.(this as unknown as Entity, instance);
     }
     if (!existing) {
@@ -619,6 +767,48 @@ export class Components extends Relationships {
         `Cannot ${op} the abstract interface ${meta.Class.name}; operate via the concrete component`
       );
     }
+  }
+
+  private _assertTargetWorld(target: Entity): void {
+    if (target.world !== this.world) {
+      throw new Error("Relationship target must belong to the same World as its source");
+    }
+  }
+
+  private _emitTargetAdd(
+    meta: ComponentMeta,
+    relationship: Relationship,
+    target: Entity,
+    isCurrent: () => boolean
+  ): boolean {
+    if (meta._targetAddPolicies) {
+      for (const policy of meta._targetAddPolicies.values()) {
+        policy(this as unknown as Entity, relationship, target);
+        if (!isCurrent()) {
+          return false;
+        }
+      }
+    }
+    meta._onTargetAdd?.(this as unknown as Entity, relationship, target);
+    return isCurrent();
+  }
+
+  private _emitTargetRemove(
+    meta: ComponentMeta,
+    relationship: Relationship,
+    target: Entity,
+    isCurrent: () => boolean
+  ): boolean {
+    if (meta._targetRemovePolicies) {
+      for (const policy of meta._targetRemovePolicies.values()) {
+        policy(this as unknown as Entity, relationship, target);
+        if (!isCurrent()) {
+          return false;
+        }
+      }
+    }
+    meta._onTargetRemove?.(this as unknown as Entity, relationship, target);
+    return isCurrent();
   }
 
   /** Return the current add hook, or `undefined` when none is set. */
@@ -649,25 +839,27 @@ export class Components extends Relationships {
     return this;
   }
 
-  /**
-   * Return the current retarget hook, or `undefined` when none is set.
-   */
-  public onRetarget(): RetargetHandler | undefined;
-
-  /**
-   * Set the handler fired after this relationship moves between existing targets. Pass
-   * `undefined` to remove the current handler.
-   *
-   * @param handler - Receives the source entity, previous target, and current target.
-   * @returns This entity, for chaining.
-   */
-  public onRetarget(handler: RetargetHandler | undefined): this;
-
-  public onRetarget(handler?: RetargetHandler): this | RetargetHandler | undefined {
+  /** Return the current relationship target-add hook. */
+  public onTargetAdd(): TargetHandler | undefined;
+  /** Set the relationship target-add hook. */
+  public onTargetAdd(handler: TargetHandler | undefined): this;
+  public onTargetAdd(handler?: TargetHandler): this | TargetHandler | undefined {
     if (arguments.length === 0) {
-      return this.meta.onRetarget();
+      return this.meta.onTargetAdd();
     }
-    this.meta.onRetarget(handler);
+    this.meta.onTargetAdd(handler);
+    return this;
+  }
+
+  /** Return the current relationship target-remove hook. */
+  public onTargetRemove(): TargetHandler | undefined;
+  /** Set the relationship target-remove hook. */
+  public onTargetRemove(handler: TargetHandler | undefined): this;
+  public onTargetRemove(handler?: TargetHandler): this | TargetHandler | undefined {
+    if (arguments.length === 0) {
+      return this.meta.onTargetRemove();
+    }
+    this.meta.onTargetRemove(handler);
     return this;
   }
 

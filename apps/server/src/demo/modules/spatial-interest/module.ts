@@ -38,14 +38,13 @@ export class SpatialInterestModule extends Module {
     // Cascade InCell from parent to display children that don't have their own
     // RenderPosition. Without this, parented children are invisible in
     // cell-based views because they never get an InCell assignment. Uses
-    // InCell onSet/onRemove hooks so the cascade is immediate — a child
+    // InCell target hooks so the cascade is immediate — a child
     // assigned the same frame its parent gets a cell, no frame delay.
-    world.component(InCell).onSet((entity) => {
-      const cell = entity.target(InCell);
+    world.component(InCell).onTargetAdd((entity, _relationship, cell) => {
       cascadeInCell(entity, cell, true);
     });
 
-    world.component(InCell).onRemove((entity) => {
+    world.component(InCell).onTargetRemove((entity) => {
       cascadeInCell(entity, undefined, false);
     });
 
@@ -75,7 +74,7 @@ export class SpatialInterestModule extends Module {
 function assignCell(entity: Entity, position: RenderPosition, cellEntities: Entity[]): void {
   const cell = cellEntities[getGridCellIndex(position)];
   if (entity.target(InCell) !== cell) {
-    entity.set(InCell, { target: cell });
+    entity.add(InCell, cell);
   }
 }
 
@@ -101,7 +100,7 @@ function cascadeInCell(entity: Entity, cell: Entity | undefined, assign: boolean
       }
       if (assign) {
         if (child.target(InCell) !== cell) {
-          child.set(InCell, { target: cell! });
+          child.add(InCell, cell!);
         }
       } else if (child.has(InCell)) {
         child.remove(InCell);

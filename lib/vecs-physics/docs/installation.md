@@ -41,7 +41,7 @@ world.module(PhysicsModule); // registers the physics components and systems
 
 // Now it is safe to create physics entities.
 const body = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
-world.entity().set(ChildOf, { target: body }).set(Box, { hx: 0.5, hy: 0.5 });
+world.entity().add(ChildOf, body).set(Box, { hx: 0.5, hy: 0.5 });
 ```
 
 Adding a physics component to an entity before the module is installed throws — the component class is not registered on the world yet:
