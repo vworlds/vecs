@@ -104,7 +104,10 @@ by the new edge's add hook. Re-adding the current target is a no-op.
 `ChildOf`, `DependsOn`, and `SilenceSource` are `Exclusive` out of the box. Configure `Exclusive`
 before relationship instances exist; vecs rejects first-time configuration or removal while the
 relationship is in use (re-adding an already attached trait is an idempotent no-op), and rejects
-removing it while `OwnedTarget` or `Traversable` depends on it.
+removing it while `OwnedTarget` or `Traversable` depends on it. The checks run when the trait
+component is actually attached or detached, so in deferred mode the rejection surfaces from
+`flush()` / `progress()` rather than from the `add` / `remove` call site. A thrown trait operation
+leaves the world partially mutated; treat it as a programming error and discard the world.
 
 Do not confuse this trait with `world.setExclusiveComponents(A, B)`. `Exclusive` limits **one
 relationship class** to one target. `setExclusiveComponents` declares that **different component

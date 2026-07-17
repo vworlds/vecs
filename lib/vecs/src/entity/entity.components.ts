@@ -29,9 +29,7 @@ export class Components extends Relationships {
       throw new Error("Entity.attach cannot attach Relationship components; add explicit targets");
     }
     const existing = this._components.get(meta.eid);
-    if (existing === undefined) {
-      meta._validateAdd?.(this);
-    } else if (existing !== component) {
+    if (existing !== undefined && existing !== component) {
       meta._onPolicyRemove?.(this, existing);
     }
     this._storeComponent(meta, component, existing === undefined);
@@ -77,7 +75,6 @@ export class Components extends Relationships {
     if (!c) {
       return;
     }
-    meta._validateRemove?.(this);
     if (meta._implementsClosure) {
       for (const aliasMeta of meta._implementsClosure) {
         if (this._components.get(aliasMeta.eid) === c) {
@@ -130,9 +127,6 @@ export class Components extends Relationships {
     }
 
     const existing = this._components.get(meta.eid);
-    if (existing === undefined) {
-      meta._validateAdd?.(this);
-    }
     const c = existing ?? this._new(meta, props);
     if (props !== undefined) {
       if (existing) {

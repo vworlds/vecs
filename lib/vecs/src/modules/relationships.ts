@@ -51,30 +51,26 @@ export class RelationshipsModule extends Module {
     const traversableTrait = world.component(Traversable);
 
     childOf.meta.onDeleteTarget = CleanupPolicy.Delete;
-    exclusive.meta._validateAdd = (relationship): void => {
+    exclusive.meta._onPolicyAdd = (relationship): void => {
       if (!relationship.meta.isRelationship) {
         throw new Error("Exclusive can only be added to a Relationship component");
       }
       if (relationship.meta.usageCount > 0) {
         throw new Error("Exclusive cannot be added or removed while the relationship is in use");
       }
+      relationship.meta.relationshipExclusive = true;
     };
-    exclusive.meta._validateRemove = (relationship): void => {
+    exclusive.meta._onPolicyRemove = (relationship): void => {
       if (relationship.has(OwnedTarget) || relationship.has(Traversable)) {
         throw new Error("Exclusive cannot be removed while a dependent relationship trait exists");
       }
       if (relationship.meta.usageCount > 0) {
         throw new Error("Exclusive cannot be added or removed while the relationship is in use");
       }
-    };
-    exclusive.meta._onPolicyAdd = (relationship): void => {
-      relationship.meta.relationshipExclusive = true;
-    };
-    exclusive.meta._onPolicyRemove = (relationship): void => {
       relationship.meta.relationshipExclusive = false;
     };
 
-    ownedTarget.meta._validateAdd = (rel): void => {
+    ownedTarget.meta._onPolicyAdd = (rel): void => {
       if (!rel.meta.isRelationship) {
         throw new Error("OwnedTarget can only be added to a Relationship component");
       }
@@ -84,8 +80,6 @@ export class RelationshipsModule extends Module {
       if (!rel.has(Exclusive)) {
         throw new Error("OwnedTarget requires Exclusive");
       }
-    };
-    ownedTarget.meta._onPolicyAdd = (rel): void => {
       (rel.meta._targetAddPolicies ??= new Map()).set(
         ownedTarget.eid,
         (source: Entity, _relationship: Relationship, target: Entity): void => {
@@ -104,15 +98,13 @@ export class RelationshipsModule extends Module {
       rel.meta._targetRemovePolicies?.delete(ownedTarget.eid);
     };
 
-    traversableTrait.meta._validateAdd = (rel): void => {
+    traversableTrait.meta._onPolicyAdd = (rel, component): void => {
       if (!rel.meta.isRelationship) {
         throw new Error("Traversable can only be added to a Relationship component");
       }
       if (!rel.has(Exclusive)) {
         throw new Error("Traversable requires Exclusive");
       }
-    };
-    traversableTrait.meta._onPolicyAdd = (rel, component): void => {
       const traversable = component as Traversable;
       const relEid = rel.eid;
       (rel.meta._targetAddPolicies ??= new Map()).set(

@@ -36,52 +36,49 @@ describe("RelationshipsModule", () => {
     expect(() => first.component(Inventory).add(OwnedTarget)).toThrow(
       "OwnedTarget requires Exclusive"
     );
-    expect(first.component(Inventory).has(OwnedTarget)).toBe(false);
 
     const second = new World();
     expect(() => second.component(ParentOf).add(Traversable)).toThrow(
       "Traversable requires Exclusive"
     );
-    expect(second.component(ParentOf).has(Traversable)).toBe(false);
 
     const third = new World();
     third.component(NotRelationship);
     expect(() => third.component(NotRelationship).add(Exclusive)).toThrow(
       "Exclusive can only be added to a Relationship component"
     );
-    expect(third.component(NotRelationship).has(Exclusive)).toBe(false);
 
     const fourth = new World();
     expect(() => fourth.component(ChildOf).add(OwnedTarget)).toThrow(
       "OwnedTarget cannot be added to ChildOf"
     );
-    expect(fourth.component(ChildOf).has(OwnedTarget)).toBe(false);
 
     const fifth = new World();
     fifth.component(NotRelationship);
     expect(() => fifth.component(NotRelationship).add(OwnedTarget)).toThrow(
       "OwnedTarget can only be added to a Relationship component"
     );
-    expect(fifth.component(NotRelationship).has(OwnedTarget)).toBe(false);
 
     const sixth = new World();
     sixth.component(NotRelationship);
     expect(() => sixth.component(NotRelationship).add(Traversable)).toThrow(
       "Traversable can only be added to a Relationship component"
     );
-    expect(sixth.component(NotRelationship).has(Traversable)).toBe(false);
+    // Invariant violations are programming errors: the trait component is stored
+    // before _onPolicyAdd throws, leaving the world partially mutated. Do not
+    // assert post-throw state — discard the world instead.
   });
 
-  it("keeps Exclusive while dependent traits are attached", () => {
+  it("rejects removing Exclusive while dependent traits are attached", () => {
     const first = new World();
     const owned = first.component(Inventory).add(Exclusive).add(OwnedTarget);
     expect(() => owned.remove(Exclusive)).toThrow(/dependent relationship trait/);
-    expect(owned.has(Exclusive)).toBe(true);
 
     const second = new World();
     const traversable = second.component(ParentOf).add(Exclusive).add(Traversable);
     expect(() => traversable.remove(Exclusive)).toThrow(/dependent relationship trait/);
-    expect(traversable.has(Exclusive)).toBe(true);
+    // The removal runs before _onPolicyRemove throws, leaving the world without
+    // Exclusive but still carrying the dependent trait. Discard the world.
   });
 
   it("allows idempotent Exclusive adds while the relationship is in use", () => {
@@ -117,6 +114,20 @@ describe("RelationshipsModule", () => {
     expect(() => exclusive.destroy()).toThrow(/dependent relationship trait/);
     // A throw during _destroy is fatal: the entity is partially torn down and
     // the world must be discarded. This is a programming error per the docs.
+  });
+
+  it("throws from flush() when an invalid trait add was queued in deferred mode", () => {
+    const w = new World();
+    w.component(Inventory);
+    // Trait-invariant violations must surface at flush time, not be silently
+    // swallowed by the deferred queue. Previously _validateAdd ran pre-mutation
+    // and never fired for enqueued ops; the checks now live in _onPolicyAdd,
+    // which executes inside the command queue drain.
+    w.beginDefer();
+    expect(() => w.component(Inventory).add(OwnedTarget)).not.toThrow();
+    expect(w.component(Inventory).has(OwnedTarget)).toBe(false);
+    expect(() => w.endDefer()).toThrow("OwnedTarget requires Exclusive");
+    // World is left partially mutated; discard it.
   });
 
   it("parents and destroys explicit OwnedTarget edges", () => {

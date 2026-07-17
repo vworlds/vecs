@@ -111,9 +111,6 @@ export type HookHandler<C extends ComponentInstance = ComponentInstance> = (
   component: C
 ) => void;
 
-/** Internal validation run before a component is attached to or removed from an entity. */
-export type ComponentValidator = (entity: Entity) => void;
-
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
 
@@ -238,11 +235,6 @@ export class ComponentMeta implements Hook<ComponentInstance> {
 
   /** @internal Whether this component meta is an abstract/interface alias. */
   public _isInterface = false;
-
-  /** @internal Validate this component before storage. */
-  public _validateAdd: ComponentValidator | undefined;
-  /** @internal Validate this component before removal. */
-  public _validateRemove: ComponentValidator | undefined;
 
   /** @internal Framework policy applied when this component is attached. */
   public _onPolicyAdd: HookHandler | undefined;
