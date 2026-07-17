@@ -1,7 +1,7 @@
 // `PhysicsShapeLifecycle` (VP-11 commit 1): shape creation, destruction,
 // geometry update, chain expansion, and reparenting.
 
-import { World, type EID } from "@vworlds/vecs";
+import { ChildOf, World, type EID } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -456,6 +456,20 @@ describe("PhysicsShapeLifecycle.exit", () => {
     expect(engine.dirtyMassBodies.size).toBe(0);
   });
 
+  it("uses the former parent when ChildOf removal exits the shape", () => {
+    const body = makeBody();
+    const shape = makeShape(body);
+    world.progress(0, 16);
+    const shapeId = getShapeId(shape.eid)!;
+    expect(getBodyMass(body.eid)).toBeGreaterThan(0);
+
+    shape.remove(ChildOf);
+    world.progress(16, 16);
+
+    expect(engine.box2d.b2Shape_IsValid(shapeId)).toBe(false);
+    expect(getBodyMass(body.eid)).toBe(0);
+  });
+
   it("is idempotent — double-remove does not throw", () => {
     const body = makeBody();
     const shape = makeShape(body);
@@ -488,6 +502,29 @@ describe("PhysicsShapeLifecycle.exit", () => {
     world.progress(16, 16);
 
     expect(getChainId(chain.eid) !== undefined).toBe(false);
+    expect(engine.box2d.b2Chain_IsValid(chainId)).toBe(false);
+  });
+
+  it("destroys the WASM chain when ChildOf removal clears its former parent", () => {
+    const body = makeBody(BodyType.Static);
+    const chain = world
+      .entity()
+      .childOf(body)
+      .set(Chain, {
+        points: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 2, y: 0 },
+          { x: 3, y: 0 },
+        ],
+        loop: false,
+      });
+    world.progress(0, 16);
+    const chainId = getChainId(chain.eid)!;
+
+    chain.remove(ChildOf);
+    world.progress(16, 16);
+
     expect(engine.box2d.b2Chain_IsValid(chainId)).toBe(false);
   });
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { CleanupPolicy, World } from "../src/index.js";
+import { CommandKind } from "../src/command.js";
+import { CleanupPolicy, Exclusive, Relationship, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -12,6 +13,7 @@ class Walking {}
 class Running {}
 class DeferredRemove {}
 class DeferredDelete {}
+class LinkedTo extends Relationship {}
 class Counted {
   public static constructions = 0;
   public value = 0;
@@ -36,6 +38,63 @@ function setup() {
 }
 
 describe("Deferred mode — data-layer visibility", () => {
+  it("applies relationship edge commands in FIFO order", () => {
+    const w = new World();
+    w.component(LinkedTo);
+    const source = w.entity();
+    const first = w.entity();
+    const second = w.entity();
+
+    w.defer(() => {
+      source.add(LinkedTo, first);
+      source.add(LinkedTo, second);
+      source.remove(LinkedTo, first);
+      expect(source.targets(LinkedTo)).toEqual([]);
+    });
+
+    expect(source.targets(LinkedTo)).toEqual([second]);
+  });
+
+  it("applies deferred exclusive replacements atomically in arrival order", () => {
+    const w = new World();
+    w.component(LinkedTo).add(Exclusive);
+    const source = w.entity();
+    const first = w.entity();
+    const second = w.entity();
+
+    w.defer(() => {
+      source.add(LinkedTo, first);
+      source.add(LinkedTo, second);
+      source.add(LinkedTo, first);
+    });
+
+    expect(source.targets(LinkedTo)).toEqual([first]);
+  });
+
+  it("rejects cross-world targets before enqueue and during command execution", () => {
+    const w = new World();
+    const other = new World();
+    const relationship = w.component(LinkedTo);
+    other.component(LinkedTo);
+    const source = w.entity();
+    const foreignTarget = other.entity();
+
+    w.defer(() => {
+      expect(() => source.add(LinkedTo, foreignTarget)).toThrow(/same World/);
+    });
+    expect(() =>
+      (w as any)._executeCommand({
+        kind: CommandKind.AddTarget,
+        entity: source,
+        meta: relationship.meta,
+        target: foreignTarget,
+      })
+    ).toThrow(/same World/);
+
+    expect(source.has(LinkedTo)).toBe(false);
+    expect(foreignTarget.children(LinkedTo)).not.toContain(source);
+  });
+
   it("entity.get(C) returns undefined after entity.add(C) inside a system", () => {
     const { w, tick } = setup();
     const observed: any[] = [];

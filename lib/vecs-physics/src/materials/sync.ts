@@ -32,7 +32,7 @@ export class MaterialFilterSyncModule extends Module {
           if (requiresMaterialRecreate(engine, shape, material)) {
             // box2d3-wasm@5.2.0 exposes no shape setters for rollingResistance,
             // tangentSpeed, or userMaterialId, so those updates recreate the shape.
-            recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
+            recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
             return;
           }
 
@@ -58,7 +58,7 @@ export class MaterialFilterSyncModule extends Module {
           inject: [Chain, { target: [ChildOf, [Body]] }],
         },
         (it, _material, [chain, body]) => {
-          recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+          recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
       .add(PhysicsSystemTag);
@@ -105,7 +105,7 @@ export class MaterialFilterSyncModule extends Module {
           inject: [Chain, { target: [ChildOf, [Body]] }],
         },
         (it, _filter, [chain, body]) => {
-          recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+          recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
       .add(PhysicsSystemTag);
@@ -122,7 +122,7 @@ export class MaterialFilterSyncModule extends Module {
           inject: [SingleShape, { target: [ChildOf, [Body]] }],
         },
         (it, _sensor, [shape, body]) => {
-          recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
+          recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
       .add(PhysicsSystemTag);
@@ -139,7 +139,7 @@ export class MaterialFilterSyncModule extends Module {
           inject: [Chain, { target: [ChildOf, [Body]] }],
         },
         (it, _sensor, [chain, body]) => {
-          recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+          recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
       .add(PhysicsSystemTag);

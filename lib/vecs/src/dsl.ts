@@ -722,7 +722,7 @@ function _compileQueryExpression(
     const relEid = _resolveRelationship(t.target[0], world);
     const relMask = _compileMask(context, [relEid], entityRef, "hasBitset");
     const inner = _compileQueryExpression(world, t.target[1], context, "p");
-    return `(${relMask})&&((p)=>p!==undefined&&(${inner}))(${entityRef}._get(${relEid})?.target)`;
+    return `(${relMask})&&${entityRef}._someTargetByEid(${relEid},(p)=>${inner})`;
   }
 
   if ("source" in q) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Relationship, World } from "../src/index.js";
+import { Exclusive, Relationship, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -9,12 +9,14 @@ class Team {
   id = 0;
 }
 class InZone extends Relationship {}
+class InRegion extends Relationship {}
 
 function setup() {
   const w = new World();
   w.component(Position);
   w.component(Team);
-  w.component(InZone);
+  w.component(InZone).add(Exclusive);
+  w.component(InRegion);
   return { w, tick: () => w.progress(0, 0) };
 }
 
@@ -223,6 +225,27 @@ describe("Query.groupBy — value grouping", () => {
 });
 
 describe("Query.groupBy — relationship grouping", () => {
+  it("places a many-target relationship in every bucket and reconciles edges", () => {
+    const { w } = setup();
+    const regionA = w.entity();
+    const regionB = w.entity();
+    const byRegion = w.query("byRegion").groupBy(InRegion).build();
+    const member = w.entity().add(InRegion, regionA).add(InRegion, regionB);
+
+    expect(byRegion.group(regionA)?.has(member)).toBe(true);
+    expect(byRegion.group(regionB)?.has(member)).toBe(true);
+    member.add(InRegion, regionA);
+    expect(byRegion.group(regionA)?.count).toBe(1);
+
+    member.remove(InRegion, regionA);
+    expect(byRegion.group(regionA)).toBeUndefined();
+    expect(byRegion.group(regionB)?.has(member)).toBe(true);
+
+    regionB.destroy();
+    expect(byRegion.group(regionB)).toBeUndefined();
+    expect(byRegion.groupCount).toBe(0);
+  });
+
   it("keys buckets by the relationship target entity", () => {
     const { w, tick } = setup();
     const zoneA = w.entity();
@@ -230,9 +253,9 @@ describe("Query.groupBy — relationship grouping", () => {
     const byZone = w.query("byZone").groupBy(InZone);
     byZone.build();
 
-    const a = w.entity().set(InZone, { target: zoneA });
-    const b = w.entity().set(InZone, { target: zoneA });
-    const c = w.entity().set(InZone, { target: zoneB });
+    const a = w.entity().add(InZone, zoneA);
+    const b = w.entity().add(InZone, zoneA);
+    const c = w.entity().add(InZone, zoneB);
     tick();
 
     expect(byZone.group(zoneA)?.count).toBe(2);
@@ -248,7 +271,7 @@ describe("Query.groupBy — relationship grouping", () => {
     const byZone = w.query("byZone").groupBy({ relationship: InZone });
     byZone.build();
 
-    const e = w.entity().set(InZone, { target: zone });
+    const e = w.entity().add(InZone, zone);
     tick();
 
     expect(byZone.group(zone)?.has(e)).toBe(true);
@@ -275,11 +298,11 @@ describe("Query.groupBy — relationship grouping", () => {
     const byZone = w.query("byZone").groupBy(InZone);
     byZone.build();
 
-    const e = w.entity().set(InZone, { target: zoneA });
+    const e = w.entity().add(InZone, zoneA);
     tick();
     expect(byZone.group(zoneA)?.has(e)).toBe(true);
 
-    e.set(InZone, { target: zoneB });
+    e.add(InZone, zoneB);
     tick();
     expect(byZone.group(zoneA)).toBeUndefined();
     expect(byZone.group(zoneB)?.has(e)).toBe(true);
@@ -291,7 +314,7 @@ describe("Query.groupBy — relationship grouping", () => {
     const byZone = w.query("byZone").groupBy(InZone);
     byZone.build();
 
-    const e = w.entity().set(InZone, { target: zoneA });
+    const e = w.entity().add(InZone, zoneA);
     tick();
     expect(byZone.group(zoneA)?.has(e)).toBe(true);
 

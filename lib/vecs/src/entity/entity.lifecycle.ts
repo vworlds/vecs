@@ -1,5 +1,5 @@
 import { CleanupPolicy } from "../component_meta.js";
-import type { ComponentMeta } from "../component_meta.js";
+import type { ComponentInstance, ComponentMeta } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { CommandKind } from "../command.js";
 import { Components } from "./entity.components.js";
@@ -28,7 +28,8 @@ const enum DeletionOpKind {
  * allocation and the discriminant is a `const enum` value inlined to a
  * number at compile time.
  */
-type DeletionOp = [DeletionOpKind.Destroy, Entity] | [DeletionOpKind.Remove, Entity, ComponentMeta];
+type DeletionOp =
+  [DeletionOpKind.Destroy, Entity] | [DeletionOpKind.Remove, Entity, ComponentMeta, Entity];
 
 export class Lifecycle extends Components {
   /**
@@ -51,12 +52,9 @@ export class Lifecycle extends Components {
     }
     try {
       const entityMeta = this._meta;
-      // Mark destroyed up front so a carrier cleanup that re-enters this entity's
-      // `_destroy` (possible with exotic relationship topologies under Delete)
-      // hits the guard above instead of tearing down twice.
-      this._destroyed = true;
+      let selfCarry = 0;
       if (entityMeta) {
-        const selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
+        selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
         if (entityMeta.usageCount > selfCarry) {
           if (entityMeta.onDelete === CleanupPolicy.Throw) {
             // The public `destroy()` already throws when an in-use component is
@@ -64,26 +62,37 @@ export class Lifecycle extends Components {
             // this deferred apply. Abort instead of throwing so a mid-drain
             // `_processCommandQueue` is not left half-applied, and revive the
             // entity since nothing has been torn down yet.
-            this._destroyed = false;
             return;
           }
-          this._applyOnDelete(entityMeta, selfCarry);
+          if (entityMeta.onDelete === CleanupPolicy.Remove) {
+            this._validateOnDeleteRemovals(entityMeta, selfCarry);
+          }
         }
+      }
+
+      // Mark destroyed before applying cleanup so a carrier cascade that
+      // re-enters this entity cannot tear it down twice.
+      this._destroyed = true;
+      if (entityMeta && entityMeta.usageCount > selfCarry) {
+        this._applyOnDelete(entityMeta, selfCarry);
       }
 
       const entity = this as unknown as Entity;
       this.world._notifyEntityDestroyed(entity);
 
-      this._components.forEach((c, ceid) => {
+      const components: Array<[ComponentInstance, number]> = [];
+      this._components.forEach((component, ceid) => components.push([component, ceid]));
+      for (const [c, ceid] of components) {
         const componentMeta = this.world.entity(ceid).meta;
         if (componentMeta.isRelationship) {
-          this._removeIncoming((c as Relationship).target, ceid);
+          this._detachRelationship(componentMeta, c as Relationship);
+          continue;
         }
         this.componentBitmask.deleteBit(componentMeta.bitPtr);
         this.world._notifyComponentRemoved(ceid, entity);
         componentMeta._decrementUsage();
         componentMeta._onRemove?.(entity, c);
-      });
+      }
       this._dirtyComponentBitmask.clear();
       this._queries.clear();
 
@@ -158,6 +167,21 @@ export class Lifecycle extends Components {
     }
   }
 
+  /** Validate every carrier removal before mutating any entity in the cleanup pass. */
+  private _validateOnDeleteRemovals(entityMeta: ComponentMeta, selfCarry: number): void {
+    let remaining = entityMeta.usageCount - selfCarry;
+    this.world.entities.forEach((entity) => {
+      if (
+        remaining > 0 &&
+        entity !== (this as unknown as Entity) &&
+        entity._get(entityMeta.eid) !== undefined
+      ) {
+        entityMeta._validateRemove?.(entity);
+        remaining--;
+      }
+    });
+  }
+
   /**
    * Walk this entity's incoming relationships and buffer cleanup ops onto the
    * world's deletion scope instead of acting inline.
@@ -193,7 +217,12 @@ export class Lifecycle extends Components {
           // this exotic cascade can still throw; revisit with the relationship rework.
           scope.push([DeletionOpKind.Destroy, sourceEntity]);
         } else {
-          scope.push([DeletionOpKind.Remove, sourceEntity, relEntity.meta]);
+          scope.push([
+            DeletionOpKind.Remove,
+            sourceEntity,
+            relEntity.meta,
+            this as unknown as Entity,
+          ]);
         }
       }
     });
@@ -215,7 +244,7 @@ export class Lifecycle extends Components {
         if (op[0] === DeletionOpKind.Destroy) {
           op[1]._destroy();
         } else {
-          op[1]._remove(op[2]);
+          op[1]._removeTarget(op[2], op[3]);
         }
       }
     }

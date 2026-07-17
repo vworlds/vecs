@@ -436,7 +436,7 @@ describe("Query DSL compilation", () => {
     world.component(Position);
     world.component(FriendOf);
     const target = world.entity().add(Position);
-    const candidate = world.entity().set(FriendOf, { target });
+    const candidate = world.entity().add(FriendOf, target);
     const unrelated = world.entity();
 
     const compiled = _compile(world, { target: [FriendOf, Position] });
@@ -451,8 +451,8 @@ describe("Query DSL compilation", () => {
     world.component(FriendOf);
     const parent = world.entity();
     const miss = world.entity();
-    world.entity().set(FriendOf, { target: parent }).add(Position);
-    world.entity().set(FriendOf, { target: miss });
+    world.entity().add(FriendOf, parent).add(Position);
+    world.entity().add(FriendOf, miss);
 
     const compiled = _compile(world, { source: [FriendOf, Position] });
 

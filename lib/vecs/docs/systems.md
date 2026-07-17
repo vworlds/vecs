@@ -40,7 +40,7 @@ the full query DSL (operator semantics in
 .with({ all: [Position, { any: [Sprite, Container] }] })  // compound DSL
 .with({ not: Invisible })
 .without(Invisible)                                       // shorthand for .with({ not: Invisible })
-.with({ target: [FriendOf, Position] })                   // relationship target has Position
+.with({ target: [FriendOf, Position] })                   // any relationship target has Position
 .with({ parent: Body })                                   // ChildOf target has Body
 ```
 
@@ -89,6 +89,9 @@ Fires once when an entity starts matching the system:
 .enter({ inject: [Position, Sprite] }, (e, [pos, sprite]) => sprite.setPosition(pos.x, pos.y))
 ```
 
+For systems, injected values and `Iter.src` are captured when entry is routed and replayed from that
+snapshot when the system next drains its inbox.
+
 ### `.update(ComponentClass, callback)` / `.update(options, callback)`
 
 Fires when the watched component is set or marked modified on a tracked entity.
@@ -121,9 +124,10 @@ registration throws instead of replacing the existing callback.
 ### `.exit(callback)` / `.exit(inject, callback)` / `.exit(options, callback)`
 
 Fires when an entity stops matching (component removed, or entity destroyed). Directly injected
-components are read from a **snapshot captured at exit time**, so they are still resolvable even
-though they are being removed; `target`-injected components resolve live at callback time and may
-be `undefined`:
+components and relationship projections are read from a **snapshot captured at exit time**, so
+the same component and entity references remain available even if storage or edges change before
+the system drains its inbox. Component objects are not cloned; later in-place changes to the same
+object remain visible:
 
 ```ts
 .exit([Sprite], (e, [sprite]) => sprite.destroy());
@@ -185,23 +189,55 @@ anything else resolves as `T | undefined` — guard it. (`enter`/`exit` injectio
 direct components to be present and throws otherwise; list only components your predicate
 guarantees.)
 
-### Relationship injection: `target` and `down`
+### Relationship injection
 
-`{ target: [Rel, [C1, C2]] }` follows the entity's relationship to its target and flattens the
-target's components into the tuple. Target-side slots are `undefined` when the relationship or the
-component is absent:
+`{ target: [Rel, projection] }` follows the entity's **first** relationship target and flattens the
+projection into the callback tuple. Use a component class to inject one target-side component, use
+`Entity` to inject the target itself, or use a tuple to inject several values in order:
 
 ```ts
-.forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (e, [body, pos, vel]) => {
-  // body is from e; pos and vel are from e.target(FriendOf).
+.enter([{ target: [FriendOf, Entity] }], (source, [friend]) => {
+  // friend is source.target(FriendOf), one current target, or undefined.
+});
+
+.forEach([Body, { target: [FriendOf, Position] }], (source, [body, pos]) => {
+  // body is from source; pos is from source.target(FriendOf).
+});
+
+.forEach([{ target: [FriendOf, [Entity, Position, Velocity]] }], (source, [friend, pos, vel]) => {
+  // friend, pos, and vel all project from the same FriendOf target.
 });
 ```
 
-With two or more components in the inner tuple, TypeScript widens the slot types to a union;
-mark the inner tuple `as const` (`{ target: [FriendOf, [Position, Velocity] as const] }`) to get
-precise per-slot types. Single-component tuples infer precisely as-is.
+Every target projection is optional. If the source lacks `Rel`, every projected slot is
+`undefined`. If the relationship exists, an `Entity` slot is the target while each component slot
+is `undefined` when that target lacks the component.
 
-`{ down: [Rel, [C1]] }` fans out: the callback fires once per child targeting the visited entity
+Use `{ targets: [Rel, projection] }` to project every target. Unlike singular injection, the whole
+term occupies **one callback tuple slot** containing a readonly array of rows. Each target produces
+one row; row ordering follows the current target snapshot but is not a public ordering contract. The
+row contains one value for a scalar projection or several values for a tuple projection:
+
+```ts
+.forEach(
+  [{ targets: [FriendOf, [Entity, Position, Velocity]] }],
+  (source, [friends]) => {
+    // friends: ReadonlyArray<readonly [Entity, Position | undefined, Velocity | undefined]>
+    for (const [friend, position, velocity] of friends) { ... }
+  }
+);
+```
+
+An absent relationship injects an empty array. The `Entity` value in each plural row is always
+present; projected components remain optional. `target` and `targets` resolve live for `each`,
+`forEach`, `update`, and `orderBy`. For deferred system `enter` and `exit` callbacks, vecs captures
+their projected component and entity references plus sources when the event is routed. Inbox replay
+retains those references even if storage or edges change; component objects are not cloned.
+
+Inline projection tuples infer precise slot types. When reusing a projection tuple stored in a
+variable, declare it `as const` to preserve each position's type.
+
+`{ down: [Rel, [C1]] }` fans out: the callback fires once per source targeting the visited entity
 through `Rel`, with that child's components filling the slots (nullable). `down` is allowed only
 in `each` and `forEach`, at most once per tuple, and entities with zero children produce no calls.
 `down` iterates **all** children through the relationship, independent of any membership filter:
@@ -231,12 +267,14 @@ system.each(
 );
 ```
 
-`it.src` holds the source entity per tuple slot: the visited entity for direct components, the
-relationship target for `target` slots, the specific child for `down` slots. When `Iter` is not
-requested, the non-cursor path runs with zero per-entity overhead — dispatch happens once at setup
-time. `each`/`forEach`/`update`/`orderBy` reuse cursor and tuple instances across the pass, so
-snapshot what you need before triggering further mutations from inside a callback. Passing
-`{ cursor: Entity, ... }` is also accepted and means the default entity-first signature.
+`it.src` holds the source per tuple slot: the visited entity for direct components, the first
+target for every flattened `target` slot, the readonly target-array snapshot for the single
+`targets` slot, and the specific child for `down` slots. Event-time `enter` / `exit` snapshots also
+capture `Iter.src`. When `Iter` is not requested, the non-cursor path has no cursor allocation;
+dispatch happens once at setup time. `each`/`forEach`/`update`/`orderBy` reuse cursor and
+tuple instances across the pass, so snapshot what you need before triggering further mutations
+from inside a callback. Passing `{ cursor: Entity, ... }` is also accepted and means the default
+entity-first signature.
 
 ## Ordering and tracking
 
@@ -321,7 +359,7 @@ While disabled, query membership is still maintained, so the tracked set is corr
 | `phase(anchor)`                                                  | Place after a phase anchor (name or entity). Default `ON_UPDATE`.                                                                |
 | `enter(cb)` / `enter(inject, cb)`                                | Fires once when an entity starts matching.                                                                                       |
 | `update(C, cb)` / `update(options, cb)`                          | Fires on `set`/`modified` of `C` on a member; `options.onEnter: true` also fires on entry for present watched components.        |
-| `exit(cb)` / `exit(inject, cb)`                                  | Fires when an entity stops matching; direct injection reads an exit-time snapshot.                                               |
+| `exit(cb)` / `exit(inject, cb)`                                  | Fires when an entity stops matching; injection retains references captured at exit time.                                         |
 | `each([C...], cb)`                                               | Fires per tracked entity every tick. Implies `track`. One per system.                                                            |
 | `run(cb)`                                                        | Fires once per tick, `(now, delta)`.                                                                                             |
 | `interval(seconds)` / `rate(n[, source])` / `tickSource(source)` | Cadence control.                                                                                                                 |

@@ -86,6 +86,12 @@ export class Deferred extends Queries {
       case CommandKind.Attach:
         cmd.entity._attach(cmd.meta, cmd.component);
         return;
+      case CommandKind.AddTarget:
+        cmd.entity._addTarget(cmd.meta, cmd.target);
+        return;
+      case CommandKind.RemoveTarget:
+        cmd.entity._removeTarget(cmd.meta, cmd.target);
+        return;
     }
   }
 

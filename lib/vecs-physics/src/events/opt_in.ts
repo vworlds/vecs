@@ -68,7 +68,7 @@ export class EventOptInModule extends Module {
       .enter(
         { cursor: Iter, inject: [Chain, { target: [ChildOf, [Body]] }] },
         (it, [chain, body]) => {
-          recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+          recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
       .exit((entity) => {

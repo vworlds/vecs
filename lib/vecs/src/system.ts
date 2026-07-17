@@ -7,7 +7,6 @@ import {
   type FanInjectTuple,
   type InjectedCallback,
   type InjectSnapshot,
-  type InjectSnapshotTypes,
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
 import { SOURCE_TRACKED_QUERY_ERROR, Query } from "./query/index.js";
@@ -159,13 +158,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       return;
     }
     if (this._enterCallback !== undefined) {
-      // Snapshot the injected components now (entity is present), mirroring exit,
-      // so the queued enter still resolves them if the entity is destroyed before
-      // the inbox drains — otherwise the injected read would crash on `undefined`.
-      let enterSnapshot: InjectSnapshot | undefined;
-      if (this._enterSnapshotTypes && this._enterSnapshotTypes.length > 0) {
-        enterSnapshot = snapshotDirectInjects(e, this._enterSnapshotTypes);
-      }
+      const enterSnapshot = this._enterSnapshotter?.(e);
       this._inbox.push({ kind: InboxCommand.Enter, entity: e, snapshot: enterSnapshot });
     }
     for (const ceid of this._onEnterUpdateEids) {
@@ -199,10 +192,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     // updates for staleness.
     this._exitedSinceDrain = true;
     if (this._exitCallback !== undefined) {
-      let exitSnapshot: InjectSnapshot | undefined;
-      if (this._exitSnapshotTypes && this._exitSnapshotTypes.length > 0) {
-        exitSnapshot = snapshotDirectInjects(e, this._exitSnapshotTypes);
-      }
+      const exitSnapshot = this._exitSnapshotter?.(e);
       this._inbox.push({ kind: InboxCommand.Exit, entity: e, snapshot: exitSnapshot });
     }
   }
@@ -335,7 +325,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public phase(phase: Entity | string): this {
     this._assertConfigurable();
     const target = (typeof phase === "string" ? this.world.entity(phase) : phase).add(Phase);
-    this.entity.set(DependsOn, { target });
+    this.entity.add(DependsOn, target);
     return this;
   }
 
@@ -599,14 +589,4 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this.disable();
     super.destroy();
   }
-}
-
-function snapshotDirectInjects(e: Entity, snapshotTypes: InjectSnapshotTypes): InjectSnapshot {
-  const snapshot = new Array<ComponentInstance | undefined>(snapshotTypes.length);
-  snapshotTypes.forEach((ceid, index) => {
-    if (ceid !== undefined) {
-      snapshot[index] = e._get(ceid);
-    }
-  });
-  return snapshot;
 }

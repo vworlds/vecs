@@ -6,6 +6,7 @@ import {
   StateDiff,
   ALL_COMPONENTS,
   cid_unpack,
+  decodeRelationshipSnapshot,
   NetworkWorld,
   type NetworkWorldOptions,
   type RPCHandler,
@@ -18,6 +19,7 @@ import {
   type EID,
   type Entity,
   Events,
+  Exclusive,
   Query,
   ON_LOAD,
   Relationship,
@@ -82,6 +84,7 @@ export class ClientWorld extends NetworkWorld {
   private readonly _encodeBuffer: Uint8Array;
   private readonly _ackIntervalMs: number;
   private readonly _networkedQuery: InstanceType<typeof Query>;
+  private readonly _relationshipTargetEids = new WeakMap<ComponentInstance, readonly EID[]>();
   private _input: unknown;
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
@@ -242,9 +245,18 @@ export class ClientWorld extends NetworkWorld {
         `Received snapshot for unregistered component wire type ${snapshot.wireType}`
       );
     }
-    return (snapshot.payload = new Decoder(snapshot.payload).read(
-      registered.Class
-    ) as ComponentInstance);
+    const decoder = new Decoder(snapshot.payload);
+    if (registered.Class.prototype instanceof Relationship) {
+      const decoded = decodeRelationshipSnapshot(decoder, registered.Class);
+      if (decoded.targetEids.length > 1 && this.entity(registered.Class).has(Exclusive)) {
+        throw new Error(
+          `Exclusive relationship ${registered.Class.name} snapshot has ${decoded.targetEids.length} targets`
+        );
+      }
+      this._relationshipTargetEids.set(decoded.component, decoded.targetEids);
+      return (snapshot.payload = decoded.component);
+    }
+    return (snapshot.payload = decoder.read(registered.Class) as ComponentInstance);
   }
 
   private _applySnapshot(snapshot: ComponentSnapshot): void {
@@ -260,23 +272,31 @@ export class ClientWorld extends NetworkWorld {
   }
 
   private _applyRelationshipSnapshot(entity: Entity, component: Relationship): void {
-    const relClass = component.constructor as ComponentClass;
-    const targetEid = component.target as unknown as EID;
-
-    if (!targetEid) {
-      if (entity.get(relClass)) {
-        entity.remove(relClass);
-      }
-      return;
+    const relClass = component.constructor as ComponentClass<Relationship>;
+    const targetEids = this._relationshipTargetEids.get(component);
+    if (targetEids === undefined) {
+      throw new Error(`Missing decoded targets for relationship ${relClass.name}`);
     }
 
-    // Create the target as an empty Networked ghost if it doesn't exist yet.
-    // Its real components arrive in later snapshots and attach to the same
-    // entity. This avoids any pending-link bookkeeping: retargeting,
-    // child-destruction, and baseline resets all work through normal ECS
-    // lifecycle without stale references.
-    const target = this.getOrCreateEntity(targetEid, (e) => e.add(Networked));
-    entity.set(relClass, { target });
+    const targets = targetEids.map((eid) =>
+      this.getOrCreateEntity(eid, (target) => target.add(Networked))
+    );
+    const currentTargets = [...entity.targets(relClass)];
+    const previousTargets = new Set(currentTargets);
+    targets.forEach((target) => {
+      if (!previousTargets.has(target)) {
+        entity.add(relClass, target);
+      }
+    });
+    const nextTargets = new Set(targets);
+    currentTargets.forEach((target) => {
+      if (!nextTargets.has(target)) {
+        entity.remove(relClass, target);
+      }
+    });
+    if (targets.length > 0) {
+      entity.set(relClass, component);
+    }
   }
 
   private _removeComponent(eid: EID, wireType: number): void {

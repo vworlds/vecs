@@ -1,5 +1,10 @@
 import { Entity } from "./entity/index.js";
-import type { ComponentType, HookHandler } from "./component_meta.js";
+import {
+  Relationship,
+  type ComponentType,
+  type HookHandler,
+  type TargetHandler,
+} from "./component_meta.js";
 
 export {
   CleanupPolicy,
@@ -13,11 +18,39 @@ export {
   type ComponentType,
   type Hook,
   type HookHandler,
-  type RetargetHandler,
+  type TargetHandler,
 } from "./component_meta.js";
 
 /** A component entity created by {@link World.component}. */
 export class Component<T extends ComponentType = ComponentType> extends Entity {
+  /** Get or set the callback fired after a relationship edge is added. */
+  public override onTargetAdd(): TargetHandler | undefined;
+  public override onTargetAdd(
+    handler: TargetHandler<InstanceType<T> & Relationship> | undefined
+  ): this;
+  public override onTargetAdd(handler: TargetHandler | undefined): this;
+  public override onTargetAdd(handler?: any): this | TargetHandler | undefined {
+    if (arguments.length === 0) {
+      return super.onTargetAdd();
+    }
+    super.onTargetAdd(handler);
+    return this;
+  }
+
+  /** Get or set the callback fired after a relationship edge is removed. */
+  public override onTargetRemove(): TargetHandler | undefined;
+  public override onTargetRemove(
+    handler: TargetHandler<InstanceType<T> & Relationship> | undefined
+  ): this;
+  public override onTargetRemove(handler: TargetHandler | undefined): this;
+  public override onTargetRemove(handler?: any): this | TargetHandler | undefined {
+    if (arguments.length === 0) {
+      return super.onTargetRemove();
+    }
+    super.onTargetRemove(handler);
+    return this;
+  }
+
   /**
    * Get or set the callback fired each time this component is **added** to an entity.
    *

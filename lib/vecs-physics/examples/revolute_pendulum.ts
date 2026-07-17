@@ -38,8 +38,8 @@ world.entity().childOf(bob).set(Box, { hx: 0.2, hy: 0.2 });
 // corner, both map to (0, 5). The bob swings about that pivot.
 world
   .entity()
-  .set(JointBodyA, { target: anchor })
-  .set(JointBodyB, { target: bob })
+  .add(JointBodyA, anchor)
+  .add(JointBodyB, bob)
   .add(RevoluteJoint)
   .set(JointFrame, {
     localAnchorA: { x: 0, y: 0 },

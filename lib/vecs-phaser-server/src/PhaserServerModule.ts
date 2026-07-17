@@ -1,5 +1,7 @@
-import { Module, POST_UPDATE } from "@vworlds/vecs";
+import { Exclusive, Module, POST_UPDATE, Traversable } from "@vworlds/vecs";
 import {
+  DrawBy,
+  DrawIn,
   phaserRenderableComponents,
   Position as RenderPosition,
   Rotation as RenderRotation,
@@ -10,6 +12,8 @@ export class PhaserServerModule extends Module<undefined> {
   public init(): void {
     const world = this.world;
 
+    world.component(DrawIn).add(Exclusive);
+    world.component(DrawBy).add(Exclusive).add(Traversable);
     world.setExclusiveComponents(...phaserRenderableComponents);
 
     world

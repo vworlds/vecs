@@ -11,6 +11,93 @@ class Tag {}
 class FriendOf extends Relationship {}
 
 describe("Iter cursor", () => {
+  describe("plural target injection", () => {
+    it("injects one row-array slot and keeps singular injection on the first target", () => {
+      const w = new World();
+      w.component(Position);
+      w.component(Velocity);
+      w.component(Tag);
+      w.component(FriendOf);
+      const first = w.entity().set(Position, { x: 1 });
+      const second = w.entity().set(Velocity, { vx: 2 });
+      const source = w.entity().add(Tag).add(FriendOf, first).add(FriendOf, second);
+      const empty = w.entity().add(Tag);
+      const seen = new Map<Entity, unknown[]>();
+
+      const query = w.query("plural-inject").with(Tag).build();
+      query.forEach(
+        {
+          cursor: Iter,
+          inject: [
+            { target: [FriendOf, Entity] },
+            { targets: [FriendOf, [Entity, Position, Velocity]] },
+          ],
+        },
+        (it, [singular, rows]) => {
+          const typedRows: ReadonlyArray<
+            readonly [Entity, Position | undefined, Velocity | undefined]
+          > = rows;
+          seen.set(it.entity, [singular, typedRows, it.src[0], it.src[1]]);
+        }
+      );
+
+      expect(seen.get(source)).toEqual([
+        first,
+        [
+          [first, first.get(Position), undefined],
+          [second, undefined, second.get(Velocity)],
+        ],
+        first,
+        [first, second],
+      ]);
+      expect(seen.get(empty)).toEqual([undefined, [], undefined, []]);
+
+      const bareRows = new Map<Entity, unknown>();
+      query.forEach([{ targets: [FriendOf, [Entity, Position]] }], (entity, [rows]) => {
+        bareRows.set(entity, rows);
+      });
+      expect(bareRows.get(source)).toEqual([
+        [first, first.get(Position)],
+        [second, undefined],
+      ]);
+      expect(bareRows.get(empty)).toEqual([]);
+    });
+
+    it("preserves the plural slot around down injection", () => {
+      const w = new World();
+      w.component(Position);
+      w.component(Tag);
+      w.component(FriendOf);
+      const target = w.entity().add(Position);
+      const parent = w.entity().add(Tag).add(FriendOf, target);
+      const child = w.entity().childOf(parent).add(Position);
+      const seen: unknown[][] = [];
+
+      w.filter(Tag).forEach(
+        {
+          cursor: Iter,
+          inject: [
+            { targets: [FriendOf, Entity] },
+            { down: [ChildOf, [Position]] },
+            { target: [FriendOf, Position] },
+          ],
+        },
+        (it, tuple) => seen.push([tuple.length, ...tuple, ...it.src])
+      );
+
+      expect(seen).toEqual([
+        [3, [[target]], child.get(Position), target.get(Position), [target], child, target],
+      ]);
+
+      const bareSeen: unknown[][] = [];
+      w.filter(Tag).forEach(
+        [{ targets: [FriendOf, Entity] }, { down: [ChildOf, [Position]] }],
+        (_entity, tuple) => bareSeen.push([...tuple])
+      );
+      expect(bareSeen).toEqual([[[[target]], child.get(Position)]]);
+    });
+  });
+
   describe("System.each", () => {
     it("Iter cursor reuses one object across entities", () => {
       const w = new World();
@@ -70,7 +157,7 @@ describe("Iter cursor", () => {
           srcs.push([it.src[0], it.src[1]]);
         });
       const target = w.entity().add(Position);
-      w.entity().set(FriendOf, { target });
+      w.entity().add(FriendOf, target);
       w.progress(0, 0);
       expect(srcs).toEqual([[target, target]]);
     });
@@ -87,7 +174,7 @@ describe("Iter cursor", () => {
           srcs.push([it.src[0], it.src[1]]);
         });
       const target = w.entity().add(Position);
-      w.entity().set(FriendOf, { target });
+      w.entity().add(FriendOf, target);
       w.progress(0, 0);
       expect(srcs).toEqual([[target, target]]);
     });
@@ -347,6 +434,27 @@ describe("Iter cursor", () => {
       expect(it.src[0]).toBe(e);
       expect(cb.mock.calls[0][1]).toEqual([pos]);
     });
+
+    it("snapshots target values and Iter.src when the source is destroyed before drain", () => {
+      const w = new World();
+      w.component(Tag);
+      w.component(FriendOf);
+      const cb = vi.fn();
+      w.system("sys")
+        .with({ target: [FriendOf, Tag] })
+        .enter({ cursor: Iter, inject: [{ target: [FriendOf, [Entity, Tag]] }] }, cb);
+      w.progress(0, 0);
+      const target = w.entity().add(Tag);
+      const tag = target.get(Tag);
+      const source = w.entity().add(FriendOf, target);
+      source.destroy();
+
+      w.progress(0, 0);
+
+      const it = cb.mock.calls[0][0] as Iter;
+      expect(cb.mock.calls[0][1]).toEqual([target, tag]);
+      expect(it.src).toEqual([target, target]);
+    });
   });
 
   describe("System.exit", () => {
@@ -369,7 +477,7 @@ describe("Iter cursor", () => {
       expect(cb.mock.calls[0][1]).toEqual([pos]);
     });
 
-    it("snapshots direct inject terms by inject position", () => {
+    it("snapshots direct and target inject terms by resolved position", () => {
       const w = new World();
       w.component(Position);
       w.component(Velocity);
@@ -380,17 +488,18 @@ describe("Iter cursor", () => {
         .with(Position)
         .exit([Position, { target: [FriendOf, [Tag]] }, Velocity], cb);
       const target = w.entity().add(Tag);
-      const e = w.entity().add(Position).add(Velocity).set(FriendOf, { target });
+      const tag = target.get(Tag);
+      const e = w.entity().add(Position).add(Velocity).add(FriendOf, target);
       w.progress(0, 0);
       const pos = e.get(Position);
       const vel = e.get(Velocity);
       e.destroy();
       w.progress(0, 0);
       expect(cb).toHaveBeenCalledTimes(1);
-      expect(cb.mock.calls[0][1]).toEqual([pos, undefined, vel]);
+      expect(cb.mock.calls[0][1]).toEqual([pos, tag, vel]);
     });
 
-    it("snapshots direct inject terms by inject position with Iter", () => {
+    it("snapshots direct and target inject terms with Iter sources", () => {
       const w = new World();
       w.component(Position);
       w.component(Velocity);
@@ -401,14 +510,104 @@ describe("Iter cursor", () => {
         .with(Position)
         .exit({ cursor: Iter, inject: [Position, { target: [FriendOf, [Tag]] }, Velocity] }, cb);
       const target = w.entity().add(Tag);
-      const e = w.entity().add(Position).add(Velocity).set(FriendOf, { target });
+      const tag = target.get(Tag);
+      const e = w.entity().add(Position).add(Velocity).add(FriendOf, target);
       w.progress(0, 0);
       const pos = e.get(Position);
       const vel = e.get(Velocity);
       e.destroy();
       w.progress(0, 0);
       expect(cb).toHaveBeenCalledTimes(1);
-      expect(cb.mock.calls[0][1]).toEqual([pos, undefined, vel]);
+      const it = cb.mock.calls[0][0] as Iter;
+      expect(cb.mock.calls[0][1]).toEqual([pos, tag, vel]);
+      expect(it.src).toEqual([e, target, e]);
+    });
+
+    it("snapshots the current target after retarget then relationship removal", () => {
+      const w = new World();
+      w.component(Tag);
+      const cb = vi.fn();
+      w.system("sys")
+        .with(ChildOf, { target: [ChildOf, Tag] })
+        .exit([{ target: [ChildOf, [Entity, Tag]] }], cb);
+      const first = w.entity().add(Tag);
+      const second = w.entity().add(Tag);
+      const secondTag = second.get(Tag);
+      const child = w.entity().childOf(first);
+      w.progress(0, 0);
+
+      child.childOf(second);
+      child.remove(ChildOf);
+      w.progress(0, 0);
+
+      expect(cb).toHaveBeenCalledWith(child, [second, secondTag]);
+    });
+
+    it("does not restore a target removed before the exit event", () => {
+      const w = new World();
+      w.component(Position);
+      w.component(Tag);
+      w.component(FriendOf);
+      const cb = vi.fn();
+      w.system("sys")
+        .with(Position)
+        .exit([{ target: [FriendOf, [Entity, Tag]] }], cb);
+      const target = w.entity().add(Tag);
+      const source = w.entity().add(Position).add(FriendOf, target);
+      w.progress(0, 0);
+
+      source.remove(FriendOf);
+      source.remove(Position);
+      w.progress(0, 0);
+
+      expect(cb).toHaveBeenCalledWith(source, [undefined, undefined]);
+    });
+
+    it("keeps a target component removed before inbox drain", () => {
+      const w = new World();
+      w.component(Tag);
+      w.component(FriendOf);
+      const cb = vi.fn();
+      w.system("sys")
+        .with({ target: [FriendOf, Tag] })
+        .exit([{ target: [FriendOf, [Entity, Tag]] }], cb);
+      const target = w.entity().add(Tag);
+      const tag = target.get(Tag);
+      const source = w.entity().add(FriendOf, target);
+      w.progress(0, 0);
+
+      target.remove(Tag);
+      w.progress(0, 0);
+
+      expect(cb).toHaveBeenCalledWith(source, [target, tag]);
+    });
+
+    it("snapshots plural target rows and Iter.src before relationship teardown", () => {
+      const w = new World();
+      w.component(Position);
+      w.component(Tag);
+      w.component(FriendOf);
+      const cb = vi.fn();
+      w.system("sys")
+        .with(Position, { target: [FriendOf, Tag] })
+        .exit({ cursor: Iter, inject: [{ targets: [FriendOf, [Entity, Position]] }] }, cb);
+      const first = w.entity().add(Tag).set(Position, { x: 1 });
+      const second = w.entity().add(Tag);
+      const source = w.entity().add(Position).add(FriendOf, first).add(FriendOf, second);
+      w.progress(0, 0);
+
+      source.remove(Position);
+      source.remove(FriendOf);
+      w.progress(0, 0);
+
+      const it = cb.mock.calls[0][0] as Iter;
+      expect(cb.mock.calls[0][1]).toEqual([
+        [
+          [first, first.get(Position)],
+          [second, undefined],
+        ],
+      ]);
+      expect(it.src).toEqual([[first, second]]);
     });
   });
 
@@ -558,7 +757,7 @@ describe("Iter cursor", () => {
       w.component(FriendOf);
       const target = w.entity().add(Position);
       w.entity().add(Position);
-      w.entity().set(FriendOf, { target });
+      w.entity().add(FriendOf, target);
       const seen: unknown[] = [];
       w.filter({ target: [FriendOf, Position] }).forEach(
         { cursor: Iter, inject: [{ target: [FriendOf, [Position, Tag]] }] },
@@ -585,7 +784,7 @@ describe("Iter cursor", () => {
           entered.push({ entity: it.entity, src: it.src[0], pos });
         });
       const target = w.entity().add(Position);
-      w.entity().set(FriendOf, { target });
+      w.entity().add(FriendOf, target);
       w.progress(0, 0);
       expect(entered.length).toBe(1);
       const entry = entered[0] as any;
@@ -603,10 +802,10 @@ describe("Iter cursor", () => {
           exited.push({ entity: it.entity, src: it.src[0], pos });
         });
       const target = w.entity().add(Position);
-      const candidate = w.entity().set(FriendOf, { target });
+      const candidate = w.entity().add(FriendOf, target);
       w.progress(0, 0);
-      // Exit caused by removal of target's Position — target injection resolves
-      // live, so src is still the target at exit time.
+      // Exit caused by removal of target's Position. The queued snapshot keeps
+      // the target source even though the projected component is gone.
       target.remove(Position);
       w.progress(0, 0);
       expect(exited.length).toBe(1);

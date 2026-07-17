@@ -5,8 +5,9 @@ exclusivity, cleanup policies, interface aliases, and singletons.
 
 ## Components are plain data classes
 
-A component is an ordinary class with field initializers and a no-argument constructor. It does
-not inherit from a vecs base class — vecs instantiates it with `new ComponentClass()`:
+An ordinary component is a class with field initializers and a no-argument constructor. Relationship
+components are the exception: they extend `Relationship` so vecs can recognize their private edge
+storage. Vecs instantiates either form with `new ComponentClass()`:
 
 ```ts
 class Position {
@@ -71,7 +72,7 @@ Pass `idPools` to the `World` constructor to change ranges (each entry is an `Id
 released this frame is not immediately recycled. `world.peekNextEid(poolName)` returns the next id
 a pool would allocate without reserving it. Id 0 is reserved.
 
-## Hooks: `onAdd`, `onSet`, `onRemove`, `onRetarget`
+## Hooks: component and relationship edges
 
 The `Component` entity exposes lifecycle hooks fired for every entity carrying the component:
 
@@ -83,15 +84,18 @@ world
   .onRemove((entity, sprite) => sprite.destroy(scene, entity));
 ```
 
-| Hook       | Fires when…                                                                                                                                               |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `onAdd`    | The component is first attached (`add`, or `set` on an entity that lacked it).                                                                            |
-| `onSet`    | `entity.set(C, props)` applies data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
-| `onRemove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                        |
+| Hook       | Fires when…                                                                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `onAdd`    | The component is first attached (`add`, or `set` on an entity that lacked an ordinary component).                                                                  |
+| `onSet`    | `entity.set(C, props)` applies ordinary data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
+| `onRemove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                                 |
 
-Relationship component entities additionally expose `onRetarget`. It fires after an existing
-relationship changes to a different target, once `target` and `children` already reflect the new
-reverse-index state. Initial assignment, same-target `set`, and removal do not fire it.
+Relationship component entities additionally expose `onTargetAdd` and `onTargetRemove`. Both
+receive `(source, relationshipInstance, target)` after the edge and reverse index reach their new
+state. An exclusive replacement calls `onTargetRemove` for the old edge before `onTargetAdd` for
+the new edge. Adding or removing edges never fires `onSet`; it is reserved for ordinary fields on
+an existing relationship. See [Relationships — edge hooks](./relationships.md#edge-hooks) for the
+full ordering.
 
 Handlers receive `(entity, componentInstance)` — component instances do not carry entity
 references, so the entity is passed explicitly. Hooks fire synchronously when the corresponding
@@ -100,9 +104,9 @@ resource management and cross-cutting reactions that aren't worth a system; use 
 reaction belongs to a phase.
 
 Each lifecycle event has one handler slot per component. Calling `onAdd(handler)`,
-`onSet(handler)`, `onRemove(handler)`, or `onRetarget(handler)` replaces the current handler and
-returns the component entity for chaining. Call the method without an argument to read the current
-handler, or pass `undefined` to remove it.
+`onSet(handler)`, `onRemove(handler)`, `onTargetAdd(handler)`, or `onTargetRemove(handler)` replaces
+the current public handler and returns the component entity for chaining. Call the method without
+an argument to read the current handler, or pass `undefined` to remove it.
 
 ## Component traits: policy on component entities
 
@@ -112,25 +116,27 @@ components **component traits**:
 
 ```ts
 world.component(Gravity).add(Singleton);
-world.component(Inventory).add(OwnedTarget);
-world.component(ChildOf).add(Traversable);
+world.component(Inventory).add(Exclusive).add(OwnedTarget);
+world.component(ChildOf).add(Traversable); // ChildOf is already Exclusive
 world.component(Orange).set(Implements, { interfaces: [Fruit] });
 ```
 
-| Trait/declaration | Applies to                         | Effect                                                               |
-| ----------------- | ---------------------------------- | -------------------------------------------------------------------- |
-| `Singleton`       | Concrete components                | Allows at most one carrier entity                                    |
-| `Implements`      | Non-relationship components        | Exposes concrete data through abstract aliases                       |
-| `Traversable`     | Relationships                      | Maintains hierarchy depth for cascade ordering                       |
-| `OwnedTarget`     | Relationships other than `ChildOf` | Owns the active target through `ChildOf` and destructive replacement |
+| Trait/declaration | Applies to                                   | Effect                                                                       |
+| ----------------- | -------------------------------------------- | ---------------------------------------------------------------------------- |
+| `Singleton`       | Concrete components                          | Allows at most one carrier entity                                            |
+| `Implements`      | Non-relationship components                  | Exposes concrete data through abstract aliases                               |
+| `Exclusive`       | Relationships                                | Restricts the relationship to one target with atomic replacement             |
+| `Traversable`     | Exclusive relationships                      | Maintains hierarchy depth for cascade ordering                               |
+| `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement |
 
 Traits declare policy; their built-in modules install the hooks and maintain the metadata that
 enforce it. Configure traits in feature-module setup rather than opportunistically inside systems.
 Do not assume all traits have the same lifecycle:
 
 - Add `Singleton` before component instances exist.
-- Configure owner hooks, then add `OwnedTarget`, before relationship instances exist; it wraps the
-  current hooks and does not backfill.
+- Add `Exclusive` before relationship instances exist. `OwnedTarget` and `Traversable` require it.
+- Add `OwnedTarget` before relationship instances exist; it never creates a target implicitly and
+  does not replace public edge hooks.
 - `Traversable` backfills existing relationship instances.
 - Setting or removing `Implements` recomputes interface aliases.
 
@@ -176,6 +182,11 @@ Each call defines one independent group. A component belongs to at most one grou
 at any time. Exclusivity is how you model "exactly one of N" (one renderable per entity, one
 physics shape per body) — and it makes type swaps clean, because replacing the component fires the
 old one's `exit`/`onRemove` automatically.
+
+This is distinct from the `Exclusive` relationship trait. `setExclusiveComponents(A, B)` chooses
+which **component class** may exist; `world.component(R).add(Exclusive)` allows one instance of
+relationship `R` as usual but limits it to one **target edge**, replacing that edge atomically. See
+[Relationships — exclusive one-target relationships](./relationships.md#exclusive-one-target-relationships).
 
 ## Cleanup policies: destroying a component entity
 
@@ -312,22 +323,24 @@ interface markers for polymorphic dispatch — is in the
 A `Component<T>` is an `Entity` subclass, so the full [entity API](./entities.md#reference)
 applies. On top of it:
 
-| Member                 | Description                                                                |
-| ---------------------- | -------------------------------------------------------------------------- |
-| `onAdd(handler?)`      | Get, set, or remove the single add hook. Setter returns the component.     |
-| `onRemove(handler?)`   | Get, set, or remove the single remove hook.                                |
-| `onRetarget(handler?)` | Get, set, or remove the relationship retarget hook. Rejects non-relations. |
-| `onSet(handler?)`      | Get, set, or remove the single set/modified hook.                          |
-| `meta`                 | The `ComponentMeta` bookkeeping record.                                    |
+| Member                     | Description                                                                       |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `onAdd(handler?)`          | Get, set, or remove the single add hook. Setter returns the component.            |
+| `onRemove(handler?)`       | Get, set, or remove the single remove hook.                                       |
+| `onTargetAdd(handler?)`    | Get, set, or remove the relationship edge-add hook. Rejects non-relationships.    |
+| `onTargetRemove(handler?)` | Get, set, or remove the relationship edge-remove hook. Rejects non-relationships. |
+| `onSet(handler?)`          | Get, set, or remove the single ordinary-data set/modified hook.                   |
+| `meta`                     | The `ComponentMeta` bookkeeping record.                                           |
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 
-| Field            | Description                                                                                   |
-| ---------------- | --------------------------------------------------------------------------------------------- |
-| `Class`          | The component class constructor.                                                              |
-| `eid`            | Component entity id assigned at registration.                                                 |
-| `bitPtr`         | Pre-computed bit pointer into entity archetype bitsets.                                       |
-| `isRelationship` | `true` when the class extends `Relationship`.                                                 |
-| `onDelete`       | `CleanupPolicy` applied to carriers when the component entity is destroyed. Default `Throw`.  |
-| `onDeleteTarget` | `CleanupPolicy` applied to sources when a relationship target is destroyed. Default `Remove`. |
-| `usageCount`     | Number of entities currently carrying this component.                                         |
+| Field                   | Description                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------- |
+| `Class`                 | The component class constructor.                                                              |
+| `eid`                   | Component entity id assigned at registration.                                                 |
+| `bitPtr`                | Pre-computed bit pointer into entity archetype bitsets.                                       |
+| `isRelationship`        | `true` when the class extends `Relationship`.                                                 |
+| `relationshipExclusive` | `true` when the relationship carries the `Exclusive` trait.                                   |
+| `onDelete`              | `CleanupPolicy` applied to carriers when the component entity is destroyed. Default `Throw`.  |
+| `onDeleteTarget`        | `CleanupPolicy` applied to sources when a relationship target is destroyed. Default `Remove`. |
+| `usageCount`            | Number of entities currently carrying this component.                                         |

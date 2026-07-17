@@ -17,7 +17,7 @@ It is accepted by `query().with`, `system().with`, and `world.filter`:
 | `{ any: [q1, q2] }`    | At least one sub-expression matches                                 |
 | `{ not: q }`           | Sub-expression must not match                                       |
 | `{ only: [A, B] }`     | Entity has exactly `A` and `B`, nothing else                        |
-| `{ target: [R, q] }`   | Relationship `R`'s target matches `q`                               |
+| `{ target: [R, q] }`   | At least one of relationship `R`'s targets matches `q`              |
 | `{ source: [R, q] }`   | Filter-only: some entity targeting this one through `R` matches `q` |
 | `{ parent: q }`        | Built-in `ChildOf` target matches `q`                               |
 | `{ children: q }`      | Filter-only: some `ChildOf` child matches `q`                       |
@@ -36,12 +36,13 @@ Class-valued terms are components — register them first; an unregistered class
 whose changes should re-evaluate it.
 
 `target` and `source` take tuple form only: `{ target: [RelationshipClass, innerDSL] }`. The first
-element must extend `Relationship` (a plain component throws). `target` evaluates the inner DSL
-against the relationship's target; `source` evaluates it against each entity pointing at the
-candidate and matches when at least one does. `parent` / `children` are the same operators
-specialized to `ChildOf`. **`source` and `children` are non-reactive**: exact for each filter
-scan, but rejected by tracked queries and systems. `target` / `parent` are fully reactive — see
-[Relationships](./relationships.md#querying-through-relationships).
+element must extend `Relationship` (a plain component throws). `target` is existential: it evaluates
+the inner DSL against every relationship target and matches when at least one does. `source`
+evaluates it against each entity pointing at the candidate and also matches when at least one does.
+`parent` / `children` are the same operators specialized to the exclusive `ChildOf` relationship.
+**`source` and `children` are non-reactive**: exact for each filter scan, but rejected by tracked
+queries and systems. `target` / `parent` are fully reactive to edge changes and target-side changes
+— see [Relationships](./relationships.md#querying-through-relationships).
 
 ### `QuerySpec`: adding `cascade` and `hint`
 
@@ -144,14 +145,18 @@ Two forms (`lib/vecs/src/query/grouped_query.ts`):
 
 - `groupBy([components], keyFn)` / `groupBy({ inject: [components] }, keyFn)` — bucket by a
   computed key; injected components are watched, so changing them re-keys the entity.
-- `groupBy(RelationshipClass)` / `groupBy({ relationship: RelationshipClass })` — bucket by the
-  relationship's target entity. Moving between buckets is a retarget, a plain data change (see
-  [Relationships](./relationships.md#retargeting)).
+- `groupBy(RelationshipClass)` / `groupBy({ relationship: RelationshipClass })` — place each member
+  in one bucket per relationship target. Adding or removing edges reconciles only the affected
+  buckets; an exclusive replacement moves the member from the old target bucket to the new one.
 
 The result is a `GroupedQuery<K, R>` adding `group(key)`, `groups()`, `groupKeys()`, `groupCount`,
 and `onGroupEnter` / `onGroupExit` callbacks for bucket creation and disposal. Each `Group` exposes
 `key`, `count`, `has`, iteration, and injected `forEach`. Grouping implies tracking. Systems do
 not support `groupBy` — keep the grouped query standalone and read it from a system.
+
+A many-target member can therefore appear in several groups at once. Re-adding an existing edge
+does not duplicate it within a bucket, removing one edge leaves its other buckets intact, and
+destroying a target removes that target's bucket according to normal relationship cleanup.
 
 ## Filters: one-shot scans
 

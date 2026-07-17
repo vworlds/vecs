@@ -9,17 +9,106 @@ export enum CleanupPolicy {
 
 /** Base class for relationship components that point at another entity. */
 export abstract class Relationship {
-  public target!: Entity;
+  private _targets: Entity | Entity[] | undefined;
+
+  /** @internal Add an edge without exposing mutable target storage. */
+  public _addTarget(target: Entity): void {
+    if (this._targets === undefined) {
+      this._targets = target;
+    } else if (Array.isArray(this._targets)) {
+      this._targets.push(target);
+    } else {
+      this._targets = [this._targets, target];
+    }
+  }
+
+  /** @internal Remove an edge and restore the single-target representation when possible. */
+  public _removeTarget(target: Entity): boolean {
+    if (this._targets === target) {
+      this._targets = undefined;
+      return true;
+    }
+    if (!Array.isArray(this._targets)) {
+      return false;
+    }
+    const index = this._targets.indexOf(target);
+    if (index === -1) {
+      return false;
+    }
+    this._targets.splice(index, 1);
+    if (this._targets.length === 1) {
+      this._targets = this._targets[0];
+    }
+    return true;
+  }
+
+  /** @internal Replace the sole target of an exclusive relationship. */
+  public _replaceTarget(target: Entity): Entity {
+    const previous = this._targets as Entity;
+    this._targets = target;
+    return previous;
+  }
+
+  /** @internal Remove and return every target. */
+  public _takeTargets(): Entity[] {
+    const targets = this._targetArray();
+    this._targets = undefined;
+    return targets;
+  }
+
+  /** @internal Return the first current target. */
+  public _target(): Entity | undefined {
+    return Array.isArray(this._targets) ? this._targets[0] : this._targets;
+  }
+
+  /** @internal Return the number of current targets without allocating. */
+  public _targetCount(): number {
+    if (this._targets === undefined) {
+      return 0;
+    }
+    return Array.isArray(this._targets) ? this._targets.length : 1;
+  }
+
+  /** @internal Test targets without materializing a public snapshot. */
+  public _someTarget(predicate: (target: Entity) => boolean): boolean {
+    if (this._targets === undefined) {
+      return false;
+    }
+    if (!Array.isArray(this._targets)) {
+      return predicate(this._targets);
+    }
+    return this._targets.some(predicate);
+  }
+
+  /** @internal Test an edge without allocating. */
+  public _hasTarget(target: Entity): boolean {
+    return Array.isArray(this._targets) ? this._targets.includes(target) : this._targets === target;
+  }
+
+  /** @internal Return a safe target snapshot. */
+  public _targetArray(): Entity[] {
+    if (this._targets === undefined) {
+      return [];
+    }
+    return Array.isArray(this._targets) ? [...this._targets] : [this._targets];
+  }
 }
 
-/** Callback fired after a relationship moves from one existing target to another. */
-export type RetargetHandler = (source: Entity, oldTarget: Entity, newTarget: Entity) => void;
+/** Callback fired after one relationship edge is added or removed. */
+export type TargetHandler<C extends Relationship = Relationship> = (
+  source: Entity,
+  relationship: C,
+  target: Entity
+) => void;
 
 /** Callback fired for a component lifecycle event. */
 export type HookHandler<C extends ComponentInstance = ComponentInstance> = (
   entity: Entity,
   component: C
 ) => void;
+
+/** Internal validation run before a component is attached to or removed from an entity. */
+export type ComponentValidator = (entity: Entity) => void;
 
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
@@ -125,6 +214,8 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   public readonly bitPtr: BitPtr;
   /** Whether this component is a relationship pointing at another entity. */
   public readonly isRelationship: boolean;
+  /** Whether this relationship permits only one target. */
+  public relationshipExclusive = false;
 
   /** Applied to entities carrying this component when this component entity is deleted. */
   public onDelete = CleanupPolicy.Throw;
@@ -144,6 +235,16 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** @internal Whether this component meta is an abstract/interface alias. */
   public _isInterface = false;
 
+  /** @internal Validate this component before storage. */
+  public _validateAdd: ComponentValidator | undefined;
+  /** @internal Validate this component before removal. */
+  public _validateRemove: ComponentValidator | undefined;
+
+  /** @internal Framework policy applied when this component is attached. */
+  public _onPolicyAdd: HookHandler | undefined;
+  /** @internal Framework policy applied when this component is removed. */
+  public _onPolicyRemove: HookHandler | undefined;
+
   /** @internal Component instances created by ensure operations but not yet attached. */
   public _pendingEnsures: WeakMap<Entity, ComponentInstance> | undefined;
 
@@ -151,8 +252,14 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   public _onAdd: HookHandler | undefined;
   /** @internal Current `onRemove` handler. */
   public _onRemove: HookHandler | undefined;
-  /** @internal Current relationship retarget handler. */
-  public _onRetarget: RetargetHandler | undefined;
+  /** @internal Current relationship target-add handler. */
+  public _onTargetAdd: TargetHandler | undefined;
+  /** @internal Current relationship target-remove handler. */
+  public _onTargetRemove: TargetHandler | undefined;
+  /** @internal Target-add policies keyed by the trait component eid that installed them. */
+  public _targetAddPolicies: Map<EID, TargetHandler> | undefined;
+  /** @internal Target-remove policies keyed by the trait component eid that installed them. */
+  public _targetRemovePolicies: Map<EID, TargetHandler> | undefined;
   /** @internal Current `onSet` handler. */
   public _onSet: HookHandler | undefined;
 
@@ -204,27 +311,33 @@ export class ComponentMeta implements Hook<ComponentInstance> {
     return this;
   }
 
-  /**
-   * Return the current retarget handler, or `undefined` when none is set.
-   */
-  public onRetarget(): RetargetHandler | undefined;
-
-  /**
-   * Set the handler fired after this relationship changes between two existing targets. Pass
-   * `undefined` to remove the current handler.
-   *
-   * @param handler - Receives the source entity, previous target, and current target.
-   * @returns This metadata object, for chaining.
-   */
-  public onRetarget(handler: RetargetHandler | undefined): ComponentMeta;
-  public onRetarget(handler?: RetargetHandler): ComponentMeta | RetargetHandler | undefined {
+  /** Return the current target-add handler, or `undefined` when none is set. */
+  public onTargetAdd(): TargetHandler | undefined;
+  /** Set the handler fired after an edge is added. */
+  public onTargetAdd(handler: TargetHandler | undefined): ComponentMeta;
+  public onTargetAdd(handler?: TargetHandler): ComponentMeta | TargetHandler | undefined {
     if (!this.isRelationship) {
-      throw new Error("onRetarget can only be registered on a Relationship component");
+      throw new Error("onTargetAdd can only be registered on a Relationship component");
     }
     if (arguments.length === 0) {
-      return this._onRetarget;
+      return this._onTargetAdd;
     }
-    this._onRetarget = handler;
+    this._onTargetAdd = handler;
+    return this;
+  }
+
+  /** Return the current target-remove handler, or `undefined` when none is set. */
+  public onTargetRemove(): TargetHandler | undefined;
+  /** Set the handler fired after an edge is removed. */
+  public onTargetRemove(handler: TargetHandler | undefined): ComponentMeta;
+  public onTargetRemove(handler?: TargetHandler): ComponentMeta | TargetHandler | undefined {
+    if (!this.isRelationship) {
+      throw new Error("onTargetRemove can only be registered on a Relationship component");
+    }
+    if (arguments.length === 0) {
+      return this._onTargetRemove;
+    }
+    this._onTargetRemove = handler;
     return this;
   }
 

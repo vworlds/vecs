@@ -1,4 +1,4 @@
-import { ChildOf, Iter, Module, type Entity } from "@vworlds/vecs";
+import { ChildOf, Entity, Iter, Module } from "@vworlds/vecs";
 
 import {
   getPhysicsEngine,
@@ -33,16 +33,13 @@ export class ShapeLifecycleModule extends Module {
       .enter(
         { cursor: Iter, inject: [SingleShape, { target: [ChildOf, [Body]] }] },
         (it, [shape, body]) => {
-          createShapeForEntity(engine, it.entity, it.src[1], body, shape);
+          createShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
-      // Inject `[ChildOf, Shape]` so the parent relationship and shape handle are
-      // captured in the exit snapshot while the entity's components are still
-      // present. The exit callback itself runs on the next tick's inbox drain,
-      // after `_destroy` has cleared `entity._components` -- by then
-      // `entity.target(ChildOf)` and `entity.get(Shape)` would return `undefined`.
-      .exit([ChildOf, SingleShape], (entity, [childOf, shape]) => {
-        destroyShapeForEntity(engine, entity, true, childOf?.target, shape);
+      // Snapshot the target and shape while the relationship still exists; the
+      // exit callback may run after the source entity has been destroyed.
+      .exit([SingleShape, { target: [ChildOf, Entity] }], (entity, [shape, parent]) => {
+        destroyShapeForEntity(engine, entity, true, parent, shape);
       })
       .update(
         { watch: SingleShape, cursor: Iter, inject: [{ target: [ChildOf, [Body]] }] },
@@ -54,7 +51,7 @@ export class ShapeLifecycleModule extends Module {
           ) {
             return;
           }
-          recreateSingleShapeForEntity(engine, it.entity, it.src[0], body, shape);
+          recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
       .add(PhysicsSystemTag);
@@ -70,7 +67,7 @@ export class ShapeLifecycleModule extends Module {
           inject: [SingleShape, { target: [ChildOf, [Body]] }],
         },
         (it, _childOf, [shape, body]) => {
-          recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
+          recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
       .add(PhysicsSystemTag);

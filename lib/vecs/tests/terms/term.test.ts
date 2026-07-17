@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ChildOf, Relationship, World, TermEventKind } from "../../src/index.js";
+import { ChildOf, Exclusive, Relationship, World, TermEventKind } from "../../src/index.js";
 import type { Entity, Term, TermConsumer } from "../../src/index.js";
 
 class Position {
@@ -24,7 +24,7 @@ function setup() {
   w.component(Container);
   w.component(Tag);
   w.component(Body);
-  w.component(FriendOf);
+  w.component(FriendOf).add(Exclusive);
   w.component(ChildOf);
   return w;
 }
@@ -897,8 +897,8 @@ describe("Term — TargetTerm", () => {
   it("matches entities whose relationship target matches the inner DSL", () => {
     const w = setup();
     const target = w.entity().add(Position);
-    const candidate = w.entity().set(FriendOf, { target });
-    const miss = w.entity().set(FriendOf, { target: w.entity() });
+    const candidate = w.entity().add(FriendOf, target);
+    const miss = w.entity().add(FriendOf, w.entity());
 
     const term = w.getTerm({ target: [FriendOf, Position] });
     expect(term.has(candidate)).toBe(true);
@@ -908,7 +908,7 @@ describe("Term — TargetTerm", () => {
   it("reacts when target gains and loses inner components", () => {
     const w = setup();
     const target = w.entity();
-    const candidate = w.entity().set(FriendOf, { target });
+    const candidate = w.entity().add(FriendOf, target);
     const term = w.getTerm({ target: [FriendOf, Position] });
     expect(term.has(candidate)).toBe(false);
     target.add(Position);
@@ -921,12 +921,12 @@ describe("Term — TargetTerm", () => {
     const w = setup();
     const first = w.entity().add(Position);
     const second = w.entity();
-    const candidate = w.entity().set(FriendOf, { target: first });
+    const candidate = w.entity().add(FriendOf, first);
 
     const term = w.getTerm({ target: [FriendOf, Position] });
     expect(term.has(candidate)).toBe(true);
 
-    candidate.set(FriendOf, { target: second });
+    candidate.add(FriendOf, second);
     expect(term.has(candidate)).toBe(false);
 
     second.add(Position);
@@ -936,7 +936,7 @@ describe("Term — TargetTerm", () => {
   it("reacts to relationship removal", () => {
     const w = setup();
     const target = w.entity().add(Position);
-    const candidate = w.entity().set(FriendOf, { target });
+    const candidate = w.entity().add(FriendOf, target);
     const term = w.getTerm({ target: [FriendOf, Position] });
     expect(term.has(candidate)).toBe(true);
     candidate.remove(FriendOf);
@@ -946,8 +946,8 @@ describe("Term — TargetTerm", () => {
   it("nested target propagates changes through chained terms", () => {
     const w = setup();
     const grandparent = w.entity();
-    const parent = w.entity().set(FriendOf, { target: grandparent });
-    const child = w.entity().set(FriendOf, { target: parent });
+    const parent = w.entity().add(FriendOf, grandparent);
+    const child = w.entity().add(FriendOf, parent);
 
     const term = w.getTerm({ target: [FriendOf, { target: [FriendOf, Tag] }] });
     expect(term.has(child)).toBe(false);
@@ -960,7 +960,7 @@ describe("Term — TargetTerm", () => {
   it("combines target with candidate-side component term", () => {
     const w = setup();
     const target = w.entity().add(Position);
-    const candidate = w.entity().set(FriendOf, { target });
+    const candidate = w.entity().add(FriendOf, target);
     const term = w.getTerm({ all: [Body, { target: [FriendOf, Position] }] });
     expect(term.has(candidate)).toBe(false);
     candidate.add(Body);
@@ -973,7 +973,7 @@ describe("Term — TargetTerm", () => {
     const { enter, exit } = listen(term);
 
     const target = w.entity().add(Position);
-    const candidate = w.entity().set(FriendOf, { target });
+    const candidate = w.entity().add(FriendOf, target);
     expect(enter).toHaveBeenCalledWith(candidate);
 
     target.remove(Position);

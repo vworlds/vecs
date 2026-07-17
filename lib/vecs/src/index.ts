@@ -10,11 +10,21 @@ export type {
   InjectTuple,
   MaybeResolvedInjectTuple,
   RequiredResolvedInjectTuple,
+  ResolvedTargets,
+  ResolvedTargetsRow,
   TargetInject,
+  TargetInjectProjection,
+  TargetsInject,
 } from "./inject.js";
 export { DEFAULT_POOLS, World, type WorldOptions } from "./world/index.js";
 export { Filter } from "./filter.js";
-export { ChildOf, DependsOn, OwnedTarget, SilenceSource } from "./modules/relationships.js";
+export {
+  ChildOf,
+  DependsOn,
+  Exclusive,
+  OwnedTarget,
+  SilenceSource,
+} from "./modules/relationships.js";
 export {
   CleanupPolicy,
   Component,
@@ -25,7 +35,7 @@ export {
   type ComponentMeta,
   type ComponentRef,
   type HookHandler,
-  type RetargetHandler,
+  type TargetHandler,
 } from "./component.js";
 export { Entity, type EID, type EntityClass, Identity } from "./entity/index.js";
 export { Module, type ModuleConfig } from "./module.js";

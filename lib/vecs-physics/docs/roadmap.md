@@ -32,7 +32,7 @@ The goal for v1 is that this kind of game object should be straightforward:
 ```ts
 const player = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: player }).set(Box, { hx: 0.5, hy: 1 }).add(ContactEvents);
+world.entity().add(ChildOf, player).set(Box, { hx: 0.5, hy: 1 }).add(ContactEvents);
 
 player.set(Impulse, { x: 0, y: 8 });
 ```

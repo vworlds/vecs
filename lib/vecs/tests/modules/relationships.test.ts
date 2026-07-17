@@ -1,336 +1,241 @@
 import { describe, expect, it } from "vitest";
 import {
   ChildOf,
+  CleanupPolicy,
+  DependsOn,
   type Entity,
+  Exclusive,
   OwnedTarget,
   Relationship,
+  SilenceSource,
   Traversable,
   World,
 } from "../../src/index.js";
 
 class ParentOf extends Relationship {}
 class Inventory extends Relationship {}
-class InventoryState {}
 class NotRelationship {}
 
-function depthOf(w: World, entity: unknown): number | undefined {
-  return w
-    .entity(ParentOf)
-    .get(Traversable)!
-    .depths.get(entity as any);
+function depthOf(w: World, entity: Entity): number | undefined {
+  return w.entity(ParentOf).get(Traversable)!.depths.get(entity);
 }
 
 describe("RelationshipsModule", () => {
-  it("registers OwnedTarget", () => {
+  it("configures built-in single-target relationships as Exclusive", () => {
     const w = new World();
-    expect(w.entity(OwnedTarget)).toBe(w.component(OwnedTarget));
+
+    expect(w.component(ChildOf).has(Exclusive)).toBe(true);
+    expect(w.component(DependsOn).has(Exclusive)).toBe(true);
+    expect(w.component(SilenceSource).has(Exclusive)).toBe(true);
+    expect(w.component(ChildOf).has(Traversable)).toBe(true);
+    expect(w.component(DependsOn).has(Traversable)).toBe(true);
   });
 
-  it("makes an ensured relationship target a child of its source", () => {
-    const w = new World();
-    w.component(Inventory).add(OwnedTarget);
-    const player = w.entity();
+  it("requires Exclusive for OwnedTarget and Traversable", () => {
+    const first = new World();
+    expect(() => first.component(Inventory).add(OwnedTarget)).toThrow(
+      "OwnedTarget requires Exclusive"
+    );
+    expect(first.component(Inventory).has(OwnedTarget)).toBe(false);
 
-    const inventory = player.ensureTarget(Inventory);
+    const second = new World();
+    expect(() => second.component(ParentOf).add(Traversable)).toThrow(
+      "Traversable requires Exclusive"
+    );
+    expect(second.component(ParentOf).has(Traversable)).toBe(false);
 
-    expect(inventory.parent).toBe(player);
-    player.destroy();
-    expect(inventory.destroyed).toBe(true);
+    const third = new World();
+    third.component(NotRelationship);
+    expect(() => third.component(NotRelationship).add(Exclusive)).toThrow(
+      "Exclusive can only be added to a Relationship component"
+    );
+    expect(third.component(NotRelationship).has(Exclusive)).toBe(false);
+
+    const fourth = new World();
+    expect(() => fourth.component(ChildOf).add(OwnedTarget)).toThrow(
+      "OwnedTarget cannot be added to ChildOf"
+    );
+    expect(fourth.component(ChildOf).has(OwnedTarget)).toBe(false);
+
+    const fifth = new World();
+    fifth.component(NotRelationship);
+    expect(() => fifth.component(NotRelationship).add(OwnedTarget)).toThrow(
+      "OwnedTarget can only be added to a Relationship component"
+    );
+    expect(fifth.component(NotRelationship).has(OwnedTarget)).toBe(false);
+
+    const sixth = new World();
+    sixth.component(NotRelationship);
+    expect(() => sixth.component(NotRelationship).add(Traversable)).toThrow(
+      "Traversable can only be added to a Relationship component"
+    );
+    expect(sixth.component(NotRelationship).has(Traversable)).toBe(false);
   });
 
-  it("creates an owned target when the relationship is added", () => {
-    const w = new World();
-    w.component(Inventory).add(OwnedTarget);
-    const player = w.entity().add(Inventory);
+  it("keeps Exclusive while dependent traits are attached", () => {
+    const first = new World();
+    const owned = first.component(Inventory).add(Exclusive).add(OwnedTarget);
+    expect(() => owned.remove(Exclusive)).toThrow(/dependent relationship trait/);
+    expect(owned.has(Exclusive)).toBe(true);
 
-    const inventory = player.target(Inventory)!;
-
-    expect(inventory.parent).toBe(player);
-    expect(inventory.children(Inventory)).toContain(player);
+    const second = new World();
+    const traversable = second.component(ParentOf).add(Exclusive).add(Traversable);
+    expect(() => traversable.remove(Exclusive)).toThrow(/dependent relationship trait/);
+    expect(traversable.has(Exclusive)).toBe(true);
   });
 
-  it("initializes an added target before the owner's onAdd hook", () => {
+  it("allows idempotent Exclusive adds while the relationship is in use", () => {
     const w = new World();
-    const relationship = w.component(Inventory);
-    const targets: Entity[] = [];
-    relationship.onAdd((source, inventory) => {
-      expect(inventory.target.parent).toBe(source);
-      targets.push(inventory.target);
-    });
-    relationship.add(OwnedTarget);
-    const player = w.entity();
+    const relationship = w.component(Inventory).add(Exclusive);
+    w.entity().add(Inventory, w.entity());
 
-    player.add(Inventory);
-
-    expect(targets).toEqual([player.target(Inventory)]);
+    expect(() => relationship.add(Exclusive)).not.toThrow();
+    expect(relationship.has(Exclusive)).toBe(true);
   });
 
-  it("makes an added target available to deferred query entry", () => {
+  it("rebinds Traversable policies when its component instance is replaced", () => {
     const w = new World();
-    w.component(Inventory).add(OwnedTarget);
-    w.component(InventoryState);
-    w.query("inventory setup")
-      .with(Inventory)
-      .enter((player) => player.target(Inventory)!.add(InventoryState))
-      .build();
-    const player = w.entity();
+    const relationship = w.component(ParentOf).add(Exclusive).add(Traversable);
+    const parent = w.entity();
+    const child = w.entity().add(ParentOf, parent);
+    const previous = relationship.get(Traversable)!;
+    const replacement = new Traversable();
 
-    w.defer(() => player.add(Inventory));
+    relationship.attach(replacement);
 
-    expect(player.target(Inventory)?.has(InventoryState)).toBe(true);
+    expect(previous.depths.size).toBe(0);
+    expect(replacement.depths.get(child)).toBe(1);
+    child.add(ParentOf, w.entity());
+    expect(replacement.depths.get(child)).toBe(1);
   });
 
-  it("parents an ensured target when deferred changes flush", () => {
+  it("keeps Exclusive alive when component deletion cannot remove dependent traits", () => {
     const w = new World();
-    w.component(Inventory).add(OwnedTarget);
-    const player = w.entity();
-    let inventory: Entity | undefined;
+    const exclusive = w.component(Exclusive);
+    exclusive.meta.onDelete = CleanupPolicy.Remove;
 
-    w.defer(() => {
-      inventory = player.ensureTarget(Inventory);
-      expect(inventory.parent).toBeUndefined();
-    });
-
-    expect(inventory?.parent).toBe(player);
+    expect(() => exclusive.destroy()).toThrow(/dependent relationship trait/);
+    expect(exclusive.alive).toBe(true);
+    expect(w.getEntity(exclusive.eid)).toBe(exclusive);
+    expect(w.component(ChildOf).has(Exclusive)).toBe(true);
   });
 
-  it("applies ownership to targets assigned with set", () => {
+  it("parents and destroys explicit OwnedTarget edges", () => {
     const w = new World();
-    w.component(Inventory).add(OwnedTarget);
-    const player = w.entity();
-    const inventory = w.entity();
-
-    player.set(Inventory, { target: inventory });
-
-    expect(inventory.parent).toBe(player);
-  });
-
-  it("does not backfill targets assigned before OwnedTarget is configured", () => {
-    const w = new World();
-    const relationship = w.component(Inventory);
-    const player = w.entity();
-    const inventory = w.entity();
-    player.set(Inventory, { target: inventory });
-
-    relationship.add(OwnedTarget);
-
-    expect(inventory.parent).toBeUndefined();
-  });
-
-  it("destroys displaced and removed owned targets", () => {
-    const w = new World();
-    w.component(Inventory).add(OwnedTarget);
+    w.component(Inventory).add(Exclusive).add(OwnedTarget);
     const player = w.entity();
     const first = w.entity();
     const second = w.entity();
 
-    player.set(Inventory, { target: first });
-    player.set(Inventory, { target: second });
+    player.add(Inventory, first);
+    expect(first.parent).toBe(player);
 
+    player.add(Inventory, second);
     expect(first.destroyed).toBe(true);
     expect(second.parent).toBe(player);
 
     player.remove(Inventory);
-
     expect(second.destroyed).toBe(true);
   });
 
-  it("chains existing owner hooks after OwnedTarget behavior", () => {
+  it("does not create an OwnedTarget implicitly", () => {
     const w = new World();
-    const relationship = w.component(Inventory);
+    w.component(Inventory).add(Exclusive).add(OwnedTarget);
+
+    expect(() => w.entity().add(Inventory)).toThrow(/requires a target/);
+  });
+
+  it("composes OwnedTarget with existing edge hooks", () => {
+    const w = new World();
     const calls: string[] = [];
-    relationship
-      .onSet((_source, inventory) => {
-        calls.push(`set:${inventory.target.parent?.eid}`);
+    w.component(Inventory)
+      .add(Exclusive)
+      .onTargetAdd((_source, _relationship, target) => {
+        calls.push(`add:${target.parent?.eid}`);
       })
-      .onRetarget((_source, oldTarget) => {
-        calls.push(`retarget:${oldTarget.destroyed}`);
-      })
-      .onRemove((_source, inventory) => {
-        calls.push(`remove:${inventory.target.destroyed}`);
+      .onTargetRemove((_source, _relationship, target) => {
+        calls.push(`remove:${target.destroyed}`);
       })
       .add(OwnedTarget);
     const player = w.entity();
-    const first = w.entity();
-    const second = w.entity();
+    const inventory = w.entity();
 
-    player.set(Inventory, { target: first });
-    player.set(Inventory, { target: second });
+    player.add(Inventory, inventory);
     player.remove(Inventory);
 
-    expect(calls).toEqual([
-      `set:${player.eid}`,
-      "retarget:true",
-      `set:${player.eid}`,
-      "remove:true",
-    ]);
+    expect(calls).toEqual([`add:${player.eid}`, "remove:true"]);
   });
 
-  it("rejects OwnedTarget on non-relationships and ChildOf", () => {
-    const first = new World();
-    first.component(NotRelationship);
-    expect(() => first.component(NotRelationship).add(OwnedTarget)).toThrow(
-      "OwnedTarget can only be added to a Relationship component"
-    );
-
-    const second = new World();
-    expect(() => second.component(ChildOf).add(OwnedTarget)).toThrow(
-      "OwnedTarget cannot be added to ChildOf"
-    );
-  });
-
-  it("marks ChildOf as Traversable by default", () => {
+  it("removes and reinstalls OwnedTarget policy without replacing public hooks", () => {
     const w = new World();
-    expect(w.entity(ChildOf).get(Traversable)).toBeInstanceOf(Traversable);
+    const relationship = w.component(Inventory).add(Exclusive);
+    const onTargetAdd = (_source: Entity, _relationship: Relationship, _target: Entity): void => {};
+    relationship.onTargetAdd(onTargetAdd).add(OwnedTarget);
+    const player = w.entity();
+    const unowned = w.entity();
+
+    relationship.remove(OwnedTarget);
+    expect(relationship.onTargetAdd()).toBe(onTargetAdd);
+    player.add(Inventory, unowned);
+    player.remove(Inventory);
+    expect(unowned.destroyed).toBe(false);
+
+    relationship.add(OwnedTarget);
+    const owned = w.entity();
+    player.add(Inventory, owned);
+    expect(owned.parent).toBe(player);
+    player.remove(Inventory);
+    expect(owned.destroyed).toBe(true);
   });
 
-  it("is not tracked for entities without the relationship", () => {
+  it("tracks traversable depth through exclusive edge hooks", () => {
     const w = new World();
-    w.component(ParentOf).add(Traversable);
-    const e = w.entity();
-    expect(depthOf(w, e)).toBeUndefined();
-  });
+    w.component(ParentOf).add(Exclusive).add(Traversable);
+    const root = w.entity();
+    const otherRoot = w.entity();
+    const parent = w.entity().add(ParentOf, root);
+    const child = w.entity().add(ParentOf, parent);
 
-  it("depth 1 for an entity whose parent has no parent", () => {
-    const w = new World();
-    w.component(ParentOf).add(Traversable);
-    const parent = w.entity();
-    const child = w.entity().set(ParentOf, { target: parent });
+    expect(depthOf(w, parent)).toBe(1);
+    expect(depthOf(w, child)).toBe(2);
+
+    parent.add(ParentOf, otherRoot);
+    expect(depthOf(w, parent)).toBe(1);
+    expect(depthOf(w, child)).toBe(2);
+
+    parent.remove(ParentOf);
+    expect(depthOf(w, parent)).toBeUndefined();
     expect(depthOf(w, child)).toBe(1);
   });
 
-  it("depth 2 for child of child", () => {
+  it("backfills traversable relationships configured after edges exist", () => {
     const w = new World();
-    w.component(ParentOf).add(Traversable);
+    const relationship = w.component(ParentOf).add(Exclusive);
     const root = w.entity();
-    const a = w.entity().set(ParentOf, { target: root });
-    const b = w.entity().set(ParentOf, { target: a });
-    expect(depthOf(w, a)).toBe(1);
-    expect(depthOf(w, b)).toBe(2);
+    const parent = w.entity().add(ParentOf, root);
+    const child = w.entity().add(ParentOf, parent);
+
+    relationship.add(Traversable);
+
+    expect(depthOf(w, parent)).toBe(1);
+    expect(depthOf(w, child)).toBe(2);
   });
 
-  it("update depth when retargeting to a root", () => {
+  it("cleans and reinstalls Traversable policy", () => {
     const w = new World();
-    w.component(ParentOf).add(Traversable);
-    const a = w.entity();
-    const b = w.entity().set(ParentOf, { target: w.entity() });
-    const c = w.entity().set(ParentOf, { target: a });
-    expect(depthOf(w, c)).toBe(1); // parent is a, which has no parent
-    c.set(ParentOf, { target: b });
-    expect(depthOf(w, c)).toBe(2); // parent is b, which has depth 1
-  });
+    const relationship = w.component(ParentOf).add(Exclusive).add(Traversable);
+    const firstRoot = w.entity();
+    const secondRoot = w.entity();
+    const child = w.entity().add(ParentOf, firstRoot);
+    const removedState = relationship.get(Traversable)!;
+    expect(removedState.depths.get(child)).toBe(1);
 
-  it("cascades depth to descendants on add", () => {
-    const w = new World();
-    w.component(ParentOf).add(Traversable);
-    const root = w.entity();
-    const a = w.entity().set(ParentOf, { target: root });
-    const b = w.entity().set(ParentOf, { target: a });
-    const c = w.entity().set(ParentOf, { target: b });
+    relationship.remove(Traversable);
+    expect(removedState.depths.size).toBe(0);
+    child.add(ParentOf, secondRoot);
+    expect(removedState.depths.size).toBe(0);
 
-    expect(depthOf(w, a)).toBe(1);
-    expect(depthOf(w, b)).toBe(2);
-    expect(depthOf(w, c)).toBe(3);
-
-    const a2 = w.entity().set(ParentOf, { target: a });
-    expect(depthOf(w, a2)).toBe(2);
-    const b2 = w.entity().set(ParentOf, { target: b });
-    expect(depthOf(w, b2)).toBe(3);
-    expect(depthOf(w, c)).toBe(3);
-  });
-
-  it("removes depth entry on remove", () => {
-    const w = new World();
-    w.component(ParentOf).add(Traversable);
-    const a = w.entity().set(ParentOf, { target: w.entity() });
-    expect(depthOf(w, a)).toBe(1);
-    a.remove(ParentOf);
-    expect(depthOf(w, a)).toBeUndefined();
-  });
-
-  it("recascades descendants when a node is removed", () => {
-    const w = new World();
-    w.component(ParentOf).add(Traversable);
-    const root = w.entity();
-    const a = w.entity().set(ParentOf, { target: root });
-    const b = w.entity().set(ParentOf, { target: a });
-    const leaf = w.entity().set(ParentOf, { target: b });
-
-    expect(depthOf(w, a)).toBe(1);
-    expect(depthOf(w, b)).toBe(2);
-    expect(depthOf(w, leaf)).toBe(3);
-
-    a.remove(ParentOf);
-    expect(depthOf(w, a)).toBeUndefined();
-    // b loses its anchor — becomes depth 0
-    expect(depthOf(w, b)).toBe(1);
-    // leaf cascades from b
-    expect(depthOf(w, leaf)).toBe(2);
-  });
-
-  it("updates correctly after chained retarget", () => {
-    const w = new World();
-    w.component(ParentOf).add(Traversable);
-    const a = w.entity();
-    const b = w.entity();
-    const c = w.entity().set(ParentOf, { target: a });
-    const d = w.entity().set(ParentOf, { target: c });
-
-    expect(depthOf(w, c)).toBe(1);
-    expect(depthOf(w, d)).toBe(2);
-
-    // Move c to a different root
-    c.set(ParentOf, { target: b });
-    expect(depthOf(w, c)).toBe(1);
-    expect(depthOf(w, d)).toBe(2);
-  });
-
-  it("backfills entities that existed before Traversable was added", () => {
-    const w = new World();
-    w.component(ParentOf);
-    const root = w.entity();
-    const a = w.entity().set(ParentOf, { target: root });
-    const b = w.entity().set(ParentOf, { target: a });
-
-    w.component(ParentOf).add(Traversable);
-
-    expect(depthOf(w, root)).toBeUndefined();
-    expect(depthOf(w, a)).toBe(1);
-    expect(depthOf(w, b)).toBe(2);
-  });
-
-  it("stops tracking after Traversable is removed", () => {
-    const w = new World();
-    w.component(ParentOf);
-    w.component(ParentOf).add(Traversable);
-    const a = w.entity().set(ParentOf, { target: w.entity() });
-    expect(depthOf(w, a)).toBe(1);
-
-    // Remove Traversable — hooks are cleared, depths map is gone
-    w.entity(ParentOf).remove(Traversable);
-    const b = w.entity().set(ParentOf, { target: w.entity() });
-    // depths map no longer exists, but e.components still works
-    expect(b.get(ParentOf)).toBeTruthy();
-  });
-
-  it("multiple relationships tracked independently", () => {
-    const w = new World();
-    class FriendOf extends Relationship {}
-
-    w.component(FriendOf);
-    w.component(ParentOf).add(Traversable);
-    w.component(FriendOf).add(Traversable);
-
-    const root = w.entity();
-    const a = w.entity().set(ParentOf, { target: root });
-    const b = w.entity().set(FriendOf, { target: root });
-    const c = w.entity().set(FriendOf, { target: b });
-
-    expect(depthOf(w, a)).toBe(1);
-
-    const friendOfDepths = w.entity(FriendOf).get(Traversable)!.depths;
-    expect(friendOfDepths.get(root)).toBeUndefined();
-    expect(friendOfDepths.get(b)).toBe(1);
-    expect(friendOfDepths.get(c)).toBe(2);
+    relationship.add(Traversable);
+    expect(relationship.get(Traversable)?.depths.get(child)).toBe(1);
   });
 });

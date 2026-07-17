@@ -94,8 +94,8 @@ function createJointShowcase(world: { entity(): Entity }): void {
   world.entity().childOf(spinner).set(Box, { hx: 0.25, hy: 0.25 }).set(Material, { density: 1 });
   world
     .entity()
-    .set(JointBodyA, { target: motorAnchor })
-    .set(JointBodyB, { target: spinner })
+    .add(JointBodyA, motorAnchor)
+    .add(JointBodyB, spinner)
     .add(RevoluteJoint)
     .set(JointMotor, { targetSpeed: 2, maxForce: 80 });
 
@@ -116,7 +116,7 @@ function createJointShowcase(world: { entity(): Entity }): void {
   world
     .entity()
     .childOf(bob)
-    .set(DrawIn, { target: bob })
+    .add(DrawIn, bob)
     .add(Networked)
     .add(Rectangle)
     .set(Size, { width: 0.4, height: 0.4 })
@@ -130,7 +130,7 @@ function createJointShowcase(world: { entity(): Entity }): void {
   world
     .entity()
     .childOf(bob)
-    .set(DrawIn, { target: bob })
+    .add(DrawIn, bob)
     .add(Networked)
     .set(Star, { innerRadius: 0.03, outerRadius: 0.06 })
     .set(FillStyle, { color: 0xffee55, alpha: 1 })
@@ -143,7 +143,7 @@ function createJointShowcase(world: { entity(): Entity }): void {
   world
     .entity()
     .childOf(bob)
-    .set(DrawBy, { target: bob })
+    .add(DrawBy, bob)
     .add(Networked)
     .set(Star, { innerRadius: 0.03, outerRadius: 0.06 })
     .set(FillStyle, { color: 0xff0055, alpha: 1 })
@@ -152,8 +152,8 @@ function createJointShowcase(world: { entity(): Entity }): void {
   world
     .entity()
     .add(Networked)
-    .set(JointBodyA, { target: spinner })
-    .set(JointBodyB, { target: bob })
+    .add(JointBodyA, spinner)
+    .add(JointBodyB, bob)
     .set(DistanceJoint, { length: 0.6 })
     .set(JointFrame, {
       localAnchorA: spinnerCorner,

@@ -13,8 +13,10 @@ never touch a Box2D joint handle.
 
 ## Creating a joint
 
-A joint entity needs two relationships — `JointBodyA` and `JointBodyB` — pointing
-at the connected body entities, and exactly one joint-type component:
+A joint entity needs two exclusive relationship slots — `JointBodyA` and
+`JointBodyB` — pointing at the connected body entities, and exactly one
+joint-type component. `JointsModule` configures each slot as `Exclusive`, so
+adding the same relationship with a different body replaces its target:
 
 ```ts
 import { World } from "@vworlds/vecs";
@@ -38,11 +40,7 @@ const anchor = world.entity().set(Body, { type: BodyType.Static }).set(Position,
 const bob = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x: 2, y: 5 });
 world.entity().childOf(bob).set(Box, { hx: 0.5, hy: 0.5 });
 
-world
-  .entity()
-  .set(JointBodyA, { target: anchor })
-  .set(JointBodyB, { target: bob })
-  .set(DistanceJoint, { length: 2 });
+world.entity().add(JointBodyA, anchor).add(JointBodyB, bob).set(DistanceJoint, { length: 2 });
 ```
 
 Creation is **order-independent**: a joint forms as soon as both connected
@@ -60,8 +58,8 @@ import { JointFrame, RevoluteJoint } from "@vworlds/vecs-physics";
 
 world
   .entity()
-  .set(JointBodyA, { target: anchor })
-  .set(JointBodyB, { target: bob })
+  .add(JointBodyA, anchor)
+  .add(JointBodyB, bob)
   .add(RevoluteJoint)
   .set(JointFrame, {
     localAnchorA: { x: 0, y: 0 }, // attach point in body A's local frame
@@ -77,7 +75,9 @@ angle. Anchors and the reference angle are fixed at creation; changing
 ## Joint types
 
 Exactly one joint-type component lives on a joint entity (they are mutually
-exclusive, like geometry components). This version ships seven types:
+exclusive, like geometry components). This component exclusivity is separate
+from relationship cardinality: `JointBodyA` and `JointBodyB` are independently
+exclusive relationship slots. This version ships seven types:
 
 | Type             | Constraint                                                                            |
 | ---------------- | ------------------------------------------------------------------------------------- |
@@ -105,8 +105,8 @@ import { JointFrame, PrismaticJoint } from "@vworlds/vecs-physics";
 
 world
   .entity()
-  .set(JointBodyA, { target: cart })
-  .set(JointBodyB, { target: piston })
+  .add(JointBodyA, cart)
+  .add(JointBodyB, piston)
   .add(PrismaticJoint)
   .set(JointFrame, { referenceAngle: Math.PI / 2 }); // slide straight up/down
 ```
@@ -127,8 +127,8 @@ import { MotorJoint } from "@vworlds/vecs-physics";
 
 world
   .entity()
-  .set(JointBodyA, { target: ground })
-  .set(JointBodyB, { target: player })
+  .add(JointBodyA, ground)
+  .add(JointBodyB, player)
   .set(MotorJoint, {
     linearVelocity: { x: 3, y: 0 }, // drive body B at 3 m/s relative to body A
     maxVelocityForce: 200, // clamp the velocity motor's force
@@ -152,11 +152,7 @@ re-set it to retune, all independently of one another and of the joint itself.
 ```ts
 import { JointMotor, JointLimit, JointAngularSpring } from "@vworlds/vecs-physics";
 
-const hinge = world
-  .entity()
-  .set(JointBodyA, { target: anchor })
-  .set(JointBodyB, { target: bob })
-  .add(RevoluteJoint);
+const hinge = world.entity().add(JointBodyA, anchor).add(JointBodyB, bob).add(RevoluteJoint);
 
 hinge.set(JointMotor, { targetSpeed: 2, maxForce: 50 }); // drive the hinge
 hinge.set(JointLimit, { lower: -0.5, upper: 0.5 }); // clamp the angle (radians)
@@ -211,7 +207,7 @@ joint.set(JointSettings, { collideConnected: true });
 | Remove the joint-type component                      | Destroy the joint.                                                        |
 | Destroy the joint entity                             | Destroy the joint; bodies are unaffected.                                 |
 | Destroy a connected body                             | Detach the joint: its constraint is torn down, the joint entity survives. |
-| Retarget `JointBodyA`/`JointBodyB`                   | Rebuild the joint on the new bodies.                                      |
+| Add `JointBodyA`/`JointBodyB` with a different body  | Replace that slot's target and rebuild the joint.                         |
 | Change `JointFrame` / `DistanceJoint` / `MotorJoint` | Rebuild the joint with the new geometry/fields.                           |
 | Add/remove/change a feature component                | Enable/disable/retune that feature, waking the bodies.                    |
 

@@ -54,22 +54,22 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
     if (this._grouping !== undefined) {
       throw new Error(`query '${this.name}' is already grouped`);
     }
-    let keyOf: (e: Entity) => unknown;
+    let keysOf: (e: Entity) => Iterable<unknown>;
     let watchEids: EID[];
     if (typeof arg1 === "function") {
       const components = arg0 as readonly FanInjectElement[];
       const inject = mapInject(this.world, components);
       const arity = injectArity(inject);
       const resolved = new Array(arity);
-      keyOf = (e: Entity) => {
+      keysOf = (e: Entity) => {
         getInjected(e, inject, false, resolved);
-        return arg1(e, resolved);
+        return [arg1(e, resolved)];
       };
       watchEids = directInjectEids(inject);
       this._composeGroupMembership(components);
     } else {
       const relEid = _resolveRelationship(arg0 as ComponentRef, this.world);
-      keyOf = (e: Entity) => e.target(relEid);
+      keysOf = (e: Entity) => e.targets(relEid);
       watchEids = [relEid];
       this._composeGroupMembership([arg0 as ComponentRef]);
     }
@@ -77,7 +77,7 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
       this._watchlistBitmask.add(ceid);
     }
     this.track();
-    this._grouping = new Grouping(this.world, keyOf, watchEids);
+    this._grouping = new Grouping(this.world, keysOf, watchEids);
     return this;
   }
 

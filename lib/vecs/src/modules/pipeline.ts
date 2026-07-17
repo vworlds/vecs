@@ -1,7 +1,7 @@
 import { System } from "../system.js";
 import { Module } from "../module.js";
 import { type Entity } from "../entity/index.js";
-import { DependsOn, Traversable } from "./relationships.js";
+import { DependsOn } from "./relationships.js";
 
 /** Marker component tagging an entity as a pipeline phase anchor. */
 export class Phase {}
@@ -35,10 +35,10 @@ export function insertPhaseAfter(phase: Entity, anchor: Entity): Entity {
     (child) => child !== phase && child.has(Phase) && child.has(DependsOn)
   );
 
-  phase.set(DependsOn, { target: anchor });
+  phase.add(DependsOn, anchor);
 
   for (const child of downstream) {
-    child.set(DependsOn, { target: phase });
+    child.add(DependsOn, phase);
   }
 
   return phase;
@@ -55,11 +55,11 @@ export class PipelineModule extends Module {
   public init(): void {
     const world = this.world;
     world.component(Phase);
-    world.component(DependsOn).add(Traversable);
+    world.component(DependsOn);
 
     const phases = BUILTIN_PIPELINE_PHASES.map((name) => world.entity(name).add(Phase));
     for (let i = 1; i < phases.length; i++) {
-      phases[i].set(DependsOn, { target: phases[i - 1] });
+      phases[i].add(DependsOn, phases[i - 1]);
     }
 
     world.setPipeline({

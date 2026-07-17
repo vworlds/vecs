@@ -28,7 +28,7 @@ export class ShapePoseModule extends Module {
           inject: [SingleShape, { target: [ChildOf, [Body]] }],
         },
         (it, _position, [shape, body]) => {
-          recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
+          recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
       .add(PhysicsSystemTag);
@@ -45,7 +45,7 @@ export class ShapePoseModule extends Module {
           inject: [Chain, { target: [ChildOf, [Body]] }],
         },
         (it, _position, [chain, body]) => {
-          recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+          recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
       .add(PhysicsSystemTag);
@@ -62,7 +62,7 @@ export class ShapePoseModule extends Module {
           inject: [SingleShape, { target: [ChildOf, [Body]] }],
         },
         (it, _rotation, [shape, body]) => {
-          recreateSingleShapeForEntity(engine, it.entity, it.src[1], body, shape);
+          recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
       .add(PhysicsSystemTag);
@@ -79,7 +79,7 @@ export class ShapePoseModule extends Module {
           inject: [Chain, { target: [ChildOf, [Body]] }],
         },
         (it, _rotation, [chain, body]) => {
-          recreateChainForEntity(engine, it.entity, it.src[1], body, chain);
+          recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
       .add(PhysicsSystemTag);

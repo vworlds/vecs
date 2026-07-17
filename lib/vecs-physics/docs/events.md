@@ -13,7 +13,7 @@ const player = world.entity().set(Position, { x: 0, y: 4 }).set(Body, { type: Bo
 
 const playerShape = world
   .entity()
-  .set(ChildOf, { target: player })
+  .add(ChildOf, player)
   .set(Box, { hx: 0.5, hy: 0.5 })
   .add(ContactEvents);
 ```
@@ -67,7 +67,7 @@ Minimal example:
 ```ts
 const crate = world.entity().set(Position, { x: 0, y: 3 }).set(Body, { type: BodyType.Dynamic });
 
-world.entity().set(ChildOf, { target: crate }).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
+world.entity().add(ChildOf, crate).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
 
 world.system("CrateContacts").update(ContactEvents, (shape, events) => {
   for (const event of events.begin) {
@@ -134,7 +134,7 @@ const checkpoint = world.entity().set(Position, { x: 10, y: 0 }).add(Body);
 
 world
   .entity()
-  .set(ChildOf, { target: checkpoint })
+  .add(ChildOf, checkpoint)
   .set(Box, { hx: 2, hy: 1 })
   .add(Sensor)
   .add(SensorEvents)
@@ -142,12 +142,7 @@ world
 
 const player = world.entity().set(Position, { x: 0, y: 0 }).set(Body, { type: BodyType.Dynamic });
 
-world
-  .entity()
-  .set(ChildOf, { target: player })
-  .set(Circle, { radius: 0.5 })
-  .add(Detectable)
-  .add(Player);
+world.entity().add(ChildOf, player).set(Circle, { radius: 0.5 }).add(Detectable).add(Player);
 
 world
   .system("CheckpointTriggers")
@@ -295,7 +290,7 @@ body.add(ContactEvents);
 This does:
 
 ```ts
-shape.set(ChildOf, { target: body }).add(ContactEvents);
+shape.add(ChildOf, body).add(ContactEvents);
 ```
 
 ### Forgetting Sensor On Sensor Triggers

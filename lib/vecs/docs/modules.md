@@ -89,13 +89,13 @@ Guidelines:
 Every `World` constructor installs these (`lib/vecs/src/world/world.ts`); you interact with their
 _components_, not with the module objects:
 
-| Module                | Provides                                                                                                                                                                                             |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IdentityModule`      | The `Identity` name component and the name → entity index behind `world.entity("name")` / `entity.name`.                                                                                             |
-| `ImplementsModule`    | Maintains [`Implements` interface aliases](./components.md#interface-aliases-with-implements) and their transitive closure.                                                                          |
-| `SingletonModule`     | Enforces the [`Singleton`](./components.md#singletons-and-world-global-data) one-carrier constraint.                                                                                                 |
-| `RelationshipsModule` | Registers `ChildOf`, installs [`OwnedTarget`](./relationships.md#owned-targets) ownership, and maintains [`Traversable` depth tracking](./relationships.md#traversal-order-traversable-and-cascade). |
-| `PipelineModule`      | Creates the eight [built-in phases](./execution-model.md#phases-the-pipeline-spine) and installs the default pipeline query.                                                                         |
+| Module                | Provides                                                                                                                                                                                                                                                                                       |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IdentityModule`      | The `Identity` name component and the name → entity index behind `world.entity("name")` / `entity.name`.                                                                                                                                                                                       |
+| `ImplementsModule`    | Maintains [`Implements` interface aliases](./components.md#interface-aliases-with-implements) and their transitive closure.                                                                                                                                                                    |
+| `SingletonModule`     | Enforces the [`Singleton`](./components.md#singletons-and-world-global-data) one-carrier constraint.                                                                                                                                                                                           |
+| `RelationshipsModule` | Registers relationship traits, marks built-in single-target relationships `Exclusive`, installs explicit-edge [`OwnedTarget`](./relationships.md#owned-targets) ownership, and maintains exclusive [`Traversable` depth tracking](./relationships.md#traversal-order-traversable-and-cascade). |
+| `PipelineModule`      | Creates the eight [built-in phases](./execution-model.md#phases-the-pipeline-spine) and installs the default pipeline query.                                                                                                                                                                   |
 
 All are exported, so a custom world setup can reuse them.
 

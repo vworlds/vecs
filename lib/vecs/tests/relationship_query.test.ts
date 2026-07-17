@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ChildOf, Iter, Relationship, World } from "../src/index.js";
+import { ChildOf, Entity, Exclusive, Iter, Relationship, World } from "../src/index.js";
 
 class Body {}
 class Position {
@@ -10,6 +10,7 @@ class Velocity {
 }
 class Tag {}
 class FriendOf extends Relationship {}
+class Knows extends Relationship {}
 
 function setup() {
   const w = new World();
@@ -17,17 +18,57 @@ function setup() {
   w.component(Position);
   w.component(Velocity);
   w.component(Tag);
-  w.component(FriendOf);
+  w.component(FriendOf).add(Exclusive);
+  w.component(Knows);
   w.component(ChildOf);
   return { w };
 }
 
 describe("Relationship queries", () => {
+  it("matches when any target satisfies nested target terms", () => {
+    const { w } = setup();
+    const leaf = w.entity().add(Tag);
+    const matchingMiddle = w.entity().add(Knows, leaf);
+    const otherMiddle = w.entity();
+    const candidate = w.entity().add(Knows, otherMiddle).add(Knows, matchingMiddle);
+    const q = w
+      .query("nested-many")
+      .with({ target: [Knows, { target: [Knows, Tag] }] })
+      .build();
+
+    expect(q.has(candidate)).toBe(true);
+    candidate.remove(Knows, matchingMiddle);
+    expect(q.has(candidate)).toBe(false);
+    candidate.add(Knows, matchingMiddle);
+    expect(q.has(candidate)).toBe(true);
+    leaf.destroy();
+    expect(q.has(candidate)).toBe(false);
+  });
+
+  it("keeps an existential match while another qualifying target remains", () => {
+    const { w } = setup();
+    const first = w.entity().add(Position);
+    const second = w.entity().add(Position);
+    const candidate = w.entity().add(Knows, first).add(Knows, second);
+    const q = w
+      .query("many")
+      .with({ target: [Knows, Position] })
+      .build();
+
+    candidate.add(Knows, first);
+    expect(candidate.targets(Knows)).toEqual([first, second]);
+    expect(q.has(candidate)).toBe(true);
+    candidate.remove(Knows, first);
+    expect(q.has(candidate)).toBe(true);
+    second.destroy();
+    expect(q.has(candidate)).toBe(false);
+  });
+
   it("belongs and filter match candidates whose relationship target matches the inner DSL", () => {
     const { w } = setup();
     const target = w.entity().add(Position);
-    const candidate = w.entity().set(FriendOf, { target });
-    const miss = w.entity().set(FriendOf, { target: w.entity() });
+    const candidate = w.entity().add(FriendOf, target);
+    const miss = w.entity().add(FriendOf, w.entity());
     const q = w
       .query("friends")
       .with({ target: [FriendOf, Position] })
@@ -45,7 +86,7 @@ describe("Relationship queries", () => {
   it("live tracking reacts when the target gains and loses inner components", () => {
     const { w } = setup();
     const target = w.entity();
-    const candidate = w.entity().set(FriendOf, { target });
+    const candidate = w.entity().add(FriendOf, target);
     const q = w
       .query("friends")
       .with({ target: [FriendOf, Position] })
@@ -62,20 +103,20 @@ describe("Relationship queries", () => {
     const { w } = setup();
     const first = w.entity().add(Position);
     const second = w.entity();
-    const candidate = w.entity().set(FriendOf, { target: first });
+    const candidate = w.entity().add(FriendOf, first);
     const q = w
       .query("friends")
       .with({ target: [FriendOf, Position] })
       .build();
 
     expect(q.has(candidate)).toBe(true);
-    candidate.set(FriendOf, { target: second });
+    candidate.add(FriendOf, second);
     expect(q.has(candidate)).toBe(false);
     second.add(Position);
     expect(q.has(candidate)).toBe(true);
     candidate.remove(FriendOf);
     expect(q.has(candidate)).toBe(false);
-    candidate.set(FriendOf, { target: second });
+    candidate.add(FriendOf, second);
     expect(q.has(candidate)).toBe(true);
     second.destroy();
     expect(q.has(candidate)).toBe(false);
@@ -84,8 +125,8 @@ describe("Relationship queries", () => {
   it("nested target propagates changes through chained subqueries", () => {
     const { w } = setup();
     const grandparent = w.entity();
-    const parent = w.entity().set(FriendOf, { target: grandparent });
-    const child = w.entity().set(FriendOf, { target: parent });
+    const parent = w.entity().add(FriendOf, grandparent);
+    const child = w.entity().add(FriendOf, parent);
     const q = w
       .query("nested")
       .with({ target: [FriendOf, { target: [FriendOf, Tag] }] })
@@ -101,7 +142,7 @@ describe("Relationship queries", () => {
   it("combines target with candidate-side component routing", () => {
     const { w } = setup();
     const target = w.entity().add(Position);
-    const candidate = w.entity().set(FriendOf, { target });
+    const candidate = w.entity().add(FriendOf, target);
     const q = w
       .query("body-friends")
       .with({ all: [Body, { target: [FriendOf, Position] }] })
@@ -118,8 +159,8 @@ describe("Relationship queries", () => {
     const { w } = setup();
     const parent = w.entity();
     const otherParent = w.entity();
-    const child = w.entity().set(FriendOf, { target: parent }).add(Position);
-    const otherChild = w.entity().set(FriendOf, { target: otherParent }).add(Velocity);
+    const child = w.entity().add(FriendOf, parent).add(Position);
+    const otherChild = w.entity().add(FriendOf, otherParent).add(Velocity);
 
     const collect = () => {
       const seen: unknown[] = [];
@@ -168,23 +209,43 @@ describe("Relationship queries", () => {
   it("flattens target injection in query and filter iteration", () => {
     const { w } = setup();
     const target = w.entity().set(Position, { x: 7 });
-    const candidate = w.entity().add(Body).set(FriendOf, { target });
+    const candidate = w.entity().add(Body).add(FriendOf, target);
+    w.entity().add(Body);
     const body = candidate.get(Body)!;
     const pos = target.get(Position)!;
     const q = w.query("inject").with(Body).build();
 
     const queryTuples: unknown[][] = [];
-    q.forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (_e, tuple) => {
-      queryTuples.push([...tuple]);
-    });
+    q.forEach(
+      [
+        Body,
+        { target: [FriendOf, Entity] },
+        { target: [FriendOf, Position] },
+        { target: [FriendOf, [Entity, Position, Velocity]] },
+      ],
+      (_e, tuple) => {
+        queryTuples.push([...tuple]);
+      }
+    );
 
     const filterTuples: unknown[][] = [];
-    w.filter(Body).forEach([Body, { target: [FriendOf, [Position, Velocity]] }], (_e, tuple) => {
-      filterTuples.push([...tuple]);
-    });
+    w.filter(Body).forEach(
+      [
+        Body,
+        { target: [FriendOf, Entity] },
+        { target: [FriendOf, Position] },
+        { target: [FriendOf, [Entity, Position, Velocity]] },
+      ],
+      (_e, tuple) => {
+        filterTuples.push([...tuple]);
+      }
+    );
 
-    expect(queryTuples).toEqual([[body, pos, undefined]]);
-    expect(filterTuples).toEqual([[body, pos, undefined]]);
+    expect(queryTuples).toEqual([
+      [body, target, pos, target, pos, undefined],
+      [expect.any(Body), undefined, undefined, undefined, undefined, undefined],
+    ]);
+    expect(filterTuples).toEqual(queryTuples);
   });
 
   it("fans out down injection in query and filter iteration", () => {
@@ -192,8 +253,8 @@ describe("Relationship queries", () => {
     const parent = w.entity().add(Body);
     const lonely = w.entity().add(Body);
     const body = parent.get(Body)!;
-    const childWithPosition = w.entity().set(FriendOf, { target: parent }).set(Position, { x: 7 });
-    const childWithVelocity = w.entity().set(FriendOf, { target: parent }).add(Velocity);
+    const childWithPosition = w.entity().add(FriendOf, parent).set(Position, { x: 7 });
+    const childWithVelocity = w.entity().add(FriendOf, parent).add(Velocity);
     const pos = childWithPosition.get(Position)!;
     const vel = childWithVelocity.get(Velocity)!;
     const q = w.query("down-inject").with(Body).build();
@@ -218,7 +279,7 @@ describe("Relationship queries", () => {
     expect(filterTuples).toEqual(queryTuples);
 
     const afterRetarget: unknown[][] = [];
-    childWithVelocity.set(FriendOf, { target: lonely });
+    childWithVelocity.add(FriendOf, lonely);
     q.forEach([Body, { down: [FriendOf, [Position, Velocity]] }], (e, tuple) => {
       afterRetarget.push([e, ...tuple]);
     });
@@ -232,7 +293,7 @@ describe("Relationship queries", () => {
   it("sets Iter source to the parent for direct slots and child for down slots", () => {
     const { w } = setup();
     const parent = w.entity().add(Body);
-    const child = w.entity().set(FriendOf, { target: parent }).add(Position);
+    const child = w.entity().add(FriendOf, parent).add(Position);
     const q = w.query("down-iter").with(Body).build();
     const seen: unknown[][] = [];
 
@@ -251,15 +312,19 @@ describe("Relationship queries", () => {
   it("interleaves up and down injection slots with the correct sources", () => {
     const { w } = setup();
     const target = w.entity().add(Velocity);
-    const parent = w.entity().add(Body).set(FriendOf, { target });
-    const child = w.entity().set(FriendOf, { target: parent }).add(Position);
+    const parent = w.entity().add(Body).add(FriendOf, target);
+    const child = w.entity().add(FriendOf, parent).add(Position);
     const q = w.query("up-down-iter").with(Body).build();
     const seen: unknown[][] = [];
 
     q.forEach(
       {
         cursor: Iter,
-        inject: [Body, { target: [FriendOf, [Velocity]] }, { down: [FriendOf, [Position]] }],
+        inject: [
+          Body,
+          { target: [FriendOf, [Entity, Velocity]] },
+          { down: [FriendOf, [Position]] },
+        ],
       },
       (it, tuple) => {
         seen.push([it.entity, ...it.src, ...tuple]);
@@ -267,8 +332,25 @@ describe("Relationship queries", () => {
     );
 
     expect(seen).toEqual([
-      [parent, parent, target, child, parent.get(Body), target.get(Velocity), child.get(Position)],
+      [
+        parent,
+        parent,
+        target,
+        target,
+        child,
+        parent.get(Body),
+        target,
+        target.get(Velocity),
+        child.get(Position),
+      ],
     ]);
+
+    const bareSeen: unknown[][] = [];
+    q.forEach(
+      [{ target: [FriendOf, [Entity, Velocity]] }, { down: [FriendOf, [Position]] }],
+      (_entity, tuple) => bareSeen.push([...tuple])
+    );
+    expect(bareSeen).toEqual([[target, target.get(Velocity), child.get(Position)]]);
   });
 
   it("fans out down injection for system each", () => {
@@ -278,7 +360,7 @@ describe("Relationship queries", () => {
       .with(Body)
       .each([{ down: [FriendOf, [Position, Velocity]] }], cb);
     const parent = w.entity().add(Body);
-    const child = w.entity().set(FriendOf, { target: parent }).add(Position);
+    const child = w.entity().add(FriendOf, parent).add(Position);
 
     w.progress(0, 0);
 
@@ -304,19 +386,33 @@ describe("Relationship queries", () => {
   it("flattens target injection for enter and exit callbacks", () => {
     const { w } = setup();
     const target = w.entity();
-    const candidate = w.entity().set(FriendOf, { target });
+    const candidate = w.entity().add(FriendOf, target);
     const enter = vi.fn();
     const exit = vi.fn();
     w.query("events")
       .with({ target: [FriendOf, Position] })
-      .enter([{ target: [FriendOf, [Position]] }], enter)
-      .exit([{ target: [FriendOf, [Position]] }], exit)
+      .enter([{ target: [FriendOf, [Entity, Position]] }], enter)
+      .exit([{ target: [FriendOf, [Entity, Position]] }], exit)
       .build();
 
     const pos = target.add(Position).get(Position)!;
-    expect(enter).toHaveBeenCalledWith(candidate, [pos]);
+    expect(enter).toHaveBeenCalledWith(candidate, [target, pos]);
     target.remove(Position);
-    expect(exit).toHaveBeenCalledWith(candidate, [undefined]);
+    expect(exit).toHaveBeenCalledWith(candidate, [target, undefined]);
+  });
+
+  it("injects the target entity through a system enter callback", () => {
+    const { w } = setup();
+    const enter = vi.fn();
+    w.system("target-enter")
+      .with(Body, { target: [FriendOf, Position] })
+      .enter([{ target: [FriendOf, Entity] }], enter);
+    const target = w.entity().add(Position);
+    const candidate = w.entity().add(Body).add(FriendOf, target);
+
+    w.progress(0, 0);
+
+    expect(enter).toHaveBeenCalledWith(candidate, [target]);
   });
 
   it("flattens target injection for system each", () => {
@@ -324,14 +420,14 @@ describe("Relationship queries", () => {
     const cb = vi.fn();
     w.system("system-up")
       .with({ target: [FriendOf, Position] })
-      .each([{ target: [FriendOf, [Position, Velocity]] }], cb);
+      .each([{ target: [FriendOf, [Entity, Position, Velocity]] }], cb);
     const target = w.entity().set(Position, { x: 3 });
-    const candidate = w.entity().set(FriendOf, { target });
+    const candidate = w.entity().add(FriendOf, target);
     const pos = target.get(Position)!;
 
     w.progress(0, 0);
 
-    expect(cb).toHaveBeenCalledWith(candidate, [pos, undefined]);
+    expect(cb).toHaveBeenCalledWith(candidate, [target, pos, undefined]);
   });
 
   it("target queries do not register hidden subqueries", () => {

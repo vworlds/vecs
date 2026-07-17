@@ -14,16 +14,24 @@ This is the M3 parity scene: a dynamic box starts at `y = 4`, falls onto static 
 
 ```ts
 import { ChildOf, World } from "@vworlds/vecs";
-import { Body, BodyType, Box, Position, PhysicsModule } from "@vworlds/vecs-physics";
+import {
+  Body,
+  BodyType,
+  Box,
+  Position,
+  PhysicsModule,
+  preloadPhysics,
+} from "@vworlds/vecs-physics";
 
+await preloadPhysics();
 const world = new World();
 world.module(PhysicsModule, { gravity: { x: 0, y: -10 }, fixedTimeStep: 1 / 60 });
 
 const ground = world.entity().set(Body, { type: BodyType.Static }).set(Position, { x: 0, y: -1 });
-world.entity().set(ChildOf, { target: ground }).set(Box, { width: 100, height: 2 });
+world.entity().add(ChildOf, ground).set(Box, { width: 100, height: 2 });
 
 const box = world.entity().set(Body, { type: BodyType.Dynamic }).set(Position, { x: 0, y: 4 });
-world.entity().set(ChildOf, { target: box }).set(Box, { width: 1, height: 1 });
+world.entity().add(ChildOf, box).set(Box, { width: 1, height: 1 });
 
 let now = 0;
 for (let i = 0; i < 60; i++) {
@@ -122,4 +130,3 @@ Or run them all in sequence via `npm run examples`.
 ## Architecture
 
 - [Architecture Plan](./architecture/ARCHITECTURE.md)
-- [Solver Map](./architecture/SOLVER.md)

@@ -41,8 +41,9 @@ Before implementing, identify:
 - Which component transition creates, updates, or removes related state or resources.
 - Whether the work should react through `enter`, `update`, or `exit` rather than scan every frame.
 - Which phase owns the work and what earlier or later phase it must order against.
-- Whether an owned target, relationship, trait, grouped query, or attached resource expresses the
-  lifecycle better than imperative bookkeeping.
+- Whether a multi-target relationship, an `Exclusive` relationship, an explicitly created owned
+  target, a grouped query, or an attached resource expresses the lifecycle better than imperative
+  bookkeeping.
 - Whether the feature belongs in a `Module` that owns registration, systems, phases, and policy.
 
 Prefer the idioms in the installed design guide over generic ECS patterns. vecs execution details,
@@ -72,8 +73,8 @@ the documented pattern unless the user explicitly chooses otherwise.
    hooks as directed by the guide.
 3. Express cross-feature ordering with phases. Treat same-phase registration order as a local
    implementation detail unless the installed docs explicitly make it part of the design.
-4. Test lifecycle transitions, not only steady-state values: entry, mutation, removal, retargeting,
-   destruction, and same-tick visibility where relevant.
+4. Test lifecycle transitions, not only steady-state values: entry, mutation, edge addition and
+   removal, exclusive edge replacement, destruction, and same-tick visibility where relevant.
 5. Run the consuming project's typecheck and focused tests. Resolve API uncertainty from the
    installed declarations and docs rather than guessing.
 

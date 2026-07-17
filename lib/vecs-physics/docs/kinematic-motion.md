@@ -67,7 +67,7 @@ const platform = world
   .set(Body, { type: BodyType.Kinematic })
   .set(KinematicTargetPosition, { x: 5, y: 2 });
 
-world.entity().set(ChildOf, { target: platform }).set(Box, { hx: 2, hy: 0.25 });
+world.entity().add(ChildOf, platform).set(Box, { hx: 2, hy: 0.25 });
 
 world.progress(performance.now(), 1000 / 60);
 ```

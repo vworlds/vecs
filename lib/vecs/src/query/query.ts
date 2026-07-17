@@ -3,6 +3,7 @@ import {
   type ComponentInstance,
   type ComponentRef,
   type ComponentType,
+  type Relationship,
 } from "../component.js";
 import {
   containsDownTerm,
@@ -19,13 +20,12 @@ import {
   type FanInjectElement,
   type FanInjectTuple,
   type InjectedCallback,
-  type InjectSnapshotTypes,
   type InjectElement,
   type InjectTuple,
   type MaybeResolvedInjectTuple,
   type RequiredResolvedInjectTuple,
 } from "../inject.js";
-import { SilenceSource, Traversable } from "../modules/relationships.js";
+import { Exclusive, SilenceSource, Traversable } from "../modules/relationships.js";
 import { TermConsumer, TermEventKind, type Term } from "../terms/term.js";
 import { ArrayMap } from "../util/array_map.js";
 import { Bitset } from "../util/bitset.js";
@@ -38,6 +38,7 @@ import {
   makeUpdateRegistration,
   type ComponentCallback,
   type EntityCallback,
+  type InjectSnapshotter,
 } from "./callbacks.js";
 import { SOURCE_TRACKED_QUERY_ERROR } from "./constants.js";
 import { getGroupedQueryPrototype } from "./grouped_query_registry.js";
@@ -88,11 +89,10 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public _enterCallback: EntityCallback | undefined = undefined;
   /** @internal `exit` callback (already wraps any injection logic). */
   public _exitCallback: EntityCallback | undefined = undefined;
-  /** @internal Component eids the exit callback needs snapshotted before component removal. */
-  public _exitSnapshotTypes: InjectSnapshotTypes | undefined = undefined;
-  /** @internal Component eids the enter callback needs snapshotted, so a System's inbox-queued
-   * enter still resolves them if the entity is destroyed before the inbox drains. */
-  public _enterSnapshotTypes: InjectSnapshotTypes | undefined = undefined;
+  /** @internal Captures exit injection values and sources before membership teardown. */
+  public _exitSnapshotter: InjectSnapshotter | undefined = undefined;
+  /** @internal Captures enter injection values and sources for queued System callbacks. */
+  public _enterSnapshotter: InjectSnapshotter | undefined = undefined;
   /** Materialized root term that owns membership for this query. */
   public rootTerm: Term | undefined;
   /** @internal Silence-domain query cache. */
@@ -317,6 +317,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     if (!traversable) {
       throw new Error(`Relationship ${relMeta.Class.name} does not have the Traversable trait`);
     }
+    if (!relEntity.has(Exclusive)) {
+      throw new Error(`Relationship ${relMeta.Class.name} does not have the Exclusive trait`);
+    }
 
     const depths = traversable.depths;
     this.orderBy([], (a, _ra, b) => {
@@ -363,16 +366,19 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       typeof source === "object" && !Array.isArray(source) && "entity" in source
         ? source
         : this._buildSilenceQuery(source);
-    this.entity.set(SilenceSource, { target: query.entity });
+    this.entity.add(SilenceSource, query.entity);
     this._silenceQuery = query;
     return this;
   }
 
-  public add<C extends ComponentClass>(Class: C): this;
-  public add(ceid: EID): this;
-  public add(entity: Entity): this;
-  public add(ref: ComponentRef): this {
-    this.entity.add(ref as any);
+  public add<C extends ComponentClass>(
+    Class: C,
+    ...target: InstanceType<C> extends Relationship ? [target: Entity] : []
+  ): this;
+  public add(ceid: EID, target?: Entity): this;
+  public add(entity: Entity, target?: Entity): this;
+  public add(ref: ComponentRef, target?: Entity): this {
+    this.entity.add(ref as any, target as any);
     return this;
   }
 
@@ -419,7 +425,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     this._assertConfigurable();
     const enter = makeEnterCallback(this.world, arg0, arg1);
     this._enterCallback = enter.callback;
-    this._enterSnapshotTypes = enter.snapshotTypes;
+    this._enterSnapshotter = enter.snapshotter;
     return this;
   }
 
@@ -443,7 +449,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     this._assertConfigurable();
     const exit = makeExitCallback(this.world, arg0, arg1);
     this._exitCallback = exit.callback;
-    this._exitSnapshotTypes = exit.snapshotTypes;
+    this._exitSnapshotter = exit.snapshotter;
     return this;
   }
 

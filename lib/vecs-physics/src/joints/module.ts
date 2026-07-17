@@ -1,4 +1,4 @@
-import { Implements, Module } from "@vworlds/vecs";
+import { Exclusive, Implements, Module } from "@vworlds/vecs";
 
 import { BodyModule } from "../body/module.js";
 import { PhysicsCoreModule } from "../core/module.js";
@@ -29,8 +29,8 @@ export class JointsModule extends Module {
     world.module(PhysicsCoreModule);
     world.module(BodyModule);
 
-    world.component(JointBodyA);
-    world.component(JointBodyB);
+    world.component(JointBodyA).add(Exclusive);
+    world.component(JointBodyB).add(Exclusive);
     world.component(Joint);
     world.component(RevoluteJoint);
     world.component(DistanceJoint);

@@ -7,6 +7,7 @@ import {
   StateDiff,
   ALL_COMPONENTS,
   cid_pack,
+  encodeRelationshipSnapshot,
   NetworkWorld,
   type NetworkWorldOptions,
   type RemovedComponent,
@@ -20,9 +21,11 @@ import {
   type ComponentClass,
   type EID,
   type Entity,
+  Exclusive,
   insertPhaseAfter,
   ON_STORE,
   Phase,
+  Relationship,
   type System,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
@@ -191,7 +194,7 @@ export class ServerWorld extends NetworkWorld {
           return;
         }
         if (u.component) {
-          snapshots.push(this._encodeSnapshot(u.entity.eid, u.wireType, u.component));
+          snapshots.push(this._encodeSnapshot(u.entity, u.wireType, u.component));
         } else {
           removed.push([u.entity.eid, u.wireType]);
         }
@@ -301,15 +304,16 @@ export class ServerWorld extends NetworkWorld {
       if (!component) {
         return;
       }
-      snapshots.push(this._encodeSnapshot(entity.eid, registered.wireType, component));
+      snapshots.push(this._encodeSnapshot(entity, registered.wireType, component));
     });
   }
 
   private _encodeSnapshot(
-    eid: EID,
+    entity: Entity,
     wireType: number,
     component: ComponentInstance
   ): EncodedSnapshot {
+    const eid = entity.eid;
     const cid = cid_pack(eid, wireType);
     const cached = this._snapshotCache.get(cid);
     if (cached) {
@@ -317,7 +321,18 @@ export class ServerWorld extends NetworkWorld {
     }
 
     const payloadEncoder = new Encoder(this._encodeBuffer);
-    payloadEncoder.write(component);
+    if (component instanceof Relationship) {
+      const Class = component.constructor as ComponentClass<Relationship>;
+      const targetEids = [...entity.targets(Class)]
+        .map((target) => target.eid)
+        .sort((a, b) => a - b);
+      if (targetEids.length > 1 && this.entity(Class).has(Exclusive)) {
+        throw new Error(`Exclusive relationship ${Class.name} has ${targetEids.length} targets`);
+      }
+      encodeRelationshipSnapshot(payloadEncoder, targetEids, component);
+    } else {
+      payloadEncoder.write(component);
+    }
     const payload = payloadEncoder.getBuffer().slice();
     const snapshot = new EncodedSnapshot(
       this._encode(new ComponentSnapshot({ eid, wireType, payload })),

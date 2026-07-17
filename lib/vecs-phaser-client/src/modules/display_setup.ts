@@ -1,4 +1,4 @@
-import { CleanupPolicy, Implements, Module, ON_STORE, Traversable } from "@vworlds/vecs";
+import { CleanupPolicy, Exclusive, Implements, Module, ON_STORE, Traversable } from "@vworlds/vecs";
 import Phaser from "phaser";
 import { Container, DrawBy, DrawIn, Position } from "@vworlds/vecs-phaser";
 import * as m from "../markers.js";
@@ -17,12 +17,14 @@ export class DisplaySetupModule extends Module<{ scene: Phaser.Scene }> {
     // system re-adds orphaned children to the scene. No Traversable: native
     // children are added to the Phaser Container directly, no ECS cascade.
     const drawIn = world.component(DrawIn);
+    drawIn.add(Exclusive);
     drawIn.meta.onDeleteTarget = CleanupPolicy.Remove;
 
     // DrawBy: computed parenting — child of a renderable, world Position
     // derived each frame. Same Remove policy. Traversable so cascade queries
     // (phaser.resolve.offset, InCell cascade) can reach DrawBy children.
     const drawBy = world.component(DrawBy);
+    drawBy.add(Exclusive);
     drawBy.meta.onDeleteTarget = CleanupPolicy.Remove;
     drawBy.add(Traversable);
 

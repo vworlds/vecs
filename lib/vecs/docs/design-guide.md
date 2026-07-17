@@ -162,17 +162,18 @@ policy for every use of the component type; these configuration components are *
 
 ```ts
 world.component(Gravity).add(Singleton);
-world.component(Inventory).add(OwnedTarget);
-world.component(ChildOf).add(Traversable);
+world.component(Inventory).add(Exclusive).add(OwnedTarget);
+world.component(ChildOf).add(Exclusive).add(Traversable);
 world.component(Orange).set(Implements, { interfaces: [Fruit] });
 ```
 
-| Trait/declaration | Reach for it when                                                          |
-| ----------------- | -------------------------------------------------------------------------- |
-| `Singleton`       | At most one entity may carry the component                                 |
-| `Implements`      | Concrete components should be queryable through abstract aliases           |
-| `Traversable`     | A relationship hierarchy needs depth or cascade ordering                   |
-| `OwnedTarget`     | A relationship is an exclusively owned, zero-or-one entity-valued property |
+| Trait/declaration | Reach for it when                                                   |
+| ----------------- | ------------------------------------------------------------------- |
+| `Singleton`       | At most one entity may carry the component                          |
+| `Implements`      | Concrete components should be queryable through abstract aliases    |
+| `Exclusive`       | A relationship must have at most one target                         |
+| `Traversable`     | An exclusive relationship hierarchy needs depth or cascade ordering |
+| `OwnedTarget`     | An exclusive relationship owns its explicitly added target          |
 
 Traits declare policy; modules implement it through hooks and metadata. Configure them in module
 setup, not inside systems. Lifecycle differs by trait: `OwnedTarget` and `Singleton` are setup-time
@@ -195,41 +196,52 @@ entity.set(Rectangle, { width: 2, height: 1 }); // Arc auto-removed
 
 ### Relationships
 
-A relationship is a component whose value points at another entity:
+A relationship is a component that stores edges from its source entity to one or more target
+entities. Add and remove those edges explicitly:
 
 ```ts
 class InCell extends Relationship {}
-entity.set(InCell, { target: cell }); // retarget freely
-entity.target(InCell); // the target entity
+entity.add(InCell, cell);
+entity.add(InCell, neighboringCell);
+entity.remove(InCell, cell);
+
+entity.target(InCell); // one current target, or undefined
+entity.targets(InCell); // readonly snapshot of every target
+entity.hasTarget(InCell, neighboringCell); // true
 world.query("ByCell").with(Networked, Position).groupBy(InCell); // index by target
 ```
 
-Use `entity.ensureTarget(InCell)` when an absent relationship should default to a new independent
-entity. For aggregate parts whose lifetime should remain bound to the source once assigned, attach
-`OwnedTarget` during setup:
+Relationships are multi-target by default. Add the `Exclusive` relationship trait when a source may
+have at most one target; adding a different edge then replaces the old edge. This cardinality trait
+is separate from `world.setExclusiveComponents(...)`, which prevents different component types from
+coexisting on one entity.
+
+For a zero-or-one aggregate whose lifetime remains bound to its source, create the target explicitly
+and configure the relationship with both `Exclusive` and `OwnedTarget` during setup:
 
 ```ts
-world.component(Inventory).add(OwnedTarget);
-const inventory = player.ensureTarget(Inventory); // inventory is ChildOf player
-player.add(Inventory); // also creates an owned target
+world.component(Inventory).add(Exclusive).add(OwnedTarget);
+const inventory = world.entity();
+player.add(Inventory, inventory); // inventory becomes ChildOf player
 ```
 
-`OwnedTarget` creates a target when the relationship is added, destroys displaced targets on
-retarget, and destroys the current target when the relationship is removed, keeping aggregate
-cleanup aligned with the active relationship. Configure the relationship owner's lifecycle hooks
-before attaching the trait; it wraps those hooks and runs ownership first.
+`OwnedTarget` requires `Exclusive`, never creates a target implicitly, destroys the displaced target
+when a new edge replaces it, and destroys the current target when its edge or relationship is
+removed. `Traversable` also requires `Exclusive` because hierarchy depth needs one parent. Edge
+hooks, `onTargetAdd` and `onTargetRemove`, observe each explicit edge transition and compose with
+these policies.
 
-- **`Relationship.target` is an `Entity` — not directly serialisable, but
-  relationships can be networked** when listed in `networkComponents`.
-  `vecs-protocol` registers `Relationship.prototype.target` as an `"entity"`
-  wire field (u32 eid), so subclasses serialise their target as a raw entity
-  id. The client resolves the id to a live entity (creating a ghost
-  placeholder if the parent hasn't arrived yet). Use a dedicated relationship
-  class per concern — e.g. `ChildOf` for server-local ownership/lifecycle,
-  `DrawIn` (in vecs-phaser) for networked display hierarchy — so the two
-  concerns don't overload a single relationship.
-- **Retargeting is a plain data change** (no archetype churn). Prefer retargeting a relationship
-  over swapping marker components to express "which bucket this entity is in."
+- **Target storage is private.** Read edges with `target` / `targets` / `hasTarget`; mutate them only
+  with `add(Rel, target)` and `remove(Rel, target)` (or `remove(Rel)` for all edges). There is no
+  public `Relationship.target` field.
+- **Relationships can be networked** when listed in `networkComponents`. A relationship snapshot
+  carries all target eids plus the relationship's ordinary wire fields. The client reconciles the
+  complete edge set and creates ghost targets that have not arrived yet. Use a dedicated
+  relationship class per concern so ownership, hierarchy, and display links do not overload one
+  relationship.
+- **Edge changes do not change the source archetype** while at least one edge remains. Prefer
+  replacing an exclusive edge, or adding/removing multi-target edges, over swapping marker
+  components to express membership.
 
 ---
 
@@ -579,10 +591,12 @@ the current `A` as soon as the entity enters the sync system:
 Leave `onEnter: true` off (or set `onEnter: false`) only when a separate `.enter(...)` already initializes `B`,
 or when the callback is intentionally "future changes only."
 
-### Relationship retargeting + grouped queries for spatial/interest indexing
+### Relationship edges + grouped queries for spatial/interest indexing
 
 Bucket entities by a relationship target (or a derived key) and look up buckets in O(1) instead of
-scanning. Moving between buckets is a retarget (data change), not a component swap.
+scanning. `groupBy(Rel)` places a source in every bucket targeted through `Rel`; adding or removing
+an edge reconciles only the affected buckets. Use `Exclusive` when the model permits one bucket and
+multi-target relationships when a source legitimately belongs to several.
 
 ### Owned target entities (entity-valued properties)
 
@@ -604,12 +618,13 @@ class Weight {
   current = 0;
 }
 
-world.component(Inventory).add(OwnedTarget);
+world.component(Inventory).add(Exclusive).add(OwnedTarget);
 world.component(InventoryState);
 world.component(Capacity);
 world.component(Weight);
 
-const inventory = player.ensureTarget(Inventory);
+const inventory = world.entity();
+player.add(Inventory, inventory);
 inventory.add(InventoryState).set(Capacity, { slots: 20 }).set(Weight, { current: 0 });
 ```
 
@@ -628,36 +643,36 @@ world
 
 The lifecycle follows from the relationship and trait:
 
-| Operation                              | Result                                   |
-| -------------------------------------- | ---------------------------------------- |
-| `player.add(Inventory)`                | Creates the inventory entity             |
-| First `player.ensureTarget(Inventory)` | Creates and returns the inventory entity |
-| Later `ensureTarget(Inventory)`        | Returns the same target                  |
-| Retarget `Inventory`                   | Destroys the displaced inventory         |
-| Remove `Inventory`                     | Destroys the current inventory           |
-| Destroy `player`                       | `ChildOf` destroys the inventory         |
+| Operation                             | Result                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------- |
+| `player.add(Inventory, inventory)`    | Parents the explicit inventory entity                                     |
+| `player.add(Inventory, replacement)`  | Destroys the displaced inventory                                          |
+| `player.remove(Inventory, inventory)` | Destroys that inventory and removes `Inventory` when it was the sole edge |
+| `player.remove(Inventory)`            | Destroys every current target                                             |
+| Destroy `player`                      | `ChildOf` destroys the inventory                                          |
 
-Inside deferred execution, mutate the entity returned by `ensureTarget`; do not immediately re-read
-the relationship:
+Inside deferred execution, keep and mutate the target you created; the queued edge is not visible
+through `target` until flush:
 
 ```ts
 world.defer(() => {
-  const inventory = player.ensureTarget(Inventory);
-  inventory.set(Capacity, { slots: 20 }); // correct: pending entity is usable
+  const inventory = world.entity();
+  player.add(Inventory, inventory);
+  inventory.set(Capacity, { slots: 20 }); // the newly created entity is usable
   player.target(Inventory); // still undefined until flush
 });
 ```
 
 Use the narrowest model that fits:
 
-| Need                                                | Model                                      |
-| --------------------------------------------------- | ------------------------------------------ |
-| A few fields sharing the owner's identity/lifecycle | Components directly on the owner           |
-| One composable, exclusively owned sub-entity        | `ensureTarget` + `OwnedTarget`             |
-| One shared or independently living linked entity    | Relationship without `OwnedTarget`         |
-| Zero-to-many subobjects                             | Child entities with identifying components |
-| A non-ECS runtime object                            | `attach(instance)`                         |
-| World-global state                                  | Singleton/component entity                 |
+| Need                                                | Model                                         |
+| --------------------------------------------------- | --------------------------------------------- |
+| A few fields sharing the owner's identity/lifecycle | Components directly on the owner              |
+| One composable, exclusively owned sub-entity        | Explicit target + `Exclusive` + `OwnedTarget` |
+| One shared or independently living linked entity    | Relationship without `OwnedTarget`            |
+| Zero-to-many subobjects                             | Child entities with identifying components    |
+| A non-ECS runtime object                            | `attach(instance)`                            |
+| World-global state                                  | Singleton/component entity                    |
 
 Good fits include an inventory aggregate, equipment loadout, character progression sheet, AI
 blackboard, quest journal, ability book, or unique vehicle subsystem. Individual inventory items,
@@ -675,22 +690,22 @@ system after whatever produces the entity/companion.
 
 ## 8. Anti-patterns (keep ECS semantics)
 
-| Smell                                                                  | Do instead                                                                                                                                                                                                |
-| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A side `Map<eid, resource>`                                            | Store the resource in a **companion component**; let queries drive its lifecycle; release in `onRemove`.                                                                                                  |
-| An imperative runtime object with `start()/stop()/track/enable`        | A **module** + the world's own lifecycle (`clearAllEntities()`, closing the world). Systems live on the world; they don't need a wrapper to turn on.                                                      |
-| Builder/factory helpers that _create entities_ (`createArc(world, …)`) | Let callers `world.entity().add(Networked).set(Arc, …).set(FillStyle, …)`. Components are small and optional; the caller adds exactly what it wants.                                                      |
-| A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                                                                             |
-| A large nested `inventory`, `brain`, or progression object             | Use an owned target entity when the subobject needs its own components, systems, and lifecycle.                                                                                                           |
-| A side `Map<ownerEid, SubsystemState>`                                 | Use `owner.ensureTarget(Rel)`; add `OwnedTarget` only for exclusive destructive ownership.                                                                                                                |
-| `OwnedTarget` on `CurrentEnemy`, `InCell`, `Team`, or shared state     | Use a normal relationship; retargeting or removal of an owned relationship destroys its target.                                                                                                           |
-| One owned target used as a collection                                  | Use multiple child/item entities; owned targets model zero-or-one aggregates.                                                                                                                             |
-| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                                                                                |
-| One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                                                                                    |
-| Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                                                                             |
-| `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                                                                             |
-| Networking a relationship                                              | Relationships can be networked when listed in `networkComponents`: `Relationship.target` serialises as a u32 entity id. List `ChildOf` (or custom subclasses) explicitly to replicate parent-child links. |
-| A `registerFooSystem(world)` wrapper per system                        | Declare the system inline in the module's `init`.                                                                                                                                                         |
+| Smell                                                                  | Do instead                                                                                                                                           |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A side `Map<eid, resource>`                                            | Store the resource in a **companion component**; let queries drive its lifecycle; release in `onRemove`.                                             |
+| An imperative runtime object with `start()/stop()/track/enable`        | A **module** + the world's own lifecycle (`clearAllEntities()`, closing the world). Systems live on the world; they don't need a wrapper to turn on. |
+| Builder/factory helpers that _create entities_ (`createArc(world, …)`) | Let callers `world.entity().add(Networked).set(Arc, …).set(FillStyle, …)`. Components are small and optional; the caller adds exactly what it wants. |
+| A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                        |
+| A large nested `inventory`, `brain`, or progression object             | Use an owned target entity when the subobject needs its own components, systems, and lifecycle.                                                      |
+| A side `Map<ownerEid, SubsystemState>`                                 | Create a target entity and add an explicit edge; use `Exclusive` + `OwnedTarget` only for destructive ownership.                                     |
+| `OwnedTarget` on `CurrentEnemy`, `InCell`, `Team`, or shared state     | Use a normal relationship; replacing or removing an owned edge destroys its target.                                                                  |
+| One owned target used as a collection                                  | Use multiple child/item entities; owned targets model zero-or-one aggregates.                                                                        |
+| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                           |
+| One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                               |
+| Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                        |
+| `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                        |
+| Treating target storage as component data                              | Use `add(Rel, target)` / `remove(Rel, target)` and read with `target` / `targets` / `hasTarget`; target storage is private.                          |
+| A `registerFooSystem(world)` wrapper per system                        | Declare the system inline in the module's `init`.                                                                                                    |
 
 ---
 
@@ -704,24 +719,37 @@ system after whatever produces the entity/companion.
   when `.enter(...)` already owns initialization.
 - **Membership is fixed by `.with(...)` / `.without(...)` / `.update(C)`;** `update(C)` watches `C`
   and requires it.
-- **`exit` reads a snapshot** of the injected components captured at exit (they're being removed).
+- **`exit` retains injected references captured at exit** (components are not deep-cloned).
 - **Within a phase, order = registration order;** across phases, the spine guarantees order. Don't
   use registration order for cross-module correctness — use phases.
 - **Networked component order = wire protocol.** Reordering breaks the protocol.
 - **`@wireType` must survive esbuild's standard decorators** when components load from
   source (tsx/Vite). Otherwise fields silently don't register.
-- **`Relationship.target` is an `Entity`** — not directly wire-encodable, but
-  `vecs-protocol` registers it as an `"entity"` wire field (u32 eid) at module
-  load, so `Relationship` subclasses listed in `networkComponents` serialise
-  correctly.
+- **Relationships are multi-target by default.** `target(R)` returns one current target for singular
+  code but is not a stable selection policy; `targets(R)` snapshots all targets with unspecified
+  ordering; `hasTarget(R, target)` tests one edge.
+- **Relationship edges are explicit.** Add with `add(R, target)`, remove one with
+  `remove(R, target)`, and remove all with `remove(R)`. Do not use `set` for target storage.
+- **Relationship cardinality and component exclusivity are different.** Add the `Exclusive` trait
+  to a relationship for at-most-one target; use `setExclusiveComponents` for mutually exclusive
+  component types.
+- **Target queries are existential.** `{ target: [R, q] }` matches when any `R` target matches `q`.
+  Singular `{ target: ... }` injection projects one current target; plural `{ targets: ... }`
+  injection returns one projected row per target.
+- **Relationship grouping is multi-bucket.** `groupBy(R)` places an entity in every current target
+  bucket and reconciles buckets as edges change.
+- **Network relationship snapshots contain all targets.** Register the relationship in
+  `networkComponents`; the client reconciles the full edge set and relationship data.
 - **Component traits have trait-specific setup semantics.** In particular, configure `OwnedTarget`
   before creating relationship instances; it does not backfill.
-- **`OwnedTarget` is destructive and exclusive.** Retargeting destroys the old target, removing the
-  relationship destroys the current target, and owner destruction cascades through `ChildOf`.
+- **`OwnedTarget` requires `Exclusive` and explicit target creation.** Replacing an edge destroys
+  the old target, removing the relationship destroys the current target, and owner destruction
+  cascades through `ChildOf`.
   Never use it for shared teams, cells, enemies, definitions, or other world entities.
-- **Owned targets are zero-or-one.** Use child entities for collections, and during deferred
-  execution mutate the entity returned by `ensureTarget` instead of re-reading `target(R)` before
-  flush.
+- **`Traversable` requires `Exclusive`.** Depth and cascade ordering need one parent per source.
+- **Owned targets are zero-or-one.** Use child entities for collections, create the aggregate target
+  explicitly, and during deferred execution keep that entity instead of re-reading `target(R)`
+  before flush.
 - **`world.module(M)` runs `init` once.** Re-registering with a different config throws.
 
 ---
