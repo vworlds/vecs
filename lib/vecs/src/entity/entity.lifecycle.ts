@@ -55,18 +55,8 @@ export class Lifecycle extends Components {
       let selfCarry = 0;
       if (entityMeta) {
         selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
-        if (entityMeta.usageCount > selfCarry) {
-          if (entityMeta.onDelete === CleanupPolicy.Throw) {
-            // The public `destroy()` already throws when an in-use component is
-            // destroyed; reaching here means usage grew between that check and
-            // this deferred apply. Abort instead of throwing so a mid-drain
-            // `_processCommandQueue` is not left half-applied, and revive the
-            // entity since nothing has been torn down yet.
-            return;
-          }
-          if (entityMeta.onDelete === CleanupPolicy.Remove) {
-            this._validateOnDeleteRemovals(entityMeta, selfCarry);
-          }
+        if (entityMeta.usageCount > selfCarry && entityMeta.onDelete === CleanupPolicy.Throw) {
+          throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
         }
       }
 
@@ -90,7 +80,7 @@ export class Lifecycle extends Components {
         }
         this.componentBitmask.deleteBit(componentMeta.bitPtr);
         this.world._notifyComponentRemoved(ceid, entity);
-        componentMeta._decrementUsage();
+        componentMeta._detachCarrier(this as unknown as Entity);
         componentMeta._onRemove?.(entity, c);
       }
       this._dirtyComponentBitmask.clear();
@@ -121,6 +111,11 @@ export class Lifecycle extends Components {
    * Each component fires its `onRemove` hook, the entity is unregistered from
    * the world, and incoming relationship cleanup policies are applied. After
    * destruction the entity must not be used.
+   *
+   * A synchronous throw (a `Throw`-policy component entity still in use)
+   * happens before any mutation, so the world stays usable. A throw during
+   * deferred application or a cleanup cascade propagates out of `progress()` /
+   * `flush()` and leaves the world partial — treat it as a programming error.
    */
   public destroy(): void {
     const entityMeta = this._meta;
@@ -138,48 +133,29 @@ export class Lifecycle extends Components {
     }
   }
 
-  // Collect carriers first, then act: the scan must not mutate `world.entities`
-  // while iterating, and `_destroy` idempotency makes overlapping Delete
-  // cascades safe. Carriers are cleaned via the internal `_remove`/`_destroy`
-  // (not the deferred-aware public methods) so `usageCount` drops synchronously
-  // and the `usageCount === 0` classRegistry cleanup in `_destroy` stays correct.
-  // Edge: if a Delete carrier is itself an in-use component key with
-  // `onDelete = Throw`, its `_destroy` safe-aborts and it survives still holding
-  // this now-destroyed component eid. This is the same exotic policy-interaction
-  // class flagged in `_cleanupIncoming`; left for the relationship/query rework.
   private _applyOnDelete(entityMeta: ComponentMeta, selfCarry: number): void {
-    const ceid = entityMeta.eid;
-    const carriers: Lifecycle[] = [];
-    let remaining = entityMeta.usageCount - selfCarry;
-    this.world.entities.forEach((e) => {
-      if (remaining > 0 && e !== (this as unknown as Entity) && e._get(ceid) !== undefined) {
-        carriers.push(e);
-        remaining--;
-      }
-    });
+    const carriers = entityMeta._carriers;
+    if (!carriers || carriers.size <= selfCarry) {
+      return;
+    }
     const shouldDelete = entityMeta.onDelete === CleanupPolicy.Delete;
-    for (const carrier of carriers) {
+    // Snapshot so a _destroy/_remove that mutates _carriers mid-loop (a Delete
+    // cascade destroys a carrier, which detaches it from this meta) cannot
+    // perturb the forEach. DenseSet.delete swaps the last element into the
+    // vacated slot, which would skip entries — same issue-#155 shape as
+    // _cleanupIncoming.
+    const snapshot = [...carriers];
+    const self = this as unknown as Entity;
+    for (const carrier of snapshot) {
+      if (carrier === self) {
+        continue;
+      }
       if (shouldDelete) {
         carrier._destroy();
       } else {
         carrier._remove(entityMeta);
       }
     }
-  }
-
-  /** Validate every carrier removal before mutating any entity in the cleanup pass. */
-  private _validateOnDeleteRemovals(entityMeta: ComponentMeta, selfCarry: number): void {
-    let remaining = entityMeta.usageCount - selfCarry;
-    this.world.entities.forEach((entity) => {
-      if (
-        remaining > 0 &&
-        entity !== (this as unknown as Entity) &&
-        entity._get(entityMeta.eid) !== undefined
-      ) {
-        entityMeta._validateRemove?.(entity);
-        remaining--;
-      }
-    });
   }
 
   /**
@@ -213,8 +189,6 @@ export class Lifecycle extends Components {
         // during this forEach, so no snapshot is needed.
         const sourceEntity = source as unknown as Entity;
         if (policy === CleanupPolicy.Delete) {
-          // If source is also an in-use component entity with onDelete Throw,
-          // this exotic cascade can still throw; revisit with the relationship rework.
           scope.push([DeletionOpKind.Destroy, sourceEntity]);
         } else {
           scope.push([

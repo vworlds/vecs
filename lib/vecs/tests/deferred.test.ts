@@ -499,7 +499,7 @@ describe("World.defer(fn)", () => {
     expect(onAdd).toHaveBeenCalledTimes(2);
   });
 
-  it("applies component entity onDelete cleanup while keeping the queue draining", () => {
+  it("applies component entity onDelete cleanup during deferred drain", () => {
     {
       const w = new World();
       const componentEntity = w.component(DeferredRemove);

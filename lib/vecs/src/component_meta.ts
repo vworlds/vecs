@@ -1,4 +1,5 @@
 import { BitPtr } from "./util/bitset.js";
+import { DenseSet } from "./util/dense_set.js";
 import type { EID, Entity, EntityClass } from "./entity/index.js";
 
 export enum CleanupPolicy {
@@ -266,6 +267,9 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** @internal Current `onSet` handler. */
   public _onSet: HookHandler | undefined;
 
+  /** @internal Reverse index of entities currently carrying this component eid. */
+  public _carriers: DenseSet<Entity> | undefined;
+
   private _usageCount = 0;
 
   constructor(Class: ComponentType, ceid: EID) {
@@ -280,15 +284,20 @@ export class ComponentMeta implements Hook<ComponentInstance> {
     return this._usageCount;
   }
 
-  /** @internal */
-  public _incrementUsage(): void {
+  /** @internal Record `entity` as a carrier of this component eid. */
+  public _attachCarrier(entity: Entity): void {
     this._usageCount++;
+    (this._carriers ??= new DenseSet<Entity>()).add(entity);
   }
 
-  /** @internal */
-  public _decrementUsage(): void {
+  /** @internal Stop tracking `entity` as a carrier of this component eid. */
+  public _detachCarrier(entity: Entity): void {
     if (this._usageCount > 0) {
       this._usageCount--;
+    }
+    this._carriers?.delete(entity);
+    if (this._carriers?.size === 0) {
+      this._carriers = undefined;
     }
   }
 

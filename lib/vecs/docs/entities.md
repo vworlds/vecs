@@ -158,6 +158,12 @@ not be used.
 If the entity is itself in use as a component key, `destroy` honors `meta.onDelete` — by default
 it throws while carriers remain ([Components — cleanup policies](./components.md#cleanup-policies-destroying-a-component-entity)).
 
+A `destroy()` thrown synchronously (a `Throw`-policy component entity still in use) leaves the world
+usable because nothing has been mutated. A throw during deferred drain or a relationship cleanup
+cascade — an impossible policy combination, a `Throw`-policy component reached via a cascade, or a
+hook that throws — propagates out of `progress()` / `flush()` and leaves the world in a partial
+state. Treat this as a programming error: recreate the world or stop.
+
 ## Entities as component keys
 
 Any entity can serve as a component key: `other.add(keyEntity)` attaches a marker component whose

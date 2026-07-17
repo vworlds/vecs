@@ -194,11 +194,11 @@ Every component key is backed by a component entity. What happens when you destr
 while other entities still carry the component is controlled by `meta.onDelete`
 (`CleanupPolicy` in `lib/vecs/src/component_meta.ts`):
 
-| Policy                 | Meaning                                                                                            |
-| ---------------------- | -------------------------------------------------------------------------------------------------- |
-| `CleanupPolicy.Throw`  | Default. Destroying the component entity while other entities carry it throws and changes nothing. |
-| `CleanupPolicy.Remove` | Remove the component from every carrier, then destroy the component entity.                        |
-| `CleanupPolicy.Delete` | Destroy every carrier entity, then destroy the component entity.                                   |
+| Policy                 | Meaning                                                                                                                                                                                                                                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CleanupPolicy.Throw`  | Default. Destroying the component entity while other entities carry it throws. The synchronous `destroy()` call throws before mutating anything, so the world stays usable; a `Throw` policy reached during a deferred drain or a relationship cascade throws and leaves the world partial — discard it. |
+| `CleanupPolicy.Remove` | Remove the component from every carrier, then destroy the component entity.                                                                                                                                                                                                                              |
+| `CleanupPolicy.Delete` | Destroy every carrier entity, then destroy the component entity.                                                                                                                                                                                                                                         |
 
 ```ts
 import { CleanupPolicy } from "@vworlds/vecs";
@@ -208,7 +208,10 @@ world.component(Temporary).destroy(); // strips Temporary from all carriers
 ```
 
 The `Throw` default also applies to plain entities used as component keys (`entity.add(keyEntity)`).
-A failed destroy leaves the component entity, its carriers, and the usage count untouched.
+A synchronous `destroy()` throw (component still in use) leaves the world usable. A throw during
+deferred drain or a cascade is irrecoverable — the component entity, its carriers, and the usage
+count are in a partial state and the world must be discarded. Configure cleanup policies so cascades
+are consistent; treat a mid-destroy throw as a programming error.
 
 Relationship components have a second, independent policy — `meta.onDeleteTarget` — that governs
 what happens to _sources_ when a relationship **target** is destroyed. See

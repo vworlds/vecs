@@ -703,6 +703,39 @@ describe("Entity — component entity onDelete", () => {
     expect(key.destroyed).toBe(true);
     expect(key.instanceCount()).toBe(0);
   });
+
+  it("deferred Throw-policy destroy throws on drain and leaves the world partial", () => {
+    const w = new World();
+    const componentEntity = w.component(Position);
+    const carrier = w.entity().add(Position);
+
+    // Start with a non-Throw policy so the eager `destroy()` check passes and
+    // the command is enqueued; flip to Throw before the drain so `_destroy`
+    // hits the deferred throw path (the race this guard exists for).
+    componentEntity.meta.onDelete = CleanupPolicy.Remove;
+    w.beginDefer();
+    componentEntity.destroy();
+    componentEntity.meta.onDelete = CleanupPolicy.Throw;
+    expect(() => w.endDefer()).toThrow(/component eid is still in use/);
+    // Throw landed before _destroyed was set; entity is registered but world is dead.
+    expect(componentEntity.destroyed).toBe(false);
+    expect(carrier.get(Position)).toBeDefined();
+  });
+
+  it("Delete cascade into a Throw-policy component throws and leaves the world partial", () => {
+    const w = new World();
+    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(Position);
+    const room = w.entity();
+    const lamp = w.entity();
+    lamp.meta.onDelete = CleanupPolicy.Throw;
+    w.entity().add(lamp); // carrier so usageCount > 0
+    lamp.add(InRoom, room);
+
+    expect(() => room.destroy()).toThrow(/component eid is still in use/);
+    expect(room.destroyed).toBe(true);
+    expect(lamp.destroyed).toBe(false);
+  });
 });
 
 describe("Entity — relationship navigation", () => {

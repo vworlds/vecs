@@ -200,6 +200,12 @@ last edge also removes the component.
 destroyed (see
 [Components — cleanup policies](./components.md#cleanup-policies-destroying-a-component-entity)).
 
+If a cleanup cascade hits an impossible combination — for example a `Delete` source that is itself an
+in-use `Throw`-policy component entity — vecs throws and the world is unusable from that point. The
+exception propagates out of the `destroy()` / `progress()` / `flush()` call that triggered the
+cascade. Configure policies so cascades are consistent; this is a programming error, not a
+recoverable runtime condition.
+
 ## Querying through relationships
 
 The DSL follows relationships in both directions

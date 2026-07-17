@@ -100,7 +100,7 @@ export class Components extends Relationships {
     this.world._notifyComponentRemoved(meta.eid, this as unknown as Entity);
     this._components.delete(meta.eid);
     this.world._notifyComponentChanged(meta.eid, this as unknown as Entity);
-    meta._decrementUsage();
+    meta._detachCarrier(this as unknown as Entity);
     meta._onPolicyRemove?.(this as unknown as Entity, c);
     meta._onRemove?.(this as unknown as Entity, c);
   }
@@ -660,7 +660,7 @@ export class Components extends Relationships {
     this.world._notifyComponentRemoved(meta.eid, entity);
     this._components.delete(meta.eid);
     this.world._notifyComponentChanged(meta.eid, entity);
-    meta._decrementUsage();
+    meta._detachCarrier(this as unknown as Entity);
     const targets = relationship._takeTargets();
     for (const target of targets) {
       this._removeIncoming(target, meta.eid);
@@ -684,7 +684,7 @@ export class Components extends Relationships {
     }
     this._components.set(meta.eid, relationship);
     this.componentBitmask.addBit(meta.bitPtr);
-    meta._incrementUsage();
+    meta._attachCarrier(this as unknown as Entity);
   }
 
   /** Assign relationship data while ignoring all target-storage spellings. */
@@ -750,7 +750,7 @@ export class Components extends Relationships {
     this._components.set(meta.eid, instance);
     this.componentBitmask.addBit(meta.bitPtr);
     if (!existing) {
-      meta._incrementUsage();
+      meta._attachCarrier(this as unknown as Entity);
     }
     if (isAdd && !existing) {
       meta._onPolicyAdd?.(this as unknown as Entity, instance);

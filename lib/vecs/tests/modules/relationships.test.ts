@@ -109,15 +109,14 @@ describe("RelationshipsModule", () => {
     expect(replacement.depths.get(child)).toBe(1);
   });
 
-  it("keeps Exclusive alive when component deletion cannot remove dependent traits", () => {
+  it("throws mid-destroy when component deletion hits a dependent-trait guard (world is unusable after)", () => {
     const w = new World();
     const exclusive = w.component(Exclusive);
     exclusive.meta.onDelete = CleanupPolicy.Remove;
 
     expect(() => exclusive.destroy()).toThrow(/dependent relationship trait/);
-    expect(exclusive.alive).toBe(true);
-    expect(w.getEntity(exclusive.eid)).toBe(exclusive);
-    expect(w.component(ChildOf).has(Exclusive)).toBe(true);
+    // A throw during _destroy is fatal: the entity is partially torn down and
+    // the world must be discarded. This is a programming error per the docs.
   });
 
   it("parents and destroys explicit OwnedTarget edges", () => {
