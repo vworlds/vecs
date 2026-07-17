@@ -9,12 +9,17 @@ import {
   Relationship,
   SilenceSource,
   Traversable,
+  With,
   World,
 } from "../../src/index.js";
 
 class ParentOf extends Relationship {}
 class Inventory extends Relationship {}
 class NotRelationship {}
+class Helmet {}
+class Armor {}
+class WornBy extends Relationship {}
+class OwnedBy extends Relationship {}
 
 function depthOf(w: World, entity: Entity): number | undefined {
   return w.entity(ParentOf).get(Traversable)!.depths.get(entity);
@@ -272,5 +277,131 @@ describe("RelationshipsModule", () => {
     expect(w.entities.size).toBe(0);
     void inventory;
     void parentOf;
+  });
+
+  describe("With trait", () => {
+    it("auto-adds the target component when a plain component is added", () => {
+      const w = new World();
+      const armor = w.component(Armor);
+      w.component(Helmet).add(With, armor);
+
+      const e = w.entity().add(Helmet);
+
+      expect(e.has(Helmet)).toBe(true);
+      expect(e.has(Armor)).toBe(true);
+    });
+
+    it("auto-adds the same target pair when a relationship edge is added", () => {
+      const w = new World();
+      const ownedBy = w.component(OwnedBy);
+      w.component(WornBy).add(With, ownedBy);
+      const target = w.entity();
+
+      const e = w.entity().add(WornBy, target);
+
+      expect(e.hasTarget(WornBy, target)).toBe(true);
+      expect(e.hasTarget(OwnedBy, target)).toBe(true);
+    });
+
+    it("requires X and Y to share relationship-ness", () => {
+      const w = new World();
+      const armor = w.component(Armor);
+      expect(() => w.component(WornBy).add(With, armor)).toThrow("both be relationships");
+      // World partially mutated; discard it.
+    });
+
+    it("rejects being attached while the target component is already in use", () => {
+      const w = new World();
+      const helmet = w.component(Helmet);
+      w.entity().add(Helmet); // Helmet is now in use
+
+      expect(() => helmet.add(With, w.component(Armor))).toThrow("in use");
+      // World partially mutated; discard it.
+    });
+
+    it("is idempotent: re-adding X does not re-fire the auto-add", () => {
+      const w = new World();
+      const armor = w.component(Armor);
+      w.component(Helmet).add(With, armor);
+      const e = w.entity();
+
+      e.add(Helmet);
+      // Re-adding a plain component is a set-op: it does not re-fire _onPolicyAdd
+      // (existing=true branch at entity.components.ts:772), so Y is not re-added.
+      expect(() => e.add(Helmet)).not.toThrow();
+      expect(e.has(Armor)).toBe(true);
+    });
+
+    it("composes with pre-existing add hooks on the component", () => {
+      const w = new World();
+      const calls: string[] = [];
+      const armor = w.component(Armor);
+      w.component(Helmet)
+        .on("add", (entity) => {
+          calls.push(`custom:${entity.eid}`);
+        })
+        .add(With, armor);
+
+      const e = w.entity().add(Helmet);
+
+      // Policy hooks fire before public hooks (entity.components.ts:773-774),
+      // so the auto-add of Armor completes before the custom add hook
+      // observes Helmet. Either way both must run.
+      expect(e.has(Armor)).toBe(true);
+      expect(calls).toEqual([`custom:${e.eid}`]);
+    });
+
+    it("surfaces invalid With adds at flush() in deferred mode", () => {
+      const w = new World();
+      w.component(Helmet);
+      w.beginDefer();
+      expect(() => w.component(Helmet).add(With, w.component(WornBy))).not.toThrow();
+      expect(w.component(Helmet).has(With)).toBe(false);
+      // Type mismatch (plain X vs relationship Y) must surface at flush, not silently pass.
+      expect(() => w.endDefer()).toThrow("both be relationships");
+      // World partially mutated; discard it.
+    });
+
+    it("surfaces the auto-add of Y when X is added in deferred mode", () => {
+      const w = new World();
+      const armor = w.component(Armor);
+      w.component(Helmet).add(With, armor);
+      const e = w.entity();
+
+      w.beginDefer();
+      e.add(Helmet);
+      expect(e.has(Armor)).toBe(false);
+      w.endDefer();
+
+      expect(e.has(Helmet)).toBe(true);
+      expect(e.has(Armor)).toBe(true);
+    });
+
+    it("rejects removing With once attached (irrevocable)", () => {
+      const w = new World();
+      const helmet = w.component(Helmet).add(With, w.component(Armor));
+
+      expect(() => helmet.remove(With, w.component(Armor))).toThrow(
+        "With cannot be removed once added"
+      );
+      // World partially mutated; discard it.
+      void helmet;
+    });
+
+    it("clearAllEntities tears down worlds with With traits configured and live edges", () => {
+      const w = new World();
+      const ownedBy = w.component(OwnedBy);
+      w.component(WornBy).add(With, ownedBy);
+      const target = w.entity();
+      const e = w.entity().add(WornBy, target);
+      expect(e.hasTarget(OwnedBy, target)).toBe(true);
+
+      // _detachRelationship fires _onTargetPolicyRemove during teardown, but
+      // the source is already marked destroyed by then, so the With
+      // irrevocability guard skips the throw (matching the teardown contract
+      // documented at relationships.ts:40-44).
+      expect(() => w.clearAllEntities()).not.toThrow();
+      expect(w.entities.size).toBe(0);
+    });
   });
 });

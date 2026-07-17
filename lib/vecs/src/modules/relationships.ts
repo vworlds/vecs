@@ -8,6 +8,7 @@ import {
   OwnedTarget,
   SilenceSource,
   Traversable,
+  With,
 } from "./relationship_types.js";
 
 export {
@@ -17,6 +18,7 @@ export {
   OwnedTarget,
   SilenceSource,
   Traversable,
+  With,
 } from "./relationship_types.js";
 
 /**
@@ -55,6 +57,7 @@ export class RelationshipsModule extends Module {
     const ownedTarget = world.component(OwnedTarget);
     const silenceSource = world.component(SilenceSource);
     const traversableTrait = world.component(Traversable);
+    const withTrait = world.component(With);
 
     childOf.meta.onDeleteTarget = CleanupPolicy.Delete;
     exclusive.meta.on("policyAdd", (relationship): void => {
@@ -122,6 +125,35 @@ export class RelationshipsModule extends Module {
     });
     traversableTrait.meta.on("policyRemove", (): void => {
       throw new Error("Traversable cannot be removed once added");
+    });
+
+    withTrait.meta.on("targetPolicyAdd", (xEntity, _withRelationship, yEntity): void => {
+      const xMeta = xEntity.meta;
+      const yMeta = yEntity.meta;
+      if (xMeta.isRelationship !== yMeta.isRelationship) {
+        throw new Error(
+          "With: the component and its target must both be relationships or both be plain components"
+        );
+      }
+      if (xMeta.usageCount > 0) {
+        throw new Error("With cannot be added while the target component is in use");
+      }
+      if (xMeta.isRelationship) {
+        xMeta.on("targetPolicyAdd", (source, _rel, target) => source.add(yEntity, target));
+      } else {
+        xMeta.on("policyAdd", (entity) => entity.add(yEntity));
+      }
+    });
+    withTrait.meta.on("targetPolicyRemove", (xEntity, _withRelationship, yEntity): void => {
+      // Teardown fires this hook from two paths: _detachRelationship on X
+      // (after X._destroyed = true) and the cleanup cascade when Y is
+      // destroyed (buffered via _cleanupIncoming → _removeTarget, where X is
+      // still alive but Y is already gone). Skip the irrevocability guard in
+      // either case; see the teardown contract at relationships.ts:40-44.
+      if (xEntity.destroyed || yEntity.destroyed) {
+        return;
+      }
+      throw new Error("With cannot be removed once added");
     });
 
     childOf.add(Exclusive).add(Traversable);
