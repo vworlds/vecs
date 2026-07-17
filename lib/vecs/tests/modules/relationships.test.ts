@@ -95,15 +95,17 @@ describe("RelationshipsModule", () => {
     const relationship = w.component(ParentOf).add(Exclusive).add(Traversable);
     const parent = w.entity();
     const child = w.entity().add(ParentOf, parent);
-    const previous = relationship.get(Traversable)!;
-    const replacement = new Traversable();
 
-    relationship.attach(replacement);
-
-    expect(previous.depths.size).toBe(0);
-    expect(replacement.depths.get(child)).toBe(1);
-    child.add(ParentOf, w.entity());
-    expect(replacement.depths.get(child)).toBe(1);
+    // attach-swapping the unique framework trait data instance is irrevocable:
+    // _attach fires _onPolicyRemove on the existing instance before storing
+    // the replacement, so the irrevocability guard throws. The world is left
+    // partially mutated and must be discarded — same contract as any other
+    // trait-invariant violation.
+    expect(() => relationship.attach(new Traversable())).toThrow(
+      "Traversable cannot be removed once added"
+    );
+    // World is unusable after the throw; do not assert further state.
+    void child;
   });
 
   it("throws mid-destroy when component deletion hits a dependent-trait guard (world is unusable after)", () => {
@@ -176,30 +178,28 @@ describe("RelationshipsModule", () => {
     expect(calls).toEqual([`add:${player.eid}`, "remove:true"]);
   });
 
-  it("removes and reinstalls OwnedTarget policy without replacing public hooks", () => {
+  it("rejects removing OwnedTarget once attached (irrevocable)", () => {
     const w = new World();
-    const relationship = w.component(Inventory).add(Exclusive);
-    const publicCalls: Entity[] = [];
-    const onTargetAdd = (_source: Entity, _relationship: Relationship, target: Entity): void => {
-      publicCalls.push(target);
-    };
-    relationship.on("targetAdd", onTargetAdd).add(OwnedTarget);
-    const player = w.entity();
-    const unowned = w.entity();
+    const relationship = w.component(Inventory).add(Exclusive).add(OwnedTarget);
 
-    relationship.remove(OwnedTarget);
-    // Public hook survives the trait's policy teardown.
-    player.add(Inventory, unowned);
-    expect(publicCalls).toEqual([unowned]);
-    player.remove(Inventory);
-    expect(unowned.destroyed).toBe(false);
+    expect(() => relationship.remove(OwnedTarget)).toThrow(
+      "OwnedTarget cannot be removed once added"
+    );
+    // The trait component is already detached from the entity map before
+    // _onPolicyRemove throws, leaving the world partially mutated. Discard it.
+    void relationship;
+  });
 
-    relationship.add(OwnedTarget);
-    const owned = w.entity();
-    player.add(Inventory, owned);
-    expect(owned.parent).toBe(player);
-    player.remove(Inventory);
-    expect(owned.destroyed).toBe(true);
+  it("rejects attach-swapping OwnedTarget once attached (irrevocable)", () => {
+    const w = new World();
+    const relationship = w.component(Inventory).add(Exclusive).add(OwnedTarget);
+
+    expect(() => relationship.attach(new OwnedTarget())).toThrow(
+      "OwnedTarget cannot be removed once added"
+    );
+    // _attach fires _onPolicyRemove on the existing instance; same irrevocability
+    // guard applies. World is unusable; discard it.
+    void relationship;
   });
 
   it("tracks traversable depth through exclusive edge hooks", () => {
@@ -235,21 +235,42 @@ describe("RelationshipsModule", () => {
     expect(depthOf(w, child)).toBe(2);
   });
 
-  it("cleans and reinstalls Traversable policy", () => {
+  it("rejects removing Traversable once attached (irrevocable)", () => {
     const w = new World();
     const relationship = w.component(ParentOf).add(Exclusive).add(Traversable);
-    const firstRoot = w.entity();
-    const secondRoot = w.entity();
-    const child = w.entity().add(ParentOf, firstRoot);
-    const removedState = relationship.get(Traversable)!;
-    expect(removedState.depths.get(child)).toBe(1);
+    const root = w.entity();
+    const child = w.entity().add(ParentOf, root);
+    expect(depthOf(w, child)).toBe(1);
 
-    relationship.remove(Traversable);
-    expect(removedState.depths.size).toBe(0);
-    child.add(ParentOf, secondRoot);
-    expect(removedState.depths.size).toBe(0);
+    expect(() => relationship.remove(Traversable)).toThrow(
+      "Traversable cannot be removed once added"
+    );
+    // Irrevocable trait violation: world is partially mutated, discard it.
+    void relationship;
+  });
 
-    relationship.add(Traversable);
-    expect(relationship.get(Traversable)?.depths.get(child)).toBe(1);
+  it("clearAllEntities tears down worlds with irrevocable traits configured and live edges", () => {
+    const w = new World();
+    const inventory = w.component(Inventory).add(Exclusive).add(OwnedTarget);
+    const parentOf = w.component(ParentOf).add(Exclusive).add(Traversable);
+    // Live edges with adopted children so ownership + depth tracking are active.
+    const player = w.entity();
+    const owned = w.entity();
+    player.add(Inventory, owned);
+    const root = w.entity();
+    const child = w.entity().add(ParentOf, root);
+    expect(owned.parent).toBe(player);
+    expect(depthOf(w, child)).toBe(1);
+
+    // Teardown bypasses _onPolicyRemove (Entity._destroy routes non-relationship
+    // components through the else branch at entity.lifecycle.ts and relationships
+    // through _detachRelationship, neither of which calls _onPolicyRemove), so the
+    // irrevocability guards never fire during world destruction.
+    expect(() => w.clearAllEntities()).not.toThrow();
+
+    // Everything is gone, including the trait-carrying component entities.
+    expect(w.entities.size).toBe(0);
+    void inventory;
+    void parentOf;
   });
 });

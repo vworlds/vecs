@@ -1,4 +1,4 @@
-import { CleanupPolicy, type TargetHandler } from "../component_meta.js";
+import { CleanupPolicy } from "../component_meta.js";
 import { type EID, type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 import {
@@ -20,21 +20,6 @@ export {
 } from "./relationship_types.js";
 
 /**
- * Per-relationship target-policy handlers installed by `OwnedTarget`, keyed by
- * the relationship entity so {@link RelationshipsModule._ownedTargetPolicyRemove}
- * can `off` the exact references {@link RelationshipsModule._ownedTargetPolicyAdd}
- * registered.
- */
-const _ownedTargetPolicies = new WeakMap<Entity, { add: TargetHandler; remove: TargetHandler }>();
-
-/**
- * Per-relationship target-policy handlers installed by `Traversable`, keyed by
- * the relationship entity so the Traversable `policyRemove` hook can `off` the
- * exact references its `policyAdd` hook registered.
- */
-const _traversablePolicies = new WeakMap<Entity, { add: TargetHandler; remove: TargetHandler }>();
-
-/**
  * Built-in world module that registers the `ChildOf` relationship and
  * maintains ownership and depth tracking policies for relationship traits.
  *
@@ -51,6 +36,12 @@ const _traversablePolicies = new WeakMap<Entity, { add: TargetHandler; remove: T
  * wraps its target-edge hooks so every explicitly added target becomes a
  * `ChildOf` child of its source and is destroyed when displaced or removed.
  * `OwnedTarget` requires `Exclusive` and never creates a target implicitly.
+ *
+ * `OwnedTarget` and `Traversable` are irrevocable once attached: both
+ * `entity.remove(Trait)` and `entity.attach(newInstance)` throw, and the world
+ * must be discarded after the throw. Teardown bypasses these guards —
+ * `Entity._destroy` does not fire `_onPolicyRemove` — so `clearAllEntities`
+ * can still tear down worlds with these traits configured.
  *
  * Depth is computed by walking `entity.target(relEid)` to the root. When an
  * entity's depth changes, every descendant is recursively recomputed.
@@ -95,23 +86,13 @@ export class RelationshipsModule extends Module {
       if (!rel.has(Exclusive)) {
         throw new Error("OwnedTarget requires Exclusive");
       }
-      const addTarget: TargetHandler = (source, _relationship, target) => {
-        target.add(ChildOf, source);
-      };
-      const removeTarget: TargetHandler = (_source, _relationship, target) => {
-        target.destroy();
-      };
-      _ownedTargetPolicies.set(rel, { add: addTarget, remove: removeTarget });
-      rel.meta.on("targetPolicyAdd", addTarget);
-      rel.meta.on("targetPolicyRemove", removeTarget);
+      rel.meta.on("targetPolicyAdd", (source, _relationship, target) =>
+        target.add(ChildOf, source)
+      );
+      rel.meta.on("targetPolicyRemove", (_source, _relationship, target) => target.destroy());
     });
-    ownedTarget.meta.on("policyRemove", (rel): void => {
-      const policies = _ownedTargetPolicies.get(rel);
-      if (policies) {
-        rel.meta.off("targetPolicyAdd", policies.add);
-        rel.meta.off("targetPolicyRemove", policies.remove);
-        _ownedTargetPolicies.delete(rel);
-      }
+    ownedTarget.meta.on("policyRemove", (): void => {
+      throw new Error("OwnedTarget cannot be removed once added");
     });
 
     traversableTrait.meta.on("policyAdd", (rel, component): void => {
@@ -123,18 +104,15 @@ export class RelationshipsModule extends Module {
       }
       const traversable = component as Traversable;
       const relEid = rel.eid;
-      const addTarget: TargetHandler = (entity) => {
+      rel.meta.on("targetPolicyAdd", (entity) => {
         this._cascadeUpdate(entity, relEid, traversable);
-      };
-      const removeTarget: TargetHandler = (entity) => {
+      });
+      rel.meta.on("targetPolicyRemove", (entity) => {
         traversable.depths.delete(entity);
         for (const child of entity._childrenByEid(relEid) ?? []) {
           this._cascadeUpdate(child, relEid, traversable);
         }
-      };
-      _traversablePolicies.set(rel, { add: addTarget, remove: removeTarget });
-      rel.meta.on("targetPolicyAdd", addTarget);
-      rel.meta.on("targetPolicyRemove", removeTarget);
+      });
 
       world.entities.forEach((entity) => {
         if (entity.has(relEid)) {
@@ -142,14 +120,8 @@ export class RelationshipsModule extends Module {
         }
       });
     });
-    traversableTrait.meta.on("policyRemove", (rel, component): void => {
-      const policies = _traversablePolicies.get(rel);
-      if (policies) {
-        rel.meta.off("targetPolicyAdd", policies.add);
-        rel.meta.off("targetPolicyRemove", policies.remove);
-        _traversablePolicies.delete(rel);
-      }
-      (component as Traversable).depths.clear();
+    traversableTrait.meta.on("policyRemove", (): void => {
+      throw new Error("Traversable cannot be removed once added");
     });
 
     childOf.add(Exclusive).add(Traversable);
