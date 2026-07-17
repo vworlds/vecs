@@ -45,7 +45,7 @@ export class Relationships extends Queries {
   }
 
   /** @internal */
-  protected _addIncoming(target: Entity | undefined, relEid: EID): void {
+  protected _addIncoming(this: Entity, target: Entity | undefined, relEid: EID): void {
     if (!target || target._destroyed) {
       return;
     }
@@ -54,25 +54,28 @@ export class Relationships extends Queries {
       sources = new DenseSet<Entity>();
       (target._incoming ??= new IterableArrayMap()).set(relEid, sources);
     }
-    sources.add(this as unknown as Entity);
+    sources.add(this);
   }
 
   /** @internal */
-  protected _removeIncoming(target: Entity | undefined, relEid: EID): void {
+  protected _removeIncoming(this: Entity, target: Entity | undefined, relEid: EID): void {
     const sources = target?._incoming?.get(relEid);
     if (!sources) {
       return;
     }
-    sources.delete(this as unknown as Entity);
+    sources.delete(this);
     if (sources.size === 0) {
       target!._incoming!.delete(relEid);
     }
   }
 
   /** @internal */
-  protected _notifyRelationshipChanged(meta: ComponentMeta, relationship: Relationship): void {
-    const entity = this as unknown as Entity;
-    this.world._notifyComponentChanged(meta.eid, entity);
-    this._queries.forEach((query) => query._notifyModified(entity, meta.eid, relationship));
+  protected _notifyRelationshipChanged(
+    this: Entity,
+    meta: ComponentMeta,
+    relationship: Relationship
+  ): void {
+    this.world._notifyComponentChanged(meta.eid, this);
+    this._queries.forEach((query) => query._notifyModified(this, meta.eid, relationship));
   }
 }

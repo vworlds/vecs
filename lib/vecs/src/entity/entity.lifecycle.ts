@@ -37,7 +37,7 @@ export class Lifecycle extends Components {
    * `onRemove` on every component, unregister from the world, and apply
    * incoming relationship cleanup policies.
    */
-  public _destroy(): void {
+  public _destroy(this: Entity): void {
     if (this._destroyed) {
       return;
     }
@@ -67,8 +67,7 @@ export class Lifecycle extends Components {
         this._applyOnDelete(entityMeta, selfCarry);
       }
 
-      const entity = this as unknown as Entity;
-      this.world._notifyEntityDestroyed(entity);
+      this.world._notifyEntityDestroyed(this);
 
       const components: Array<[ComponentInstance, number]> = [];
       this._components.forEach((component, ceid) => components.push([component, ceid]));
@@ -79,9 +78,9 @@ export class Lifecycle extends Components {
           continue;
         }
         this.componentBitmask.deleteBit(componentMeta.bitPtr);
-        this.world._notifyComponentRemoved(ceid, entity);
-        componentMeta._detachCarrier(this as unknown as Entity);
-        componentMeta._onRemove?.(entity, c);
+        this.world._notifyComponentRemoved(ceid, this);
+        componentMeta._detachCarrier(this);
+        componentMeta._onRemove?.(this, c);
       }
       this._dirtyComponentBitmask.clear();
       this._queries.clear();
@@ -92,7 +91,7 @@ export class Lifecycle extends Components {
         this.world._classRegistry.delete(entityMeta.Class);
       }
 
-      this.world._unregisterEntity(entity);
+      this.world._unregisterEntity(this);
       this._cleanupIncoming();
     } finally {
       if (ownsDeletionScope) {
@@ -117,7 +116,7 @@ export class Lifecycle extends Components {
    * deferred application or a cleanup cascade propagates out of `progress()` /
    * `flush()` and leaves the world partial — treat it as a programming error.
    */
-  public destroy(): void {
+  public destroy(this: Entity): void {
     const entityMeta = this._meta;
     if (
       entityMeta &&
@@ -127,13 +126,13 @@ export class Lifecycle extends Components {
       throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
     }
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Destroy, entity: this as unknown as Entity });
+      this.world._enqueue({ kind: CommandKind.Destroy, entity: this });
     } else {
       this._destroy();
     }
   }
 
-  private _applyOnDelete(entityMeta: ComponentMeta, selfCarry: number): void {
+  private _applyOnDelete(this: Entity, entityMeta: ComponentMeta, selfCarry: number): void {
     const carriers = entityMeta._carriers;
     if (!carriers || carriers.size <= selfCarry) {
       return;
@@ -145,9 +144,8 @@ export class Lifecycle extends Components {
     // vacated slot, which would skip entries — same issue-#155 shape as
     // _cleanupIncoming.
     const snapshot = [...carriers];
-    const self = this as unknown as Entity;
     for (const carrier of snapshot) {
-      if (carrier === self) {
+      if (carrier === this) {
         continue;
       }
       if (shouldDelete) {
@@ -170,7 +168,7 @@ export class Lifecycle extends Components {
    * `_flushDeletionScope` after all scans in the cascade complete.
    * See issue #155.
    */
-  private _cleanupIncoming(): void {
+  private _cleanupIncoming(this: Entity): void {
     if (!this._incoming) {
       return;
     }
@@ -187,16 +185,10 @@ export class Lifecycle extends Components {
         // `sources` is iterated read-only here; re-entrant _removeIncoming
         // mutates it during the scope flush (after this scan completes), not
         // during this forEach, so no snapshot is needed.
-        const sourceEntity = source as unknown as Entity;
         if (policy === CleanupPolicy.Delete) {
-          scope.push([DeletionOpKind.Destroy, sourceEntity]);
+          scope.push([DeletionOpKind.Destroy, source]);
         } else {
-          scope.push([
-            DeletionOpKind.Remove,
-            sourceEntity,
-            relEntity.meta,
-            this as unknown as Entity,
-          ]);
+          scope.push([DeletionOpKind.Remove, source, relEntity.meta, this]);
         }
       }
     });
