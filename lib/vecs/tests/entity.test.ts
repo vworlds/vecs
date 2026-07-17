@@ -174,7 +174,7 @@ describe("Entity — components", () => {
     w.component(Position);
     const onAdd = vi.fn();
     const onSet = vi.fn();
-    w.component(Position).onAdd(onAdd).onSet(onSet);
+    w.component(Position).on("add", onAdd).on("set", onSet);
     const e = w.entity();
     const pos = new Position();
     e.attach(pos);
@@ -187,7 +187,7 @@ describe("Entity — components", () => {
     w.component(Position);
     const onAdd = vi.fn();
     const onSet = vi.fn();
-    w.component(Position).onAdd(onAdd).onSet(onSet);
+    w.component(Position).on("add", onAdd).on("set", onSet);
     const e = w.entity();
     const pos1 = new Position();
     const pos2 = new Position();
@@ -229,7 +229,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.component(Position);
     const onSet = vi.fn();
-    w.component(Position).onSet(onSet);
+    w.component(Position).on("set", onSet);
     const e = w.entity();
     e.set(Position, { x: 1 });
     w.progress(0, 0);
@@ -240,7 +240,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.component(Position);
     const onSet = vi.fn();
-    w.component(Position).onSet(onSet);
+    w.component(Position).on("set", onSet);
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0); // flush the initial add notification
@@ -280,7 +280,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.component(Position);
     const onSet = vi.fn();
-    w.component(Position).onSet(onSet);
+    w.component(Position).on("set", onSet);
     const e = w.entity();
     const pos = e.add(Position).getMut(Position, (value) => {
       value.x = 3;
@@ -295,7 +295,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.component(Position);
     const onSet = vi.fn();
-    w.component(Position).onSet(onSet);
+    w.component(Position).on("set", onSet);
     const e = w.entity();
     const callback = vi.fn();
     expect(e.getMut(Position, callback)).toBeUndefined();
@@ -325,7 +325,7 @@ describe("Entity — components", () => {
     w.component(Position);
     const onAdd = vi.fn();
     const onSet = vi.fn();
-    w.component(Position).onAdd(onAdd).onSet(onSet);
+    w.component(Position).on("add", onAdd).on("set", onSet);
     const e = w.entity();
 
     const pos = e.ensure(Position, (value) => {
@@ -344,7 +344,7 @@ describe("Entity — components", () => {
     const w = new World();
     w.component(Position);
     const onSet = vi.fn();
-    w.component(Position).onSet(onSet);
+    w.component(Position).on("set", onSet);
     const e = w.entity();
     const pos = e.add(Position).ensure(Position, (value) => {
       value.x = 3;
@@ -477,7 +477,7 @@ describe("Entity — lifecycle and relationships", () => {
     w.component(Position);
     w.component(Velocity);
     let observed: Velocity | undefined;
-    w.component(Position).onRemove((entity) => {
+    w.component(Position).on("remove", (entity) => {
       observed = entity.get(Velocity);
     });
     const e = w.entity();
@@ -630,7 +630,7 @@ describe("Entity — lifecycle and relationships", () => {
     const w = new World();
     w.component(Position);
     const cb = vi.fn((entity: Entity) => entity.destroy());
-    w.component(Position).onRemove(cb);
+    w.component(Position).on("remove", cb);
     const e = w.entity();
     e.add(Position);
     e.destroy();
@@ -875,7 +875,7 @@ describe("Entity — relationship navigation", () => {
     const w = new World();
     const relationship = w.component(FriendOf);
     const onSet = vi.fn();
-    relationship.onSet(onSet);
+    relationship.on("set", onSet);
     const source = w.entity();
     const first = w.entity();
     const second = w.entity();
@@ -901,20 +901,20 @@ describe("Entity — relationship navigation", () => {
     const source = w.entity();
     const target = w.entity();
     relationship
-      .onTargetAdd((entity, instance, added) => {
+      .on("targetAdd", (entity, instance, added) => {
         expect(entity.hasTarget(FriendOf, added)).toBe(true);
         expect(added.children(FriendOf)).toContain(entity);
         expect(instance).toBe(entity.get(FriendOf));
         events.push("target-add");
       })
-      .onAdd(() => events.push("add"))
-      .onTargetRemove((entity, instance, removed) => {
+      .on("add", () => events.push("add"))
+      .on("targetRemove", (entity, instance, removed) => {
         expect(entity.has(FriendOf)).toBe(false);
         expect(instance._target()).toBeUndefined();
         expect(removed.children(FriendOf)).not.toContain(entity);
         events.push("target-remove");
       })
-      .onRemove(() => events.push("remove"));
+      .on("remove", () => events.push("remove"));
 
     source.add(FriendOf, target);
     source.remove(FriendOf, target);
@@ -928,7 +928,7 @@ describe("Entity — relationship navigation", () => {
     const query = w.query("reentrant relationship add").with(FriendOf).build();
     const onAdd = vi.fn();
     const onTargetAdd = vi.fn((source: Entity) => source.remove(FriendOf));
-    relationship.onTargetAdd(onTargetAdd).onAdd(onAdd);
+    relationship.on("targetAdd", onTargetAdd).on("add", onAdd);
     const source = w.entity();
     const target = w.entity();
 
@@ -963,13 +963,13 @@ describe("Entity — relationship navigation", () => {
     const removed: Entity[] = [];
     const added: Entity[] = [];
     relationship
-      .onTargetRemove((entity, _instance, target) => {
+      .on("targetRemove", (entity, _instance, target) => {
         removed.push(target);
         if (target === first) {
           entity.add(FriendOf, third);
         }
       })
-      .onTargetAdd((entity, _instance, target) => {
+      .on("targetAdd", (entity, _instance, target) => {
         expect(entity.target(FriendOf)).toBe(target);
         expect(target.children(FriendOf)).toContain(entity);
         added.push(target);
@@ -994,7 +994,7 @@ describe("Entity — relationship navigation", () => {
     const relationship = w.component(FriendOf).add(Exclusive);
     const removed = vi.fn();
     const added = vi.fn();
-    relationship.onTargetRemove(removed).onTargetAdd(added);
+    relationship.on("targetRemove", removed).on("targetAdd", added);
     const source = w.entity();
     const first = w.entity();
     const second = w.entity();

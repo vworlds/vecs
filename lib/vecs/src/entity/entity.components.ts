@@ -1,12 +1,13 @@
 import { CommandKind } from "../command.js";
 import {
   ComponentMeta,
+  _slotHandlers,
   type ComponentClass,
   type ComponentInstance,
   type ComponentRef,
   type ComponentType,
-  type HookHandler,
-  type TargetHandler,
+  type HookEvent,
+  type HookEventMap,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { Relationships } from "./entity.relationships.js";
@@ -798,9 +799,12 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    if (meta._targetAddPolicies) {
-      for (const policy of meta._targetAddPolicies.values()) {
-        policy(this, relationship, target);
+    // Policy handlers run first; each may mutate the relationship (e.g. an
+    // OwnedTarget policy parents the target). If one makes the edge no longer
+    // current, abort remaining policies and the public hook.
+    if (meta._onTargetPolicyAdd !== undefined) {
+      for (const h of _slotHandlers(meta._onTargetPolicyAdd)) {
+        h(this, relationship, target);
         if (!isCurrent()) {
           return false;
         }
@@ -817,9 +821,9 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    if (meta._targetRemovePolicies) {
-      for (const policy of meta._targetRemovePolicies.values()) {
-        policy(this, relationship, target);
+    if (meta._onTargetPolicyRemove !== undefined) {
+      for (const h of _slotHandlers(meta._onTargetPolicyRemove)) {
+        h(this, relationship, target);
         if (!isCurrent()) {
           return false;
         }
@@ -829,69 +833,19 @@ export class Components extends Relationships {
     return isCurrent();
   }
 
-  /** Return the current add hook, or `undefined` when none is set. */
-  public onAdd(): HookHandler | undefined;
-
-  /** Set the add hook, or remove it by passing `undefined`. */
-  public onAdd(handler: HookHandler | undefined): this;
-
-  public onAdd(handler?: HookHandler): this | HookHandler | undefined {
-    if (arguments.length === 0) {
-      return this.meta.onAdd();
-    }
-    this.meta.onAdd(handler);
+  /**
+   * Register a handler for a hook event on this entity's component meta.
+   * See {@link ComponentMeta.on} for the event list and semantics. Returns this
+   * entity for chaining.
+   */
+  public on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert = false): this {
+    this.meta.on(event, handler, insert);
     return this;
   }
 
-  /** Return the current remove hook, or `undefined` when none is set. */
-  public onRemove(): HookHandler | undefined;
-
-  /** Set the remove hook, or remove it by passing `undefined`. */
-  public onRemove(handler: HookHandler | undefined): this;
-
-  public onRemove(handler?: HookHandler): this | HookHandler | undefined {
-    if (arguments.length === 0) {
-      return this.meta.onRemove();
-    }
-    this.meta.onRemove(handler);
-    return this;
-  }
-
-  /** Return the current relationship target-add hook. */
-  public onTargetAdd(): TargetHandler | undefined;
-  /** Set the relationship target-add hook. */
-  public onTargetAdd(handler: TargetHandler | undefined): this;
-  public onTargetAdd(handler?: TargetHandler): this | TargetHandler | undefined {
-    if (arguments.length === 0) {
-      return this.meta.onTargetAdd();
-    }
-    this.meta.onTargetAdd(handler);
-    return this;
-  }
-
-  /** Return the current relationship target-remove hook. */
-  public onTargetRemove(): TargetHandler | undefined;
-  /** Set the relationship target-remove hook. */
-  public onTargetRemove(handler: TargetHandler | undefined): this;
-  public onTargetRemove(handler?: TargetHandler): this | TargetHandler | undefined {
-    if (arguments.length === 0) {
-      return this.meta.onTargetRemove();
-    }
-    this.meta.onTargetRemove(handler);
-    return this;
-  }
-
-  /** Return the current set hook, or `undefined` when none is set. */
-  public onSet(): HookHandler | undefined;
-
-  /** Set the set hook, or remove it by passing `undefined`. */
-  public onSet(handler: HookHandler | undefined): this;
-
-  public onSet(handler?: HookHandler): this | HookHandler | undefined {
-    if (arguments.length === 0) {
-      return this.meta.onSet();
-    }
-    this.meta.onSet(handler);
+  /** Remove a previously-registered handler by reference. See {@link ComponentMeta.off}. */
+  public off<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
+    this.meta.off(event, handler);
     return this;
   }
 }

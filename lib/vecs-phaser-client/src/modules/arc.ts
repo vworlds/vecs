@@ -9,7 +9,7 @@ export class ArcModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace 
     const { scene, coords } = config;
     const world = this.world;
 
-    world.component(Arc).onRemove((entity) => entity.remove(Phaser.GameObjects.Arc));
+    world.component(Arc).on("remove", (entity) => entity.remove(Phaser.GameObjects.Arc));
 
     world
       .system("phaser.new.arc")

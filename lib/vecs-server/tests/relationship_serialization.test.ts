@@ -79,7 +79,7 @@ function decodeLastMessage(socket: MemorySocket): Server2Client {
 }
 
 function allowAllClientViews(world: World): void {
-  world.component(NetworkClient).onSet((entity) => {
+  world.component(NetworkClient).on("set", (entity) => {
     entity.set(View, { dsl: true });
   });
 }

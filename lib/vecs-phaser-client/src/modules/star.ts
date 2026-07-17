@@ -9,7 +9,7 @@ export class StarModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace
     const { scene, coords } = config;
     const world = this.world;
 
-    world.component(Star).onRemove((entity) => entity.remove(Phaser.GameObjects.Star));
+    world.component(Star).on("remove", (entity) => entity.remove(Phaser.GameObjects.Star));
 
     world
       .system("phaser.new.star")

@@ -33,9 +33,9 @@ import { type WorldOptions } from "./world.base.js";
 export class World extends Pipeline {
   public constructor(options: WorldOptions = {}) {
     super(options);
-    this.component(SilenceSource).onRemove((entity) => entity.get(Query)?._clearSilence());
-    this.component(Query).onRemove((_entity, query) => query.destroy());
-    this.component(System).onRemove((_entity, system) => system.destroy());
+    this.component(SilenceSource).on("remove", (entity) => entity.get(Query)?._clearSilence());
+    this.component(Query).on("remove", (_entity, query) => query.destroy());
+    this.component(System).on("remove", (_entity, system) => system.destroy());
     [
       IdentityModule,
       ImplementsModule,

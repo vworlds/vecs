@@ -9,7 +9,7 @@ export class ImageModule extends Module<{ scene: Phaser.Scene; coords: CoordSpac
     const { scene, coords } = config;
     const world = this.world;
 
-    world.component(Image).onRemove((entity) => entity.remove(Phaser.GameObjects.Image));
+    world.component(Image).on("remove", (entity) => entity.remove(Phaser.GameObjects.Image));
 
     world
       .system("phaser.new.image")

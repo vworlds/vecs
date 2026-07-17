@@ -160,10 +160,10 @@ describe("RelationshipsModule", () => {
     const calls: string[] = [];
     w.component(Inventory)
       .add(Exclusive)
-      .onTargetAdd((_source, _relationship, target) => {
+      .on("targetAdd", (_source, _relationship, target) => {
         calls.push(`add:${target.parent?.eid}`);
       })
-      .onTargetRemove((_source, _relationship, target) => {
+      .on("targetRemove", (_source, _relationship, target) => {
         calls.push(`remove:${target.destroyed}`);
       })
       .add(OwnedTarget);
@@ -179,14 +179,18 @@ describe("RelationshipsModule", () => {
   it("removes and reinstalls OwnedTarget policy without replacing public hooks", () => {
     const w = new World();
     const relationship = w.component(Inventory).add(Exclusive);
-    const onTargetAdd = (_source: Entity, _relationship: Relationship, _target: Entity): void => {};
-    relationship.onTargetAdd(onTargetAdd).add(OwnedTarget);
+    const publicCalls: Entity[] = [];
+    const onTargetAdd = (_source: Entity, _relationship: Relationship, target: Entity): void => {
+      publicCalls.push(target);
+    };
+    relationship.on("targetAdd", onTargetAdd).add(OwnedTarget);
     const player = w.entity();
     const unowned = w.entity();
 
     relationship.remove(OwnedTarget);
-    expect(relationship.onTargetAdd()).toBe(onTargetAdd);
+    // Public hook survives the trait's policy teardown.
     player.add(Inventory, unowned);
+    expect(publicCalls).toEqual([unowned]);
     player.remove(Inventory);
     expect(unowned.destroyed).toBe(false);
 

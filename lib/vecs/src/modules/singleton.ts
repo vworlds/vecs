@@ -25,7 +25,7 @@ export class Singleton {}
  */
 export class SingletonModule extends Module {
   public init(): void {
-    this.world.component(Singleton).onAdd((target: Entity): void => {
+    this.world.component(Singleton).on("add", (target: Entity): void => {
       const targetMeta = target.meta;
       if (targetMeta.usageCount !== 0) {
         throw new Error(
@@ -33,7 +33,7 @@ export class SingletonModule extends Module {
         );
       }
 
-      targetMeta.onAdd((entity) => {
+      targetMeta.on("add", (entity) => {
         if (entity !== target || targetMeta.usageCount !== 1) {
           throw new Error(
             `Cannot add singleton component ${targetMeta.Class.name} to entity ${entity.eid}; singleton instance is entity ${target.eid}`

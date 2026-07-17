@@ -109,12 +109,12 @@ entity:
 ```ts
 world
   .component(Health)
-  .onAdd((entity, h) => console.log(`entity ${entity.eid} spawned with hp=${h.hp}`))
-  .onRemove((entity) => console.log(`entity ${entity.eid} died`));
+  .on("add", (entity, h) => console.log(`entity ${entity.eid} spawned with hp=${h.hp}`))
+  .on("remove", (entity) => console.log(`entity ${entity.eid} died`));
 ```
 
-`onAdd` fires when the component is first attached, `onRemove` when it is detached or its entity is
-destroyed, and `onSet` whenever its data is set or marked modified.
+The `add` event fires when the component is first attached, `remove` when it is detached or its
+entity is destroyed, and `set` whenever its data is set or marked modified.
 
 ## 6. Spawn entities
 
@@ -167,8 +167,8 @@ world.component(Position);
 world.component(Velocity);
 world
   .component(Health)
-  .onAdd((entity, h) => console.log(`entity ${entity.eid} spawned with hp=${h.hp}`))
-  .onRemove((entity) => console.log(`entity ${entity.eid} died`));
+  .on("add", (entity, h) => console.log(`entity ${entity.eid} spawned with hp=${h.hp}`))
+  .on("remove", (entity) => console.log(`entity ${entity.eid} died`));
 
 world
   .system("Move")

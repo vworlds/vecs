@@ -13,7 +13,7 @@ export class LineModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace
     const { scene, coords } = config;
     const world = this.world;
 
-    world.component(Line).onRemove((entity) => entity.remove(Phaser.GameObjects.Line));
+    world.component(Line).on("remove", (entity) => entity.remove(Phaser.GameObjects.Line));
 
     world
       .system("phaser.new.line")

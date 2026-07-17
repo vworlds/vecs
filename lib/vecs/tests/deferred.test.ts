@@ -140,7 +140,7 @@ describe("Deferred mode — data-layer visibility", () => {
   it("entity.getMut(C) without a callback is allowed and marks modified inside defer", () => {
     const { w } = setup();
     const onSet = vi.fn();
-    w.component(Position).onSet(onSet);
+    w.component(Position).on("set", onSet);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     onSet.mockClear();
@@ -159,7 +159,7 @@ describe("Deferred mode — data-layer visibility", () => {
   it("entity.getMut(C) without a callback returns undefined for missing components inside defer", () => {
     const { w } = setup();
     const onSet = vi.fn();
-    w.component(Position).onSet(onSet);
+    w.component(Position).on("set", onSet);
     const e = w.entity();
 
     let observed: Position | undefined;
@@ -175,7 +175,7 @@ describe("Deferred mode — data-layer visibility", () => {
     const { w } = setup();
     const onAdd = vi.fn();
     const onSet = vi.fn();
-    w.component(Position).onAdd(onAdd).onSet(onSet);
+    w.component(Position).on("add", onAdd).on("set", onSet);
     const e = w.entity();
 
     let observed: Position | undefined;
@@ -200,7 +200,7 @@ describe("Deferred mode — data-layer visibility", () => {
     const component = w.component(Counted);
     const onAdd = vi.fn();
     const onSet = vi.fn();
-    component.onAdd(onAdd).onSet(onSet);
+    component.on("add", onAdd).on("set", onSet);
     const e = w.entity();
 
     let first: Counted | undefined;
@@ -323,7 +323,7 @@ describe("Deferred mode — flush()", () => {
   it("world.flush() drains queued top-level mutations", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.component(Position).onAdd(onAdd);
+    w.component(Position).on("add", onAdd);
     const e = w.entity();
     w.beginDefer();
     e.add(Position);
@@ -387,8 +387,8 @@ describe("Deferred mode — System inbox ordering", () => {
     const { w, tick } = setup();
     const onAdd = vi.fn();
     const onRemove = vi.fn();
-    w.component(Position).onAdd(onAdd);
-    w.component(Position).onRemove(onRemove);
+    w.component(Position).on("add", onAdd);
+    w.component(Position).on("remove", onRemove);
     const e = w.entity();
     w.beginDefer();
     e.add(Position);
@@ -405,8 +405,8 @@ describe("Deferred mode — exclusive replacement", () => {
     const { w } = setup();
     w.setExclusiveComponents(Walking, Running);
     const order: string[] = [];
-    w.component(Walking).onRemove(() => order.push("onRemove Walking"));
-    w.component(Running).onAdd(() => order.push("onAdd Running"));
+    w.component(Walking).on("remove", () => order.push("onRemove Walking"));
+    w.component(Running).on("add", () => order.push("onAdd Running"));
     const e = w.entity();
     e.add(Walking);
     order.length = 0;
@@ -454,7 +454,7 @@ describe("World.defer(fn)", () => {
   it("hooks fire after defer() returns, not during the callback", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.component(Position).onAdd(onAdd);
+    w.component(Position).on("add", onAdd);
     const e = w.entity();
     w.defer(() => {
       e.add(Position);
@@ -466,7 +466,7 @@ describe("World.defer(fn)", () => {
   it("error thrown in fn propagates but the queue still drains via finally", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.component(Position).onAdd(onAdd);
+    w.component(Position).on("add", onAdd);
     const e = w.entity();
     expect(() =>
       w.defer(() => {
@@ -481,8 +481,8 @@ describe("World.defer(fn)", () => {
   it("nested defer() only drains when the outermost callback exits", () => {
     const { w } = setup();
     const onAdd = vi.fn();
-    w.component(Position).onAdd(onAdd);
-    w.component(Velocity).onAdd(onAdd);
+    w.component(Position).on("add", onAdd);
+    w.component(Velocity).on("add", onAdd);
     const e = w.entity();
     w.defer(() => {
       e.add(Position);

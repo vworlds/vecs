@@ -18,7 +18,7 @@ export class IdentityModule extends Module {
     const indexed = this.world._identityIndexedNames;
     const component = this.world.component(Identity);
 
-    component.onSet((entity: Entity, identity: Identity) => {
+    component.on("set", (entity: Entity, identity: Identity) => {
       const prev = indexed.get(entity);
 
       if (prev !== undefined && index.get(prev) === entity) {
@@ -33,7 +33,7 @@ export class IdentityModule extends Module {
       }
     });
 
-    component.onRemove((entity: Entity) => {
+    component.on("remove", (entity: Entity) => {
       const prev = indexed.get(entity);
 
       if (prev !== undefined && index.get(prev) === entity) {

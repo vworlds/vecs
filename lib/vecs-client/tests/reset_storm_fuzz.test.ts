@@ -85,7 +85,7 @@ function createServer(): ServerWorld {
     networkComponents: [Position],
     disconnectGraceMs: 1e9,
   });
-  server.component(NetworkClient).onSet((entity) => entity.set(View, { dsl: true }));
+  server.component(NetworkClient).on("set", (entity) => entity.set(View, { dsl: true }));
   return server;
 }
 

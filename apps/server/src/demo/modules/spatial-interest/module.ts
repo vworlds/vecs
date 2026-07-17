@@ -23,7 +23,7 @@ export class SpatialInterestModule extends Module {
     );
     world.set(InterestGridState, { cellEntities, cellViewDSL });
 
-    world.component(NetworkClient).onSet((entity) => {
+    world.component(NetworkClient).on("set", (entity) => {
       entity.set(View, { dsl: false });
     });
 
@@ -40,11 +40,11 @@ export class SpatialInterestModule extends Module {
     // cell-based views because they never get an InCell assignment. Uses
     // InCell target hooks so the cascade is immediate — a child
     // assigned the same frame its parent gets a cell, no frame delay.
-    world.component(InCell).onTargetAdd((entity, _relationship, cell) => {
+    world.component(InCell).on("targetAdd", (entity, _relationship, cell) => {
       cascadeInCell(entity, cell, true);
     });
 
-    world.component(InCell).onTargetRemove((entity) => {
+    world.component(InCell).on("targetRemove", (entity) => {
       cascadeInCell(entity, undefined, false);
     });
 

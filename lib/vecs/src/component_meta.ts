@@ -114,6 +114,153 @@ export type HookHandler<C extends ComponentInstance = ComponentInstance> = (
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
 
+/**
+ * Event → handler signature map for the unified `on` / `off` hook API.
+ *
+ * Each key is a hook event name; its value is the handler signature accepted
+ * by {@link ComponentMeta.on} and {@link ComponentMeta.off} for that event.
+ * The `target*` events require a relationship meta; registering one on a
+ * non-relationship meta throws at registration time.
+ */
+export interface HookEventMap {
+  /** Fired when a component of this type is first attached to an entity. */
+  add: HookHandler;
+  /** Fired when a component of this type is removed from an entity. */
+  remove: HookHandler;
+  /** Fired when a component's data is set or modified. */
+  set: HookHandler;
+  /** Fired after a relationship edge is added. Relationship metas only. */
+  targetAdd: TargetHandler;
+  /** Fired after a relationship edge is removed. Relationship metas only. */
+  targetRemove: TargetHandler;
+  /** @internal Framework policy applied when this component is attached. */
+  policyAdd: HookHandler;
+  /** @internal Framework policy applied when this component is removed. */
+  policyRemove: HookHandler;
+  /** @internal Framework policy applied after a relationship edge is added. Relationship metas only. */
+  targetPolicyAdd: TargetHandler;
+  /** @internal Framework policy applied after a relationship edge is removed. Relationship metas only. */
+  targetPolicyRemove: TargetHandler;
+}
+
+/** Event names accepted by {@link ComponentMeta.on} / {@link ComponentMeta.off}. */
+export type HookEvent = keyof HookEventMap;
+
+/**
+ * Multi-handler metadata attached to a wrapper function when two or more
+ * handlers are registered for the same event.
+ *
+ * @internal
+ */
+export interface HookMetadata {
+  /** Live handler array; mutated in place by `on` / `off`. */
+  handlers: Function[];
+}
+
+/**
+ * A registered hook slot: `undefined` when empty, the single handler when
+ * exactly one is registered, or a wrapper function (with `HookMetadata`)
+ * iterating its `handlers` array when two or more are registered.
+ *
+ * @internal
+ */
+export type HookSlot<H extends Function> = H | (H & HookMetadata) | undefined;
+
+/**
+ * Install a handler into a hook slot, preserving invocation order.
+ *
+ * - Empty slot → store the handler directly (zero-overhead single-handler case).
+ * - Single-handler slot → wrap both handlers into a multi-handler wrapper
+ *   whose `handlers` array is captured by reference and mutated in place by
+ *   future `on` / `off` calls.
+ * - Multi-handler slot → push (append) or unshift (prepend) into the existing
+ *   `handlers` array; the wrapper closure sees the mutation without reinstallation.
+ *
+ * @internal
+ */
+export function _installHook<H extends Function>(
+  slot: HookSlot<H>,
+  handler: H,
+  insert: boolean
+): HookSlot<H> {
+  if (slot === undefined) {
+    return handler;
+  }
+  if ("handlers" in slot) {
+    if (insert) {
+      slot.handlers.unshift(handler);
+    } else {
+      slot.handlers.push(handler);
+    }
+    return slot;
+  }
+  const handlers = insert ? [handler, slot] : [slot, handler];
+  const wrapper = ((...args: unknown[]) => {
+    for (const h of handlers) {
+      (h as Function)(...args);
+    }
+  }) as unknown as H & HookMetadata;
+  wrapper.handlers = handlers;
+  return wrapper;
+}
+
+/**
+ * Remove a handler from a hook slot by reference.
+ *
+ * - Empty slot → no-op, return `undefined`.
+ * - Single-handler slot, match → return `undefined` (slot becomes empty).
+ * - Single-handler slot, no match → return the slot unchanged.
+ * - Multi-handler slot → splice the handler from `handlers`; if one handler
+ *   remains, unwrap it back to a single-handler slot; if none remain, return
+ *   `undefined`.
+ *
+ * @internal
+ */
+export function _removeHook<H extends Function>(slot: HookSlot<H>, handler: H): HookSlot<H> {
+  if (slot === undefined) {
+    return undefined;
+  }
+  if (slot === handler) {
+    return undefined;
+  }
+  if ("handlers" in slot) {
+    const i = slot.handlers.indexOf(handler);
+    if (i === -1) {
+      return slot;
+    }
+    slot.handlers.splice(i, 1);
+    if (slot.handlers.length === 0) {
+      return undefined;
+    }
+    if (slot.handlers.length === 1) {
+      return slot.handlers[0] as H;
+    }
+    return slot;
+  }
+  return slot;
+}
+
+/**
+ * Iterate the handlers in a slot in registration order.
+ *
+ * Use this instead of invoking the slot directly when callers need to run
+ * after each handler (e.g. a short-circuit predicate between edge policies).
+ * For plain "fire and forget" dispatch, call the slot directly:
+ * `this._onAdd?.(e, c)` runs every registered handler with no per-handler
+ * callback opportunity.
+ *
+ * @internal
+ */
+export function _slotHandlers<H extends Function>(slot: HookSlot<H>): H[] {
+  if (slot === undefined) {
+    return [];
+  }
+  if ("handlers" in slot) {
+    return slot.handlers as H[];
+  }
+  return [slot];
+}
+
 /** A component constructor used as a component key. */
 export type ComponentType<T extends ComponentInstance = ComponentInstance> = abstract new (
   ...args: any[]
@@ -131,82 +278,33 @@ export class Implements {
 }
 
 /**
- * Lifecycle hook for a registered component class. Exposed by
- * {@link World.component}.
+ * Lifecycle hook registration for a registered component class. Exposed by
+ * {@link World.component} and on every entity.
  *
  * Hooks are a lightweight alternative to building a {@link System} when all
  * you need is a callback on add / remove / set for a single component type.
- * Component entities expose the same registration methods, so calls chain:
+ * Registration chains because `on` / `off` return the receiver:
  *
  * ```ts
  * world.component(Sprite)
- *   .onAdd((e, c) => initSprite(e, c))
- *   .onRemove((e, c) => destroySprite(e, c))
- *   .onSet((e, c) => syncSprite(e, c));
+ *   .on("add", (e, c) => initSprite(e, c))
+ *   .on("remove", (e, c) => destroySprite(e, c))
+ *   .on("set", (e, c) => syncSprite(e, c));
  * ```
+ *
+ * Multiple handlers may be registered for the same event: they fire in
+ * registration order (or in reverse registration order when `insert` is `true`).
+ * Remove a handler with {@link ComponentMeta.off} by the same reference used
+ * to register it. Callers rarely need to remove handlers.
  *
  * Callbacks fire synchronously when the corresponding entity command is
  * applied: inline outside deferred mode, or while the world drains its command
- * queue inside a system / `forEach` / `defer` block.
- *
- * @typeParam C - Component class this hook is bound to.
+ * queue inside a system / `forEach` / `defer` block. An invariant violation
+ * thrown from a handler propagates out of the applying call (or out of
+ * `progress()` / `flush()` in deferred mode) and leaves the world partially
+ * mutated — treat it as a programming error and discard the world.
  */
-export interface Hook<C extends ComponentInstance = ComponentInstance> {
-  /** Return the current add handler, or `undefined` when none is set. */
-  onAdd(): HookHandler<C> | undefined;
-
-  /**
-   * Set the handler invoked when a component of this type is first attached to
-   * an entity (`entity.add(C)` or `entity.set(C, ...)` on an entity that does
-   * not yet have the component). Pass `undefined` to remove the current handler.
-   *
-   * @param handler - Receives the entity and freshly created component instance.
-   * @returns This hook, for chaining.
-   */
-  onAdd(handler: HookHandler<C> | undefined): Hook<C>;
-
-  /** Return the current remove handler, or `undefined` when none is set. */
-  onRemove(): HookHandler<C> | undefined;
-
-  /**
-   * Set the handler invoked when a component of this type is removed from an
-   * entity (explicit `entity.remove(C)` or implicit removal during
-   * `entity.destroy()`). Pass `undefined` to remove the current handler.
-   *
-   * @param handler - Receives the entity and component instance that was removed.
-   * @returns This hook, for chaining.
-   */
-  onRemove(handler: HookHandler<C> | undefined): Hook<C>;
-
-  /** Return the current set handler, or `undefined` when none is set. */
-  onSet(): HookHandler<C> | undefined;
-
-  /**
-   * Set the handler invoked when a component's data is set or modified. Pass
-   * `undefined` to remove the current handler.
-   *
-   * Fires when:
-   * - `entity.set(C, props)` applies data to the component.
-   * - `entity.attach(instance)` stores an existing instance.
-   * - `entity.modified(C)` is called after in-place mutation.
-   * - A system's `getMut(C)` marks the component dirty.
-   * - `entity.ensure(C)` creates or marks the component dirty.
-   *
-   * @param handler - Receives the entity and component instance whose data changed.
-   * @returns This hook, for chaining.
-   */
-  onSet(handler: HookHandler<C> | undefined): Hook<C>;
-}
-
-/**
- * Bookkeeping record produced for each component eid.
- *
- * Holds the constructor, component eid, and pre-computed
- * {@link BitPtr} used by archetype checks. Implements {@link Hook}, so the
- * lifecycle handlers attached via `world.component(C)` are stored directly on
- * the meta object.
- */
-export class ComponentMeta implements Hook<ComponentInstance> {
+export class ComponentMeta {
   /** The component class constructor this meta represents. */
   public readonly Class: ComponentType;
   /** Component entity id assigned at registration time. */
@@ -237,27 +335,27 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   public _isInterface = false;
 
   /** @internal Framework policy applied when this component is attached. */
-  public _onPolicyAdd: HookHandler | undefined;
+  public _onPolicyAdd: HookSlot<HookHandler> = undefined;
   /** @internal Framework policy applied when this component is removed. */
-  public _onPolicyRemove: HookHandler | undefined;
+  public _onPolicyRemove: HookSlot<HookHandler> = undefined;
 
   /** @internal Component instances created by ensure operations but not yet attached. */
   public _pendingEnsures: WeakMap<Entity, ComponentInstance> | undefined;
 
-  /** @internal Current `onAdd` handler. */
-  public _onAdd: HookHandler | undefined;
-  /** @internal Current `onRemove` handler. */
-  public _onRemove: HookHandler | undefined;
-  /** @internal Current relationship target-add handler. */
-  public _onTargetAdd: TargetHandler | undefined;
-  /** @internal Current relationship target-remove handler. */
-  public _onTargetRemove: TargetHandler | undefined;
-  /** @internal Target-add policies keyed by the trait component eid that installed them. */
-  public _targetAddPolicies: Map<EID, TargetHandler> | undefined;
-  /** @internal Target-remove policies keyed by the trait component eid that installed them. */
-  public _targetRemovePolicies: Map<EID, TargetHandler> | undefined;
-  /** @internal Current `onSet` handler. */
-  public _onSet: HookHandler | undefined;
+  /** @internal Handlers fired when a component of this type is added. */
+  public _onAdd: HookSlot<HookHandler> = undefined;
+  /** @internal Handlers fired when a component of this type is removed. */
+  public _onRemove: HookSlot<HookHandler> = undefined;
+  /** @internal Handlers fired after a relationship edge is added. */
+  public _onTargetAdd: HookSlot<TargetHandler> = undefined;
+  /** @internal Handlers fired after a relationship edge is removed. */
+  public _onTargetRemove: HookSlot<TargetHandler> = undefined;
+  /** @internal Framework policy handlers fired after a relationship edge is added. */
+  public _onTargetPolicyAdd: HookSlot<TargetHandler> = undefined;
+  /** @internal Framework policy handlers fired after a relationship edge is removed. */
+  public _onTargetPolicyRemove: HookSlot<TargetHandler> = undefined;
+  /** @internal Handlers fired when a component's data is set or modified. */
+  public _onSet: HookSlot<HookHandler> = undefined;
 
   /**
    * @internal Reverse index of entities currently carrying this component eid.
@@ -290,67 +388,129 @@ export class ComponentMeta implements Hook<ComponentInstance> {
     this._carriers?.delete(entity);
   }
 
-  /** @inheritdoc */
-  public onAdd(): HookHandler | undefined;
-  public onAdd(handler: HookHandler | undefined): ComponentMeta;
-  public onAdd(handler?: HookHandler): ComponentMeta | HookHandler | undefined {
-    if (arguments.length === 0) {
-      return this._onAdd;
+  /**
+   * Register a handler for a hook event.
+   *
+   * Multiple handlers may be registered for the same event; they fire in
+   * registration order. Pass `insert: true` to prepend the handler ahead of
+   * any already-registered handlers. Removing a handler is via {@link off} with
+   * the same reference.
+   *
+   * The `targetAdd`, `targetRemove`, `targetPolicyAdd`, and `targetPolicyRemove`
+   * events require this meta to be a relationship; registering one on a
+   * non-relationship meta throws at registration time.
+   *
+   * @param event - One of `add`, `remove`, `set`, `targetAdd`, `targetRemove`,
+   *   `policyAdd`, `policyRemove`, `targetPolicyAdd`, `targetPolicyRemove`.
+   * @param handler - Handler whose signature is constrained by `event`.
+   * @param insert - When `true`, prepend the handler; when `false` (default), append.
+   * @returns This meta, for chaining.
+   */
+  public on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert = false): this {
+    switch (event) {
+      case "add":
+        this._onAdd = _installHook(this._onAdd, handler as HookHandler, insert);
+        break;
+      case "remove":
+        this._onRemove = _installHook(this._onRemove, handler as HookHandler, insert);
+        break;
+      case "set":
+        this._onSet = _installHook(this._onSet, handler as HookHandler, insert);
+        break;
+      case "targetAdd":
+        this._requireRelationship(event);
+        this._onTargetAdd = _installHook(this._onTargetAdd, handler as TargetHandler, insert);
+        break;
+      case "targetRemove":
+        this._requireRelationship(event);
+        this._onTargetRemove = _installHook(this._onTargetRemove, handler as TargetHandler, insert);
+        break;
+      case "policyAdd":
+        this._onPolicyAdd = _installHook(this._onPolicyAdd, handler as HookHandler, insert);
+        break;
+      case "policyRemove":
+        this._onPolicyRemove = _installHook(this._onPolicyRemove, handler as HookHandler, insert);
+        break;
+      case "targetPolicyAdd":
+        this._requireRelationship(event);
+        this._onTargetPolicyAdd = _installHook(
+          this._onTargetPolicyAdd,
+          handler as TargetHandler,
+          insert
+        );
+        break;
+      case "targetPolicyRemove":
+        this._requireRelationship(event);
+        this._onTargetPolicyRemove = _installHook(
+          this._onTargetPolicyRemove,
+          handler as TargetHandler,
+          insert
+        );
+        break;
+      default: {
+        const _exhaustive: never = event;
+        throw new Error(`Unknown hook event: ${String(_exhaustive)}`);
+      }
     }
-    this._onAdd = handler;
     return this;
   }
 
-  /** @inheritdoc */
-  public onRemove(): HookHandler | undefined;
-  public onRemove(handler: HookHandler | undefined): ComponentMeta;
-  public onRemove(handler?: HookHandler): ComponentMeta | HookHandler | undefined {
-    if (arguments.length === 0) {
-      return this._onRemove;
+  /**
+   * Remove a previously-registered handler by reference. Idempotent: removing
+   * an unregistered handler is a no-op.
+   *
+   * @param event - The event the handler was registered for.
+   * @param handler - The exact handler reference passed to {@link on}.
+   * @returns This meta, for chaining.
+   */
+  public off<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
+    switch (event) {
+      case "add":
+        this._onAdd = _removeHook(this._onAdd, handler as HookHandler);
+        break;
+      case "remove":
+        this._onRemove = _removeHook(this._onRemove, handler as HookHandler);
+        break;
+      case "set":
+        this._onSet = _removeHook(this._onSet, handler as HookHandler);
+        break;
+      case "targetAdd":
+        this._requireRelationship(event);
+        this._onTargetAdd = _removeHook(this._onTargetAdd, handler as TargetHandler);
+        break;
+      case "targetRemove":
+        this._requireRelationship(event);
+        this._onTargetRemove = _removeHook(this._onTargetRemove, handler as TargetHandler);
+        break;
+      case "policyAdd":
+        this._onPolicyAdd = _removeHook(this._onPolicyAdd, handler as HookHandler);
+        break;
+      case "policyRemove":
+        this._onPolicyRemove = _removeHook(this._onPolicyRemove, handler as HookHandler);
+        break;
+      case "targetPolicyAdd":
+        this._requireRelationship(event);
+        this._onTargetPolicyAdd = _removeHook(this._onTargetPolicyAdd, handler as TargetHandler);
+        break;
+      case "targetPolicyRemove":
+        this._requireRelationship(event);
+        this._onTargetPolicyRemove = _removeHook(
+          this._onTargetPolicyRemove,
+          handler as TargetHandler
+        );
+        break;
+      default: {
+        const _exhaustive: never = event;
+        throw new Error(`Unknown hook event: ${String(_exhaustive)}`);
+      }
     }
-    this._onRemove = handler;
     return this;
   }
 
-  /** Return the current target-add handler, or `undefined` when none is set. */
-  public onTargetAdd(): TargetHandler | undefined;
-  /** Set the handler fired after an edge is added. */
-  public onTargetAdd(handler: TargetHandler | undefined): ComponentMeta;
-  public onTargetAdd(handler?: TargetHandler): ComponentMeta | TargetHandler | undefined {
+  private _requireRelationship(event: HookEvent): void {
     if (!this.isRelationship) {
-      throw new Error("onTargetAdd can only be registered on a Relationship component");
+      throw new Error(`"${event}" hooks can only be registered on a Relationship component`);
     }
-    if (arguments.length === 0) {
-      return this._onTargetAdd;
-    }
-    this._onTargetAdd = handler;
-    return this;
-  }
-
-  /** Return the current target-remove handler, or `undefined` when none is set. */
-  public onTargetRemove(): TargetHandler | undefined;
-  /** Set the handler fired after an edge is removed. */
-  public onTargetRemove(handler: TargetHandler | undefined): ComponentMeta;
-  public onTargetRemove(handler?: TargetHandler): ComponentMeta | TargetHandler | undefined {
-    if (!this.isRelationship) {
-      throw new Error("onTargetRemove can only be registered on a Relationship component");
-    }
-    if (arguments.length === 0) {
-      return this._onTargetRemove;
-    }
-    this._onTargetRemove = handler;
-    return this;
-  }
-
-  /** @inheritdoc */
-  public onSet(): HookHandler | undefined;
-  public onSet(handler: HookHandler | undefined): ComponentMeta;
-  public onSet(handler?: HookHandler): ComponentMeta | HookHandler | undefined {
-    if (arguments.length === 0) {
-      return this._onSet;
-    }
-    this._onSet = handler;
-    return this;
   }
 }
 

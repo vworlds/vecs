@@ -149,7 +149,7 @@ function connectSession(
 }
 
 function allowAllClientViews(world: World): void {
-  world.component(NetworkClient).onSet((entity) => {
+  world.component(NetworkClient).on("set", (entity) => {
     entity.set(View, { dsl: true });
   });
 }
@@ -1088,7 +1088,7 @@ describe("ServerWorld", () => {
     const dslB: QueryDSL = { target: [InCell, CellB] };
 
     // Each client starts in cell A, viewing cell A (so it can see itself).
-    world.component(NetworkClient).onSet((entity) => {
+    world.component(NetworkClient).on("set", (entity) => {
       entity.set(View, { dsl: dslA }).add(InCell, cellA);
     });
 

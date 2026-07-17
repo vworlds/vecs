@@ -111,8 +111,8 @@ describe("ClientWorld relationship snapshots", () => {
     let removeCount = 0;
     world
       .component(WeightedLink)
-      .onAdd(() => addCount++)
-      .onRemove(() => removeCount++);
+      .on("add", () => addCount++)
+      .on("remove", () => removeCount++);
     const socket = new MemorySocket("server");
     world.attachSocket(socket);
 

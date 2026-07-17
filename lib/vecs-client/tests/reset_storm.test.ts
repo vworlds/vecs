@@ -106,7 +106,7 @@ function createServer(): ServerWorld {
     networkComponents: [Position, Sprite],
     disconnectGraceMs: 1e9, // keep the session alive across the synchronous run
   });
-  server.component(NetworkClient).onSet((entity) => {
+  server.component(NetworkClient).on("set", (entity) => {
     entity.set(View, { dsl: true }); // every client sees every networked entity
   });
   return server;

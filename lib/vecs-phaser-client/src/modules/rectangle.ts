@@ -8,7 +8,9 @@ export class RectangleModule extends Module<{ scene: Phaser.Scene; coords: Coord
     const { scene, coords } = config;
     const world = this.world;
 
-    world.component(Rectangle).onRemove((entity) => entity.remove(Phaser.GameObjects.Rectangle));
+    world
+      .component(Rectangle)
+      .on("remove", (entity) => entity.remove(Phaser.GameObjects.Rectangle));
 
     world
       .system("phaser.new.rectangle")

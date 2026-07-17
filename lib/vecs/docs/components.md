@@ -79,21 +79,21 @@ The `Component` entity exposes lifecycle hooks fired for every entity carrying t
 ```ts
 world
   .component(Sprite)
-  .onAdd((entity, sprite) => sprite.initialize(scene, entity))
-  .onSet((entity, sprite) => sprite.syncToScene(entity))
-  .onRemove((entity, sprite) => sprite.destroy(scene, entity));
+  .on("add", (entity, sprite) => sprite.initialize(scene, entity))
+  .on("set", (entity, sprite) => sprite.syncToScene(entity))
+  .on("remove", (entity, sprite) => sprite.destroy(scene, entity));
 ```
 
-| Hook       | Fires when…                                                                                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `onAdd`    | The component is first attached (`add`, or `set` on an entity that lacked an ordinary component).                                                                  |
-| `onSet`    | `entity.set(C, props)` applies ordinary data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
-| `onRemove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                                 |
+| Hook     | Fires when…                                                                                                                                                        |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `add`    | The component is first attached (`add`, or `set` on an entity that lacked an ordinary component).                                                                  |
+| `set`    | `entity.set(C, props)` applies ordinary data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
+| `remove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                                 |
 
-Relationship component entities additionally expose `onTargetAdd` and `onTargetRemove`. Both
+Relationship component entities additionally expose the `targetAdd` and `targetRemove` events. Both
 receive `(source, relationshipInstance, target)` after the edge and reverse index reach their new
-state. An exclusive replacement calls `onTargetRemove` for the old edge before `onTargetAdd` for
-the new edge. Adding or removing edges never fires `onSet`; it is reserved for ordinary fields on
+state. An exclusive replacement fires `targetRemove` for the old edge before `targetAdd` for
+the new edge. Adding or removing edges never fires `set`; it is reserved for ordinary fields on
 an existing relationship. See [Relationships — edge hooks](./relationships.md#edge-hooks) for the
 full ordering.
 
@@ -103,10 +103,10 @@ command is applied (see [Execution model](./execution-model.md#reactive-routing)
 resource management and cross-cutting reactions that aren't worth a system; use systems when the
 reaction belongs to a phase.
 
-Each lifecycle event has one handler slot per component. Calling `onAdd(handler)`,
-`onSet(handler)`, `onRemove(handler)`, `onTargetAdd(handler)`, or `onTargetRemove(handler)` replaces
-the current public handler and returns the component entity for chaining. Call the method without
-an argument to read the current handler, or pass `undefined` to remove it.
+Multiple handlers may be registered for the same event: they fire in registration
+order. Call `on(event, handler)` to append, `on(event, handler, true)` to
+prepend, and `off(event, handler)` to remove a handler by reference. All three
+return the component entity for chaining.
 
 ## Component traits: policy on component entities
 
@@ -151,8 +151,10 @@ class Audited {}
 
 class AuditModule extends Module {
   public init(): void {
-    this.world.component(Audited).onAdd((component) => {
-      component.onSet((entity) => console.log("changed", component.meta.Class.name, entity.eid));
+    this.world.component(Audited).on("add", (component) => {
+      component.on("set", (entity) =>
+        console.log("changed", component.meta.Class.name, entity.eid)
+      );
     });
   }
 }
@@ -299,7 +301,7 @@ the live object itself as a component** with `entity.attach(obj)` instead of kee
 const obj = scene.add.arc(0, 0); // a Phaser GameObject
 entity.attach(obj); // the GameObject is now a component, keyed by its class
 
-world.component(Phaser.GameObjects.Arc).onRemove((_entity, obj) => obj.destroy());
+world.component(Phaser.GameObjects.Arc).on("remove", (_entity, obj) => obj.destroy());
 ```
 
 The entity's component set then _is_ the resource lifecycle: queries drive create/destroy, and
@@ -326,14 +328,11 @@ interface markers for polymorphic dispatch — is in the
 A `Component<T>` is an `Entity` subclass, so the full [entity API](./entities.md#reference)
 applies. On top of it:
 
-| Member                     | Description                                                                       |
-| -------------------------- | --------------------------------------------------------------------------------- |
-| `onAdd(handler?)`          | Get, set, or remove the single add hook. Setter returns the component.            |
-| `onRemove(handler?)`       | Get, set, or remove the single remove hook.                                       |
-| `onTargetAdd(handler?)`    | Get, set, or remove the relationship edge-add hook. Rejects non-relationships.    |
-| `onTargetRemove(handler?)` | Get, set, or remove the relationship edge-remove hook. Rejects non-relationships. |
-| `onSet(handler?)`          | Get, set, or remove the single ordinary-data set/modified hook.                   |
-| `meta`                     | The `ComponentMeta` bookkeeping record.                                           |
+| Member                        | Description                                                                                                                                                                                                                                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `on(event, handler, insert?)` | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` (plus the internal `policyAdd` / `policyRemove` / `targetPolicyAdd` / `targetPolicyRemove` events). `insert` defaults to `false` (append); `true` prepends. Rejects `target*` events on non-relationships. Returns the component. |
+| `off(event, handler)`         | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                                                                                                          |
+| `meta`                        | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                                                                                                          |
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 

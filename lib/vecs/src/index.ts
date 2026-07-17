@@ -34,6 +34,8 @@ export {
   type ComponentClass,
   type ComponentMeta,
   type ComponentRef,
+  type HookEvent,
+  type HookEventMap,
   type HookHandler,
   type TargetHandler,
 } from "./component.js";

@@ -105,10 +105,10 @@ describe("Implements", () => {
     const onSet = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
     const update = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
 
-    world.component(Orange).onSet(onSet[0]);
-    world.component(Fruit).onSet(onSet[1]);
-    world.component(Food).onSet(onSet[2]);
-    world.component(Foreign).onSet(onSet[3]);
+    world.component(Orange).on("set", onSet[0]);
+    world.component(Fruit).on("set", onSet[1]);
+    world.component(Food).on("set", onSet[2]);
+    world.component(Foreign).on("set", onSet[3]);
     world.query("orange-updates").with(Orange).update(Orange, update[0]).build();
     world.query("fruit-updates").with(Fruit).update(Fruit, update[1]).build();
     world.query("food-updates").with(Food).update(Food, update[2]).build();
@@ -281,12 +281,12 @@ describe("Implements", () => {
     const onAdd = { fruit: vi.fn(), food: vi.fn(), Foreign: vi.fn() };
     const onRemove = { fruit: vi.fn(), food: vi.fn(), Foreign: vi.fn() };
 
-    world.component(Fruit).onAdd(onAdd.fruit);
-    world.component(Food).onAdd(onAdd.food);
-    world.component(Foreign).onAdd(onAdd.Foreign);
-    world.component(Fruit).onRemove(onRemove.fruit);
-    world.component(Food).onRemove(onRemove.food);
-    world.component(Foreign).onRemove(onRemove.Foreign);
+    world.component(Fruit).on("add", onAdd.fruit);
+    world.component(Food).on("add", onAdd.food);
+    world.component(Foreign).on("add", onAdd.Foreign);
+    world.component(Fruit).on("remove", onRemove.fruit);
+    world.component(Food).on("remove", onRemove.food);
+    world.component(Foreign).on("remove", onRemove.Foreign);
 
     const entity = world.entity("cheapOrange").set(Orange, {});
     const orange = entity.get(Orange)!;

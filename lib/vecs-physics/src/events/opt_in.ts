@@ -29,13 +29,15 @@ export class EventOptInModule extends Module {
 
     const engine = getPhysicsEngine(world);
     const phase = engine.phases.preStep;
-    world.component(ContactEvents).onAdd((entity) => setEventFlag(engine, entity, "contact", true));
     world
       .component(ContactEvents)
-      .onRemove((entity) => setEventFlag(engine, entity, "contact", false));
+      .on("add", (entity) => setEventFlag(engine, entity, "contact", true))
+      .on("remove", (entity) => setEventFlag(engine, entity, "contact", false));
 
-    world.component(HitEvents).onAdd((entity) => setEventFlag(engine, entity, "hit", true));
-    world.component(HitEvents).onRemove((entity) => setEventFlag(engine, entity, "hit", false));
+    world
+      .component(HitEvents)
+      .on("add", (entity) => setEventFlag(engine, entity, "hit", true))
+      .on("remove", (entity) => setEventFlag(engine, entity, "hit", false));
 
     // Sensor detection: enable if SensorEvents OR Detectable is present.
     // Query only single b2Shape geometries; chains have no runtime sensor-event

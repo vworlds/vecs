@@ -16,7 +16,7 @@ describe("ComponentMeta", () => {
     const w = new World();
     w.component(Health);
     const onSet = vi.fn();
-    w.component(Health).onSet(onSet);
+    w.component(Health).on("set", onSet);
     const e = w.entity();
     const h = e.add(Health).get(Health)!;
     e.modified(Health);
@@ -28,7 +28,7 @@ describe("ComponentMeta", () => {
     const w = new World();
     w.component(Health);
     const onSet = vi.fn();
-    w.component(Health).onSet(onSet);
+    w.component(Health).on("set", onSet);
     const e = w.entity();
     e.add(Health);
     onSet.mockClear();
@@ -44,7 +44,7 @@ describe("ComponentMeta", () => {
     const w = new World();
     w.component(Health);
     const onSet = vi.fn();
-    w.component(Health).onSet(onSet);
+    w.component(Health).on("set", onSet);
     const e = w.entity();
     e.add(Health);
     onSet.mockClear();
@@ -68,7 +68,7 @@ describe("Entity.modified", () => {
     const w = new World();
     w.component(Health);
     const onSet = vi.fn();
-    w.component(Health).onSet(onSet);
+    w.component(Health).on("set", onSet);
     const e = w.entity();
     const h = e.add(Health).get(Health)!;
     e.modified(Health);
@@ -80,7 +80,7 @@ describe("Entity.modified", () => {
     const w = new World();
     w.component(Health);
     const onSet = vi.fn();
-    w.component(Health).onSet(onSet);
+    w.component(Health).on("set", onSet);
     const e = w.entity();
     e.add(Health);
     onSet.mockClear();
@@ -96,7 +96,7 @@ describe("Entity.modified", () => {
     const w = new World();
     w.component(Health);
     const onSet = vi.fn();
-    w.component(Health).onSet(onSet);
+    w.component(Health).on("set", onSet);
     const e = w.entity();
     e.add(Health).modified(Health);
     w.progress(0, 0);
@@ -109,7 +109,7 @@ describe("Hook", () => {
     const w = new World();
     w.component(Health);
     const onAdd = vi.fn();
-    w.component(Health).onAdd(onAdd);
+    w.component(Health).on("add", onAdd);
     const e = w.entity();
     const h = e.add(Health).get(Health)!;
     expect(onAdd).toHaveBeenCalledWith(e, h);
@@ -120,7 +120,7 @@ describe("Hook", () => {
     w.component(Health);
     const onAdd = vi.fn();
 
-    w.component(Health).onAdd(onAdd);
+    w.component(Health).on("add", onAdd);
     const e = w.entity();
     const h = e.add(Health).get(Health)!;
 
@@ -135,7 +135,7 @@ describe("Hook", () => {
     const onSet = vi.fn((_e, c) => set_values.push(c.hp));
 
     const onAdd = vi.fn();
-    w.component(Health).onSet(onSet).onAdd(onAdd);
+    w.component(Health).on("set", onSet).on("add", onAdd);
     const e = w.entity();
     const h = e.set(Health, { hp: 99 }).get(Health)!;
 
@@ -152,7 +152,7 @@ describe("Hook", () => {
     const w = new World();
     w.component(Health);
     const onRemove = vi.fn();
-    w.component(Health).onRemove(onRemove);
+    w.component(Health).on("remove", onRemove);
     const e = w.entity();
     const h = e.add(Health).get(Health)!;
     e.remove(Health);
@@ -163,7 +163,7 @@ describe("Hook", () => {
     const w = new World();
     w.component(Health);
     const onRemove = vi.fn();
-    w.component(Health).onRemove(onRemove);
+    w.component(Health).on("remove", onRemove);
     const e = w.entity();
     e.add(Health);
     e.destroy();
@@ -176,11 +176,11 @@ describe("Hook", () => {
     const a = vi.fn();
     const b = vi.fn();
     const c = vi.fn();
-    const result = w.component(Health).onAdd(a).onRemove(b).onSet(c);
+    const result = w.component(Health).on("add", a).on("remove", b).on("set", c);
     expect(result).toBe(w.component(Health));
   });
 
-  it("hook handlers can be read, replaced, and removed", () => {
+  it("hook handlers compose in registration order and can be removed by reference", () => {
     const w = new World();
     const component = w.component(Health);
     const calls: string[] = [];
@@ -188,32 +188,38 @@ describe("Hook", () => {
     const set = () => calls.push("set");
     const remove = () => calls.push("remove");
 
-    expect(component.onAdd()).toBeUndefined();
-    expect(component.onSet()).toBeUndefined();
-    expect(component.onRemove()).toBeUndefined();
+    // Multiple handlers on the same event fire in registration order.
+    component.on("add", () => calls.push("first add"));
+    component.on("add", add);
 
-    component.onAdd(() => calls.push("replaced add")).onAdd(add);
-    component.onSet(() => calls.push("replaced set")).onSet(set);
-    component.onRemove(() => calls.push("replaced remove")).onRemove(remove);
+    component.on("set", () => calls.push("first set"));
+    component.on("set", set);
 
-    expect(component.onAdd()).toBe(add);
-    expect(component.onSet()).toBe(set);
-    expect(component.onRemove()).toBe(remove);
+    component.on("remove", () => calls.push("first remove"));
+    component.on("remove", remove);
 
     const e = w.entity();
     e.set(Health, {});
     e.remove(Health);
 
-    expect(calls).toEqual(["add", "set", "remove"]);
+    expect(calls).toEqual(["first add", "add", "first set", "set", "first remove", "remove"]);
 
-    expect(component.onAdd(undefined)).toBe(component);
-    expect(component.onSet(undefined)).toBe(component);
-    expect(component.onRemove(undefined)).toBe(component);
-    expect(component.onAdd()).toBeUndefined();
-    expect(component.onSet()).toBeUndefined();
-    expect(component.onRemove()).toBeUndefined();
+    // off removes a handler by reference; the remaining handler still fires.
+    component.off("add", add);
+    component.off("set", set);
+    component.off("remove", remove);
 
     w.entity().set(Health, {}).remove(Health);
-    expect(calls).toEqual(["add", "set", "remove"]);
+    expect(calls).toEqual([
+      "first add",
+      "add",
+      "first set",
+      "set",
+      "first remove",
+      "remove",
+      "first add",
+      "first set",
+      "first remove",
+    ]);
   });
 });

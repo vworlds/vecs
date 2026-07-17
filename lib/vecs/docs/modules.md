@@ -62,7 +62,7 @@ is often one module per item plus a thin umbrella that composes them:
 ```ts
 export class PhaserRenderModule extends Module<{ scene: Scene }> {
   public init(cfg: { scene: Scene }): void {
-    this.world.component(GameObject).onRemove((_e, obj) => obj.destroy()); // GameObject: Implements marker over every Phaser object
+    this.world.component(GameObject).on("remove", (_e, obj) => obj.destroy()); // GameObject: Implements marker over every Phaser object
     this.world.module(ArcModule, { scene: cfg.scene });
     this.world.module(RectangleModule, { scene: cfg.scene });
     // … shape modules first …

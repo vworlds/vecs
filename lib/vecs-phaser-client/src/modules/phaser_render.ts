@@ -75,7 +75,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     // Triangle, Polygon, Star, Line) do not have setTint and must NOT declare
     // m.Tint (adding Tint data to a shape entity is a silent no-op by design).
 
-    world.component(m.GameObject).onRemove((_entity, obj) => obj.destroy());
+    world.component(m.GameObject).on("remove", (_entity, obj) => obj.destroy());
 
     world.module(DisplaySetupModule, { scene: config.scene });
     world.module(ArcModule, { scene: config.scene, coords });

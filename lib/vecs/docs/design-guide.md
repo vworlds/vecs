@@ -130,7 +130,7 @@ component set _is_ the lifecycle; queries drive create/destroy; reset is free.
 const obj = scene.add.arc(0, 0); // a Phaser GameObject
 entity.attach(obj); // the GameObject is now a component, keyed by its class
 
-world.component(Phaser.GameObjects.Arc).onRemove((_entity, obj) => obj.destroy());
+world.component(Phaser.GameObjects.Arc).on("remove", (_entity, obj) => obj.destroy());
 ```
 
 `onRemove` (below) releases the resource whenever it leaves — whether removed explicitly or
@@ -144,10 +144,10 @@ beside the resource.
 `world.component(C)` returns a handle with hooks fired on every entity:
 
 ```ts
-world.component(Impulse).onSet((entity, impulse) => {
+world.component(Impulse).on("set", (entity, impulse) => {
   /* accumulate */
 });
-world.component(Phaser.GameObjects.Arc).onRemove((_entity, obj) => obj.destroy());
+world.component(Phaser.GameObjects.Arc).on("remove", (_entity, obj) => obj.destroy());
 ```
 
 Use them for resource management and cross-cutting reactions that aren't worth a system. (Note
@@ -422,7 +422,7 @@ Guidelines:
   export class PhaserRenderModule extends Module<{ scene; pixelsPerMeter? }> {
     public init(cfg): void {
       const coords = new CoordSpace(cfg.scene, cfg.pixelsPerMeter);
-      this.world.component(GameObject).onRemove((_e, obj) => obj.destroy()); // GameObject: Implements marker over every Phaser object
+      this.world.component(GameObject).on("remove", (_e, obj) => obj.destroy()); // GameObject: Implements marker over every Phaser object
       this.world.module(ArcModule, { scene: cfg.scene, coords });
       this.world.module(RectangleModule, { scene: cfg.scene, coords });
       // … shape modules first …
@@ -532,7 +532,7 @@ live object as its own component** and let a remove hook release it — no wrapp
 
 ```ts
 // Release the resource whenever its component leaves (explicit remove or entity destroy):
-world.component(Phaser.GameObjects.Arc).onRemove((_e, obj) => obj.destroy());
+world.component(Phaser.GameObjects.Arc).on("remove", (_e, obj) => obj.destroy());
 
 // CREATE: a renderable that has no object yet
 world
@@ -557,7 +557,7 @@ world
 
 // TEARDOWN: when the shape data leaves (type swap) or the entity dies, drop the object.
 // A component remove hook keeps this declarative — no exit system, no phase to coordinate:
-world.component(Arc).onRemove((e) => {
+world.component(Arc).on("remove", (e) => {
   if (e.has(Phaser.GameObjects.Arc)) e.remove(Phaser.GameObjects.Arc);
 });
 ```
@@ -782,7 +782,7 @@ render code**.
   explicit via `onEnter: true`, and the umbrella loads shape modules _before_ the sync module so
   creation precedes sync within `ON_STORE`.
 - **Lifecycle that falls out for free:** destruction is a single hook —
-  `component(GameObject).onRemove((_e, obj) => obj.destroy())`. A renderable **type swap**
+  `component(GameObject).on("remove", (_e, obj) => obj.destroy())`. A renderable **type swap**
   (exclusivity removes the old shape data → its remove hook drops the attached object → it's
   destroyed → the new shape's creation system rebinds) and a **baseline reset / disconnect**
   (`clearAllEntities()` → entities destroyed → attached objects removed → destroyed) both work with

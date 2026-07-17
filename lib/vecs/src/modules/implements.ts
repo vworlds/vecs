@@ -13,12 +13,12 @@ export class ImplementsModule extends Module {
   public init(): void {
     const component = this.world.component(Implements);
 
-    component.onSet((entity) => {
+    component.on("set", (entity: Entity) => {
       this._declaring.add(entity);
       this._recompute();
     });
 
-    component.onRemove((entity) => {
+    component.on("remove", (entity: Entity) => {
       this._declaring.delete(entity);
       this._recompute();
     });

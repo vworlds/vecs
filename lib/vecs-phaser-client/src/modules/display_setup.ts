@@ -33,9 +33,11 @@ export class DisplaySetupModule extends Module<{ scene: Phaser.Scene }> {
 
     // DrawBy auto-adds Position on the client to store the computed value.
     // The Position is client-local (never networked back to the server).
-    world.component(DrawBy).onAdd((entity) => entity.add(Position));
+    world.component(DrawBy).on("add", (entity) => entity.add(Position));
 
-    world.component(Container).onRemove((entity) => entity.remove(Phaser.GameObjects.Container));
+    world
+      .component(Container)
+      .on("remove", (entity) => entity.remove(Phaser.GameObjects.Container));
 
     world
       .system("phaser.new.container")

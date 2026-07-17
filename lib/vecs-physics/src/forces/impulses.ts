@@ -20,7 +20,7 @@ export class ImpulseAccumulateModule extends Module {
     world.module(PhysicsCoreModule);
 
     const engine = getPhysicsEngine(world);
-    world.component(Impulse).onSet((entity, impulse) => {
+    world.component(Impulse).on("set", (entity, impulse) => {
       const bodyId = resolveBodyId(entity);
       if (bodyId === undefined) {
         return;
@@ -33,7 +33,7 @@ export class ImpulseAccumulateModule extends Module {
       accumulator.wake ||= impulse.wake;
     });
 
-    world.component(AngularImpulse).onSet((entity, impulse) => {
+    world.component(AngularImpulse).on("set", (entity, impulse) => {
       const bodyId = resolveBodyId(entity);
       if (bodyId === undefined) {
         return;

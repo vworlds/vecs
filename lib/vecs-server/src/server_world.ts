@@ -97,10 +97,10 @@ export class ServerWorld extends NetworkWorld {
     ensureRegistered(this, NetworkInput);
     ensureRegistered(this, View);
     ensureRegistered(this, ServerClientSession);
-    this.component(Networked).onRemove((entity) => {
+    this.component(Networked).on("remove", (entity) => {
       this._record(entity, ALL_COMPONENTS, undefined);
     });
-    this.component(ServerClientSession).onRemove((_entity, session) => {
+    this.component(ServerClientSession).on("remove", (_entity, session) => {
       session.destroy();
     });
 
