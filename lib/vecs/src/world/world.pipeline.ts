@@ -42,17 +42,19 @@ export class Pipeline extends Modules {
     this._frameInProgress = false;
   }
 
-  /** Run every system in the pipeline query order. */
+  /**
+   * Run every system in pipeline query order, flushing after each one.
+   *
+   * A system, callback, validation, or command exception propagates immediately
+   * and invalidates the current world. The frame is not repaired or completed.
+   */
   public progress(now: number, delta: number): void {
     this.beginFrame(delta);
-    try {
-      for (const system of this._pipeline) {
-        system._run(now, delta);
-        this.flush();
-      }
-    } finally {
-      this.endFrame();
+    for (const system of this._pipeline) {
+      system._run(now, delta);
+      this.flush();
     }
+    this.endFrame();
   }
 
   /** Define the query whose ordered results become this world's system pipeline. */

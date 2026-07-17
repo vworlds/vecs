@@ -463,10 +463,8 @@ describe("World.defer(fn)", () => {
     expect(onAdd).toHaveBeenCalledTimes(1);
   });
 
-  it("error thrown in fn propagates but the queue still drains via finally", () => {
+  it("propagates an error thrown by the deferred callback", () => {
     const { w } = setup();
-    const onAdd = vi.fn();
-    w.component(Position).onAdd(onAdd);
     const e = w.entity();
     expect(() =>
       w.defer(() => {
@@ -474,8 +472,34 @@ describe("World.defer(fn)", () => {
         throw new Error("boom");
       })
     ).toThrow("boom");
-    expect(onAdd).toHaveBeenCalledTimes(1);
-    expect(e.get(Position)).toBeInstanceOf(Position);
+  });
+
+  it("propagates a queued callback exception from endDefer", () => {
+    const { w } = setup();
+    w.component(Position).onAdd(() => {
+      throw new Error("add failed");
+    });
+    const e = w.entity();
+    w.beginDefer();
+    e.add(Position);
+
+    expect(() => w.endDefer()).toThrow("add failed");
+  });
+
+  it("propagates a pending query callback exception from flush", () => {
+    const { w } = setup();
+    w.component(Position).onSet(() => {
+      w.query("fatal backfill")
+        .with(true)
+        .enter(() => {
+          throw new Error("backfill failed");
+        })
+        .build();
+    });
+
+    w.defer(() => w.entity().set(Position, { x: 1 }));
+
+    expect(() => w.flush()).toThrow("backfill failed");
   });
 
   it("nested defer() only drains when the outermost callback exits", () => {

@@ -24,7 +24,6 @@ export class Entities extends Deferred {
       e = this._deferredEntities.get(eid);
     }
     if (!e) {
-      this._assertStructuralMutationAllowed();
       this._reserveEid(eid);
       e = new Entity(this, eid);
       if (this.deferred) {
@@ -68,7 +67,6 @@ export class Entities extends Deferred {
   public entity(this: World, ref: ComponentRef): Entity;
   public entity(this: World, ref?: ComponentRef | string): Entity {
     if (ref === undefined) {
-      this._assertStructuralMutationAllowed();
       return this._entity(Entity);
     }
     if (typeof ref === "string") {
@@ -76,7 +74,6 @@ export class Entities extends Deferred {
       if (entity) {
         return entity;
       }
-      this._assertStructuralMutationAllowed();
       entity = this._entity(Entity);
       entity.set(Identity, { name: ref });
       return entity;
@@ -96,7 +93,6 @@ export class Entities extends Deferred {
 
   /** Destroy every entity currently tracked by the world. */
   public clearAllEntities(): void {
-    this._assertStructuralMutationAllowed();
     const pending = new Set(this._entities.values());
     while (pending.size > 0) {
       let destroyed = 0;
@@ -118,7 +114,6 @@ export class Entities extends Deferred {
 
   /** @internal Create an entity with an id from the entity pool. */
   protected _entity<T extends Entity>(this: World, Constructor: EntityClass<T>): T {
-    this._assertStructuralMutationAllowed();
     const eid = this._entityPool.alloc();
     const e = new Constructor(this, eid);
     if (this.deferred) {

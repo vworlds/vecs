@@ -21,7 +21,12 @@ export {
   type TargetHandler,
 } from "./component_meta.js";
 
-/** A component entity created by {@link World.component}. */
+/**
+ * A component entity created by {@link World.component}.
+ *
+ * Hook exceptions propagate immediately from the active mutation or synchronization
+ * boundary and invalidate the current world; discard it rather than attempting reuse.
+ */
 export class Component<T extends ComponentType = ComponentType> extends Entity {
   /** Get or set the callback fired after a relationship edge is added. */
   public override onTargetAdd(): TargetHandler | undefined;
@@ -61,8 +66,9 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * The attachment is directly readable while this constructor-like callback
    * runs, but it does not enter reactive queries until the callback succeeds.
    * Removing or replacing the attachment, destroying its carrier, or building
-   * a query or uncached term from the callback throws. If the callback throws,
-   * vecs rolls back the new attachment without firing `onRemove` or `enter`.
+   * a query or uncached term from the callback throws. Any callback exception
+   * propagates immediately and invalidates the current world. vecs provides no
+   * rollback or post-failure consistency guarantee.
    *
    * Call without an argument to return the current handler. Pass `undefined` to remove it.
    *

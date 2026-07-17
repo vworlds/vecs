@@ -109,15 +109,12 @@ describe("RelationshipsModule", () => {
     expect(replacement.depths.get(child)).toBe(1);
   });
 
-  it("keeps Exclusive alive when component deletion cannot remove dependent traits", () => {
+  it("propagates dependent-trait validation during component deletion", () => {
     const w = new World();
     const exclusive = w.component(Exclusive);
     exclusive.meta.onDelete = CleanupPolicy.Remove;
 
     expect(() => exclusive.destroy()).toThrow(/dependent relationship trait/);
-    expect(exclusive.alive).toBe(true);
-    expect(w.getEntity(exclusive.eid)).toBe(exclusive);
-    expect(w.component(ChildOf).has(Exclusive)).toBe(true);
   });
 
   it("parents and destroys explicit OwnedTarget edges", () => {

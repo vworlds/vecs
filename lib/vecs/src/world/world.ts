@@ -29,6 +29,14 @@ import { type WorldOptions } from "./world.base.js";
  * deferred scope; user code can wrap arbitrary blocks with
  * {@link beginDefer} / {@link endDefer} or {@link defer}. {@link flush}
  * drains the queue at top level.
+ *
+ * ## Fatal errors
+ *
+ * Command application, validation, and user callbacks are fail-fast. An
+ * exception propagates from the active direct mutation or synchronization
+ * boundary (`flush`, `endDefer`, `defer`, `forEach`, or `progress`) and
+ * invalidates this world. vecs provides no rollback, observer isolation, queue
+ * recovery, or supported reuse after such an exception; discard the world.
  */
 export class World extends Pipeline {
   public constructor(options: WorldOptions = {}) {

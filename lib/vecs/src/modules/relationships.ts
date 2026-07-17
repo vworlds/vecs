@@ -1,5 +1,5 @@
-import { CleanupPolicy, Relationship } from "../component_meta.js";
-import { type EID, type Entity } from "../entity/index.js";
+import { CleanupPolicy, Relationship, type ComponentMeta } from "../component_meta.js";
+import { type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 import {
   ChildOf,
@@ -88,13 +88,8 @@ export class RelationshipsModule extends Module {
     ownedTarget.meta._onPolicyAdd = (rel): void => {
       (rel.meta._targetAddPolicies ??= new Map()).set(
         ownedTarget.eid,
-        (source: Entity, _relationship: Relationship, target: Entity): (() => void) => {
+        (source: Entity, _relationship: Relationship, target: Entity): void => {
           target.add(ChildOf, source);
-          return () => {
-            if (target.alive && target.target(ChildOf) === source) {
-              target.remove(ChildOf, source);
-            }
-          };
         }
       );
       (rel.meta._targetRemovePolicies ??= new Map()).set(
@@ -119,22 +114,21 @@ export class RelationshipsModule extends Module {
     };
     traversableTrait.meta._onPolicyAdd = (rel, component): void => {
       const traversable = component as Traversable;
-      const relEid = rel.eid;
+      const meta = rel.meta;
       (rel.meta._targetAddPolicies ??= new Map()).set(
         traversableTrait.eid,
-        (entity: Entity): (() => void) => {
-          this._cascadeUpdate(entity, relEid, traversable);
-          return () => this._removeDepth(entity, relEid, traversable);
+        (entity: Entity): void => {
+          this._cascadeUpdate(entity, meta, traversable);
         }
       );
       (rel.meta._targetRemovePolicies ??= new Map()).set(
         traversableTrait.eid,
-        (entity: Entity): void => this._removeDepth(entity, relEid, traversable)
+        (entity: Entity): void => this._removeDepth(entity, meta, traversable)
       );
 
       world.entities.forEach((entity) => {
-        if (entity.has(relEid)) {
-          this._cascadeUpdate(entity, relEid, traversable);
+        if (entity._hasComponentMeta(meta)) {
+          this._cascadeUpdate(entity, meta, traversable);
         }
       });
     };
@@ -151,7 +145,7 @@ export class RelationshipsModule extends Module {
 
   private _cascadeUpdate(
     entity: Entity,
-    relEid: EID,
+    meta: ComponentMeta,
     traversable: Traversable,
     visited = new Set<Entity>()
   ): void {
@@ -161,30 +155,30 @@ export class RelationshipsModule extends Module {
 
     visited.add(entity);
 
-    if (entity.has(relEid)) {
-      traversable.depths.set(entity, this._depthOf(entity, relEid, traversable, new Set()));
+    if (entity._hasComponentMeta(meta)) {
+      traversable.depths.set(entity, this._depthOf(entity, meta, traversable, new Set()));
     } else {
       traversable.depths.delete(entity);
     }
 
-    for (const child of entity._childrenByEid(relEid) ?? []) {
-      this._cascadeUpdate(child, relEid, traversable, visited);
+    for (const child of entity._childrenByMeta(meta) ?? []) {
+      this._cascadeUpdate(child, meta, traversable, visited);
     }
   }
 
   private _depthOf(
     entity: Entity,
-    relEid: EID,
+    meta: ComponentMeta,
     traversable: Traversable,
     visited: Set<Entity>
   ): number {
-    if (!entity.has(relEid) || visited.has(entity)) {
+    if (!entity._hasComponentMeta(meta) || visited.has(entity)) {
       return 0;
     }
 
     visited.add(entity);
 
-    const parent = entity.target(relEid);
+    const parent = entity.target(meta.eid);
     if (!parent) {
       return 0;
     }
@@ -194,13 +188,13 @@ export class RelationshipsModule extends Module {
       return parentDepth + 1;
     }
 
-    return this._depthOf(parent, relEid, traversable, visited) + 1;
+    return this._depthOf(parent, meta, traversable, visited) + 1;
   }
 
-  private _removeDepth(entity: Entity, relEid: EID, traversable: Traversable): void {
+  private _removeDepth(entity: Entity, meta: ComponentMeta, traversable: Traversable): void {
     traversable.depths.delete(entity);
-    for (const child of entity._childrenByEid(relEid) ?? []) {
-      this._cascadeUpdate(child, relEid, traversable);
+    for (const child of entity._childrenByMeta(meta) ?? []) {
+      this._cascadeUpdate(child, meta, traversable);
     }
   }
 }

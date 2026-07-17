@@ -147,6 +147,23 @@ Scopes nest: a `Filter.forEach` inside a system inherits the system's scope and 
 exit. `flush()` is a no-op while any scope is open; it also builds queries created since the last
 flush.
 
+### Failure is fatal to the current World
+
+vecs treats command-application failures and exceptions from user callbacks or validators as
+programming errors. It propagates the exception immediately from the active boundary:
+
+- A top-level mutation or standalone query callback throws from that direct API call.
+- A queued command or hook throws from `flush()`, `endDefer()`, or the `defer()` call that closes the
+  outermost scope.
+- A system callback, pending query build, or post-system flush throws from `progress()`.
+- A `Query.forEach` or `Filter.forEach` callback throws from that `forEach` call.
+
+After any such exception, discard the current `World`. vecs does not roll back already-applied
+changes, isolate observers, aggregate errors, finish later cleanup, recover the command queue, close
+the frame, or restore defer/routing state for reuse. This also applies to impossible entity graphs,
+cleanup-policy conflicts, component arrangements, and stale commands against a retired component
+definition.
+
 ## Reactive routing
 
 When the world applies a command, it routes events to everything that watches the affected
@@ -166,14 +183,16 @@ New attachments have an initialization boundary inside that routing. vecs stores
 runs its framework policies and `onAdd` handlers, then publishes term/query `enter` only after all
 concrete and interface handlers succeed. Direct reads can inspect the initializing instance, but
 reactive membership cannot. Query/system construction and uncached term materialization are
-rejected from add hooks so backfill cannot observe a half-initialized attachment. A failed add hook
-rolls back the new attachment; other commands or immediate side effects deliberately issued by the
-hook retain normal FIFO/call-order semantics.
+rejected from add hooks so backfill cannot observe a half-initialized attachment. The exact
+triggering attachment also cannot be removed, replaced, or eliminated while its add hooks run. A
+failed add hook is fatal: it remains unpublished, but vecs does not roll back storage, indexes,
+policies, displaced components, or other side effects.
 
-Destruction uses the complementary two-stage boundary: indexed graph discovery and validation run
-first, then an accepted frozen plan executes without further discovery or validation. Validators
-cannot structurally mutate the world. Observer errors during commit are isolated so later observers
-and mandatory teardown still run before the first error is rethrown.
+Destruction uses an indexed, iterative executor rather than graph-wide preflight and commit phases.
+It follows `ComponentMeta` carriers and incoming relationship sources, marks entities destroying for
+cycle deduplication, validates each `CleanupPolicy.Remove` immediately before removal, and stops at
+the first exception. Callback fanout is likewise fail-fast; later observers and cleanup are not
+guaranteed after an error.
 
 Three routing rules worth memorizing:
 

@@ -47,11 +47,8 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
 
   /** @internal */
   protected override _exit(e: Entity): void {
-    try {
-      super._exit(e);
-    } finally {
-      this._grouping.exit(e);
-    }
+    super._exit(e);
+    this._grouping.exit(e);
   }
 
   /** @internal */

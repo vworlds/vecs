@@ -94,21 +94,24 @@ export abstract class Relationship {
   }
 }
 
-/** Callback fired after one relationship edge is added or removed. */
+/**
+ * Callback fired after one relationship edge is added or removed.
+ *
+ * An exception propagates immediately from the active mutation or synchronization
+ * boundary and invalidates the current {@link World}; discard that world.
+ */
 export type TargetHandler<C extends Relationship = Relationship> = (
   source: Entity,
   relationship: C,
   target: Entity
 ) => void;
 
-/** @internal Framework target policy that may return an initialization rollback. */
-type TargetPolicyHandler = (
-  source: Entity,
-  relationship: Relationship,
-  target: Entity
-) => void | (() => void);
-
-/** Callback fired for a component lifecycle event. */
+/**
+ * Callback fired for a component lifecycle event.
+ *
+ * An exception propagates immediately from the active mutation or synchronization
+ * boundary and invalidates the current {@link World}; discard that world.
+ */
 export type HookHandler<C extends ComponentInstance = ComponentInstance> = (
   entity: Entity,
   component: C
@@ -133,14 +136,12 @@ export type ComponentRef = EID | ComponentType | EntityClass | Entity;
 
 const enum AttachmentState {
   Initializing,
-  PendingPublication,
   Live,
 }
 
 let componentMetaGeneration = 0;
 
 type Attachment = {
-  generation: number;
   state: AttachmentState;
 };
 
@@ -166,7 +167,10 @@ export class Implements {
  *
  * Callbacks fire synchronously when the corresponding entity command is
  * applied: inline outside deferred mode, or while the world drains its command
- * queue inside a system / `forEach` / `defer` block.
+ * queue inside a system / `forEach` / `defer` block. A callback exception
+ * propagates immediately from that mutation or synchronization boundary and
+ * invalidates the current {@link World}; vecs does not roll back or finish
+ * notifying other observers.
  *
  * @typeParam C - Component class this hook is bound to.
  */
@@ -184,8 +188,8 @@ export interface Hook<C extends ComponentInstance = ComponentInstance> {
    * after every concrete and interface add handler succeeds. The handler may
    * initialize the supplied instance, but cannot remove or replace that
    * attachment, destroy its carrier, or build a query or uncached term. If the
-   * handler throws, vecs rolls back the new attachment and framework policy
-   * effects without firing `onRemove` or query `enter`.
+   * handler throws, the exception propagates immediately and invalidates the
+   * current {@link World}. No rollback or post-failure consistency is provided.
    *
    * @param handler - Receives the entity and freshly created component instance.
    * @returns This hook, for chaining.
@@ -247,9 +251,15 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** Whether this relationship permits only one target. */
   public relationshipExclusive = false;
 
-  /** Applied to entities carrying this component when this component entity is deleted. */
+  /**
+   * Applied to indexed carriers as this component entity is destroyed.
+   * Policy or validation failure invalidates the current world; deletion is not atomic.
+   */
   public onDelete = CleanupPolicy.Throw;
-  /** Applied to entities targeting a deleted entity through this relationship. */
+  /**
+   * Applied to indexed sources targeting an entity as that target is destroyed.
+   * Policy or validation failure invalidates the current world; deletion is not atomic.
+   */
   public onDeleteTarget = CleanupPolicy.Remove;
 
   /**
@@ -287,14 +297,13 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** @internal Current relationship target-remove handler. */
   public _onTargetRemove: TargetHandler | undefined;
   /** @internal Target-add policies keyed by the trait component eid that installed them. */
-  public _targetAddPolicies: Map<EID, TargetPolicyHandler> | undefined;
+  public _targetAddPolicies: Map<EID, TargetHandler> | undefined;
   /** @internal Target-remove policies keyed by the trait component eid that installed them. */
   public _targetRemovePolicies: Map<EID, TargetHandler> | undefined;
   /** @internal Current `onSet` handler. */
   public _onSet: HookHandler | undefined;
 
   private readonly _attachments = new Map<Entity, Attachment>();
-  private _attachmentGeneration = 0;
   private _liveCount = 0;
   private _retired = false;
 
@@ -310,35 +319,21 @@ export class ComponentMeta implements Hook<ComponentInstance> {
     return this._attachments.size;
   }
 
-  /** @internal Begin an attachment and return its unique generation. */
-  public _beginAttachment(entity: Entity): number {
+  /** @internal Store initializing carrier authority before add hooks run. */
+  public _beginAttachment(entity: Entity): Attachment {
     if (this._attachments.has(entity)) {
       throw new Error(`Entity ${entity.eid} already carries component ${this.Class.name}`);
     }
-    const generation = ++this._attachmentGeneration;
-    this._attachments.set(entity, { generation, state: AttachmentState.Initializing });
-    return generation;
+    const attachment = { state: AttachmentState.Initializing };
+    this._attachments.set(entity, attachment);
+    return attachment;
   }
 
-  /** @internal Commit initialized authority before observer publication. */
-  public _commitAttachment(entity: Entity, generation: number): boolean {
-    const attachment = this._attachments.get(entity);
+  /** @internal Make the exact initialized attachment visible to reactive consumers. */
+  public _activateAttachment(entity: Entity, attachment: Attachment): boolean {
     if (
-      attachment?.generation !== generation ||
+      this._attachments.get(entity) !== attachment ||
       attachment.state !== AttachmentState.Initializing
-    ) {
-      return false;
-    }
-    attachment.state = AttachmentState.PendingPublication;
-    return true;
-  }
-
-  /** @internal Publish one committed attachment exactly once. */
-  public _publishAttachment(entity: Entity, generation: number): boolean {
-    const attachment = this._attachments.get(entity);
-    if (
-      attachment?.generation !== generation ||
-      attachment.state !== AttachmentState.PendingPublication
     ) {
       return false;
     }
@@ -347,13 +342,20 @@ export class ComponentMeta implements Hook<ComponentInstance> {
     return true;
   }
 
+  /** @internal Test whether a publication still refers to the exact live attachment. */
+  public _isCurrentAttachment(entity: Entity, attachment: Attachment): boolean {
+    return (
+      this._attachments.get(entity) === attachment && attachment.state === AttachmentState.Live
+    );
+  }
+
   /** @internal Remove a live attachment, rejecting constructor-time elimination. */
   public _detachAttachment(entity: Entity): boolean {
     this._assertCanDetach(entity);
     return this._detachAttachmentUnchecked(entity);
   }
 
-  /** @internal Remove an attachment after its enclosing operation has been preflighted. */
+  /** @internal Remove an attachment after its caller has performed required validation. */
   public _detachAttachmentUnchecked(entity: Entity): boolean {
     const attachment = this._attachments.get(entity);
     if (!attachment) {
@@ -363,19 +365,6 @@ export class ComponentMeta implements Hook<ComponentInstance> {
     if (attachment.state === AttachmentState.Live) {
       this._liveCount--;
     }
-    return true;
-  }
-
-  /** @internal Roll back only the exact initializing generation supplied by the caller. */
-  public _rollbackAttachment(entity: Entity, generation: number): boolean {
-    const attachment = this._attachments.get(entity);
-    if (
-      attachment?.generation !== generation ||
-      attachment.state !== AttachmentState.Initializing
-    ) {
-      return false;
-    }
-    this._attachments.delete(entity);
     return true;
   }
 

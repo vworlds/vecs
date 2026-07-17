@@ -73,6 +73,14 @@ Plus the [Utilities](./docs/utilities.md) guide for helper classes and the
 [Glossary](./docs/glossary.md) for terminology. The exhaustive per-symbol reference is the JSDoc on
 the source under [`src/`](./src/) — read it in your IDE.
 
+## Error contract
+
+vecs applies commands and invokes hooks, query callbacks, and system callbacks fail-fast. If any
+application, validation, or callback throws, the exception propagates from the active direct API or
+synchronization boundary (`flush`, `endDefer`, `defer`, `forEach`, or `progress`) and invalidates that
+`World`. There is no rollback or supported reuse; discard it. See
+[Execution model: failure is fatal](./docs/execution-model.md#failure-is-fatal-to-the-current-world).
+
 ## Build & Test
 
 ```sh

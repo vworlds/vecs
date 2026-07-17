@@ -115,20 +115,8 @@ export function getCachedTerm(world: World, dsl: QueryDSL): Term | undefined {
  * world term (shape change, needed by `only` and merged predicate terms).
  */
 export function notifyComponentAdded(world: World, componentEid: EID, entity: Entity): void {
-  let firstError: unknown;
-  try {
-    world._componentTerms.get(componentEid)?.componentAdded(entity);
-  } catch (error) {
-    firstError = error;
-  }
-  try {
-    world._worldTerm?.entityShapeChanged(entity);
-  } catch (error) {
-    firstError ??= error;
-  }
-  if (firstError !== undefined) {
-    throw firstError;
-  }
+  world._componentTerms.get(componentEid)?.componentAdded(entity);
+  world._worldTerm?.entityShapeChanged(entity);
 }
 
 /**
@@ -148,20 +136,8 @@ export function notifyComponentChanged(world: World, componentEid: EID, entity: 
  * Routes to the `ComponentTerm` (membership exit) and world term (shape).
  */
 export function notifyComponentRemoved(world: World, componentEid: EID, entity: Entity): void {
-  let firstError: unknown;
-  try {
-    world._componentTerms.get(componentEid)?.componentRemoved(entity);
-  } catch (error) {
-    firstError = error;
-  }
-  try {
-    world._worldTerm?.entityShapeChanged(entity);
-  } catch (error) {
-    firstError ??= error;
-  }
-  if (firstError !== undefined) {
-    throw firstError;
-  }
+  world._componentTerms.get(componentEid)?.componentRemoved(entity);
+  world._worldTerm?.entityShapeChanged(entity);
 }
 
 /**

@@ -86,7 +86,9 @@ type _SystemInboxEvent =
  * Internally each system holds a single ordered **inbox** of routed events
  * (`enter`, `exit`, `update`). The world appends to it during command-queue
  * routing; the system replays the inbox at the top of every `_run` so
- * callbacks observe events in arrival order.
+ * callbacks observe events in arrival order. A callback exception propagates
+ * immediately from {@link World.progress} and invalidates the current world;
+ * later callbacks, commands, and systems are not guaranteed to run.
  *
  * ### Component injection and type inference
  *
@@ -243,11 +245,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     const tickDelta = this._tickSource.lastFireDelta;
     const prevSource = this.world._currentSource;
     this.world._currentSource = this.entity;
-    try {
-      this._runDeferred(now, tickDelta);
-    } finally {
-      this.world._currentSource = prevSource;
-    }
+    this._runDeferred(now, tickDelta);
+    this.world._currentSource = prevSource;
   }
 
   /**

@@ -38,7 +38,7 @@ subsystem guides — start with [Concepts](./concepts.md) and the
 
 `world.progress(now, delta)` runs the **pipeline**: systems grouped by **phase**, phases in a
 fixed order. (The full mechanics are in [Execution model](./execution-model.md); this section
-is the design-relevant core.) Internalize these four facts:
+is the design-relevant core.) Internalize these five facts:
 
 1. **Phases run in a fixed order.** The eight built-in phases (`lib/vecs/src/modules/pipeline.ts`):
 
@@ -70,6 +70,12 @@ is the design-relevant core.) Internalize these four facts:
 4. **Reactive routing.** `set`/`add`/`remove`/`destroy` route `enter`/`update`/`exit` events into
    the matching systems' inboxes; each system drains its inbox at the top of its run. So systems
    react to change without scanning.
+
+5. **Failures invalidate the current world.** Command application, validation, hooks, query
+   callbacks, and system callbacks are fail-fast. Exceptions propagate from the active direct call
+   or synchronization boundary (`flush`, `endDefer`, `defer`, `forEach`, `progress`); discard the
+   `World`.
+   There is no rollback, observer isolation, delayed cleanup, queue recovery, or supported reuse.
 
 ---
 
@@ -751,6 +757,8 @@ system after whatever produces the entity/companion.
   explicitly, and during deferred execution keep that entity instead of re-reading `target(R)`
   before flush.
 - **`world.module(M)` runs `init` once.** Re-registering with a different config throws.
+- **Any application/callback exception is fatal to the current `World`.** Discard it; do not inspect
+  partial state or attempt another flush/progress after the exception.
 
 ---
 

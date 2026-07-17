@@ -12,7 +12,7 @@ Read in this order the first time through:
 1. [Getting started](./getting-started.md) — install, first world, first system, first tick.
 2. [Concepts](./concepts.md) — the mental model: world, entity, component, system, query.
 3. [Execution model](./execution-model.md) — phases, the pipeline, deferred mutation, reactive
-   routing. Read this before designing anything non-trivial.
+   routing, and the fatal-world failure contract. Read this before designing anything non-trivial.
 4. Subsystem guides, in any order:
    - [Components](./components.md) — registration, hooks, traits, exclusivity, cleanup policies,
      interfaces, singletons.
@@ -33,20 +33,20 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 
 ## Map
 
-| Guide                                              | Covers                                                                                       |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| [getting-started.md](./getting-started.md)         | A runnable tutorial from `npm install` to a ticking world.                                   |
-| [concepts.md](./concepts.md)                       | The core vocabulary and how the pieces relate.                                               |
-| [execution-model.md](./execution-model.md)         | `world.progress`, the 8 built-in phases, deferred commands, flush boundaries, event routing. |
-| [components.md](./components.md)                   | Component registration, hooks, traits, exclusivity, cleanup, aliases, and singletons.        |
-| [entities.md](./entities.md)                       | Entity creation, component mutation, relationship targets, lifecycle, deferred reads.        |
-| [systems.md](./systems.md)                         | `world.system`, callbacks, injection, ordering, cadence, and tick sources.                   |
-| [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`.                                    |
-| [relationships.md](./relationships.md)             | Relationships, target creation, projection and ownership, hierarchy, traversal, and cleanup. |
-| [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, composition, built-in modules.                             |
-| [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                               |
-| [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.    |
-| [glossary.md](./glossary.md)                       | ECS and vecs terminology.                                                                    |
+| Guide                                              | Covers                                                                                        |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [getting-started.md](./getting-started.md)         | A runnable tutorial from `npm install` to a ticking world.                                    |
+| [concepts.md](./concepts.md)                       | The core vocabulary and how the pieces relate.                                                |
+| [execution-model.md](./execution-model.md)         | `world.progress`, phases, deferred commands, flush boundaries, event routing, fatal failures. |
+| [components.md](./components.md)                   | Component registration, hooks, traits, exclusivity, cleanup, aliases, and singletons.         |
+| [entities.md](./entities.md)                       | Entity creation, component mutation, relationship targets, lifecycle, deferred reads.         |
+| [systems.md](./systems.md)                         | `world.system`, callbacks, injection, ordering, cadence, and tick sources.                    |
+| [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`.                                     |
+| [relationships.md](./relationships.md)             | Relationships, target creation, projection and ownership, hierarchy, traversal, and cleanup.  |
+| [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, composition, built-in modules.                              |
+| [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                                |
+| [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.     |
+| [glossary.md](./glossary.md)                       | ECS and vecs terminology.                                                                     |
 
 Networking (wire encoding with `@wireType`, protocol component ordering, replication) lives in the
 `@vworlds/vecs-wire` and `@vworlds/vecs-protocol` packages and is only cross-referenced here.

@@ -75,8 +75,9 @@ For a newly attached component, `onAdd` is constructor-like: direct `get`/`has` 
 `instanceCount()` see the initializing attachment, while component terms and reactive queries do
 not see it until every add hook succeeds. The hook can initialize the supplied object but cannot
 remove or replace that attachment, destroy its carrier, or construct a query or uncached term. A
-throw rolls back the new attachment without `enter` or `onRemove`; deliberate side effects outside
-that attachment are not rolled back. See [Components — hooks](./components.md#hooks-component-and-relationship-edges).
+throw propagates immediately without publishing the attachment, but does not roll back storage or
+side effects. Discard the invalid world. See
+[Components — hooks](./components.md#hooks-component-and-relationship-edges).
 
 Relationships use a stricter API: `add(R, target)` creates a unique edge, `remove(R, target)`
 removes one edge, and `remove(R)` removes every edge. `set(R, props)` updates only ordinary fields
@@ -156,18 +157,24 @@ drains.
 
 ## Destroying entities
 
-`e.destroy()` plans the complete transitive cleanup before changing the world. The plan follows
-indexed component carriers and incoming relationship sources, validates every planned removal,
-then freezes all doomed entities and executes the collected query exits, component removals,
-relationship-edge removals, and unregister operations. A blocked immediate destroy throws without
-partial cleanup. After destruction the entity must not be used.
+`e.destroy()` starts an indexed, iterative traversal immediately when called outside deferred mode,
+or when its queued command reaches a synchronization boundary. Each entity is marked destroying
+before its indexed component carriers and incoming relationship sources are processed, so
+overlapping `CleanupPolicy.Delete` paths and valid cycles terminate without recursion. vecs keeps
+only local snapshots needed to avoid collection-mutation skips; it does not preflight or retain a
+complete transitive graph plan. After destruction starts, the entity must not be used.
 
-During commit, query exits run before their component's `onRemove`, component data remains available
-to exit snapshots, and an entity's remaining sibling components stay readable by earlier
+On the successful path, query exits run before their component's `onRemove`, component data remains
+available to exit snapshots, and an entity's remaining sibling components stay readable by earlier
 `onRemove` hooks. Incoming `CleanupPolicy.Remove` edges are cleaned after their target is
-unregistered; `CleanupPolicy.Delete` sources are already part of the accepted plan. If an observer
-or removal hook throws during commit, vecs completes mandatory structural cleanup and rethrows the
-first error afterward.
+unregistered. Component carriers and incoming sources come from their maintained indexes, not a
+full-world scan.
+
+Cleanup policies, validators, hooks, and reactive callbacks are fail-fast. An exception propagates
+immediately from `destroy()` or the synchronization boundary applying its command. Earlier work may
+already have changed the graph, and later cleanup is not guaranteed. The current `World` is invalid;
+there is no rollback, repair, or supported reuse. See
+[Failure is fatal to the current World](./execution-model.md#failure-is-fatal-to-the-current-world).
 
 If the entity is itself in use as a component key, `destroy` honors `meta.onDelete` — by default
 it throws while carriers remain ([Components — cleanup policies](./components.md#cleanup-policies-destroying-a-component-entity)).

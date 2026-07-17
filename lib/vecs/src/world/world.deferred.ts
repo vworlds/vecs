@@ -16,37 +16,45 @@ export class Deferred extends Queries {
 
   /** @internal Append a command to the deferred-mode queue. */
   public _enqueue(cmd: Command): void {
-    this._assertStructuralMutationAllowed();
     cmd.source = this._currentSource;
     this._commandQueue.push(cmd);
   }
 
   /** Enter deferred mode. */
   public beginDefer(): void {
-    this._assertStructuralMutationAllowed();
     this._deferredDepth++;
   }
 
-  /** Run `fn` inside a deferred scope. */
+  /**
+   * Run `fn` inside a deferred scope and drain on successful return.
+   *
+   * A callback or command exception propagates immediately and invalidates the
+   * current world. The queue and defer state are not recovered for reuse.
+   */
   public defer(fn: () => void): void {
     this.beginDefer();
-    try {
-      fn();
-    } finally {
-      this.endDefer();
-    }
+    fn();
+    this.endDefer();
   }
 
-  /** Leave deferred mode and drain at the outermost scope. */
+  /**
+   * Leave deferred mode and drain at the outermost scope.
+   *
+   * A command exception propagates immediately and invalidates the current world;
+   * remaining commands are not recovered or guaranteed to run.
+   */
   public endDefer(): void {
-    this._assertStructuralMutationAllowed();
     this._deferredDepth--;
     this.flush();
   }
 
-  /** Build pending queries and drain queued commands at the top level. */
+  /**
+   * Build pending queries and drain queued commands at the top level.
+   *
+   * A build, command, or callback exception propagates immediately and invalidates
+   * the current world; remaining work is not recovered or guaranteed to run.
+   */
   public flush(): void {
-    this._assertStructuralMutationAllowed();
     if (this._deferredDepth === 0) {
       this._buildPendingQueries();
       this._processCommandQueue();
@@ -57,13 +65,7 @@ export class Deferred extends Queries {
   protected _executeCommand(cmd: Command): void {
     this._routingSource = cmd.source;
     if ("meta" in cmd && cmd.meta._isRetired) {
-      if (
-        cmd.kind === CommandKind.Attach &&
-        cmd.meta._pendingEnsures?.get(cmd.entity) === cmd.component
-      ) {
-        cmd.meta._pendingEnsures.delete(cmd.entity);
-      }
-      return;
+      cmd.meta._assertActive();
     }
     switch (cmd.kind) {
       case CommandKind.CreateEntity:
@@ -105,19 +107,11 @@ export class Deferred extends Queries {
       return;
     }
     this._draining = true;
-    let consumed = 0;
-    try {
-      for (let i = 0; i < this._commandQueue.length; i++) {
-        consumed = i + 1;
-        this._executeCommand(this._commandQueue[i]);
-      }
-      this._commandQueue.length = 0;
-    } catch (error) {
-      this._commandQueue.splice(0, consumed);
-      throw error;
-    } finally {
-      this._routingSource = undefined;
-      this._draining = false;
+    for (let i = 0; i < this._commandQueue.length; i++) {
+      this._executeCommand(this._commandQueue[i]);
     }
+    this._commandQueue.length = 0;
+    this._routingSource = undefined;
+    this._draining = false;
   }
 }

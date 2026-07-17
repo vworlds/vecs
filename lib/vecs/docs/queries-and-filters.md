@@ -86,14 +86,19 @@ projectiles.forEach({ inject: [Position] }, (e, [pos]) => { ... });
 The crucial difference from systems: **standalone query callbacks fire synchronously** while the
 world routes a command, not in a phase slot. Mutations made inside one callback are themselves
 observed immediately by other queries. Systems instead queue events into an inbox replayed on
-their tick (see [Execution model](./execution-model.md#reactive-routing)).
+their tick (see [Execution model](./execution-model.md#reactive-routing)). If a callback throws,
+fanout stops immediately, the exception propagates from the active mutation or synchronization
+boundary, and the current world must be discarded. Later observers are not isolated or guaranteed
+to run.
 
 ### Lifecycle: build, backfill, destroy
 
 A query is **built** — its predicate materialized and registered — at the next `world.flush()` /
 `progress()`, or immediately via `query.build()` outside deferred mode. Tracked queries (and any
 query with callbacks) **backfill**: entities that already match are routed through `enter` at
-build time. Builder methods throw once the query is built; `built` reports the state.
+build time. Builder methods throw once the query is built; `built` reports the state. A callback or
+build failure follows the [fatal-world contract](./execution-model.md#failure-is-fatal-to-the-current-world)
+and propagates from `build`, `flush`, or `progress`, whichever performs the build.
 
 Do not create or build queries from a component or relationship add hook. Add hooks are the
 constructor boundary before reactive membership is published, so vecs rejects query/system

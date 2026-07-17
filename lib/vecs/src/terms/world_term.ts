@@ -73,16 +73,8 @@ export class WorldTerm extends Term {
     if (!this.has(entity)) {
       return;
     }
-    let firstError: unknown;
     for (const consumer of [...this._shapeConsumers]) {
-      try {
-        consumer.onTermRefresh?.(entity);
-      } catch (error) {
-        firstError ??= error;
-      }
-    }
-    if (firstError !== undefined) {
-      throw firstError;
+      consumer.onTermRefresh?.(entity);
     }
   }
 

@@ -87,17 +87,9 @@ export class TargetTerm extends Term {
       this._sync(entity);
       return;
     }
-    let firstError: unknown;
     const sources = [...(entity._childrenByEid(this._relationshipEid) ?? [])];
     for (const source of sources) {
-      try {
-        this._sync(source);
-      } catch (error) {
-        firstError ??= error;
-      }
-    }
-    if (firstError !== undefined) {
-      throw firstError;
+      this._sync(source);
     }
   }
 

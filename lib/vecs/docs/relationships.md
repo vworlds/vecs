@@ -139,9 +139,9 @@ The first edge and relationship instance share the component initialization boun
 reverse index exist while `onTargetAdd` and `onAdd` run, but relationship queries enter only after
 both handlers succeed. Those handlers may add more non-exclusive edges, but cannot remove the
 initializing relationship, remove its final edge, replace its exclusive target, destroy a target
-whose cleanup would eliminate it, or build a query or uncached term. A throw rolls back the new
-relationship, every edge added by that initialization, reverse indexes, and built-in policy effects
-without firing remove hooks.
+whose cleanup would eliminate it, or build a query or uncached term. A throw propagates immediately
+without publishing the relationship, but does not roll back its storage, edges, reverse indexes,
+policy effects, or other side effects. The current world is invalid and must be discarded.
 
 Call `onTargetAdd()` or `onTargetRemove()` without an argument to read the current handler, pass a
 handler to replace it, or pass `undefined` to clear it. Framework traits install separate internal
@@ -181,10 +181,11 @@ sources because either owner can destroy it when its edge is removed.
 What happens to each incoming edge when its target entity is destroyed is governed by the
 relationship's `meta.onDeleteTarget`:
 
-| Policy                 | Meaning                                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| `CleanupPolicy.Remove` | Default. Remove only the edge to the destroyed target; other targets remain attached.      |
-| `CleanupPolicy.Delete` | Destroy each source entity that has an edge to the destroyed target through this relation. |
+| Policy                 | Meaning                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| `CleanupPolicy.Throw`  | Throw when a current source is not already destroying or destroyed.                           |
+| `CleanupPolicy.Remove` | Default. Remove only the edge to the destroyed target; other targets remain attached.         |
+| `CleanupPolicy.Delete` | Iteratively destroy each indexed source with an edge to the target through this relationship. |
 
 ```ts
 import { CleanupPolicy } from "@vworlds/vecs";
@@ -203,10 +204,17 @@ With the default `Remove`, cleanup follows normal per-edge semantics: `onTargetR
 destroyed target, and the relationship component remains if another edge survives. Removing the
 last edge also removes the component.
 
-Target destruction is preflighted with the rest of its transitive deletion graph. Every source
-selected by `Delete` must itself be destroyable, and a final-edge `Remove` validator must succeed,
-before the target is frozen. A blocker leaves the complete graph unchanged. Commit then destroys
-sources or removes only the collected target edges without rescanning unrelated entities.
+Target destruction snapshots the target's maintained incoming-source sets and processes them in the
+iterative destruction traversal. `Delete` sources use destroying/destroyed deduplication, so cycles
+terminate. `Remove` validates immediately before removing a final edge, after the target is
+unregistered on the successful path. `Throw` is checked when the target is processed and does not
+look ahead to sources that might be deleted later. Incoming indexes retain the exact relationship
+definition generation, so eid reuse cannot route an old edge through replacement hooks or policies.
+No policy scans unrelated entities.
+
+A policy, validator, edge hook, query callback, or other command failure propagates immediately.
+Earlier traversal work is not rolled back and later sources or edges are not guaranteed to run; the
+current `World` must be discarded.
 
 `onDeleteTarget` is independent from `onDelete`: `onDeleteTarget` applies when a relationship
 **target** is destroyed; `onDelete` applies when the relationship **component entity itself** is
@@ -293,7 +301,7 @@ payload gets its own ghost. List `ChildOf` or a custom relationship explicitly i
 | `world.component(R).onTargetAdd(handler?)`    | Get, set, or clear the `(source, relationship, target)` edge-add handler.                           |
 | `world.component(R).onTargetRemove(handler?)` | Get, set, or clear the `(source, relationship, target)` edge-remove handler.                        |
 | `world.component(R).add(OwnedTarget)`         | Adopt and destroy explicit targets; requires `Exclusive`.                                           |
-| `meta.onDeleteTarget`                         | `Remove` (default) per edge or `Delete` the source when a target dies.                              |
+| `meta.onDeleteTarget`                         | `Throw`, `Remove` (default), or `Delete` applied to indexed sources when a target dies.             |
 | `world.component(R).add(Traversable)`         | Enable depth tracking for cascade ordering; requires `Exclusive`.                                   |
 | `{ target: [R, q] }` / `{ parent: q }`        | Reactive existential DSL operators through relationship targets.                                    |
 | `{ source: [R, q] }` / `{ children: q }`      | Filter-only DSL operators down the reverse index.                                                   |

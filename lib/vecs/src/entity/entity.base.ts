@@ -12,6 +12,8 @@ export class Base {
 
   /** @internal Maps component eid to component instance. */
   protected _components = new IterableArrayMap<ComponentInstance>();
+  /** @internal Maps each local component eid to the exact metadata generation that owns it. */
+  protected _componentMetas = new IterableArrayMap<ComponentMeta>();
   /** @internal Component eids with pending modified delivery. */
   protected readonly _dirtyComponentBitmask = new Bitset();
   /** @internal Set of queries this entity currently belongs to. */
@@ -20,8 +22,8 @@ export class Base {
   /** @internal Empty incoming set used when no entities target this one. */
   protected static readonly _emptyIncoming: ReadonlySet<Entity> = new Set();
 
-  /** @internal Relationship eid -> source entities targeting this entity. */
-  protected _incoming: IterableArrayMap<DenseSet<Entity>> | undefined;
+  /** @internal Relationship eid -> metadata generation -> indexed source entities. */
+  protected _incoming: IterableArrayMap<Map<ComponentMeta, DenseSet<Entity>>> | undefined;
 
   /**
    * Bitmask of component type ids currently attached to this entity. Used by

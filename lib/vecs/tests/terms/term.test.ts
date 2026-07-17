@@ -520,7 +520,7 @@ describe("Term — OnlyTerm (exact component set)", () => {
     expect(exit).toHaveBeenCalledWith(e);
   });
 
-  it("continues shape fanout from a throwing OnlyTerm to a merged consumer", () => {
+  it("stops shape fanout at a throwing consumer", () => {
     const w = setup();
     const only = w
       .query("throwing only")
@@ -539,9 +539,6 @@ describe("Term — OnlyTerm (exact component set)", () => {
     expect(merged.has(entity)).toBe(true);
 
     expect(() => entity.add(Velocity)).toThrow("shape consumer failed");
-
-    expect(only.has(entity)).toBe(false);
-    expect(merged.has(entity)).toBe(false);
   });
 });
 

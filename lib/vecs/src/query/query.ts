@@ -67,7 +67,9 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  *
  * Callbacks fire **synchronously** when the world routes a command — so
  * mutations made inside one of these callbacks are themselves observed
- * immediately by other queries / systems.
+ * immediately by other queries / systems. A callback exception propagates
+ * immediately from the active mutation or synchronization boundary and
+ * invalidates the current world; later observers are not guaranteed to run.
  *
  * {@link System} extends `Query` and queues callbacks into an inbox replayed
  * during `_run` instead of firing them immediately. Use `Query` directly when
@@ -567,7 +569,6 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   }
 
   public destroy(): void {
-    this.world._assertStructuralMutationAllowed();
     if (this._destroyed) {
       return;
     }
@@ -599,12 +600,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** Extension hook for subclasses that need to observe query membership exit. */
   protected _exit(e: Entity): void {
     this.changed = true;
-    try {
-      this._exitCallback?.(e);
-    } finally {
-      this._entities?.delete(e);
-      e._removeQueryMembership(this as any);
-    }
+    this._exitCallback?.(e);
+    this._entities?.delete(e);
+    e._removeQueryMembership(this as any);
   }
 
   /** @internal */

@@ -455,13 +455,24 @@ describe("World - pipeline", () => {
     expect(() => w.endFrame()).toThrow();
   });
 
-  it("progress closes the frame when a phase throws", () => {
+  it("progress propagates a system callback exception", () => {
     const w = new World();
     w.system("boom").run(() => {
       throw new Error("boom");
     });
 
     expect(() => w.progress(0, 0)).toThrow("boom");
-    expect((w as any)._frameInProgress).toBe(false);
+  });
+
+  it("progress propagates a post-system flush callback exception", () => {
+    const w = new World();
+    class Fatal {}
+    w.component(Fatal).onAdd(() => {
+      throw new Error("flush failed");
+    });
+    const entity = w.entity();
+    w.system("enqueue fatal add").run(() => entity.add(Fatal));
+
+    expect(() => w.progress(0, 0)).toThrow("flush failed");
   });
 });
