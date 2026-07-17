@@ -170,6 +170,32 @@ export class IterableArrayMap<T> {
   }
 
   /**
+   * Visit every present entry tolerating deletion of the **current** entry
+   * from inside the callback.
+   *
+   * `delete` swaps the last entry into the vacated slot, which the plain
+   * {@link IterableArrayMap.forEach} would skip. This variant re-visits the
+   * slot after the callback returns when a new entry has been swapped in, so
+   * the swapped-in entry is visited next. Deleting the last entry (no swap,
+   * slot just pops out of bounds) is detected via a length check.
+   *
+   * Only deletion of the current entry is safe. A callback that deletes a
+   * *different* (lower-indexed) entry will still cause that swapped-in entry
+   * to be skipped — callers that mutate other slots must keep using a
+   * snapshot.
+   */
+  public forEachSafe(callback: (value: T, key: number, map: IterableArrayMap<T>) => void): void {
+    const items = this._items;
+    for (let i = 0; i < items.length; i++) {
+      const [key, value] = items[i];
+      callback(value, key, this);
+      if (i < items.length && items[i][0] !== key) {
+        i--;
+      }
+    }
+  }
+
+  /**
    * Return an iterator over `[key, value]` entries in dense item order.
    *
    * Entries are backed by the map's internal storage for speed. Treat them as

@@ -1,5 +1,5 @@
 import { CleanupPolicy } from "../component_meta.js";
-import type { ComponentInstance, ComponentMeta } from "../component_meta.js";
+import type { ComponentMeta } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { CommandKind } from "../command.js";
 import { Components } from "./entity.components.js";
@@ -69,19 +69,17 @@ export class Lifecycle extends Components {
 
       this.world._notifyEntityDestroyed(this);
 
-      const components: Array<[ComponentInstance, number]> = [];
-      this._components.forEach((component, ceid) => components.push([component, ceid]));
-      for (const [c, ceid] of components) {
+      this._components.forEachSafe((c, ceid) => {
         const componentMeta = this.world.entity(ceid).meta;
         if (componentMeta.isRelationship) {
           this._detachRelationship(componentMeta, c as Relationship);
-          continue;
+          return;
         }
         this.componentBitmask.deleteBit(componentMeta.bitPtr);
         this.world._notifyComponentRemoved(ceid, this);
         componentMeta._detachCarrier(this);
         componentMeta._onRemove?.(this, c);
-      }
+      });
       this._dirtyComponentBitmask.clear();
       this._queries.clear();
 
