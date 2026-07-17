@@ -51,9 +51,12 @@ export abstract class Relationship {
 
   /** @internal Remove and return every target. */
   public _takeTargets(): Entity[] {
-    const targets = this._targetArray();
+    const targets = this._targets;
     this._targets = undefined;
-    return targets;
+    if (targets === undefined) {
+      return [];
+    }
+    return Array.isArray(targets) ? targets : [targets];
   }
 
   /** @internal Return the first current target. */
