@@ -267,10 +267,14 @@ export class ComponentMeta implements Hook<ComponentInstance> {
   /** @internal Current `onSet` handler. */
   public _onSet: HookHandler | undefined;
 
-  /** @internal Reverse index of entities currently carrying this component eid. */
+  /**
+   * @internal Reverse index of entities currently carrying this component eid.
+   *
+   * Lazily allocated on first attach and never reset to `undefined` afterward,
+   * so a component eid that churns between 0 and 1 carriers does not thrash
+   * the `DenseSet` allocation. `usageCount` reads `_carriers.size` directly.
+   */
   public _carriers: DenseSet<Entity> | undefined;
-
-  private _usageCount = 0;
 
   constructor(Class: ComponentType, ceid: EID) {
     this.Class = Class;
@@ -281,24 +285,17 @@ export class ComponentMeta implements Hook<ComponentInstance> {
 
   /** Number of entities currently carrying this component eid. */
   public get usageCount(): number {
-    return this._usageCount;
+    return this._carriers?.size ?? 0;
   }
 
   /** @internal Record `entity` as a carrier of this component eid. */
   public _attachCarrier(entity: Entity): void {
-    this._usageCount++;
     (this._carriers ??= new DenseSet<Entity>()).add(entity);
   }
 
   /** @internal Stop tracking `entity` as a carrier of this component eid. */
   public _detachCarrier(entity: Entity): void {
-    if (this._usageCount > 0) {
-      this._usageCount--;
-    }
     this._carriers?.delete(entity);
-    if (this._carriers?.size === 0) {
-      this._carriers = undefined;
-    }
   }
 
   /** @inheritdoc */
