@@ -74,6 +74,36 @@ export class DenseSet<T> implements Set<T> {
     }
   }
 
+  /**
+   * Visit each element (current order) tolerating deletion of the **current**
+   * element from inside the callback.
+   *
+   * `delete` swaps the last element into the vacated slot, which the plain
+   * {@link DenseSet.forEach} would skip. This variant holds the index after
+   * the callback returns when a new element has been swapped in, so the
+   * swapped-in value is visited next. Deleting the last element (no swap,
+   * slot just pops out of bounds) is detected via a length check so the
+   * previous slot is never re-processed.
+   *
+   * Only deletion of the current element is safe. A callback that deletes a
+   * *different* (lower-indexed) member will still cause that swapped-in
+   * element to be skipped — callers that mutate other slots must keep using
+   * a snapshot.
+   */
+  public forEachSafe(
+    callbackfn: (value: T, value2: T, set: Set<T>) => void,
+    thisArg?: unknown
+  ): void {
+    const items = this._items;
+    for (let i = 0; i < items.length; i++) {
+      const cur = items[i];
+      callbackfn.call(thisArg, cur, cur, this);
+      if (i < items.length && items[i] !== cur) {
+        i--;
+      }
+    }
+  }
+
   /** Iterator over elements in current order. */
   public [Symbol.iterator](): IterableIterator<T> {
     return this._items[Symbol.iterator]();

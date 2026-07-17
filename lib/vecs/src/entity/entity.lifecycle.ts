@@ -138,22 +138,21 @@ export class Lifecycle extends Components {
       return;
     }
     const shouldDelete = entityMeta.onDelete === CleanupPolicy.Delete;
-    // Snapshot so a _destroy/_remove that mutates _carriers mid-loop (a Delete
-    // cascade destroys a carrier, which detaches it from this meta) cannot
-    // perturb the forEach. DenseSet.delete swaps the last element into the
-    // vacated slot, which would skip entries — same issue-#155 shape as
-    // _cleanupIncoming.
-    const snapshot = [...carriers];
-    for (const carrier of snapshot) {
+    // forEachSafe tolerates deletion of the current carrier mid-loop: each
+    // `_destroy`/`_remove` below detaches only its own carrier from this meta
+    // (via `_detachCarrier`), and any further cascade is buffered onto the
+    // world's deletion scope and drained after this scan completes — so no
+    // other slot of `carriers` is mutated while we are iterating it.
+    carriers.forEachSafe((carrier) => {
       if (carrier === this) {
-        continue;
+        return;
       }
       if (shouldDelete) {
         carrier._destroy();
       } else {
         carrier._remove(entityMeta);
       }
-    }
+    });
   }
 
   /**
