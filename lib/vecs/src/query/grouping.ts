@@ -78,7 +78,6 @@ export class Grouping {
   private _assign(e: Entity, keys: Iterable<unknown>): void {
     const oldKeys = this._entityKeys.get(e);
     let first: unknown = undefined;
-    let second: unknown = undefined;
     let newKeys: Set<unknown> | undefined = undefined;
     let count = 0;
     for (const key of keys) {
@@ -88,11 +87,8 @@ export class Grouping {
       count++;
       if (count === 1) {
         first = key;
-      } else if (count === 2) {
-        second = key;
       } else {
-        newKeys ??= new Set<unknown>([first!, second!]);
-        newKeys.add(key);
+        (newKeys ??= new Set<unknown>([first])).add(key);
       }
     }
     if (newKeys !== undefined) {
@@ -107,11 +103,7 @@ export class Grouping {
       this._entityKeys.delete(e);
       return;
     }
-    if (count === 1) {
-      this._assignOne(e, oldKeys, first);
-      return;
-    }
-    this._assignTwo(e, oldKeys, first, second);
+    this._assignOne(e, oldKeys, first);
   }
 
   private _assignOne(e: Entity, oldKeys: EntityKeys, newKey: unknown): void {
@@ -134,12 +126,6 @@ export class Grouping {
       this._addToBucket(e, newKey);
     }
     this._entityKeys.set(e, newKey);
-  }
-
-  private _assignTwo(e: Entity, oldKeys: EntityKeys, first: unknown, second: unknown): void {
-    const newKeys = new Set<unknown>([first, second]);
-    this._diffKeys(e, oldKeys, newKeys);
-    this._entityKeys.set(e, newKeys);
   }
 
   private _diffKeys(e: Entity, oldKeys: EntityKeys, newKeys: ReadonlySet<unknown>): void {
