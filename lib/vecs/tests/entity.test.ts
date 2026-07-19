@@ -506,6 +506,12 @@ describe("Entity — lifecycle and relationships", () => {
   });
 
   it("destroy cascades through a deep ChildOf chain", () => {
+    // The cascade recurses per level (each buffered destroy owns and drains
+    // its own deletion scope), so usable depth is bounded by the call stack:
+    // the chain overflows at roughly 4000 levels on Node's default stack, and
+    // the exact threshold varies between runs. 2000 stays reliably below the
+    // limit while still failing if a change roughly doubles the per-level
+    // stack cost; shallower depths only repeat the 3-level cascade test above.
     const w = new World();
     const chain = [w.entity()];
     for (let i = 1; i < 2000; i++) {
