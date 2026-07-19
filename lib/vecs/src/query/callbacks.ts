@@ -32,14 +32,19 @@ type SortCallback = (
   bResolved: InjectedValues
 ) => number;
 
-export function makeEnterCallback(
+/**
+ * Build the shared enter/exit callback wrapper: resolve the injected tuple live
+ * when no snapshot is provided, or replay a snapshot captured when the event
+ * was routed (a System's inbox-queued enter/exit).
+ */
+export function makeEnterExitCallback(
   world: World,
   arg0: InjectTuple | InjectCallbackOptions<InjectTuple> | ((e: Entity) => void),
   arg1?: Function
 ): { callback: EntityCallback; snapshotter: InjectSnapshotter | undefined } {
   if (typeof arg0 === "function") {
     // Wrap so the drain's extra snapshot argument never leaks to a plain
-    // (non-injecting) enter callback — it observes only the entity.
+    // (non-injecting) callback — it observes only the entity.
     const fn = arg0 as (e: Entity) => void;
     return { callback: (e: Entity) => fn(e), snapshotter: undefined };
   }
@@ -49,64 +54,25 @@ export function makeEnterCallback(
   const arity = injectArity(inject);
   const snapshotter = (e: Entity) => snapshotInjected(e, inject, arity);
   if (useIter) {
-    const callback = (e: Entity, enterSnapshot?: InjectSnapshot) => {
+    const callback = (e: Entity, snapshot?: InjectSnapshot) => {
       const injected = new Array(arity);
       const it = new Iter(arity);
       it.entity = e;
-      if (enterSnapshot === undefined) {
+      if (snapshot === undefined) {
         getInjectedWithSrc(e, inject, injected, it.src, true);
       } else {
-        replayInjectedSnapshotWithSrc(inject, enterSnapshot, true, injected, it.src);
+        replayInjectedSnapshotWithSrc(inject, snapshot, true, injected, it.src);
       }
       cb(it, injected as any);
     };
     return { callback, snapshotter };
   }
-  const callback = (e: Entity, enterSnapshot?: InjectSnapshot) => {
+  const callback = (e: Entity, snapshot?: InjectSnapshot) => {
     const injected = new Array(arity);
-    if (enterSnapshot === undefined) {
+    if (snapshot === undefined) {
       getInjected(e, inject, true, injected);
     } else {
-      replayInjectedSnapshot(inject, enterSnapshot, true, injected);
-    }
-    cb(e, injected as any);
-  };
-  return { callback, snapshotter };
-}
-
-export function makeExitCallback(
-  world: World,
-  arg0: InjectTuple | InjectCallbackOptions<InjectTuple> | ((e: Entity) => void),
-  arg1?: (...args: any[]) => void
-): { callback: EntityCallback; snapshotter: InjectSnapshotter | undefined } {
-  if (typeof arg0 === "function") {
-    return { callback: arg0 as (e: Entity) => void, snapshotter: undefined };
-  }
-  const { components, useIter } = normalizeInjectCallbackArgs(arg0);
-  const cb = arg1 as (eOrIt: CursorCallbackArg, injected: InjectedValues) => void;
-  const inject = mapInject(world, components);
-  const arity = injectArity(inject);
-  const snapshotter = (e: Entity) => snapshotInjected(e, inject, arity);
-  if (useIter) {
-    const callback = (e: Entity, exitSnapshot?: InjectSnapshot) => {
-      const injected = new Array(arity);
-      const it = new Iter(arity);
-      it.entity = e;
-      if (exitSnapshot === undefined) {
-        getInjectedWithSrc(e, inject, injected, it.src, true);
-      } else {
-        replayInjectedSnapshotWithSrc(inject, exitSnapshot, true, injected, it.src);
-      }
-      cb(it, injected as any);
-    };
-    return { callback, snapshotter };
-  }
-  const callback = (e: Entity, exitSnapshot?: InjectSnapshot) => {
-    const injected = new Array(arity);
-    if (exitSnapshot === undefined) {
-      getInjected(e, inject, true, injected);
-    } else {
-      replayInjectedSnapshot(inject, exitSnapshot, true, injected);
+      replayInjectedSnapshot(inject, snapshot, true, injected);
     }
     cb(e, injected as any);
   };
