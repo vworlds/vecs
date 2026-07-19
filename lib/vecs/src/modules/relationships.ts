@@ -153,17 +153,7 @@ export class RelationshipsModule extends Module {
         xMeta.on("policyAdd", (entity) => entity.add(yEntity));
       }
     });
-    withTrait.meta.on("targetPolicyRemove", (xEntity, _withRelationship, yEntity): void => {
-      // Teardown fires this hook from two paths: _detachRelationship on X
-      // (after X._destroyed = true) and the cleanup cascade when Y is
-      // destroyed (buffered via _cleanupIncoming → _removeTarget, where X is
-      // still alive but Y is already gone). Skip the irrevocability guard in
-      // either case; see the teardown contract at relationships.ts:40-44.
-      if (xEntity.destroyed || yEntity.destroyed) {
-        return;
-      }
-      throw new Error("With cannot be removed once added");
-    });
+    this._forbidPairTraitRemoval(withTrait, "With");
 
     oneOfTrait.meta.on("targetPolicyAdd", (rel, _oneOf, parent): void => {
       if (!rel.meta.isRelationship) {
@@ -178,17 +168,7 @@ export class RelationshipsModule extends Module {
         }
       });
     });
-    oneOfTrait.meta.on("targetPolicyRemove", (rel, _oneOf, parent): void => {
-      // Teardown fires this hook from two paths: _detachRelationship on the
-      // relationship (after rel._destroyed = true) and the cleanup cascade
-      // when the parent is destroyed (where rel is still alive but parent is
-      // already gone). Skip the irrevocability guard in either case; see the
-      // teardown contract at relationships.ts:40-44.
-      if (rel.destroyed || parent.destroyed) {
-        return;
-      }
-      throw new Error("OneOf cannot be removed once added");
-    });
+    this._forbidPairTraitRemoval(oneOfTrait, "OneOf");
 
     childOf.add(Exclusive).add(Traversable);
     dependsOn.add(Exclusive).add(Traversable);
@@ -241,5 +221,25 @@ export class RelationshipsModule extends Module {
     }
 
     return this._depthOf(parent, relEid, traversable, visited) + 1;
+  }
+
+  /**
+   * Make a pair-form trait irrevocable: removing an edge of `trait` throws
+   * once attached.
+   *
+   * Teardown fires `targetPolicyRemove` from two paths: `_detachRelationship`
+   * on the trait carrier (after `carrier._destroyed = true`) and the cleanup
+   * cascade when the pair target is destroyed (buffered via `_cleanupIncoming`
+   * → `_removeTarget`, where the carrier is still alive but the target is
+   * already gone). Skip the irrevocability guard in either case; see the
+   * teardown contract in the class JSDoc.
+   */
+  private _forbidPairTraitRemoval(trait: Entity, name: string): void {
+    trait.meta.on("targetPolicyRemove", (carrier, _trait, target): void => {
+      if (carrier.destroyed || target.destroyed) {
+        return;
+      }
+      throw new Error(`${name} cannot be removed once added`);
+    });
   }
 }
