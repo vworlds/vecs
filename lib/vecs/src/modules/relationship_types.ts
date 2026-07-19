@@ -50,7 +50,7 @@ export class With extends Relationship {}
  * children (via {@link ChildOf}) of a specified parent entity.
  *
  * Self/enum form — the relationship's own entity is the parent. A faction
- * diplomacy alignment enum is a natural fit: every `AlignedWith` target must be
+ * diplomacy alignment enum is a natural fit: every `Alignment` target must be
  * a declared alignment value.
  *
  * ```ts
@@ -58,6 +58,7 @@ export class With extends Relationship {}
  * const alignment = world.component(Alignment).add(OneOf, world.component(Alignment));
  * const good = world.entity().childOf(alignment);
  * const evil = world.entity().childOf(alignment);
+ * const weather = world.entity();
  * world.entity().add(Alignment, good);    // ok: good is a child of Alignment
  * world.entity().add(Alignment, weather); // throws: weather is not a child of Alignment
  * ```
@@ -69,6 +70,7 @@ export class With extends Relationship {}
  * class Region extends Relationship {}
  * world.component(ResidesIn).add(OneOf, world.component(Region));
  * const forest = world.entity().childOf(world.component(Region));
+ * const weather = world.entity();
  * world.entity().add(ResidesIn, forest);  // ok: forest is a child of Region
  * world.entity().add(ResidesIn, weather); // throws: weather is not a child of Region
  * ```

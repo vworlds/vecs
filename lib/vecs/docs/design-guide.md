@@ -152,8 +152,9 @@ world.component(Phaser.GameObjects.Arc).on("remove", (_entity, obj) => obj.destr
 
 Use them for resource management and cross-cutting reactions that aren't worth a system. (Note
 the difference from systems: hooks are per-component-instance and run at the mutation site;
-systems are queries that run in a phase.) Each event has one handler slot: setting another handler
-replaces it, calling the hook method with no argument reads it, and passing `undefined` removes it.
+systems are queries that run in a phase.) Multiple handlers may be registered per event; they fire
+in registration order and are removed with `off(event, handler)` by reference (see
+[Components — hooks](./components.md#hooks-component-and-relationship-edges)).
 
 ### Component traits: policy on component entities
 
