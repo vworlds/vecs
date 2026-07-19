@@ -1,10 +1,10 @@
 import { type ComponentInstance, type ComponentType } from "../component.js";
 import { Entity, type EID } from "../entity/index.js";
 import {
-  directInjectEids,
   getInjected,
   getInjectedWithSrc,
   injectArity,
+  injectWatchEids,
   Iter,
   mapInject,
   replayInjectedSnapshot,
@@ -122,7 +122,7 @@ export function makeSortedEntitySet(
   const cb = arg1 as SortCallback;
   const inject = mapInject(world, components);
   const arity = injectArity(inject);
-  const watchEids = directInjectEids(inject);
+  const watchEids = injectWatchEids(inject);
   if (useIter) {
     const itA = new Iter(arity);
     const itB = new Iter(arity);
