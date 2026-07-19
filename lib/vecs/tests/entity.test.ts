@@ -505,6 +505,18 @@ describe("Entity — lifecycle and relationships", () => {
     expect(() => w.entity(parent.eid)).toThrow();
   });
 
+  it("destroy cascades through a deep ChildOf chain", () => {
+    const w = new World();
+    const chain = [w.entity()];
+    for (let i = 1; i < 2000; i++) {
+      chain.push(w.entity().childOf(chain[i - 1]));
+    }
+
+    chain[0].destroy();
+
+    expect(chain.every((e) => e.destroyed)).toBe(true);
+  });
+
   it("default relationship cleanup removes the component when the target is destroyed", () => {
     const w = new World();
     w.component(FriendOf);
