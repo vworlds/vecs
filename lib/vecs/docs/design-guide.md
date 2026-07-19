@@ -152,8 +152,9 @@ world.component(Phaser.GameObjects.Arc).on("remove", (_entity, obj) => obj.destr
 
 Use them for resource management and cross-cutting reactions that aren't worth a system. (Note
 the difference from systems: hooks are per-component-instance and run at the mutation site;
-systems are queries that run in a phase.) Each event has one handler slot: setting another handler
-replaces it, calling the hook method with no argument reads it, and passing `undefined` removes it.
+systems are queries that run in a phase.) Multiple handlers may be registered per event; they fire
+in registration order and are removed with `off(event, handler)` by reference (see
+[Components — hooks](./components.md#hooks-component-and-relationship-edges)).
 
 ### Component traits: policy on component entities
 
@@ -776,7 +777,7 @@ render code**.
   systems drives every renderable polymorphically. Per shape: a **creation** system
   (`.with(Shape).without(Phaser.GameObjects.Kind).enter` → `scene.add.*` + `entity.attach`) in
   `ON_STORE`; a **geometry** system (`.with(Shape, m.Geometry).update`) in `ON_STORE`; and a
-  shape-data **remove hook** (`component(Shape).onRemove` → remove the Phaser object) instead of a
+  shape-data **remove hook** (`component(Shape).on("remove", ...)` → remove the Phaser object) instead of a
   teardown system. Shared transform/style **sync** systems
   (`.with(Component, m.Marker).update({ watch: Component, onEnter: true })`) apply
   position/rotation/scale/alpha/depth/size/fill/stroke through the markers — initialization is

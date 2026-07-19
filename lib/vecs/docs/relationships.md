@@ -220,8 +220,9 @@ removed, its target is destroyed before the public `onTargetRemove` hook runs. E
 therefore destroys the displaced target and adopts the replacement atomically; removing the
 relationship or destroying its source destroys the current target.
 
-Configure the traits before creating relationship instances. Removing `OwnedTarget` removes only
-its ownership policy; public edge hooks remain installed. Do not share an owned target between
+Configure the traits before creating relationship instances. `OwnedTarget` is irrevocable once
+attached: removing it throws, and only world teardown (`clearAllEntities`) bypasses the guard —
+the same contract as `Traversable` and `OneOf`. Do not share an owned target between
 sources because either owner can destroy it when its edge is removed.
 
 ## Cleanup when a target dies

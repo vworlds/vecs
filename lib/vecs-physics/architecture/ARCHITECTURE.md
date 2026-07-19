@@ -390,7 +390,7 @@ User input/gameplay phases land before `physics-pre`; user render phases after `
 
 v1 uses **systems** for almost everything — they batch reactivity into a phase-bound run, give a single debuggable choke point, and queue safe deferred mutations.
 
-The one exception: `Impulse` and `AngularImpulse` accumulation uses `world.component(Impulse).onSet(...)` **hooks**, not `.update()` callbacks. Reason: a Vecs `entity.set` reuses the stored component instance (`Object.assign` in place), and a system inbox stores a **reference** to it; by drain time every queued update for that component reads the **last** value — three sets `x:1,2,3` would sum to `9` instead of the documented `6`. `onSet` fires synchronously inside `_notifyComponentSet` after each `Object.assign`, so it observes each set-time value and accumulates correctly. The hook only mutates `PhysicsEngine` (no structural ECS work), which is safe.
+The one exception: `Impulse` and `AngularImpulse` accumulation uses `world.component(Impulse).on("set", ...)` **hooks**, not `.update()` callbacks. Reason: a Vecs `entity.set` reuses the stored component instance (`Object.assign` in place), and a system inbox stores a **reference** to it; by drain time every queued update for that component reads the **last** value — three sets `x:1,2,3` would sum to `9` instead of the documented `6`. `onSet` fires synchronously inside `_notifyComponentSet` after each `Object.assign`, so it observes each set-time value and accumulates correctly. The hook only mutates `PhysicsEngine` (no structural ECS work), which is safe.
 
 ## System and phase pipeline
 
@@ -474,7 +474,7 @@ box2d3-wasm zeroes applied forces inside `b2World_Step` (matches Box2D), so no p
 
 ### `PhysicsImpulseAccumulate` (`physics-pre`)
 
-Hook-driven (see **Hooks vs systems**). `world.component(Impulse).onSet(...)` and `world.component(AngularImpulse).onSet(...)` fire synchronously on each `set`, accumulating into `engine.pendingLinearImpulse` / `pendingAngularImpulse` keyed by `b2BodyId`. The phase system flushes accumulators via `b2Body_ApplyLinearImpulseToCenter` / `b2Body_ApplyAngularImpulse` for each body that received any.
+Hook-driven (see **Hooks vs systems**). `world.component(Impulse).on("set", ...)` and `world.component(AngularImpulse).on("set", ...)` fire synchronously on each `set`, accumulating into `engine.pendingLinearImpulse` / `pendingAngularImpulse` keyed by `b2BodyId`. The phase system flushes accumulators via `b2Body_ApplyLinearImpulseToCenter` / `b2Body_ApplyAngularImpulse` for each body that received any.
 
 ### `PhysicsMassRecompute` (`physics-pre`)
 
@@ -587,7 +587,7 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 | Relationship fan-out reactivity | `TargetTerm` re-evaluates sources on target membership                                  | Order-independent body/shape/joint creation.                  |
 | System update silencing         | `System.ignoreSource(QueryDSL \| Query)`                                                | Pose-sync feedback suppression via `PhysicsSystemTag` marker. |
 | Interface/exclusivity           | `Implements` with a shared marker (`Shape`, `Joint`)                                    | Polymorphic geometry/joint query + mutual exclusivity.        |
-| Component hooks                 | `world.component(C).onSet/onAdd/onRemove`                                               | Impulse accumulation; event opt-in toggles.                   |
+| Component hooks                 | `world.component(C).on("add" \| "set" \| "remove", ...)`                                | Impulse accumulation; event opt-in toggles.                   |
 
 ## Settled decisions
 
