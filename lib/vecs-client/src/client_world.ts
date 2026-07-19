@@ -281,7 +281,8 @@ export class ClientWorld extends NetworkWorld {
     const targets = targetEids.map((eid) =>
       this.getOrCreateEntity(eid, (target) => target.add(Networked))
     );
-    const currentTargets = [...entity.targets(relClass)];
+    // targets() already returns a snapshot, so it stays stable while edges change below.
+    const currentTargets = entity.targets(relClass);
     const previousTargets = new Set(currentTargets);
     targets.forEach((target) => {
       if (!previousTargets.has(target)) {
@@ -294,9 +295,8 @@ export class ClientWorld extends NetworkWorld {
         entity.remove(relClass, target);
       }
     });
-    if (targets.length > 0) {
-      entity.set(relClass, component);
-    }
+    // The decoder rejects zero-target snapshots, so the relationship is attached here.
+    entity.set(relClass, component);
   }
 
   private _removeComponent(eid: EID, wireType: number): void {
