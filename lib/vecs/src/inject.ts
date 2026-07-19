@@ -215,28 +215,7 @@ export function getInjected(
   requireDirectComponents: boolean,
   out: InjectedValue[]
 ): void {
-  let outIndex = 0;
-  inject.forEach((term) => {
-    if (typeof term === "number") {
-      const c = e._get(term);
-      if (requireDirectComponents && !c) {
-        throw new Error("query does not contain component");
-      }
-      out[outIndex++] = c;
-      return;
-    }
-    if ("down" in term) {
-      throw new Error("down injection is only supported in each/forEach");
-    }
-    if ("targets" in term) {
-      out[outIndex++] = _resolveTargetsProjection(e.targets(term.targets[0]), term.targets[1]);
-      return;
-    }
-    const targetEntity = e.target(term.target[0]);
-    term.target[1].forEach((projection) => {
-      out[outIndex++] = _resolveTargetProjection(targetEntity, projection);
-    });
-  });
+  _resolveInjected(e, inject, out, undefined, requireDirectComponents, false);
 }
 
 export function getInjectedWithSrc(
@@ -246,35 +225,64 @@ export function getInjectedWithSrc(
   src: InjectSource[],
   requireDirectComponents = false
 ): void {
+  _resolveInjected(e, inject, out, src, requireDirectComponents, false);
+}
+
+/**
+ * Core live-injection resolver shared by every resolution path.
+ *
+ * Writes one resolved value per tuple slot into `out` and, when `src` is
+ * given, the entity (or target array) each value was read from. `down` terms
+ * throw unless `skipDown` is set, in which case their slots are skipped for
+ * `fillDownInject` to populate per child.
+ */
+function _resolveInjected(
+  e: Entity,
+  inject: readonly ResolvedInjectTerm[],
+  out: InjectedValue[],
+  src: InjectSource[] | undefined,
+  requireDirectComponents: boolean,
+  skipDown: boolean
+): void {
   let outIndex = 0;
-  inject.forEach((term) => {
+  for (const term of inject) {
     if (typeof term === "number") {
       const c = e._get(term);
       if (requireDirectComponents && !c) {
         throw new Error("query does not contain component");
       }
       out[outIndex] = c;
-      src[outIndex] = e;
+      if (src !== undefined) {
+        src[outIndex] = e;
+      }
       outIndex++;
-      return;
+      continue;
     }
     if ("down" in term) {
-      throw new Error("down injection is only supported in each/forEach");
+      if (!skipDown) {
+        throw new Error("down injection is only supported in each/forEach");
+      }
+      outIndex += term.down[1].length;
+      continue;
     }
     if ("targets" in term) {
       const targets = e.targets(term.targets[0]);
       out[outIndex] = _resolveTargetsProjection(targets, term.targets[1]);
-      src[outIndex] = targets;
+      if (src !== undefined) {
+        src[outIndex] = targets;
+      }
       outIndex++;
-      return;
+      continue;
     }
     const targetEntity = e.target(term.target[0]);
-    term.target[1].forEach((projection) => {
+    for (const projection of term.target[1]) {
       out[outIndex] = _resolveTargetProjection(targetEntity, projection);
-      src[outIndex] = targetEntity;
+      if (src !== undefined) {
+        src[outIndex] = targetEntity;
+      }
       outIndex++;
-    });
-  });
+    }
+  }
 }
 
 /** Capture a detached injection tuple and its source tuple for deferred callback replay. */
@@ -310,7 +318,12 @@ export function replayInjectedSnapshotWithSrc(
   _copySnapshot(snapshot.src, src);
 }
 
-export function directInjectEids(inject: readonly ResolvedInjectTerm[]): EID[] {
+/**
+ * Component eids whose changes can alter a resolved tuple: directly injected
+ * component eids plus the relationship eid of every `target` / `targets` term.
+ * Callers watch these to re-sort or re-key when a tuple input changes.
+ */
+export function injectWatchEids(inject: readonly ResolvedInjectTerm[]): EID[] {
   return inject.flatMap((term) =>
     typeof term === "number"
       ? [term]
@@ -440,7 +453,7 @@ export function makeInjectedInvoker(
           return;
         }
         it.entity = e;
-        getInjectedWithSrcSkippingDown(e, inject, resolved, it.src);
+        _resolveInjected(e, inject, resolved, it.src, false, true);
         children.forEach((child) => {
           fillDownInject(child, down.componentEids, down.slot, resolved, it.src);
           callback(it, resolved);
@@ -452,7 +465,7 @@ export function makeInjectedInvoker(
       if (children === undefined) {
         return;
       }
-      getInjectedSkippingDown(e, inject, resolved);
+      _resolveInjected(e, inject, resolved, undefined, false, true);
       children.forEach((child) => {
         fillDownInject(child, down.componentEids, down.slot, resolved);
         callback(e, resolved);
@@ -513,66 +526,6 @@ function fillDownInject(
     if (src) {
       src[outIndex] = child;
     }
-  });
-}
-
-function getInjectedSkippingDown(
-  e: Entity,
-  inject: readonly ResolvedInjectTerm[],
-  out: InjectedValue[]
-): void {
-  let outIndex = 0;
-  inject.forEach((term) => {
-    if (typeof term === "number") {
-      out[outIndex++] = e._get(term);
-      return;
-    }
-    if ("down" in term) {
-      outIndex += term.down[1].length;
-      return;
-    }
-    if ("targets" in term) {
-      out[outIndex++] = _resolveTargetsProjection(e.targets(term.targets[0]), term.targets[1]);
-      return;
-    }
-    const targetEntity = e.target(term.target[0]);
-    term.target[1].forEach((projection) => {
-      out[outIndex++] = _resolveTargetProjection(targetEntity, projection);
-    });
-  });
-}
-
-function getInjectedWithSrcSkippingDown(
-  e: Entity,
-  inject: readonly ResolvedInjectTerm[],
-  out: InjectedValue[],
-  src: InjectSource[]
-): void {
-  let outIndex = 0;
-  inject.forEach((term) => {
-    if (typeof term === "number") {
-      out[outIndex] = e._get(term);
-      src[outIndex] = e;
-      outIndex++;
-      return;
-    }
-    if ("down" in term) {
-      outIndex += term.down[1].length;
-      return;
-    }
-    if ("targets" in term) {
-      const targets = e.targets(term.targets[0]);
-      out[outIndex] = _resolveTargetsProjection(targets, term.targets[1]);
-      src[outIndex] = targets;
-      outIndex++;
-      return;
-    }
-    const targetEntity = e.target(term.target[0]);
-    term.target[1].forEach((projection) => {
-      out[outIndex] = _resolveTargetProjection(targetEntity, projection);
-      src[outIndex] = targetEntity;
-      outIndex++;
-    });
   });
 }
 

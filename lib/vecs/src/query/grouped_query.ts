@@ -2,9 +2,9 @@ import { type ComponentInstance, type ComponentRef, type ComponentType } from ".
 import { _resolveRelationship } from "../dsl.js";
 import { Entity, type EID } from "../entity/index.js";
 import {
-  directInjectEids,
   getInjected,
   injectArity,
+  injectWatchEids,
   mapInject,
   type FanInjectElement,
 } from "../inject.js";
@@ -65,7 +65,7 @@ export class GroupedQuery<K = unknown, R extends ComponentType[] = []> extends Q
         getInjected(e, inject, false, resolved);
         return [arg1(e, resolved)];
       };
-      watchEids = directInjectEids(inject);
+      watchEids = injectWatchEids(inject);
       this._composeGroupMembership(components);
     } else {
       const relEid = _resolveRelationship(arg0 as ComponentRef, this.world);
