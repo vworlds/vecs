@@ -503,16 +503,16 @@ entity whose attached GameObject implements that marker and injects the live obj
 marker's setters. This is how one shared sync system drives every renderable polymorphically — no
 per-type branching.
 
-**Destruction is one hook.** `world.component(m.GameObject).onRemove((_e, obj) => obj.destroy())`
+**Destruction is one hook.** `world.component(m.GameObject).on("remove", (_e, obj) => obj.destroy())`
 is registered once. Whenever the attached GameObject leaves an entity — explicit remove,
 exclusivity swap, or entity destruction — it is destroyed. `clearAllEntities()` therefore tears
 everything down for free.
 
 **Per-renderable systems (one module per shape).** Each shape module wires three things:
 
-- A shape-data remove hook: `world.component(Arc).onRemove(e => e.remove(Phaser.GameObjects.Arc))`.
+- A shape-data remove hook: `world.component(Arc).on("remove", (e) => e.remove(Phaser.GameObjects.Arc))`.
   When the shape **data** component leaves (exclusivity swap or destroy), it removes the attached
-  Phaser object, which triggers the `GameObject.onRemove` destroy above.
+  Phaser object, which triggers the `GameObject` `on("remove", ...)` destroy above.
 - `phaser.new.<kind>` — `.with(<Shape>).without(Phaser.GameObjects.<Kind>).phase(ON_STORE)`; on
   `.enter` calls `scene.add.<kind>(…)` (origin set to `0.5`, or `0,0` for vertex shapes) and
   `entity.attach(obj)`.
@@ -535,15 +535,15 @@ after it within the same phase — so a pre-present `Position`/`FillStyle`/`Size
 GameObject in the **same tick** it is created. Initialization is query-driven, not manual.
 
 Renderable **type change** (e.g. `Arc`→`Rectangle`): exclusivity (set by `PhaserServerModule`,
-§8) auto-removes the old renderable data component → its `onRemove` removes the old Phaser object
-→ the `GameObject.onRemove` hook destroys it; the new shape's `new` system creates the replacement.
+§8) auto-removes the old renderable data component → its `on("remove", ...)` removes the old Phaser object
+→ the `GameObject` `on("remove", ...)` hook destroys it; the new shape's `new` system creates the replacement.
 The swap is driven entirely by component hooks at the mutation site, so no system-registration
 ordering is required.
 
 ### 7.3 Reset
 
 Baseline reset or disconnect destroys/clears networked entities → each renderable's shape-data
-and attached Phaser-object components leave → the `GameObject.onRemove` hook destroys the
+and attached Phaser-object components leave → the `GameObject` `on("remove", ...)` hook destroys the
 GameObjects. Reconnect builds a fresh `ClientWorld` and registers `PhaserRenderModule` again. No
 separate reset handler or entity-id object registry is needed.
 
@@ -585,8 +585,8 @@ rotates about it, matching Box2D bodies). The renderer must guarantee this unifo
 - **Init wiring:** the `Texture` interface marker (`setTexture`/`setDisplaySize` in `markers.ts`);
   `Phaser.GameObjects.Image` declares `Implements` for `m.GameObject, m.Transform, m.Alpha,
 m.Depth, m.Texture`; and the shape-data remove hook
-  `world.component(Image).onRemove(e => e.remove(Phaser.GameObjects.Image))` (which triggers the
-  shared `GameObject.onRemove → destroy`).
+  `world.component(Image).on("remove", (e) => e.remove(Phaser.GameObjects.Image))` (which triggers the
+  shared `GameObject` `on("remove", ...)` → destroy).
 - `phaser.new.image`: `.with(Image).without(Phaser.GameObjects.Image).phase(ON_STORE)`; on
   `.enter`, `entity.attach(scene.add.image(0, 0, String(texture), frame).setOrigin(0.5))`.
 - `phaser.render.image.texture`: `.with(Image, m.Texture).phase(ON_STORE)`; on
@@ -596,7 +596,7 @@ m.Depth, m.Texture`; and the shape-data remove hook
   `Size`. When `Size` is absent the system does not match (the watched component auto-joins the
   query predicate), so native size is left untouched.
 - **No per-renderer `.exit`:** teardown flows through the shape-data remove hook → the shared
-  `GameObject.onRemove → destroy`, exactly like the shape renderers.
+  `GameObject` `on("remove", ...)` → destroy, exactly like the shape renderers.
 
 The **Phaser texture key is the resource id** (`String(id)`), so the renderer maps
 `Image.texture` → key with no author-key knowledge. The render module accepts the resolved

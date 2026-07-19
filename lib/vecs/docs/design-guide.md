@@ -777,7 +777,7 @@ render code**.
   systems drives every renderable polymorphically. Per shape: a **creation** system
   (`.with(Shape).without(Phaser.GameObjects.Kind).enter` → `scene.add.*` + `entity.attach`) in
   `ON_STORE`; a **geometry** system (`.with(Shape, m.Geometry).update`) in `ON_STORE`; and a
-  shape-data **remove hook** (`component(Shape).onRemove` → remove the Phaser object) instead of a
+  shape-data **remove hook** (`component(Shape).on("remove", ...)` → remove the Phaser object) instead of a
   teardown system. Shared transform/style **sync** systems
   (`.with(Component, m.Marker).update({ watch: Component, onEnter: true })`) apply
   position/rotation/scale/alpha/depth/size/fill/stroke through the markers — initialization is
