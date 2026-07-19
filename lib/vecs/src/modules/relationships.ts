@@ -5,6 +5,7 @@ import {
   ChildOf,
   DependsOn,
   Exclusive,
+  OneOf,
   OwnedTarget,
   SilenceSource,
   Traversable,
@@ -15,6 +16,7 @@ export {
   ChildOf,
   DependsOn,
   Exclusive,
+  OneOf,
   OwnedTarget,
   SilenceSource,
   Traversable,
@@ -39,6 +41,12 @@ export {
  * `ChildOf` child of its source and is destroyed when displaced or removed.
  * `OwnedTarget` requires `Exclusive` and never creates a target implicitly.
  *
+ * `OneOf` constrains the targets of a relationship to direct `ChildOf`
+ * children of a specified parent entity. Attach during setup as
+ * `relationship.add(OneOf, parent)`; the module installs a per-edge policy that
+ * rejects targets whose `ChildOf` parent is not the declared parent. `OneOf`
+ * is irrevocable once attached.
+ *
  * `OwnedTarget` and `Traversable` are irrevocable once attached: both
  * `entity.remove(Trait)` and `entity.attach(newInstance)` throw, and the world
  * must be discarded after the throw. Teardown bypasses these guards —
@@ -58,6 +66,7 @@ export class RelationshipsModule extends Module {
     const silenceSource = world.component(SilenceSource);
     const traversableTrait = world.component(Traversable);
     const withTrait = world.component(With);
+    const oneOfTrait = world.component(OneOf);
 
     childOf.meta.onDeleteTarget = CleanupPolicy.Delete;
     exclusive.meta.on("policyAdd", (relationship): void => {
@@ -154,6 +163,31 @@ export class RelationshipsModule extends Module {
         return;
       }
       throw new Error("With cannot be removed once added");
+    });
+
+    oneOfTrait.meta.on("targetPolicyAdd", (rel, _oneOf, parent): void => {
+      if (!rel.meta.isRelationship) {
+        throw new Error("OneOf can only be added to a Relationship component");
+      }
+      if (rel.meta.usageCount > 0) {
+        throw new Error("OneOf cannot be added while the relationship is in use");
+      }
+      rel.meta.on("targetPolicyAdd", (_source, _relationship, target) => {
+        if (target.parent !== parent) {
+          throw new Error(`OneOf: target ${target.eid} is not a child of entity ${parent.eid}`);
+        }
+      });
+    });
+    oneOfTrait.meta.on("targetPolicyRemove", (rel, _oneOf, parent): void => {
+      // Teardown fires this hook from two paths: _detachRelationship on the
+      // relationship (after rel._destroyed = true) and the cleanup cascade
+      // when the parent is destroyed (where rel is still alive but parent is
+      // already gone). Skip the irrevocability guard in either case; see the
+      // teardown contract at relationships.ts:40-44.
+      if (rel.destroyed || parent.destroyed) {
+        return;
+      }
+      throw new Error("OneOf cannot be removed once added");
     });
 
     childOf.add(Exclusive).add(Traversable);

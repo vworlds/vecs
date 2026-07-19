@@ -22,6 +22,7 @@ export {
   ChildOf,
   DependsOn,
   Exclusive,
+  OneOf,
   OwnedTarget,
   SilenceSource,
 } from "./modules/relationships.js";

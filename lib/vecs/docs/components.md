@@ -128,6 +128,7 @@ world.component(Orange).set(Implements, { interfaces: [Fruit] });
 | `Exclusive`       | Relationships                                | Restricts the relationship to one target with atomic replacement             |
 | `Traversable`     | Exclusive relationships                      | Maintains hierarchy depth for cascade ordering                               |
 | `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement |
+| `OneOf`           | Relationships                                | Constrains each target to be a direct `ChildOf` child of a declared parent   |
 
 Traits declare policy; their built-in modules install the hooks and maintain the metadata that
 enforce it. Configure traits in feature-module setup rather than opportunistically inside systems.
@@ -137,6 +138,8 @@ Do not assume all traits have the same lifecycle:
 - Add `Exclusive` before relationship instances exist. `OwnedTarget` and `Traversable` require it.
 - Add `OwnedTarget` before relationship instances exist; it never creates a target implicitly and
   does not replace public edge hooks.
+- Add `OneOf` before relationship instances exist; it rejects every target that is not a direct
+  `ChildOf` child of the declared parent.
 - `Traversable` backfills existing relationship instances.
 - Setting or removing `Implements` recomputes interface aliases.
 

@@ -114,6 +114,58 @@ relationship class** to one target. `setExclusiveComponents` declares that **dif
 classes** cannot coexist on one entity (see
 [Components](./components.md#exclusive-component-groups)).
 
+## OneOf target constraint
+
+Add the `OneOf` pair-form trait to constrain every target of a relationship to be a direct
+`ChildOf` child of a declared parent entity. Use the pair form `R.add(OneOf, parent)`:
+
+```ts
+import { OneOf, Relationship } from "@vworlds/vecs";
+
+class ResidesIn extends Relationship {}
+class Region extends Relationship {}
+
+world.component(Region);
+world.component(ResidesIn).add(OneOf, world.component(Region));
+
+const forest = world.entity().childOf(world.component(Region));
+const weather = world.entity();
+
+world.entity().add(ResidesIn, forest); // ok: forest is a child of Region
+world.entity().add(ResidesIn, weather); // throws: weather is not a child of Region
+```
+
+For the enum-style form where the relationship's own entity is the parent, point `OneOf` at the
+relationship itself. A faction diplomacy alignment is a natural fit — every alignment target must
+be a declared value:
+
+```ts
+class Alignment extends Relationship {}
+
+const alignment = world.component(Alignment).add(OneOf, world.component(Alignment));
+const good = world.entity().childOf(alignment);
+const evil = world.entity().childOf(alignment);
+
+world.entity().add(Alignment, good); // ok: good is a child of Alignment
+world.entity().add(Alignment, weather); // throws: weather is not a child of Alignment
+```
+
+`OneOf` checks `target.parent === parentEntity`, so only a **direct** `ChildOf` edge satisfies
+the constraint — transitive descendants are rejected. The check runs in the relationship's
+`targetPolicyAdd` hook, so in deferred mode an invalid target surfaces from `flush()` /
+`progress()` rather than from the `add` call site. A thrown edge leaves the world partially
+mutated; treat it as a programming error and discard the world (same contract as other
+trait-invariant violations).
+
+Configure `OneOf` before relationship instances exist. Attaching it while the relationship is
+already in use throws, and removing it throws once attached — `OneOf` is irrevocable. Re-adding
+`OneOf` to the same parent is an idempotent no-op. World teardown bypasses these guards, so
+`clearAllEntities` can still tear down worlds with `OneOf` configured.
+
+`OneOf` is independent of `Exclusive`: a non-exclusive relationship may carry it, in which case
+every one of its many targets must be a child of the declared parent. It composes freely with
+`OwnedTarget` and `Traversable`.
+
 ## Edge hooks
 
 Relationship component entities expose one public hook slot for edge addition and one for edge
@@ -287,6 +339,7 @@ payload gets its own ghost. List `ChildOf` or a custom relationship explicitly i
 | `e.childOf(parent)`                              | Shorthand for `e.add(ChildOf, parent)`.                                                             |
 | `e.parent` / `e.parent = p`                      | First built-in `ChildOf` target; assignment replaces it or removes `ChildOf` for `undefined`.       |
 | `world.component(R).add(Exclusive)`              | Restrict `R` to one target.                                                                         |
+| `world.component(R).add(OneOf, parent)`          | Reject targets of `R` that are not direct `ChildOf` children of `parent`.                           |
 | `world.component(R).on("targetAdd", handler)`    | Register a `(source, relationship, target)` edge-add handler.                                       |
 | `world.component(R).on("targetRemove", handler)` | Register a `(source, relationship, target)` edge-remove handler.                                    |
 | `world.component(R).add(OwnedTarget)`            | Adopt and destroy explicit targets; requires `Exclusive`.                                           |

@@ -45,6 +45,40 @@ export class SilenceSource extends Relationship {}
  */
 export class With extends Relationship {}
 
+/**
+ * Pair-form trait constraining the targets of a relationship to direct
+ * children (via {@link ChildOf}) of a specified parent entity.
+ *
+ * Self/enum form — the relationship's own entity is the parent. A faction
+ * diplomacy alignment enum is a natural fit: every `AlignedWith` target must be
+ * a declared alignment value.
+ *
+ * ```ts
+ * class Alignment extends Relationship {}
+ * const alignment = world.component(Alignment).add(OneOf, world.component(Alignment));
+ * const good = world.entity().childOf(alignment);
+ * const evil = world.entity().childOf(alignment);
+ * world.entity().add(Alignment, good);    // ok: good is a child of Alignment
+ * world.entity().add(Alignment, weather); // throws: weather is not a child of Alignment
+ * ```
+ *
+ * Other-parent form — a different entity is the parent:
+ *
+ * ```ts
+ * class ResidesIn extends Relationship {}
+ * class Region extends Relationship {}
+ * world.component(ResidesIn).add(OneOf, world.component(Region));
+ * const forest = world.entity().childOf(world.component(Region));
+ * world.entity().add(ResidesIn, forest);  // ok: forest is a child of Region
+ * world.entity().add(ResidesIn, weather); // throws: weather is not a child of Region
+ * ```
+ *
+ * `OneOf` is irrevocable and rejects attach while the relationship is already
+ * in use, so configure it during world setup before any entity carries an
+ * edge through the relationship.
+ */
+export class OneOf extends Relationship {}
+
 /** Marker trait restricting a relationship to one target. */
 export class Exclusive {}
 

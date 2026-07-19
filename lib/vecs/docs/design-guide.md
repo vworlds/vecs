@@ -167,13 +167,14 @@ world.component(ChildOf).add(Exclusive).add(Traversable);
 world.component(Orange).set(Implements, { interfaces: [Fruit] });
 ```
 
-| Trait/declaration | Reach for it when                                                   |
-| ----------------- | ------------------------------------------------------------------- |
-| `Singleton`       | At most one entity may carry the component                          |
-| `Implements`      | Concrete components should be queryable through abstract aliases    |
-| `Exclusive`       | A relationship must have at most one target                         |
-| `Traversable`     | An exclusive relationship hierarchy needs depth or cascade ordering |
-| `OwnedTarget`     | An exclusive relationship owns its explicitly added target          |
+| Trait/declaration | Reach for it when                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------- |
+| `Singleton`       | At most one entity may carry the component                                         |
+| `Implements`      | Concrete components should be queryable through abstract aliases                   |
+| `Exclusive`       | A relationship must have at most one target                                        |
+| `Traversable`     | An exclusive relationship hierarchy needs depth or cascade ordering                |
+| `OwnedTarget`     | An exclusive relationship owns its explicitly added target                         |
+| `OneOf`           | A relationship's targets must be direct children of a declared parent (enum-style) |
 
 Traits declare policy; modules implement it through hooks and metadata. Configure them in module
 setup, not inside systems. Lifecycle differs by trait: `OwnedTarget` and `Singleton` are setup-time
