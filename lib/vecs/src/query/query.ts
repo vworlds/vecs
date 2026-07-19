@@ -32,8 +32,7 @@ import { Bitset } from "../util/bitset.js";
 import { OrderedSet } from "../util/ordered_set.js";
 import { type World } from "../world/index.js";
 import {
-  makeEnterCallback,
-  makeExitCallback,
+  makeEnterExitCallback,
   makeSortedEntitySet,
   makeUpdateRegistration,
   type ComponentCallback,
@@ -423,7 +422,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg1?: Function
   ): this {
     this._assertConfigurable();
-    const enter = makeEnterCallback(this.world, arg0, arg1);
+    const enter = makeEnterExitCallback(this.world, arg0, arg1);
     this._enterCallback = enter.callback;
     this._enterSnapshotter = enter.snapshotter;
     return this;
@@ -447,7 +446,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg1?: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const exit = makeExitCallback(this.world, arg0, arg1);
+    const exit = makeEnterExitCallback(this.world, arg0, arg1);
     this._exitCallback = exit.callback;
     this._exitSnapshotter = exit.snapshotter;
     return this;
