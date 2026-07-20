@@ -1,8 +1,17 @@
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
 import { type IdPoolConfig } from "../util/id_pool.js";
 
 export interface WorldOptions {
   idPools?: readonly IdPoolConfig[];
+}
+
+/** @internal Per-world entities used by the built-in inheritance policy. */
+export interface InheritanceState {
+  isaEid: EID;
+  onInstantiateEid: EID;
+  inherit: Entity;
+  dontInherit: Entity;
+  singletonEid: EID;
 }
 
 export class Base {
@@ -24,6 +33,9 @@ export class Base {
    * removals, and destroy cleanup can delete stale entries safely.
    */
   public readonly _identityIndexedNames = new WeakMap<Entity, string>();
+
+  /** @internal Set by `InheritanceModule` after its policy entities are registered. */
+  public _inheritance: InheritanceState | undefined;
 
   /**
    * @internal Entity of the system currently running, or `undefined` outside a

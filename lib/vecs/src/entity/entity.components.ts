@@ -10,6 +10,7 @@ import {
   type HookEventMap,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
+import { Bitset } from "../util/bitset.js";
 import { Relationships } from "./entity.relationships.js";
 import type { EID, Entity } from "./entity.js";
 
@@ -30,6 +31,11 @@ export class Components extends Relationships {
       throw new Error("Entity.attach cannot attach Relationship components; add explicit targets");
     }
     const existing = this._components.get(meta.eid);
+    if (existing !== undefined && this._inheritedComponentBitmask?.hasBit(meta.bitPtr)) {
+      this._localizeInherited(meta, component);
+      this._notifyComponentSet(meta, component, true);
+      return;
+    }
     if (existing !== undefined && existing !== component) {
       meta._onPolicyRemove?.(this, existing);
     }
@@ -49,6 +55,147 @@ export class Components extends Relationships {
     return this._components.get(ceid);
   }
 
+  /** @internal Materialize the components offered by a newly-added `IsA` template. */
+  public _applyInheritance(this: Entity, template: Entity): void {
+    const inheritance = this.world._inheritance;
+    if (!inheritance) {
+      return;
+    }
+    const revision = this._inheritanceRevision;
+    const copies: Array<[ComponentMeta, ComponentInstance]> = [];
+    const offered: Array<[ComponentMeta, ComponentInstance]> = [];
+    template.components.forEach((instance, ceid) => {
+      const meta = this.world.entity(ceid).meta;
+      if (!meta._isInterface) {
+        offered.push([meta, instance]);
+      }
+    });
+
+    for (const [meta, instance] of offered) {
+      if (this._inheritanceRevision !== revision || this.target(inheritance.isaEid) !== template) {
+        break;
+      }
+      if (
+        template._get(meta.eid) !== instance ||
+        !this._isInheritable(meta) ||
+        this._hasLocalConflict(meta)
+      ) {
+        continue;
+      }
+
+      const policy = this.world.entity(meta.eid).target(inheritance.onInstantiateEid);
+      if (policy === inheritance.dontInherit) {
+        continue;
+      }
+
+      if (policy === inheritance.inherit) {
+        this._storeInherited(meta, instance, false);
+        this._propagateInheritance(meta, false);
+      } else {
+        const copy = Object.assign(new (meta.Class as ComponentClass)(), instance);
+        this._attach(meta, copy);
+        copies.push([meta, copy]);
+      }
+    }
+
+    if (this._inheritanceRevision === revision && this.target(inheritance.isaEid) === template) {
+      return;
+    }
+
+    for (let i = copies.length - 1; i >= 0; i--) {
+      const [meta, copy] = copies[i];
+      if (this._components.get(meta.eid) === copy) {
+        this._removeOwned(meta, copy, false);
+      }
+    }
+    const current = this.target(inheritance.isaEid);
+    if (current) {
+      this._applyInheritance(current);
+    }
+  }
+
+  /** @internal Remove every borrowed component when an `IsA` edge leaves or changes target. */
+  public _clearInheritance(this: Entity, template: Entity): void {
+    this._inheritanceRevision = (this._inheritanceRevision ?? 0) + 1;
+    const inherited: Array<[ComponentMeta, ComponentInstance]> = [];
+    this._components.forEach((instance, ceid) => {
+      const meta = this.world.entity(ceid).meta;
+      if (!meta._isInterface && this._inheritedComponentSources?.get(ceid) === template) {
+        inherited.push([meta, instance]);
+      }
+    });
+    for (const [meta, instance] of inherited) {
+      this._removeInherited(meta, false, true, instance, template);
+    }
+    this._inheritanceBlockedBitmask = undefined;
+  }
+
+  /** @internal Reconcile one component offered by this entity into its direct `IsA` children. */
+  public _propagateInheritance(this: Entity, meta: ComponentMeta, changed: boolean): void {
+    const isaEid = this.world._inheritance?.isaEid;
+    if (isaEid === undefined || meta._isInterface || meta.isRelationship) {
+      return;
+    }
+    const children = this._childrenByEid(isaEid);
+    if (!children?.size) {
+      return;
+    }
+
+    const work: Array<[Entity, Entity]> = [...children].map((child) => [child, this]);
+    const visited = new Set<Entity>();
+    while (work.length > 0) {
+      const [child, template] = work.pop()!;
+      if (visited.has(child) || !child._refreshInherited(meta, template, changed)) {
+        continue;
+      }
+      visited.add(child);
+      const descendants = child._childrenByEid(isaEid);
+      if (descendants?.size) {
+        for (const descendant of descendants) {
+          work.push([descendant, child]);
+        }
+      }
+    }
+  }
+
+  /** @internal Reconcile one effective component from the current direct template. */
+  public _refreshInherited(
+    this: Entity,
+    meta: ComponentMeta,
+    template: Entity,
+    changed: boolean
+  ): boolean {
+    const inheritance = this.world._inheritance;
+    if (!inheritance || this.target(inheritance.isaEid) !== template) {
+      return false;
+    }
+
+    const inherited = this._inheritedComponentBitmask?.hasBit(meta.bitPtr) ?? false;
+    const instance = template.destroyed ? undefined : template._get(meta.eid);
+    if (inherited) {
+      if (instance === undefined) {
+        this._removeInherited(meta, false, false, this._get(meta.eid), template);
+        return true;
+      } else {
+        const previous = this._get(meta.eid);
+        this._storeInherited(meta, instance, changed);
+        return changed || previous !== instance;
+      }
+    }
+
+    if (
+      instance === undefined ||
+      !this._isInheritable(meta) ||
+      this._inheritanceBlockedBitmask?.hasBit(meta.bitPtr) ||
+      this._hasLocalConflict(meta) ||
+      this.world.entity(meta.eid).target(inheritance.onInstantiateEid) !== inheritance.inherit
+    ) {
+      return false;
+    }
+    this._storeInherited(meta, instance, false);
+    return true;
+  }
+
   /**
    * @internal Apply a `Modified` command: fire `onSet` and route modified
    * events to every query that watches the component type.
@@ -57,7 +204,12 @@ export class Components extends Relationships {
     if (this._destroyed) {
       return;
     }
-    const c = this._components.get(meta.eid);
+    const pending = this._pendingInheritedOverrides?.get(meta.eid);
+    let c = this._components.get(meta.eid);
+    if (this._inheritedComponentBitmask?.hasBit(meta.bitPtr)) {
+      c = this._localizeInherited(meta, pending);
+    }
+    this._pendingInheritedOverrides?.delete(meta.eid);
     if (!c) {
       return;
     }
@@ -76,14 +228,11 @@ export class Components extends Relationships {
     if (!c) {
       return;
     }
-    if (meta._implementsClosure) {
-      for (const aliasMeta of meta._implementsClosure) {
-        if (this._components.get(aliasMeta.eid) === c) {
-          this._removeRaw(aliasMeta, c);
-        }
-      }
+    if (this._inheritedComponentBitmask?.hasBit(meta.bitPtr)) {
+      this._removeInherited(meta, true);
+      return;
     }
-    this._removeRaw(meta, c);
+    this._removeOwned(meta, c, true);
   }
 
   /** @internal Apply one remove without expanding interface aliases. */
@@ -128,7 +277,12 @@ export class Components extends Relationships {
     }
 
     const existing = this._components.get(meta.eid);
-    const c = existing ?? this._new(meta, props);
+    const c =
+      existing !== undefined && this._inheritedComponentBitmask?.hasBit(meta.bitPtr)
+        ? props === undefined
+          ? existing
+          : this._localizeInherited(meta, this._pendingInheritedOverrides?.get(meta.eid))
+        : (existing ?? this._new(meta, props));
     if (props !== undefined) {
       if (existing) {
         Object.assign(c, props);
@@ -210,7 +364,8 @@ export class Components extends Relationships {
   /**
    * Attach an existing component instance to this entity and store that exact
    * object. If a component of the same registered class already exists, it is
-   * replaced rather than assigned into.
+   * replaced rather than assigned into. Replacing an `IsA`-inherited component
+   * makes this instance the entity's local override.
    *
    * By default `attach` uses the instance constructor to resolve component
    * metadata. Pass an explicit class when the instance should be stored under
@@ -241,7 +396,7 @@ export class Components extends Relationships {
   }
 
   /**
-   * Look up a component on this entity as a readonly value.
+   * Look up a local or `IsA`-inherited component as a readonly value.
    *
    * @param typeOrClass - Component class or numeric type id.
    * @returns The component instance, or `undefined` when it is not attached.
@@ -259,7 +414,8 @@ export class Components extends Relationships {
   }
 
   /**
-   * Return `true` when this entity has the referenced component attached.
+   * Return `true` when this entity has the referenced component locally or
+   * through `IsA` inheritance.
    *
    * @param ref - Component class, numeric component type id, or entity component key.
    */
@@ -274,6 +430,7 @@ export class Components extends Relationships {
    * When the component is present, this marks the component modified before
    * returning the mutable instance. Outside deferred mode, pass a callback so
    * the component can be marked modified after the mutation callback returns.
+   * An inherited component is first shallow-copied into a local override.
    *
    * @param typeOrClass - Component class or numeric type id.
    * @returns The component instance, or `undefined` when it is not attached.
@@ -315,7 +472,9 @@ export class Components extends Relationships {
       throw new Error("Entity.getMut cannot mutate Relationship components; retarget with set");
     }
     this._throwIfInterface(componentMeta, "getMut");
-    const component = this._get(componentMeta.eid);
+    const component = this._inheritedComponentBitmask?.hasBit(componentMeta.bitPtr)
+      ? this._prepareInheritedMutation(componentMeta)
+      : this._get(componentMeta.eid);
     if (!component) {
       return undefined;
     }
@@ -331,6 +490,7 @@ export class Components extends Relationships {
    * fire after the mutation callback returns. Inside deferred mode, the callback
    * is optional and the returned component may be mutated before the queue drains.
    * Repeated calls before that drain return the same pending component instance.
+   * An inherited component is first shallow-copied into a local override.
    *
    * @param typeOrClass - Component class or numeric type id.
    * @returns The mutable component instance.
@@ -375,7 +535,9 @@ export class Components extends Relationships {
       throw new Error("Entity.ensure cannot mutate Relationship components; retarget with set");
     }
     this._throwIfInterface(componentMeta, "ensure");
-    const existing = this._get(componentMeta.eid);
+    const existing = this._inheritedComponentBitmask?.hasBit(componentMeta.bitPtr)
+      ? this._prepareInheritedMutation(componentMeta)
+      : this._get(componentMeta.eid);
     if (existing) {
       callback?.(existing);
       this._markModified(componentMeta);
@@ -412,7 +574,8 @@ export class Components extends Relationships {
    * notifications.
    *
    * Repeated calls before the world routes the modified command are coalesced via
-   * the entity's dirty component bitset.
+   * the entity's dirty component bitset. Marking an inherited component modified
+   * first shallow-copies it into a local override.
    *
    * @param typeOrClass - Component class or numeric type id whose data changed.
    * @returns This entity, for chaining.
@@ -468,6 +631,10 @@ export class Components extends Relationships {
    * {@link ComponentRef} that resolves to an existing entity is accepted, but
    * a ref that does not yet resolve throws. Omit `target` to remove every edge
    * of the relationship.
+   *
+   * Removing an inherited ordinary component records a local absence override;
+   * later source changes do not restore it. `set` or `attach` the component to
+   * replace that absence with a local value.
    *
    * @param Class - Component class to detach.
    * @param target - Relationship target; any {@link ComponentRef} that resolves
@@ -526,7 +693,8 @@ export class Components extends Relationships {
    * component type.
    *
    * In deferred mode `props` are not applied until the queued `Set` command is
-   * routed.
+   * routed. Setting an inherited component first shallow-copies it into a local
+   * override.
    *
    * @param Class - Component class to instantiate.
    * @param props - Properties to assign onto the component instance.
@@ -588,6 +756,9 @@ export class Components extends Relationships {
     this._assertTargetWorld(target);
     if (this._destroyed || target._destroyed) {
       return;
+    }
+    if (meta.eid === this.world._inheritance?.isaEid) {
+      this._assertAcyclicInheritance(target, meta.eid);
     }
     const existing = this._components.get(meta.eid) as Relationship | undefined;
     if (existing?._hasTarget(target)) {
@@ -706,7 +877,11 @@ export class Components extends Relationships {
     if (meta._exclusive) {
       for (const exclusiveMeta of meta._exclusive) {
         if (this._components.has(exclusiveMeta.eid)) {
-          this._remove(exclusiveMeta);
+          if (this._inheritedComponentBitmask?.hasBit(exclusiveMeta.bitPtr)) {
+            this._removeInherited(exclusiveMeta, false);
+          } else {
+            this._remove(exclusiveMeta);
+          }
         }
       }
     }
@@ -742,6 +917,7 @@ export class Components extends Relationships {
     if (isUpdate) {
       this.world._notifyComponentChanged(meta.eid, this);
       this._queries.forEach((q) => q._notifyModified(this, meta.eid, instance));
+      this._propagateInheritance(meta, true);
     }
   }
 
@@ -755,7 +931,11 @@ export class Components extends Relationships {
     if (meta._exclusive) {
       for (const exclusiveMeta of meta._exclusive) {
         if (this._components.has(exclusiveMeta.eid)) {
-          this._remove(exclusiveMeta);
+          if (this._inheritedComponentBitmask?.hasBit(exclusiveMeta.bitPtr)) {
+            this._removeInherited(exclusiveMeta, false);
+          } else {
+            this._remove(exclusiveMeta);
+          }
         }
       }
     }
@@ -764,7 +944,11 @@ export class Components extends Relationships {
         const prev = this._components.get(aliasMeta.eid);
         if (prev !== undefined && prev !== instance) {
           const concreteMeta = this.world.entity((prev as any).constructor).meta;
-          this._remove(concreteMeta);
+          if (this._inheritedComponentBitmask?.hasBit(concreteMeta.bitPtr)) {
+            this._removeInherited(concreteMeta, false);
+          } else {
+            this._remove(concreteMeta);
+          }
         }
       }
     }
@@ -773,6 +957,9 @@ export class Components extends Relationships {
       for (const aliasMeta of meta._implementsClosure) {
         this._storeRaw(aliasMeta, instance, isAdd);
       }
+    }
+    if (isAdd) {
+      this._propagateInheritance(meta, false);
     }
   }
 
@@ -785,6 +972,9 @@ export class Components extends Relationships {
   ): void {
     const existing = this._components.has(meta.eid);
     this._components.set(meta.eid, instance);
+    this._inheritedComponentBitmask?.deleteBit(meta.bitPtr);
+    this._inheritedComponentSources?.delete(meta.eid);
+    this._inheritanceBlockedBitmask?.deleteBit(meta.bitPtr);
     this.componentBitmask.addBit(meta.bitPtr);
     if (!existing) {
       meta._attachCarrier(this);
@@ -796,6 +986,275 @@ export class Components extends Relationships {
     if (!existing) {
       this.world._notifyComponentAdded(meta.eid, this);
     }
+  }
+
+  /** Return whether this entity owns this component or one of its aliases. */
+  private _hasLocalConflict(this: Entity, meta: ComponentMeta): boolean {
+    if (this._components.has(meta.eid) && !this._inheritedComponentBitmask?.hasBit(meta.bitPtr)) {
+      return true;
+    }
+    for (const exclusiveMeta of meta._exclusive ?? []) {
+      if (
+        this._components.has(exclusiveMeta.eid) &&
+        !this._inheritedComponentBitmask?.hasBit(exclusiveMeta.bitPtr)
+      ) {
+        return true;
+      }
+    }
+    for (const aliasMeta of meta._implementsClosure ?? []) {
+      if (
+        this._components.has(aliasMeta.eid) &&
+        !this._inheritedComponentBitmask?.hasBit(aliasMeta.bitPtr)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Remove one owned component, optionally revealing values from the current template. */
+  private _removeOwned(
+    this: Entity,
+    meta: ComponentMeta,
+    component: ComponentInstance,
+    reconcile: boolean
+  ): void {
+    for (const aliasMeta of meta._implementsClosure ?? []) {
+      if (this._components.get(aliasMeta.eid) === component) {
+        this._removeRaw(aliasMeta, component);
+      }
+    }
+    this._removeRaw(meta, component);
+    this._propagateInheritance(meta, false);
+    const inheritance = this.world._inheritance;
+    const template = reconcile && inheritance ? this.target(inheritance.isaEid) : undefined;
+    if (template) {
+      this._reconcileInherited(template);
+    }
+  }
+
+  /** Replace a borrowed component with an owned instance without changing query membership. */
+  private _localizeInherited(
+    this: Entity,
+    meta: ComponentMeta,
+    replacement?: ComponentInstance
+  ): ComponentInstance {
+    const inherited = this._components.get(meta.eid);
+    if (inherited === undefined || !this._inheritedComponentBitmask?.hasBit(meta.bitPtr)) {
+      return replacement ?? inherited!;
+    }
+
+    const local = replacement ?? Object.assign(new (meta.Class as ComponentClass)(), inherited);
+    for (const slotMeta of [meta, ...(meta._implementsClosure ?? [])]) {
+      if (!this._inheritedComponentBitmask?.hasBit(slotMeta.bitPtr)) {
+        continue;
+      }
+      this._components.set(slotMeta.eid, local);
+      this._inheritedComponentBitmask.deleteBit(slotMeta.bitPtr);
+      this._inheritedComponentSources?.delete(slotMeta.eid);
+      this._inheritanceBlockedBitmask?.deleteBit(slotMeta.bitPtr);
+      this.componentBitmask.addBit(slotMeta.bitPtr);
+      slotMeta._attachCarrier(this);
+      slotMeta._onPolicyAdd?.(this, local);
+      slotMeta._onAdd?.(this, local);
+    }
+    return local;
+  }
+
+  /** Remove one borrowed concrete component and all of its inherited aliases. */
+  private _removeInherited(
+    this: Entity,
+    meta: ComponentMeta,
+    block: boolean,
+    propagate = true,
+    expected?: ComponentInstance,
+    expectedSource?: Entity
+  ): void {
+    const instance = this._components.get(meta.eid);
+    const source = expectedSource ?? this._inheritedComponentSources?.get(meta.eid);
+    if (
+      instance === undefined ||
+      (expected !== undefined && instance !== expected) ||
+      this._inheritedComponentSources?.get(meta.eid) !== source ||
+      !this._inheritedComponentBitmask?.hasBit(meta.bitPtr)
+    ) {
+      return;
+    }
+
+    const slots = [...(meta._implementsClosure ?? []), meta];
+    for (const slotMeta of slots) {
+      if (
+        !this._inheritedComponentBitmask.hasBit(slotMeta.bitPtr) ||
+        this._inheritedComponentSources?.get(slotMeta.eid) !== source ||
+        this._components.get(slotMeta.eid) !== instance
+      ) {
+        continue;
+      }
+      this._dirtyComponentBitmask.deleteBit(slotMeta.bitPtr);
+      this.componentBitmask.deleteBit(slotMeta.bitPtr);
+      this.world._notifyComponentRemoved(slotMeta.eid, this);
+      if (
+        this._inheritedComponentSources?.get(slotMeta.eid) !== source ||
+        this._components.get(slotMeta.eid) !== instance
+      ) {
+        continue;
+      }
+      this._components.delete(slotMeta.eid);
+      this._inheritedComponentBitmask.deleteBit(slotMeta.bitPtr);
+      this._inheritedComponentSources?.delete(slotMeta.eid);
+      this.world._notifyComponentChanged(slotMeta.eid, this);
+    }
+    const inheritance = this.world._inheritance;
+    if (block && inheritance && this.target(inheritance.isaEid) === source) {
+      (this._inheritanceBlockedBitmask ??= new Bitset()).addBit(meta.bitPtr);
+    }
+    if (propagate) {
+      this._propagateInheritance(meta, false);
+    }
+  }
+
+  /** Store one borrowed component and route effective add/change events without ownership hooks. */
+  private _storeInherited(
+    this: Entity,
+    meta: ComponentMeta,
+    instance: ComponentInstance,
+    changed: boolean
+  ): void {
+    if (
+      this._inheritanceBlockedBitmask?.hasBit(meta.bitPtr) ||
+      (!this._inheritedComponentBitmask?.hasBit(meta.bitPtr) && this._hasLocalConflict(meta))
+    ) {
+      return;
+    }
+
+    const revision = this._inheritanceRevision;
+    const target = this.world._inheritance && this.target(this.world._inheritance.isaEid);
+    const added: ComponentMeta[] = [];
+    const updated: ComponentMeta[] = [];
+    for (const slotMeta of [meta, ...(meta._implementsClosure ?? [])]) {
+      const existing = this._components.get(slotMeta.eid);
+      if (existing === undefined) {
+        this._components.set(slotMeta.eid, instance);
+        (this._inheritedComponentBitmask ??= new Bitset()).addBit(slotMeta.bitPtr);
+        (this._inheritedComponentSources ??= new Map()).set(slotMeta.eid, target!);
+        this.componentBitmask.addBit(slotMeta.bitPtr);
+        added.push(slotMeta);
+      } else if (this._inheritedComponentBitmask?.hasBit(slotMeta.bitPtr)) {
+        this._components.set(slotMeta.eid, instance);
+        (this._inheritedComponentSources ??= new Map()).set(slotMeta.eid, target!);
+        this.componentBitmask.addBit(slotMeta.bitPtr);
+        if (changed || existing !== instance) {
+          updated.push(slotMeta);
+        }
+      }
+    }
+
+    for (const slotMeta of added) {
+      if (!this._inheritedSlotIsCurrent(slotMeta, instance, revision, target)) {
+        return;
+      }
+      this.world._notifyComponentAdded(slotMeta.eid, this);
+    }
+    for (const slotMeta of updated) {
+      if (!this._inheritedSlotIsCurrent(slotMeta, instance, revision, target)) {
+        return;
+      }
+      this.world._notifyComponentChanged(slotMeta.eid, this);
+      this._queries.forEach((query) => query._notifyModified(this, slotMeta.eid, instance));
+    }
+  }
+
+  /** Validate an `IsA` target before relationship storage or reverse indexes change. */
+  private _assertAcyclicInheritance(this: Entity, target: Entity, isaEid: EID): void {
+    if (target === this) {
+      throw new Error(`IsA cycle detected for entity ${this.eid}`);
+    }
+    if (!this._childrenByEid(isaEid)?.size) {
+      return;
+    }
+    const visited = new Set<Entity>();
+    for (let current: Entity | undefined = target; current; current = current.target(isaEid)) {
+      if (current === this) {
+        throw new Error(`IsA cycle detected for entity ${this.eid}`);
+      }
+      if (visited.has(current)) {
+        throw new Error(`IsA cycle detected through entity ${current.eid}`);
+      }
+      visited.add(current);
+    }
+  }
+
+  /** Test that no re-entrant edge change replaced a staged inherited slot. */
+  private _inheritedSlotIsCurrent(
+    this: Entity,
+    meta: ComponentMeta,
+    instance: ComponentInstance,
+    revision: number | undefined,
+    target: Entity | undefined
+  ): boolean {
+    const inheritance = this.world._inheritance;
+    return !!(
+      inheritance &&
+      this._inheritanceRevision === revision &&
+      this.target(inheritance.isaEid) === target &&
+      this._inheritedComponentBitmask?.hasBit(meta.bitPtr) &&
+      this._inheritedComponentSources?.get(meta.eid) === target &&
+      this._components.get(meta.eid) === instance
+    );
+  }
+
+  /** Re-evaluate only live-borrow policy after a local conflict is removed. */
+  private _reconcileInherited(this: Entity, template: Entity): void {
+    const inheritance = this.world._inheritance;
+    if (!inheritance || this.target(inheritance.isaEid) !== template) {
+      return;
+    }
+    const offered: Array<[ComponentMeta, ComponentInstance]> = [];
+    template.components.forEach((instance, ceid) => {
+      const meta = this.world.entity(ceid).meta;
+      if (!meta._isInterface) {
+        offered.push([meta, instance]);
+      }
+    });
+    for (const [meta, instance] of offered) {
+      if (
+        this.target(inheritance.isaEid) !== template ||
+        template._get(meta.eid) !== instance ||
+        !this._isInheritable(meta) ||
+        this._inheritanceBlockedBitmask?.hasBit(meta.bitPtr) ||
+        this._hasLocalConflict(meta) ||
+        this.world.entity(meta.eid).target(inheritance.onInstantiateEid) !== inheritance.inherit
+      ) {
+        continue;
+      }
+      this._storeInherited(meta, instance, false);
+      this._propagateInheritance(meta, false);
+    }
+  }
+
+  /** Return whether a component kind may occupy borrowed inheritance slots. */
+  private _isInheritable(this: Entity, meta: ComponentMeta): boolean {
+    const inheritance = this.world._inheritance;
+    return !!(
+      inheritance &&
+      !meta._isInterface &&
+      !meta.isRelationship &&
+      meta.eid !== inheritance.isaEid &&
+      !this.world.entity(meta.eid).has(inheritance.singletonEid)
+    );
+  }
+
+  /** Prepare a mutable local copy, deferring the ownership transition when needed. */
+  private _prepareInheritedMutation(this: Entity, meta: ComponentMeta): ComponentInstance {
+    if (!this.world.deferred) {
+      return this._localizeInherited(meta);
+    }
+    let pending = this._pendingInheritedOverrides?.get(meta.eid);
+    if (!pending) {
+      pending = Object.assign(new (meta.Class as ComponentClass)(), this._components.get(meta.eid));
+      (this._pendingInheritedOverrides ??= new Map()).set(meta.eid, pending);
+    }
+    return pending;
   }
 
   private _throwIfInterface(meta: ComponentMeta, op: string): void {
