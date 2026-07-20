@@ -35,13 +35,14 @@ Use `hasTarget(ref, target)` to test one edge without allocating a snapshot.
 
 ## Built-in relationships
 
-| Class           | Purpose                                                                                                                    |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `ChildOf`       | Exclusive parent/child hierarchy. `onDeleteTarget = Delete`: destroying a parent destroys its `ChildOf` children.          |
-| `DependsOn`     | Exclusive pipeline ordering: phases chain to each other and systems attach to phases through it.                           |
-| `SilenceSource` | Exclusive query silence domain; configured via [`ignoreSource`](./queries-and-filters.md#silencing-feedback-ignoresource). |
+| Class           | Purpose                                                                                                                             |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `ChildOf`       | Exclusive parent/child hierarchy. `onDeleteTarget = Delete`: destroying a parent destroys its `ChildOf` children.                   |
+| `DependsOn`     | Exclusive pipeline ordering: phases chain to each other and systems attach to phases through it.                                    |
+| `SilenceSource` | Exclusive query silence domain; configured via [`ignoreSource`](./queries-and-filters.md#silencing-feedback-ignoresource).          |
+| `IsA`           | Exclusive entity-template relationship with per-component copy, borrow, or skip policy. See [Entity inheritance](./inheritance.md). |
 
-`ChildOf` and `DependsOn` are also `Traversable`; all three built-ins above are `Exclusive`.
+`ChildOf` and `DependsOn` are also `Traversable`; all four built-ins above are `Exclusive`.
 
 ## Adding, removing, and setting
 

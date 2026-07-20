@@ -14,6 +14,16 @@ export class Base {
   protected _components = new IterableArrayMap<ComponentInstance>();
   /** @internal Component eids with pending modified delivery. */
   protected readonly _dirtyComponentBitmask = new Bitset();
+  /** @internal Query-visible component slots borrowed through `IsA`; allocated on first use. */
+  protected _inheritedComponentBitmask: Bitset | undefined;
+  /** @internal Immediate template that supplied each borrowed component slot. */
+  protected _inheritedComponentSources: Map<EID, Entity> | undefined;
+  /** @internal Local absence overrides offered by `IsA`; allocated on first use. */
+  protected _inheritanceBlockedBitmask: Bitset | undefined;
+  /** @internal Mutable borrowed copies waiting for their deferred `Modified` command. */
+  protected _pendingInheritedOverrides: Map<EID, ComponentInstance> | undefined;
+  /** @internal Invalidates an in-progress template walk after re-entrant edge changes. */
+  protected _inheritanceRevision: number | undefined;
   /** @internal Set of queries this entity currently belongs to. */
   protected readonly _queries = new Set<Query>();
 
@@ -44,8 +54,8 @@ export class Base {
   }
 
   /**
-   * Read-only view of all components currently attached to this entity, keyed
-   * by numeric component type id.
+   * Read-only view of all effective components on this entity, keyed by numeric
+   * component type id. This includes components borrowed through `IsA`.
    *
    * The mutating methods (`set`, `delete`, `clear`) are not exposed. Use
    * `entity.add`, `entity.attach`, `entity.set`, and `entity.remove` to change
@@ -59,7 +69,7 @@ export class Base {
     return this._components;
   }
 
-  /** `true` when no components are currently attached to this entity. */
+  /** `true` when this entity has no local or inherited components. */
   public get empty(): boolean {
     return this._components.size == 0;
   }
@@ -69,7 +79,7 @@ export class Base {
     return (this._meta ??= new ComponentMeta(Object, this.eid));
   }
 
-  /** Number of live component instances currently attached for this entity's component key. */
+  /** Number of entities that own this component key; borrowed `IsA` slots are not counted. */
   public instanceCount(): number {
     return this._meta?.usageCount ?? 0;
   }

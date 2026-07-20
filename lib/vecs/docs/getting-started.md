@@ -23,7 +23,7 @@ const world = new World();
 ```
 
 The constructor installs the built-in modules — identity names, interface aliases, singletons,
-relationships, and the eight-phase pipeline — so the world is ready to use immediately (see
+relationships, entity inheritance, and the eight-phase pipeline — so the world is ready to use immediately (see
 [Modules](./modules.md)).
 
 ## 2. Define and register components

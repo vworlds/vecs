@@ -77,10 +77,17 @@ export class Lifecycle extends Components {
         }
         this.componentBitmask.deleteBit(componentMeta.bitPtr);
         this.world._notifyComponentRemoved(ceid, this);
-        componentMeta._detachCarrier(this);
-        componentMeta._onRemove?.(this, c);
+        if (!this._inheritedComponentBitmask?.hasBit(componentMeta.bitPtr)) {
+          componentMeta._detachCarrier(this);
+          componentMeta._onRemove?.(this, c);
+        }
+        this._propagateInheritance(componentMeta, false);
       });
       this._dirtyComponentBitmask.clear();
+      this._inheritedComponentBitmask = undefined;
+      this._inheritedComponentSources = undefined;
+      this._inheritanceBlockedBitmask = undefined;
+      this._pendingInheritedOverrides = undefined;
       this._queries.clear();
 
       this._components.clear();

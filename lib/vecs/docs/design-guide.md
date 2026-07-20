@@ -176,12 +176,18 @@ world.component(Orange).set(Implements, { interfaces: [Fruit] });
 | `Traversable`     | An exclusive relationship hierarchy needs depth or cascade ordering                |
 | `OwnedTarget`     | An exclusive relationship owns its explicitly added target                         |
 | `OneOf`           | A relationship's targets must be direct children of a declared parent (enum-style) |
+| `OnInstantiate`   | `IsA` templates should copy, borrow, or skip this component                        |
 
 Traits declare policy; modules implement it through hooks and metadata. Configure them in module
 setup, not inside systems. Lifecycle differs by trait: `OwnedTarget` and `Singleton` are setup-time
 policy, `Traversable` backfills, and `Implements` recomputes declarations. Do not assume traits are
 dynamically removable. See the [Components guide](./components.md#component-traits-policy-on-component-entities)
 for the full model and custom-trait guidance.
+
+Use [`IsA` entity inheritance](./inheritance.md) for reusable data templates, variants, and
+definition entities. Prefer `Override` for mutable per-instance state and `Inherit` for shared
+definition data that should update every unshadowed instance. Local components always win; do not
+use inheritance to hide behavior or imperative object hierarchies inside components.
 
 ### Exclusive component groups
 
