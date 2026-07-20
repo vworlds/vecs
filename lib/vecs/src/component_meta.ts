@@ -2,6 +2,38 @@ import { BitPtr } from "./util/bitset.js";
 import { DenseSet } from "./util/dense_set.js";
 import type { EID, Entity, EntityClass } from "./entity/index.js";
 
+/** @internal Symbol key on a wrapper instance holding the read-through target. */
+const TARGET = Symbol("target");
+/** @internal Symbol key on a wrapper instance holding the lazy snapshot. */
+const INTERNAL = Symbol("internal");
+
+/**
+ * Shape of a dirty-on-write wrapper produced by {@link ComponentMeta._proxy}.
+ *
+ * Reads delegate to {@link TARGET} while {@link INTERNAL} is `undefined`; the
+ * first write copies {@link TARGET} into {@link INTERNAL} and all subsequent
+ * reads/writes go to {@link INTERNAL}. {@link __unproxy} returns a real
+ * instance of the wrapped class with the effective current values.
+ *
+ * @internal
+ */
+interface IWrapperInstance {
+  [TARGET]: ComponentInstance;
+  [INTERNAL]: ComponentInstance | undefined;
+  /** @internal True once the first field write has promoted the wrapper to its internal snapshot. */
+  __isDirty(): boolean;
+  __unproxy(): ComponentInstance;
+}
+
+/**
+ * Type guard for values produced by {@link ComponentMeta._proxy}.
+ *
+ * @internal
+ */
+export function isWrapperInstance(value: unknown): value is IWrapperInstance {
+  return typeof value === "object" && value !== null && TARGET in value;
+}
+
 export enum CleanupPolicy {
   Throw = "throw",
   Remove = "remove",
@@ -366,6 +398,16 @@ export class ComponentMeta {
    */
   public _carriers: DenseSet<Entity> | undefined;
 
+  /**
+   * @internal Cached dirty-on-write wrapper subclass for IsA inheritance.
+   *
+   * Built lazily by {@link _buildWrapperClass} on the first call to
+   * {@link _proxy} and reused thereafter so every wrapper produced by this
+   * meta shares one constructor.
+   */
+  public _inheritWrapperClass:
+    (new (target: ComponentInstance) => ComponentInstance & IWrapperInstance) | undefined;
+
   constructor(Class: ComponentType, ceid: EID) {
     this.Class = Class;
     this.eid = ceid;
@@ -511,6 +553,115 @@ export class ComponentMeta {
     if (!this.isRelationship) {
       throw new Error(`"${event}" hooks can only be registered on a Relationship component`);
     }
+  }
+
+  /**
+   * Produce a dirty-on-write wrapper around `c` for IsA inheritance.
+   *
+   * The wrapper is a real instance of `c`'s class (so `instanceof` is
+   * preserved) that reads through to `c` until any declared field is written,
+   * at which point it lazily copies every field from `c` into an internal
+   * snapshot and all further reads/writes go to the snapshot. Wrapping a
+   * wrapper collapses: a clean inner wrapper is skipped (the new wrapper
+   * targets the inner target), and a dirty inner wrapper is replaced by its
+   * `__unproxy()` real instance (no point wrapping a snapshot).
+   *
+   * The wrapper subclass is built once per {@link ComponentMeta} and cached on
+   * {@link _inheritWrapperClass}.
+   *
+   * @internal
+   */
+  public _proxy(this: ComponentMeta, c: ComponentInstance): ComponentInstance {
+    let Wrapper = this._inheritWrapperClass;
+    if (!Wrapper) {
+      Wrapper = this._buildWrapperClass(c);
+      this._inheritWrapperClass = Wrapper;
+    }
+    // Shortcut proxies-of-proxies: collapse chains.
+    if (c instanceof Wrapper) {
+      const w = c as unknown as IWrapperInstance;
+      if (w[INTERNAL] !== undefined) {
+        // `c` is a dirty wrapper — no point wrapping a wrapper that's already
+        // a snapshot. Return a real copy.
+        return w.__unproxy();
+      }
+      c = w[TARGET]; // clean wrapper: skip to its target
+    }
+    return new Wrapper(c);
+  }
+
+  /**
+   * Build the dirty-on-write wrapper subclass for this meta, using `sample`
+   * to discover the declared enumerable own fields. One accessor pair is
+   * installed per field; fieldless components produce a wrapper with no
+   * accessors that still preserves `instanceof` and supports `__unproxy`.
+   *
+   * @internal
+   */
+  private _buildWrapperClass(
+    this: ComponentMeta,
+    sample: ComponentInstance
+  ): new (target: ComponentInstance) => ComponentInstance & IWrapperInstance {
+    const Base = sample.constructor as ComponentClass;
+    const keys = Object.keys(sample); // own enumerable string keys of a default instance
+
+    class InheritWrapper extends (Base as unknown as ComponentClass) {
+      [TARGET]: ComponentInstance;
+      [INTERNAL]: ComponentInstance | undefined = undefined;
+
+      constructor(target: ComponentInstance) {
+        super();
+        this[TARGET] = target;
+        // Install one own enumerable accessor pair per declared field on this
+        // instance. The base constructor already created own data properties
+        // for each field (from the field initializers); the accessors replace
+        // them so reads/writes route through TARGET/INTERNAL. Installing on
+        // the instance (not the prototype) keeps the fields visible to
+        // Object.keys and JSON.stringify.
+        for (const key of keys) {
+          Object.defineProperty(this, key, {
+            enumerable: true,
+            configurable: true,
+            get(this: IWrapperInstance) {
+              return this[INTERNAL] !== undefined
+                ? this[INTERNAL][key as keyof ComponentInstance]
+                : this[TARGET][key as keyof ComponentInstance];
+            },
+            set(this: IWrapperInstance, value: unknown) {
+              let internal = this[INTERNAL];
+              if (internal === undefined) {
+                internal = new (Base as unknown as ComponentClass)() as ComponentInstance;
+                Object.assign(internal, this[TARGET]);
+                this[INTERNAL] = internal;
+              }
+              internal[key as keyof ComponentInstance] =
+                value as ComponentInstance[keyof ComponentInstance];
+            },
+          });
+        }
+      }
+
+      /**
+       * @internal True once the first field write has promoted the wrapper
+       * to its internal snapshot.
+       */
+      __isDirty(): boolean {
+        return this[INTERNAL] !== undefined;
+      }
+
+      /**
+       * @internal Return a real instance of the wrapped class with the
+       * effective current values (from INTERNAL when dirty, else TARGET).
+       */
+      __unproxy(): ComponentInstance {
+        const source = this[INTERNAL] !== undefined ? this[INTERNAL] : this[TARGET];
+        return Object.assign(new (this[TARGET].constructor as ComponentClass)(), source);
+      }
+    }
+
+    return InheritWrapper as unknown as new (
+      target: ComponentInstance
+    ) => ComponentInstance & IWrapperInstance;
   }
 }
 

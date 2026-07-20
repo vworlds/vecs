@@ -47,6 +47,14 @@ export { ImplementsModule } from "./modules/implements.js";
 export { Singleton, SingletonModule } from "./modules/singleton.js";
 export { Traversable, With, RelationshipsModule } from "./modules/relationships.js";
 export {
+  DontInherit,
+  InheritanceModule,
+  Inherit,
+  IsA,
+  OnInstantiate,
+  Override,
+} from "./modules/inheritance.js";
+export {
   BUILTIN_PIPELINE_PHASES,
   insertPhaseAfter,
   ON_LOAD,
