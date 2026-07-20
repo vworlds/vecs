@@ -66,7 +66,8 @@ The full documentation lives in [`docs/`](./docs/README.md). Recommended reading
 3. [Execution model](./docs/execution-model.md) — phases, deferred mutation, event routing.
 4. Subsystem guides: [Components and traits](./docs/components.md) · [Entities](./docs/entities.md) ·
    [Systems](./docs/systems.md) · [Queries and filters](./docs/queries-and-filters.md) ·
-   [Relationships, edges, targets, and ownership](./docs/relationships.md) · [Modules](./docs/modules.md)
+   [Relationships, edges, targets, and ownership](./docs/relationships.md) ·
+   [Entity inheritance](./docs/inheritance.md) · [Modules](./docs/modules.md)
 5. [Design guide](./docs/design-guide.md) — patterns and anti-patterns from real designs.
 
 Plus the [Utilities](./docs/utilities.md) guide for helper classes and the

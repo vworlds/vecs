@@ -1,6 +1,7 @@
 import { SilenceSource } from "../modules/relationships.js";
 import { IdentityModule } from "../modules/identity.js";
 import { ImplementsModule } from "../modules/implements.js";
+import { InheritanceModule } from "../modules/inheritance.js";
 import { PipelineModule } from "../modules/pipeline.js";
 import { RelationshipsModule } from "../modules/relationships.js";
 import { SingletonModule } from "../modules/singleton.js";
@@ -41,6 +42,7 @@ export class World extends Pipeline {
       ImplementsModule,
       SingletonModule,
       RelationshipsModule,
+      InheritanceModule,
       PipelineModule,
     ].forEach((mod) => this.module(mod));
   }

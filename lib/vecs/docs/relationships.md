@@ -35,13 +35,14 @@ Use `hasTarget(ref, target)` to test one edge without allocating a snapshot.
 
 ## Built-in relationships
 
-| Class           | Purpose                                                                                                                    |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `ChildOf`       | Exclusive parent/child hierarchy. `onDeleteTarget = Delete`: destroying a parent destroys its `ChildOf` children.          |
-| `DependsOn`     | Exclusive pipeline ordering: phases chain to each other and systems attach to phases through it.                           |
-| `SilenceSource` | Exclusive query silence domain; configured via [`ignoreSource`](./queries-and-filters.md#silencing-feedback-ignoresource). |
+| Class           | Purpose                                                                                                                            |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `ChildOf`       | Exclusive parent/child hierarchy. `onDeleteTarget = Delete`: destroying a parent destroys its `ChildOf` children.                  |
+| `DependsOn`     | Exclusive pipeline ordering: phases chain to each other and systems attach to phases through it.                                   |
+| `SilenceSource` | Exclusive query silence domain; configured via [`ignoreSource`](./queries-and-filters.md#silencing-feedback-ignoresource).         |
+| `IsA`           | Exclusive entity inheritance; instantiates a template's components onto the inheritor. See [Entity inheritance](./inheritance.md). |
 
-`ChildOf` and `DependsOn` are also `Traversable`; all three built-ins above are `Exclusive`.
+`ChildOf` and `DependsOn` are also `Traversable`; all four built-ins above are `Exclusive`.
 
 ## Adding, removing, and setting
 
@@ -167,6 +168,14 @@ already in use throws, and removing it throws once attached — `OneOf` is irrev
 `OneOf` is independent of `Exclusive`: a non-exclusive relationship may carry it, in which case
 every one of its many targets must be a child of the declared parent. It composes freely with
 `OwnedTarget` and `Traversable`.
+
+## Entity inheritance with `IsA`
+
+`IsA` is a built-in exclusive relationship that instantiates a template entity's components onto an
+inheritor as real copies. Each component's behavior is declared with `OnInstantiate` (a self-parent
+`OneOf` enum with three options: `Override`, `Inherit`, `DontInherit`); `Inherit`-marked components
+stay live-mirrored to the template until the inheritor diverges. See
+[Entity inheritance](./inheritance.md) for the full guide.
 
 ## Edge hooks
 
