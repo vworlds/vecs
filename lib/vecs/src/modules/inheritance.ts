@@ -1,5 +1,4 @@
 import { CleanupPolicy, Relationship } from "../component_meta.js";
-import { type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 import { Exclusive, OneOf } from "./relationship_types.js";
 
@@ -29,9 +28,9 @@ export class IsA extends Relationship {}
  *
  * Attach during world setup as `world.component(C).add(OnInstantiate, option)`
  * where `option` is one of the exported {@link Override}, {@link Inherit}, or
- * {@link DontInherit} entities (all `ChildOf` children of the `OnInstantiate`
- * component entity). The default policy when no `OnInstantiate` edge is
- * present is `Override`.
+ * {@link DontInherit} marker classes (registered as `ChildOf` children of the
+ * `OnInstantiate` component entity by {@link InheritanceModule}). The default
+ * policy when no `OnInstantiate` edge is present is `Override`.
  *
  * `OnInstantiate` is irrevocable via the `OneOf` trait: re-adding with a
  * different option atomically replaces the edge (and updates the policy read
@@ -41,33 +40,39 @@ export class OnInstantiate extends Relationship {}
 
 /**
  * The default `OnInstantiate` policy: copy the template's instance onto the
- * inheritor. Re-exported as a per-world entity; assigned by
- * {@link InheritanceModule.init}.
+ * inheritor. Registered as a `ChildOf` child of the `OnInstantiate` component
+ * entity by {@link InheritanceModule}, so it can be passed by class to
+ * `world.component(C).add(OnInstantiate, Override)`.
  */
-export let Override: Entity;
+export class Override {}
 
 /**
  * The `OnInstantiate` policy that attaches a dirty-on-write proxy of the
  * template's instance onto the inheritor. Reads delegate to the template
  * while clean; the first write snapshots the proxy into a real instance.
- * Re-exported as a per-world entity; assigned by {@link InheritanceModule.init}.
+ * Registered as a `ChildOf` child of the `OnInstantiate` component entity by
+ * {@link InheritanceModule}, so it can be passed by class to
+ * `world.component(C).add(OnInstantiate, Inherit)`.
  */
-export let Inherit: Entity;
+export class Inherit {}
 
 /**
  * The `OnInstantiate` policy that skips the component during the `IsA` walk.
- * Re-exported as a per-world entity; assigned by {@link InheritanceModule.init}.
+ * Registered as a `ChildOf` child of the `OnInstantiate` component entity by
+ * {@link InheritanceModule}, so it can be passed by class to
+ * `world.component(C).add(OnInstantiate, DontInherit)`.
  */
-export let DontInherit: Entity;
+export class DontInherit {}
 
 /**
  * Built-in world module that registers `IsA`, `OnInstantiate`, and the three
- * inheritance-policy option entities.
+ * inheritance-policy option marker classes.
  *
- * Registered automatically by every {@link World}. Creates `Override`,
- * `Inherit`, and `DontInherit` as `ChildOf` children of the `OnInstantiate`
- * component entity, configures `OnInstantiate` as a self-parent `OneOf` enum,
- * and marks `IsA` as `Exclusive`.
+ * Registered automatically by every {@link World}. Registers `Override`,
+ * `Inherit`, and `DontInherit` as components and makes their component
+ * entities `ChildOf` children of the `OnInstantiate` component entity,
+ * configures `OnInstantiate` as a self-parent `OneOf` enum, and marks `IsA`
+ * as `Exclusive`.
  *
  * The component-walk handler that copies or proxies the template's components
  * onto an inheritor is installed in a later phase; this module only wires up
@@ -81,16 +86,15 @@ export class InheritanceModule extends Module {
 
     onInstantiate.add(OneOf, onInstantiate);
 
-    const overrideEntity = world.entity().childOf(onInstantiate);
-    const inheritEntity = world.entity().childOf(onInstantiate);
-    const dontInheritEntity = world.entity().childOf(onInstantiate);
+    // Register each option as a component and make its entity a child of
+    // OnInstantiate. The user passes the class to add(OnInstantiate, Option),
+    // which resolves to the option entity via world.entity(Option).
+    world.component(Override).childOf(onInstantiate);
+    world.component(Inherit).childOf(onInstantiate);
+    world.component(DontInherit).childOf(onInstantiate);
 
     isa.add(Exclusive);
 
     isa.meta.onDeleteTarget = CleanupPolicy.Remove;
-
-    Override = overrideEntity;
-    Inherit = inheritEntity;
-    DontInherit = dontInheritEntity;
   }
 }

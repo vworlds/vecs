@@ -35,17 +35,16 @@ describe("InheritanceModule (Phase 3 skeleton)", () => {
   it("creates Override, Inherit, DontInherit as children of OnInstantiate", () => {
     const w = new World();
     const onInstantiate = w.component(OnInstantiate);
-    expect(Override.parent).toBe(onInstantiate);
-    expect(Inherit.parent).toBe(onInstantiate);
-    expect(DontInherit.parent).toBe(onInstantiate);
-    void Override;
+    expect(w.component(Override).parent).toBe(onInstantiate);
+    expect(w.component(Inherit).parent).toBe(onInstantiate);
+    expect(w.component(DontInherit).parent).toBe(onInstantiate);
   });
 
   it("supports add(OnInstantiate, Inherit) and resolves the target", () => {
     const w = new World();
     const helmet = w.component(Helmet);
     helmet.add(OnInstantiate, Inherit);
-    expect(helmet.target(OnInstantiate)).toBe(Inherit);
+    expect(helmet.target(OnInstantiate)).toBe(w.component(Inherit));
   });
 
   it("rejects an OnInstantiate target that is not a child of OnInstantiate", () => {
