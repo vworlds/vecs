@@ -1,6 +1,13 @@
-import { CleanupPolicy, Relationship } from "../component_meta.js";
+import {
+  CleanupPolicy,
+  type ComponentClass,
+  type ComponentInstance,
+  Relationship,
+} from "../component_meta.js";
+import { type EID, type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 import { Exclusive, OneOf } from "./relationship_types.js";
+import { Singleton } from "./singleton.js";
 
 /**
  * Built-in exclusive relationship modeling prototype-style entity
@@ -74,9 +81,9 @@ export class DontInherit {}
  * configures `OnInstantiate` as a self-parent `OneOf` enum, and marks `IsA`
  * as `Exclusive`.
  *
- * The component-walk handler that copies or proxies the template's components
- * onto an inheritor is installed in a later phase; this module only wires up
- * the registration and the policy enum.
+ * The component-walk handler installed by {@link InheritanceModule.init}
+ * copies or proxies the template's components onto the inheritor according
+ * to each component's `OnInstantiate` policy.
  */
 export class InheritanceModule extends Module {
   public init(): void {
@@ -89,12 +96,51 @@ export class InheritanceModule extends Module {
     // Register each option as a component and make its entity a child of
     // OnInstantiate. The user passes the class to add(OnInstantiate, Option),
     // which resolves to the option entity via world.entity(Option).
-    world.component(Override).childOf(onInstantiate);
-    world.component(Inherit).childOf(onInstantiate);
-    world.component(DontInherit).childOf(onInstantiate);
+    const overrideEntity = world.component(Override).childOf(onInstantiate);
+    const inheritEntity = world.component(Inherit).childOf(onInstantiate);
+    const dontInheritEntity = world.component(DontInherit).childOf(onInstantiate);
 
     isa.add(Exclusive);
+    onInstantiate.add(Exclusive);
 
     isa.meta.onDeleteTarget = CleanupPolicy.Remove;
+
+    // Resolve once and capture in the handler closure. These are stable
+    // after init completes.
+    const onInstantiateEid = onInstantiate.eid;
+    const isaEid = isa.eid;
+    const singletonEid = world.component(Singleton).eid;
+
+    isa.meta.on(
+      "targetPolicyAdd",
+      (inheritor: Entity, _rel: Relationship, template: Entity): void => {
+        template.components.forEach((instance: ComponentInstance, ceid: EID) => {
+          if (ceid === isaEid) {
+            return; // never inherit the IsA relationship itself
+          }
+          const componentEntity = world.entity(ceid);
+          const meta = componentEntity.meta;
+          if (meta.isRelationship) {
+            return; // skip all relationships (ChildOf, OnInstantiate, etc.)
+          }
+          if (ceid === onInstantiateEid) {
+            return; // OnInstantiate is meta-policy, not inherited
+          }
+          if (componentEntity.has(singletonEid)) {
+            return; // skip Singleton components
+          }
+
+          const optionEntity = componentEntity.target(OnInstantiate);
+          if (optionEntity === dontInheritEntity) {
+            return;
+          }
+          const c =
+            optionEntity === inheritEntity
+              ? meta._proxy(instance)
+              : Object.assign(new (meta.Class as ComponentClass)(), instance);
+          inheritor._attach(meta, c);
+        });
+      }
+    );
   }
 }
