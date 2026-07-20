@@ -143,41 +143,51 @@ export class Components extends Relationships {
    * Idempotent. Does not fire `onSet` -- use {@link set} when you want to apply
    * data and notify watchers.
    *
+   * Relationship components require an explicit `target`. The target is
+   * resolved eagerly via {@link World.entity}: any {@link ComponentRef} that
+   * resolves to an existing entity is accepted, but a ref that does not yet
+   * resolve throws. Non-relationship components ignore `target` and throw when
+   * one is supplied.
+   *
    * @param Class - Component class to instantiate.
+   * @param target - Relationship target. Any {@link ComponentRef} that resolves
+   *   to an existing entity; required for {@link Relationship} components.
    * @returns This entity, for chaining.
    */
   public add<C extends ComponentClass>(
     Class: C,
-    ...target: InstanceType<C> extends Relationship ? [target: Entity] : []
+    ...target: InstanceType<C> extends Relationship ? [target: ComponentRef] : []
   ): this;
 
   /**
    * Attach a component by numeric type id.
    *
    * @param type - Numeric component type id.
+   * @param target - Relationship target; any {@link ComponentRef} that resolves
+   *   to an existing entity. Ignored for non-relationship components.
    * @returns This entity, for chaining.
    */
-  public add(ceid: EID, target?: Entity): this;
+  public add(ceid: EID, target?: ComponentRef): this;
 
-  public add(entity: Entity, target?: Entity): this;
+  public add(entity: Entity, target?: ComponentRef): this;
 
-  public add(this: Entity, ref: ComponentRef, target?: Entity): this {
+  public add(this: Entity, ref: ComponentRef, target?: ComponentRef): this {
     const componentMeta = this.world.entity(ref).meta;
     this._throwIfInterface(componentMeta, "add");
     if (componentMeta.isRelationship) {
       if (target === undefined) {
         throw new Error("Entity.add requires a target for Relationship components");
       }
-      this._assertTargetWorld(target);
+      const targetEntity = this.world.entity(target);
       if (this.world.deferred) {
         this.world._enqueue({
           kind: CommandKind.AddTarget,
           entity: this,
           meta: componentMeta,
-          target,
+          target: targetEntity,
         });
       } else {
-        this._addTarget(componentMeta, target);
+        this._addTarget(componentMeta, targetEntity);
       }
       return this as unknown as this;
     }
@@ -453,39 +463,49 @@ export class Components extends Relationships {
    * component until the queue drains. When applied, queries fire `exit`
    * callbacks first and the `onRemove` hook fires last.
    *
+   * Relationship components take an explicit `target` to remove one edge. The
+   * target is resolved eagerly via {@link World.entity}: any
+   * {@link ComponentRef} that resolves to an existing entity is accepted, but
+   * a ref that does not yet resolve throws. Omit `target` to remove every edge
+   * of the relationship.
+   *
    * @param Class - Component class to detach.
+   * @param target - Relationship target; any {@link ComponentRef} that resolves
+   *   to an existing entity. Ignored for non-relationship components.
    */
   public remove<C extends ComponentType>(
     Class: C,
-    ...target: InstanceType<C> extends Relationship ? [target?: Entity] : []
+    ...target: InstanceType<C> extends Relationship ? [target?: ComponentRef] : []
   ): void;
 
   /**
    * Detach a component by numeric type id.
    *
    * @param type - Numeric component type id.
+   * @param target - Relationship target; any {@link ComponentRef} that resolves
+   *   to an existing entity. Ignored for non-relationship components.
    */
-  public remove(ceid: EID, target?: Entity): void;
+  public remove(ceid: EID, target?: ComponentRef): void;
 
-  public remove(entity: Entity, target?: Entity): void;
+  public remove(entity: Entity, target?: ComponentRef): void;
 
-  public remove(this: Entity, ref: ComponentRef, target?: Entity): void {
+  public remove(this: Entity, ref: ComponentRef, target?: ComponentRef): void {
     const componentMeta = this.world.entity(ref).meta;
     this._throwIfInterface(componentMeta, "remove");
     if (target !== undefined) {
       if (!componentMeta.isRelationship) {
         throw new Error("Entity.remove target argument requires a Relationship component");
       }
-      this._assertTargetWorld(target);
+      const targetEntity = this.world.entity(target);
       if (this.world.deferred) {
         this.world._enqueue({
           kind: CommandKind.RemoveTarget,
           entity: this,
           meta: componentMeta,
-          target,
+          target: targetEntity,
         });
       } else {
-        this._removeTarget(componentMeta, target);
+        this._removeTarget(componentMeta, targetEntity);
       }
       return;
     }

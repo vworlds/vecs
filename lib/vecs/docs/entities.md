@@ -58,7 +58,9 @@ e.destroy(); // remove everything and unregister the entity
 
 All mutators return the entity for chaining (`remove` and `destroy` return `void`). Component
 references can be a registered class, a numeric component id, or an entity used as a component
-key.
+key. Relationship `target` arguments accept the same `ComponentRef` shapes (class, numeric id, or
+entity) and are resolved eagerly via `world.entity(target)`, so the target entity must already
+exist when the call is made.
 
 ### `set` vs `add` vs `modified`
 
@@ -184,34 +186,34 @@ runtime-created component types work without declaring a class.
 `lib/vecs/src/entity/` (split across `entity.base.ts`, `entity.components.ts`,
 `entity.lifecycle.ts`, `entity.relationships.ts`):
 
-| Property / Method                              | Description                                                                                                                           |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `eid`                                          | Unique numeric entity id.                                                                                                             |
-| `world`                                        | The `World` that owns this entity.                                                                                                    |
-| `name`                                         | Identity name (getter/setter backed by the `Identity` component); `undefined` when unnamed.                                           |
-| `componentBitmask`                             | `Bitset` of component type ids attached. Used for archetype matching.                                                                 |
-| `components`                                   | Read-only `ArrayMap` view of attached instances keyed by type id (`forEach`, `get`, `has`, `size`).                                   |
-| `empty`                                        | `true` when no components are attached.                                                                                               |
-| `properties`                                   | Free-form `Map<string, any>` for module-level bookkeeping.                                                                            |
-| `meta`                                         | `ComponentMeta` for using this entity as a component key (created lazily).                                                            |
-| `instanceCount()`                              | Number of entities currently carrying this entity's eid as a component.                                                               |
-| `add(ref)` / `add(Relationship, target)`       | Attach an ordinary component, or add one explicit relationship edge. Returns `this`.                                                  |
-| `attach(instance)` / `attach(Class, instance)` | Store an existing instance, replacing any previous one; fires set-side events. Returns `this`.                                        |
-| `set(ref, props)`                              | Attach/set ordinary data; relationships must exist and only ordinary fields are assigned.                                             |
-| `get(ref)`                                     | Read-only component lookup, or `undefined`.                                                                                           |
-| `getMut(ref)` / `getMut(ref, callback)`        | Mutable lookup that marks the component modified. Callback form required outside deferred mode.                                       |
-| `ensure(ref)` / `ensure(ref, callback)`        | Mutable lookup that creates when missing. Callback form required outside deferred mode.                                               |
-| `has(ref)`                                     | `true` when the component is attached.                                                                                                |
-| `modified(ref)`                                | Queue an `onSet`/`update` notification; coalesced while pending. Returns `this`.                                                      |
-| `remove(ref)` / `remove(Relationship, target)` | Detach a component/all edges, or remove one relationship edge.                                                                        |
-| `destroy()`                                    | Remove all components, unregister, and apply incoming relationship cleanup.                                                           |
-| `target(rel)`                                  | One current target entity of relationship `rel`, or `undefined`; not a stable selection policy.                                       |
-| `targets(rel)`                                 | Readonly snapshot of all targets; ordering is unspecified.                                                                            |
-| `hasTarget(rel, target)`                       | `true` when the specific relationship edge exists.                                                                                    |
-| `children(rel)`                                | `ReadonlySet<Entity>` of entities targeting this one through `rel`.                                                                   |
-| `childOf(parent)`                              | Shorthand for `add(ChildOf, parent)`. Returns `this`.                                                                                 |
-| `parent` / `parent = p`                        | Getter/setter for the built-in `ChildOf` target; assigning `undefined` removes `ChildOf`.                                             |
-| `destroyed` / `alive`                          | `true` when the entity has been / has not been destroyed (marked for deletion).                                                       |
-| `on(event, handler, insert?)`                  | Register a handler for a hook event on this component's meta. `insert` defaults to `false` (append); `true` prepends. Returns `this`. |
-| `off(event, handler)`                          | Remove a previously-registered handler by reference. Idempotent. Returns `this`.                                                      |
-| `toString()`                                   | Returns `"EntityN"`.                                                                                                                  |
+| Property / Method                              | Description                                                                                                                                                           |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `eid`                                          | Unique numeric entity id.                                                                                                                                             |
+| `world`                                        | The `World` that owns this entity.                                                                                                                                    |
+| `name`                                         | Identity name (getter/setter backed by the `Identity` component); `undefined` when unnamed.                                                                           |
+| `componentBitmask`                             | `Bitset` of component type ids attached. Used for archetype matching.                                                                                                 |
+| `components`                                   | Read-only `ArrayMap` view of attached instances keyed by type id (`forEach`, `get`, `has`, `size`).                                                                   |
+| `empty`                                        | `true` when no components are attached.                                                                                                                               |
+| `properties`                                   | Free-form `Map<string, any>` for module-level bookkeeping.                                                                                                            |
+| `meta`                                         | `ComponentMeta` for using this entity as a component key (created lazily).                                                                                            |
+| `instanceCount()`                              | Number of entities currently carrying this entity's eid as a component.                                                                                               |
+| `add(ref)` / `add(Relationship, target)`       | Attach an ordinary component, or add one explicit relationship edge. `target` accepts any `ComponentRef` resolved eagerly via `world.entity(target)`. Returns `this`. |
+| `attach(instance)` / `attach(Class, instance)` | Store an existing instance, replacing any previous one; fires set-side events. Returns `this`.                                                                        |
+| `set(ref, props)`                              | Attach/set ordinary data; relationships must exist and only ordinary fields are assigned.                                                                             |
+| `get(ref)`                                     | Read-only component lookup, or `undefined`.                                                                                                                           |
+| `getMut(ref)` / `getMut(ref, callback)`        | Mutable lookup that marks the component modified. Callback form required outside deferred mode.                                                                       |
+| `ensure(ref)` / `ensure(ref, callback)`        | Mutable lookup that creates when missing. Callback form required outside deferred mode.                                                                               |
+| `has(ref)`                                     | `true` when the component is attached.                                                                                                                                |
+| `modified(ref)`                                | Queue an `onSet`/`update` notification; coalesced while pending. Returns `this`.                                                                                      |
+| `remove(ref)` / `remove(Relationship, target)` | Detach a component/all edges, or remove one relationship edge. `target` accepts any `ComponentRef` resolved eagerly via `world.entity(target)`.                       |
+| `destroy()`                                    | Remove all components, unregister, and apply incoming relationship cleanup.                                                                                           |
+| `target(rel)`                                  | One current target entity of relationship `rel`, or `undefined`; not a stable selection policy.                                                                       |
+| `targets(rel)`                                 | Readonly snapshot of all targets; ordering is unspecified.                                                                                                            |
+| `hasTarget(rel, target)`                       | `true` when the specific relationship edge exists.                                                                                                                    |
+| `children(rel)`                                | `ReadonlySet<Entity>` of entities targeting this one through `rel`.                                                                                                   |
+| `childOf(parent)`                              | Shorthand for `add(ChildOf, parent)`. Returns `this`.                                                                                                                 |
+| `parent` / `parent = p`                        | Getter/setter for the built-in `ChildOf` target; assigning `undefined` removes `ChildOf`.                                                                             |
+| `destroyed` / `alive`                          | `true` when the entity has been / has not been destroyed (marked for deletion).                                                                                       |
+| `on(event, handler, insert?)`                  | Register a handler for a hook event on this component's meta. `insert` defaults to `false` (append); `true` prepends. Returns `this`.                                 |
+| `off(event, handler)`                          | Remove a previously-registered handler by reference. Idempotent. Returns `this`.                                                                                      |
+| `toString()`                                   | Returns `"EntityN"`.                                                                                                                                                  |

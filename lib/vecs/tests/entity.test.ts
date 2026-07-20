@@ -1030,9 +1030,34 @@ describe("Entity — relationship navigation", () => {
     const source = sourceWorld.entity();
     const foreignTarget = targetWorld.entity();
 
-    expect(() => source.add(FriendOf, foreignTarget)).toThrow(/same World/);
+    expect(() => source.add(FriendOf, foreignTarget)).toThrow(/different World/);
     expect(() => source._addTarget(relationship.meta, foreignTarget)).toThrow(/same World/);
     expect(source.has(FriendOf)).toBe(false);
     expect(foreignTarget.children(FriendOf)).not.toContain(source);
+  });
+
+  it("add and remove resolve a ComponentRef target eagerly", () => {
+    const w = new World();
+    w.component(FriendOf);
+    w.component(Position);
+    const source = w.entity();
+    const target = w.entity();
+
+    source.add(FriendOf, target.eid);
+    expect(source.hasTarget(FriendOf, target)).toBe(true);
+    expect(source.targets(FriendOf)).toEqual([target]);
+
+    source.remove(FriendOf, target.eid);
+    expect(source.has(FriendOf)).toBe(false);
+
+    source.add(FriendOf, target);
+    expect(source.targets(FriendOf)).toEqual([target]);
+    source.remove(FriendOf, target);
+    expect(source.has(FriendOf)).toBe(false);
+
+    expect(() => source.add(Position, target.eid)).toThrow(/requires a Relationship/);
+    expect(() => source.remove(Position, target.eid)).toThrow(/requires a Relationship/);
+    expect(() => source.add(FriendOf, 999999)).toThrow(/No entity with eid/);
+    expect(() => source.remove(FriendOf, 999999)).toThrow(/No entity with eid/);
   });
 });

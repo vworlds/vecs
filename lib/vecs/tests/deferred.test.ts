@@ -80,7 +80,7 @@ describe("Deferred mode — data-layer visibility", () => {
     const foreignTarget = other.entity();
 
     w.defer(() => {
-      expect(() => source.add(LinkedTo, foreignTarget)).toThrow(/same World/);
+      expect(() => source.add(LinkedTo, foreignTarget)).toThrow(/different World/);
     });
     expect(() =>
       (w as any)._executeCommand({

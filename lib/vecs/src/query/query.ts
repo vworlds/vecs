@@ -372,11 +372,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
 
   public add<C extends ComponentClass>(
     Class: C,
-    ...target: InstanceType<C> extends Relationship ? [target: Entity] : []
+    ...target: InstanceType<C> extends Relationship ? [target: ComponentRef] : []
   ): this;
-  public add(ceid: EID, target?: Entity): this;
-  public add(entity: Entity, target?: Entity): this;
-  public add(ref: ComponentRef, target?: Entity): this {
+  public add(ceid: EID, target?: ComponentRef): this;
+  public add(entity: Entity, target?: ComponentRef): this;
+  public add(ref: ComponentRef, target?: ComponentRef): this {
     this.entity.add(ref as any, target as any);
     return this;
   }

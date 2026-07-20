@@ -201,12 +201,13 @@ describe("OneOf trait", () => {
     const w = new World();
     const region = w.component(Region);
     w.component(ResidesIn).add(OneOf, region);
-    // Cross-world target rejection is enforced by _assertTargetWorld before
-    // the OneOf policy hook runs, so the message is the cross-world one.
+    // Cross-world target rejection is enforced by World.entity (called to
+    // resolve the target ref) before the OneOf policy hook runs, so the
+    // message is the cross-world one.
     const otherWorld = new World();
     const foreignTarget = otherWorld.entity();
     expect(() => w.entity().add(ResidesIn, foreignTarget)).toThrow(
-      "Relationship target must belong to the same World"
+      "Entity belongs to a different World"
     );
     // World partially mutated; discard both worlds.
   });

@@ -194,6 +194,19 @@ describe("World - entity management", () => {
     expect(w.getEntity(e)).toBe(e);
   });
 
+  it("getEntity throws for a foreign Entity and returns undefined for a destroyed same-world one", () => {
+    const w = new World();
+    const other = new World();
+    const e = w.entity();
+    const foreign = other.entity();
+
+    expect(() => w.getEntity(foreign)).toThrow(/different World/);
+    expect(() => w.entity(foreign)).toThrow(/different World/);
+
+    e.destroy();
+    expect(w.getEntity(e)).toBeUndefined();
+  });
+
   it("entity(ref) resolves component classes and entity refs", () => {
     const w = new World();
     const component = w.component(A);

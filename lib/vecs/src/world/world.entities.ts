@@ -41,7 +41,14 @@ export class Entities extends Deferred {
     return e;
   }
 
-  /** Look up an entity by component ref or identity name. */
+  /**
+   * Look up an entity by component ref or identity name.
+   *
+   * A foreign `Entity` (one whose `world` is not this world) throws: passing an
+   * entity from another world is a programming error, not a miss. An `Entity`
+   * whose world matches but whose eid is unknown (e.g. after destruction)
+   * returns `undefined`.
+   */
   public getEntity(this: World, ref: ComponentRef | string): Entity | undefined {
     if (typeof ref === "string") {
       return this._identityNameIndex.get(ref);
@@ -56,14 +63,25 @@ export class Entities extends Deferred {
       const entity = this._entities.get(ref);
       return entity ?? (this.deferred ? this._deferredEntities.get(ref) : undefined);
     }
-    return ref.world === this && this._entities.get(ref.eid) === ref ? ref : undefined;
+    if (ref.world !== this) {
+      throw new Error("Entity belongs to a different World");
+    }
+    return this._entities.get(ref.eid) === ref
+      ? ref
+      : this.deferred
+        ? this._deferredEntities.get(ref.eid)
+        : undefined;
   }
 
   /** Create a new entity with an auto-assigned id. */
   public entity(this: World): Entity;
   /** Look up an existing entity by identity name, creating it if absent. */
   public entity(this: World, ref: string): Entity;
-  /** Look up an existing entity by component ref. */
+  /**
+   * Look up an existing entity by component ref.
+   *
+   * A foreign `Entity` ref throws (see {@link getEntity}).
+   */
   public entity(this: World, ref: ComponentRef): Entity;
   public entity(this: World, ref?: ComponentRef | string): Entity {
     if (ref === undefined) {
