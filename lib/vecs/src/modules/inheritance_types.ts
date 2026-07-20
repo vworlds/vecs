@@ -51,6 +51,11 @@ export class Override {}
  * Registered as a `ChildOf` child of the `OnInstantiate` component entity by
  * `InheritanceModule`, so it can be passed by class to
  * `world.component(C).add(OnInstantiate, Inherit)`.
+ *
+ * Caveat: `entity.attach(C, instance)` is not supported on a component marked
+ * `Inherit`. It replaces the instance on the source entity while inheritors
+ * hold proxies pointing at the previous instance, creating a dangling-proxy
+ * hazard. Use `set` or `add` instead.
  */
 export class Inherit {}
 
