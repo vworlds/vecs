@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ChildOf,
   DontInherit,
   Exclusive,
   Inherit,
@@ -32,6 +33,7 @@ class Position {
 class Switchable {
   value = 0;
 }
+class Sprite {}
 
 describe("InheritanceModule", () => {
   it("is auto-registered by new World()", () => {
@@ -291,5 +293,137 @@ describe("IsA no-retarget and removal", () => {
     knight.remove(IsA, warrior);
     expect(knight.has(IsA)).toBe(false);
     expect(knight.has(Helmet)).toBe(true);
+  });
+});
+
+describe("IsA edge cases and teardown (Phase 7)", () => {
+  it("destroying the template removes the IsA edge and leaves inherited components", () => {
+    const w = new World();
+    w.component(Helmet).add(OnInstantiate, Inherit);
+    w.component(Shield);
+    const warrior = w.entity().set(Helmet, { armor: 5 }).set(Shield, { defense: 9 });
+    const knight = w.entity().add(IsA, warrior);
+    expect(knight.has(Helmet)).toBe(true);
+    expect(knight.has(Shield)).toBe(true);
+    warrior.destroy();
+    expect(knight.has(IsA)).toBe(false);
+    expect(knight.has(Helmet)).toBe(true);
+    expect(knight.has(Shield)).toBe(true);
+  });
+
+  it("reads through a stale clean wrapper return last-known values without throwing", () => {
+    const w = new World();
+    w.component(Helmet).add(OnInstantiate, Inherit);
+    const warrior = w.entity().set(Helmet, { armor: 5 });
+    const knight = w.entity().add(IsA, warrior);
+    warrior.destroy();
+    expect(() => knight.get(Helmet)).not.toThrow();
+    expect(knight.get(Helmet)!.armor).toBe(5);
+  });
+
+  it("writing to a stale clean wrapper snapshots at first write", () => {
+    const w = new World();
+    w.component(Helmet).add(OnInstantiate, Inherit);
+    const warrior = w.entity().set(Helmet, { armor: 5 });
+    const knight = w.entity().add(IsA, warrior);
+    warrior.destroy();
+    const wrapper = knight.get(Helmet) as Helmet;
+    wrapper.armor = 99;
+    expect(knight.get(Helmet)!.armor).toBe(99);
+  });
+
+  it("clearAllEntities succeeds with live IsA edges (teardown contract)", () => {
+    const w = new World();
+    w.component(Helmet).add(OnInstantiate, Inherit);
+    w.component(Shield);
+    const warrior = w.entity().set(Helmet, { armor: 5 }).set(Shield, { defense: 9 });
+    const knight = w.entity().add(IsA, warrior);
+    const squire = w.entity().add(IsA, knight);
+    expect(() => w.clearAllEntities()).not.toThrow();
+    expect(w.entities.size).toBe(0);
+  });
+
+  it("a fieldless Inherit component produces a working wrapper that promotes on modified", () => {
+    const w = new World();
+    w.component(Sprite).add(OnInstantiate, Inherit);
+    const template = w.entity().add(Sprite);
+    const inheritor = w.entity().add(IsA, template);
+    expect(inheritor.has(Sprite)).toBe(true);
+    expect(inheritor.get(Sprite) instanceof Sprite).toBe(true);
+    inheritor.modified(Sprite);
+    w.progress(0, 0);
+    const got = inheritor.get(Sprite);
+    expect(got instanceof Sprite).toBe(true);
+  });
+
+  it("an Inherit component later removed from the template leaves a stale-but-readable proxy", () => {
+    const w = new World();
+    w.component(Helmet).add(OnInstantiate, Inherit);
+    w.component(Shield);
+    const warrior = w.entity().set(Helmet, { armor: 5 }).set(Shield, { defense: 9 });
+    const knight = w.entity().add(IsA, warrior);
+    warrior.remove(Helmet);
+    expect(() => knight.get(Helmet)).not.toThrow();
+    expect(knight.get(Helmet)!.armor).toBe(5);
+    expect(knight.get(Shield)!.defense).toBe(9);
+  });
+
+  it("IsA on an empty template is a no-op", () => {
+    const w = new World();
+    const empty = w.entity();
+    const inheritor = w.entity().add(IsA, empty);
+    expect(inheritor.has(IsA)).toBe(true);
+    // The inheritor's only component is the IsA relationship itself.
+    expect(inheritor.components.size).toBe(1);
+  });
+
+  it("IsA on a template with only relationships inherits nothing", () => {
+    const w = new World();
+    const parent = w.entity();
+    const template = w.entity().childOf(parent);
+    const inheritor = w.entity().add(IsA, template);
+    expect(inheritor.has(IsA)).toBe(true);
+    expect(inheritor.has(ChildOf)).toBe(false);
+  });
+
+  it("multiple inheritors of the same template get independent wrappers", () => {
+    const w = new World();
+    w.component(Helmet).add(OnInstantiate, Inherit);
+    w.component(Sword).add(OnInstantiate, Override);
+    const warrior = w.entity().set(Helmet, { armor: 5 }).set(Sword, { damage: 10 });
+    const knight1 = w.entity().add(IsA, warrior);
+    const knight2 = w.entity().add(IsA, warrior);
+    expect(knight1.get(Helmet)!.armor).toBe(5);
+    expect(knight2.get(Helmet)!.armor).toBe(5);
+    expect(knight1.get(Sword)!.damage).toBe(10);
+    expect(knight2.get(Sword)!.damage).toBe(10);
+    knight1.set(Helmet, { armor: 7 });
+    expect(knight1.get(Helmet)!.armor).toBe(7);
+    expect(knight2.get(Helmet)!.armor).toBe(5);
+    warrior.set(Helmet, { armor: 9 });
+    expect(knight1.get(Helmet)!.armor).toBe(7);
+    expect(knight2.get(Helmet)!.armor).toBe(9);
+  });
+
+  it("mutating an Inherit component inside each() promotes via modified()", () => {
+    const w = new World();
+    w.component(Position).add(OnInstantiate, Inherit);
+    const warrior = w.entity().set(Position, { x: 5, y: 7 });
+    const knight = w.entity().add(IsA, warrior);
+    // Filter the system to only the inheritor so the template is not mutated.
+    w.system("move")
+      .with(Position)
+      .each([Position], (e, [pos]) => {
+        if (!e.has(IsA)) {
+          return;
+        }
+        pos.x++;
+        e.modified(Position);
+      });
+    w.progress(0, 0); // enter + first each
+    const got = knight.get(Position)!;
+    expect(got.x).toBe(6);
+    expect(got.y).toBe(7);
+    expect(warrior.get(Position)!.x).toBe(5);
   });
 });
