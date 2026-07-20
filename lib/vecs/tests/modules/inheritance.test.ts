@@ -33,7 +33,7 @@ class Switchable {
   value = 0;
 }
 
-describe("InheritanceModule (Phase 3 skeleton)", () => {
+describe("InheritanceModule", () => {
   it("is auto-registered by new World()", () => {
     const w = new World();
     expect(() => w.component(IsA)).not.toThrow();
@@ -76,14 +76,22 @@ describe("InheritanceModule (Phase 3 skeleton)", () => {
     expect(w.component(IsA).has(Exclusive)).toBe(true);
   });
 
-  it("silently replaces the IsA target on a second add (retarget guard is Phase 5)", () => {
+  it("rejects retargeting IsA to a different template", () => {
     const w = new World();
     const t1 = w.entity();
     const t2 = w.entity();
     const e = w.entity().add(IsA, t1);
     expect(e.target(IsA)).toBe(t1);
-    e.add(IsA, t2);
-    expect(e.target(IsA)).toBe(t2);
+    expect(() => e.add(IsA, t2)).toThrow("IsA does not allow retargeting");
+    // World partially mutated; discard it.
+  });
+
+  it("allows re-adding IsA to the same template (idempotent)", () => {
+    const w = new World();
+    const t1 = w.entity();
+    const e = w.entity().add(IsA, t1);
+    expect(() => e.add(IsA, t1)).not.toThrow();
+    expect(e.target(IsA)).toBe(t1);
   });
 
   it("allows clearAllEntities to tear down a world with OnInstantiate configured", () => {
@@ -96,7 +104,7 @@ describe("InheritanceModule (Phase 3 skeleton)", () => {
   });
 });
 
-describe("IsA component walk (Phase 4)", () => {
+describe("IsA component walk", () => {
   it("walks the template copying, proxying, and skipping per OnInstantiate policy", () => {
     const w = new World();
     w.component(Helmet).add(OnInstantiate, Inherit);
@@ -237,5 +245,51 @@ describe("IsA component walk (Phase 4)", () => {
     expect(e2.get(Switchable)!.value).toBe(40);
 
     expect(e1.get(Switchable)!.value).toBe(10);
+  });
+});
+
+describe("IsA no-retarget and removal", () => {
+  it("surfaces retarget at flush() in deferred mode", () => {
+    const w = new World();
+    const t1 = w.entity();
+    const t2 = w.entity();
+    const e = w.entity();
+
+    w.beginDefer();
+    e.add(IsA, t1);
+    e.add(IsA, t2);
+    expect(() => w.endDefer()).toThrow("IsA does not allow retargeting");
+    // World partially mutated; discard it.
+  });
+
+  it("removing IsA leaves copied components on the inheritor", () => {
+    const w = new World();
+    w.component(Helmet).add(OnInstantiate, Inherit);
+    w.component(Shield);
+    const warrior = w.entity().set(Helmet, { armor: 3 }).set(Shield, { defense: 5 });
+    const knight = w.entity().add(IsA, warrior);
+
+    expect(knight.has(Helmet)).toBe(true);
+    expect(knight.has(Shield)).toBe(true);
+    expect(knight.has(IsA)).toBe(true);
+
+    knight.remove(IsA);
+
+    expect(knight.has(IsA)).toBe(false);
+    expect(knight.has(Helmet)).toBe(true);
+    expect(knight.has(Shield)).toBe(true);
+    expect(knight.get(Helmet)!.armor).toBe(3);
+    expect(knight.get(Shield)!.defense).toBe(5);
+  });
+
+  it("removing IsA by edge leaves other edges and copied components intact", () => {
+    const w = new World();
+    w.component(Helmet).add(OnInstantiate, Inherit);
+    const warrior = w.entity().set(Helmet, { armor: 3 });
+    const knight = w.entity().add(IsA, warrior);
+
+    knight.remove(IsA, warrior);
+    expect(knight.has(IsA)).toBe(false);
+    expect(knight.has(Helmet)).toBe(true);
   });
 });
