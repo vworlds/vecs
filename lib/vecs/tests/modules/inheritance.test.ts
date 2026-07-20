@@ -296,7 +296,7 @@ describe("IsA no-retarget and removal", () => {
   });
 });
 
-describe("IsA edge cases and teardown (Phase 7)", () => {
+describe("IsA edge cases and teardown", () => {
   it("destroying the template removes the IsA edge and leaves inherited components", () => {
     const w = new World();
     w.component(Helmet).add(OnInstantiate, Inherit);
