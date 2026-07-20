@@ -20,6 +20,8 @@ const INTERNAL = Symbol("internal");
 interface IWrapperInstance {
   [TARGET]: ComponentInstance;
   [INTERNAL]: ComponentInstance | undefined;
+  /** @internal True once the first field write has promoted the wrapper to its internal snapshot. */
+  __isDirty(): boolean;
   __unproxy(): ComponentInstance;
 }
 
@@ -637,6 +639,14 @@ export class ComponentMeta {
             },
           });
         }
+      }
+
+      /**
+       * @internal True once the first field write has promoted the wrapper
+       * to its internal snapshot.
+       */
+      __isDirty(): boolean {
+        return this[INTERNAL] !== undefined;
       }
 
       /**

@@ -2,6 +2,7 @@ import { CommandKind } from "../command.js";
 import {
   ComponentMeta,
   _slotHandlers,
+  isWrapperInstance,
   type ComponentClass,
   type ComponentInstance,
   type ComponentRef,
@@ -44,14 +45,34 @@ export class Components extends Relationships {
    * @internal Look up a component instance by component eid.
    *
    * Faster than {@link get} because no class to type id resolution is needed.
+   *
+   * If the stored instance is a dirty IsA-inheritance wrapper, it is promoted
+   * to a real instance (via `__unproxy()`) and stored back into `_components`
+   * before being returned. Clean wrappers are returned as-is.
    */
   public _get(ceid: EID): ComponentInstance | undefined {
-    return this._components.get(ceid);
+    const c = this._components.get(ceid);
+    if (c === undefined) {
+      return undefined;
+    }
+    if (!isWrapperInstance(c)) {
+      return c;
+    }
+    if (c.__isDirty()) {
+      const real = c.__unproxy();
+      this._components.set(ceid, real);
+      return real;
+    }
+    return c;
   }
 
   /**
    * @internal Apply a `Modified` command: fire `onSet` and route modified
    * events to every query that watches the component type.
+   *
+   * If the stored instance is an IsA-inheritance wrapper, it is promoted to a
+   * real instance (via `__unproxy()`) and stored back into `_components`
+   * before the set-side notifications fire, so observers see a normal instance.
    */
   public _modified(this: Entity, meta: ComponentMeta): void {
     if (this._destroyed) {
@@ -61,7 +82,12 @@ export class Components extends Relationships {
     if (!c) {
       return;
     }
-    this._notifyComponentSet(meta, c, true);
+    let instance = c;
+    if (isWrapperInstance(c)) {
+      instance = c.__unproxy();
+      this._components.set(meta.eid, instance);
+    }
+    this._notifyComponentSet(meta, instance, true);
   }
 
   /**
@@ -128,7 +154,12 @@ export class Components extends Relationships {
     }
 
     const existing = this._components.get(meta.eid);
-    const c = existing ?? this._new(meta, props);
+    let c = existing ?? this._new(meta, props);
+    if (isWrapperInstance(c)) {
+      const real = c.__unproxy();
+      this._components.set(meta.eid, real);
+      c = real;
+    }
     if (props !== undefined) {
       if (existing) {
         Object.assign(c, props);
