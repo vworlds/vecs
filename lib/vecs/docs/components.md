@@ -121,14 +121,15 @@ world.component(ChildOf).add(Traversable); // ChildOf is already Exclusive
 world.component(Orange).set(Implements, { interfaces: [Fruit] });
 ```
 
-| Trait/declaration | Applies to                                   | Effect                                                                       |
-| ----------------- | -------------------------------------------- | ---------------------------------------------------------------------------- |
-| `Singleton`       | Concrete components                          | Allows at most one carrier entity                                            |
-| `Implements`      | Non-relationship components                  | Exposes concrete data through abstract aliases                               |
-| `Exclusive`       | Relationships                                | Restricts the relationship to one target with atomic replacement             |
-| `Traversable`     | Exclusive relationships                      | Maintains hierarchy depth for cascade ordering                               |
-| `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement |
-| `OneOf`           | Relationships                                | Constrains each target to be a direct `ChildOf` child of a declared parent   |
+| Trait/declaration | Applies to                                   | Effect                                                                                                                      |
+| ----------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `Singleton`       | Concrete components                          | Allows at most one carrier entity                                                                                           |
+| `Implements`      | Non-relationship components                  | Exposes concrete data through abstract aliases                                                                              |
+| `Exclusive`       | Relationships                                | Restricts the relationship to one target with atomic replacement                                                            |
+| `Traversable`     | Exclusive relationships                      | Maintains hierarchy depth for cascade ordering                                                                              |
+| `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement                                                |
+| `OneOf`           | Relationships                                | Constrains each target to be a direct `ChildOf` child of a declared parent                                                  |
+| `OnInstantiate`   | Non-relationship components                  | Declares the `IsA` inheritance policy: `Override`, `Inherit`, or `DontInherit` (see [Entity inheritance](./inheritance.md)) |
 
 Traits declare policy; their built-in modules install the hooks and maintain the metadata that
 enforce it. Configure traits in feature-module setup rather than opportunistically inside systems.
