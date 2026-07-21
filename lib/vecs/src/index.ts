@@ -45,6 +45,14 @@ export { Module, type ModuleConfig } from "./module.js";
 export { IdentityModule } from "./modules/identity.js";
 export { ImplementsModule } from "./modules/implements.js";
 export { Singleton, SingletonModule } from "./modules/singleton.js";
+export {
+  DontInherit,
+  Inherit,
+  InheritanceModule,
+  IsA,
+  OnInstantiate,
+  Override,
+} from "./modules/inheritance.js";
 export { Traversable, With, RelationshipsModule } from "./modules/relationships.js";
 export {
   BUILTIN_PIPELINE_PHASES,

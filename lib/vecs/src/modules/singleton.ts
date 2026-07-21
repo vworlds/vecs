@@ -27,6 +27,9 @@ export class SingletonModule extends Module {
   public init(): void {
     this.world.component(Singleton).on("add", (target: Entity): void => {
       const targetMeta = target.meta;
+      if (targetMeta._inheritShared) {
+        throw new Error("Inherit components cannot be Singleton");
+      }
       if (targetMeta.usageCount !== 0) {
         throw new Error(
           `Cannot make component ${targetMeta.Class.name} singleton; ${targetMeta.usageCount} instance(s) already exist`

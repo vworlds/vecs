@@ -100,6 +100,9 @@ export class Components extends Entities {
   /** Declare a group of mutually exclusive components. */
   public setExclusiveComponents(this: World, ...components: ComponentClass[]): void {
     const componentMetas = components.map((C) => this.entity(C).meta);
+    if (componentMetas.some((meta) => meta._inheritShared)) {
+      throw new Error("Inherit components cannot belong to an exclusive component group");
+    }
     for (let i = 0; i < componentMetas.length; i++) {
       componentMetas[i]._exclusive = componentMetas.filter((_, j) => j !== i);
     }

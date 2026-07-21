@@ -41,6 +41,10 @@ export class Lifecycle extends Components {
     if (this._destroyed) {
       return;
     }
+    const entityMeta = this._meta;
+    if (entityMeta?._inheritShared && entityMeta.onDelete !== CleanupPolicy.Throw) {
+      throw new Error("Cannot destroy an Inherit component with a non-default deletion policy");
+    }
     // The outermost _destroy in a cascade owns the deletion scope. Recursive
     // _destroy calls (triggered by _applyOnDelete below, or by the scope flush)
     // find the field already set and append to it, deferring their own incoming
@@ -51,7 +55,6 @@ export class Lifecycle extends Components {
       this.world._deletionScope = [];
     }
     try {
-      const entityMeta = this._meta;
       let selfCarry = 0;
       if (entityMeta) {
         selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
@@ -78,7 +81,9 @@ export class Lifecycle extends Components {
         this.componentBitmask.deleteBit(componentMeta.bitPtr);
         this.world._notifyComponentRemoved(ceid, this);
         componentMeta._detachCarrier(this);
-        componentMeta._onRemove?.(this, c);
+        if (componentMeta._shouldNotifyRemove?.(this, c) !== false) {
+          componentMeta._onRemove?.(this, c);
+        }
       });
       this._dirtyComponentBitmask.clear();
       this._queries.clear();
@@ -116,6 +121,9 @@ export class Lifecycle extends Components {
    */
   public destroy(this: Entity): void {
     const entityMeta = this._meta;
+    if (entityMeta?._inheritShared && entityMeta.onDelete !== CleanupPolicy.Throw) {
+      throw new Error("Cannot destroy an Inherit component with a non-default deletion policy");
+    }
     if (
       entityMeta &&
       entityMeta.onDelete === CleanupPolicy.Throw &&

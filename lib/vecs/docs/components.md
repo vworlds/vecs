@@ -129,6 +129,7 @@ world.component(Orange).set(Implements, { interfaces: [Fruit] });
 | `Traversable`     | Exclusive relationships                      | Maintains hierarchy depth for cascade ordering                               |
 | `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement |
 | `OneOf`           | Relationships                                | Constrains each target to be a direct `ChildOf` child of a declared parent   |
+| `OnInstantiate`   | Ordinary components                          | Selects `Override`, `Inherit`, or `DontInherit` behavior for `IsA` templates |
 
 Traits declare policy; their built-in modules install the hooks and maintain the metadata that
 enforce it. Configure traits in feature-module setup rather than opportunistically inside systems.
@@ -146,6 +147,11 @@ Do not assume all traits have the same lifecycle:
 Treat traits as setup policy unless their documentation explicitly supports runtime changes. Before
 writing custom component-type bookkeeping, check whether an existing trait already expresses the
 invariant.
+
+`OnInstantiate` policy is irrevocable and must be configured before the component has carriers.
+Missing policy means shallow `Override`; `Inherit` shares references with copy-on-write through
+`set`; `DontInherit` omits the component. See the [Inheritance guide](./inheritance.md) for the
+complete policy, mutation, notification, teardown, and composition contract.
 
 Custom traits use the same mechanism. Keep the trait class as data and put its behavior in a module:
 
@@ -313,6 +319,10 @@ destroyed. A plain wrapper component (`class Handle { obj }`) still works when y
 beside the resource. The full pattern — create/update, the remove-hook teardown, and `Implements`
 interface markers for polymorphic dispatch — is in the
 [Design guide](./design-guide.md#7-patterns-reach-for-these).
+
+Resource objects should use `DontInherit` when their entity participates in an `IsA` hierarchy.
+Neither shallow copying nor shared teardown ownership is safe for attached resources; see
+[Inheritance](./inheritance.md#shared-values-and-copy-on-write).
 
 ## Reference
 

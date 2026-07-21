@@ -269,6 +269,9 @@ export type ComponentType<T extends ComponentInstance = ComponentInstance> = abs
 /** A component class constructor that can be instantiated by entity.add/set. */
 export type ComponentClass<T extends ComponentInstance = ComponentInstance> = new () => T;
 
+/** @internal Mutation operations that component policy may constrain. */
+export type ComponentMutation = "attach" | "ensure" | "getMut" | "modified" | "remove";
+
 /** A component class constructor, component eid, or entity component key. */
 export type ComponentRef = EID | ComponentType | EntityClass | Entity;
 
@@ -333,6 +336,33 @@ export class ComponentMeta {
 
   /** @internal Whether this component meta is an abstract/interface alias. */
   public _isInterface = false;
+
+  /** @internal Whether this component uses shared `Inherit` policy. */
+  public _inheritShared = false;
+
+  /** @internal Prepare an existing instance before `set` assigns properties. */
+  public _prepareSet:
+    ((entity: Entity, component: ComponentInstance) => ComponentInstance) | undefined;
+
+  /** @internal Reject mutation APIs that are unsafe for a configured component policy. */
+  public _validateMutation:
+    | ((
+        entity: Entity,
+        operation: ComponentMutation,
+        component?: ComponentInstance,
+        replacement?: ComponentInstance
+      ) => void)
+    | undefined;
+
+  /** @internal Validate a relationship edge before it is attached. */
+  public _validateTargetAdd: ((source: Entity, target: Entity) => void) | undefined;
+
+  /** @internal Validate a relationship edge before it is detached. */
+  public _validateTargetRemove: ((source: Entity, target: Entity) => void) | undefined;
+
+  /** @internal Decide whether a structural removal should fire the public remove hook. */
+  public _shouldNotifyRemove:
+    ((entity: Entity, component: ComponentInstance) => boolean) | undefined;
 
   /** @internal Framework policy applied when this component is attached. */
   public _onPolicyAdd: HookSlot<HookHandler> = undefined;

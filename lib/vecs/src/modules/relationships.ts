@@ -139,6 +139,9 @@ export class RelationshipsModule extends Module {
     withTrait.meta.on("targetPolicyAdd", (xEntity, _withRelationship, yEntity): void => {
       const xMeta = xEntity.meta;
       const yMeta = yEntity.meta;
+      if (xMeta._inheritShared) {
+        throw new Error("Inherit components cannot use With");
+      }
       if (xMeta.isRelationship !== yMeta.isRelationship) {
         throw new Error(
           "With: the component and its target must both be relationships or both be plain components"

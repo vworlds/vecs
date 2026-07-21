@@ -14,6 +14,9 @@ export class ImplementsModule extends Module {
     const component = this.world.component(Implements);
 
     component.on("set", (entity: Entity) => {
+      if (entity.meta._inheritShared) {
+        throw new Error("Inherit components cannot declare Implements interfaces");
+      }
       this._declaring.add(entity);
       this._recompute();
     });
@@ -111,6 +114,9 @@ export class ImplementsModule extends Module {
     for (const ifaceMeta of interfaces) {
       if (ifaceMeta.isRelationship) {
         throw new Error(`Relationship ${ifaceMeta.Class.name} cannot be an interface`);
+      }
+      if (ifaceMeta._inheritShared) {
+        throw new Error(`Inherit component ${ifaceMeta.Class.name} cannot be an interface`);
       }
     }
   }

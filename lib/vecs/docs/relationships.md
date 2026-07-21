@@ -40,8 +40,11 @@ Use `hasTarget(ref, target)` to test one edge without allocating a snapshot.
 | `ChildOf`       | Exclusive parent/child hierarchy. `onDeleteTarget = Delete`: destroying a parent destroys its `ChildOf` children.          |
 | `DependsOn`     | Exclusive pipeline ordering: phases chain to each other and systems attach to phases through it.                           |
 | `SilenceSource` | Exclusive query silence domain; configured via [`ignoreSource`](./queries-and-filters.md#silencing-feedback-ignoresource). |
+| `IsA`           | Exclusive immutable template hierarchy; instantiates components and deletes inheritors with the template.                  |
 
-`ChildOf` and `DependsOn` are also `Traversable`; all three built-ins above are `Exclusive`.
+`ChildOf` and `DependsOn` are also `Traversable`. `ChildOf`, `DependsOn`, `SilenceSource`, and `IsA`
+are all `Exclusive`; `IsA` is additionally acyclic and immutable. Its component-copying and
+shared-reference semantics are documented in [Inheritance](./inheritance.md).
 
 ## Adding, removing, and setting
 
@@ -326,6 +329,10 @@ The client reconciles every received edge and applies ordinary fields. If a targ
 arrived, it creates a networked ghost for that eid immediately; each missing target in a many-target
 payload gets its own ghost. List `ChildOf` or a custom relationship explicitly in
 `networkComponents` when those edges must replicate.
+
+`IsA` is not a network relationship in version 1. Do not list it or rely on inheritance hierarchy,
+policy, shared pointers, or copy-on-write behavior crossing a network boundary; see
+[Inheritance — unsupported composition](./inheritance.md#unsupported-composition).
 
 ## Reference
 
