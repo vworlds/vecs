@@ -20,7 +20,7 @@ every idiom in the [Design guide](./design-guide.md) is a consequence of taking 
 | **System**                 | A `Query` plus per-tick logic (`update`, `each`, `run`), assigned to one pipeline phase.                     |
 | **Query**                  | A reactive, always-up-to-date set of entities matching a predicate, with `enter`/`exit`/`update` callbacks.  |
 | **Filter**                 | A non-reactive, one-shot scan: walks all world entities on each `forEach` call.                              |
-| **Hook**                   | Lightweight component callbacks (`onAdd` / `onSet` / `onRemove`, plus relationship edge hooks).              |
+| **Hook**                   | Lightweight component callbacks (`beforeSet`, `onAdd` / `onSet` / `onRemove`, plus relationship edge hooks). |
 | **Phase**                  | Marker component for entities used as pipeline ordering anchors.                                             |
 | **Relationship**           | A component holding explicit edges to one or more target entities, with reverse lookup and cleanup cascades. |
 | **Component trait**        | Policy attached to a component entity, configuring every use of that component type.                         |
@@ -79,6 +79,8 @@ Because queries react to component presence and change, the component set _is_ t
 - "This entity is renderable" — it has a renderable component; the render system's `enter` fires.
 - "This resource must be released" — remove its component (or destroy the entity); `onRemove`
   fires.
+- "This set must validate or replace its existing value" — `beforeSet` reduces a candidate before
+  assignment without changing storage during the public handlers.
 - "This value changed" — `set`/`modified` fires `onSet` hooks and `update` callbacks.
 
 So instead of factories, registries, and `Map<eid, resource>` side tables, you write systems gated

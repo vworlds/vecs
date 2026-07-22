@@ -76,6 +76,11 @@ export class Components extends Relationships {
     if (!c) {
       return;
     }
+    if (meta.isRelationship && meta._validateTargetRemove) {
+      for (const target of (c as Relationship)._targetArray()) {
+        meta._validateTargetRemove(this, target);
+      }
+    }
     if (meta._implementsClosure) {
       for (const aliasMeta of meta._implementsClosure) {
         if (this._components.get(aliasMeta.eid) === c) {
@@ -84,6 +89,26 @@ export class Components extends Relationships {
       }
     }
     this._removeRaw(meta, c);
+  }
+
+  /**
+   * @internal Replace concrete and interface-alias slots that still hold `expected`.
+   * Performs no lifecycle, structural, query, or value notifications.
+   */
+  public _repointComponentSilently(
+    this: Entity,
+    meta: ComponentMeta,
+    expected: ComponentInstance,
+    replacement: ComponentInstance
+  ): void {
+    if (this._components.get(meta.eid) === expected) {
+      this._components.set(meta.eid, replacement);
+    }
+    for (const aliasMeta of meta._implementsClosure ?? []) {
+      if (this._components.get(aliasMeta.eid) === expected) {
+        this._components.set(aliasMeta.eid, replacement);
+      }
+    }
   }
 
   /** @internal Apply one remove without expanding interface aliases. */
@@ -128,9 +153,27 @@ export class Components extends Relationships {
     }
 
     const existing = this._components.get(meta.eid);
-    const c = existing ?? this._new(meta, props);
+    let c = existing ?? this._new(meta, props);
     if (props !== undefined) {
       if (existing) {
+        for (const handlerMeta of [meta, ...(meta._implementsClosure ?? [])]) {
+          for (const handler of _slotHandlers(handlerMeta._onBeforeSet)) {
+            const replacement = handler(this, c, props);
+            if (this._destroyed || this._components.get(meta.eid) !== existing) {
+              return;
+            }
+            if (replacement !== undefined) {
+              c = replacement;
+            }
+          }
+        }
+        if (c !== existing && !(c instanceof meta.Class)) {
+          throw new Error(`beforeSet replacement must be an instance of ${meta.Class.name}`);
+        }
+        c = meta._finalizeBeforeSet?.(this, existing, c) ?? c;
+        if (c !== existing) {
+          this._repointComponentSilently(meta, existing, c);
+        }
         Object.assign(c, props);
       }
       this._notifyComponentSet(meta, c, existing !== undefined);
@@ -590,10 +633,13 @@ export class Components extends Relationships {
       return;
     }
     const existing = this._components.get(meta.eid) as Relationship | undefined;
+    meta._validateTargetAdd?.(this, target);
     if (existing?._hasTarget(target)) {
       return;
     }
     if (existing && meta.relationshipExclusive) {
+      const current = existing._target()!;
+      meta._validateTargetRemove?.(this, current);
       const previous = existing._replaceTarget(target);
       this._removeIncoming(previous, meta.eid);
       this._addIncoming(target, meta.eid);
@@ -652,6 +698,7 @@ export class Components extends Relationships {
       this._remove(meta);
       return;
     }
+    meta._validateTargetRemove?.(this, target);
     relationship._removeTarget(target);
     this._removeIncoming(target, meta.eid);
     const reflectsRemove = (): boolean =>

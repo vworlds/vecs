@@ -84,11 +84,12 @@ world
   .on("remove", (entity, sprite) => sprite.destroy(scene, entity));
 ```
 
-| Hook     | Fires when…                                                                                                                                                        |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `add`    | The component is first attached (`add`, or `set` on an entity that lacked an ordinary component).                                                                  |
-| `set`    | `entity.set(C, props)` applies ordinary data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
-| `remove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                                 |
+| Hook        | Fires when…                                                                                                                                                        |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `add`       | The component is first attached (`add`, or `set` on an entity that lacked an ordinary component).                                                                  |
+| `beforeSet` | `entity.set(C, props)` is about to assign into an existing ordinary component. May validate or return a silent replacement; handlers reduce in registration order. |
+| `set`       | `entity.set(C, props)` applies ordinary data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
+| `remove`    | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                                 |
 
 Relationship component entities additionally expose the `targetAdd` and `targetRemove` events. Both
 receive `(source, relationshipInstance, target)` after the edge and reverse index reach their new
@@ -107,6 +108,25 @@ Multiple handlers may be registered for the same event: they fire in registratio
 order. Call `on(event, handler)` to append, `on(event, handler, true)` to
 prepend, and `off(event, handler)` to remove a handler by reference. All three
 return the component entity for chaining.
+
+`beforeSet` receives `(entity, currentComponent, props)` and may return a replacement object. Each
+handler receives the candidate returned by the prior handler; `undefined` retains that candidate.
+Concrete-component handlers run first, followed by handlers on each `Implements` alias in closure
+order. The entity's stored concrete and alias slots remain unchanged throughout this public
+reduction. If a handler throws, no candidate is stored and inheritance performs no copy-on-write.
+A selected replacement must be an instance of the concrete component class; an alias handler may
+validate or replace a concrete value, but cannot substitute an interface-only instance. Retaining
+the existing object has no runtime class check, preserving explicit-class `attach` of structurally
+compatible objects.
+
+After successful reduction, vecs silently stores the final candidate in the concrete and matching
+alias slots, assigns `props`, and routes `set` once. If a handler reentrantly uses `attach`, `remove`,
+`destroy`, or another replacing `set` to change the concrete slot, the outer `set` aborts without
+assignment or a false notification; the reentrant operation retains its own ordinary effects.
+Relationship data updates, new-component `set`, `attach`, `modified`, `getMut`, and `ensure` do not
+invoke `beforeSet`. The built-in
+[one-shot inheritance](./inheritance.md#copy-on-write-for-set) module uses this hook for its narrow
+set-time copy-on-write behavior.
 
 ## Component traits: policy on component entities
 
@@ -129,6 +149,10 @@ world.component(Orange).set(Implements, { interfaces: [Fruit] });
 | `Traversable`     | Exclusive relationships                      | Maintains hierarchy depth for cascade ordering                               |
 | `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement |
 | `OneOf`           | Relationships                                | Constrains each target to be a direct `ChildOf` child of a declared parent   |
+
+`OnInstantiate` is a mutable, pair-form component policy used by
+[one-shot inheritance](./inheritance.md#select-a-component-policy); unlike the setup traits above,
+its changes intentionally affect only future `IsA` additions.
 
 Traits declare policy; their built-in modules install the hooks and maintain the metadata that
 enforce it. Configure traits in feature-module setup rather than opportunistically inside systems.
@@ -331,11 +355,11 @@ interface markers for polymorphic dispatch — is in the
 A `Component<T>` is an `Entity` subclass, so the full [entity API](./entities.md#reference)
 applies. On top of it:
 
-| Member                        | Description                                                                                                                                                                                                                                                                                                      |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `on(event, handler, insert?)` | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` (plus the internal `policyAdd` / `policyRemove` / `targetPolicyAdd` / `targetPolicyRemove` events). `insert` defaults to `false` (append); `true` prepends. Rejects `target*` events on non-relationships. Returns the component. |
-| `off(event, handler)`         | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                                                                                                          |
-| `meta`                        | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                                                                                                          |
+| Member                        | Description                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `on(event, handler, insert?)` | Register a handler for `add` / `beforeSet` / `remove` / `set` / `targetAdd` / `targetRemove` (plus the internal `policyAdd` / `policyRemove` / `targetPolicyAdd` / `targetPolicyRemove` events). `insert` defaults to `false` (append); `true` prepends. Rejects `target*` events on non-relationships. Returns the component. |
+| `off(event, handler)`         | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                                                                                                                        |
+| `meta`                        | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                                                                                                                        |
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 

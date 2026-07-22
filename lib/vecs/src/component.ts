@@ -1,6 +1,7 @@
 import { Entity } from "./entity/index.js";
 import {
   Relationship,
+  type BeforeSetHandler,
   type ComponentType,
   type HookEvent,
   type HookEventMap,
@@ -13,6 +14,7 @@ export {
   ComponentMeta,
   Implements,
   Relationship,
+  type BeforeSetHandler,
   type ComponentClass,
   type ComponentInstance,
   type ComponentRef,
@@ -25,13 +27,14 @@ export {
 } from "./component_meta.js";
 
 /**
- * A per-component event map that narrows `add` / `remove` / `set` handlers to
+ * A per-component event map that narrows `add` / `beforeSet` / `remove` / `set` handlers to
  * the instance type `T` produces, and narrows `targetAdd` / `targetRemove` /
  * `targetPolicyAdd` / `targetPolicyRemove` handlers to `T`'s relationship
  * instance type when `T` produces a relationship.
  */
 type ComponentEventMap<T extends ComponentType> = {
   add: HookHandler<InstanceType<T>>;
+  beforeSet: BeforeSetHandler<InstanceType<T>>;
   remove: HookHandler<InstanceType<T>>;
   set: HookHandler<InstanceType<T>>;
   targetAdd: TargetHandler<InstanceType<T> & Relationship>;
@@ -46,20 +49,35 @@ type ComponentEventMap<T extends ComponentType> = {
 export class Component<T extends ComponentType = ComponentType> extends Entity {
   /**
    * Register a handler for a hook event, with the handler signature narrowed
-   * to this component's instance type (for `add` / `remove` / `set`) or its
+   * to this component's instance type (for `add` / `beforeSet` / `remove` / `set`) or its
    * relationship instance type (for the `target*` events). See
    * {@link ComponentMeta.on} for full semantics.
    */
   public override on<E extends HookEvent>(
     event: E,
     handler: ComponentEventMap<T>[E],
+    insert?: boolean
+  ): this;
+  public override on<E extends HookEvent>(
+    event: E,
+    handler: HookEventMap[E],
+    insert?: boolean
+  ): this;
+  public override on<E extends HookEvent>(
+    event: E,
+    handler: ComponentEventMap<T>[E] | HookEventMap[E],
     insert = false
   ): this {
     return super.on(event, handler as HookEventMap[E], insert);
   }
 
   /** Remove a previously-registered handler by reference. See {@link ComponentMeta.off}. */
-  public override off<E extends HookEvent>(event: E, handler: ComponentEventMap<T>[E]): this {
+  public override off<E extends HookEvent>(event: E, handler: ComponentEventMap<T>[E]): this;
+  public override off<E extends HookEvent>(event: E, handler: HookEventMap[E]): this;
+  public override off<E extends HookEvent>(
+    event: E,
+    handler: ComponentEventMap<T>[E] | HookEventMap[E]
+  ): this {
     return super.off(event, handler as HookEventMap[E]);
   }
 }

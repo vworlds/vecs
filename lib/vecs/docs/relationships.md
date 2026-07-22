@@ -39,9 +39,16 @@ Use `hasTarget(ref, target)` to test one edge without allocating a snapshot.
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `ChildOf`       | Exclusive parent/child hierarchy. `onDeleteTarget = Delete`: destroying a parent destroys its `ChildOf` children.          |
 | `DependsOn`     | Exclusive pipeline ordering: phases chain to each other and systems attach to phases through it.                           |
+| `IsA`           | Exclusive, acyclic [one-shot template inheritance](./inheritance.md); template destruction cascades through inheritors.    |
 | `SilenceSource` | Exclusive query silence domain; configured via [`ignoreSource`](./queries-and-filters.md#silencing-feedback-ignoresource). |
 
-`ChildOf` and `DependsOn` are also `Traversable`; all three built-ins above are `Exclusive`.
+`ChildOf` and `DependsOn` are also `Traversable`; they and `SilenceSource` carry the public
+`Exclusive` trait. `IsA` instead enforces exclusive cardinality intrinsically and does not need to
+carry that removable trait.
+
+`IsA` is deliberately narrower than a reactive prototype relationship: edge addition snapshots
+ordinary components once, and only existing-value `set` has copy-on-write behavior. Read the
+[one-shot inheritance guide](./inheritance.md) before using it; later mutations are not reconciled.
 
 ## Adding, removing, and setting
 

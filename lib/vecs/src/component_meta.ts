@@ -111,6 +111,24 @@ export type HookHandler<C extends ComponentInstance = ComponentInstance> = (
   component: C
 ) => void;
 
+/**
+ * Callback fired before `Entity.set` assigns properties to an existing ordinary component.
+ *
+ * Return a replacement candidate, or `undefined` to retain the current candidate. Concrete
+ * handlers run first, then interface-alias handlers in closure order; each receives the candidate
+ * returned by the previous handler while the stored component remains unchanged. A throw commits
+ * no candidate. If a handler changes the concrete slot reentrantly, the outer set aborts. After all
+ * handlers succeed, a replacement candidate must be an instance of the concrete component class;
+ * retaining the existing object does not require that runtime identity. `set` then stores any
+ * replacement, assigns `props`, and emits its normal set notification once. New components,
+ * relationship property updates, and other mutation APIs do not run this hook.
+ */
+export type BeforeSetHandler<C extends ComponentInstance = ComponentInstance> = (
+  entity: Entity,
+  currentComponent: C,
+  props: Partial<C>
+) => C | undefined;
+
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
 
@@ -125,6 +143,8 @@ export type ComponentInstance = object;
 export interface HookEventMap {
   /** Fired when a component of this type is first attached to an entity. */
   add: HookHandler;
+  /** Fired before properties are assigned to an existing ordinary component. */
+  beforeSet: BeforeSetHandler;
   /** Fired when a component of this type is removed from an entity. */
   remove: HookHandler;
   /** Fired when a component's data is set or modified. */
@@ -282,7 +302,7 @@ export class Implements {
  * {@link World.component} and on every entity.
  *
  * Hooks are a lightweight alternative to building a {@link System} when all
- * you need is a callback on add / remove / set for a single component type.
+ * you need is a callback on add / beforeSet / remove / set for a single component type.
  * Registration chains because `on` / `off` return the receiver:
  *
  * ```ts
@@ -334,6 +354,11 @@ export class ComponentMeta {
   /** @internal Whether this component meta is an abstract/interface alias. */
   public _isInterface = false;
 
+  /** @internal Optional relationship edge-add preflight. */
+  public _validateTargetAdd: ((source: Entity, target: Entity) => void) | undefined;
+  /** @internal Optional relationship edge-remove preflight. */
+  public _validateTargetRemove: ((source: Entity, target: Entity) => void) | undefined;
+
   /** @internal Framework policy applied when this component is attached. */
   public _onPolicyAdd: HookSlot<HookHandler> = undefined;
   /** @internal Framework policy applied when this component is removed. */
@@ -344,6 +369,16 @@ export class ComponentMeta {
 
   /** @internal Handlers fired when a component of this type is added. */
   public _onAdd: HookSlot<HookHandler> = undefined;
+  /** @internal Handlers fired before setting an existing ordinary component. */
+  public _onBeforeSet: HookSlot<BeforeSetHandler> = undefined;
+  /** @internal Finalize a successful public beforeSet reduction. */
+  public _finalizeBeforeSet:
+    | ((
+        entity: Entity,
+        original: ComponentInstance,
+        candidate: ComponentInstance
+      ) => ComponentInstance)
+    | undefined;
   /** @internal Handlers fired when a component of this type is removed. */
   public _onRemove: HookSlot<HookHandler> = undefined;
   /** @internal Handlers fired after a relationship edge is added. */
@@ -400,7 +435,7 @@ export class ComponentMeta {
    * events require this meta to be a relationship; registering one on a
    * non-relationship meta throws at registration time.
    *
-   * @param event - One of `add`, `remove`, `set`, `targetAdd`, `targetRemove`,
+   * @param event - One of `add`, `beforeSet`, `remove`, `set`, `targetAdd`, `targetRemove`,
    *   `policyAdd`, `policyRemove`, `targetPolicyAdd`, `targetPolicyRemove`.
    * @param handler - Handler whose signature is constrained by `event`.
    * @param insert - When `true`, prepend the handler; when `false` (default), append.
@@ -410,6 +445,9 @@ export class ComponentMeta {
     switch (event) {
       case "add":
         this._onAdd = _installHook(this._onAdd, handler as HookHandler, insert);
+        break;
+      case "beforeSet":
+        this._onBeforeSet = _installHook(this._onBeforeSet, handler as BeforeSetHandler, insert);
         break;
       case "remove":
         this._onRemove = _installHook(this._onRemove, handler as HookHandler, insert);
@@ -467,6 +505,9 @@ export class ComponentMeta {
     switch (event) {
       case "add":
         this._onAdd = _removeHook(this._onAdd, handler as HookHandler);
+        break;
+      case "beforeSet":
+        this._onBeforeSet = _removeHook(this._onBeforeSet, handler as BeforeSetHandler);
         break;
       case "remove":
         this._onRemove = _removeHook(this._onRemove, handler as HookHandler);
