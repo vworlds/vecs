@@ -637,7 +637,7 @@ export class Components extends Relationships {
     if (existing?._hasTarget(target)) {
       return;
     }
-    if (existing && meta.relationshipExclusive) {
+    if (existing && meta._relationshipExclusive) {
       const current = existing._target()!;
       meta._validateTargetRemove?.(this, current);
       const previous = existing._replaceTarget(target);

@@ -363,13 +363,12 @@ applies. On top of it:
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 
-| Field                   | Description                                                                                   |
-| ----------------------- | --------------------------------------------------------------------------------------------- |
-| `Class`                 | The component class constructor.                                                              |
-| `eid`                   | Component entity id assigned at registration.                                                 |
-| `bitPtr`                | Pre-computed bit pointer into entity archetype bitsets.                                       |
-| `isRelationship`        | `true` when the class extends `Relationship`.                                                 |
-| `relationshipExclusive` | `true` when the relationship carries the `Exclusive` trait.                                   |
-| `onDelete`              | `CleanupPolicy` applied to carriers when the component entity is destroyed. Default `Throw`.  |
-| `onDeleteTarget`        | `CleanupPolicy` applied to sources when a relationship target is destroyed. Default `Remove`. |
-| `usageCount`            | Number of entities currently carrying this component.                                         |
+| Field            | Description                                                                                   |
+| ---------------- | --------------------------------------------------------------------------------------------- |
+| `Class`          | The component class constructor.                                                              |
+| `eid`            | Component entity id assigned at registration.                                                 |
+| `bitPtr`         | Pre-computed bit pointer into entity archetype bitsets.                                       |
+| `isRelationship` | `true` when the class extends `Relationship`.                                                 |
+| `onDelete`       | `CleanupPolicy` applied to carriers when the component entity is destroyed. Default `Throw`.  |
+| `onDeleteTarget` | `CleanupPolicy` applied to sources when a relationship target is destroyed. Default `Remove`. |
+| `usageCount`     | Number of entities currently carrying this component.                                         |

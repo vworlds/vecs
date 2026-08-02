@@ -333,8 +333,8 @@ export class ComponentMeta {
   public readonly bitPtr: BitPtr;
   /** Whether this component is a relationship pointing at another entity. */
   public readonly isRelationship: boolean;
-  /** Whether this relationship permits only one target. */
-  public relationshipExclusive = false;
+  /** @internal Whether this relationship permits only one target. */
+  public _relationshipExclusive = false;
 
   /** Applied to entities carrying this component when this component entity is deleted. */
   public onDelete = CleanupPolicy.Throw;

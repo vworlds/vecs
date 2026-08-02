@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type BeforeSetHandler,
   DontInherit,
+  Exclusive,
   Implements,
   Inherit,
   InheritanceModule,
@@ -56,8 +57,8 @@ describe("InheritanceModule", () => {
     const onInstantiate = world.component(OnInstantiate);
 
     expect(world.module(InheritanceModule)).toBe(world.entity(InheritanceModule));
-    expect(world.component(IsA).meta.relationshipExclusive).toBe(true);
-    expect(onInstantiate.meta.relationshipExclusive).toBe(true);
+    expect(world.component(IsA).has(Exclusive)).toBe(true);
+    expect(onInstantiate.has(Exclusive)).toBe(true);
     expect(onInstantiate.hasTarget(OneOf, onInstantiate)).toBe(true);
     expect(world.component(Override).parent).toBe(onInstantiate);
     expect(world.component(Inherit).parent).toBe(onInstantiate);
@@ -441,28 +442,6 @@ describe("InheritanceModule", () => {
     expect(child.target(IsA)).toBe(root);
     expect(() => root.add(IsA, child)).toThrow("cycle");
     expect(root.has(IsA)).toBe(false);
-  });
-
-  it("restores intrinsic exclusivity before IsA and policy edge additions", () => {
-    const world = new World();
-    const isA = world.component(IsA);
-    const onInstantiate = world.component(OnInstantiate);
-    const root = world.entity();
-    const other = world.entity();
-    const child = world.entity().add(IsA, root);
-
-    isA.meta.relationshipExclusive = false;
-    expect(() => child.add(IsA, root)).not.toThrow();
-    expect(isA.meta.relationshipExclusive).toBe(true);
-    isA.meta.relationshipExclusive = false;
-    expect(() => child.add(IsA, other)).toThrow("cannot be removed or retargeted");
-    expect(child.targets(IsA)).toEqual([root]);
-
-    const component = world.component(SharedValue).add(OnInstantiate, Inherit);
-    onInstantiate.meta.relationshipExclusive = false;
-    component.add(OnInstantiate, Override);
-    expect(onInstantiate.meta.relationshipExclusive).toBe(true);
-    expect(component.targets(OnInstantiate)).toEqual([world.component(Override)]);
   });
 
   it("rejects unknown OnInstantiate targets before mutation", () => {

@@ -7,7 +7,7 @@ import {
 } from "../component_meta.js";
 import { Identity, type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
-import { OneOf } from "./relationships.js";
+import { Exclusive, OneOf } from "./relationships.js";
 
 /**
  * Exclusive, acyclic template relationship with one-shot component materialization.
@@ -58,17 +58,15 @@ export class InheritanceModule extends Module {
     const inherit = world.component(Inherit).childOf(onInstantiate);
     const dontInherit = world.component(DontInherit).childOf(onInstantiate);
 
-    isA.meta.relationshipExclusive = true;
+    isA.add(Exclusive);
     isA.meta.onDeleteTarget = CleanupPolicy.Delete;
     isA.meta._validateTargetAdd = (source, target) => {
-      isA.meta.relationshipExclusive = true;
       if (source.targets(IsA).some((existing) => existing !== target)) {
         throw new Error("IsA edges cannot be removed or retargeted while both entities are alive");
       }
       this._validateAcyclic(source, target);
     };
     isA.meta._validateTargetRemove = (source, target) => {
-      isA.meta.relationshipExclusive = true;
       if (source.alive && target.alive) {
         throw new Error("IsA edges cannot be removed or retargeted while both entities are alive");
       }
@@ -77,18 +75,14 @@ export class InheritanceModule extends Module {
       this._materialize(source, template, onInstantiate, inherit, dontInherit)
     );
 
-    onInstantiate.meta.relationshipExclusive = true;
+    onInstantiate.add(Exclusive);
     onInstantiate.meta._validateTargetAdd = (_component, policy) => {
-      onInstantiate.meta.relationshipExclusive = true;
       if (policy !== override && policy !== inherit && policy !== dontInherit) {
         throw new Error("OnInstantiate target must be Override, Inherit, or DontInherit");
       }
       if (policy.parent !== onInstantiate) {
         throw new Error("OnInstantiate policy must remain a direct child of OnInstantiate");
       }
-    };
-    onInstantiate.meta._validateTargetRemove = () => {
-      onInstantiate.meta.relationshipExclusive = true;
     };
     onInstantiate.meta.on("targetAdd", (component, _relationship, policy) => {
       if (policy === inherit) {
