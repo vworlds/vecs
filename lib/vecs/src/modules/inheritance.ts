@@ -22,8 +22,8 @@ export class IsA extends Relationship {}
 /**
  * Mutable, exclusive per-component relationship selecting an IsA materialization policy.
  *
- * Targets are exactly the direct built-in children {@link Override}, {@link Inherit}, and
- * {@link DontInherit}. A policy change affects only IsA edges added afterward.
+ * {@link OneOf} constrains targets to direct children; this module registers {@link Override},
+ * {@link Inherit}, and {@link DontInherit}. A policy change affects only later IsA edges.
  */
 export class OnInstantiate extends Relationship {}
 
@@ -76,14 +76,6 @@ export class InheritanceModule extends Module {
     );
 
     onInstantiate.add(Exclusive);
-    onInstantiate.meta._validateTargetAdd = (_component, policy) => {
-      if (policy !== override && policy !== inherit && policy !== dontInherit) {
-        throw new Error("OnInstantiate target must be Override, Inherit, or DontInherit");
-      }
-      if (policy.parent !== onInstantiate) {
-        throw new Error("OnInstantiate policy must remain a direct child of OnInstantiate");
-      }
-    };
     onInstantiate.meta.on("targetAdd", (component, _relationship, policy) => {
       if (policy === inherit) {
         this._installCopyOnWrite(component.meta);

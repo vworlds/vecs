@@ -49,8 +49,6 @@ class SecondValue {}
 class DataRelationship extends Relationship {
   public value = 0;
 }
-class UnknownPolicy {}
-
 describe("InheritanceModule", () => {
   it("loads automatically and configures the public component entities", () => {
     const world = new World();
@@ -442,30 +440,6 @@ describe("InheritanceModule", () => {
     expect(child.target(IsA)).toBe(root);
     expect(() => root.add(IsA, child)).toThrow("cycle");
     expect(root.has(IsA)).toBe(false);
-  });
-
-  it("rejects unknown OnInstantiate targets before mutation", () => {
-    const world = new World();
-    const onInstantiate = world.component(OnInstantiate);
-    const unknown = world.component(UnknownPolicy).childOf(onInstantiate);
-    const component = world.component(SharedValue).add(OnInstantiate, Inherit);
-
-    expect(() => component.add(OnInstantiate, unknown)).toThrow(
-      "OnInstantiate target must be Override, Inherit, or DontInherit"
-    );
-    expect(component.targets(OnInstantiate)).toEqual([world.component(Inherit)]);
-  });
-
-  it("rejects a reparented built-in policy before replacing the current policy", () => {
-    const world = new World();
-    const component = world.component(SharedValue).add(OnInstantiate, Inherit);
-    const override = world.component(Override);
-    override.childOf(world.entity());
-
-    expect(() => component.add(OnInstantiate, override)).toThrow(
-      "OnInstantiate policy must remain a direct child of OnInstantiate"
-    );
-    expect(component.targets(OnInstantiate)).toEqual([world.component(Inherit)]);
   });
 
   it("does not copy Identity or replace a named template's lookup", () => {

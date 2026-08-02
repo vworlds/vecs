@@ -67,11 +67,10 @@ world.component(RuntimeHandle).add(OnInstantiate, DontInherit); // absent on the
 | `Inherit`                    | Calls normal child `attach` and stores the exact template instance.                                                             |
 | `DontInherit`                | Skips the component.                                                                                                            |
 
-`OnInstantiate` is exclusive, so adding a different policy replaces the previous edge. Policy
-targets must be exactly the built-in `Override`, `Inherit`, or `DontInherit` component entities;
-other direct children of `OnInstantiate` are rejected before mutation. Policy changes affect only
-future `IsA` additions. Existing copied or shared values are not revisited. `Identity` is configured
-as `DontInherit`, so a named template keeps its name and name-index entry.
+`OnInstantiate` is exclusive and `OneOf` its own component entity. The module registers `Override`,
+`Inherit`, and `DontInherit` as direct children. Policy changes affect only future `IsA` additions.
+Existing copied or shared values are not revisited. `Identity` is configured as `DontInherit`, so a
+named template keeps its name and name-index entry.
 
 ## Copy-on-write for `set`
 
