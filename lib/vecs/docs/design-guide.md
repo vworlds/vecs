@@ -139,7 +139,7 @@ queried together, give them a common **interface** with `Implements` (see §7 an
 study). A plain wrapper component (`class Handle { obj }`) is still fine when you need extra fields
 beside the resource.
 
-### Component lifecycle hooks: `onAdd` / `onSet` / `onRemove`
+### Component lifecycle hooks: `beforeSet` / `onAdd` / `onSet` / `onRemove`
 
 `world.component(C)` returns a handle with hooks fired on every entity:
 
@@ -155,6 +155,11 @@ the difference from systems: hooks are per-component-instance and run at the mut
 systems are queries that run in a phase.) Multiple handlers may be registered per event; they fire
 in registration order and are removed with `off(event, handler)` by reference (see
 [Components — hooks](./components.md#hooks-component-and-relationship-edges)).
+
+Use `beforeSet` only to validate props or select a replacement for an existing ordinary component.
+Public reducers run concrete-first, then through `Implements` aliases, while storage remains
+unchanged; a throw commits no replacement, and a reentrant slot change aborts the outer set. Normal
+`onSet` routing runs once after successful reduction and assignment.
 
 ### Component traits: policy on component entities
 

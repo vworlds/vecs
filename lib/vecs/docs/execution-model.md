@@ -152,8 +152,11 @@ flush.
 When the world applies a command, it routes events to everything that watches the affected
 component:
 
-- **Hooks** (`onAdd` / `onSet` / `onRemove`) fire synchronously at the moment the command is
-  applied — inline outside deferred mode, or during the drain.
+- **Hooks** (`beforeSet`, `onAdd` / `onSet` / `onRemove`) fire synchronously at the moment the
+  command is applied — inline outside deferred mode, or during the drain. For an existing ordinary
+  component, `beforeSet` reduces a candidate first through concrete handlers and then interface
+  aliases while storage remains unchanged. A throw commits no candidate. A reentrant concrete-slot
+  change aborts the outer set; otherwise props assignment and `onSet` routing happen once afterward.
 - **Relationship edge hooks** (`onTargetAdd` / `onTargetRemove`) fire synchronously after each
   edge and reverse-index change. Edge changes do not fire `onSet`.
 - **Standalone `Query` callbacks** (`enter` / `update` / `exit`) also fire synchronously during

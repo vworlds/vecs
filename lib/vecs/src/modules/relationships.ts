@@ -76,7 +76,7 @@ export class RelationshipsModule extends Module {
       if (relationship.meta.usageCount > 0) {
         throw new Error("Exclusive cannot be added or removed while the relationship is in use");
       }
-      relationship.meta.relationshipExclusive = true;
+      relationship.meta._relationshipExclusive = true;
     });
     exclusive.meta.on("policyRemove", (relationship): void => {
       if (relationship.has(OwnedTarget) || relationship.has(Traversable)) {
@@ -85,7 +85,7 @@ export class RelationshipsModule extends Module {
       if (relationship.meta.usageCount > 0) {
         throw new Error("Exclusive cannot be added or removed while the relationship is in use");
       }
-      relationship.meta.relationshipExclusive = false;
+      relationship.meta._relationshipExclusive = false;
     });
 
     ownedTarget.meta.on("policyAdd", (rel): void => {
