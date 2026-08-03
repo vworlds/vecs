@@ -105,10 +105,14 @@ registration order, then `Implements` alias handlers run in closure order, all s
 A selected replacement must be an instance of the concrete component class, so an alias cannot
 replace it with an interface-only object. An unchanged existing object is not class-checked, which
 preserves explicit-class attachment of structurally compatible objects. If validation fails or a
-handler throws, no candidate or inheritance descendant repoint is committed. If one reentrantly
-changes the concrete slot, the outer set aborts. After successful reduction, silent replacement
+handler throws, no candidate is committed, but earlier handler side effects are not rolled back. If
+one reentrantly changes the concrete slot, the outer set aborts. After successful reduction, silent replacement
 itself emits no structural or value notification; ordinary `onSet` and query-update routing run once
 for the final object. Relationship property updates do not use `beforeSet`.
+
+The inheritance COW handler is an ordinary `beforeSet` handler. A later replacement handler can
+therefore select a different object after descendants were repointed; handler ordering is the
+application's responsibility.
 
 ## Deliberate limits
 

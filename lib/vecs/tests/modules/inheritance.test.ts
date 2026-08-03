@@ -308,26 +308,6 @@ describe("InheritanceModule", () => {
     }
   );
 
-  it("does not finalize inherited pointers when a later public reducer throws", () => {
-    const world = new World();
-    const component = world.component(SharedValue).add(OnInstantiate, Inherit);
-    const parent = world.entity().set(SharedValue, { value: 1 });
-    const child = world.entity().add(IsA, parent);
-    const descendant = world.entity().add(IsA, child);
-    const rejected = new SharedValue();
-    component.on("beforeSet", () => rejected);
-    component.on("beforeSet", () => {
-      throw new Error("rejected set");
-    });
-
-    expect(() => child.set(SharedValue, { value: 2 })).toThrow("rejected set");
-
-    expect(child.get(SharedValue)).toBe(parent.get(SharedValue));
-    expect(descendant.get(SharedValue)).toBe(parent.get(SharedValue));
-    expect(child.get(SharedValue)).not.toBe(rejected);
-    expect(parent.get(SharedValue)!.value).toBe(1);
-  });
-
   it("rejects an alias replacement that is not an instance of the concrete class", () => {
     const world = new World();
     const alias = world.component(AliasValue);
@@ -335,7 +315,6 @@ describe("InheritanceModule", () => {
     concrete.add(OnInstantiate, Inherit);
     const parent = world.entity().set(ConcreteValue, { value: 1 });
     const child = world.entity().add(IsA, parent);
-    const descendant = world.entity().add(IsA, child);
     alias.on("beforeSet", () => new AliasValue());
 
     expect(() => child.set(ConcreteValue, { value: 2 })).toThrow(
@@ -344,8 +323,6 @@ describe("InheritanceModule", () => {
 
     expect(child.get(ConcreteValue)).toBe(parent.get(ConcreteValue));
     expect(child.get(AliasValue)).toBe(parent.get(ConcreteValue));
-    expect(descendant.get(ConcreteValue)).toBe(parent.get(ConcreteValue));
-    expect(descendant.get(AliasValue)).toBe(parent.get(ConcreteValue));
     expect(parent.get(ConcreteValue)!.value).toBe(1);
   });
 
@@ -367,15 +344,12 @@ describe("InheritanceModule", () => {
     });
     const parent = world.entity().set(ConcreteValue, { value: 1 });
     const child = world.entity().add(IsA, parent);
-    const descendant = world.entity().add(IsA, child);
 
     child.set(ConcreteValue, { value: 2 });
 
     expect(order).toEqual(["concrete", "alias:true"]);
     expect(child.get(ConcreteValue)).toBe(aliasCandidate);
     expect(child.get(ConcreteValue)).toBe(child.get(AliasValue));
-    expect(descendant.get(ConcreteValue)).toBe(aliasCandidate);
-    expect(descendant.get(ConcreteValue)).toBe(descendant.get(AliasValue));
     expect(child.get(ConcreteValue)).not.toBe(parent.get(ConcreteValue));
     expect(parent.get(ConcreteValue)).toBe(parent.get(AliasValue));
     expect(parent.get(ConcreteValue)!.value).toBe(1);

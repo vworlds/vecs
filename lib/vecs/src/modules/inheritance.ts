@@ -90,10 +90,11 @@ export class InheritanceModule extends Module {
       return;
     }
     this._cowInstalled.add(meta);
-    meta._finalizeBeforeSet = (entity, original, candidate) => {
+    meta.on("beforeSet", (entity, candidate) => {
+      const original = entity._get(meta.eid)!;
       const parent = entity.target(IsA);
       if (!parent || parent._get(meta.eid) !== original) {
-        return candidate;
+        return undefined;
       }
 
       const replacement =
@@ -110,7 +111,7 @@ export class InheritanceModule extends Module {
         descendants.push(...descendant.children(IsA));
       }
       return replacement;
-    };
+    });
   }
 
   private _materialize(

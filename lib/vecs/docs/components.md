@@ -113,8 +113,8 @@ return the component entity for chaining.
 handler receives the candidate returned by the prior handler; `undefined` retains that candidate.
 Concrete-component handlers run first, followed by handlers on each `Implements` alias in closure
 order. The entity's stored concrete and alias slots remain unchanged throughout this public
-reduction. If a handler throws, no candidate is stored and inheritance performs no copy-on-write.
-A selected replacement must be an instance of the concrete component class; an alias handler may
+reduction. If a handler throws, no candidate is stored; side effects already performed by handlers
+are not rolled back. A selected replacement must be an instance of the concrete component class; an alias handler may
 validate or replace a concrete value, but cannot substitute an interface-only instance. Retaining
 the existing object has no runtime class check, preserving explicit-class `attach` of structurally
 compatible objects.

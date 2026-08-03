@@ -170,7 +170,6 @@ export class Components extends Relationships {
         if (c !== existing && !(c instanceof meta.Class)) {
           throw new Error(`beforeSet replacement must be an instance of ${meta.Class.name}`);
         }
-        c = meta._finalizeBeforeSet?.(this, existing, c) ?? c;
         if (c !== existing) {
           this._repointComponentSilently(meta, existing, c);
         }

@@ -371,14 +371,6 @@ export class ComponentMeta {
   public _onAdd: HookSlot<HookHandler> = undefined;
   /** @internal Handlers fired before setting an existing ordinary component. */
   public _onBeforeSet: HookSlot<BeforeSetHandler> = undefined;
-  /** @internal Finalize a successful public beforeSet reduction. */
-  public _finalizeBeforeSet:
-    | ((
-        entity: Entity,
-        original: ComponentInstance,
-        candidate: ComponentInstance
-      ) => ComponentInstance)
-    | undefined;
   /** @internal Handlers fired when a component of this type is removed. */
   public _onRemove: HookSlot<HookHandler> = undefined;
   /** @internal Handlers fired after a relationship edge is added. */
