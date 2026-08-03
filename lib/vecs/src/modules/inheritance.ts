@@ -69,9 +69,30 @@ export class InheritanceModule extends Module {
         throw new Error("IsA edges cannot be removed or retargeted while both entities are alive");
       }
     };
-    isA.meta.on("targetPolicyAdd", (source, _relationship, template) =>
-      this._materialize(source, template, onInstantiate, inherit, dontInherit)
-    );
+    isA.meta.on("targetPolicyAdd", (source, _relationship, template) => {
+      const entries = [...template.components];
+      for (const [eid, templateInstance] of entries) {
+        if (!source.alive || !template.alive || source.target(IsA) !== template) {
+          return;
+        }
+
+        const component = world.entity(eid);
+        const meta = component.meta;
+        if (meta.isRelationship || meta._isInterface || source.has(eid)) {
+          continue;
+        }
+
+        const policy = component.target(onInstantiate);
+        if (policy === dontInherit) {
+          continue;
+        }
+        if (policy === inherit) {
+          source.attach(meta.Class, templateInstance);
+        } else {
+          source.set(component, templateInstance);
+        }
+      }
+    });
 
     onInstantiate.add(Exclusive);
     onInstantiate.meta._validateTargetAdd = (component, policy) => {
@@ -117,37 +138,6 @@ export class InheritanceModule extends Module {
       }
       return replacement;
     });
-  }
-
-  private _materialize(
-    source: Entity,
-    template: Entity,
-    onInstantiate: Entity,
-    inherit: Entity,
-    dontInherit: Entity
-  ): void {
-    const entries = [...template.components];
-    for (const [eid, templateInstance] of entries) {
-      if (!source.alive || !template.alive || source.target(IsA) !== template) {
-        return;
-      }
-
-      const component = this.world.entity(eid);
-      const meta = component.meta;
-      if (meta.isRelationship || meta._isInterface || source.has(eid)) {
-        continue;
-      }
-
-      const policy = component.target(onInstantiate);
-      if (policy === dontInherit) {
-        continue;
-      }
-      if (policy === inherit) {
-        source.attach(meta.Class, templateInstance);
-      } else {
-        source.set(component, templateInstance);
-      }
-    }
   }
 
   private _validateAcyclic(source: Entity, target: Entity): void {
