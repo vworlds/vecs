@@ -150,9 +150,9 @@ world.component(Orange).set(Implements, { interfaces: [Fruit] });
 | `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement |
 | `OneOf`           | Relationships                                | Constrains each target to be a direct `ChildOf` child of a declared parent   |
 
-`OnInstantiate` is a mutable, pair-form component policy used by
-[one-shot inheritance](./inheritance.md#select-a-component-policy); unlike the setup traits above,
-its changes intentionally affect only future `IsA` additions.
+`OnInstantiate` is a set-once, pair-form component policy used by
+[one-shot inheritance](./inheritance.md#select-a-component-policy). Re-adding the selected policy is
+idempotent, but you cannot remove or change it.
 
 Traits declare policy; their built-in modules install the hooks and maintain the metadata that
 enforce it. Configure traits in feature-module setup rather than opportunistically inside systems.

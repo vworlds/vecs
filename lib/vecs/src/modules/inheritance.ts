@@ -20,10 +20,10 @@ import { Exclusive, OneOf } from "./relationships.js";
 export class IsA extends Relationship {}
 
 /**
- * Mutable, exclusive per-component relationship selecting an IsA materialization policy.
+ * Set-once, exclusive per-component relationship selecting an IsA materialization policy.
  *
  * {@link OneOf} constrains targets to direct children; this module registers {@link Override},
- * {@link Inherit}, and {@link DontInherit}. A policy change affects only later IsA edges.
+ * {@link Inherit}, and {@link DontInherit}. Once selected, a policy cannot be removed or changed.
  */
 export class OnInstantiate extends Relationship {}
 
@@ -48,8 +48,6 @@ export class DontInherit {}
  * every other mutation follows ordinary vecs behavior without repair or special networking.
  */
 export class InheritanceModule extends Module {
-  private readonly _cowInstalled = new WeakSet<ComponentMeta>();
-
   public init(): void {
     const world = this.world;
     const isA = world.component(IsA);
@@ -76,6 +74,17 @@ export class InheritanceModule extends Module {
     );
 
     onInstantiate.add(Exclusive);
+    onInstantiate.meta._validateTargetAdd = (component, policy) => {
+      const current = component.target(onInstantiate);
+      if (current && current !== policy) {
+        throw new Error("OnInstantiate policy cannot be removed or changed once set");
+      }
+    };
+    onInstantiate.meta._validateTargetRemove = (component, policy) => {
+      if (component.alive && policy.alive) {
+        throw new Error("OnInstantiate policy cannot be removed or changed once set");
+      }
+    };
     onInstantiate.meta.on("targetAdd", (component, _relationship, policy) => {
       if (policy === inherit) {
         this._installCopyOnWrite(component.meta);
@@ -86,10 +95,6 @@ export class InheritanceModule extends Module {
   }
 
   private _installCopyOnWrite(meta: ComponentMeta): void {
-    if (this._cowInstalled.has(meta)) {
-      return;
-    }
-    this._cowInstalled.add(meta);
     meta.on("beforeSet", (entity, candidate) => {
       const original = entity._get(meta.eid)!;
       const parent = entity.target(IsA);

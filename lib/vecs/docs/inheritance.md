@@ -68,8 +68,8 @@ world.component(RuntimeHandle).add(OnInstantiate, DontInherit); // absent on the
 | `DontInherit`                | Skips the component.                                                                                                            |
 
 `OnInstantiate` is exclusive and `OneOf` its own component entity. The module registers `Override`,
-`Inherit`, and `DontInherit` as direct children. Policy changes affect only future `IsA` additions.
-Existing copied or shared values are not revisited. `Identity` is configured as `DontInherit`, so a
+`Inherit`, and `DontInherit` as direct children. Once selected, a policy cannot be removed or changed;
+re-adding the selected policy is an idempotent no-op. `Identity` is configured as `DontInherit`, so a
 named template keeps its name and name-index entry.
 
 ## Copy-on-write for `set`

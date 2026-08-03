@@ -383,25 +383,21 @@ describe("InheritanceModule", () => {
     expect(directMutation.get(SharedValue)).toBe(parent.get(SharedValue));
   });
 
-  it("applies mutable policy changes only to future IsA additions", () => {
+  it("allows idempotent policy adds and rejects removal or changes before mutation", () => {
     const world = new World();
     const component = world.component(SharedValue).add(OnInstantiate, Inherit);
-    const template = world.entity().set(SharedValue, { value: 1 });
-    const linked = world.entity().add(IsA, template);
+    const inherit = world.component(Inherit);
 
-    component.add(OnInstantiate, Override);
-    const copied = world.entity().add(IsA, template);
-    component.add(OnInstantiate, DontInherit);
-    const skipped = world.entity().add(IsA, template);
-
-    expect(linked.get(SharedValue)).toBe(template.get(SharedValue));
-    expect(copied.get(SharedValue)).toEqual(template.get(SharedValue));
-    expect(copied.get(SharedValue)).not.toBe(template.get(SharedValue));
-    expect(skipped.has(SharedValue)).toBe(false);
-
-    linked.set(SharedValue, { value: 2 });
-    expect(linked.get(SharedValue)).not.toBe(template.get(SharedValue));
-    expect(template.get(SharedValue)!.value).toBe(1);
+    expect(() => component.add(OnInstantiate, Inherit)).not.toThrow();
+    expect(component.target(OnInstantiate)).toBe(inherit);
+    expect(() => component.add(OnInstantiate, Override)).toThrow(
+      "OnInstantiate policy cannot be removed or changed once set"
+    );
+    expect(component.target(OnInstantiate)).toBe(inherit);
+    expect(() => component.remove(OnInstantiate)).toThrow(
+      "OnInstantiate policy cannot be removed or changed once set"
+    );
+    expect(component.target(OnInstantiate)).toBe(inherit);
   });
 
   it("keeps IsA add idempotent and rejects removal, retargeting, and cycles before mutation", () => {
