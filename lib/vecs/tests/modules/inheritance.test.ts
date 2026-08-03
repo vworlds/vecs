@@ -284,6 +284,7 @@ describe("InheritanceModule", () => {
       const replacement = new DefaultValue();
       replacement.value = 7;
       const onSet = vi.fn();
+      const afterReentrantSet = vi.fn();
       component.on("set", onSet);
       component.on("beforeSet", (currentEntity) => {
         if (operation === "attach") {
@@ -293,9 +294,11 @@ describe("InheritanceModule", () => {
         }
         return new DefaultValue();
       });
+      component.on("beforeSet", afterReentrantSet);
 
       entity.set(DefaultValue, { value: 99 });
 
+      expect(afterReentrantSet).not.toHaveBeenCalled();
       if (operation === "attach") {
         expect(entity.get(DefaultValue)).toBe(replacement);
         expect(entity.get(DefaultValue)!.value).toBe(7);

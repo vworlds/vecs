@@ -224,6 +224,49 @@ export function _installHook<H extends Function>(
   return wrapper;
 }
 
+/** Install a reducer-style `beforeSet` handler into a hook slot. */
+function _installBeforeSetHook(
+  meta: ComponentMeta,
+  slot: HookSlot<BeforeSetHandler>,
+  handler: BeforeSetHandler,
+  insert: boolean
+): HookSlot<BeforeSetHandler> {
+  if (slot === undefined) {
+    return handler;
+  }
+  if ("handlers" in slot) {
+    if (insert) {
+      slot.handlers.unshift(handler);
+    } else {
+      slot.handlers.push(handler);
+    }
+    return slot;
+  }
+  const handlers = insert ? [handler, slot] : [slot, handler];
+  const wrapper = ((
+    entity: Entity,
+    current: ComponentInstance,
+    props: Partial<ComponentInstance>
+  ) => {
+    const original = entity._get(meta.eid);
+    let candidate = current;
+    let final: ComponentInstance | undefined;
+    for (let i = 0; i < handlers.length; i++) {
+      const replacement = handlers[i]!(entity, candidate, props);
+      if (replacement !== undefined) {
+        candidate = replacement;
+        final = replacement;
+      }
+      if (i + 1 < handlers.length && (entity.destroyed || entity._get(meta.eid) !== original)) {
+        return final;
+      }
+    }
+    return final;
+  }) as BeforeSetHandler & HookMetadata;
+  wrapper.handlers = handlers;
+  return wrapper;
+}
+
 /**
  * Remove a handler from a hook slot by reference.
  *
@@ -439,7 +482,12 @@ export class ComponentMeta {
         this._onAdd = _installHook(this._onAdd, handler as HookHandler, insert);
         break;
       case "beforeSet":
-        this._onBeforeSet = _installHook(this._onBeforeSet, handler as BeforeSetHandler, insert);
+        this._onBeforeSet = _installBeforeSetHook(
+          this,
+          this._onBeforeSet,
+          handler as BeforeSetHandler,
+          insert
+        );
         break;
       case "remove":
         this._onRemove = _installHook(this._onRemove, handler as HookHandler, insert);

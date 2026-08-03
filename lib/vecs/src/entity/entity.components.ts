@@ -156,14 +156,17 @@ export class Components extends Relationships {
     let c = existing ?? this._new(meta, props);
     if (props !== undefined) {
       if (existing) {
-        for (const handlerMeta of [meta, ...(meta._implementsClosure ?? [])]) {
-          for (const handler of _slotHandlers(handlerMeta._onBeforeSet)) {
-            const replacement = handler(this, c, props);
-            if (this._destroyed || this._components.get(meta.eid) !== existing) {
-              return;
-            }
-            if (replacement !== undefined) {
-              c = replacement;
+        if (meta._onBeforeSet !== undefined || meta._implementsClosure !== undefined) {
+          for (const handlerMeta of [meta, ...(meta._implementsClosure ?? [])]) {
+            const handler = handlerMeta._onBeforeSet;
+            if (handler !== undefined) {
+              const replacement = handler(this, c, props);
+              if (this._destroyed || this._components.get(meta.eid) !== existing) {
+                return;
+              }
+              if (replacement !== undefined) {
+                c = replacement;
+              }
             }
           }
         }
