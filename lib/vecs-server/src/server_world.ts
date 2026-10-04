@@ -2,6 +2,8 @@ import {
   Client2Server,
   ComponentSnapshot,
   EncodedSnapshot,
+  RPC_CLOSED_CODE,
+  RPCError,
   Server2Client,
   SessionRPC,
   StateDiff,
@@ -39,30 +41,33 @@ interface RegisteredComponent {
   eid: EID;
 }
 
-class ServerClientSession {
-  public readonly baseFrame: number;
-  public readonly history: History;
-  public readonly rpc = new SessionRPC();
-  public ackFrame: number;
-  public lastSeenMs = 0;
-  public needsFullSnapshot = true;
-  public needsResync = false;
-  public socket!: VecsSocket;
-  public entity!: Entity;
-
-  public constructor(lastFrame = -1) {
-    this.baseFrame = lastFrame;
-    this.ackFrame = lastFrame;
-    this.history = new History(HISTORY_LENGTH, lastFrame);
-  }
-
-  public destroy(): void {}
-}
-
 interface Update {
   entity: Entity;
   wireType: number;
   component: ComponentInstance | undefined; // undefined => removal
+}
+
+/**
+ * Identifies the connection that invoked a server RPC handler.
+ *
+ * Passed as the third argument to every handler registered with
+ * {@link ServerWorld.handleRpc}, so a shared handler can act on behalf of the
+ * caller instead of guessing which session a request came from. Each session
+ * gets its own context, so concurrent connections — and connections to
+ * different named worlds under one `VecsListener` — never see each other's
+ * caller.
+ */
+export interface ServerRPCContext {
+  /** The `ServerWorld` that owns the calling session. */
+  readonly world: ServerWorld;
+  /**
+   * The calling session's `NetworkClient` entity, carrying its
+   * {@link NetworkClient.id}, its {@link View}, and whatever the application
+   * attached while authenticating the session.
+   */
+  readonly caller: Entity;
+  /** Id of the calling connection, equal to the caller's `NetworkClient.id`. */
+  readonly connectionId: string;
 }
 
 export interface ServerWorldOptions extends NetworkWorldOptions {
@@ -71,11 +76,50 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
   disconnectGraceMs?: number;
 }
 
+class ServerClientSession {
+  public readonly baseFrame: number;
+  public readonly history: History;
+  public readonly rpc = new SessionRPC();
+  public context!: ServerRPCContext;
+  public ackFrame: number;
+  public lastSeenMs = 0;
+  public needsFullSnapshot = true;
+  public needsResync = false;
+  /**
+   * Set by {@link ServerWorld.closeSession}. The session is finished as far as
+   * the application is concerned: it stops accepting input and stops
+   * replicating, but its RPC outbox still needs one flush so a rejection that
+   * explains the close can reach the client. {@link ServerWorld.send} finishes
+   * the teardown.
+   */
+  public closing = false;
+  public closed = false;
+  public socket!: VecsSocket;
+  public entity!: Entity;
+
+  public constructor(lastFrame = -1) {
+    this.baseFrame = lastFrame;
+    this.ackFrame = lastFrame;
+    this.history = new History(HISTORY_LENGTH, lastFrame);
+  }
+}
+
+/**
+ * An authoritative world that replicates to connected clients.
+ *
+ * Each accepted connection gets a `NetworkClient` entity carrying a {@link View}
+ * and a server-local session; the entity's lifecycle *is* the connection
+ * lifecycle, so attaching components from an RPC handler is how an application
+ * authenticates or otherwise binds the session, and destroying the entity closes
+ * the connection. Register per-connection behaviour with
+ * {@link ServerWorld.handleRpc} and end connections with
+ * {@link ServerWorld.closeSession}; no session bookkeeping is exposed.
+ */
 export class ServerWorld extends NetworkWorld {
   public readonly name: string;
   private readonly _components: readonly RegisteredComponent[];
   private readonly _sessions = new Map<string, ServerClientSession>();
-  private readonly _rpcHandlers = new Map<number, RPCHandler>();
+  private readonly _rpcHandlers = new Map<number, RPCHandler<ServerRPCContext>>();
   private readonly _updates = new Map<number, Update>();
   private readonly _snapshotCache = new Map<number, EncodedSnapshot>();
   private readonly _trackerCache: TrackerCache;
@@ -101,7 +145,7 @@ export class ServerWorld extends NetworkWorld {
       this._record(entity, ALL_COMPONENTS, undefined);
     });
     this.component(ServerClientSession).on("remove", (_entity, session) => {
-      session.destroy();
+      this._endSession(session);
     });
 
     // Interest refresh, snapshot capture and send all run in a dedicated phase
@@ -152,11 +196,113 @@ export class ServerWorld extends NetworkWorld {
     listener.on("new", (socket) => this._onNewConnection(socket));
   }
 
-  public handleRpc(rpcId: number, handler: RPCHandler): void {
+  /**
+   * Register the handler for an incoming `rpcId`, replacing any previous one and
+   * applying to sessions that are already connected.
+   *
+   * The handler is invoked as `handler(params, request, context)`, where
+   * `context` is the calling connection's {@link ServerRPCContext}. Every
+   * session sees its own caller, so one shared handler can authenticate, look
+   * up, or attribute work per connection.
+   *
+   * ```ts
+   * const AUTH_RPC = 101;
+   * const AUTH_REJECTED = 4001;
+   *
+   * world.handleRpc(AUTH_RPC, (params, _request, ctx) => {
+   *   const [resumeToken] = params as [string];
+   *   if (!sessions.authenticate(ctx.connectionId, resumeToken)) {
+   *     throw new RPCError(AUTH_REJECTED, "unknown resume token");
+   *   }
+   *   ctx.caller.set(Authenticated, { playerId: ctx.connectionId });
+   * });
+   * ```
+   *
+   * @param rpcId - Request id to answer.
+   * @param handler - Handler run for every connection; see {@link RPCHandler}.
+   */
+  public handleRpc(rpcId: number, handler: RPCHandler<ServerRPCContext>): void {
     this._rpcHandlers.set(rpcId, handler);
-    this._sessions.forEach((session) => session.rpc.listen(rpcId, handler));
+    this._sessions.forEach((session) => {
+      if (!session.closing) {
+        this._installHandler(session, rpcId, handler);
+      }
+    });
   }
 
+  /**
+   * Close one connection and tear its session down.
+   *
+   * Cleanup runs exactly once: the session leaves the world, its `NetworkClient`
+   * entity is destroyed — firing every `NetworkClient` exit system — and its
+   * socket is closed. Closing a connection that is already gone is a no-op that
+   * returns `false`, so shutdown loops can call it unconditionally.
+   *
+   * The close is graceful, because the common case has to explain itself: a
+   * handler rejects an `auth` call with an {@link RPCError} *and* closes the
+   * connection, and the client needs that code to tell a wrong world from a bad
+   * credential. The session is therefore marked *closing* rather than destroyed
+   * on the spot. It immediately stops accepting input and replicates nothing
+   * further, and the next {@link ServerWorld.send} flushes the RPC replies it
+   * still owes — best effort over an unreliable datagram channel — and then
+   * completes the same teardown. So `closeSession` returning `true` means the
+   * close was scheduled, and the socket closes on the next tick, not before it.
+   *
+   * Peers that go away on their own, applications that destroy the
+   * `NetworkClient` entity, and `disconnectGraceMs` expiry all tear down
+   * immediately instead: there is nobody left to explain anything to.
+   *
+   * ```ts
+   * // newest authenticated connection wins
+   * for (const previous of sessions.forPlayer(playerId)) {
+   *   world.closeSession(previous.connectionId, `superseded by ${ctx.connectionId}`);
+   * }
+   * ```
+   *
+   * To close every connection at shutdown, query `NetworkClient` entities rather
+   * than reaching into session internals:
+   *
+   * ```ts
+   * world
+   *   .query("shutdown:clients")
+   *   .with(NetworkClient)
+   *   .track()
+   *   .build()
+   *   .forEach((entity) => {
+   *     world.closeSession(entity, "server shutting down");
+   *   });
+   * ```
+   *
+   * @param connection - The connection id (`NetworkClient.id`) or the
+   *   session's `NetworkClient` entity.
+   * @param reason - Recorded on the caller's `NetworkClient.closeReason` before
+   *   the entity is destroyed, so an exit system can log why the server hung up.
+   * @returns `true` when a live session was scheduled to close.
+   */
+  public closeSession(connection: string | Entity, reason?: string): boolean {
+    const session = this._sessionFor(connection);
+    if (!session) {
+      return false;
+    }
+    if (reason !== undefined) {
+      session.entity.getMut(NetworkClient, (client) => {
+        client.closeReason = reason;
+      });
+    }
+    session.closing = true;
+    return true;
+  }
+
+  /**
+   * Advance one replication frame: reconcile every session's view, record the
+   * frame's diff, and send each session what it has not acked, together with
+   * any queued RPC replies. Sessions that have not sent anything within
+   * `disconnectGraceMs` are closed.
+   *
+   * Registered as the world's own `Send` system in a phase after `ON_STORE`, so
+   * it normally runs as part of `progress()`; call it directly only to drive a
+   * world that has no tick loop.
+   */
   public send(): void {
     const toFrame = this._frame++;
     if (this._sessions.size === 0) {
@@ -168,6 +314,13 @@ export class ServerWorld extends NetworkWorld {
     const staleSessions: ServerClientSession[] = [];
 
     this._clients.forEach([View, ServerClientSession], (e, [view, session]) => {
+      if (session.closing) {
+        // Scheduled to close: no further state, but the rejection that explains
+        // the close still owes the client a frame.
+        this._finishClose(session);
+        return;
+      }
+
       view._reconcileVisibility();
       view._releaseOldTracker(this._trackerCache);
 
@@ -243,7 +396,12 @@ export class ServerWorld extends NetworkWorld {
       session.socket.send(this._encode(new Server2Client({ diff, rpc })));
     });
 
-    staleSessions.forEach((session) => session.socket.close());
+    staleSessions.forEach((session) => {
+      session.entity.getMut(NetworkClient, (client) => {
+        client.closeReason = "disconnect grace period elapsed";
+      });
+      session.entity.destroy();
+    });
 
     this._updates.clear();
   }
@@ -253,10 +411,11 @@ export class ServerWorld extends NetworkWorld {
     const session = new ServerClientSession(this._frame - 1);
     session.socket = socket;
     session.entity = entity;
+    session.context = { world: this, caller: entity, connectionId: socket.id };
     session.lastSeenMs = performance.now();
     entity.attach(session);
     entity.set(NetworkClient, { id: socket.id });
-    this._rpcHandlers.forEach((handler, rpcId) => session.rpc.listen(rpcId, handler));
+    this._rpcHandlers.forEach((handler, rpcId) => this._installHandler(session, rpcId, handler));
     this._sessions.set(socket.id, session);
 
     socket.on("receive", (data) => this._receive(session, data));
@@ -268,11 +427,17 @@ export class ServerWorld extends NetworkWorld {
     if (!session) {
       return;
     }
-    this._sessions.delete(socketId);
     session.entity.destroy();
   }
 
   private _receive(session: ServerClientSession, data: Uint8Array): void {
+    // A transport can deliver frames it had already queued when the session was
+    // torn down; the socket has no `off`, so drop them here. A closing session
+    // drops them too: it has stopped accepting work, and the only thing still
+    // owed is the reply `send` is flushing.
+    if (session.closed || session.closing) {
+      return;
+    }
     session.lastSeenMs = performance.now();
     const message = new Decoder(data).read(Client2Server);
     if (message.ackFrame <= session.history.lastFrame) {
@@ -288,6 +453,74 @@ export class ServerWorld extends NetworkWorld {
     if (message.rpc.length > 0) {
       session.rpc.process(message.rpc);
     }
+  }
+
+  /**
+   * Bind a world-level handler to one session, closing over that session's
+   * caller context. `SessionRPC` itself has no notion of a caller, so the
+   * binding happens here: each session gets its own closure.
+   */
+  private _installHandler(
+    session: ServerClientSession,
+    rpcId: number,
+    handler: RPCHandler<ServerRPCContext>
+  ): void {
+    session.rpc.listen(rpcId, (params, request) => handler(params, request, session.context));
+  }
+
+  private _sessionFor(connection: string | Entity): ServerClientSession | undefined {
+    if (typeof connection === "string") {
+      return this._sessions.get(connection);
+    }
+    if (connection.world !== this) {
+      return undefined;
+    }
+    const session = connection.get(ServerClientSession) as ServerClientSession | undefined;
+    return session && !session.closed ? session : undefined;
+  }
+
+  /**
+   * Complete a {@link ServerWorld.closeSession}: flush the RPC replies the
+   * session still owes, then run the normal exactly-once teardown.
+   *
+   * The flush is best effort — the transport is an unreliable datagram channel —
+   * but it is the reason {@link ServerWorld.closeSession} defers: a client that
+   * asked a question deserves the answer, and a rejection is usually the whole
+   * point of the close. A session with nothing owed tears down without emitting
+   * a frame at all.
+   */
+  private _finishClose(session: ServerClientSession): void {
+    const rpc = session.rpc.getOutgoing();
+    if (rpc.length > 0) {
+      session.socket.send(this._encode(new Server2Client({ rpc })));
+    }
+    // Destroying the entity lands in the `ServerClientSession` remove hook, which
+    // is what removes the session and closes the socket.
+    session.entity.destroy();
+  }
+
+  /**
+   * Single teardown path, driven by removal of the `ServerClientSession`
+   * component. Whoever ends the session — the peer disconnecting, the grace
+   * period elapsing, `closeSession` finishing, or the application destroying the
+   * `NetworkClient` entity — the entity destroy lands here, and the `closed`
+   * guard keeps it to exactly one pass.
+   */
+  private _endSession(session: ServerClientSession): void {
+    if (session.closed) {
+      return;
+    }
+    session.closed = true;
+    const { connectionId } = session.context;
+    if (this._sessions.get(connectionId) === session) {
+      this._sessions.delete(connectionId);
+    }
+    // Nothing can be answered by a session that no longer exists, and a server
+    // never issues calls of its own, so this only ever drops cached replies.
+    session.rpc.abortPending(
+      new RPCError(RPC_CLOSED_CODE, `connection ${connectionId} closed by the server`)
+    );
+    session.socket.close();
   }
 
   private _record(

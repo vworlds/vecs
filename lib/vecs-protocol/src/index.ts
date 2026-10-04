@@ -28,8 +28,11 @@ export {
 export {
   FIRST_USER_RPC_ID,
   RPC,
+  RPC_CLOSED_CODE,
   RPC_RESPONSE_ID,
+  RPC_TIMEOUT_CODE,
   RPC_TIMEOUT_ERROR,
+  RPCError,
   SessionRPC,
   type RPCHandler,
 } from "./rpc.js";

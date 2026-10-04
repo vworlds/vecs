@@ -4,6 +4,7 @@ import {
   Client2Server,
   ComponentSnapshot,
   EncodedSnapshot,
+  RPC_CLOSED_CODE,
   Server2Client,
   StateDiff,
   type VecsSocket,
@@ -28,6 +29,8 @@ type SocketHandler = (arg?: unknown) => void;
 
 class MemorySocket implements VecsSocket {
   public readonly sent: Uint8Array[] = [];
+  public closeCalls = 0;
+  public closed = false;
   private readonly _handlers = new Map<string, SocketHandler[]>();
 
   public constructor(public readonly id: string) {}
@@ -48,6 +51,8 @@ class MemorySocket implements VecsSocket {
   }
 
   public close(): void {
+    this.closeCalls += 1;
+    this.closed = true;
     this._handlers.get("disconnect")?.forEach((handler) => handler());
   }
 }
@@ -531,5 +536,81 @@ describe("ClientWorld", () => {
     expect(world.entity(7).get(Position)).toMatchObject({ x: 7, y: 7 });
     client.send();
     expect(new Decoder(socket.sent[0]).read(Client2Server).ackFrame).toBe(1);
+  });
+});
+
+describe("ClientWorld.dispose", () => {
+  it("rejects pending calls with a closed error and destroys network entities", async () => {
+    const world = createClientWorld({ serverTickIntervalMs: 10 });
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 4, 8)] }),
+        })
+      )
+    );
+    world.apply(0);
+    world.getOrCreateEntity(1001);
+
+    const pending = world.invoke(101, ["a"]);
+    world.dispose();
+
+    await expect(pending).rejects.toMatchObject({ code: RPC_CLOSED_CODE });
+    expect(socket.closed).toBe(true);
+    expect(() => world.entity(1000)).toThrow();
+    expect(world.entity(1001)).toBeDefined();
+  });
+
+  it("refuses new calls, sends, and socket attachments after disposal", async () => {
+    const world = createClientWorld();
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    world.dispose();
+    const sent = socket.sent.length;
+
+    await expect(world.invoke(101)).rejects.toMatchObject({ code: RPC_CLOSED_CODE });
+    expect(() => world.attachSocket(new MemorySocket("other"))).toThrow("ClientWorld is disposed");
+    expect(() => world.send()).not.toThrow();
+    expect(socket.sent.length).toBe(sent);
+  });
+
+  it("is idempotent", () => {
+    const world = createClientWorld();
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    world.dispose();
+
+    expect(() => {
+      world.dispose();
+      world.dispose();
+    }).not.toThrow();
+    expect(socket.closeCalls).toBe(1);
+  });
+
+  it("ignores frames that arrive after disposal", () => {
+    const world = createClientWorld({ serverTickIntervalMs: 10 });
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 4, 8)] }),
+        })
+      )
+    );
+    world.dispose();
+
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 2, snapshots: [posSnapshot(1002, 1, 1)] }),
+        })
+      )
+    );
+    world.apply(10);
+
+    expect(() => world.entity(1002)).toThrow();
   });
 });

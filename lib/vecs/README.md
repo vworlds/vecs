@@ -73,6 +73,11 @@ Plus the [Utilities](./docs/utilities.md) guide for helper classes and the
 [Glossary](./docs/glossary.md) for terminology. The exhaustive per-symbol reference is the JSDoc on
 the source under [`src/`](./src/) — read it in your IDE.
 
+Networking is documented alongside the packages that own it:
+[Remote procedure calls](../vecs-protocol/docs/rpc.md) ·
+[Sessions and caller context](../vecs-server/docs/sessions.md) ·
+[Client world](../vecs-client/docs/client-world.md).
+
 ## Build & Test
 
 ```sh

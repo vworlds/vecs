@@ -48,5 +48,12 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 | [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.    |
 | [glossary.md](./glossary.md)                       | ECS and vecs terminology.                                                                    |
 
-Networking (wire encoding with `@wireType`, protocol component ordering, replication) lives in the
-`@vworlds/vecs-wire` and `@vworlds/vecs-protocol` packages and is only cross-referenced here.
+Networking (wire encoding with `@wireType`, protocol component ordering, replication, RPCs, server
+sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vecs-protocol`,
+`@vworlds/vecs-server`, and `@vworlds/vecs-client` packages:
+
+- [Remote procedure calls](../../vecs-protocol/docs/rpc.md) — the call channel and typed errors.
+- [Sessions and caller context](../../vecs-server/docs/sessions.md) — per-connection RPC context,
+  `closeSession`, and exactly-once teardown.
+- [Client world](../../vecs-client/docs/client-world.md) — replication, `invoke`/`listen`, and
+  disposal.

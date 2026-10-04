@@ -11,23 +11,26 @@ client/server pair.
 
 New to vecs? Start with the core library: **[`lib/vecs`](./lib/vecs/README.md)** and its
 [documentation](./lib/vecs/docs/README.md). Deeper docs for the other libraries will follow; today
-[`lib/vecs-physics/docs`](./lib/vecs-physics/docs/index.md) is documented to the same standard.
+[`lib/vecs-physics/docs`](./lib/vecs-physics/docs/index.md) and the networking stack —
+[`lib/vecs-protocol/docs`](./lib/vecs-protocol/docs/README.md),
+[`lib/vecs-server/docs`](./lib/vecs-server/docs/README.md), and
+[`lib/vecs-client/docs`](./lib/vecs-client/docs/README.md) — are documented to the same standard.
 
 ## Library map
 
-| Package                                                   | Purpose                                                                                                           | Docs                                                                              |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`@vworlds/vecs`](./lib/vecs)                             | The core ECS: worlds, entities, components, systems, queries, relationships, modules, and phases.                 | [README](./lib/vecs/README.md) · [docs](./lib/vecs/docs/README.md)                |
-| [`@vworlds/vecs-wire`](./lib/vecs-wire)                   | Binary serialization: encoder/decoder pair and the `@type` field decorator for deterministic wire messages.       | [README](./lib/vecs-wire/README.md)                                               |
-| [`@vworlds/vecs-protocol`](./lib/vecs-protocol)           | The client↔server protocol: `Server2Client` / `Client2Server` messages, state diffs, RPC, transport interfaces.   | —                                                                                 |
-| [`@vworlds/vecs-server`](./lib/vecs-server)               | Node.js server runtime: `ServerWorld`, per-client views and interest management, diff history, listeners.         | —                                                                                 |
-| [`@vworlds/vecs-client`](./lib/vecs-client)               | Browser client runtime: `ClientWorld` replication, diff buffering, and component interpolation.                   | —                                                                                 |
-| [`@vworlds/vecs-physics`](./lib/vecs-physics)             | A Box2D v3 port with an idiomatic vecs API: physics as components, systems, and phases.                           | [README](./lib/vecs-physics/README.md) · [docs](./lib/vecs-physics/docs/index.md) |
-| [`@vworlds/vecs-phaser`](./lib/vecs-phaser)               | Data-only package of wire-serializable Phaser render components and the shared protocol component order.          | [README](./lib/vecs-phaser/README.md)                                             |
-| [`@vworlds/vecs-phaser-server`](./lib/vecs-phaser-server) | Server-side helpers for the Phaser stack: render exclusivity wiring, shape builders, physics-to-render pose sync. | [README](./lib/vecs-phaser-server/README.md)                                      |
-| [`@vworlds/vecs-phaser-client`](./lib/vecs-phaser-client) | Browser render adapter: observes a replicated `ClientWorld` and drives Phaser GameObjects automatically.          | [README](./lib/vecs-phaser-client/README.md)                                      |
-| [`@vworlds/vecs-demo-server`](./apps/server)              | Demo app: authoritative server owning the world, physics, interest management, and replication.                   | [README](./apps/server/README.md)                                                 |
-| [`@vworlds/vecs-demo-client`](./apps/client)              | Demo app: Phaser client that connects to the demo server and renders replicated entities.                         | [README](./apps/client/README.md)                                                 |
+| Package                                                   | Purpose                                                                                                           | Docs                                                                                 |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| [`@vworlds/vecs`](./lib/vecs)                             | The core ECS: worlds, entities, components, systems, queries, relationships, modules, and phases.                 | [README](./lib/vecs/README.md) · [docs](./lib/vecs/docs/README.md)                   |
+| [`@vworlds/vecs-wire`](./lib/vecs-wire)                   | Binary serialization: encoder/decoder pair and the `@type` field decorator for deterministic wire messages.       | [README](./lib/vecs-wire/README.md)                                                  |
+| [`@vworlds/vecs-protocol`](./lib/vecs-protocol)           | The client↔server protocol: `Server2Client` / `Client2Server` messages, state diffs, RPC, transport interfaces.   | [README](./lib/vecs-protocol/README.md) · [docs](./lib/vecs-protocol/docs/README.md) |
+| [`@vworlds/vecs-server`](./lib/vecs-server)               | Node.js server runtime: `ServerWorld`, per-client views and interest management, diff history, listeners.         | [README](./lib/vecs-server/README.md) · [docs](./lib/vecs-server/docs/README.md)     |
+| [`@vworlds/vecs-client`](./lib/vecs-client)               | Browser client runtime: `ClientWorld` replication, diff buffering, and component interpolation.                   | [README](./lib/vecs-client/README.md) · [docs](./lib/vecs-client/docs/README.md)     |
+| [`@vworlds/vecs-physics`](./lib/vecs-physics)             | A Box2D v3 port with an idiomatic vecs API: physics as components, systems, and phases.                           | [README](./lib/vecs-physics/README.md) · [docs](./lib/vecs-physics/docs/index.md)    |
+| [`@vworlds/vecs-phaser`](./lib/vecs-phaser)               | Data-only package of wire-serializable Phaser render components and the shared protocol component order.          | [README](./lib/vecs-phaser/README.md)                                                |
+| [`@vworlds/vecs-phaser-server`](./lib/vecs-phaser-server) | Server-side helpers for the Phaser stack: render exclusivity wiring, shape builders, physics-to-render pose sync. | [README](./lib/vecs-phaser-server/README.md)                                         |
+| [`@vworlds/vecs-phaser-client`](./lib/vecs-phaser-client) | Browser render adapter: observes a replicated `ClientWorld` and drives Phaser GameObjects automatically.          | [README](./lib/vecs-phaser-client/README.md)                                         |
+| [`@vworlds/vecs-demo-server`](./apps/server)              | Demo app: authoritative server owning the world, physics, interest management, and replication.                   | [README](./apps/server/README.md)                                                    |
+| [`@vworlds/vecs-demo-client`](./apps/client)              | Demo app: Phaser client that connects to the demo server and renders replicated entities.                         | [README](./apps/client/README.md)                                                    |
 
 ## How the layers relate
 

@@ -3,6 +3,7 @@ import {
   ALL_COMPONENTS,
   Client2Server,
   ComponentSnapshot,
+  RPC,
   Server2Client,
   type VecsSocket,
   type VecsSocketListener,
@@ -24,7 +25,9 @@ import {
   NetworkClient,
   NetworkInput,
   Networked,
+  RPCError,
   ServerWorld,
+  type ServerRPCContext,
   type ServerWorldOptions,
   View,
 } from "../src/index.js";
@@ -57,6 +60,7 @@ type SocketHandler = (arg?: unknown) => void;
 class MemorySocket implements VecsSocket {
   public readonly sent: Uint8Array[] = [];
   public closed = false;
+  public closeCalls = 0;
   private readonly _handlers = new Map<string, SocketHandler[]>();
 
   public constructor(public readonly id: string) {}
@@ -78,6 +82,7 @@ class MemorySocket implements VecsSocket {
 
   public close(): void {
     this.closed = true;
+    this.closeCalls++;
     this._handlers.get("disconnect")?.forEach((handler) => handler());
   }
 }
@@ -156,6 +161,48 @@ function allowAllClientViews(world: World): void {
 
 function createWorld(options: ServerWorldOptions = {}): ServerWorld {
   return new ServerWorld({ name: "main", networkComponents: [Position], ...options });
+}
+
+let tickMs = 0;
+
+/** Advance one frame, keeping the timeline monotonic across a test's ticks. */
+function tick(world: ServerWorld): void {
+  world.progress(tickMs, 16);
+  tickMs += 16;
+}
+
+/** Deliver an inbound frame and return the RPC replies the server sent back. */
+async function deliver(
+  socket: MemorySocket,
+  world: ServerWorld,
+  message: Partial<Client2Server> = {}
+): Promise<RPC[]> {
+  socket.receive(
+    encodeClient2Server(new Client2Server({ ackFrame: 0, ...message } as Client2Server))
+  );
+  // Handlers are async, so let the response reach the session outbox before send().
+  await Promise.resolve();
+  await Promise.resolve();
+  const before = socket.sent.length;
+  tick(world);
+  return socket.sent.slice(before).flatMap((bytes) => new Decoder(bytes).read(Server2Client).rpc);
+}
+
+/** Call `rpcId` from a connected socket and return the single reply. */
+async function callRpc(
+  socket: MemorySocket,
+  world: ServerWorld,
+  rpcId: number,
+  params: unknown[] = []
+): Promise<RPC> {
+  const replies = await deliver(socket, world, {
+    rpc: [new RPC({ rpcId, callId: 0, params })],
+  });
+  const reply = replies.find((candidate) => candidate.callId === 0);
+  if (!reply) {
+    throw new Error(`no RPC reply for rpc ${rpcId} on ${socket.id}`);
+  }
+  return reply;
 }
 
 describe("ServerWorld", () => {
@@ -1190,5 +1237,351 @@ describe("ServerWorld", () => {
     expect(view._visible).toEqual(new Set());
     expect(view._enteredView).toEqual(new Set());
     expect(view._exitedView).toEqual(new Set([entity]));
+  });
+});
+
+describe("ServerWorld RPC caller context", () => {
+  it("gives each concurrent session its own caller", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const seen: Array<{ connectionId: string; eid: number; world: ServerWorld }> = [];
+    server.handleRpc(101, (_params, _request, ctx) => {
+      seen.push({ connectionId: ctx.connectionId, eid: ctx.caller.eid, world: ctx.world });
+      return [ctx.connectionId, ctx.caller.get(NetworkClient)?.id];
+    });
+
+    const first = new MemorySocket("client-1");
+    const second = new MemorySocket("client-2");
+    listener.connect(first);
+    listener.connect(second);
+
+    const firstReply = await callRpc(first, server, 101);
+    const secondReply = await callRpc(second, server, 101);
+
+    expect(firstReply.params).toEqual(["client-1", "client-1"]);
+    expect(secondReply.params).toEqual(["client-2", "client-2"]);
+    expect(seen).toEqual([
+      { connectionId: "client-1", eid: seen[0].eid, world: server },
+      { connectionId: "client-2", eid: seen[1].eid, world: server },
+    ]);
+    expect(seen[0].eid).not.toBe(seen[1].eid);
+    expect(world.getEntity(seen[0].eid)?.get(NetworkClient)?.id).toBe("client-1");
+    expect(world.getEntity(seen[1].eid)?.get(NetworkClient)?.id).toBe("client-2");
+  });
+
+  it("keeps concurrent calls on one connection attributed to that connection", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    server.handleRpc(101, (_params, _request, ctx) => {
+      ctx.caller.set(NetworkInput, { input: ctx.connectionId });
+      return [ctx.connectionId];
+    });
+
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+
+    expect((await callRpc(socket, server, 101)).params).toEqual(["client-1"]);
+    expect((await callRpc(socket, server, 101)).params).toEqual(["client-1"]);
+  });
+
+  it("binds handlers registered after the sessions already exist", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+
+    server.handleRpc(101, (_params, _request, ctx) => [ctx.caller.get(NetworkClient)?.id]);
+
+    expect((await callRpc(socket, server, 101)).params).toEqual(["client-1"]);
+  });
+
+  it("forwards a handler's RPCError code and message to the client", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    server.handleRpc(101, () => {
+      throw new RPCError(4001, "unknown resume token");
+    });
+
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+
+    const reply = await callRpc(socket, server, 101);
+    expect(reply.rpcId).toBe(0);
+    expect(reply.error).toBe(4001);
+    expect(reply.message).toBe("unknown resume token");
+  });
+
+  it("reports an rpc id the server does not handle as code 1", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+
+    const reply = await callRpc(socket, server, 999);
+    expect(reply.error).toBe(1);
+    expect(reply.message).toBe("Unknown RPC id 999");
+  });
+
+  it("does not answer a call made on a closed session", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const calls: string[] = [];
+    server.handleRpc(101, (_params, _request, ctx) => {
+      calls.push(ctx.connectionId);
+      return [];
+    });
+
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    server.closeSession("client-1");
+
+    const replies = await deliver(socket, server, {
+      rpc: [new RPC({ rpcId: 101, callId: 0, params: [] })],
+    });
+
+    expect(calls).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+});
+
+describe("ServerWorld.closeSession", () => {
+  it("closes one session and leaves the others connected", () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const first = connectSession(server, listener, "client-1");
+    const second = connectSession(server, listener, "client-2");
+    const firstEid = first.session.entity.eid;
+    const secondEid = second.session.entity.eid;
+
+    expect(server.closeSession("client-1")).toBe(true);
+    tick(world);
+
+    expect(first.socket.closed).toBe(true);
+    expect(first.socket.closeCalls).toBe(1);
+    expect(world.getEntity(firstEid)).toBeUndefined();
+    expect(second.socket.closed).toBe(false);
+    expect(second.socket.closeCalls).toBe(0);
+    expect(world.getEntity(secondEid)?.get(NetworkClient)?.id).toBe("client-2");
+    expect(world.entity(secondEid).get(View)).toBeDefined();
+  });
+
+  it("accepts the caller's NetworkClient entity", () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const { session, socket } = connectSession(server, listener, "client-1");
+
+    expect(server.closeSession(session.entity)).toBe(true);
+    tick(world);
+
+    expect(socket.closed).toBe(true);
+    expect(world.getEntity(session.entity.eid)).toBeUndefined();
+  });
+
+  it("is a no-op for an unknown connection or an already-closed session", () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const { session, socket } = connectSession(server, listener, "client-1");
+
+    expect(server.closeSession("never-connected")).toBe(false);
+    expect(server.closeSession(session.entity, "first")).toBe(true);
+    tick(world);
+    const closesAfterFirst = socket.closeCalls;
+
+    expect(server.closeSession(session.entity, "second")).toBe(false);
+    expect(server.closeSession("client-1", "third")).toBe(false);
+    expect(server.closeSession(world.entity(), "not a client")).toBe(false);
+    tick(world);
+
+    expect(socket.closeCalls).toBe(closesAfterFirst);
+  });
+
+  it("records the close reason for a NetworkClient exit system", () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const observed: Array<{ id: string; reason: string | undefined }> = [];
+    world
+      .system("log-close")
+      .with(Networked, NetworkClient)
+      .phase(PRE_STORE)
+      .exit([NetworkClient], (_entity, [client]) => {
+        observed.push({ id: client.id, reason: client.closeReason });
+      });
+
+    connectSession(server, listener, "client-1");
+    connectSession(server, listener, "client-2");
+    tick(world);
+
+    server.closeSession("client-1", "superseded by a newer connection");
+    server.closeSession("client-2");
+    // The close is scheduled; the tick that runs `send` tears the sessions down,
+    // and the next tick drains the exit callbacks.
+    tick(world);
+    tick(world);
+
+    expect(observed).toEqual([
+      { id: "client-1", reason: "superseded by a newer connection" },
+      { id: "client-2", reason: undefined },
+    ]);
+  });
+
+  it("closes the socket when the application destroys the NetworkClient entity", () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const { session, socket } = connectSession(server, listener, "client-1");
+
+    session.entity.destroy();
+    tick(world);
+
+    expect(socket.closed).toBe(true);
+    expect(socket.closeCalls).toBe(1);
+  });
+
+  it("cleans up exactly once when the peer disconnects after a server close", () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const { socket } = connectSession(server, listener, "client-1");
+
+    server.closeSession("client-1");
+    socket.close();
+    socket.close();
+    tick(world);
+
+    // One close from the server, then the peer's own two; the world adds none.
+    expect(socket.closeCalls).toBe(3);
+    expect(server.closeSession("client-1")).toBe(false);
+  });
+
+  it("closes every connected client when queried through NetworkClient", () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const first = connectSession(server, listener, "client-1");
+    const second = connectSession(server, listener, "client-2");
+    tick(world);
+
+    world
+      .query("shutdown:clients")
+      .with(NetworkClient)
+      .track()
+      .build()
+      .forEach((entity) => {
+        server.closeSession(entity, "server shutting down");
+      });
+    tick(world);
+
+    expect(first.socket.closeCalls).toBe(1);
+    expect(second.socket.closeCalls).toBe(1);
+  });
+
+  it("delivers the rejection that explains the close before disconnecting", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const AUTH_RPC = 101;
+    const WRONG_WORLD = 4001;
+    const INVALID_CREDENTIALS = 4002;
+    const accepted = new Set<string>();
+    server.handleRpc(AUTH_RPC, (params, _request, ctx: ServerRPCContext) => {
+      const [playerId] = params as [string];
+      if (!accepted.has(playerId)) {
+        // The auth handshake in one call: reject, then hang up.
+        const code = playerId === "known" ? WRONG_WORLD : INVALID_CREDENTIALS;
+        server.closeSession(ctx.caller, "unauthenticated");
+        throw new RPCError(code, `unknown resume token for ${playerId}`);
+      }
+      return ["ok"];
+    });
+
+    const { socket } = connectSession(server, listener, "client-1");
+    const reply = await callRpc(socket, world, AUTH_RPC, ["known"]);
+
+    expect(reply.error).toBe(WRONG_WORLD);
+    expect(reply.message).toBe("unknown resume token for known");
+    // The reply was delivered on a frame written before the socket closed, and
+    // teardown still ran exactly once.
+    expect(socket.sent.length).toBeGreaterThan(0);
+    expect(socket.closeCalls).toBe(1);
+    expect(socket.closed).toBe(true);
+    expect(server.closeSession("client-1")).toBe(false);
+
+    const other = connectSession(server, listener, "client-2");
+    const second = await callRpc(other.socket, world, AUTH_RPC, ["stranger"]);
+    expect(second.error).toBe(INVALID_CREDENTIALS);
+    expect(other.socket.closeCalls).toBe(1);
+  });
+
+  it("replicates no further state to a closing session", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    server.handleRpc(101, () => "ok");
+    const { session, socket } = connectSession(server, listener, "client-1");
+    tick(world);
+
+    server.closeSession("client-1", "superseded");
+    const before = socket.sent.length;
+
+    // A frame the transport had already queued must not be honored.
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    await Promise.resolve();
+    tick(world);
+
+    expect(session.entity.get(NetworkInput)).toBeUndefined();
+    // Nothing owed, so the close emits no frame at all.
+    expect(socket.sent.length).toBe(before);
+    expect(socket.closeCalls).toBe(1);
+  });
+
+  it("closes a stale session once when the disconnect grace period elapses", () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    try {
+      const world = createWorld({ disconnectGraceMs: 10_000 });
+      const server = world;
+      const listener = new MockListener();
+      server._attach(listener);
+      const { session, socket } = connectSession(server, listener, "client-1");
+
+      tick(world);
+      expect(socket.closed).toBe(false);
+
+      now.mockReturnValue(10_001);
+      tick(world);
+      expect(socket.closed).toBe(true);
+      expect(socket.closeCalls).toBe(1);
+      expect(world.getEntity(session.entity.eid)).toBeUndefined();
+
+      socket.close();
+      expect(socket.closeCalls).toBe(2);
+      expect(server.closeSession("client-1")).toBe(false);
+    } finally {
+      now.mockRestore();
+    }
   });
 });
