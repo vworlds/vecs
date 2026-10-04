@@ -166,21 +166,37 @@ export abstract class Term implements TermConsumer {
     this._onDestroy(this);
   }
 
-  /** @internal Emit an enter event and add entity; no-op if already present. */
+  /**
+   * @internal Emit an enter event and add entity; no-op if already present.
+   *
+   * The world's `_termEmitDepth` counts the delivery as in flight from the
+   * membership change until every consumer has seen it.
+   */
   protected _add(entity: Entity): void {
     if (this._entities.has(entity)) {
       return;
     }
-    this._entities.add(entity);
-    this._emit(TermEventKind.Enter, entity);
+    const world = this.world;
+    world._termEmitDepth++;
+    try {
+      this._entities.add(entity);
+      this._emit(TermEventKind.Enter, entity);
+    } finally {
+      world._termEmitDepth--;
+    }
   }
 
-  /** @internal Emit an exit event and remove entity; no-op if not present. */
+  /** @internal Emit an exit event and remove entity; no-op if not present. Counted like {@link _add}. */
   protected _delete(entity: Entity): void {
-    if (!this._entities.delete(entity)) {
-      return;
+    const world = this.world;
+    world._termEmitDepth++;
+    try {
+      if (this._entities.delete(entity)) {
+        this._emit(TermEventKind.Exit, entity);
+      }
+    } finally {
+      world._termEmitDepth--;
     }
-    this._emit(TermEventKind.Exit, entity);
   }
 
   /** @internal Propagate a refresh hint to all consumers (both channels). */
@@ -245,7 +261,9 @@ export abstract class Term implements TermConsumer {
    * Most composites delegate to `onTermRefresh` which defaults to `_sync`.
    * Subclasses that only want to react to *specific* child kinds (e.g.
    * `PredicateTerm` reacting only to component-kind children) override this
-   * to filter before calling `_sync`.
+   * to filter before calling `_sync`. `AllTerm` and `AnyTerm`, whose membership
+   * depends only on their children's membership, ignore refreshes unless a
+   * membership event is still in flight.
    */
   protected _onChildRefresh(entity: Entity, _child: Term): void {
     this.onTermRefresh(entity);

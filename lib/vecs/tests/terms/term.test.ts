@@ -445,6 +445,80 @@ describe("Term — AnyTerm", () => {
   });
 });
 
+describe("Term — data refreshes on all/any terms", () => {
+  it("keeps an all term in step with data updates, retargets and removal", () => {
+    const w = setup();
+    const term = w.getTerm({ all: [Position, { target: [FriendOf, Tag] }] });
+    const { enter, exit } = listen(term);
+    const tagged = w.entity().add(Tag);
+    const untagged = w.entity();
+    const e = w.entity().set(Position, { x: 0 }).add(FriendOf, tagged);
+    expect(enter).toHaveBeenCalledTimes(1);
+
+    e.set(Position, { x: 1 });
+    e.modified(Position);
+    expect(enter).toHaveBeenCalledTimes(1);
+    expect(exit).not.toHaveBeenCalled();
+
+    e.add(FriendOf, untagged);
+    expect(term.has(e)).toBe(false);
+    expect(exit).toHaveBeenCalledTimes(1);
+
+    e.add(FriendOf, tagged);
+    expect(term.has(e)).toBe(true);
+    expect(enter).toHaveBeenCalledTimes(2);
+
+    e.remove(Position);
+    expect(term.has(e)).toBe(false);
+    expect(exit).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-evaluates an all term when a data refresh arrives during an in-flight event", () => {
+    const w = setup();
+    const log: string[] = [];
+    // `first` subscribes to Position before the all term does, so its enter
+    // callback runs (and updates Velocity inline) while Position's enter event
+    // is still being delivered.
+    w.query("first")
+      .with(Position)
+      .enter((e) => {
+        log.push("first:start");
+        e.set(Velocity, { vx: 1 });
+        log.push("first:end");
+      })
+      .build();
+    w.query("both")
+      .with(Position, Velocity)
+      .enter(() => log.push("both"))
+      .build();
+
+    w.entity().add(Velocity).add(Position);
+
+    expect(log).toEqual(["first:start", "both", "first:end"]);
+  });
+
+  it("re-evaluates an any term when a data refresh arrives during an in-flight event", () => {
+    const w = setup();
+    const log: string[] = [];
+    w.query("first")
+      .with(Position)
+      .enter((e) => {
+        log.push("first:start");
+        e.set(Position, { x: 1 });
+        log.push("first:end");
+      })
+      .build();
+    w.query("either")
+      .with({ any: [Position, Sprite] })
+      .enter(() => log.push("either"))
+      .build();
+
+    w.entity().add(Position);
+
+    expect(log).toEqual(["first:start", "either", "first:end"]);
+  });
+});
+
 describe("Term — NotTerm", () => {
   it("contains live entities that are NOT in the child term", () => {
     const w = setup();

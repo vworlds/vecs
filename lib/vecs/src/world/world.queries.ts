@@ -29,6 +29,12 @@ export class Queries extends Storage {
   public _emptyTerm: EmptyTerm | undefined;
   /** @internal Pinned world term. */
   public _worldTerm: WorldTerm | undefined;
+  /**
+   * @internal Term membership events currently being delivered (see
+   * `Term._add` / `Term._delete`). While it is zero, every composite term agrees
+   * with its children's membership.
+   */
+  public _termEmitDepth = 0;
   /** @internal True while the world is driving one logical frame. */
   protected _frameInProgress = false;
   /** @internal True while the world is auto-building pending queries. */
