@@ -150,6 +150,79 @@ describe("IterableArrayMap", () => {
   });
 });
 
+describe("IterableArrayMap — dense storage bookkeeping", () => {
+  it("keeps lookups and dense order consistent across swap-deletes and re-adds", () => {
+    const m = new IterableArrayMap<string>();
+    for (const key of [1, 2, 3, 4, 5]) {
+      m.set(key, `v${key}`);
+    }
+
+    m.delete(2); // 5 moves into 2's position
+    m.set(3, "three"); // replacing keeps the position
+    m.set(2, "again"); // re-added at the end
+    m.delete(1); // 2 moves into 1's position
+    m.delete(4);
+
+    expect([...m.entries()]).toEqual([
+      [2, "again"],
+      [5, "v5"],
+      [3, "three"],
+    ]);
+    expect([1, 2, 3, 4, 5].map((key) => [m.has(key), m.get(key)])).toEqual([
+      [false, undefined],
+      [true, "again"],
+      [true, "three"],
+      [false, undefined],
+      [true, "v5"],
+    ]);
+    expect(m.size).toBe(3);
+  });
+
+  it("supports large sparse keys", () => {
+    const m = new IterableArrayMap<string>();
+    m.set(1_000_000, "far");
+    m.set(3, "near");
+    m.delete(3);
+    expect(m.get(1_000_000)).toBe("far");
+    expect(m.has(3)).toBe(false);
+    expect([...m]).toEqual([[1_000_000, "far"]]);
+  });
+
+  it("iterates entries against the live contents", () => {
+    const m = new IterableArrayMap<number>();
+    m.set(1, 10);
+    m.set(2, 20);
+    const seen: Array<readonly [number, number]> = [];
+    for (const entry of m) {
+      seen.push(entry);
+      if (entry[0] === 1) {
+        m.set(2, 21);
+        m.set(3, 30);
+      }
+    }
+    expect(seen).toEqual([
+      [1, 10],
+      [2, 21],
+      [3, 30],
+    ]);
+  });
+
+  it("returns values as a copy and reuses keys after clear", () => {
+    const m = new IterableArrayMap<number>();
+    m.set(4, 40);
+    m.set(9, 90);
+    const values = m.values();
+    values.push(100);
+    expect(m.values()).toEqual([40, 90]);
+
+    m.clear();
+    expect(m.has(4)).toBe(false);
+    m.set(9, 91);
+    expect([...m]).toEqual([[9, 91]]);
+    expect(m.size).toBe(1);
+  });
+});
+
 describe("IterableArrayMap.forEachSafe", () => {
   it("visits every entry when the callback does not mutate", () => {
     const m = new IterableArrayMap<string>();

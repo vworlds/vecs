@@ -75,25 +75,31 @@ export class ArrayMap<T> {
  * An iterable `Map<number, T>` substitute backed by dense entries plus sparse indexes.
  *
  * Use this when callers need fast `forEach` or `values` over present entries.
- * Random access resolves `key -> dense index` through {@link ArrayMap}, then
- * indexes into `_items`; iteration walks the dense `_items` array directly.
+ * Random access reads the entry's dense position from a sparse slot array
+ * indexed by key, then reads the value from the dense value array; iteration
+ * walks the dense key and value arrays directly.
  *
- * Deletes keep `_items` dense by moving the last value into the removed slot
- * and updating the moved value's stored index.
+ * Deletes keep the dense arrays dense by moving the last entry into the removed
+ * position and updating the moved entry's slot.
  *
- * Compared with {@link ArrayMap}, this costs extra memory for tuple storage and
- * an index map, and `delete`/new `set` do more bookkeeping. In return, iteration
- * is dense and does not scan sparse holes.
+ * Compared with {@link ArrayMap}, this costs extra memory for the dense arrays,
+ * and `delete`/new `set` do more bookkeeping. In return, iteration is dense and
+ * does not scan sparse holes.
  *
  * @typeParam T - Value type stored in the map.
  */
 export class IterableArrayMap<T> {
-  private readonly _indices = new ArrayMap<number>();
-  private readonly _items: Array<readonly [number, T]> = [];
+  /**
+   * Key -> dense position + 1. Holes and `0` mean "absent", so the array only
+   * ever holds small integers and lookups stay on V8's fast SMI elements path.
+   */
+  private readonly _slots: number[] = [];
+  private readonly _keys: number[] = [];
+  private readonly _values: T[] = [];
 
   /** The number of entries currently in the map. */
   public get size(): number {
-    return this._items.length;
+    return this._keys.length;
   }
 
   /**
@@ -103,15 +109,15 @@ export class IterableArrayMap<T> {
    * @param value - Value to store.
    */
   public set(key: number, value: T): void {
-    const existingIndex = this._indices.get(key);
-    if (existingIndex !== undefined) {
-      this._items[existingIndex] = [key, value];
+    const slot = this._slots[key];
+    if (slot > 0) {
+      this._values[slot - 1] = value;
       return;
     }
 
-    const index = this._items.length;
-    this._indices.set(key, index);
-    this._items.push([key, value]);
+    this._keys.push(key);
+    this._values.push(value);
+    this._slots[key] = this._keys.length;
   }
 
   /**
@@ -120,8 +126,8 @@ export class IterableArrayMap<T> {
    * @param key - Non-negative integer key.
    */
   public get(key: number): T | undefined {
-    const index = this._indices.get(key);
-    return index === undefined ? undefined : this._items[index][1];
+    const slot = this._slots[key];
+    return slot > 0 ? this._values[slot - 1] : undefined;
   }
 
   /**
@@ -130,7 +136,7 @@ export class IterableArrayMap<T> {
    * @param key - Non-negative integer key.
    */
   public has(key: number): boolean {
-    return this._indices.has(key);
+    return this._slots[key] > 0;
   }
 
   /**
@@ -139,21 +145,24 @@ export class IterableArrayMap<T> {
    * @param key - Non-negative integer key.
    */
   public delete(key: number): void {
-    const index = this._indices.get(key);
-    if (index === undefined) {
+    const slot = this._slots[key];
+    if (!(slot > 0)) {
       return;
     }
 
-    const lastIndex = this._items.length - 1;
-    if (index !== lastIndex) {
-      const lastItem = this._items[lastIndex];
-      this._items[index] = lastItem;
-      const lastKey = lastItem[0];
-      this._indices.set(lastKey, index);
+    const keys = this._keys;
+    const values = this._values;
+    const lastIndex = keys.length - 1;
+    if (slot - 1 !== lastIndex) {
+      const lastKey = keys[lastIndex];
+      keys[slot - 1] = lastKey;
+      values[slot - 1] = values[lastIndex];
+      this._slots[lastKey] = slot;
     }
 
-    this._items.pop();
-    this._indices.delete(key);
+    keys.pop();
+    values.pop();
+    this._slots[key] = 0;
   }
 
   /**
@@ -162,10 +171,10 @@ export class IterableArrayMap<T> {
    * @param callback - Invoked with `(value, key, map)` for each entry.
    */
   public forEach(callback: (value: T, key: number, map: IterableArrayMap<T>) => void): void {
-    const items = this._items;
-    for (let i = 0; i < items.length; i++) {
-      const [key, value] = items[i];
-      callback(value, key, this);
+    const keys = this._keys;
+    const values = this._values;
+    for (let i = 0; i < keys.length; i++) {
+      callback(values[i], keys[i], this);
     }
   }
 
@@ -185,11 +194,12 @@ export class IterableArrayMap<T> {
    * snapshot.
    */
   public forEachSafe(callback: (value: T, key: number, map: IterableArrayMap<T>) => void): void {
-    const items = this._items;
-    for (let i = 0; i < items.length; i++) {
-      const [key, value] = items[i];
-      callback(value, key, this);
-      if (i < items.length && items[i][0] !== key) {
+    const keys = this._keys;
+    const values = this._values;
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      callback(values[i], key, this);
+      if (i < keys.length && keys[i] !== key) {
         i--;
       }
     }
@@ -198,12 +208,15 @@ export class IterableArrayMap<T> {
   /**
    * Return an iterator over `[key, value]` entries in dense item order.
    *
-   * Entries are backed by the map's internal storage for speed. Treat them as
-   * immutable; mutating them through casts or plain JavaScript can corrupt the
-   * map's key index.
+   * Each entry is a fresh pair read from the map's current contents as the
+   * iterator advances.
    */
-  public entries(): IterableIterator<readonly [number, T]> {
-    return this._items.values();
+  public *entries(): IterableIterator<readonly [number, T]> {
+    const keys = this._keys;
+    const values = this._values;
+    for (let i = 0; i < keys.length; i++) {
+      yield [keys[i], values[i]];
+    }
   }
 
   /** Return an iterator over `[key, value]` entries in dense item order. */
@@ -213,13 +226,14 @@ export class IterableArrayMap<T> {
 
   /** Return every present value in dense item order. */
   public values(): T[] {
-    return this._items.map(([, value]) => value);
+    return this._values.slice();
   }
 
   /** Remove all entries and reset {@link size} to zero. */
   public clear(): void {
-    this._indices.clear();
-    this._items.length = 0;
+    this._slots.length = 0;
+    this._keys.length = 0;
+    this._values.length = 0;
   }
 }
 
