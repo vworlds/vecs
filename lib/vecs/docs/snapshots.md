@@ -124,8 +124,10 @@ module has moved on.
 
 `@vworlds/vecs-physics` installs policies for its own components, which is why a physics subtree
 moves without any physics-specific code in the caller: `PhysicsEngine` is `DontSnapshot`, while
-`Body`, the shapes, `Chain`, and the joints capture their declarative fields and let the
-destination lifecycle systems allocate fresh Box2D handles.
+`Body`, shapes, joints, and their frame/settings/feature components capture plain declarative
+fields and let the destination lifecycle systems allocate fresh Box2D handles. The physics policy
+also normalizes Box2D vector wrappers into `{ x, y }` records, so a snapshot never retains a
+source-owned WASM value.
 
 ## Restore order
 

@@ -17,6 +17,12 @@ import { ContactEvents, HitEvents, SensorEvents } from "../events/components.js"
 import {
   DistanceJoint,
   FilterJoint,
+  JointAngularSpring,
+  JointFrame,
+  JointLimit,
+  JointLinearSpring,
+  JointMotor,
+  JointSettings,
   MotorJoint,
   PrismaticJoint,
   RevoluteJoint,
@@ -48,24 +54,30 @@ function captureDeclarative(instance: object): Record<string, unknown> {
 }
 
 /**
- * Copy nested arrays and plain objects so a snapshot never aliases geometry the
- * source component still holds — `Chain.points` and `Polygon.vertices` are the
- * arrays that matter. Anything else (numbers, strings, booleans) is already
- * detached and passes through.
+ * Copy nested arrays and objects into declarative values so a snapshot never
+ * aliases source geometry or retains Box2D's Embind wrapper instances. Physics
+ * components only expose data fields, so copying every object's enumerable
+ * fields into a record intentionally strips its prototype.
  */
 function detach(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(detach);
   }
   if (typeof value === "object" && value !== null) {
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype === Object.prototype || prototype === null) {
-      const clone: Record<string, unknown> = {};
-      for (const [key, entry] of Object.entries(value)) {
-        clone[key] = detach(entry);
-      }
-      return clone;
+    const clone: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      clone[key] = detach(entry);
     }
+    // Embind's b2Vec2 exposes coordinates through prototype accessors rather
+    // than own enumerable fields. Read them explicitly before dropping that
+    // prototype along with the rest of the wrapper.
+    if ("x" in value && !("x" in clone)) {
+      clone.x = detach((value as { x: unknown }).x);
+    }
+    if ("y" in value && !("y" in clone)) {
+      clone.y = detach((value as { y: unknown }).y);
+    }
+    return clone;
   }
   return value;
 }
@@ -111,6 +123,12 @@ export class PhysicsSnapshotModule extends Module {
       WeldJoint,
       FilterJoint,
       MotorJoint,
+      JointFrame,
+      JointMotor,
+      JointLimit,
+      JointLinearSpring,
+      JointAngularSpring,
+      JointSettings,
     ].forEach((Class) => declareDeclarative(world, Class));
   }
 }
