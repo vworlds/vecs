@@ -53,7 +53,29 @@ class MemorySocket implements VecsSocket {
   public close(): void {
     this.closeCalls += 1;
     this.closed = true;
+    this.disconnect();
+  }
+
+  public disconnect(): void {
     this._handlers.get("disconnect")?.forEach((handler) => handler());
+  }
+}
+
+class ThrowingSocket extends MemorySocket {
+  public sendCalls = 0;
+
+  public override send(_data: Uint8Array): void {
+    this.sendCalls += 1;
+    throw new Error("peer closed");
+  }
+}
+
+class RejectingSocket extends MemorySocket {
+  public sendCalls = 0;
+
+  public override send(_data: Uint8Array): void {
+    this.sendCalls += 1;
+    return Promise.reject(new Error("peer closed")) as never;
   }
 }
 
@@ -418,6 +440,77 @@ describe("ClientWorld", () => {
     socket.close();
 
     expect(disconnected).toBe(true);
+  });
+
+  it("rejects pending calls and emits disconnect only once when the socket disconnects", async () => {
+    const client = new ClientWorld();
+    const socket = new MemorySocket("server");
+    const disconnect = vi.fn();
+    client.attachSocket(socket);
+    client.events.on("disconnect", disconnect);
+    const pending = client.invoke(101);
+
+    socket.disconnect();
+    socket.disconnect();
+
+    await expect(pending).rejects.toMatchObject({ code: RPC_CLOSED_CODE });
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("treats a synchronous ack send failure as a disconnect", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new ClientWorld({ ackIntervalMs: 10 });
+      const socket = new ThrowingSocket("server");
+      const disconnect = vi.fn();
+      client.attachSocket(socket);
+      client.events.on("disconnect", disconnect);
+      const pending = client.invoke(101);
+
+      expect(() => client.send()).not.toThrow();
+      await expect(pending).rejects.toMatchObject({ code: RPC_CLOSED_CODE });
+      vi.advanceTimersByTime(30);
+
+      expect(disconnect).toHaveBeenCalledOnce();
+      expect(socket.sendCalls).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("handles rejected ack sends when the socket never emits disconnect", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new ClientWorld({ ackIntervalMs: 10 });
+      const socket = new RejectingSocket("server");
+      const disconnect = vi.fn();
+      client.attachSocket(socket);
+      client.events.on("disconnect", disconnect);
+      const pending = client.invoke(101);
+
+      client.send();
+      await Promise.resolve();
+      await expect(pending).rejects.toMatchObject({ code: RPC_CLOSED_CODE });
+      vi.advanceTimersByTime(30);
+
+      expect(disconnect).toHaveBeenCalledOnce();
+      expect(socket.sendCalls).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("closes pending calls without disposing the world", async () => {
+    const client = new ClientWorld();
+    const socket = new MemorySocket("server");
+    client.attachSocket(socket);
+    const pending = client.invoke(101);
+
+    client.close();
+
+    await expect(pending).rejects.toMatchObject({ code: RPC_CLOSED_CODE });
+    expect(socket.closeCalls).toBe(1);
+    expect(() => client.attachSocket(new MemorySocket("replacement"))).not.toThrow();
   });
 
   it("applies out-of-order diffs in server frame order", () => {
