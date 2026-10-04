@@ -2,6 +2,8 @@ import {
   Client2Server,
   ComponentSnapshot,
   EncodedSnapshot,
+  RPC_CLOSED_CODE,
+  RPCError,
   Server2Client,
   SessionRPC,
   StateDiff,
@@ -83,6 +85,14 @@ class ServerClientSession {
   public lastSeenMs = 0;
   public needsFullSnapshot = true;
   public needsResync = false;
+  /**
+   * Set by {@link ServerWorld.closeSession}. The session is finished as far as
+   * the application is concerned: it stops accepting input and stops
+   * replicating, but its RPC outbox still needs one flush so a rejection that
+   * explains the close can reach the client. {@link ServerWorld.send} finishes
+   * the teardown.
+   */
+  public closing = false;
   public closed = false;
   public socket!: VecsSocket;
   public entity!: Entity;
@@ -213,7 +223,11 @@ export class ServerWorld extends NetworkWorld {
    */
   public handleRpc(rpcId: number, handler: RPCHandler<ServerRPCContext>): void {
     this._rpcHandlers.set(rpcId, handler);
-    this._sessions.forEach((session) => this._installHandler(session, rpcId, handler));
+    this._sessions.forEach((session) => {
+      if (!session.closing) {
+        this._installHandler(session, rpcId, handler);
+      }
+    });
   }
 
   /**
@@ -223,6 +237,20 @@ export class ServerWorld extends NetworkWorld {
    * entity is destroyed — firing every `NetworkClient` exit system — and its
    * socket is closed. Closing a connection that is already gone is a no-op that
    * returns `false`, so shutdown loops can call it unconditionally.
+   *
+   * The close is graceful, because the common case has to explain itself: a
+   * handler rejects an `auth` call with an {@link RPCError} *and* closes the
+   * connection, and the client needs that code to tell a wrong world from a bad
+   * credential. The session is therefore marked *closing* rather than destroyed
+   * on the spot. It immediately stops accepting input and replicates nothing
+   * further, and the next {@link ServerWorld.send} flushes the RPC replies it
+   * still owes — best effort over an unreliable datagram channel — and then
+   * completes the same teardown. So `closeSession` returning `true` means the
+   * close was scheduled, and the socket closes on the next tick, not before it.
+   *
+   * Peers that go away on their own, applications that destroy the
+   * `NetworkClient` entity, and `disconnectGraceMs` expiry all tear down
+   * immediately instead: there is nobody left to explain anything to.
    *
    * ```ts
    * // newest authenticated connection wins
@@ -249,7 +277,7 @@ export class ServerWorld extends NetworkWorld {
    *   session's `NetworkClient` entity.
    * @param reason - Recorded on the caller's `NetworkClient.closeReason` before
    *   the entity is destroyed, so an exit system can log why the server hung up.
-   * @returns `true` when a live session was closed.
+   * @returns `true` when a live session was scheduled to close.
    */
   public closeSession(connection: string | Entity, reason?: string): boolean {
     const session = this._sessionFor(connection);
@@ -261,7 +289,7 @@ export class ServerWorld extends NetworkWorld {
         client.closeReason = reason;
       });
     }
-    session.entity.destroy();
+    session.closing = true;
     return true;
   }
 
@@ -286,6 +314,13 @@ export class ServerWorld extends NetworkWorld {
     const staleSessions: ServerClientSession[] = [];
 
     this._clients.forEach([View, ServerClientSession], (e, [view, session]) => {
+      if (session.closing) {
+        // Scheduled to close: no further state, but the rejection that explains
+        // the close still owes the client a frame.
+        this._finishClose(session);
+        return;
+      }
+
       view._reconcileVisibility();
       view._releaseOldTracker(this._trackerCache);
 
@@ -361,9 +396,12 @@ export class ServerWorld extends NetworkWorld {
       session.socket.send(this._encode(new Server2Client({ diff, rpc })));
     });
 
-    staleSessions.forEach((session) =>
-      this.closeSession(session.context.connectionId, "disconnect grace period elapsed")
-    );
+    staleSessions.forEach((session) => {
+      session.entity.getMut(NetworkClient, (client) => {
+        client.closeReason = "disconnect grace period elapsed";
+      });
+      session.entity.destroy();
+    });
 
     this._updates.clear();
   }
@@ -394,8 +432,10 @@ export class ServerWorld extends NetworkWorld {
 
   private _receive(session: ServerClientSession, data: Uint8Array): void {
     // A transport can deliver frames it had already queued when the session was
-    // torn down; the socket has no `off`, so drop them here.
-    if (session.closed) {
+    // torn down; the socket has no `off`, so drop them here. A closing session
+    // drops them too: it has stopped accepting work, and the only thing still
+    // owed is the reply `send` is flushing.
+    if (session.closed || session.closing) {
       return;
     }
     session.lastSeenMs = performance.now();
@@ -440,9 +480,29 @@ export class ServerWorld extends NetworkWorld {
   }
 
   /**
+   * Complete a {@link ServerWorld.closeSession}: flush the RPC replies the
+   * session still owes, then run the normal exactly-once teardown.
+   *
+   * The flush is best effort — the transport is an unreliable datagram channel —
+   * but it is the reason {@link ServerWorld.closeSession} defers: a client that
+   * asked a question deserves the answer, and a rejection is usually the whole
+   * point of the close. A session with nothing owed tears down without emitting
+   * a frame at all.
+   */
+  private _finishClose(session: ServerClientSession): void {
+    const rpc = session.rpc.getOutgoing();
+    if (rpc.length > 0) {
+      session.socket.send(this._encode(new Server2Client({ rpc })));
+    }
+    // Destroying the entity lands in the `ServerClientSession` remove hook, which
+    // is what removes the session and closes the socket.
+    session.entity.destroy();
+  }
+
+  /**
    * Single teardown path, driven by removal of the `ServerClientSession`
    * component. Whoever ends the session — the peer disconnecting, the grace
-   * period elapsing, `closeSession`, or the application destroying the
+   * period elapsing, `closeSession` finishing, or the application destroying the
    * `NetworkClient` entity — the entity destroy lands here, and the `closed`
    * guard keeps it to exactly one pass.
    */
@@ -455,6 +515,11 @@ export class ServerWorld extends NetworkWorld {
     if (this._sessions.get(connectionId) === session) {
       this._sessions.delete(connectionId);
     }
+    // Nothing can be answered by a session that no longer exists, and a server
+    // never issues calls of its own, so this only ever drops cached replies.
+    session.rpc.abortPending(
+      new RPCError(RPC_CLOSED_CODE, `connection ${connectionId} closed by the server`)
+    );
     session.socket.close();
   }
 

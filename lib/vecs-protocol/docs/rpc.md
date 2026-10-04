@@ -82,6 +82,13 @@ caller needs to distinguish outcomes.
 
 Codes `0`–`100` are reserved for protocol use. Choose application codes from `101` up.
 
+The two negative codes are raised locally and never cross the wire: a handler's code travels in a
+`u32` field where `0` means success. Only codes in `[1, 4294967295]` are transmitted as thrown — `0`
+would make the caller's `invoke` _resolve_ as a success, a negative would wrap to a large positive,
+and anything above that range would overflow. Every other code, including non-integers, is sent as
+`RPC_UNSPECIFIED_ERROR_CODE` (`1`), so the call still fails even when the handler chose a code the
+wire cannot carry.
+
 ## Timeouts and aborts
 
 `invoke` accepts a `ttl` in milliseconds. `SessionRPC` never advances time on its own, so something

@@ -27,6 +27,7 @@ import {
   Networked,
   RPCError,
   ServerWorld,
+  type ServerRPCContext,
   type ServerWorldOptions,
   View,
 } from "../src/index.js";
@@ -1432,6 +1433,9 @@ describe("ServerWorld.closeSession", () => {
 
     server.closeSession("client-1", "superseded by a newer connection");
     server.closeSession("client-2");
+    // The close is scheduled; the tick that runs `send` tears the sessions down,
+    // and the next tick drains the exit callbacks.
+    tick(world);
     tick(world);
 
     expect(observed).toEqual([
@@ -1492,6 +1496,67 @@ describe("ServerWorld.closeSession", () => {
 
     expect(first.socket.closeCalls).toBe(1);
     expect(second.socket.closeCalls).toBe(1);
+  });
+
+  it("delivers the rejection that explains the close before disconnecting", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const AUTH_RPC = 101;
+    const WRONG_WORLD = 4001;
+    const INVALID_CREDENTIALS = 4002;
+    const accepted = new Set<string>();
+    server.handleRpc(AUTH_RPC, (params, _request, ctx: ServerRPCContext) => {
+      const [playerId] = params as [string];
+      if (!accepted.has(playerId)) {
+        // The auth handshake in one call: reject, then hang up.
+        const code = playerId === "known" ? WRONG_WORLD : INVALID_CREDENTIALS;
+        server.closeSession(ctx.caller, "unauthenticated");
+        throw new RPCError(code, `unknown resume token for ${playerId}`);
+      }
+      return ["ok"];
+    });
+
+    const { socket } = connectSession(server, listener, "client-1");
+    const reply = await callRpc(socket, world, AUTH_RPC, ["known"]);
+
+    expect(reply.error).toBe(WRONG_WORLD);
+    expect(reply.message).toBe("unknown resume token for known");
+    // The reply was delivered on a frame written before the socket closed, and
+    // teardown still ran exactly once.
+    expect(socket.sent.length).toBeGreaterThan(0);
+    expect(socket.closeCalls).toBe(1);
+    expect(socket.closed).toBe(true);
+    expect(server.closeSession("client-1")).toBe(false);
+
+    const other = connectSession(server, listener, "client-2");
+    const second = await callRpc(other.socket, world, AUTH_RPC, ["stranger"]);
+    expect(second.error).toBe(INVALID_CREDENTIALS);
+    expect(other.socket.closeCalls).toBe(1);
+  });
+
+  it("replicates no further state to a closing session", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    server.handleRpc(101, () => "ok");
+    const { session, socket } = connectSession(server, listener, "client-1");
+    tick(world);
+
+    server.closeSession("client-1", "superseded");
+    const before = socket.sent.length;
+
+    // A frame the transport had already queued must not be honored.
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    await Promise.resolve();
+    tick(world);
+
+    expect(session.entity.get(NetworkInput)).toBeUndefined();
+    // Nothing owed, so the close emits no frame at all.
+    expect(socket.sent.length).toBe(before);
+    expect(socket.closeCalls).toBe(1);
   });
 
   it("closes a stale session once when the disconnect grace period elapses", () => {

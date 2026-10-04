@@ -154,8 +154,13 @@ describe("VecsListener", () => {
     expect(beta.closeSession("alpha-client")).toBe(false);
     expect(alpha.closeSession("beta-client")).toBe(false);
     expect(alpha.closeSession("alpha-client")).toBe(true);
+    // Scheduled, not immediate: `send` completes the close on the next tick.
+    expect(alphaSocket.closed).toBe(false);
+    alpha.progress(0, 16);
     expect(alphaSocket.closed).toBe(true);
     expect(betaSocket.closed).toBe(false);
     expect(beta.closeSession("beta-client")).toBe(true);
+    beta.progress(0, 16);
+    expect(betaSocket.closed).toBe(true);
   });
 });

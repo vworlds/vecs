@@ -3,6 +3,11 @@ import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 export const RPC_RESPONSE_ID = 0;
 export const FIRST_USER_RPC_ID = 101;
 
+/**
+ * Largest code an {@link RPC.error} can carry: the field is encoded as `u32`.
+ */
+const MAX_WIRE_ERROR_CODE = 0xffff_ffff;
+
 export class RPC implements IEncodable {
   public rpcId = 0;
   public callId = 0;
@@ -54,15 +59,17 @@ interface CachedReply {
 
 /**
  * Reserved {@link RPCError.code} for a call abandoned because no reply arrived
- * in time. Application codes are positive, so a client can tell a transport
- * failure apart from a rejected request without inspecting the message.
+ * in time. Local only — it is produced by {@link SessionRPC.timeoutTick} and
+ * never travels on the wire. Application codes are positive; codes `≤ 0` are
+ * reserved for these local reasons.
  */
 export const RPC_TIMEOUT_CODE = -1;
 
 /**
  * Reserved {@link RPCError.code} for a call abandoned because the local session
  * was torn down before a reply arrived — see `ClientWorld.dispose` and
- * `SessionRPC.abortPending`.
+ * `SessionRPC.abortPending`. Local only, for the same reason as
+ * {@link RPC_TIMEOUT_CODE}.
  */
 export const RPC_CLOSED_CODE = -2;
 
@@ -100,6 +107,13 @@ const RPC_UNSPECIFIED_ERROR_CODE = 1;
  *   }
  * }
  * ```
+ *
+ * A handler's code crosses the wire in a `u32` field where `0` means success, so
+ * only codes in `[1, 4294967295]` are transmitted as thrown. `0`, negatives, and
+ * anything above that range are sent as the unspecified code `1` instead —
+ * otherwise `0` would make the caller's `invoke` *resolve* and a negative would
+ * wrap. Codes `≤ 0` are reserved anyway: {@link RPC_TIMEOUT_CODE} and
+ * {@link RPC_CLOSED_CODE} are raised locally and never travel.
  *
  * Handlers may still throw a plain `{ error, message }` object; that shape is
  * unwrapped into an `RPCError` on the wire, and `RPCError.error` aliases
@@ -311,10 +325,28 @@ export class SessionRPC {
   }
 }
 
+/**
+ * Map a handler's thrown value onto a code the wire can carry.
+ *
+ * `RPC.error` is a `u32` with `0` meaning success on the receiving side, so a
+ * thrown code of `0` would make the caller's `invoke` resolve as a success, a
+ * negative would wrap to a large positive, and anything past `2^32-1` would
+ * overflow. Only `[1, 2^32-1]` is transmitted; everything else — including
+ * `NaN`, non-integers, and the locally-reserved `≤ 0` codes — becomes the
+ * unspecified code so the call still fails.
+ */
 function thrownCode(err: unknown): number {
   const code =
     (err as { error?: unknown } | null)?.error ?? (err as { code?: unknown } | null)?.code;
-  return typeof code === "number" && Number.isInteger(code) ? code : RPC_UNSPECIFIED_ERROR_CODE;
+  if (
+    typeof code !== "number" ||
+    !Number.isInteger(code) ||
+    code < 1 ||
+    code > MAX_WIRE_ERROR_CODE
+  ) {
+    return RPC_UNSPECIFIED_ERROR_CODE;
+  }
+  return code;
 }
 
 function thrownMessage(err: unknown): string {

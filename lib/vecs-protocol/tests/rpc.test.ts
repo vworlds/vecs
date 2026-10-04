@@ -130,6 +130,68 @@ describe("SessionRPC", () => {
     });
   });
 
+  describe("codes that cannot cross the wire", () => {
+    // `RPC.error` is a u32 and `0` means success on the receiving side, so a
+    // thrown code of 0 would make the caller's `invoke` resolve as a success.
+    const rejected: Array<[label: string, thrown: unknown]> = [
+      ["zero", new RPCError(0, "zero")],
+      ["negative", new RPCError(-7, "negative")],
+      ["the local timeout code", new RPCError(RPC_TIMEOUT_CODE, "timeout")],
+      ["the local closed code", new RPCError(RPC_CLOSED_CODE, "closed")],
+      ["a plain object with error 0", { error: 0, message: "zero object" }],
+      ["a plain object with a negative error", { error: -3, message: "negative object" }],
+      ["a non-integer", new RPCError(4001.5, "fractional")],
+      ["NaN", new RPCError(Number.NaN, "not a number")],
+      ["above 2^32-1", new RPCError(0x1_0000_0000, "too large")],
+    ];
+
+    rejected.forEach(([label, thrown]) => {
+      it(`sends code 1 for ${label} so the call still fails`, async () => {
+        const client = new SessionRPC();
+        const server = new SessionRPC();
+        const pump = connect(client, server);
+        server.listen(101, () => {
+          throw thrown;
+        });
+
+        const call = client.invoke(101);
+        pump();
+
+        await expect(call).rejects.toMatchObject({ code: 1 });
+        // Never resolves: the failure has to survive as a rejection.
+        await expect(call).rejects.toBeInstanceOf(RPCError);
+      });
+    });
+
+    it("transmits the top of the valid range unchanged", async () => {
+      const client = new SessionRPC();
+      const server = new SessionRPC();
+      const pump = connect(client, server);
+      server.listen(101, () => {
+        throw new RPCError(0xffff_ffff, "max");
+      });
+
+      const call = client.invoke(101);
+      pump();
+
+      await expect(call).rejects.toMatchObject({ code: 0xffff_ffff, message: "max" });
+    });
+
+    it("transmits a valid code unchanged", async () => {
+      const client = new SessionRPC();
+      const server = new SessionRPC();
+      const pump = connect(client, server);
+      server.listen(101, () => {
+        throw new RPCError(1, "lowest valid");
+      });
+
+      const call = client.invoke(101);
+      pump();
+
+      await expect(call).rejects.toMatchObject({ code: 1, message: "lowest valid" });
+    });
+  });
+
   it("invokes handlers that only declare params and request", async () => {
     const server = new SessionRPC();
     const seen: unknown[][] = [];
