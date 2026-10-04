@@ -213,6 +213,25 @@ world.component(Temporary).destroy(); // strips Temporary from all carriers
 ```
 
 The `Throw` default also applies to plain entities used as component keys (`entity.add(keyEntity)`).
+
+## Snapshot policies: what a component may cross worlds with
+
+A component type also declares how
+[subtree snapshots](./snapshots.md) capture it, through `world.component(Type).snapshotPolicy(...)`.
+The default — no declaration — deep-copies the instance's own enumerable fields, and **fails
+loudly at capture** on a nested value that is not plain data, so a component carrying a class
+instance must declare a policy saying how that instance is detached. `DontSnapshot` marks a
+type as world-bound (an engine handle, a socket, a live `Query`), and `CustomSnapshot` with
+`capture` / `materialize` callbacks is how a type that mixes declarative and runtime state hands over
+only the declarative half:
+
+```ts
+world.component(PhysicsEngine).snapshotPolicy(DontSnapshot);
+```
+
+A policy is declared by the owning module and may change at any time: a capture binds the
+materializer its policy resolved to, so an existing snapshot always restores the way it was
+captured.
 A synchronous `destroy()` throw (component still in use) leaves the world usable. A throw during
 deferred drain or a cascade is irrecoverable — the component entity, its carriers, and the usage
 count are in a partial state and the world must be discarded. Configure cleanup policies so cascades

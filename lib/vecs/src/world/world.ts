@@ -4,6 +4,7 @@ import { ImplementsModule } from "../modules/implements.js";
 import { PipelineModule } from "../modules/pipeline.js";
 import { RelationshipsModule } from "../modules/relationships.js";
 import { SingletonModule } from "../modules/singleton.js";
+import { SnapshotModule } from "../modules/snapshot.js";
 import { Query } from "../query/index.js";
 import { System } from "../system.js";
 import { Pipeline } from "./world.pipeline.js";
@@ -29,6 +30,13 @@ import { type WorldOptions } from "./world.base.js";
  * deferred scope; user code can wrap arbitrary blocks with
  * {@link beginDefer} / {@link endDefer} or {@link defer}. {@link flush}
  * drains the queue at top level.
+ *
+ * ## Cross-world transfer
+ *
+ * {@link snapshotSubtree}, {@link restoreSubtree}, and {@link moveSubtree}
+ * capture and recreate an entity forest in a second world. They reject calls
+ * while either world is deferred, because cross-world scheduling is the
+ * application's job.
  */
 export class World extends Pipeline {
   public constructor(options: WorldOptions = {}) {
@@ -41,6 +49,10 @@ export class World extends Pipeline {
       ImplementsModule,
       SingletonModule,
       RelationshipsModule,
+      // Registration order is not load-bearing: a capture binds the materializer
+      // its policy resolved to, so `SnapshotModule` may install or change a
+      // policy after entities already carry the component.
+      SnapshotModule,
       PipelineModule,
     ].forEach((mod) => this.module(mod));
   }

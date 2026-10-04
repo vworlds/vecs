@@ -4,9 +4,9 @@ import { Query } from "../query/index.js";
 import { System } from "../system.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "../timer.js";
 import type { WorldOptions } from "./world.base.js";
-import { Modules } from "./world.modules.js";
+import { Transfers } from "./world.transfers.js";
 
-export class Pipeline extends Modules {
+export class Pipeline extends Transfers {
   /** @internal Flat system execution pipeline, rebuilt from `_pipelineQuery`. */
   public _pipeline: System[] = [];
   /** @internal Query whose ordered result defines the system pipeline. */
