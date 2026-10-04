@@ -16,6 +16,14 @@ import { ArrayMap } from "../util/array_map.js";
 import { Storage } from "./world.storage.js";
 import type { World } from "./world.js";
 
+/** @internal Built queries routed one component eid's `modified` events. */
+export interface UpdateWatchers {
+  /** Queries whose watchlist contains the eid, in build order. */
+  readonly queries: Query[];
+  /** How many of {@link queries} run callbacks synchronously, i.e. are not systems. */
+  synchronous: number;
+}
+
 export class Queries extends Storage {
   /** @internal All registered queries, including systems (which extend `Query`). */
   protected _queries: Query[] = [];
@@ -35,6 +43,12 @@ export class Queries extends Storage {
    * with its children's membership.
    */
   public _termEmitDepth = 0;
+  /**
+   * @internal Component eid -> built queries that watch it for updates. Read by
+   * `Entity._routeModified`; maintained by {@link _addQuery} and
+   * {@link _removeQuery}.
+   */
+  public readonly _updateWatchers: (UpdateWatchers | undefined)[] = [];
   /** @internal True while the world is driving one logical frame. */
   protected _frameInProgress = false;
   /** @internal True while the world is auto-building pending queries. */
@@ -52,6 +66,7 @@ export class Queries extends Storage {
     }
     this._removeUnbuiltQuery(q);
     this._queries.push(q);
+    this._addUpdateWatcher(q);
   }
 
   /** @internal Track a newly-created query until it is explicitly or automatically built. */
@@ -65,6 +80,7 @@ export class Queries extends Storage {
     const idx = this._queries.indexOf(q);
     if (idx !== -1) {
       this._queries.splice(idx, 1);
+      this._removeUpdateWatcher(q);
     }
     q._unsubscribeRootTerm();
     this._entities.forEach((e) => e._purgeQuery(q));
@@ -138,5 +154,41 @@ export class Queries extends Storage {
     } finally {
       this._buildingPendingQueries = false;
     }
+  }
+
+  /**
+   * Index a built query under every component eid it watches. Only queries that
+   * watch updates join entity membership sets, so only those are indexed.
+   */
+  private _addUpdateWatcher(q: Query): void {
+    if (!q._watchesUpdates()) {
+      return;
+    }
+    q._watchlistBitmask.forEach((ceid) => {
+      let watchers = this._updateWatchers[ceid];
+      if (watchers === undefined) {
+        watchers = { queries: [], synchronous: 0 };
+        this._updateWatchers[ceid] = watchers;
+      }
+      watchers.queries.push(q);
+      if (!q._queuesUpdates) {
+        watchers.synchronous++;
+      }
+    });
+  }
+
+  /** Drop a query from the watcher index; the inverse of {@link _addUpdateWatcher}. */
+  private _removeUpdateWatcher(q: Query): void {
+    q._watchlistBitmask.forEach((ceid) => {
+      const watchers = this._updateWatchers[ceid];
+      const index = watchers?.queries.indexOf(q) ?? -1;
+      if (index === -1) {
+        return;
+      }
+      watchers!.queries.splice(index, 1);
+      if (!q._queuesUpdates) {
+        watchers!.synchronous--;
+      }
+    });
   }
 }

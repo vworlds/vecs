@@ -479,6 +479,106 @@ describe("Query — component routing index", () => {
   });
 });
 
+describe("Query — update routing to watchers", () => {
+  it("routes an update only to the systems that watch the changed component", () => {
+    const { w, tick } = setup();
+    const positions: [Entity, unknown][] = [];
+    const velocities: [Entity, unknown][] = [];
+    const others = vi.fn();
+    w.system("positions").update(Position, (e, c) => positions.push([e, c]));
+    w.system("velocities").update(Velocity, (e, c) => velocities.push([e, c]));
+    w.system("sprites").update(Sprite, others);
+    w.system("containers").update(Container, others);
+    const e = w.entity().add(Position).add(Velocity).add(Sprite).add(Container);
+    tick();
+
+    e.set(Position, { x: 1 });
+    tick();
+    expect(positions).toEqual([[e, e.get(Position)]]);
+    expect(velocities).toEqual([]);
+
+    e.set(Velocity, { vx: 2 });
+    e.modified(Position);
+    tick();
+    expect(positions).toEqual([
+      [e, e.get(Position)],
+      [e, e.get(Position)],
+    ]);
+    expect(velocities).toEqual([[e, e.get(Velocity)]]);
+    expect(others).not.toHaveBeenCalled();
+  });
+
+  it("stops routing to a destroyed system and routes to a system built later", () => {
+    const { w, tick } = setup();
+    const destroyed = vi.fn();
+    const later = vi.fn();
+    const system = w.system("destroyed").update(Position, destroyed);
+    w.system("sprites").update(Sprite, () => {});
+    w.system("containers").update(Container, () => {});
+    const e = w.entity().add(Position).add(Sprite).add(Container);
+    tick();
+
+    system.destroy();
+    e.set(Position, { x: 1 });
+    tick();
+    expect(destroyed).not.toHaveBeenCalled();
+
+    w.system("later").update(Position, later);
+    tick();
+    e.set(Position, { x: 2 });
+    tick();
+    expect(destroyed).not.toHaveBeenCalled();
+    expect(later).toHaveBeenCalledTimes(1);
+    expect(later).toHaveBeenCalledWith(e, e.get(Position));
+  });
+
+  it("routes relationship retargets to the systems that watch the relationship", () => {
+    const { w, tick } = setup();
+    w.component(FriendOf).add(Exclusive);
+    const retargets: Entity[] = [];
+    w.system("friends").update(FriendOf, (e) => retargets.push(e.target(FriendOf)!));
+    w.system("sprites").update(Sprite, () => {});
+    w.system("containers").update(Container, () => {});
+    const first = w.entity();
+    const second = w.entity();
+    const e = w.entity().add(Sprite).add(Container).add(FriendOf, first);
+    tick();
+
+    e.add(FriendOf, second);
+    tick();
+
+    expect(retargets).toEqual([second]);
+  });
+
+  it("delivers an update to a query the entity joins from a synchronous update callback", () => {
+    const { w } = setup();
+    const log: string[] = [];
+    // The entity belongs to more watching queries than watch Position, and the
+    // query it joins mid-walk was built first.
+    w.query("sprites")
+      .update(Sprite, () => {})
+      .build();
+    w.query("containers")
+      .update(Container, () => {})
+      .build();
+    w.query("joined")
+      .with(Velocity)
+      .update(Position, () => log.push("joined"))
+      .build();
+    w.query("first")
+      .update(Position, (e) => {
+        log.push("first");
+        e.add(Velocity);
+      })
+      .build();
+    const e = w.entity().add(Sprite).add(Container).add(Position);
+
+    e.set(Position, { x: 1 });
+
+    expect(log).toEqual(["first", "joined"]);
+  });
+});
+
 describe("Query — predicates (belongs)", () => {
   it("with matches entities with all listed components", () => {
     const { w } = setup();

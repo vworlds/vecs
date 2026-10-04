@@ -123,6 +123,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
 
   constructor(name: string, world: World) {
     super(name, world, false);
+    this._queuesUpdates = true;
     this.entity.attach(System, this);
     this.phase(ON_UPDATE);
   }

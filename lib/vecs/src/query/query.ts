@@ -102,6 +102,12 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   public _watchlistBitmask: Bitset = new Bitset();
   /** @internal Update callback eids opted into entry-time dispatch. */
   public _onEnterUpdateEids: EID[] = [];
+  /**
+   * @internal `true` when {@link _notifyModified} only queues an event and never
+   * runs a callback synchronously (systems). Lets entities route `modified`
+   * events through the world's per-component watcher index.
+   */
+  public _queuesUpdates = false;
 
   /** @internal `true` once this query has been registered with its world. */
   protected _built = false;
