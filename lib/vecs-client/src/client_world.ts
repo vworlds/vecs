@@ -1,6 +1,8 @@
 import {
   Client2Server,
   RPC,
+  RPC_CLOSED_CODE,
+  RPCError,
   Server2Client,
   SessionRPC,
   StateDiff,
@@ -75,6 +77,14 @@ export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> 
   rtcConfig?: RTCConfiguration;
 }
 
+/**
+ * The browser-side replica of a {@link ServerWorld}.
+ *
+ * A `ClientWorld` is scoped to one connection: connect it, drive it from
+ * `progress()`, and tear it down with {@link ClientWorld.dispose} when the player
+ * moves to another world. A fresh world per connection is what keeps listeners,
+ * timers, and replicated entities from outliving a switch.
+ */
 export class ClientWorld extends NetworkWorld {
   public readonly events = new Events<ClientWorldEvents>();
   private _socket: VecsSocket | undefined;
@@ -89,6 +99,7 @@ export class ClientWorld extends NetworkWorld {
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
   private _forceBaselineReset = false;
+  private _disposed = false;
 
   public constructor(options: ClientWorldOptions = {}) {
     const localEntityIdStart = options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START;
@@ -124,6 +135,13 @@ export class ClientWorld extends NetworkWorld {
     }
   }
 
+  /**
+   * Connect to a `VecsListener`-hosted world over the dgram transport.
+   *
+   * @param options - Connection settings; `host`, `port`, and `worldName` select
+   *   the world, and the remaining fields are passed to the constructor.
+   * @returns A world with its socket already attached and connected.
+   */
   public static async connectDgram(options: DgramConnectOptions): Promise<ClientWorld> {
     const { ClientSocket } = (await import("@vworlds/dgram-client")) as unknown as {
       ClientSocket: new (
@@ -141,25 +159,73 @@ export class ClientWorld extends NetworkWorld {
     return client;
   }
 
+  /**
+   * Bind this world to a transport socket and start the ack timer.
+   *
+   * `VecsSocket` has no `off`, so the `receive` and `disconnect` handlers stay
+   * attached for the socket's lifetime; {@link ClientWorld.dispose} makes them
+   * no-ops instead.
+   *
+   * @param socket - Transport to receive frames from. Passing a second socket
+   *   replaces the first without detaching it — dispose the world instead.
+   * @throws If the world has already been disposed.
+   */
   public attachSocket(socket: VecsSocket): void {
+    if (this._disposed) {
+      throw new Error("ClientWorld is disposed");
+    }
     this._socket = socket;
     socket.on("receive", (data) => this._receive(data));
     socket.on("disconnect", () => this._handleDisconnect());
     this._startAckTimer();
   }
 
+  /** Set the input payload sent with every ack until it is replaced. */
   public setInput(input: unknown): void {
     this._input = input;
   }
 
+  /**
+   * Call the server and resolve with its reply parameters.
+   *
+   * Rejects with an `RPCError` carrying the server's code and message, or with
+   * code `RPC_CLOSED_CODE` once the world is disposed — a client call is never
+   * abandoned silently, because `ClientWorld` does not run
+   * `SessionRPC.timeoutTick`.
+   *
+   * @param rpcId - Request id to call.
+   * @param params - Positional parameters to send.
+   */
   public invoke(rpcId: number, params: unknown[] = []): Promise<unknown[]> {
+    if (this._disposed) {
+      return Promise.reject(
+        new RPCError(RPC_CLOSED_CODE, "ClientWorld disposed before the RPC completed")
+      );
+    }
     return this._rpc.invoke(rpcId, params).then((response) => response.params);
   }
 
+  /**
+   * Register the handler for an RPC the server calls on this client.
+   *
+   * A client has a single peer, so the handler's caller context is `undefined`.
+   *
+   * @param rpcId - Request id to answer.
+   * @param handler - Handler run for each incoming call; see {@link RPCHandler}.
+   */
   public listen(rpcId: number, handler: RPCHandler): void {
     this._rpc.listen(rpcId, handler);
   }
 
+  /**
+   * Apply buffered server frames as of `now`: run queued RPC handlers, then
+   * interpolate or snap replicated components into the world.
+   *
+   * Registered as the world's own `Apply` system in the `ON_LOAD` phase, so
+   * `progress()` drives it; call it directly only for a world with no tick loop.
+   *
+   * @param now - Timestamp in milliseconds to interpolate towards.
+   */
   public apply(now: number): void {
     if (this._rpcInbox.length > 0) {
       const incoming = this._rpcInbox.splice(0);
@@ -173,8 +239,9 @@ export class ClientWorld extends NetworkWorld {
     });
   }
 
+  /** Ack the latest applied frame to the server, with the current input and any queued RPCs. */
   public send(): void {
-    if (!this._socket) {
+    if (!this._socket || this._disposed) {
       return;
     }
     const rpc = this._rpc.getOutgoing();
@@ -184,12 +251,50 @@ export class ClientWorld extends NetworkWorld {
     this._socket.send(encoder.getBuffer());
   }
 
+  /**
+   * Drop the transport and stop the ack timer, leaving the world intact.
+   *
+   * Use this for a disconnect the client may reconnect from: replicated entities
+   * stay in place, and a later baseline re-creates them. Use
+   * {@link ClientWorld.dispose} to release everything.
+   */
   public close(): void {
     this._stopAckTimer();
     this._socket?.close();
   }
 
+  /**
+   * Tear the world down for good, so a fresh `ClientWorld` can take over the page.
+   *
+   * In order: pending {@link ClientWorld.invoke} calls reject with an
+   * `RPCError` carrying code `RPC_CLOSED_CODE`; the ack timer stops; replicated
+   * entities are destroyed — firing every exit system, which is what lets render
+   * hooks free their resources; and the socket closes.
+   *
+   * Idempotent, and safe to call on a world that never connected. `VecsSocket`
+   * has no `off`, so after dispose the `receive` and `disconnect` handlers are
+   * left attached but do nothing: a late frame cannot revive the world, and
+   * dispose's own `disconnect` is not re-emitted. Reconnecting or re-attaching
+   * a socket to a disposed world throws — build a new `ClientWorld` instead.
+   */
+  public dispose(): void {
+    if (this._disposed) {
+      return;
+    }
+    this._disposed = true;
+    this._rpc.abortPending(
+      new RPCError(RPC_CLOSED_CODE, "ClientWorld disposed before the RPC completed")
+    );
+    this._rpcInbox.length = 0;
+    this._destroyNetworkEntities();
+    this._diffBuffer.reset();
+    this.close();
+  }
+
   private _receive(data: Uint8Array): void {
+    if (this._disposed) {
+      return;
+    }
     const message = new Decoder(data).read(Server2Client);
     if (message.rpc.length > 0) {
       this._rpcInbox.push(...message.rpc);
@@ -235,6 +340,18 @@ export class ClientWorld extends NetworkWorld {
     this._diffBuffer.push(diffFromStateDiff(sd));
   }
 
+  /**
+   * Decode one component snapshot into a component instance.
+   *
+   * Relationships decode to the component plus their target EIDs, which
+   * {@link ClientWorld._applyRelationshipSnapshot} resolves to local entities.
+   * The decoded instance replaces the snapshot's payload so a frame applied
+   * twice does not decode twice.
+   *
+   * @param snapshot - Snapshot from the diff buffer.
+   * @returns The decoded component instance.
+   * @throws If the snapshot names a wire type this world did not register.
+   */
   public decodeComponentSnapshot(snapshot: ComponentSnapshot): ComponentInstance {
     if (!(snapshot.payload instanceof Uint8Array)) {
       return snapshot.payload;
@@ -317,13 +434,17 @@ export class ClientWorld extends NetworkWorld {
   }
 
   // Destroy every network entity so an incoming baseline can recreate them
-  // from scratch (re-firing each entity's `enter`). query.forEach wraps in
-  // beginDefer/endDefer, so destroying inside the callback is safe.
+  // from scratch (re-firing each entity's `enter`), and so `dispose()` releases
+  // them. query.forEach wraps in beginDefer/endDefer, so destroying inside the
+  // callback is safe.
   private _destroyNetworkEntities(): void {
     this._networkedQuery.forEach((entity) => entity.destroy());
   }
 
   private _handleDisconnect(): void {
+    if (this._disposed) {
+      return;
+    }
     this._stopAckTimer();
     // A reconnect may land on a server whose frame counter restarted, so the
     // next baseline can carry a lower frame than the one we last saw. Force the
