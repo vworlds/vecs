@@ -93,9 +93,9 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** @internal Captures enter injection values and sources for queued System callbacks. */
   public _enterSnapshotter: InjectSnapshotter | undefined = undefined;
   /** Materialized root term that owns membership for this query. */
-  public rootTerm: Term | undefined;
+  public rootTerm: Term | undefined = undefined;
   /** @internal Silence-domain query cache. */
-  public _silenceQuery: { has(e: Entity): boolean } | undefined;
+  public _silenceQuery: { has(e: Entity): boolean } | undefined = undefined;
   /** @internal Whether membership APIs are enabled for this query. */
   public _tracking = false;
   /** @internal Bitmask of component eids this query reacts to via `update`. */
@@ -114,7 +114,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** @internal Guards destroy hooks against recursive removal. */
   protected _destroyed = false;
   /** @internal Sorted projection. Unsorted membership is read from `rootTerm`. */
-  protected _entities: Set<Entity> | undefined;
+  protected _entities: Set<Entity> | undefined = undefined;
   /** @internal `true` once `with` has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
   /** @internal Per-component-eid `update` callbacks. */
@@ -122,14 +122,14 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   /** @internal Component class for membership checks. */
   protected _queryComponentClass: ComponentType;
   /** @internal Root term subscription handle. */
-  protected _unsubscribeTerm: (() => void) | undefined;
+  protected _unsubscribeTerm: (() => void) | undefined = undefined;
   /**
    * @internal Component eids read by the `orderBy` comparator's inject tuple
    * (plus, for `cascade`, the relationship eid). When one of these changes on
    * a tracked entity, `_entities` (an `OrderedSet`) is marked dirty so the
    * next ordered read re-sorts.
    */
-  protected _orderByWatch: Set<EID> | undefined;
+  protected _orderByWatch: Set<EID> | undefined = undefined;
 
   constructor(name: string, world: World, track: boolean = true) {
     this._queryComponentClass = Query as ComponentType;

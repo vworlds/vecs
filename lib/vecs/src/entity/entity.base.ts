@@ -8,7 +8,7 @@ import type { EID, Entity } from "./entity.js";
 
 export class Base {
   /** @internal Metadata for this entity when the entity itself is used as a component key. */
-  protected _meta: ComponentMeta | undefined;
+  protected _meta: ComponentMeta | undefined = undefined;
 
   /** @internal Maps component eid to component instance. */
   protected _components = new IterableArrayMap<ComponentInstance>();
@@ -21,7 +21,7 @@ export class Base {
   protected static readonly _emptyIncoming: ReadonlySet<Entity> = new Set();
 
   /** @internal Relationship eid -> source entities targeting this entity. */
-  protected _incoming: IterableArrayMap<DenseSet<Entity>> | undefined;
+  protected _incoming: IterableArrayMap<DenseSet<Entity>> | undefined = undefined;
 
   /**
    * Bitmask of component type ids currently attached to this entity. Used by

@@ -34,9 +34,9 @@ export class Queries extends Storage {
   /** @internal Component eid -> pinned component leaf term. */
   public readonly _componentTerms = new ArrayMap<ComponentTerm>();
   /** @internal Pinned false term. */
-  public _emptyTerm: EmptyTerm | undefined;
+  public _emptyTerm: EmptyTerm | undefined = undefined;
   /** @internal Pinned world term. */
-  public _worldTerm: WorldTerm | undefined;
+  public _worldTerm: WorldTerm | undefined = undefined;
   /**
    * @internal Term membership events currently being delivered (see
    * `Term._add` / `Term._delete`). While it is zero, every composite term agrees

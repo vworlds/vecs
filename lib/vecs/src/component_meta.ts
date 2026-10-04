@@ -340,7 +340,7 @@ export class ComponentMeta {
   public _onPolicyRemove: HookSlot<HookHandler> = undefined;
 
   /** @internal Component instances created by ensure operations but not yet attached. */
-  public _pendingEnsures: WeakMap<Entity, ComponentInstance> | undefined;
+  public _pendingEnsures: WeakMap<Entity, ComponentInstance> | undefined = undefined;
 
   /** @internal Handlers fired when a component of this type is added. */
   public _onAdd: HookSlot<HookHandler> = undefined;
@@ -364,7 +364,7 @@ export class ComponentMeta {
    * so a component eid that churns between 0 and 1 carriers does not thrash
    * the `DenseSet` allocation. `usageCount` reads `_carriers.size` directly.
    */
-  public _carriers: DenseSet<Entity> | undefined;
+  public _carriers: DenseSet<Entity> | undefined = undefined;
 
   constructor(Class: ComponentType, ceid: EID) {
     this.Class = Class;

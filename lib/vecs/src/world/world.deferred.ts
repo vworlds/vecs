@@ -19,7 +19,7 @@ export class Deferred extends Queries {
    * triggered by the flush buffer into a fresh scope and are drained by the
    * outer `while` loop.
    */
-  public _deletionScope: unknown[] | undefined;
+  public _deletionScope: unknown[] | undefined = undefined;
 
   /** `true` while the world is in deferred mode. */
   public get deferred(): boolean {

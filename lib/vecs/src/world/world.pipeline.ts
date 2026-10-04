@@ -10,7 +10,7 @@ export class Pipeline extends Transfers {
   /** @internal Flat system execution pipeline, rebuilt from `_pipelineQuery`. */
   public _pipeline: System[] = [];
   /** @internal Query whose ordered result defines the system pipeline. */
-  protected _pipelineQuery: Query<[typeof System]> | undefined;
+  protected _pipelineQuery: Query<[typeof System]> | undefined = undefined;
   /** @internal World-owned tick sources evaluated once per frame. */
   protected _tickSources: Set<ITickSource> = new Set();
   /** @internal Monotonic frame id used to memoize tick-source evaluation. */
