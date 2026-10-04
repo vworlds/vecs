@@ -78,4 +78,9 @@ export class AnyTerm extends Term {
       this.onTermRefresh(entity);
     }
   }
+
+  /** @internal See {@link _onChildRefresh}. */
+  protected override _childRefreshesOnlyInFlight(): boolean {
+    return true;
+  }
 }

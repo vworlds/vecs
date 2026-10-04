@@ -497,6 +497,34 @@ describe("Term — data refreshes on all/any terms", () => {
     expect(log).toEqual(["first:start", "both", "first:end"]);
   });
 
+  it("delivers data refreshes to consumers that react to them, as they come and go", () => {
+    const w = setup();
+    listen(w.getTerm({ all: [Position, Velocity] }));
+    const leaf = w.getTerm(Velocity);
+    const refreshed: Entity[] = [];
+    const unsubscribe = leaf.subscribe({
+      onTermEvent: () => {},
+      onTermRefresh: (entity) => refreshed.push(entity),
+    });
+    const e = w.entity().set(Position, { x: 0 }).set(Velocity, { vx: 0 });
+
+    e.set(Velocity, { vx: 1 });
+    expect(refreshed).toEqual([e]);
+
+    unsubscribe();
+    e.set(Velocity, { vx: 2 });
+    expect(refreshed).toEqual([e]);
+
+    const fast = w.getTerm({
+      test: (entity) => (entity.get(Velocity)?.vx ?? 0) > 5,
+      watch: [Velocity],
+    });
+    const { enter } = listen(fast);
+    e.set(Velocity, { vx: 6 });
+    expect(enter).toHaveBeenCalledWith(e);
+    expect(fast.has(e)).toBe(true);
+  });
+
   it("re-evaluates an any term when a data refresh arrives during an in-flight event", () => {
     const w = setup();
     const log: string[] = [];

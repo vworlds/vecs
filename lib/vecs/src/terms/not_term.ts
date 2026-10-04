@@ -59,6 +59,11 @@ export class NotTerm extends Term {
     // a real membership event, or the world emits a lifecycle event.
   }
 
+  /** @internal A negation ignores child refreshes altogether; see {@link onTermRefresh}. */
+  protected override _childRefreshesOnlyInFlight(): boolean {
+    return true;
+  }
+
   /** @internal */
   protected _matches(entity: Entity): boolean {
     return this._children[0].has(entity) && !this._children[1].has(entity);

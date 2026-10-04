@@ -36,6 +36,13 @@ export interface TermConsumer {
    * only let predicate/shape terms pull-recompute after watched data changes.
    */
   onTermRefresh?(entity: Entity): void;
+  /**
+   * @internal `true` when {@link onTermRefresh} only acts while a membership
+   * event is still being delivered (the `all`, `any` and `not` parents). A term
+   * whose consumers are all like this, or have no `onTermRefresh`, skips
+   * refresh delivery while no event is in flight.
+   */
+  readonly _refreshesOnlyInFlight?: boolean;
 }
 
 export type TermKind =
@@ -71,6 +78,8 @@ export abstract class Term implements TermConsumer {
   protected readonly _entities = new Set<Entity>();
   private _destroyed = false;
   private readonly _childUnsubscribes: (() => void)[] = [];
+  /** Consumers that may act on a refresh while no membership event is in flight. */
+  private _quiescentRefreshConsumers = 0;
 
   protected constructor(
     public readonly world: World,
@@ -132,13 +141,20 @@ export abstract class Term implements TermConsumer {
       throw new Error(`Cannot subscribe to destroyed ${this.kind} term`);
     }
     this._consumers.add(consumer);
+    const refreshesWhileQuiescent =
+      consumer.onTermRefresh !== undefined && consumer._refreshesOnlyInFlight !== true;
+    if (refreshesWhileQuiescent) {
+      this._quiescentRefreshConsumers++;
+    }
     let active = true;
     return () => {
       if (!active) {
         return;
       }
       active = false;
-      this._consumers.delete(consumer);
+      if (this._consumers.delete(consumer) && refreshesWhileQuiescent) {
+        this._quiescentRefreshConsumers--;
+      }
       if (!this._pinned && this._consumers.size === 0) {
         this.destroy();
       }
@@ -159,6 +175,7 @@ export abstract class Term implements TermConsumer {
     }
     this._destroyed = true;
     this._consumers.clear();
+    this._quiescentRefreshConsumers = 0;
     while (this._childUnsubscribes.length > 0) {
       this._childUnsubscribes.pop()!();
     }
@@ -199,8 +216,17 @@ export abstract class Term implements TermConsumer {
     }
   }
 
-  /** @internal Propagate a refresh hint to all consumers (both channels). */
+  /**
+   * @internal Propagate a refresh hint to all consumers (both channels).
+   *
+   * Skipped when no membership event is in flight and every consumer either
+   * has no `onTermRefresh` or only acts on one while an event is in flight: no
+   * consumer would do anything.
+   */
   protected _emitRefresh(entity: Entity): void {
+    if (this._quiescentRefreshConsumers === 0 && this.world._termEmitDepth === 0) {
+      return;
+    }
     this._consumers.forEach((consumer) => consumer.onTermRefresh?.(entity));
   }
 
@@ -236,14 +262,26 @@ export abstract class Term implements TermConsumer {
    */
   protected _setChildren(children: readonly Term[]): void {
     this._children.push(...children);
+    const refreshesOnlyInFlight = this._childRefreshesOnlyInFlight();
     children.forEach((child) => {
       this._childUnsubscribes.push(
         child.subscribe({
           onTermEvent: (kind, entity) => this._onChildEvent(kind, entity, child),
           onTermRefresh: (entity) => this._onChildRefresh(entity, child),
+          _refreshesOnlyInFlight: refreshesOnlyInFlight,
         })
       );
     });
+  }
+
+  /**
+   * @internal Whether {@link _onChildRefresh} only acts while a membership
+   * event is in flight. Terms whose membership depends on child membership
+   * alone (`all`, `any`, `not`) return `true`, which lets a child skip
+   * delivering refreshes to them while the world is quiescent.
+   */
+  protected _childRefreshesOnlyInFlight(): boolean {
+    return false;
   }
 
   /**
