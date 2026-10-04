@@ -5,9 +5,9 @@
 // reconstructed in another world, so this module drops the handles and lets the
 // destination lifecycle systems allocate fresh ones.
 //
-// Nothing here needs to know about captures: the policies are declared once,
-// during `PhysicsModule` installation, before any entity carries a physics
-// component — which is what `OnSnapshot` requires.
+// Nothing here needs to know about captures: the policies are declared during
+// `PhysicsModule` installation. Every capture binds the materializer it
+// resolved, so later policy changes do not alter existing snapshots.
 
 import { CustomSnapshot, DontSnapshot, Module, type World } from "@vworlds/vecs";
 

@@ -32,9 +32,9 @@ export class PhysicsModule extends Module<PhysicsOptions | undefined> {
   public init(options: PhysicsOptions | undefined): void {
     const world = this.world;
 
-    // Snapshot policies must be declared before any entity carries a physics
-    // component, and `PhysicsCoreModule` attaches the engine instance, so this
-    // runs first.
+    // Install physics policies before the rest of the physics modules. Capture
+    // binds each policy's materializer, so this ordering is a package-local
+    // convention rather than a cross-world transfer requirement.
     world.module(PhysicsSnapshotModule);
     world.module(PhysicsCoreModule, options ?? {});
 

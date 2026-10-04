@@ -86,10 +86,10 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
   /**
    * Declare how cross-world subtree snapshots capture this component type.
    *
-   * Call it once during the owning module's installation. Declaring a policy
-   * while any entity already carries the component throws, and revoking one
-   * does too: entities captured under the old policy would restore under a
-   * different one. Re-declaring before the first carrier is allowed.
+   * Callable at any time. The declaration affects future captures only:
+   * snapshots already captured retain the materializer their policy resolved to
+   * at capture time, so changing or revoking this policy cannot alter how they
+   * restore.
    *
    * `ClonePublic` — the default — captures a fresh instance with the source's
    * own enumerable fields cloned. `DontSnapshot` never captures the type.
@@ -103,6 +103,9 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    *
    * Use it when a component mixes declarative state with runtime state that must
    * not cross worlds — a physics handle, a socket, a compiled shader.
+   *
+   * Callable at any time. It affects future captures only; existing snapshots
+   * restore through the materializer bound when they were captured.
    *
    * @param CustomSnapshot - Selects the owner-supplied policy.
    * @param options - The `capture` and `materialize` callbacks, stored on this

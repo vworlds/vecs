@@ -34,8 +34,9 @@ export type SnapshotMaterialize = (data: unknown) => ComponentInstance;
  *
  * The trait is attached to the **component entity**, not to ordinary entities,
  * and its target selects the policy. It is exclusive, one-of
- * {@link OneOf | restricted to its own children}, and irrevocable: configure it
- * during module installation, before any entity carries the component.
+ * {@link OneOf | restricted to its own children}. Configure it through the
+ * owning module; declarations affect future captures, while each existing
+ * snapshot retains the materializer bound at its capture time.
  *
  * ```ts
  * // Declare "this type never crosses worlds" (resources, live queries, engines).
