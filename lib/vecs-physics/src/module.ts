@@ -11,6 +11,7 @@ import { BodyPoseInModule } from "./body/pose_in.js";
 import { BodyPoseOutModule } from "./body/pose_out.js";
 import { PhysicsCoreModule, type PhysicsOptions } from "./core/module.js";
 import { PhysicsReaperModule } from "./core/reaper.js";
+import { PhysicsSnapshotModule } from "./core/snapshot.js";
 import { PhysicsStepModule } from "./core/step.js";
 import { DebugModule } from "./debug/validation.js";
 import { EventsModule } from "./events/module.js";
@@ -31,6 +32,10 @@ export class PhysicsModule extends Module<PhysicsOptions | undefined> {
   public init(options: PhysicsOptions | undefined): void {
     const world = this.world;
 
+    // Snapshot policies must be declared before any entity carries a physics
+    // component, and `PhysicsCoreModule` attaches the engine instance, so this
+    // runs first.
+    world.module(PhysicsSnapshotModule);
     world.module(PhysicsCoreModule, options ?? {});
 
     // physics-pre: lifecycle + sync systems in dependency order.

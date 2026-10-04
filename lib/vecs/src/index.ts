@@ -35,6 +35,7 @@ export {
   type ComponentClass,
   type ComponentMeta,
   type ComponentRef,
+  type CustomSnapshotOptions,
   type HookEvent,
   type HookEventMap,
   type HookHandler,
@@ -46,6 +47,26 @@ export { IdentityModule } from "./modules/identity.js";
 export { ImplementsModule } from "./modules/implements.js";
 export { Singleton, SingletonModule } from "./modules/singleton.js";
 export { Traversable, With, RelationshipsModule } from "./modules/relationships.js";
+export {
+  type SnapshotCapture,
+  type SnapshotMaterialize,
+  ClonePublic,
+  CustomSnapshot,
+  DontSnapshot,
+  OnSnapshot,
+  SnapshotModule,
+} from "./modules/snapshot.js";
+export {
+  type ComponentSnapshot,
+  type EntitySubtreeSnapshot,
+  type ExternalTargetPolicy,
+  type MoveSubtreeResult,
+  type RelationshipSnapshot,
+  type RelationshipType,
+  type RestoreSubtreeResult,
+  type SubtreeEntitySnapshot,
+  type SubtreeSnapshotOptions,
+} from "./snapshot/types.js";
 export {
   BUILTIN_PIPELINE_PHASES,
   insertPhaseAfter,

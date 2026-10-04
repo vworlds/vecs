@@ -128,7 +128,7 @@ export class Components extends Relationships {
     }
 
     const existing = this._components.get(meta.eid);
-    const c = existing ?? this._new(meta, props);
+    const c = existing ?? this._materialize(meta, props);
     if (props !== undefined) {
       if (existing) {
         Object.assign(c, props);
@@ -564,22 +564,45 @@ export class Components extends Relationships {
   /**
    * @internal
    *
-   * Construct a fresh component of `type`, apply `props`, store it on this
-   * entity, fire the `onAdd` hook, and route query updates.
+   * The canonical component materializer: construct a destination-owned
+   * instance of `meta`'s class, assign `data` onto it, and store it on this
+   * entity. Every metadata semantic is applied exactly once, in this order:
+   * exclusivity eviction of conflicting components, interface-alias eviction
+   * and storage, the framework `policyAdd` hook, the public `add` hook, and
+   * query-entry notification.
    *
-   * If the component type belongs to an exclusivity group, any conflicting
-   * component already on this entity is removed first.
+   * This is the single constructor-and-copy implementation in vecs. Ordinary
+   * {@link set} calls it, and so does the cross-world subtree restore
+   * (`lib/vecs/src/snapshot/restore.ts`), so a component that
+   * arrives in a destination world is indistinguishable from one created by
+   * `set` — same alias slots, same exclusivity outcome, same hooks, same
+   * notifications.
+   *
+   * @param meta - Metadata of the component type to materialize.
+   * @param data - The instance's own fields. Assignable onto a default-constructed
+   *   instance, or handed to `construct` for a custom policy.
+   * @param construct - Optional factory that builds the instance from `data`,
+   *   used by owner-declared snapshot policies whose type needs construction
+   *   beyond `new Class()` plus field assignment. Omit it for the default.
+   * @returns The freshly materialized, destination-owned instance.
    */
-  protected _new(
+  public _materialize(
     this: Entity,
     meta: ComponentMeta,
-    props: Partial<ComponentInstance> | undefined
+    data?: unknown,
+    construct?: (data: unknown) => ComponentInstance
   ): ComponentInstance {
-    const c = new (meta.Class as ComponentClass)();
-    if (props !== undefined) {
-      Object.assign(c, props);
-    }
+    const c = construct ? construct(data) : this._constructFrom(meta, data);
     this._storeComponent(meta, c, true);
+    return c;
+  }
+
+  /** @internal Default construction for {@link _materialize}: `new Class()` plus field assignment. */
+  private _constructFrom(this: Entity, meta: ComponentMeta, data: unknown): ComponentInstance {
+    const c = new (meta.Class as ComponentClass)();
+    if (data != null) {
+      Object.assign(c, data as Record<string, unknown>);
+    }
     return c;
   }
 

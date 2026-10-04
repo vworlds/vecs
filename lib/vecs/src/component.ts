@@ -1,12 +1,22 @@
 import { Entity } from "./entity/index.js";
 import {
   Relationship,
+  type ComponentInstance,
   type ComponentType,
   type HookEvent,
   type HookEventMap,
   type HookHandler,
   type TargetHandler,
 } from "./component_meta.js";
+import {
+  type SnapshotCapture,
+  type SnapshotMaterialize,
+  type SnapshotPolicyType,
+  ClonePublic,
+  CustomSnapshot,
+  DontSnapshot,
+  _declareSnapshotPolicy,
+} from "./modules/snapshot_types.js";
 
 export {
   CleanupPolicy,
@@ -42,7 +52,17 @@ type ComponentEventMap<T extends ComponentType> = {
   policyRemove: HookHandler;
 };
 
-/** A component entity created by {@link World.component}. */
+/** Callbacks declared alongside the {@link CustomSnapshot} policy value. */
+export interface CustomSnapshotOptions<T extends ComponentInstance = ComponentInstance> {
+  /** Convert a live component instance into detached, world-agnostic data. */
+  capture: SnapshotCapture;
+  /** Construct a fresh, destination-owned instance from previously captured data. */
+  materialize: SnapshotMaterialize;
+}
+
+/**
+ * A component entity created by {@link World.component}.
+ */
 export class Component<T extends ComponentType = ComponentType> extends Entity {
   /**
    * Register a handler for a hook event, with the handler signature narrowed
@@ -61,5 +81,52 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
   /** Remove a previously-registered handler by reference. See {@link ComponentMeta.off}. */
   public override off<E extends HookEvent>(event: E, handler: ComponentEventMap<T>[E]): this {
     return super.off(event, handler as HookEventMap[E]);
+  }
+
+  /**
+   * Declare how cross-world subtree snapshots capture this component type.
+   *
+   * Call it once during the owning module's installation. Declaring a policy
+   * while any entity already carries the component throws, and revoking one
+   * does too: entities captured under the old policy would restore under a
+   * different one. Re-declaring before the first carrier is allowed.
+   *
+   * `ClonePublic` — the default — captures a fresh instance with the source's
+   * own enumerable fields cloned. `DontSnapshot` never captures the type.
+   *
+   * @param policy - `ClonePublic` or `DontSnapshot`.
+   * @returns This component entity, for chaining.
+   */
+  public snapshotPolicy(policy: typeof ClonePublic | typeof DontSnapshot): this;
+  /**
+   * Declare a bespoke capture/materialize policy for this component type.
+   *
+   * Use it when a component mixes declarative state with runtime state that must
+   * not cross worlds — a physics handle, a socket, a compiled shader.
+   *
+   * @param CustomSnapshot - Selects the owner-supplied policy.
+   * @param options - The `capture` and `materialize` callbacks, stored on this
+   *   entity's own `OnSnapshot` edge so each component type keeps its policy.
+   * @returns This component entity, for chaining.
+   */
+  public snapshotPolicy(
+    policy: typeof CustomSnapshot,
+    options: CustomSnapshotOptions<InstanceType<T>>
+  ): this;
+  public snapshotPolicy(
+    policy: SnapshotPolicyType,
+    options?: CustomSnapshotOptions<InstanceType<T>>
+  ): this {
+    if (policy === CustomSnapshot) {
+      if (options?.capture === undefined || options.materialize === undefined) {
+        throw new Error(
+          `snapshotPolicy(CustomSnapshot) requires both capture and materialize callbacks for ${this.meta.Class.name}`
+        );
+      }
+      _declareSnapshotPolicy(this, policy, options.capture, options.materialize);
+    } else {
+      _declareSnapshotPolicy(this, policy);
+    }
+    return this;
   }
 }
