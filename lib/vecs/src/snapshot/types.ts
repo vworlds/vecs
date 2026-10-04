@@ -9,6 +9,7 @@ import {
   type Relationship,
 } from "../component_meta.js";
 import { type EID, type Entity } from "../entity/index.js";
+import { type SnapshotMaterialize } from "../modules/snapshot_types.js";
 
 /** A relationship component class. */
 export type RelationshipType = ComponentType<Relationship>;
@@ -52,7 +53,7 @@ export interface SubtreeSnapshotOptions {
   externalTargets?: ExternalTargetPolicy;
 }
 
-/** One captured plain-data component: its class plus detached captured data. */
+/** One captured component: its class, its detached data, and how to rebuild it. */
 export interface ComponentSnapshot {
   /** Component class, as registered in the source world. */
   readonly Class: ComponentType;
@@ -61,6 +62,13 @@ export interface ComponentSnapshot {
    * world.
    */
   readonly data: unknown;
+  /**
+   * The materializer the source world's policy resolved to **at capture time**.
+   *
+   * Binding it here is what makes a snapshot stable: a policy declared, changed,
+   * or revoked after the capture cannot change how this snapshot restores.
+   */
+  readonly materialize: SnapshotMaterialize;
 }
 
 /**
@@ -84,6 +92,13 @@ export interface RelationshipSnapshot {
    * subtree. Always `0` under the `"error"` external-target policy.
    */
   readonly externalTargets: number;
+  /**
+   * The materializer the source world's policy resolved to at capture time, for
+   * a relationship that declares a custom policy. `undefined` for the default
+   * {@link ClonePublic}, where edges create the instance and the payload is
+   * assigned through the ordinary relationship path.
+   */
+  readonly materialize: SnapshotMaterialize | undefined;
 }
 
 /** One captured entity: its identity, its position in the forest, and its data. */
@@ -146,7 +161,17 @@ export interface ResolvedSnapshotOptions {
   externalTargets: ExternalTargetPolicy;
 }
 
-/** @internal Capture a relationship instance's own fields, minus target storage. */
+/**
+ * @internal Capture a relationship instance's own fields, minus target storage.
+ *
+ * Ownership and cleanup decisions live in the snapshot, not in the transfer.
+ * Destroying a source root can cascade through a `CleanupPolicy.Delete` edge to
+ * an entity the caller did not select, and that is the correct reading of "the
+ * source is gone" rather than a leak — which is why the reverse direction holds
+ * too: an edge pointing *into* the subtree from outside is never carried across,
+ * by a successful move or by a rollback. Inbound state belongs to whatever world
+ * the outside entity still lives in.
+ */
 export function _relationshipData(instance: Relationship): ComponentInstance {
   const data: Record<string, unknown> = {};
   for (const key of Object.keys(instance)) {

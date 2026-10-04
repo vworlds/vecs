@@ -218,7 +218,9 @@ The `Throw` default also applies to plain entities used as component keys (`enti
 
 A component type also declares how
 [subtree snapshots](./snapshots.md) capture it, through `world.component(Type).snapshotPolicy(...)`.
-The default — no declaration — copies the instance's own enumerable fields. `DontSnapshot` marks a
+The default — no declaration — deep-copies the instance's own enumerable fields, and **fails
+loudly at capture** on a nested value that is not plain data, so a component carrying a class
+instance must declare a policy saying how that instance is detached. `DontSnapshot` marks a
 type as world-bound (an engine handle, a socket, a live `Query`), and `CustomSnapshot` with
 `capture` / `materialize` callbacks is how a type that mixes declarative and runtime state hands over
 only the declarative half:
@@ -227,8 +229,9 @@ only the declarative half:
 world.component(PhysicsEngine).snapshotPolicy(DontSnapshot);
 ```
 
-A policy must be declared by the owning module before any entity carries the component; declaring or
-changing one with carriers present throws.
+A policy is declared by the owning module and may change at any time: a capture binds the
+materializer its policy resolved to, so an existing snapshot always restores the way it was
+captured.
 A synchronous `destroy()` throw (component still in use) leaves the world usable. A throw during
 deferred drain or a cascade is irrecoverable — the component entity, its carriers, and the usage
 count are in a partial state and the world must be discarded. Configure cleanup policies so cascades

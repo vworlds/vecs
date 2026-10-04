@@ -49,9 +49,9 @@ export class World extends Pipeline {
       ImplementsModule,
       SingletonModule,
       RelationshipsModule,
-      // Registered before `PipelineModule`, which builds the pipeline query:
-      // declaring `Query` / `System` as `DontSnapshot` requires that neither has
-      // carriers yet.
+      // Registration order is not load-bearing: a capture binds the materializer
+      // its policy resolved to, so `SnapshotModule` may install or change a
+      // policy after entities already carry the component.
       SnapshotModule,
       PipelineModule,
     ].forEach((mod) => this.module(mod));

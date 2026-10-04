@@ -43,6 +43,7 @@ export {
 } from "./component.js";
 export { Entity, type EID, type EntityClass, Identity } from "./entity/index.js";
 export { Module, type ModuleConfig } from "./module.js";
+export { MoveSubtreeError } from "./world/world.transfers.js";
 export { IdentityModule } from "./modules/identity.js";
 export { ImplementsModule } from "./modules/implements.js";
 export { Singleton, SingletonModule } from "./modules/singleton.js";

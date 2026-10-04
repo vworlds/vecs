@@ -7,7 +7,6 @@
 // only recreated.
 
 import { type EID, type Entity } from "../entity/index.js";
-import { _resolveSnapshotPolicy } from "../modules/snapshot_types.js";
 import { type World } from "../world/world.js";
 import { _preflightRestore, _requireUsable } from "./preflight.js";
 import { type EntitySubtreeSnapshot, type RestoreSubtreeResult } from "./types.js";
@@ -20,10 +19,15 @@ import { type EntitySubtreeSnapshot, type RestoreSubtreeResult } from "./types.j
  * 1. Preflight every class against the destination's registry and policies.
  * 2. Allocate one destination entity per record, so every edge target exists
  *    before any edge is added.
- * 3. Materialize plain-data components through the canonical materializer.
+ * 3. Materialize components through the canonical materializer, using the
+ *    materializer bound into each record at capture time.
  * 4. Rebuild the traversal relationship's edges, then every other edge, so
  *    hierarchy-sensitive policies (`OneOf`, `Traversable`) see a complete tree.
  * 5. Assign each relationship's non-edge data, in capture order.
+ *
+ * Steps 3–5 never consult the destination's declared policy: each record carries
+ * the materializer it was captured with, so a policy declared or changed between
+ * capture and restore cannot alter what this snapshot rebuilds.
  *
  * Any throw in steps 2–5 destroys everything this attempt created and
  * rethrows, so a failed restore leaves the destination as it was found.
@@ -53,14 +57,7 @@ export function _restoreSubtree(
       const entity = entities.get(record.key)!;
       for (const captured of record.components) {
         const meta = _requireUsable(destination, captured.Class, record.key);
-        // A custom policy owns construction; otherwise the canonical
-        // `new Class()` plus field assignment in `Entity._materialize` runs.
-        const policy = _resolveSnapshotPolicy(destination, meta);
-        entity._materialize(
-          meta,
-          captured.data,
-          policy.kind === "custom" ? policy.materialize : undefined
-        );
+        entity._materialize(meta, captured.data, captured.materialize);
       }
     }
 
@@ -70,6 +67,13 @@ export function _restoreSubtree(
     for (const record of snapshot.entities) {
       const entity = entities.get(record.key)!;
       for (const captured of record.relationships) {
+        if (captured.materialize !== undefined) {
+          // A custom relationship policy owns construction outright, so the
+          // instance is built before its edges land and step 5 has nothing to
+          // assign. The default path still lets the first edge create the
+          // instance, which keeps the existing add/target-add hook order intact.
+          continue;
+        }
         if (captured.data != null) {
           entity._set(_requireUsable(destination, captured.Class, record.key), captured.data);
         }
@@ -110,6 +114,9 @@ function _rebuildEdges(
         continue;
       }
       const meta = _requireUsable(destination, captured.Class, record.key);
+      if (captured.materialize !== undefined) {
+        source._materialize(meta, undefined, () => captured.materialize!(captured.data));
+      }
       for (const key of captured.targets) {
         const target = entities.get(key);
         if (target === undefined) {

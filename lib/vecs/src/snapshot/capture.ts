@@ -7,6 +7,7 @@ import { type EID, type Entity } from "../entity/index.js";
 import { type ResolvedSnapshotPolicy, _resolveSnapshotPolicy } from "../modules/snapshot_types.js";
 import { ChildOf } from "../modules/relationship_types.js";
 import { type World } from "../world/world.js";
+import { _clonePublicMaterialize, _cloneSnapshotData } from "./clone.js";
 import {
   type ComponentSnapshot,
   type EntitySubtreeSnapshot,
@@ -178,23 +179,16 @@ function _captureEntity(
     if (resolved.components !== undefined && !resolved.components.has(ceid)) {
       return;
     }
-    components.push({ Class: meta.Class, data: _captureData(policy, instance) });
+    components.push({
+      Class: meta.Class,
+      data: _captureData(policy, instance, meta.Class.name),
+      materialize:
+        policy.kind === "custom" ? policy.materialize : _clonePublicMaterialize(meta.Class),
+    });
   });
 
   return { key: entity.eid, source: entity, root, components, relationships };
 }
-
-/**
- * The inheritance relationship that vecs' open inheritance work (#184-#188)
- * introduces. It does not exist yet, so it is matched by name; swap this for an
- * identity check against the real class when that work lands.
- *
- * A subtree snapshot must never carry an inheritance edge: the edge and the
- * values it materialized would both be captured, and the destination would then
- * hold two disagreeing answers. Callers that want to move an inheriting entity
- * flatten its effective values instead.
- */
-const INHERITANCE_RELATIONSHIP = "IsA";
 
 /** @internal Copy one relationship's non-edge data and its kept edges. */
 function _captureRelationship(
@@ -205,11 +199,6 @@ function _captureRelationship(
   forest: Map<EID, ForestMember>,
   externalTargets: ExternalTargetPolicy
 ): RelationshipSnapshot {
-  if (meta.Class.name === INHERITANCE_RELATIONSHIP) {
-    throw new Error(
-      `snapshotSubtree: ${INHERITANCE_RELATIONSHIP} inheritance edges cannot be captured; flatten the inheriting entity's effective values instead`
-    );
-  }
   const targets: EID[] = [];
   let dropped = 0;
   for (const target of relationship._targetArray()) {
@@ -226,9 +215,16 @@ function _captureRelationship(
   }
   return {
     Class: meta.Class as RelationshipSnapshot["Class"],
-    data: policy.kind === "custom" ? policy.capture(relationship) : _relationshipData(relationship),
+    data:
+      policy.kind === "custom"
+        ? policy.capture(relationship)
+        : _cloneSnapshotData(
+            _relationshipData(relationship) as Record<string, unknown>,
+            meta.Class.name
+          ),
     targets,
     externalTargets: dropped,
+    materialize: policy.kind === "custom" ? policy.materialize : undefined,
   };
 }
 
@@ -253,11 +249,11 @@ function _policyFor(
 }
 
 /** @internal Run one policy over one instance. */
-function _captureData(policy: ResolvedSnapshotPolicy, instance: object): unknown {
+function _captureData(policy: ResolvedSnapshotPolicy, instance: object, owner: string): unknown {
   if (policy.kind === "custom") {
     return policy.capture(instance);
   }
-  return { ...instance };
+  return _cloneSnapshotData({ ...instance }, owner);
 }
 
 /**

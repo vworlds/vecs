@@ -115,9 +115,12 @@ data and returns a freshly constructed instance belonging to no other entity. Th
 never has to be JSON — whatever `capture` returns is handed to `materialize` verbatim — but it must
 not reference the source world, its entities, or anything the source still holds.
 
-A policy is declared by the module that owns the component type, **before any entity carries it**.
-Declaring or changing a policy while the component has carriers throws: entities already captured
-under the old policy would restore under a different one.
+A policy is declared by the module that owns the component type. It may be declared, changed, or
+revoked at any time — including after entities already carry the component — because **capture binds
+the materializer it resolved**. Each captured record stores the materialize function that was in
+effect at capture time, so a policy declared afterwards cannot retroactively change how an existing
+snapshot restores. The same binding makes a snapshot safe to restore much later, after the owning
+module has moved on.
 
 `@vworlds/vecs-physics` installs policies for its own components, which is why a physics subtree
 moves without any physics-specific code in the caller: `PhysicsEngine` is `DontSnapshot`, while

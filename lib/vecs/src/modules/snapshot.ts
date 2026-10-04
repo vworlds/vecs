@@ -33,13 +33,14 @@ export {
  * {@link ClonePublic} (the default), {@link DontSnapshot}, or
  * {@link CustomSnapshot}.
  *
- * The module installs the invariant that makes a snapshot trustworthy: a policy
- * is declared by the module that owns the component type, before any entity
- * carries that type. Declaring — or revoking — a policy while the component has
- * carriers throws, because entities already captured under the old policy would
- * restore under a different one.
+ * A policy may be declared, changed, or revoked at any time. It does not have to
+ * precede the component's first carrier, because a capture *binds* the
+ * materializer it resolved: {@link World.snapshotSubtree} stores that function
+ * in each record, so a snapshot always restores the way it was captured and a
+ * later policy declaration cannot retroactively change one.
  *
- * It also marks vecs' own world-bound component types {@link DontSnapshot}: a
+ * The module also marks vecs' own world-bound component types
+ * {@link DontSnapshot}: a
  * live {@link Query} or {@link System} owns live membership, pending events, and
  * pipeline slots, so it can never be reconstructed in another world.
  */
@@ -54,25 +55,6 @@ export class SnapshotModule extends Module {
 
     onSnapshot.add(OneOf, onSnapshot);
     onSnapshot.add(Exclusive);
-
-    onSnapshot.meta.on("targetPolicyAdd", (component) => {
-      const meta = component.meta;
-      if (meta.usageCount > 0) {
-        throw new Error(
-          `OnSnapshot policy for ${meta.Class.name} must be declared before the component has carriers`
-        );
-      }
-    });
-    onSnapshot.meta.on("targetPolicyRemove", (component, _rel, policy) => {
-      if (component.destroyed || policy.destroyed) {
-        return;
-      }
-      if (component.meta.usageCount > 0) {
-        throw new Error(
-          `OnSnapshot policy for ${component.meta.Class.name} cannot be removed or changed while the component has carriers`
-        );
-      }
-    });
 
     world.component(Query).snapshotPolicy(DontSnapshot);
     world.component(System).snapshotPolicy(DontSnapshot);

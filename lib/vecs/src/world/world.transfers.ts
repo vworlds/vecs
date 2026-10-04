@@ -2,7 +2,7 @@
 // `restoreSubtree`, and `moveSubtree`. The capture, preflight, and restore
 // mechanics live in `../snapshot/`.
 
-import { type Entity } from "../entity/index.js";
+import { type EID, type Entity } from "../entity/index.js";
 import { _captureSubtree, _preflightRestore, _restoreSubtree } from "../snapshot/index.js";
 import {
   type EntitySubtreeSnapshot,
@@ -12,6 +12,46 @@ import {
 } from "../snapshot/types.js";
 import { Modules } from "./world.modules.js";
 import { type World } from "./world.js";
+
+/**
+ * Thrown by {@link World.moveSubtree} when the destination restore fails after
+ * the source roots have already been destroyed.
+ *
+ * Everything the destination restore created is destroyed, the source snapshot
+ * is restored back into the source world, and the destination's original error
+ * becomes this error's `cause`. The rollback rebuilds equivalent state with
+ * freshly allocated ids, so callers that held `Entity` references across the
+ * failed move must rebind them — {@link restored} is the mapping that does it:
+ * old source id to the restored entity that replaced it.
+ *
+ * Inbound edges — edges pointing *into* the moved subtree from an entity outside
+ * it — are not part of the snapshot and are not carried by the rollback either.
+ * They belonged to the state left behind in the source world.
+ */
+export class MoveSubtreeError extends Error {
+  /** The destination failure that triggered the rollback. */
+  public readonly cause: unknown;
+  /** Old source id to the entity that replaced it in the source world. */
+  public readonly restored: ReadonlyMap<EID, Entity>;
+  /** Whether the rollback itself failed, leaving the source world incomplete. */
+  public readonly rollbackFailed: boolean;
+
+  public constructor(
+    operation: string,
+    cause: unknown,
+    restored: ReadonlyMap<EID, Entity>,
+    rollbackFailed: boolean
+  ) {
+    super(
+      `${operation} failed and the source forest was restored with new entity ids` +
+        (rollbackFailed ? "; the rollback itself did not complete" : "")
+    );
+    this.name = "MoveSubtreeError";
+    this.cause = cause;
+    this.restored = restored;
+    this.rollbackFailed = rollbackFailed;
+  }
+}
 
 export class Transfers extends Modules {
   /**
@@ -104,10 +144,14 @@ export class Transfers extends Modules {
    * destroyed, and the snapshot is restored into `destination`.
    *
    * If the destination restore fails, everything that restore created is
-   * destroyed, the source snapshot is restored back into this world, and the
-   * original error is rethrown. The rollback rebuilds equivalent state with
-   * freshly allocated ids, so `Entity` references held before the move are stale
-   * afterwards; `moveSubtree` does not report the replacement entities.
+   * destroyed, the source snapshot is restored back into this world, and a
+   * {@link MoveSubtreeError} is thrown carrying the original error as its `cause`.
+   *
+   * The rollback rebuilds equivalent state with freshly allocated ids, so
+   * `Entity` references held before the move are stale afterwards. Rebind them
+   * through the thrown error's `restored` map, which is keyed by the old source
+   * id. An edge pointing *into* the subtree from an entity outside it is never
+   * carried — not by a successful move, and not by the rollback.
    *
    * Destroying a root applies its component `remove` hooks and its relationship
    * cleanup policies, which can reach outside the captured forest. Select
@@ -120,9 +164,10 @@ export class Transfers extends Modules {
    *   allowlists, and the external-target policy.
    * @returns The destination entities, keyed by snapshot key and by source
    *   entity.
-   * @throws If the transfer cannot complete. The source forest survives
-   *   unchanged when preflight fails, and is restored when the destination
-   *   restore fails.
+   * @throws {@link MoveSubtreeError} If the destination restore fails after the
+   *   source was destroyed, with `restored` mapping old source ids to the
+   *   entities that replaced them. The source forest survives unchanged when
+   *   capture or preflight fails, in which case the original error is thrown.
    *
    * @example
    * ```ts
@@ -156,8 +201,8 @@ export class Transfers extends Modules {
     try {
       return _restoreSubtree(destination, snapshot);
     } catch (error) {
-      this._rollback(snapshot);
-      throw error;
+      const [cause, restored, rollbackFailed] = this._rollback(error, snapshot);
+      throw new MoveSubtreeError("moveSubtree", cause, restored, rollbackFailed);
     }
   }
 
@@ -170,13 +215,18 @@ export class Transfers extends Modules {
     }
   }
 
-  /** @internal Best-effort restore of the source forest after a failed transfer. */
-  private _rollback(this: World, snapshot: EntitySubtreeSnapshot): void {
+  /**
+   * @internal Best-effort restore of the source forest after a failed transfer.
+   *
+   * A failed rollback is a consequence of the destination failure, not an
+   * independent problem, so it must not mask the original error; it is reported
+   * as a flag on the {@link MoveSubtreeError} instead.
+   */
+  private _rollback(this: World, cause: unknown, snapshot: EntitySubtreeSnapshot) {
     try {
-      _restoreSubtree(this, snapshot);
+      return [cause, _restoreSubtree(this, snapshot).entities, false] as const;
     } catch {
-      // The destination failure is the actionable error; a failed rollback is a
-      // consequence of it and must not mask it.
+      return [cause, new Map<EID, Entity>(), true] as const;
     }
   }
 }

@@ -11,9 +11,11 @@
 //
 // `materialize` is not a separate file: the canonical component materializer is
 // `Entity._materialize` (`lib/vecs/src/entity/entity.components.ts`), which
-// ordinary `set` and restore both go through.
+// ordinary `set` and restore both go through. `clone.ts` is only the default
+// policy's deep copy.
 
 export { _captureSubtree, _resolveOptions } from "./capture.js";
+export { _clonePublicMaterialize, _cloneSnapshotData } from "./clone.js";
 export { _preflightRestore, _requireUsable } from "./preflight.js";
 export { _restoreSubtree } from "./restore.js";
 export {

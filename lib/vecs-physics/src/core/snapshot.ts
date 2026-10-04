@@ -13,6 +13,7 @@ import { CustomSnapshot, DontSnapshot, Module, type World } from "@vworlds/vecs"
 
 import { PhysicsEngine } from "../adapter/engine.js";
 import { Body } from "../body/components.js";
+import { ContactEvents, HitEvents, SensorEvents } from "../events/components.js";
 import {
   DistanceJoint,
   FilterJoint,
@@ -89,9 +90,14 @@ export class PhysicsSnapshotModule extends Module {
   public init(): void {
     const world = this.world;
 
-    // The engine is a world-bound resource: it owns Box2D's world, its phases,
-    // and the reaper queue. The destination creates its own.
+    // World-bound resources. The engine owns Box2D's world, its phases, and the
+    // reaper queue; the event components hold `Entity` references reported by
+    // this world's solver. Neither can be reconstructed elsewhere, and an event
+    // buffer is a report about the world that produced it, not state to carry.
     world.component(PhysicsEngine).snapshotPolicy(DontSnapshot);
+    [ContactEvents, SensorEvents, HitEvents].forEach((Class) =>
+      world.component(Class).snapshotPolicy(DontSnapshot)
+    );
 
     // Declarative components whose engine handle is not worth copying.
     [Body, Box, Circle, Capsule, Segment, Polygon, Chain].forEach((Class) =>

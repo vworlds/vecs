@@ -5,6 +5,7 @@ import {
   CustomSnapshot,
   DontSnapshot,
   Exclusive,
+  MoveSubtreeError,
   Implements,
   Relationship,
   type Entity,
@@ -42,6 +43,16 @@ function makeWorld(): World {
   const world = new World();
   COMPONENTS.forEach((component) => world.component(component));
   return world;
+}
+
+/** Run `operation` and return whatever it threw. */
+function captureError(operation: () => void): unknown {
+  try {
+    operation();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected the operation to throw");
 }
 
 /** Number of entities in `world` carrying `component`. */
@@ -350,16 +361,48 @@ describe("snapshot capture — DontSnapshot", () => {
     expect(targets(child, TetheredTo)).toEqual([root.eid]);
   });
 
-  it("rejects a policy change while the type has carriers", () => {
+  it("allows a policy change while the type has carriers", () => {
     const w = makeWorld();
-    const carrier = w.entity().add(Session);
+    w.entity().add(Session);
 
-    expect(() => w.component(Session).snapshotPolicy(DontSnapshot)).toThrow(
-      /must be declared before the component has carriers/
-    );
-
-    carrier.destroy();
     expect(() => w.component(Session).snapshotPolicy(DontSnapshot)).not.toThrow();
+  });
+
+  it("restores with the materializer bound at capture time, not the current policy", () => {
+    const w = makeWorld();
+    const other = makeWorld();
+    const root = w.entity().add(Session);
+    root.get(Session)!.id = "bound";
+    const snapshot = w.snapshotSubtree(root);
+
+    // Declared after the capture: the snapshot must ignore it.
+    other.component(Session).snapshotPolicy(CustomSnapshot, {
+      capture: () => ({ id: "late" }),
+      materialize: () => new Session(),
+    });
+
+    const result = w.restoreSubtree(other, snapshot);
+
+    expect(result.roots[0].get(Session)!.id).toBe("bound");
+  });
+
+  it("restores a custom policy declared after capture", () => {
+    const w = makeWorld();
+    const other = makeWorld();
+    const root = w.entity().add(Session);
+    root.get(Session)!.id = "captured";
+    w.component(Session).snapshotPolicy(CustomSnapshot, {
+      capture: (session) => ({ id: String((session as Session).id).toUpperCase() }),
+      materialize: (data) => Object.assign(new Session(), data),
+    });
+    const snapshot = w.snapshotSubtree(root);
+
+    // Revoking the policy later must not strand the snapshot.
+    w.component(Session).snapshotPolicy(ClonePublic);
+
+    const result = w.restoreSubtree(other, snapshot);
+
+    expect(result.roots[0].get(Session)!.id).toBe("CAPTURED");
   });
 
   it("rejects a custom policy without callbacks", () => {
@@ -551,16 +594,159 @@ describe("snapshot capture — relationship data", () => {
   });
 });
 
-describe("snapshot capture — IsA", () => {
-  it("rejects inheritance edges", () => {
+describe("snapshot capture — deep copy", () => {
+  it("copies nested arrays, objects, and vectors instead of aliasing them", () => {
     const w = makeWorld();
-    class IsA extends Relationship {}
-    w.component(IsA);
-    const root = w.entity();
-    const child = w.entity().add(ChildOf, root).add(IsA, root);
+    const other = makeWorld();
+    class Rig extends Relationship {
+      data: unknown = undefined;
+    }
+    w.component(Rig);
+    other.component(Rig);
+    const root = w.entity().add(Position);
 
-    expect(child.targets(IsA)).toHaveLength(1);
-    expect(() => w.snapshotSubtree(root)).toThrow(/IsA inheritance edges cannot be captured/);
+    const live = {
+      name: "cargo",
+      vertices: [
+        { x: 1, y: 2 },
+        { x: 3, y: 4 },
+      ],
+      hull: { hp: 100, tag: "outer" },
+    };
+    root.add(Rig, root).get(Rig)!.data = live;
+
+    const result = w.restoreSubtree(other, w.snapshotSubtree(root));
+    const restored = result.roots[0].get(Rig)!.data as typeof live;
+
+    expect(restored).toEqual(live);
+    expect(restored).not.toBe(live);
+    expect(restored.vertices).not.toBe(live.vertices);
+    expect(restored.vertices[0]).not.toBe(live.vertices[0]);
+    expect(restored.hull).not.toBe(live.hull);
+
+    live.vertices.push({ x: 5, y: 6 });
+    live.hull.hp = 1;
+    expect(restored.vertices).toHaveLength(2);
+    expect(restored.hull.hp).toBe(100);
+  });
+
+  it("copies Map, Set, Date, and typed arrays", () => {
+    const w = makeWorld();
+    const other = makeWorld();
+    const root = w.entity().add(Position);
+    const live = {
+      when: new Date(1_700_000_000_000),
+      tags: new Set(["a", "b"]),
+      weights: new Map<string, number>([["ore", 3]]),
+      bytes: new Uint8Array([1, 2, 3]),
+    };
+    Object.assign(root.get(Position)!, live);
+
+    const result = w.restoreSubtree(other, w.snapshotSubtree(root));
+    const restored = result.roots[0].get(Position)!;
+
+    expect(restored.when).toEqual(live.when);
+    expect(restored.when).not.toBe(live.when);
+    expect(restored.tags).toEqual(live.tags);
+    expect(restored.tags).not.toBe(live.tags);
+    expect(restored.weights).toEqual(live.weights);
+    expect(restored.weights).not.toBe(live.weights);
+    expect(restored.bytes).toEqual(live.bytes);
+    expect(restored.bytes).not.toBe(live.bytes);
+  });
+
+  it("preserves a cycle as a cycle", () => {
+    const w = makeWorld();
+    const other = makeWorld();
+    const root = w.entity().add(Position);
+    const live: Record<string, unknown> = { name: "loop" };
+    live.self = live;
+    Object.assign(root.get(Position)!, live);
+
+    const result = w.restoreSubtree(other, w.snapshotSubtree(root));
+    const detached = (result.roots[0].get(Position)! as unknown as Record<string, unknown>)
+      .self as Record<string, unknown>;
+
+    expect(detached.self).toBe(detached);
+    expect(detached).not.toBe(live);
+    expect(detached.name).toBe("loop");
+  });
+
+  it("fails loudly at capture on a nested non-plain instance", () => {
+    const w = makeWorld();
+    const other = makeWorld();
+    class Handle {
+      constructor(readonly id = "live") {}
+    }
+    class Physics extends Relationship {
+      handle = new Handle();
+    }
+    w.component(Physics);
+    other.component(Physics);
+    const root = w.entity().add(Position);
+    w.entity().childOf(root).add(Physics, root);
+
+    expect(() => w.snapshotSubtree(root)).toThrow(
+      /Physics\.handle holds a Handle, which the default ClonePublic policy cannot copy; declare a CustomSnapshot policy on Physics/
+    );
+  });
+
+  it("lets an owner-declared policy capture what the default refuses", () => {
+    const w = makeWorld();
+    const other = makeWorld();
+    class Handle {
+      constructor(readonly id = "live") {}
+    }
+    class Physics extends Relationship {
+      handle = new Handle();
+    }
+    w.component(Physics);
+    other.component(Physics);
+    w.component(Physics).snapshotPolicy(CustomSnapshot, {
+      capture: (physics) => ({ id: (physics as Physics).handle.id }),
+      materialize: (data) =>
+        Object.assign(new Physics(), { handle: new Handle((data as { id: string }).id) }),
+    });
+    const root = w.entity().add(Position);
+    w.entity().childOf(root).add(Physics, root);
+
+    const result = w.restoreSubtree(other, w.snapshotSubtree(root));
+    const child = [...result.entities.values()][1]!;
+
+    expect(child.targets(Physics)).toHaveLength(1);
+    expect(child.get(Physics)!.handle.id).toBe("live");
+  });
+});
+
+describe("snapshotSubtree — edges outside the forest", () => {
+  it("never carries an inbound edge, by capture or by restore", () => {
+    const w = makeWorld();
+    const other = makeWorld();
+    const outside = w.entity().add(Position);
+    const root = w.entity().add(Position);
+    w.entity().add(Carries, root).get(Carries)!.weight = 3;
+    outside.add(TetheredTo, root);
+
+    const snapshot = w.snapshotSubtree(root);
+    const result = w.restoreSubtree(other, snapshot);
+
+    expect(result.entities.size).toBe(1);
+    expect(targets(outside, TetheredTo)).toEqual([root.eid]);
+    expect(result.roots[0].targets(TetheredTo)).toHaveLength(0);
+  });
+
+  it("drops an inbound edge when the subtree is moved away", () => {
+    const w = makeWorld();
+    const other = makeWorld();
+    const outside = w.entity().add(Position);
+    const root = w.entity().add(Position);
+    outside.add(TetheredTo, root);
+
+    const moved = w.moveSubtree(root, other);
+
+    expect(outside.targets(TetheredTo)).toHaveLength(0);
+    expect(outside.destroyed).toBe(false);
+    expect(moved.roots[0].targets(TetheredTo)).toHaveLength(0);
   });
 });
 
@@ -851,7 +1037,7 @@ describe("restoreSubtree", () => {
     const other = makeWorld();
     const root = w.entity().add(Position);
     w.entity().add(ChildOf, root).add(Session);
-    other.component(Session).snapshotPolicy(CustomSnapshot, {
+    w.component(Session).snapshotPolicy(CustomSnapshot, {
       capture: () => ({}),
       materialize: () => {
         throw new Error("boom");
@@ -1035,7 +1221,12 @@ describe("moveSubtree", () => {
       throw new Error("destination exploded");
     });
 
-    expect(() => w.moveSubtree(root, other)).toThrow("destination exploded");
+    const error = captureError(() => w.moveSubtree(root, other));
+
+    expect(error).toBeInstanceOf(MoveSubtreeError);
+    expect((error as Error).message).toMatch(/source forest was restored with new entity ids/);
+    expect(((error as MoveSubtreeError).cause as Error).message).toBe("destination exploded");
+    expect((error as MoveSubtreeError).rollbackFailed).toBe(false);
 
     expect(carried(other, Position)).toBe(0);
     expect(carried(other, Hull)).toBe(0);
@@ -1048,6 +1239,47 @@ describe("moveSubtree", () => {
     expect(carried(w, Position)).toBe(1);
   });
 
+  it("exposes the old-id to restored-entity mapping so callers can rebind", () => {
+    const w = makeWorld();
+    const other = makeWorld();
+    const root = w.entity().add(Position);
+    const child = w.entity().add(ChildOf, root).add(Hull);
+    const childEid = child.eid;
+    const rootEid = root.eid;
+    other.component(Hull).on("add", () => {
+      throw new Error("destination exploded");
+    });
+
+    const error = captureError(() => w.moveSubtree(root, other)) as MoveSubtreeError;
+    const restoredChild = error.restored.get(childEid)!;
+    const restoredRoot = error.restored.get(rootEid)!;
+
+    expect(restoredChild).toBeDefined();
+    expect(restoredRoot).toBeDefined();
+    expect(restoredChild.eid).not.toBe(childEid);
+    expect(restoredRoot.eid).not.toBe(rootEid);
+    expect(root.destroyed).toBe(true);
+    expect(restoredChild.get(Hull)!.hp).toBe(100);
+    expect(targets(restoredChild, ChildOf)).toEqual([restoredRoot.eid]);
+  });
+
+  it("never carries an inbound edge into the rollback", () => {
+    const w = makeWorld();
+    const other = makeWorld();
+    const outside = w.entity().add(Position);
+    const root = w.entity().add(Position);
+    outside.add(TetheredTo, root);
+    other.component(Position).on("add", () => {
+      throw new Error("destination exploded");
+    });
+
+    const error = captureError(() => w.moveSubtree(root, other)) as MoveSubtreeError;
+    const restoredRoot = error.restored.get(root.eid)!;
+
+    expect(restoredRoot).toBeDefined();
+    expect(outside.targets(TetheredTo)).toHaveLength(0);
+  });
+
   it("restores the source forest for a multi-root move", () => {
     const w = makeWorld();
     const other = makeWorld();
@@ -1057,7 +1289,9 @@ describe("moveSubtree", () => {
       throw new Error("nope");
     });
 
-    expect(() => w.moveSubtree([a], other)).toThrow("nope");
+    const error = captureError(() => w.moveSubtree([a], other)) as MoveSubtreeError;
+
+    expect((error.cause as Error).message).toBe("nope");
     expect(carried(w, Position)).toBe(1);
     expect(carried(w, Velocity)).toBe(1);
     expect(carried(other, Position)).toBe(0);

@@ -11,6 +11,7 @@ import {
   BodyType,
   Box,
   Chain,
+  ContactEvents,
   DistanceJoint,
   JointBodyA,
   JointBodyB,
@@ -212,6 +213,89 @@ describe("moveSubtree across two physics worlds", () => {
     expect(result.roots[0].world).toBe(destination);
     step(destination);
     expect(result.roots[0].get(Body)!._bodyId).toBeDefined();
+  });
+
+  it("integrates the preserved velocity in the destination world", () => {
+    const root = source
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 0, y: 0 })
+      .set(LinearVelocity, { x: 4, y: 0 });
+    step(source);
+
+    const moved = source.moveSubtree(root, destination).roots[0];
+    const start = { ...moved.get(Position)! };
+    step(destination, 15); // 15 frames of 1/60 s.
+
+    const end = moved.get(Position)!;
+    expect(end.x).toBeCloseTo(start.x + 4 * (15 / 60), 2);
+    expect(end.y).toBeCloseTo(start.y, 2);
+  });
+
+  it("produces contacts with destination-only bodies, never with source ones", () => {
+    // A static ground that exists only in the destination world.
+    const ground = destination
+      .entity()
+      .set(Body, { type: BodyType.Static })
+      .set(Position, { x: 10, y: 0 });
+    const groundShape = destination.entity().childOf(ground).set(Box, { hx: 4, hy: 0.5 });
+    step(destination);
+
+    // The ship falls onto that ground after the move.
+    const ship = source
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 10, y: 6 })
+      .set(LinearVelocity, { x: 0, y: -4 });
+    const shipShape = source.entity().childOf(ship).set(Box, { hx: 1, hy: 1 });
+    step(source);
+
+    // The source world keeps a decoy in the ship's place, so the source's own
+    // contact detection is demonstrably working at the moment of the move.
+    const decoy = source
+      .entity()
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 10, y: 6 });
+    const decoyShape = source
+      .entity()
+      .childOf(decoy)
+      .set(Box, { hx: 1, hy: 1 })
+      .set(ContactEvents, {});
+    // Contact buffers are per-step, so read them on the frame they fill.
+    step(source);
+    expect(decoyShape.get(ContactEvents)!.begin.length).toBeGreaterThan(0);
+
+    const result = source.moveSubtree(ship, destination);
+    const movedShape = result.entities.get(shipShape.eid)!;
+
+    // Event reporting is opt-in per world, and event buffers are never carried
+    // across: they report on the world that ran the solver. The destination opts
+    // in again on its own.
+    expect(movedShape.get(ContactEvents)).toBeUndefined();
+    movedShape.set(ContactEvents, {});
+    for (let i = 0; i < 200 && movedShape.get(ContactEvents)!.begin.length === 0; i++) {
+      step(destination);
+    }
+
+    const begin = movedShape.get(ContactEvents)!.begin;
+    expect(begin.length).toBeGreaterThan(0);
+    expect(begin[0]!.other.world).toBe(destination);
+    expect(begin[0]!.other.eid).toBe(groundShape.eid);
+    expect(destination.getEntity(groundShape.eid)).toBeDefined();
+
+    // The source world never reports a contact for the moved ship again: its
+    // own pair stops touching, and the source entities are gone.
+    const decoyContacts: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      step(source);
+      decoyContacts.push(...decoyShape.get(ContactEvents)!.begin.map((e) => e.other.eid));
+    }
+    expect(decoyContacts).toEqual([]);
+    expect(shipShape.destroyed).toBe(true);
+    expect(movedShape.world).toBe(destination);
+    expect(decoyShape.world).toBe(source);
+    expect(decoyShape.get(Box)).toBeDefined();
+    expect(source.getEntity(groundShape.eid)).toBeUndefined();
   });
 
   it("keeps both worlds' physics state independent after a move", () => {
