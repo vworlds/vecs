@@ -1523,9 +1523,16 @@ describe("ServerWorld.closeSession", () => {
 
     expect(reply.error).toBe(WRONG_WORLD);
     expect(reply.message).toBe("unknown resume token for known");
-    // The reply was delivered on a frame written before the socket closed, and
-    // teardown still ran exactly once.
-    expect(socket.sent.length).toBeGreaterThan(0);
+    // The reply was written on a numbered frame, and the transport stays open
+    // while the close lingers — the client acks the frame it received, and
+    // only then does the teardown run, exactly once.
+    const flushFrame = decodeLastMessage(socket);
+    expect(flushFrame.diff).toBeDefined();
+    expect(socket.closed).toBe(false);
+
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: flushFrame.diff!.toFrame })));
+    tick(world);
+
     expect(socket.closeCalls).toBe(1);
     expect(socket.closed).toBe(true);
     expect(server.closeSession("client-1")).toBe(false);
@@ -1533,6 +1540,13 @@ describe("ServerWorld.closeSession", () => {
     const other = connectSession(server, listener, "client-2");
     const second = await callRpc(other.socket, world, AUTH_RPC, ["stranger"]);
     expect(second.error).toBe(INVALID_CREDENTIALS);
+    // Same contract on the second connection: linger open until the ack.
+    expect(other.socket.closed).toBe(false);
+    const secondFlush = decodeLastMessage(other.socket);
+    other.socket.receive(
+      encodeClient2Server(new Client2Server({ ackFrame: secondFlush.diff!.toFrame }))
+    );
+    tick(world);
     expect(other.socket.closeCalls).toBe(1);
   });
 
@@ -1583,6 +1597,284 @@ describe("ServerWorld.closeSession", () => {
     } finally {
       now.mockRestore();
     }
+  });
+});
+
+describe("ServerWorld close linger", () => {
+  async function flushMicrotasks(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  /**
+   * A transport that delivers each send on a later macrotask and drops
+   * everything still queued when `close()` runs, the way an unreliable
+   * datagram channel does when the peer connection is torn down mid-send.
+   */
+  class DropOnCloseSocket extends MemorySocket {
+    public readonly delivered: Uint8Array[] = [];
+    private readonly _undelivered = new Set<Uint8Array>();
+
+    public override send(data: Uint8Array): void {
+      super.send(data);
+      this._undelivered.add(data);
+      queueMicrotask(() => {
+        if (!this._undelivered.delete(data)) {
+          return; // close() discarded it before the macrotask ran
+        }
+        this.delivered.push(data);
+      });
+    }
+
+    public override close(): void {
+      this._undelivered.clear();
+      super.close();
+    }
+  }
+
+  /** A world whose linger clock the test drives through mocked `performance.now`. */
+  function createLingerWorld(closeLingerMs: number): ServerWorld {
+    return createWorld({ closeLingerMs });
+  }
+
+  /** Encode one delivered frame so its RPC replies can be inspected. */
+  function deliveredReplies(socket: DropOnCloseSocket): RPC[] {
+    return socket.delivered.flatMap((bytes) => new Decoder(bytes).read(Server2Client).rpc);
+  }
+
+  it("delivers the typed error to a transport that drops undelivered sends on close", async () => {
+    const world = createWorld();
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    const AUTH_RPC = 101;
+    const WRONG_WORLD = 4001;
+    server.handleRpc(AUTH_RPC, (_params, _request, ctx: ServerRPCContext) => {
+      server.closeSession(ctx.caller, "wrong world");
+      throw new RPCError(WRONG_WORLD, "this client belongs to another world");
+    });
+
+    const socket = new DropOnCloseSocket("client-1");
+    listener.connect(socket);
+    const replies = await deliver(socket, world, {
+      rpc: [new RPC({ rpcId: AUTH_RPC, callId: 0, params: [] })],
+    });
+
+    // The typed rejection left the server before the transport closed.
+    expect(replies.find((reply) => reply.callId === 0)?.error).toBe(WRONG_WORLD);
+    await flushMicrotasks();
+    // The transport delivered it: closing the session no longer discards the
+    // queued reply frame in the same turn it was written.
+    expect(deliveredReplies(socket).find((reply) => reply.callId === 0)?.error).toBe(WRONG_WORLD);
+    expect(socket.closed).toBe(false);
+  });
+
+  it("does not replicate state or accept new calls while the close lingers", async () => {
+    const world = createLingerWorld(10_000);
+    const server = world;
+    allowAllClientViews(world);
+    const listener = new MockListener();
+    server._attach(listener);
+    const calls: string[] = [];
+    server.handleRpc(101, (_params, _request, ctx) => {
+      server.closeSession(ctx.caller, "closing");
+      throw new RPCError(4001, "rejected");
+    });
+    server.handleRpc(102, (_params, _request, ctx) => {
+      calls.push(ctx.connectionId);
+      return [];
+    });
+
+    const socket = new DropOnCloseSocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+    world.entity().add(Networked).set(Position, { x: 1, y: 1 });
+    tick(world);
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 1 })));
+    await deliver(socket, world, {
+      rpc: [new RPC({ rpcId: 101, callId: 0, params: [] })],
+    });
+    const baseline = socket.sent.length;
+    expect(socket.closed).toBe(false);
+
+    // State changes and new calls during the linger reach nobody.
+    world.entity().add(Networked).set(Position, { x: 2, y: 2 });
+    socket.receive(
+      encodeClient2Server(
+        new Client2Server({
+          ackFrame: 0,
+          input: { up: true },
+          rpc: [new RPC({ rpcId: 102, callId: 1, params: [] })],
+        })
+      )
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    tick(world);
+    tick(world);
+
+    expect(calls).toEqual([]);
+    expect(session.entity.get(NetworkInput)).toBeUndefined();
+    for (const bytes of socket.sent.slice(baseline)) {
+      const message = new Decoder(bytes).read(Server2Client);
+      // Only the flush frame may be written: an empty receipt diff, no state.
+      expect(message.diff?.snapshots ?? []).toEqual([]);
+      expect(message.diff?.removed ?? []).toEqual([]);
+    }
+    socket.close();
+  });
+
+  it("ends the linger as soon as the client acknowledges the flushed frame", async () => {
+    const world = createLingerWorld(10_000);
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    server.handleRpc(101, (_params, _request, ctx) => {
+      server.closeSession(ctx.caller, "closing");
+      throw new RPCError(4001, "rejected");
+    });
+
+    const socket = new DropOnCloseSocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+    await deliver(socket, world, {
+      rpc: [new RPC({ rpcId: 101, callId: 0, params: [] })],
+    });
+
+    // The flush frame is numbered: acking it is the delivery receipt.
+    const flush = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+    expect(flush.diff).toBeDefined();
+    const flushedTo = flush.diff!.toFrame;
+    expect(socket.closed).toBe(false);
+
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: flushedTo })));
+    tick(world);
+
+    expect(socket.closeCalls).toBe(1);
+    expect(socket.closed).toBe(true);
+    expect(world.getEntity(session.entity.eid)).toBeUndefined();
+    expect(server.closeSession("client-1")).toBe(false);
+  });
+
+  it("bounds the linger by closeLingerMs when no acknowledgement arrives", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    try {
+      const world = createLingerWorld(250);
+      const server = world;
+      const listener = new MockListener();
+      server._attach(listener);
+      server.handleRpc(101, (_params, _request, ctx) => {
+        server.closeSession(ctx.caller, "closing");
+        throw new RPCError(4001, "rejected");
+      });
+
+      const socket = new DropOnCloseSocket("client-1");
+      listener.connect(socket);
+      await deliver(socket, world, {
+        rpc: [new RPC({ rpcId: 101, callId: 0, params: [] })],
+      });
+      expect(socket.closed).toBe(false);
+
+      now.mockReturnValue(249);
+      tick(world);
+      expect(socket.closed).toBe(false);
+
+      now.mockReturnValue(250);
+      tick(world);
+      expect(socket.closeCalls).toBe(1);
+      expect(socket.closed).toBe(true);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("retransmits the flushed frame on every linger tick so a lost datagram gets another chance", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    try {
+      const world = createLingerWorld(10_000);
+      const server = world;
+      const listener = new MockListener();
+      server._attach(listener);
+      server.handleRpc(101, (_params, _request, ctx) => {
+        server.closeSession(ctx.caller, "closing");
+        throw new RPCError(4001, "rejected");
+      });
+
+      const socket = new DropOnCloseSocket("client-1");
+      listener.connect(socket);
+      await deliver(socket, world, {
+        rpc: [new RPC({ rpcId: 101, callId: 0, params: [] })],
+      });
+      const flushBytes = socket.sent[socket.sent.length - 1];
+      const flushFrame = new Decoder(flushBytes).read(Server2Client);
+      const sentAfterFlush = socket.sent.length;
+      expect(socket.closed).toBe(false);
+
+      tick(world);
+      tick(world);
+
+      // Every linger tick re-sends the same frame; the client deduplicates.
+      expect(socket.sent.length - sentAfterFlush).toBe(2);
+      for (const bytes of socket.sent.slice(sentAfterFlush)) {
+        expect(new Decoder(bytes).read(Server2Client).diff?.toFrame).toBe(flushFrame.diff!.toFrame);
+      }
+
+      // The retransmitted frame carries the reply to the client, repeatedly.
+      await flushMicrotasks();
+      expect(deliveredReplies(socket).filter((reply) => reply.callId === 0)).toHaveLength(3);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("ends the session exactly once when the transport disconnects during the linger", async () => {
+    const world = createLingerWorld(10_000);
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+    server.handleRpc(101, (_params, _request, ctx) => {
+      server.closeSession(ctx.caller, "closing");
+      throw new RPCError(4001, "rejected");
+    });
+
+    const socket = new DropOnCloseSocket("client-1");
+    listener.connect(socket);
+    const session = getSession(server, "client-1");
+    await deliver(socket, world, {
+      rpc: [new RPC({ rpcId: 101, callId: 0, params: [] })],
+    });
+    expect(socket.closed).toBe(false);
+
+    // The peer vanishes mid-linger: the existing teardown runs immediately.
+    socket.close();
+    // One close from the peer's own `close()`, one from the server's teardown.
+    expect(socket.closeCalls).toBe(2);
+    expect(world.getEntity(session.entity.eid)).toBeUndefined();
+    expect(server.closeSession("client-1")).toBe(false);
+
+    // Later ticks neither resurrect the session nor touch the socket again.
+    tick(world);
+    tick(world);
+    expect(socket.closeCalls).toBe(2);
+    expect(world.getEntity(session.entity.eid)).toBeUndefined();
+  });
+
+  it("closes promptly when the session owes no replies", () => {
+    const world = createLingerWorld(10_000);
+    const server = world;
+    const listener = new MockListener();
+    server._attach(listener);
+
+    const socket = new DropOnCloseSocket("client-1");
+    listener.connect(socket);
+    const sent = socket.sent.length;
+
+    server.closeSession("client-1", "superseded");
+    tick(world);
+
+    // Nothing owed, so the close emits no frame and does not wait for an ack.
+    expect(socket.sent.length).toBe(sent);
+    expect(socket.closeCalls).toBe(1);
+    expect(socket.closed).toBe(true);
   });
 });
 

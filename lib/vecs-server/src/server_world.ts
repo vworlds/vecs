@@ -74,7 +74,33 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
   name?: string;
   encodeBufferSize?: number;
   disconnectGraceMs?: number;
+  /**
+   * How long a closing session waits, in wall-clock milliseconds, for the
+   * client to acknowledge the frame carrying the replies the close still owes
+   * before the transport is torn down — the close linger. Defaults to
+   * {@link DEFAULT_CLOSE_LINGER_MS}.
+   *
+   * The linger exists because the transport is an unreliable datagram channel:
+   * closing the socket in the same turn as the flush discards the queued or
+   * in-flight frame, and the client would never see the rejection that
+   * explains the close. While the linger runs the flush frame is retransmitted
+   * on every {@link ServerWorld.send}, so a lost datagram gets another
+   * chance, and the close happens as soon as the ack arrives — usually one
+   * client ack interval plus a round trip. The deadline is the bound for a
+   * client that never acks: a dead or silent peer cannot hold its session
+   * open longer than this. `0` still flushes once, then closes on the next
+   * `send()`.
+   */
+  closeLingerMs?: number;
 }
+
+/**
+ * Default close linger: the client acks every `ackIntervalMs` (33 ms at the
+ * default 30 Hz), so one ack interval, a round trip, and a retransmit budget
+ * of the unordered channel fit inside 250 ms with room to spare — while
+ * keeping the reaping of a session that never acks prompt.
+ */
+export const DEFAULT_CLOSE_LINGER_MS = 250;
 
 class ServerClientSession {
   public readonly baseFrame: number;
@@ -88,14 +114,26 @@ class ServerClientSession {
   /**
    * Set by {@link ServerWorld.closeSession}. The session is finished as far as
    * the application is concerned: it stops accepting input and stops
-   * replicating, but its RPC outbox still needs one flush so a rejection that
-   * explains the close can reach the client. {@link ServerWorld.send} finishes
-   * the teardown.
+   * replicating, but its RPC outbox still owes the client a reply that
+   * explains the close. {@link ServerWorld.send} flushes that reply and then
+   * lingers — see {@link ServerClientSession.closeFlushedFrame} — before
+   * finishing the teardown.
    */
   public closing = false;
   public closed = false;
   /** Set on the first failed `socket.send`; no further frames are sent. */
   public sendFailed = false;
+  /**
+   * The frame carrying the replies the close still owes, retransmitted on
+   * every linger tick until the client acks it. `undefined` until the flush
+   * tick; a closing session with nothing owed never sets it and tears down
+   * without a frame.
+   */
+  public closeFlushedFrame: Server2Client | undefined;
+  /** Frame number of {@link closeFlushedFrame}; acking it ends the linger. */
+  public closeAckFrame = 0;
+  /** Wall-clock deadline in `performance.now()` ms after which the linger ends. */
+  public closeDeadlineMs = 0;
   public socket!: VecsSocket;
   public entity!: Entity;
 
@@ -127,6 +165,7 @@ export class ServerWorld extends NetworkWorld {
   private readonly _trackerCache: TrackerCache;
   private readonly _encodeBuffer: Uint8Array;
   private readonly _disconnectGraceMs: number;
+  private readonly _closeLingerMs: number;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
   private _frame = 1;
 
@@ -136,6 +175,7 @@ export class ServerWorld extends NetworkWorld {
     const encodeBufferSize = options.encodeBufferSize ?? 64 * 1024;
     this._encodeBuffer = new Uint8Array(encodeBufferSize);
     this._disconnectGraceMs = options.disconnectGraceMs ?? 10_000;
+    this._closeLingerMs = options.closeLingerMs ?? DEFAULT_CLOSE_LINGER_MS;
     this._trackerCache = new TrackerCache(this);
     this._components = this.networkComponents;
     ensureRegistered(this, Networked);
@@ -245,10 +285,15 @@ export class ServerWorld extends NetworkWorld {
    * connection, and the client needs that code to tell a wrong world from a bad
    * credential. The session is therefore marked *closing* rather than destroyed
    * on the spot. It immediately stops accepting input and replicates nothing
-   * further, and the next {@link ServerWorld.send} flushes the RPC replies it
-   * still owes — best effort over an unreliable datagram channel — and then
-   * completes the same teardown. So `closeSession` returning `true` means the
-   * close was scheduled, and the socket closes on the next tick, not before it.
+   * further. The next {@link ServerWorld.send} flushes the RPC replies it still
+   * owes on a numbered frame and then **lingers**: the socket stays open until
+   * the client acks that frame — its delivery receipt — or
+   * `closeLingerMs` (250 ms by default) elapses, whichever comes first. A
+   * session with nothing owed closes without emitting a frame at all. So
+   * `closeSession` returning `true` means the close was scheduled; a peer that
+   * acks normally sees its socket close within one ack interval of receiving
+   * the reply, and a peer that never acks cannot hold the session open past
+   * the linger.
    *
    * Peers that go away on their own, applications that destroy the
    * `NetworkClient` entity, and `disconnectGraceMs` expiry all tear down
@@ -318,8 +363,9 @@ export class ServerWorld extends NetworkWorld {
     this._clients.forEach([View, ServerClientSession], (e, [view, session]) => {
       if (session.closing) {
         // Scheduled to close: no further state, but the rejection that explains
-        // the close still owes the client a frame.
-        this._finishClose(session);
+        // the close still owes the client a frame — and that frame must be
+        // allowed to reach the client before the transport goes down.
+        this._lingerOrClose(session, nowMs);
         return;
       }
 
@@ -465,13 +511,20 @@ export class ServerWorld extends NetworkWorld {
   private _receive(session: ServerClientSession, data: Uint8Array): void {
     // A transport can deliver frames it had already queued when the session was
     // torn down; the socket has no `off`, so drop them here. A closing session
-    // drops them too: it has stopped accepting work, and the only thing still
-    // owed is the reply `send` is flushing.
-    if (session.closed || session.closing) {
+    // drops everything but the ack: it has stopped accepting work, and the
+    // only thing still owed is the reply `send` flushed — acking that frame is
+    // how the client confirms delivery and ends the close linger early.
+    if (session.closed) {
+      return;
+    }
+    const message = new Decoder(data).read(Client2Server);
+    if (session.closing) {
+      if (message.ackFrame <= session.history.lastFrame) {
+        session.ackFrame = Math.max(session.ackFrame, message.ackFrame);
+      }
       return;
     }
     session.lastSeenMs = performance.now();
-    const message = new Decoder(data).read(Client2Server);
     if (message.ackFrame <= session.history.lastFrame) {
       session.ackFrame = Math.max(session.ackFrame, message.ackFrame);
       if (session.ackFrame > session.baseFrame) {
@@ -512,23 +565,72 @@ export class ServerWorld extends NetworkWorld {
   }
 
   /**
-   * Complete a {@link ServerWorld.closeSession}: flush the RPC replies the
-   * session still owes, then run the normal exactly-once teardown.
+   * Advance one closing session towards its teardown, flushing the replies it
+   * still owes and then lingering before the transport goes down.
    *
-   * The flush is best effort — the transport is an unreliable datagram channel —
-   * but it is the reason {@link ServerWorld.closeSession} defers: a client that
-   * asked a question deserves the answer, and a rejection is usually the whole
-   * point of the close. A session with nothing owed tears down without emitting
-   * a frame at all.
+   * A closing session with nothing owed destroys immediately, exactly as
+   * before: nothing is left to deliver, so the close is prompt. Otherwise the
+   * owed replies are written on a numbered frame — an empty
+   * `StateDiff` from the client's last acknowledged frame — so the client's
+   * next ack is a delivery receipt for the very datagram that carries them.
+   * The transport is an unreliable channel: closing the socket in the same
+   * turn as the flush would discard the queued or in-flight frame, and the
+   * client would lose the typed error that explains the close.
+   *
+   * After the flush the session lingers, bounded by
+   * {@link ServerWorldOptions.closeLingerMs}:
+   *
+   * - the client's ack of the flush frame ends the linger immediately;
+   * - a transport `disconnect` — including a failed flush send, which
+   *   {@link ServerWorld._sendFrame} routes there — tears the session down at
+   *   once through the normal exactly-once path;
+   * - the deadline is the bound for a client that never acks.
+   *
+   * While the linger runs the flush frame is retransmitted on every call (the
+   * client deduplicates), and any reply that finished after the flush tick
+   * joins the retransmitted frame, so everything the session owes travels on
+   * the receipt frame. No state is replicated and no new call is accepted
+   * while closing — only the ack is honored.
+   *
+   * @param session - The closing session, visited by {@link ServerWorld.send}.
+   * @param nowMs - Wall-clock timestamp (`performance.now()`) of this send.
    */
-  private _finishClose(session: ServerClientSession): void {
-    const rpc = session.rpc.getOutgoing();
-    if (rpc.length > 0) {
-      this._sendFrame(session, new Server2Client({ rpc }));
+  private _lingerOrClose(session: ServerClientSession, nowMs: number): void {
+    const flushed = session.closeFlushedFrame;
+    if (flushed !== undefined) {
+      if (session.ackFrame >= session.closeAckFrame || nowMs >= session.closeDeadlineMs) {
+        // Destroying the entity lands in the `ServerClientSession` remove hook,
+        // which is what removes the session and closes the socket.
+        session.entity.destroy();
+        return;
+      }
+      const late = session.rpc.getOutgoing();
+      if (late.length > 0) {
+        flushed.rpc.push(...late);
+      }
+      this._sendFrame(session, flushed);
+      return;
     }
-    // Destroying the entity lands in the `ServerClientSession` remove hook, which
-    // is what removes the session and closes the socket.
-    session.entity.destroy();
+    const rpc = session.rpc.getOutgoing();
+    if (rpc.length === 0) {
+      session.entity.destroy();
+      return;
+    }
+    // The receipt frame is a numbered frame the client's existing ack covers:
+    // an empty diff is applied as a no-op, and its frame number is what the
+    // client acks back. `fromFrame` starts at the client's last acked frame
+    // (never 0, which would read as a full baseline) so the push is always in
+    // range for the client's diff buffer.
+    const toFrame = session.history.lastFrame + 1;
+    session.history.push(new StateDiff({ fromFrame: toFrame - 1, toFrame }));
+    const frame = new Server2Client({
+      diff: new StateDiff({ fromFrame: Math.max(session.ackFrame, 1), toFrame }),
+      rpc,
+    });
+    session.closeFlushedFrame = frame;
+    session.closeAckFrame = toFrame;
+    session.closeDeadlineMs = nowMs + this._closeLingerMs;
+    this._sendFrame(session, frame);
   }
 
   /**

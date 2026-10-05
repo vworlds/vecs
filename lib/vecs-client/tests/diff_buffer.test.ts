@@ -516,3 +516,71 @@ test("reset returns the interpolator to its initial state", () => {
   const empty = ip.pull(200);
   expect(empty).toMatchObject({ from: 0, to: 0, snapshots: [] });
 });
+
+// A closing ServerWorld flushes the RPC replies it still owes on a numbered
+// "receipt" frame — an empty diff from the client's last acked frame — and
+// waits for the ack of that frame before closing the transport. These tests
+// pin the wire usage the server now relies on: an empty diff advances the
+// acknowledged version, is idempotent under the server's per-tick
+// retransmission, and never reads as a full baseline (fromFrame 0), which
+// would destroy and rebuild every replicated entity.
+test("acknowledges a numbered empty receipt frame the server flushes owed replies on", () => {
+  const ip = newDiffBuffer(3, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 1, 1)] });
+  ip.push(s1);
+  ip.pull(10);
+  expect(ip.version).toBe(1);
+
+  // The server's close-session flush: empty diff, from = the acked frame.
+  const receipt = SD({ from: 1, to: 2, snapshots: [] });
+  ip.push(receipt);
+
+  expect(ip.version).toBe(2);
+  // Applying it is a no-op: no snapshots, no removals.
+  const applied = ip.pull(20);
+  expect(applied.snapshots).toEqual([]);
+  expect(applied.removed).toBeUndefined();
+});
+
+test("accepts a receipt frame as the first frame into an empty buffer", () => {
+  const ip = newDiffBuffer(3, 10);
+
+  // A client that received nothing yet can still be flushed at: its ack
+  // reports version 0 and the server numbers the receipt from frame 1.
+  const receipt = SD({ from: 1, to: 1, snapshots: [] });
+  ip.push(receipt);
+
+  expect(ip.version).toBe(1);
+});
+
+test("deduplicates the receipt frame when the server retransmits it during the linger", () => {
+  const ip = newDiffBuffer(3, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 5, 5)] });
+  ip.push(s1);
+  ip.pull(10);
+  expect(ip.version).toBe(1);
+
+  // The server sends the same numbered frame on every linger tick until the
+  // ack arrives; the unordered channel may also duplicate the datagram.
+  const first = SD({ from: 1, to: 2, snapshots: [] });
+  ip.push(first);
+  ip.push(first);
+  ip.push(first);
+
+  expect(ip.version).toBe(2);
+  const applied = ip.pull(20);
+  expect(applied.snapshots).toEqual([]);
+});
+
+test("accepts a receipt frame sent behind a lagging ack", () => {
+  const ip = newDiffBuffer(3, 10);
+  const s1 = SD({ from: 0, to: 3, snapshots: [makePosComponent(A, 2, 2)] });
+  ip.push(s1);
+
+  // The server's session ack still reads 0 (the client's ack was lost), but
+  // the client received frame 3; fromFrame 1 stays within its version range.
+  const receipt = SD({ from: 1, to: 4, snapshots: [] });
+  expect(() => ip.push(receipt)).not.toThrow();
+
+  expect(ip.version).toBe(4);
+});
