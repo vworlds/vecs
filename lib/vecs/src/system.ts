@@ -86,7 +86,9 @@ type _SystemInboxEvent =
  * Internally each system holds a single ordered **inbox** of routed events
  * (`enter`, `exit`, `update`). The world appends to it during command-queue
  * routing; the system replays the inbox at the top of every `_run` so
- * callbacks observe events in arrival order.
+ * callbacks observe events in arrival order. An `enter` only dispatches when
+ * the entity remains a member at drain time; its paired `exit` is suppressed
+ * when that `enter` was skipped.
  *
  * ### Component injection and type inference
  *
@@ -139,6 +141,11 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
 
   /** @internal Systems may be run-only processors without entity membership. */
   protected override _isBuildable(): boolean {
+    return true;
+  }
+
+  /** @internal Systems retain membership to validate deferred inbox events. */
+  public override _tracksMembership(): boolean {
     return true;
   }
 
@@ -257,13 +264,30 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    */
   private _runDeferred(now: number, tickDelta: number): void {
     this.world.defer(() => {
+      let suppressedEnters: Set<Entity> | undefined;
       for (let i = 0; i < this._inbox.length; i++) {
         const event = this._inbox[i];
         switch (event.kind) {
           case InboxCommand.Enter:
+            // Stale-event guard: an Enter queued for an entity that has since
+            // left this system (destroyed, or lost a `.with` component) before
+            // this inbox drained must not dispatch. Enter callbacks commonly
+            // create related state, so dispatching one for a non-member leaves
+            // that state orphaned. A stale enter is only possible when something
+            // exited this window, so `_exitedSinceDrain` gates the O(1)
+            // membership probe and steady-state frames pay nothing. A re-entered
+            // ("came back") entity is a member again here, so its enter still
+            // fires. Suppress its paired exit because the enter never ran.
+            if (this._exitedSinceDrain && !event.entity._isMemberOf(this)) {
+              (suppressedEnters ??= new Set()).add(event.entity);
+              break;
+            }
             this._enterCallback!(event.entity, event.snapshot);
             break;
           case InboxCommand.Exit:
+            if (suppressedEnters?.delete(event.entity)) {
+              break;
+            }
             this._exitCallback!(event.entity, event.snapshot);
             break;
           case InboxCommand.Update:
