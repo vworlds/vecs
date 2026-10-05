@@ -37,43 +37,67 @@ type PhysicsComponent = new () => object;
  * `Chain._segmentIndices`, `Joint._jointId` — so the underscore prefix is the
  * package-wide convention this relies on.
  */
-function captureDeclarative(instance: object): Record<string, unknown> {
+function captureDeclarative(instance: object, owner: string): Record<string, unknown> {
   const data: Record<string, unknown> = {};
+  const seen = new Map<object, unknown>();
   for (const key of Object.keys(instance)) {
     if (!key.startsWith("_")) {
-      data[key] = detach((instance as Record<string, unknown>)[key]);
+      data[key] = detach(
+        (instance as Record<string, unknown>)[key],
+        `${owner}.${key}`,
+        owner,
+        seen
+      );
     }
   }
   return data;
 }
 
 /**
- * Copy nested arrays and plain objects so a snapshot never aliases geometry the
- * source component still holds — `Chain.points` and `Polygon.vertices` are the
- * arrays that matter. Anything else (numbers, strings, booleans) is already
- * detached and passes through.
+ * Copy only declarative nested values. Physics components accept primitives,
+ * arrays, and plain records; Box2D wrappers and other class instances must not
+ * cross worlds disguised as data.
  */
-function detach(value: unknown): unknown {
+function detach(value: unknown, path: string, owner: string, seen: Map<object, unknown>): unknown {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  const existing = seen.get(value);
+  if (existing !== undefined) {
+    return existing;
+  }
+
   if (Array.isArray(value)) {
-    return value.map(detach);
-  }
-  if (typeof value === "object" && value !== null) {
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype === Object.prototype || prototype === null) {
-      const clone: Record<string, unknown> = {};
-      for (const [key, entry] of Object.entries(value)) {
-        clone[key] = detach(entry);
-      }
-      return clone;
+    const copy: unknown[] = [];
+    seen.set(value, copy);
+    for (let i = 0; i < value.length; i++) {
+      copy.push(detach(value[i], `${path}[${i}]`, owner, seen));
     }
+    return copy;
   }
-  return value;
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype === Object.prototype || prototype === null) {
+    const copy: Record<string, unknown> = Object.create(prototype);
+    seen.set(value, copy);
+    for (const [key, entry] of Object.entries(value)) {
+      copy[key] = detach(entry, `${path}.${key}`, owner, seen);
+    }
+    return copy;
+  }
+
+  const name = value.constructor?.name ?? Object.prototype.toString.call(value);
+  throw new Error(
+    `snapshotSubtree: ${path} holds a ${name}, which the physics CustomSnapshot policy cannot copy; ` +
+      `use only primitives, arrays, and plain objects in ${owner} declarative fields`
+  );
 }
 
 /** Declare "drop the engine handles, keep the declarative fields" for `Class`. */
 function declareDeclarative(world: World, Class: PhysicsComponent): void {
   world.component(Class).snapshotPolicy(CustomSnapshot, {
-    capture: captureDeclarative,
+    capture: (instance) => captureDeclarative(instance, Class.name),
     materialize: (data) => Object.assign(new Class(), data),
   });
 }

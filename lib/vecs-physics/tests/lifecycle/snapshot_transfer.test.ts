@@ -2,7 +2,7 @@
 // between two physics worlds: declarative body/shape/joint data crosses, and
 // every Box2D handle is reaped on the source and recreated on the destination.
 
-import { ChildOf, World } from "@vworlds/vecs";
+import { ChildOf, type Entity, World } from "@vworlds/vecs";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { getPhysicsEngine } from "../../src/adapter/engine.js";
@@ -11,16 +11,30 @@ import {
   BodyType,
   Box,
   Chain,
+  Circle,
   ContactEvents,
   DistanceJoint,
+  FilterJoint,
+  JointAngularSpring,
   JointBodyA,
   JointBodyB,
+  JointFrame,
+  JointLimit,
+  JointLinearSpring,
+  JointMotor,
+  JointSettings,
   LinearVelocity,
+  MotorJoint,
   PhysicsModule,
+  Polygon,
   Position,
+  PrismaticJoint,
+  RevoluteJoint,
   Rotation,
   ShapePosition,
   ShapeRotation,
+  WeldJoint,
+  WheelJoint,
 } from "../../src/index.js";
 
 let source: World;
@@ -47,6 +61,235 @@ function settledBody(world: World, x: number, y: number) {
   expect(entity.get(Body)!._bodyId).toBeDefined();
   return entity;
 }
+
+function expectPlainData(value: unknown): void {
+  if (Array.isArray(value)) {
+    value.forEach(expectPlainData);
+  } else if (typeof value === "object" && value !== null) {
+    expect(Object.getPrototypeOf(value)).toBe(Object.prototype);
+    Object.values(value).forEach(expectPlainData);
+  }
+}
+
+type JointClass =
+  | typeof RevoluteJoint
+  | typeof DistanceJoint
+  | typeof PrismaticJoint
+  | typeof WheelJoint
+  | typeof WeldJoint
+  | typeof FilterJoint
+  | typeof MotorJoint;
+
+const jointCases: readonly { name: string; Class: JointClass }[] = [
+  { name: "revolute", Class: RevoluteJoint },
+  { name: "distance", Class: DistanceJoint },
+  { name: "prismatic", Class: PrismaticJoint },
+  { name: "wheel", Class: WheelJoint },
+  { name: "weld", Class: WeldJoint },
+  { name: "filter", Class: FilterJoint },
+  { name: "motor", Class: MotorJoint },
+];
+
+function addApplicableJointFeatures(
+  joint: Entity,
+  Class: JointClass,
+  vector: { x: number; y: number }
+): void {
+  joint
+    .set(JointFrame, { localAnchorA: vector, localAnchorB: { x: -3, y: 4 }, referenceAngle: 0.5 })
+    .set(JointSettings, { collideConnected: true });
+
+  if (Class === RevoluteJoint) {
+    joint
+      .set(JointMotor, { targetSpeed: 1.5, maxForce: 2.5 })
+      .set(JointLimit, { lower: -0.25, upper: 0.75 })
+      .set(JointAngularSpring, { hertz: 3.5, dampingRatio: 0.6 });
+  } else if (Class === DistanceJoint || Class === PrismaticJoint || Class === WheelJoint) {
+    joint
+      .set(JointMotor, { targetSpeed: 1.5, maxForce: 2.5 })
+      .set(JointLimit, { lower: 0.25, upper: 1.75 })
+      .set(JointLinearSpring, { hertz: 3.5, dampingRatio: 0.6 });
+  } else if (Class === WeldJoint) {
+    joint
+      .set(JointLinearSpring, { hertz: 3.5, dampingRatio: 0.6 })
+      .set(JointAngularSpring, { hertz: 4.5, dampingRatio: 0.7 });
+  } else if (Class === MotorJoint) {
+    joint.set(MotorJoint, {
+      linearVelocity: vector,
+      maxVelocityForce: 2.5,
+      angularVelocity: 1.5,
+      maxVelocityTorque: 3.5,
+      linearHertz: 4.5,
+      linearDampingRatio: 0.7,
+      maxSpringForce: 5.5,
+      angularHertz: 6.5,
+      angularDampingRatio: 0.8,
+      maxSpringTorque: 7.5,
+    });
+  }
+}
+
+function expectApplicableJointFeatures(destination: Entity, Class: JointClass): void {
+  expect(destination.get(JointFrame)).toMatchObject({
+    localAnchorA: { x: 1, y: 2 },
+    localAnchorB: { x: -3, y: 4 },
+    referenceAngle: 0.5,
+  });
+  expect(destination.get(JointSettings)).toMatchObject({ collideConnected: true });
+
+  if (Class === RevoluteJoint) {
+    expect(destination.get(JointMotor)).toMatchObject({ targetSpeed: 1.5, maxForce: 2.5 });
+    expect(destination.get(JointLimit)).toMatchObject({ lower: -0.25, upper: 0.75 });
+    expect(destination.get(JointAngularSpring)).toMatchObject({ hertz: 3.5, dampingRatio: 0.6 });
+  } else if (Class === DistanceJoint || Class === PrismaticJoint || Class === WheelJoint) {
+    expect(destination.get(JointMotor)).toMatchObject({ targetSpeed: 1.5, maxForce: 2.5 });
+    expect(destination.get(JointLimit)).toMatchObject({ lower: 0.25, upper: 1.75 });
+    expect(destination.get(JointLinearSpring)).toMatchObject({ hertz: 3.5, dampingRatio: 0.6 });
+  } else if (Class === WeldJoint) {
+    expect(destination.get(JointLinearSpring)).toMatchObject({ hertz: 3.5, dampingRatio: 0.6 });
+    expect(destination.get(JointAngularSpring)).toMatchObject({ hertz: 4.5, dampingRatio: 0.7 });
+  } else if (Class === MotorJoint) {
+    expect(destination.get(MotorJoint)).toMatchObject({
+      linearVelocity: { x: 1, y: 2 },
+      maxVelocityForce: 2.5,
+      angularVelocity: 1.5,
+      maxVelocityTorque: 3.5,
+      linearHertz: 4.5,
+      linearDampingRatio: 0.7,
+      maxSpringForce: 5.5,
+      angularHertz: 6.5,
+      angularDampingRatio: 0.8,
+      maxSpringTorque: 7.5,
+    });
+  }
+}
+
+describe("joint snapshot policies", () => {
+  it.each(jointCases)(
+    "restores a live default $name constraint from a nested forest",
+    ({ Class }) => {
+      const root = source.entity();
+      const bodyA = source.entity().childOf(root).set(Body, { type: BodyType.Static });
+      const bodyB = source
+        .entity()
+        .childOf(bodyA)
+        .set(Body, { type: BodyType.Dynamic })
+        .set(Position, { x: 2, y: 0 });
+      source.entity().childOf(bodyB).set(Circle, { radius: 0.5 });
+      const joint = source
+        .entity()
+        .childOf(root)
+        .add(JointBodyA, bodyA)
+        .add(JointBodyB, bodyB)
+        .add(Class);
+      step(source);
+
+      const sourceJoint = joint.get(Class)!;
+      const sourceJointId = sourceJoint._jointId!;
+      expect(sourceJointId).toBeDefined();
+
+      const snapshot = source.snapshotSubtree(root);
+      for (const record of snapshot.entities) {
+        for (const component of [...record.components, ...record.relationships]) {
+          expectPlainData(component.data);
+        }
+      }
+
+      const result = source.moveSubtree(root, destination);
+      const movedJoint = result.sourceToDestination.get(joint)!;
+      step(destination);
+
+      const destinationJoint = movedJoint.get(Class)!;
+      expect(destinationJoint).toBeInstanceOf(Class);
+      expect(destinationJoint).not.toBe(sourceJoint);
+      expect(destinationJoint._jointId).toBeDefined();
+      expect(destinationJoint._jointId).not.toBe(sourceJointId);
+      expect(getPhysicsEngine(destination).box2d.b2Joint_IsValid(destinationJoint._jointId!)).toBe(
+        true
+      );
+      if (Class === DistanceJoint) {
+        const movedBodyB = result.sourceToDestination.get(bodyB)!;
+        step(destination, 30);
+        expect(movedBodyB.get(Position)!.x).toBeCloseTo(1, 1);
+      }
+    }
+  );
+
+  it.each(jointCases)("moves plain applicable $name joint features", ({ Class }) => {
+    const root = source.entity();
+    const bodyA = source.entity().childOf(root).set(Body, { type: BodyType.Static });
+    const bodyB = source
+      .entity()
+      .childOf(bodyA)
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 2, y: 0 });
+    source.entity().childOf(bodyB).set(Circle, { radius: 0.5 });
+    const joint = source
+      .entity()
+      .childOf(root)
+      .add(JointBodyA, bodyA)
+      .add(JointBodyB, bodyB)
+      .add(Class);
+    const vector = { x: 1, y: 2 };
+    addApplicableJointFeatures(joint, Class, vector);
+    step(source);
+
+    const sourceJoint = joint.get(Class)!;
+    const result = source.moveSubtree(root, destination);
+    const movedJoint = result.sourceToDestination.get(joint)!;
+    step(destination);
+
+    const destinationJoint = movedJoint.get(Class)!;
+    const destinationFrame = movedJoint.get(JointFrame)!;
+    expect(destinationJoint).not.toBe(sourceJoint);
+    expect(destinationJoint._jointId).toBeDefined();
+    expect(destinationJoint._jointId).not.toBe(sourceJoint._jointId);
+    expect(getPhysicsEngine(destination).box2d.b2Joint_IsValid(destinationJoint._jointId!)).toBe(
+      true
+    );
+    expect(destinationFrame.localAnchorA).toEqual({ x: 1, y: 2 });
+    expect(destinationFrame.localAnchorA).not.toBe(vector);
+    expectApplicableJointFeatures(movedJoint, Class);
+  });
+
+  it("rejects a Box2D vector in a custom physics component field", () => {
+    const vector = new (getPhysicsEngine(source).box2d.b2Vec2)(1, 2);
+    const joint = source.entity().set(MotorJoint, { linearVelocity: vector });
+
+    try {
+      expect(() => source.snapshotSubtree(joint)).toThrow(
+        /MotorJoint\.linearVelocity holds a b2Vec2, which the physics CustomSnapshot policy cannot copy/
+      );
+    } finally {
+      vector.delete();
+    }
+  });
+
+  it("rejects a Box2D vector in a default joint frame field", () => {
+    const vector = new (getPhysicsEngine(source).box2d.b2Vec2)(1, 2);
+    const joint = source.entity().set(JointFrame, { localAnchorA: vector });
+
+    try {
+      expect(() => source.snapshotSubtree(joint)).toThrow(
+        /JointFrame\.localAnchorA holds a b2Vec2, which the default ClonePublic policy cannot copy/
+      );
+    } finally {
+      vector.delete();
+    }
+  });
+
+  it("rejects a class instance nested in polygon vertices", () => {
+    class P {
+      x = 1;
+      y = 2;
+    }
+    const polygon = source.entity().set(Polygon, { vertices: [new P()] });
+
+    expect(() => source.snapshotSubtree(polygon)).toThrow(
+      /Polygon\.vertices\[0\] holds a P, which the physics CustomSnapshot policy cannot copy/
+    );
+  });
+});
 
 describe("moveSubtree across two physics worlds", () => {
   it("moves a body with its declarative pose, rotation, and velocity", () => {
