@@ -26,6 +26,7 @@ import {
   LinearVelocity,
   MotorJoint,
   PhysicsModule,
+  Polygon,
   Position,
   PrismaticJoint,
   RevoluteJoint,
@@ -118,30 +119,48 @@ function addApplicableJointFeatures(
       maxVelocityForce: 2.5,
       angularVelocity: 1.5,
       maxVelocityTorque: 3.5,
+      linearHertz: 4.5,
+      linearDampingRatio: 0.7,
+      maxSpringForce: 5.5,
+      angularHertz: 6.5,
+      angularDampingRatio: 0.8,
+      maxSpringTorque: 7.5,
     });
   }
 }
 
-function expectApplicableJointFeatures(
-  source: Entity,
-  destination: Entity,
-  Class: JointClass
-): void {
-  expect(destination.get(JointFrame)).not.toBe(source.get(JointFrame));
-  expect(destination.get(JointSettings)).not.toBe(source.get(JointSettings));
+function expectApplicableJointFeatures(destination: Entity, Class: JointClass): void {
+  expect(destination.get(JointFrame)).toMatchObject({
+    localAnchorA: { x: 1, y: 2 },
+    localAnchorB: { x: -3, y: 4 },
+    referenceAngle: 0.5,
+  });
   expect(destination.get(JointSettings)).toMatchObject({ collideConnected: true });
 
   if (Class === RevoluteJoint) {
-    expect(destination.get(JointMotor)).not.toBe(source.get(JointMotor));
-    expect(destination.get(JointLimit)).not.toBe(source.get(JointLimit));
-    expect(destination.get(JointAngularSpring)).not.toBe(source.get(JointAngularSpring));
+    expect(destination.get(JointMotor)).toMatchObject({ targetSpeed: 1.5, maxForce: 2.5 });
+    expect(destination.get(JointLimit)).toMatchObject({ lower: -0.25, upper: 0.75 });
+    expect(destination.get(JointAngularSpring)).toMatchObject({ hertz: 3.5, dampingRatio: 0.6 });
   } else if (Class === DistanceJoint || Class === PrismaticJoint || Class === WheelJoint) {
-    expect(destination.get(JointMotor)).not.toBe(source.get(JointMotor));
-    expect(destination.get(JointLimit)).not.toBe(source.get(JointLimit));
-    expect(destination.get(JointLinearSpring)).not.toBe(source.get(JointLinearSpring));
+    expect(destination.get(JointMotor)).toMatchObject({ targetSpeed: 1.5, maxForce: 2.5 });
+    expect(destination.get(JointLimit)).toMatchObject({ lower: 0.25, upper: 1.75 });
+    expect(destination.get(JointLinearSpring)).toMatchObject({ hertz: 3.5, dampingRatio: 0.6 });
   } else if (Class === WeldJoint) {
-    expect(destination.get(JointLinearSpring)).not.toBe(source.get(JointLinearSpring));
-    expect(destination.get(JointAngularSpring)).not.toBe(source.get(JointAngularSpring));
+    expect(destination.get(JointLinearSpring)).toMatchObject({ hertz: 3.5, dampingRatio: 0.6 });
+    expect(destination.get(JointAngularSpring)).toMatchObject({ hertz: 4.5, dampingRatio: 0.7 });
+  } else if (Class === MotorJoint) {
+    expect(destination.get(MotorJoint)).toMatchObject({
+      linearVelocity: { x: 1, y: 2 },
+      maxVelocityForce: 2.5,
+      angularVelocity: 1.5,
+      maxVelocityTorque: 3.5,
+      linearHertz: 4.5,
+      linearDampingRatio: 0.7,
+      maxSpringForce: 5.5,
+      angularHertz: 6.5,
+      angularDampingRatio: 0.8,
+      maxSpringTorque: 7.5,
+    });
   }
 }
 
@@ -196,66 +215,80 @@ describe("joint snapshot policies", () => {
     }
   );
 
-  it.each(jointCases)(
-    "captures plain applicable $name joint features without retaining Box2D vectors",
-    ({ Class }) => {
-      const root = source.entity();
-      const bodyA = source.entity().childOf(root).set(Body, { type: BodyType.Static });
-      const bodyB = source
-        .entity()
-        .childOf(bodyA)
-        .set(Body, { type: BodyType.Dynamic })
-        .set(Position, { x: 2, y: 0 });
-      source.entity().childOf(bodyB).set(Circle, { radius: 0.5 });
-      const joint = source
-        .entity()
-        .childOf(root)
-        .add(JointBodyA, bodyA)
-        .add(JointBodyB, bodyB)
-        .add(Class);
-      const box2d = getPhysicsEngine(source).box2d;
-      const vector = new box2d.b2Vec2(1, 2);
-      addApplicableJointFeatures(joint, Class, vector);
-      step(source);
+  it.each(jointCases)("moves plain applicable $name joint features", ({ Class }) => {
+    const root = source.entity();
+    const bodyA = source.entity().childOf(root).set(Body, { type: BodyType.Static });
+    const bodyB = source
+      .entity()
+      .childOf(bodyA)
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Position, { x: 2, y: 0 });
+    source.entity().childOf(bodyB).set(Circle, { radius: 0.5 });
+    const joint = source
+      .entity()
+      .childOf(root)
+      .add(JointBodyA, bodyA)
+      .add(JointBodyB, bodyB)
+      .add(Class);
+    const vector = { x: 1, y: 2 };
+    addApplicableJointFeatures(joint, Class, vector);
+    step(source);
 
-      const sourceJoint = joint.get(Class)!;
-      const sourceFrame = joint.get(JointFrame)!;
-      const snapshot = source.snapshotSubtree(root);
-      const jointRecord = snapshot.entities.find((record) => record.source === joint)!;
-      const frameSnapshot = jointRecord.components.find(
-        (component) => component.Class === JointFrame
-      )!;
-      expect((frameSnapshot.data as JointFrame).localAnchorA).toEqual({ x: 1, y: 2 });
-      expect((frameSnapshot.data as JointFrame).localAnchorA).not.toBe(vector);
-      for (const record of snapshot.entities) {
-        for (const component of [...record.components, ...record.relationships]) {
-          expectPlainData(component.data);
-        }
-      }
+    const sourceJoint = joint.get(Class)!;
+    const result = source.moveSubtree(root, destination);
+    const movedJoint = result.sourceToDestination.get(joint)!;
+    step(destination);
 
-      const result = source.restoreSubtree(destination, snapshot);
-      const movedJoint = result.sourceToDestination.get(joint)!;
-      step(destination);
+    const destinationJoint = movedJoint.get(Class)!;
+    const destinationFrame = movedJoint.get(JointFrame)!;
+    expect(destinationJoint).not.toBe(sourceJoint);
+    expect(destinationJoint._jointId).toBeDefined();
+    expect(destinationJoint._jointId).not.toBe(sourceJoint._jointId);
+    expect(getPhysicsEngine(destination).box2d.b2Joint_IsValid(destinationJoint._jointId!)).toBe(
+      true
+    );
+    expect(destinationFrame.localAnchorA).toEqual({ x: 1, y: 2 });
+    expect(destinationFrame.localAnchorA).not.toBe(vector);
+    expectApplicableJointFeatures(movedJoint, Class);
+  });
 
-      const destinationJoint = movedJoint.get(Class)!;
-      const destinationFrame = movedJoint.get(JointFrame)!;
-      expect(destinationJoint).not.toBe(sourceJoint);
-      expect(destinationJoint._jointId).toBeDefined();
-      expect(destinationJoint._jointId).not.toBe(sourceJoint._jointId);
-      expect(getPhysicsEngine(destination).box2d.b2Joint_IsValid(destinationJoint._jointId!)).toBe(
-        true
+  it("rejects a Box2D vector in a custom physics component field", () => {
+    const vector = new (getPhysicsEngine(source).box2d.b2Vec2)(1, 2);
+    const joint = source.entity().set(MotorJoint, { linearVelocity: vector });
+
+    try {
+      expect(() => source.snapshotSubtree(joint)).toThrow(
+        /MotorJoint\.linearVelocity holds a b2Vec2, which the physics CustomSnapshot policy cannot copy/
       );
-      expect(destinationFrame).not.toBe(sourceFrame);
-      expect(destinationFrame.localAnchorA).toEqual({ x: 1, y: 2 });
-      expect(destinationFrame.localAnchorA).not.toBe(vector);
-      expectApplicableJointFeatures(joint, movedJoint, Class);
-      if (Class === MotorJoint) {
-        const destinationMotor = movedJoint.get(MotorJoint)!;
-        expect(destinationMotor.linearVelocity).toEqual({ x: 1, y: 2 });
-        expect(destinationMotor.linearVelocity).not.toBe(vector);
-      }
+    } finally {
+      vector.delete();
     }
-  );
+  });
+
+  it("rejects a Box2D vector in a default joint frame field", () => {
+    const vector = new (getPhysicsEngine(source).box2d.b2Vec2)(1, 2);
+    const joint = source.entity().set(JointFrame, { localAnchorA: vector });
+
+    try {
+      expect(() => source.snapshotSubtree(joint)).toThrow(
+        /JointFrame\.localAnchorA holds a b2Vec2, which the default ClonePublic policy cannot copy/
+      );
+    } finally {
+      vector.delete();
+    }
+  });
+
+  it("rejects a class instance nested in polygon vertices", () => {
+    class P {
+      x = 1;
+      y = 2;
+    }
+    const polygon = source.entity().set(Polygon, { vertices: [new P()] });
+
+    expect(() => source.snapshotSubtree(polygon)).toThrow(
+      /Polygon\.vertices\[0\] holds a P, which the physics CustomSnapshot policy cannot copy/
+    );
+  });
 });
 
 describe("moveSubtree across two physics worlds", () => {

@@ -582,8 +582,11 @@ or `HitEvents` — those are reports about the world that ran the solver and hol
 into it, so a destination that wants them opts in again on its own. Everything else crosses as
 declarative state: the lifecycle table above then runs in the destination and allocates fresh Box2D
 handles, while the source world's registrations are reaped. Geometry arrays are captured by copy, so
-the destination does not alias the source component's `points` or `vertices`. Full semantics are in
-[Subtree snapshots](../../vecs/docs/snapshots.md).
+the destination does not alias the source component's `points` or `vertices`. Custom physics
+snapshots deep-copy only primitives, arrays, and plain `Object`/null-prototype records; a Box2D
+`b2Vec2` wrapper or other class instance fails at capture with its component and field path.
+`JointFrame`, `JointSettings`, and joint feature components use the default `ClonePublic` policy.
+Full semantics are in [Subtree snapshots](../../vecs/docs/snapshots.md).
 
 ## Debug Validation
 

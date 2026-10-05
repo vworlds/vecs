@@ -124,10 +124,11 @@ module has moved on.
 
 `@vworlds/vecs-physics` installs policies for its own components, which is why a physics subtree
 moves without any physics-specific code in the caller: `PhysicsEngine` is `DontSnapshot`, while
-`Body`, shapes, joints, and their frame/settings/feature components capture plain declarative
-fields and let the destination lifecycle systems allocate fresh Box2D handles. The physics policy
-also normalizes Box2D vector wrappers into `{ x, y }` records, so a snapshot never retains a
-source-owned WASM value.
+`Body`, shapes, and joint types capture their declarative fields and let the destination lifecycle
+systems allocate fresh Box2D handles. Their custom policies deep-copy only primitives, arrays, and
+plain `Object`/null-prototype records; a Box2D `b2Vec2` wrapper or other class instance fails at
+capture with its component and field path. `JointFrame`, `JointSettings`, and joint feature
+components use the default `ClonePublic` policy.
 
 ## Restore order
 

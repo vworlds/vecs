@@ -17,12 +17,6 @@ import { ContactEvents, HitEvents, SensorEvents } from "../events/components.js"
 import {
   DistanceJoint,
   FilterJoint,
-  JointAngularSpring,
-  JointFrame,
-  JointLimit,
-  JointLinearSpring,
-  JointMotor,
-  JointSettings,
   MotorJoint,
   PrismaticJoint,
   RevoluteJoint,
@@ -43,49 +37,67 @@ type PhysicsComponent = new () => object;
  * `Chain._segmentIndices`, `Joint._jointId` — so the underscore prefix is the
  * package-wide convention this relies on.
  */
-function captureDeclarative(instance: object): Record<string, unknown> {
+function captureDeclarative(instance: object, owner: string): Record<string, unknown> {
   const data: Record<string, unknown> = {};
+  const seen = new Map<object, unknown>();
   for (const key of Object.keys(instance)) {
     if (!key.startsWith("_")) {
-      data[key] = detach((instance as Record<string, unknown>)[key]);
+      data[key] = detach(
+        (instance as Record<string, unknown>)[key],
+        `${owner}.${key}`,
+        owner,
+        seen
+      );
     }
   }
   return data;
 }
 
 /**
- * Copy nested arrays and objects into declarative values so a snapshot never
- * aliases source geometry or retains Box2D's Embind wrapper instances. Physics
- * components only expose data fields, so copying every object's enumerable
- * fields into a record intentionally strips its prototype.
+ * Copy only declarative nested values. Physics components accept primitives,
+ * arrays, and plain records; Box2D wrappers and other class instances must not
+ * cross worlds disguised as data.
  */
-function detach(value: unknown): unknown {
+function detach(value: unknown, path: string, owner: string, seen: Map<object, unknown>): unknown {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  const existing = seen.get(value);
+  if (existing !== undefined) {
+    return existing;
+  }
+
   if (Array.isArray(value)) {
-    return value.map(detach);
+    const copy: unknown[] = [];
+    seen.set(value, copy);
+    for (let i = 0; i < value.length; i++) {
+      copy.push(detach(value[i], `${path}[${i}]`, owner, seen));
+    }
+    return copy;
   }
-  if (typeof value === "object" && value !== null) {
-    const clone: Record<string, unknown> = {};
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype === Object.prototype || prototype === null) {
+    const copy: Record<string, unknown> = Object.create(prototype);
+    seen.set(value, copy);
     for (const [key, entry] of Object.entries(value)) {
-      clone[key] = detach(entry);
+      copy[key] = detach(entry, `${path}.${key}`, owner, seen);
     }
-    // Embind's b2Vec2 exposes coordinates through prototype accessors rather
-    // than own enumerable fields. Read them explicitly before dropping that
-    // prototype along with the rest of the wrapper.
-    if ("x" in value && !("x" in clone)) {
-      clone.x = detach((value as { x: unknown }).x);
-    }
-    if ("y" in value && !("y" in clone)) {
-      clone.y = detach((value as { y: unknown }).y);
-    }
-    return clone;
+    return copy;
   }
-  return value;
+
+  const name = value.constructor?.name ?? Object.prototype.toString.call(value);
+  throw new Error(
+    `snapshotSubtree: ${path} holds a ${name}, which the physics CustomSnapshot policy cannot copy; ` +
+      `use only primitives, arrays, and plain objects in ${owner} declarative fields`
+  );
 }
 
 /** Declare "drop the engine handles, keep the declarative fields" for `Class`. */
 function declareDeclarative(world: World, Class: PhysicsComponent): void {
   world.component(Class).snapshotPolicy(CustomSnapshot, {
-    capture: captureDeclarative,
+    capture: (instance) => captureDeclarative(instance, Class.name),
     materialize: (data) => Object.assign(new Class(), data),
   });
 }
@@ -123,12 +135,6 @@ export class PhysicsSnapshotModule extends Module {
       WeldJoint,
       FilterJoint,
       MotorJoint,
-      JointFrame,
-      JointMotor,
-      JointLimit,
-      JointLinearSpring,
-      JointAngularSpring,
-      JointSettings,
     ].forEach((Class) => declareDeclarative(world, Class));
   }
 }
