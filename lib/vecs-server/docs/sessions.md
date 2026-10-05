@@ -169,20 +169,23 @@ supported as before.
 A rejection arrives on a later turn than the send, so a frame already sent in the same synchronous
 turn is not recalled; the session is torn down as soon as the rejection is observed.
 
-To close every connection at shutdown, query `NetworkClient` entities:
+## Shutting down
+
+`world.shutdown(options?)` closes every connection and stops the world's networking. It refuses
+new connections, closes each session with `closeSession` (reason `"server shutting down"` unless
+`options.reason` is set; clients receive it as the close reason), then drives `send()` itself every few milliseconds until every session
+has been acked or has lingered out. Unlike `closeSession`, it does not wait for your tick loop.
+Sessions still present after `timeoutMs` (default `closeLingerMs + 1000`) are destroyed without
+further delivery. Last, it awaits the optional `close()` of each attached socket listener.
 
 ```ts
-world
-  .query("shutdown:clients")
-  .with(NetworkClient)
-  .track()
-  .build()
-  .forEach((entity) => {
-    world.closeSession(entity, "server shutting down");
-  });
+await world.shutdown({ timeoutMs: 2000 });
 ```
 
-Build the query before you iterate it — an untracked, unbuilt query matches nothing.
+`VecsListener.close(options?)` does the same for every registered world. Both return a promise,
+and both are idempotent: later calls return the same promise and ignore their options. The dgram
+`SocketListener` mounts routes on your HTTP app and has no `close()`, so stopping the HTTP server
+remains yours; after shutdown, new sockets handed to the world are closed on arrival.
 
 ## Cleanup runs once
 
@@ -208,6 +211,7 @@ systems.
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `world.handleRpc(rpcId, handler)`                | Register a handler for every session, now and later.                                                                                               |
 | `world.closeSession(connection, reason?, code?)` | Gracefully close one session by connection id or `NetworkClient` entity, telling the client the reason and code. Returns whether it was scheduled. |
+| `world.shutdown(options?)`                       | Gracefully close every session, flush until gone or `timeoutMs`, close listeners. Idempotent.                                                      |
 | `world.send()`                                   | Advance one replication frame; called by `progress()`.                                                                                             |
 | `ServerRPCContext`                               | `{ world, caller, connectionId }` passed as a handler's third argument.                                                                            |
 | `NetworkClient.id`                               | The connection id.                                                                                                                                 |

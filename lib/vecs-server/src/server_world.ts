@@ -103,6 +103,21 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
  */
 export const DEFAULT_CLOSE_LINGER_MS = 250;
 
+/** How often {@link ServerWorld.shutdown} drives `send()` while sessions drain. */
+const SHUTDOWN_POLL_MS = 10;
+
+/** Options for {@link ServerWorld.shutdown}. */
+export interface ShutdownOptions {
+  /**
+   * Upper bound, in wall-clock milliseconds, on how long shutdown keeps flushing closing sessions.
+   * Sessions still present at the deadline are destroyed without further delivery. Defaults to
+   * `closeLingerMs + 1000`.
+   */
+  timeoutMs?: number;
+  /** Recorded on every `NetworkClient.closeReason`. Defaults to `"server shutting down"`. */
+  reason?: string;
+}
+
 class ServerClientSession {
   public readonly baseFrame: number;
   public readonly history: History;
@@ -173,6 +188,8 @@ export class ServerWorld extends NetworkWorld {
   private readonly _encodeBuffer: Uint8Array;
   private readonly _disconnectGraceMs: number;
   private readonly _closeLingerMs: number;
+  private readonly _listeners: VecsSocketListener[] = [];
+  private _shutdown: Promise<void> | undefined;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
   private _frame = 1;
 
@@ -242,7 +259,47 @@ export class ServerWorld extends NetworkWorld {
 
   /** @internal */
   public _attach(listener: VecsSocketListener): void {
+    this._listeners.push(listener);
     listener.on("new", (socket) => this._onNewConnection(socket));
+  }
+
+  /**
+   * Shut the world's networking down cleanly and resolve once every connection is gone.
+   *
+   * New connections are refused from the first call. Every session is closed gracefully with
+   * {@link ServerWorld.closeSession}, so each client still receives the replies it is owed
+   * before its socket closes. Unlike `closeSession`, which relies on the application's next
+   * `send()`, shutdown drives {@link ServerWorld.send} itself every few milliseconds until all
+   * sessions have been acked or lingered out, or `timeoutMs` passes; sessions left at the deadline
+   * are destroyed. Finally the attached listeners' optional `close()` is awaited.
+   *
+   * Idempotent: later calls return the same promise and ignore their options. Stop the tick loop
+   * that drives `progress()` before or while awaiting if you do not want it to share the
+   * flushing; running both is harmless.
+   *
+   * ```ts
+   * await world.shutdown({ timeoutMs: 2000 });
+   * ```
+   */
+  public shutdown(options: ShutdownOptions = {}): Promise<void> {
+    this._shutdown ??= this._runShutdown(options);
+    return this._shutdown;
+  }
+
+  private async _runShutdown(options: ShutdownOptions): Promise<void> {
+    const timeoutMs = options.timeoutMs ?? this._closeLingerMs + 1000;
+    const reason = options.reason ?? "server shutting down";
+    const deadline = performance.now() + timeoutMs;
+    [...this._sessions.keys()].forEach((id) => this.closeSession(id, reason));
+    while (this._sessions.size > 0 && performance.now() < deadline) {
+      this.send();
+      if (this._sessions.size === 0) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_POLL_MS));
+    }
+    [...this._sessions.values()].forEach((session) => session.entity.destroy());
+    await Promise.allSettled(this._listeners.map((listener) => listener.close?.()));
   }
 
   /**
@@ -472,6 +529,10 @@ export class ServerWorld extends NetworkWorld {
   }
 
   private _onNewConnection(socket: VecsSocket): void {
+    if (this._shutdown) {
+      socket.close();
+      return;
+    }
     const entity = this.entity().add(Networked).add(NetworkClient).add(View);
     const session = new ServerClientSession(this._frame - 1);
     session.socket = socket;

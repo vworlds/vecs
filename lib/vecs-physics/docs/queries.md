@@ -16,8 +16,20 @@ const q = physics(world);
 
 - `physics(world)` throws if `world.module(PhysicsModule)` has not been called yet. Call it only after installing `PhysicsModule`.
 - The returned `PhysicsQueries` facade is stable: repeated calls for the same `world` return the same instance, so calling `physics(world)` every frame does not allocate.
-- All six methods are synchronous, read-only, and never wake bodies, never create or destroy entities, and never mutate the world. You can call them freely from any system without affecting the simulation.
+- All query methods are synchronous, read-only, and never wake bodies, never create or destroy entities, and never mutate the world. You can call them freely from any system without affecting the simulation.
 - Results are always Vecs **shape entities** (or plain data describing a hit on one), never Box2D handles. To get the owning body, use `entity.parent` (the shape's `ChildOf` parent).
+
+## Stats
+
+`physics(world).stats()` returns the live Box2D body, shape, joint and contact counts as plain data.
+
+```ts
+const { bodyCount, shapeCount } = physics(world).stats();
+```
+
+The counts track Box2D rather than entities: destroying a body entity removes it from the counts
+when the reaper runs in the next step. Chain segments count as one shape each. Use it to assert
+that handles return to baseline after teardown.
 
 ## Ray Casts
 

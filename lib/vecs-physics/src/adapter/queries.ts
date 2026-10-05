@@ -42,6 +42,18 @@ export interface QueryFilter {
   maskBits?: number;
 }
 
+/** Live Box2D object counts for one physics world, read by {@link PhysicsQueries.stats}. */
+export interface PhysicsStats {
+  /** Bodies currently alive in Box2D. */
+  bodyCount: number;
+  /** Shapes currently alive in Box2D; every segment of a chain counts as one shape. */
+  shapeCount: number;
+  /** Joints currently alive in Box2D. */
+  jointCount: number;
+  /** Contacts currently alive in Box2D, touching or not. */
+  contactCount: number;
+}
+
 /** A single ray-cast hit, resolved to a Vecs shape entity with plain-data
  * geometry — never a Box2D handle. */
 export interface RayHit {
@@ -85,6 +97,14 @@ export interface ShapeCastHit {
  * wakes bodies.
  */
 export interface PhysicsQueries {
+  /**
+   * Returns the live Box2D body, shape, joint and contact counts. Cheap and read-only: it never
+   * allocates Box2D handles that outlive the call. Counts track Box2D, not entities, so a
+   * destroyed entity's body leaves them when the `PhysicsReaper` runs during the next step,
+   * which makes them suitable for asserting that handles return to baseline after teardown.
+   */
+  stats(): PhysicsStats;
+
   /** Casts a ray from `from` to `to` and returns the closest hit, or `undefined`
    * if the ray hits nothing (or only hits shapes whose entity has since been
    * destroyed / removed). */
@@ -144,6 +164,21 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     private readonly world: World,
     private readonly engine: PhysicsEngine
   ) {}
+
+  public stats(): PhysicsStats {
+    const { box2d, worldId } = this.engine;
+    const counters = box2d.b2World_GetCounters(worldId);
+    try {
+      return {
+        bodyCount: counters.bodyCount,
+        shapeCount: counters.shapeCount,
+        jointCount: counters.jointCount,
+        contactCount: counters.contactCount,
+      };
+    } finally {
+      counters.delete();
+    }
+  }
 
   public rayCastClosest(query: { from: Vec2; to: Vec2; filter?: QueryFilter }): RayHit | undefined {
     const { box2d, worldId } = this.engine;
