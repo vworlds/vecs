@@ -1,6 +1,12 @@
-import { Module } from "@vworlds/vecs";
+import { Module, type Entity } from "@vworlds/vecs";
 
-import { getPhysicsEngine, PhysicsSystemTag } from "../adapter/engine.js";
+import {
+  getPhysicsEngine,
+  PhysicsSystemTag,
+  type b2BodyId,
+  type PhysicsEngine,
+} from "../adapter/engine.js";
+import { type Box2DModule } from "../adapter/runtime.js";
 import {
   AngularVelocity,
   Body,
@@ -10,6 +16,14 @@ import {
   Rotation,
 } from "./components.js";
 import { PhysicsCoreModule } from "../core/module.js";
+
+type b2Transform = ReturnType<Box2DModule["b2World_GetBodyEvents"]>["GetMoveEvent"] extends (
+  ...args: never[]
+) => infer Move
+  ? Move extends { transform: infer T }
+    ? T
+    : never
+  : never;
 
 export class BodyPoseOutModule extends Module {
   public init(): void {
@@ -26,7 +40,8 @@ export class BodyPoseOutModule extends Module {
           for (let i = 0; i < bodyEvents.moveCount; i++) {
             const move = bodyEvents.GetMoveEvent(i);
             try {
-              const entityId = engine.entityByBodyIndex.get(move.bodyId.index1);
+              const bodyId = move.bodyId;
+              const entityId = engine.entityByBodyIndex.get(bodyId.index1);
               if (entityId === undefined) {
                 continue;
               }
@@ -37,23 +52,7 @@ export class BodyPoseOutModule extends Module {
                 continue;
               }
 
-              entity.set(Position, { x: move.transform.p.x, y: move.transform.p.y });
-              if (entity.get(Rotation) !== undefined) {
-                entity.set(Rotation, { angle: move.transform.q.GetAngle() });
-              }
-              if (entity.get(LinearVelocity) !== undefined) {
-                const linear = engine.box2d.b2Body_GetLinearVelocity(move.bodyId);
-                try {
-                  entity.set(LinearVelocity, { x: linear.x, y: linear.y });
-                } finally {
-                  linear.delete();
-                }
-              }
-              if (entity.get(AngularVelocity) !== undefined) {
-                entity.set(AngularVelocity, {
-                  value: engine.box2d.b2Body_GetAngularVelocity(move.bodyId),
-                });
-              }
+              writePose(engine, entity, move.transform, bodyId);
             } finally {
               move.delete();
             }
@@ -63,5 +62,36 @@ export class BodyPoseOutModule extends Module {
         }
       })
       .add(PhysicsSystemTag);
+  }
+}
+
+// `move.transform`, `.p` and `.q` are Embind views into the move event's own memory (same address
+// on every read, `transform.p` even shares the transform's), not copies. Read each once and leave
+// them alone: calling `delete()` on a view runs the C++ destructor on an interior pointer of the
+// event, which corrupts the wasm heap. The event's single `move.delete()` releases the memory.
+function writePose(
+  engine: PhysicsEngine,
+  entity: Entity,
+  transform: b2Transform,
+  bodyId: b2BodyId
+): void {
+  const p = transform.p;
+  entity.set(Position, { x: p.x, y: p.y });
+
+  if (entity.get(Rotation) !== undefined) {
+    entity.set(Rotation, { angle: transform.q.GetAngle() });
+  }
+
+  if (entity.get(LinearVelocity) !== undefined) {
+    // By-value return: a heap copy that this code owns.
+    const linear = engine.box2d.b2Body_GetLinearVelocity(bodyId);
+    try {
+      entity.set(LinearVelocity, { x: linear.x, y: linear.y });
+    } finally {
+      linear.delete();
+    }
+  }
+  if (entity.get(AngularVelocity) !== undefined) {
+    entity.set(AngularVelocity, { value: engine.box2d.b2Body_GetAngularVelocity(bodyId) });
   }
 }
