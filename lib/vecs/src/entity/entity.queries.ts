@@ -9,7 +9,7 @@ export class Queries extends Base {
    * `Query._enter`.
    */
   public _addQueryMembership(q: Query): void {
-    if (q._tracksMembership()) {
+    if (q._watchesUpdates()) {
       this._queries.add(q);
     }
   }
