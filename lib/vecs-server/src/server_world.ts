@@ -94,6 +94,8 @@ class ServerClientSession {
    */
   public closing = false;
   public closed = false;
+  /** Set on the first failed `socket.send`; no further frames are sent. */
+  public sendFailed = false;
   public socket!: VecsSocket;
   public entity!: Entity;
 
@@ -393,7 +395,7 @@ export class ServerWorld extends NetworkWorld {
       if (diff.snapshots.length === 0 && diff.removed.length === 0 && rpc.length === 0) {
         return;
       }
-      session.socket.send(this._encode(new Server2Client({ diff, rpc })));
+      this._sendFrame(session, new Server2Client({ diff, rpc }));
     });
 
     staleSessions.forEach((session) => {
@@ -420,6 +422,36 @@ export class ServerWorld extends NetworkWorld {
 
     socket.on("receive", (data) => this._receive(session, data));
     socket.on("disconnect", () => this._onDisconnect(socket.id));
+  }
+
+  /**
+   * The only place the server calls `socket.send`. A transport can fail a send
+   * because the peer is already gone, either by throwing or, for an async
+   * transport, by returning a promise that rejects. Neither may escape: an
+   * unhandled rejection is fatal to the whole process. A failed send is treated
+   * as that session's transport `disconnect`, so it takes the same teardown path
+   * and runs it once however many sends fail. Works with a `send` that returns
+   * nothing as well as one that returns a promise.
+   */
+  private _sendFrame(session: ServerClientSession, message: Server2Client): void {
+    if (session.closed || session.sendFailed) {
+      return;
+    }
+    const fail = (): void => {
+      if (session.sendFailed) {
+        return;
+      }
+      session.sendFailed = true;
+      this._onDisconnect(session.context.connectionId);
+    };
+    try {
+      const result: unknown = session.socket.send(this._encode(message));
+      if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
+        (result as PromiseLike<unknown>).then(undefined, fail);
+      }
+    } catch {
+      fail();
+    }
   }
 
   private _onDisconnect(socketId: string): void {
@@ -492,7 +524,7 @@ export class ServerWorld extends NetworkWorld {
   private _finishClose(session: ServerClientSession): void {
     const rpc = session.rpc.getOutgoing();
     if (rpc.length > 0) {
-      session.socket.send(this._encode(new Server2Client({ rpc })));
+      this._sendFrame(session, new Server2Client({ rpc }));
     }
     // Destroying the entity lands in the `ServerClientSession` remove hook, which
     // is what removes the session and closes the socket.
