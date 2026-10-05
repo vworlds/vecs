@@ -52,6 +52,11 @@ export interface ClientWorldEvents {
 }
 
 export interface ClientWorldOptions extends NetworkWorldOptions {
+  /**
+   * Transport to attach at construction, equivalent to calling
+   * {@link ClientWorld.attachSocket}. It must already be connected: an ack sent
+   * before the transport is ready is a failed send, which disconnects the world.
+   */
   socket?: VecsSocket;
   encodeBufferSize?: number;
   interpolatorBucketLength?: number;
@@ -141,7 +146,11 @@ export class ClientWorld extends NetworkWorld {
    *
    * @param options - Connection settings; `host`, `port`, and `worldName` select
    *   the world, and the remaining fields are passed to the constructor.
-   * @returns A world with its socket already attached and connected.
+   * @returns A world with its socket already attached and connected. The socket
+   *   is attached only after `connect()` resolves, so no ack is sent before the
+   *   data channel exists.
+   * @throws Whatever `connect()` rejects with, after disposing the unattached
+   *   world and closing the socket.
    */
   public static async connectDgram(options: DgramConnectOptions): Promise<ClientWorld> {
     const { ClientSocket } = (await import("@vworlds/dgram-client")) as unknown as {
@@ -155,13 +164,28 @@ export class ClientWorld extends NetworkWorld {
       `${options.protocol ?? "http"}://${options.host}:${options.port}${basePath}`,
       options.rtcConfig ?? {}
     );
-    const client = new ClientWorld({ ...options, socket });
-    await socket.connect();
+    const client = new ClientWorld(options);
+    try {
+      await socket.connect();
+    } catch (error) {
+      // Nothing was attached, so only the transport and the world need releasing.
+      client.dispose();
+      socket.close();
+      throw error;
+    }
+    client.attachSocket(socket);
     return client;
   }
 
   /**
    * Bind this world to a transport socket and start the ack timer.
+   *
+   * The socket must already be **connected**: the ack timer sends immediately
+   * on its first tick, and a send the transport rejects (for example dgram's
+   * `DATA_CHANNEL_NOT_CREATED` before the channel opens) is treated as a
+   * disconnect. Await the transport's `connect()` first, as
+   * {@link ClientWorld.connectDgram} does. The same applies to
+   * {@link ClientWorldOptions.socket}.
    *
    * `VecsSocket` has no `off`, so the `receive` and `disconnect` handlers stay
    * attached for the socket's lifetime; {@link ClientWorld.dispose} makes them

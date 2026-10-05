@@ -35,6 +35,16 @@ world.progress(performance.now(), 16);
 To drive a world yourself instead — in a test, or behind your own loop — hand it a `VecsSocket`
 directly with `attachSocket` and call `apply(now)` when you want buffered frames applied.
 
+Only attach a socket that is already **connected**. `attachSocket` (and the `socket` option) starts
+the ack timer, and an ack the transport rejects because it is not ready, such as dgram's
+`DATA_CHANNEL_NOT_CREATED` before the data channel opens, counts as a failed send and tears the
+world down as a disconnect. `connectDgram` therefore builds the world without a socket, awaits
+`connect()`, and only then attaches; if `connect()` rejects, it disposes the world, closes the
+socket, and rethrows. The client cannot instead wait for the first server frame before acking: the
+server sends nothing while a session has an empty diff and no RPC replies, and it closes sessions
+that stay silent past `disconnectGraceMs`, so a client that withheld its first ack could be
+dropped, or could never deliver an early `invoke`.
+
 ## Calling the server
 
 `invoke` sends a call and resolves with the reply's params. It rejects with an
@@ -120,17 +130,17 @@ one.
 
 ## Reference
 
-| Member                              | Description                                                                          |
-| ----------------------------------- | ------------------------------------------------------------------------------------ |
-| `ClientWorld.connectDgram(options)` | Connect over the dgram transport and return a world with its socket attached.        |
-| `world.attachSocket(socket)`        | Bind a socket and start the ack timer. Throws after disposal.                        |
-| `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                 |
-| `world.invoke(rpcId, params?)`      | Call the server; resolves with reply params.                                         |
-| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client.                        |
-| `world.apply(now)`                  | Run queued RPC handlers, then apply buffered frames.                                 |
-| `world.send()`                      | Send input, outstanding replies, and the current ack frame.                          |
-| `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable. |
-| `world.dispose()`                   | One-way teardown: reject pending calls, clear state, destroy network entities.       |
+| Member                              | Description                                                                             |
+| ----------------------------------- | --------------------------------------------------------------------------------------- |
+| `ClientWorld.connectDgram(options)` | Connect over the dgram transport, then attach; returns a world with a connected socket. |
+| `world.attachSocket(socket)`        | Bind a connected socket and start the ack timer. Throws after disposal.                 |
+| `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                    |
+| `world.invoke(rpcId, params?)`      | Call the server; resolves with reply params.                                            |
+| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client.                           |
+| `world.apply(now)`                  | Run queued RPC handlers, then apply buffered frames.                                    |
+| `world.send()`                      | Send input, outstanding replies, and the current ack frame.                             |
+| `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable.    |
+| `world.dispose()`                   | One-way teardown: reject pending calls, clear state, destroy network entities.          |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-client/src/client_world.ts` and
 `lib/vecs-client/src/diff_buffer.ts`.
