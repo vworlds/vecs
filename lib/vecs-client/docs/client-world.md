@@ -72,6 +72,14 @@ every pending `invoke` with an `RPCError` carrying `RPC_CLOSED_CODE`. A synchron
 promise from `VecsSocket.send` follows the same path, so a transport that misses or delays its
 `disconnect` event cannot leave an ack rejection or RPC hanging.
 
+The same rejection applies to calls made _after_ the disconnect: until you attach a replacement
+socket, `invoke` returns a promise rejected with `RPC_CLOSED_CODE` and queues nothing. A queued call
+would either hang forever or be sent on the next connection, which may be a different server world
+(a sector switch), so a stale action could run in the wrong place. Calls made before the first
+`attachSocket` are different — nothing has been lost yet — so they stay queued and are sent on
+connect. After `attachSocket(newSocket)`, `invoke` works normally, and late events from the old
+socket (`disconnect` or a rejected send) are ignored instead of tearing down the new connection.
+
 `close` follows that disconnection path and closes the socket, but leaves replicated entities and
 the diff buffer intact: attach a fresh socket and its next baseline resynchronizes the world. `dispose`
 is the one-way teardown, for when a `ClientWorld` is finished for good — a hot reload, a route change,
