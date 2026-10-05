@@ -126,7 +126,21 @@ tick later.
 
 Disconnects that nobody needs to explain are still immediate: the peer going away, the application
 destroying the `NetworkClient` entity, and `disconnectGraceMs` expiry all tear down on the spot,
-since there is no client left to answer.
+since there is no client left to answer. So does a failed send (below).
+
+### Failed sends
+
+The server never lets a failed `socket.send` escape. Every frame goes through one guarded helper
+(`ServerWorld._sendFrame` in `lib/vecs-server/src/server_world.ts`): the per-tick frame, the RPC
+reply flush and the flush `closeSession` owes. If `send` throws synchronously, or returns a promise
+that rejects (for example `CONNECTION_CLOSED` when the client left mid-frame), the server treats it
+as that session's transport `disconnect`: the same teardown runs, exactly once however many sends
+fail, and the session gets no further frames. Other sessions keep receiving frames and the world
+keeps ticking, and no unhandled rejection reaches the process. A `send` that returns nothing is
+supported as before.
+
+A rejection arrives on a later turn than the send, so a frame already sent in the same synchronous
+turn is not recalled; the session is torn down as soon as the rejection is observed.
 
 To close every connection at shutdown, query `NetworkClient` entities:
 

@@ -1585,3 +1585,190 @@ describe("ServerWorld.closeSession", () => {
     }
   });
 });
+
+describe("ServerWorld send failures", () => {
+  type FailureMode = "throw" | "reject";
+
+  /** A socket whose `send` fails on demand, as a transport does mid-disconnect. */
+  class FailingSocket extends MemorySocket {
+    public attempts = 0;
+    public failing = false;
+
+    public constructor(
+      id: string,
+      private readonly _mode: FailureMode
+    ) {
+      super(id);
+    }
+
+    public override send(data: Uint8Array): void {
+      this.attempts++;
+      if (!this.failing) {
+        super.send(data);
+        return;
+      }
+      if (this._mode === "throw") {
+        throw new Error("CONNECTION_CLOSED");
+      }
+      return Promise.reject(new Error("CONNECTION_CLOSED")) as unknown as void;
+    }
+  }
+
+  async function flushMicrotasks(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  async function withUnhandledRejections(run: () => Promise<void>): Promise<unknown[]> {
+    const seen: unknown[] = [];
+    const listener = (reason: unknown) => seen.push(reason);
+    process.on("unhandledRejection", listener);
+    try {
+      await run();
+      await flushMicrotasks();
+    } finally {
+      process.off("unhandledRejection", listener);
+    }
+    return seen;
+  }
+
+  function setup(mode: FailureMode) {
+    const world = createWorld();
+    allowAllClientViews(world);
+    const listener = new MockListener();
+    world._attach(listener);
+    const bad = new FailingSocket("bad", mode);
+    listener.connect(bad);
+    const good = connectSession(world, listener, "good");
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
+    tick(world);
+    return { world, bad, good: good.socket, entity, badEid: getSession(world, "bad").entity.eid };
+  }
+
+  for (const mode of ["throw", "reject"] as const) {
+    describe(`when socket.send ${mode === "throw" ? "throws" : "returns a rejected promise"}`, () => {
+      it("disconnects only that session, once, with no unhandled rejection", async () => {
+        const { world, bad, good, entity, badEid } = setup(mode);
+        const goodBefore = good.sent.length;
+        bad.failing = true;
+
+        const unhandled = await withUnhandledRejections(async () => {
+          entity.set(Position, { x: 2, y: 2 });
+          tick(world);
+          await flushMicrotasks();
+          entity.set(Position, { x: 3, y: 3 });
+          tick(world);
+          tick(world);
+        });
+
+        expect(unhandled).toEqual([]);
+        expect(bad.attempts).toBe(2);
+        expect(bad.closeCalls).toBe(1);
+        expect(world.getEntity(badEid)).toBeUndefined();
+        expect(good.closed).toBe(false);
+        expect(good.sent.length).toBeGreaterThan(goodBefore);
+        expect(decodeFirstSnapshotPayload(good.sent[good.sent.length - 1])).toMatchObject({
+          x: 3,
+          y: 3,
+        });
+      });
+
+      it("keeps the world ticking and healthy sessions replicating", async () => {
+        const { world, bad, good, entity } = setup(mode);
+        bad.failing = true;
+        entity.set(Position, { x: 2, y: 2 });
+        tick(world);
+        await flushMicrotasks();
+        entity.set(Position, { x: 9, y: 9 });
+        tick(world);
+
+        expect(decodeFirstSnapshotPayload(good.sent[good.sent.length - 1])).toMatchObject({
+          x: 9,
+          y: 9,
+        });
+      });
+
+      it("does not retry sends when several frames fail in a row", async () => {
+        const { world, bad, entity } = setup(mode);
+        bad.failing = true;
+        const before = bad.attempts;
+        const unhandled = await withUnhandledRejections(async () => {
+          for (let i = 0; i < 4; i++) {
+            entity.set(Position, { x: 10 + i, y: 0 });
+            tick(world);
+            // A rejection lands on a later turn, as it does between real ticks.
+            await flushMicrotasks();
+          }
+        });
+        expect(unhandled).toEqual([]);
+        expect(bad.attempts - before).toBe(1);
+        expect(bad.closeCalls).toBe(1);
+      });
+
+      it("treats a failed RPC reply flush as a disconnect", async () => {
+        const { world, bad, good } = setup(mode);
+        world.handleRpc(7, () => "pong");
+        const before = bad.attempts;
+        bad.failing = true;
+
+        const unhandled = await withUnhandledRejections(async () => {
+          bad.receive(
+            encodeClient2Server(
+              new Client2Server({
+                ackFrame: 0,
+                rpc: [new RPC({ rpcId: 7, callId: 0, params: [] })],
+              })
+            )
+          );
+          await Promise.resolve();
+          await Promise.resolve();
+          tick(world);
+          await flushMicrotasks();
+          tick(world);
+        });
+
+        expect(unhandled).toEqual([]);
+        expect(bad.attempts - before).toBe(1);
+        expect(bad.closeCalls).toBe(1);
+        expect(good.closed).toBe(false);
+      });
+
+      it("treats a failed closeSession flush as a disconnect", async () => {
+        const { world, bad, good } = setup(mode);
+        world.handleRpc(7, () => {
+          world.closeSession("bad");
+          return "bye";
+        });
+        const before = bad.attempts;
+        bad.failing = true;
+
+        const unhandled = await withUnhandledRejections(async () => {
+          bad.receive(
+            encodeClient2Server(
+              new Client2Server({
+                ackFrame: 0,
+                rpc: [new RPC({ rpcId: 7, callId: 0, params: [] })],
+              })
+            )
+          );
+          await Promise.resolve();
+          await Promise.resolve();
+          tick(world);
+          await flushMicrotasks();
+          tick(world);
+        });
+
+        expect(unhandled).toEqual([]);
+        expect(bad.attempts - before).toBe(1);
+        expect(bad.closeCalls).toBe(1);
+        expect(good.closed).toBe(false);
+      });
+    });
+  }
+
+  it("works with a transport whose send returns undefined", () => {
+    const { world, good } = setup("throw");
+    tick(world);
+    expect(good.closed).toBe(false);
+    expect(world.getEntity(getSession(world, "good").entity.eid)).toBeDefined();
+  });
+});
