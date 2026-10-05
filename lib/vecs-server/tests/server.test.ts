@@ -188,6 +188,12 @@ async function deliver(
   return socket.sent.slice(before).flatMap((bytes) => new Decoder(bytes).read(Server2Client).rpc);
 }
 
+/** Ack the close frame a closing session just sent, so its linger ends on the next tick. */
+function ackCloseFrame(socket: MemorySocket): void {
+  const frame = decodeLastMessage(socket);
+  socket.receive(encodeClient2Server(new Client2Server({ ackFrame: frame.diff!.toFrame })));
+}
+
 /** Call `rpcId` from a connected socket and return the single reply. */
 async function callRpc(
   socket: MemorySocket,
@@ -1403,6 +1409,8 @@ describe("ServerWorld.closeSession", () => {
     expect(server.closeSession("never-connected")).toBe(false);
     expect(server.closeSession(session.entity, "first")).toBe(true);
     tick(world);
+    ackCloseFrame(socket);
+    tick(world);
     const closesAfterFirst = socket.closeCalls;
 
     expect(server.closeSession(session.entity, "second")).toBe(false);
@@ -1427,20 +1435,24 @@ describe("ServerWorld.closeSession", () => {
         observed.push({ id: client.id, reason: client.closeReason });
       });
 
-    connectSession(server, listener, "client-1");
+    const { socket: first } = connectSession(server, listener, "client-1");
     connectSession(server, listener, "client-2");
     tick(world);
 
     server.closeSession("client-1", "superseded by a newer connection");
     server.closeSession("client-2");
-    // The close is scheduled; the tick that runs `send` tears the sessions down,
-    // and the next tick drains the exit callbacks.
+    // The close is scheduled; the tick that runs `send` flushes client-1's close
+    // frame, and the client's ack lets the next tick tear it down. The tick after
+    // that drains the exit callbacks.
+    tick(world);
+    ackCloseFrame(first);
     tick(world);
     tick(world);
 
+    // client-2 had nothing to deliver and closed first.
     expect(observed).toEqual([
-      { id: "client-1", reason: "superseded by a newer connection" },
       { id: "client-2", reason: undefined },
+      { id: "client-1", reason: "superseded by a newer connection" },
     ]);
   });
 
@@ -1492,6 +1504,9 @@ describe("ServerWorld.closeSession", () => {
       .forEach((entity) => {
         server.closeSession(entity, "server shutting down");
       });
+    tick(world);
+    ackCloseFrame(first.socket);
+    ackCloseFrame(second.socket);
     tick(world);
 
     expect(first.socket.closeCalls).toBe(1);
@@ -1559,7 +1574,7 @@ describe("ServerWorld.closeSession", () => {
     const { session, socket } = connectSession(server, listener, "client-1");
     tick(world);
 
-    server.closeSession("client-1", "superseded");
+    server.closeSession("client-1");
     const before = socket.sent.length;
 
     // A frame the transport had already queued must not be honored.
@@ -1568,7 +1583,7 @@ describe("ServerWorld.closeSession", () => {
     tick(world);
 
     expect(session.entity.get(NetworkInput)).toBeUndefined();
-    // Nothing owed, so the close emits no frame at all.
+    // Nothing owed and no notice to deliver, so the close emits no frame at all.
     expect(socket.sent.length).toBe(before);
     expect(socket.closeCalls).toBe(1);
   });
@@ -1723,6 +1738,69 @@ describe("ServerWorld close linger", () => {
     socket.close();
   });
 
+  it("sends the close code and reason on a numbered frame when no reply is owed", () => {
+    const server = createLingerWorld(10_000);
+    const listener = new MockListener();
+    server._attach(listener);
+    const socket = new DropOnCloseSocket("client-1");
+    listener.connect(socket);
+    tick(server);
+    const before = socket.sent.length;
+
+    expect(server.closeSession("client-1", "superseded by client-2", 4003)).toBe(true);
+    tick(server);
+
+    const frame = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+    expect(socket.sent.length).toBe(before + 1);
+    expect(frame.close).toEqual({ code: 4003, reason: "superseded by client-2" });
+    expect(frame.diff).toBeDefined();
+    // The close lingers until the frame is acked, like any close with a reply.
+    expect(socket.closed).toBe(false);
+    tick(server);
+    expect(new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client).close).toEqual({
+      code: 4003,
+      reason: "superseded by client-2",
+    });
+
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: frame.diff!.toFrame })));
+    tick(server);
+    expect(socket.closed).toBe(true);
+  });
+
+  it("sends the close notice together with the owed RPC reply", async () => {
+    const server = createLingerWorld(10_000);
+    const listener = new MockListener();
+    server._attach(listener);
+    server.handleRpc(101, (_params, _request, ctx) => {
+      server.closeSession(ctx.caller, "wrong world", 4001);
+      throw new RPCError(4001, "rejected");
+    });
+    const socket = new DropOnCloseSocket("client-1");
+    listener.connect(socket);
+
+    await deliver(socket, server, { rpc: [new RPC({ rpcId: 101, callId: 0, params: [] })] });
+
+    const frame = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+    expect(frame.rpc[0].error).toBe(4001);
+    expect(frame.close).toEqual({ code: 4001, reason: "wrong world" });
+  });
+
+  it("emits no close frame for a close with neither reason nor code", () => {
+    const server = createLingerWorld(10_000);
+    const listener = new MockListener();
+    server._attach(listener);
+    const socket = new DropOnCloseSocket("client-1");
+    listener.connect(socket);
+    tick(server);
+    const before = socket.sent.length;
+
+    server.closeSession("client-1");
+    tick(server);
+
+    expect(socket.sent.length).toBe(before);
+    expect(socket.closed).toBe(true);
+  });
+
   it("ends the linger as soon as the client acknowledges the flushed frame", async () => {
     const world = createLingerWorld(10_000);
     const server = world;
@@ -1868,10 +1946,10 @@ describe("ServerWorld close linger", () => {
     listener.connect(socket);
     const sent = socket.sent.length;
 
-    server.closeSession("client-1", "superseded");
+    server.closeSession("client-1");
     tick(world);
 
-    // Nothing owed, so the close emits no frame and does not wait for an ack.
+    // Nothing owed and no notice, so the close emits no frame and does not wait for an ack.
     expect(socket.sent.length).toBe(sent);
     expect(socket.closeCalls).toBe(1);
     expect(socket.closed).toBe(true);

@@ -6,6 +6,10 @@ import { RPC } from "./rpc.js";
 const FIELD_DIFF = 1;
 const FIELD_RPC = 2;
 const FIELD_INPUT = 3;
+const FIELD_CLOSE = 4;
+
+const CLOSE_HAS_CODE = 1;
+const CLOSE_HAS_REASON = 2;
 
 export class ComponentSnapshot implements IEncodable {
   public eid: EID = 0;
@@ -78,9 +82,21 @@ export class StateDiff implements IEncodable {
   }
 }
 
+/**
+ * Why the server closed a session on purpose, carried on the final frame of a
+ * graceful close. Both fields are optional; codes `0`–`100` are reserved for
+ * the protocol and applications use their own codes above that range.
+ */
+export interface CloseNotice {
+  code?: number;
+  reason?: string;
+}
+
 export class Server2Client implements IEncodable {
   public diff: StateDiff | undefined;
   public rpc: RPC[] = [];
+  /** Present only on the graceful-close frame of a deliberate server close. */
+  public close: CloseNotice | undefined;
 
   public constructor(values?: Partial<Server2Client>) {
     if (values) {
@@ -98,6 +114,19 @@ export class Server2Client implements IEncodable {
       encoder.write_u32(this.rpc.length);
       this.rpc.forEach((rpc) => encoder.write(rpc));
     }
+    if (this.close) {
+      const { code, reason } = this.close;
+      encoder.write_u8(FIELD_CLOSE);
+      encoder.write_u8(
+        (code !== undefined ? CLOSE_HAS_CODE : 0) | (reason !== undefined ? CLOSE_HAS_REASON : 0)
+      );
+      if (code !== undefined) {
+        encoder.write_u32(code);
+      }
+      if (reason !== undefined) {
+        encoder.write_string(reason);
+      }
+    }
   }
 
   public static wireDecode(decoder: Decoder): Server2Client {
@@ -113,6 +142,18 @@ export class Server2Client implements IEncodable {
           for (let i = 0; i < count; i++) {
             message.rpc.push(decoder.read(RPC));
           }
+          break;
+        }
+        case FIELD_CLOSE: {
+          const flags = decoder.read_u8();
+          const close: CloseNotice = {};
+          if (flags & CLOSE_HAS_CODE) {
+            close.code = decoder.read_u32();
+          }
+          if (flags & CLOSE_HAS_REASON) {
+            close.reason = decoder.read_string();
+          }
+          message.close = close;
           break;
         }
         default:
