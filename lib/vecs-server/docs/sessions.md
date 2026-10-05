@@ -173,7 +173,7 @@ turn is not recalled; the session is torn down as soon as the rejection is obser
 
 `world.shutdown(options?)` closes every connection and stops the world's networking. It refuses
 new connections, closes each session with `closeSession` (reason `"server shutting down"` unless
-`options.reason` is set; once close codes from `closeSession` are in vecs, clients receive it too), then drives `send()` itself every few milliseconds until every session
+`options.reason` is set; clients receive it as the close reason), then drives `send()` itself every few milliseconds until every session
 has been acked or has lingered out. Unlike `closeSession`, it does not wait for your tick loop.
 Sessions still present after `timeoutMs` (default `closeLingerMs + 1000`) are destroyed without
 further delivery. Last, it awaits the optional `close()` of each attached socket listener.

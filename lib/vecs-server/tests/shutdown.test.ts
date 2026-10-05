@@ -142,7 +142,7 @@ describe("ServerWorld.shutdown", () => {
     expect(liveClients(world)).toBe(0);
   });
 
-  it("closes sessions with nothing owed and records the close reason", async () => {
+  it("tells each client the close reason and records it on the NetworkClient", async () => {
     const { world, listener } = setup();
     const socket = connect(world, listener, "a");
     let reason: string | undefined;
@@ -152,7 +152,10 @@ describe("ServerWorld.shutdown", () => {
 
     await world.shutdown({ reason: "maintenance" });
 
-    expect(socket.sent).toHaveLength(0);
+    const notices = socket.sent
+      .map((bytes) => new Decoder(bytes).read(Server2Client).close)
+      .filter((close) => close !== undefined);
+    expect(notices.map((close) => close?.reason)).toContain("maintenance");
     expect(socket.closeCalls).toBe(1);
     expect(reason).toBe("maintenance");
   });
