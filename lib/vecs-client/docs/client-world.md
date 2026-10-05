@@ -65,11 +65,17 @@ world.listen(201, ([question]) => {
 The ack timer that ships frames to the server also ages pending calls, so a call that is never
 answered times out on its own.
 
-## Disposal
+## Disconnection and disposal
 
-`close` closes the socket but leaves the world usable: a reconnect or a fresh socket still works.
-`dispose` is the one-way teardown, for when a `ClientWorld` is finished for good — a hot reload, a
-route change, or a game instance you are throwing away.
+When the peer disconnects, `ClientWorld` stops its ack timer, emits `disconnect` once, and rejects
+every pending `invoke` with an `RPCError` carrying `RPC_CLOSED_CODE`. A synchronous throw or rejected
+promise from `VecsSocket.send` follows the same path, so a transport that misses or delays its
+`disconnect` event cannot leave an ack rejection or RPC hanging.
+
+`close` follows that disconnection path and closes the socket, but leaves replicated entities and
+the diff buffer intact: attach a fresh socket and its next baseline resynchronizes the world. `dispose`
+is the one-way teardown, for when a `ClientWorld` is finished for good — a hot reload, a route change,
+or a game instance you are throwing away.
 
 ```ts
 world.dispose();
@@ -83,8 +89,8 @@ In order, `dispose`:
 4. resets the diff buffer so a new world starts from a clean baseline, and
 5. closes the socket.
 
-Rejecting pending calls is the load-bearing step. Nothing else ticks a disposed world, so a call
-made just before teardown would otherwise wait out its full ttl — or forever — and leave the caller
+Rejecting pending calls is the load-bearing step. Nothing else can obtain a reply after a disconnect
+or disposal, so a call made just before either event would otherwise wait forever and leave the caller
 hanging.
 
 After disposal the world is inert, and stays that way:
@@ -106,17 +112,17 @@ one.
 
 ## Reference
 
-| Member                              | Description                                                                    |
-| ----------------------------------- | ------------------------------------------------------------------------------ |
-| `ClientWorld.connectDgram(options)` | Connect over the dgram transport and return a world with its socket attached.  |
-| `world.attachSocket(socket)`        | Bind a socket and start the ack timer. Throws after disposal.                  |
-| `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                           |
-| `world.invoke(rpcId, params?)`      | Call the server; resolves with reply params.                                   |
-| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client.                  |
-| `world.apply(now)`                  | Run queued RPC handlers, then apply buffered frames.                           |
-| `world.send()`                      | Send input, outstanding replies, and the current ack frame.                    |
-| `world.close()`                     | Close the socket, leaving the world reusable.                                  |
-| `world.dispose()`                   | One-way teardown: reject pending calls, clear state, destroy network entities. |
+| Member                              | Description                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------ |
+| `ClientWorld.connectDgram(options)` | Connect over the dgram transport and return a world with its socket attached.        |
+| `world.attachSocket(socket)`        | Bind a socket and start the ack timer. Throws after disposal.                        |
+| `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                 |
+| `world.invoke(rpcId, params?)`      | Call the server; resolves with reply params.                                         |
+| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client.                        |
+| `world.apply(now)`                  | Run queued RPC handlers, then apply buffered frames.                                 |
+| `world.send()`                      | Send input, outstanding replies, and the current ack frame.                          |
+| `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable. |
+| `world.dispose()`                   | One-way teardown: reject pending calls, clear state, destroy network entities.       |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-client/src/client_world.ts` and
 `lib/vecs-client/src/diff_buffer.ts`.

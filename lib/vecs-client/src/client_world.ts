@@ -98,6 +98,7 @@ export class ClientWorld extends NetworkWorld {
   private _input: unknown;
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
+  private _disconnected = false;
   private _forceBaselineReset = false;
   private _disposed = false;
 
@@ -175,8 +176,9 @@ export class ClientWorld extends NetworkWorld {
       throw new Error("ClientWorld is disposed");
     }
     this._socket = socket;
+    this._disconnected = false;
     socket.on("receive", (data) => this._receive(data));
-    socket.on("disconnect", () => this._handleDisconnect());
+    socket.on("disconnect", () => this._handleDisconnect(socket));
     this._startAckTimer();
   }
 
@@ -189,9 +191,9 @@ export class ClientWorld extends NetworkWorld {
    * Call the server and resolve with its reply parameters.
    *
    * Rejects with an `RPCError` carrying the server's code and message, or with
-   * code `RPC_CLOSED_CODE` once the world is disposed — a client call is never
-   * abandoned silently, because `ClientWorld` does not run
-   * `SessionRPC.timeoutTick`.
+   * code `RPC_CLOSED_CODE` once the world is disposed or an already-pending call
+   * loses its peer — a client call is never abandoned silently, because
+   * `ClientWorld` does not run `SessionRPC.timeoutTick`.
    *
    * @param rpcId - Request id to call.
    * @param params - Positional parameters to send.
@@ -239,28 +241,46 @@ export class ClientWorld extends NetworkWorld {
     });
   }
 
-  /** Ack the latest applied frame to the server, with the current input and any queued RPCs. */
+  /**
+   * Ack the latest applied frame to the server, with the current input and any queued RPCs.
+   *
+   * A synchronous transport error or rejected transport promise closes the client connection,
+   * so the ack timer cannot leave an unhandled rejection after a peer disappears.
+   */
   public send(): void {
-    if (!this._socket || this._disposed) {
+    const socket = this._socket;
+    if (!socket || this._disposed || this._disconnected) {
       return;
     }
     const rpc = this._rpc.getOutgoing();
     const ackFrame = this._diffBuffer.version < 0 ? 0 : this._diffBuffer.version;
     const encoder = new Encoder(this._encodeBuffer);
     encoder.write(new Client2Server({ ackFrame, input: this._input, rpc }));
-    this._socket.send(encoder.getBuffer());
+    try {
+      const sent = socket.send(encoder.getBuffer()) as unknown;
+      if (sent && typeof (sent as PromiseLike<unknown>).then === "function") {
+        void Promise.resolve(sent).catch(() => this._handleDisconnect(socket));
+      }
+    } catch {
+      this._handleDisconnect(socket);
+    }
   }
 
   /**
    * Drop the transport and stop the ack timer, leaving the world intact.
    *
    * Use this for a disconnect the client may reconnect from: replicated entities
-   * stay in place, and a later baseline re-creates them. Use
+   * stay in place, and a later baseline re-creates them. Pending RPCs reject with
+   * `RPC_CLOSED_CODE`, because the peer can no longer answer them. Use
    * {@link ClientWorld.dispose} to release everything.
    */
   public close(): void {
     this._stopAckTimer();
-    this._socket?.close();
+    const socket = this._socket;
+    if (socket) {
+      this._handleDisconnect(socket);
+      socket.close();
+    }
   }
 
   /**
@@ -441,11 +461,15 @@ export class ClientWorld extends NetworkWorld {
     this._networkedQuery.forEach((entity) => entity.destroy());
   }
 
-  private _handleDisconnect(): void {
-    if (this._disposed) {
+  private _handleDisconnect(socket: VecsSocket | undefined): void {
+    if (this._disposed || this._disconnected || socket !== this._socket) {
       return;
     }
+    this._disconnected = true;
     this._stopAckTimer();
+    this._rpc.abortPending(
+      new RPCError(RPC_CLOSED_CODE, "ClientWorld disconnected before the RPC completed")
+    );
     // A reconnect may land on a server whose frame counter restarted, so the
     // next baseline can carry a lower frame than the one we last saw. Force the
     // next baseline to be adopted regardless of its frame number.
