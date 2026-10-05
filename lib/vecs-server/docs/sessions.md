@@ -8,7 +8,8 @@ session's own caller attached.
 
 - What a session is and which entity represents it.
 - How `handleRpc` gives every handler a `ServerRPCContext` without per-connection registration.
-- How to close one session, and how to close all of them at shutdown.
+- How to close one session, how the close lingers until the client received the replies it is owed,
+  and how to close all of them at shutdown.
 - How `NetworkClient.closeReason` records why the server hung up.
 - How cleanup runs exactly once, whether the server, the peer, or the application ends the session.
 
@@ -104,10 +105,21 @@ an `RPCError` _and_ closes the connection, because the client needs the code to 
 from a bad credential. So `closeSession` does not hang up in the middle of the handler.
 
 It marks the session **closing**, which stops it immediately from accepting further input or
-replicating any further state, and leaves the RPC replies it still owes queued in the outbox. The
-next `send()` — the next tick — writes those replies, best effort over the unreliable datagram
-channel, and then completes the teardown: the `NetworkClient` entity is destroyed and the socket is
-closed. A session with nothing owed closes without emitting a frame at all.
+replicating any further state, and leaves the RPC replies it still owes queued in the outbox. A
+session with nothing owed closes on the next `send()` without emitting a frame at all. Otherwise
+`send()` writes those replies on a numbered frame — an empty diff from your last acknowledged frame
+— and then **lingers** before tearing the transport down:
+
+- the client's next ack of that frame is its delivery receipt, and ends the linger immediately;
+- until the ack arrives, the frame is retransmitted on every `send()`, so a datagram the unreliable
+  channel lost gets another chance;
+- the linger is bounded by the world's `closeLingerMs` option (250 ms by default), so a client that
+  never acks cannot hold its session open.
+
+Why the linger exists: closing the socket in the same turn as the flush would discard the queued or
+in-flight datagram — the transport is an unordered channel with a limited retransmit budget — and
+the client would never see the typed error. The reply is not "best effort" anymore; it is flushed,
+retransmitted until acknowledged, and only then is the transport closed.
 
 ```ts
 world.handleRpc(101, (params, _request, ctx) => {
@@ -126,7 +138,8 @@ tick later.
 
 Disconnects that nobody needs to explain are still immediate: the peer going away, the application
 destroying the `NetworkClient` entity, and `disconnectGraceMs` expiry all tear down on the spot,
-since there is no client left to answer. So does a failed send (below).
+since there is no client left to answer. So does a failed send (below), including a failed flush
+during the linger: the lingering session's next tick does not reach the socket again.
 
 ### Failed sends
 
@@ -162,13 +175,14 @@ Build the query before you iterate it — an untracked, unbuilt query matches no
 Session teardown is driven by component removal, so it runs exactly once no matter what ends the
 session:
 
-| What happened                                    | Result                                                                                                                                                |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `closeSession(id, reason)`                       | Session marked closing, then the next `send()` flushes owed replies and tears down: `NetworkClient` entity destroyed, session removed, socket closed. |
-| The application destroys the `NetworkClient`     | Immediate teardown, so app-driven disconnects close the socket too.                                                                                   |
-| The peer disconnects                             | Same teardown, driven from the socket's `disconnect` event.                                                                                           |
-| No traffic for `disconnectGraceMs`               | Same teardown, with reason `disconnect grace period elapsed`.                                                                                         |
-| A frame arrives after teardown, or while closing | Dropped. The socket has no way to unsubscribe, so a finished session ignores late frames.                                                             |
+| What happened                                | Result                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `closeSession(id, reason)`                   | Session marked closing. The next `send()` destroys it at once when nothing is owed; otherwise it flushes the owed replies on a numbered frame and lingers until the client acks that frame or `closeLingerMs` elapses, then tears down: `NetworkClient` entity destroyed, session removed, socket closed. |
+| The application destroys the `NetworkClient` | Immediate teardown, so app-driven disconnects close the socket too.                                                                                                                                                                                                                                       |
+| The peer disconnects                         | Same teardown, driven from the socket's `disconnect` event — including a disconnect that arrives while the close lingers.                                                                                                                                                                                 |
+| No traffic for `disconnectGraceMs`           | Same teardown, with reason `disconnect grace period elapsed`.                                                                                                                                                                                                                                             |
+| A frame arrives after teardown               | Dropped. The socket has no way to unsubscribe, so a finished session ignores late frames.                                                                                                                                                                                                                 |
+| A frame arrives while closing                | Only the ack is honored (it ends the linger); input and new calls are dropped.                                                                                                                                                                                                                            |
 
 Because cleanup hangs off entity removal, it is observable with the normal ECS tools: destroy the
 `NetworkClient` entity yourself when you want a disconnect, and react to removal with `exit`
@@ -184,6 +198,7 @@ systems.
 | `ServerRPCContext`                        | `{ world, caller, connectionId }` passed as a handler's third argument.                                    |
 | `NetworkClient.id`                        | The connection id.                                                                                         |
 | `NetworkClient.closeReason`               | Why the server closed the session, or `undefined`.                                                         |
+| `closeLingerMs` (`ServerWorldOptions`)    | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.      |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-server/src/server_world.ts` and
 `lib/vecs-server/src/networked.ts`.
