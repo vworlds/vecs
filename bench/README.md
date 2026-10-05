@@ -92,3 +92,18 @@ BENCH_ROUNDS=8 node bench/compare.ts .worktrees/base
 Timings on a shared or virtualized machine are noisy. Compare back to back on an otherwise idle
 machine, use several rounds, and read the per-round ratios rather than a single run. An identical
 build compared against itself shows the noise floor.
+
+## ECS microbenchmark
+
+`npm run bench:vecs` runs `lib/vecs/tests/ecs.bench.test.ts` from the TypeScript sources: entity
+creation and destruction, component unpacking, adding and removing components, system updates,
+iteration and observer events. By default the cases run at 0, 1 and each power of two up to
+2,097,152 entities (one observer case stops at 32,768), and the script raises Node's heap limit to
+32 GB for that. Pick smaller sizes and fewer timed rounds per case with environment variables:
+
+```bash
+RUN_VECS_ECS_BENCH_COUNTS=16384,65536 RUN_VECS_ECS_BENCH_ROUNDS=7 npm run bench:vecs
+```
+
+The script pins Vitest's default reporter. Vitest 4 switches to a quieter reporter when it detects
+an AI agent, and that reporter hides the results the benchmark prints.
