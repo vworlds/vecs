@@ -510,11 +510,15 @@ After `b2World_Step`, read `b2World_GetBodyEvents(worldId).moveCount` and walk `
 - If the entity has `Rotation`: `entity.set(Rotation, { angle })`
 - If the entity has `LinearVelocity` / `AngularVelocity`: write those too.
 
+Embind handle ownership matters on this hot path. `GetMoveEvent(i)` and `b2Body_GetLinearVelocity` return owned heap copies, so each is `delete()`d exactly once. `move.transform`, `transform.p` and `transform.q` are views into the move event's memory (the same address on every read), not copies: read each once and never `delete()` them, because that would run a C++ destructor on an interior pointer. `move.bodyId` is a plain value object. The angle comes from `q.GetAngle()` rather than `Math.atan2(q.s, q.c)`, because Box2D's `b2Atan2` is not bit-identical to `Math.atan2` and `Rotation` output must not change.
+
 These set commands carry the `PhysicsSystemTag` source, so `PhysicsPoseSyncIn` filters them out next frame. Static body poses are user-owned and never written back.
 
 ### `PhysicsEvents` (`physics-post`)
 
 Poll once per step: `b2World_GetContactEvents`, `b2World_GetSensorEvents`, `b2World_GetBodyEvents`. Walk begin/end via `beginCount`/`GetBeginEvent(i)` and `endCount`/`GetEndEvent(i)`; sensor events with the same shape; hit events via `hitCount`/`GetHitEvent(i)`. Resolve `b2ShapeId.index1 → Entity` via `engine.entityByShapeIndex`; push into the receiving entity's `ContactEvents.begin/end`, `SensorEvents.begin/end`, or `HitEvents.hits`. Mark the component modified once per receiving entity per step.
+
+Embind ownership here: `b2World_Get*Events` results, contact `GetBeginEvent(i)` and `GetHitEvent(i)` are class handles and are `delete()`d in `finally`. Contact `GetEndEvent(i)` and sensor begin/end events are plain value objects with no `delete`, so nothing is released for them (`tests/events/event_handles.test.ts` fails if a binding change turns one into a handle).
 
 Silent-clear semantics for shapes that received events last step but not this step: set `length = 0` without calling `modified`. Three independent "previously touched" sets (`prevTouchedContact`, `prevTouchedSensor`, `prevTouchedHit`) are tracked per event component in `PhysicsEngine`.
 
