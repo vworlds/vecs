@@ -518,6 +518,8 @@ These set commands carry the `PhysicsSystemTag` source, so `PhysicsPoseSyncIn` f
 
 Poll once per step: `b2World_GetContactEvents`, `b2World_GetSensorEvents`, `b2World_GetBodyEvents`. Walk begin/end via `beginCount`/`GetBeginEvent(i)` and `endCount`/`GetEndEvent(i)`; sensor events with the same shape; hit events via `hitCount`/`GetHitEvent(i)`. Resolve `b2ShapeId.index1 → Entity` via `engine.entityByShapeIndex`; push into the receiving entity's `ContactEvents.begin/end`, `SensorEvents.begin/end`, or `HitEvents.hits`. Mark the component modified once per receiving entity per step.
 
+Embind ownership here: `b2World_Get*Events` results, contact `GetBeginEvent(i)` and `GetHitEvent(i)` are class handles and are `delete()`d in `finally`. Contact `GetEndEvent(i)` and sensor begin/end events are plain value objects with no `delete`, so nothing is released for them (`tests/events/event_handles.test.ts` fails if a binding change turns one into a handle).
+
 Silent-clear semantics for shapes that received events last step but not this step: set `length = 0` without calling `modified`. Three independent "previously touched" sets (`prevTouchedContact`, `prevTouchedSensor`, `prevTouchedHit`) are tracked per event component in `PhysicsEngine`.
 
 ### `PhysicsImpulseZero` (`physics-post`, after `PhysicsEvents`)

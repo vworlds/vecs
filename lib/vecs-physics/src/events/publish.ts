@@ -65,6 +65,8 @@ export class EventPublishModule extends Module {
 // `b2World_GetContactEvents` poll, so fetch the event block once per step and
 // fan begin/end into `touchedContact` and hits into `touchedHit` (ARCHITECTURE.md ->
 // PhysicsEvents: "poll once per step").
+// Contact begin and hit events are Embind class handles and are released below; contact end and
+// sensor events are plain value objects, so there is nothing to delete for them.
 function publishContactAndHitEvents(
   world: World,
   engine: PhysicsEngine,
