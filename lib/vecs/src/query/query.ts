@@ -641,11 +641,6 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return this._componentUpdateCallbacks.size > 0 || (this._orderByWatch?.size ?? 0) > 0;
   }
 
-  /** @internal Whether entities retain membership for deferred event validation. */
-  public _tracksMembership(): boolean {
-    return this._watchesUpdates();
-  }
-
   /** @internal Throw when a builder method is called after registration. */
   protected _assertConfigurable(): void {
     if (this.built) {

@@ -144,11 +144,6 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     return true;
   }
 
-  /** @internal Systems retain membership to validate deferred inbox events. */
-  public override _tracksMembership(): boolean {
-    return true;
-  }
-
   /**
    * @internal Routing entry: register query membership for `e`, push an
    * inbox `enter` event when an `enter` callback is registered, and bridge
@@ -275,10 +270,14 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
             // create related state, so dispatching one for a non-member leaves
             // that state orphaned. A stale enter is only possible when something
             // exited this window, so `_exitedSinceDrain` gates the O(1)
-            // membership probe and steady-state frames pay nothing. A re-entered
+            // membership probe and steady-state frames pay nothing. The probe is
+            // `belongs()` (the root term's own O(1) membership), not
+            // `_isMemberOf()`: enter/exit-only systems are not in the entity's
+            // `_queries` set, and widening that set would tax every enter/exit
+            // and every component-update routing pass. A re-entered
             // ("came back") entity is a member again here, so its enter still
             // fires. Suppress its paired exit because the enter never ran.
-            if (this._exitedSinceDrain && !event.entity._isMemberOf(this)) {
+            if (this._exitedSinceDrain && !this.belongs(event.entity)) {
               (suppressedEnters ??= new Set()).add(event.entity);
               break;
             }
@@ -302,7 +301,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
             // re-entered ("came back") entity is a member again here, so its
             // update still fires. Exit events fire regardless — they carry
             // their own snapshot.
-            if (this._exitedSinceDrain && !event.entity._isMemberOf(this)) {
+            if (this._exitedSinceDrain && !this.belongs(event.entity)) {
               break;
             }
             const callback = this._componentUpdateCallbacks.get(event.eid);
