@@ -167,6 +167,11 @@ export class ClientWorld extends NetworkWorld {
    * attached for the socket's lifetime; {@link ClientWorld.dispose} makes them
    * no-ops instead.
    *
+   * Attaching a socket after a disconnect is the reconnect path: it clears the
+   * disconnected state, so {@link ClientWorld.invoke} accepts calls again. Late
+   * events from the previous socket are ignored. Calls made while disconnected
+   * were already rejected and are not replayed on the new socket.
+   *
    * @param socket - Transport to receive frames from. Passing a second socket
    *   replaces the first without detaching it — dispose the world instead.
    * @throws If the world has already been disposed.
@@ -191,9 +196,17 @@ export class ClientWorld extends NetworkWorld {
    * Call the server and resolve with its reply parameters.
    *
    * Rejects with an `RPCError` carrying the server's code and message, or with
-   * code `RPC_CLOSED_CODE` once the world is disposed or an already-pending call
-   * loses its peer — a client call is never abandoned silently, because
-   * `ClientWorld` does not run `SessionRPC.timeoutTick`.
+   * code `RPC_CLOSED_CODE` when the call cannot reach, or can no longer be
+   * answered by, its peer: the world is disposed, the attached socket has been
+   * lost (disconnect event, failed send or {@link ClientWorld.close}) and no
+   * replacement is attached yet, or an already-pending call loses its peer. A
+   * call made while disconnected is rejected immediately and never queued, so it
+   * cannot be sent on a later connection — which may be a different server
+   * world. A client call is never abandoned silently, because `ClientWorld`
+   * does not run `SessionRPC.timeoutTick`.
+   *
+   * A call made before the first {@link ClientWorld.attachSocket} is queued and
+   * sent once a socket is attached.
    *
    * @param rpcId - Request id to call.
    * @param params - Positional parameters to send.
@@ -203,6 +216,9 @@ export class ClientWorld extends NetworkWorld {
       return Promise.reject(
         new RPCError(RPC_CLOSED_CODE, "ClientWorld disposed before the RPC completed")
       );
+    }
+    if (this._disconnected) {
+      return Promise.reject(new RPCError(RPC_CLOSED_CODE, "ClientWorld disconnected"));
     }
     return this._rpc.invoke(rpcId, params).then((response) => response.params);
   }
@@ -271,7 +287,8 @@ export class ClientWorld extends NetworkWorld {
    *
    * Use this for a disconnect the client may reconnect from: replicated entities
    * stay in place, and a later baseline re-creates them. Pending RPCs reject with
-   * `RPC_CLOSED_CODE`, because the peer can no longer answer them. Use
+   * `RPC_CLOSED_CODE`, because the peer can no longer answer them, and so do
+   * {@link ClientWorld.invoke} calls made until a new socket is attached. Use
    * {@link ClientWorld.dispose} to release everything.
    */
   public close(): void {

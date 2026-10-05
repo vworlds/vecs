@@ -5,6 +5,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-client]: `ClientWorld.invoke()` now rejects immediately with `RPC_CLOSED_CODE` after the attached socket has been lost (peer disconnect, failed send or `close()`) and before a new socket is attached, instead of queuing the call where it could hang or run on the next connection's, possibly different, server world. Calls made before the first `attachSocket` are still queued and sent on connect. New tests pin teardown idempotency across event, send-failure, `close()` and `dispose()` orderings, and that late events from a replaced socket do not tear down its successor.
 - [vecs-client]: Treat peer disconnects and synchronous or asynchronous transport-send failures as one idempotent connection teardown: stop acknowledgements, emit `disconnect` once, and reject pending RPCs with `RPC_CLOSED_CODE`. `close()` retains replicated state for reconnecting, while `dispose()` remains the one-way teardown.
 - [vecs]: System inboxes now drop an `enter` when its entity left the query or was destroyed before
   the system drains, and suppress that undelivered entry's paired `exit`. This prevents lifecycle
