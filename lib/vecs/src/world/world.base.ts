@@ -30,12 +30,12 @@ export class Base {
    * system. Stamped onto every command at enqueue time so the originating
    * system survives until the command is routed (see {@link System._run}).
    */
-  public _currentSource: Entity | undefined;
+  public _currentSource: Entity | undefined = undefined;
 
   /**
    * @internal Source entity of the command currently being applied. Read by
    * {@link Query._notifyModified} to silence updates from ignored sources;
    * cleared once the command queue drains.
    */
-  public _routingSource: Entity | undefined;
+  public _routingSource: Entity | undefined = undefined;
 }

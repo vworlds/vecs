@@ -764,7 +764,7 @@ export class Components extends Relationships {
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (isUpdate) {
       this.world._notifyComponentChanged(meta.eid, this);
-      this._queries.forEach((q) => q._notifyModified(this, meta.eid, instance));
+      this._routeModified(meta.eid, instance);
     }
   }
 

@@ -76,6 +76,6 @@ export class Relationships extends Queries {
     relationship: Relationship
   ): void {
     this.world._notifyComponentChanged(meta.eid, this);
-    this._queries.forEach((query) => query._notifyModified(this, meta.eid, relationship));
+    this._routeModified(meta.eid, relationship);
   }
 }

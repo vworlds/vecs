@@ -62,4 +62,25 @@ export class AnyTerm extends Term {
   protected _matches(entity: Entity): boolean {
     return this._children.some((child) => child.has(entity));
   }
+
+  /**
+   * @internal React to a child's data refresh.
+   *
+   * Membership here is a function of the children's membership alone, and every
+   * child membership change reaches this term through `onTermEvent`. With no
+   * membership event in flight the term already agrees with its children, so
+   * re-evaluating would be a no-op and is skipped. A refresh that arrives while
+   * an event is still being delivered (user code mutating inline from a query
+   * callback) is re-evaluated as before.
+   */
+  protected override _onChildRefresh(entity: Entity, _child: Term): void {
+    if (this.world._termEmitDepth !== 0) {
+      this.onTermRefresh(entity);
+    }
+  }
+
+  /** @internal See {@link _onChildRefresh}. */
+  protected override _childRefreshesOnlyInFlight(): boolean {
+    return true;
+  }
 }

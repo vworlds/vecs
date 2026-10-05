@@ -112,9 +112,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    */
   private _exitedSinceDrain = false;
   /** @internal Callback registered via {@link run}, fired every tick. */
-  private _runCallback: RunCallback | undefined;
+  private _runCallback: RunCallback | undefined = undefined;
   /** @internal Callback registered via {@link each}, fired per tracked entity every tick. */
-  protected _eachCallback: ((e: Entity) => void) | undefined;
+  protected _eachCallback: ((e: Entity) => void) | undefined = undefined;
 
   /** @internal Whether this system processes events and runs callbacks. */
   private _enabled = true;
@@ -123,6 +123,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
 
   constructor(name: string, world: World) {
     super(name, world, false);
+    this._queuesUpdates = true;
     this.entity.attach(System, this);
     this.phase(ON_UPDATE);
   }

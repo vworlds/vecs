@@ -68,3 +68,5 @@ npm run build
 
 Workspace-wide formatting uses Prettier (`npm run format` / `npm run format:check`). Repo
 conventions for commits, formatting, testing, and documentation live in [`.agents/`](./.agents/README.md).
+Performance benchmarks that run against the built packages, with instructions for profiling and
+comparing two builds, live in [`bench/`](./bench/README.md).

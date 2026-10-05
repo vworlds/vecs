@@ -70,12 +70,16 @@ map.size; // 0
 
 `IterableArrayMap` (`lib/vecs/src/util/array_map.ts`) is an iterable `Map<number, T>` substitute
 backed by dense entries plus sparse indexes. Use it when callers need fast `forEach` or `values`
-over present entries. Random access resolves `key → dense index` through an internal `ArrayMap`,
-then indexes into a dense items array; iteration walks the dense items array directly.
+over present entries. Random access reads the entry's dense position from a slot array indexed by
+key, which holds only small integers so V8 keeps it on its fast path, then reads the value from a
+dense value array. Iteration walks the dense key and value arrays directly.
 
-Deletes keep the items array dense by moving the last value into the removed slot, so iteration
-is always a tight loop without sparse holes. Compared with `ArrayMap`, this costs extra memory
-for tuple storage and an index map.
+Deletes keep the dense arrays dense by moving the last entry into the removed position, so
+iteration is always a tight loop without sparse holes. Compared with `ArrayMap`, this costs extra
+memory for the slot array and the dense key and value arrays. Because the dense arrays grow by
+`push`, V8 cannot pretenure the entries, so a fresh process that creates tens of thousands of
+long-lived entities in bulk and then destroys them can run slower than with per-entry
+`[key, value]` tuples. The repository's `bench/README.md` has the measurements.
 
 ```ts
 import { IterableArrayMap } from "@vworlds/vecs";
