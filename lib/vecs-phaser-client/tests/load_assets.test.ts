@@ -221,18 +221,34 @@ describe("loadAssets", () => {
       }
     });
 
-    it("rejects on a load error and removes its listeners", async () => {
+    it("resolves on complete after a failed file, reports its key and leaves no listeners", async () => {
       stubCatalog();
       const loader = new MockLoader();
       const scene = { load: loader } as unknown as Phaser.Scene;
 
       const promise = loadAssets(scene, conn);
-      const settled = expect(promise).rejects.toThrow("Failed to load asset 7");
       await flushAssetFetch();
       loader.fail("7");
-      await settled;
+      // Like Phaser, the loader keeps going after a file error.
+      expect(loader.listenerCount()).toBeGreaterThan(0);
+      loader.complete();
+      const catalog = await promise;
 
+      expect(catalog.failed).toEqual(["7"]);
+      expect(catalog.has(42)).toBe(true);
       expect(loader.listenerCount()).toBe(0);
+    });
+
+    it("reports no failures for a clean load", async () => {
+      stubCatalog();
+      const loader = new MockLoader();
+      const scene = { load: loader } as unknown as Phaser.Scene;
+
+      const promise = loadAssets(scene, conn);
+      await flushAssetFetch();
+      loader.complete();
+
+      expect((await promise).failed).toEqual([]);
     });
 
     it("cancels on abort, removes its listeners and resets the loader", async () => {

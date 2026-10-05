@@ -37,9 +37,11 @@ const world = await ClientWorld.connectDgram({
 world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64, catalog });
 ```
 
-`loadAssets` removes the Phaser loader listeners it adds when the load completes, fails (a
-`loaderror` rejects the promise), or is aborted, so calling it on every world switch does not leak
-listeners. Pass `signal` to cancel a load: the promise rejects with the signal's reason and the
+`loadAssets` removes the Phaser loader listeners it adds when the load completes or is
+aborted, so calling it on every world switch does not leak
+listeners. A file that fails to load does not reject: the load still resolves when Phaser emits
+`complete`, and `catalog.failed` lists the keys of the files that failed, so one missing texture
+does not block a world switch. Pass `signal` to cancel a load: the promise rejects with the signal's reason and the
 loader is reset.
 
 ```ts

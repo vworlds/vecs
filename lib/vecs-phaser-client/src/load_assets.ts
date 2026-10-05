@@ -28,7 +28,11 @@ export class Catalog {
   private readonly _byId: Map<number, AssetDescriptor>;
 
   /** Wrap a fetched asset catalog as an id-indexed lookup. */
-  public constructor(private readonly catalog: AssetCatalog) {
+  public constructor(
+    private readonly catalog: AssetCatalog,
+    /** Phaser keys (descriptor ids as strings) of files the loader failed to load. */
+    public readonly failed: readonly string[] = []
+  ) {
     this._byId = new Map(catalog.assets.map((descriptor) => [descriptor.id, descriptor]));
   }
 
@@ -57,8 +61,10 @@ export class Catalog {
  * Fetch a world's asset catalog, queue every spritesheet in Phaser, and resolve after loading.
  *
  * The loader `progress`, `complete`, and `loaderror` listeners added by this call are removed when
- * the load completes, fails, or is aborted through `conn.signal`, so repeated calls on one scene
- * do not leak listeners. A load error rejects the promise; an abort rejects with `signal.reason`.
+ * the load completes or is aborted through `conn.signal`, so repeated calls on one scene do not
+ * leak listeners. Like Phaser, a failed file does not stop the load: the promise still resolves on
+ * `complete`, and `Catalog.failed` lists the keys of the files that failed. A failed catalog fetch
+ * rejects, and so does an abort, with `signal.reason`.
  */
 export async function loadAssets(scene: Phaser.Scene, conn: LoadAssetsOptions): Promise<Catalog> {
   const origin = `${conn.protocol ?? "http"}://${conn.host}:${conn.port}`;
@@ -90,6 +96,7 @@ export async function loadAssets(scene: Phaser.Scene, conn: LoadAssetsOptions): 
 
   return new Promise((resolve, reject) => {
     const loader = scene.load;
+    const failed: string[] = [];
     const onProgress = (value: number) => conn.onProgress?.(value);
     const cleanup = () => {
       loader.off("progress", onProgress);
@@ -99,11 +106,10 @@ export async function loadAssets(scene: Phaser.Scene, conn: LoadAssetsOptions): 
     };
     const onComplete = () => {
       cleanup();
-      resolve(new Catalog(catalog));
+      resolve(new Catalog(catalog, failed));
     };
     const onError = (file: { key?: string }) => {
-      cleanup();
-      reject(new Error(`Failed to load asset ${file?.key ?? "(unknown)"}`));
+      failed.push(file?.key ?? "");
     };
     const onAbort = () => {
       cleanup();
