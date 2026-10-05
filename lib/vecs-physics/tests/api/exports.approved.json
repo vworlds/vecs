@@ -110,6 +110,7 @@
     "HitEvent",
     "PhysicsOptions",
     "PhysicsQueries",
+    "PhysicsStats",
     "QueryFilter",
     "RayHit",
     "SensorEvent",

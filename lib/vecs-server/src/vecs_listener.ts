@@ -1,5 +1,5 @@
 import { type VecsSocketListener, worldPath } from "@vworlds/vecs-protocol";
-import { ServerWorld } from "./server_world.js";
+import { ServerWorld, type ShutdownOptions } from "./server_world.js";
 
 export interface VecsListenerOptions {
   apiBasePath?: string;
@@ -27,5 +27,14 @@ export class VecsListener {
       });
       serverWorld._attach(listener);
     });
+  }
+
+  /**
+   * Shut every registered world down with {@link ServerWorld.shutdown}: sessions are closed
+   * gracefully (owed replies first, then the linger), flushed until gone or `timeoutMs` passes,
+   * and the transports are closed. Resolves when all worlds are done. Idempotent.
+   */
+  public async close(options: ShutdownOptions = {}): Promise<void> {
+    await Promise.all([...this._worlds.values()].map((world) => world.shutdown(options)));
   }
 }

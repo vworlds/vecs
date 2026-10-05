@@ -78,6 +78,7 @@ export { physics } from "./adapter/queries.js";
 export type {
   CastGeometry,
   PhysicsQueries,
+  PhysicsStats,
   QueryFilter,
   RayHit,
   ShapeCastHit,

@@ -16,12 +16,13 @@ interface SpritesheetCall {
   };
 }
 
-type LoaderEvent = "complete" | "progress";
-type LoaderHandler = (value: number) => void;
+type LoaderEvent = "complete" | "progress" | "loaderror";
+type LoaderHandler = (value: unknown) => void;
 
 class MockLoader {
   readonly spritesheetCalls: SpritesheetCall[] = [];
   started = false;
+  resetCalls = 0;
   private readonly _handlers = new Map<LoaderEvent, LoaderHandler[]>();
   private readonly _onceHandlers = new Map<LoaderEvent, LoaderHandler[]>();
 
@@ -33,6 +34,33 @@ class MockLoader {
   once(event: LoaderEvent, handler: LoaderHandler): this {
     this._addHandler(this._onceHandlers, event, handler);
     return this;
+  }
+
+  off(event: LoaderEvent, handler: LoaderHandler): this {
+    for (const registry of [this._handlers, this._onceHandlers]) {
+      const handlers = registry.get(event);
+      const index = handlers?.indexOf(handler) ?? -1;
+      if (index >= 0) {
+        handlers!.splice(index, 1);
+      }
+    }
+    return this;
+  }
+
+  reset(): void {
+    this.resetCalls++;
+  }
+
+  listenerCount(): number {
+    let count = 0;
+    for (const registry of [this._handlers, this._onceHandlers]) {
+      registry.forEach((handlers) => (count += handlers.length));
+    }
+    return count;
+  }
+
+  fail(key: string): void {
+    this._emit("loaderror", { key });
   }
 
   spritesheet(key: string, url: string, config: SpritesheetCall["config"]): this {
@@ -59,7 +87,7 @@ class MockLoader {
     registry.set(event, handlers);
   }
 
-  private _emit(event: LoaderEvent, value: number): void {
+  private _emit(event: LoaderEvent, value: unknown): void {
     this._handlers.get(event)?.forEach((handler) => handler(value));
     const onceHandlers = this._onceHandlers.get(event) ?? [];
     this._onceHandlers.delete(event);
@@ -137,7 +165,8 @@ describe("loadAssets", () => {
     await flushAssetFetch();
 
     expect(fetch).toHaveBeenCalledWith(
-      `http://game.local:7777${worldPath("/custom/world", "arena")}/assets`
+      `http://game.local:7777${worldPath("/custom/world", "arena")}/assets`,
+      { signal: undefined }
     );
     expect(loader.started).toBe(true);
     expect(loader.spritesheetCalls).toEqual([
@@ -166,5 +195,103 @@ describe("loadAssets", () => {
     expect(catalog.has(7)).toBe(true);
     expect(catalog.has(999)).toBe(false);
     expect(catalog.all()).toEqual(catalogFixture.assets);
+  });
+
+  describe("listener cleanup", () => {
+    function stubCatalog(): void {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({ ok: true, json: async () => catalogFixture }))
+      );
+    }
+    const conn = { host: "game.local", port: 7777, worldName: "arena" };
+
+    it("leaves no listeners behind after repeated successful loads", async () => {
+      stubCatalog();
+      const loader = new MockLoader();
+      const scene = { load: loader } as unknown as Phaser.Scene;
+
+      for (let i = 0; i < 5; i++) {
+        const promise = loadAssets(scene, { ...conn, onProgress: vi.fn() });
+        await flushAssetFetch();
+        expect(loader.listenerCount()).toBeGreaterThan(0);
+        loader.complete();
+        await promise;
+        expect(loader.listenerCount()).toBe(0);
+      }
+    });
+
+    it("resolves on complete after a failed file, reports its key and leaves no listeners", async () => {
+      stubCatalog();
+      const loader = new MockLoader();
+      const scene = { load: loader } as unknown as Phaser.Scene;
+
+      const promise = loadAssets(scene, conn);
+      await flushAssetFetch();
+      loader.fail("7");
+      // Like Phaser, the loader keeps going after a file error.
+      expect(loader.listenerCount()).toBeGreaterThan(0);
+      loader.complete();
+      const catalog = await promise;
+
+      expect(catalog.failed).toEqual(["7"]);
+      expect(catalog.has(42)).toBe(true);
+      expect(loader.listenerCount()).toBe(0);
+    });
+
+    it("reports no failures for a clean load", async () => {
+      stubCatalog();
+      const loader = new MockLoader();
+      const scene = { load: loader } as unknown as Phaser.Scene;
+
+      const promise = loadAssets(scene, conn);
+      await flushAssetFetch();
+      loader.complete();
+
+      expect((await promise).failed).toEqual([]);
+    });
+
+    it("cancels on abort, removes its listeners and resets the loader", async () => {
+      stubCatalog();
+      const loader = new MockLoader();
+      const scene = { load: loader } as unknown as Phaser.Scene;
+      const controller = new AbortController();
+
+      const promise = loadAssets(scene, { ...conn, signal: controller.signal });
+      const settled = expect(promise).rejects.toThrow("cancelled");
+      await flushAssetFetch();
+      expect(loader.listenerCount()).toBeGreaterThan(0);
+      controller.abort(new Error("cancelled"));
+      await settled;
+
+      expect(loader.listenerCount()).toBe(0);
+      expect(loader.resetCalls).toBe(1);
+    });
+
+    it("rejects without touching the loader when already aborted", async () => {
+      stubCatalog();
+      const loader = new MockLoader();
+      const scene = { load: loader } as unknown as Phaser.Scene;
+
+      await expect(loadAssets(scene, { ...conn, signal: AbortSignal.abort() })).rejects.toThrow();
+
+      expect(loader.started).toBe(false);
+      expect(loader.listenerCount()).toBe(0);
+    });
+
+    it("ignores a later abort after the load completed", async () => {
+      stubCatalog();
+      const loader = new MockLoader();
+      const scene = { load: loader } as unknown as Phaser.Scene;
+      const controller = new AbortController();
+
+      const promise = loadAssets(scene, { ...conn, signal: controller.signal });
+      await flushAssetFetch();
+      loader.complete();
+      await promise;
+      controller.abort();
+
+      expect(loader.resetCalls).toBe(0);
+    });
   });
 });

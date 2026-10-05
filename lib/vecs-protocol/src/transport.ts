@@ -25,4 +25,11 @@ export interface VecsSocketListener {
     event: K,
     handler: VecsSocketListenerEvents[K]
   ): unknown;
+  /**
+   * Stop accepting connections and release the listener's transport resources. Optional: a
+   * transport that cannot be stopped (for example one mounted on a shared HTTP app) omits it, and
+   * `ServerWorld.shutdown` then only stops handing new sockets to the world. A returned promise is
+   * awaited.
+   */
+  close?(): void | Promise<void>;
 }

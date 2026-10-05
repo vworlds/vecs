@@ -12,9 +12,9 @@ JSDoc on the source in `lib/vecs-server/src/` — read it in your IDE.
 
 ## Map
 
-| Guide                        | Covers                                                                                                                       |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| [sessions.md](./sessions.md) | `NetworkClient`, `ServerRPCContext`, `world.handleRpc`, `world.closeSession`, the close linger, `NetworkClient.closeReason`. |
+| Guide                        | Covers                                                                                                                                                                |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [sessions.md](./sessions.md) | `NetworkClient`, `ServerRPCContext`, `world.handleRpc`, `world.closeSession`, the close linger, `world.shutdown` / `VecsListener.close`, `NetworkClient.closeReason`. |
 
 ## See also
 
