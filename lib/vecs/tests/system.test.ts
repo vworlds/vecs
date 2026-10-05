@@ -1096,57 +1096,97 @@ describe("System — stale inbox update after same-frame exit", () => {
   });
 });
 
-describe("System — inbox enter survives same-frame exit", () => {
-  // Companion to the exit-snapshot behaviour above. An injected Enter queued on
-  // the inbox must still resolve its components if the entity is destroyed (or
-  // loses a `.with` component) before the inbox drains — otherwise the lazy
-  // `.with` read comes back `undefined` and crashes the callback. Enter snapshots
-  // its injected components at routing time, exactly like exit, so enter/exit
-  // replay in arrival order and stay balanced.
+describe("System — stale inbox enter after same-frame exit", () => {
+  function recordLifecycle(w: World): { events: string[]; system: System } {
+    const events: string[] = [];
+    const system = w.system("test").with(Position);
+    system.enter(() => events.push("enter")).exit(() => events.push("exit"));
+    w.progress(0, 0);
+    w.progress(0, 0);
+    return { events, system };
+  }
 
-  it("resolves the snapshotted component when the entity is destroyed before the drain", () => {
+  it("does not dispatch enter or exit when an entity is destroyed before the drain", () => {
     const { w } = setup();
-    const cb = vi.fn();
-    w.system("test").with(Position).enter([Position], cb);
-    w.progress(0, 0); // build the system (no entities yet)
+    const { events } = recordLifecycle(w);
 
-    const e = w.entity();
-    const pos = e.add(Position).get(Position)!; // built system → enter queued on the inbox
-    e.destroy(); // queues the exit; entity is gone before the inbox drains
-    expect(() => w.progress(0, 0)).not.toThrow(); // no "query does not contain component"
-    expect(cb).toHaveBeenCalledWith(e, [pos]); // enter still resolves via the snapshot
+    w.entity().add(Position).destroy();
+    w.progress(1, 1);
+
+    expect(events).toEqual([]);
   });
 
-  it("resolves the snapshotted component when the entity loses a .with component before the drain", () => {
+  it("does not dispatch enter or exit when an entity loses a .with component before the drain", () => {
     const { w } = setup();
-    const cb = vi.fn();
-    w.system("test").with(Position).enter([Position], cb);
-    w.progress(0, 0); // build the system
+    const { events } = recordLifecycle(w);
 
-    const e = w.entity();
-    const pos = e.add(Position).get(Position)!; // enter queued on the inbox
-    e.remove(Position); // exits the query before the drain (entity stays alive)
-    expect(() => w.progress(0, 0)).not.toThrow();
-    expect(cb).toHaveBeenCalledWith(e, [pos]);
+    w.entity().add(Position).remove(Position);
+    w.progress(1, 1);
+
+    expect(events).toEqual([]);
   });
 
-  it("keeps enter/exit balanced for an entity that enters and is destroyed before the drain", () => {
+  it("dispatches enter, exit, enter when an entity leaves and re-enters before the drain", () => {
     const { w } = setup();
-    let balance = 0;
-    w.system("test")
-      .with(Position)
-      .enter([Position], () => {
-        balance += 1;
-      })
-      .exit([Position], () => {
-        balance -= 1;
-      });
-    w.progress(0, 0); // build the system
+    const { events } = recordLifecycle(w);
+    const entity = w.entity();
 
-    w.entity().add(Position); // survives → enter only (+1)
-    w.entity().add(Position).destroy(); // transient → enter (+1) then exit (-1)
+    entity.add(Position);
+    entity.remove(Position);
+    entity.add(Position);
+    w.progress(1, 1);
+
+    expect(events).toEqual(["enter", "exit", "enter"]);
+  });
+
+  it("does not dispatch lifecycle events when an entity leaves, re-enters, and leaves before the drain", () => {
+    const { w } = setup();
+    const { events } = recordLifecycle(w);
+    const entity = w.entity();
+
+    entity.add(Position);
+    entity.remove(Position);
+    entity.add(Position);
+    entity.remove(Position);
+    w.progress(1, 1);
+
+    expect(events).toEqual([]);
+  });
+
+  it("still dispatches an exit when its enter ran in an earlier drain", () => {
+    const { w } = setup();
+    const { events } = recordLifecycle(w);
+    const entity = w.entity().add(Position);
+    w.progress(1, 1);
+    events.length = 0;
+
+    entity.remove(Position);
+    w.progress(2, 1);
+
+    expect(events).toEqual(["exit"]);
+  });
+
+  it("does not dispatch an onEnter update after the entity is destroyed before the drain", () => {
+    const { w } = setup();
+    const update = vi.fn();
+    w.system("test").with(Position).update({ watch: Position, onEnter: true }, update);
     w.progress(0, 0);
 
-    expect(balance).toBe(1);
+    w.entity().add(Position).destroy();
+    w.progress(1, 1);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("does not dispatch an onEnter update after the entity loses a .with component before the drain", () => {
+    const { w } = setup();
+    const update = vi.fn();
+    w.system("test").with(Position, Sprite).update({ watch: Position, onEnter: true }, update);
+    w.progress(0, 0);
+
+    w.entity().add(Position).add(Sprite).remove(Sprite);
+    w.progress(1, 1);
+
+    expect(update).not.toHaveBeenCalled();
   });
 });

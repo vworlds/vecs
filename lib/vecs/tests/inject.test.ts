@@ -435,7 +435,7 @@ describe("Iter cursor", () => {
       expect(cb.mock.calls[0][1]).toEqual([pos]);
     });
 
-    it("snapshots target values and Iter.src when the source is destroyed before drain", () => {
+    it("does not dispatch an Iter enter when the source is destroyed before drain", () => {
       const w = new World();
       w.component(Tag);
       w.component(FriendOf);
@@ -445,15 +445,12 @@ describe("Iter cursor", () => {
         .enter({ cursor: Iter, inject: [{ target: [FriendOf, [Entity, Tag]] }] }, cb);
       w.progress(0, 0);
       const target = w.entity().add(Tag);
-      const tag = target.get(Tag);
       const source = w.entity().add(FriendOf, target);
       source.destroy();
 
       w.progress(0, 0);
 
-      const it = cb.mock.calls[0][0] as Iter;
-      expect(cb.mock.calls[0][1]).toEqual([target, tag]);
-      expect(it.src).toEqual([target, target]);
+      expect(cb).not.toHaveBeenCalled();
     });
   });
 

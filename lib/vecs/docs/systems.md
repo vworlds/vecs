@@ -89,6 +89,11 @@ Fires once when an entity starts matching the system:
 .enter({ inject: [Position, Sprite] }, (e, [pos, sprite]) => sprite.setPosition(pos.x, pos.y))
 ```
 
+The callback runs only if the entity is still a member when this system drains its inbox. If it
+left or was destroyed first, vecs drops the queued `enter` and its paired `exit`; do not add a
+`destroyed` guard to normal `enter` setup code. If it leaves and re-enters before draining, the
+callback receives the ordered lifecycle transitions.
+
 For systems, injected values and `Iter.src` are captured when entry is routed and replayed from that
 snapshot when the system next drains its inbox.
 

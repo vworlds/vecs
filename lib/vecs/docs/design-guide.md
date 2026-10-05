@@ -271,7 +271,8 @@ classes or DSL objects (`{ all: [...] }`, `{ any: [...] }`, `{ parent: X }`, `{ 
 ### Reactive callbacks: `enter` / `update` / `exit`
 
 - **`enter`** — fires once when an entity _becomes_ a member. Use it for one-time setup
-  (create the resource).
+  (create the resource). It fires only when the entity remains a member when the system drains;
+  vecs drops a transient entry and its paired exit, so setup code does not need a `destroyed` guard.
 - **`update(C, …)`** — adds `C` to the predicate and fires when watched component `C` is modified.
   Pass `{ onEnter: true }` when it should also fire on entry for an already-present watched
   component. Use that to initialize on entry _and_ react to changes; leave it off when a separate
