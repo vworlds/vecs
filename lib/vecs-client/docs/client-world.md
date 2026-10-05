@@ -82,6 +82,18 @@ every pending `invoke` with an `RPCError` carrying `RPC_CLOSED_CODE`. A synchron
 promise from `VecsSocket.send` follows the same path, so a transport that misses or delays its
 `disconnect` event cannot leave an ack rejection or RPC hanging.
 
+Replies the client has already received are never lost to the disconnect. `ClientWorld` applies
+incoming RPCs from `apply()`, so a reply and a disconnect can both arrive between two `apply()` calls.
+On disconnect, before rejecting anything, the world settles every queued _response_: a pending call
+whose reply is queued resolves with its params or rejects with the server's `RPCError`, exactly as
+if `apply()` had run first. A server that rejects `auth` with a typed code and then closes the
+session therefore delivers that code, not `RPC_CLOSED_CODE`. Only calls with no queued reply reject
+with `RPC_CLOSED_CODE`. Server-to-client _requests_ still queued are dropped without running: the dead
+connection cannot carry their replies, and they must never execute on a later connection. Callers can
+rely on settlement happening before the `disconnect` event is emitted; promise continuations still run
+as microtasks after the emitting code returns, so they observe the settled call before any later
+macrotask.
+
 The same rejection applies to calls made _after_ the disconnect: until you attach a replacement
 socket, `invoke` returns a promise rejected with `RPC_CLOSED_CODE` and queues nothing. A queued call
 would either hang forever or be sent on the next connection, which may be a different server world
@@ -102,7 +114,7 @@ world.dispose();
 In order, `dispose`:
 
 1. rejects every pending `invoke` with an `RPCError` carrying `RPC_CLOSED_CODE`,
-2. drops buffered RPC requests and frames,
+2. drops buffered RPCs (replies included, since a disposed world abandons everything) and frames,
 3. destroys the replicated `Networked` entities, firing their exit systems,
 4. resets the diff buffer so a new world starts from a clean baseline, and
 5. closes the socket.

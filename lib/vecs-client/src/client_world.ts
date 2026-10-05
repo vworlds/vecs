@@ -2,6 +2,7 @@ import {
   Client2Server,
   RPC,
   RPC_CLOSED_CODE,
+  RPC_RESPONSE_ID,
   RPCError,
   Server2Client,
   SessionRPC,
@@ -226,7 +227,9 @@ export class ClientWorld extends NetworkWorld {
    * replacement is attached yet, or an already-pending call loses its peer. A
    * call made while disconnected is rejected immediately and never queued, so it
    * cannot be sent on a later connection — which may be a different server
-   * world. A client call is never abandoned silently, because `ClientWorld`
+   * world. A reply that was already received when the connection was lost still
+   * settles its call with the server's result or error, rather than
+   * `RPC_CLOSED_CODE`, even if {@link ClientWorld.apply} has not run yet. A client call is never abandoned silently, because `ClientWorld`
    * does not run `SessionRPC.timeoutTick`.
    *
    * A call made before the first {@link ClientWorld.attachSocket} is queued and
@@ -312,7 +315,9 @@ export class ClientWorld extends NetworkWorld {
    * Use this for a disconnect the client may reconnect from: replicated entities
    * stay in place, and a later baseline re-creates them. Pending RPCs reject with
    * `RPC_CLOSED_CODE`, because the peer can no longer answer them, and so do
-   * {@link ClientWorld.invoke} calls made until a new socket is attached. Use
+   * {@link ClientWorld.invoke} calls made until a new socket is attached. A reply
+   * already received but not yet applied settles its call first, and queued
+   * server-to-client requests are dropped unrun. Use
    * {@link ClientWorld.dispose} to release everything.
    */
   public close(): void {
@@ -328,7 +333,8 @@ export class ClientWorld extends NetworkWorld {
    * Tear the world down for good, so a fresh `ClientWorld` can take over the page.
    *
    * In order: pending {@link ClientWorld.invoke} calls reject with an
-   * `RPCError` carrying code `RPC_CLOSED_CODE`; the ack timer stops; replicated
+   * `RPCError` carrying code `RPC_CLOSED_CODE` (replies still queued unapplied
+   * are abandoned with everything else, unlike {@link ClientWorld.close}); the ack timer stops; replicated
    * entities are destroyed — firing every exit system, which is what lets render
    * hooks free their resources; and the socket closes.
    *
@@ -508,6 +514,11 @@ export class ClientWorld extends NetworkWorld {
     }
     this._disconnected = true;
     this._stopAckTimer();
+    // Replies already received but not yet applied still answer their calls, so
+    // settle them first. Queued server requests are dropped: a dead connection
+    // cannot carry their replies, and they must never run on a later one.
+    const queued = this._rpcInbox.splice(0);
+    this._rpc.process(queued.filter((message) => message.rpcId === RPC_RESPONSE_ID));
     this._rpc.abortPending(
       new RPCError(RPC_CLOSED_CODE, "ClientWorld disconnected before the RPC completed")
     );
