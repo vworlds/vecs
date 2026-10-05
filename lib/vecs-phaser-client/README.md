@@ -37,6 +37,16 @@ const world = await ClientWorld.connectDgram({
 world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64, catalog });
 ```
 
+`loadAssets` removes the Phaser loader listeners it adds when the load completes, fails (a
+`loaderror` rejects the promise), or is aborted, so calling it on every world switch does not leak
+listeners. Pass `signal` to cancel a load: the promise rejects with the signal's reason and the
+loader is reset.
+
+```ts
+const controller = new AbortController();
+const catalog = await loadAssets(scene, { host, port, worldName, signal: controller.signal });
+```
+
 The `Image` renderer creates textured entities from replicated `Image` components with no
 per-entity client code, like the primitive shape renderers.
 

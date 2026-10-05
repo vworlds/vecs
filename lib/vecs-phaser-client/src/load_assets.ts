@@ -16,6 +16,11 @@ export interface LoadAssetsOptions {
   apiBasePath?: string;
   /** Optional Phaser loader progress callback, receiving values from 0 to 1. */
   onProgress?: (value: number) => void;
+  /**
+   * Optional signal that cancels the load. On abort, every loader listener `loadAssets` added is
+   * removed, the loader is stopped, and the promise rejects with the signal's reason.
+   */
+  signal?: AbortSignal;
 }
 
 /** Lookup wrapper for the asset catalog returned by `loadAssets`. */
@@ -50,11 +55,16 @@ export class Catalog {
 
 /**
  * Fetch a world's asset catalog, queue every spritesheet in Phaser, and resolve after loading.
+ *
+ * The loader `progress`, `complete`, and `loaderror` listeners added by this call are removed when
+ * the load completes, fails, or is aborted through `conn.signal`, so repeated calls on one scene
+ * do not leak listeners. A load error rejects the promise; an abort rejects with `signal.reason`.
  */
 export async function loadAssets(scene: Phaser.Scene, conn: LoadAssetsOptions): Promise<Catalog> {
   const origin = `${conn.protocol ?? "http"}://${conn.host}:${conn.port}`;
   const basePath = worldPath(conn.apiBasePath, conn.worldName);
-  const res = await fetch(`${origin}${basePath}/assets`);
+  conn.signal?.throwIfAborted();
+  const res = await fetch(`${origin}${basePath}/assets`, { signal: conn.signal });
 
   if (!res.ok) {
     throw new Error(`Failed to fetch asset catalog from ${origin}${basePath}/assets`);
@@ -78,9 +88,32 @@ export async function loadAssets(scene: Phaser.Scene, conn: LoadAssetsOptions): 
     return new Catalog(catalog);
   }
 
-  return new Promise((resolve) => {
-    scene.load.on("progress", (value: number) => conn.onProgress?.(value));
-    scene.load.once("complete", () => resolve(new Catalog(catalog)));
-    scene.load.start();
+  return new Promise((resolve, reject) => {
+    const loader = scene.load;
+    const onProgress = (value: number) => conn.onProgress?.(value);
+    const cleanup = () => {
+      loader.off("progress", onProgress);
+      loader.off("complete", onComplete);
+      loader.off("loaderror", onError);
+      conn.signal?.removeEventListener("abort", onAbort);
+    };
+    const onComplete = () => {
+      cleanup();
+      resolve(new Catalog(catalog));
+    };
+    const onError = (file: { key?: string }) => {
+      cleanup();
+      reject(new Error(`Failed to load asset ${file?.key ?? "(unknown)"}`));
+    };
+    const onAbort = () => {
+      cleanup();
+      loader.reset();
+      reject(conn.signal!.reason);
+    };
+    loader.on("progress", onProgress);
+    loader.once("complete", onComplete);
+    loader.on("loaderror", onError);
+    conn.signal?.addEventListener("abort", onAbort, { once: true });
+    loader.start();
   });
 }
