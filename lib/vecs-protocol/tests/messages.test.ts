@@ -58,6 +58,43 @@ describe("protocol messages", () => {
     expect(decoded.rpc[0].params).toEqual(["ok"]);
   });
 
+  it("round-trips a close notice with and without a code and reason", () => {
+    const decode = (close: Server2Client["close"]) =>
+      new Decoder(encodeMessage(new Server2Client({ close }))).read(Server2Client);
+
+    expect(decode({ code: 4003, reason: "superseded" }).close).toEqual({
+      code: 4003,
+      reason: "superseded",
+    });
+    expect(decode({ code: 0 }).close).toEqual({ code: 0 });
+    expect(decode({ reason: "" }).close).toEqual({ reason: "" });
+    expect(decode({}).close).toEqual({});
+    expect(decode(undefined).close).toBeUndefined();
+  });
+
+  it("carries a close notice alongside the diff and RPC replies", () => {
+    const message = new Server2Client({
+      diff: new StateDiff({ fromFrame: 3, toFrame: 4 }),
+      rpc: [new RPC({ rpcId: 0, callId: 1, params: ["ok"] })],
+      close: { code: 4003, reason: "superseded" },
+    });
+
+    const decoded = new Decoder(encodeMessage(message)).read(Server2Client);
+
+    expect(decoded.diff?.toFrame).toBe(4);
+    expect(decoded.rpc[0].params).toEqual(["ok"]);
+    expect(decoded.close).toEqual({ code: 4003, reason: "superseded" });
+  });
+
+  it("encodes a frame without a notice exactly as before", () => {
+    const message = new Server2Client({ diff: new StateDiff({ fromFrame: 3, toFrame: 4 }) });
+
+    expect(encodeMessage(message)).toEqual(
+      encodeMessage(new Server2Client({ diff: message.diff, close: undefined }))
+    );
+    expect(new Decoder(encodeMessage(message)).read(Server2Client).close).toBeUndefined();
+  });
+
   it("round-trips client acks with arbitrary input", () => {
     const message = new Client2Server({
       ackFrame: 7,

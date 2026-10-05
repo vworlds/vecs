@@ -11,6 +11,7 @@ import {
   cid_pack,
   encodeRelationshipSnapshot,
   NetworkWorld,
+  type CloseNotice,
   type NetworkWorldOptions,
   type RemovedComponent,
   type RPCHandler,
@@ -130,6 +131,12 @@ class ServerClientSession {
    * without a frame.
    */
   public closeFlushedFrame: Server2Client | undefined;
+  /**
+   * The code and reason {@link ServerWorld.closeSession} was given, delivered
+   * to the client on the close frame. `undefined` when the close carried
+   * neither, in which case a session with nothing owed closes without a frame.
+   */
+  public closeNotice: CloseNotice | undefined;
   /** Frame number of {@link closeFlushedFrame}; acking it ends the linger. */
   public closeAckFrame = 0;
   /** Wall-clock deadline in `performance.now()` ms after which the linger ends. */
@@ -324,9 +331,16 @@ export class ServerWorld extends NetworkWorld {
    *   session's `NetworkClient` entity.
    * @param reason - Recorded on the caller's `NetworkClient.closeReason` before
    *   the entity is destroyed, so an exit system can log why the server hung up.
+   *   Also sent to the client on the close frame, so its `disconnect` event can
+   *   say why.
+   * @param code - Machine-readable close code, delivered to the client with the
+   *   reason. `0`–`100` is reserved for the protocol, as with typed RPC errors;
+   *   applications pick their own codes above that range. A close that carries
+   *   a reason or a code always sends a close frame, even when no RPC reply is
+   *   owed, and lingers until the client acks it like any other close.
    * @returns `true` when a live session was scheduled to close.
    */
-  public closeSession(connection: string | Entity, reason?: string): boolean {
+  public closeSession(connection: string | Entity, reason?: string, code?: number): boolean {
     const session = this._sessionFor(connection);
     if (!session) {
       return false;
@@ -335,6 +349,9 @@ export class ServerWorld extends NetworkWorld {
       session.entity.getMut(NetworkClient, (client) => {
         client.closeReason = reason;
       });
+    }
+    if (reason !== undefined || code !== undefined) {
+      session.closeNotice = { code, reason };
     }
     session.closing = true;
     return true;
@@ -568,7 +585,7 @@ export class ServerWorld extends NetworkWorld {
    * Advance one closing session towards its teardown, flushing the replies it
    * still owes and then lingering before the transport goes down.
    *
-   * A closing session with nothing owed destroys immediately, exactly as
+   * A closing session with nothing owed and no close notice destroys immediately, exactly as
    * before: nothing is left to deliver, so the close is prompt. Otherwise the
    * owed replies are written on a numbered frame — an empty
    * `StateDiff` from the client's last acknowledged frame — so the client's
@@ -612,7 +629,7 @@ export class ServerWorld extends NetworkWorld {
       return;
     }
     const rpc = session.rpc.getOutgoing();
-    if (rpc.length === 0) {
+    if (rpc.length === 0 && session.closeNotice === undefined) {
       session.entity.destroy();
       return;
     }
@@ -626,6 +643,7 @@ export class ServerWorld extends NetworkWorld {
     const frame = new Server2Client({
       diff: new StateDiff({ fromFrame: Math.max(session.ackFrame, 1), toFrame }),
       rpc,
+      close: session.closeNotice,
     });
     session.closeFlushedFrame = frame;
     session.closeAckFrame = toFrame;

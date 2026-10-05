@@ -8,6 +8,7 @@ import {
   SessionRPC,
   StateDiff,
   ALL_COMPONENTS,
+  type CloseNotice,
   cid_unpack,
   decodeRelationshipSnapshot,
   NetworkWorld,
@@ -47,8 +48,21 @@ export interface ClientWorldResetEvent {
 
 export type ClientWorldResetHandler = (event: ClientWorldResetEvent) => void;
 
+/**
+ * Payload of the `disconnect` event when the server closed the session on
+ * purpose and the close notice arrived. Same shape as the server's
+ * `closeSession(connection, reason, code)` arguments.
+ */
+export type ClientWorldDisconnectEvent = CloseNotice;
+
 export interface ClientWorldEvents {
-  disconnect: () => void;
+  /**
+   * The connection is gone. The payload is present only when the server closed
+   * it deliberately and the notice arrived — see {@link ClientWorldDisconnectEvent};
+   * for transport loss, a failed send, or a local `close()` / `dispose()` the
+   * handler receives `undefined`.
+   */
+  disconnect: (event?: ClientWorldDisconnectEvent) => void;
   reset: ClientWorldResetHandler;
 }
 
@@ -104,6 +118,7 @@ export class ClientWorld extends NetworkWorld {
   private _input: unknown;
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
+  private _closeNotice: CloseNotice | undefined;
   private _disconnected = false;
   private _forceBaselineReset = false;
   private _disposed = false;
@@ -207,6 +222,7 @@ export class ClientWorld extends NetworkWorld {
     }
     this._socket = socket;
     this._disconnected = false;
+    this._closeNotice = undefined;
     socket.on("receive", (data) => this._receive(data));
     socket.on("disconnect", () => this._handleDisconnect(socket));
     this._startAckTimer();
@@ -359,7 +375,9 @@ export class ClientWorld extends NetworkWorld {
   }
 
   private _receive(data: Uint8Array): void {
-    if (this._disposed) {
+    // A frame that outlives the connection (a retransmit of the close frame,
+    // a straggler from a replaced socket) must not revive the world.
+    if (this._disposed || this._disconnected) {
       return;
     }
     const message = new Decoder(data).read(Server2Client);
@@ -369,6 +387,23 @@ export class ClientWorld extends NetworkWorld {
     if (message.diff) {
       this._pushDiff(message.diff);
     }
+    if (message.close) {
+      this._handleServerClose(message.close);
+    }
+  }
+
+  /**
+   * The server closed the session on purpose. Ack the frame that carried the
+   * notice — its delivery receipt is what lets the server close promptly —
+   * then disconnect with the notice. Owed replies in the same frame settle
+   * first, inside {@link ClientWorld._handleDisconnect}.
+   */
+  private _handleServerClose(notice: CloseNotice): void {
+    // Stashed first: if the ack itself fails to send, that failure disconnects
+    // the world, and it must still report the server's reason.
+    this._closeNotice = notice;
+    this.send();
+    this._handleDisconnect(this._socket);
   }
 
   private _pushDiff(sd: StateDiff): void {
@@ -528,7 +563,9 @@ export class ClientWorld extends NetworkWorld {
     if (this._baselineApplied) {
       this._forceBaselineReset = true;
     }
-    this.events.emit("disconnect");
+    const notice = this._closeNotice;
+    this._closeNotice = undefined;
+    this.events.emit("disconnect", notice);
   }
 
   private _startAckTimer(): void {

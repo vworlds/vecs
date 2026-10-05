@@ -94,6 +94,28 @@ rely on settlement happening before the `disconnect` event is emitted; promise c
 as microtasks after the emitting code returns, so they observe the settled call before any later
 macrotask.
 
+### Why the server closed
+
+`disconnect` carries an optional payload, `{ code?: number; reason?: string }`
+(`ClientWorldDisconnectEvent`). It is present when the server closed the session on purpose with
+`closeSession(connection, reason, code)` and the close frame arrived; the world acks that frame, so
+the server can finish promptly, then disconnects. Owed replies in the same frame settle first, as
+above. The payload is `undefined` for transport loss, a failed send, or a local `close()`:
+
+```ts
+const SUPERSEDED = 4003; // application code; 0–100 is reserved for the protocol
+
+world.events.on("disconnect", (event) => {
+  if (event?.code === SUPERSEDED) {
+    showResumeHere(event.reason); // another tab took the session: do not auto-reconnect
+  } else {
+    reconnect();
+  }
+});
+```
+
+`dispose()` does not emit `disconnect`, so it never carries a payload either.
+
 The same rejection applies to calls made _after_ the disconnect: until you attach a replacement
 socket, `invoke` returns a promise rejected with `RPC_CLOSED_CODE` and queues nothing. A queued call
 would either hang forever or be sent on the next connection, which may be a different server world

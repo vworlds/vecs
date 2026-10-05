@@ -98,6 +98,20 @@ for (const previous of sessions.forPlayer(playerId)) {
 Pass a `reason` to record why the server hung up. It lands on `NetworkClient.closeReason` before the
 entity is destroyed, so the exit system above can log it.
 
+The reason and an optional numeric `code` also travel to the client on the close frame, so its
+`disconnect` event can tell a deliberate close from a lost connection:
+
+```ts
+world.closeSession(previous.connectionId, `superseded by ${ctx.connectionId}`, SUPERSEDED);
+```
+
+Codes `0`–`100` are reserved for the protocol, as for typed RPC errors; pick your own above that
+range (for example `WRONG_WORLD = 4001`, `INVALID_CREDENTIALS = 4002`, `SUPERSEDED = 4003`). A
+close that carries a reason or a code always sends a close frame — see below — and the client
+receives both fields on `ClientWorld`'s `disconnect` event (see
+[Disconnection and disposal](../../vecs-client/docs/client-world.md#disconnection-and-disposal)).
+A `closeSession(id)` with neither sends no notice, and the client sees an ordinary disconnect.
+
 ### The close is graceful
 
 A close often has to explain itself: the common case is an `auth` handler that rejects the call with
@@ -106,9 +120,9 @@ from a bad credential. So `closeSession` does not hang up in the middle of the h
 
 It marks the session **closing**, which stops it immediately from accepting further input or
 replicating any further state, and leaves the RPC replies it still owes queued in the outbox. A
-session with nothing owed closes on the next `send()` without emitting a frame at all. Otherwise
-`send()` writes those replies on a numbered frame — an empty diff from your last acknowledged frame
-— and then **lingers** before tearing the transport down:
+session with nothing owed and no reason or code closes on the next `send()` without emitting a
+frame at all. Otherwise `send()` writes those replies and the close notice on a numbered frame — an
+empty diff from your last acknowledged frame — and then **lingers** before tearing the transport down:
 
 - the client's next ack of that frame is its delivery receipt, and ends the linger immediately;
 - until the ack arrives, the frame is retransmitted on every `send()`, so a datagram the unreliable
@@ -175,14 +189,14 @@ Build the query before you iterate it — an untracked, unbuilt query matches no
 Session teardown is driven by component removal, so it runs exactly once no matter what ends the
 session:
 
-| What happened                                | Result                                                                                                                                                                                                                                                                                                    |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `closeSession(id, reason)`                   | Session marked closing. The next `send()` destroys it at once when nothing is owed; otherwise it flushes the owed replies on a numbered frame and lingers until the client acks that frame or `closeLingerMs` elapses, then tears down: `NetworkClient` entity destroyed, session removed, socket closed. |
-| The application destroys the `NetworkClient` | Immediate teardown, so app-driven disconnects close the socket too.                                                                                                                                                                                                                                       |
-| The peer disconnects                         | Same teardown, driven from the socket's `disconnect` event — including a disconnect that arrives while the close lingers.                                                                                                                                                                                 |
-| No traffic for `disconnectGraceMs`           | Same teardown, with reason `disconnect grace period elapsed`.                                                                                                                                                                                                                                             |
-| A frame arrives after teardown               | Dropped. The socket has no way to unsubscribe, so a finished session ignores late frames.                                                                                                                                                                                                                 |
-| A frame arrives while closing                | Only the ack is honored (it ends the linger); input and new calls are dropped.                                                                                                                                                                                                                            |
+| What happened                                | Result                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `closeSession(id, reason, code)`             | Session marked closing. The next `send()` destroys it at once when nothing is owed and there is no reason or code; otherwise it flushes the owed replies on a numbered frame and lingers until the client acks that frame or `closeLingerMs` elapses, then tears down: `NetworkClient` entity destroyed, session removed, socket closed. |
+| The application destroys the `NetworkClient` | Immediate teardown, so app-driven disconnects close the socket too.                                                                                                                                                                                                                                                                      |
+| The peer disconnects                         | Same teardown, driven from the socket's `disconnect` event — including a disconnect that arrives while the close lingers.                                                                                                                                                                                                                |
+| No traffic for `disconnectGraceMs`           | Same teardown, with reason `disconnect grace period elapsed`.                                                                                                                                                                                                                                                                            |
+| A frame arrives after teardown               | Dropped. The socket has no way to unsubscribe, so a finished session ignores late frames.                                                                                                                                                                                                                                                |
+| A frame arrives while closing                | Only the ack is honored (it ends the linger); input and new calls are dropped.                                                                                                                                                                                                                                                           |
 
 Because cleanup hangs off entity removal, it is observable with the normal ECS tools: destroy the
 `NetworkClient` entity yourself when you want a disconnect, and react to removal with `exit`
@@ -190,15 +204,15 @@ systems.
 
 ## Reference
 
-| Member                                    | Description                                                                                                |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `world.handleRpc(rpcId, handler)`         | Register a handler for every session, now and later.                                                       |
-| `world.closeSession(connection, reason?)` | Gracefully close one session by connection id or `NetworkClient` entity. Returns whether it was scheduled. |
-| `world.send()`                            | Advance one replication frame; called by `progress()`.                                                     |
-| `ServerRPCContext`                        | `{ world, caller, connectionId }` passed as a handler's third argument.                                    |
-| `NetworkClient.id`                        | The connection id.                                                                                         |
-| `NetworkClient.closeReason`               | Why the server closed the session, or `undefined`.                                                         |
-| `closeLingerMs` (`ServerWorldOptions`)    | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.      |
+| Member                                           | Description                                                                                                                                        |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `world.handleRpc(rpcId, handler)`                | Register a handler for every session, now and later.                                                                                               |
+| `world.closeSession(connection, reason?, code?)` | Gracefully close one session by connection id or `NetworkClient` entity, telling the client the reason and code. Returns whether it was scheduled. |
+| `world.send()`                                   | Advance one replication frame; called by `progress()`.                                                                                             |
+| `ServerRPCContext`                               | `{ world, caller, connectionId }` passed as a handler's third argument.                                                                            |
+| `NetworkClient.id`                               | The connection id.                                                                                                                                 |
+| `NetworkClient.closeReason`                      | Why the server closed the session, or `undefined`.                                                                                                 |
+| `closeLingerMs` (`ServerWorldOptions`)           | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                              |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-server/src/server_world.ts` and
 `lib/vecs-server/src/networked.ts`.

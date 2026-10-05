@@ -20,6 +20,7 @@ export {
 export {
   Client2Server,
   ComponentSnapshot,
+  type CloseNotice,
   EncodedSnapshot,
   Server2Client,
   StateDiff,
