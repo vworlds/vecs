@@ -86,6 +86,16 @@ export class ArrayMap<T> {
  * and `delete`/new `set` do more bookkeeping. In return, iteration is dense and
  * does not scan sparse holes.
  *
+ * Trade-off: the dense arrays grow by `push`, so V8 cannot pretenure the entries
+ * the way it pretenured the per-entry `[key, value]` literals of the previous
+ * layout. A fresh process that creates tens of thousands of long-lived entities
+ * in bulk and then destroys them is slower for it: 3–17% to create and 19–35%
+ * to destroy 65,536 two-component entities. The gap comes from allocation-site
+ * pretenuring, not extra work, and it reverses under
+ * `node --no-allocation-site-pretenuring`. Lookups take two loads instead of
+ * four, and the layout took about 9% off the steady-state tick of
+ * `bench/sector-tick.ts`; `bench/README.md` has the measurements.
+ *
  * @typeParam T - Value type stored in the map.
  */
 export class IterableArrayMap<T> {

@@ -107,3 +107,19 @@ RUN_VECS_ECS_BENCH_COUNTS=16384,65536 RUN_VECS_ECS_BENCH_ROUNDS=7 npm run bench:
 
 The script pins Vitest's default reporter. Vitest 4 switches to a quieter reporter when it detects
 an AI agent, and that reporter hides the results the benchmark prints.
+
+## Known trade-off: bulk create and destroy
+
+`IterableArrayMap` (`lib/vecs/src/util/array_map.ts`) holds every entity's components and the
+world's entity table. It keeps its entries in parallel arrays that grow by `push`. Before, each
+entry was its own `[key, value]` array literal. The new layout took about 9% off the sector-tick
+benchmark's mean tick, but V8 cannot pretenure it the way it pretenured the per-entry literals.
+
+That shows in one pattern: a fresh process that creates tens of thousands of long-lived entities
+in bulk and then destroys them. With 65,536 two-component entities, across four sessions,
+creating them was 3–17% slower and destroying them 19–35% slower than with the literal layout.
+The gap comes from V8's allocation-site pretenuring, not from extra work. Under
+`node --no-allocation-site-pretenuring`, the literal layout slows down (180 → 199 ms to create,
+113 → 143 ms to destroy) while the new one stays at 185 ms and 135 ms, so the new layout is then
+the faster of the two. Neither the sector-tick benchmark nor the ECS microbenchmark, which create
+and destroy entities inside a longer-running process, shows the slowdown.
