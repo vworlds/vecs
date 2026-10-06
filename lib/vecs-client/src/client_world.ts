@@ -221,12 +221,14 @@ export class ClientWorld extends NetworkWorld {
    *
    * `VecsSocket` has no `off`, so the `receive` and `disconnect` handlers stay
    * attached for the socket's lifetime; {@link ClientWorld.dispose} makes them
-   * no-ops instead.
+   * no-ops instead, and so does attaching another socket: each handler checks
+   * that its own socket is still the attached one.
    *
    * Attaching a socket after a disconnect is the reconnect path: it clears the
    * disconnected state, so {@link ClientWorld.invoke} accepts calls again. Late
-   * events from the previous socket are ignored. Calls made while disconnected
-   * were already rejected and are not replayed on the new socket.
+   * events from the previous socket, received frames included, are ignored. Calls
+   * made while disconnected were already rejected and are not replayed on the new
+   * socket.
    *
    * @param socket - Transport to receive frames from. Passing a second socket
    *   replaces the first without detaching it — dispose the world instead.
@@ -239,7 +241,7 @@ export class ClientWorld extends NetworkWorld {
     this._socket = socket;
     this._disconnected = false;
     this._closeNotice = undefined;
-    socket.on("receive", (data) => this._receive(data));
+    socket.on("receive", (data) => this._receive(socket, data));
     socket.on("disconnect", () => this._handleDisconnect(socket));
     this._startAckTimer();
   }
@@ -440,10 +442,13 @@ export class ClientWorld extends NetworkWorld {
     this.close();
   }
 
-  private _receive(data: Uint8Array): void {
+  private _receive(socket: VecsSocket, data: Uint8Array): void {
     // A frame that outlives the connection (a retransmit of the close frame,
-    // a straggler from a replaced socket) must not revive the world.
-    if (this._disposed || this._disconnected) {
+    // a straggler from a replaced socket) must not revive the world. A replaced
+    // socket stays attached, so its frames are told apart here, by the same rule
+    // _handleDisconnect applies to its disconnect: they belong to the old
+    // connection, not the current one.
+    if (this._disposed || this._disconnected || socket !== this._socket) {
       return;
     }
     let message: Server2Client;

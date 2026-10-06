@@ -141,7 +141,9 @@ would either hang forever or be sent on the next connection, which may be a diff
 (a sector switch), so a stale action could run in the wrong place. Calls made before the first
 `attachSocket` are different — nothing has been lost yet — so they stay queued and are sent on
 connect. After `attachSocket(newSocket)`, `invoke` works normally, and late events from the old
-socket (`disconnect` or a rejected send) are ignored instead of tearing down the new connection.
+socket (a received frame, `disconnect`, or a rejected send) are ignored instead of reaching the new
+connection. A frame that straggles in on the old socket is neither applied nor acked, whether it is
+a diff from the old server session, a retransmitted close notice, or garbage.
 
 `close` follows that disconnection path and closes the socket, but leaves replicated entities and
 the diff buffer intact: attach a fresh socket and its next baseline resynchronizes the world. `dispose`
