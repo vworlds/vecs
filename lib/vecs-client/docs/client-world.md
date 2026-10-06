@@ -85,6 +85,9 @@ world.listen(201, ([question]) => {
 });
 ```
 
+The handler runs once per call, however many copies of the request the server sends; see
+[Duplicates and the settled watermark](../../vecs-protocol/docs/rpc.md#duplicates-and-the-settled-watermark).
+
 `ClientWorld` does not time calls out: its ack timer only sends frames and never runs
 `SessionRPC.timeoutTick`. A call settles with its reply, or rejects with `RPC_CLOSED_CODE` when the
 connection is lost or the world is disposed; one the server never answers stays pending until then.

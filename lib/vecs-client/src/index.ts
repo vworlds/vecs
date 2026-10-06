@@ -6,4 +6,10 @@ export type {
   ClientWorldOptions,
   DgramConnectOptions,
 } from "./client_world.js";
-export { RPCError, RPC_CLOSED_CODE, RPC_TIMEOUT_CODE, worldPath } from "@vworlds/vecs-protocol";
+export {
+  RPCError,
+  RPC_CLOSED_CODE,
+  RPC_TIMEOUT_CODE,
+  RPC_UNSPECIFIED_ERROR_CODE,
+  worldPath,
+} from "@vworlds/vecs-protocol";

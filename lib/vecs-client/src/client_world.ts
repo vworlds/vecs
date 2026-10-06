@@ -280,11 +280,13 @@ export class ClientWorld extends NetworkWorld {
    *
    * A client has a single peer, so the handler's caller context is `undefined`.
    * The handler runs from {@link ClientWorld.apply}, not when the request
-   * arrives, so under `progress()` it runs in the world's `ON_LOAD` phase. Its
-   * answer is queued once the handler settles and goes out with the next ack.
+   * arrives, so under `progress()` it runs in the world's `ON_LOAD` phase. It
+   * runs once per call, however many copies of the request the server sends.
+   * Its answer is queued once the handler settles and goes out with the next
+   * ack.
    *
    * @param rpcId - Request id to answer.
-   * @param handler - Handler run for each incoming call; see {@link RPCHandler}.
+   * @param handler - Handler run once for each incoming call; see {@link RPCHandler}.
    */
   public listen(rpcId: number, handler: RPCHandler): void {
     this._rpc.listen(rpcId, handler);
@@ -321,7 +323,11 @@ export class ClientWorld extends NetworkWorld {
   }
 
   /**
-   * Ack the latest applied frame to the server, with the current input and any queued RPCs.
+   * Ack the latest applied frame to the server, with the current input, any queued RPCs, and
+   * the RPC low watermark (`rpcSettledBelow`) that tells the server which of this client's
+   * calls have settled, so it can drop the replies it kept for them and ignore late copies of
+   * their requests. The watermark is left off the wire while it is `0`: until the client has
+   * made a call and its oldest one has settled.
    *
    * A synchronous transport error or rejected transport promise closes the client connection,
    * so the ack timer cannot leave an unhandled rejection after a peer disappears.
@@ -332,9 +338,10 @@ export class ClientWorld extends NetworkWorld {
       return;
     }
     const rpc = this._rpc.getOutgoing();
+    const rpcSettledBelow = this._rpc.settledBelow;
     const ackFrame = this._diffBuffer.version < 0 ? 0 : this._diffBuffer.version;
     const encoder = new Encoder(this._encodeBuffer);
-    encoder.write(new Client2Server({ ackFrame, input: this._input, rpc }));
+    encoder.write(new Client2Server({ ackFrame, input: this._input, rpc, rpcSettledBelow }));
     try {
       const sent = socket.send(encoder.getBuffer()) as unknown;
       if (sent && typeof (sent as PromiseLike<unknown>).then === "function") {
@@ -403,6 +410,10 @@ export class ClientWorld extends NetworkWorld {
       return;
     }
     const message = new Decoder(data).read(Server2Client);
+    // The server's low watermark comes first: it frees the replies this client was
+    // keeping for server calls that have settled, and it is what apply() judges
+    // the requests queued below against.
+    this._rpc.setPeerSettledBelow(message.rpcSettledBelow);
     if (message.rpc.length > 0) {
       // Replies settle their calls now, so an awaited invoke() does not depend on
       // the world being applied and its request stops being resent. They run

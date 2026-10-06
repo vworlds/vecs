@@ -311,6 +311,11 @@ export class ServerWorld extends NetworkWorld {
    * session sees its own caller, so one shared handler can authenticate, look
    * up, or attribute work per connection.
    *
+   * The handler runs once per call. A client re-sends its pending request with
+   * every ack, but a copy that arrives while the handler is still running is
+   * ignored, and one that arrives after it settled gets the original reply, so
+   * a slow or non-idempotent handler is safe.
+   *
    * ```ts
    * const AUTH_RPC = 101;
    * const AUTH_REJECTED = 4001;
@@ -515,7 +520,10 @@ export class ServerWorld extends NetworkWorld {
       if (diff.snapshots.length === 0 && diff.removed.length === 0 && rpc.length === 0) {
         return;
       }
-      this._sendFrame(session, new Server2Client({ diff, rpc }));
+      this._sendFrame(
+        session,
+        new Server2Client({ diff, rpc, rpcSettledBelow: session.rpc.settledBelow })
+      );
     });
 
     staleSessions.forEach((session) => {
@@ -613,6 +621,9 @@ export class ServerWorld extends NetworkWorld {
     if (message.input !== undefined) {
       session.entity.set(NetworkInput, { input: message.input });
     }
+    // On every frame, not only those that carry requests: the frame that reports
+    // a call as settled may have no request to send.
+    session.rpc.setPeerSettledBelow(message.rpcSettledBelow);
     if (message.rpc.length > 0) {
       session.rpc.process(message.rpc);
     }
@@ -704,6 +715,7 @@ export class ServerWorld extends NetworkWorld {
     const frame = new Server2Client({
       diff: new StateDiff({ fromFrame: Math.max(session.ackFrame, 1), toFrame }),
       rpc,
+      rpcSettledBelow: session.rpc.settledBelow,
       close: session.closeNotice,
     });
     session.closeFlushedFrame = frame;
@@ -729,7 +741,8 @@ export class ServerWorld extends NetworkWorld {
       this._sessions.delete(connectionId);
     }
     // Nothing can be answered by a session that no longer exists, and a server
-    // never issues calls of its own, so this only ever drops cached replies.
+    // never issues calls of its own, so this only drops what the session owed the
+    // client: its cached and queued replies, and the replies of handlers still running.
     session.rpc.abortPending(
       new RPCError(RPC_CLOSED_CODE, `connection ${connectionId} closed by the server`)
     );

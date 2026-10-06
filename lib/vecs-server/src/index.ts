@@ -5,4 +5,10 @@ export { ServerWorld } from "./server_world.js";
 export type { ServerRPCContext, ServerWorldOptions, ShutdownOptions } from "./server_world.js";
 export { EntityTracker, TrackerCache, View } from "./view.js";
 export type { IEntityTracker, IEntityTrackerListener } from "./view.js";
-export { RPCError, RPC_CLOSED_CODE, RPC_TIMEOUT_CODE, worldPath } from "@vworlds/vecs-protocol";
+export {
+  RPCError,
+  RPC_CLOSED_CODE,
+  RPC_TIMEOUT_CODE,
+  RPC_UNSPECIFIED_ERROR_CODE,
+  worldPath,
+} from "@vworlds/vecs-protocol";
