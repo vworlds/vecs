@@ -65,7 +65,7 @@ handler sees the right caller for every connection, including concurrent ones an
 arrive on later ticks. Registering a handler after clients have already connected applies to them
 too.
 
-Throw an [`RPCError`](../vecs-protocol/docs/rpc.md) to reject a call with a code the client can
+Throw an [`RPCError`](../../vecs-protocol/docs/rpc.md) to reject a call with a code the client can
 branch on:
 
 ```ts
@@ -223,5 +223,5 @@ Per-symbol detail lives in the JSDoc on `lib/vecs-server/src/server_world.ts` an
 
 ## See also
 
-- [Remote procedure calls](../vecs-protocol/docs/rpc.md) — the call channel and typed errors.
-- [Client world](../vecs-client/docs/client-world.md) — the browser side, including disposal.
+- [Remote procedure calls](../../vecs-protocol/docs/rpc.md) — the call channel and typed errors.
+- [Client world](../../vecs-client/docs/client-world.md) — the browser side, including disposal.

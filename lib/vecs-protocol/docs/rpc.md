@@ -39,7 +39,7 @@ the reply's `params`, so return the shape your client expects to read.
 to `RPCHandler<void>`, so existing handlers keep typechecking unchanged. `SessionRPC` never supplies
 a context itself — it always passes `undefined` — so a context is only meaningful when a host
 library binds one. `@vworlds/vecs-server` binds
-[`ServerRPCContext`](../vecs-server/docs/sessions.md) for every session; register your handler
+[`ServerRPCContext`](../../vecs-server/docs/sessions.md) for every session; register your handler
 through `world.handleRpc` instead of `SessionRPC.listen` if you want the caller.
 
 ## Errors
@@ -130,7 +130,7 @@ Per-symbol detail — including the wire shape of `RPC`, `RPCResult`, `Server2Cl
 
 ## See also
 
-- [Sessions and caller context](../vecs-server/docs/sessions.md) — how the server binds a context
+- [Sessions and caller context](../../vecs-server/docs/sessions.md) — how the server binds a context
   and closes sessions.
-- [Client world](../vecs-client/docs/client-world.md) — `invoke`/`listen` on `ClientWorld` and
+- [Client world](../../vecs-client/docs/client-world.md) — `invoke`/`listen` on `ClientWorld` and
   disposal.

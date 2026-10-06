@@ -48,7 +48,7 @@ dropped, or could never deliver an early `invoke`.
 ## Calling the server
 
 `invoke` sends a call and resolves with the reply's params. It rejects with an
-[`RPCError`](../vecs-protocol/docs/rpc.md) carrying the server's code and message.
+[`RPCError`](../../vecs-protocol/docs/rpc.md) carrying the server's code and message.
 
 ```ts
 import { RPCError } from "@vworlds/vecs-protocol";
@@ -198,6 +198,6 @@ Per-symbol detail lives in the JSDoc on `lib/vecs-client/src/client_world.ts` an
 
 ## See also
 
-- [Remote procedure calls](../vecs-protocol/docs/rpc.md) — the call channel and reserved codes.
-- [Sessions and caller context](../vecs-server/docs/sessions.md) — the server side of the same
+- [Remote procedure calls](../../vecs-protocol/docs/rpc.md) — the call channel and reserved codes.
+- [Sessions and caller context](../../vecs-server/docs/sessions.md) — the server side of the same
   connection.

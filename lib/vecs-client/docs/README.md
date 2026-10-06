@@ -16,6 +16,6 @@ JSDoc on the source in `lib/vecs-client/src/` — read it in your IDE.
 
 ## See also
 
-- [Remote procedure calls](../vecs-protocol/docs/rpc.md) — the call channel and typed errors.
-- [Sessions and caller context](../vecs-server/docs/sessions.md) — the server side.
+- [Remote procedure calls](../../vecs-protocol/docs/rpc.md) — the call channel and typed errors.
+- [Sessions and caller context](../../vecs-server/docs/sessions.md) — the server side.
 - [vecs documentation](../../vecs/docs/README.md) — worlds, systems, queries, and phases.
