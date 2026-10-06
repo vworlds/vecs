@@ -6,8 +6,8 @@ JSDoc on the source in `lib/vecs-protocol/src/` — read it in your IDE.
 
 ## Reading order
 
-1. [Remote procedure calls](./rpc.md) — the call/answer channel, typed errors, reserved codes,
-   timeouts, and aborts.
+1. [Remote procedure calls](./rpc.md) — the call/answer channel, typed errors, reserved error and
+   close codes, timeouts, and aborts.
 
 Component snapshot encoding and field ordering for networked messages live in
 [`@vworlds/vecs-wire`](../../vecs-wire/README.md); this package owns the message and RPC semantics

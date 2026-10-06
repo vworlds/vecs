@@ -1,4 +1,5 @@
 import {
+  CLOSE_PROTOCOL_ERROR_CODE,
   Client2Server,
   ComponentSnapshot,
   EncodedSnapshot,
@@ -392,9 +393,13 @@ export class ServerWorld extends NetworkWorld {
    *   say why.
    * @param code - Machine-readable close code, delivered to the client with the
    *   reason. `0`–`100` is reserved for the protocol, as with typed RPC errors;
-   *   applications pick their own codes above that range. A close that carries
-   *   a reason or a code always sends a close frame, even when no RPC reply is
-   *   owed, and lingers until the client acks it like any other close.
+   *   applications pick their own codes above that range. The reserved code in
+   *   use is {@link CLOSE_PROTOCOL_ERROR_CODE} (`1`): this world passes it itself,
+   *   with a reason that starts `protocol error:`, when it closes a session
+   *   because a frame from it could not be decoded, so do not pass it for any
+   *   other reason. A close that carries a reason or a code always sends a close
+   *   frame, even when no RPC reply is owed, and lingers until the client acks it
+   *   like any other close.
    * @returns `true` when a live session was scheduled to close.
    */
   public closeSession(connection: string | Entity, reason?: string, code?: number): boolean {
@@ -595,7 +600,24 @@ export class ServerWorld extends NetworkWorld {
     if (session.closed) {
       return;
     }
-    const message = new Decoder(data).read(Client2Server);
+    let message: Client2Server;
+    try {
+      message = new Decoder(data).read(Client2Server);
+    } catch (error) {
+      // A frame that cannot be decoded — truncated or random bytes, or a field tag
+      // from a newer protocol version — must not throw into the transport: nothing
+      // above the socket's `receive` listener catches it (`@vworlds/dgram-server`
+      // re-emits each data-channel message unguarded), so it would surface as an
+      // uncaught exception in the server process. It is that session's protocol
+      // violation instead: the frame is dropped and only this session is closed,
+      // gracefully, through `closeSession`. A session that is already closing
+      // keeps the reason it was given.
+      if (!session.closing) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.closeSession(session.entity, `protocol error: ${detail}`, CLOSE_PROTOCOL_ERROR_CODE);
+      }
+      return;
+    }
     if (session.closing) {
       if (message.ackFrame <= session.history.lastFrame) {
         session.ackFrame = Math.max(session.ackFrame, message.ackFrame);

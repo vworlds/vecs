@@ -11,6 +11,7 @@ session's own caller attached.
 - How to close one session, how the close lingers until the client received the replies it is owed,
   and how to close all of them at shutdown.
 - How `NetworkClient.closeReason` records why the server hung up.
+- What happens to a session that sends a frame the server cannot decode.
 - How cleanup runs exactly once, whether the server, the peer, or the application ends the session.
 
 ## The session
@@ -106,9 +107,11 @@ world.closeSession(previous.connectionId, `superseded by ${ctx.connectionId}`, S
 ```
 
 Codes `0`–`100` are reserved for the protocol, as for typed RPC errors; pick your own above that
-range (for example `WRONG_WORLD = 4001`, `INVALID_CREDENTIALS = 4002`, `SUPERSEDED = 4003`). A
-close that carries a reason or a code always sends a close frame — see below — and the client
-receives both fields on `ClientWorld`'s `disconnect` event (see
+range (for example `WRONG_WORLD = 4001`, `INVALID_CREDENTIALS = 4002`, `SUPERSEDED = 4003`). The
+protocol itself uses `CLOSE_PROTOCOL_ERROR_CODE` (`1`) when a frame cannot be decoded; see
+[Frames that cannot be decoded](#frames-that-cannot-be-decoded). A close that carries a reason or a
+code always sends a close frame — see below — and the client receives both fields on
+`ClientWorld`'s `disconnect` event (see
 [Disconnection and disposal](../../vecs-client/docs/client-world.md#disconnection-and-disposal)).
 A `closeSession(id)` with neither sends no notice, and the client sees an ordinary disconnect.
 
@@ -169,6 +172,28 @@ supported as before.
 A rejection arrives on a later turn than the send, so a frame already sent in the same synchronous
 turn is not recalled; the session is torn down as soon as the rejection is observed.
 
+### Frames that cannot be decoded
+
+The server decodes every inbound frame in one place (`ServerWorld._receive` in
+`lib/vecs-server/src/server_world.ts`). A frame that fails to decode — truncated, random bytes, or
+a field tag this build does not know, as one from a client on a newer protocol version would carry —
+never throws into the transport. `@vworlds/dgram-server` re-emits each data-channel message to the
+socket's `receive` listener without catching anything, so a throw there would be an uncaught
+exception in the server process, caused by one datagram from one client.
+
+The server treats such a frame as that session's protocol violation instead. It drops the frame and
+closes the session through `closeSession`, with the reserved code `CLOSE_PROTOCOL_ERROR_CODE` (`1`,
+exported by `@vworlds/vecs-protocol` and re-exported by `@vworlds/vecs-server`) and a reason of the
+form `protocol error: <decoder message>`. That is the graceful close described above, so there is
+nothing special to handle:
+`NetworkClient.closeReason` carries the reason for your `exit` systems, the next `send()` delivers
+the code and reason to the client on a numbered frame, and the session lingers until the client acks
+it or `closeLingerMs` elapses and then tears down once. Only the offending session is affected;
+other sessions keep receiving frames and the world keeps ticking.
+
+A session that is already closing keeps the reason and code it was given, whether `closeSession`
+or an earlier bad frame set them: a further undecodable frame is dropped and overwrites nothing.
+
 ## Shutting down
 
 `world.shutdown(options?)` closes every connection and stops the world's networking. It refuses
@@ -200,6 +225,7 @@ session:
 | No traffic for `disconnectGraceMs`           | Same teardown, with reason `disconnect grace period elapsed`.                                                                                                                                                                                                                                                                            |
 | A frame arrives after teardown               | Dropped. The socket has no way to unsubscribe, so a finished session ignores late frames.                                                                                                                                                                                                                                                |
 | A frame arrives while closing                | Only the ack is honored (it ends the linger); input and new calls are dropped.                                                                                                                                                                                                                                                           |
+| A frame cannot be decoded                    | The frame is dropped and that session alone closes as `closeSession(id, "protocol error: …", CLOSE_PROTOCOL_ERROR_CODE)`, with the usual flush and linger. A session already closing keeps its own reason.                                                                                                                               |
 
 Because cleanup hangs off entity removal, it is observable with the normal ECS tools: destroy the
 `NetworkClient` entity yourself when you want a disconnect, and react to removal with `exit`
@@ -216,6 +242,7 @@ systems.
 | `ServerRPCContext`                               | `{ world, caller, connectionId }` passed as a handler's third argument.                                                                            |
 | `NetworkClient.id`                               | The connection id.                                                                                                                                 |
 | `NetworkClient.closeReason`                      | Why the server closed the session, or `undefined`.                                                                                                 |
+| `CLOSE_PROTOCOL_ERROR_CODE`                      | Reserved close code `1`: the session was closed because a frame could not be decoded. Also exported by `@vworlds/vecs-protocol`.                   |
 | `closeLingerMs` (`ServerWorldOptions`)           | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                              |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-server/src/server_world.ts` and
