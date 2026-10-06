@@ -6,6 +6,7 @@ import {
   RPC_RESPONSE_ID,
   RPC_TIMEOUT_CODE,
   RPC_TIMEOUT_ERROR,
+  RPC_UNSPECIFIED_ERROR_CODE,
   RPCError,
   SessionRPC,
 } from "../src/index.js";
@@ -149,6 +150,36 @@ describe("SessionRPC", () => {
     pump();
 
     await expect(call).rejects.toMatchObject({ code: 1, message: "boom" });
+  });
+
+  it("fails a call whose handler throws a plain Error with the exported RPC_UNSPECIFIED_ERROR_CODE", async () => {
+    const client = new SessionRPC();
+    const server = new SessionRPC();
+    const pump = connect(client, server);
+    server.listen(101, () => {
+      throw new Error("boom");
+    });
+
+    const call = client.invoke(101);
+    pump();
+
+    await expect(call).rejects.toBeInstanceOf(RPCError);
+    await expect(call).rejects.toMatchObject({
+      code: RPC_UNSPECIFIED_ERROR_CODE,
+      message: "boom",
+    });
+    expect(RPC_UNSPECIFIED_ERROR_CODE).toBe(1);
+  });
+
+  it("fails a call to an rpc id with no handler with the exported RPC_UNSPECIFIED_ERROR_CODE", async () => {
+    const client = new SessionRPC();
+    const server = new SessionRPC();
+    const pump = connect(client, server);
+
+    const call = client.invoke(101);
+    pump();
+
+    await expect(call).rejects.toMatchObject({ code: RPC_UNSPECIFIED_ERROR_CODE });
   });
 
   it("reports an unknown rpc id as code 1 with a readable message", async () => {

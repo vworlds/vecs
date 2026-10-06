@@ -140,11 +140,11 @@ caller needs to distinguish outcomes.
 
 ### Reserved codes
 
-| Code | Constant                     | Meaning                                                              |
-| ---- | ---------------------------- | -------------------------------------------------------------------- |
-| `-1` | `RPC_TIMEOUT_CODE`           | The call outlived its ttl and no answer arrived in time.             |
-| `-2` | `RPC_CLOSED_CODE`            | The session ended before the answer arrived, for example on dispose. |
-| `1`  | `RPC_UNSPECIFIED_ERROR_CODE` | A handler threw a value that was not an `RPCError`.                  |
+| Code | Constant                     | Meaning                                                                                                            |
+| ---- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `-1` | `RPC_TIMEOUT_CODE`           | The call outlived its ttl and no answer arrived in time.                                                           |
+| `-2` | `RPC_CLOSED_CODE`            | The session ended before the answer arrived, for example on dispose.                                               |
+| `1`  | `RPC_UNSPECIFIED_ERROR_CODE` | A handler threw a value with no usable code, such as a plain `Error`, or the call named an rpc id with no handler. |
 
 Codes `0`–`100` are reserved for protocol use. Choose application codes from `101` up.
 

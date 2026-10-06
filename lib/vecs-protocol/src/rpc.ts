@@ -68,8 +68,15 @@ export const RPC_TIMEOUT_CODE = -1;
  */
 export const RPC_CLOSED_CODE = -2;
 
-/** Code used when a handler fails without raising an {@link RPCError}. */
-const RPC_UNSPECIFIED_ERROR_CODE = 1;
+/**
+ * Reserved {@link RPCError.code} for a call that fails without an application
+ * code: its handler threw a value that carries no code the wire can transmit (a
+ * plain `Error`, a string, or a code outside `[1, 4294967295]`), or the request
+ * named an rpc id that has no handler. Unlike {@link RPC_TIMEOUT_CODE} and
+ * {@link RPC_CLOSED_CODE}, which are raised locally, the responder sends this
+ * one and it travels in the reply.
+ */
+export const RPC_UNSPECIFIED_ERROR_CODE = 1;
 
 /**
  * A remote procedure call that failed, carrying a numeric {@link RPCError.code}
