@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  Client2Server,
   RPC,
   RPC_CLOSED_CODE,
   RPC_RESPONSE_ID,
@@ -7,7 +8,7 @@ import {
   Server2Client,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
-import { Encoder } from "@vworlds/vecs-wire";
+import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { ClientWorld } from "../src/index.js";
 
 const CALL_RPC = 101;
@@ -17,6 +18,7 @@ const WRONG_WORLD = 4001;
 type SocketHandler = (arg?: unknown) => void;
 
 class MemorySocket implements VecsSocket {
+  public readonly sent: Uint8Array[] = [];
   public closeCalls = 0;
   public sendImpl: (data: Uint8Array) => unknown = () => undefined;
   private readonly _handlers = new Map<string, SocketHandler[]>();
@@ -31,6 +33,8 @@ class MemorySocket implements VecsSocket {
   }
 
   public send(data: Uint8Array): void {
+    // ClientWorld encodes every frame into one reused buffer, so keep a copy.
+    this.sent.push(data.slice());
     return this.sendImpl(data) as void;
   }
 
@@ -101,8 +105,108 @@ const outcomeOf = (call: Promise<unknown>): Promise<Outcome> =>
     (error: unknown) => ({ ok: false, error })
   );
 
+// Records how a call settles, so a test can assert it already has instead of waiting on it.
+function observe(call: Promise<unknown>): { outcome?: Outcome } {
+  const seen: { outcome?: Outcome } = {};
+  void outcomeOf(call).then((outcome) => {
+    seen.outcome = outcome;
+  });
+  return seen;
+}
+
+// The `rpc` list of every frame the client sent, oldest first.
+const sentRpc = (socket: MemorySocket): RPC[][] =>
+  socket.sent.map((data) => new Decoder(data).read(Client2Server).rpc);
+
 // A rejected send reaches _handleDisconnect on a microtask.
 const settleMicrotasks = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+// No test in this block calls apply() or progress(): nothing ever applies the world.
+describe("replies settle on receipt", () => {
+  it("resolves a call with the reply's params when the reply frame arrives", async () => {
+    const { client, socket } = setup();
+    const call = observe(client.invoke(CALL_RPC, ["hello"]));
+
+    socket.receive(frame(successReply(0, "ok", 7)));
+    await settleMicrotasks();
+
+    expect(call.outcome).toEqual({ ok: true, value: ["ok", 7] });
+  });
+
+  it("rejects a call with the server's typed error when the reply frame arrives", async () => {
+    const { client, socket } = setup();
+    const call = observe(client.invoke(CALL_RPC));
+
+    socket.receive(frame(errorReply(0)));
+    await settleMicrotasks();
+
+    expect(call.outcome).toMatchObject({ ok: false, error: { code: WRONG_WORLD } });
+    expect((call.outcome as { error: unknown }).error).toBeInstanceOf(RPCError);
+  });
+
+  it("stops resending the request once its reply has arrived", () => {
+    const { client, socket } = setup();
+    observe(client.invoke(CALL_RPC, ["hello"]));
+
+    client.send();
+    client.send();
+    socket.receive(frame(successReply(0, "ok")));
+    client.send();
+
+    const [first, second, afterReply] = sentRpc(socket);
+    // Until its reply arrives, every ack carries the request again.
+    expect(first).toMatchObject([{ rpcId: CALL_RPC, callId: 0, params: ["hello"] }]);
+    expect(second).toMatchObject([{ rpcId: CALL_RPC, callId: 0, params: ["hello"] }]);
+    expect(afterReply).toEqual([]);
+  });
+});
+
+// Replies settle on receipt, but the handlers of server-to-client requests keep running
+// from apply(), so they stay in the world's phase order.
+describe("server requests wait for apply()", () => {
+  it("settles a reply at once and keeps the request that shares its frame queued", async () => {
+    const { client, socket } = setup();
+    const handler = vi.fn();
+    client.listen(SERVER_RPC, handler);
+    const call = observe(client.invoke(CALL_RPC));
+
+    socket.receive(frame(new RPC({ rpcId: SERVER_RPC, callId: 5 }), successReply(0, "ok")));
+    await settleMicrotasks();
+
+    expect(call.outcome).toEqual({ ok: true, value: ["ok"] });
+    expect(handler).not.toHaveBeenCalled();
+    client.apply(0);
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("runs the handler on apply(), then answers on the next send()", async () => {
+    const { client, socket } = setup();
+    const handler = vi.fn(() => ["pong"]);
+    client.listen(SERVER_RPC, handler);
+
+    socket.receive(frame(new RPC({ rpcId: SERVER_RPC, callId: 5, params: ["ping"] })));
+    await settleMicrotasks();
+    client.send();
+
+    expect(handler).not.toHaveBeenCalled();
+
+    client.apply(0);
+    await settleMicrotasks();
+    client.send();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler).toHaveBeenCalledWith(
+      ["ping"],
+      expect.objectContaining({ callId: 5 }),
+      undefined
+    );
+    const [beforeApply, afterApply] = sentRpc(socket);
+    expect(beforeApply).toEqual([]);
+    expect(afterApply).toMatchObject([
+      { rpcId: RPC_RESPONSE_ID, callId: 5, params: ["pong"], error: 0 },
+    ]);
+  });
+});
 
 describe.each(routes)("replies received before disconnect via $name", ({ disconnect }) => {
   it("rejects with the server's typed error, not RPC_CLOSED_CODE", async () => {
@@ -147,7 +251,7 @@ describe.each(routes)("replies received before disconnect via $name", ({ disconn
     });
   });
 
-  it("rejects a call with no reply in the inbox with RPC_CLOSED_CODE, once", async () => {
+  it("rejects a call with no reply with RPC_CLOSED_CODE, once", async () => {
     const { client, socket } = setup();
     const onDisconnect = vi.fn();
     client.events.on("disconnect", onDisconnect);
@@ -199,13 +303,28 @@ describe.each(routes)("replies received before disconnect via $name", ({ disconn
 });
 
 describe("dispose", () => {
-  it("abandons replies still in the inbox and rejects with RPC_CLOSED_CODE", async () => {
+  it("keeps a call a received reply already resolved and rejects the unanswered one", async () => {
     const { client, socket } = setup();
-    const pending = outcomeOf(client.invoke(CALL_RPC));
+    const answered = observe(client.invoke(CALL_RPC));
+    const unanswered = observe(client.invoke(CALL_RPC));
 
     socket.receive(frame(successReply(0, "ok")));
     client.dispose();
+    await settleMicrotasks();
 
-    await expect(pending).resolves.toMatchObject({ ok: false, error: { code: RPC_CLOSED_CODE } });
+    expect(answered.outcome).toEqual({ ok: true, value: ["ok"] });
+    expect(unanswered.outcome).toMatchObject({ ok: false, error: { code: RPC_CLOSED_CODE } });
+  });
+
+  it("drops a server request still queued for apply() without running it", () => {
+    const { client, socket } = setup();
+    const handler = vi.fn();
+    client.listen(SERVER_RPC, handler);
+
+    socket.receive(frame(new RPC({ rpcId: SERVER_RPC, callId: 5 })));
+    client.dispose();
+    client.apply(0);
+
+    expect(handler).not.toHaveBeenCalled();
   });
 });

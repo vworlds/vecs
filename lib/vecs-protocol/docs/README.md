@@ -21,6 +21,6 @@ built on top of it.
 
 ## See also
 
-- [Sessions and caller context](../vecs-server/docs/sessions.md)
-- [Client world](../vecs-client/docs/client-world.md)
+- [Sessions and caller context](../../vecs-server/docs/sessions.md)
+- [Client world](../../vecs-client/docs/client-world.md)
 - [vecs documentation](../../vecs/docs/README.md)

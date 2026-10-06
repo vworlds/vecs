@@ -109,6 +109,7 @@ export class ClientWorld extends NetworkWorld {
   public readonly events = new Events<ClientWorldEvents>();
   private _socket: VecsSocket | undefined;
   private readonly _rpc = new SessionRPC();
+  // Server-to-client requests waiting for apply() to run their handlers. Replies never wait here.
   private readonly _rpcInbox: RPC[] = [];
   private readonly _diffBuffer: DiffBuffer;
   private readonly _encodeBuffer: Uint8Array;
@@ -236,6 +237,14 @@ export class ClientWorld extends NetworkWorld {
   /**
    * Call the server and resolve with its reply parameters.
    *
+   * The call settles as soon as its reply arrives, whether or not anything
+   * applies the world: it does not wait for {@link ClientWorld.apply} or
+   * `progress()`. Its request is sent with every ack until then and never
+   * again afterwards. State the server sent in the same frame is applied later,
+   * by {@link ClientWorld.apply} and possibly after interpolation delay, so do
+   * not assume the reply's side effects are visible in the world when the
+   * promise resolves.
+   *
    * Rejects with an `RPCError` carrying the server's code and message, or with
    * code `RPC_CLOSED_CODE` when the call cannot reach, or can no longer be
    * answered by, its peer: the world is disposed, the attached socket has been
@@ -243,10 +252,10 @@ export class ClientWorld extends NetworkWorld {
    * replacement is attached yet, or an already-pending call loses its peer. A
    * call made while disconnected is rejected immediately and never queued, so it
    * cannot be sent on a later connection — which may be a different server
-   * world. A reply that was already received when the connection was lost still
-   * settles its call with the server's result or error, rather than
-   * `RPC_CLOSED_CODE`, even if {@link ClientWorld.apply} has not run yet. A client call is never abandoned silently, because `ClientWorld`
-   * does not run `SessionRPC.timeoutTick`.
+   * world. A call whose reply has arrived has already settled with the server's
+   * result or error, so a later disconnect or disposal cannot turn it into
+   * `RPC_CLOSED_CODE`. A client call is never abandoned silently, because
+   * `ClientWorld` does not run `SessionRPC.timeoutTick`.
    *
    * A call made before the first {@link ClientWorld.attachSocket} is queued and
    * sent once a socket is attached.
@@ -270,6 +279,9 @@ export class ClientWorld extends NetworkWorld {
    * Register the handler for an RPC the server calls on this client.
    *
    * A client has a single peer, so the handler's caller context is `undefined`.
+   * The handler runs from {@link ClientWorld.apply}, not when the request
+   * arrives, so under `progress()` it runs in the world's `ON_LOAD` phase. Its
+   * answer is queued once the handler settles and goes out with the next ack.
    *
    * @param rpcId - Request id to answer.
    * @param handler - Handler run for each incoming call; see {@link RPCHandler}.
@@ -279,8 +291,16 @@ export class ClientWorld extends NetworkWorld {
   }
 
   /**
-   * Apply buffered server frames as of `now`: run queued RPC handlers, then
-   * interpolate or snap replicated components into the world.
+   * Apply buffered server frames as of `now`: run the handlers of queued
+   * server-to-client requests, then interpolate or snap replicated components
+   * into the world.
+   *
+   * RPC replies are not handled here. A reply settles its
+   * {@link ClientWorld.invoke} call when it arrives, so no call waits for this
+   * method; only requests the server makes on this client are queued for it,
+   * which keeps their handlers in the world's phase order. State that arrived in
+   * the same frame as a reply is applied here, possibly after interpolation
+   * delay.
    *
    * Registered as the world's own `Apply` system in the `ON_LOAD` phase, so
    * `progress()` drives it; call it directly only for a world with no tick loop.
@@ -331,8 +351,8 @@ export class ClientWorld extends NetworkWorld {
    * Use this for a disconnect the client may reconnect from: replicated entities
    * stay in place, and a later baseline re-creates them. Pending RPCs reject with
    * `RPC_CLOSED_CODE`, because the peer can no longer answer them, and so do
-   * {@link ClientWorld.invoke} calls made until a new socket is attached. A reply
-   * already received but not yet applied settles its call first, and queued
+   * {@link ClientWorld.invoke} calls made until a new socket is attached. A call
+   * whose reply already arrived has settled with it and is left alone; queued
    * server-to-client requests are dropped unrun. Use
    * {@link ClientWorld.dispose} to release everything.
    */
@@ -349,10 +369,12 @@ export class ClientWorld extends NetworkWorld {
    * Tear the world down for good, so a fresh `ClientWorld` can take over the page.
    *
    * In order: pending {@link ClientWorld.invoke} calls reject with an
-   * `RPCError` carrying code `RPC_CLOSED_CODE` (replies still queued unapplied
-   * are abandoned with everything else, unlike {@link ClientWorld.close}); the ack timer stops; replicated
-   * entities are destroyed — firing every exit system, which is what lets render
-   * hooks free their resources; and the socket closes.
+   * `RPCError` carrying code `RPC_CLOSED_CODE`; server-to-client requests still
+   * queued for {@link ClientWorld.apply} are dropped unrun; replicated entities
+   * are destroyed — firing every exit system, which is what lets render hooks
+   * free their resources; the diff buffer resets; and the ack timer stops and
+   * the socket closes. A call whose reply already arrived has settled with it,
+   * so it is not among the rejected ones.
    *
    * Idempotent, and safe to call on a world that never connected. `VecsSocket`
    * has no `off`, so after dispose the `receive` and `disconnect` handlers are
@@ -382,7 +404,22 @@ export class ClientWorld extends NetworkWorld {
     }
     const message = new Decoder(data).read(Server2Client);
     if (message.rpc.length > 0) {
-      this._rpcInbox.push(...message.rpc);
+      // Replies settle their calls now, so an awaited invoke() does not depend on
+      // the world being applied and its request stops being resent. They run
+      // before the diff and the close notice: a reply that shares a frame with a
+      // close notice must settle before _handleDisconnect aborts what is left.
+      // Requests wait for apply(), which keeps their handlers in phase order.
+      let responses: RPC[] | undefined;
+      for (const incoming of message.rpc) {
+        if (incoming.rpcId === RPC_RESPONSE_ID) {
+          (responses ??= []).push(incoming);
+        } else {
+          this._rpcInbox.push(incoming);
+        }
+      }
+      if (responses) {
+        this._rpc.process(responses);
+      }
     }
     if (message.diff) {
       this._pushDiff(message.diff);
@@ -395,8 +432,8 @@ export class ClientWorld extends NetworkWorld {
   /**
    * The server closed the session on purpose. Ack the frame that carried the
    * notice — its delivery receipt is what lets the server close promptly —
-   * then disconnect with the notice. Owed replies in the same frame settle
-   * first, inside {@link ClientWorld._handleDisconnect}.
+   * then disconnect with the notice. Replies in the same frame have already
+   * settled their calls: {@link ClientWorld._receive} handles them first.
    */
   private _handleServerClose(notice: CloseNotice): void {
     // Stashed first: if the ack itself fails to send, that failure disconnects
@@ -549,11 +586,9 @@ export class ClientWorld extends NetworkWorld {
     }
     this._disconnected = true;
     this._stopAckTimer();
-    // Replies already received but not yet applied still answer their calls, so
-    // settle them first. Queued server requests are dropped: a dead connection
-    // cannot carry their replies, and they must never run on a later one.
-    const queued = this._rpcInbox.splice(0);
-    this._rpc.process(queued.filter((message) => message.rpcId === RPC_RESPONSE_ID));
+    // Queued server requests are dropped unrun: a dead connection cannot carry
+    // their replies, and they must never run on a later one.
+    this._rpcInbox.length = 0;
     this._rpc.abortPending(
       new RPCError(RPC_CLOSED_CODE, "ClientWorld disconnected before the RPC completed")
     );
