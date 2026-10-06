@@ -63,7 +63,20 @@ try {
 }
 ```
 
-`listen` registers the other direction — a handler the server can call on this client:
+A call settles as soon as its reply arrives, whether or not anything applies the world. It does not
+wait for `apply()` or `progress()`, so you can await a call such as `auth` right after connecting,
+before your tick loop starts. Until the reply arrives, the call's request is sent again with every
+ack; once the reply is in, the request is not sent again. The reply settles the call and nothing
+more: the state the server sent in the same frame is applied later, by `apply()` and possibly after
+interpolation delay, so when the promise resolves the reply's side effects are not necessarily
+visible in the world yet. If the reply arrives in the same frame as a full baseline (the server
+resends the whole world after a reconnect, or when a client falls outside its history window), the
+client clears its replicated entities as the frame arrives and rebuilds them on the next `apply()`.
+Code that runs right after the call settles sees none of them until then.
+
+`listen` registers the other direction — a handler the server can call on this client. Unlike a
+reply, a server request waits for `apply()`: its handler runs there, so under `progress()` it runs in
+the world's `ON_LOAD` phase, in order with your other systems. Its answer goes out with the next ack:
 
 ```ts
 world.listen(201, ([question]) => {
@@ -82,17 +95,17 @@ every pending `invoke` with an `RPCError` carrying `RPC_CLOSED_CODE`. A synchron
 promise from `VecsSocket.send` follows the same path, so a transport that misses or delays its
 `disconnect` event cannot leave an ack rejection or RPC hanging.
 
-Replies the client has already received are never lost to the disconnect. `ClientWorld` applies
-incoming RPCs from `apply()`, so a reply and a disconnect can both arrive between two `apply()` calls.
-On disconnect, before rejecting anything, the world settles every queued _response_: a pending call
-whose reply is queued resolves with its params or rejects with the server's `RPCError`, exactly as
-if `apply()` had run first. A server that rejects `auth` with a typed code and then closes the
-session therefore delivers that code, not `RPC_CLOSED_CODE`. Only calls with no queued reply reject
-with `RPC_CLOSED_CODE`. Server-to-client _requests_ still queued are dropped without running: the dead
-connection cannot carry their replies, and they must never execute on a later connection. Callers can
-rely on settlement happening before the `disconnect` event is emitted; promise continuations still run
-as microtasks after the emitting code returns, so they observe the settled call before any later
-macrotask.
+Replies the client has already received are never lost to the disconnect, because a reply settles its
+call the moment it arrives: a call whose reply has arrived has already resolved with its params, or
+rejected with the server's `RPCError`, by the time a later disconnect happens, whether or not
+`apply()` has run since. A server that rejects `auth` with a typed code and then closes the session
+therefore delivers that code, not `RPC_CLOSED_CODE`, even when the reply and the close notice share
+a frame: the client handles the reply first. Only calls whose reply has not arrived reject with
+`RPC_CLOSED_CODE`. Server-to-client _requests_ still queued for `apply()` are dropped without
+running: the dead connection cannot carry their replies, and they must never execute on a later
+connection. Callers can rely on settlement happening before the `disconnect` event is emitted;
+promise continuations still run as microtasks after the emitting code returns, so they observe the
+settled call before any later macrotask.
 
 ### Why the server closed
 
@@ -136,10 +149,13 @@ world.dispose();
 In order, `dispose`:
 
 1. rejects every pending `invoke` with an `RPCError` carrying `RPC_CLOSED_CODE`,
-2. drops buffered RPCs (replies included, since a disposed world abandons everything) and frames,
+2. drops the server-to-client requests still queued for `apply()`, without running them,
 3. destroys the replicated `Networked` entities, firing their exit systems,
 4. resets the diff buffer so a new world starts from a clean baseline, and
 5. closes the socket.
+
+A call whose reply has already arrived is not rejected: it settled when the reply came in, so
+disposal only rejects the calls still waiting for one.
 
 Rejecting pending calls is the load-bearing step. Nothing else can obtain a reply after a disconnect
 or disposal, so a call made just before either event would otherwise wait forever and leave the caller
@@ -169,9 +185,9 @@ one.
 | `ClientWorld.connectDgram(options)` | Connect over the dgram transport, then attach; returns a world with a connected socket. |
 | `world.attachSocket(socket)`        | Bind a connected socket and start the ack timer. Throws after disposal.                 |
 | `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                    |
-| `world.invoke(rpcId, params?)`      | Call the server; resolves with reply params.                                            |
-| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client.                           |
-| `world.apply(now)`                  | Run queued RPC handlers, then apply buffered frames.                                    |
+| `world.invoke(rpcId, params?)`      | Call the server; settles with the reply params as soon as the reply arrives.            |
+| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client; it runs from `apply()`.   |
+| `world.apply(now)`                  | Run the handlers of queued server requests, then apply buffered frames.                 |
 | `world.send()`                      | Send input, outstanding replies, and the current ack frame.                             |
 | `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable.    |
 | `world.dispose()`                   | One-way teardown: reject pending calls, clear state, destroy network entities.          |
