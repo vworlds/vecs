@@ -92,8 +92,9 @@ wire cannot carry.
 ## Timeouts and aborts
 
 `invoke` accepts a `ttl` in milliseconds. `SessionRPC` never advances time on its own, so something
-has to tick it. `ClientWorld` runs `timeoutTick` for you on its ack timer; a bare `SessionRPC` needs
-its own timer.
+has to tick it. `ClientWorld` does not run `timeoutTick`, so a client call has no timeout: it
+settles with its reply, or rejects with `RPC_CLOSED_CODE` when the connection is lost or the world
+is disposed. A bare `SessionRPC` needs its own timer.
 
 ```ts
 const pending = server.invoke(101, [], 5_000);

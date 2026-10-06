@@ -85,8 +85,9 @@ world.listen(201, ([question]) => {
 });
 ```
 
-The ack timer that ships frames to the server also ages pending calls, so a call that is never
-answered times out on its own.
+`ClientWorld` does not time calls out: its ack timer only sends frames and never runs
+`SessionRPC.timeoutTick`. A call settles with its reply, or rejects with `RPC_CLOSED_CODE` when the
+connection is lost or the world is disposed; one the server never answers stays pending until then.
 
 ## Disconnection and disposal
 
