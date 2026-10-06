@@ -1,5 +1,5 @@
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
-import { wireType } from "@vworlds/vecs-wire";
+import { wireType, tag as wireTag } from "@vworlds/vecs-wire";
 
 /** Fill color (RGB integer, e.g. 0xff0000) and opacity 0..1. */
 export class FillStyle {
@@ -22,6 +22,19 @@ export class StrokeStyle {
   @wireType("f32")
   public width = 1;
 }
+
+/**
+ * Leaves the stroked outline of a path shape open: the stroke runs from the first point to the
+ * last without the closing segment back to the start.
+ *
+ * A presence-only tag that encodes to zero bytes. An `Arc` strokes as an open arc instead of
+ * closing with a chord, which suits progress rings and cooldown arcs, and a `Polygon` strokes as a
+ * polyline. Other renderables ignore it: Phaser's Canvas renderer always closes the stroke of an
+ * `Ellipse`, `Rectangle`, `Star` or `Triangle`, and the rest have no outline to close. Fills are
+ * unaffected.
+ */
+@wireTag
+export class OpenPath {}
 
 /**
  * Multiplicative tint, one color per GameObject corner (top-left, top-right,

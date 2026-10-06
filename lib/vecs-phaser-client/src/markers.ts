@@ -28,6 +28,10 @@ export abstract class Stroke {
   public abstract setStrokeStyle(lineWidth: number, color: number, alpha?: number): this;
 }
 
+export abstract class OpenPath {
+  public abstract setClosePath(value: boolean): this;
+}
+
 export abstract class Size {
   public abstract setSize(width: number, height: number): this;
 }

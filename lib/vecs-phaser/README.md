@@ -2,7 +2,8 @@
 
 Data-only package providing wire-serializable Phaser render components (`Position`, `Arc`,
 `Text`, `Image`, …) and the `phaserNetworkComponents` protocol order. `Image` is the first
-textured renderable and is protocol type 17. No `phaser` dependency.
+textured renderable and is protocol type 17. `OpenPath` (type 23) is a tag that leaves the stroke
+of an `Arc` or `Polygon` open, for progress rings and polylines. No `phaser` dependency.
 
 The protocol also includes `DrawIn` for native Phaser Container parenting and `DrawBy` for
 computed scene-root parenting. Both are networked relationship classes. `DisplaySetupModule` and

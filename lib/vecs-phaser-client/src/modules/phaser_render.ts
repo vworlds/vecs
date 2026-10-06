@@ -36,6 +36,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
       m.Depth,
       m.Fill,
       m.Stroke,
+      m.OpenPath,
       m.Size,
       m.Arc,
       m.Vertices,
@@ -48,7 +49,9 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     world.component(m.Shape).set(Implements, {
       interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Fill, m.Stroke],
     });
-    world.component(Phaser.GameObjects.Arc).set(Implements, { interfaces: [m.Shape, m.Arc] });
+    world.component(Phaser.GameObjects.Arc).set(Implements, {
+      interfaces: [m.Shape, m.Arc, m.OpenPath],
+    });
     world.component(Phaser.GameObjects.Rectangle).set(Implements, {
       interfaces: [m.Shape, m.Size],
     });
@@ -57,7 +60,7 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     });
     world.component(Phaser.GameObjects.Line).set(Implements, { interfaces: [m.Shape, m.Vertices] });
     world.component(Phaser.GameObjects.Polygon).set(Implements, {
-      interfaces: [m.Shape, m.Vertices],
+      interfaces: [m.Shape, m.Vertices, m.OpenPath],
     });
     world.component(Phaser.GameObjects.Triangle).set(Implements, {
       interfaces: [m.Shape, m.Vertices],
@@ -74,6 +77,9 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     // component into all of them. Primitive shapes (Arc, Ellipse, Rectangle,
     // Triangle, Polygon, Star, Line) do not have setTint and must NOT declare
     // m.Tint (adding Tint data to a shape entity is a silent no-op by design).
+    // Likewise only Arc and Polygon declare m.OpenPath: Phaser's Canvas renderer
+    // always closes the stroke of Ellipse, Rectangle, Star and Triangle, so an
+    // OpenPath tag on them is a silent no-op rather than a renderer-dependent one.
 
     world.component(m.GameObject).on("remove", (_entity, obj) => obj.destroy());
 

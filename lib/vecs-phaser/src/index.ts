@@ -2,7 +2,7 @@ import { type ComponentClass } from "@vworlds/vecs";
 
 export { Container, DrawBy, DrawIn } from "./components/parenting.js";
 export { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
-export { FillStyle, StrokeStyle, Tint } from "./components/style.js";
+export { FillStyle, OpenPath, StrokeStyle, Tint } from "./components/style.js";
 export { Image } from "./components/image.js";
 export type { AssetCatalog, AssetDescriptor, SpritesheetDescriptor } from "./catalog.js";
 export {
@@ -19,7 +19,7 @@ export { Text, TextAlign } from "./components/text.js";
 
 import { Container, DrawBy, DrawIn } from "./components/parenting.js";
 import { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
-import { FillStyle, StrokeStyle, Tint } from "./components/style.js";
+import { FillStyle, OpenPath, StrokeStyle, Tint } from "./components/style.js";
 import { Image } from "./components/image.js";
 import {
   Arc,
@@ -60,6 +60,7 @@ import { Text } from "./components/text.js";
  *  20  Container
  *  21  Offset
  *  22  DrawBy
+ *  23  OpenPath
  */
 export const phaserNetworkComponents = [
   Position,
@@ -84,6 +85,7 @@ export const phaserNetworkComponents = [
   Container,
   Offset,
   DrawBy,
+  OpenPath,
 ] as const satisfies readonly ComponentClass[];
 
 /**

@@ -32,6 +32,10 @@ class MockGameObject {
     return this.record("setAlpha", ...args);
   }
 
+  setClosePath(...args: readonly unknown[]): this {
+    return this.record("setClosePath", ...args);
+  }
+
   setDepth(...args: readonly unknown[]): this {
     return this.record("setDepth", ...args);
   }
