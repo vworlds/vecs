@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
-import { FillStyle, StrokeStyle, Tint } from "../src/components/style.js";
+import { FillStyle, OpenPath, StrokeStyle, Tint } from "../src/components/style.js";
 
 function roundTrip<T extends object>(C: new () => T, value: T): T {
   const enc = new Encoder(new Uint8Array(1024));
@@ -125,5 +125,15 @@ describe("Tint", () => {
     expect(decoded.topRight).toBe(0x00ff00);
     expect(decoded.bottomLeft).toBe(0x0000ff);
     expect(decoded.bottomRight).toBe(0xffff00);
+  });
+});
+
+describe("OpenPath", () => {
+  it("encodes to zero bytes and decodes as a presence-only tag", () => {
+    const enc = new Encoder(new Uint8Array(16));
+    enc.write(new OpenPath());
+
+    expect(enc.length).toBe(0);
+    expect(new Decoder(enc.getBuffer()).read(OpenPath)).toBeInstanceOf(OpenPath);
   });
 });

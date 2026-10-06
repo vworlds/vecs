@@ -5,6 +5,7 @@ import {
   DrawIn,
   FillStyle,
   Offset,
+  OpenPath,
   Position,
   Rotation,
   Scale,
@@ -83,6 +84,20 @@ export class SyncModule extends Module<{ coords: CoordSpace }> {
       .update({ watch: StrokeStyle, onEnter: true, inject: [m.Stroke] }, (_e, s, [obj]) =>
         obj.setStrokeStyle(s.width, s.color, s.alpha)
       );
+
+    // OpenPath carries no data, so presence drives the stroke: entering opens it, and leaving
+    // closes it again. A GameObject that left along with its renderable is being destroyed, so
+    // only the object still attached to the entity is closed.
+    world
+      .system("phaser.sync.open-path")
+      .with(OpenPath, m.OpenPath)
+      .phase(ON_STORE)
+      .enter([m.OpenPath], (_e, [obj]) => obj.setClosePath(false))
+      .exit([m.OpenPath], (e, [obj]) => {
+        if (e.get(m.OpenPath) === obj) {
+          obj.setClosePath(true);
+        }
+      });
 
     world
       .system("phaser.sync.tint")

@@ -3,6 +3,8 @@ import { wireType, tag as wireTag } from "@vworlds/vecs-wire";
 /**
  * Arc shape. All dimensions in meters; angles in radians (CCW+).
  * The full unit circle default (endAngle = 2π) renders a complete circle.
+ * A stroked partial arc closes with a chord between its ends; add the `OpenPath` tag to leave it
+ * open.
  */
 export class Arc {
   /** Radius in meters. */
@@ -54,7 +56,7 @@ export class Rectangle {}
 
 /**
  * Polygon shape. Points are alternating x,y pairs in meters,
- * relative to the entity's Position.
+ * relative to the entity's Position. Add the `OpenPath` tag to stroke it as a polyline.
  */
 export class Polygon {
   /** Alternating x,y coordinates in meters, relative to entity Position. */

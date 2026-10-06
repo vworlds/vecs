@@ -221,6 +221,7 @@ export class Offset {
   /* x,y */
 } // wire type 21
 export class DrawBy extends Relationship {} // computed parent, wire type 22
+export class OpenPath {} // tag — leaves an Arc or Polygon stroke open, wire type 23
 
 // Protocol arrays — ORDER IS PROTOCOL (wire type id = index + 1)
 export const phaserNetworkComponents: readonly ComponentClass[];
@@ -386,6 +387,7 @@ export const phaserNetworkComponents = [
   Container, // type 20 — presence-only renderable
   Offset, // type 21 — parent-relative position
   DrawBy, // type 22 — computed parenting relationship
+  OpenPath, // type 23 — open-stroke tag (appended after DrawBy)
 ] as const;
 
 export const phaserRenderableComponents = [
@@ -426,6 +428,7 @@ export const phaserRenderableComponents = [
 | `Container`   | _tag_ (no fields)                                                                                                                                            | Phaser Container renderable (type 20)                                                   |
 | `Offset`      | `x:f32=0`, `y:f32=0`                                                                                                                                         | parent-relative meters (type 21)                                                        |
 | `DrawBy`      | Relationship edges                                                                                                                                           | computed scene-root parenting (type 22); `Exclusive` and `Traversable`                  |
+| `OpenPath`    | _tag_ (no fields)                                                                                                                                            | leaves the stroke of an `Arc` or `Polygon` open (type 23); other renderables ignore it  |
 
 Exactly one renderable per entity is enforced server-side by
 `setExclusiveComponents(...phaserRenderableComponents)` (installed by `PhaserServerModule`). The
@@ -482,14 +485,17 @@ component** via `entity.attach(obj)`, keyed by its concrete Phaser class (e.g.
 
 **Interface markers (`Implements`).** `markers.ts` declares abstract marker classes whose method
 signatures mirror the Phaser GameObject API the renderer calls: `GameObject`, `Shape`,
-`Transform`, `Alpha`, `Depth`, `Fill`, `Stroke`, `Size`, `Arc`, `Vertices`, `Star`, `Text`,
-`Texture`, `Tint`. At module init each concrete Phaser class declares which markers it satisfies:
+`Transform`, `Alpha`, `Depth`, `Fill`, `Stroke`, `OpenPath`, `Size`, `Arc`, `Vertices`, `Star`,
+`Text`, `Texture`, `Tint`. At module init each concrete Phaser class declares which markers it
+satisfies:
 
 ```ts
 world.component(m.Shape).set(Implements, {
   interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Fill, m.Stroke],
 });
-world.component(Phaser.GameObjects.Arc).set(Implements, { interfaces: [m.Shape, m.Arc] });
+world.component(Phaser.GameObjects.Arc).set(Implements, {
+  interfaces: [m.Shape, m.Arc, m.OpenPath],
+});
 world.component(Phaser.GameObjects.Text).set(Implements, {
   interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Text, m.Tint],
 });
@@ -528,6 +534,13 @@ matching the data component **plus the interface marker** and calling the inject
 GameObjects that mix in Phaser's Tint component: `Image` and `Text`; primitive shapes do
 not have `setTint`). Each uses
 `update({ watch: <Data>, onEnter: true, inject: [m.<marker>] })`.
+
+`OpenPath` → `m.OpenPath` is the exception. The tag carries no data, so its system uses `enter` and
+`exit`: entering calls `setClosePath(false)`, and leaving calls `setClosePath(true)` only while the
+same GameObject is still attached, because one that left with its renderable is being destroyed.
+Only `Arc` and `Polygon` declare `m.OpenPath`. Phaser's Canvas renderer always closes the stroke of
+`Ellipse`, `Rectangle`, `Star` and `Triangle`, so `OpenPath` on those is a silent no-op, like `Tint`
+on a primitive shape.
 
 **Enter-init invariant.** Protocol order puts transform+style before shapes (§6), the `new` system
 attaches the object in `ON_STORE`, and the sync systems (also `ON_STORE`, `onEnter: true`) run

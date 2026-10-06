@@ -4,14 +4,21 @@ import {
   Alpha,
   Arc,
   Depth,
+  Ellipse,
   FillStyle,
+  OpenPath,
   phaserNetworkComponents,
+  Polygon,
   Position,
+  Rectangle,
   Rotation,
   Scale,
+  Size,
+  Star,
   StrokeStyle,
   Text,
   Tint,
+  Triangle,
 } from "@vworlds/vecs-phaser";
 import { describe, expect, it } from "vitest";
 
@@ -90,6 +97,94 @@ describe("PhaserRenderModule sync systems", () => {
   });
 });
 
+describe("OpenPath sync", () => {
+  it("leaves a new Arc's stroke open in the same tick it is created", () => {
+    const { scene, world } = setup();
+
+    world
+      .entity()
+      .set(Arc, { radius: 0.5, endAngle: Math.PI })
+      .set(StrokeStyle, { width: 2 })
+      .add(OpenPath);
+    world.progress(0, 0);
+
+    expect(closePathCalls(scene.created[0]!)).toEqual([[false]]);
+  });
+
+  it("opens and recloses an existing Arc as OpenPath is added and removed", () => {
+    const { scene, world } = setup();
+    const entity = world.entity().set(Arc, { radius: 0.5, endAngle: Math.PI });
+    world.progress(0, 0);
+    const arc = scene.created[0]!;
+
+    expect(closePathCalls(arc)).toEqual([]);
+
+    entity.add(OpenPath);
+    world.progress(1, 0);
+
+    expect(closePathCalls(arc)).toEqual([[false]]);
+
+    entity.remove(OpenPath);
+    world.progress(2, 0);
+
+    expect(closePathCalls(arc)).toEqual([[false], [true]]);
+  });
+
+  it("leaves a Polygon's stroke open so it draws as a polyline", () => {
+    const { scene, world } = setup();
+
+    world
+      .entity()
+      .set(Polygon, { points: [0, 0, 1, 0, 1, 1] })
+      .add(OpenPath);
+    world.progress(0, 0);
+
+    expect(closePathCalls(scene.created[0]!)).toEqual([[false]]);
+  });
+
+  it("ignores OpenPath on shapes whose stroke Phaser always closes", () => {
+    const { scene, world } = setup();
+
+    world.entity().add(Star).add(OpenPath);
+    world.entity().add(Ellipse).add(Size).add(OpenPath);
+    world.entity().add(Rectangle).add(Size).add(OpenPath);
+    world.entity().add(Triangle).add(OpenPath);
+    world.progress(0, 0);
+
+    expect(scene.created.map((obj) => obj.kind).sort()).toEqual([
+      "ellipse",
+      "rectangle",
+      "star",
+      "triangle",
+    ]);
+    for (const obj of scene.created) {
+      expect(closePathCalls(obj)).toEqual([]);
+    }
+  });
+
+  it("never recloses a GameObject that leaves with its renderable", () => {
+    const { scene, world } = setup();
+    const entity = world.entity().set(Arc, { radius: 0.5 }).add(OpenPath);
+    world.progress(0, 0);
+    const arc = scene.created[0]!;
+
+    entity.remove(Arc);
+    entity.set(Polygon, { points: [0, 0, 1, 0, 1, 1] });
+    world.progress(1, 0);
+    const polygon = scene.created[1]!;
+
+    expect(arc.destroyed).toBe(true);
+    expect(closePathCalls(arc)).toEqual([[false]]);
+    expect(closePathCalls(polygon)).toEqual([[false]]);
+
+    entity.destroy();
+    world.progress(2, 0);
+
+    expect(polygon.destroyed).toBe(true);
+    expect(closePathCalls(polygon)).toEqual([[false]]);
+  });
+});
+
 describe("rotationInterpolator", () => {
   it("lerps Rotation over the shortest arc without mutating inputs", () => {
     const source = new Rotation();
@@ -146,6 +241,10 @@ function degrees(value: number): number {
 
 function expectCall(obj: MockGameObject, method: string, args: readonly unknown[]): void {
   expect(obj.calls).toContainEqual({ method, args } satisfies RecordedCall);
+}
+
+function closePathCalls(obj: MockGameObject): unknown[][] {
+  return obj.calls.filter((call) => call.method === "setClosePath").map((call) => [...call.args]);
 }
 
 function setup(): { scene: ReturnType<typeof createMockScene>; world: ClientWorld } {
