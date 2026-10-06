@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   FIRST_USER_RPC_ID,
   RPC,
@@ -25,6 +25,41 @@ function connect(client: SessionRPC, server: SessionRPC): () => void {
       client.process(replies);
     }
   };
+}
+
+/** A promise the test settles by hand, to hold a handler in flight. */
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Let the continuations of settled handlers run, so the replies they owe are queued. */
+async function flush(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await Promise.resolve();
+  }
+}
+
+const request = (callId: number, ...params: unknown[]) => new RPC({ rpcId: 101, callId, params });
+const response = (callId: number, ...params: unknown[]) =>
+  new RPC({ rpcId: RPC_RESPONSE_ID, callId, params });
+
+/**
+ * The call ids whose replies the channel still caches. Eviction has no other
+ * observable effect: a request below the watermark is ignored whether or not
+ * its reply is still held, so memory is the only thing the cache can leak.
+ */
+function cachedCallIds(rpc: SessionRPC): number[] {
+  return [...(rpc as unknown as { _cachedReplies: Map<number, RPC> })._cachedReplies.keys()];
 }
 
 describe("RPCError", () => {
@@ -259,5 +294,378 @@ describe("SessionRPC", () => {
 
     await expect(call).rejects.toBe(RPC_TIMEOUT_ERROR);
     expect(client.pendingTotal).toBe(0);
+  });
+});
+
+describe("SessionRPC duplicate requests", () => {
+  it("runs a handler once for copies that arrive while it is in flight", async () => {
+    const server = new SessionRPC();
+    const gate = deferred<unknown[]>();
+    const handler = vi.fn(() => gate.promise);
+    server.listen(101, handler);
+
+    // The caller re-sends its pending request with every frame, so copies keep
+    // arriving while the first run is still waiting on something slow.
+    server.process([request(0, "spend")]);
+    server.process([request(0, "spend")]);
+    server.process([request(0, "spend")]);
+    await flush();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(server.getOutgoing()).toEqual([]);
+
+    gate.resolve(["spent"]);
+    await flush();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(server.getOutgoing()).toEqual([response(0, "spent")]);
+    expect(server.getOutgoing()).toEqual([]);
+  });
+
+  it("runs a handler once for two copies in one process() batch", async () => {
+    const server = new SessionRPC();
+    const gate = deferred<unknown[]>();
+    const handler = vi.fn(() => gate.promise);
+    server.listen(101, handler);
+
+    server.process([request(0), request(0)]);
+    gate.resolve(["done"]);
+    await flush();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(server.getOutgoing()).toEqual([response(0, "done")]);
+  });
+
+  it("answers a copy that arrives after the handler settled with the original reply", async () => {
+    const server = new SessionRPC();
+    const handler = vi.fn(() => ["spent"]);
+    server.listen(101, handler);
+    server.process([request(0)]);
+    await flush();
+    expect(server.getOutgoing()).toEqual([response(0, "spent")]);
+
+    server.process([request(0)]);
+    await flush();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(server.getOutgoing()).toEqual([response(0, "spent")]);
+  });
+
+  it("runs a failing handler once and answers every copy with its error", async () => {
+    const server = new SessionRPC();
+    const gate = deferred<unknown[]>();
+    const handler = vi.fn(() => gate.promise);
+    server.listen(101, handler);
+    const failure = {
+      rpcId: RPC_RESPONSE_ID,
+      callId: 0,
+      error: 4001,
+      message: "unknown resume token",
+    };
+
+    server.process([request(0)]);
+    server.process([request(0)]);
+    gate.reject(new RPCError(4001, "unknown resume token"));
+    await flush();
+    expect(server.getOutgoing()).toMatchObject([failure]);
+
+    server.process([request(0)]);
+    await flush();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(server.getOutgoing()).toMatchObject([failure]);
+  });
+
+  it("answers every copy of a call to an unknown rpc id with the same error", async () => {
+    const server = new SessionRPC();
+    const unknown = {
+      rpcId: RPC_RESPONSE_ID,
+      callId: 0,
+      error: 1,
+      message: "Unknown RPC id 999",
+    };
+    server.process([new RPC({ rpcId: 999, callId: 0 })]);
+    await flush();
+    expect(server.getOutgoing()).toMatchObject([unknown]);
+
+    // The call was answered; a handler registered afterwards does not reopen it.
+    const handler = vi.fn(() => ["too late"]);
+    server.listen(999, handler);
+    server.process([new RPC({ rpcId: 999, callId: 0 })]);
+    await flush();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(server.getOutgoing()).toMatchObject([unknown]);
+  });
+});
+
+describe("SessionRPC peer watermark", () => {
+  it("ignores a request below the watermark: no handler run and no reply", async () => {
+    const server = new SessionRPC();
+    const handler = vi.fn(() => ["ok"]);
+    server.listen(101, handler);
+    server.setPeerSettledBelow(5);
+
+    server.process([request(0), request(4)]);
+    await flush();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(server.getOutgoing()).toEqual([]);
+    expect(server.pendingTotal).toBe(0);
+  });
+
+  it("treats a call at the watermark as live", async () => {
+    const server = new SessionRPC();
+    const handler = vi.fn(() => ["ok"]);
+    server.listen(101, handler);
+    server.setPeerSettledBelow(5);
+
+    server.process([request(5)]);
+    await flush();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(server.getOutgoing()).toEqual([response(5, "ok")]);
+  });
+
+  it("evicts cached and unsent replies below a raised watermark and keeps the rest", async () => {
+    const server = new SessionRPC();
+    const handler = vi.fn((params: unknown[]) => params);
+    server.listen(101, handler);
+    server.process([request(0, "a"), request(1, "b"), request(2, "c"), request(3, "d")]);
+    await flush();
+    expect(cachedCallIds(server)).toEqual([0, 1, 2, 3]);
+
+    server.setPeerSettledBelow(2);
+
+    expect(cachedCallIds(server)).toEqual([2, 3]);
+    // The replies still waiting to be sent for calls 0 and 1 are dropped with them.
+    expect(server.getOutgoing()).toEqual([response(2, "c"), response(3, "d")]);
+    // A copy at or above the watermark still gets its cached reply.
+    server.process([request(3, "d")]);
+    await flush();
+    expect(handler).toHaveBeenCalledTimes(4);
+    expect(server.getOutgoing()).toEqual([response(3, "d")]);
+  });
+
+  it("evicts the cached error reply of an unknown rpc id like any other reply", async () => {
+    const server = new SessionRPC();
+    server.process([new RPC({ rpcId: 999, callId: 0 })]);
+    await flush();
+    expect(cachedCallIds(server)).toEqual([0]);
+
+    server.setPeerSettledBelow(1);
+
+    expect(cachedCallIds(server)).toEqual([]);
+  });
+
+  it("never moves the watermark backwards", async () => {
+    const server = new SessionRPC();
+    const handler = vi.fn(() => ["ok"]);
+    server.listen(101, handler);
+    server.setPeerSettledBelow(5);
+
+    server.setPeerSettledBelow(3); // a late frame that carries an older watermark
+    server.setPeerSettledBelow(5);
+    server.process([request(4)]);
+    await flush();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(server.getOutgoing()).toEqual([]);
+  });
+
+  it("discards the reply of a handler the watermark passed while it was running", async () => {
+    const server = new SessionRPC();
+    const gate = deferred<unknown[]>();
+    const handler = vi.fn(() => gate.promise);
+    server.listen(101, handler);
+    server.process([request(0)]);
+
+    server.setPeerSettledBelow(1); // the caller gave up on call 0
+    gate.resolve(["too late"]);
+    await flush();
+
+    expect(server.getOutgoing()).toEqual([]);
+    expect(cachedCallIds(server)).toEqual([]);
+    server.process([request(0)]); // a straggling copy
+    await flush();
+    expect(handler).toHaveBeenCalledOnce();
+    expect(server.getOutgoing()).toEqual([]);
+  });
+
+  it("evicts a reply once the caller's next frame reports the call settled", async () => {
+    const client = new SessionRPC();
+    const server = new SessionRPC();
+    server.listen(101, () => ["pong"]);
+    // What a bare pair of channels has to do for each frame it exchanges.
+    const exchange = (): void => {
+      server.setPeerSettledBelow(client.settledBelow);
+      server.process(client.getOutgoing());
+      client.setPeerSettledBelow(server.settledBelow);
+      client.process(server.getOutgoing());
+    };
+
+    const call = client.invoke(101);
+    exchange(); // the request reaches the server
+    await flush();
+    exchange(); // the reply reaches the client
+    await expect(call).resolves.toMatchObject({ params: ["pong"] });
+    // The server cannot tell the reply arrived, so it keeps it ...
+    expect(cachedCallIds(server)).toEqual([0]);
+
+    exchange(); // ... until the caller's next frame says call 0 has settled
+
+    expect(cachedCallIds(server)).toEqual([]);
+  });
+});
+
+describe("SessionRPC.settledBelow", () => {
+  it("starts at 0", () => {
+    expect(new SessionRPC().settledBelow).toBe(0);
+  });
+
+  it("stays at the lowest pending call while replies arrive out of order", async () => {
+    const client = new SessionRPC();
+    const calls = [client.invoke(101), client.invoke(101), client.invoke(101)];
+    expect(client.settledBelow).toBe(0);
+
+    client.process([response(1)]);
+    expect(client.settledBelow).toBe(0);
+
+    client.process([response(0)]);
+    expect(client.settledBelow).toBe(2);
+
+    client.process([response(2)]);
+    expect(client.settledBelow).toBe(3);
+    await Promise.all(calls);
+  });
+
+  it("advances through calls that time out or are aborted", async () => {
+    const client = new SessionRPC();
+    const reason = new RPCError(RPC_CLOSED_CODE, "peer gone");
+    const outcomes = [
+      client.invoke(101, [], 10),
+      client.invoke(101, [], 1000),
+      client.invoke(101, [], 1000),
+    ].map((call) => call.catch((error: unknown) => error));
+
+    client.timeoutTick(10); // call 0 times out
+    expect(client.settledBelow).toBe(1);
+
+    client.process([response(2)]); // call 2 is answered, but call 1 is still waiting
+    expect(client.settledBelow).toBe(1);
+
+    client.abortPending(reason); // call 1 is aborted
+    expect(client.settledBelow).toBe(3);
+
+    expect(await outcomes[0]).toBe(RPC_TIMEOUT_ERROR);
+    expect(await outcomes[1]).toBe(reason);
+  });
+
+  it("keeps counting from the next call id after an abort", async () => {
+    const client = new SessionRPC();
+    void client.invoke(101).catch(() => undefined);
+    client.abortPending(new RPCError(RPC_CLOSED_CODE, "peer gone"));
+    expect(client.settledBelow).toBe(1);
+
+    const next = client.invoke(101);
+    expect(client.settledBelow).toBe(1);
+    client.process([response(1)]);
+    await next;
+    expect(client.settledBelow).toBe(2);
+  });
+});
+
+describe("SessionRPC.timeoutTick", () => {
+  it("rejects pending calls but no longer evicts cached replies", async () => {
+    const channel = new SessionRPC(10);
+    const handler = vi.fn(() => ["once"]);
+    channel.listen(101, handler);
+    channel.process([request(0)]);
+    await flush();
+    expect(channel.getOutgoing()).toEqual([response(0, "once")]);
+    const pending = channel.invoke(102);
+
+    channel.timeoutTick(1_000_000);
+
+    await expect(pending).rejects.toBe(RPC_TIMEOUT_ERROR);
+    // A copy that turns up long after the old time-to-live still gets the original reply.
+    channel.process([request(0)]);
+    await flush();
+    expect(handler).toHaveBeenCalledOnce();
+    expect(channel.getOutgoing()).toEqual([response(0, "once")]);
+  });
+});
+
+describe("SessionRPC.abortPending forgets the peer", () => {
+  const gone = () => new RPCError(RPC_CLOSED_CODE, "peer gone");
+
+  it("runs a new peer's call 0 instead of replaying the old peer's cached reply", async () => {
+    const server = new SessionRPC();
+    const handler = vi.fn((params: unknown[]) => params);
+    server.listen(101, handler);
+    server.process([request(0, "old peer")]);
+    await flush();
+    server.getOutgoing();
+
+    server.abortPending(gone());
+    server.process([request(0, "new peer")]);
+    await flush();
+
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(server.getOutgoing()).toEqual([response(0, "new peer")]);
+  });
+
+  it("resets the peer watermark to 0", async () => {
+    const server = new SessionRPC();
+    const handler = vi.fn(() => ["ok"]);
+    server.listen(101, handler);
+    server.setPeerSettledBelow(7);
+
+    server.abortPending(gone());
+    server.process([request(3)]); // stale under the old peer's watermark, live for the new one
+    await flush();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(server.getOutgoing()).toEqual([response(3, "ok")]);
+  });
+
+  it("queues nothing for a handler that was running across the abort", async () => {
+    const server = new SessionRPC();
+    const gate = deferred<unknown[]>();
+    server.listen(101, () => gate.promise);
+    server.process([request(0)]);
+
+    server.abortPending(gone());
+    gate.resolve(["from the old peer's run"]);
+    await flush();
+
+    expect(server.getOutgoing()).toEqual([]);
+    expect(cachedCallIds(server)).toEqual([]);
+  });
+
+  it("keeps the new peer's call in flight when an aborted handler finishes", async () => {
+    const server = new SessionRPC();
+    const oldRun = deferred<unknown[]>();
+    const newRun = deferred<unknown[]>();
+    const handler = vi
+      .fn<(params: unknown[]) => Promise<unknown[]>>()
+      .mockReturnValueOnce(oldRun.promise)
+      .mockReturnValueOnce(newRun.promise);
+    server.listen(101, handler);
+    server.process([request(0)]); // the old peer's call 0
+
+    server.abortPending(gone());
+    server.process([request(0)]); // the new peer's call 0 shares its id
+    oldRun.resolve(["old"]);
+    await flush();
+    server.process([request(0)]); // a copy of the new peer's call: its run is still in flight
+    await flush();
+
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(server.getOutgoing()).toEqual([]);
+
+    newRun.resolve(["new"]);
+    await flush();
+    expect(server.getOutgoing()).toEqual([response(0, "new")]);
   });
 });

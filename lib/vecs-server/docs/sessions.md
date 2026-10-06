@@ -65,6 +65,10 @@ handler sees the right caller for every connection, including concurrent ones an
 arrive on later ticks. Registering a handler after clients have already connected applies to them
 too.
 
+A handler runs once per call, even though the client re-sends its pending request with every ack
+while the handler is still running; see
+[Duplicates and the settled watermark](../../vecs-protocol/docs/rpc.md#duplicates-and-the-settled-watermark).
+
 Throw an [`RPCError`](../../vecs-protocol/docs/rpc.md) to reject a call with a code the client can
 branch on:
 

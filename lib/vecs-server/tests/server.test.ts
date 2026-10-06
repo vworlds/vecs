@@ -4,7 +4,9 @@ import {
   Client2Server,
   ComponentSnapshot,
   RPC,
+  RPC_RESPONSE_ID,
   Server2Client,
+  type SessionRPC,
   type VecsSocket,
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
@@ -1359,6 +1361,165 @@ describe("ServerWorld RPC caller context", () => {
 
     expect(calls).toEqual([]);
     expect(replies).toEqual([]);
+  });
+});
+
+describe("ServerWorld RPC retransmission", () => {
+  const SPEND_RPC = 101;
+
+  /** A promise the test settles by hand, to hold a handler in flight. */
+  function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  /** Let the continuation of a settled handler queue the reply it owes. */
+  async function settleHandlers(): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+    }
+  }
+
+  /** The ack a client sends while its call is pending: every ack carries the request again. */
+  function ackWithRequest(callId: number): Uint8Array {
+    return encodeClient2Server(
+      new Client2Server({
+        ackFrame: 0,
+        rpc: [new RPC({ rpcId: SPEND_RPC, callId, params: ["spend 10 credits"] })],
+      })
+    );
+  }
+
+  /** Every RPC reply the server has sent on `socket` so far. */
+  function repliesSent(socket: MemorySocket): RPC[] {
+    return socket.sent.flatMap((bytes) => new Decoder(bytes).read(Server2Client).rpc);
+  }
+
+  function connectClient(handler: Parameters<ServerWorld["handleRpc"]>[1]): {
+    server: ServerWorld;
+    socket: MemorySocket;
+  } {
+    const server = createWorld();
+    const listener = new MockListener();
+    server._attach(listener);
+    server.handleRpc(SPEND_RPC, handler);
+    const socket = new MemorySocket("client-1");
+    listener.connect(socket);
+    return { server, socket };
+  }
+
+  it("runs a slow handler once when the client retransmits its request before it resolves", async () => {
+    const gate = deferred<unknown[]>();
+    const handler = vi.fn(() => gate.promise);
+    const { server, socket } = connectClient(handler);
+
+    // The client re-sends its pending request with every ack while the server keeps ticking.
+    const ack = ackWithRequest(0);
+    for (let copy = 0; copy < 3; copy++) {
+      socket.receive(ack);
+      tick(server);
+    }
+    await settleHandlers();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(repliesSent(socket)).toEqual([]);
+
+    gate.resolve(["spent"]);
+    await settleHandlers();
+    tick(server);
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(repliesSent(socket)).toMatchObject([
+      { rpcId: RPC_RESPONSE_ID, callId: 0, params: ["spent"] },
+    ]);
+  });
+
+  it("re-sends the cached reply to a copy that arrives after the reply, without re-running the handler", async () => {
+    const handler = vi.fn(() => ["spent"]);
+    const { server, socket } = connectClient(handler);
+    const ack = ackWithRequest(0);
+    socket.receive(ack);
+    await settleHandlers();
+    tick(server);
+    expect(repliesSent(socket)).toHaveLength(1);
+
+    // A retransmit that crossed the reply on the wire.
+    socket.receive(ack);
+    await settleHandlers();
+    tick(server);
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(repliesSent(socket)).toMatchObject([
+      { callId: 0, params: ["spent"] },
+      { callId: 0, params: ["spent"] },
+    ]);
+  });
+
+  it("ignores a replayed request once the client's watermark has passed it", async () => {
+    const handler = vi.fn(() => ["spent"]);
+    const { server, socket } = connectClient(handler);
+    const ack = ackWithRequest(0);
+    socket.receive(ack);
+    await settleHandlers();
+    tick(server);
+    expect(repliesSent(socket)).toHaveLength(1);
+
+    // The client got its reply, so its next ack says call 0 has settled ...
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0, rpcSettledBelow: 1 })));
+    // ... and then an old frame that still carries the request turns up late.
+    socket.receive(ack);
+    await settleHandlers();
+    tick(server);
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(repliesSent(socket)).toHaveLength(1);
+  });
+
+  it("carries the session's own watermark on the per-tick frame and on the close frame", async () => {
+    const { server, socket } = connectClient(() => []);
+    // ServerWorld has no public way to call a client, so reach the session's channel directly.
+    const rpc = (getSession(server, "client-1") as unknown as { rpc: SessionRPC }).rpc;
+    const answered = rpc.invoke(SPEND_RPC);
+    void rpc.invoke(SPEND_RPC).catch(() => undefined); // call 1 stays pending, so every frame is sent
+
+    socket.receive(
+      encodeClient2Server(
+        new Client2Server({
+          ackFrame: 0,
+          rpc: [new RPC({ rpcId: RPC_RESPONSE_ID, callId: 0, params: ["ok"] })],
+        })
+      )
+    );
+    await answered;
+    tick(server);
+
+    expect(decodeLastMessage(socket)).toMatchObject({ rpcSettledBelow: 1 });
+
+    server.closeSession("client-1", "done");
+    tick(server);
+
+    expect(decodeLastMessage(socket)).toMatchObject({
+      rpcSettledBelow: 1,
+      close: { reason: "done" },
+    });
+  });
+
+  it("sends a zero watermark on every frame while the session has issued no calls", async () => {
+    const { server, socket } = connectClient(() => ["ok"]);
+    socket.receive(ackWithRequest(0));
+    await settleHandlers();
+    tick(server); // the per-tick frame that carries the reply
+    server.closeSession("client-1", "done");
+    tick(server); // the close frame
+
+    const frames = socket.sent.map((bytes) => new Decoder(bytes).read(Server2Client));
+    expect(frames).toHaveLength(2);
+    expect(frames[0].rpc).toMatchObject([{ callId: 0, params: ["ok"] }]);
+    expect(frames[1].close).toEqual({ reason: "done" });
+    expect(frames.map((frame) => frame.rpcSettledBelow)).toEqual([0, 0]);
   });
 });
 
