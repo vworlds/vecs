@@ -396,16 +396,22 @@ export class PhaserServerModule extends Module<undefined> {
       .system("phaser.sync.position")
       .with(PhysicsPosition, RenderPosition)
       .phase(POST_UPDATE)
-      .update({ watch: PhysicsPosition, onEnter: true }, (e, p) =>
-        e.set(RenderPosition, { x: p.x, y: p.y })
-      );
+      .update({ watch: PhysicsPosition, onEnter: true }, (e, p) => {
+        const render = e.get(RenderPosition);
+        if (render !== undefined && (render.x !== p.x || render.y !== p.y)) {
+          e.set(RenderPosition, { x: p.x, y: p.y });
+        }
+      });
     world
       .system("phaser.sync.rotation")
       .with(PhysicsRotation, RenderRotation)
       .phase(POST_UPDATE)
-      .update({ watch: PhysicsRotation, onEnter: true }, (e, r) =>
-        e.set(RenderRotation, { angle: r.angle })
-      );
+      .update({ watch: PhysicsRotation, onEnter: true }, (e, r) => {
+        const render = e.get(RenderRotation);
+        if (render !== undefined && render.angle !== r.angle) {
+          e.set(RenderRotation, { angle: r.angle });
+        }
+      });
   }
 }
 
@@ -583,13 +589,20 @@ rebinds. No teardown system, no special-casing anywhere.
 
 Copy `A → B`, gated on both existing (so you never _create_ `B`, you only keep an existing `B` in
 sync — pure-ECS: the owner decides whether `B` exists). Use `{ onEnter: true }` when `B` must reflect
-the current `A` as soon as the entity enters the sync system:
+the current `A` as soon as the entity enters the sync system, and write only when `B` differs from `A`:
 
 ```ts
-.with(PhysicsPosition, RenderPosition).update({ watch: PhysicsPosition, onEnter: true }, (e, p) =>
-  e.set(RenderPosition, { x: p.x, y: p.y })
-);
+.with(PhysicsPosition, RenderPosition).update({ watch: PhysicsPosition, onEnter: true }, (e, p) => {
+  const render = e.get(RenderPosition);
+  if (render !== undefined && (render.x !== p.x || render.y !== p.y)) {
+    e.set(RenderPosition, { x: p.x, y: p.y });
+  }
+});
 ```
+
+Every `set` is a modification, even with an equal value: it fires `onSet`, routes `update` events to
+every watching system and replicates a networked component. So a sync into a networked or watched `B`
+compares before it writes.
 
 Leave `onEnter: true` off (or set `onEnter: false`) only when a separate `.enter(...)` already initializes `B`,
 or when the callback is intentionally "future changes only."
@@ -720,6 +733,10 @@ system after whatever produces the entity/companion.
 - **`update(C)` is change-only by default.** Add `{ onEnter: true }` for projection/sync callbacks
   that must apply the current watched value on entry; leave it off for mutation-only callbacks or
   when `.enter(...)` already owns initialization.
+- **`set` always marks the component modified, even with an equal value.** It fires `onSet`, routes
+  `update` events to every watching system and replicates a networked component. A writer that runs
+  every tick and copies a value into a networked or watched component (simulation output, a derived
+  pose) should compare first and `set` only when the value changed (see §7).
 - **Membership is fixed by `.with(...)` / `.without(...)` / `.update(C)`;** `update(C)` watches `C`
   and requires it.
 - **`exit` retains injected references captured at exit** (components are not deep-cloned).

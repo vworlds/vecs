@@ -248,8 +248,8 @@ Write these components before the physics phases if you want the changes to affe
 
 After stepping, physics writes results back to ECS:
 
-- Dynamic body `Position` and `Rotation` are updated from simulation output.
-- `LinearVelocity` and `AngularVelocity` are updated when those components are present.
+- Dynamic body `Position` and `Rotation` are updated from simulation output, but only when their value changed.
+- `LinearVelocity` and `AngularVelocity` are updated when those components are present, again only when their value changed. See [Pose Updates Fire Only When The Pose Changes](#pose-updates-fire-only-when-the-pose-changes).
 - `ContactEvents`, `HitEvents`, and `SensorEvents` are filled and marked modified when new events arrive.
 - Consumed `Impulse` and `AngularImpulse` public fields are silently reset to zero.
 
@@ -360,6 +360,27 @@ If user code writes `Position` after physics, rendering will see the user-writte
 If user code writes `Position` before physics, physics may step from that teleported position and then write the simulated result back.
 
 This is intentional. It follows Vecs phase ordering.
+
+### Pose Updates Fire Only When The Pose Changes
+
+Box2D reports every awake dynamic body after every step, and a body that did not move or turn reports exactly the values it already had. Writing a component marks it modified: its `set` hooks fire, every system watching it with `.update(...)` runs, and a networked component is replicated to every client that sees the entity. So physics compares each pose component with the simulated value, field by field and with exact equality (no epsilon), and writes it only when at least one field differs.
+
+- A body flying in a straight line gets a new `Position` every step, but its `Rotation` and `AngularVelocity` are not rewritten, so a constant `Rotation` is not replicated either.
+- An awake body at rest, for example one with `Sleep.enabled = false`, gets no pose write at all.
+- A body that moves and turns still gets exactly one write per changed component per step. `LinearVelocity` is one component: a change in either field writes it once.
+- `Position` is created by the first write when the body has none. `Rotation`, `LinearVelocity` and `AngularVelocity` are only maintained on bodies that already carry them.
+- Box2D stores positions as 32-bit floats and a rotation as a cosine and sine pair, so the first step can still rewrite a component whose initial value Box2D does not reproduce exactly, such as a position of `0.1` or an angle of `0.3`. After that the value is stable.
+
+A system that waits for `update(Position)` therefore runs when the body actually moved, not on every step. If a system must visit every body on every step, iterate with `each` and read the component instead of waiting for a modification. `each` visits every matching body, asleep or awake, so it cannot tell you which bodies are awake:
+
+```ts
+world
+  .system("LogAltitude")
+  .with(Body, Position)
+  .each([Position], (_entity, [position]) => {
+    console.log(position.y);
+  });
+```
 
 ### Events Are One-Step Data
 

@@ -512,6 +512,8 @@ After `b2World_Step`, read `b2World_GetBodyEvents(worldId).moveCount` and walk `
 - If the entity has `Rotation`: `entity.set(Rotation, { angle })`
 - If the entity has `LinearVelocity` / `AngularVelocity`: write those too.
 
+Each `set` is conditional. Box2D reports every awake body on every step and returns bit-identical values for a body that did not move or turn, while a `set` always marks the component modified (`onSet`, `update` routing, and a replicated snapshot for a networked component). So `writePose` reads the current component with `entity.get`, which inside a system is the committed state, compares it field by field with exact `!==` (no epsilon), and calls `set` only when a field differs. The compare reads the new values into locals and allocates nothing; `Position` is created by the first write, and the optional components are written only when the body already carries them. A body flying straight therefore never rewrites `Rotation` or `AngularVelocity`, and an awake body at rest writes nothing.
+
 Embind handle ownership matters on this hot path. `GetMoveEvent(i)` and `b2Body_GetLinearVelocity` return owned heap copies, so each is `delete()`d exactly once. `move.transform`, `transform.p` and `transform.q` are views into the move event's memory (the same address on every read), not copies: read each once and never `delete()` them, because that would run a C++ destructor on an interior pointer. `move.bodyId` is a plain value object. The angle comes from `q.GetAngle()` rather than `Math.atan2(q.s, q.c)`, because Box2D's `b2Atan2` is not bit-identical to `Math.atan2` and `Rotation` output must not change.
 
 These set commands carry the `PhysicsSystemTag` source, so `PhysicsPoseSyncIn` filters them out next frame. Static body poses are user-owned and never written back.
@@ -605,7 +607,7 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 - **System reactivity:** systems for everything except `Impulse` / `AngularImpulse`, which use synchronous `onSet` hooks.
 - **Parent/child:** Vecs `ChildOf` relationship.
 - **Pose-sync feedback suppression:** `PhysicsPoseSyncIn.ignoreSource([PhysicsSystemTag])`.
-- **`PhysicsPoseSyncOut` writes only moved (awake dynamic) bodies.** Static poses are user-owned.
+- **`PhysicsPoseSyncOut` writes only moved (awake dynamic) bodies, and only the components whose value changed.** Static poses are user-owned. Equality is exact: no epsilon.
 - **Silent impulse zero:** direct property writes, bypass `modified`.
 - **Event array semantics:** clear-in-place, modified only on new events.
 - **Geometry updates:** same-type in place where setters exist; type-swap is delete + create via exclusivity.
