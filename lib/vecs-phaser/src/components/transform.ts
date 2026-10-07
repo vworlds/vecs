@@ -37,22 +37,24 @@ export class Depth {
 }
 
 /**
- * Local position offset relative to the parent entity, expressed in the
- * parent's local (rotated) frame in meters.
+ * Local position offset relative to the parent entity, in meters.
  *
  * Parent-relative rendering has two modes, selected by the relationship:
  *
  * - **Native parenting** (`DrawIn`) — parent has `Container`. The child's
  *   Phaser GameObject is added to the parent's Container. Phaser composes
  *   transforms natively: moving/rotating the Container moves/rotates all
- *   children. `Offset` sets the child's local position inside the container.
+ *   children, and `Offset` is expressed in the parent's local (rotated) frame.
+ *   `Offset` sets the child's local position inside the container.
  *   Zero per-frame JS.
  *
  * - **Computed parenting** (`DrawBy`) — parent is a renderable (no
  *   `Container`). A client-side system derives the child's world `Position`
- *   from the parent's interpolated `Position` plus `Offset` rotated by the
- *   parent's `Rotation`. The `Position` is client-local (never networked).
- *   `Offset` is optional; if absent, the offset defaults to (0, 0).
+ *   from the parent's interpolated `Position` plus `Offset`. The offset is
+ *   added as is, in world axes, unless the child also carries
+ *   `InheritRotation`: then it is expressed in the parent's local frame and
+ *   rotated by the parent's `Rotation`. The `Position` is client-local (never
+ *   networked). `Offset` is optional; if absent, the offset defaults to (0, 0).
  */
 export class Offset {
   @wireType("f32")

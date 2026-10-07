@@ -1,6 +1,21 @@
-import { CleanupPolicy, Exclusive, Implements, Module, ON_STORE, Traversable } from "@vworlds/vecs";
+import {
+  CleanupPolicy,
+  Exclusive,
+  Implements,
+  Module,
+  ON_STORE,
+  Traversable,
+  With,
+} from "@vworlds/vecs";
 import Phaser from "phaser";
-import { Container, DrawBy, DrawIn, Position } from "@vworlds/vecs-phaser";
+import {
+  Container,
+  DrawBy,
+  DrawIn,
+  InheritRotation,
+  Position,
+  Rotation,
+} from "@vworlds/vecs-phaser";
 import * as m from "../markers.js";
 
 export class DisplaySetupModule extends Module<{ scene: Phaser.Scene }> {
@@ -34,6 +49,28 @@ export class DisplaySetupModule extends Module<{ scene: Phaser.Scene }> {
     // DrawBy auto-adds Position on the client to store the computed value.
     // The Position is client-local (never networked back to the server).
     world.component(DrawBy).on("add", (entity) => entity.add(Position));
+
+    // InheritRotation puts a DrawBy child in its parent's local frame (see
+    // phaser.resolve.offset). A tagged child carries a client-local Rotation that holds the
+    // derived world angle, much as a DrawBy child carries its derived Position, so adding the
+    // tag adds the Rotation. The target goes by component id: in the published declarations a
+    // `Component` entity is not assignable to `ComponentRef`, so passing it fails this
+    // package's build.
+    const inheritRotation = world.component(InheritRotation);
+    inheritRotation.add(With, world.component(Rotation).eid);
+
+    // Removing the tag from a DrawBy child returns the child to its own rotation: its Rotation
+    // becomes the tag's local angle, now taken relative to the world, and phaser.resolve.offset
+    // stops rotating its offset. The tag does nothing without DrawBy, so on an entity that has
+    // none, including a child whose DrawBy was already removed, removal leaves its Rotation alone.
+    // A `remove` hook also fires as an entity is destroyed, and a dying entity takes no writes, so
+    // it only acts on a live one.
+    inheritRotation.on("remove", (entity, tag) => {
+      if (entity.destroyed || !entity.has(DrawBy)) {
+        return;
+      }
+      entity.set(Rotation, { angle: tag.angle });
+    });
 
     world
       .component(Container)
