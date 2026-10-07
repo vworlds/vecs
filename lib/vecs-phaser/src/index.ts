@@ -1,6 +1,6 @@
 import { type ComponentClass } from "@vworlds/vecs";
 
-export { Container, DrawBy, DrawIn } from "./components/parenting.js";
+export { Container, DrawBy, DrawIn, InheritRotation } from "./components/parenting.js";
 export { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
 export { FillStyle, OpenPath, StrokeStyle, Tint } from "./components/style.js";
 export { Image } from "./components/image.js";
@@ -61,6 +61,9 @@ import { Text } from "./components/text.js";
  *  21  Offset
  *  22  DrawBy
  *  23  OpenPath
+ *
+ * `InheritRotation` is deliberately not listed: it is client-local by default, and appending to this
+ * list shifts the wire id of every application component listed after it.
  */
 export const phaserNetworkComponents = [
   Position,

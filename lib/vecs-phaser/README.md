@@ -10,6 +10,15 @@ computed scene-root parenting. Both are networked relationship classes. `Display
 `PhaserServerModule` configure them as single-target (`Exclusive`) relationships in their worlds;
 client setup also makes `DrawBy` traversable, while `DrawIn` is not.
 
+A `DrawBy` child follows its parent's `Position` only: the `Offset` is added as is and the child's
+own `Rotation` stays independent. `InheritRotation` is an opt-in tag that puts the child in its
+parent's local frame instead, so the `Offset` turns with the parent and the child's `Rotation` is
+the parent's angle plus the tag's `angle`. The tag is a wire type but deliberately not part of
+`phaserNetworkComponents`, because that list's order is the protocol and appending to it shifts the
+wire ids of every application component listed after it. It is client-local by default; an
+application that wants the server to set it lists it in its own network components, after its
+existing ones.
+
 Also exports the shared asset catalog schema (`AssetDescriptor`, `SpritesheetDescriptor`,
 `AssetCatalog`) used by `@vworlds/vecs-phaser-server` to describe server-owned assets and by
 `@vworlds/vecs-phaser-client` to load them before rendering.

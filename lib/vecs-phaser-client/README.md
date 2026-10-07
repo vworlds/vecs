@@ -62,8 +62,46 @@ parents.
 
 Use `entity.add(DrawIn, parent)` for native Phaser Container parenting or
 `entity.add(DrawBy, parent)` for computed scene-root parenting. Root GameObjects have neither
-relationship. The computed resolver reads the `DrawBy` parent and adds `Offset` directly to its
-`Position`; it does not use `DrawIn` or apply parent rotation.
+relationship. The computed resolver (`phaser.resolve.offset`) reads the `DrawBy` parent's
+interpolated `Position` and adds `Offset` directly to it; it does not use `DrawIn`, and unless the
+child opts in below, the parent's rotation neither turns the offset nor the child.
+
+### Turning with the parent
+
+Add `InheritRotation` to a `DrawBy` child to put it in its parent's local frame: a crack on a
+spinning rock, or a label that turns with its body. The same resolver pass then rotates the
+`Offset` by the parent's `Rotation` and gives the child a `Rotation` equal to the parent's angle
+plus the tag's `angle`, so position and rotation stay in lockstep on every frame, interpolated
+ones included. A `DrawIn` child needs no tag, since Phaser composes its transform natively.
+
+```ts
+import { DrawBy, InheritRotation, Offset, OpenPath, Polygon } from "@vworlds/vecs-phaser";
+
+// Client code: `rock` is a replicated renderable that spins; the crack drawn on it turns with it.
+world
+  .entity()
+  .add(DrawBy, rock)
+  .set(Offset, { x: 0.2, y: 0.1 })
+  .set(InheritRotation, { angle: 0.3 })
+  .set(Polygon, { points: [0, 0, 0.3, 0.1, 0.5, 0.4] })
+  .add(OpenPath);
+```
+
+- The tag's `angle` is the child's own angle relative to its parent, in radians, counter-clockwise
+  positive. Leave it `0` to follow the parent's orientation.
+- Adding the tag also adds a client-local `Rotation` to the child. It holds the derived angle and
+  is rewritten every frame, so setting or replicating `Rotation` on a tagged child has no effect.
+- A parent that is itself tagged passes its derived angle down, so angles add and offsets compose
+  along the chain, which resolves parent-first within a single frame.
+- Removing the tag from a `DrawBy` child returns it to its own rotation: its `Rotation` becomes the
+  tag's `angle` and its offset is no longer rotated.
+- The tag does nothing without `DrawBy`, so removing it from an entity that has none leaves that
+  entity's `Rotation` alone. A child whose `DrawBy` is removed (for example because its parent was
+  destroyed) keeps the pose it was last resolved to, and removing the tag afterwards leaves that
+  pose alone.
+- `InheritRotation` is not part of `phaserNetworkComponents`, so it is client-local unless your
+  application lists it in its own network components, after its existing ones, on the server and
+  the client alike. See the `InheritRotation` JSDoc for the full rules.
 
 ## Interpolation
 

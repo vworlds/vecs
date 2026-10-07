@@ -222,6 +222,9 @@ export class Offset {
 } // wire type 21
 export class DrawBy extends Relationship {} // computed parent, wire type 22
 export class OpenPath {} // tag — leaves an Arc or Polygon stroke open, wire type 23
+export class InheritRotation {
+  /* angle */
+} // opt-in tag on a DrawBy child: turn with the parent. A wire type, but NOT in phaserNetworkComponents
 
 // Protocol arrays — ORDER IS PROTOCOL (wire type id = index + 1)
 export const phaserNetworkComponents: readonly ComponentClass[];
@@ -429,6 +432,14 @@ export const phaserRenderableComponents = [
 | `Offset`      | `x:f32=0`, `y:f32=0`                                                                                                                                         | parent-relative meters (type 21)                                                        |
 | `DrawBy`      | Relationship edges                                                                                                                                           | computed scene-root parenting (type 22); `Exclusive` and `Traversable`                  |
 | `OpenPath`    | _tag_ (no fields)                                                                                                                                            | leaves the stroke of an `Arc` or `Polygon` open (type 23); other renderables ignore it  |
+
+`InheritRotation` (`angle:f32=0`, radians, counter-clockwise positive) is an opt-in tag for `DrawBy`
+children (§7.7) and is deliberately **not** in the table or in `phaserNetworkComponents`. It is a
+`@wireType` class so an application can replicate it, but the list's order is the protocol:
+appending it there would shift the wire id of every application component listed after the phaser
+components, and the tag is meant to be added client-side. An application that wants the server to
+set it lists it in its own network components, after the components it already has, on the server
+and the client alike. `protocol.test.ts` pins the list at 23 entries.
 
 Exactly one renderable per entity is enforced server-side by
 `setExclusiveComponents(...phaserRenderableComponents)` (installed by `PhaserServerModule`). The
@@ -664,12 +675,61 @@ the Container; Phaser propagates to children.
 **Computed parenting** — `[Position, Renderable]` + `DrawBy → Renderable parent` (no Container),
 with optional `Offset`. The child has a client-local `Position`. A client-side
 system (`OffsetResolveModule`) derives the child's world `Position` from the parent's
-interpolated `Position` plus `Offset` (default `(0, 0)`; parent rotation is not applied). The
+interpolated `Position` plus `Offset` (default `(0, 0)`). By default the offset is added as is: the
+parent's rotation does not turn it and the child's own `Rotation` stays independent; add
+`InheritRotation` to the child to put it in the parent's local frame (below). The
 `Position` is client-local — never networked. The existing `phaser.sync.position`
 then applies it. Per-frame JS cost, but only for this case.
 
 The relationship type, not the presence of `Position`, classifies parenting. `DrawIn` is native;
 `DrawBy` is computed and client setup auto-adds the local `Position` used by the resolver.
+
+### Following the parent's rotation (`InheritRotation`)
+
+`InheritRotation { angle }` is an opt-in tag on a `DrawBy` child that puts it in the parent's local
+frame: a crack on a spinning rock, or a label that turns with its body. `DrawIn` cannot do this for
+a replicated renderable, because its parent would have to be a `Container`, which is exclusive with
+every shape. `DisplaySetupModule` registers the tag with `With(Rotation)`, so a tagged child carries
+a client-local `Rotation` that holds the derived world angle, just as a `DrawBy` child carries its
+derived `Position`.
+
+`phaser.resolve.offset` stays a single cascade-ordered system, so a chain of children resolves
+parent-first in one pass, with no frame of lag, whatever mix of tagged and untagged children it
+holds. The callback injects only what every child uses: its `Offset` and `Position`, its parent's
+`Position` through `{ target: [DrawBy, [Position]] }`, and the `InheritRotation` tag it branches on.
+The two `Rotation`s are read with `get` in the tagged branch alone, so an untagged child pays no
+lookup for them. An untagged child gets `pos = parentPos + offset` and its rotation is never
+touched. For a tagged child, let `a` be the parent's `Rotation.angle` (`0` when the parent has no
+`Rotation`; for a tagged parent that is its derived world angle). Then:
+
+```
+x = px + ox·cos(a) − oy·sin(a)
+y = py + ox·sin(a) + oy·cos(a)
+child Rotation.angle = a + tag.angle
+```
+
+All of it is component space: meters, +y up, radians counter-clockwise positive. `CoordSpace`
+flips y and negates the angle at the Phaser frontier, as for every other component. The pass
+mutates the components in place and calls `modified` only for a value that changed, so it
+allocates nothing per entity, and trig runs only for tagged children. It runs in `ON_STORE`
+before `phaser.sync.position` and `phaser.sync.rotation`, so position and rotation reach the
+GameObject in the same frame, interpolated frames included.
+
+- **Removing the tag from a `DrawBy` child** returns the child to its own rotation. A `remove` hook
+  in `DisplaySetupModule` sets the `Rotation` to the tag's `angle`, now taken relative to the world,
+  and from then on the child resolves as an untagged one: its offset is no longer rotated. The hook
+  skips an entity that is being destroyed, because `remove` also fires as an entity is destroyed,
+  and an entity without `DrawBy`, because nothing was derived into its `Rotation` for the removal to
+  undo.
+- **Without `DrawBy`** the tag does nothing, and removing it changes nothing. When `DrawBy` is
+  removed — for example because its parent was destroyed, under `CleanupPolicy.Remove` — the child
+  keeps the pose it was last resolved to, and removing the tag later leaves that pose alone.
+- **A tagged child's `Rotation` is derived**, so writing or replicating `Rotation` on it is
+  overwritten every frame.
+- **The tag is client-local** unless an application lists it in its own network components (§6).
+  Replacing a replicated instance of it is an update, not a removal. `With` must be declared before
+  any entity carries the tag, so `PhaserRenderModule` has to be installed before the first frame
+  that carries it is applied, as the client README does.
 
 ### Display-list placement (`DisplayModule`)
 
@@ -910,8 +970,10 @@ rebuild.
 ## 11. Testing strategy
 
 - **`vecs-phaser`:** per-component wire round-trip (incl. `Polygon` array, `Text` strings,
-  `TextAlign`, `Image` texture/frame, `Tint` mono/poly corners); `phaserNetworkComponents` order snapshot
-  (pins `Image` at type 17, `Tint` at type 18); `phaserRenderableComponents` membership ==
+  `TextAlign`, `Image` texture/frame, `Tint` mono/poly corners, `InheritRotation` angle);
+  `phaserNetworkComponents` order snapshot
+  (pins `Image` at type 17, `Tint` at type 18, and that `InheritRotation` is not in the list);
+  `phaserRenderableComponents` membership ==
   primary renderables; catalog schema type-level checks (`SpritesheetDescriptor` narrows
   `kind`, heterogeneous `AssetDescriptor[]`).
 - **`vecs-phaser-client`:** `CoordSpace` math ((0,0)→center, (1,0)→+PPM, (0,1)→−PPM, angle
@@ -921,7 +983,13 @@ rebuild.
   CoordSpace; destroy on exit/entity clear; recreate on renderable-type change; Text origin
   centered; vertex shapes pin `(0,0)` to `Position`; `Image` create/texture-change/size-present/
   size-absent/position-tracking/exit; `loadAssets` queues `load.spritesheet` for every descriptor,
-  resolves only after `complete`, and reports progress.
+  resolves only after `complete`, and reports progress. `DrawBy` children: untagged ones add the
+  offset as is under a rotated parent; `InheritRotation` ones render the rotated offset and the
+  parent's angle plus their own for every renderable kind (`Polygon` with and without `OpenPath`,
+  `Text`, `Arc`), stay in lockstep with the parent across frames and `ClientWorld` interpolation,
+  resolve nested tagged and mixed chains in one frame whatever their entity ids, and release their
+  `Rotation` when the tag is removed without writing to an entity that is being destroyed or has no
+  `DrawBy`.
 - **`vecs-phaser-server`:** `PhaserServerModule` enforces exclusivity; reactive pose-sync copies
   physics `Position`/`Rotation` → render (only when physics changed; no create). `AssetManager`
   loads a `.tsj`/`.json` fixture into a live `TilesetAsset` with the correct spritesheet fields +
