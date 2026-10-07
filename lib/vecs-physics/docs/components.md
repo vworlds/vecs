@@ -171,7 +171,7 @@ Use it on entities with `Body`.
 entity.set(Position, { x: 10, y: 2 });
 ```
 
-For dynamic bodies, physics writes simulated positions back into this component after each step. If user code modifies `Position`, physics treats it as a teleport before the next step.
+For dynamic bodies, physics writes simulated positions back into this component after each step in which the position changed; a body that did not move leaves it untouched (see [Pose Updates Fire Only When The Pose Changes](./systems-and-phases.md#pose-updates-fire-only-when-the-pose-changes)). If user code modifies `Position`, physics treats it as a teleport before the next step.
 
 ### `Rotation`
 
@@ -247,7 +247,7 @@ export class LinearVelocity {
 }
 ```
 
-Velocity components are authoritative in both directions. If user code modifies `LinearVelocity`, physics applies it to the body. After stepping, physics writes current velocity back when the component is present.
+Velocity components are authoritative in both directions. If user code modifies `LinearVelocity`, physics applies it to the body. After stepping, physics writes current velocity back when the component is present and the velocity changed.
 
 ```ts
 player.set(LinearVelocity, { x: 3, y: 0 });

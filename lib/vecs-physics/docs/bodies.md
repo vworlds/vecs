@@ -102,7 +102,7 @@ The usual flow is:
 
 1. User sets initial `Position` and optional `Rotation`.
 2. Physics creates the body from those values.
-3. Each physics step writes the simulated pose back into `Position` and `Rotation`.
+3. Each physics step writes the simulated pose back into `Position` and `Rotation`, touching a component only when its value changed. See [Pose Updates Fire Only When The Pose Changes](./systems-and-phases.md#pose-updates-fire-only-when-the-pose-changes).
 
 If user code modifies `Position` or `Rotation`, physics treats that as a teleport.
 
@@ -145,7 +145,7 @@ export class AngularVelocity {
 
 If user code modifies `LinearVelocity` or `AngularVelocity`, physics applies the new velocity to the body.
 
-After stepping, physics writes the simulated velocity back into these components when they are present.
+After stepping, physics writes the simulated velocity back into these components when they are present, and only when the value changed.
 
 ```ts
 player.set(LinearVelocity, { x: 3, y: 0 });

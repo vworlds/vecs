@@ -229,6 +229,7 @@ For dynamic bodies:
 
 - Initial `Position` and optional `Rotation` seed the internal body.
 - Physics owns `Position` and `Rotation` after stepping.
+- Pose and velocity components are written only when the simulated value differs from the component, so a body that did not move or turn leaves them unmodified.
 - User modification of `Position` or `Rotation` is treated as teleport intent.
 
 For static and kinematic bodies:
