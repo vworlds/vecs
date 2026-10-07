@@ -197,7 +197,7 @@ export class Rotation {
 
 `Position` is required for a body to have a useful initial location. `Rotation` is optional. Missing `Rotation` means angle `0`.
 
-For dynamic bodies, physics writes simulation results back into `Position` and `Rotation` after each step.
+For dynamic bodies, physics writes simulation results back into `Position` and `Rotation` after each step, touching a component only when its value changed. See [Pose Updates Fire Only When The Pose Changes](./systems-and-phases.md#pose-updates-fire-only-when-the-pose-changes).
 
 If user code modifies `Position` or `Rotation`, physics treats that as a teleport and pushes the new pose into the simulation before the next step.
 
@@ -377,7 +377,7 @@ export class AngularVelocity {
 
 If user code modifies `LinearVelocity` or `AngularVelocity`, physics applies the new velocity to the body.
 
-After stepping, physics writes the simulated velocity back into these components when they are present.
+After stepping, physics writes the simulated velocity back into these components when they are present, and only when the value changed.
 
 Last update wins according to Vecs phase ordering.
 
