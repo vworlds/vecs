@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import { Relationship } from "@vworlds/vecs";
 import {
+  CLOSE_PROTOCOL_ERROR_CODE,
   Client2Server,
   ComponentSnapshot,
   EncodedSnapshot,
@@ -84,6 +85,33 @@ describe("protocol messages", () => {
     expect(decoded.diff?.toFrame).toBe(4);
     expect(decoded.rpc[0].params).toEqual(["ok"]);
     expect(decoded.close).toEqual({ code: 4003, reason: "superseded" });
+  });
+
+  it("carries the reserved protocol-error code in a close notice", () => {
+    const close = { code: CLOSE_PROTOCOL_ERROR_CODE, reason: "protocol error: bad frame" };
+
+    const decoded = new Decoder(encodeMessage(new Server2Client({ close }))).read(Server2Client);
+
+    expect(CLOSE_PROTOCOL_ERROR_CODE).toBe(1);
+    expect(decoded.close).toEqual({ code: 1, reason: "protocol error: bad frame" });
+  });
+
+  it("rejects a frame it cannot decode instead of returning a partial message", () => {
+    const decodeServer = (bytes: Uint8Array) => () => new Decoder(bytes).read(Server2Client);
+    const decodeClient = (bytes: Uint8Array) => () => new Decoder(bytes).read(Client2Server);
+    const whole = encodeMessage(
+      new Client2Server({
+        ackFrame: 3,
+        rpc: [new RPC({ rpcId: 101, callId: 1, params: ["hello"] })],
+      })
+    );
+
+    // A field tag no protocol version defines, after a well-formed prefix.
+    expect(decodeServer(Uint8Array.of(99))).toThrow("Invalid Server2Client field tag 99");
+    expect(decodeClient(Uint8Array.of(0, 99))).toThrow("Invalid Client2Server field tag 99");
+    // Bytes that run out inside a field, or before the ack a client frame must start with.
+    expect(decodeClient(whole.slice(0, whole.length - 3))).toThrow(RangeError);
+    expect(decodeClient(Uint8Array.of(0xde, 0xad, 0xbe, 0xef))).toThrow(RangeError);
   });
 
   it("encodes a frame without a notice exactly as before", () => {

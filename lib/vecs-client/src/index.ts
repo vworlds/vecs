@@ -7,6 +7,7 @@ export type {
   DgramConnectOptions,
 } from "./client_world.js";
 export {
+  CLOSE_PROTOCOL_ERROR_CODE,
   RPCError,
   RPC_CLOSED_CODE,
   RPC_TIMEOUT_CODE,

@@ -10,7 +10,11 @@ import {
 } from "@vworlds/vecs-protocol";
 import { Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import { ChildOf, Exclusive, Relationship, type ComponentClass, type EID } from "@vworlds/vecs";
-import { ClientWorld } from "../src/index.js";
+import {
+  CLOSE_PROTOCOL_ERROR_CODE,
+  ClientWorld,
+  type ClientWorldDisconnectEvent,
+} from "../src/index.js";
 
 class Position {
   @wireType("i32")
@@ -166,12 +170,14 @@ describe("ClientWorld relationship snapshots", () => {
     expect(removeCount).toBe(0);
   });
 
-  it("rejects an Exclusive relationship payload with multiple targets", () => {
+  it("closes the client on an Exclusive relationship payload with multiple targets", () => {
     const world = new ClientWorld({
       networkComponents: [Position, ExclusiveLink],
       serverTickIntervalMs: 10,
     });
     world.component(ExclusiveLink).add(Exclusive);
+    const disconnects: Array<ClientWorldDisconnectEvent | undefined> = [];
+    world.events.on("disconnect", (event) => disconnects.push(event));
     const socket = new MemorySocket("server");
     world.attachSocket(socket);
     socket.receive(
@@ -186,9 +192,18 @@ describe("ClientWorld relationship snapshots", () => {
       )
     );
 
-    expect(() => world.progress(0, 0)).toThrow(
-      "Exclusive relationship ExclusiveLink snapshot has 2 targets"
-    );
+    expect(() => world.progress(0, 0)).not.toThrow();
+
+    expect(disconnects).toEqual([
+      {
+        code: CLOSE_PROTOCOL_ERROR_CODE,
+        reason: "protocol error: Exclusive relationship ExclusiveLink snapshot has 2 targets",
+      },
+    ]);
+    // The rejected snapshot created neither the source nor either target.
+    expect(world.getEntity(1000)).toBeUndefined();
+    expect(world.getEntity(1001)).toBeUndefined();
+    expect(world.getEntity(1002)).toBeUndefined();
   });
 
   it("resolves a ChildOf snapshot when the parent already exists", () => {

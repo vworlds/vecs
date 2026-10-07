@@ -1,7 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Client2Server, RPC_CLOSED_CODE, type VecsSocket } from "@vworlds/vecs-protocol";
-import { Decoder } from "@vworlds/vecs-wire";
+import {
+  Client2Server,
+  ComponentSnapshot,
+  EncodedSnapshot,
+  RPC_CLOSED_CODE,
+  Server2Client,
+  StateDiff,
+  type VecsSocket,
+} from "@vworlds/vecs-protocol";
+import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import { ClientWorld } from "../src/index.js";
+
+class Position {
+  @wireType("i32")
+  public x = 0;
+
+  @wireType("i32")
+  public y = 0;
+}
 
 type SocketHandler = (arg?: unknown) => void;
 type SendMode = "ok" | "throw" | "reject" | "deferred-reject";
@@ -40,6 +56,10 @@ class MockSocket implements VecsSocket {
     this._deferred.splice(0).forEach((reject) => reject(new Error("late failure")));
   }
 
+  public receive(data: Uint8Array): void {
+    this._handlers.get("receive")?.forEach((handler) => handler(data));
+  }
+
   public close(): void {
     this.closeCalls += 1;
     this.disconnect();
@@ -69,6 +89,34 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await Promise.resolve();
   }
+}
+
+function encode(message: IEncodable): Uint8Array {
+  const encoder = new Encoder(new Uint8Array(64 * 1024));
+  encoder.write(message);
+  return encoder.getBuffer();
+}
+
+/** A baseline carrying one `Position` snapshot, as a server session would send it. */
+function positionBaseline(eid: number, toFrame: number, x: number, y: number): Uint8Array {
+  const position = new Position();
+  position.x = x;
+  position.y = y;
+  const payload = new Encoder(new Uint8Array(1024));
+  payload.write(position);
+  const snapshot = new EncodedSnapshot(
+    encode(new ComponentSnapshot({ eid, wireType: 1, payload: payload.getBuffer() })),
+    eid,
+    1
+  );
+  return encode(
+    new Server2Client({ diff: new StateDiff({ fromFrame: 0, toFrame, snapshots: [snapshot] }) })
+  );
+}
+
+/** The frame number the client acked on the last frame it sent to `socket`. */
+function ackedFrame(socket: MockSocket): number {
+  return new Decoder(socket.sent[socket.sent.length - 1]).read(Client2Server).ackFrame;
 }
 
 function sentRequests(socket: MockSocket): number {
@@ -270,6 +318,78 @@ describe("ClientWorld stale sockets", () => {
 
     expect(disconnect).not.toHaveBeenCalled();
     expect(pending).toMatchObject({ resolved: 0, rejected: 0 });
+    world.dispose();
+  });
+
+  it("ignores a frame that arrives on a replaced socket", () => {
+    const world = new ClientWorld({
+      networkComponents: [Position],
+      ackIntervalMs: 10,
+      serverTickIntervalMs: 10,
+    });
+    const a = new MockSocket("a");
+    const b = new MockSocket("b");
+    world.attachSocket(a);
+    world.attachSocket(b);
+
+    // The old server session's baseline, delivered late on the old socket.
+    a.receive(positionBaseline(1000, 7, 1, 1));
+    world.apply(0);
+
+    expect(world.getEntity(1000)).toBeUndefined();
+    world.send();
+    expect(ackedFrame(b)).toBe(0);
+
+    // The same frame on the current socket is applied and acked.
+    b.receive(positionBaseline(1000, 7, 1, 1));
+    world.apply(0);
+
+    expect(world.entity(1000).get(Position)).toMatchObject({ x: 1, y: 1 });
+    world.send();
+    expect(ackedFrame(b)).toBe(7);
+    world.dispose();
+  });
+
+  it("does not let an undecodable frame on a replaced socket close the new connection", () => {
+    const world = new ClientWorld({ networkComponents: [Position], ackIntervalMs: 10 });
+    const a = new MockSocket("a");
+    const b = new MockSocket("b");
+    const disconnect = vi.fn();
+    world.attachSocket(a);
+    world.attachSocket(b);
+    world.events.on("disconnect", disconnect);
+
+    expect(() => a.receive(Uint8Array.of(0xde, 0xad, 0xbe, 0xef))).not.toThrow();
+
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(a.closeCalls).toBe(0);
+    expect(b.closeCalls).toBe(0);
+    // The new connection keeps working.
+    b.receive(positionBaseline(1000, 1, 3, 4));
+    world.apply(0);
+    expect(world.entity(1000).get(Position)).toMatchObject({ x: 3, y: 4 });
+    world.dispose();
+  });
+
+  it("does not let a close notice retransmitted on a replaced socket disconnect the new one", () => {
+    const world = new ClientWorld({ ackIntervalMs: 10 });
+    const a = new MockSocket("a");
+    const b = new MockSocket("b");
+    const disconnect = vi.fn();
+    world.events.on("disconnect", disconnect);
+    world.attachSocket(a);
+    // The old server session's close frame arrives, and the application reconnects.
+    a.receive(encode(new Server2Client({ close: { code: 4003, reason: "superseded" } })));
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    world.attachSocket(b);
+
+    // The old session lingers and retransmits its close frame on the old socket.
+    a.receive(encode(new Server2Client({ close: { code: 4003, reason: "superseded" } })));
+
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    const sentBefore = b.sent.length;
+    vi.advanceTimersByTime(10);
+    expect(b.sent.length).toBeGreaterThan(sentBefore);
     world.dispose();
   });
 });

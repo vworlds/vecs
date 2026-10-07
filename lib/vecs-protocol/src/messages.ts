@@ -93,6 +93,33 @@ export interface CloseNotice {
   reason?: string;
 }
 
+/**
+ * The first protocol-reserved {@link CloseNotice.code}: the connection was
+ * closed because a frame could not be decoded, usually because client and
+ * server were built from incompatible protocol versions.
+ *
+ * Codes `0`–`100` are reserved for the protocol, and applications use their own
+ * codes above that range. A frame fails to decode when it is truncated or
+ * corrupt, or when it carries a field tag this build does not know. The reason
+ * that accompanies the code always starts with `protocol error:` and continues
+ * with the message of the error that caused the close.
+ *
+ * Both ends use it:
+ *
+ * - `ServerWorld` closes only the session that sent the frame, with this code,
+ *   so the client's `disconnect` event reports it.
+ * - `ClientWorld` reports it on its own `disconnect` event when it closes itself
+ *   because a frame from the server, or a component snapshot inside one, cannot
+ *   be decoded, or because the server sent a diff the client cannot accept: one
+ *   that starts after the last frame the client acknowledged. Nothing is sent to
+ *   the server in that case.
+ *
+ * `@vworlds/vecs-client` and `@vworlds/vecs-server` re-export it next to
+ * `RPC_CLOSED_CODE`, so an application can compare against it without importing
+ * this package.
+ */
+export const CLOSE_PROTOCOL_ERROR_CODE = 1;
+
 export class Server2Client implements IEncodable {
   public diff: StateDiff | undefined;
   public rpc: RPC[] = [];
@@ -203,8 +230,10 @@ export class Client2Server implements IEncodable {
    * byte-identical to one built before the field existed. A decoder that
    * predates the field rejects the tag, and a client sends it once its first
    * call has settled, so deploy servers before clients: a new server reads old
-   * and new clients alike, but an older server throws on a new client's frame
-   * (vworlds/vecs#211).
+   * and new clients alike, but an older server cannot read a new client's
+   * frame. One that predates the guard for undecodable frames throws out of its
+   * receive handler (vworlds/vecs#211); one that has it closes that client's
+   * session with {@link CLOSE_PROTOCOL_ERROR_CODE} instead.
    */
   public rpcSettledBelow = 0;
 

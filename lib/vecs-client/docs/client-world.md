@@ -10,6 +10,8 @@ also knows when to let go of all of it.
 - How to call a server RPC and answer server calls.
 - How `dispose` tears a world down and why pending calls must be rejected.
 - What changes after disposal.
+- What the client does when it cannot decode or accept a frame, a diff or a snapshot from the
+  server.
 
 ## Connecting
 
@@ -117,7 +119,10 @@ settled call before any later macrotask.
 (`ClientWorldDisconnectEvent`). It is present when the server closed the session on purpose with
 `closeSession(connection, reason, code)` and the close frame arrived; the world acks that frame, so
 the server can finish promptly, then disconnects. Owed replies in the same frame settle first, as
-above. The payload is `undefined` for transport loss, a failed send, or a local `close()`:
+above. It is also present, with code `CLOSE_PROTOCOL_ERROR_CODE` (`1`), when the client closes
+itself because it cannot decode or accept what the server sent; see
+[Frames the client cannot decode](#frames-the-client-cannot-decode). The payload is `undefined` for
+transport loss, a failed send, or a local `close()`:
 
 ```ts
 const SUPERSEDED = 4003; // application code; 0–100 is reserved for the protocol
@@ -139,7 +144,9 @@ would either hang forever or be sent on the next connection, which may be a diff
 (a sector switch), so a stale action could run in the wrong place. Calls made before the first
 `attachSocket` are different — nothing has been lost yet — so they stay queued and are sent on
 connect. After `attachSocket(newSocket)`, `invoke` works normally, and late events from the old
-socket (`disconnect` or a rejected send) are ignored instead of tearing down the new connection.
+socket (a received frame, `disconnect`, or a rejected send) are ignored instead of reaching the new
+connection. A frame that straggles in on the old socket is neither applied nor acked, whether it is
+a diff from the old server session, a retransmitted close notice, or garbage.
 
 `close` follows that disconnection path and closes the socket, but leaves replicated entities and
 the diff buffer intact: attach a fresh socket and its next baseline resynchronizes the world. `dispose`
@@ -181,6 +188,49 @@ handlers instead of removing them — the alternative would let a stale socket m
 
 Build a new `ClientWorld` to start over; the constructor has no internal state tied to the previous
 one.
+
+## Frames the client cannot decode
+
+The client decodes each incoming frame as a whole, reads the snapshots out of its diff as it buffers
+it, and decodes each snapshot's payload as `apply()` applies it. When any of those fails, or the diff
+buffer rejects the diff, the client does not throw into the transport or out of `apply()` and
+`progress()`. The cause is a frame that is truncated or garbled, a field tag this build does not
+know, a snapshot with a malformed envelope or payload, a snapshot of a wire type this world did not
+register, an `Exclusive` relationship snapshot with more than one target, or a diff that starts after
+the last frame the client acknowledged, which a server that honors acks never sends — in practice
+usually a server built from a newer or otherwise incompatible protocol version.
+
+Instead, the client closes the connection through the path `close()` uses: it stops the ack timer,
+emits `disconnect` once, rejects every pending `invoke` with `RPC_CLOSED_CODE`, and closes the
+socket. Nothing is sent to the server, because the protocol has no client-to-server close notice.
+The `disconnect` payload is the client's own notice: `code` is `CLOSE_PROTOCOL_ERROR_CODE` (`1`), and
+`reason` is `"protocol error: "` followed by the message of the error that caused the close.
+
+```ts
+import { CLOSE_PROTOCOL_ERROR_CODE } from "@vworlds/vecs-client";
+
+world.events.on("disconnect", (event) => {
+  if (event?.code === CLOSE_PROTOCOL_ERROR_CODE) {
+    // The two sides likely run different protocol versions: reconnecting with this build won't help
+    showUpdateRequired(event.reason);
+  }
+});
+```
+
+A frame that fails to decode is dropped whole. When the diff inside a decodable frame is rejected,
+the replies in that frame have already settled their calls, as always, but the diff is not applied
+and the close notice in the same frame is not handled. A baseline that cannot be read is rejected
+before anything is torn down, so the replicated entities stay in place and no `reset` event fires.
+For a snapshot, `apply()` stops at the one that failed: snapshots before it stay applied, and no
+later snapshot and no removal from that diff is applied. Replicated entities stay in place, as after
+any `close()`, and a new socket's next baseline resynchronizes them.
+
+Only reading, buffering and decoding are guarded. An exception thrown by your own code — a `reset`
+handler, an `on("remove")` hook that runs when a baseline destroys the replicated entities, or an
+`on("set")` hook that runs as a valid snapshot's component is attached — is an application bug: it
+still propagates and does not disconnect the client. Nor are the snapshots of a component that has
+an interpolator covered in full: the diff buffer decodes those earlier, while it blends frames, and
+a payload that fails there still throws out of `apply()`.
 
 ## Reference
 

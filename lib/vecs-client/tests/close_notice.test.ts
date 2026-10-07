@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { RPC_CLOSED_CODE, type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
 import { NetworkClient, ServerWorld, View } from "@vworlds/vecs-server";
-import { ClientWorld, type ClientWorldDisconnectEvent } from "../src/index.js";
+import {
+  CLOSE_PROTOCOL_ERROR_CODE,
+  ClientWorld,
+  type ClientWorldDisconnectEvent,
+} from "../src/index.js";
 
 // End to end: a real ServerWorld talking to a real ClientWorld over in-memory
 // sockets. The server's graceful close (`closeSession`) must hand its code and
@@ -224,6 +228,23 @@ describe("close notice delivery", () => {
     second.peer.close();
 
     expect(rig.disconnects).toEqual([{ code: 4100, reason: "first" }, undefined]);
+  });
+
+  it("tells a client that sent an undecodable frame why the server closed it", () => {
+    const rig = createRig(() => undefined);
+    const socket = rig.connect("client-1");
+    rig.tick();
+
+    // Not a frame ClientWorld would ever send: bytes no Client2Server decoder accepts.
+    socket.send(Uint8Array.of(0xde, 0xad, 0xbe, 0xef));
+    rig.tick();
+
+    expect(rig.disconnects).toEqual([
+      { code: CLOSE_PROTOCOL_ERROR_CODE, reason: expect.stringMatching(/^protocol error: .+/) },
+    ]);
+    // The client acked the close frame, so the server finishes on its next send.
+    rig.tick();
+    expect(rig.server.closeSession("client-1")).toBe(false);
   });
 
   it("reconnects after a deliberate close", () => {

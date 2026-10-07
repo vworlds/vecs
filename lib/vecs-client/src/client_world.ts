@@ -1,4 +1,5 @@
 import {
+  CLOSE_PROTOCOL_ERROR_CODE,
   Client2Server,
   RPC,
   RPC_CLOSED_CODE,
@@ -34,6 +35,7 @@ import {
   DiffBuffer,
   diffFromStateDiff,
   type ComponentInterpolator,
+  type Diff,
 } from "./diff_buffer.js";
 
 class Networked {}
@@ -49,17 +51,30 @@ export interface ClientWorldResetEvent {
 export type ClientWorldResetHandler = (event: ClientWorldResetEvent) => void;
 
 /**
- * Payload of the `disconnect` event when the server closed the session on
- * purpose and the close notice arrived. Same shape as the server's
- * `closeSession(connection, reason, code)` arguments.
+ * Payload of the `disconnect` event when the connection was closed with an
+ * explanation. It is one of two notices, both shaped like the server's
+ * `closeSession(connection, reason, code)` arguments:
+ *
+ * - the server's own notice, when it closed the session on purpose and the close
+ *   frame arrived;
+ * - this client's protocol-error notice, `{ code: CLOSE_PROTOCOL_ERROR_CODE,
+ *   reason: "protocol error: ..." }`, when the client could not decode or accept
+ *   what the server sent — a frame, a component snapshot inside one, or a diff
+ *   that starts after the last frame the client acknowledged — and closed the
+ *   connection itself. The reason ends with the message of the error that caused
+ *   the close.
+ *
+ * See {@link CLOSE_PROTOCOL_ERROR_CODE}.
  */
 export type ClientWorldDisconnectEvent = CloseNotice;
 
 export interface ClientWorldEvents {
   /**
-   * The connection is gone. The payload is present only when the server closed
-   * it deliberately and the notice arrived — see {@link ClientWorldDisconnectEvent};
-   * for transport loss, a failed send, or a local `close()` / `dispose()` the
+   * The connection is gone. The payload is present only when a notice explains
+   * why — the server closed the connection deliberately and its notice arrived,
+   * or this client closed it because it could not decode or accept what the server
+   * sent (code {@link CLOSE_PROTOCOL_ERROR_CODE}); see {@link ClientWorldDisconnectEvent}.
+   * For transport loss, a failed send, or a local `close()` / `dispose()` the
    * handler receives `undefined`.
    */
   disconnect: (event?: ClientWorldDisconnectEvent) => void;
@@ -206,12 +221,14 @@ export class ClientWorld extends NetworkWorld {
    *
    * `VecsSocket` has no `off`, so the `receive` and `disconnect` handlers stay
    * attached for the socket's lifetime; {@link ClientWorld.dispose} makes them
-   * no-ops instead.
+   * no-ops instead, and so does attaching another socket: each handler checks
+   * that its own socket is still the attached one.
    *
    * Attaching a socket after a disconnect is the reconnect path: it clears the
    * disconnected state, so {@link ClientWorld.invoke} accepts calls again. Late
-   * events from the previous socket are ignored. Calls made while disconnected
-   * were already rejected and are not replayed on the new socket.
+   * events from the previous socket, received frames included, are ignored. Calls
+   * made while disconnected were already rejected and are not replayed on the new
+   * socket.
    *
    * @param socket - Transport to receive frames from. Passing a second socket
    *   replaces the first without detaching it — dispose the world instead.
@@ -224,7 +241,7 @@ export class ClientWorld extends NetworkWorld {
     this._socket = socket;
     this._disconnected = false;
     this._closeNotice = undefined;
-    socket.on("receive", (data) => this._receive(data));
+    socket.on("receive", (data) => this._receive(socket, data));
     socket.on("disconnect", () => this._handleDisconnect(socket));
     this._startAckTimer();
   }
@@ -304,6 +321,27 @@ export class ClientWorld extends NetworkWorld {
    * the same frame as a reply is applied here, possibly after interpolation
    * delay.
    *
+   * A snapshot that cannot be decoded when it is applied is a protocol error, not
+   * an exception: the snapshot names a wire type this world did not register (a
+   * server built from a newer protocol version), its payload is malformed, or an
+   * `Exclusive` relationship snapshot lists more than one target. `apply` does
+   * not throw for it. It closes the client the way {@link ClientWorld.close}
+   * does, so `disconnect` fires once with
+   * `{ code: CLOSE_PROTOCOL_ERROR_CODE, reason }` (see
+   * {@link ClientWorldDisconnectEvent}) and pending calls reject with
+   * `RPC_CLOSED_CODE`, and it applies nothing more from that diff: the snapshots
+   * after the bad one and every removal in the diff are dropped, while the ones
+   * before it stay applied. The replicated entities stay in place, as after any
+   * `close()`; a later baseline on a new socket resynchronizes them.
+   *
+   * That handling covers only decoding at this point. An exception thrown by
+   * application code while a valid snapshot is applied, such as an `on("set")`
+   * hook running as the component is attached, is an application bug and still
+   * propagates out of `apply` without closing the client. The decoding the diff
+   * buffer does earlier, while it blends the snapshots of components that have an
+   * interpolator, is not covered either: a payload that fails there still throws
+   * out of `apply`.
+   *
    * Registered as the world's own `Apply` system in the `ON_LOAD` phase, so
    * `progress()` drives it; call it directly only for a world with no tick loop.
    *
@@ -315,11 +353,19 @@ export class ClientWorld extends NetworkWorld {
       this._rpc.process(incoming);
     }
     const diff = this._diffBuffer.pull(now);
-    diff.snapshots.forEach((snapshot) => this._applySnapshot(snapshot));
-    (diff.removed as number[] | undefined)?.forEach((key) => {
+    for (const snapshot of diff.snapshots) {
+      if (!this._applySnapshot(snapshot)) {
+        return;
+      }
+    }
+    const removed = diff.removed;
+    if (removed === undefined) {
+      return;
+    }
+    for (const key of removed) {
       const [eid, wireType] = cid_unpack(key);
       this._removeComponent(eid, wireType);
-    });
+    }
   }
 
   /**
@@ -403,13 +449,24 @@ export class ClientWorld extends NetworkWorld {
     this.close();
   }
 
-  private _receive(data: Uint8Array): void {
+  private _receive(socket: VecsSocket, data: Uint8Array): void {
     // A frame that outlives the connection (a retransmit of the close frame,
-    // a straggler from a replaced socket) must not revive the world.
-    if (this._disposed || this._disconnected) {
+    // a straggler from a replaced socket) must not revive the world. A replaced
+    // socket stays attached, so its frames are told apart here, by the same rule
+    // _handleDisconnect applies to its disconnect: they belong to the old
+    // connection, not the current one.
+    if (this._disposed || this._disconnected || socket !== this._socket) {
       return;
     }
-    const message = new Decoder(data).read(Server2Client);
+    let message: Server2Client;
+    try {
+      message = new Decoder(data).read(Server2Client);
+    } catch (error) {
+      // A frame that cannot be decoded — truncated or random bytes, or a field tag
+      // from a newer protocol version — must not throw into the transport.
+      this._closeForProtocolError(error);
+      return;
+    }
     // The server's low watermark comes first: it frees the replies this client was
     // keeping for server calls that have settled, and it is what apply() judges
     // the requests queued below against.
@@ -432,12 +489,33 @@ export class ClientWorld extends NetworkWorld {
         this._rpc.process(responses);
       }
     }
-    if (message.diff) {
-      this._pushDiff(message.diff);
+    if (message.diff && !this._pushDiff(message.diff)) {
+      // The diff could not be read or buffered and the client is already closed:
+      // the close notice in the same frame is not handled.
+      return;
     }
     if (message.close) {
       this._handleServerClose(message.close);
     }
+  }
+
+  /**
+   * The server sent something this client cannot decode or accept: a frame, a
+   * component snapshot inside one, or a diff that starts after the last frame this
+   * client acknowledged. Usually the two sides were built from incompatible
+   * protocol versions. Disconnect through {@link ClientWorld.close}, so
+   * `disconnect` fires once with a notice carrying {@link CLOSE_PROTOCOL_ERROR_CODE}
+   * and a reason that starts `protocol error:`, pending calls reject with
+   * `RPC_CLOSED_CODE`, the ack timer stops and the socket closes, instead of
+   * throwing into the transport or out of {@link ClientWorld.apply}. Nothing is
+   * sent to the server: the protocol has no client-to-server close notice.
+   *
+   * @param error - What the decoder or the diff buffer threw.
+   */
+  private _closeForProtocolError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this._closeNotice = { code: CLOSE_PROTOCOL_ERROR_CODE, reason: `protocol error: ${message}` };
+    this.close();
   }
 
   /**
@@ -454,7 +532,24 @@ export class ClientWorld extends NetworkWorld {
     this._handleDisconnect(this._socket);
   }
 
-  private _pushDiff(sd: StateDiff): void {
+  /**
+   * Read a received diff and hand it to the diff buffer.
+   *
+   * Only the data steps are guarded: reading the snapshots out of the diff, and
+   * buffering it. A diff that fails either is a protocol error: a snapshot's
+   * envelope is malformed, or the diff starts after the last frame this client
+   * acknowledged, which a server that honors acks never sends. A baseline is read
+   * before anything is torn down, so one that cannot be read leaves the replicated
+   * entities in place. Destroying them and emitting `reset` run application
+   * hooks, so they stay outside the guard and what they throw propagates.
+   *
+   * @param sd - The diff decoded from the frame.
+   * @returns `false` when the diff could not be read or buffered: the client has
+   *   been closed for a protocol error and the caller must handle nothing more
+   *   from the frame. `true` otherwise, including for a stale baseline that was
+   *   skipped.
+   */
+  private _pushDiff(sd: StateDiff): boolean {
     // A diff with fromFrame === 0 is a full baseline: the complete authoritative
     // state at sd.toFrame. The server streams these whenever a client falls
     // outside its history window -- most commonly a backgrounded tab, where the
@@ -471,23 +566,53 @@ export class ClientWorld extends NetworkWorld {
     // state stale or empty. The teardown runs here, at receive time (synchronous,
     // outside the deferred apply queue), so the entities are fully gone before
     // the next apply replays the baseline and recreates them.
-    if (sd.fromFrame === 0) {
-      // Skip baselines we have already advanced past (duplicates or, with the
-      // unordered transport, stragglers). After a reconnect the server may have
-      // restarted its frame counter, so a forced reset overrides this.
-      if (!this._forceBaselineReset && sd.toFrame <= this._diffBuffer.version) {
-        return;
-      }
-      this._forceBaselineReset = false;
-      const initial = !this._baselineApplied;
-      this._baselineApplied = true;
-      this._destroyNetworkEntities();
-      this._diffBuffer.reset();
-      this._diffBuffer.push(diffFromStateDiff(sd));
-      this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
-      return;
+    const baseline = sd.fromFrame === 0;
+    // Skip baselines we have already advanced past (duplicates or, with the
+    // unordered transport, stragglers). After a reconnect the server may have
+    // restarted its frame counter, so a forced reset overrides this. A skipped
+    // baseline is never read.
+    if (baseline && !this._forceBaselineReset && sd.toFrame <= this._diffBuffer.version) {
+      return true;
     }
-    this._diffBuffer.push(diffFromStateDiff(sd));
+    // Read the diff before touching the world: a baseline that cannot be read must
+    // not destroy the entities it would have replaced.
+    let diff: Diff;
+    try {
+      diff = diffFromStateDiff(sd);
+    } catch (error) {
+      this._closeForProtocolError(error);
+      return false;
+    }
+    if (!baseline) {
+      return this._bufferDiff(diff);
+    }
+    this._forceBaselineReset = false;
+    const initial = !this._baselineApplied;
+    this._baselineApplied = true;
+    this._destroyNetworkEntities();
+    this._diffBuffer.reset();
+    if (!this._bufferDiff(diff)) {
+      return false;
+    }
+    this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
+    return true;
+  }
+
+  /**
+   * Hand a diff to the diff buffer, which rejects one that starts after the last
+   * frame this client acknowledged. That is a protocol error, so the client is
+   * closed instead of the rejection throwing into the transport.
+   *
+   * @returns `false` when the buffer rejected the diff and the client was closed.
+   */
+  private _bufferDiff(diff: Diff): boolean {
+    try {
+      this._diffBuffer.push(diff);
+    } catch (error) {
+      this._closeForProtocolError(error);
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -526,16 +651,35 @@ export class ClientWorld extends NetworkWorld {
     return (snapshot.payload = decoder.read(registered.Class) as ComponentInstance);
   }
 
-  private _applySnapshot(snapshot: ComponentSnapshot): void {
-    const component = this.decodeComponentSnapshot(snapshot);
+  /**
+   * Decode one snapshot and apply it to its entity.
+   *
+   * Only the decode is guarded. An exception from creating the entity or from
+   * attaching the component, for example an application hook that throws, is an
+   * application bug and propagates.
+   *
+   * @param snapshot - Snapshot from the diff buffer.
+   * @returns `false` when the snapshot could not be decoded: the client has been
+   *   closed for a protocol error and the caller must apply nothing more from
+   *   the diff. `true` once the snapshot is applied.
+   */
+  private _applySnapshot(snapshot: ComponentSnapshot): boolean {
+    let component: ComponentInstance;
+    try {
+      component = this.decodeComponentSnapshot(snapshot);
+    } catch (error) {
+      this._closeForProtocolError(error);
+      return false;
+    }
     const entity = this.getOrCreateEntity(snapshot.eid, (e) => e.add(Networked));
 
     if (component instanceof Relationship) {
       this._applyRelationshipSnapshot(entity, component);
-      return;
+      return true;
     }
 
     entity.attach(component as object);
+    return true;
   }
 
   private _applyRelationshipSnapshot(entity: Entity, component: Relationship): void {

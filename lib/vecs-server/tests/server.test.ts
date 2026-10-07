@@ -22,6 +22,7 @@ import {
 } from "@vworlds/vecs";
 import { performance } from "node:perf_hooks";
 import {
+  CLOSE_PROTOCOL_ERROR_CODE,
   EntityTracker,
   type IEntityTrackerListener,
   NetworkClient,
@@ -2114,6 +2115,188 @@ describe("ServerWorld close linger", () => {
     expect(socket.sent.length).toBe(sent);
     expect(socket.closeCalls).toBe(1);
     expect(socket.closed).toBe(true);
+  });
+});
+
+describe("ServerWorld undecodable frames", () => {
+  /** A leading ack varint that never ends: every byte has its continuation bit set. */
+  const randomBytes = (): Uint8Array => Uint8Array.of(0xde, 0xad, 0xbe, 0xef);
+
+  /** A well-formed frame followed by a field tag no protocol version defines. */
+  const unknownTagFrame = (tag: number): Uint8Array =>
+    Uint8Array.of(...encodeClient2Server(new Client2Server({ ackFrame: 0 })), tag);
+
+  /** A valid frame whose last bytes never arrived. */
+  const truncatedFrame = (): Uint8Array => {
+    const whole = encodeClient2Server(
+      new Client2Server({
+        ackFrame: 3,
+        rpc: [new RPC({ rpcId: 101, callId: 1, params: ["hello"] })],
+      })
+    );
+    return whole.slice(0, whole.length - 3);
+  };
+
+  const UNDECODABLE_FRAMES = [
+    { name: "random bytes", frame: randomBytes, reason: /^protocol error: .+/ },
+    { name: "a truncated frame", frame: truncatedFrame, reason: /^protocol error: .+/ },
+    {
+      name: "an unknown field tag",
+      frame: () => unknownTagFrame(99),
+      reason: /^protocol error: Invalid Client2Server field tag 99$/,
+    },
+  ];
+
+  /** Two sessions in one world, both able to see every networked entity. */
+  function setup(options: ServerWorldOptions = {}) {
+    const world = createWorld(options);
+    allowAllClientViews(world);
+    const listener = new MockListener();
+    world._attach(listener);
+    world.handleRpc(101, () => "pong");
+    const a = connectSession(world, listener, "client-a");
+    const b = connectSession(world, listener, "client-b");
+    return { world, a, b };
+  }
+
+  function closeReasonOf(session: TestSession): string | undefined {
+    return session.entity.get(NetworkClient)?.closeReason;
+  }
+
+  function lastPosition(socket: MemorySocket): Position {
+    return decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
+  }
+
+  it.each(UNDECODABLE_FRAMES)("closes only the session that sends $name", ({ frame, reason }) => {
+    const { world, a, b } = setup();
+    tick(world);
+    const aEid = a.session.entity.eid;
+    const bEid = b.session.entity.eid;
+
+    expect(() => a.socket.receive(frame())).not.toThrow();
+
+    const closeReason = closeReasonOf(a.session);
+    expect(closeReason).toMatch(reason);
+    expect(closeReasonOf(b.session)).toBeUndefined();
+
+    // The next send() hands the client the close notice on a numbered frame, and
+    // the session lingers until the client acks that frame.
+    tick(world);
+    expect(decodeLastMessage(a.socket).close).toEqual({
+      code: CLOSE_PROTOCOL_ERROR_CODE,
+      reason: closeReason,
+    });
+    expect(a.socket.closed).toBe(false);
+
+    ackCloseFrame(a.socket);
+    tick(world);
+
+    expect(a.socket.closeCalls).toBe(1);
+    expect(world.getEntity(aEid)).toBeUndefined();
+    expect(world.closeSession("client-a")).toBe(false);
+    expect(b.socket.closed).toBe(false);
+    expect(world.getEntity(bEid)?.get(NetworkClient)?.id).toBe("client-b");
+  });
+
+  it.each(UNDECODABLE_FRAMES)(
+    "keeps serving the other session while one sends $name",
+    async ({ frame }) => {
+      const { world, a, b } = setup();
+      const thing = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
+      tick(world);
+      expect(lastPosition(b.socket)).toMatchObject({ x: 1, y: 1 });
+
+      a.socket.receive(frame());
+
+      // While the offender's close lingers, the other session still receives
+      // state and has its calls answered.
+      thing.set(Position, { x: 2, y: 2 });
+      expect((await callRpc(b.socket, world, 101)).params).toEqual(["pong"]);
+      expect(lastPosition(b.socket)).toMatchObject({ x: 2, y: 2 });
+      expect(a.socket.closed).toBe(false);
+
+      // And once the offender is gone.
+      ackCloseFrame(a.socket);
+      tick(world);
+      expect(a.socket.closed).toBe(true);
+      thing.set(Position, { x: 3, y: 3 });
+      expect((await callRpc(b.socket, world, 101)).params).toEqual(["pong"]);
+      expect(lastPosition(b.socket)).toMatchObject({ x: 3, y: 3 });
+      expect(b.socket.closeCalls).toBe(0);
+    }
+  );
+
+  it("tears the session down when the linger ends without an ack", () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    try {
+      const { world, a } = setup({ closeLingerMs: 250 });
+      const aEid = a.session.entity.eid;
+
+      a.socket.receive(randomBytes());
+      tick(world);
+      expect(decodeLastMessage(a.socket).close?.code).toBe(CLOSE_PROTOCOL_ERROR_CODE);
+
+      now.mockReturnValue(249);
+      tick(world);
+      expect(a.socket.closed).toBe(false);
+
+      now.mockReturnValue(250);
+      tick(world);
+      expect(a.socket.closeCalls).toBe(1);
+      expect(world.getEntity(aEid)).toBeUndefined();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("drops further undecodable frames from a closing session and keeps the first reason", () => {
+    const { world, a } = setup();
+
+    a.socket.receive(unknownTagFrame(99));
+    const first = closeReasonOf(a.session);
+    expect(first).toBe("protocol error: Invalid Client2Server field tag 99");
+
+    expect(() => {
+      a.socket.receive(unknownTagFrame(98));
+      a.socket.receive(randomBytes());
+    }).not.toThrow();
+
+    expect(closeReasonOf(a.session)).toBe(first);
+    tick(world);
+    expect(decodeLastMessage(a.socket).close).toEqual({
+      code: CLOSE_PROTOCOL_ERROR_CODE,
+      reason: first,
+    });
+    ackCloseFrame(a.socket);
+    tick(world);
+    expect(a.socket.closeCalls).toBe(1);
+  });
+
+  it("keeps the reason of a session the application already closed", () => {
+    const { world, a } = setup();
+    const SUPERSEDED = 4003;
+
+    expect(world.closeSession("client-a", "superseded by client-b", SUPERSEDED)).toBe(true);
+    expect(() => a.socket.receive(randomBytes())).not.toThrow();
+
+    expect(closeReasonOf(a.session)).toBe("superseded by client-b");
+    tick(world);
+    expect(decodeLastMessage(a.socket).close).toEqual({
+      code: SUPERSEDED,
+      reason: "superseded by client-b",
+    });
+  });
+
+  it("drops an undecodable frame that arrives after the session was torn down", () => {
+    const { world, a } = setup();
+    world.closeSession("client-a");
+    tick(world);
+    expect(a.socket.closeCalls).toBe(1);
+
+    expect(() => a.socket.receive(randomBytes())).not.toThrow();
+
+    expect(world.closeSession("client-a")).toBe(false);
+    expect(a.socket.closeCalls).toBe(1);
   });
 });
 

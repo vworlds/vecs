@@ -18,6 +18,7 @@ export {
   type DecodedRelationshipSnapshot,
 } from "./relationship_snapshot.js";
 export {
+  CLOSE_PROTOCOL_ERROR_CODE,
   Client2Server,
   ComponentSnapshot,
   type CloseNotice,

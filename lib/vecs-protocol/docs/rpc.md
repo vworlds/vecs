@@ -11,7 +11,8 @@ answers, and both sides learn about failure through a typed error instead of an 
   channel lets go of a reply.
 - How the two sides exchange the settled watermark that makes that possible.
 - How to throw a typed `RPCError` from a server handler.
-- Which error codes are reserved and what they mean.
+- Which error codes are reserved and what they mean, and the reserved close code that sits beside
+  them.
 - How timeouts and aborts reject pending calls.
 
 ## The model
@@ -97,8 +98,10 @@ protocol symmetric.
 
 A decoder that predates the field rejects the tag, and a client sends it once its first call has
 settled, so deploy servers before clients. A new server reads frames from old and new clients alike,
-but an older server throws on a new client's frame, and `ServerWorld` does not catch decode errors
-([#211](https://github.com/vworlds/vecs/issues/211)).
+but an older server cannot read a new client's frame. One that predates the
+[guard for undecodable frames](../../vecs-server/docs/sessions.md#frames-that-cannot-be-decoded)
+throws out of its receive handler ([#211](https://github.com/vworlds/vecs/issues/211)); one that has
+it closes that client's session with `CLOSE_PROTOCOL_ERROR_CODE` instead.
 
 A bare `SessionRPC` has to pass the watermark across itself, as the example above does. Without it
 the channel that answered keeps every reply it cached, because `timeoutTick` does not age them.
@@ -154,6 +157,26 @@ would make the caller's `invoke` _resolve_ as a success, a negative would wrap t
 and anything above that range would overflow. Every other code, including non-integers, is sent as
 `RPC_UNSPECIFIED_ERROR_CODE` (`1`), so the call still fails even when the handler chose a code the
 wire cannot carry.
+
+### Close codes
+
+When a session is closed on purpose, the close notice on its graceful-close frame carries a `code`
+and a `reason` — the arguments of `closeSession(connection, reason, code)` on the server. A close
+code is not an RPC error code, and the two are numbered separately: the same range, `0`–`100`, is
+reserved for the protocol, and applications choose their own codes above it. The protocol defines
+one close code:
+
+| Code | Constant                    | Meaning                                                                                                      |
+| ---- | --------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `1`  | `CLOSE_PROTOCOL_ERROR_CODE` | The connection was closed because a frame could not be decoded, usually from incompatible protocol versions. |
+
+That `1` is not `RPC_UNSPECIFIED_ERROR_CODE`: it travels in the close notice, never in an RPC reply.
+Its reason always starts with `protocol error:`. The server closes only the offending session with
+it ([Frames that cannot be decoded](../../vecs-server/docs/sessions.md#frames-that-cannot-be-decoded)),
+and a client reports it on its own `disconnect` event when it cannot decode or accept what the
+server sent
+([Frames the client cannot decode](../../vecs-client/docs/client-world.md#frames-the-client-cannot-decode)).
+`@vworlds/vecs-client` and `@vworlds/vecs-server` re-export the constant next to `RPC_CLOSED_CODE`.
 
 ## Timeouts and aborts
 

@@ -6,6 +6,7 @@ export type { ServerRPCContext, ServerWorldOptions, ShutdownOptions } from "./se
 export { EntityTracker, TrackerCache, View } from "./view.js";
 export type { IEntityTracker, IEntityTrackerListener } from "./view.js";
 export {
+  CLOSE_PROTOCOL_ERROR_CODE,
   RPCError,
   RPC_CLOSED_CODE,
   RPC_TIMEOUT_CODE,

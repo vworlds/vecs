@@ -274,9 +274,13 @@ export class DiffBuffer {
     }
 
     // servers should never send a diff we can't handle
-    // The below can only happen if the server is ignoring acks:
+    // The below can only happen if the server is ignoring acks. ClientWorld
+    // reports the message to the application as the `disconnect` reason, so it
+    // says what happened:
     if (diff.from > this.version) {
-      throw new Error("protocol error");
+      throw new Error(
+        `diff starts at frame ${diff.from}, past this client's frame ${this.version}`
+      );
     }
 
     // Locate the index position for this diff in the bucket based on the
