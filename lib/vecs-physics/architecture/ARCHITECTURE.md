@@ -470,11 +470,13 @@ Non-reactive — re-scans force sources every step (the contract: "Force applies
 - `Force` → `b2Body_ApplyForceToCenter(bodyId, {x, y}, wake)`
 - `Torque` → `b2Body_ApplyTorque(bodyId, value, wake)`
 
+A zero `Force` (`x === 0 && y === 0`) or `Torque` (`value === 0`) is skipped before the call. It applies nothing, but Box2D wakes a sleeping body for any call made with `wake = true`, so a body holding an idle thrust component would be woken again on every step and could never stay asleep. A zero load never wakes a body; `wake` applies to non-zero loads.
+
 box2d3-wasm zeroes applied forces inside `b2World_Step` (matches Box2D), so no per-step force reset is needed on our side.
 
 ### `PhysicsImpulseAccumulate` (`physics-pre`)
 
-Hook-driven (see **Hooks vs systems**). `world.component(Impulse).on("set", ...)` and `world.component(AngularImpulse).on("set", ...)` fire synchronously on each `set`, accumulating into `engine.pendingLinearImpulse` / `pendingAngularImpulse` keyed by `b2BodyId`. The phase system flushes accumulators via `b2Body_ApplyLinearImpulseToCenter` / `b2Body_ApplyAngularImpulse` for each body that received any.
+Hook-driven (see **Hooks vs systems**). `world.component(Impulse).on("set", ...)` and `world.component(AngularImpulse).on("set", ...)` fire synchronously on each `set`, accumulating into `engine.pendingLinearImpulse` / `pendingAngularImpulse` keyed by `b2BodyId`. The phase system flushes accumulators via `b2Body_ApplyLinearImpulseToCenter` / `b2Body_ApplyAngularImpulse` for each body that received any. A zero impulse is ignored when it is set, before the body is resolved: it is not accumulated and its `wake` does not count. The flush skips a sum that is exactly zero (no call, no wake), so impulses that cancel out do not wake the body either.
 
 ### `PhysicsMassRecompute` (`physics-pre`)
 

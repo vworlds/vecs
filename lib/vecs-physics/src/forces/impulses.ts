@@ -21,6 +21,12 @@ export class ImpulseAccumulateModule extends Module {
 
     const engine = getPhysicsEngine(world);
     world.component(Impulse).on("set", (entity, impulse) => {
+      // A zero impulse adds nothing and its `wake` must not count, so ignore it before any
+      // lookup: no body resolve, no accumulator, nothing for PhysicsImpulseZero to clear.
+      if (impulse.x === 0 && impulse.y === 0) {
+        return;
+      }
+
       const bodyId = resolveBodyId(entity);
       if (bodyId === undefined) {
         return;
@@ -34,6 +40,11 @@ export class ImpulseAccumulateModule extends Module {
     });
 
     world.component(AngularImpulse).on("set", (entity, impulse) => {
+      // Same as a zero linear impulse above.
+      if (impulse.value === 0) {
+        return;
+      }
+
       const bodyId = resolveBodyId(entity);
       if (bodyId === undefined) {
         return;
@@ -58,6 +69,10 @@ export class ImpulseAccumulateModule extends Module {
 
 function drainLinearImpulses(engine: PhysicsEngine): void {
   for (const [bodyId, impulse] of engine.pendingLinearImpulse) {
+    // Impulses that cancel out are physically a no-op: skip the wasm call and its wake.
+    if (impulse.x === 0 && impulse.y === 0) {
+      continue;
+    }
     if (!engine.entityByBodyIndex.has(bodyId.index1)) {
       continue;
     }
@@ -70,6 +85,9 @@ function drainLinearImpulses(engine: PhysicsEngine): void {
 
 function drainAngularImpulses(engine: PhysicsEngine): void {
   for (const [bodyId, impulse] of engine.pendingAngularImpulse) {
+    if (impulse.value === 0) {
+      continue;
+    }
     if (!engine.entityByBodyIndex.has(bodyId.index1)) {
       continue;
     }
