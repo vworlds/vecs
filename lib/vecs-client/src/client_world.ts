@@ -174,6 +174,31 @@ export class ClientWorld extends NetworkWorld {
   }
 
   /**
+   * The server frame this world renders, fractional while it interpolates between two frames.
+   *
+   * It is the point on the server's timeline that the interpolators sample, and it is kept
+   * whether or not any are registered. While the world blends from the last frame applied, N,
+   * toward the next frame buffered, M, with blend factor `alpha`, it is `N + (M - N) * alpha`:
+   * `N + alpha` in steady play, where M is N + 1. Use it to put state the client computes
+   * itself on the same timeline, such as a pose extrapolated from a baseline taken at a known
+   * server frame, so that extrapolated and interpolated entities show the same moment.
+   *
+   * - It is `0` until the first baseline is applied. A baseline that resets the world, on
+   *   connect, on reconnect or after a stall, sets it back to `0` as it destroys the replicated
+   *   entities, and the `apply()` that rebuilds them moves it to the baseline's frame. After a
+   *   reconnect that frame can be lower than before, because the new server's frame counter can
+   *   start over. {@link ClientWorld.dispose} sets it back to `0` too.
+   * - Otherwise it changes only in {@link ClientWorld.apply}, which `progress()` runs, and it
+   *   never decreases, as long as `now` never decreases.
+   * - It never runs past the newest frame received. It does not pass the frame it blends toward,
+   *   and when the buffer runs dry it holds at the newest frame applied until more arrive. It
+   *   does not extrapolate: looking past the newest frame is up to the caller.
+   */
+  public get renderFrame(): number {
+    return this._diffBuffer.renderFrame;
+  }
+
+  /**
    * Connect to a `VecsListener`-hosted world over the dgram transport.
    *
    * @param options - Connection settings; `host`, `port`, and `worldName` select

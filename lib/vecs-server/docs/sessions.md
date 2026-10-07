@@ -10,6 +10,7 @@ session's own caller attached.
 - How `handleRpc` gives every handler a `ServerRPCContext` without per-connection registration.
 - How the history window decides between a delta and a full baseline, why a baseline is sent once
   and then awaited, and how to size `historyFrames` for your tick rate and players' latency.
+- How `replicateWithout` stops a component replicating on the entities that have another one.
 - How to close one session, how the close lingers until the client received the replies it is owed,
   and how to close all of them at shutdown.
 - How `NetworkClient.closeReason` records why the server hung up.
@@ -221,6 +222,60 @@ To check a setting against real players, count `ClientWorld`'s `reset` events wi
 Each one is a rebuild. A player who sees them in steady play has a window that is too short for their
 connection.
 
+## Replication filters
+
+Every network component of an entity in a session's view replicates, unless a filter says
+otherwise. `world.replicateWithout(C, T)` declares one: component `C` is not replicated on the
+entities that have `T`. Reach for it when clients produce `C` themselves on those entities. With dead
+reckoning, for example, a body that carries a `Motion` baseline is extrapolated on the client, so
+sending its render pose every frame would only waste bandwidth. The server keeps writing `C` as
+before, so its own systems, such as an interest grid that reads the pose, are unaffected. Only
+replication stops.
+
+```ts
+import { Module } from "@vworlds/vecs";
+import { ServerWorld } from "@vworlds/vecs-server";
+
+class DeadReckoningModule extends Module {
+  public init(): void {
+    if (this.world instanceof ServerWorld) {
+      this.world.replicateWithout(Position, Motion);
+      this.world.replicateWithout(Rotation, Motion);
+    }
+  }
+}
+```
+
+`C` must be one of the world's `networkComponents`, and `T` can be any component, replicated or
+not. Pass several excluding components, or call again, and `C` stops replicating on entities that
+have any of them.
+
+| On an entity that has `T`                           | What clients see                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------------------- |
+| `C` changes                                         | Nothing.                                                                  |
+| `T` is added                                        | Nothing: no removal. A client that holds `C` keeps the last value it got. |
+| The entity enters a view, or a baseline rebuilds it | The entity without `C`.                                                   |
+| `C` is removed                                      | The removal.                                                              |
+| The last excluding component is removed             | The current `C`, as if it had just been added.                            |
+
+The table's third row matters to the client code that takes over. After a baseline, or when the entity
+enters a view while it has `T`, the client holds no `C` for it at all, so that code has to create `C`,
+not only update it. To put that client-side state on the server's timeline, use
+[`ClientWorld.renderFrame`](../../vecs-client/docs/client-world.md#render-time).
+
+A filter is membership, not a check. `C`'s replication system excludes `T`, so while an entity has `T`
+a write to `C` is not even routed to replication. Components without a filter, and entities without
+`T`, replicate exactly as before. The price is the `{ not: T }` term that the exclusion keeps. That
+term holds every entity without `T`, and it is updated when entities are created or destroyed or
+gain or lose `T`, never per frame. Every query that excludes `T` shares it.
+
+Declare filters before the world's first frame: right after construction, or from a module's `init()`
+as above. A new filter replaces `C`'s replication system. The replacement picks up every current
+value, but not a removal the old one had yet to record. Once clients hold state, that would leave one
+holding a `C` the server no longer has, so `replicateWithout` throws once the world has sent its
+first frame. It also throws for a component that is not a network component of the world, and for a
+component that would exclude itself.
+
 ## Closing sessions
 
 `closeSession` ends one connection by id or by entity. It returns `true` when a live session was
@@ -377,6 +432,7 @@ systems.
 | `world.closeSession(connection, reason?, code?)` | Gracefully close one session by connection id or `NetworkClient` entity, telling the client the reason and code. Returns whether it was scheduled.            |
 | `world.shutdown(options?)`                       | Gracefully close every session, flush until gone or `timeoutMs`, close listeners. Idempotent.                                                                 |
 | `world.send()`                                   | Advance one replication frame, sending each session a delta, a baseline, or nothing; called by `progress()`.                                                  |
+| `world.replicateWithout(component, ...without)`  | Stop replicating a network component on the entities that have any of `without`. Calls accumulate; declare them before the first frame.                       |
 | `ServerRPCContext`                               | `{ world, caller, connectionId }` passed as a handler's third argument.                                                                                       |
 | `NetworkClient.id`                               | The connection id.                                                                                                                                            |
 | `NetworkClient.closeReason`                      | Why the server closed the session, or `undefined`.                                                                                                            |

@@ -38,10 +38,21 @@ import { NetworkClient, NetworkInput, Networked } from "./networked.js";
 import { RttEstimator } from "./rtt.js";
 import { TrackerCache, View } from "./view.js";
 
-interface RegisteredComponent {
-  Class: ComponentClass;
-  wireType: number;
-  eid: EID;
+/** A network component, and how this world replicates it. */
+interface ReplicatedComponent {
+  readonly Class: ComponentClass;
+  readonly wireType: number;
+  readonly eid: EID;
+  /**
+   * Eids of the components that stop this one replicating on an entity that has any of them,
+   * or `undefined` while none do. Declared with {@link ServerWorld.replicateWithout}.
+   */
+  without: EID[] | undefined;
+  /**
+   * The store-phase system that records this component's values, and its removals too while it
+   * has no filter.
+   */
+  system: System;
 }
 
 interface Update {
@@ -267,7 +278,7 @@ class ServerClientSession {
  */
 export class ServerWorld extends NetworkWorld {
   public readonly name: string;
-  private readonly _components: readonly RegisteredComponent[];
+  private readonly _components: readonly ReplicatedComponent[];
   private readonly _sessions = new Map<string, ServerClientSession>();
   private readonly _rpcHandlers = new Map<number, RPCHandler<ServerRPCContext>>();
   private readonly _updates = new Map<number, Update>();
@@ -278,8 +289,10 @@ export class ServerWorld extends NetworkWorld {
   private readonly _closeLingerMs: number;
   private readonly _historyFrames: number;
   private readonly _listeners: VecsSocketListener[] = [];
+  private readonly _storePhase: Entity;
   private _shutdown: Promise<void> | undefined;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
+  private _sendSystem: System;
   private _frame = 1;
 
   public constructor(options: ServerWorldOptions = {}) {
@@ -291,7 +304,6 @@ export class ServerWorld extends NetworkWorld {
     this._closeLingerMs = options.closeLingerMs ?? DEFAULT_CLOSE_LINGER_MS;
     this._historyFrames = validateHistoryFrames(options.historyFrames ?? HISTORY_LENGTH);
     this._trackerCache = new TrackerCache(this);
-    this._components = this.networkComponents;
     ensureRegistered(this, Networked);
     ensureRegistered(this, NetworkClient);
     ensureRegistered(this, NetworkInput);
@@ -311,12 +323,12 @@ export class ServerWorld extends NetworkWorld {
     // swap its View DSL from any user phase and the refresh here installs the new
     // tracker the same tick, so the viewer is never dropped from its own view for
     // a frame on a cell crossing.
-    const storePhase = this.entity(`ServerWorld:${this.name}:Store`).add(Phase);
-    insertPhaseAfter(storePhase, this.entity(ON_STORE));
+    this._storePhase = this.entity(`ServerWorld:${this.name}:Store`).add(Phase);
+    insertPhaseAfter(this._storePhase, this.entity(ON_STORE));
 
     this._clients = this.system(`ServerWorld:${this.name}:View`)
       .with(View, ServerClientSession)
-      .phase(storePhase)
+      .phase(this._storePhase)
       .update(
         { watch: View, onEnter: true, inject: [ServerClientSession] },
         (_entity, view, [_session]) => {
@@ -327,24 +339,14 @@ export class ServerWorld extends NetworkWorld {
         view._releaseTrackers(this._trackerCache);
       })
       .track();
-    this._components.forEach((registered) => {
-      this.system(`ServerWorld:${this.name}:${registered.Class.name}`)
-        .with(Networked, registered.Class)
-        .phase(storePhase)
-        .update({ watch: registered.Class, onEnter: true }, (entity, component) => {
-          this._snapshotCache.delete(cid_pack(entity.eid, registered.wireType));
-          this._record(entity, registered.wireType, component);
-        })
-        .exit((entity) => {
-          this._snapshotCache.delete(cid_pack(entity.eid, registered.wireType));
-          this._record(entity, registered.wireType, undefined);
-        })
-        .track();
-    });
-
-    this.system(`ServerWorld:${this.name}:Send`)
-      .phase(storePhase)
-      .run(() => this.send());
+    this._components = this.networkComponents.map(({ Class, wireType, eid }) => ({
+      Class,
+      wireType,
+      eid,
+      without: undefined,
+      system: this._replicate(Class, wireType, undefined),
+    }));
+    this._sendSystem = this._createSendSystem();
   }
 
   /** @internal */
@@ -429,6 +431,96 @@ export class ServerWorld extends NetworkWorld {
         this._installHandler(session, rpcId, handler);
       }
     });
+  }
+
+  /**
+   * Stop replicating a network component on the entities that have any of the `without`
+   * components.
+   *
+   * Use it when clients get that component's value some other way on those entities, such as a
+   * client that extrapolates a body's pose from a motion baseline: the server keeps writing the
+   * component for its own systems, and clients stop receiving it. Membership does the work. The
+   * component's replication system excludes the `without` components, so while an entity has one
+   * of them, writing the component costs nothing to replicate.
+   *
+   * While an entity has one of `without`:
+   *
+   * - Changes to `component` are not replicated.
+   * - A client that holds `component` keeps the last value it received: gaining an excluding
+   *   component sends no removal.
+   * - View-entry and baseline snapshots leave `component` out. A client that receives the entity in
+   *   this state, because the entity enters its view or a baseline rebuilds it, does not hold
+   *   `component` at all.
+   * - Removing `component` is still replicated, so a client never keeps a component the server no
+   *   longer has.
+   *
+   * When the entity loses the last of `without`, the component's current value is sent, as if the
+   * component had just been added. Entities without any of `without`, and every other component,
+   * replicate as before.
+   *
+   * Calls accumulate: each one adds its components to those already excluding `component`.
+   * Declare every filter before the world's first frame, from a module's `init()` or right after
+   * construction. A new filter replaces the component's replication system. The replacement picks
+   * up every current value, but not a removal the old system had yet to record, which would leave
+   * a client holding a component the server no longer has, so the call throws once the world has
+   * sent its first frame.
+   *
+   * ```ts
+   * world.replicateWithout(Position, Motion);
+   * world.replicateWithout(Rotation, Motion);
+   * ```
+   *
+   * @param component - One of this world's `networkComponents`.
+   * @param without - The components whose presence stops `component` replicating. They do not
+   *   have to be network components; any that this world has not registered yet are registered.
+   * @throws When the world has already sent a frame, when `component` is not one of this world's
+   *   network components, or when `without` lists `component` itself.
+   */
+  public replicateWithout(
+    component: ComponentClass,
+    ...without: [ComponentClass, ...ComponentClass[]]
+  ): void {
+    const declaration = `ServerWorld.replicateWithout(${component.name})`;
+    if (this._frame > 1) {
+      throw new Error(
+        `${declaration}: replication filters must be declared before the world replicates its first frame`
+      );
+    }
+    const replicated = this._components.find((candidate) => candidate.Class === component);
+    if (replicated === undefined) {
+      throw new Error(
+        `${declaration}: ${component.name} is not a network component of world '${this.name}'`
+      );
+    }
+    if (without.includes(component)) {
+      throw new Error(`${declaration}: ${component.name} cannot exclude itself`);
+    }
+    const excluded = new Set(replicated.without);
+    without.forEach((Class) => excluded.add(this.component(Class).eid));
+    if (excluded.size === (replicated.without?.length ?? 0)) {
+      return;
+    }
+    if (replicated.without === undefined) {
+      // A filtered system no longer sees the entities that have an excluding component, but a
+      // removal from one of them must still reach clients, so removals move to a hook. It records
+      // the component leaving a live networked entity; an entity that is destroyed or stops being
+      // networked leaves every view, which sends the client its whole-entity removal instead.
+      const { wireType } = replicated;
+      const networked = this.component(Networked).eid;
+      this.component(component).on("remove", (entity) => {
+        this._snapshotCache.delete(cid_pack(entity.eid, wireType));
+        if (entity.alive && entity.has(networked)) {
+          this._record(entity, wireType, undefined);
+        }
+      });
+    }
+    replicated.without = [...excluded];
+    replicated.system.destroy();
+    replicated.system = this._replicate(component, replicated.wireType, replicated.without);
+    // The store phase runs its systems in creation order, and `send()` must come after every
+    // system that records for it, so the send system is recreated behind the replacement.
+    this._sendSystem.destroy();
+    this._sendSystem = this._createSendSystem();
   }
 
   /**
@@ -959,6 +1051,50 @@ export class ServerWorld extends NetworkWorld {
     session.socket.close();
   }
 
+  /**
+   * Create the store-phase system that records one network component for replication.
+   *
+   * Without filters, it records the component's value when the component enters or changes on a
+   * networked entity, and its removal when it leaves.
+   *
+   * With filters, its query also excludes the filters' components, and membership does the rest.
+   * An entity that gains an excluding component leaves the system, which records nothing, so
+   * clients keep the last value. The component's changes are not routed to the system at all while
+   * the entity has one. Losing the last one brings the entity back in, which records the current
+   * value. Removals then come from the hook {@link ServerWorld.replicateWithout} installs instead
+   * of an exit callback: an exit no longer means the component left, and a removal from an entity
+   * that has an excluding component would otherwise go unrecorded.
+   */
+  private _replicate(
+    Class: ComponentClass,
+    wireType: number,
+    without: readonly EID[] | undefined
+  ): System {
+    const system = this.system(`ServerWorld:${this.name}:${Class.name}`)
+      .with(Networked, Class)
+      .phase(this._storePhase)
+      .update({ watch: Class, onEnter: true }, (entity, component) => {
+        this._snapshotCache.delete(cid_pack(entity.eid, wireType));
+        this._record(entity, wireType, component);
+      });
+    if (without === undefined) {
+      return system
+        .exit((entity) => {
+          this._snapshotCache.delete(cid_pack(entity.eid, wireType));
+          this._record(entity, wireType, undefined);
+        })
+        .track();
+    }
+    without.forEach((eid) => system.without(eid));
+    return system.track();
+  }
+
+  private _createSendSystem(): System {
+    return this.system(`ServerWorld:${this.name}:Send`)
+      .phase(this._storePhase)
+      .run(() => this.send());
+  }
+
   private _record(
     entity: Entity,
     wireType: number,
@@ -967,13 +1103,17 @@ export class ServerWorld extends NetworkWorld {
     this._updates.set(cid_pack(entity.eid, wireType), { entity, wireType, component });
   }
 
+  /**
+   * Push a snapshot of every network component `entity` has, for a view entry or a baseline,
+   * leaving out each component a {@link ServerWorld.replicateWithout} filter excludes on it.
+   */
   private _pushEntitySnapshots(entity: Entity, snapshots: EncodedSnapshot[]): void {
-    this._components.forEach((registered) => {
-      const component = entity.get(registered.eid);
-      if (!component) {
+    this._components.forEach((replicated) => {
+      const component = entity.get(replicated.eid);
+      if (!component || hasAny(entity, replicated.without)) {
         return;
       }
-      snapshots.push(this._encodeSnapshot(entity, registered.wireType, component));
+      snapshots.push(this._encodeSnapshot(entity, replicated.wireType, component));
     });
   }
 
@@ -1023,6 +1163,19 @@ function ensureRegistered(world: NetworkWorld, Class: ComponentClass): void {
   if (!world.getEntity(Class)) {
     world.component(Class);
   }
+}
+
+/** Whether `entity` has any of `components`; `false` when there are none to check. */
+function hasAny(entity: Entity, components: readonly EID[] | undefined): boolean {
+  if (components === undefined) {
+    return false;
+  }
+  for (let i = 0; i < components.length; i++) {
+    if (entity.has(components[i])) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isEmpty(diff: StateDiff): boolean {
