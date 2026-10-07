@@ -59,12 +59,14 @@ export class DisplaySetupModule extends Module<{ scene: Phaser.Scene }> {
     const inheritRotation = world.component(InheritRotation);
     inheritRotation.add(With, world.component(Rotation).eid);
 
-    // Removing the tag returns the child to its own rotation: its Rotation becomes the tag's
-    // local angle, now taken relative to the world, and phaser.resolve.offset stops rotating its
-    // offset. A `remove` hook also fires as an entity is destroyed, and a dying entity takes no
-    // writes, so it only acts on a live one.
+    // Removing the tag from a DrawBy child returns the child to its own rotation: its Rotation
+    // becomes the tag's local angle, now taken relative to the world, and phaser.resolve.offset
+    // stops rotating its offset. The tag does nothing without DrawBy, so on an entity that has
+    // none, including a child whose DrawBy was already removed, removal leaves its Rotation alone.
+    // A `remove` hook also fires as an entity is destroyed, and a dying entity takes no writes, so
+    // it only acts on a live one.
     inheritRotation.on("remove", (entity, tag) => {
-      if (entity.destroyed) {
+      if (entity.destroyed || !entity.has(DrawBy)) {
         return;
       }
       entity.set(Rotation, { angle: tag.angle });

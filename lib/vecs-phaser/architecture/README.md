@@ -715,13 +715,15 @@ allocates nothing per entity, and trig runs only for tagged children. It runs in
 before `phaser.sync.position` and `phaser.sync.rotation`, so position and rotation reach the
 GameObject in the same frame, interpolated frames included.
 
-- **Removing the tag** returns the child to its own rotation. A `remove` hook in
-  `DisplaySetupModule` sets the `Rotation` to the tag's `angle`, now taken relative to the world, and
-  from then on the child resolves as an untagged one: its offset is no longer rotated. The hook
-  skips an entity that is being destroyed, because `remove` also fires as an entity is destroyed.
-- **Without `DrawBy`** the tag does nothing. When `DrawBy` is removed — for example because its
-  parent was destroyed, under `CleanupPolicy.Remove` — the child keeps the pose it was last
-  resolved to.
+- **Removing the tag from a `DrawBy` child** returns the child to its own rotation. A `remove` hook
+  in `DisplaySetupModule` sets the `Rotation` to the tag's `angle`, now taken relative to the world,
+  and from then on the child resolves as an untagged one: its offset is no longer rotated. The hook
+  skips an entity that is being destroyed, because `remove` also fires as an entity is destroyed,
+  and an entity without `DrawBy`, because nothing was derived into its `Rotation` for the removal to
+  undo.
+- **Without `DrawBy`** the tag does nothing, and removing it changes nothing. When `DrawBy` is
+  removed — for example because its parent was destroyed, under `CleanupPolicy.Remove` — the child
+  keeps the pose it was last resolved to, and removing the tag later leaves that pose alone.
 - **A tagged child's `Rotation` is derived**, so writing or replicating `Rotation` on it is
   overwritten every frame.
 - **The tag is client-local** unless an application lists it in its own network components (§6).
@@ -986,7 +988,8 @@ rebuild.
   parent's angle plus their own for every renderable kind (`Polygon` with and without `OpenPath`,
   `Text`, `Arc`), stay in lockstep with the parent across frames and `ClientWorld` interpolation,
   resolve nested tagged and mixed chains in one frame whatever their entity ids, and release their
-  `Rotation` when the tag is removed without writing to an entity that is being destroyed.
+  `Rotation` when the tag is removed without writing to an entity that is being destroyed or has no
+  `DrawBy`.
 - **`vecs-phaser-server`:** `PhaserServerModule` enforces exclusivity; reactive pose-sync copies
   physics `Position`/`Rotation` → render (only when physics changed; no create). `AssetManager`
   loads a `.tsj`/`.json` fixture into a live `TilesetAsset` with the correct spritesheet fields +

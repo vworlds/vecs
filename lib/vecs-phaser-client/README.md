@@ -93,10 +93,12 @@ world
   is rewritten every frame, so setting or replicating `Rotation` on a tagged child has no effect.
 - A parent that is itself tagged passes its derived angle down, so angles add and offsets compose
   along the chain, which resolves parent-first within a single frame.
-- Removing the tag returns the child to its own rotation: its `Rotation` becomes the tag's `angle`
-  and its offset is no longer rotated.
-- The tag does nothing without `DrawBy`, and a child whose `DrawBy` is removed (for example because
-  its parent was destroyed) keeps the pose it was last resolved to.
+- Removing the tag from a `DrawBy` child returns it to its own rotation: its `Rotation` becomes the
+  tag's `angle` and its offset is no longer rotated.
+- The tag does nothing without `DrawBy`, so removing it from an entity that has none leaves that
+  entity's `Rotation` alone. A child whose `DrawBy` is removed (for example because its parent was
+  destroyed) keeps the pose it was last resolved to, and removing the tag afterwards leaves that
+  pose alone.
 - `InheritRotation` is not part of `phaserNetworkComponents`, so it is client-local unless your
   application lists it in its own network components, after its existing ones, on the server and
   the client alike. See the `InheritRotation` JSDoc for the full rules.

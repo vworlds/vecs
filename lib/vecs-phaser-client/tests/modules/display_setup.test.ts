@@ -88,6 +88,37 @@ describe("DisplaySetupModule: InheritRotation", () => {
       expectPose(child, { x: 3, y: 3, angle: 0.25 });
     });
 
+    it("leaves the Rotation of an entity without DrawBy alone", () => {
+      const { world } = setup();
+      const entity = world
+        .entity()
+        .set(Rotation, { angle: 1 })
+        .set(InheritRotation, { angle: 0.7 });
+      expect(entity.has(DrawBy)).toBe(false);
+
+      entity.remove(InheritRotation);
+
+      // The tag did nothing without DrawBy, so removing it does nothing either.
+      expect(entity.get(Rotation)?.angle).toBe(1);
+    });
+
+    it("leaves the pose of a child whose DrawBy was removed alone", () => {
+      const { world } = setup();
+      const parent = spawnParent(world, 1, 2, HALF_PI);
+      const child = spawnChild(world, parent, { offset: { x: 2, y: 1 }, tag: 0.25 });
+      world.progress(0, 0);
+      expectPose(child, { x: 0, y: 4, angle: HALF_PI + 0.25 });
+      child.remove(DrawBy);
+
+      child.remove(InheritRotation);
+
+      // It keeps the pose it was last resolved to, as it did while it still had the tag.
+      expect(child.has(DrawBy)).toBe(false);
+      expectPose(child, { x: 0, y: 4, angle: HALF_PI + 0.25 });
+      world.progress(1, 16);
+      expectPose(child, { x: 0, y: 4, angle: HALF_PI + 0.25 });
+    });
+
     it("writes nothing to a child that is destroyed", () => {
       const { world } = setup();
       const parent = spawnParent(world, 1, 2, HALF_PI);

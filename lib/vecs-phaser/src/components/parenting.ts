@@ -82,13 +82,14 @@ export class DrawBy extends Relationship {}
  *   angle, as `DrawBy` adds one for `Position`. It is derived, so writing or
  *   replicating `Rotation` on a tagged child is overwritten every frame.
  * - The tag does nothing while the entity has no `DrawBy`: nothing is derived,
- *   and an existing `Rotation` is left alone.
- * - Removing the tag returns the child to its own rotation: its `Rotation`
- *   becomes `angle`, now taken relative to the world, and its offset is no
- *   longer rotated.
+ *   and an existing `Rotation` is left alone, also when the tag is removed.
+ * - Removing the tag from a `DrawBy` child returns the child to its own
+ *   rotation: its `Rotation` becomes `angle`, now taken relative to the world,
+ *   and its offset is no longer rotated.
  * - When `DrawBy` is removed (for example because the parent was destroyed, as
  *   `DrawBy` uses `CleanupPolicy.Remove`) the child keeps the pose it was last
- *   resolved to, tagged or not.
+ *   resolved to, tagged or not, and removing the tag later leaves that pose
+ *   alone.
  *
  * `InheritRotation` is a wire type, but it is deliberately not part of
  * `phaserNetworkComponents`: that list's order is the wire protocol, and
