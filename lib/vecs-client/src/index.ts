@@ -11,5 +11,6 @@ export {
   RPCError,
   RPC_CLOSED_CODE,
   RPC_TIMEOUT_CODE,
+  RPC_UNSPECIFIED_ERROR_CODE,
   worldPath,
 } from "@vworlds/vecs-protocol";

@@ -34,6 +34,7 @@ export {
   RPC_RESPONSE_ID,
   RPC_TIMEOUT_CODE,
   RPC_TIMEOUT_ERROR,
+  RPC_UNSPECIFIED_ERROR_CODE,
   RPCError,
   SessionRPC,
   type RPCHandler,

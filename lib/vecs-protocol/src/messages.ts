@@ -7,6 +7,7 @@ const FIELD_DIFF = 1;
 const FIELD_RPC = 2;
 const FIELD_INPUT = 3;
 const FIELD_CLOSE = 4;
+const FIELD_RPC_SETTLED = 5;
 
 const CLOSE_HAS_CODE = 1;
 const CLOSE_HAS_REASON = 2;
@@ -122,6 +123,20 @@ export const CLOSE_PROTOCOL_ERROR_CODE = 1;
 export class Server2Client implements IEncodable {
   public diff: StateDiff | undefined;
   public rpc: RPC[] = [];
+  /**
+   * The server's RPC low watermark, `SessionRPC.settledBelow`: every call the
+   * server issued with a `callId` below this value has settled. The client
+   * passes it to `SessionRPC.setPeerSettledBelow` on receipt, which lets it
+   * drop the replies it kept for those calls and ignore any copy of their
+   * requests that still arrives.
+   *
+   * Encoded as tag 5 and a `u32` only when above `0`, so a frame from a server
+   * that never issued a call, which is every frame `ServerWorld` sends today, is
+   * byte-identical to one built before the field existed. A decoder that
+   * predates the field rejects the tag, so older clients still decode
+   * `ServerWorld`'s frames only because it never sends the field today.
+   */
+  public rpcSettledBelow = 0;
   /** Present only on the graceful-close frame of a deliberate server close. */
   public close: CloseNotice | undefined;
 
@@ -140,6 +155,10 @@ export class Server2Client implements IEncodable {
       encoder.write_u8(FIELD_RPC);
       encoder.write_u32(this.rpc.length);
       this.rpc.forEach((rpc) => encoder.write(rpc));
+    }
+    if (this.rpcSettledBelow > 0) {
+      encoder.write_u8(FIELD_RPC_SETTLED);
+      encoder.write_u32(this.rpcSettledBelow);
     }
     if (this.close) {
       const { code, reason } = this.close;
@@ -171,6 +190,9 @@ export class Server2Client implements IEncodable {
           }
           break;
         }
+        case FIELD_RPC_SETTLED:
+          message.rpcSettledBelow = decoder.read_u32();
+          break;
         case FIELD_CLOSE: {
           const flags = decoder.read_u8();
           const close: CloseNotice = {};
@@ -195,6 +217,25 @@ export class Client2Server implements IEncodable {
   public ackFrame = 0;
   public input: unknown | undefined;
   public rpc: RPC[] = [];
+  /**
+   * The client's RPC low watermark, `SessionRPC.settledBelow`: every call the
+   * client issued with a `callId` below this value has settled. The server
+   * passes it to `SessionRPC.setPeerSettledBelow` on receipt, which lets it
+   * drop the replies it kept for those calls and ignore any copy of their
+   * requests that still arrives, such as a retransmit that was delayed on the
+   * unordered transport.
+   *
+   * Encoded as tag 5 and a `u32` only when above `0`, so a frame from a client
+   * that never made a call, or whose first call has not settled, is
+   * byte-identical to one built before the field existed. A decoder that
+   * predates the field rejects the tag, and a client sends it once its first
+   * call has settled, so deploy servers before clients: a new server reads old
+   * and new clients alike, but an older server cannot read a new client's
+   * frame. One that predates the guard for undecodable frames throws out of its
+   * receive handler (vworlds/vecs#211); one that has it closes that client's
+   * session with {@link CLOSE_PROTOCOL_ERROR_CODE} instead.
+   */
+  public rpcSettledBelow = 0;
 
   public constructor(values?: Partial<Client2Server>) {
     if (values) {
@@ -213,6 +254,10 @@ export class Client2Server implements IEncodable {
       encoder.write_u32(this.rpc.length);
       this.rpc.forEach((rpc) => encoder.write(rpc));
     }
+    if (this.rpcSettledBelow > 0) {
+      encoder.write_u8(FIELD_RPC_SETTLED);
+      encoder.write_u32(this.rpcSettledBelow);
+    }
   }
 
   public static wireDecode(decoder: Decoder): Client2Server {
@@ -230,6 +275,9 @@ export class Client2Server implements IEncodable {
           }
           break;
         }
+        case FIELD_RPC_SETTLED:
+          message.rpcSettledBelow = decoder.read_u32();
+          break;
         default:
           throw new Error(`Invalid Client2Server field tag ${tag}`);
       }

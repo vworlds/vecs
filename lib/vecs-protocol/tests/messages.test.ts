@@ -178,3 +178,90 @@ describe("protocol messages", () => {
     ).toThrow("at least one target");
   });
 });
+
+describe("rpcSettledBelow", () => {
+  it("round-trips on a client ack next to the input and requests", () => {
+    const message = new Client2Server({
+      ackFrame: 7,
+      input: { keys: ["up"] },
+      rpc: [new RPC({ rpcId: 101, callId: 12, params: [1] })],
+      rpcSettledBelow: 12,
+    });
+
+    const decoded = new Decoder(encodeMessage(message)).read(Client2Server);
+
+    expect(decoded.rpcSettledBelow).toBe(12);
+    expect(decoded.ackFrame).toBe(7);
+    expect(decoded.input).toEqual({ keys: ["up"] });
+    expect(decoded.rpc[0].callId).toBe(12);
+  });
+
+  it("round-trips on a server frame next to the diff, replies and close notice", () => {
+    const message = new Server2Client({
+      diff: new StateDiff({ fromFrame: 3, toFrame: 4 }),
+      rpc: [new RPC({ rpcId: 0, callId: 1, params: ["ok"] })],
+      close: { code: 4003, reason: "superseded" },
+      rpcSettledBelow: 9,
+    });
+
+    const decoded = new Decoder(encodeMessage(message)).read(Server2Client);
+
+    expect(decoded.rpcSettledBelow).toBe(9);
+    expect(decoded.diff?.toFrame).toBe(4);
+    expect(decoded.rpc[0].params).toEqual(["ok"]);
+    expect(decoded.close).toEqual({ code: 4003, reason: "superseded" });
+  });
+
+  it("round-trips the largest value a u32 carries", () => {
+    const max = 0xffff_ffff;
+
+    expect(
+      new Decoder(encodeMessage(new Client2Server({ rpcSettledBelow: max }))).read(Client2Server)
+        .rpcSettledBelow
+    ).toBe(max);
+    expect(
+      new Decoder(encodeMessage(new Server2Client({ rpcSettledBelow: max }))).read(Server2Client)
+        .rpcSettledBelow
+    ).toBe(max);
+  });
+
+  it("encodes as tag 5 followed by a varint u32", () => {
+    expect(encodeMessage(new Client2Server({ ackFrame: 7, rpcSettledBelow: 300 }))).toEqual(
+      Uint8Array.of(7, 5, 0xac, 0x02)
+    );
+    expect(encodeMessage(new Server2Client({ rpcSettledBelow: 1 }))).toEqual(Uint8Array.of(5, 1));
+  });
+
+  it("is absent at 0, so the frame of a peer that never issued a call is byte-identical to before", () => {
+    // Hand-built from the field layout that predates the watermark.
+    const ask = [new RPC({ rpcId: 101, callId: 0 })];
+    const legacyAck = Uint8Array.of(7, 2, 1, 101, 0, 0, 0, 0);
+    expect(encodeMessage(new Client2Server({ ackFrame: 7, rpc: ask }))).toEqual(legacyAck);
+    expect(encodeMessage(new Client2Server({ ackFrame: 7, rpc: ask, rpcSettledBelow: 0 }))).toEqual(
+      legacyAck
+    );
+
+    const answer = [new RPC({ rpcId: 0, callId: 1 })];
+    const diff = new StateDiff({ fromFrame: 3, toFrame: 4 });
+    const legacyFrame = Uint8Array.of(1, 4, 3, 0, 0, 2, 1, 0, 1, 0, 0, 0);
+    expect(encodeMessage(new Server2Client({ diff, rpc: answer }))).toEqual(legacyFrame);
+    expect(encodeMessage(new Server2Client({ diff, rpc: answer, rpcSettledBelow: 0 }))).toEqual(
+      legacyFrame
+    );
+    expect(encodeMessage(new Server2Client({ rpcSettledBelow: 0 }))).toEqual(new Uint8Array());
+  });
+
+  it("rejects a truncated watermark field", () => {
+    expect(() => new Decoder(Uint8Array.of(7, 5)).read(Client2Server)).toThrow(RangeError);
+    expect(() => new Decoder(Uint8Array.of(5)).read(Server2Client)).toThrow(RangeError);
+  });
+
+  it("still rejects an unknown field tag in either direction", () => {
+    expect(() => new Decoder(Uint8Array.of(7, 6)).read(Client2Server)).toThrow(
+      "Invalid Client2Server field tag 6"
+    );
+    expect(() => new Decoder(Uint8Array.of(6)).read(Server2Client)).toThrow(
+      "Invalid Server2Client field tag 6"
+    );
+  });
+});
