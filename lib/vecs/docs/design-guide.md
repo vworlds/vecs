@@ -305,7 +305,8 @@ Choose `onEnter: true` by asking who owns the initial value:
 
 ### Injection
 
-Pull components into the callback instead of `entity.get()`-ing them by hand:
+**Inject every component a system callback always uses.** Pull it into the callback instead of
+`entity.get()`-ing it by hand:
 
 ```ts
 .enter([Arc], (entity, [arc]) => { /* … */ })
@@ -313,6 +314,23 @@ Pull components into the callback instead of `entity.get()`-ing them by hand:
 .exit([Arc, Transform], (entity, [arc, obj]) => { /* … */ })
 .each([Position, Velocity], (entity, [pos, vel]) => { /* … */ })
 ```
+
+Use `entity.get(C)` only for a component that is conditionally needed and rarely required: a read on
+a branch most calls never take, where resolving the component for every call would be waste.
+
+Why:
+
+- **The signature states the inputs.** What a callback reads sits next to the `.with(...)` that
+  guarantees it, not in the body.
+- **No dead guards.** A component guaranteed by `.with(...)` is injected as non-nullable, so there
+  is no `undefined` to check. `get` returns `Readonly<C> | undefined`, which invites an
+  `if (c !== undefined)` that tells the next reader the component might be missing when the query
+  says it cannot be. An injected instance is also the live, mutable one: a callback that writes in
+  place and calls `entity.modified(C)` (see §7) needs no cast.
+- **Resolved once.** Injection resolves a component's id when the callback is registered;
+  `entity.get(C)` resolves the class on every call. In an `exit` callback injection matters more
+  still: it reads the snapshot captured when the entity left, while a `get` at replay time can find
+  the component already removed.
 
 Components listed in the inject tuple but **not** guaranteed by `.with(...)` resolve as
 `T | undefined` (the types reflect this) — guard them; the ones in `.with` are always present.
@@ -328,7 +346,7 @@ Components listed in the inject tuple but **not** guaranteed by `.with(...)` res
 // ❌ scans every body every tick, even if it didn't move
 .with(PhysicsPosition, RenderPosition).each([...], (e, [...]) => { if (changed) e.set(...) });
 
-// ✅ fires only when physics actually moved the body
+// ✅ fires only when physics actually moved the body (compare before writing a networked B: see §7)
 .with(PhysicsPosition, RenderPosition).update(PhysicsPosition, (e, p) => e.set(RenderPosition, { x: p.x, y: p.y }));
 ```
 
@@ -396,22 +414,29 @@ export class PhaserServerModule extends Module<undefined> {
       .system("phaser.sync.position")
       .with(PhysicsPosition, RenderPosition)
       .phase(POST_UPDATE)
-      .update({ watch: PhysicsPosition, onEnter: true }, (e, p) => {
-        const render = e.get(RenderPosition);
-        if (render !== undefined && (render.x !== p.x || render.y !== p.y)) {
-          e.set(RenderPosition, { x: p.x, y: p.y });
+      .update(
+        { watch: PhysicsPosition, onEnter: true, inject: [RenderPosition] },
+        (e, p, [render]) => {
+          if (render.x !== p.x || render.y !== p.y) {
+            render.x = p.x;
+            render.y = p.y;
+            e.modified(RenderPosition);
+          }
         }
-      });
+      );
     world
       .system("phaser.sync.rotation")
       .with(PhysicsRotation, RenderRotation)
       .phase(POST_UPDATE)
-      .update({ watch: PhysicsRotation, onEnter: true }, (e, r) => {
-        const render = e.get(RenderRotation);
-        if (render !== undefined && render.angle !== r.angle) {
-          e.set(RenderRotation, { angle: r.angle });
+      .update(
+        { watch: PhysicsRotation, onEnter: true, inject: [RenderRotation] },
+        (e, r, [render]) => {
+          if (render.angle !== r.angle) {
+            render.angle = r.angle;
+            e.modified(RenderRotation);
+          }
         }
-      });
+      );
   }
 }
 
@@ -589,20 +614,30 @@ rebinds. No teardown system, no special-casing anywhere.
 
 Copy `A → B`, gated on both existing (so you never _create_ `B`, you only keep an existing `B` in
 sync — pure-ECS: the owner decides whether `B` exists). Use `{ onEnter: true }` when `B` must reflect
-the current `A` as soon as the entity enters the sync system, and write only when `B` differs from `A`:
+the current `A` as soon as the entity enters the sync system, inject `B` (the `.with(...)` guarantees
+it, so it is non-nullable, see §4), and write only when `B` differs from `A`:
 
 ```ts
-.with(PhysicsPosition, RenderPosition).update({ watch: PhysicsPosition, onEnter: true }, (e, p) => {
-  const render = e.get(RenderPosition);
-  if (render !== undefined && (render.x !== p.x || render.y !== p.y)) {
-    e.set(RenderPosition, { x: p.x, y: p.y });
+.with(PhysicsPosition, RenderPosition).update(
+  { watch: PhysicsPosition, onEnter: true, inject: [RenderPosition] },
+  (e, p, [render]) => {
+    if (render.x !== p.x || render.y !== p.y) {
+      render.x = p.x;
+      render.y = p.y;
+      e.modified(RenderPosition);
+    }
   }
-});
+);
 ```
 
-Every `set` is a modification, even with an equal value: it fires `onSet`, routes `update` events to
-every watching system and replicates a networked component. So a sync into a networked or watched `B`
-compares before it writes.
+Every write is a modification, even with an equal value: both `set` and `modified` fire `onSet`,
+route `update` events to every watching system and replicate a networked component. So a sync into a
+networked or watched `B` compares before it writes. The injected `B` is the live instance, so assign
+into it and call `entity.modified(B)`: that has the same effects as `set` without the props literal
+and the deferred copy, and a second event for the same entity in one drain finds the first write
+applied and writes nothing. Always pair an in-place write with `modified`: assignment alone notifies
+nobody, so hooks, watchers and replication never see it. Use `set` when you do not hold the instance,
+or when the write should create the component.
 
 Leave `onEnter: true` off (or set `onEnter: false`) only when a separate `.enter(...)` already initializes `B`,
 or when the callback is intentionally "future changes only."
@@ -720,6 +755,7 @@ system after whatever produces the entity/companion.
 | One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                               |
 | Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                        |
 | `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                        |
+| `entity.get(C)` for a component the callback always uses               | Inject it (`inject: [C]`); keep `get` for a component that is conditionally needed and rarely required.                                              |
 | Treating target storage as component data                              | Use `add(Rel, target)` / `remove(Rel, target)` and read with `target` / `targets` / `hasTarget`; target storage is private.                          |
 | A `registerFooSystem(world)` wrapper per system                        | Declare the system inline in the module's `init`.                                                                                                    |
 
@@ -733,10 +769,13 @@ system after whatever produces the entity/companion.
 - **`update(C)` is change-only by default.** Add `{ onEnter: true }` for projection/sync callbacks
   that must apply the current watched value on entry; leave it off for mutation-only callbacks or
   when `.enter(...)` already owns initialization.
-- **`set` always marks the component modified, even with an equal value.** It fires `onSet`, routes
-  `update` events to every watching system and replicates a networked component. A writer that runs
-  every tick and copies a value into a networked or watched component (simulation output, a derived
-  pose) should compare first and `set` only when the value changed (see §7).
+- **A write marks the component modified, even with an equal value.** `set`, and an in-place
+  assignment followed by `modified`, fire `onSet`, route `update` events to every watching system and
+  replicate a networked component. A writer that runs every tick and copies a value into a networked
+  or watched component (simulation output, a derived pose) should compare first and write only when
+  the value changed (see §7). An in-place assignment without `modified` notifies nobody.
+- **A callback that always uses a component should inject it, not `get` it.** `entity.get(C)` is for
+  a component that is conditionally needed and rarely required (see §4).
 - **Membership is fixed by `.with(...)` / `.without(...)` / `.update(C)`;** `update(C)` watches `C`
   and requires it.
 - **`exit` retains injected references captured at exit** (components are not deep-cloned).

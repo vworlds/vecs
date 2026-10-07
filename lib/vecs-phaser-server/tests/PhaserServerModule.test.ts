@@ -306,4 +306,65 @@ describe("PhaserServerModule pose sync writes only on change", () => {
     expect(writes).toEqual({ position: 0, rotation: 1 });
     expect(entity.get(RenderRotation)).toMatchObject({ angle: 1.5 });
   });
+
+  it("assigns a changed pose into the render components and notifies their watchers once", () => {
+    const world = createWorld();
+    world.module(PhaserServerModule);
+    const observed = {
+      position: [] as { x: number; y: number }[],
+      rotation: [] as { angle: number }[],
+    };
+    world
+      .system("RenderPositionWatcher")
+      .with(RenderPosition)
+      .phase(ON_STORE)
+      .update(RenderPosition, (_entity, position) => {
+        observed.position.push({ x: position.x, y: position.y });
+      });
+    world
+      .system("RenderRotationWatcher")
+      .with(RenderRotation)
+      .phase(ON_STORE)
+      .update(RenderRotation, (_entity, rotation) => {
+        observed.rotation.push({ angle: rotation.angle });
+      });
+    const entity = createSyncedEntity(world);
+    const renderPosition = entity.get(RenderPosition);
+    const renderRotation = entity.get(RenderRotation);
+    const writes = watchRenderWrites(world);
+    expect(observed).toEqual({ position: [], rotation: [] });
+
+    entity.set(PhysicsPosition, { x: 5, y: 6 }).set(PhysicsRotation, { angle: 2.5 });
+    world.progress(16, 16);
+
+    // Each watcher and each `set` hook ran once and saw the new value, and the render components
+    // are the instances they were, which replication and the watchers' inboxes hold.
+    expect(writes).toEqual({ position: 1, rotation: 1 });
+    expect(observed).toEqual({ position: [{ x: 5, y: 6 }], rotation: [{ angle: 2.5 }] });
+    expect(entity.get(RenderPosition)).toBe(renderPosition);
+    expect(entity.get(RenderRotation)).toBe(renderRotation);
+  });
+
+  it("writes once when the physics pose changes again before the sync systems run", () => {
+    const world = createWorld();
+    world.module(PhaserServerModule);
+    // Build the sync systems, so the entity's entry and the change below both queue an event.
+    world.flush();
+    const entity = world
+      .entity()
+      .set(RenderPosition, { x: 0, y: 0 })
+      .set(RenderRotation, { angle: 0 })
+      .set(PhysicsPosition, { x: 1, y: 2 })
+      .set(PhysicsRotation, { angle: 0.5 });
+    const writes = watchRenderWrites(world);
+
+    entity.set(PhysicsPosition, { x: 3, y: 4 }).set(PhysicsRotation, { angle: 1.5 });
+    world.progress(0, 16);
+
+    // Each system drains two events for the entity. The second finds the first one's write
+    // applied, so the render pose is modified once, not twice.
+    expect(writes).toEqual({ position: 1, rotation: 1 });
+    expect(entity.get(RenderPosition)).toMatchObject({ x: 3, y: 4 });
+    expect(entity.get(RenderRotation)).toMatchObject({ angle: 1.5 });
+  });
 });

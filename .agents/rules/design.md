@@ -19,3 +19,14 @@ that does not design or change ECS behavior.
 The guide is built to skim: read §1–§2 and the §8 anti-patterns + §9 pitfalls tables for the
 fast rules, then deep-read only the section your task touches. Keep the guide itself the single
 source of truth — link to it from new docs and tickets instead of restating it.
+
+## Rules
+
+These hold wherever you write vecs systems, in `lib/vecs*` packages and in apps built on vecs. Each
+rule links to its explanation in the guide.
+
+- Inject every component a system callback always uses. Use `entity.get` only for a component that
+  is conditionally needed and rarely required.
+  ([Injection](../../lib/vecs/docs/design-guide.md#injection))
+
+Place future design rules in this section, as one short rule each with a link to the guide.

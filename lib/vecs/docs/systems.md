@@ -189,6 +189,9 @@ an options object with `inject`, resolved per entity and passed as a typed tuple
 .each({ inject: [Position, Sprite] }, (e, [pos, sprite]) => { ... })
 ```
 
+Inject every component a callback always uses, and keep `entity.get` for one that is only
+conditionally needed (see [Design guide](./design-guide.md#injection)).
+
 Nullability follows membership: components guaranteed by `with` (or `hint`) are non-nullable;
 anything else resolves as `T | undefined` — guard it. (`enter`/`exit` injection requires the
 direct components to be present and throws otherwise; list only components your predicate
