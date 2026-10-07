@@ -15,10 +15,12 @@ import { ClientWorld } from "../src/index.js";
 // When a browser tab goes inactive its requestAnimationFrame loop stops (so
 // ClientWorld.apply / DiffBuffer.pull never runs) and its ack setInterval is
 // throttled to ~1Hz. The server stops seeing acks, decides the client has
-// fallen outside its history window, and streams full baselines
-// (StateDiff.fromFrame === 0) every frame until the client catches up. The
-// dgram transport vecs uses in production is unordered with maxRetransmits=2,
-// so some of those packets are dropped or reordered.
+// fallen outside its history window, and sends a full baseline
+// (StateDiff.fromFrame === 0). It then holds back all further state until the
+// client acks that baseline, sending another only if it presumes the first
+// lost, rather than streaming one every frame as it once did. The dgram
+// transport vecs uses in production is unordered with maxRetransmits=2, so
+// packets can be dropped or reordered.
 //
 // Each baseline is the *complete* authoritative state at its frame, and the
 // client adopts it as reset-then-rebuild: every server-owned entity is destroyed
@@ -221,11 +223,14 @@ describe("reset storm (inactive tab)", () => {
     const entersBeforeStorm = enters.get(survivor.eid)!;
 
     // --- tab inactive: no pulls and no acks (a deeply backgrounded tab whose
-    // setInterval is frozen too). The server stays in continuous baseline/resync
-    // mode. The transport systematically drops any packet carrying the doomed
-    // entity's removal -- its retransmits expired while the tab slept. ---
+    // setInterval is frozen too), for longer than the server's default history
+    // window of 64 frames. Once that has run out it sends a baseline and holds
+    // back the rest until that is acked. The transport systematically drops any
+    // packet carrying the doomed entity's removal -- its retransmits expired while
+    // the tab slept -- so only the baseline, which does not mention a removal, can
+    // tell the client the entity is gone. ---
     serverEp.gate = (data) => !diffRemoves(data, doomed.eid);
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 80; i++) {
       drift();
       if (i === 18) {
         live.delete(doomed);

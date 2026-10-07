@@ -7,14 +7,14 @@ JSDoc on the source in `lib/vecs-server/src/` — read it in your IDE.
 ## Reading order
 
 1. [Sessions and caller context](./sessions.md) — sessions as `NetworkClient` entities, per-call
-   `ServerRPCContext`, `closeSession` and its reply-flush linger, close reasons, and exactly-once
-   teardown.
+   `ServerRPCContext`, the history window and baselines (`historyFrames`), `closeSession` and its
+   reply-flush linger, close reasons, and exactly-once teardown.
 
 ## Map
 
-| Guide                        | Covers                                                                                                                                                                |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [sessions.md](./sessions.md) | `NetworkClient`, `ServerRPCContext`, `world.handleRpc`, `world.closeSession`, the close linger, `world.shutdown` / `VecsListener.close`, `NetworkClient.closeReason`. |
+| Guide                        | Covers                                                                                                                                                                                               |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [sessions.md](./sessions.md) | `NetworkClient`, `ServerRPCContext`, `world.handleRpc`, `historyFrames` and baselines, `world.closeSession`, the close linger, `world.shutdown` / `VecsListener.close`, `NetworkClient.closeReason`. |
 
 ## See also
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  Client2Server,
   ComponentSnapshot,
   Server2Client,
   decodeRelationshipSnapshot,
@@ -76,6 +77,12 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 
 function decodeLastMessage(socket: MemorySocket): Server2Client {
   return new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+}
+
+/** Ack the baseline just sent: the server sends no delta until the client holds one. */
+function ackLatestFrame(socket: MemorySocket): void {
+  const frame = decodeLastMessage(socket);
+  socket.receive(encodeMessage(new Client2Server({ ackFrame: frame.diff!.toFrame })));
 }
 
 function allowAllClientViews(world: World): void {
@@ -156,6 +163,7 @@ describe("ServerWorld relationship serialization", () => {
     const second = world.entity().add(Networked);
     const source = world.entity().add(Networked).add(WeightedLink, first);
     world.progress(0, 16);
+    ackLatestFrame(socket);
 
     source.add(WeightedLink, second);
     world.progress(16, 16);
@@ -181,6 +189,7 @@ describe("ServerWorld relationship serialization", () => {
     const parent = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
     const child = world.entity().add(Networked).set(Position, { x: 2, y: 2 }).childOf(parent);
     world.progress(0, 16);
+    ackLatestFrame(socket);
 
     child.remove(ChildOf);
     world.progress(16, 16);

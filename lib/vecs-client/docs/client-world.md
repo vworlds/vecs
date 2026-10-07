@@ -7,6 +7,7 @@ also knows when to let go of all of it.
 ## What you'll learn
 
 - How to connect a client world and let replication run.
+- What a baseline does to your replicated entities, and how often to expect one.
 - How to call a server RPC and answer server calls.
 - How `dispose` tears a world down and why pending calls must be rejected.
 - What changes after disposal.
@@ -47,6 +48,37 @@ server sends nothing while a session has an empty diff and no RPC replies, and i
 that stay silent past `disconnectGraceMs`, so a client that withheld its first ack could be
 dropped, or could never deliver an early `invoke`.
 
+## Baselines
+
+Most frames are deltas, which the client applies in place. The server sends a **baseline** instead,
+the complete state of the client's view (`fromFrame` 0), in two situations: when the session starts,
+which includes a reconnect, and when the client has fallen so far behind that frames it has not
+acked have left the server's history window, as a backgrounded tab or a stalled connection does. A
+view that is merely quiet gets none: the server sends nothing while nothing changes, and the next
+change arrives as an ordinary delta.
+
+The client applies a baseline as reset-then-rebuild. It destroys every replicated entity and then
+recreates each one from the snapshot, so every `exit` and `enter` fires again, and view systems that
+attach client-side state on `enter` build it again. The world emits `reset` as it does so, with
+`{ initial, fromFrame, toFrame }`; `initial` is `true` for the first baseline the world applies. A
+baseline for a frame the client has already passed (a duplicate, or a straggler on the unordered
+channel) is ignored, and a delta for a frame it has already received is discarded, or merged into
+the copy the diff buffer still holds, so a late datagram never rolls the client back.
+
+```ts
+world.events.on("reset", ({ initial }) => {
+  if (!initial) {
+    console.warn("the server resent the whole world after a stall");
+  }
+});
+```
+
+The server sends one baseline and then waits for the client to ack it before it sends more state,
+sending another only if it presumes the first was lost. So a client sees a baseline when it connects
+and once per real stall, not once per frame. When the server sends them, how it retries, and how to
+size the window for slow players are in
+[Sessions](../../vecs-server/docs/sessions.md#deltas-baselines-and-the-history-window).
+
 ## Calling the server
 
 `invoke` sends a call and resolves with the reply's params. It rejects with an
@@ -71,10 +103,11 @@ before your tick loop starts. Until the reply arrives, the call's request is sen
 ack; once the reply is in, the request is not sent again. The reply settles the call and nothing
 more: the state the server sent in the same frame is applied later, by `apply()` and possibly after
 interpolation delay, so when the promise resolves the reply's side effects are not necessarily
-visible in the world yet. If the reply arrives in the same frame as a full baseline (the server
-resends the whole world after a reconnect, or when a client falls outside its history window), the
-client clears its replicated entities as the frame arrives and rebuilds them on the next `apply()`.
-Code that runs right after the call settles sees none of them until then.
+visible in the world yet. If the reply arrives in the same frame as a full [baseline](#baselines)
+(the server sends one when the session starts, which includes a reconnect, and again only when a
+client falls outside its history window), the client clears its replicated entities as the frame
+arrives and rebuilds them on the next `apply()`. Code that runs right after the call settles sees
+none of them until then.
 
 `listen` registers the other direction — a handler the server can call on this client. Unlike a
 reply, a server request waits for `apply()`: its handler runs there, so under `progress()` it runs in

@@ -8,6 +8,8 @@ session's own caller attached.
 
 - What a session is and which entity represents it.
 - How `handleRpc` gives every handler a `ServerRPCContext` without per-connection registration.
+- How the history window decides between a delta and a full baseline, why a baseline is sent once
+  and then awaited, and how to size `historyFrames` for your tick rate and players' latency.
 - How to close one session, how the close lingers until the client received the replies it is owed,
   and how to close all of them at shutdown.
 - How `NetworkClient.closeReason` records why the server hung up.
@@ -86,6 +88,138 @@ world.handleRpc(102, (_params, _request, ctx) => {
 
 When one `VecsListener` serves several worlds, each world binds its own context. A call handled by
 `arena` carries `arena`'s world and caller, never another world's.
+
+## Deltas, baselines and the history window
+
+For every session the server keeps the last `historyFrames` frames of what changed in that session's
+view: 64 by default, about two seconds at 30 Hz. The client acks the newest frame it has received, and
+each `send()` answers that ack with a **delta**, everything that changed after the acked frame,
+merged out of the history. A delta is small, and the client applies it in place.
+
+A delta can only start from a frame the client holds, and only while everything the client is missing
+is still in the history. So the server asks one question of each session: has a frame the client has
+not acked left the window while holding something, a snapshot or a removal? A frame that left the
+history empty took nothing with it, so it does not count. If nothing is lost, the session gets a
+delta, labelled with the frame the client really acked, however old that is. If something is lost,
+or the session is new, the server sends a **baseline** instead: the whole view as of the current
+frame, marked `fromFrame` 0.
+
+While a view keeps changing, that question is the same as "is the client's newest ack no more than
+`historyFrames` frames old?", and that is how to size the window. A view that stays quiet leaves
+nothing behind, so a client whose ack is a minute old is still served a plain delta when something
+finally changes, with no baseline and no rebuild.
+
+A baseline is expensive for the client as well as the wire. `ClientWorld` applies it by destroying
+every replicated entity and recreating it from the snapshot, which fires every `exit` and `enter`
+again and rebuilds whatever client-side state hangs off them (see
+[Client world](../../vecs-client/docs/client-world.md#baselines)). A client should see one when it
+connects and after a real stall, not in steady play.
+
+```ts
+// A 60 Hz world with players up to 400 ms away: see "Sizing historyFrames" below.
+const world = new ServerWorld({
+  name: "arena",
+  networkComponents: [Position],
+  historyFrames: 68,
+});
+```
+
+`historyFrames` must be an integer of at least 2; the constructor throws for anything else.
+
+### A baseline is sent once, then awaited
+
+After it sends a baseline, the server sends that session **no state at all** until the client acks
+the baseline. A delta in the meantime would start from a frame the client may not hold, which the
+client rejects, and another baseline would make it destroy and rebuild everything again for every
+frame of round trip. While a baseline is in flight:
+
+- RPC calls and replies still flow, in frames that carry no state.
+- Every frame is still recorded, so the first delta after the ack carries everything that changed
+  in the meantime.
+- An ack of the baseline's frame, or of any later frame, ends the wait, and deltas resume from that
+  ack. An older ack does not, such as the `0` a client sends before it has received anything.
+
+The channel is unreliable, so a baseline can be lost, and a large one often is: it is split across
+several datagrams, and losing any one of them loses the whole baseline. The server presumes one lost,
+and sends it again, once it has gone unacked for **twice the session's smoothed ack round trip, and
+at least 100 ms**. Until the session has a round-trip measurement there is nothing to scale by, so it
+waits **one second**, the initial retransmission timeout of RFC 6298. That is a time, not a number of
+frames, so it does not depend on the tick rate or the window.
+
+The server measures the round trip per session. It notes when it sent each of the last 256 frames,
+whatever the window, so a round trip longer than the window can still be measured. Every ack that
+moves the session's acked frame is a sample, the time from sending that frame to receiving its ack.
+Samples are smoothed as TCP does, so the estimate moves an eighth of the way to each new one. A
+sample covers the whole loop, including the wait for the client's next ack tick, which is the lag
+the server needs to allow for. The clock is `performance.now()`, and the bookkeeping is a few
+operations per session per frame.
+
+There is no backoff. If the acks never get through, every presumption interval, about two round
+trips, sends the baseline again, and a client that does receive them rebuilds each time. That is
+the right trade: when a large baseline really is lost, recovering from it soon matters more than the
+rebuilds a dead ack path costs, and a backoff would delay both joining and recovery.
+
+Whether an empty baseline is sent depends on what the client holds. A client that has never acked a
+baseline holds nothing, so a session that can see nothing yet is sent no baseline, and the server
+sends nothing for an empty diff: the first entity it can see goes out as its baseline, with no empty
+one in front of it to wait on. A client that has acked one holds replicated entities, so when it
+falls out of the window and everything it holds has since left its view, the baseline is sent
+anyway, empty: rebuilding from nothing is what clears those entities.
+
+| Situation                                               | What the client sees                                            |
+| ------------------------------------------------------- | --------------------------------------------------------------- |
+| Connecting, window at least 2.5 times the ack lag       | One baseline, then deltas. A second only if the first was lost. |
+| Steady play, window at least 2.5 times the ack lag      | Deltas only.                                                    |
+| A view that stays unchanged, however long               | Nothing, then a plain delta from its old ack when it changes.   |
+| Changes further apart than the window                   | Deltas only, as long as each is acked before it leaves.         |
+| A stall longer than the window (backgrounded tab, drop) | One baseline once the server can reach it again, then deltas.   |
+| A stall after which nothing is left in its view         | An empty baseline, which clears the entities it held.           |
+| Frames arrive but acks are lost for a long time         | One baseline per presumption interval, until acks get through.  |
+| A window shorter than twice the ack lag                 | A baseline again and again, about one per window: see below.    |
+
+### Sizing `historyFrames`
+
+An ack reaches the server one round trip, plus up to one client ack interval (33 ms by default),
+after the frame it covers. That is the ack lag, in frames:
+
+```text
+ackLag = tickRateHz x (slowestRoundTripMs + ackIntervalMs) / 1000
+```
+
+The window must be longer than the lag at its worst, and the worst is about twice the steady lag. A
+baseline holds state back for a round trip, so after one the client's ack is stuck at the baseline's
+frame while the first delta travels out and its ack travels back, and the lag grows to twice its
+usual size before it falls. The same happens after any stall. Add room for lost acks, which each add
+another ack interval, and for reordering, and aim for two and a half times the lag:
+
+```text
+historyFrames >= 2.5 x ackLag
+```
+
+The default of 64 covers a 30 Hz world to about 800 ms round trips, and a 60 Hz world to about
+390 ms.
+
+| Tick rate | Slowest round trip | Ack lag (frames) | `historyFrames` at least | Use                 |
+| --------- | ------------------ | ---------------- | ------------------------ | ------------------- |
+| 30 Hz     | 100 ms             | 4                | 10                       | the default (64)    |
+| 30 Hz     | 200 ms             | 7                | 18                       | the default         |
+| 30 Hz     | 500 ms             | 16               | 40                       | the default         |
+| 30 Hz     | 800 ms             | 25               | 63                       | the default, just   |
+| 60 Hz     | 200 ms             | 14               | 35                       | the default         |
+| 60 Hz     | 300 ms             | 20               | 50                       | the default         |
+| 60 Hz     | 400 ms             | 26               | 65                       | `historyFrames: 68` |
+| 120 Hz    | 200 ms             | 28               | 70                       | `historyFrames: 72` |
+
+A window the lag outruns does not fail quietly. Shorter than twice the lag, the client is rebuilt
+about once per window, over and over: each baseline's ack comes back after the window it was sent
+for has already moved on. So err long. The cost of a long window is small: each session keeps one
+record per frame, holding references to snapshots that are already encoded, and a delta merges only
+the frames since the client's ack, so it scales with the lag the client really has, not with the
+window.
+
+To check a setting against real players, count `ClientWorld`'s `reset` events with `initial: false`.
+Each one is a rebuild. A player who sees them in steady play has a window that is too short for their
+connection.
 
 ## Closing sessions
 
@@ -237,20 +371,22 @@ systems.
 
 ## Reference
 
-| Member                                           | Description                                                                                                                                        |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `world.handleRpc(rpcId, handler)`                | Register a handler for every session, now and later.                                                                                               |
-| `world.closeSession(connection, reason?, code?)` | Gracefully close one session by connection id or `NetworkClient` entity, telling the client the reason and code. Returns whether it was scheduled. |
-| `world.shutdown(options?)`                       | Gracefully close every session, flush until gone or `timeoutMs`, close listeners. Idempotent.                                                      |
-| `world.send()`                                   | Advance one replication frame; called by `progress()`.                                                                                             |
-| `ServerRPCContext`                               | `{ world, caller, connectionId }` passed as a handler's third argument.                                                                            |
-| `NetworkClient.id`                               | The connection id.                                                                                                                                 |
-| `NetworkClient.closeReason`                      | Why the server closed the session, or `undefined`.                                                                                                 |
-| `CLOSE_PROTOCOL_ERROR_CODE`                      | Reserved close code `1`: the session was closed because a frame could not be decoded. Also exported by `@vworlds/vecs-protocol`.                   |
-| `closeLingerMs` (`ServerWorldOptions`)           | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                              |
+| Member                                           | Description                                                                                                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `world.handleRpc(rpcId, handler)`                | Register a handler for every session, now and later.                                                                                                          |
+| `world.closeSession(connection, reason?, code?)` | Gracefully close one session by connection id or `NetworkClient` entity, telling the client the reason and code. Returns whether it was scheduled.            |
+| `world.shutdown(options?)`                       | Gracefully close every session, flush until gone or `timeoutMs`, close listeners. Idempotent.                                                                 |
+| `world.send()`                                   | Advance one replication frame, sending each session a delta, a baseline, or nothing; called by `progress()`.                                                  |
+| `ServerRPCContext`                               | `{ world, caller, connectionId }` passed as a handler's third argument.                                                                                       |
+| `NetworkClient.id`                               | The connection id.                                                                                                                                            |
+| `NetworkClient.closeReason`                      | Why the server closed the session, or `undefined`.                                                                                                            |
+| `CLOSE_PROTOCOL_ERROR_CODE`                      | Reserved close code `1`: the session was closed because a frame could not be decoded. Also exported by `@vworlds/vecs-protocol`.                              |
+| `closeLingerMs` (`ServerWorldOptions`)           | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                                         |
+| `historyFrames` (`ServerWorldOptions`)           | Frames of history each session keeps: how far behind its ack can be, while its view keeps changing, and still get a delta. Integer of at least 2; default 64. |
 
-Per-symbol detail lives in the JSDoc on `lib/vecs-server/src/server_world.ts` and
-`lib/vecs-server/src/networked.ts`.
+Per-symbol detail lives in the JSDoc on `lib/vecs-server/src/server_world.ts`,
+`lib/vecs-server/src/history.ts` (the window), `lib/vecs-server/src/rtt.ts` (the ack round-trip
+estimate) and `lib/vecs-server/src/networked.ts`.
 
 ## See also
 

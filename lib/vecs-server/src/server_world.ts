@@ -33,8 +33,9 @@ import {
   type System,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
-import { HISTORY_LENGTH, History } from "./history.js";
+import { HISTORY_LENGTH, History, validateHistoryFrames } from "./history.js";
 import { NetworkClient, NetworkInput, Networked } from "./networked.js";
+import { RttEstimator } from "./rtt.js";
 import { TrackerCache, View } from "./view.js";
 
 interface RegisteredComponent {
@@ -94,6 +95,44 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * `send()`.
    */
   closeLingerMs?: number;
+  /**
+   * How many frames of replication history each session keeps. A client can be
+   * caught up with a delta only while everything it is missing is still in that
+   * history, so this is how far behind its newest ack can fall while its view
+   * keeps changing. An integer of at least 2; defaults to `64`, about two seconds
+   * at 30 Hz. The constructor throws for any other value.
+   *
+   * A client acks the newest frame it has received, and that ack reaches the
+   * server a round trip, plus up to one client ack interval, after the frame
+   * was sent: at 30 Hz and a 200 ms round trip it is already about 8 frames
+   * old. The server answers an ack with a delta only while everything the
+   * client is missing is still in the history. Once a frame with content (a
+   * snapshot or a removal) that the client has not acked has left the last
+   * `historyFrames` frames, the client cannot be caught up, and the server
+   * sends it a full baseline instead: the client destroys and rebuilds every
+   * replicated entity from it. A baseline is sent once and then awaited, not
+   * repeated every frame: the server sends the session no more state until the
+   * client acks the baseline, and sends another only when it presumes the first
+   * lost: after twice the session's smoothed ack round trip (never less than
+   * 100 ms), or after one second before the first measurement. It does not back
+   * off. A large baseline is often lost on a lossy link, and recovering from
+   * that soon matters more than the rebuilds an ack path that stays dead costs.
+   *
+   * Only frames with content count. The server sends nothing for an empty diff,
+   * so a client's ack stops advancing while its view is quiet; a frame that
+   * leaves the history empty took nothing with it, so a client whose view did
+   * not change is served a delta from an ack of any age, and is never sent a
+   * baseline just for being quiet.
+   *
+   * Pick a window of about two and a half times your slowest players' ack lag,
+   * `tickRateHz * (roundTripMs + ackIntervalMs) / 1000` frames. A baseline holds
+   * state back for a round trip, so right after one (or after any stall) the
+   * lag peaks at twice its steady size, and a window shorter than that rebuilds
+   * the client about once per window, over and over. A longer window costs one
+   * retained `StateDiff` per frame per session, and a lagging client's delta
+   * merges the frames since its ack on every send.
+   */
+  historyFrames?: number;
 }
 
 /**
@@ -103,6 +142,23 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
  * keeping the reaping of a session that never acks prompt.
  */
 export const DEFAULT_CLOSE_LINGER_MS = 250;
+
+/**
+ * A baseline in flight is presumed lost once it has gone unacked for this many
+ * smoothed round trips, and never in less than {@link MIN_BASELINE_TIMEOUT_MS}.
+ */
+const BASELINE_TIMEOUT_ROUND_TRIPS = 2;
+
+/** The shortest time a baseline in flight is given before it is presumed lost. */
+const MIN_BASELINE_TIMEOUT_MS = 100;
+
+/**
+ * How long a baseline in flight is given before it is presumed lost, until the
+ * session has a round-trip measurement to scale by: one second, the initial
+ * retransmission timeout of RFC 6298. Being a time, not a number of frames, it
+ * does not depend on the tick rate or the history window.
+ */
+const INITIAL_BASELINE_TIMEOUT_MS = 1000;
 
 /** How often {@link ServerWorld.shutdown} drives `send()` while sessions drain. */
 const SHUTDOWN_POLL_MS = 10;
@@ -120,14 +176,45 @@ export interface ShutdownOptions {
 }
 
 class ServerClientSession {
-  public readonly baseFrame: number;
   public readonly history: History;
   public readonly rpc = new SessionRPC();
+  /** Smoothed time between sending a frame and receiving its ack. */
+  public readonly rtt: RttEstimator;
   public context!: ServerRPCContext;
+  /**
+   * Newest frame the client has acknowledged. A new session starts at the
+   * frame it was created on, which the client has not acked, so a delta from it
+   * is never sent before {@link needsBaseline} clears.
+   */
   public ackFrame: number;
   public lastSeenMs = 0;
-  public needsFullSnapshot = true;
-  public needsResync = false;
+  /**
+   * The client holds no baseline the server can build a delta on: the session
+   * is new, or a frame with content that it has not acked has left the history
+   * window. A delta is sent only while this is `false`.
+   *
+   * It clears only when an ack of {@link resyncFrame} or later arrives, which
+   * means the client holds that baseline or something newer. One flag is enough
+   * because every baseline re-sends the whole view.
+   */
+  public needsBaseline = true;
+  /**
+   * `toFrame` of the baseline most recently sent and not yet acknowledged, or
+   * `undefined` while none is in flight. While it is set, the server sends the
+   * session no state: a delta from a frame the client has not acked would be
+   * rejected as a protocol error.
+   */
+  public resyncFrame: number | undefined = undefined;
+  /** `performance.now()` when {@link resyncFrame} was sent. */
+  public resyncSentAtMs = 0;
+  /**
+   * The client has acknowledged a baseline at least once, so it holds replicated
+   * state of its own. A baseline sent to such a client goes out even when it is
+   * empty, because rebuilding from nothing is what clears the entities the client
+   * still holds. Before then an empty baseline is not sent: the client has nothing
+   * to clear and nothing to be told.
+   */
+  public baselineAcked = false;
   /**
    * Set by {@link ServerWorld.closeSession}. The session is finished as far as
    * the application is concerned: it stops accepting input and stops
@@ -160,10 +247,10 @@ class ServerClientSession {
   public socket!: VecsSocket;
   public entity!: Entity;
 
-  public constructor(lastFrame = -1) {
-    this.baseFrame = lastFrame;
+  public constructor(lastFrame = -1, historyFrames = HISTORY_LENGTH) {
     this.ackFrame = lastFrame;
-    this.history = new History(HISTORY_LENGTH, lastFrame);
+    this.history = new History(historyFrames, lastFrame);
+    this.rtt = new RttEstimator();
   }
 }
 
@@ -189,6 +276,7 @@ export class ServerWorld extends NetworkWorld {
   private readonly _encodeBuffer: Uint8Array;
   private readonly _disconnectGraceMs: number;
   private readonly _closeLingerMs: number;
+  private readonly _historyFrames: number;
   private readonly _listeners: VecsSocketListener[] = [];
   private _shutdown: Promise<void> | undefined;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
@@ -201,6 +289,7 @@ export class ServerWorld extends NetworkWorld {
     this._encodeBuffer = new Uint8Array(encodeBufferSize);
     this._disconnectGraceMs = options.disconnectGraceMs ?? 10_000;
     this._closeLingerMs = options.closeLingerMs ?? DEFAULT_CLOSE_LINGER_MS;
+    this._historyFrames = validateHistoryFrames(options.historyFrames ?? HISTORY_LENGTH);
     this._trackerCache = new TrackerCache(this);
     this._components = this.networkComponents;
     ensureRegistered(this, Networked);
@@ -430,6 +519,21 @@ export class ServerWorld extends NetworkWorld {
    * any queued RPC replies. Sessions that have not sent anything within
    * `disconnectGraceMs` are closed.
    *
+   * A session that has acked a baseline gets a delta from its newest ack. A
+   * session without one gets a full baseline (`fromFrame` 0), once: a new
+   * session, or one that can no longer be caught up because a frame with
+   * content it has not acked has left its
+   * {@link ServerWorldOptions.historyFrames | history window}. Until the client
+   * acks that baseline the session is sent no state, because a delta from a
+   * frame the client does not hold would be rejected; it still receives RPC
+   * traffic, and its history still records every frame. A baseline that goes
+   * unacked for twice the session's smoothed ack round trip (at least 100 ms,
+   * and one second before the first measurement) is presumed lost and sent
+   * again, without backing off. A baseline that would be empty is sent only to
+   * a client that has acked one before: it holds entities that rebuilding from
+   * nothing clears. A session with nothing to send is sent nothing and never
+   * needs a baseline for it, however long it stays quiet.
+   *
    * Registered as the world's own `Send` system in a phase after `ON_STORE`, so
    * it normally runs as part of `progress()`; call it directly only to drive a
    * world that has no tick loop.
@@ -456,11 +560,8 @@ export class ServerWorld extends NetworkWorld {
       view._reconcileVisibility();
       view._releaseOldTracker(this._trackerCache);
 
-      if (session.ackFrame < toFrame - HISTORY_LENGTH) {
-        session.needsFullSnapshot = true;
-        session.needsResync = true;
-      }
-      if (session.needsResync) {
+      const sendsBaseline = this._startsBaseline(session, nowMs);
+      if (sendsBaseline) {
         view._resyncAll();
       }
 
@@ -502,28 +603,13 @@ export class ServerWorld extends NetworkWorld {
       }
 
       const rpc = session.rpc.getOutgoing();
-      let diff: StateDiff;
-      if (session.needsResync) {
-        diff = new StateDiff({
-          fromFrame: 0,
-          toFrame,
-          snapshots: latest.snapshots,
-          removed: latest.removed,
-        });
-      } else {
-        diff = session.history.pull(session.ackFrame, toFrame);
-        if (session.needsFullSnapshot && diff.fromFrame !== 0) {
-          diff = new StateDiff({
-            fromFrame: 0,
-            toFrame: diff.toFrame,
-            snapshots: diff.snapshots,
-            removed: diff.removed,
-          });
-        }
-      }
+      const diff = this._stateFor(session, latest, sendsBaseline, nowMs);
 
-      if (diff.snapshots.length === 0 && diff.removed.length === 0 && rpc.length === 0) {
+      if (!worthAFrame(diff) && rpc.length === 0) {
         return;
+      }
+      if (diff !== undefined) {
+        session.rtt.recordSend(toFrame, nowMs);
       }
       this._sendFrame(
         session,
@@ -541,13 +627,96 @@ export class ServerWorld extends NetworkWorld {
     this._updates.clear();
   }
 
+  /**
+   * Decide whether this frame sends the session a baseline, and flag the
+   * session as needing one if it can no longer be caught up.
+   *
+   * A session can be served a delta exactly while no frame with content that it
+   * has not acked has left the history: a frame that left holding nothing took
+   * nothing with it, however old the ack is. The check runs before this frame is
+   * pushed, because the baseline decides what the frame holds, so it asks the
+   * history about the moment after the push. Needing a baseline is sticky: it
+   * clears only when the baseline is acked, in {@link ServerWorld._acknowledge}.
+   * But a baseline is sent only when none is in flight, or the one in flight is
+   * presumed lost, so a client that is slow to ack is not sent a new baseline
+   * every frame.
+   */
+  private _startsBaseline(session: ServerClientSession, nowMs: number): boolean {
+    if (!session.history.canPullAfterPush(session.ackFrame)) {
+      session.needsBaseline = true;
+    }
+    if (!session.needsBaseline) {
+      return false;
+    }
+    return session.resyncFrame === undefined || this._baselinePresumedLost(session, nowMs);
+  }
+
+  /**
+   * A baseline in flight is presumed lost once twice the session's smoothed ack
+   * round trip has passed since it was sent, and at least 100 ms. Before the
+   * first round-trip sample there is nothing to scale by, so it is presumed lost
+   * after one second, the initial retransmission timeout of RFC 6298. There is
+   * no backoff: each time the timeout passes without an ack, the baseline is
+   * sent again.
+   */
+  private _baselinePresumedLost(session: ServerClientSession, nowMs: number): boolean {
+    const srttMs = session.rtt.srttMs;
+    const timeoutMs =
+      srttMs === undefined
+        ? INITIAL_BASELINE_TIMEOUT_MS
+        : Math.max(BASELINE_TIMEOUT_ROUND_TRIPS * srttMs, MIN_BASELINE_TIMEOUT_MS);
+    return nowMs - session.resyncSentAtMs > timeoutMs;
+  }
+
+  /**
+   * The state this frame carries for a session, or `undefined` when it carries
+   * none (the frame may still carry RPC traffic).
+   *
+   * - A baseline is the whole view as of `toFrame`, `fromFrame` 0, and starts
+   *   tracking the baseline in flight. Until the client has acked a baseline it
+   *   holds nothing, so an empty one is not sent: there is nothing to tell it,
+   *   and the server sends nothing for an empty diff. After that the client
+   *   holds state, and even an empty baseline goes out, because rebuilding from
+   *   nothing is what clears the entities that left its view while it stalled.
+   * - While a baseline is in flight, no state at all. Any diff numbered past
+   *   the baseline would advance the client's frame without the client holding
+   *   the baseline, and the next delta, from the client's ack, would then start
+   *   past what the client has.
+   * - Otherwise the delta from the newest ack, which the client has by
+   *   definition.
+   */
+  private _stateFor(
+    session: ServerClientSession,
+    latest: StateDiff,
+    sendsBaseline: boolean,
+    nowMs: number
+  ): StateDiff | undefined {
+    if (sendsBaseline) {
+      if (isEmpty(latest) && !session.baselineAcked) {
+        return undefined;
+      }
+      session.resyncFrame = latest.toFrame;
+      session.resyncSentAtMs = nowMs;
+      return new StateDiff({
+        fromFrame: 0,
+        toFrame: latest.toFrame,
+        snapshots: latest.snapshots,
+        removed: latest.removed,
+      });
+    }
+    if (session.needsBaseline) {
+      return undefined;
+    }
+    return session.history.pull(session.ackFrame, latest.toFrame);
+  }
+
   private _onNewConnection(socket: VecsSocket): void {
     if (this._shutdown) {
       socket.close();
       return;
     }
     const entity = this.entity().add(Networked).add(NetworkClient).add(View);
-    const session = new ServerClientSession(this._frame - 1);
+    const session = new ServerClientSession(this._frame - 1, this._historyFrames);
     session.socket = socket;
     session.entity = entity;
     session.context = { world: this, caller: entity, connectionId: socket.id };
@@ -632,13 +801,10 @@ export class ServerWorld extends NetworkWorld {
       }
       return;
     }
-    session.lastSeenMs = performance.now();
+    const nowMs = performance.now();
+    session.lastSeenMs = nowMs;
     if (message.ackFrame <= session.history.lastFrame) {
-      session.ackFrame = Math.max(session.ackFrame, message.ackFrame);
-      if (session.ackFrame > session.baseFrame) {
-        session.needsFullSnapshot = false;
-        session.needsResync = false;
-      }
+      this._acknowledge(session, message.ackFrame, nowMs);
     }
     if (message.input !== undefined) {
       session.entity.set(NetworkInput, { input: message.input });
@@ -648,6 +814,28 @@ export class ServerWorld extends NetworkWorld {
     session.rpc.setPeerSettledBelow(message.rpcSettledBelow);
     if (message.rpc.length > 0) {
       session.rpc.process(message.rpc);
+    }
+  }
+
+  /**
+   * Record the client's ack: move its acked frame forward, take a round-trip
+   * sample from it, and, if it covers the baseline in flight, mark the baseline
+   * delivered.
+   *
+   * An ack of the baseline's frame or any later one means the client holds that
+   * baseline or something newer, so deltas can resume from the ack. An ack older
+   * than the baseline, such as the client's initial 0, proves nothing about it
+   * and changes nothing.
+   */
+  private _acknowledge(session: ServerClientSession, ackFrame: number, nowMs: number): void {
+    if (ackFrame > session.ackFrame) {
+      session.ackFrame = ackFrame;
+      session.rtt.recordAck(ackFrame, nowMs);
+    }
+    if (session.resyncFrame !== undefined && session.ackFrame >= session.resyncFrame) {
+      session.needsBaseline = false;
+      session.baselineAcked = true;
+      session.resyncFrame = undefined;
     }
   }
 
@@ -835,4 +1023,17 @@ function ensureRegistered(world: NetworkWorld, Class: ComponentClass): void {
   if (!world.getEntity(Class)) {
     world.component(Class);
   }
+}
+
+function isEmpty(diff: StateDiff): boolean {
+  return diff.snapshots.length === 0 && diff.removed.length === 0;
+}
+
+/**
+ * Whether a diff earns a frame of its own: it has content, or it is a baseline,
+ * which resets the client even when it is empty. An empty delta does not, and
+ * rides along only when the frame carries RPC traffic anyway.
+ */
+function worthAFrame(diff: StateDiff | undefined): boolean {
+  return diff !== undefined && (diff.fromFrame === 0 || !isEmpty(diff));
 }

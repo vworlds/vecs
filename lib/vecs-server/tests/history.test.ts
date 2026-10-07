@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isDeepStrictEqual } from "node:util";
 import type { EID } from "@vworlds/vecs";
 import {
   ALL_COMPONENTS,
@@ -6,7 +7,7 @@ import {
   StateDiff,
   type RemovedComponent,
 } from "@vworlds/vecs-protocol";
-import { HISTORY_LENGTH, History } from "../src/history.js";
+import { HISTORY_LENGTH, History, validateHistoryFrames } from "../src/history.js";
 
 function diff(toFrame: number): StateDiff {
   const snapshotBytes = new Uint8Array([toFrame]);
@@ -32,6 +33,11 @@ function stateDiff(
 }
 
 describe("History", () => {
+  it("retains 64 frames by default, about two seconds at 30 Hz", () => {
+    expect(HISTORY_LENGTH).toBe(64);
+    expect(new History().oldestFrame).toBe(-1 - 64 + 1);
+  });
+
   it("starts primed with empty negative frames", () => {
     const history = new History();
 
@@ -62,10 +68,11 @@ describe("History", () => {
   it("starts from a provided last frame for late sessions", () => {
     const history = new History(HISTORY_LENGTH, 9);
     const frame10 = diff(10);
+    const oldest = 9 - HISTORY_LENGTH + 1;
 
     expect(history.lastFrame).toBe(9);
-    expect(history.oldestFrame).toBe(5);
-    for (let frame = 5; frame <= 9; frame++) {
+    expect(history.oldestFrame).toBe(oldest);
+    for (let frame = oldest; frame <= 9; frame++) {
       expect(history.get(frame)).toMatchObject({
         fromFrame: frame - 1,
         toFrame: frame,
@@ -82,7 +89,7 @@ describe("History", () => {
   });
 
   it("keeps only the latest frames in the circular buffer", () => {
-    const history = new History();
+    const history = new History(5);
     const frames: StateDiff[] = [];
 
     for (let frame = 0; frame <= 20; frame++) {
@@ -190,4 +197,203 @@ describe("History", () => {
     expect(pulled.snapshots).toEqual([]);
     expect(pulled.removed).toEqual([[1, ALL_COMPONENTS]]);
   });
+
+  it("can pull from the frame just before the oldest one it holds, and no further back", () => {
+    const history = new History(4);
+    for (let frame = 0; frame <= 9; frame++) {
+      history.push(stateDiff(frame, [snapshot(1, 1, frame)]));
+    }
+
+    // The window holds frames 6..9, which is everything a client that acked frame 5 is missing.
+    expect(history.oldestFrame).toBe(6);
+    const pulled = history.pull(history.oldestFrame - 1, history.lastFrame);
+    expect(pulled).toMatchObject({ fromFrame: 5, toFrame: 9 });
+    expect(pulled.snapshots).toEqual([snapshot(1, 1, 9)]);
+    expect(() => history.pull(history.oldestFrame - 2, history.lastFrame)).toThrow(
+      "outside history window"
+    );
+  });
+
+  describe("frames that left the window", () => {
+    it("remembers the newest one that left holding a snapshot or a removal", () => {
+      const history = new History(3);
+      expect(history.evictedContentFrame).toBe(Number.NEGATIVE_INFINITY);
+
+      history.push(stateDiff(0, [snapshot(1, 1)]));
+      history.push(stateDiff(1));
+      history.push(stateDiff(2));
+      // Only the empty frames of the primed history have left so far.
+      expect(history.evictedContentFrame).toBe(Number.NEGATIVE_INFINITY);
+
+      history.push(stateDiff(3));
+      expect(history.evictedContentFrame).toBe(0);
+
+      // Frames 1..5 leave empty, so the answer does not move.
+      history.push(stateDiff(4));
+      history.push(stateDiff(5));
+      history.push(stateDiff(6, [], [[2, 1]]));
+      history.push(stateDiff(7));
+      history.push(stateDiff(8));
+      expect(history.evictedContentFrame).toBe(0);
+
+      // Frame 6 holds only a removal, which counts.
+      history.push(stateDiff(9));
+      expect(history.evictedContentFrame).toBe(6);
+    });
+
+    it("pulls from an ack older than the window while only empty frames have left it", () => {
+      const history = new History(3);
+      history.push(stateDiff(0, [snapshot(1, 1, 10)]));
+      for (let frame = 1; frame <= 8; frame++) {
+        history.push(stateDiff(frame));
+      }
+      history.push(stateDiff(9, [snapshot(2, 1, 20)]));
+
+      // Frame 0 held something and left the window, but a client that acked it holds that.
+      const pulled = history.pull(0, 9);
+
+      expect(pulled).toMatchObject({ fromFrame: 0, toFrame: 9 });
+      expect(pulled.snapshots).toEqual([snapshot(2, 1, 20)]);
+      expect(pulled.removed).toEqual([]);
+    });
+
+    it("keeps the client's own frame as the start of the diff, never a later one", () => {
+      const history = new History(3);
+      for (let frame = 0; frame <= 50; frame++) {
+        history.push(stateDiff(frame));
+      }
+
+      const pulled = history.pull(-40, 50);
+
+      expect(pulled).toMatchObject({ fromFrame: -40, toFrame: 50, snapshots: [], removed: [] });
+    });
+
+    it("refuses an ack older than a frame that left holding something", () => {
+      const history = new History(3);
+      history.push(stateDiff(0, [snapshot(1, 1)]));
+      for (let frame = 1; frame <= 8; frame++) {
+        history.push(stateDiff(frame));
+      }
+
+      expect(() => history.pull(-1, 8)).toThrow("Frame 0 is outside history window");
+      expect(() => history.pull(0, 8)).not.toThrow();
+    });
+
+    it("looks ahead to the frame the next push evicts", () => {
+      const history = new History(3);
+      history.push(stateDiff(0, [snapshot(1, 1)]));
+      history.push(stateDiff(1));
+      history.push(stateDiff(2));
+
+      // The window holds 0..2 and the next push evicts frame 0, which holds something.
+      expect(history.evictedContentFrame).toBe(Number.NEGATIVE_INFINITY);
+      expect(history.canPullAfterPush(-1)).toBe(false);
+      expect(history.canPullAfterPush(0)).toBe(true);
+
+      // The next push evicts frame 1, which is empty, and frame 0 has already gone.
+      history.push(stateDiff(3));
+      expect(history.canPullAfterPush(-1)).toBe(false);
+      expect(history.canPullAfterPush(0)).toBe(true);
+    });
+
+    // The claim everything above rests on: skipping the frames that left, when they held
+    // nothing, gives exactly the diff a history that kept them would. Check it against a
+    // history long enough never to forget, over random sparse changes.
+    it("merges to exactly what a history that kept every frame would, whenever it can", () => {
+      const next = lcg(12345);
+      const short = new History(6);
+      const long = new History(500);
+      const mismatches: string[] = [];
+      let answerable = 0;
+      let refused = 0;
+
+      for (let frame = 0; frame < 300; frame++) {
+        const content = next() < 0.12 ? randomContent(frame, next) : emptyContent(frame);
+        const predicted = new Map<number, boolean>();
+        for (let from = frame - 40; from < frame; from++) {
+          predicted.set(from, short.canPullAfterPush(from));
+        }
+        short.push(content());
+        long.push(content());
+
+        for (let from = frame - 40; from < frame; from++) {
+          const canPull = from >= short.evictedContentFrame;
+          if (canPull !== predicted.get(from)) {
+            mismatches.push(`frame ${frame}, from ${from}: the look-ahead said ${!canPull}`);
+          }
+          if (canPull) {
+            answerable++;
+            if (!isDeepStrictEqual(short.pull(from, frame), long.pull(from, frame))) {
+              mismatches.push(`frame ${frame}, from ${from}: the merges differ`);
+            }
+          } else {
+            refused++;
+            try {
+              short.pull(from, frame);
+              mismatches.push(`frame ${frame}, from ${from}: expected a refusal`);
+            } catch (error) {
+              if (!String(error).includes("outside history window")) {
+                mismatches.push(`frame ${frame}, from ${from}: unexpected ${String(error)}`);
+              }
+            }
+          }
+        }
+      }
+
+      expect(mismatches).toEqual([]);
+      // Both outcomes were exercised, a good many times.
+      expect(answerable).toBeGreaterThan(2_000);
+      expect(refused).toBeGreaterThan(2_000);
+    });
+  });
+});
+
+/** A small deterministic generator, so the property test is the same on every run. */
+function lcg(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+type ContentFactory = () => StateDiff;
+
+function emptyContent(frame: number): ContentFactory {
+  return () => stateDiff(frame);
+}
+
+/** A frame that sets, removes or clears a few components of a few entities. */
+function randomContent(frame: number, next: () => number): ContentFactory {
+  const snapshots: EncodedSnapshot[] = [];
+  const removed: RemovedComponent[] = [];
+  const count = 1 + Math.floor(next() * 3);
+  for (let i = 0; i < count; i++) {
+    const eid = 1 + Math.floor(next() * 4);
+    const type = 1 + Math.floor(next() * 3);
+    const roll = next();
+    if (roll < 0.6) {
+      snapshots.push(snapshot(eid, type, frame & 0xff));
+    } else if (roll < 0.9) {
+      removed.push([eid, type]);
+    } else {
+      removed.push([eid, ALL_COMPONENTS]);
+    }
+  }
+  return () => stateDiff(frame, snapshots, removed);
+}
+
+describe("validateHistoryFrames", () => {
+  it.each([2, 3, 32, 1000])("accepts %i and returns it", (frames) => {
+    expect(validateHistoryFrames(frames)).toBe(frames);
+  });
+
+  it.each([1, 0, -1, 2.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    "rejects %s",
+    (frames) => {
+      expect(() => validateHistoryFrames(frames)).toThrow(
+        `historyFrames must be an integer of at least 2, got ${String(frames)}`
+      );
+    }
+  );
 });

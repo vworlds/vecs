@@ -8,12 +8,14 @@ two reactive `POST_UPDATE` pose-sync systems that copy `vecs-physics` `Position`
 into the render `Position`/`Rotation` whenever the physics body pose changes. No `phaser`
 dependency.
 
-The sync systems (`phaser.sync.position` and `phaser.sync.rotation`) write a render component only
-when it differs from the physics value, compared field by field with exact equality, both when the
-physics pose changes and when an entity enters. They never create the render component. Every `set`
-marks a component modified and replicates a networked one, so a body that does not move or turn
-rewrites, and therefore re-sends, nothing: a bullet flying straight keeps its constant render
-`Rotation` out of the network.
+The sync systems (`phaser.sync.position` and `phaser.sync.rotation`) inject the render component,
+which their query guarantees, and write it only when it differs from the physics value, compared
+field by field with exact equality, both when the physics pose changes and when an entity enters.
+They never create the render component. A changed pose is assigned into the injected instance and
+announced with `entity.modified(...)`, which fires the same `set` hooks, routes the same `update`
+events and replicates the same way `set` does. Every modification replicates a networked component,
+so a body that does not move or turn rewrites, and therefore re-sends, nothing: a bullet flying
+straight keeps its constant render `Rotation` out of the network.
 
 Create display edges with `entity.add(DrawIn, parent)` or `entity.add(DrawBy, parent)`. Relationship
 targets are not component payload properties, and the server module does not make the two display
