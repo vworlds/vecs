@@ -53,7 +53,7 @@ export class AngularImpulse {
 }
 ```
 
-`wake` controls whether applying the effect wakes a sleeping body. The default is `true` because user-driven movement usually means the body should participate in simulation immediately.
+`wake` controls whether applying a non-zero effect wakes a sleeping body. The default is `true` because user-driven movement usually means the body should participate in simulation immediately. A zero effect never wakes a body, whatever `wake` says. See [Sleeping Bodies And Zero Loads](#sleeping-bodies-and-zero-loads).
 
 Units follow Box2D conventions:
 
@@ -317,6 +317,62 @@ if (impulse) {
 
 Prefer `set` because it is shorter and naturally reactive.
 
+## Sleeping Bodies And Zero Loads
+
+Box2D puts a body to sleep once it has moved slower than its sleep threshold (`Sleep.threshold`, `0.05` m/s by default) for half a second, and stops simulating it until something disturbs it. A force, torque, or impulse is one such disturbance: with `wake: true`, applying it to a sleeping body wakes it.
+
+A zero load changes nothing physically, so waking a body for one would only keep it awake for no reason. `vecs-physics` therefore never applies one. The rule:
+
+> A zero load never wakes a body. `wake` applies to non-zero loads.
+
+Zero means exactly zero, not small. A load with any non-zero component, such as `{ x: 0, y: 3 }`, is non-zero.
+
+| Load             | Zero when                             |
+| ---------------- | ------------------------------------- |
+| `Force`          | `x === 0 && y === 0`.                 |
+| `Torque`         | `value === 0`.                        |
+| `Impulse`        | `x === 0 && y === 0` when you set it. |
+| `AngularImpulse` | `value === 0` when you set it.        |
+
+A zero impulse is ignored when you set it: it is not queued and its `wake` does not count. Impulses are also judged by their sum when physics applies them. Two impulses set before the same step that cancel out, such as `{ x: 5, y: 0 }` and `{ x: -5, y: 0 }`, sum to exactly zero and are skipped, so they do not wake the body either.
+
+Non-zero loads keep Box2D behavior:
+
+| Load     | `wake`  | Sleeping body                      |
+| -------- | ------- | ---------------------------------- |
+| Zero     | any     | Stays asleep. Nothing is applied.  |
+| Non-zero | `true`  | Wakes up. The load is applied.     |
+| Non-zero | `false` | Stays asleep. The load is ignored. |
+
+`wake` only matters for a sleeping body. An awake dynamic body always receives a non-zero load.
+
+### Idle Thrust
+
+This is what makes a persistent thrust component safe to keep. Leave the `Force` on the ship, write the thrust into it while the player thrusts, and write zero when they let go. You do not need to remove the component or set `wake: false` for the idle case.
+
+```ts
+function thrust(ship: Entity, x: number, y: number): void {
+  ship.set(Force, { x, y });
+}
+
+thrust(ship, 40, 0); // Thrusting: wakes a sleeping ship and pushes it.
+thrust(ship, 0, 0); // Let go: skipped, so the ship can come to rest and fall asleep.
+```
+
+Physics skips the idle `Force` before it reaches Box2D, so it also costs no wasm call per step. `Torque`, `Impulse`, and `AngularImpulse` follow the same rule, so a zero `Impulse` set every tick while the input is idle is dropped as it is set.
+
+### Waking A Body Or Keeping It Awake
+
+A zero load cannot wake a body, so do not use one as a keep-alive. To wake a body, or to keep it awake, use the `Sleep` component (see [Bodies](./bodies.md#sleep)). It has three fields, `enabled`, `awake`, and `threshold`, and setting it writes all three to Box2D (`lib/vecs-physics/src/body/lifecycle.ts`):
+
+- `awake: true` wakes a sleeping body.
+- `enabled: false` stops the body from ever falling asleep, and wakes it if it is asleep.
+
+```ts
+ship.set(Sleep, { awake: true }); // Wake it now. It can fall asleep again later.
+ship.set(Sleep, { enabled: false }); // Keep it awake for good.
+```
+
 ## Common Patterns
 
 ### Jump
@@ -338,6 +394,8 @@ function stopThrust(ship: Entity): void {
   ship.remove(Force);
 }
 ```
+
+Removing the component is not required to let the ship sleep. You can keep it and write `{ x: 0, y: 0 }` instead. See [Idle Thrust](#idle-thrust).
 
 ### Multiple Tractor Beams
 
@@ -388,6 +446,10 @@ player.set(Force, { x: 100, y: 0 });
 ```
 
 This is not a one-frame push. Use `Impulse` for one-shot movement.
+
+### A Zero Load Never Wakes A Body
+
+`wake: true` does not make a zero `Force`, `Torque`, `Impulse`, or `AngularImpulse` wake a sleeping body, and a persistent `Force { x: 0, y: 0 }` does not keep its body awake. To wake a body, or keep it awake, use `Sleep`. See [Sleeping Bodies And Zero Loads](#sleeping-bodies-and-zero-loads).
 
 ### Impulses Are Reset Silently
 

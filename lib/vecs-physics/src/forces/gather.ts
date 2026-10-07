@@ -20,6 +20,13 @@ export class ForceGatherModule extends Module {
       .with(Force, forceTargetPredicate)
       .phase(phase)
       .each([Force, Body, { target: [ChildOf, [Body]] }], (_entity, [force, body, parentBody]) => {
+        // A zero force changes nothing, but Box2D would still wake a sleeping body for it when
+        // `wake` is set, so a body holding an idle `Force { x: 0, y: 0 }` could never stay asleep.
+        // Skip it: no wasm call and no wake.
+        if (force.x === 0 && force.y === 0) {
+          return;
+        }
+
         const bodyId = body?._bodyId ?? parentBody?._bodyId;
         if (bodyId === undefined) {
           return;
@@ -38,6 +45,12 @@ export class ForceGatherModule extends Module {
       .each(
         [Torque, Body, { target: [ChildOf, [Body]] }],
         (_entity, [torque, body, parentBody]) => {
+          // Same as a zero force: skip it so an idle `Torque { value: 0 }` cannot keep waking
+          // its body.
+          if (torque.value === 0) {
+            return;
+          }
+
           const bodyId = body?._bodyId ?? parentBody?._bodyId;
           if (bodyId === undefined) {
             return;
