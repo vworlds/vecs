@@ -262,26 +262,50 @@ export class DiffBuffer {
     this._lastTime = -1;
   }
 
-  // push takes diffs coming from the wire and incorporates them
-  // to the snapshot bucket in the right position:
+  /**
+   * Put a diff received from the wire in its place in the bucket.
+   *
+   * After {@link DiffBuffer.reset}, and before anything has been received
+   * (`version` is `-1`), the first diff starts the stream whatever frame it
+   * names: a new connection may be to a server whose frame counter restarted.
+   * From then on a diff is judged against `version`, the newest frame received:
+   *
+   * - one that starts past it is rejected, because a server that honors acks
+   *   never sends one;
+   * - one for a frame the client already has is stale, a datagram the unordered
+   *   channel delivered late or twice, and is discarded when the bucket has
+   *   drained (it would otherwise become the new starting point and roll
+   *   `version` back), or when it is older than everything still buffered;
+   *   one for a frame that is still buffered merges into it, as a retransmit.
+   *
+   * @param diff - The diff to buffer.
+   * @throws If the diff starts after the newest frame this buffer has received.
+   */
   public push(diff: Diff): void {
     // in case of buffer empty or first diff, initialize everything:
     if (this._first === undefined) {
+      // An empty bucket does not mean nothing has been received: once pull() has
+      // consumed the buffered frames, `version` still names the newest frame this
+      // client has, and only reset() (which makes it -1) starts the stream over. A
+      // diff for a frame the client already has, a datagram the unordered channel
+      // delivered late or twice, must not become the new starting point: it would
+      // roll `version` back below the frame the server last saw acked, and the next
+      // real diff, which starts there, would then look as if it started past this
+      // client's frame. So a stale diff is discarded, and one that starts past
+      // `version` is judged as it is below.
+      if (this.version >= 0) {
+        if (diff.to <= this.version) {
+          return;
+        }
+        this._assertStartsWithinVersion(diff);
+      }
       this.bucket[0] = diff;
       this._first = diff.to;
       this.version = diff.to;
       return;
     }
 
-    // servers should never send a diff we can't handle
-    // The below can only happen if the server is ignoring acks. ClientWorld
-    // reports the message to the application as the `disconnect` reason, so it
-    // says what happened:
-    if (diff.from > this.version) {
-      throw new Error(
-        `diff starts at frame ${diff.from}, past this client's frame ${this.version}`
-      );
-    }
+    this._assertStartsWithinVersion(diff);
 
     // Locate the index position for this diff in the bucket based on the
     // version of the first item in the bucket:
@@ -331,6 +355,18 @@ export class DiffBuffer {
     // setting `version` allows the session layer to ack this diff.
     if (diff.to > this.version) {
       this.version = diff.to;
+    }
+  }
+
+  // servers should never send a diff we can't handle: one may start at any frame
+  // this client has received, but not past the newest. The below can only happen
+  // if the server is ignoring acks. ClientWorld reports the message to the
+  // application as the `disconnect` reason, so it says what happened:
+  private _assertStartsWithinVersion(diff: Diff): void {
+    if (diff.from > this.version) {
+      throw new Error(
+        `diff starts at frame ${diff.from}, past this client's frame ${this.version}`
+      );
     }
   }
 

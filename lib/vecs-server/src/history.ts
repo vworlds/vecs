@@ -6,7 +6,19 @@ import {
   type RemovedComponent,
 } from "@vworlds/vecs-protocol";
 
-export const HISTORY_LENGTH = 5;
+/**
+ * Default number of frames a session's {@link History} retains: the default of
+ * `ServerWorldOptions.historyFrames`. 64 frames is about two seconds at 30 Hz.
+ *
+ * It is long because a baseline holds state back for a round trip, so the ack
+ * lag peaks at twice its steady size right after one. A slot holds references
+ * to already-encoded snapshots, and a delta merges only the frames since the
+ * client's ack, so a long window costs little.
+ */
+export const HISTORY_LENGTH = 64;
+
+/** Smallest window {@link validateHistoryFrames} accepts. */
+const MIN_HISTORY_FRAMES = 2;
 
 const REMOVED = 0;
 
@@ -14,9 +26,42 @@ type RemovedMarker = typeof REMOVED;
 type Slot = EncodedSnapshot | RemovedMarker;
 type EntityHistory = IterableArrayMap<Slot> | RemovedMarker;
 
+/**
+ * Check a `historyFrames` value.
+ *
+ * @param frames - The requested window, in frames.
+ * @returns `frames`, unchanged, once it is known to be valid.
+ * @throws If `frames` is not an integer of at least 2.
+ */
+export function validateHistoryFrames(frames: number): number {
+  if (!Number.isInteger(frames) || frames < MIN_HISTORY_FRAMES) {
+    throw new Error(
+      `historyFrames must be an integer of at least ${MIN_HISTORY_FRAMES}, got ${String(frames)}`
+    );
+  }
+  return frames;
+}
+
+/**
+ * The last `length` frames of one session's replication, each stored as the
+ * {@link StateDiff} that took the client from the frame before it to that frame.
+ *
+ * A client that last acknowledged frame `n` can be caught up with a delta,
+ * {@link History.pull}`(n, lastFrame)`, as long as nothing it is missing has
+ * left the window. A frame that left the window while holding nothing, no
+ * snapshot and no removal, took nothing with it: merging the frames that
+ * remain gives exactly what merging all of them would. A frame that held
+ * something is gone for good, and the client can no longer be caught up on it.
+ * So the history remembers the newest frame that left while holding something,
+ * {@link History.evictedContentFrame}, and a pull is possible exactly when
+ * `n >= evictedContentFrame`. A session whose view has not changed for longer
+ * than the window can therefore still be served a delta from an ack that is
+ * older than the whole window.
+ */
 export class History {
   private readonly _buffer: StateDiff[];
   private _lastFrame: number;
+  private _evictedContentFrame = Number.NEGATIVE_INFINITY;
 
   public constructor(
     private readonly _length = HISTORY_LENGTH,
@@ -39,13 +84,27 @@ export class History {
     return this._lastFrame - this._length + 1;
   }
 
+  /**
+   * The newest frame that has left the window while holding content, a
+   * snapshot or a removal, or `-Infinity` while none has. A client whose ack is
+   * older than this frame is missing something the history no longer has.
+   */
+  public get evictedContentFrame(): number {
+    return this._evictedContentFrame;
+  }
+
   public push(diff: StateDiff): void {
     if (diff.toFrame !== this._lastFrame + 1) {
       throw new Error(`Expected frame ${this._lastFrame + 1}, got ${diff.toFrame}`);
     }
 
+    const slot = this._index(diff.toFrame);
+    const evicted = this._buffer[slot];
+    if (hasContent(evicted)) {
+      this._evictedContentFrame = evicted.toFrame;
+    }
     this._lastFrame = diff.toFrame;
-    this._buffer[this._index(diff.toFrame)] = diff;
+    this._buffer[slot] = diff;
   }
 
   public get(frame: number): StateDiff {
@@ -56,6 +115,34 @@ export class History {
     return this._buffer[this._index(frame)];
   }
 
+  /**
+   * Whether a client that last acked frame `from` can be caught up by
+   * {@link History.pull}`(from, lastFrame + 1)` once the next frame has been
+   * pushed.
+   *
+   * The push evicts the oldest frame in the window, so this looks ahead to it:
+   * the answer is the one the history will give after the push, which is what a
+   * caller that decides before it builds the frame needs.
+   */
+  public canPullAfterPush(from: number): boolean {
+    const leaving = this._buffer[this._index(this.oldestFrame)];
+    const lost = hasContent(leaving) ? leaving.toFrame : this._evictedContentFrame;
+    return from >= lost;
+  }
+
+  /**
+   * Merge everything that changed after frame `from`, up to and including
+   * frame `to`, into one diff labelled `from`..`to`.
+   *
+   * `from` is the frame the client really holds, so the label is always `from`,
+   * never a later frame: the client rejects a diff that starts past its own.
+   * `from` may be older than the window, provided no frame with content after it
+   * has left it; only the frames still in the window are merged, because the
+   * ones that left held nothing.
+   *
+   * @throws If a frame with content after `from` has left the window, or `to` is
+   *   not a frame in it.
+   */
   public pull(from: number, to: number): StateDiff {
     if (to < from) {
       throw new Error(`Invalid history range ${from}..${to}`);
@@ -65,13 +152,17 @@ export class History {
       return new StateDiff({ fromFrame: from, toFrame: to });
     }
 
+    if (from < this._evictedContentFrame) {
+      throw new Error(`Frame ${this._evictedContentFrame} is outside history window`);
+    }
+
     if (to === from + 1) {
       return this.get(to);
     }
 
     const entities = new IterableArrayMap<EntityHistory>();
 
-    for (let frame = from + 1; frame <= to; frame++) {
+    for (let frame = Math.max(from + 1, this.oldestFrame); frame <= to; frame++) {
       applyDiff(entities, this.get(frame));
     }
 
@@ -132,6 +223,10 @@ function forgeDiff(from: number, to: number, entities: IterableArrayMap<EntityHi
   });
 
   return new StateDiff({ fromFrame: from, toFrame: to, snapshots, removed });
+}
+
+function hasContent(diff: StateDiff): boolean {
+  return diff.snapshots.length > 0 || diff.removed.length > 0;
 }
 
 function emptyDiff(toFrame: number): StateDiff {

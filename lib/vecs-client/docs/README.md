@@ -6,13 +6,14 @@ JSDoc on the source in `lib/vecs-client/src/` — read it in your IDE.
 
 ## Reading order
 
-1. [Client world](./client-world.md) — connecting, replication, calling the server, and disposal.
+1. [Client world](./client-world.md) — connecting, replication and baselines, calling the server, and
+   disposal.
 
 ## Map
 
-| Guide                                | Covers                                                                |
-| ------------------------------------ | --------------------------------------------------------------------- |
-| [client-world.md](./client-world.md) | `ClientWorld`, `connectDgram`, `invoke`/`listen`, `close`, `dispose`. |
+| Guide                                | Covers                                                                                       |
+| ------------------------------------ | -------------------------------------------------------------------------------------------- |
+| [client-world.md](./client-world.md) | `ClientWorld`, `connectDgram`, baselines and `reset`, `invoke`/`listen`, `close`, `dispose`. |
 
 ## See also
 

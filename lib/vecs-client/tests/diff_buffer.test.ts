@@ -584,3 +584,65 @@ test("accepts a receipt frame sent behind a lagging ack", () => {
 
   expect(ip.version).toBe(4);
 });
+
+// The unordered channel can deliver a datagram long after its successors. Once pull() has consumed
+// the buffered frames the bucket is empty, but `version` still names the newest frame received, and
+// a straggler for an older frame must not roll it back: the server has seen the newer frame acked,
+// so its next delta starts there, and would then look as if it started past the client.
+test("discards a stale diff that arrives after the bucket drained, and takes the next real delta", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 4, snapshots: [makePosComponent(A, 4, 4)] }));
+  ip.pull(10);
+  expect(ip.version).toBe(4);
+  expect(ip.bucket).toEqual([undefined, undefined, undefined]);
+
+  // A straggler: frame 2, from frame 1.
+  ip.push(SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 2, 2)] }));
+
+  expect(ip.version).toBe(4);
+  expect(ip.bucket).toEqual([undefined, undefined, undefined]);
+  expect(ip.pull(20).snapshots).toEqual([]);
+
+  // The delta the server sends next starts at the frame it last saw acked, which is frame 4.
+  const next = SD({ from: 4, to: 5, snapshots: [makePosComponent(A, 5, 5)] });
+  expect(() => ip.push(next)).not.toThrow();
+  expect(ip.version).toBe(5);
+  expect(Pos(ip.pull(100), A)).toEqual({ x: 5, y: 5 });
+});
+
+test("discards a duplicate of the newest frame after the bucket drained", () => {
+  const ip = newDiffBuffer(3, 10);
+  const frame = SD({ from: 0, to: 4, snapshots: [makePosComponent(A, 4, 4)] });
+  ip.push(frame);
+  ip.pull(10);
+
+  ip.push(frame);
+
+  expect(ip.version).toBe(4);
+  expect(ip.bucket[0]).toBeUndefined();
+});
+
+test("still rejects a diff that starts past the acked frame after the bucket drained", () => {
+  const ip = newDiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 4, snapshots: [makePosComponent(A, 4, 4)] }));
+  ip.pull(10);
+
+  expect(() => ip.push(SD({ from: 7, to: 8, snapshots: [] }))).toThrow(
+    "diff starts at frame 7, past this client's frame 4"
+  );
+  expect(ip.version).toBe(4);
+});
+
+test("takes any diff as the starting point after reset, whatever frame it names", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 40, snapshots: [makePosComponent(A, 40, 40)] }));
+  ip.pull(10);
+  ip.reset();
+  expect(ip.version).toBe(-1);
+
+  // A new connection to a server whose frame counter restarted.
+  ip.push(SD({ from: 0, to: 3, snapshots: [makePosComponent(A, 3, 3)] }));
+
+  expect(ip.version).toBe(3);
+  expect(Pos(ip.pull(100), A)).toEqual({ x: 3, y: 3 });
+});
