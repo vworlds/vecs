@@ -191,10 +191,19 @@ async function deliver(
   return socket.sent.slice(before).flatMap((bytes) => new Decoder(bytes).read(Server2Client).rpc);
 }
 
-/** Ack the close frame a closing session just sent, so its linger ends on the next tick. */
-function ackCloseFrame(socket: MemorySocket): void {
+/**
+ * Ack the newest frame the server sent, as a client that received it would. The server sends a
+ * session no state after its baseline until the baseline is acked, so a test that expects a delta
+ * acks the baseline first.
+ */
+function ackLatestFrame(socket: MemorySocket): void {
   const frame = decodeLastMessage(socket);
   socket.receive(encodeClient2Server(new Client2Server({ ackFrame: frame.diff!.toFrame })));
+}
+
+/** Ack the close frame a closing session just sent, so its linger ends on the next tick. */
+function ackCloseFrame(socket: MemorySocket): void {
+  ackLatestFrame(socket);
 }
 
 /** Call `rpcId` from a connected socket and return the single reply. */
@@ -252,6 +261,7 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
     world.progress(0, 16);
+    ackLatestFrame(socket);
     const removalStart = socket.sent.length;
 
     entity.remove(Position);
@@ -275,6 +285,7 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
     world.progress(0, 16);
+    ackLatestFrame(socket);
     const removalStart = socket.sent.length;
 
     entity.destroy();
@@ -297,6 +308,7 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
     world.progress(0, 16);
+    ackLatestFrame(socket);
     const removalStart = socket.sent.length;
 
     entity.remove(Networked);
@@ -342,7 +354,7 @@ describe("ServerWorld", () => {
     expect(entity.eid).toBeGreaterThan(0);
   });
 
-  it("sends merged updates to clients that have not acked", () => {
+  it("holds state back until the client acks its baseline, then sends everything it missed", () => {
     const world = createWorld();
     const server = world;
     allowAllClientViews(world);
@@ -353,15 +365,25 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
     world.progress(0, 16);
+    const afterBaseline = socket.sent.length;
     entity.set(Position, { x: 2, y: 2 });
     world.progress(16, 16);
+    entity.set(Position, { x: 3, y: 3 });
+    world.progress(32, 16);
+
+    // The baseline is in flight, and a delta from a frame the client has not acked would
+    // be rejected, so nothing more is sent until the client acks it.
+    expect(socket.sent.length).toBe(afterBaseline);
+
+    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 1 })));
+    world.progress(48, 16);
 
     const message = decodeLastMessage(socket);
     const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
-    expect(message.diff?.fromFrame).toBe(0);
-    expect(message.diff?.toFrame).toBe(2);
+    expect(message.diff?.fromFrame).toBe(1);
+    expect(message.diff?.toFrame).toBe(4);
     expect(message.diff?.snapshots).toHaveLength(1);
-    expect(position).toMatchObject({ x: 2, y: 2 });
+    expect(position).toMatchObject({ x: 3, y: 3 });
     expect(entity.eid).toBeGreaterThan(0);
   });
 
@@ -400,13 +422,14 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 5, y: 5 });
     world.progress(0, 16);
+    ackLatestFrame(socket);
     world.progress(16, 16);
     entity.set(Position, { x: 6, y: 6 });
     world.progress(32, 16);
 
     const message = decodeLastMessage(socket);
     const position = decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1]);
-    expect(message.diff?.fromFrame).toBe(0);
+    expect(message.diff?.fromFrame).toBe(1);
     expect(message.diff?.toFrame).toBe(3);
     expect(position).toMatchObject({ x: 6, y: 6 });
   });
@@ -420,11 +443,15 @@ describe("ServerWorld", () => {
     const socket = new MemorySocket("client-1");
     listener.connect(socket);
 
-    world.entity().add(Networked).set(Position, { x: 7, y: 7 });
+    const entity = world.entity().add(Networked).set(Position, { x: 7, y: 7 });
     world.progress(0, 16);
     socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 1 })));
     const sentBeforeLag = socket.sent.length;
 
+    // Frame 2 changes something the client never acks, and leaves the history window once frame
+    // HISTORY_LENGTH + 2 has been pushed. A client is only outside the window for a frame that
+    // held something: a quiet one is not resynced, however old its ack.
+    entity.set(Position, { x: 8, y: 8 });
     for (let i = 1; i <= HISTORY_LENGTH + 1; i++) {
       world.progress(i * 16, 16);
     }
@@ -436,7 +463,7 @@ describe("ServerWorld", () => {
     expect(message.diff?.fromFrame).toBe(0);
     expect(message.diff?.toFrame).toBe(HISTORY_LENGTH + 2);
     expect(message.diff?.snapshots).toHaveLength(1);
-    expect(position).toMatchObject({ x: 7, y: 7 });
+    expect(position).toMatchObject({ x: 8, y: 8 });
   });
 
   it("disconnects only after the grace period elapses without inbound messages", () => {
@@ -571,6 +598,7 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
     world.progress(0, 16);
+    ackLatestFrame(socket);
     const baseline = socket.sent.length;
 
     // Within a single progress step, update then remove Position.
@@ -596,6 +624,7 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 5, y: 5 });
     world.progress(0, 16);
+    ackLatestFrame(socket);
     const initialCount = socket.sent.length;
 
     // Remove then re-add Position within the next frame.
@@ -624,6 +653,7 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
     world.progress(0, 16);
+    ackLatestFrame(socket);
 
     entity.set(Position, { x: 2, y: 2 });
     world.progress(16, 16);
@@ -655,6 +685,7 @@ describe("ServerWorld", () => {
 
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
     world.progress(0, 16);
+    ackLatestFrame(first);
 
     const late = new MemorySocket("client-2");
     listener.connect(late);
@@ -1005,6 +1036,7 @@ describe("ServerWorld", () => {
     expect(view._visible).toEqual(new Set([visible, hidden, session.entity]));
     expect(view._enteredView).toEqual(new Set());
     expect(view._exitedView).toEqual(new Set());
+    ackLatestFrame(socket);
     const baseline = socket.sent.length;
 
     session.entity.set(View, { dsl: [LocalOnly] });
@@ -1038,6 +1070,7 @@ describe("ServerWorld", () => {
 
     session.entity.set(View, { dsl: [LocalOnly] });
     world.progress(0, 16);
+    ackLatestFrame(socket);
     const baseline = socket.sent.length;
 
     entity.set(Position, { x: 9, y: 9 });
@@ -1067,6 +1100,7 @@ describe("ServerWorld", () => {
 
     session.entity.set(View, { dsl: [LocalOnly] });
     world.progress(0, 16);
+    ackLatestFrame(socket);
     const baseline = socket.sent.length;
 
     session.entity.set(View, { dsl: [Velocity] });
@@ -1100,7 +1134,7 @@ describe("ServerWorld", () => {
     const view = getSessionView(server, "client-1");
     session.entity.set(View, { dsl: { target: [InCell, CellA] } });
     world.progress(0, 16);
-    socket.receive(encodeClient2Server(new Client2Server({ ackFrame: 0 })));
+    ackLatestFrame(socket);
     const baseline = socket.sent.length;
 
     entity.set(Position, { x: 3, y: 3 });
@@ -2205,6 +2239,7 @@ describe("ServerWorld undecodable frames", () => {
       const thing = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
       tick(world);
       expect(lastPosition(b.socket)).toMatchObject({ x: 1, y: 1 });
+      ackLatestFrame(b.socket);
 
       a.socket.receive(frame());
 
@@ -2355,6 +2390,8 @@ describe("ServerWorld send failures", () => {
     const good = connectSession(world, listener, "good");
     const entity = world.entity().add(Networked).set(Position, { x: 1, y: 1 });
     tick(world);
+    ackLatestFrame(bad);
+    ackLatestFrame(good.socket);
     return { world, bad, good: good.socket, entity, badEid: getSession(world, "bad").entity.eid };
   }
 

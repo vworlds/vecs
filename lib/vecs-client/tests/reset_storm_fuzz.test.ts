@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { performance } from "node:perf_hooks";
 import { wireType } from "@vworlds/vecs-wire";
 import { IterableArrayMap, type Entity } from "@vworlds/vecs";
 import type { VecsSocket, VecsSocketListener } from "@vworlds/vecs-protocol";
@@ -11,6 +12,25 @@ import { ClientWorld } from "../src/index.js";
 // production dgram data channel (unordered, maxRetransmits=2), while alternating
 // "active" and "inactive(tab)" windows. After a final reliably-delivered settle
 // phase the client must match the server exactly, for every seed.
+//
+// The server keeps only 5 frames of history here, rather than its default 64,
+// so every inactive window of 8+ frames pushes the client's ack out of the
+// window and the sweep keeps exercising baselines: one is sent, held until it is
+// acked, and sent again only once it is presumed lost. That presumption runs on
+// `performance.now()`, so the test drives it with the simulated frame clock; on
+// real time a whole scenario finishes inside the 100 ms floor, and a baseline
+// the lossy channel dropped would never be sent again.
+
+// Simulated time in milliseconds: the frame being driven, as `performance.now()` sees it.
+let simulatedNowMs = 0;
+
+beforeEach(() => {
+  vi.spyOn(performance, "now").mockImplementation(() => simulatedNowMs);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 class Position {
   @wireType("i32")
@@ -84,6 +104,7 @@ function createServer(): ServerWorld {
     name: "main",
     networkComponents: [Position],
     disconnectGraceMs: 1e9,
+    historyFrames: 5,
   });
   server.component(NetworkClient).on("set", (entity) => entity.set(View, { dsl: true }));
   return server;
@@ -102,6 +123,7 @@ function networkEntities(world: ClientWorld): Entity[] {
 type Mode = "drop" | "reorder";
 
 function runScenario(seed: number, mode: Mode): { ok: boolean; reason: string } {
+  simulatedNowMs = 0;
   const rng = mulberry32(seed);
   const server = createServer();
   const listener = new Listener();
@@ -189,6 +211,7 @@ function runScenario(seed: number, mode: Mode): { ok: boolean; reason: string } 
       windowLeft = active ? 3 + Math.floor(rng() * 5) : 8 + Math.floor(rng() * 16);
     }
     drift();
+    simulatedNowMs = frame * TICK_MS;
     server.progress(frame++ * TICK_MS, TICK_MS);
     flush(s2c, clientEp, true);
     if (active) {
@@ -206,6 +229,7 @@ function runScenario(seed: number, mode: Mode): { ok: boolean; reason: string } 
 
   // settle: reliable delivery, regular pulls + acks -> must converge.
   for (let i = 0; i < 50; i++) {
+    simulatedNowMs = frame * TICK_MS;
     server.progress(frame++ * TICK_MS, TICK_MS);
     flush(s2c, clientEp, false);
     now += TICK_MS;

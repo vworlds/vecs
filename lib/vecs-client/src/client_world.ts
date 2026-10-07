@@ -551,11 +551,14 @@ export class ClientWorld extends NetworkWorld {
    */
   private _pushDiff(sd: StateDiff): boolean {
     // A diff with fromFrame === 0 is a full baseline: the complete authoritative
-    // state at sd.toFrame. The server streams these whenever a client falls
-    // outside its history window -- most commonly a backgrounded tab, where the
-    // render loop (and therefore DiffBuffer.pull) is suspended and acks are
-    // throttled, so the server keeps resending the whole world until the client
-    // catches up.
+    // state at sd.toFrame. The server sends one when a session starts and
+    // whenever the client has fallen so far behind that frames it has not acked
+    // have left the server's history window -- most commonly a backgrounded tab,
+    // where the render loop (and therefore DiffBuffer.pull) is suspended and
+    // acks are throttled. It sends no further state until the client acks the
+    // baseline, and sends another only if it presumes the first lost, so a
+    // client sees a baseline at connect and after a real stall, not one per
+    // frame, and not for a view that is merely quiet.
     //
     // A baseline is reset-then-rebuild: every server-owned entity is destroyed
     // and then recreated from the snapshot. Destroying first is what makes the
