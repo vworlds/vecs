@@ -646,3 +646,95 @@ test("takes any diff as the starting point after reset, whatever frame it names"
   expect(ip.version).toBe(3);
   expect(Pos(ip.pull(100), A)).toEqual({ x: 3, y: 3 });
 });
+
+// `renderFrame` is the fractional server frame the buffer renders. These tests move A to
+// x = 10 f in frame f, so wherever A is rendered, x / 10 is the server frame on screen.
+function movingA(from: number, to: number): Diff {
+  return SD({ from, to, snapshots: [makePosComponent(A, 10 * to, 0)] });
+}
+
+test("renderFrame is 0 until a frame is applied, holds at the newest frame when the buffer runs dry, and returns to 0 on reset", () => {
+  const ip = newDiffBuffer(3, 10);
+  expect(ip.renderFrame).toBe(0);
+  ip.pull(100);
+  expect(ip.renderFrame).toBe(0);
+
+  ip.push(movingA(0, 7));
+  ip.push(movingA(7, 8));
+  // Received, but the buffer waits out the refill delay an empty pull started: nothing applied yet.
+  ip.pull(110);
+  expect(ip.renderFrame).toBe(0);
+  ip.pull(130);
+  expect(ip.renderFrame).toBe(7);
+  ip.pull(135);
+  expect(ip.renderFrame).toBeCloseTo(7.5, 9);
+  ip.pull(140);
+  expect(ip.renderFrame).toBe(8);
+
+  // Dry: it never runs past the newest frame received, however much time passes.
+  ip.pull(150);
+  ip.pull(500);
+  expect(ip.renderFrame).toBe(8);
+
+  ip.reset();
+  expect(ip.renderFrame).toBe(0);
+  // A new stream, from a server whose frame counter restarted, can start lower.
+  ip.push(movingA(0, 2));
+  ip.pull(600);
+  expect(ip.renderFrame).toBe(2);
+});
+
+test("renderFrame is the point the interpolators sample, never decreases and never passes the newest frame received", () => {
+  const interval = 10;
+  const samples: { alpha: number; from: number; to: number }[] = [];
+  const recordingInterpolator: ComponentInterpolator = (source, target, alpha) => {
+    samples.push({ alpha, from: (source as Position).x / 10, to: (target as Position).x / 10 });
+    return interpolatePosition(source, target, alpha);
+  };
+  const ip = new DiffBuffer(3, interval, decodePosition, [
+    [PositionWireType, recordingInterpolator],
+  ]);
+
+  // Frames arrive 25-30 ms after the server sends them. Frame 50 is lost and arrives merged into
+  // frame 51's diff; frames 70-79 are held up by a stall and arrive together with frame 80.
+  const arrivals = new Map<number, Diff[]>();
+  for (let f = 1; f <= 100; f++) {
+    if (f === 50) {
+      continue;
+    }
+    const arriveAt = f >= 70 && f < 80 ? 80 * interval + 25 : f * interval + 25 + ((f * 37) % 6);
+    arrivals.set(arriveAt, [...(arrivals.get(arriveAt) ?? []), movingA(f === 51 ? 49 : f - 1, f)]);
+  }
+
+  let previous = 0;
+  let segmentStarts = 0;
+  // Render every 7 ms, off the server's 10 ms grid.
+  for (let now = 0; now <= 1500; now++) {
+    arrivals.get(now)?.forEach((diff) => ip.push(diff));
+    if (now % 7 !== 3) {
+      continue;
+    }
+    samples.length = 0;
+    const rendered = Pos(ip.pull(now), A);
+
+    expect(ip.renderFrame).toBeGreaterThanOrEqual(previous);
+    // `version` is -1 until something is received, and renderFrame 0.
+    expect(ip.renderFrame).toBeLessThanOrEqual(Math.max(ip.version, 0));
+    if (rendered !== undefined) {
+      expect(rendered.x / 10).toBeCloseTo(ip.renderFrame, 9);
+    }
+    for (const sample of samples) {
+      // The interpolators blend from the point last rendered toward the next frame, with the same
+      // alpha. From an applied frame N toward N + 1 that point is N + alpha.
+      expect(ip.renderFrame).toBeCloseTo(sample.from + (sample.to - sample.from) * sample.alpha, 9);
+      if (Number.isInteger(sample.from) && sample.to === sample.from + 1) {
+        expect(ip.renderFrame).toBeCloseTo(sample.from + sample.alpha, 9);
+        segmentStarts++;
+      }
+    }
+    previous = ip.renderFrame;
+  }
+
+  expect(previous).toBe(100);
+  expect(segmentStarts).toBeGreaterThan(20);
+});

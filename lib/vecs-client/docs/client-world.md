@@ -8,6 +8,7 @@ also knows when to let go of all of it.
 
 - How to connect a client world and let replication run.
 - What a baseline does to your replicated entities, and how often to expect one.
+- Which server frame the world renders, and how to put client-computed state on the same timeline.
 - How to call a server RPC and answer server calls.
 - How `dispose` tears a world down and why pending calls must be rejected.
 - What changes after disposal.
@@ -78,6 +79,37 @@ sending another only if it presumes the first was lost. So a client sees a basel
 and once per real stall, not once per frame. When the server sends them, how it retries, and how to
 size the window for slow players are in
 [Sessions](../../vecs-server/docs/sessions.md#deltas-baselines-and-the-history-window).
+
+## Render time
+
+The world renders slightly in the past: frames wait in the diff buffer, and the interpolators blend
+between two of them. `world.renderFrame` says where on the server's timeline that is, as a fractional
+server frame. While the world blends from frame N toward frame N + 1 with blend factor `alpha`, it is
+`N + alpha`, the same point the interpolators sample. It is kept whether or not you register any
+interpolators.
+
+Use it for state the client computes on its own, so it shows the same moment as the replicated state.
+A pose extrapolated from a baseline the server took at a known frame, for example, has to be advanced
+to `renderFrame`, not to the newest frame received or to wall-clock time:
+
+```ts
+/** Seconds of server time between `frame` and the moment the world renders. */
+function sinceFrame(world: ClientWorld, frame: number, stepSeconds: number): number {
+  return (world.renderFrame - frame) * stepSeconds;
+}
+```
+
+| When                                  | `renderFrame`                                                                         |
+| ------------------------------------- | ------------------------------------------------------------------------------------- |
+| Before the first baseline is applied  | `0`.                                                                                  |
+| Each `apply()` (`progress()` runs it) | Moves forward, never back, as long as `now` never decreases.                          |
+| The buffer runs dry                   | Holds at the newest frame applied. It never runs past the newest frame received.      |
+| A baseline resets the world           | `0` as the replicated entities are destroyed, then the baseline's frame once applied. |
+| After `dispose()`                     | `0`.                                                                                  |
+
+Only a reset moves it back. After a reconnect the baseline's frame can even be lower than before,
+because the new server's frame counter can start over. And since it never runs past the newest frame
+received, anything that should keep moving while frames are late has to extrapolate past it itself.
 
 ## Calling the server
 
@@ -275,6 +307,7 @@ a payload that fails there still throws out of `apply()`.
 | `world.invoke(rpcId, params?)`      | Call the server; settles with the reply params as soon as the reply arrives.            |
 | `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client; it runs from `apply()`.   |
 | `world.apply(now)`                  | Run the handlers of queued server requests, then apply buffered frames.                 |
+| `world.renderFrame`                 | The fractional server frame the world renders; `0` before the first baseline.           |
 | `world.send()`                      | Send input, outstanding replies, and the current ack frame.                             |
 | `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable.    |
 | `world.dispose()`                   | One-way teardown: reject pending calls, clear state, destroy network entities.          |

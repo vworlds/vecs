@@ -133,6 +133,10 @@ export class DiffBuffer {
   // the moving interpolation baseline when pull() is called before tServ.
   private _lastTime = -1;
 
+  // renderFrame is the fractional server frame the last pull() rendered; see
+  // the renderFrame getter.
+  private _renderFrame = 0;
+
   // componentInterpolators maps a wire type id to the function used to
   // blend it between server frames. Types without an entry are snapped to their
   // latest value. No interpolators are registered by default; callers must opt
@@ -151,6 +155,23 @@ export class DiffBuffer {
     }
     this.bucket = Array(this.max_length).fill(undefined);
     this._componentInterpolators = new Map(componentInterpolators);
+  }
+
+  /**
+   * The server frame the last {@link DiffBuffer.pull} rendered, fractional while it interpolates.
+   *
+   * It is the frame of the state the pull blends from, moved toward the frame it blends to by
+   * the same `alpha` it hands the interpolators. From an applied frame N toward N + 1 that is
+   * `N + alpha`. A pull that applies no new frame blends from the values the previous pull
+   * rendered, so it also blends from the previous `renderFrame`, which keeps it on the frame the
+   * interpolated components show. It is computed whether or not interpolators are registered.
+   *
+   * `0` until a frame is applied, and again after {@link DiffBuffer.reset}. Between resets it
+   * never decreases for a non-decreasing `now`, and it never passes {@link DiffBuffer.version},
+   * the newest frame received: when the bucket runs dry it holds at the newest frame applied.
+   */
+  public get renderFrame(): number {
+    return this._renderFrame;
   }
 
   private _updateState(sd: Diff): void {
@@ -202,6 +223,9 @@ export class DiffBuffer {
 
     // interpolationStart is the timestamp of the currently visualized state.
     let interpolationStart = this._lastTime;
+    // renderFrom is the server frame of the state interpolation blends from:
+    // the point the previous pull rendered, unless this pull applies a frame.
+    let renderFrom = this._renderFrame;
 
     // The following loop will incorporate (merge) into the
     // proposed diff (sd) as many snapshots from the bucket
@@ -219,6 +243,7 @@ export class DiffBuffer {
       // the snapshot map on every iteration.
       sd = merge(sd, this.bucket[0], false, true);
       interpolationStart = this._tServ;
+      renderFrom = sd.to;
       this._pop(); //remove bucket[0] and shift contents to the left
     }
 
@@ -239,9 +264,18 @@ export class DiffBuffer {
     // callers can render fake frames between server ticks.
     const target = this.bucket[0];
     if (target) {
-      this._interpolate(sd, target, interpolationStart, this._tServ, now);
+      const end = this._tServ;
+      const alpha =
+        end === interpolationStart ? 1 : (now - interpolationStart) / (end - interpolationStart);
+      this._interpolate(sd, target, alpha);
+      // The interpolators blend from the state at renderFrom toward the
+      // target with this alpha, so the frame they render is the same blend.
+      // Until a frame is applied (sd.to is 0) there is no state to blend
+      // from, and nothing is rendered.
+      this._renderFrame = sd.to === 0 ? 0 : renderFrom + (target.to - renderFrom) * alpha;
       this._first = target.to;
     } else {
+      this._renderFrame = sd.to;
       this._first = undefined;
     }
 
@@ -260,6 +294,7 @@ export class DiffBuffer {
     this._stateVersion = 0;
     this._tServ = -1;
     this._lastTime = -1;
+    this._renderFrame = 0;
   }
 
   /**
@@ -380,11 +415,10 @@ export class DiffBuffer {
     return this._decodeComponentSnapshot(snapshot);
   }
 
-  private _interpolate(sd: Diff, target: Diff, start: number, end: number, now: number): void {
+  private _interpolate(sd: Diff, target: Diff, alpha: number): void {
     if (this._componentInterpolators.size === 0) {
       return;
     }
-    const alpha = end === start ? 1 : (now - start) / (end - start);
     target.snapshots.forEach((targetSnapshot) => {
       const interpolate = this._componentInterpolators.get(targetSnapshot.wireType);
       if (!interpolate) {
