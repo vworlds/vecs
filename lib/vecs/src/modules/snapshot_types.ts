@@ -68,12 +68,14 @@ export class OnSnapshot extends Relationship {
 
 /**
  * Default snapshot policy: construct a fresh instance of the component class
- * and clone the source instance's own enumerable fields onto it.
+ * and deep-copy the source instance's own enumerable fields onto it.
  *
- * Shallow, and therefore exactly as aliasing-sensitive as `set`: a component
- * holding a nested object shares it with the source until something copies it.
- * A type that must not carry runtime handles across worlds needs its own
- * policy — see {@link CustomSnapshot}.
+ * The copy covers primitives, arrays, plain objects, `Map`, `Set`, `Date`,
+ * `ArrayBuffer` and typed arrays, so the destination never aliases a nested
+ * value of the source. Anything else (a class instance, a function, a symbol)
+ * throws at capture with the component and field path. A type that holds such
+ * a value, or that must not carry runtime handles across worlds, needs its own
+ * policy — see {@link CustomSnapshot} and {@link DontSnapshot}.
  */
 export class ClonePublic {}
 

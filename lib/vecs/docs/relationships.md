@@ -192,6 +192,20 @@ calls `onRemove`. An exclusive replacement calls `onTargetRemove` for the old ta
 relationship-dependent query updates, but do not call `onSet`; `onSet` is reserved for ordinary
 relationship data changed through `set`.
 
+Pick the removal hook by scope:
+
+- `on("targetRemove", handler)` runs once for **each** removed edge: `remove(R, target)`, the
+  displaced edge of an `Exclusive` replacement, and every edge when the whole relationship goes away
+  (the final edge, `remove(R)`, or destroying the source).
+- `on("remove", handler)` runs **once**, when the relationship component itself leaves the entity.
+  It does not run when one of several edges is removed or an `Exclusive` edge is replaced. The
+  relationship instance it receives holds no targets any more, so use `targetRemove` to learn which
+  targets went.
+
+When the whole relationship goes away, `source.has(R)` is already `false` inside both hooks. When
+only one of several edges goes, `source.has(R)` stays `true` and `source.hasTarget(R, removed)` is
+`false`.
+
 Register handlers with `on("targetAdd", handler)` and `on("targetRemove", handler)`; remove them
 with `off(event, handler)`. Multiple handlers may be registered for the same event and fire in
 registration order. Framework traits install separate internal `targetPolicyAdd` /

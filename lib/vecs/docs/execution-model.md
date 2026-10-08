@@ -162,7 +162,7 @@ component:
   their next run (`lib/vecs/src/system.ts`). So systems react to change without scanning, and they
   react _in their own phase slot_, in event arrival order.
 
-Three routing rules worth memorizing:
+Four routing rules worth memorizing:
 
 - **`update(C)` is change-only unless you opt into entry.** When an entity enters a system,
   `{ onEnter: true }` update watchers push an `update` event for already-present watched components.
@@ -173,8 +173,9 @@ Three routing rules worth memorizing:
   objects are not deep-cloned.
 - **`enter` is drain-time truthful.** A system only receives `enter` when the entity is still a
   member when that system runs. If it left before the inbox drains, vecs drops both that queued
-  `enter` and its paired `exit`; an entity that re-enters before draining receives the ordered
-  lifecycle events for its final membership.
+  `enter` and its paired `exit`; an entity that re-enters before draining is a member again, so the
+  queued events replay in order as `enter`, `exit`, `enter`. The details are in
+  [Systems — `.enter`](./systems.md#entercallback--enterinject-callback--enteroptions-callback).
 - **In-place mutation needs `modified`.** Assigning to component fields directly notifies no one.
   Call `entity.modified(C)` (or use `set` / `getMut` / `ensure`) to route the change.
 

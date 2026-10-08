@@ -774,10 +774,18 @@ system after whatever produces the entity/companion.
   replicate a networked component. A writer that runs every tick and copies a value into a networked
   or watched component (simulation output, a derived pose) should compare first and write only when
   the value changed (see §7). An in-place assignment without `modified` notifies nobody.
+- **`getMut` marks the component modified even without a callback and even if you write nothing.**
+  Calling it every tick fires `onSet`, `update` watchers and replication every tick. Read with `get`;
+  call `getMut` only when a change is intended (see
+  [`getMut` and `ensure`](./entities.md#getmut-and-ensure-mutating-in-place)).
 - **A callback that always uses a component should inject it, not `get` it.** `entity.get(C)` is for
   a component that is conditionally needed and rarely required (see §4).
 - **Membership is fixed by `.with(...)` / `.without(...)` / `.update(C)`;** `update(C)` watches `C`
   and requires it.
+- **A system's `enter` reaches only entities still in its query when the system drains.** One that
+  left or died first gets neither `enter` nor the paired `exit`, and one that leaves and re-enters
+  within a drain gets `enter`, `exit`, `enter`, so keep `enter` setup and `exit` teardown symmetric
+  (see [`.enter`](./systems.md#entercallback--enterinject-callback--enteroptions-callback)).
 - **`exit` retains injected references captured at exit** (components are not deep-cloned).
 - **Within a phase, order = registration order;** across phases, the spine guarantees order. Don't
   use registration order for cross-module correctness — use phases.
@@ -789,6 +797,9 @@ system after whatever produces the entity/companion.
   ordering; `hasTarget(R, target)` tests one edge.
 - **Relationship edges are explicit.** Add with `add(R, target)`, remove one with
   `remove(R, target)`, and remove all with `remove(R)`. Do not use `set` for target storage.
+- **Relationship removal hooks differ in scope.** `on("targetRemove")` fires once per removed edge;
+  `on("remove")` fires once, when the relationship component itself leaves, with no targets left on
+  the instance (see [Edge hooks](./relationships.md#edge-hooks)).
 - **Relationship cardinality and component exclusivity are different.** Add the `Exclusive` trait
   to a relationship for at-most-one target; use `setExclusiveComponents` for mutually exclusive
   component types.
@@ -810,6 +821,23 @@ system after whatever produces the entity/companion.
   explicitly, and during deferred execution keep that entity instead of re-reading `target(R)`
   before flush.
 - **`world.module(M)` runs `init` once.** Re-registering with a different config throws.
+- **vecs-phaser: a `DrawBy` child follows only its parent's `Position`.** It turns with the parent
+  only with `InheritRotation`, which makes the resolver derive its `Rotation` every frame, so
+  writing `Rotation` on a tagged child has no effect (see
+  [Turning with the parent](../../vecs-phaser-client/README.md#turning-with-the-parent)).
+- **vecs-physics, vecs-phaser-server: pose writes are change-only.** `set` hooks and `update` systems
+  on the physics and render pose fire when the pose changed, not on every step; to visit every body
+  every step, iterate with `each` (see
+  [Pose Updates Fire Only When The Pose Changes](../../vecs-physics/docs/systems-and-phases.md#pose-updates-fire-only-when-the-pose-changes)).
+- **vecs-client: attach a `ClientWorld` socket only after `socket.connect()` resolves,** so no ack
+  precedes the data channel (`connectDgram` does this). Pending `invoke` calls reject with
+  `RPC_CLOSED_CODE` on disconnect or `dispose` (see
+  [Connecting](../../vecs-client/docs/client-world.md#connecting) and
+  [Disconnection and disposal](../../vecs-client/docs/client-world.md#disconnection-and-disposal)).
+- **vecs-physics: component fields hold plain data,** never Box2D wrappers or other class
+  instances. `set` accepts them, but snapshot capture (`snapshotSubtree`, `moveSubtree`) rejects
+  non-plain values (see
+  [Keep Component Fields Plain Data](../../vecs-physics/docs/components.md#keep-component-fields-plain-data)).
 
 ---
 

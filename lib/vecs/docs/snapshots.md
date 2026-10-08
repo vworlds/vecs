@@ -83,8 +83,11 @@ class Position {
 ```
 
 `Position` has no policy, so it uses **`ClonePublic`**: a fresh instance with the source instance's
-own enumerable fields copied over. That is the same shallow copy `set` performs, and it is exactly
-as aliasing-sensitive — a component holding a nested object shares it until something copies it.
+own enumerable fields copied over, deeply. The copy covers primitives, arrays, plain objects, `Map`,
+`Set`, `Date`, `ArrayBuffer` and typed arrays, so the destination never aliases a nested value of
+the source. Anything else, such as a class instance, a function or a symbol, is not plain data:
+capture throws with the component and field path instead of sharing it across worlds. A component
+that holds one declares `CustomSnapshot` or `DontSnapshot` (below).
 
 ### `DontSnapshot`
 
