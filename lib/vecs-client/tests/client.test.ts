@@ -707,3 +707,72 @@ describe("ClientWorld.dispose", () => {
     expect(() => world.entity(1002)).toThrow();
   });
 });
+
+describe("ClientWorld.renderFrame", () => {
+  function frame(fromFrame: number, toFrame: number, x: number): Uint8Array {
+    return encodeMessage(
+      new Server2Client({
+        diff: new StateDiff({ fromFrame, toFrame, snapshots: [posSnapshot(1000, x, 0)] }),
+      })
+    );
+  }
+
+  it("is 0 until the first baseline is applied, then the server frame the world renders", () => {
+    const world = createClientWorld({ serverTickIntervalMs: 10 });
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    expect(world.renderFrame).toBe(0);
+    world.apply(0);
+    expect(world.renderFrame).toBe(0);
+
+    socket.receive(frame(0, 9, 90));
+    socket.receive(frame(9, 10, 100));
+    expect(world.renderFrame).toBe(0);
+
+    world.apply(100);
+    expect(world.renderFrame).toBe(9);
+    world.apply(105);
+    expect(world.renderFrame).toBeCloseTo(9.5, 9);
+    expect(world.entity(1000).get(Position)).toMatchObject({ x: 95, y: 0 });
+    world.apply(110);
+    expect(world.renderFrame).toBe(10);
+    world.close();
+  });
+
+  it("starts over at a baseline: 0 when the reset destroys the replicated entities, then the baseline's frame", () => {
+    const world = createClientWorld({ serverTickIntervalMs: 10 });
+    const first = new MemorySocket("server-1");
+    world.attachSocket(first);
+    first.receive(frame(0, 9, 90));
+    first.receive(frame(9, 10, 100));
+    world.apply(100);
+    world.apply(110);
+    first.close();
+    expect(world.renderFrame).toBe(10);
+
+    // A reconnect lands on a server whose frame counter restarted.
+    const second = new MemorySocket("server-2");
+    world.attachSocket(second);
+    second.receive(frame(0, 1, 10));
+    expect(world.renderFrame).toBe(0);
+    expect(world.getEntity(1000)?.get(Position)).toBeUndefined();
+
+    world.apply(200);
+    expect(world.renderFrame).toBe(1);
+    expect(world.entity(1000).get(Position)).toMatchObject({ x: 10, y: 0 });
+    world.close();
+  });
+
+  it("is 0 after dispose", () => {
+    const world = createClientWorld({ serverTickIntervalMs: 10 });
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    socket.receive(frame(0, 9, 90));
+    world.apply(100);
+    expect(world.renderFrame).toBe(9);
+
+    world.dispose();
+
+    expect(world.renderFrame).toBe(0);
+  });
+});
