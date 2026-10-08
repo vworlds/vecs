@@ -201,23 +201,43 @@ joint.set(JointSettings, { collideConnected: true });
 
 ## Lifecycle
 
-| ECS change                                           | Physics behavior                                                          |
-| ---------------------------------------------------- | ------------------------------------------------------------------------- |
-| Both bodies have `Body` + joint-type set             | Create the joint.                                                         |
-| Remove the joint-type component                      | Destroy the joint.                                                        |
-| Destroy the joint entity                             | Destroy the joint; bodies are unaffected.                                 |
-| Destroy a connected body                             | Detach the joint: its constraint is torn down, the joint entity survives. |
-| Add `JointBodyA`/`JointBodyB` with a different body  | Replace that slot's target and rebuild the joint.                         |
-| Change `JointFrame` / `DistanceJoint` / `MotorJoint` | Rebuild the joint with the new geometry/fields.                           |
-| Add/remove/change a feature component                | Enable/disable/retune that feature, waking the bodies.                    |
+| ECS change                                           | Physics behavior                                                |
+| ---------------------------------------------------- | --------------------------------------------------------------- |
+| Both bodies have `Body` + joint-type set             | Create the joint.                                               |
+| Remove the joint-type component                      | Destroy the joint.                                              |
+| Destroy the joint entity                             | Destroy the joint; bodies are unaffected.                       |
+| Destroy a connected body                             | Destroy the joint entity with it; the other body is unaffected. |
+| Add `JointBodyA`/`JointBodyB` with a different body  | Replace that slot's target and rebuild the joint.               |
+| Change `JointFrame` / `DistanceJoint` / `MotorJoint` | Rebuild the joint with the new geometry/fields.                 |
+| Add/remove/change a feature component                | Enable/disable/retune that feature, waking the bodies.          |
 
 ### Destroying a connected body
 
-When a connected body is destroyed, the joint's Box2D constraint is torn down (the
-joint stops matching once the body loses its `Body` component), but **the joint
-entity is not destroyed** — it is yours to manage. You can re-point its
-`JointBodyA`/`JointBodyB` at another body to reconnect it, attach it to a manager
-entity with `ChildOf` so it is cleaned up with that, or destroy it directly.
+`JointsModule` gives `JointBodyA` and `JointBodyB` the `CleanupPolicy.Delete`
+policy, so destroying either body destroys the joint entity too, together with
+every component you attached to it yourself. This follows Box2D, which destroys a
+body's joints along with the body. The other body is not affected: it only loses
+the constraint. A body that several joints connect to takes all of them with it,
+so you never have to cascade joint cleanup by hand, for example with `ChildOf`.
+
+```ts
+const joint = world
+  .entity()
+  .add(JointBodyA, anchor)
+  .add(JointBodyB, bob)
+  .set(DistanceJoint, { length: 2 });
+
+anchor.destroy(); // `joint` is destroyed with it; `bob` stays in the world, unconstrained
+```
+
+Two things leave the joint entity alone:
+
+- Removing a connected body's `Body` component, without destroying its entity,
+  tears the constraint down. The joint entity stays and rebuilds the constraint
+  once the body carries a `Body` again.
+- Pointing a slot at a different body rebuilds the joint on the new body.
+  Destroying the replaced body afterwards does not touch the joint, so re-point
+  the slot first to keep a joint entity when one of its bodies goes away.
 
 ## Not yet included
 
