@@ -95,6 +95,14 @@ e.getMut(Velocity, (vel) => {
 });
 ```
 
+`getMut` marks the component modified whenever it is present, with or without a callback and whether
+or not you assign anything: the callback form marks it after the callback returns, and the
+callback-free form marks it before it returns the instance, so even a read-only use notifies. The
+mark fires `onSet`, routes an `update` event to every system watching the component and replicates a
+networked component (repeated marks before the queue drains coalesce into one). A `getMut` that runs
+every tick therefore does all of that every tick. Read with `get`, and call `getMut` only when a
+change is intended. When the component is absent, `getMut` returns `undefined` and marks nothing.
+
 Use `ensure` when absence should mean "create with defaults, then mutate":
 
 ```ts

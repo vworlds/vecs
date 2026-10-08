@@ -89,10 +89,15 @@ Fires once when an entity starts matching the system:
 .enter({ inject: [Position, Sprite] }, (e, [pos, sprite]) => sprite.setPosition(pos.x, pos.y))
 ```
 
-The callback runs only if the entity is still a member when this system drains its inbox. If it
-left or was destroyed first, vecs drops the queued `enter` and its paired `exit`; do not add a
-`destroyed` guard to normal `enter` setup code. If it leaves and re-enters before draining, the
-callback receives the ordered lifecycle transitions.
+The callback runs only if the entity is still a member when this system drains its inbox, at the top
+of its next run. The inbox replays in arrival order, so:
+
+- An entity that left the query or was destroyed first gets no `enter`, and in a system that
+  registers both callbacks no paired `exit` either. Do not add a `destroyed` guard to normal `enter`
+  setup code. A system with only `exit` has no `enter` to pair, so it still gets that `exit`.
+- An entity that leaves and re-enters before the drain is a member again, so the system gets
+  `enter`, `exit`, `enter` (just `exit`, `enter` when it had already entered in an earlier drain).
+  Keep `enter` setup and `exit` teardown symmetric so the second `enter` starts from a clean state.
 
 For systems, injected values and `Iter.src` are captured when entry is routed and replayed from that
 snapshot when the system next drains its inbox.
