@@ -33,6 +33,35 @@ again is idempotent. Target ordering is not a public contract.
 storage. For a non-exclusive relationship, do not use `target(ref)` as a stable selection policy.
 Use `hasTarget(ref, target)` to test one edge without allocating a snapshot.
 
+## Link with edges, not stored ids
+
+Link one entity to another with a relationship edge, not with an `eid` or an `Entity` kept in a
+component field (`ownerEid = 0`, `target: Entity | undefined`). The world maintains an edge. It
+cannot maintain a field:
+
+- **A stored eid can come to name another entity.** A destroyed entity's id is reused once its
+  pool's `reuseWaitFrames` have passed: 16 frames by default, and `0` for replicated entities on a
+  `ClientWorld` (see [Id pools](./components.md#id-pools)). Allocation hands out free ids before
+  never-used ones, so one of the next entities created takes it. Until an entity does,
+  `world.getEntity(id)` returns `undefined`; from then on it returns that live, unrelated entity and
+  the stale id looks valid.
+- **A stored `Entity` dangles.** Reuse never makes it name another entity, because a destroyed
+  `Entity` stays `destroyed`, but nothing clears the field when the entity dies. Writes through it
+  are dropped and `ensure` throws.
+- **An edge is cleaned up for you.** When the target is destroyed, `onDeleteTarget` removes the edge
+  or destroys the source (see [Cleanup when a target dies](#cleanup-when-a-target-dies)). The
+  reverse index (`children`), `target` and `parent` queries, `groupBy` and network replication work
+  on edges only.
+- **A field does not cross worlds.** `snapshotSubtree` and `moveSubtree` remap relationship targets
+  onto the destination's new ids. An eid field is copied as is and names the wrong entity there; an
+  `Entity` field makes capture throw (see [Snapshot policies](./snapshots.md#snapshot-policies)).
+
+A `destroyed` check on an entity you looked up from a stored link is therefore a symptom of a
+missing edge: replace the link, not only the check. The guard stays right where a reference is
+deliberately short-lived: payloads in per-step event buffers (the `other` entity in `vecs-physics`
+contact events), and hooks that run while an entity or an edge target is being destroyed (see
+[Edge hooks](#edge-hooks) and [component hooks](./components.md#hooks-component-and-relationship-edges)).
+
 ## Built-in relationships
 
 | Class           | Purpose                                                                                                                    |
@@ -206,6 +235,12 @@ When the whole relationship goes away, `source.has(R)` is already `false` inside
 only one of several edges goes, `source.has(R)` stays `true` and `source.hasTarget(R, removed)` is
 `false`.
 
+Destroying either end of an edge runs these hooks too, so `source.destroyed` or `target.destroyed`
+can already be `true` inside them; both are under `Delete` cleanup. The target of an `OwnedTarget`
+edge is destroyed before the public hook runs on every path. A dying end takes no writes (see
+[Hooks](./components.md#hooks-component-and-relationship-edges)), so a handler that writes to
+`source` or `target` guards on `destroyed`.
+
 Register handlers with `on("targetAdd", handler)` and `on("targetRemove", handler)`; remove them
 with `off(event, handler)`. Multiple handlers may be registered for the same event and fire in
 registration order. Framework traits install separate internal `targetPolicyAdd` /
@@ -240,6 +275,11 @@ Configure the traits before creating relationship instances. `OwnedTarget` is ir
 attached: removing it throws, and only world teardown (`clearAllEntities`) bypasses the guard —
 the same contract as `Traversable` and `OneOf`. Do not share an owned target between
 sources because either owner can destroy it when its edge is removed.
+
+An owned target replaces the field-plus-hook pattern, where a component field holds the child
+entity and an `onRemove` hook destroys it. The edge is the field: every path that drops it destroys
+the child, and destroying the child directly removes the edge from its owner. There is no hook to
+write and no stale reference to guard.
 
 ## Cleanup when a target dies
 

@@ -67,8 +67,8 @@ the documented pattern unless the user explicitly chooses otherwise.
 
 ## Known Gotchas
 
-Agents trip on these vecs behaviors repeatedly. Design guide section 9 lists them with the other
-pitfalls; each rule below links to the detail.
+Agents trip on these vecs behaviors repeatedly. Design guide sections 8 and 9 list them with the
+other anti-patterns and pitfalls; each rule below links to the detail.
 
 - Do not call `getMut` per tick unless a change is intended. It marks the component modified even
   without a callback and even if nothing is written, which fires `update` watchers and replication.
@@ -83,10 +83,29 @@ pitfalls; each rule below links to the detail.
   destroys that target when its edge is removed.
   ([Edge hooks](../../docs/relationships.md#edge-hooks),
   [Owned targets](../../docs/relationships.md#owned-targets))
+- Link entities with relationship edges, never with an `eid` or `Entity` kept in a component field.
+  A destroyed entity's eid is reused after `reuseWaitFrames` (16 frames by default, 0 for replicated
+  entities on a `ClientWorld`), so a stale eid can name an unrelated entity. A stored `Entity`
+  dangles, and snapshots copy an eid unchanged and reject an `Entity`.
+  ([Link with edges, not stored ids](../../docs/relationships.md#link-with-edges-not-stored-ids))
+- Prefer `Exclusive` + `OwnedTarget` to a component field that holds a child entity. Removing or
+  replacing the edge destroys the child and destroying the child removes the edge, so no remove hook
+  is needed. ([Owned targets](../../docs/relationships.md#owned-targets))
+- A `remove` hook also fires while its entity is being destroyed, with `entity.destroyed` already
+  `true`. A dying entity drops `add`, `set`, `remove`, `modified` and `attach` writes and `ensure`
+  throws, so guard a hook's writes to its own entity with `entity.destroyed`; that guard is
+  legitimate. ([Hooks](../../docs/components.md#hooks-component-and-relationship-edges))
+- A `destroyed` check outside per-step event buffers and hooks on a dying entity or edge target
+  usually means a link that should be a relationship edge. Replace the link, not only add the check.
+  ([Link with edges, not stored ids](../../docs/relationships.md#link-with-edges-not-stored-ids))
 - `@vworlds/vecs-phaser`: a `DrawBy` child turns with its parent only with `InheritRotation`. The
   resolver derives a tagged child's `Rotation` every frame, so writing `Rotation` on it has no
   effect; set `InheritRotation.angle` instead.
   ([Turning with the parent](../../../vecs-phaser-client/README.md#turning-with-the-parent))
+- `@vworlds/vecs-phaser`: `DrawBy` and `DrawIn` use `CleanupPolicy.Remove`, so destroying a display
+  parent detaches its children and leaves them alive, unlike `ChildOf`. Add `ChildOf` to the parent,
+  or make the child an owned target, when it must die with the parent.
+  ([Destroying the display parent](../../../vecs-phaser-client/README.md#destroying-the-display-parent))
 - `@vworlds/vecs-physics` and `@vworlds/vecs-phaser-server`: pose `set` hooks and `update` systems
   on the physics and render pose fire only when the pose changes. To visit every body every step,
   iterate with `each`.
