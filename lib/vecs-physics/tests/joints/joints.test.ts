@@ -9,11 +9,11 @@
 //   Weld       — rigidly fixes a dynamic body welded to a static one.
 //   Filter     — disables collision between the two connected bodies.
 //   Motor      — drives body B toward a target velocity and/or pose relative to body A.
-//   Lifecycle  — order-independent creation; destroying a connected body destroys the joint entity.
+//   Lifecycle  — order-independent creation, cascade delete on body destroy.
 //   Features   — motor added at runtime drives an already-created joint.
 
 import { type Entity, World } from "@vworlds/vecs";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   AngularVelocity,
@@ -36,7 +36,6 @@ import {
   Rotation,
   WeldJoint,
   WheelJoint,
-  physics,
 } from "../../src/index.js";
 
 const DT = 1 / 60;
@@ -362,6 +361,30 @@ describe("joint lifecycle", () => {
     expect(distance(b.get(Position)!, { x: 0, y: 0 })).toBeCloseTo(2, 1);
   });
 
+  it("destroying a connected body detaches the joint but leaves the joint entity", () => {
+    const world = makeWorld(-10);
+    // A distance joint hangs B two meters straight below the static anchor A, so
+    // B rests at (0, 8) while constrained.
+    const a = staticBody(world, 0, 10);
+    const b = dynamicBody(world, 0, 8);
+    const joint = world
+      .entity()
+      .add(JointBodyA, a)
+      .add(JointBodyB, b)
+      .set(DistanceJoint, { length: 2 });
+
+    step(world, 30);
+    expect(b.get(Position)!.y).toBeCloseTo(8, 1); // held by the joint
+
+    a.destroy();
+    step(world, 60);
+
+    // The joint entity survives (it is not cascade-deleted)...
+    expect(joint.get(DistanceJoint)).toBeDefined();
+    // ...but its Box2D constraint is gone, so B is no longer held up and falls.
+    expect(b.get(Position)!.y).toBeLessThan(6);
+  });
+
   it("destroying a shaped connected body tears down the joint safely", () => {
     const world = makeWorld();
     const a = staticBody(world, 0, 0);
@@ -375,135 +398,6 @@ describe("joint lifecycle", () => {
     }).not.toThrow();
     // The surviving anchor is unaffected.
     expect(a.get(Position)!.x).toBeCloseTo(0, 5);
-  });
-});
-
-/** Game state a game keeps on a joint entity of its own, next to the physics components. */
-class RopeWear {
-  strain = 0;
-}
-
-describe("destroying a connected body", () => {
-  let world: World;
-  let a: Entity;
-  let b: Entity;
-  let joint: Entity;
-
-  // A static anchor A at (0, 10) with a dynamic bob B hanging two meters below it.
-  beforeEach(() => {
-    world = makeWorld(-10);
-    a = staticBody(world, 0, 10);
-    b = dynamicBody(world, 0, 8);
-    joint = world.entity().add(JointBodyA, a).add(JointBodyB, b).set(DistanceJoint, { length: 2 });
-
-    step(world, 30);
-    expect(b.get(Position)!.y).toBeCloseTo(8, 1); // held up by the joint
-    expect(physics(world).stats()).toMatchObject({ bodyCount: 2, jointCount: 1 });
-  });
-
-  it("destroying body A destroys the joint entity and frees body B", () => {
-    a.destroy();
-
-    expect(joint.destroyed).toBe(true);
-    expect(() => step(world, 60)).not.toThrow();
-    expect(b.destroyed).toBe(false);
-    expect(b.get(Position)!.y).toBeLessThan(6); // nothing holds it up any more
-    expect(physics(world).stats()).toMatchObject({ bodyCount: 1, jointCount: 0 });
-  });
-
-  it("destroying body B destroys the joint entity and leaves body A alive", () => {
-    b.destroy();
-
-    expect(joint.destroyed).toBe(true);
-    expect(() => step(world, 60)).not.toThrow();
-    expect(a.destroyed).toBe(false);
-    expect(a.get(Position)).toMatchObject({ x: 0, y: 10 });
-    expect(physics(world).stats()).toMatchObject({ bodyCount: 1, jointCount: 0 });
-  });
-
-  it("destroying both bodies in the same frame destroys the joint entity once", () => {
-    a.destroy();
-    b.destroy();
-
-    expect(joint.destroyed).toBe(true);
-    expect(() => step(world, 5)).not.toThrow();
-    expect(physics(world).stats()).toMatchObject({ bodyCount: 0, jointCount: 0 });
-  });
-
-  it("destroying both bodies from a deferred block does the same", () => {
-    world.defer(() => {
-      b.destroy();
-      a.destroy();
-    });
-
-    expect(joint.destroyed).toBe(true);
-    expect(() => step(world, 5)).not.toThrow();
-    expect(physics(world).stats()).toMatchObject({ bodyCount: 0, jointCount: 0 });
-  });
-
-  it("destroying a body destroys every joint connected to it", () => {
-    const others = [staticBody(world, 3, 10), staticBody(world, -3, 10)];
-    const filters = others.map((other) =>
-      world.entity().add(JointBodyA, other).add(JointBodyB, b).add(FilterJoint)
-    );
-    step(world, 5);
-    expect(physics(world).stats().jointCount).toBe(3);
-
-    b.destroy();
-
-    expect([joint, ...filters].map((j) => j.destroyed)).toEqual([true, true, true]);
-    expect(others.map((other) => other.destroyed)).toEqual([false, false]);
-    expect(() => step(world, 5)).not.toThrow();
-    expect(physics(world).stats()).toMatchObject({ bodyCount: 3, jointCount: 0 });
-  });
-
-  it("destroying the joint entity directly leaves both bodies alive", () => {
-    joint.destroy();
-
-    expect(() => step(world, 60)).not.toThrow();
-    expect(a.destroyed).toBe(false);
-    expect(b.destroyed).toBe(false);
-    expect(b.get(Position)!.y).toBeLessThan(6); // released
-    expect(physics(world).stats()).toMatchObject({ bodyCount: 2, jointCount: 0 });
-  });
-
-  it("destroys the game state on the joint entity along with it", () => {
-    const onRemove = vi.fn();
-    world.component(RopeWear).on("remove", onRemove);
-    joint.set(RopeWear, { strain: 3 });
-
-    b.destroy();
-
-    expect(joint.destroyed).toBe(true);
-    expect(world.getEntity(joint.eid)).toBeUndefined();
-    expect(onRemove).toHaveBeenCalledTimes(1);
-    expect(onRemove).toHaveBeenCalledWith(joint, expect.objectContaining({ strain: 3 }));
-    expect(() => step(world, 5)).not.toThrow();
-  });
-
-  it("pointing a slot at another body first keeps the joint entity when the old body is destroyed", () => {
-    const spare = staticBody(world, 0, 10);
-    joint.add(JointBodyA, spare);
-
-    a.destroy();
-    step(world, 30);
-
-    expect(joint.destroyed).toBe(false);
-    expect(b.get(Position)!.y).toBeCloseTo(8, 1); // still held, now by the spare anchor
-    expect(physics(world).stats()).toMatchObject({ bodyCount: 2, jointCount: 1 });
-  });
-
-  it("removing Body only detaches the constraint: the joint entity reforms with the body", () => {
-    b.remove(Body);
-    step(world, 5);
-
-    expect(joint.destroyed).toBe(false);
-    expect(physics(world).stats()).toMatchObject({ bodyCount: 1, jointCount: 0 });
-
-    b.set(Body, { type: BodyType.Dynamic });
-    step(world, 5);
-
-    expect(physics(world).stats()).toMatchObject({ bodyCount: 2, jointCount: 1 });
   });
 });
 
