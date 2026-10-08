@@ -16,7 +16,8 @@ Read in this order the first time through:
 4. Subsystem guides, in any order:
    - [Components](./components.md) — registration, hooks, traits, exclusivity, cleanup policies,
      interfaces, singletons.
-   - [Entities](./entities.md) — creation, lookup, the component API, relationship targets, lifecycle.
+   - [Entities](./entities.md) — creation, lookup, the component API, relationship targets, lifecycle,
+     disposing a world.
    - [Systems](./systems.md) — membership, reactive callbacks, callback options, `each`/`run`, cadence,
      component and relationship injection.
    - [Queries and filters](./queries-and-filters.md) — the query DSL, live queries, one-shot
@@ -41,7 +42,7 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 | [concepts.md](./concepts.md)                       | The core vocabulary and how the pieces relate.                                               |
 | [execution-model.md](./execution-model.md)         | `world.progress`, the 8 built-in phases, deferred commands, flush boundaries, event routing. |
 | [components.md](./components.md)                   | Component registration, hooks, traits, exclusivity, cleanup, aliases, and singletons.        |
-| [entities.md](./entities.md)                       | Entity creation, component mutation, relationship targets, lifecycle, deferred reads.        |
+| [entities.md](./entities.md)                       | Entity creation, mutation, relationship targets, lifecycle, disposal, deferred reads.        |
 | [systems.md](./systems.md)                         | `world.system`, callbacks, injection, ordering, cadence, and tick sources.                   |
 | [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`.                                    |
 | [relationships.md](./relationships.md)             | Relationships, target creation, projection and ownership, hierarchy, traversal, and cleanup. |

@@ -36,6 +36,9 @@ class Velocity {
   public dx = 0;
 }
 
+/** A client-local effect, never sent over the wire. */
+class Spark {}
+
 type SocketHandler = (arg?: unknown) => void;
 
 class MemorySocket implements VecsSocket {
@@ -258,6 +261,23 @@ describe("ClientWorld snapshots it cannot decode", () => {
 
     expect(disconnects).toHaveLength(1);
     expect(disconnects[0]?.code).toBe(CLOSE_PROTOCOL_ERROR_CODE);
+  });
+
+  it("lets the disconnect handler dispose the world while progress() is applying", () => {
+    const { client, socket } = connect();
+    const released: number[] = [];
+    client.component(Spark).on("remove", (entity) => released.push(entity.eid));
+    const spark = client.entity().add(Spark);
+    client.events.on("disconnect", () => client.dispose());
+    // The valid snapshot creates entity 1000 inside the same deferred apply(), so its creation is
+    // still queued when the handler disposes the world.
+    socket.receive(diffFrame(0, 1, [posSnapshot(1000, 1, 1), unregisteredSnapshot(1001)]));
+
+    expect(() => client.progress(0, 0)).not.toThrow();
+
+    expect(released).toEqual([spark.eid]);
+    expect(spark.destroyed).toBe(true);
+    expect(client.getEntity(1000)).toBeUndefined();
   });
 
   it("does not close the client when application code throws while a valid snapshot is applied", () => {

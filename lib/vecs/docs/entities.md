@@ -39,7 +39,8 @@ setting `entity.name` writes the `Identity` component, and duplicate names are l
 `world.entities` is a read-only view of every live entity keyed by id, and `world.clearAllEntities()`
 destroys **every** entity in the world — ordinary entities first, then component entities once
 their carriers are gone. It is a full wipe (systems and phases are backed by entities too); use it
-for end-of-session teardown, not selective resets.
+for end-of-session teardown, not selective resets. To destroy only what the application created
+and keep the world's own entities, see [Disposing a world](#disposing-a-world).
 
 ## The component API
 
@@ -181,6 +182,66 @@ type id is the key entity's eid. The key entity's `meta` (created lazily) carrie
 and policy surface as a registered class, and `keyEntity.on("add" / "set" / "remove" / "targetAdd" /
 "targetRemove", handler)` registers its lifecycle handlers directly. This is how tag-like,
 runtime-created component types work without declaring a class.
+
+## Disposing a world
+
+When you are finished with a world — a scene or route change, a hot reload — call
+`world.dispose()` and drop the reference. It destroys every entity the application and its modules
+created, so the `remove` hook of each component they carry runs and releases what the component
+owns: a render object, a handle, a timer.
+
+```ts
+class Handle {
+  public released = false;
+}
+
+world.component(Handle).on("remove", (_entity, handle) => {
+  handle.released = true; // release the resource here
+});
+
+const handle = new Handle();
+world.entity().attach(handle);
+
+world.dispose();
+handle.released; // true
+```
+
+Each entity goes through the ordinary destroy path. Every `remove` hook fires once,
+[cleanup policies and cascades](./relationships.md#cleanup-when-a-target-dies) run as for any
+`destroy()`, and an entity that a `ChildOf` or `OwnedTarget` cascade, or a hook, has already
+destroyed is skipped instead of destroyed twice.
+
+`dispose()` leaves the world's infrastructure in place, because the world needs it to stay
+coherent. It recognizes it as follows (`lib/vecs/src/world/world.disposal.ts`):
+
+| Infrastructure                | Recognized by                                                 |
+| ----------------------------- | ------------------------------------------------------------- |
+| Component and module entities | They are `Component` instances; `Module` extends `Component`. |
+| Query and system entities     | They carry the `Query` component.                             |
+| Phase entities                | They carry the `Phase` component.                             |
+
+What those entities hold stays with them: data stored on a component entity (a singleton set with
+`world.set`) and any entity they still carry as a [component key](#entities-as-component-keys),
+which cannot be destroyed while it is in use. Release those yourself; their `remove` hooks do not
+run. `clearAllEntities()` is the full wipe that takes the infrastructure too.
+
+- **Order.** Among unrelated entities the order is unspecified, so do not make a hook depend on it.
+  An entity used as a component key is destroyed after every entity that carries it, because
+  destroying it first would throw under the default cleanup policy.
+- **Pending commands.** `dispose()` neither flushes the command queue early nor discards it. Commands
+  queued ahead of it run first, in order, and the destruction follows in the same queue, so each
+  hook fires once however the component left. At top level nothing is queued, and `dispose()`
+  returns with the entities gone. Inside a system, a hook or a `defer` block the world is
+  [deferred](./execution-model.md#deferred-mutation-and-flush-boundaries), so `dispose()` queues the
+  destruction as `destroy()` does, and it completes when the queue next drains. An entity whose
+  creation is still queued is created, then destroyed.
+- **After disposal.** A disposed world must not be used again. Nothing enforces it — no other method
+  checks, so `entity()` and `progress()` keep their cost. Calling `dispose()` again, or from a hook
+  during the teardown, does nothing. An entity that a `remove` hook creates during the teardown is
+  left behind, so do not spawn from teardown hooks. A system's `exit` callback only queues its event,
+  and a disposed world never runs the system again; release resources in `remove` hooks, as
+  [Resources as components](./design-guide.md#resources-as-components-hold-non-ecs-objects)
+  recommends.
 
 ## Relationships, in brief
 

@@ -25,6 +25,11 @@ class LocalEffect {
   public value = 0;
 }
 
+/** A client-local render resource, released by its component's `remove` hook. */
+class LocalResource {
+  public released = false;
+}
+
 type SocketHandler = (arg?: unknown) => void;
 
 class MemorySocket implements VecsSocket {
@@ -112,6 +117,14 @@ function createClientWorld(options: ClientWorldOptions = {}): ClientWorld {
     interpolators: [[Position, interpolatePosition]],
     ...options,
   });
+}
+
+/** The ids of every entity in `world`, sorted. */
+function entityIds(world: ClientWorld): EID[] {
+  return world.entities
+    .values()
+    .map((entity) => entity.eid)
+    .sort((a, b) => a - b);
 }
 
 describe("ClientWorld", () => {
@@ -633,7 +646,7 @@ describe("ClientWorld", () => {
 });
 
 describe("ClientWorld.dispose", () => {
-  it("rejects pending calls with a closed error and destroys network entities", async () => {
+  it("rejects pending calls with a closed error and destroys network and local entities", async () => {
     const world = createClientWorld({ serverTickIntervalMs: 10 });
     const socket = new MemorySocket("server");
     world.attachSocket(socket);
@@ -645,6 +658,7 @@ describe("ClientWorld.dispose", () => {
       )
     );
     world.apply(0);
+    // Never networked, so a baseline reset would leave it alone, but disposal does not.
     world.getOrCreateEntity(1001);
 
     const pending = world.invoke(101, ["a"]);
@@ -653,7 +667,70 @@ describe("ClientWorld.dispose", () => {
     await expect(pending).rejects.toMatchObject({ code: RPC_CLOSED_CODE });
     expect(socket.closed).toBe(true);
     expect(() => world.entity(1000)).toThrow();
-    expect(world.entity(1001)).toBeDefined();
+    expect(() => world.entity(1001)).toThrow();
+  });
+
+  it("releases client-local resources through their remove hooks, after the network entities", () => {
+    const world = createClientWorld({ serverTickIntervalMs: 10 });
+    const removals: string[] = [];
+    world.component(Position).on("remove", (entity) => removals.push(`network:${entity.eid}`));
+    world.component(LocalResource).on("remove", (entity, resource) => {
+      resource.released = true;
+      removals.push(`local:${entity.eid}`);
+    });
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 4, 8)] }),
+        })
+      )
+    );
+    world.apply(0);
+    const resource = new LocalResource();
+    const effect = world.entity("spark").attach(resource);
+
+    world.dispose();
+
+    expect(resource.released).toBe(true);
+    expect(effect.destroyed).toBe(true);
+    expect(world.getEntity("spark")).toBeUndefined();
+    // Each hook fires once; the network entity goes first, as the documented order has it.
+    expect(removals).toEqual(["network:1000", `local:${effect.eid}`]);
+  });
+
+  it("destroys client-local entities on a world that never connected", () => {
+    const world = createClientWorld();
+    const resource = new LocalResource();
+    world.component(LocalResource).on("remove", (_entity, released) => {
+      released.released = true;
+    });
+    world.entity().attach(resource);
+
+    world.dispose();
+
+    expect(resource.released).toBe(true);
+  });
+
+  it("keeps the client's own query, system and component entities", () => {
+    const world = createClientWorld({ serverTickIntervalMs: 10 });
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    const infrastructure = entityIds(world);
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 4, 8)] }),
+        })
+      )
+    );
+    world.apply(0);
+    world.entity();
+
+    world.dispose();
+
+    expect(entityIds(world)).toEqual(infrastructure);
   });
 
   it("refuses new calls, sends, and socket attachments after disposal", async () => {

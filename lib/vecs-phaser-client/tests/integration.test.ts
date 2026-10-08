@@ -133,6 +133,33 @@ describe("PhaserRenderModule integration", () => {
     expect(methods(initialRectangle, "destroy")).toHaveLength(1);
     expect(liveObjects(scene)).toEqual([]);
   });
+
+  it("ClientWorld.dispose destroys the GameObjects of client-local entities", () => {
+    const { scene, world } = setup();
+    const arcEntity = world.entity();
+    const rectangleEntity = world.entity();
+
+    setArcEntity(arcEntity, { x: -1, y: 1 }, { alpha: 1, color: 0x00ff00 }, { radius: 0.2 });
+    setRectangleEntity(
+      rectangleEntity,
+      { x: 1, y: -1 },
+      { alpha: 0.5, color: 0x0000ff },
+      { height: 0.25, width: 0.75 }
+    );
+    world.progress(0, 0);
+
+    const initialArc = scene.created[0]!;
+    const initialRectangle = scene.created[1]!;
+    expect(liveObjects(scene)).toEqual([initialArc, initialRectangle]);
+
+    world.dispose();
+
+    expect(initialArc.destroyed).toBe(true);
+    expect(initialRectangle.destroyed).toBe(true);
+    expect(methods(initialArc, "destroy")).toHaveLength(1);
+    expect(methods(initialRectangle, "destroy")).toHaveLength(1);
+    expect(liveObjects(scene)).toEqual([]);
+  });
 });
 
 function liveObjects(scene: MockScene): readonly MockGameObject[] {

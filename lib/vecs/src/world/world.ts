@@ -21,6 +21,8 @@ import { type WorldOptions } from "./world.base.js";
  * 2. **Build the pipeline** — attach systems to phase entities with
  *    `DependsOn`, or call {@link setPipeline} with a custom query spec.
  * 3. **Run loop** — call {@link progress} once per frame.
+ * 4. **Dispose** — call {@link dispose} when the world is finished, so the
+ *    `remove` hooks of the components its entities carry release what they own.
  *
  * ## Deferred mode
  *
