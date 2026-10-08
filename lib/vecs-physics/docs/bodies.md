@@ -303,6 +303,8 @@ Physics body lifecycle follows ECS structure.
 
 Shapes are created from immediate child entities with geometry components. See [Shapes](./shapes.md).
 
+Destroying a body entity also destroys the joint entities connected to it. See [Joints](./joints.md#destroying-a-connected-body).
+
 ## Common Mistakes
 
 ### Adding Shape Geometry To The Body Entity
