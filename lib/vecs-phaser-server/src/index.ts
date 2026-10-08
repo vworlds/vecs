@@ -1,4 +1,6 @@
 export { PhaserServerModule } from "./PhaserServerModule.js";
+export { DeadReckoned, DeadReckonedModule } from "./dead_reckoned.js";
+export type { DeadReckonedOptions } from "./dead_reckoned.js";
 export { Asset } from "./asset.js";
 export { MapObject, Tile } from "./tile.js";
 export { TilesetAsset } from "./tileset_asset.js";

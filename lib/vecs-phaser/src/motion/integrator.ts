@@ -115,6 +115,28 @@ export function motionStateFrom(motion: Readonly<Motion>, out: MotionState): Mot
 }
 
 /**
+ * Whether a baseline holds its body still: no linear or angular velocity, and no gravity acting on
+ * it (a gravity scale of 0, or a world without gravity).
+ *
+ * {@link stepMotion} would leave such a body where it is, so a peer may skip stepping it and hold
+ * the baseline's pose instead. The server's divergence check and the client's extrapolator both
+ * decide with this function, so they skip the same baselines. A sleeping body is sent this way: a
+ * zero-velocity baseline with a gravity scale of 0.
+ *
+ * @param motion The baseline.
+ * @param clock The world constants.
+ * @returns `true` when the baseline predicts no motion.
+ */
+export function motionAtRest(motion: Readonly<Motion>, clock: Readonly<MotionClock>): boolean {
+  return (
+    motion.vx === 0 &&
+    motion.vy === 0 &&
+    motion.w === 0 &&
+    (motion.gravityScale === 0 || (clock.gravityX === 0 && clock.gravityY === 0))
+  );
+}
+
+/**
  * Advance a body by one physics step, in place and without allocating.
  *
  * Runs `clock.subSteps` substeps of Box2D's free-body integration (damping, gravity, the speed

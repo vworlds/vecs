@@ -58,8 +58,30 @@ motionPose(state, motion, pose); // pose.x, pose.y, pose.angle
 ```
 
 Forces, contacts, joints, locked axes and sleep are not modeled: a body they affect leaves the
-prediction, and the server sends a new baseline. The server and client modules that send baselines
-and extrapolate them arrive in a follow-up pull request for #217.
+prediction, and the server sends a new baseline. `motionAtRest(motion, clock)` tells a baseline that
+holds its body still (no velocity, no gravity acting on it), which neither peer needs to step.
+
+Two modules put it to work, one per side:
+
+| Side   | Module                                                  | Does                                                                                                                                                                           |
+| ------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Server | `DeadReckonedModule` from `@vworlds/vecs-phaser-server` | Runs the client's prediction for every body tagged `DeadReckoned` and writes a new `Motion` only when the body strays past a tolerance or falls asleep. Owns the `MotionClock` |
+| Client | `DeadReckonedModule` from `@vworlds/vecs-phaser-client` | Extrapolates every `Motion` at `ClientWorld.renderFrame` into a client-local `Position` and `Rotation`                                                                         |
+
+```mermaid
+graph LR
+  PP["physics pose"] --> D{"strayed or fell asleep?"}
+  D -->|"yes"| M["Motion baseline"]
+  D -->|"no"| N["nothing sent"]
+  M --> X["client extrapolator at renderFrame"]
+  X --> P["Position / Rotation"]
+```
+
+A dead-reckoned body carries `Motion` and no render pose on the server, and a streamed one carries
+the render pose and no `Motion`, so each body is on exactly one path; downstream client systems
+cannot tell an extrapolated pose from an interpolated one. See
+[Dead reckoning on the server](../vecs-phaser-server/README.md#dead-reckoning) and
+[on the client](../vecs-phaser-client/README.md#dead-reckoning).
 
 Depends on `@vworlds/vecs` and `@vworlds/vecs-wire`.
 

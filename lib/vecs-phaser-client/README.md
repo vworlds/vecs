@@ -162,3 +162,55 @@ world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64 });
 Pass `phaserInterpolators({ interpolateRotation: false })` to snap rotation
 updates while still interpolating `Position`. To disable interpolation
 entirely, omit `interpolators` (or pass an empty list).
+
+## Dead reckoning
+
+`DeadReckonedModule` extrapolates the bodies a server sends as `Motion` baselines instead of
+streamed poses (see [Dead reckoning on the server](../vecs-phaser-server/README.md#dead-reckoning)).
+Append `phaserMotionComponents` to the network components, as the server does, and install the
+module:
+
+```ts
+import { phaserMotionComponents, phaserNetworkComponents } from "@vworlds/vecs-phaser";
+import {
+  DeadReckonedModule,
+  PhaserRenderModule,
+  phaserInterpolators,
+} from "@vworlds/vecs-phaser-client";
+
+const world = await ClientWorld.connectDgram({
+  host: "localhost",
+  port: 8080,
+  worldName: "main",
+  networkComponents: [...phaserNetworkComponents, ...phaserMotionComponents],
+  interpolators: phaserInterpolators(),
+});
+
+world.module(DeadReckonedModule, { blendMs: 100, snapDistance: 1, snapAngle: 0.5 });
+world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64 });
+```
+
+A dead-reckoned body arrives with `Motion` and no `Position` or `Rotation`. `Motion` brings a
+client-local `Position` and `Rotation` with it, and the extrapolator writes them every frame, so the
+renderers, `DrawBy` children and game systems use them as they use an interpolated pose:
+
+- **One timeline.** It samples each baseline at `ClientWorld.renderFrame`, the server frame the
+  interpolators sample: it steps the shared integrator `floor(renderFrame - Motion.frame)` physics
+  steps from the baseline and interpolates the fraction toward the next step. Extrapolated and
+  interpolated entities show the same moment.
+- **Same frame.** The system, `phaser.extrapolate.motion`, runs in `POST_LOAD`, right after
+  `ClientWorld` applies the frame in `ON_LOAD`. Every later phase sees the new pose, so game systems,
+  `phaser.resolve.offset` and the `phaser.sync.*` systems all run on it in the same frame, whatever
+  order the modules were installed in. A `DrawBy` child of a dead-reckoned body follows it without
+  lag.
+- **Change only.** It writes the pose in place and calls `modified` only when a value changed, and
+  allocates nothing per entity per frame. A body at rest is never stepped.
+- **Reordering.** A baseline older than the one held is ignored.
+- **Corrections.** A baseline received in time, before the client renders past its frame, applies
+  at once. A late one blends its error out linearly over `blendMs` (default 100 ms) of render time;
+  one that moves the body further than `snapDistance` (default 1 m) or turns it further than
+  `snapAngle` (default 0.5 rad) snaps.
+- **The clock.** The integrator needs the server's `MotionClock`; until it arrives nothing is
+  extrapolated.
+
+`Motion` itself is never interpolated: do not register an interpolator for it.
