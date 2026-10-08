@@ -6,7 +6,8 @@
 // commit, which `.agents/rules/box2d-references.md` tells how to clone.
 //
 // - `b2World_Step` (src/physics_world.c:709): `h = dt / subStepCount` and `inv_dt = 1 / dt`.
-// - `b2IntegrateVelocitiesTask` (src/solver.c:65): damping, gravity and the speed clamps.
+// - `b2IntegrateVelocitiesTask` (src/solver.c:65): damping, gravity times the gravity scale
+//   (:99-102), the linear speed clamp and the angular one unless `allowFastRotation` (:117).
 // - `b2IntegratePositionsTask` (src/solver.c:214): the accumulated `deltaPosition` and
 //   `deltaRotation`, with `b2IntegrateRotation` (include/box2d/math_functions.h:346).
 // - `b2FinalizeBodiesTask` (src/solver.c:630): the center, the rotation (`b2MulRot` and
@@ -118,15 +119,19 @@ export function motionStateFrom(motion: Readonly<Motion>, out: MotionState): Mot
  *
  * Runs `clock.subSteps` substeps of Box2D's free-body integration (damping, gravity, the speed
  * clamps, the position and the rotation) and applies the accumulated displacement once, as
- * `b2World_Step` does. The body's gravity scale is taken as 1. Forces, contacts, joints, locked
- * axes, `allowFastRotation` and sleep are not modeled: a body they affect leaves the predicted path
- * and needs a new baseline.
+ * `b2World_Step` does, with the body's `gravityScale` and `allowFastRotation`. Forces, contacts,
+ * joints, locked axes and sleep are not modeled: a body they affect leaves the predicted path and
+ * needs a new baseline.
+ *
+ * Box2D zeroes the gravity scale of a body without mass (`invMass == 0`, src/solver.c:99). The
+ * baseline carries no mass, so its sender must set `gravityScale` to 0 for a kinematic body.
  *
  * The clock and the body constants are read as f32 values, as they arrive from the wire, so a
  * caller that holds the doubles it encoded steps to the same state as its peers.
  *
  * @param state The state to advance.
- * @param motion The baseline that supplies the body constants (damping).
+ * @param motion The baseline that supplies the body constants (damping, gravity scale, fast
+ *   rotation).
  * @param clock The world constants.
  */
 export function stepMotion(
@@ -155,9 +160,11 @@ export function stepMotion(
   // Pade approximation of `exp(-c * h)`: `1.0f / ( 1.0f + h * sim->linearDamping )`.
   const linearDamping = f32(1 / f32(1 + f32(h * f32(motion.linearDamping))));
   const angularDamping = f32(1 / f32(1 + f32(h * f32(motion.angularDamping))));
-  // `b2MulSV( h * gravityScale, gravity )` with a gravity scale of 1; the force term is zero.
-  const gravityDeltaX = f32(h * f32(clock.gravityX));
-  const gravityDeltaY = f32(h * f32(clock.gravityY));
+  // `b2MulSV( h * gravityScale, gravity )`; the force term is zero.
+  const hg = f32(h * f32(motion.gravityScale));
+  const gravityDeltaX = f32(hg * f32(clock.gravityX));
+  const gravityDeltaY = f32(hg * f32(clock.gravityY));
+  const clampRotation = !motion.allowFastRotation;
 
   let vx = state.vx;
   let vy = state.vy;
@@ -183,8 +190,9 @@ export function stepMotion(
       vy = f32(ratio * vy);
     }
 
-    // `w * w > maxAngularSpeedSquared`, then `w *= maxAngularSpeed / b2AbsFloat( w )`.
-    if (f32(w * w) > maxAngularSpeedSquared) {
+    // `w * w > maxAngularSpeedSquared && ( sim->flags & b2_allowFastRotation ) == 0`, then
+    // `w *= maxAngularSpeed / b2AbsFloat( w )`.
+    if (clampRotation && f32(w * w) > maxAngularSpeedSquared) {
       w = f32(w * f32(maxAngularSpeed / Math.abs(w)));
     }
 

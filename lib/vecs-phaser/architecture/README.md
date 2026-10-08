@@ -231,7 +231,7 @@ export const phaserNetworkComponents: readonly ComponentClass[];
 export const phaserRenderableComponents: readonly ComponentClass[];
 
 // Dead reckoning (see ../README.md#dead-reckoning). Wire types, but NOT in phaserNetworkComponents
-export class Motion {} // baseline: frame, pose, velocities, optional damping and local center
+export class Motion {} // baseline: frame, pose, velocities; optional damping, local center, gravity scale, fast-rotation flag
 export class MotionClock {} // world step, substeps, gravity, maximum linear speed
 export const phaserMotionComponents: readonly ComponentClass[]; // [MotionClock, Motion], appended by apps
 export class MotionState {} // integrator state: center of mass, rotation, velocities (f32)

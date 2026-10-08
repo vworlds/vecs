@@ -29,7 +29,7 @@ function baseline(fields: Partial<Motion> = {}): Motion {
 
 describe("Motion", () => {
   // Byte counts with a frame below 128, which takes one varint byte: 1 + 6 × 4 + the mask byte,
-  // plus 8 per group.
+  // plus 8 per pair, 4 for the gravity scale and nothing for the fast-rotation flag.
   it.each([
     { name: "no group", fields: {}, mask: 0, bytes: 26 },
     {
@@ -55,6 +55,27 @@ describe("Motion", () => {
       mask: 3,
       bytes: 42,
     },
+    { name: "gravity scale", fields: { gravityScale: 0.5 }, mask: 4, bytes: 30 },
+    { name: "fast rotation", fields: { allowFastRotation: true }, mask: 8, bytes: 26 },
+    {
+      name: "gravity scale and fast rotation",
+      fields: { gravityScale: 0, allowFastRotation: true },
+      mask: 12,
+      bytes: 30,
+    },
+    {
+      name: "every group",
+      fields: {
+        linearDamping: Math.fround(0.15),
+        angularDamping: Math.fround(0.1),
+        localCenterX: 0.75,
+        localCenterY: -0.5,
+        gravityScale: -2,
+        allowFastRotation: true,
+      },
+      mask: 15,
+      bytes: 46,
+    },
   ])("round-trips with $name in $bytes bytes", ({ fields, mask, bytes }) => {
     const motion = baseline(fields);
     const encoded = encode(motion);
@@ -75,13 +96,15 @@ describe("Motion", () => {
     expect(decoded.localCenterY).toBe(2);
   });
 
-  it("decodes absent groups to zero", () => {
+  it("decodes absent groups to their defaults", () => {
     const decoded = roundTrip(Motion, baseline());
 
     expect(decoded.linearDamping).toBe(0);
     expect(decoded.angularDamping).toBe(0);
     expect(decoded.localCenterX).toBe(0);
     expect(decoded.localCenterY).toBe(0);
+    expect(decoded.gravityScale).toBe(1);
+    expect(decoded.allowFastRotation).toBe(false);
   });
 
   it("decodes every value to the f32 nearest the encoded number", () => {
@@ -97,11 +120,13 @@ describe("Motion", () => {
       angularDamping: 0.1,
       localCenterX: 4 / 3,
       localCenterY: 7 / 9,
+      gravityScale: 0.3,
     });
     const decoded = roundTrip(Motion, motion);
 
-    const { frame, ...values } = motion;
+    const { frame, allowFastRotation, ...values } = motion;
     expect(decoded.frame).toBe(frame);
+    expect(decoded.allowFastRotation).toBe(allowFastRotation);
     for (const [key, value] of Object.entries(values)) {
       expect(decoded[key as keyof typeof values], key).toBe(Math.fround(value));
     }

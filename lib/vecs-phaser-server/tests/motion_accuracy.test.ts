@@ -24,6 +24,7 @@ import {
   BodyType,
   Circle,
   Damping,
+  GravityScale,
   LinearVelocity,
   PhysicsModule,
   Polygon,
@@ -50,8 +51,12 @@ interface Scenario {
   velocity: Vec2;
   /** Launch angular velocity in rad/s. */
   spin: number;
-  /** World gravity in m/s², default none. The body's gravity scale is Box2D's default, 1. */
+  /** World gravity in m/s², default none. */
   gravity?: Vec2;
+  /** Per-body gravity factor, default 1. */
+  gravityScale?: number;
+  /** Exempts the body from Box2D's cap on rotation per step. */
+  allowFastRotation?: boolean;
   /** Per-body damping, default none. */
   damping?: { linear: number; angular: number };
   /** The body's outline. A circle at the origin when absent, which puts the center of mass there. */
@@ -128,6 +133,13 @@ describe("the shared integrator against box2d3-wasm", () => {
       damping: DAMPING,
     },
     { name: "gravity (1, -4)", velocity: LAUNCH, spin: 2, gravity: GRAVITY },
+    {
+      name: "gravity (1, -4), gravityScale 0.5",
+      velocity: LAUNCH,
+      spin: 2,
+      gravity: GRAVITY,
+      gravityScale: 0.5,
+    },
     { name: "off-center mass", velocity: LAUNCH, spin: 2, polygon: QUADRILATERAL },
     {
       name: "damped, gravity, off-center mass",
@@ -204,6 +216,21 @@ describe("the shared integrator against box2d3-wasm", () => {
 
       record(scenario, 60, deviation);
       expect(deviation.firstSpin).toBeCloseTo((-Math.PI / 4) * 60, 2);
+      expectWithinTolerance(deviation);
+      expectExact(deviation);
+    });
+
+    it("matches Box2D when the body allows fast rotation", () => {
+      const scenario: Scenario = {
+        name: "spin -100 rad/s, allowFastRotation",
+        velocity: LAUNCH,
+        spin: -100,
+        allowFastRotation: true,
+      };
+      const deviation = measure(scenario, 60, 10);
+
+      record(scenario, 60, deviation);
+      expect(deviation.firstSpin).toBeCloseTo(-100, 2);
       expectWithinTolerance(deviation);
       expectExact(deviation);
     });
@@ -320,7 +347,7 @@ function measure(scenario: Scenario, hz: number, seconds: number): Deviation {
 function createBody(world: World, scenario: Scenario): Entity {
   const body = world
     .entity()
-    .set(Body, { type: BodyType.Dynamic })
+    .set(Body, { type: BodyType.Dynamic, allowFastRotation: scenario.allowFastRotation ?? false })
     .set(Position, { x: 0, y: 0 })
     .set(Rotation, { angle: 0 })
     .set(LinearVelocity, scenario.velocity)
@@ -328,7 +355,8 @@ function createBody(world: World, scenario: Scenario): Entity {
     // A body that falls asleep stops, which the integrator is not meant to follow: the server
     // restarts a sleeping body from a baseline with no velocity.
     .set(Sleep, { enabled: false })
-    .set(Damping, scenario.damping ?? { linear: 0, angular: 0 });
+    .set(Damping, scenario.damping ?? { linear: 0, angular: 0 })
+    .set(GravityScale, { value: scenario.gravityScale ?? 1 });
   const shape = world.entity().childOf(body);
   if (scenario.polygon === undefined) {
     shape.set(Circle, { radius: 0.25 });
@@ -353,6 +381,8 @@ function baselineOf(body: Entity, scenario: Scenario, frame: number): Partial<Mo
     w: body.get(AngularVelocity)!.value,
     linearDamping: scenario.damping?.linear ?? 0,
     angularDamping: scenario.damping?.angular ?? 0,
+    gravityScale: scenario.gravityScale ?? 1,
+    allowFastRotation: scenario.allowFastRotation ?? false,
     localCenterX: localCenter.x,
     localCenterY: localCenter.y,
   };

@@ -13,16 +13,19 @@ import { wireType, type Decoder, type Encoder } from "@vworlds/vecs-wire";
  * are the linear velocity of the center of mass, and `w` the angular velocity, as Box2D reports
  * them. The local center is the center of mass in body coordinates.
  *
- * The codec is hand-written so that zero constants cost nothing. It writes `frame` as a varint u32,
- * the six always-present f32 values, a one-byte mask and then the groups the mask lists:
+ * The codec is hand-written so that default constants cost nothing. It writes `frame` as a varint
+ * u32, the six always-present f32 values, a one-byte mask and then the groups the mask lists:
  *
  * | Mask bit | Group | Present when |
  * | --- | --- | --- |
  * | 0 | `linearDamping`, `angularDamping` (2 × f32) | either is non-zero |
  * | 1 | `localCenterX`, `localCenterY` (2 × f32) | either is non-zero |
+ * | 2 | `gravityScale` (f32) | it is not 1 |
+ * | 3 | none: the bit is `allowFastRotation` | it is true |
  *
- * An absent group decodes to zeros. Every f32 decodes to exactly the value encoded, so values that
- * are already f32 survive a round trip unchanged; other numbers are rounded to the nearest f32.
+ * An absent group decodes to its default: zeros, a gravity scale of 1. Every f32 decodes to exactly
+ * the value encoded, so values that are already f32 survive a round trip unchanged; other numbers
+ * are rounded to the nearest f32.
  *
  * Not part of `phaserNetworkComponents`: an application that uses dead reckoning appends
  * {@link phaserMotionComponents} to its own network components, after its existing entries, so no
@@ -63,10 +66,21 @@ export class Motion {
   public localCenterY = 0;
 
   /**
+   * Multiplier on the world gravity for this body, as Box2D applies it. Sent only when it is not 1.
+   *
+   * Box2D applies no gravity to a body without mass (`invMass == 0`), whatever its scale, and the
+   * integrator cannot tell such a body apart: set 0 here for a kinematic body.
+   */
+  public gravityScale = 1;
+
+  /** Box2D's `allowFastRotation`: the body is exempt from the cap on rotation per step. One mask bit. */
+  public allowFastRotation = false;
+
+  /**
    * Decode a `Motion` written by {@link Motion.wireEncode}.
    *
    * @param decoder The decoder positioned at the encoded `Motion`.
-   * @returns A new `Motion`, with zeros for the groups the mask leaves out.
+   * @returns A new `Motion`, with defaults for the groups the mask leaves out.
    */
   public static wireDecode(decoder: Decoder): Motion {
     const motion = new Motion();
@@ -86,6 +100,10 @@ export class Motion {
       motion.localCenterX = decoder.read_f32();
       motion.localCenterY = decoder.read_f32();
     }
+    if ((mask & MOTION_GRAVITY_SCALE) !== 0) {
+      motion.gravityScale = decoder.read_f32();
+    }
+    motion.allowFastRotation = (mask & MOTION_FAST_ROTATION) !== 0;
     return motion;
   }
 
@@ -97,6 +115,7 @@ export class Motion {
   public wireEncode(encoder: Encoder): void {
     const hasDamping = this.linearDamping !== 0 || this.angularDamping !== 0;
     const hasLocalCenter = this.localCenterX !== 0 || this.localCenterY !== 0;
+    const hasGravityScale = this.gravityScale !== 1;
     encoder.write_u32(this.frame);
     encoder.write_f32(this.x);
     encoder.write_f32(this.y);
@@ -105,7 +124,10 @@ export class Motion {
     encoder.write_f32(this.vy);
     encoder.write_f32(this.w);
     encoder.write_u8(
-      (hasDamping ? MOTION_DAMPING : 0) | (hasLocalCenter ? MOTION_LOCAL_CENTER : 0)
+      (hasDamping ? MOTION_DAMPING : 0) |
+        (hasLocalCenter ? MOTION_LOCAL_CENTER : 0) |
+        (hasGravityScale ? MOTION_GRAVITY_SCALE : 0) |
+        (this.allowFastRotation ? MOTION_FAST_ROTATION : 0)
     );
     if (hasDamping) {
       encoder.write_f32(this.linearDamping);
@@ -114,6 +136,9 @@ export class Motion {
     if (hasLocalCenter) {
       encoder.write_f32(this.localCenterX);
       encoder.write_f32(this.localCenterY);
+    }
+    if (hasGravityScale) {
+      encoder.write_f32(this.gravityScale);
     }
   }
 }
@@ -154,3 +179,9 @@ const MOTION_DAMPING = 1;
 
 /** {@link Motion} mask bit: the local center follows. */
 const MOTION_LOCAL_CENTER = 2;
+
+/** {@link Motion} mask bit: the gravity scale follows. */
+const MOTION_GRAVITY_SCALE = 4;
+
+/** {@link Motion} mask bit: `allowFastRotation` is set. It carries no payload. */
+const MOTION_FAST_ROTATION = 8;

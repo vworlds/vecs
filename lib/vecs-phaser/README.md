@@ -27,10 +27,13 @@ Also exports the shared asset catalog schema (`AssetDescriptor`, `SpritesheetDes
 
 `Motion` and `MotionClock` let a client extrapolate a physics body instead of receiving its pose
 every tick (#217). `Motion` is a complete baseline: the body origin, angle and velocities at a
-server frame, plus its damping and local center of mass when they are non-zero. `MotionClock` is
-the world's physics step, substep count, gravity and maximum linear speed, carried by one entity.
-`Motion` costs 26 bytes with a frame below 128, plus 8 for the damping pair and 8 for the local
-center.
+server frame, plus the body constants that differ from their defaults: damping, local center of
+mass, gravity scale and Box2D's `allowFastRotation`. `MotionClock` is the world's physics step,
+substep count, gravity and maximum linear speed, carried by one entity. `Motion` costs 26 bytes
+with a frame below 128, plus 8 for the damping pair, 8 for the local center and 4 for a gravity
+scale other than 1; `allowFastRotation` is a bit of the mask byte and costs nothing. Box2D applies
+no gravity to a body without mass, which the baseline cannot tell, so set `gravityScale` to 0 for a
+kinematic body.
 
 Neither is in `phaserNetworkComponents`. An application that uses dead reckoning appends
 `phaserMotionComponents` (`MotionClock`, then `Motion`) to its own network components, after its
@@ -54,9 +57,9 @@ stepMotion(state, motion, clock); // one physics step
 motionPose(state, motion, pose); // pose.x, pose.y, pose.angle
 ```
 
-Forces, contacts, joints, locked axes, `allowFastRotation`, a gravity scale other than 1 and sleep
-are not modeled: a body they affect leaves the prediction, and the server sends a new baseline. The
-server and client modules that send baselines and extrapolate them arrive in a follow-up pull request for #217.
+Forces, contacts, joints, locked axes and sleep are not modeled: a body they affect leaves the
+prediction, and the server sends a new baseline. The server and client modules that send baselines
+and extrapolate them arrive in a follow-up pull request for #217.
 
 Depends on `@vworlds/vecs` and `@vworlds/vecs-wire`.
 

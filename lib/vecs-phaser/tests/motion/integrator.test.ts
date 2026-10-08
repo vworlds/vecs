@@ -95,6 +95,16 @@ describe("stepMotion", () => {
     expect(last.cy).toBe(-10);
   });
 
+  it("scales gravity by the body's gravityScale, down to none", () => {
+    const worldClock = clock({ stepSeconds: 1, subSteps: 1, gravityY: -10 });
+    const [half] = run(motion({ gravityScale: 0.5 }), worldClock, 1);
+    const [none] = run(motion({ gravityScale: 0 }), worldClock, 1);
+
+    expect(half.vy).toBe(-5);
+    expect(none.vy).toBe(0);
+    expect(none.cy).toBe(0);
+  });
+
   it("caps the linear speed at maxLinearSpeed", () => {
     const [last] = run(motion({ vx: 300, vy: 400 }), clock({ maxLinearSpeed: 100 }), 1);
 
@@ -106,6 +116,13 @@ describe("stepMotion", () => {
     const [last] = run(motion({ w: -100 }), clock({ stepSeconds: 1 / 60 }), 1);
 
     expect(last.w).toBeCloseTo((-Math.PI / 4) * 60, 3);
+  });
+
+  it("does not cap the rotation of a body that allows fast rotation", () => {
+    const baseline = motion({ w: -100, allowFastRotation: true });
+    const [last] = run(baseline, clock({ stepSeconds: 1 / 60 }), 1);
+
+    expect(last.w).toBe(-100);
   });
 
   it("does nothing for a step of zero seconds", () => {
