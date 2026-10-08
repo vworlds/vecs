@@ -34,17 +34,21 @@ export abstract class Joint {
 
 /**
  * Relationship to the first connected body ("body A"). Set its `target` to the
- * body entity. Destroying body A destroys the joint entity (Box2D destroys a
- * body's joints with it). Anchors/limits/reference angle are expressed relative
- * to A through {@link JointFrame}.
+ * body entity. Destroying body A destroys the joint entity, with every component
+ * on it, as Box2D destroys a body's joints with it (`CleanupPolicy.Delete`); body
+ * B is left alone. Removing `Body` from A only tears the constraint down.
+ * Anchors/limits/reference angle are expressed relative to A through
+ * {@link JointFrame}.
  */
 export class JointBodyA extends Relationship {}
 
 /**
  * Relationship to the second connected body ("body B"). Set its `target` to the
- * body entity. Destroying body B destroys the joint entity. The A/B roles are
- * asymmetric: motors drive B relative to A and the reference angle is measured as
- * B's rest angle relative to A.
+ * body entity. Destroying body B destroys the joint entity, with every component
+ * on it (`CleanupPolicy.Delete`); body A is left alone. Removing `Body` from B
+ * only tears the constraint down. The A/B roles are asymmetric: motors drive B
+ * relative to A and the reference angle is measured as B's rest angle relative
+ * to A.
  */
 export class JointBodyB extends Relationship {}
 

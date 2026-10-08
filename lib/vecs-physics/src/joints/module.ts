@@ -1,4 +1,4 @@
-import { Exclusive, Implements, Module } from "@vworlds/vecs";
+import { CleanupPolicy, Exclusive, Implements, Module } from "@vworlds/vecs";
 
 import { BodyModule } from "../body/module.js";
 import { PhysicsCoreModule } from "../core/module.js";
@@ -29,8 +29,17 @@ export class JointsModule extends Module {
     world.module(PhysicsCoreModule);
     world.module(BodyModule);
 
-    world.component(JointBodyA).add(Exclusive);
-    world.component(JointBodyB).add(Exclusive);
+    // Destroying a connected body destroys the joint entity, as Box2D destroys a
+    // body's joints with it. Without the policy the default `Remove` would only drop
+    // the edge and leave a bodiless joint entity behind.
+    const jointBodyA = world.component(JointBodyA);
+    jointBodyA.add(Exclusive);
+    jointBodyA.meta.onDeleteTarget = CleanupPolicy.Delete;
+
+    const jointBodyB = world.component(JointBodyB);
+    jointBodyB.add(Exclusive);
+    jointBodyB.meta.onDeleteTarget = CleanupPolicy.Delete;
+
     world.component(Joint);
     world.component(RevoluteJoint);
     world.component(DistanceJoint);
