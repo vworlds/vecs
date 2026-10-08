@@ -16,6 +16,14 @@ export {
   Triangle,
 } from "./components/shapes.js";
 export { Text, TextAlign } from "./components/text.js";
+export { Motion, MotionClock } from "./components/motion.js";
+export {
+  MotionPose,
+  MotionState,
+  motionPose,
+  motionStateFrom,
+  stepMotion,
+} from "./motion/integrator.js";
 
 import { Container, DrawBy, DrawIn } from "./components/parenting.js";
 import { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
@@ -32,6 +40,7 @@ import {
   Triangle,
 } from "./components/shapes.js";
 import { Text } from "./components/text.js";
+import { Motion, MotionClock } from "./components/motion.js";
 
 /**
  * All components that participate in the network protocol, in registration order.
@@ -63,7 +72,8 @@ import { Text } from "./components/text.js";
  *  23  OpenPath
  *
  * `InheritRotation` is deliberately not listed: it is client-local by default, and appending to this
- * list shifts the wire id of every application component listed after it.
+ * list shifts the wire id of every application component listed after it. Neither are `Motion` and
+ * `MotionClock`, for the same reason: applications append {@link phaserMotionComponents} instead.
  */
 export const phaserNetworkComponents = [
   Position,
@@ -109,4 +119,17 @@ export const phaserRenderableComponents = [
   Text,
   Image,
   Container,
+] as const satisfies readonly ComponentClass[];
+
+/**
+ * The dead-reckoning wire components, `MotionClock` then `Motion`.
+ *
+ * They are not in {@link phaserNetworkComponents}: that list's order is the protocol, and appending
+ * to it would shift the wire id of every application component listed after it. An application that
+ * uses dead reckoning appends this list to its own network components, after its existing entries,
+ * on the server and the client alike.
+ */
+export const phaserMotionComponents = [
+  MotionClock,
+  Motion,
 ] as const satisfies readonly ComponentClass[];
