@@ -74,10 +74,11 @@ export {
 } from "./events/components.js";
 
 // Queries
-export { physics } from "./adapter/queries.js";
+export { BodyMotion, physics } from "./adapter/queries.js";
 export type {
   CastGeometry,
   PhysicsQueries,
+  PhysicsSettings,
   PhysicsStats,
   QueryFilter,
   RayHit,

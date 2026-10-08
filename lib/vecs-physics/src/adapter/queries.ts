@@ -11,6 +11,7 @@
 
 import { type EID, type Entity, type World } from "@vworlds/vecs";
 
+import { Body } from "../body/components.js";
 import { Box, Capsule, Circle, Polygon, Segment, type Vec2 } from "../shapes/components.js";
 import {
   scr_b2AABB,
@@ -52,6 +53,51 @@ export interface PhysicsStats {
   jointCount: number;
   /** Contacts currently alive in Box2D, touching or not. */
   contactCount: number;
+}
+
+/**
+ * The resolved settings of a physics world, read by {@link PhysicsQueries.settings}: the values
+ * `PhysicsModule` built the Box2D world with, defaults filled in.
+ */
+export interface PhysicsSettings {
+  /** World gravity in m/s². */
+  readonly gravity: Readonly<Vec2>;
+  /** Duration of one physics step, in seconds. */
+  readonly fixedTimeStep: number;
+  /** Box2D substeps per physics step. */
+  readonly subSteps: number;
+  /** Box2D's cap on the linear speed of a body, in m/s. */
+  readonly maximumLinearSpeed: number;
+}
+
+/**
+ * A body's motion as Box2D holds it, filled by {@link PhysicsQueries.bodyMotion}: what a peer needs
+ * to extrapolate the body, such as a dead-reckoning baseline. Plain data; allocate one and reuse it.
+ */
+export class BodyMotion {
+  /** Whether the body is awake. A sleeping body does not move and reports zero velocities. */
+  public awake = false;
+  /** Linear velocity of the center of mass, x, in m/s. */
+  public vx = 0;
+  /** Linear velocity of the center of mass, y, in m/s. */
+  public vy = 0;
+  /** Angular velocity in rad/s. */
+  public w = 0;
+  /** Linear damping, per second. */
+  public linearDamping = 0;
+  /** Angular damping, per second. */
+  public angularDamping = 0;
+  /** Center of mass in body coordinates, x, in meters. */
+  public localCenterX = 0;
+  /** Center of mass in body coordinates, y, in meters. */
+  public localCenterY = 0;
+  /**
+   * The gravity scale Box2D applies: the body's own scale, or 0 for a body without mass (a static
+   * or kinematic body), which Box2D never accelerates by gravity.
+   */
+  public gravityScale = 1;
+  /** Whether the body is exempt from Box2D's cap on rotation per step (`Body.allowFastRotation`). */
+  public allowFastRotation = false;
 }
 
 /** A single ray-cast hit, resolved to a Vecs shape entity with plain-data
@@ -104,6 +150,27 @@ export interface PhysicsQueries {
    * which makes them suitable for asserting that handles return to baseline after teardown.
    */
   stats(): PhysicsStats;
+
+  /** Returns the settings the Box2D world was built with. The object is shared: do not mutate it. */
+  settings(): PhysicsSettings;
+
+  /**
+   * Returns whether `entity`'s body is awake: `false` for an entity without a live body. It
+   * allocates nothing, so it is cheap enough to call per body per step.
+   */
+  isAwake(entity: Entity): boolean;
+
+  /**
+   * Reads `entity`'s body motion into `out`: whether it is awake, its velocities, its damping, its
+   * center of mass and the gravity scale Box2D applies to it. Each call reads Box2D, and the two
+   * vectors cost a short-lived wasm copy each, so call it when the values are needed, not every
+   * step.
+   *
+   * @param entity The body entity.
+   * @param out The object to overwrite.
+   * @returns `false`, leaving `out` untouched, when `entity` has no live body.
+   */
+  bodyMotion(entity: Entity, out: BodyMotion): boolean;
 
   /** Casts a ray from `from` to `to` and returns the closest hit, or `undefined`
    * if the ray hits nothing (or only hits shapes whose entity has since been
@@ -160,10 +227,58 @@ export function physics(world: World): PhysicsQueries {
 }
 
 class PhysicsQueriesImpl implements PhysicsQueries {
+  private _settings: PhysicsSettings | undefined;
+
   public constructor(
     private readonly world: World,
     private readonly engine: PhysicsEngine
   ) {}
+
+  public bodyMotion(entity: Entity, out: BodyMotion): boolean {
+    const body = entity.get(Body);
+    const bodyId = body?._bodyId;
+    if (body === undefined || bodyId === undefined) {
+      return false;
+    }
+    const { box2d } = this.engine;
+    out.awake = box2d.b2Body_IsAwake(bodyId);
+    const linear = box2d.b2Body_GetLinearVelocity(bodyId);
+    try {
+      out.vx = linear.x;
+      out.vy = linear.y;
+    } finally {
+      linear.delete();
+    }
+    out.w = box2d.b2Body_GetAngularVelocity(bodyId);
+    out.linearDamping = box2d.b2Body_GetLinearDamping(bodyId);
+    out.angularDamping = box2d.b2Body_GetAngularDamping(bodyId);
+    const center = box2d.b2Body_GetLocalCenterOfMass(bodyId);
+    try {
+      out.localCenterX = center.x;
+      out.localCenterY = center.y;
+    } finally {
+      center.delete();
+    }
+    // Box2D applies gravity times the scale only to a body with mass (src/solver.c:99).
+    out.gravityScale = box2d.b2Body_GetMass(bodyId) > 0 ? box2d.b2Body_GetGravityScale(bodyId) : 0;
+    out.allowFastRotation = body.allowFastRotation;
+    return true;
+  }
+
+  public isAwake(entity: Entity): boolean {
+    const bodyId = entity.get(Body)?._bodyId;
+    return bodyId !== undefined && this.engine.box2d.b2Body_IsAwake(bodyId);
+  }
+
+  public settings(): PhysicsSettings {
+    const engine = this.engine;
+    return (this._settings ??= Object.freeze({
+      gravity: Object.freeze({ x: engine.gravityX, y: engine.gravityY }),
+      fixedTimeStep: engine.fixedTimeStep,
+      subSteps: engine.subSteps,
+      maximumLinearSpeed: engine.maximumLinearSpeed,
+    }));
+  }
 
   public stats(): PhysicsStats {
     const { box2d, worldId } = this.engine;

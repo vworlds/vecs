@@ -851,6 +851,12 @@ system after whatever produces the entity/companion.
   on the physics and render pose fire when the pose changed, not on every step; to visit every body
   every step, iterate with `each` (see
   [Pose Updates Fire Only When The Pose Changes](../../vecs-physics/docs/systems-and-phases.md#pose-updates-fire-only-when-the-pose-changes)).
+- **vecs-phaser-server: game code owns the physics pose; the render pose is protocol-private.** On
+  the server, read and write the physics `Position` and `Rotation` of every entity, including one
+  without a `Body`. The render `Position` and `Rotation` and the dead-reckoning `Motion` are wire
+  encodings of that pose that only the sync systems write: a `DeadReckoned` body has no render pose
+  at all, and adding one throws (see
+  [Dead reckoning](../../vecs-phaser-server/README.md#dead-reckoning)).
 - **vecs-client: attach a `ClientWorld` socket only after `socket.connect()` resolves,** so no ack
   precedes the data channel (`connectDgram` does this). Pending `invoke` calls reject with
   `RPC_CLOSED_CODE` on disconnect or `dispose` (see

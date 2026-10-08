@@ -123,6 +123,13 @@ import {
   type SensorEvent,
   HitEvents,
   type HitEvent,
+
+  // Queries (read-only, see docs/queries.md)
+  physics,
+  BodyMotion, // filled by physics(world).bodyMotion
+  type PhysicsQueries,
+  type PhysicsSettings,
+  type PhysicsStats,
 } from "@vworlds/vecs-physics";
 ```
 

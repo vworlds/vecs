@@ -347,6 +347,19 @@ export class ServerWorld extends NetworkWorld {
       .run(() => this.send());
   }
 
+  /**
+   * The frame the next {@link ServerWorld.send} numbers: the frame a client receives the changes
+   * made since the previous send as.
+   *
+   * During `progress()` it is the frame of the tick in flight, since the world's own send runs
+   * after every user phase. A system that stamps state with the frame it holds at, such as a
+   * dead-reckoning baseline, reads it here: the client sees that state as of this frame. It starts
+   * at 1 and grows by one on every send, whether or not any session is connected.
+   */
+  public get frame(): number {
+    return this._frame;
+  }
+
   /** @internal */
   public _attach(listener: VecsSocketListener): void {
     this._listeners.push(listener);
