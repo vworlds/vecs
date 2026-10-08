@@ -768,6 +768,12 @@ After physics applies an `Impulse` or `AngularImpulse`, it zeroes the public fie
 
 A shape with no `ContactEvents`, `SensorEvents`, or `HitEvents` receives no event arrays. This keeps event processing cheap by default.
 
+### Keep Component Fields Plain Data
+
+Fill physics components with primitives, arrays, and plain objects. Do not store a Box2D wrapper such as `b2Vec2`, or any other class instance, in a public field. `set` accepts it, but the component can no longer be captured: `snapshotSubtree` and `moveSubtree` throw, naming the component and the field path. The Box2D handles that physics keeps on its own components live in `_`-prefixed fields, which the physics snapshot policies drop. Leave those fields alone.
+
+See [Moving Subtrees Between Worlds](./index.md#moving-subtrees-between-worlds).
+
 ## Related Pages
 
 - [Getting Started](./getting-started.md)

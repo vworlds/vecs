@@ -15,7 +15,10 @@ They never create the render component. A changed pose is assigned into the inje
 announced with `entity.modified(...)`, which fires the same `set` hooks, routes the same `update`
 events and replicates the same way `set` does. Every modification replicates a networked component,
 so a body that does not move or turn rewrites, and therefore re-sends, nothing: a bullet flying
-straight keeps its constant render `Rotation` out of the network.
+straight keeps its constant render `Rotation` out of the network. For the same reason, `set` hooks
+and `update` systems on the render pose run when the pose changed, not on every step. A system that
+must visit every entity every step should iterate with `each`, which does not wait for a change; see
+[Pose Updates Fire Only When The Pose Changes](../vecs-physics/docs/systems-and-phases.md#pose-updates-fire-only-when-the-pose-changes).
 
 Create display edges with `entity.add(DrawIn, parent)` or `entity.add(DrawBy, parent)`. Relationship
 targets are not component payload properties, and the server module does not make the two display

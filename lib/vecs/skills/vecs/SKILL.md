@@ -65,6 +65,41 @@ Check the design guide before introducing:
 If the requested design conflicts with a documented vecs invariant, explain the conflict and use
 the documented pattern unless the user explicitly chooses otherwise.
 
+## Known Gotchas
+
+Agents trip on these vecs behaviors repeatedly. Design guide section 9 lists them with the other
+pitfalls; each rule below links to the detail.
+
+- Do not call `getMut` per tick unless a change is intended. It marks the component modified even
+  without a callback and even if nothing is written, which fires `update` watchers and replication.
+  Read with `get`. ([`getMut`](../../docs/entities.md#getmut-and-ensure-mutating-in-place))
+- A system's `enter` reaches only entities still in its query when the system drains. An entity
+  that left the query or died first gets neither `enter` nor the paired `exit`, and a re-entry
+  within one drain gives `enter`, `exit`, `enter`, so keep setup and teardown symmetric.
+  ([`.enter`](../../docs/systems.md#entercallback--enterinject-callback--enteroptions-callback))
+- Create relationship edges with `add(Rel, target)` and read them with `target()` / `targets()`.
+  React to the relationship component being removed with `on("remove")` and to each removed edge
+  with `on("targetRemove")`. `OwnedTarget` needs `Exclusive` and an explicitly created target, and
+  destroys that target when its edge is removed.
+  ([Edge hooks](../../docs/relationships.md#edge-hooks),
+  [Owned targets](../../docs/relationships.md#owned-targets))
+- `@vworlds/vecs-phaser`: a `DrawBy` child turns with its parent only with `InheritRotation`. The
+  resolver derives a tagged child's `Rotation` every frame, so writing `Rotation` on it has no
+  effect; set `InheritRotation.angle` instead.
+  ([Turning with the parent](../../../vecs-phaser-client/README.md#turning-with-the-parent))
+- `@vworlds/vecs-physics` and `@vworlds/vecs-phaser-server`: pose `set` hooks and `update` systems
+  on the physics and render pose fire only when the pose changes. To visit every body every step,
+  iterate with `each`.
+  ([Pose updates](../../../vecs-physics/docs/systems-and-phases.md#pose-updates-fire-only-when-the-pose-changes))
+- `@vworlds/vecs-client`: attach a `ClientWorld` socket only after `socket.connect()`, so no ack
+  precedes the data channel (`connectDgram` does this). Pending `invoke` calls reject with
+  `RPC_CLOSED_CODE` on disconnect or dispose.
+  ([Connecting](../../../vecs-client/docs/client-world.md#connecting),
+  [Disconnection and disposal](../../../vecs-client/docs/client-world.md#disconnection-and-disposal))
+- `@vworlds/vecs-physics` components hold plain data only, never Box2D wrappers or other class
+  instances: snapshot capture rejects non-plain values.
+  ([Plain data](../../../vecs-physics/docs/components.md#keep-component-fields-plain-data))
+
 ## Implement And Verify
 
 1. Reuse existing components and modules where their semantics match; do not reuse them merely
