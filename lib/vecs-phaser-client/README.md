@@ -66,6 +66,37 @@ relationship. The computed resolver (`phaser.resolve.offset`) reads the `DrawBy`
 interpolated `Position` and adds `Offset` directly to it; it does not use `DrawIn`, and unless the
 child opts in below, the parent's rotation neither turns the offset nor the child.
 
+### Destroying the display parent
+
+`DrawIn` and `DrawBy` use `CleanupPolicy.Remove` (`DisplaySetupModule` sets it, and it is the default
+for any relationship), unlike `ChildOf`, which uses `Delete`. Destroying a display parent therefore
+only removes the edge from each child: the child **entity** is not destroyed, and a `DrawBy` child
+stays on the scene root with the pose it was last resolved to.
+
+A display child that must die with its parent needs an ownership edge as well, because the display
+edges never destroy anything. Give it a `ChildOf` edge to the parent, which coexists with `DrawIn`
+and `DrawBy`, or make it an owned target of the parent
+([`Exclusive` + `OwnedTarget`](../vecs/docs/relationships.md#owned-targets)), which parents it
+through `ChildOf`:
+
+```ts
+import { DrawBy, Offset, OpenPath, Polygon } from "@vworlds/vecs-phaser";
+
+// Client code: the crack is drawn by `rock` and is destroyed with it.
+world
+  .entity()
+  .add(DrawBy, rock) // display link: only this edge goes when the rock is destroyed
+  .childOf(rock) // ownership link: the rock's destruction destroys the crack
+  .set(Offset, { x: 0.2, y: 0.1 })
+  .set(Polygon, { points: [0, 0, 0.3, 0.1, 0.5, 0.4] })
+  .add(OpenPath);
+```
+
+`ChildOf` is not in `phaserNetworkComponents`, so it does not replicate unless your application
+lists it. A child the server creates gets its `ChildOf` on the server, where the cascade runs; a
+child that client code creates gets it in client code, as above. The design is in
+[Container lifetime](../vecs-phaser/architecture/README.md#container-lifetime).
+
 ### Turning with the parent
 
 Add `InheritRotation` to a `DrawBy` child to put it in its parent's local frame: a crack on a

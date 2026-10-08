@@ -69,8 +69,14 @@ Entity ids are drawn from configurable pools. The defaults
 Pass `idPools` to the `World` constructor to change ranges (each entry is an `IdPoolConfig` with
 `name`, `min`, optional `max`, and optional `reuseWaitFrames`). Freed ids wait
 `reuseWaitFrames` frames (default `DEFAULT_ID_REUSE_WAIT_FRAMES = 16`) before reuse, so an id
-released this frame is not immediately recycled. `world.peekNextEid(poolName)` returns the next id
-a pool would allocate without reserving it. Id 0 is reserved.
+released this frame is not immediately recycled. A frame is one `beginFrame()`, so one
+`progress()`; a wait of `0` frees the id at once. Once the wait is over, allocation hands out free
+ids before never-used ones, lowest first, so a released id is recycled by one of the next entities
+created. A `ClientWorld` sets the wait to `0` for the ids of replicated entities and keeps the
+default for its local ones. A recycled id is why a stored id is not a safe link between entities
+(see [Link with edges, not stored ids](./relationships.md#link-with-edges-not-stored-ids)).
+`world.peekNextEid(poolName)` returns the next id a pool would allocate without reserving it. Id 0
+is reserved.
 
 ## Hooks: component and relationship edges
 
@@ -102,6 +108,26 @@ references, so the entity is passed explicitly. Hooks fire synchronously when th
 command is applied (see [Execution model](./execution-model.md#reactive-routing)). Use hooks for
 resource management and cross-cutting reactions that aren't worth a system; use systems when the
 reaction belongs to a phase.
+
+`remove` also fires when the owning entity is destroyed, and `entity.destroyed` is already `true`
+inside the hook. A dying entity takes no writes: `add`, `set`, `remove`, `modified` and `attach`
+are dropped without an error, and `ensure` throws. Releasing a resource needs no check. A hook that
+also writes to its own entity must skip the write when `entity.destroyed`, and that guard is the
+right one here (relationship hooks follow the same rule, see
+[Relationships — edge hooks](./relationships.md#edge-hooks)):
+
+```ts
+class Shield {}
+class Stats {
+  armor = 0;
+}
+
+world.component(Shield).on("remove", (entity) => {
+  if (!entity.destroyed) {
+    entity.ensure(Stats, (stats) => (stats.armor -= 10)); // throws on a dying entity
+  }
+});
+```
 
 Multiple handlers may be registered for the same event: they fire in registration
 order. Call `on(event, handler)` to append, `on(event, handler, true)` to

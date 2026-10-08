@@ -702,6 +702,11 @@ The lifecycle follows from the relationship and trait:
 | `player.remove(Inventory)`            | Destroys every current target                                             |
 | Destroy `player`                      | `ChildOf` destroys the inventory                                          |
 
+Prefer this to a component field that holds the child entity, with an `onRemove` hook that destroys
+it. Every operation that drops the edge destroys the child, and destroying the child directly
+removes the edge, so the owner needs no hook and holds nothing that can go stale (see
+[Link with edges, not stored ids](./relationships.md#link-with-edges-not-stored-ids)).
+
 Inside deferred execution, keep and mutate the target you created; the queued edge is not visible
 through `target` until flush:
 
@@ -749,6 +754,9 @@ system after whatever produces the entity/companion.
 | A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                        |
 | A large nested `inventory`, `brain`, or progression object             | Use an owned target entity when the subobject needs its own components, systems, and lifecycle.                                                      |
 | A side `Map<ownerEid, SubsystemState>`                                 | Create a target entity and add an explicit edge; use `Exclusive` + `OwnedTarget` only for destructive ownership.                                     |
+| An `eid` or `Entity` stored in a component field as a link             | A relationship edge: vecs cleans it up; a stored eid can name another entity once reused ([why](./relationships.md#link-with-edges-not-stored-ids)). |
+| A component field holding a child entity, destroyed in `onRemove`      | `Exclusive` + `OwnedTarget`: dropping the edge destroys the child; no hook, no stale field ([§7](#owned-target-entities-entity-valued-properties)).  |
+| `entity.destroyed` guards on an entity looked up from a stored link    | A missing edge: replace the link. Keep guards for event buffers and dying-entity hooks ([why](./relationships.md#link-with-edges-not-stored-ids)).   |
 | `OwnedTarget` on `CurrentEnemy`, `InCell`, `Team`, or shared state     | Use a normal relationship; replacing or removing an owned edge destroys its target.                                                                  |
 | One owned target used as a collection                                  | Use multiple child/item entities; owned targets model zero-or-one aggregates.                                                                        |
 | Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                           |
@@ -787,6 +795,11 @@ system after whatever produces the entity/companion.
   within a drain gets `enter`, `exit`, `enter`, so keep `enter` setup and `exit` teardown symmetric
   (see [`.enter`](./systems.md#entercallback--enterinject-callback--enteroptions-callback)).
 - **`exit` retains injected references captured at exit** (components are not deep-cloned).
+- **A `remove` hook also fires while the entity is being destroyed,** with `entity.destroyed`
+  already `true`. A dying entity takes no writes (`add`, `set`, `remove`, `modified` and `attach` are
+  dropped, `ensure` throws), so a hook that writes to its own entity guards on `entity.destroyed`.
+  That guard is legitimate; elsewhere a `destroyed` check usually signals a missing edge (see §8 and
+  [Hooks](./components.md#hooks-component-and-relationship-edges)).
 - **Within a phase, order = registration order;** across phases, the spine guarantees order. Don't
   use registration order for cross-module correctness — use phases.
 - **Networked component order = wire protocol.** Reordering breaks the protocol.
@@ -825,6 +838,10 @@ system after whatever produces the entity/companion.
   only with `InheritRotation`, which makes the resolver derive its `Rotation` every frame, so
   writing `Rotation` on a tagged child has no effect (see
   [Turning with the parent](../../vecs-phaser-client/README.md#turning-with-the-parent)).
+- **vecs-phaser: `DrawBy` and `DrawIn` use `CleanupPolicy.Remove`,** so destroying a display parent
+  detaches its children instead of destroying them, unlike `ChildOf`, which deletes them. A display
+  child that must die with its parent also needs `ChildOf` to it, or must be its owned target (see
+  [Destroying the display parent](../../vecs-phaser-client/README.md#destroying-the-display-parent)).
 - **vecs-physics, vecs-phaser-server: pose writes are change-only.** `set` hooks and `update` systems
   on the physics and render pose fire when the pose changed, not on every step; to visit every body
   every step, iterate with `each` (see
