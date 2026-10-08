@@ -230,6 +230,16 @@ export class InheritRotation {
 export const phaserNetworkComponents: readonly ComponentClass[];
 export const phaserRenderableComponents: readonly ComponentClass[];
 
+// Dead reckoning (see ../README.md#dead-reckoning). Wire types, but NOT in phaserNetworkComponents
+export class Motion {} // baseline: frame, pose, velocities; optional damping, local center, gravity scale, fast-rotation flag
+export class MotionClock {} // world step, substeps, gravity, maximum linear speed
+export const phaserMotionComponents: readonly ComponentClass[]; // [MotionClock, Motion], appended by apps
+export class MotionState {} // integrator state: center of mass, rotation, velocities (f32)
+export class MotionPose {} // origin and angle
+export function motionStateFrom(motion: Motion, out: MotionState): MotionState;
+export function stepMotion(state: MotionState, motion: Motion, clock: MotionClock): void;
+export function motionPose(state: MotionState, motion: Motion, out: MotionPose): MotionPose;
+
 // Asset catalog schema (JSON over HTTP; no @wireType)
 export interface AssetDescriptor {
   id: number;
@@ -440,6 +450,10 @@ appending it there would shift the wire id of every application component listed
 components, and the tag is meant to be added client-side. An application that wants the server to
 set it lists it in its own network components, after the components it already has, on the server
 and the client alike. `protocol.test.ts` pins the list at 23 entries.
+
+`Motion` and `MotionClock`, the dead-reckoning components, stay out of the list for the same
+reason. Applications append `phaserMotionComponents` to their own network components; see
+[Dead reckoning](../README.md#dead-reckoning).
 
 Exactly one renderable per entity is enforced server-side by
 `setExclusiveComponents(...phaserRenderableComponents)` (installed by `PhaserServerModule`). The
