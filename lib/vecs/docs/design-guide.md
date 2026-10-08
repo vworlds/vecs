@@ -133,11 +133,12 @@ entity.attach(obj); // the GameObject is now a component, keyed by its class
 world.component(Phaser.GameObjects.Arc).on("remove", (_entity, obj) => obj.destroy());
 ```
 
-`onRemove` (below) releases the resource whenever it leaves — whether removed explicitly or
-because the entity was destroyed. When several resource types should share one cleanup hook or be
-queried together, give them a common **interface** with `Implements` (see §7 and the §10 case
-study). A plain wrapper component (`class Handle { obj }`) is still fine when you need extra fields
-beside the resource.
+`onRemove` (below) releases the resource whenever it leaves — whether removed explicitly,
+because the entity was destroyed, or because the world was disposed (`world.dispose()` destroys
+every entity the application created; see [Disposing a world](./entities.md#disposing-a-world)).
+When several resource types should share one cleanup hook or be queried together, give them a
+common **interface** with `Implements` (see §7 and the §10 case study). A plain wrapper component
+(`class Handle { obj }`) is still fine when you need extra fields beside the resource.
 
 ### Component lifecycle hooks: `onAdd` / `onSet` / `onRemove`
 
@@ -800,6 +801,10 @@ system after whatever produces the entity/companion.
   dropped, `ensure` throws), so a hook that writes to its own entity guards on `entity.destroyed`.
   That guard is legitimate; elsewhere a `destroyed` check usually signals a missing edge (see §8 and
   [Hooks](./components.md#hooks-component-and-relationship-edges)).
+- **Release resources in `remove` hooks, not in a system's `exit` callback.** `world.dispose()`
+  runs the hooks during the call, but a system's `exit` callback only queues its event, and a
+  disposed world never runs the system again (see
+  [Disposing a world](./entities.md#disposing-a-world)).
 - **Within a phase, order = registration order;** across phases, the spine guarantees order. Don't
   use registration order for cross-module correctness — use phases.
 - **Networked component order = wire protocol.** Reordering breaks the protocol.

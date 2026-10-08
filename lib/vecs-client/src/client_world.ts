@@ -118,7 +118,7 @@ export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> 
  * A `ClientWorld` is scoped to one connection: connect it, drive it from
  * `progress()`, and tear it down with {@link ClientWorld.dispose} when the player
  * moves to another world. A fresh world per connection is what keeps listeners,
- * timers, and replicated entities from outliving a switch.
+ * timers, and entities, replicated or local, from outliving a switch.
  */
 export class ClientWorld extends NetworkWorld {
   public readonly events = new Events<ClientWorldEvents>();
@@ -449,10 +449,22 @@ export class ClientWorld extends NetworkWorld {
    * In order: pending {@link ClientWorld.invoke} calls reject with an
    * `RPCError` carrying code `RPC_CLOSED_CODE`; server-to-client requests still
    * queued for {@link ClientWorld.apply} are dropped unrun; replicated entities
-   * are destroyed — firing every exit system, which is what lets render hooks
-   * free their resources; the diff buffer resets; and the ack timer stops and
-   * the socket closes. A call whose reply already arrived has settled with it,
-   * so it is not among the rejected ones.
+   * are destroyed, which fires their components' `remove` hooks; the diff
+   * buffer resets; the ack timer stops and the socket closes; and finally every
+   * other entity is destroyed through `World.dispose()`. Those are the
+   * client-local ones — UI, effects, `DrawBy` children — and destroying them
+   * fires their `remove` hooks too, so render resources such as Phaser
+   * GameObjects are released the same way as the replicated ones. A call whose
+   * reply already arrived has settled with it, so it is not among the rejected
+   * ones.
+   *
+   * The client's own component, query and system entities, like those of any
+   * module, stay. A system's `exit` callback only queues its event, and a
+   * disposed world never runs the system again, so release resources in
+   * `remove` hooks. `World.dispose()` documents what else stays and what
+   * happens when it runs inside a system or hook, as it does from a
+   * `disconnect` handler that {@link ClientWorld.apply} triggers by closing the
+   * client for a protocol error.
    *
    * Idempotent, and safe to call on a world that never connected. `VecsSocket`
    * has no `off`, so after dispose the `receive` and `disconnect` handlers are
@@ -460,7 +472,7 @@ export class ClientWorld extends NetworkWorld {
    * dispose's own `disconnect` is not re-emitted. Reconnecting or re-attaching
    * a socket to a disposed world throws — build a new `ClientWorld` instead.
    */
-  public dispose(): void {
+  public override dispose(): void {
     if (this._disposed) {
       return;
     }
@@ -472,6 +484,7 @@ export class ClientWorld extends NetworkWorld {
     this._destroyNetworkEntities();
     this._diffBuffer.reset();
     this.close();
+    super.dispose();
   }
 
   private _receive(socket: VecsSocket, data: Uint8Array): void {

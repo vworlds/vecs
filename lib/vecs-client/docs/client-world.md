@@ -226,9 +226,24 @@ In order, `dispose`:
 
 1. rejects every pending `invoke` with an `RPCError` carrying `RPC_CLOSED_CODE`,
 2. drops the server-to-client requests still queued for `apply()`, without running them,
-3. destroys the replicated `Networked` entities, firing their exit systems,
-4. resets the diff buffer so a new world starts from a clean baseline, and
-5. closes the socket.
+3. destroys the replicated `Networked` entities, firing their components' `remove` hooks,
+4. resets the diff buffer so a new world starts from a clean baseline,
+5. closes the socket, and
+6. destroys every other entity through
+   [`World.dispose()`](../../vecs/docs/entities.md#disposing-a-world): the client-local ones, such
+   as UI, effects and `DrawBy` children, so their `remove` hooks release their resources too.
+
+Steps 3 and 6 are what free render resources. A Phaser `GameObject` attached to an entity as a
+component is destroyed by its `remove` hook, so it goes whether the entity is replicated or local,
+and no module-level sweep is needed. Replicated entities go first, then the client-local ones;
+within each group the order is unspecified. The client's own component, query and system entities
+stay, as in any world, and so does data a module stores on a component entity with `world.set`:
+release that yourself. A system's `exit` callback only queues its event, and a disposed world never
+runs the system again, so do the releasing in `remove` hooks.
+
+`dispose()` can run while the world is deferred, for example in a `disconnect` handler that
+`apply()` triggers when it closes the client for a protocol error. The destruction is then queued
+like any `destroy()` and completes when the running system finishes.
 
 A call whose reply has already arrived is not rejected: it settled when the reply came in, so
 disposal only rejects the calls still waiting for one.
@@ -251,8 +266,9 @@ Frames that arrive after disposal are dropped rather than applied, so a socket t
 world cannot resurrect entities. `VecsSocket` has no `off`, which is why disposal guards the
 handlers instead of removing them — the alternative would let a stale socket mutate a live world.
 
-Build a new `ClientWorld` to start over; the constructor has no internal state tied to the previous
-one.
+The entity API is not guarded, so `entity()` and `progress()` still run on a disposed world, but it
+must not be used again ([Disposing a world](../../vecs/docs/entities.md#disposing-a-world)). Build
+a new `ClientWorld` to start over; the constructor has no internal state tied to the previous one.
 
 ## Frames the client cannot decode
 
@@ -310,7 +326,7 @@ a payload that fails there still throws out of `apply()`.
 | `world.renderFrame`                 | The fractional server frame the world renders; `0` before the first baseline.           |
 | `world.send()`                      | Send input, outstanding replies, and the current ack frame.                             |
 | `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable.    |
-| `world.dispose()`                   | One-way teardown: reject pending calls, clear state, destroy network entities.          |
+| `world.dispose()`                   | One-way teardown: reject calls, close the socket, destroy network and local entities.   |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-client/src/client_world.ts` and
 `lib/vecs-client/src/diff_buffer.ts`.
