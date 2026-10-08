@@ -57,6 +57,6 @@ sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vec
 
 - [Remote procedure calls](../../vecs-protocol/docs/rpc.md) — the call channel and typed errors.
 - [Sessions and caller context](../../vecs-server/docs/sessions.md) — per-connection RPC context,
-  replication filters, `closeSession`, and exactly-once teardown.
+  `closeSession`, and exactly-once teardown.
 - [Client world](../../vecs-client/docs/client-world.md) — replication, render time,
   `invoke`/`listen`, and disposal.
