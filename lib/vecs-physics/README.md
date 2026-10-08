@@ -62,7 +62,7 @@ console.log(finalPosition.x.toFixed(3), finalPosition.y.toFixed(3));
 
 - `Detectable` - marker component that makes a solid shape visible to sensors (Box2D v3 requires both the sensor shape and the visited shape to opt in to sensor events).
 - Joints - revolute, distance, prismatic, wheel, weld, filter, and motor constraints between two bodies, modelled as a joint entity with `JointBodyA`/`JointBodyB` relationships, an exclusive joint-type component, and optional motor/limit/spring features. See [Joints](./docs/joints.md).
-- `physics(world)` - imperative, read-only query API: `rayCastClosest`, `rayCastAll`, `shapeCastClosest`, `shapeCastAll`, `overlapAABB` (broad-phase), and `overlapCircle` (precise mid-phase). Results are Vecs shape entities, never Box2D handles. See [Queries](./docs/queries.md).
+- `physics(world)` - imperative, read-only query API: `rayCastClosest`, `rayCastAll`, `shapeCastClosest`, `shapeCastAll`, `overlapAABB` (broad-phase), and `overlapCircle` (precise mid-phase), plus `settings`, `isAwake` and `bodyMotion` for predicting a body. Results are Vecs shape entities or plain data, never Box2D handles. See [Queries](./docs/queries.md).
 
 ```ts
 import { Circle, physics } from "@vworlds/vecs-physics";

@@ -10,11 +10,12 @@ import { buildApiSnapshot, type ApiSnapshot } from "../../scripts/api-snapshot-l
 type PublicTypeExports = [PhysicsOptions, Vec2, ContactEvent, SensorEvent, HitEvent];
 
 const APPROVED_API = readApprovedApiSnapshot();
-// `PhysicsModule` is the entry point, not a component; `Shape` and `Joint` are
-// abstract interface markers (see Implements) with no instantiable defaults of
-// their own — none has a row in the Defaults table.
+// `PhysicsModule` is the entry point and `BodyMotion` the output of a query, not
+// components; `Shape` and `Joint` are abstract interface markers (see Implements)
+// with no instantiable defaults of their own — none has a row in the Defaults table.
+const NOT_COMPONENTS = new Set(["BodyMotion", "PhysicsModule", "Shape", "Joint"]);
 const DOCUMENTED_COMPONENT_CLASSES = APPROVED_API.classExports.filter(
-  (name) => name !== "PhysicsModule" && name !== "Shape" && name !== "Joint"
+  (name) => !NOT_COMPONENTS.has(name)
 );
 
 describe("public API exports", () => {

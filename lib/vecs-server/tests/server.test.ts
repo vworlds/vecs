@@ -2523,3 +2523,21 @@ describe("ServerWorld send failures", () => {
     expect(world.getEntity(getSession(world, "good").entity.eid)).toBeDefined();
   });
 });
+
+describe("ServerWorld.frame", () => {
+  it("is the frame the next send numbers, which systems see during progress", () => {
+    const world = createWorld();
+    const seen: number[] = [];
+    world.system("test.frame").run(() => {
+      seen.push(world.frame);
+    });
+
+    expect(world.frame).toBe(1);
+    tick(world);
+    tick(world);
+    world.send();
+
+    expect(seen).toEqual([1, 2]);
+    expect(world.frame).toBe(4);
+  });
+});

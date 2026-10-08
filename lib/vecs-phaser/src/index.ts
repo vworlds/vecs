@@ -20,6 +20,7 @@ export { Motion, MotionClock } from "./components/motion.js";
 export {
   MotionPose,
   MotionState,
+  motionAtRest,
   motionPose,
   motionStateFrom,
   stepMotion,

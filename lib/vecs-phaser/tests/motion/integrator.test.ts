@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Motion, MotionClock } from "../../src/components/motion.js";
 import {
+  motionAtRest,
   MotionPose,
   MotionState,
   motionPose,
@@ -164,5 +165,32 @@ describe("determinism", () => {
     expect(sin).not.toHaveBeenCalled();
     expect(cos).not.toHaveBeenCalled();
     expect(atan2).not.toHaveBeenCalled();
+  });
+});
+
+describe("motionAtRest", () => {
+  it("holds a baseline with no velocity and no gravity acting on it", () => {
+    const still = Object.assign(new Motion(), { x: 3, angle: 1, linearDamping: 0.2 });
+    const space = new MotionClock();
+    const earth = Object.assign(new MotionClock(), { gravityY: -10 });
+
+    expect(motionAtRest(still, space)).toBe(true);
+    expect(motionAtRest(still, earth)).toBe(false);
+    expect(motionAtRest(Object.assign(new Motion(), { gravityScale: 0 }), earth)).toBe(true);
+    expect(motionAtRest(Object.assign(new Motion(), { w: 0.1 }), space)).toBe(false);
+    expect(motionAtRest(Object.assign(new Motion(), { vy: -0.1 }), space)).toBe(false);
+  });
+
+  it("is true exactly when a step leaves the body where it is", () => {
+    const motion = Object.assign(new Motion(), { x: 3, y: -2, angle: 0.75, gravityScale: 0 });
+    const clock = Object.assign(new MotionClock(), { gravityY: -10 });
+    const state = motionStateFrom(motion, new MotionState());
+    const before = motionPose(state, motion, new MotionPose());
+
+    stepMotion(state, motion, clock);
+
+    expect(motionAtRest(motion, clock)).toBe(true);
+    expect(motionPose(state, motion, new MotionPose()).x).toBe(before.x);
+    expect(motionPose(state, motion, new MotionPose()).y).toBe(before.y);
   });
 });

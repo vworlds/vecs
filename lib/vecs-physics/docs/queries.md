@@ -31,6 +31,29 @@ The counts track Box2D rather than entities: destroying a body entity removes it
 when the reaper runs in the next step. Chain segments count as one shape each. Use it to assert
 that handles return to baseline after teardown.
 
+## Settings And Body Motion
+
+Three reads expose what a peer needs to predict a body, as the dead-reckoning sync in
+`@vworlds/vecs-phaser-server` does:
+
+| Method                    | Returns                                                                                                            | Cost                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| `settings()`              | `PhysicsSettings`: the world's `gravity`, `fixedTimeStep`, `subSteps` and `maximumLinearSpeed`, defaults filled in | none; one shared, frozen object                       |
+| `isAwake(entity)`         | whether the entity's body is awake; `false` without a live body                                                    | one Box2D call, no allocation: fine per body per step |
+| `bodyMotion(entity, out)` | fills a `BodyMotion`; `false` without a live body                                                                  | several Box2D calls and two short-lived vector copies |
+
+`BodyMotion` holds `awake`, the velocities `vx`, `vy`, `w`, `linearDamping`, `angularDamping`, the
+center of mass in body coordinates `localCenterX`, `localCenterY`, `allowFastRotation`, and the
+`gravityScale` Box2D applies, which is 0 for a body without mass (static or kinematic) whatever its
+`GravityScale`. A sleeping body reports zero velocities. Allocate one and reuse it:
+
+```ts
+const motion = new BodyMotion();
+if (physics(world).bodyMotion(rock, motion) && motion.awake) {
+  send(motion.vx, motion.vy, motion.w);
+}
+```
+
 ## Ray Casts
 
 A ray cast answers: what shape would a ray from `from` to `to` hit?

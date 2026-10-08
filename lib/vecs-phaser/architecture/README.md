@@ -239,6 +239,7 @@ export class MotionPose {} // origin and angle
 export function motionStateFrom(motion: Motion, out: MotionState): MotionState;
 export function stepMotion(state: MotionState, motion: Motion, clock: MotionClock): void;
 export function motionPose(state: MotionState, motion: Motion, out: MotionPose): MotionPose;
+export function motionAtRest(motion: Motion, clock: MotionClock): boolean; // nothing to step
 
 // Asset catalog schema (JSON over HTTP; no @wireType)
 export interface AssetDescriptor {
@@ -596,6 +597,11 @@ angular lerp in radians) on the `Rotation` wire type, both looked up from
 `phaserInterpolators({ interpolateRotation: false })` to snap rotation while
 still interpolating `Position`. All other components snap to latest.
 
+Dead-reckoned bodies arrive with `Motion` and no `Position` or `Rotation`;
+`DeadReckonedModule` extrapolates them at `ClientWorld.renderFrame`, the point
+the interpolators sample. `Motion` is never interpolated. See
+[Dead reckoning](../../vecs-phaser-client/README.md#dead-reckoning).
+
 ### 7.5 Origin & rotation pivot
 
 `Position` is the **entity origin** — it maps to the Box2D body transform that
@@ -816,6 +822,11 @@ The `PhaserServerModule` (zero-config) handles everything in one call:
   when physics actually changed the body pose (`update({ watch, onEnter: true })`).
   Entities must already have a render pose (set by the user at creation); the
   module never creates render components.
+
+For bodies whose pose is cheaper to extrapolate than to stream, `DeadReckonedModule` adds the
+`DeadReckoned` tag: such a body carries `Motion` instead of a render pose, and the server sends a
+new baseline only when the body strays from the prediction clients run. See
+[Dead reckoning](../../vecs-phaser-server/README.md#dead-reckoning).
 
 ### 8.1 Asset catalog (server-owned)
 

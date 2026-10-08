@@ -6,6 +6,10 @@ export default defineConfig({
   test: {
     alias: {
       "@vworlds/vecs": fileURLToPath(new URL("../vecs/src/index.ts", import.meta.url)),
+      // The dead-reckoning replication tests run real ClientWorlds against the server.
+      "@vworlds/vecs-client": fileURLToPath(
+        new URL("../vecs-client/src/index.ts", import.meta.url)
+      ),
       "@vworlds/vecs-phaser": fileURLToPath(
         new URL("../vecs-phaser/src/index.ts", import.meta.url)
       ),

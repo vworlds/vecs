@@ -91,6 +91,11 @@ When one `VecsListener` serves several worlds, each world binds its own context.
 
 ## Deltas, baselines and the history window
 
+Every `send()` numbers a frame, starting at 1 and counting up whether or not a session is connected.
+`ServerWorld.frame` is the number the next `send()` uses, so during `progress()` it is the frame the
+tick in flight reaches clients as; stamp state with it when a client must know the frame it holds
+at, as a dead-reckoning baseline does.
+
 For every session the server keeps the last `historyFrames` frames of what changed in that session's
 view: 64 by default, about two seconds at 30 Hz. The client acks the newest frame it has received, and
 each `send()` answers that ack with a **delta**, everything that changed after the acked frame,
