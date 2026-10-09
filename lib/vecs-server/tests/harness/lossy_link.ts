@@ -62,6 +62,11 @@ export class LossyLink {
   public readonly stats: LinkStats = { sent: 0, lost: 0, blocked: 0, delivered: 0 };
   /** Called with every packet as the sender hands it over, before loss is decided. */
   public tap: ((data: Uint8Array) => void) | undefined;
+  /**
+   * Called with every packet as the sender hands it over; returning `true` drops that packet and
+   * only that packet, whatever the random loss says. It lets a test lose one chosen frame exactly.
+   */
+  public drop: ((data: Uint8Array) => boolean) | undefined;
   /** Called with every packet that reaches the receiver, just before it is delivered. */
   public onDeliver: ((data: Uint8Array) => void) | undefined;
 
@@ -87,6 +92,10 @@ export class LossyLink {
     const extraDraw = this._random();
     if (this.blocked) {
       this.stats.blocked++;
+      return;
+    }
+    if (this.drop?.(data) === true) {
+      this.stats.lost++;
       return;
     }
     if (lossDraw < loss) {

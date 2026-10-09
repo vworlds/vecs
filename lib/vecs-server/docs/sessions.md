@@ -237,8 +237,10 @@ that are superseded by a later one cost nothing extra, because the merge keeps o
 component.
 
 `redundancyFrames` trades that for a fixed redundancy. Set it to `R` and every healthy session's
-delta starts `R` frames before the frame being sent instead of at its ack, so a change is sent in `R`
-frames and no more, whatever the lag:
+delta starts at the frame the session was sent `R` sends ago, a baseline or a delta with content,
+instead of at its ack. In a view that changes on every frame that is `R` frames before the frame being
+sent. A change is sent in `R` consecutive frames and no more, whatever the lag and however sparse the
+traffic:
 
 ```ts
 const world = new ServerWorld({
@@ -255,7 +257,9 @@ must understand the optimistic marker the server adds to such a frame, so deploy
 client built before it closes the connection on the unknown field.
 
 The price is paid when the redundancy runs out. A delta that starts past the ack presumes the client
-received the frames in between, and when `R` frames in a row are lost it did not. The client holds
+received the frame it starts at, and when the last `R` frames sent to it are all lost it did not. A
+base is always a frame the client was sent, so when the traffic is sparse a lost frame is absorbed by
+the next frame sent, however long the quiet stretch between them. The client holds
 the diff it cannot apply, reports the gap in its next ack, and the server sends plain deltas from the
 ack until the client has caught up. The client's view stops for about one round trip. Its
 interpolation buffer hides part of that. A change lost with nothing sent after it is found by a timer
@@ -266,8 +270,8 @@ that timeout plus a link delay.
 | ------------------ | ----------------------------- | ---------------------------------------- |
 | unset              | every frame until it is acked | none: the next frame repeats it          |
 | 1                  | 1 frame                       | 1                                        |
-| 2                  | 2 frames                      | 2                                        |
-| 3                  | 3 frames                      | 3                                        |
+| 2                  | 2 consecutive frames          | 2                                        |
+| 3                  | 3 consecutive frames          | 3                                        |
 
 The server is optimistic only while a session is healthy: its baseline is acked, none is in flight,
 no fallback is running and its ack is not overdue. A baseline and everything around it work exactly
@@ -438,7 +442,7 @@ systems.
 | `CLOSE_PROTOCOL_ERROR_CODE`                      | Reserved close code `1`: the session was closed because a frame could not be decoded. Also exported by `@vworlds/vecs-protocol`.                                                                                      |
 | `closeLingerMs` (`ServerWorldOptions`)           | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                                                                                                 |
 | `historyFrames` (`ServerWorldOptions`)           | Frames of history each session keeps: how far behind its ack can be, while its view keeps changing, and still get a delta. Integer of at least 2; default 64.                                                         |
-| `redundancyFrames` (`ServerWorldOptions`)        | Opt in to sending each delta from `max(ack, frame - redundancyFrames)`: a change goes out in that many frames, not in every frame until acked. Integer of at least 1 and less than `historyFrames`; unset by default. |
+| `redundancyFrames` (`ServerWorldOptions`)        | Opt in to the delta base `redundancyFrames` sends ago, never before the ack: a change goes out in that many consecutive frames, not in every frame until acked. An integer in [1, `historyFrames`); unset by default. |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-server/src/server_world.ts`,
 `lib/vecs-server/src/history.ts` (the window), `lib/vecs-server/src/rtt.ts` (the ack round-trip
