@@ -234,6 +234,7 @@ export const phaserRenderableComponents: readonly ComponentClass[];
 export class Motion {} // baseline: frame, pose, velocities (not sent at rest), rest flag
 export class MotionParams {} // body constants: damping, local center, gravity scale, fast-rotation flag; absent = defaults
 export const defaultMotionParams: Readonly<MotionParams>; // the shared, frozen defaults of an entity without MotionParams
+export function copyMotionParams(source: MotionParams, target: MotionParams): void; // the per-body private copy both peers keep
 export class MotionClock {} // world step, substeps, gravity, maximum linear speed
 export const phaserMotionComponents: readonly ComponentClass[]; // [MotionClock, Motion, MotionParams], appended by apps
 export class MotionState {} // integrator state: center of mass, rotation, velocities (f32)
@@ -604,7 +605,11 @@ still interpolating `Position`. All other components snap to latest.
 
 Dead-reckoned bodies arrive with `Motion` and no `Position` or `Rotation`;
 `DeadReckonedModule` extrapolates them at `ClientWorld.renderFrame`, the point
-the interpolators sample. `Motion` is never interpolated. See
+the interpolators sample. `Motion` is never interpolated. A body may switch
+between the two paths while it lives: `ClientWorld` skips the network removal of a
+`Position` or `Rotation` that `Motion` brings through `With`, so the render pose
+stays present, and the module blends the hand-off in both directions with its
+late-correction blend. See
 [Dead reckoning](../../vecs-phaser-client/README.md#dead-reckoning).
 
 ### 7.5 Origin & rotation pivot
@@ -827,12 +832,21 @@ The `PhaserServerModule` (zero-config) handles everything in one call:
   when physics actually changed the body pose (`update({ watch, onEnter: true })`).
   Entities must already have a render pose (set by the user at creation); the
   module never creates render components.
+- Installs a pose guard, `phaser.guard.pose`, in a phase inserted right after
+  `ON_STORE` and before `ServerWorld`'s store phase. It syncs a render pose that
+  was created or completed after the `POST_UPDATE` sync ran, so no render pose
+  reaches the wire before it reflects the physics pose, whatever phase created
+  the entity.
 
 For bodies whose pose is cheaper to extrapolate than to stream, `DeadReckonedModule` adds the
 `DeadReckoned` tag: such a body carries `Motion` instead of a render pose, and the server sends a
 new baseline only when the body strays from the prediction clients run. The body constants the
-prediction needs travel apart, in a `MotionParams` that the server sends only when they change. See
-[Dead reckoning](../../vecs-phaser-server/README.md#dead-reckoning).
+prediction needs travel apart, in a `MotionParams` that the server sends only when they change. The
+tag may be added or removed at any time, so a body can be dead reckoned while it drifts and streamed
+while something drives it; the module's own guard, `phaser.guard.motion`, writes the first baseline
+of a body that becomes dead reckoned late in a frame, in the same frame. See
+[Dead reckoning](../../vecs-phaser-server/README.md#dead-reckoning) and
+[Switching at runtime](../../vecs-phaser-server/README.md#switching-at-runtime).
 
 ### 8.1 Asset catalog (server-owned)
 

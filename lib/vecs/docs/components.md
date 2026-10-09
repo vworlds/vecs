@@ -155,6 +155,7 @@ world.component(Orange).set(Implements, { interfaces: [Fruit] });
 | `Traversable`     | Exclusive relationships                      | Maintains hierarchy depth for cascade ordering                               |
 | `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement |
 | `OneOf`           | Relationships                                | Constrains each target to be a direct `ChildOf` child of a declared parent   |
+| `With`            | A component and a target of the same kind    | Adding the component also adds the target (the same targets, for edges)      |
 
 Traits declare policy; their built-in modules install the hooks and maintain the metadata that
 enforce it. Configure traits in feature-module setup rather than opportunistically inside systems.
@@ -168,6 +169,11 @@ Do not assume all traits have the same lifecycle:
   `ChildOf` child of the declared parent.
 - `Traversable` backfills existing relationship instances.
 - Setting or removing `Implements` recomputes interface aliases.
+- Add `With` before the component is in use, as `world.component(X).add(With, world.component(Y))`.
+  It is irrevocable, both must be plain components or both relationships, and it only brings `Y`
+  along: an existing `Y` is left as it is, and removing `X` does not remove `Y`. On a `ClientWorld`,
+  a network removal of `Y` is skipped while `X` is on the entity (see
+  [Applying a frame](../../vecs-client/docs/client-world.md#applying-a-frame)).
 
 Treat traits as setup policy unless their documentation explicitly supports runtime changes. Before
 writing custom component-type bookkeeping, check whether an existing trait already expresses the

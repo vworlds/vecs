@@ -1,6 +1,7 @@
 import { Module, POST_LOAD, With, type Entity } from "@vworlds/vecs";
 import { ClientWorld } from "@vworlds/vecs-client";
 import {
+  copyMotionParams,
   defaultMotionParams,
   Motion,
   MotionClock,
@@ -19,7 +20,9 @@ export interface DeadReckonedModuleConfig {
   /**
    * How long a late correction takes to blend in, in milliseconds. Default `100`. A late correction
    * is a baseline that arrives after the client has rendered past its frame, so the body has
-   * already been drawn on the old path; its error fades out over this time instead of jumping.
+   * already been drawn on the old path; its error fades out over this time instead of jumping. The
+   * same blend smooths the hand-off when the server switches a body between a streamed pose and
+   * dead reckoning, in either direction. `0` turns blending off: every correction snaps.
    */
   readonly blendMs?: number;
 
@@ -47,6 +50,29 @@ export interface DeadReckonedModuleConfig {
  * `Motion` brings `Position` and `Rotation` with it, so an entity that arrives with only a baseline,
  * on joining or on entering the view, gets a render pose to write. The server never sends one for a
  * dead-reckoned body.
+ *
+ * ## Switching paths
+ *
+ * A server may switch a body between a streamed pose and a baseline while it lives (see
+ * `DeadReckoned` in `@vworlds/vecs-phaser-server`). The render pose stays present through the
+ * hand-off in both directions: `ClientWorld` skips a network removal of a component that another
+ * one brings through `With`, so the server's removal of `Position` and `Rotation` in the diff that
+ * sets `Motion` leaves them in place, and the entity's `DrawBy` children never see them go.
+ *
+ * - **Streamed to dead reckoned.** The module's `Motion` hook finds the entity already showing a pose
+ *   and remembers it. The pose just shown can differ from the track's first sample (a streamed
+ *   body that stops being updated holds its last pose until the baseline's frame), so the first
+ *   baseline blends the difference out like a late correction. A track created on view entry has
+ *   no pose to remember and never blends.
+ * - **Dead reckoned to streamed.** On `Motion`'s removal the track stays for the length of the
+ *   blend, as a hand-off: the difference between the pose the track would still show and the
+ *   freshly streamed one fades out over `blendMs`, added to the interpolated pose, and then the
+ *   track is removed. A later `Motion` starts a fresh track.
+ *
+ * In both directions a difference above `snapDistance` or `snapAngle` snaps instead (and
+ * `blendMs: 0` snaps every one). An entity in steady state pays nothing for any of it: the hand-off
+ * is a second `POST_LOAD` system, `phaser.extrapolate.handoff`, whose query holds only the entities
+ * in a hand-off.
  *
  * One system, `phaser.extrapolate.motion`, runs in `POST_LOAD`, right after `ClientWorld` applied
  * the frame in `ON_LOAD`. It samples every baseline at `ClientWorld.renderFrame`, the point the
@@ -100,9 +126,27 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
     world.component(MotionTrack);
     world
       .component(Motion)
+      .on("add", (entity) => {
+        startTrack(entity);
+      })
+      .on("remove", (entity) => {
+        startHandoff(entity, world.renderFrame);
+      })
       .add(With, world.component(Position).eid)
-      .add(With, world.component(Rotation).eid)
-      .add(With, world.component(MotionTrack).eid);
+      .add(With, world.component(Rotation).eid);
+
+    // The Position instances created while their entity has a Motion: the ones `With` brings, which
+    // hold no pose the entity showed. Outside a deferred scope `With` has added the Position by the
+    // time the `Motion` hook runs, and inside one it adds it later, so the hook cannot tell a view
+    // entry from a streamed body that switched to dead reckoning by whether there is a Position
+    // (both have one in the first case, only the switched body in the second); it tells them by
+    // whether that Position is one of these.
+    const brought = new WeakSet<object>();
+    world.component(Position).on("add", (entity, position) => {
+      if (entity.has(Motion)) {
+        brought.add(position);
+      }
+    });
 
     // The one MotionClock the server sends, held for the extrapolator.
     let clock: Readonly<MotionClock> | undefined;
@@ -148,8 +192,108 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
         }
       });
 
+    // The path the body is drawn on when it leaves dead reckoning: the hand-off fades the difference
+    // between it and the streamed pose out over `blendMs`, then drops the track. Only an entity in
+    // this state is in the query, so a body in steady state pays nothing for it.
+    world
+      .system("phaser.extrapolate.handoff")
+      .with(MotionTrack, Position, Rotation)
+      .without(Motion)
+      .phase(POST_LOAD)
+      .each([MotionTrack, Position, Rotation], (entity, [track, pos, rot]) => {
+        const remaining = clock === undefined ? 0 : remainingBlend(track, clock, world.renderFrame);
+        // A pose instance still being the one written last frame holds the streamed value plus the
+        // offset added then. The network replaces an instance whenever it applies a new value, so
+        // an instance it did not touch gets the old offset taken back before the new one is added.
+        let x = pos.x;
+        let y = pos.y;
+        let angle = rot.angle;
+        if (pos === track.shownPosition) {
+          x -= track.offsetX;
+          y -= track.offsetY;
+        }
+        if (rot === track.shownRotation) {
+          angle -= track.offsetAngle;
+        }
+        const fading = remaining > 0;
+        track.offsetX = fading ? track.errorX * remaining : 0;
+        track.offsetY = fading ? track.errorY * remaining : 0;
+        track.offsetAngle = fading ? track.errorAngle * remaining : 0;
+        if (x + track.offsetX !== pos.x || y + track.offsetY !== pos.y) {
+          pos.x = x + track.offsetX;
+          pos.y = y + track.offsetY;
+          entity.modified(Position);
+        }
+        if (angle + track.offsetAngle !== rot.angle) {
+          rot.angle = angle + track.offsetAngle;
+          entity.modified(Rotation);
+        }
+        if (fading) {
+          track.shownPosition = pos;
+          track.shownRotation = rot;
+        } else {
+          entity.remove(MotionTrack);
+        }
+      });
+
+    // A new Motion gets its track, replacing the hand-off of a body that returns to dead reckoning
+    // within it. An entity that already shows a pose when its first baseline arrives, a streamed
+    // body the server just switched to dead reckoning, hands that pose to the track, which blends
+    // its first sample from it. A track created on view entry finds no pose but the one `Motion`
+    // brings, so it has nothing to blend from and never blends.
+    function startTrack(entity: Entity): void {
+      const track = new MotionTrack();
+      const position = entity.get(Position);
+      if (position !== undefined && !brought.has(position)) {
+        track.shown = true;
+        track.from.x = position.x;
+        track.from.y = position.y;
+        track.from.angle = entity.get(Rotation)?.angle ?? 0;
+      }
+      entity.attach(MotionTrack, track);
+    }
+
+    // `Motion` is gone: the server switched the body to a streamed pose, whose first value has no
+    // interpolation history and may sit off the path the body was drawn on. Keep the track as a
+    // hand-off whose error is the difference between the two at `renderFrame`; the handoff system
+    // fades it out. Without a path to compare, or when the difference is a snap, drop the track.
+    function startHandoff(entity: Entity, renderFrame: number): void {
+      if (entity.destroyed) {
+        return;
+      }
+      const track = entity.get(MotionTrack) as MotionTrack | undefined;
+      if (track === undefined) {
+        return;
+      }
+      const position = entity.get(Position);
+      const rotation = entity.get(Rotation);
+      if (
+        clock !== undefined &&
+        track.frame >= 0 &&
+        position !== undefined &&
+        rotation !== undefined
+      ) {
+        extrapolate(track, clock, renderFrame, sample);
+        blend(track, clock, renderFrame, sample);
+        const ex = sample.x - position.x;
+        const ey = sample.y - position.y;
+        const ea = wrapAngle(sample.angle - rotation.angle);
+        if (!snaps(ex, ey, ea) && (ex !== 0 || ey !== 0 || ea !== 0)) {
+          track.errorX = ex;
+          track.errorY = ey;
+          track.errorAngle = ea;
+          track.blendFrom = renderFrame;
+          track.handoff = true;
+          return;
+        }
+      }
+      entity.remove(MotionTrack);
+    }
+
     // Take a newer baseline. The error between the path the body was drawn on and the new one,
-    // both at `renderFrame`, is kept to blend out when the correction is late and small enough.
+    // both at `renderFrame`, is kept to blend out when the correction is late and small enough. A
+    // body's first baseline has no path of its own; if the entity was already showing a pose, that
+    // pose is the one to blend from.
     function rebaseline(
       entity: Entity,
       track: MotionTrack,
@@ -158,6 +302,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       renderFrame: number
     ): void {
       const held = track.frame >= 0;
+      const shown = !held && track.shown;
       let oldX = 0;
       let oldY = 0;
       let oldAngle = 0;
@@ -167,28 +312,35 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
         oldX = sample.x;
         oldY = sample.y;
         oldAngle = sample.angle;
+      } else if (shown) {
+        oldX = track.from.x;
+        oldY = track.from.y;
+        oldAngle = track.from.angle;
       }
 
       // The body constants come with the baseline: the entity's MotionParams, or the defaults for an
       // entity without one. The server writes a changed MotionParams in the same frame as the
       // Motion it belongs to, so this is the only place they are looked up.
       copyMotion(motion, track.baseline);
-      copyParams(entity.get(MotionParams) ?? defaultMotionParams, track.params);
+      copyMotionParams(entity.get(MotionParams) ?? defaultMotionParams, track.params);
       track.frame = motion.frame;
       track.rest = motion.rest;
+      track.shown = false;
       restart(track, clock);
       extrapolate(track, clock, renderFrame, sample);
 
       track.errorX = 0;
       track.errorY = 0;
       track.errorAngle = 0;
-      if (!held || renderFrame - track.frame < 1) {
+      // A correction received in time is applied at once: the track was never drawn ahead of it. A
+      // pose shown before the first baseline always was drawn, so it blends however recent.
+      if (!(shown || (held && renderFrame - track.frame >= 1))) {
         return;
       }
       const ex = oldX - sample.x;
       const ey = oldY - sample.y;
       const ea = wrapAngle(oldAngle - sample.angle);
-      if (ex * ex + ey * ey > snapDistanceSquared || Math.abs(ea) > snapAngle) {
+      if (snaps(ex, ey, ea)) {
         return;
       }
       track.errorX = ex;
@@ -198,6 +350,24 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       sample.x = oldX;
       sample.y = oldY;
       sample.angle = oldAngle;
+    }
+
+    // Whether an error is shown at once instead of blended: it is further than the snap limits, or
+    // blending is off.
+    function snaps(ex: number, ey: number, ea: number): boolean {
+      return (
+        !(blendSeconds > 0) || ex * ex + ey * ey > snapDistanceSquared || Math.abs(ea) > snapAngle
+      );
+    }
+
+    // The fraction of a blend's error that is left at `renderFrame`: 1 when it starts, 0 after
+    // `blendMs` of render time.
+    function remainingBlend(
+      track: MotionTrack,
+      clock: Readonly<MotionClock>,
+      renderFrame: number
+    ): number {
+      return 1 - ((renderFrame - track.blendFrom) * clock.stepSeconds) / blendSeconds;
     }
 
     // Add what is left of a late correction's error to the sampled pose.
@@ -210,7 +380,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       if (track.errorX === 0 && track.errorY === 0 && track.errorAngle === 0) {
         return;
       }
-      const remaining = 1 - ((renderFrame - track.blendFrom) * clock.stepSeconds) / blendSeconds;
+      const remaining = remainingBlend(track, clock, renderFrame);
       if (!(remaining > 0)) {
         track.errorX = 0;
         track.errorY = 0;
@@ -225,7 +395,9 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
 }
 
 /**
- * Client-local extrapolation state of one dead-reckoned entity. `Motion` brings it. It holds its own
+ * Client-local extrapolation state of one dead-reckoned entity. The module attaches it when `Motion`
+ * is added and drops it when the entity no longer needs it: at once when `Motion` goes, or, for a
+ * body the server switches to a streamed pose, after the hand-off has faded out. It holds its own
  * copy of the accepted baseline and of the entity's `MotionParams` as they were at that baseline, so
  * an older `Motion` that a reordered datagram writes over the component cannot change the path, and
  * the two poses the render frame falls between.
@@ -251,6 +423,36 @@ class MotionTrack {
 
   /** Render frame the blending correction was taken at. */
   public blendFrom = 0;
+
+  /**
+   * The entity already showed a pose when its first baseline arrived, and `from` holds it, for the
+   * first baseline to blend from. Cleared once that baseline is taken.
+   */
+  public shown = false;
+
+  /**
+   * `Motion` is gone and the server streams the pose: this track only fades the difference between
+   * the path it was drawn on and the streamed pose, then removes itself.
+   */
+  public handoff = false;
+
+  /**
+   * Hand-off to a streamed pose: the Position instance this track last added its offset to, so a
+   * frame that the network did not replace it in takes the offset back before adding the new one.
+   */
+  public shownPosition: Position | undefined = undefined;
+
+  /** The Rotation instance this hand-off last added its offset to. */
+  public shownRotation: Rotation | undefined = undefined;
+
+  /** Offset the hand-off last added to the position, x, in meters. */
+  public offsetX = 0;
+
+  /** Offset the hand-off last added to the position, y, in meters. */
+  public offsetY = 0;
+
+  /** Offset the hand-off last added to the angle, in radians. */
+  public offsetAngle = 0;
 
   /** The accepted baseline. */
   public readonly baseline = new Motion();
@@ -311,16 +513,25 @@ function extrapolate(
   out.angle = from.angle + wrapAngle(to.angle - from.angle) * fraction;
 }
 
-/** Put the track back at its baseline: `from` at the baseline, `to` one step later. */
+/**
+ * Put the track back at its baseline: `from` at the baseline, `to` one step later. A baseline at
+ * rest bypasses the integrator: the track holds exactly the baseline's `x`, `y` and `angle`, not a
+ * pose derived through the center of mass and `atan2`.
+ */
 function restart(track: MotionTrack, clock: Readonly<MotionClock>): void {
+  track.steps = 0;
+  if (track.rest) {
+    const baseline = track.baseline;
+    track.from.x = track.to.x = baseline.x;
+    track.from.y = track.to.y = baseline.y;
+    track.from.angle = track.to.angle = baseline.angle;
+    return;
+  }
   const params = track.params;
   motionStateFrom(track.baseline, params, track.state);
   motionPose(track.state, params, track.from);
-  if (!track.rest) {
-    stepMotion(track.state, params, clock);
-  }
+  stepMotion(track.state, params, clock);
   motionPose(track.state, params, track.to);
-  track.steps = 0;
 }
 
 function copyMotion(source: Readonly<Motion>, target: Motion): void {
@@ -332,15 +543,6 @@ function copyMotion(source: Readonly<Motion>, target: Motion): void {
   target.vy = source.vy;
   target.w = source.w;
   target.rest = source.rest;
-}
-
-function copyParams(source: Readonly<MotionParams>, target: MotionParams): void {
-  target.linearDamping = source.linearDamping;
-  target.angularDamping = source.angularDamping;
-  target.localCenterX = source.localCenterX;
-  target.localCenterY = source.localCenterY;
-  target.gravityScale = source.gravityScale;
-  target.allowFastRotation = source.allowFastRotation;
 }
 
 /** `angle` moved into [-π, π] by whole turns. */

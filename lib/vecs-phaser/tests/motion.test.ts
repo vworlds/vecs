@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import {
+  copyMotionParams,
   defaultMotionParams,
   Motion,
   MotionClock,
@@ -248,6 +249,40 @@ describe("defaultMotionParams", () => {
       (defaultMotionParams as MotionParams).linearDamping = 1;
     }).toThrow(TypeError);
     expect(defaultMotionParams.linearDamping).toBe(0);
+  });
+});
+
+describe("copyMotionParams", () => {
+  it("copies every constant of a MotionParams", () => {
+    const source = Object.assign(new MotionParams(), {
+      linearDamping: 0.15,
+      angularDamping: 0.1,
+      localCenterX: 0.4,
+      localCenterY: -0.2,
+      gravityScale: 0.25,
+      allowFastRotation: true,
+    });
+    const target = new MotionParams();
+
+    copyMotionParams(source, target);
+
+    // `source` has the six constants set to non-defaults, so each one must be carried.
+    expect(Object.keys(source)).toHaveLength(6);
+    expect({ ...target }).toEqual({ ...source });
+  });
+
+  it("copies the defaults over constants that were set, without touching the shared defaults", () => {
+    const target = Object.assign(new MotionParams(), {
+      linearDamping: 0.9,
+      localCenterX: 3,
+      gravityScale: 0,
+      allowFastRotation: true,
+    });
+
+    copyMotionParams(defaultMotionParams, target);
+
+    expect({ ...target }).toEqual({ ...new MotionParams() });
+    expect({ ...defaultMotionParams }).toEqual({ ...new MotionParams() });
   });
 });
 

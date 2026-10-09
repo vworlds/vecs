@@ -20,6 +20,18 @@ and `update` systems on the render pose run when the pose changed, not on every 
 must visit every entity every step should iterate with `each`, which does not wait for a change; see
 [Pose Updates Fire Only When The Pose Changes](../vecs-physics/docs/systems-and-phases.md#pose-updates-fire-only-when-the-pose-changes).
 
+**No unsynced pose reaches the wire.** The sync systems run in `POST_UPDATE`, so an entity that gets
+its pose later in the frame, in `PRE_STORE`, `ON_STORE` or an RPC handler, would enter them only on
+the next tick, and the frame in flight would carry its render pose at the default (0, 0). A third
+system, `phaser.guard.pose`, runs in a phase of its own, inserted right after `ON_STORE` and before
+`ServerWorld`'s store phase (so after every user phase, and before the frame is recorded and sent).
+It drains a worklist that the `add` hooks of the physics and the render pose fill when an entity
+holds both halves of a pair, and copies the physics pose into a render pose that differs, change-only
+and announced with `modified`, like the sync systems. An entity that `POST_UPDATE` already synced
+costs one comparison, a frame with nothing queued costs an empty check, and modifying a pose adds
+no work. The guard covers an entity created or completed late, not a physics pose that game code
+writes late on an entity that was already synced: that one reaches the render pose on the next tick.
+
 Create display edges with `entity.add(DrawIn, parent)` or `entity.add(DrawBy, parent)`. Relationship
 targets are not component payload properties, and the server module does not make the two display
 relationship component types mutually exclusive; `DisplaySetupModule` applies that local invariant
@@ -43,8 +55,8 @@ flies or comes to rest costs nothing between collisions, teleports and falling a
 ### Setting it up
 
 Append `phaserMotionComponents` to the network components, on the server and the client alike, then
-install the module after `PhysicsModule`. Tag each body that should be dead reckoned when you spawn
-it:
+install the module after `PhysicsModule`. Tag each body that should be dead reckoned, when you spawn
+it or later (see [Switching at runtime](#switching-at-runtime)):
 
 ```ts
 import { DeadReckoned, DeadReckonedModule } from "@vworlds/vecs-phaser-server";
@@ -92,13 +104,14 @@ structural:
 - Adding it adds `Motion`, the physics `Rotation` and a server-local prediction, and removes the
   render `Position` and `Rotation`. `MotionParams` is not part of it: see
   [Body constants](#body-constants).
-- Adding a render `Position` or `Rotation` to a dead-reckoned entity throws.
-- Decide it at spawn. Removing the tag, or adding it to a body clients already stream, is not
-  supported.
+- Removing it removes `Motion`, `MotionParams` and the prediction, and gives the entity a render
+  `Position` and `Rotation` that hold the physics pose.
+- Once a switch completes, a dead-reckoned entity carries no render pose, and adding a render
+  `Position` or `Rotation` to one throws. The switch itself never trips that check.
 
 A body under constant divergence, such as a driven or jointed one, costs a baseline of about 27
 bytes per step against about 22 for a streamed pose update, so keep constantly driven bodies
-streamed.
+streamed, and switch the tag on a change of state (see [Switching at runtime](#switching-at-runtime)).
 
 ### When a baseline is sent
 
@@ -124,6 +137,9 @@ A baseline is **at rest** when the body is asleep, when the entity has no body, 
 has no velocity and nothing accelerates it: the world has no gravity, or the body's effective
 gravity scale is 0. The server decides it and sends only the pose and the `rest` flag (14 bytes
 against 26 for a moving baseline, with a frame below 128); clients hold the pose and never step it.
+A baseline at rest bypasses the integrator on both ends: the server's prediction and every client
+hold exactly the baseline's `x`, `y` and `angle`, with no center-of-mass round trip and no `atan2`,
+so an off-center body is held where the physics pose put it.
 
 Per body per step the system steps the integrator once and compares, allocating nothing and looking
 up no component. It asks Box2D whether the body sleeps only when its pose did not change, and reads
@@ -140,15 +156,70 @@ which clients step every baseline with, so a correction costs the pose and veloc
   the entity's `MotionParams`, or with the defaults (no damping, the center of mass at the origin,
   a gravity scale of 1, no fast rotation) when the entity has none.
 - Only when they differ does it add the component, or update it in place, and announce it with
-  `modified`, in the same frame as the `Motion`, so both land in the same diff. A body that never
-  leaves the defaults, such as a bullet, never carries one: `DeadReckoned` does not bring it.
-- Once added it is kept and updated, never removed. A baseline at rest leaves it untouched,
-  because nothing is stepped.
+  `modified`, in the same frame as the `Motion`, so both land in the same diff. It writes through
+  the callback form of `entity.ensure`, so the write is complete before the announcement whether or
+  not the world is deferred. A body that never leaves the defaults, such as a bullet, never carries
+  one: `DeadReckoned` does not bring it.
+- Once added it is kept and updated for as long as the entity stays dead reckoned, and it goes with
+  the tag. A baseline at rest leaves it untouched, because nothing is stepped. A body that returns
+  to dead reckoning gets it again with its first baseline, if its constants are not the defaults.
 - Changing a body's damping, say, shows up as divergence like any other change: one baseline and
   one `MotionParams` update follow, in the same frame.
 
 The prediction the system runs keeps its own copy of the constants, taken when it writes the
 baseline. Clients do the same: they copy the entity's `MotionParams` when they take a baseline.
+
+### Switching at runtime
+
+`DeadReckoned` may be added or removed at any time, so a body can be dead reckoned while it drifts
+and streamed while something drives it: a container that drifts free, and is towed in a jointed
+train, which would diverge from its prediction almost every step.
+
+```ts
+container.remove(DeadReckoned); // towed: stream its pose
+container.add(DeadReckoned); // released: dead reckon it again
+```
+
+| Switch                    | Same frame, in one diff                                                                                    |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Streamed to dead reckoned | `Motion` (and `MotionParams`, if the constants differ) is set, and the render `Position` and `Rotation` go |
+| Dead reckoned to streamed | The render `Position` and `Rotation` are set to the physics pose, and `Motion` and `MotionParams` go       |
+
+- **Adding the tag** to a streamed body removes its render pose, and the first baseline is written
+  in that frame, whichever phase added it: `phaser.sync.motion` writes it in `POST_UPDATE`, and the
+  pose guard (below) in a later phase.
+- **Removing the tag** removes `Motion`, `MotionParams` and the prediction. Called outside a system
+  it adds the render pose at once. Called from a system, the removals apply when its commands
+  flush, and the render pose is added by the pose guard at the end of the frame, from the entity as
+  it is then. That keeps a remove and an add of the tag in one flush, either way round, from meeting
+  the check that rejects a render pose on a dead-reckoned entity.
+- **Repeated toggling** works. A body that returns starts fresh: a new prediction and baseline, and
+  its `MotionParams` again when its constants are not the defaults.
+- **Clients** keep the render pose present through the hand-off in both directions, with no
+  `remove` or `add` on it, and blend the difference between the pose they showed and the pose the
+  new source gives (see [Dead reckoning on the client](../vecs-phaser-client/README.md#dead-reckoning)).
+  A streamed body whose updates stop holds its last pose until the baseline's frame, since the
+  switching diff has no render pose to interpolate toward, so expect a stall of about one server
+  frame before the blend catches up.
+
+Switch on a change of state, not every frame: each switch costs a baseline one way and a pose
+update the other. Keep a body that is constantly driven streamed, and toggle the tag when its state
+changes.
+
+#### The pose guard
+
+An entity that becomes dead reckoned after `POST_UPDATE`, or is created there, would ship its
+default `Motion` (frame 0 at the origin) until the next tick. The system `phaser.guard.motion` runs
+in the phase `PhaserServerModule` places after `ON_STORE` and before `ServerWorld`'s store phase,
+and writes the first baseline of every entity whose prediction is still unprimed, so **no `Motion`
+reaches the wire before it reflects the physics pose**. Together with the streamed guard (see the
+top of this file), no pose, render pose or `Motion`, reaches the wire before it reflects the
+physics pose, whatever phase created or switched the entity.
+
+An entity that `phaser.sync.motion` primed in `POST_UPDATE` costs one check, and a frame with
+nothing queued costs an empty check. A body whose Box2D body does not exist yet, one created this
+very frame, gets a baseline at rest at its physics pose; its first step creates the body, finds it
+off the held pose and writes a corrected baseline with the real velocities.
 
 ### Moving to another world
 

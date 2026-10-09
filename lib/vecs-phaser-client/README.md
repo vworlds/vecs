@@ -213,12 +213,39 @@ renderers, `DrawBy` children and game systems use them as they use an interpolat
   steps that baseline with the copy, so a constants update takes effect at the next baseline and
   the per-frame path looks up no component.
 - **Rest.** A body is held still, and never stepped, when its baseline says so (`Motion.rest`). The
-  server decides it; the client never works it out from the velocities or the gravity.
+  server decides it; the client never works it out from the velocities or the gravity. A baseline
+  at rest bypasses the integrator: the track holds exactly the baseline's `x`, `y` and `angle`.
 - **Corrections.** A baseline received in time, before the client renders past its frame, applies
   at once. A late one blends its error out linearly over `blendMs` (default 100 ms) of render time;
   one that moves the body further than `snapDistance` (default 1 m) or turns it further than
-  `snapAngle` (default 0.5 rad) snaps.
+  `snapAngle` (default 0.5 rad) snaps. `blendMs: 0` turns blending off: every correction snaps.
 - **The clock.** The integrator needs the server's `MotionClock`; until it arrives nothing is
   extrapolated.
 
 `Motion` itself is never interpolated: do not register an interpolator for it.
+
+### Switching paths
+
+The server may switch a body between a streamed pose and a baseline while it lives (see
+[Switching at runtime](../vecs-phaser-server/README.md#switching-at-runtime)). The render pose stays
+present through the hand-off in both directions, and the difference between the pose the client
+showed and the one the new source gives fades out instead of jumping.
+
+- **Present throughout.** The diff in which a streamed body becomes dead reckoned sets `Motion` and
+  removes `Position` and `Rotation`. `ClientWorld` skips a network removal of a component that
+  another one on the entity brings through `With`, and `Motion` brings `Position` and `Rotation`, so
+  they stay: no `remove` or `add` hook fires on them, and `DrawBy` children never see their parent
+  lose its `Position` (see
+  [Applying a frame](../vecs-client/docs/client-world.md#applying-a-frame)).
+- **Streamed to dead reckoned.** The track starts from the pose the entity was showing, and blends
+  it out like a late correction. A streamed body whose updates stop holds its last pose until the
+  baseline's frame (the switching diff has no `Position` to interpolate toward), so the first
+  sample can sit up to about a server frame ahead of the pose just shown. A body that enters the
+  view with only a baseline has no pose to start from and never blends.
+- **Dead reckoned to streamed.** When `Motion` goes, the track stays for `blendMs` as a hand-off: it
+  adds the difference between the pose the track would still show and the freshly streamed one on
+  top of the interpolated `Position` and `Rotation`, fading it linearly to nothing, and then drops
+  itself. A later `Motion` starts a fresh track.
+- **Snaps and steady state.** A difference above `snapDistance` or `snapAngle` shows at once, in
+  both directions. An entity in steady state pays nothing for any of this: the hand-off is a second
+  system, `phaser.extrapolate.handoff`, whose query holds only the entities in a hand-off.

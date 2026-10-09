@@ -8,6 +8,7 @@ also knows when to let go of all of it.
 
 - How to connect a client world and let replication run.
 - What a baseline does to your replicated entities, and how often to expect one.
+- How a diff is applied, and why a network removal can be skipped.
 - What the client does with an optimistic frame whose base it never received, and what a gap costs.
 - Which server frame the world renders, and how to put client-computed state on the same timeline.
 - How to call a server RPC and answer server calls.
@@ -80,6 +81,32 @@ sending another only if it presumes the first was lost. So a client sees a basel
 and once per real stall, not once per frame. When the server sends them, how it retries, and how to
 size the window for slow players are in
 [Sessions](../../vecs-server/docs/sessions.md#deltas-baselines-and-the-history-window).
+
+## Applying a frame
+
+`apply()` (which `progress()` runs in `ON_LOAD`) applies a diff in two passes: every snapshot first,
+then every removal. A snapshot attaches its component, replacing the one the entity held. A removal
+of a whole entity (`ALL_COMPONENTS`) destroys it, with every component.
+
+A removal of a single component is skipped while another component present on the entity **brings
+it through `With`**, so the entity keeps it. The rule exists for components that a client derives
+from a replicated one. Dead reckoning is the example: `Motion` brings a client-local `Position` and
+`Rotation` (`world.component(Motion).add(With, world.component(Position))`), and the diff in which
+the server switches a streamed body to dead reckoning sets `Motion` and removes `Position` and
+`Rotation`. Applied literally, the entity would end the frame without a render pose, and the
+queries, hooks and `DrawBy` children that match on it would see it leave and come back. With the
+rule it never goes without one: no `remove` hook fires for it, and nothing that watches it
+re-enters.
+
+- A bringer that the same diff sets counts as present, although its snapshot has not been
+  attached yet when the removals are checked.
+- The rule looks at the entity's other components, so a bringer that is gone is no reason to keep a
+  component: once nothing brings it, the server's removal applies. Removing a bringer does not take
+  its companions with it either; `With` only brings them along.
+- It applies to plain components. A relationship is removed as sent, since `With` brings it one
+  edge at a time and no single component stands for the whole relationship.
+- It costs nothing outside the removal path: a diff without removals is applied as before, and a
+  removal of a component that no `With` brings pays one lookup of the component's bringers.
 
 ## Optimistic frames and gaps
 

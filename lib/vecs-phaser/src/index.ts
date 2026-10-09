@@ -16,7 +16,13 @@ export {
   Triangle,
 } from "./components/shapes.js";
 export { Text, TextAlign } from "./components/text.js";
-export { defaultMotionParams, Motion, MotionClock, MotionParams } from "./components/motion.js";
+export {
+  copyMotionParams,
+  defaultMotionParams,
+  Motion,
+  MotionClock,
+  MotionParams,
+} from "./components/motion.js";
 export {
   MotionPose,
   MotionState,

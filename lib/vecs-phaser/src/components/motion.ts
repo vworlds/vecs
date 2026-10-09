@@ -215,6 +215,25 @@ export class MotionParams {
 export const defaultMotionParams: Readonly<MotionParams> = Object.freeze(new MotionParams());
 
 /**
+ * Copy every constant of `source` into `target`, field by field, without allocating.
+ *
+ * Both peers keep a private `MotionParams` per body, taken from the entity's component (or from
+ * {@link defaultMotionParams}) when a baseline is written or accepted, so the per-step path looks
+ * up no component and the integrator only ever sees one object shape. This is that copy.
+ *
+ * @param source The constants to read; {@link defaultMotionParams} is fine.
+ * @param target The `MotionParams` to overwrite. Never the frozen defaults.
+ */
+export function copyMotionParams(source: Readonly<MotionParams>, target: MotionParams): void {
+  target.linearDamping = source.linearDamping;
+  target.angularDamping = source.angularDamping;
+  target.localCenterX = source.localCenterX;
+  target.localCenterY = source.localCenterY;
+  target.gravityScale = source.gravityScale;
+  target.allowFastRotation = source.allowFastRotation;
+}
+
+/**
  * The world constants the shared integrator steps a {@link Motion} with: the physics step, its
  * substeps, the gravity and the speed cap, as the server's Box2D world uses them.
  *
