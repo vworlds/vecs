@@ -111,12 +111,22 @@ class Run {
     interpolated?: boolean;
     /** The client extrapolator's `blendMs`. */
     blendMs?: number;
+    /**
+     * Build the server without `keepAliveFrames`, as every dead-reckoning world must set it, to
+     * show what an idle scene looks like without it. The module refuses such a world, so the world
+     * is made to report the option to it while the server never sends a keepalive.
+     */
+    withoutKeepAlive?: boolean;
+    /** The server's `keepAliveFrames` when it has one. Default `1`. */
+    keepAliveFrames?: number;
   }) {
+    const keepAlive = options.deadReckoning !== false && options.withoutKeepAlive !== true;
     this.sim = new ReplicationSim({
       networkComponents: NETWORK_COMPONENTS,
       seed: options.seed,
       tickHz: HZ,
       link: options.link,
+      serverOptions: keepAlive ? { keepAliveFrames: options.keepAliveFrames ?? 1 } : undefined,
     });
     sim = this.sim;
     const server = this.sim.server;
@@ -124,6 +134,9 @@ class Run {
     if (options.deadReckoning === false) {
       server.module(PhaserServerModule);
     } else {
+      if (options.withoutKeepAlive === true) {
+        Object.defineProperty(server, "keepAliveFrames", { value: 1 });
+      }
       server.module(DeadReckonedModule, options.options ?? {});
       server.component(Motion).on("set", (entity, motion) => {
         const frames = this.baselines.get(entity.eid) ?? [];
@@ -502,14 +515,6 @@ describe("streamed bodies", () => {
 });
 
 describe("a body switched between a streamed pose and dead reckoning", () => {
-  /** A streamed decoy that changes every tick, so frames keep flowing and the render frame advances. */
-  function addTraffic(run: Run): void {
-    const decoy = run.sim.server.entity().add(Networked).set(RenderPosition, { x: 50, y: 50 });
-    run.sim.onTick((tick) => {
-      decoy.set(RenderPosition, { x: 50 + tick * 0.01, y: 50 });
-    });
-  }
-
   /**
    * A body gliding at constant velocity, streamed, then dead reckoned from t = 2 s, then streamed
    * again from t = 4 s, over a clean link with an interpolating client. The client's render pose is
@@ -527,7 +532,6 @@ describe("a body switched between a streamed pose and dead reckoning", () => {
       interpolated: true,
       blendMs,
     });
-    addTraffic(run);
     const v = { x: 0.8, y: 0.6 };
     const w = 0.5;
     const body = disc(run, { x: 0, y: 0, vx: v.x, vy: v.y, w, streamed: true });
@@ -613,7 +617,6 @@ describe("a body switched between a streamed pose and dead reckoning", () => {
     (seed) => {
       const run = new Run({ seed, link: HARSH_LINK, interpolated: true });
       arena(run, 15);
-      addTraffic(run);
       const server = run.sim.server;
       // Other bodies, to put baselines, corrections and the window of a switch in context.
       disc(run, { x: -10, y: -10, vx: 5, vy: 3, w: 1, restitution: 1 });
@@ -728,6 +731,148 @@ describe("a body switched between a streamed pose and dead reckoning", () => {
       expect(run.sim.diffFromServer(run.client, [MotionClock])).toEqual([]);
     }
   );
+});
+
+describe("an idle scene", () => {
+  // One dead-reckoned body drifting in empty space. After its first baseline nothing about it
+  // replicates, so the server has no state to send: without a keepalive the client's render frame
+  // stops, and the body with it.
+  const VELOCITY = { x: 3, y: 2 };
+  const SPIN = 0.5;
+  /** Client render frames per second, the harness default. */
+  const RENDER_HZ = 60;
+  /** From here on the first baseline has landed and the client's buffer has settled. */
+  const SETTLED_MS = 1000;
+
+  interface Sample extends Pose {
+    t: number;
+    renderFrame: number;
+  }
+
+  /** Run 8 s of the drifting body, sampling the client's pose of it on every render frame. */
+  function drift(options: {
+    withoutKeepAlive?: boolean;
+    keepAliveFrames?: number;
+    traffic?: boolean;
+  }): {
+    run: Run;
+    body: Entity;
+    samples: Sample[];
+  } {
+    const run = new Run({
+      seed: 21,
+      link: symmetric({ oneWayMs: 20 }),
+      interpolated: true,
+      withoutKeepAlive: options.withoutKeepAlive,
+      keepAliveFrames: options.keepAliveFrames,
+    });
+    if (options.traffic === true) {
+      // The reference the keepalive is measured against: frames kept flowing by a streamed entity
+      // that changes on every tick, which is what a busy scene does for free.
+      const traffic = run.sim.server.entity().add(Networked).set(RenderPosition, { x: 50, y: 50 });
+      run.sim.onTick((tick) => {
+        traffic.set(RenderPosition, { x: 50 + tick * 0.01, y: 50 });
+      });
+    }
+    const body = disc(run, { x: 0, y: 0, vx: VELOCITY.x, vy: VELOCITY.y, w: SPIN });
+    const samples: Sample[] = [];
+    run.client.world
+      .system("test.sample")
+      .with(RenderPosition, RenderRotation)
+      .phase(ON_STORE)
+      .each([RenderPosition, RenderRotation], (entity, [position, rotation]) => {
+        if (entity.eid === body.eid) {
+          samples.push({
+            t: run.sim.clock.now,
+            renderFrame: run.client.world.renderFrame,
+            x: position.x,
+            y: position.y,
+            angle: rotation.angle,
+          });
+        }
+      });
+    run.sim.run(8000);
+    expect(run.client.stats.errors).toEqual([]);
+    return { run, body, samples };
+  }
+
+  function settled(samples: Sample[]): Sample[] {
+    return samples.filter((sample) => sample.t >= SETTLED_MS);
+  }
+
+  it("advances the extrapolated pose on every render frame with keepAliveFrames 1", () => {
+    const { run, samples } = drift({});
+
+    const after = settled(samples);
+    expect(after.length).toBeGreaterThan(400);
+    const dt = 1 / RENDER_HZ;
+    for (let i = 1; i < after.length; i++) {
+      const before = after[i - 1]!;
+      const sample = after[i]!;
+      // The render frame moves a half server frame per render frame, so the body moves `v * dt`.
+      expect(sample.renderFrame - before.renderFrame).toBeCloseTo(HZ / RENDER_HZ, 6);
+      expect(sample.x - before.x).toBeCloseTo(VELOCITY.x * dt, 4);
+      expect(sample.y - before.y).toBeCloseTo(VELOCITY.y * dt, 4);
+    }
+    // Over the whole settled stretch it moved as far as the velocity says, with no jump at the end.
+    const first = after[0]!;
+    const last = after[after.length - 1]!;
+    expect(last.x - first.x).toBeCloseTo((VELOCITY.x * (last.t - first.t)) / 1000, 1);
+    // A header-only frame on every tick is all that crossed the wire after the first baseline.
+    expect(run.client.stats.disconnects).toEqual([]);
+    expect(run.client.stats.deltasSent.length).toBeGreaterThan(8 * HZ - 12);
+  });
+
+  it("moves exactly as it does when a streamed entity keeps the frames flowing", () => {
+    const keepAlive = drift({}).samples;
+    const traffic = drift({ withoutKeepAlive: true, traffic: true }).samples;
+
+    expect(keepAlive).toHaveLength(traffic.length);
+    for (let i = 0; i < keepAlive.length; i++) {
+      expect(keepAlive[i]!.renderFrame).toBeCloseTo(traffic[i]!.renderFrame, 9);
+      expect(keepAlive[i]!.x).toBeCloseTo(traffic[i]!.x, 9);
+      expect(keepAlive[i]!.y).toBeCloseTo(traffic[i]!.y, 9);
+      expect(keepAlive[i]!.angle).toBeCloseTo(traffic[i]!.angle, 9);
+    }
+  });
+
+  /** How far each render frame moved the body, as a multiple of the `v * dt` it should move. */
+  function stepRatios(samples: Sample[]): number[] {
+    const after = settled(samples);
+    return after.slice(1).map((sample, i) => (sample.x - after[i]!.x) / (VELOCITY.x / RENDER_HZ));
+  }
+
+  it("stays smooth with a keepalive every other frame, because the client's buffer spans the empty one", () => {
+    const ratios = stepRatios(drift({ keepAliveFrames: 2 }).samples);
+
+    expect(ratios.length).toBeGreaterThan(400);
+    expect(Math.min(...ratios)).toBeCloseTo(1, 4);
+    expect(Math.max(...ratios)).toBeCloseTo(1, 4);
+  });
+
+  it("stalls and jumps with a keepalive every fourth frame: the render frame waits for the next one", () => {
+    const ratios = stepRatios(drift({ keepAliveFrames: 4 }).samples);
+
+    // On about a quarter of the render frames the body does not move at all, and the frame that
+    // follows makes up for it. `keepAliveFrames: 1` is the safe value.
+    expect(ratios.filter((ratio) => ratio < 0.01).length).toBeGreaterThan(ratios.length / 5);
+    expect(Math.max(...ratios)).toBeGreaterThan(1.2);
+  });
+
+  it("freezes without a keepalive: the body holds its first pose for as long as nothing changes", () => {
+    // The module refuses a world without the option; this documents why.
+    const { run, body, samples } = drift({ withoutKeepAlive: true });
+
+    const after = settled(samples);
+    expect(after.length).toBeGreaterThan(400);
+    const first = after[0]!;
+    expect(after.every((sample) => sample.x === first.x && sample.y === first.y)).toBe(true);
+    expect(after.every((sample) => sample.renderFrame === first.renderFrame)).toBe(true);
+    // Meanwhile the server's body kept going: the client is metres behind it.
+    expect(body.get(PhysicsPosition)!.x - first.x).toBeGreaterThan(VELOCITY.x * 5);
+    // After the baseline and the entity that carries the clock, the server sent no frame at all.
+    expect(run.client.stats.framesSent).toBeLessThan(5);
+  });
 });
 
 describe("bandwidth", () => {

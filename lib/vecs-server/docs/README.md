@@ -8,14 +8,14 @@ JSDoc on the source in `lib/vecs-server/src/` — read it in your IDE.
 
 1. [Sessions and caller context](./sessions.md) — sessions as `NetworkClient` entities, per-call
    `ServerRPCContext`, the history window and baselines (`historyFrames`), the optimistic base
-   (`redundancyFrames`), `closeSession` and its reply-flush linger, close reasons, and exactly-once
+   (`redundancyFrames`), the idle-session keepalive (`keepAliveFrames`), `closeSession` and its reply-flush linger, close reasons, and exactly-once
    teardown.
 
 ## Map
 
-| Guide                        | Covers                                                                                                                                                                                                                   |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [sessions.md](./sessions.md) | `NetworkClient`, `ServerRPCContext`, `world.handleRpc`, `historyFrames` and baselines, `redundancyFrames`, `world.closeSession`, the close linger, `world.shutdown` / `VecsListener.close`, `NetworkClient.closeReason`. |
+| Guide                        | Covers                                                                                                                                                                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [sessions.md](./sessions.md) | `NetworkClient`, `ServerRPCContext`, `world.handleRpc`, `historyFrames` and baselines, `redundancyFrames`, `keepAliveFrames`, `world.closeSession`, the close linger, `world.shutdown` / `VecsListener.close`, `NetworkClient.closeReason`. |
 
 ## See also
 

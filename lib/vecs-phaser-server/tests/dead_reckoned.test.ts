@@ -72,7 +72,11 @@ class Server {
   private _now = 0;
 
   public constructor(options: DeadReckonedOptions = {}, gravity = { x: 0, y: 0 }, name = "test") {
-    this.world = new ServerWorld({ name, networkComponents: NETWORK_COMPONENTS });
+    this.world = new ServerWorld({
+      name,
+      networkComponents: NETWORK_COMPONENTS,
+      keepAliveFrames: 1,
+    });
     this.world.module(PhysicsModule, { gravity, fixedTimeStep: 1 / HZ });
     this.world.module(DeadReckonedModule, options);
     this.world.component(Motion).on("set", (entity, motion) => {
@@ -236,15 +240,35 @@ describe("DeadReckonedModule setup", () => {
     plain.module(PhysicsModule);
     expect(() => plain.module(DeadReckonedModule)).toThrow(/ServerWorld/);
 
-    const streamedOnly = new ServerWorld({ networkComponents: phaserNetworkComponents });
+    const streamedOnly = new ServerWorld({
+      networkComponents: phaserNetworkComponents,
+      keepAliveFrames: 1,
+    });
     streamedOnly.module(PhysicsModule);
     expect(() => streamedOnly.module(DeadReckonedModule)).toThrow(/phaserMotionComponents/);
 
     const withoutParams = new ServerWorld({
       networkComponents: [...phaserNetworkComponents, MotionClock, Motion],
+      keepAliveFrames: 1,
     });
     withoutParams.module(PhysicsModule);
     expect(() => withoutParams.module(DeadReckonedModule)).toThrow(/MotionParams/);
+  });
+
+  it("requires keepAliveFrames, because without it dead-reckoned bodies freeze in idle scenes", () => {
+    const withoutKeepAlive = new ServerWorld({ networkComponents: NETWORK_COMPONENTS });
+    withoutKeepAlive.module(PhysicsModule);
+
+    expect(() => withoutKeepAlive.module(DeadReckonedModule)).toThrow(
+      /needs keepAliveFrames.*freeze in idle scenes/
+    );
+  });
+
+  it.each([1, 2])("installs on a world with keepAliveFrames %i", (keepAliveFrames) => {
+    const world = new ServerWorld({ networkComponents: NETWORK_COMPONENTS, keepAliveFrames });
+    world.module(PhysicsModule);
+
+    expect(() => world.module(DeadReckonedModule)).not.toThrow();
   });
 });
 
