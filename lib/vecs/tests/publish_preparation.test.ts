@@ -1,20 +1,21 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
-const script = fileURLToPath(
-  new URL("../../../scripts/prepare-vecs-publish-package.mjs", import.meta.url)
-);
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const script = resolve(repoRoot, "scripts/prepare-vecs-publish-package.mjs");
 
 test("publish preparation preserves subpaths and leaves dot-only packages byte-identical", async () => {
   const temp = await mkdtemp(join(tmpdir(), "vecs-publish-"));
   try {
     const dir = join(temp, "vecs-phaser-client");
     await mkdir(dir);
-    const source = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+    const source = JSON.parse(
+      await readFile(resolve(repoRoot, "lib/vecs-phaser-client/package.json"), "utf8")
+    );
     const prepare = async (exports: object): Promise<string> => {
       await writeFile(join(dir, "package.json"), JSON.stringify({ ...source, exports }));
       execFileSync(process.execPath, [script, dir]);
