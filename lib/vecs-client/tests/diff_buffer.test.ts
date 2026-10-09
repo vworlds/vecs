@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { cid_pack } from "@vworlds/vecs-protocol";
+import { ALL_COMPONENTS, cid_pack } from "@vworlds/vecs-protocol";
 import type { EID } from "@vworlds/vecs";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import {
@@ -737,4 +737,261 @@ test("renderFrame is the point the interpolators sample, never decreases and nev
 
   expect(previous).toBe(100);
   expect(segmentStarts).toBeGreaterThan(20);
+});
+
+// A diff means: the ALL_COMPONENTS removals first, then the snapshots, then the removals of single
+// components. Within it, a snapshot of an eid that the same diff removes with ALL_COMPONENTS belongs
+// to the entity that took the eid after the removal. merge must keep that meaning for every ordering
+// of removals and snapshots, and DiffBuffer.pull must not blend the new entity from the old one.
+
+function ALL(eid: EID): number {
+  return CID(eid, ALL_COMPONENTS);
+}
+
+function removedOf(diff: Diff): number[] {
+  return [...(diff.removed ?? [])].sort((x, y) => x - y);
+}
+
+function snapshotIds(diff: Diff): number[] {
+  return diff.snapshots.map((s) => s.cid).sort((x, y) => x - y);
+}
+
+function sorted(...ids: number[]): number[] {
+  return ids.sort((x, y) => x - y);
+}
+
+interface MergeCase {
+  name: string;
+  /** The older diff. */
+  a: () => Diff;
+  /** The newer diff. */
+  b: () => Diff;
+  removed: number[];
+  snapshots: number[];
+  /** The Position of A in the merged diff, when it should have one. */
+  position?: { x: number; y: number };
+}
+
+const entityRemovalMergeCases: MergeCase[] = [
+  {
+    name: "ALL in the newer diff drops the older snapshots of that entity, and only of that entity",
+    a: () =>
+      SD({
+        from: 0,
+        to: 1,
+        snapshots: [
+          ...snap({ id: A, xy: 1, color: "red" }),
+          ...snap({ id: B, xy: 2, color: "blue" }),
+        ],
+      }),
+    b: () => SD({ from: 1, to: 2, removed: [ALL(A)], snapshots: [] }),
+    removed: [ALL(A)],
+    snapshots: sorted(CID(B, PositionWireType), CID(B, ColorWireType)),
+  },
+  {
+    name: "ALL in the newer diff drops the older snapshots and keeps the newer ones of the same eid",
+    a: () => SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) }),
+    b: () => SD({ from: 1, to: 2, removed: [ALL(A)], snapshots: [makePosComponent(A, 9, 9)] }),
+    removed: [ALL(A)],
+    snapshots: [CID(A, PositionWireType)],
+    position: { x: 9, y: 9 },
+  },
+  {
+    name: "ALL in the older diff stays when the newer one snapshots the eid",
+    a: () => SD({ from: 0, to: 1, removed: [ALL(A)], snapshots: [] }),
+    b: () => SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 5, 5)] }),
+    removed: [ALL(A)],
+    snapshots: [CID(A, PositionWireType)],
+    position: { x: 5, y: 5 },
+  },
+  {
+    name: "ALL and snapshots in the older diff stay, merged with the newer snapshots of the eid",
+    a: () =>
+      SD({
+        from: 0,
+        to: 1,
+        removed: [ALL(A)],
+        snapshots: snap({ id: A, xy: 1, color: "orange" }),
+      }),
+    b: () => SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 7, 7)] }),
+    removed: [ALL(A)],
+    snapshots: sorted(CID(A, PositionWireType), CID(A, ColorWireType)),
+    position: { x: 7, y: 7 },
+  },
+  {
+    name: "ALL in both diffs keeps one ALL and only the newer snapshots",
+    a: () =>
+      SD({
+        from: 0,
+        to: 1,
+        removed: [ALL(A)],
+        snapshots: snap({ id: A, xy: 1, color: "red" }),
+      }),
+    b: () =>
+      SD({
+        from: 1,
+        to: 2,
+        removed: [ALL(A)],
+        snapshots: [makeColorComponent(A, "green")],
+      }),
+    removed: [ALL(A)],
+    snapshots: [CID(A, ColorWireType)],
+  },
+  {
+    name: "ALL in the newer diff drops the older removals of single components of that entity",
+    a: () =>
+      SD({
+        from: 0,
+        to: 1,
+        removed: [CID(A, ColorWireType), CID(B, ColorWireType)],
+        snapshots: [],
+      }),
+    b: () => SD({ from: 1, to: 2, removed: [ALL(A)], snapshots: [] }),
+    removed: sorted(ALL(A), CID(B, ColorWireType)),
+    snapshots: [],
+  },
+  {
+    name: "ALL in the newer diff keeps that diff's own removals of single components",
+    a: () => SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) }),
+    b: () =>
+      SD({
+        from: 1,
+        to: 2,
+        removed: [ALL(A), CID(A, ColorWireType)],
+        snapshots: [makePosComponent(A, 3, 3)],
+      }),
+    removed: sorted(ALL(A), CID(A, ColorWireType)),
+    snapshots: [CID(A, PositionWireType)],
+    position: { x: 3, y: 3 },
+  },
+  {
+    name: "a newer snapshot of a component the older diff removed still un-deletes it",
+    a: () => SD({ from: 0, to: 1, removed: [CID(A, ColorWireType)], snapshots: [] }),
+    b: () => SD({ from: 1, to: 2, snapshots: [makeColorComponent(A, "teal")] }),
+    removed: [],
+    snapshots: [CID(A, ColorWireType)],
+  },
+  {
+    name: "a newer removal of a single component deletes the older snapshot",
+    a: () => SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) }),
+    b: () => SD({ from: 1, to: 2, removed: [CID(A, ColorWireType)], snapshots: [] }),
+    removed: [CID(A, ColorWireType)],
+    snapshots: [CID(A, PositionWireType)],
+    position: { x: 1, y: 1 },
+  },
+];
+
+test.each(entityRemovalMergeCases)("merge: $name", (c) => {
+  const a = c.a();
+  const b = c.b();
+
+  const merged = merge(a, b);
+
+  expect(removedOf(merged)).toEqual(c.removed);
+  expect(snapshotIds(merged)).toEqual(c.snapshots);
+  if (c.position) {
+    expect(Pos(merged, A)).toEqual(c.position);
+  }
+  expect([merged.from, merged.to]).toEqual([a.from, b.to]);
+  // The inputs are not touched.
+  expect(removedOf(a)).toEqual(removedOf(c.a()));
+  expect(snapshotIds(a)).toEqual(snapshotIds(c.a()));
+  expect(removedOf(b)).toEqual(removedOf(c.b()));
+  expect(snapshotIds(b)).toEqual(snapshotIds(c.b()));
+});
+
+test.each(entityRemovalMergeCases)("merge in place gives the same result: $name", (c) => {
+  const pure = merge(c.a(), c.b(), false);
+  const folded = merge(c.a(), c.b(), false, true);
+
+  expect(removedOf(folded)).toEqual(removedOf(pure));
+  expect(snapshotIds(folded)).toEqual(snapshotIds(pure));
+});
+
+test("pull applies an entity's removal and the snapshots that reuse its eid in one diff", () => {
+  const ip = newDiffBuffer(4, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) });
+  const s2 = SD({ from: 1, to: 2, removed: [ALL(A)], snapshots: [] });
+  const s3 = SD({ from: 2, to: 3, snapshots: [makePosComponent(A, 40, 40)] });
+
+  ip.push(s1);
+  ip.push(s2);
+  ip.push(s3);
+
+  ip.pull(100); // consumes s1
+  const pulled = ip.pull(140); // consumes s2 and s3 in one catch-up pass
+
+  expect(removedOf(pulled)).toEqual([ALL(A)]);
+  expect(snapshotIds(pulled)).toEqual([CID(A, PositionWireType)]);
+  expect(Pos(pulled, A)).toEqual({ x: 40, y: 40 });
+});
+
+test("pull does not blend an entity from the one whose eid it replaces", () => {
+  const ip = newDiffBuffer(3, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
+  const s2 = SD({
+    from: 1,
+    to: 2,
+    removed: [ALL(A)],
+    snapshots: [makePosComponent(A, 100, 100)],
+  });
+  ip.push(s1);
+  ip.push(s2);
+
+  ip.pull(100); // renders s1, and starts blending toward s2
+  const midway = ip.pull(105);
+
+  // Halfway to s2, the old entity stays where it was: the new one is not drawn between the two.
+  expect(Pos(midway, A)).toBeUndefined();
+  expect(midway.removed).toBeUndefined();
+
+  const applied = ip.pull(110);
+
+  expect(removedOf(applied)).toEqual([ALL(A)]);
+  expect(Pos(applied, A)).toEqual({ x: 100, y: 100 });
+});
+
+test("pull keeps blending the new entity from its own state, not the replaced one's", () => {
+  const ip = newDiffBuffer(3, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
+  const s2 = SD({
+    from: 1,
+    to: 2,
+    removed: [ALL(A)],
+    snapshots: [makePosComponent(A, 100, 100)],
+  });
+  const s3 = SD({ from: 2, to: 3, snapshots: [makePosComponent(A, 200, 200)] });
+  ip.push(s1);
+  ip.push(s2);
+  ip.push(s3);
+
+  ip.pull(100);
+  ip.pull(110); // applies s2: the new entity at (100, 100), blending toward s3
+  const midway = ip.pull(115);
+
+  expect(Pos(midway, A)).toEqual({ x: 150, y: 150 });
+});
+
+test("pull does not blend a component the new entity lacks from the replaced entity's value", () => {
+  const ip = newDiffBuffer(3, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
+  // The new entity has a color but no position yet.
+  const s2 = SD({
+    from: 1,
+    to: 2,
+    removed: [ALL(A)],
+    snapshots: [makeColorComponent(A, "red")],
+  });
+  const s3 = SD({ from: 2, to: 3, snapshots: [makePosComponent(A, 100, 100)] });
+  ip.push(s1);
+  ip.push(s2);
+  ip.push(s3);
+
+  ip.pull(100);
+  const applied = ip.pull(110); // applies s2, blending toward s3
+
+  expect(removedOf(applied)).toEqual([ALL(A)]);
+  // There is nothing of the new entity's to blend from, so the position waits for s3.
+  expect(Pos(applied, A)).toBeUndefined();
+  expect(Pos(ip.pull(120), A)).toEqual({ x: 100, y: 100 });
 });

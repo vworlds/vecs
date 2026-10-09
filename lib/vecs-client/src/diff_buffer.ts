@@ -44,12 +44,28 @@ export class ComponentSnapshot {
   }
 }
 
-// A Diff carries the component snapshots and removals for a frame range. It
-// keeps two views of the same snapshots: `snapshots` (an ordered array, the
-// form decoded from the wire and consumed by callers) and `smap` (a cid-keyed
-// map, used for fast lookup and overwrite during merge). `smap` is built
-// lazily from `snapshots` on first access. Use `getSnapshot`/`upsertSnapshot`
-// when keyed access should preserve the current representation.
+/**
+ * The component snapshots and removals for a frame range.
+ *
+ * `removed` holds component ids (`cid_pack(eid, wireType)`). A removal with wire
+ * type `ALL_COMPONENTS` removes the whole entity `eid`; any other removal drops
+ * one component of it. Within one diff the changes apply in a fixed order, the
+ * one `ClientWorld.apply` follows:
+ *
+ * 1. the `ALL_COMPONENTS` removals, which destroy their entities;
+ * 2. the snapshots, which create or update entities;
+ * 3. the other removals.
+ *
+ * So a snapshot of an eid that the same diff removes with `ALL_COMPONENTS`
+ * belongs to the entity that took the eid after the removal, never to the one
+ * removed. {@link merge} keeps that meaning when it joins diffs.
+ *
+ * A diff keeps two views of the same snapshots: `snapshots` (an ordered array,
+ * the form decoded from the wire and consumed by callers) and `smap` (a
+ * cid-keyed map, used for fast lookup and overwrite during merge). `smap` is
+ * built lazily from `snapshots` on first access. Use `getSnapshot` /
+ * `upsertSnapshot` when keyed access should preserve the current representation.
+ */
 export class Diff {
   public snapshots: ComponentSnapshot[] = [];
   private _smap: Map<number, ComponentSnapshot> | undefined;
@@ -144,6 +160,12 @@ export class DiffBuffer {
   // of their position-like component).
   private readonly _componentInterpolators: Map<number, ComponentInterpolator>;
 
+  // The eids the diff being rendered, and the next frame it blends toward, remove outright
+  // (ALL_COMPONENTS). Scratch sets reused by every pull, so the usual frame, which removes
+  // none, allocates nothing. See _interpolate and _updateState.
+  private readonly _renderedResets = new Set<EID>();
+  private readonly _targetResets = new Set<EID>();
+
   public constructor(
     private max_length: number = MAX_LENGTH, // max bucket length
     private server_tick_interval: number = 1000 / 60, // server tick interval FPS configuration
@@ -175,21 +197,25 @@ export class DiffBuffer {
   }
 
   private _updateState(sd: Diff): void {
-    // apply diff to current state
+    // apply diff to current state, in the order a diff means: the entities it removes
+    // outright, then its snapshots (which may belong to a new entity under a removed
+    // eid), then its component removals.
+    const removed = sd.removed;
+    const resets = this._renderedResets;
+    if (resets.size > 0) {
+      this._state.forEach((_, cid) => {
+        if (resets.has(cid_unpack(cid)[0])) {
+          this._state.delete(cid);
+        }
+      });
+    }
     sd.snapshots?.forEach((s) => {
       this._state.set(s.cid, s);
     });
-    (sd.removed as number[] | undefined)?.forEach((r) => {
-      const [eid, wireType] = cid_unpack(r);
-      if (wireType === ALL_COMPONENTS) {
-        this._state.forEach((_, cid) => {
-          if (cid_unpack(cid)[0] === eid) {
-            this._state.delete(cid);
-          }
-        });
-        return;
+    removed?.forEach((r) => {
+      if (cid_unpack(r)[1] !== ALL_COMPONENTS) {
+        this._state.delete(r);
       }
-      this._state.delete(r);
     });
     this._stateVersion = sd.to;
   }
@@ -259,6 +285,11 @@ export class DiffBuffer {
       this._pop();
       tsDelta += this.server_tick_interval;
     }
+    // The entities this pull's diff removes outright. Their eids may already belong to new
+    // entities (the diff's own snapshots), so _interpolate must not blend from what the
+    // rendered state holds under them, and _updateState drops that state first.
+    collectEntityRemovals(sd.removed, this._renderedResets);
+
     // At this point, if something is in the bucket, bucket[0] contains the
     // next target. Position snapshots are blended into the returned diff so
     // callers can render fake frames between server ticks.
@@ -419,13 +450,22 @@ export class DiffBuffer {
     if (this._componentInterpolators.size === 0) {
       return;
     }
+    // An entity the target removes outright is replaced by the one whose snapshots follow in
+    // the target: it has no previous state to blend from, so it snaps to its first values.
+    // Likewise an entity the rendered diff removed: what the rendered state holds under its
+    // eid belongs to the removed one, and only the snapshots the diff itself holds are the
+    // new entity's.
+    const targetResets = this._targetResets;
+    const renderedResets = this._renderedResets;
+    collectEntityRemovals(target.removed, targetResets);
     target.snapshots.forEach((targetSnapshot) => {
       const interpolate = this._componentInterpolators.get(targetSnapshot.wireType);
-      if (!interpolate) {
+      if (!interpolate || targetResets.has(targetSnapshot.eid)) {
         return;
       }
       const sourceSnapshot =
-        sd.getSnapshot(targetSnapshot.cid) ?? this._state.get(targetSnapshot.cid);
+        sd.getSnapshot(targetSnapshot.cid) ??
+        (renderedResets.has(targetSnapshot.eid) ? undefined : this._state.get(targetSnapshot.cid));
       if (!sourceSnapshot) {
         return;
       }
@@ -471,7 +511,49 @@ function addToSet<T>(set: Set<T>, data: Iterable<T> | undefined): void {
   }
 }
 
-// merge returns the result of merging Diff b on to a.
+// Replace the contents of `into` with the eids that `removed` removes outright, the ones
+// removed with ALL_COMPONENTS. Does not allocate: `into` is the caller's scratch set.
+function collectEntityRemovals(removed: readonly CID[] | undefined, into: Set<EID>): void {
+  into.clear();
+  if (removed === undefined) {
+    return;
+  }
+  for (let i = 0; i < removed.length; i++) {
+    const [eid, wireType] = cid_unpack(removed[i]);
+    if (wireType === ALL_COMPONENTS) {
+      into.add(eid);
+    }
+  }
+}
+
+// The eids a diff removes outright (ALL_COMPONENTS), or undefined when it removes none.
+function entityRemovalsOf(diff: Diff): Set<EID> | undefined {
+  const removed = diff.removed;
+  if (removed === undefined) {
+    return undefined;
+  }
+  let eids: Set<EID> | undefined;
+  for (let i = 0; i < removed.length; i++) {
+    const [eid, wireType] = cid_unpack(removed[i]);
+    if (wireType === ALL_COMPONENTS) {
+      (eids ??= new Set()).add(eid);
+    }
+  }
+  return eids;
+}
+
+// merge returns the result of merging Diff b on to a, where b is the newer diff.
+//
+// A diff applies its ALL_COMPONENTS removals first, then its snapshots, then its other
+// removals (see Diff), and merge keeps that meaning:
+//
+// - ALL(eid) in b ends the entity a describes: a's snapshots and component removals for
+//   the eid are dropped, and ALL(eid) stays in the result together with b's snapshots of
+//   the eid, which belong to the entity that took the eid after the removal.
+// - ALL(eid) in a stays when b holds snapshots of the eid: they are the entity that took
+//   the eid after the removal, merged with a's own snapshots of it.
+// - A snapshot in b of a component that a removed un-deletes it, and a removal in b of a
+//   component that a snapshots deletes it.
 //
 // When `mutateAccumulator` is true the caller asserts it exclusively owns `a`
 // (a fresh accumulator), letting merge fold `b` into `a` in place. This skips
@@ -516,11 +598,32 @@ export function merge(
     throw new Error("cannot merge snapshots");
   }
 
+  // The eids b removes outright. Only a frame that removes an entity pays for the extra
+  // passes below, and for the set.
+  const resets = entityRemovalsOf(b);
+
   const removed = new Set<number>();
   addToSet(removed, a.removed as number[] | undefined);
+  if (resets !== undefined) {
+    // a's component removals of an entity b removes outright are moot.
+    removed.forEach((r) => {
+      const [eid, wireType] = cid_unpack(r);
+      if (wireType !== ALL_COMPONENTS && resets.has(eid)) {
+        removed.delete(r);
+      }
+    });
+  }
   addToSet(removed, b.removed as number[] | undefined);
 
   const as = mutateAccumulator ? a.smap : new Map(a.smap);
+  if (resets !== undefined) {
+    // a's snapshots of an entity b removes outright describe the removed entity.
+    as.forEach((_, cid) => {
+      if (resets.has(cid_unpack(cid)[0])) {
+        as.delete(cid);
+      }
+    });
+  }
   const bs = b.smap;
   bs.forEach((s) => {
     as.set(s.cid, s);

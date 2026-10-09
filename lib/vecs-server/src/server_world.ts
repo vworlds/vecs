@@ -21,6 +21,7 @@ import {
 } from "@vworlds/vecs-protocol";
 import { performance } from "node:perf_hooks";
 import {
+  DEFAULT_ID_REUSE_WAIT_FRAMES,
   type ComponentInstance,
   type ComponentClass,
   type EID,
@@ -133,6 +134,23 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * merges the frames since its ack on every send.
    */
   historyFrames?: number;
+  /**
+   * How many frames the id of a destroyed entity waits before another entity can take it: a
+   * non-negative integer. Defaults to `DEFAULT_ID_REUSE_WAIT_FRAMES` (16), and a server never
+   * waits less than `historyFrames + 1`, whatever the value: 65 frames by default.
+   *
+   * It configures the `entity` pool, which every entity of a server, replicated or not, is
+   * allocated from. With a wait above `historyFrames`, the frame that removed the old entity has
+   * left every session's history before its id is reused. A client that has not acked that frame
+   * is then sent a baseline instead of a delta, so no delta has to tell the old entity from the
+   * new one under the same id. (An entity that leaves a session's view and returns within one
+   * delta is still sent as a reset: see {@link StateDiff}.)
+   *
+   * Do not pass `localEntityIdStart` to a server. It splits the id space for a client, and the
+   * server would still allocate from the `entity` pool above the split, which this option does
+   * not reach.
+   */
+  networkEntityReuseWaitFrames?: number;
 }
 
 /**
@@ -283,13 +301,20 @@ export class ServerWorld extends NetworkWorld {
   private _frame = 1;
 
   public constructor(options: ServerWorldOptions = {}) {
-    super(options);
+    const historyFrames = validateHistoryFrames(options.historyFrames ?? HISTORY_LENGTH);
+    super({
+      ...options,
+      networkEntityReuseWaitFrames: entityReuseWaitFrames(
+        options.networkEntityReuseWaitFrames,
+        historyFrames
+      ),
+    });
     this.name = options.name ?? "main";
     const encodeBufferSize = options.encodeBufferSize ?? 64 * 1024;
     this._encodeBuffer = new Uint8Array(encodeBufferSize);
     this._disconnectGraceMs = options.disconnectGraceMs ?? 10_000;
     this._closeLingerMs = options.closeLingerMs ?? DEFAULT_CLOSE_LINGER_MS;
-    this._historyFrames = validateHistoryFrames(options.historyFrames ?? HISTORY_LENGTH);
+    this._historyFrames = historyFrames;
     this._trackerCache = new TrackerCache(this);
     this._components = this.networkComponents;
     ensureRegistered(this, Networked);
@@ -581,6 +606,11 @@ export class ServerWorld extends NetworkWorld {
       const snapshots: EncodedSnapshot[] = [];
       const removed: RemovedComponent[] = [];
 
+      // One frame's diff can hold ALL_COMPONENTS for an entity that left the view and the
+      // snapshots of a different entity that entered it under the same eid, when the eid is
+      // reused within the frame (a pool with no reuse wait). The protocol reads that
+      // correctly: within a diff, ALL_COMPONENTS for an eid precedes every snapshot of it,
+      // so the snapshots are the new entity's. See StateDiff.
       view._exitedView.forEach((entity) => {
         removed.push([entity.eid, ALL_COMPONENTS]);
       });
@@ -1030,6 +1060,24 @@ export class ServerWorld extends NetworkWorld {
     encoder.write(value);
     return encoder.getBuffer().slice();
   }
+}
+
+/**
+ * The frames a server's `entity` pool holds a freed id: `requested` (default
+ * `DEFAULT_ID_REUSE_WAIT_FRAMES`), raised to `historyFrames + 1`.
+ *
+ * One frame more than the history keeps is what makes the guarantee: when an id comes back, the
+ * frame that removed its previous entity has already left every session's history, so a client
+ * that missed that removal is rebuilt from a baseline rather than served a delta.
+ */
+function entityReuseWaitFrames(requested: number | undefined, historyFrames: number): number {
+  const wait = requested ?? DEFAULT_ID_REUSE_WAIT_FRAMES;
+  if (!Number.isSafeInteger(wait) || wait < 0) {
+    throw new Error(
+      `networkEntityReuseWaitFrames must be a non-negative integer, got ${String(wait)}`
+    );
+  }
+  return Math.max(wait, historyFrames + 1);
 }
 
 function ensureRegistered(world: NetworkWorld, Class: ComponentClass): void {

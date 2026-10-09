@@ -46,8 +46,40 @@ export class EncodedSnapshot {
   ) {}
 }
 
+/**
+ * One removal in a {@link StateDiff}: the component of entity `eid` with the given wire type,
+ * or, when `wireType` is `ALL_COMPONENTS`, the whole entity.
+ */
 export type RemovedComponent = [eid: EID, wireType: number];
 
+/**
+ * What changed in a client's view between two frames: the state to take it from frame
+ * `fromFrame` to frame `toFrame`. A `fromFrame` of `0` makes it a baseline, the whole view as
+ * of `toFrame`, which a client applies to an empty world.
+ *
+ * `snapshots` carry the new value of a component, which creates the entity if the client does
+ * not hold it. `removed` lists components that are gone; a removal with wire type
+ * `ALL_COMPONENTS` removes the whole entity.
+ *
+ * ### Order within a diff
+ *
+ * The lists carry no order of their own. A diff means this order, and every producer and
+ * consumer of one must follow it:
+ *
+ * 1. the `ALL_COMPONENTS` removals;
+ * 2. the snapshots;
+ * 3. the removals of single components.
+ *
+ * So `ALL_COMPONENTS` for an eid precedes every snapshot of that eid in the same diff: a diff
+ * that holds both is telling the client that the entity it holds under that eid is gone, and
+ * that a new entity, whose snapshots follow, has taken the eid. The server reuses the id of a
+ * destroyed entity, and the wire carries no entity generation, so this is how a client tells
+ * the two apart. A delta spanning several frames is merged to the same meaning: a removal of an
+ * entity that a later frame of the span snapshots again is kept next to those snapshots, which
+ * are the whole of the new entity's state.
+ *
+ * A consumer that applied the snapshots first would create the new entity and then destroy it.
+ */
 export class StateDiff implements IEncodable {
   public toFrame = 0;
   public fromFrame = 0;

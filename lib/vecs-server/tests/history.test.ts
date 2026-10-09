@@ -158,18 +158,131 @@ describe("History", () => {
     expect(pulledAfterRemove.removed).toEqual([[1, 1]]);
   });
 
-  it("lets snapshots cancel prior all-components removals for the entity", () => {
-    const history = new History();
-    const latestPosition = snapshot(1, 1, 20);
+  describe("an entity removed and snapshotted again within the span", () => {
+    it("is pulled as a reset: its removal, with the snapshots that follow it", () => {
+      const history = new History();
+      const latestPosition = snapshot(1, 1, 20);
 
-    history.push(stateDiff(0, [snapshot(1, 1, 10)]));
-    history.push(stateDiff(1, [], [[1, ALL_COMPONENTS]]));
-    history.push(stateDiff(2, [latestPosition]));
+      history.push(stateDiff(0, [snapshot(1, 1, 10)]));
+      history.push(stateDiff(1, [], [[1, ALL_COMPONENTS]]));
+      history.push(stateDiff(2, [latestPosition]));
 
-    const pulled = history.pull(-1, 2);
+      const pulled = history.pull(-1, 2);
 
-    expect(pulled.snapshots).toEqual([latestPosition]);
-    expect(pulled.removed).toEqual([]);
+      expect(pulled.snapshots).toEqual([latestPosition]);
+      expect(pulled.removed).toEqual([[1, ALL_COMPONENTS]]);
+    });
+
+    it("keeps nothing of the removed entity: the snapshots before the removal are gone", () => {
+      const history = new History();
+
+      history.push(stateDiff(0, [snapshot(1, 1, 10), snapshot(1, 2, 10)]));
+      history.push(stateDiff(1, [], [[1, ALL_COMPONENTS]]));
+      history.push(stateDiff(2, [snapshot(1, 1, 20)]));
+
+      const pulled = history.pull(-1, 2);
+
+      expect(pulled.snapshots).toEqual([snapshot(1, 1, 20)]);
+      expect(pulled.removed).toEqual([[1, ALL_COMPONENTS]]);
+    });
+
+    it("is also a reset when the removal and the snapshots share one frame's diff", () => {
+      const history = new History();
+
+      history.push(stateDiff(0, [snapshot(1, 1, 10), snapshot(1, 2, 10)]));
+      history.push(stateDiff(1, [snapshot(1, 1, 20)], [[1, ALL_COMPONENTS]]));
+      history.push(stateDiff(2, [snapshot(2, 1, 5)]));
+
+      const pulled = history.pull(-1, 2);
+
+      expect(pulled.snapshots).toEqual([snapshot(1, 1, 20), snapshot(2, 1, 5)]);
+      expect(pulled.removed).toEqual([[1, ALL_COMPONENTS]]);
+    });
+
+    it("applies a frame's removal of the whole entity before its snapshots, not after", () => {
+      const history = new History();
+
+      history.push(stateDiff(0, [snapshot(1, 1, 10)]));
+      history.push(stateDiff(1, [snapshot(1, 2, 5)], [[1, ALL_COMPONENTS]]));
+
+      const pulled = history.pull(-1, 1);
+
+      // The snapshot the removal's own frame carries survives it: it is the new entity's.
+      expect(pulled.snapshots).toEqual([snapshot(1, 2, 5)]);
+      expect(pulled.removed).toEqual([[1, ALL_COMPONENTS]]);
+    });
+
+    it("drops a later removal of a component the new entity holds, instead of repeating it", () => {
+      const history = new History();
+
+      history.push(stateDiff(0, [snapshot(1, 1, 10), snapshot(1, 2, 10)]));
+      history.push(stateDiff(1, [], [[1, ALL_COMPONENTS]]));
+      history.push(stateDiff(2, [snapshot(1, 1, 20), snapshot(1, 2, 20)]));
+      history.push(stateDiff(3, [], [[1, 2]]));
+
+      const pulled = history.pull(-1, 3);
+
+      expect(pulled.snapshots).toEqual([snapshot(1, 1, 20)]);
+      expect(pulled.removed).toEqual([[1, ALL_COMPONENTS]]);
+    });
+
+    it("is removed outright if it is removed again", () => {
+      const history = new History();
+
+      history.push(stateDiff(0, [snapshot(1, 1, 10)]));
+      history.push(stateDiff(1, [], [[1, ALL_COMPONENTS]]));
+      history.push(stateDiff(2, [snapshot(1, 1, 20)]));
+      history.push(stateDiff(3, [], [[1, ALL_COMPONENTS]]));
+
+      const pulled = history.pull(-1, 3);
+
+      expect(pulled.snapshots).toEqual([]);
+      expect(pulled.removed).toEqual([[1, ALL_COMPONENTS]]);
+    });
+
+    it("leaves the other entities of the span as they are", () => {
+      const history = new History();
+
+      history.push(stateDiff(0, [snapshot(1, 1, 10), snapshot(2, 1, 10)]));
+      history.push(stateDiff(1, [snapshot(2, 1, 11)], [[1, ALL_COMPONENTS]]));
+      history.push(stateDiff(2, [snapshot(1, 1, 20)], [[3, 1]]));
+
+      const pulled = history.pull(-1, 2);
+
+      expect(pulled.snapshots).toEqual([snapshot(1, 1, 20), snapshot(2, 1, 11)]);
+      expect(pulled.removed).toEqual([
+        [1, ALL_COMPONENTS],
+        [3, 1],
+      ]);
+    });
+
+    it("is not a reset for a span that starts after the removal: its snapshots are pulled alone", () => {
+      const history = new History();
+
+      history.push(stateDiff(0, [snapshot(1, 1, 10)]));
+      history.push(stateDiff(1, [], [[1, ALL_COMPONENTS]]));
+      history.push(stateDiff(2, [snapshot(1, 1, 20)]));
+      history.push(stateDiff(3, [snapshot(1, 2, 30)]));
+
+      // A client that acked frame 1 has the removal already.
+      const pulled = history.pull(1, 3);
+
+      expect(pulled.snapshots).toEqual([snapshot(1, 1, 20), snapshot(1, 2, 30)]);
+      expect(pulled.removed).toEqual([]);
+    });
+
+    it("is a plain delta for an entity that was only snapshotted within the span", () => {
+      const history = new History();
+
+      history.push(stateDiff(0, [snapshot(1, 1, 10)]));
+      history.push(stateDiff(1, [snapshot(1, 1, 11)]));
+      history.push(stateDiff(2, [snapshot(1, 2, 12)]));
+
+      const pulled = history.pull(-1, 2);
+
+      expect(pulled.snapshots).toEqual([snapshot(1, 1, 11), snapshot(1, 2, 12)]);
+      expect(pulled.removed).toEqual([]);
+    });
   });
 
   it("lets all-components removals cancel prior snapshots and removals for the entity", () => {
@@ -382,6 +495,63 @@ function randomContent(frame: number, next: () => number): ContentFactory {
   }
   return () => stateDiff(frame, snapshots, removed);
 }
+
+/** What a client holds: the bytes of every component of every entity, keyed by `eid:wireType`. */
+type ClientState = Map<string, string>;
+
+/** Apply a diff the way a client does: whole-entity removals, then snapshots, then the rest. */
+function applyDiff(state: ClientState, diff: StateDiff): ClientState {
+  const next = new Map(state);
+  diff.removed.forEach(([eid, type]) => {
+    if (type === ALL_COMPONENTS) {
+      [...next.keys()]
+        .filter((key) => key.startsWith(`${eid}:`))
+        .forEach((key) => next.delete(key));
+    }
+  });
+  diff.snapshots.forEach((s) => next.set(`${s.eid}:${s.wireType}`, [...s.bytes].join(",")));
+  diff.removed.forEach(([eid, type]) => {
+    if (type !== ALL_COMPONENTS) {
+      next.delete(`${eid}:${type}`);
+    }
+  });
+  return next;
+}
+
+describe("a pulled delta", () => {
+  // The claim History exists to keep: a delta takes a client that holds frame `from` to frame
+  // `to` exactly as the frames in between would, one after the other, whatever they hold. That
+  // includes frames that remove an entity and snapshot it again, in one frame or across several.
+  it("takes a client to the same state as applying the frames it merges one by one", () => {
+    const next = lcg(777);
+    const history = new History(400);
+    const states: ClientState[] = [new Map()];
+    const mismatches: string[] = [];
+    let spansWithAReset = 0;
+
+    for (let frame = 0; frame < 300; frame++) {
+      const content = randomContent(frame, next)();
+      history.push(content);
+      states.push(applyDiff(states[states.length - 1], content));
+
+      for (let from = Math.max(-1, frame - 12); from < frame; from++) {
+        const pulled = history.pull(from, frame);
+        const viaDelta = applyDiff(states[from + 1], pulled);
+        const oneByOne = states[frame + 1];
+        if (!isDeepStrictEqual([...viaDelta].sort(), [...oneByOne].sort())) {
+          mismatches.push(`frame ${frame}, from ${from}`);
+        }
+        if (pulled.removed.some(([, type]) => type === ALL_COMPONENTS) && pulled.snapshots.length) {
+          spansWithAReset++;
+        }
+      }
+    }
+
+    expect(mismatches).toEqual([]);
+    // The random frames did remove entities and re-create them within a span.
+    expect(spansWithAReset).toBeGreaterThan(300);
+  });
+});
 
 describe("validateHistoryFrames", () => {
   it.each([2, 3, 32, 1000])("accepts %i and returns it", (frames) => {

@@ -73,7 +73,15 @@ released this frame is not immediately recycled. A frame is one `beginFrame()`, 
 `progress()`; a wait of `0` frees the id at once. Once the wait is over, allocation hands out free
 ids before never-used ones, lowest first, so a released id is recycled by one of the next entities
 created. A `ClientWorld` sets the wait to `0` for the ids of replicated entities and keeps the
-default for its local ones. A recycled id is why a stored id is not a safe link between entities
+default for its local ones. A `ServerWorld` allocates its replicated entities from the `entity` pool,
+and holds a freed id for at least `historyFrames + 1` frames (65 by default) whatever the wait
+asks for, so the frame that removed an entity has left every session's history before its id comes
+back (see [Reusing entity ids](../../vecs-server/docs/sessions.md#reusing-entity-ids)). The
+`networkEntityReuseWaitFrames` option of the networked worlds sets the wait of the pool that holds
+the replicated entities: `entity` for a server, `network_entity` for a client. A diff that removes
+an entity and snapshots a new one under the same id is read in a fixed order, which is how a client
+tells the two apart (see [State diffs](../../vecs-protocol/docs/state-diffs.md)). A recycled id is
+why a stored id is not a safe link between entities
 (see [Link with edges, not stored ids](./relationships.md#link-with-edges-not-stored-ids)).
 `world.peekNextEid(poolName)` returns the next id a pool would allocate without reserving it. Id 0
 is reserved.
