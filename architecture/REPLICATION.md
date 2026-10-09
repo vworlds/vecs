@@ -44,47 +44,63 @@ and then sit still, such as the baseline of a dead-reckoned body.
 opts in to sending each frame as a delta from a **base** later than the ack:
 
 ```text
-base  = max(ack, the frame the session was sent R sends ago)
+base  = max(ack, the state frame of the send R sends ago)
 diff  = history.pull(base, frame)
 ```
 
 A **send** is a frame in which the session was sent a baseline or a delta with content, or, with
 `keepAliveFrames`, a [keepalive](#the-keepalive). Frames that sent nothing because their diff was
-empty, or were withheld while a baseline was in flight, are not sends. The frame carries the **optimistic marker** (a field on `Server2Client`) exactly when
+empty, or were withheld while a baseline was in flight, are not sends. The **state frame** of a send
+is the newest frame at which the session's replicated state had changed as of that send: the
+`toFrame` of the newest per-frame diff with content that the server recorded into the session's
+history (`History.lastContentFrame`). A send that carries a new change names its own frame. A send
+that only carries a change again, or carries nothing, names the earlier frame where the state last
+changed. The frame carries the **optimistic marker** (a field on `Server2Client`) exactly when
 `base > ack`. Unset, the base is the ack, nothing is marked and the wire is byte for byte what it
 always was.
 
-- **The base is a frame the client was sent.** The client's version is always a frame it was sent, so
-  a base the session never sent claims something false. A frame number such as `frame - R` is not a
-  send once traffic is sparse. Take sends at 100, 101 and 106 and `R = 2`: `106 - 2` is 104, which was
-  not sent, and the newest send at least two frames back is 101, which a client that lost it does not
-  hold. It is at 100, and would read the delta as a gap even though `(100, 106]` carries everything.
-  Two sends back is 100.
+- **The state is the same from a send's state frame to the send.** Nothing changed in between, so
+  the client that holds the send holds the state frame, and a delta from the state frame holds
+  exactly what one from the send would: `(stateFrame, frame]` and `(sendFrame, frame]` merge the same
+  changes, with no extra bytes. The base is therefore a frame the client holds whenever it received
+  that send or any later one, and the claim never depends on a frame that carried nothing.
 - **The redundancy is counted in sends.** The client holds the base, or a newer frame, unless it lost
   all of the last `R` sends. Up to `R - 1` lost frames in a row cost nothing, however far apart in
   time the sends were: `R = 1` sends every change once, `R = 2` survives any single lost frame, `R = 3`
-  any two in a row. In a view that changes on every frame each frame is a send and the base is
-  `frame - R`.
-- **Every change is carried by `R` consecutive frames, however sparse the traffic.** A change made in
-  frame `c` is a send, and so is each of the next `R - 1` frames, because their diffs still contain it.
-  The diff of frame `c + R` starts at `c`, and no longer does. Changes that follow each other closely
-  share the frames in between.
+  any two in a row. In a view that changes on every frame each frame is a send with its own state
+  frame, and the base is `frame - R`.
+- **A lost send that carried nothing the client lacked costs nothing at all.** A keepalive, or the
+  repeat of a change the client already holds, names the state frame of the change before it, which
+  the client holds, so losing it never moves a base past what the client holds. Take `R = 2` and sends
+  at 100 (a change), 101 (its repeat) and 102 (a keepalive): the delta of 103 starts at 100, the state
+  frame of the send two back, and a client that lost 101 and 102 is at 100 and applies it. Naming the
+  frame of the send, 101, would read as a gap, though 100 carried everything.
+- **Every change is carried by `R` consecutive sends, however sparse the traffic.** A change made in
+  frame `c` is a send, and so is each of the next `R - 1` frames, because their bases are still the
+  state frames of older changes, before `c`, and their diffs contain it. The send after those starts
+  at `c`, and no longer carries it. Changes that follow each other closely share the sends in
+  between.
 - **`ack` floors the base**, so a diff never starts before the ack and the pull never merges more
   frames than a plain delta would: `R` of them in a busy view, where a plain delta merges `L + 1`.
   Frames since the base that sent nothing hold nothing, so merging them costs a few empty slots and
-  adds nothing to the diff.
+  adds nothing to the diff. A view that has not changed since the ack has nothing to presume: every
+  ring entry is at or before the ack, the base is the ack, and its keepalives are plain deltas.
 - **A baseline needs no special case.** It is a send, and the ack floor does the rest. The baseline
   being in flight makes the session unhealthy, so no state is sent, and once it is acked the ack is
   the baseline's frame. The base starts there and moves up as sends follow the baseline, so the delta
   that ends the wait carries everything withheld while the baseline was in flight. The first `R`
   sends after a baseline are therefore from the baseline, and not optimistic.
 
-Choosing the base by frame number instead, `max(ack, min(frame - R, newest send))`, is the design
-this replaces. The cap on the newest send patches two symptoms of a frame number, the first change
-after a quiet stretch and the delta that ends a baseline wait, but not the cause: between the two
-bounds the base is still often a frame that was not sent. On the simulated link below (seed 1, 60 s,
-one entity changing every fourth frame) it made `R = 2` send 54% of the unset run's bytes with 89 gap
-reports, against 44% and 9 with the base on sends.
+Two designs came before this one. Choosing the base by frame number, `max(ack, min(frame - R, newest
+send))`, patched two symptoms of a frame number, the first change after a quiet stretch and the delta
+that ends a baseline wait, but not the cause: between the two bounds the base is still often a frame
+that was not sent. On the simulated link below (seed 1, 60 s, one entity changing every fourth frame)
+it made `R = 2` send 54% of the unset run's bytes with 89 gap reports, against 44% and 8 with the
+base on state frames. Choosing the base by the frame of the send, the design this replaces, fixed
+that but named a frame that can carry nothing the client lacked. With the keepalive that is every
+frame of an idle view: a lost keepalive, or `R` of them in a row, became the base of the next frame,
+and a client still at the previous change read it as a gap. An idle view over the same link reported
+279 gap reports a minute at `R = 1` and 28 at `R = 2` for nothing it was missing.
 
 The marker is what makes the presumption safe to state. A marked diff says: _I assumed you hold
 `base`; if you do not, this is not a protocol error._
@@ -127,12 +143,15 @@ before the ack went out is not reported. Each further held diff raises the flag 
 the link lost is repeated by the next frame.
 
 **The server falls back.** A gap report makes the session's base the ack, from the next frame
-(`fallbackFrame`), until the ack reaches `min(fallbackFrame, newest send)`: the client has caught up
-with the frame the fallback began at, or already holds everything that was ever sent. The second
-condition keeps a fallback begun in a quiet moment, when its first frame is empty and the ack can
-never reach it, from lasting until the next change has been sent and acked. A report that arrives
-while a fallback runs is ignored, so reports repeated once per ack do not extend it. A report that
-arrives during a baseline handshake starts a fallback that the baseline's ack ends at once.
+(`fallbackFrame`), until the ack reaches `min(fallbackFrame, newest)`, where `newest` is the state
+frame of the newest send, the last change that was ever sent: the client has caught up with the frame
+the fallback began at, or already holds everything that was ever sent. The second condition keeps a
+fallback begun in a quiet moment, when its first frame is empty and the ack can never reach it, from
+lasting until the next change has been sent and acked. Because it is a state frame, a keepalive or
+the repeat of an older change does not move it: a quiet view's fallback ends when the client has the
+last change, not when it has acked the latest keepalive. A report that arrives while a fallback
+runs is ignored, so reports repeated once per ack do not extend it. A report that arrives during a
+baseline handshake starts a fallback that the baseline's ack ends at once.
 
 ## Liveness: the ack timeout
 
@@ -141,18 +160,23 @@ it, it ages out of their window, nothing else changes, and no later frame shows 
 the link lost, or a client stuck behind a hole, ends the same way. So the server also watches the
 ack.
 
-The session keeps a **probe**, the oldest frame with content that is still unacked, and when it was
-sent. Once the ack has not reached the probe for longer than the **ack timeout** the session falls
-back exactly as for a gap report. The probe is rearmed by the next content frame sent after the ack
-passes it. The timeout is the one baselines in flight already use: twice the session's smoothed ack
+The session keeps a **probe**, the state frame of the oldest content send that is still unacked, and
+when it was sent. It is a state frame like the ring's entries, so the repeat of a change the client
+has already acked never arms it: an ack that reaches the change satisfies it, and the loss of a
+repeat is nothing to chase. Once the ack has not reached the probe for longer than the **ack
+timeout** the session falls back exactly as for a gap report. The probe is rearmed by the next
+content frame sent after the ack passes it. The timeout is the one baselines in flight already use: twice the session's smoothed ack
 round trip, at least 100 ms, and 1 s before the first sample (`RttEstimator`, RFC 6298 style, no new
 constants). A single content frame in flight is therefore found within the timeout plus a frame, and
 the fallback delta arrives one link delay later.
 
-State per session is a ring of the last `R` sends (`SentFrames`, `R` numbers allocated with the
-session and written once per send) and three more values: `probeFrame`, `probeSentAtMs` and
-`fallbackFrame`. Reading the base is one load, and nothing is allocated per frame. A world that does
-not set `redundancyFrames` allocates no ring and keeps none of this.
+State per session is a ring of the state frames of the last `R` sends (`SentFrames`, `R` numbers
+allocated with the session and written once per send) and three more values: `probeFrame`,
+`probeSentAtMs` and `fallbackFrame`. The state frame is read from one integer the history keeps for
+every session, `lastContentFrame`, written once per frame recorded, which is also what lets a pull
+that starts at or after it answer an empty delta without merging a slot. Reading the base is one load,
+and nothing is allocated per frame. A world that does not set `redundancyFrames` allocates no ring and
+keeps none of the rest.
 
 ## Cost and trade-off
 
@@ -168,7 +192,7 @@ sent with `R` unset:
 | --- | ----------------------------------- | ------------------------------- | ------------------------------------- |
 | 1   | 78%                                 | 53%                             | 31%                                   |
 | 2   | 81%                                 | 39%                             | 44%                                   |
-| 3   | 90%                                 | 51%                             | 63%                                   |
+| 3   | 90%                                 | 51%                             | 62%                                   |
 
 and, for the stalls of the client's view:
 
@@ -210,10 +234,11 @@ the code path is one branch and the wire is byte for byte what it was.
 - **It is a plain delta that happens to be empty.** It is labeled by the normal base selection: the
   ack, or with `redundancyFrames` the optimistic base, with the marker when that is past the ack. The
   client applies it, its version and `renderFrame` advance, and it acks it like any frame.
-- **It counts as a send.** The client was sent it and its version may be that frame, so it may be
-  the base of a later frame, like any other send. If it did not count, the base would stay at the last
-  frame with content and fall behind the ack, and a change after an idle stretch would be resent in
-  every frame until acked, the cost `redundancyFrames` removes.
+- **It counts as a send, with the state frame of the last change.** The client was sent it and its
+  version may be that frame, so it joins the ring like any other send. It carries nothing, so its
+  state frame is the one the send before it named, never a frame the client may lack: a lost keepalive
+  cannot become the base of a later frame that the client cannot apply. An idle view that has been
+  acked therefore has a base at or before its ack, and its keepalives are plain deltas from the ack.
 - **It is not content for the liveness probe.** Nothing in it needs delivering, so a lost one is never
   chased with a fallback.
 - **It is never sent while a baseline is in flight or needed**, and not before a baseline has been
@@ -244,23 +269,26 @@ At 30 Hz and `K` = 1 that is 150 to 300 B/s per idle client, before the transpor
 the dead-reckoning bandwidth test (200 drifting bodies, one client) it is 732 B/s against 102 146 B/s
 streamed.
 
-The wire is the only cost. On a lossy link the keepalive is a send, so an idle view behaves like a
-busy one: a lost keepalive can be the base of the next frame, and when the last `R` are lost the
-client holds the next diff and reports a gap, though nothing was missing. Running an idle view of
-20 entities on the simulation harness (200 ms round trip, 5% loss each way, reordering, 60 s, seed 1)
-with `K` = 1:
+The wire is the only cost, and it is the same with or without `redundancyFrames`: an idle view has
+nothing for the redundancy to protect, and a keepalive that is lost carries no state, so it can never
+leave the client missing anything. Running an idle view of 20 entities on the simulation harness
+(200 ms round trip, 5% loss each way, reordering, 60 s, seed 1) with `K` = 1:
 
 | `R`   | Frames | Bytes  | Gap reports | Standstills over 100 ms (longest) |
 | ----- | ------ | ------ | ----------- | --------------------------------- |
-| unset | 1794   | 12.4 K | 0           | none (100 ms)                     |
-| 1     | 1794   | 13.7 K | 275         | 46 (333 ms)                       |
-| 2     | 1794   | 14.2 K | 28          | 7 (333 ms)                        |
-| 3     | 1794   | 14.2 K | 0           | none (100 ms)                     |
+| unset | 1817   | 12.7 K | 0           | none (100 ms)                     |
+| 1     | 1817   | 12.7 K | 0           | none (100 ms)                     |
+| 2     | 1817   | 12.7 K | 0           | none (100 ms)                     |
+| 3     | 1817   | 12.7 K | 0           | none (100 ms)                     |
 
-An idle view has nothing for the redundancy to protect, so it only pays the price of the stalls: the
-rows are what a dead-reckoned scene pays between corrections. `R` of 3, or unset, keeps the view
-moving at this loss rate; `R` = 1 should not be combined with the keepalive on a lossy link. A link
-that loses nothing has no gap reports at `R` of 1, 2 or 3
+Seed 2, which loses the first baseline, gives the same: 1786 frames, 12.8 K, no gap reports and no
+standstill at any `R`. When the base was the frame of the send, a keepalive was the base of the next
+frame, and the same run reported 279 gap reports and 46 standstills (longest 333 ms) at `R` = 1, 28
+and 7 at `R` = 2, and 14.1 K, 14.5 K and 14.5 K of bytes at 1, 2 and 3. A gap report needs a change
+the client lacks, so an idle view reports none, and a view that changes now and then reports only
+those that losing a change causes. With one entity changing every fourth frame and `K` = 1 (seed 1),
+the reports go from 279 to 116 at `R` = 1, from 28 to 6 at `R` = 2, and stay none at `R` = 3, and the
+bytes fall by 13%, 2% and 1%. A link that loses nothing has no gap reports at `R` of 1, 2 or 3
 (`lib/vecs-server/tests/lossy_replication.test.ts`).
 
 A larger `K` saves bytes and makes the client wait: its interpolation buffer spans one missing frame
@@ -287,13 +315,13 @@ marked optimistic only under `redundancyFrames`, so it needs no deployment order
 
 ## Source
 
-| Concern                                            | Where                                 |
-| -------------------------------------------------- | ------------------------------------- |
-| Keepalive: when it is due, what it records         | `lib/vecs-server/src/server_world.ts` |
-| Base, healthy test, fallback, probe, gap handling  | `lib/vecs-server/src/server_world.ts` |
-| The last `R` sends, the base's source              | `lib/vecs-server/src/sent_frames.ts`  |
-| Window, merging `pull`, `validateRedundancyFrames` | `lib/vecs-server/src/history.ts`      |
-| Smoothed ack round trip                            | `lib/vecs-server/src/rtt.ts`          |
-| Marker and gap fields                              | `lib/vecs-protocol/src/messages.ts`   |
-| Held diffs, `takeGap`, `push(diff, optimistic)`    | `lib/vecs-client/src/diff_buffer.ts`  |
-| Gap flag on `send()`, marker on receive            | `lib/vecs-client/src/client_world.ts` |
+| Concern                                                                | Where                                 |
+| ---------------------------------------------------------------------- | ------------------------------------- |
+| Keepalive: when it is due, what it records                             | `lib/vecs-server/src/server_world.ts` |
+| Base, healthy test, fallback, probe, gap handling                      | `lib/vecs-server/src/server_world.ts` |
+| The last `R` sends, the base's source                                  | `lib/vecs-server/src/sent_frames.ts`  |
+| Window, merging `pull`, `lastContentFrame`, `validateRedundancyFrames` | `lib/vecs-server/src/history.ts`      |
+| Smoothed ack round trip                                                | `lib/vecs-server/src/rtt.ts`          |
+| Marker and gap fields                                                  | `lib/vecs-protocol/src/messages.ts`   |
+| Held diffs, `takeGap`, `push(diff, optimistic)`                        | `lib/vecs-client/src/diff_buffer.ts`  |
+| Gap flag on `send()`, marker on receive                                | `lib/vecs-client/src/client_world.ts` |

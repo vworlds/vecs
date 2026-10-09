@@ -126,7 +126,8 @@ reports the gap, once per held diff, so that the server sends deltas from the ac
 caught up. A gap that closed before the ack went out is not reported.
 
 In practice the gap shows as the replicated state standing still for about a round trip after the
-last `redundancyFrames` frames the server sent were all lost; the interpolation buffer hides part of it. Nothing
+last `redundancyFrames` frames the server sent were all lost and held a change the client lacked; the
+interpolation buffer hides part of it. Nothing
 changes in your code: there is no event for it, and no `reset`. An unmarked diff that starts past the
 client's frame is still a protocol error, as under
 [Frames the client cannot decode](#frames-the-client-cannot-decode). The mechanism is in

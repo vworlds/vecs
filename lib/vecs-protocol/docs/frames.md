@@ -53,9 +53,11 @@ missing what changed in between.
 
 By default the server labels a delta with the frame the client last acked, which the client holds by
 definition, so the claim is always true. A server with `redundancyFrames` set labels it with a later
-frame, to avoid resending a change in every frame until its ack arrives: the frame it sent the client
-`redundancyFrames` sends ago, which is always a frame the client was sent, never one that went out
-empty. The claim may then be false, because that frame was lost along with every send after it, and
+frame, to avoid resending a change in every frame until its ack arrives: the frame where the state
+last changed, as of the frame it sent the client `redundancyFrames` sends ago. The state is the same
+from that frame to the send, so a client that received the send, or any later one, holds it; a frame
+that carried nothing the client lacked, such as a keepalive, names the frame of the change before it.
+The claim may then be false, because the last `redundancyFrames` sends were all lost, and
 `Server2Client.optimistic` says so:
 
 - An **unmarked** delta that starts past the client's frame is the server's mistake, and a protocol

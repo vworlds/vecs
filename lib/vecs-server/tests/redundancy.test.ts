@@ -19,10 +19,10 @@ import {
 } from "../src/index.js";
 
 // The optimistic base (`ServerWorldOptions.redundancyFrames`): a healthy session is sent each frame as
-// a delta from `max(ack, base)`, where `base` is the frame it was sent R sends ago, instead of from
-// its ack, marked optimistic when that is past the ack; a gap report or an overdue ack drops it back
-// to deltas from the ack until the client has caught up. Time is mocked, so a round trip is whatever
-// the test says it is.
+// a delta from `max(ack, base)`, where `base` is the state frame of the send R sends ago (the frame
+// its view last changed in, as of that send), instead of from its ack, marked optimistic when that
+// is past the ack; a gap report or an overdue ack drops it back to deltas from the ack until the
+// client has caught up. Time is mocked, so a round trip is whatever the test says it is.
 
 class Position {
   @wireType("i32")
@@ -344,10 +344,12 @@ describe("the base of a healthy session's delta", () => {
 });
 
 describe("the base of a delta in sparse traffic", () => {
-  // The client's version is always a frame it was sent, and it holds the base unless it lost every
-  // one of the last R sends. The base is therefore the frame sent R sends ago, not a frame number.
+  // The client's version is the frame of a send it received, and the state is the same from a
+  // send's state frame, the frame the view last changed in, up to the send. The base is the state
+  // frame of the send R sends ago: the client holds it unless it lost all of the last R sends, and
+  // a repeat of a change it already holds, once lost, is never a base it lacks.
 
-  it("is a frame the session was sent, which a client that lost the previous copy still holds", () => {
+  it("is the state frame of the send R sends ago, which a client that lost the previous copy still holds", () => {
     // R = 2. The entity moves in frame 7 and the change is sent in frames 7 and 8. It moves again
     // in frame 11, before frame 7 is acked, and that change is sent in frames 11 and 12. A client
     // that lost frame 8 is at frame 7 when 11 arrives.
@@ -365,10 +367,42 @@ describe("the base of a delta in sparse traffic", () => {
     expect(third.diff).toMatchObject({ fromFrame: 7, toFrame: 11 });
     expect(third.optimistic).toBe(true);
     expect(xOf(third, rig.entity.eid)).toBe(2);
-    // 12 - 2 = 10 was never sent either. The client holds 8 or, having lost it, 11.
-    expect(fourth.diff).toMatchObject({ fromFrame: 8, toFrame: 12 });
+    // The send two back from 12 is 8, which only repeated the change of 7: its state frame is 7,
+    // which a client at 7 holds. Starting at 8 would read as a gap for a client that lost it, and
+    // costs no fewer bytes, since nothing changed between 7 and 8.
+    expect(fourth.diff).toMatchObject({ fromFrame: 7, toFrame: 12 });
     expect(fourth.optimistic).toBe(true);
   });
+
+  it.each([2, 3, 4])(
+    "starts every copy of a change at the frame of the change before it, however many repeats of that one the client lost, with redundancyFrames %i",
+    (redundancy) => {
+      const rig = connect({ redundancyFrames: redundancy });
+      // A change in frame 7, sent in `redundancy` frames, of which the client receives only the
+      // first, so it is at frame 7 and acks it. The change in frame 12 comes before that ack is
+      // back (the ack of 7 reaches the server after frame 12).
+      const first = [...advance(rig, () => move(rig.entity, 1))];
+      for (let i = 1; i < redundancy; i++) {
+        first.push(...advance(rig, undefined, true));
+      }
+      while (rig.world.frame < 12) {
+        expect(advance(rig, undefined, true)).toEqual([]);
+      }
+      const second = [...advance(rig, () => move(rig.entity, 2))];
+      for (let i = 1; i < redundancy; i++) {
+        second.push(...advance(rig));
+      }
+
+      expect(first.map(toFrameOf)).toEqual(Array.from({ length: redundancy }, (_, i) => 7 + i));
+      expect(second.map(toFrameOf)).toEqual(Array.from({ length: redundancy }, (_, i) => 12 + i));
+      // The first change is based on the baseline, the ack. Every send of the second names the
+      // state frame of the first, 7, until `redundancy` sends of the second have gone: the repeats
+      // of the first that the client lost are never the base, as they would be if it were the frame
+      // they were sent in.
+      expect(first.map(fromFrameOf)).toEqual(Array.from({ length: redundancy }, () => 1));
+      expect(second.map(fromFrameOf)).toEqual(Array.from({ length: redundancy }, () => 7));
+    }
+  );
 
   it.each([1, 2, 3])(
     "names only frames the session was sent, with redundancyFrames %i and a change every four frames",
