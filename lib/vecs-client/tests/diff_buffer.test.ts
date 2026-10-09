@@ -6,6 +6,7 @@ import {
   ComponentSnapshot,
   Diff,
   DiffBuffer,
+  MAX_HELD_DIFFS,
   interpolatePosition,
   merge,
   type ComponentInterpolator,
@@ -737,4 +738,171 @@ test("renderFrame is the point the interpolators sample, never decreases and nev
 
   expect(previous).toBe(100);
   expect(segmentStarts).toBeGreaterThan(20);
+});
+
+/** Pull until the buffer is dry, and return everything it handed out as one diff. */
+function drain(ip: DiffBuffer): Diff {
+  let all: Diff | undefined;
+  for (let i = 0; i < 2 * ip.bucket.length + 2; i++) {
+    all = merge(all, ip.pull(1000 + 10 * i), false);
+  }
+  return all!;
+}
+
+// An optimistic diff is built by a server that presumes the client already holds the frames before it,
+// because it sent them in earlier frames that have not been acked yet. When one of those frames was
+// lost the diff starts past the newest frame the client has. The buffer holds it until the missing
+// frames arrive, applies it then, and tells the client to report a gap meanwhile.
+test("holds an optimistic diff that starts past the newest frame instead of rejecting it", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
+
+  const optimistic = SD({ from: 14, to: 16, snapshots: [makePosComponent(B, 16, 16)] });
+  expect(() => ip.push(optimistic, true)).not.toThrow();
+
+  // Held, not buffered: nothing to ack and nothing to apply yet.
+  expect(ip.version).toBe(12);
+  expect(Pos(drain(ip), B)).toBeUndefined();
+  expect(ip.takeGap()).toBe(true);
+});
+
+test("reports the gap once per detection", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
+  expect(ip.takeGap()).toBe(false);
+
+  ip.push(SD({ from: 14, to: 16, snapshots: [] }), true);
+  expect(ip.takeGap()).toBe(true);
+  expect(ip.takeGap()).toBe(false);
+
+  // Another optimistic diff the client cannot use is another detection.
+  ip.push(SD({ from: 15, to: 17, snapshots: [] }), true);
+  expect(ip.takeGap()).toBe(true);
+  expect(ip.takeGap()).toBe(false);
+});
+
+test("applies a held diff as soon as the frames before it arrive", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
+  ip.push(SD({ from: 14, to: 16, snapshots: [makePosComponent(B, 16, 16)] }), true);
+
+  // Frame 14, which the held diff was built on, arrives late.
+  ip.push(SD({ from: 12, to: 14, snapshots: [makePosComponent(A, 14, 14)] }));
+
+  expect(ip.version).toBe(16);
+  const state = drain(ip);
+  expect(Pos(state, A)).toEqual({ x: 14, y: 14 });
+  expect(Pos(state, B)).toEqual({ x: 16, y: 16 });
+});
+
+test("has no gap to report once the frames before the held diff arrived, even if it was never asked", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 12, snapshots: [] }));
+  ip.push(SD({ from: 14, to: 16, snapshots: [] }), true);
+
+  ip.push(SD({ from: 12, to: 14, snapshots: [] }));
+
+  expect(ip.takeGap()).toBe(false);
+});
+
+test("applies held diffs in order, each one bringing the next within reach", () => {
+  const ip = new DiffBuffer(4, 10);
+  ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
+  // Two frames arrive ahead of the one they are built on, the later one first.
+  ip.push(SD({ from: 16, to: 18, snapshots: [makePosComponent(C, 18, 18)] }), true);
+  ip.push(SD({ from: 14, to: 16, snapshots: [makePosComponent(B, 16, 16)] }), true);
+  expect(ip.version).toBe(12);
+
+  ip.push(SD({ from: 12, to: 14, snapshots: [makePosComponent(A, 14, 14)] }));
+
+  expect(ip.version).toBe(18);
+  const state = drain(ip);
+  expect(Pos(state, A)).toEqual({ x: 14, y: 14 });
+  expect(Pos(state, B)).toEqual({ x: 16, y: 16 });
+  expect(Pos(state, C)).toEqual({ x: 18, y: 18 });
+});
+
+test("holds and releases a diff after the bucket drained", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
+  ip.pull(1000);
+  expect(ip.bucket).toEqual([undefined, undefined, undefined]);
+
+  ip.push(SD({ from: 14, to: 16, snapshots: [makePosComponent(B, 16, 16)] }), true);
+  expect(ip.version).toBe(12);
+  ip.push(SD({ from: 12, to: 14, snapshots: [makePosComponent(A, 14, 14)] }));
+
+  expect(ip.version).toBe(16);
+  expect(Pos(drain(ip), B)).toEqual({ x: 16, y: 16 });
+});
+
+test("drops a held diff once a later frame has passed it, without applying it", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
+  ip.push(SD({ from: 14, to: 16, snapshots: [makePosComponent(B, 16, 16)] }), true);
+
+  // The server falls back to a delta from the acked frame, which covers everything the held diff did.
+  ip.push(SD({ from: 12, to: 20, snapshots: [makePosComponent(A, 20, 20)] }));
+
+  expect(ip.version).toBe(20);
+  const state = drain(ip);
+  expect(Pos(state, A)).toEqual({ x: 20, y: 20 });
+  expect(Pos(state, B)).toBeUndefined();
+  expect(ip.takeGap()).toBe(false);
+});
+
+test("holds at most MAX_HELD_DIFFS diffs and drops the oldest to make room", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 10, snapshots: [] }));
+  // One more than fits: diff k starts where diff k - 1 ends, from frame 20 on.
+  for (let k = 0; k <= MAX_HELD_DIFFS; k++) {
+    ip.push(SD({ from: 20 + k, to: 21 + k, snapshots: [] }), true);
+  }
+
+  // Frame 20 reaches the first held diff, which would chain through every other if it were still held.
+  ip.push(SD({ from: 10, to: 20, snapshots: [] }));
+  expect(ip.version).toBe(20);
+
+  // The oldest was dropped, so the rest wait for the frame it covered (20 to 21).
+  ip.push(SD({ from: 20, to: 21, snapshots: [] }));
+  expect(ip.version).toBe(21 + MAX_HELD_DIFFS);
+});
+
+test("keeps rejecting a diff that starts past the newest frame and is not optimistic, even while it holds others", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 12, snapshots: [] }));
+  ip.push(SD({ from: 14, to: 16, snapshots: [] }), true);
+
+  expect(() => ip.push(SD({ from: 14, to: 17, snapshots: [] }))).toThrow(
+    "diff starts at frame 14, past this client's frame 12"
+  );
+  expect(() => ip.push(SD({ from: 14, to: 17, snapshots: [] }), false)).toThrow(
+    "diff starts at frame 14, past this client's frame 12"
+  );
+  expect(ip.version).toBe(12);
+});
+
+test("an optimistic diff that starts within the newest frame is an ordinary diff", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
+
+  ip.push(SD({ from: 11, to: 14, snapshots: [makePosComponent(A, 14, 14)] }), true);
+
+  expect(ip.version).toBe(14);
+  expect(ip.takeGap()).toBe(false);
+  expect(Pos(drain(ip), A)).toEqual({ x: 14, y: 14 });
+});
+
+test("reset forgets the held diffs and the gap", () => {
+  const ip = new DiffBuffer(3, 10);
+  ip.push(SD({ from: 0, to: 12, snapshots: [] }));
+  ip.push(SD({ from: 14, to: 16, snapshots: [makePosComponent(B, 16, 16)] }), true);
+
+  ip.reset();
+
+  expect(ip.takeGap()).toBe(false);
+  // A new stream starts wherever it likes, and the old held diff is not released into it.
+  ip.push(SD({ from: 0, to: 14, snapshots: [makePosComponent(A, 14, 14)] }));
+  expect(ip.version).toBe(14);
+  expect(Pos(drain(ip), B)).toBeUndefined();
 });

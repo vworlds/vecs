@@ -257,11 +257,84 @@ describe("rpcSettledBelow", () => {
   });
 
   it("still rejects an unknown field tag in either direction", () => {
-    expect(() => new Decoder(Uint8Array.of(7, 6)).read(Client2Server)).toThrow(
-      "Invalid Client2Server field tag 6"
+    expect(() => new Decoder(Uint8Array.of(7, 8)).read(Client2Server)).toThrow(
+      "Invalid Client2Server field tag 8"
     );
-    expect(() => new Decoder(Uint8Array.of(6)).read(Server2Client)).toThrow(
-      "Invalid Server2Client field tag 6"
+    expect(() => new Decoder(Uint8Array.of(8)).read(Server2Client)).toThrow(
+      "Invalid Server2Client field tag 8"
     );
+  });
+});
+
+describe("optimistic marker and gap report", () => {
+  const diff = new StateDiff({ fromFrame: 3, toFrame: 4 });
+  const answer = [new RPC({ rpcId: 0, callId: 1 })];
+
+  it("round-trips the optimistic marker on a server frame next to every other field", () => {
+    const message = new Server2Client({
+      diff: new StateDiff({ fromFrame: 5, toFrame: 9 }),
+      rpc: [new RPC({ rpcId: 0, callId: 1, params: ["ok"] })],
+      rpcSettledBelow: 9,
+      optimistic: true,
+      close: { code: 4003, reason: "superseded" },
+    });
+
+    const decoded = new Decoder(encodeMessage(message)).read(Server2Client);
+
+    expect(decoded.optimistic).toBe(true);
+    expect(decoded.diff).toMatchObject({ fromFrame: 5, toFrame: 9 });
+    expect(decoded.rpc[0].params).toEqual(["ok"]);
+    expect(decoded.rpcSettledBelow).toBe(9);
+    expect(decoded.close).toEqual({ code: 4003, reason: "superseded" });
+  });
+
+  it("round-trips the gap report on a client ack next to every other field", () => {
+    const message = new Client2Server({
+      ackFrame: 7,
+      input: { keys: ["up"] },
+      rpc: [new RPC({ rpcId: 101, callId: 12, params: [1] })],
+      rpcSettledBelow: 12,
+      gap: true,
+    });
+
+    const decoded = new Decoder(encodeMessage(message)).read(Client2Server);
+
+    expect(decoded.gap).toBe(true);
+    expect(decoded.ackFrame).toBe(7);
+    expect(decoded.input).toEqual({ keys: ["up"] });
+    expect(decoded.rpc[0].callId).toBe(12);
+    expect(decoded.rpcSettledBelow).toBe(12);
+  });
+
+  it("encodes each as a bare tag, 6 on a server frame and 7 on a client ack", () => {
+    expect(encodeMessage(new Server2Client({ optimistic: true }))).toEqual(Uint8Array.of(6));
+    expect(encodeMessage(new Client2Server({ ackFrame: 7, gap: true }))).toEqual(
+      Uint8Array.of(7, 7)
+    );
+  });
+
+  it("is absent by default, so a frame that is not optimistic is byte-identical to before", () => {
+    // Hand-built from the field layout that predates the marker and the report.
+    const legacyFrame = Uint8Array.of(1, 4, 3, 0, 0, 2, 1, 0, 1, 0, 0, 0);
+    expect(encodeMessage(new Server2Client({ diff, rpc: answer }))).toEqual(legacyFrame);
+    expect(encodeMessage(new Server2Client({ diff, rpc: answer, optimistic: false }))).toEqual(
+      legacyFrame
+    );
+    expect(new Decoder(legacyFrame).read(Server2Client).optimistic).toBe(false);
+
+    const ask = [new RPC({ rpcId: 101, callId: 0 })];
+    const legacyAck = Uint8Array.of(7, 2, 1, 101, 0, 0, 0, 0);
+    expect(encodeMessage(new Client2Server({ ackFrame: 7, rpc: ask }))).toEqual(legacyAck);
+    expect(encodeMessage(new Client2Server({ ackFrame: 7, rpc: ask, gap: false }))).toEqual(
+      legacyAck
+    );
+    expect(new Decoder(legacyAck).read(Client2Server).gap).toBe(false);
+  });
+
+  it("leaves a frame without the fields undecorated: the marker and the report default to false", () => {
+    expect(new Server2Client().optimistic).toBe(false);
+    expect(new Client2Server().gap).toBe(false);
+    expect(new Decoder(new Uint8Array()).read(Server2Client).optimistic).toBe(false);
+    expect(new Decoder(Uint8Array.of(0)).read(Client2Server).gap).toBe(false);
   });
 });
