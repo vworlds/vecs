@@ -36,6 +36,8 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 
 ## Map
 
+For Node clients that need replicated Phaser poses, see [Headless clients](../../vecs-phaser-client/README.md#headless-clients).
+
 | Guide                                              | Covers                                                                                       |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | [getting-started.md](./getting-started.md)         | A runnable tutorial from `npm install` to a ticking world.                                   |

@@ -15,7 +15,7 @@ import {
   stepMotion,
 } from "@vworlds/vecs-phaser";
 
-/** Options for {@link DeadReckonedModule}. */
+/** Options for {@link DeadReckonedModule}, also exported by the Phaser-free `/headless` entry. */
 export interface DeadReckonedModuleConfig {
   /**
    * How long a late correction takes to blend in, in milliseconds. Default `100`. A late correction
@@ -37,6 +37,7 @@ export interface DeadReckonedModuleConfig {
  * Client half of dead reckoning: extrapolates every entity that carries a {@link Motion} baseline
  * into a client-local render `Position` and `Rotation`. Install it on a `ClientWorld` whose
  * `networkComponents` end with `phaserMotionComponents`, as the server's do:
+ * Node clients can import this module from `@vworlds/vecs-phaser-client/headless` without Phaser.
  *
  * ```ts
  * const world = new ClientWorld({
