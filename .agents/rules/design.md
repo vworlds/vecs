@@ -28,5 +28,9 @@ rule links to its explanation in the guide.
 - Inject every component a system callback always uses. Use `entity.get` only for a component that
   is conditionally needed and rarely required.
   ([Injection](../../lib/vecs/docs/design-guide.md#injection))
+- An `.each` must justify running every tick. If it returns early for most entities, use a
+  reactive `enter`/`update`/`exit`, or narrow the query with a tag that exists only while the work
+  is live.
+  ([`each` vs reactive](../../lib/vecs/docs/design-guide.md#each-vs-reactive--dont-scan-when-you-can-react))
 
 Place future design rules in this section, as one short rule each with a link to the guide.

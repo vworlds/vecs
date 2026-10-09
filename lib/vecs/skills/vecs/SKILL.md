@@ -40,6 +40,10 @@ Before implementing, identify:
 - The state represented by each component and whether absence has meaning.
 - Which component transition creates, updates, or removes related state or resources.
 - Whether the work should react through `enter`, `update`, or `exit` rather than scan every frame.
+  An `.each` must justify running every tick; when it does, narrow its query with a tag that exists
+  only while the work is live (for example a `Firing` tag that a reactive `update` on the intent
+  adds and removes) instead of looping over every candidate and returning early.
+  ([`each` vs reactive](../../docs/design-guide.md#each-vs-reactive--dont-scan-when-you-can-react))
 - Which phase owns the work and what earlier or later phase it must order against.
 - Whether a multi-target relationship, an `Exclusive` relationship, an explicitly created owned
   target, a grouped query, or an attached resource expresses the lifecycle better than imperative
@@ -73,6 +77,15 @@ other anti-patterns and pitfalls; each rule below links to the detail.
 - Do not call `getMut` per tick unless a change is intended. It marks the component modified even
   without a callback and even if nothing is written, which fires `update` watchers and replication.
   Read with `get`. ([`getMut`](../../docs/entities.md#getmut-and-ensure-mutating-in-place))
+- `.without(X)` does not filter the positive terms' candidates: it keeps a world-sized "not X" set,
+  updated on every entity create and destroy and every `X` add or remove, and intersects it with
+  them. Use it only when needed, after positive terms that keep the members small; a query with only
+  `.without` terms tracks the whole world.
+  ([Cost of `.without`](../../docs/queries-and-filters.md#the-cost-of-not-and-without))
+- `entity.modified(C)` and `getMut(C)` coalesce into one `update` per drain; every `entity.set(C, …)`
+  routes its own, and the system inbox never merges events. Write in place plus `modified`, or
+  compare before `set`, and do not add per-tick dedupe batches when producers use `modified`/`getMut`.
+  ([Repeated writes](../../docs/systems.md#repeated-writes-in-one-tick))
 - A system's `enter` reaches only entities still in its query when the system drains. An entity
   that left the query or died first gets neither `enter` nor the paired `exit`, and a re-entry
   within one drain gives `enter`, `exit`, `enter`, so keep setup and teardown symmetric.

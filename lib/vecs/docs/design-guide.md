@@ -269,6 +269,23 @@ classes or DSL objects (`{ all: [...] }`, `{ any: [...] }`, `{ parent: X }`, `{ 
 > `.with(...)`, `.without(...)`, and `.update(C)` own membership. `.update(C)` watches change events
 > and also requires `C`, so `.with(A).update(C)` matches entities carrying both `A` and `C`.
 
+**`.without` is not free.** `.without(X)` is `.with({ not: X })`: a `not` term holds every live
+entity that lacks `X`, a world-sized set, and the query intersects it with its positive terms. The
+exclusion does not run over the positive terms' candidates. Vecs seeds that set with one scan of
+the world when the term is first built, then adds each new entity to it, removes each destroyed
+entity from it, and flips an entity in or out when `X` is added to it or removed from it. Changes
+to `X`'s data cost nothing. The term is shared by every query that excludes the same `X`, so the
+upkeep is paid once per distinct exclusion, plus one membership check per query that uses it.
+
+- Add `.without(X)` only when the exclusion is needed, and put positive terms next to it: they keep
+  the query's members and callbacks small. A query made only of `.without` terms tracks every
+  entity in the world.
+- The creation pattern `.with(NewShape).without(Phaser.GameObjects.NewKind).enter(...)` relies on
+  that narrowing. The positive term limits the members to the few entities that just got
+  `NewShape`, while the exclusion keeps those that already have a display object from entering.
+
+Details: [Queries and filters](./queries-and-filters.md#the-cost-of-not-and-without).
+
 ### Reactive callbacks: `enter` / `update` / `exit`
 
 - **`enter`** — fires once when an entity _becomes_ a member. Use it for one-time setup
@@ -281,6 +298,14 @@ classes or DSL objects (`{ all: [...] }`, `{ any: [...] }`, `{ parent: X }`, `{ 
 - **`exit`** — fires when an entity stops matching (a component removed, or the entity destroyed).
   Its injected components are read from a **snapshot captured at exit time**, so they're still
   resolvable even though they're being removed.
+
+**Repeated writes in one tick.** Vecs never merges `update` events, so a callback fires once per
+routed write. `entity.modified(C)` and `entity.getMut(C)` coalesce through the entity's dirty bit:
+repeated calls before the queued command drains give one `update`. Each `entity.set(C, …)` queues
+its own command and routes its own `update`, so three `set` calls give three callbacks. Write in
+place plus `modified` (or `getMut`) to get one callback per tick, or compare before `set`. When
+producers already use `modified`/`getMut`, do not add a defensive per-tick dedupe or batching layer
+on the consumer side. See [Systems](./systems.md#repeated-writes-in-one-tick).
 
 Choose `onEnter: true` by asking who owns the initial value:
 
@@ -339,7 +364,8 @@ Components listed in the inject tuple but **not** guaranteed by `.with(...)` res
 ### `each` vs reactive — don't scan when you can react
 
 - **`.each([...], cb)`** iterates **every matching entity every tick**. Use it only when you
-  genuinely need a per-frame sweep over all members.
+  genuinely need a per-frame sweep over all members. An `.each` must justify running every tick: a
+  body that returns early for most members is a reactive system or a narrower query in disguise.
 - **Reactive `enter`/`update`/`exit`** fire only on change. For "copy A→B when A changes,"
   reactive `.update(A)` touches _nothing_ on idle entities, where `.each` would scan them all.
 
@@ -350,6 +376,28 @@ Components listed in the inject tuple but **not** guaranteed by `.with(...)` res
 // ✅ fires only when physics actually moved the body (compare before writing a networked B: see §7)
 .with(PhysicsPosition, RenderPosition).update(PhysicsPosition, (e, p) => e.set(RenderPosition, { x: p.x, y: p.y }));
 ```
+
+When the work really is per-tick (a held input, a cooldown, a charge), narrow the query with a tag
+or component that exists **only while the work is live**, instead of sweeping every candidate and
+returning early. A reactive `update` on the intent adds and removes the marker:
+
+```ts
+// ❌ visits every shooter every tick; most return at once
+.with(Weapon).each([Weapon], (e, [w]) => { if (!e.has(TriggerHeld)) return; /* fire */ });
+
+// ✅ the cadence system matches only entities that are firing right now
+world.system("TriggerIntent").with(Weapon).update(FireIntent, (e, intent) =>
+  intent.held ? e.add(Firing) : e.remove(Firing));
+world.system("Fire").with(Weapon, Firing).interval(0.1).each([Weapon], (e, [w]) => { /* fire */ });
+```
+
+For a countdown, do not write a bespoke "tick every timer" system over all entities. Vecs has no
+per-entity timer component: `interval`, `rate` and `tickSource` (see below) throttle _systems_.
+Model the window as an owned helper entity, an `Exclusive` + `OwnedTarget` relationship target that
+carries the deadline (see [Owned target entities](#owned-target-entities-entity-valued-properties)).
+Its presence is the window: an `.each` over the helper entities visits only open windows, and
+destroying a helper ends its window and removes the edge through the relationship's cleanup policy,
+so no remove hook or flag is needed.
 
 ### `run` and `interval`
 
