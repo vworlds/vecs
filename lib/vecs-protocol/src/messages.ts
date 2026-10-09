@@ -1,6 +1,6 @@
 import type { EID } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
-import { cid_pack, cid_unpack } from "./cid.js";
+import { ALL_COMPONENTS, cid_pack, cid_unpack } from "./cid.js";
 import { RPC } from "./rpc.js";
 
 const FIELD_DIFF = 1;
@@ -8,6 +8,7 @@ const FIELD_RPC = 2;
 const FIELD_INPUT = 3;
 const FIELD_CLOSE = 4;
 const FIELD_RPC_SETTLED = 5;
+const FIELD_DIFF_RESETS = 6;
 
 const CLOSE_HAS_CODE = 1;
 const CLOSE_HAS_REASON = 2;
@@ -47,10 +48,23 @@ export class EncodedSnapshot {
 }
 
 /**
- * One removal in a {@link StateDiff}: the component of entity `eid` with the given wire type,
- * or, when `wireType` is `ALL_COMPONENTS`, the whole entity.
+ * One removal of a single component in a {@link StateDiff}: the component of entity `eid` with
+ * the given wire type. A whole entity is removed by an {@link EntityReset}, never by a
+ * `RemovedComponent`, so `wireType` is never `ALL_COMPONENTS`.
  */
 export type RemovedComponent = [eid: EID, wireType: number];
+
+/**
+ * The removal of a whole entity in a {@link StateDiff}, with the server frame at which it
+ * happened: entity `eid` left the client's view (it was destroyed, or went out of sight) at
+ * `frame`, which is never after the diff's `toFrame`.
+ *
+ * The frame is what makes a reset idempotent. A delta starts at the newest frame the server has
+ * seen acked, so deltas that overlap while an ack is in flight each repeat the reset, and the
+ * client tells one it has already applied (its frame is not past the frame the client holds)
+ * from a new one.
+ */
+export type EntityReset = [eid: EID, frame: number];
 
 /**
  * What changed in a client's view between two frames: the state to take it from frame
@@ -58,33 +72,54 @@ export type RemovedComponent = [eid: EID, wireType: number];
  * of `toFrame`, which a client applies to an empty world.
  *
  * `snapshots` carry the new value of a component, which creates the entity if the client does
- * not hold it. `removed` lists components that are gone; a removal with wire type
- * `ALL_COMPONENTS` removes the whole entity.
+ * not hold it. `removed` lists single components that are gone. `resets` lists entities that
+ * are gone altogether, each with the frame at which it happened.
  *
  * ### Order within a diff
  *
  * The lists carry no order of their own. A diff means this order, and every producer and
  * consumer of one must follow it:
  *
- * 1. the `ALL_COMPONENTS` removals;
+ * 1. the `resets`, each of which destroys the entity the client holds under its eid, if the
+ *    client has not already (see below);
  * 2. the snapshots;
  * 3. the removals of single components.
  *
- * So `ALL_COMPONENTS` for an eid precedes every snapshot of that eid in the same diff: a diff
- * that holds both is telling the client that the entity it holds under that eid is gone, and
- * that a new entity, whose snapshots follow, has taken the eid. The server reuses the id of a
- * destroyed entity, and the wire carries no entity generation, so this is how a client tells
- * the two apart. A delta spanning several frames is merged to the same meaning: a removal of an
- * entity that a later frame of the span snapshots again is kept next to those snapshots, which
- * are the whole of the new entity's state.
+ * So a reset of an eid precedes every snapshot of that eid in the same diff: a diff that holds
+ * both is telling the client that the entity it holds under that eid is gone, and that a new
+ * entity, whose snapshots follow, has taken the eid. The server reuses the id of a destroyed
+ * entity, and the wire carries no entity generation, so this is how a client tells the two
+ * apart. A delta spanning several frames is merged to the same meaning: the newest reset of an
+ * entity in the span is kept next to the snapshots and removals that follow it, which are the
+ * whole of the new entity's state, and everything the span held for the entity before it is
+ * dropped.
  *
  * A consumer that applied the snapshots first would create the new entity and then destroy it.
+ *
+ * ### Idempotence
+ *
+ * A reset applies only if its `frame` is newer than the frame the client held before the diff.
+ * Otherwise the client has applied it already, in an earlier delta that overlaps this one, and
+ * skips it: the snapshots and removals that follow update the entity in place. That is why a
+ * removal of a single component recorded after a reset stays in the diff: a client that applies
+ * the reset finds nothing to remove, and one that skips it needs the removal.
+ *
+ * ### Wire format
+ *
+ * `Server2Client` carries a diff without resets as field 1, exactly as it has always been, and
+ * a diff with resets as field 6: the same body followed by a count and, for each reset, the eid
+ * and `toFrame - frame`, both varints, so a reset that is still in the history costs a few
+ * bytes. A peer that predates field 6 rejects it as an unknown tag. Deploy clients before
+ * servers. A client reads field 1 from an older server as before, and takes a removal with wire
+ * type `ALL_COMPONENTS` in its `removed` list as a reset at `toFrame`, which applies every time.
+ * Encoded on its own, outside a `Server2Client`, a `StateDiff` always carries the count of resets.
  */
 export class StateDiff implements IEncodable {
   public toFrame = 0;
   public fromFrame = 0;
   public snapshots: EncodedSnapshot[] = [];
   public removed: RemovedComponent[] = [];
+  public resets: EntityReset[] = [];
 
   public constructor(values?: Partial<StateDiff>) {
     if (values) {
@@ -93,26 +128,59 @@ export class StateDiff implements IEncodable {
   }
 
   public wireEncode(encoder: Encoder): void {
-    encoder.write_u32(this.toFrame);
-    encoder.write_u32(this.fromFrame);
-    encoder.write_u32(this.snapshots.length);
-    this.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
-    encoder.write_u32(this.removed.length);
-    this.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
+    encodeDiffBody(this, encoder);
+    encoder.write_u32(this.resets.length);
+    this.resets.forEach(([eid, frame]) => {
+      encoder.write_u32(eid);
+      encoder.write_u32(this.toFrame - frame);
+    });
   }
 
   public static wireDecode(decoder: Decoder): StateDiff {
-    const diff = new StateDiff({ toFrame: decoder.read_u32(), fromFrame: decoder.read_u32() });
-    const snapshotCount = decoder.read_u32();
-    for (let i = 0; i < snapshotCount; i++) {
-      diff.snapshots.push(new EncodedSnapshot(decoder.read_bytes()));
-    }
-    const removedCount = decoder.read_u32();
-    for (let i = 0; i < removedCount; i++) {
-      diff.removed.push(cid_unpack(decoder.read_u32()));
+    const diff = decodeDiffBody(decoder);
+    const resetCount = decoder.read_u32();
+    for (let i = 0; i < resetCount; i++) {
+      const eid = decoder.read_u32();
+      diff.resets.push([eid, diff.toFrame - decoder.read_u32()]);
     }
     return diff;
   }
+}
+
+// A diff without resets: field 1 of a Server2Client frame, which is all a diff was before resets.
+function encodeDiffBody(diff: StateDiff, encoder: Encoder): void {
+  encoder.write_u32(diff.toFrame);
+  encoder.write_u32(diff.fromFrame);
+  encoder.write_u32(diff.snapshots.length);
+  diff.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
+  encoder.write_u32(diff.removed.length);
+  diff.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
+}
+
+function decodeDiffBody(decoder: Decoder): StateDiff {
+  const diff = new StateDiff({ toFrame: decoder.read_u32(), fromFrame: decoder.read_u32() });
+  const snapshotCount = decoder.read_u32();
+  for (let i = 0; i < snapshotCount; i++) {
+    diff.snapshots.push(new EncodedSnapshot(decoder.read_bytes()));
+  }
+  const removedCount = decoder.read_u32();
+  for (let i = 0; i < removedCount; i++) {
+    diff.removed.push(cid_unpack(decoder.read_u32()));
+  }
+  return diff;
+}
+
+// Field 1 as an older server writes it: whole-entity removals are `removed` entries with wire type
+// ALL_COMPONENTS, which carry no frame. They become resets at `toFrame`, which a client applies.
+function decodeLegacyDiff(decoder: Decoder): StateDiff {
+  const diff = decodeDiffBody(decoder);
+  if (diff.removed.some(([, wireType]) => wireType === ALL_COMPONENTS)) {
+    diff.resets = diff.removed
+      .filter(([, wireType]) => wireType === ALL_COMPONENTS)
+      .map(([eid]): EntityReset => [eid, diff.toFrame]);
+    diff.removed = diff.removed.filter(([, wireType]) => wireType !== ALL_COMPONENTS);
+  }
+  return diff;
 }
 
 /**
@@ -180,8 +248,13 @@ export class Server2Client implements IEncodable {
 
   public wireEncode(encoder: Encoder): void {
     if (this.diff) {
-      encoder.write_u8(FIELD_DIFF);
-      encoder.write(this.diff);
+      if (this.diff.resets.length > 0) {
+        encoder.write_u8(FIELD_DIFF_RESETS);
+        encoder.write(this.diff);
+      } else {
+        encoder.write_u8(FIELD_DIFF);
+        encodeDiffBody(this.diff, encoder);
+      }
     }
     if (this.rpc.length > 0) {
       encoder.write_u8(FIELD_RPC);
@@ -213,6 +286,9 @@ export class Server2Client implements IEncodable {
       const tag = decoder.read_u8();
       switch (tag) {
         case FIELD_DIFF:
+          message.diff = decodeLegacyDiff(decoder);
+          break;
+        case FIELD_DIFF_RESETS:
           message.diff = decoder.read(StateDiff);
           break;
         case FIELD_RPC: {

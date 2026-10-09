@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  ALL_COMPONENTS,
   Client2Server,
   ComponentSnapshot,
   RPC,
@@ -294,7 +293,8 @@ describe("ServerWorld", () => {
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
     const message = new Decoder(last).read(Server2Client);
-    expect(message.diff!.removed).toContainEqual([entity.eid, ALL_COMPONENTS]);
+    expect(message.diff!.resets).toContainEqual([entity.eid, message.diff!.toFrame]);
+    expect(message.diff!.removed).toEqual([]);
   });
 
   it("sends entity destruction when Networked exits", () => {
@@ -317,7 +317,33 @@ describe("ServerWorld", () => {
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
     const message = new Decoder(last).read(Server2Client);
-    expect(message.diff!.removed).toContainEqual([entity.eid, ALL_COMPONENTS]);
+    expect(message.diff!.resets).toContainEqual([entity.eid, message.diff!.toFrame]);
+    expect(message.diff!.removed).toEqual([]);
+  });
+
+  it("sends an entity whose Networked is removed and added back in one frame as an update, never as a component removal", () => {
+    const world = createWorld();
+    const server = world;
+    allowAllClientViews(world);
+    const socket = new MemorySocket("client-1");
+    const listener = new MockListener();
+    server._attach(listener);
+    listener.connect(socket);
+
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
+    world.progress(0, 16);
+    ackLatestFrame(socket);
+    const removalStart = socket.sent.length;
+
+    entity.remove(Networked);
+    entity.add(Networked);
+    world.progress(16, 16);
+
+    expect(socket.sent.length).toBeGreaterThan(removalStart);
+    const message = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+    expect(message.diff!.removed).toEqual([]);
+    expect(message.diff!.resets).toEqual([]);
+    expect(message.diff!.snapshots).toHaveLength(1);
   });
 
   it("sends current networked state only to the late-joining client", () => {
@@ -1047,10 +1073,11 @@ describe("ServerWorld", () => {
     expect(view._exitedView).toEqual(new Set());
     expect(socket.sent.length).toBeGreaterThan(baseline);
     const message = decodeLastMessage(socket);
-    expect(message.diff!.removed).toEqual([
-      [hidden.eid, ALL_COMPONENTS],
-      [session.entity.eid, ALL_COMPONENTS],
+    expect(message.diff!.resets).toEqual([
+      [hidden.eid, message.diff!.toFrame],
+      [session.entity.eid, message.diff!.toFrame],
     ]);
+    expect(message.diff!.removed).toEqual([]);
     expect(view.canSee(visible)).toBe(true);
     expect(view.canSee(hidden)).toBe(false);
   });
@@ -1079,7 +1106,8 @@ describe("ServerWorld", () => {
 
     expect(socket.sent.length).toBeGreaterThan(baseline);
     const message = decodeLastMessage(socket);
-    expect(message.diff!.removed).toEqual([[entity.eid, ALL_COMPONENTS]]);
+    expect(message.diff!.resets).toEqual([[entity.eid, message.diff!.toFrame]]);
+    expect(message.diff!.removed).toEqual([]);
     expect(message.diff!.snapshots).toEqual([]);
   });
 
@@ -1111,7 +1139,8 @@ describe("ServerWorld", () => {
     expect(view._exitedView).toEqual(new Set());
     expect(socket.sent.length).toBeGreaterThan(baseline);
     const message = decodeLastMessage(socket);
-    expect(message.diff!.removed).toEqual([[local.eid, ALL_COMPONENTS]]);
+    expect(message.diff!.resets).toEqual([[local.eid, message.diff!.toFrame]]);
+    expect(message.diff!.removed).toEqual([]);
     expect(message.diff!.snapshots).toHaveLength(1);
   });
 
@@ -1162,7 +1191,7 @@ describe("ServerWorld", () => {
   // installed the same tick the DSL changes and the viewer stays visible to
   // itself. Before that fix the refresh ran in PRE_STORE, registered ahead of
   // user systems, so a PRE_STORE DSL change lagged a tick and emitted a spurious
-  // ALL_COMPONENTS removal: the viewer blinked on every grid-cell crossing.
+  // reset of the viewer: it blinked on every grid-cell crossing.
   it("does not drop a client that moves its own View to a new cell in PRE_STORE", () => {
     const world = createWorld();
     world.component(InCell).add(Exclusive);
@@ -1217,7 +1246,7 @@ describe("ServerWorld", () => {
     expect(view.canSee(session.entity)).toBe(true);
     if (socket.sent.length > baseline) {
       const message = decodeLastMessage(socket);
-      expect(message.diff!.removed).not.toContainEqual([session.entity.eid, ALL_COMPONENTS]);
+      expect(message.diff!.resets.map(([eid]) => eid)).not.toContain(session.entity.eid);
     }
   });
 

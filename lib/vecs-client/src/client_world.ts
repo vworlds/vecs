@@ -8,7 +8,6 @@ import {
   Server2Client,
   SessionRPC,
   StateDiff,
-  ALL_COMPONENTS,
   type CloseNotice,
   cid_unpack,
   decodeRelationshipSnapshot,
@@ -383,12 +382,17 @@ export class ClientWorld extends NetworkWorld {
    * A diff applies in a fixed order, which is what lets an entity id that the
    * server reuses mean two entities in one diff:
    *
-   * 1. The entities the diff removes outright (`ALL_COMPONENTS`) are destroyed.
+   * 1. The entities the diff resets (removes outright) are destroyed. A reset
+   *    applies only once: the server repeats it in every delta whose span
+   *    includes it, and the diff buffer hands out only the resets newer than the
+   *    state the world already holds, so an overlapping delta does not destroy and
+   *    rebuild the entity again.
    * 2. The snapshots are applied, creating or updating entities. A snapshot of an
-   *    eid the diff removed in step 1 belongs to the entity that took the eid
+   *    eid the diff reset in step 1 belongs to the entity that took the eid
    *    after the removal: it creates a new entity, with none of the destroyed one's
    *    components, client-local state or edges, and its `add` hooks and `enter`
-   *    events fire.
+   *    events fire. A snapshot of an eid whose reset was applied already updates
+   *    the entity in place.
    * 3. The removals of single components are applied.
    *
    * Registered as two systems in the `ON_LOAD` phase, `ClientWorld:Pull` then
@@ -708,7 +712,7 @@ export class ClientWorld extends NetworkWorld {
 
   /**
    * Step 1 of {@link ClientWorld.apply}: run the queued server-to-client request handlers, take
-   * the diff for `now` out of the buffer, and destroy the entities it removes outright. The diff
+   * the diff for `now` out of the buffer, and destroy the entities it resets. The diff
    * waits in `_pulled` for {@link ClientWorld._applyPulled}.
    */
   private _pull(now: number): void {
@@ -718,17 +722,8 @@ export class ClientWorld extends NetworkWorld {
     }
     const diff = this._diffBuffer.pull(now);
     this._pulled = diff;
-    const removed = diff.removed;
-    if (removed === undefined) {
-      return;
-    }
-    for (const key of removed) {
-      const [eid, wireType] = cid_unpack(key);
-      if (wireType === ALL_COMPONENTS) {
-        // A diff may name an entity this world never materialized: its creation was merged away.
-        this.getEntity(eid)?.destroy();
-      }
-    }
+    // A diff may name an entity this world never materialized: its creation was merged away.
+    diff.resets?.forEach((_, eid) => this.getEntity(eid)?.destroy());
   }
 
   /**
@@ -755,9 +750,7 @@ export class ClientWorld extends NetworkWorld {
     }
     for (const key of removed) {
       const [eid, wireType] = cid_unpack(key);
-      if (wireType !== ALL_COMPONENTS) {
-        this._removeComponent(eid, wireType);
-      }
+      this._removeComponent(eid, wireType);
     }
   }
 

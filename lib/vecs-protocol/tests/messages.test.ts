@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import { Relationship } from "@vworlds/vecs";
 import {
+  ALL_COMPONENTS,
   CLOSE_PROTOCOL_ERROR_CODE,
   Client2Server,
   ComponentSnapshot,
@@ -260,8 +261,182 @@ describe("rpcSettledBelow", () => {
     expect(() => new Decoder(Uint8Array.of(7, 6)).read(Client2Server)).toThrow(
       "Invalid Client2Server field tag 6"
     );
-    expect(() => new Decoder(Uint8Array.of(6)).read(Server2Client)).toThrow(
-      "Invalid Server2Client field tag 6"
+    expect(() => new Decoder(Uint8Array.of(7)).read(Server2Client)).toThrow(
+      "Invalid Server2Client field tag 7"
     );
+  });
+});
+
+describe("StateDiff resets", () => {
+  const snapshotBytes = encodeMessage(
+    new ComponentSnapshot({ eid: 12, wireType: 3, payload: Uint8Array.of(1, 2, 3) })
+  );
+
+  it("round-trips next to snapshots, removals and replies, each with its own frame", () => {
+    const message = new Server2Client({
+      diff: new StateDiff({
+        fromFrame: 5,
+        toFrame: 9,
+        snapshots: [new EncodedSnapshot(snapshotBytes, 12, 3)],
+        removed: [[12, 4]],
+        resets: [
+          [12, 9],
+          [300, 7],
+          [70_000, 6],
+        ],
+      }),
+      rpc: [new RPC({ rpcId: 0, callId: 9, params: ["ok"] })],
+    });
+
+    const decoded = new Decoder(encodeMessage(message)).read(Server2Client);
+
+    expect(decoded.diff?.resets).toEqual([
+      [12, 9],
+      [300, 7],
+      [70_000, 6],
+    ]);
+    expect(decoded.diff?.removed).toEqual([[12, 4]]);
+    expect(decoded.diff?.snapshots).toHaveLength(1);
+    expect(decoded.diff?.fromFrame).toBe(5);
+    expect(decoded.diff?.toFrame).toBe(9);
+    expect(decoded.rpc[0].params).toEqual(["ok"]);
+  });
+
+  it("round-trips a baseline and a diff that holds nothing else", () => {
+    const baseline = new StateDiff({ fromFrame: 0, toFrame: 40, resets: [[2, 40]] });
+    const bare = new StateDiff({ fromFrame: 8, toFrame: 9, resets: [[2, 9]] });
+
+    expect(
+      new Decoder(encodeMessage(new Server2Client({ diff: baseline }))).read(Server2Client).diff
+    ).toEqual(baseline);
+    expect(
+      new Decoder(encodeMessage(new Server2Client({ diff: bare }))).read(Server2Client).diff
+    ).toEqual(bare);
+  });
+
+  it("round-trips on its own, so a StateDiff encodes whole", () => {
+    const diff = new StateDiff({ fromFrame: 8, toFrame: 12, resets: [[2, 11]], removed: [[2, 5]] });
+
+    expect(new Decoder(encodeMessage(diff)).read(StateDiff)).toEqual(diff);
+  });
+
+  it("encodes as field 6: the diff, then a count and, per reset, the eid and toFrame minus its frame", () => {
+    const message = new Server2Client({
+      diff: new StateDiff({
+        fromFrame: 3,
+        toFrame: 70,
+        resets: [
+          [12, 70],
+          [300, 6],
+        ],
+      }),
+    });
+
+    expect(encodeMessage(message)).toEqual(
+      Uint8Array.of(
+        6, // field: diff with resets
+        70, // toFrame
+        3, // fromFrame
+        0, // snapshots
+        0, // removed
+        2, // resets
+        12, // eid
+        0, // toFrame - frame
+        0xac,
+        0x02, // eid 300
+        64 // 70 - 6
+      )
+    );
+  });
+
+  it("costs a byte for the frame of a reset that is still in a 127-frame history", () => {
+    const encoded = (frame: number) =>
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1000, resets: [[1, frame]] }),
+        })
+      );
+
+    expect(encoded(1000).length).toBe(encoded(873).length);
+    expect(encoded(872).length).toBe(encoded(873).length + 1);
+  });
+
+  it("leaves a diff without resets as field 1, exactly as it was before resets existed", () => {
+    const diff = new StateDiff({
+      fromFrame: 3,
+      toFrame: 4,
+      snapshots: [new EncodedSnapshot(snapshotBytes, 12, 3)],
+      removed: [[12, 4]],
+    });
+
+    const encoded = encodeMessage(new Server2Client({ diff }));
+
+    const legacy = new Encoder(new Uint8Array(64));
+    legacy.write_u8(1);
+    legacy.write_u32(4);
+    legacy.write_u32(3);
+    legacy.write_u32(1);
+    legacy.write_buffer(snapshotBytes);
+    legacy.write_u32(1);
+    legacy.write_u32(cid_pack(12, 4));
+    expect(encoded).toEqual(legacy.getBuffer());
+    expect(new Decoder(encoded).read(Server2Client).diff?.resets).toEqual([]);
+  });
+
+  it("refuses to encode a reset from a frame after the diff's own", () => {
+    const diff = new StateDiff({ fromFrame: 3, toFrame: 4, resets: [[1, 5]] });
+
+    expect(() => encodeMessage(new Server2Client({ diff }))).toThrow(RangeError);
+  });
+
+  it("rejects a truncated resets section", () => {
+    const whole = encodeMessage(
+      new Server2Client({ diff: new StateDiff({ fromFrame: 3, toFrame: 4, resets: [[12, 4]] }) })
+    );
+
+    expect(() => new Decoder(whole.slice(0, whole.length - 1)).read(Server2Client)).toThrow(
+      RangeError
+    );
+    expect(() => new Decoder(whole.slice(0, whole.length - 2)).read(Server2Client)).toThrow(
+      RangeError
+    );
+  });
+
+  describe("from a server that predates them", () => {
+    // Field 1 as an older server writes it: whole-entity removals are `removed` entries with wire
+    // type ALL_COMPONENTS, which carry no frame.
+    function legacyFrame(toFrame: number, removed: Array<[number, number]>): Uint8Array {
+      const encoder = new Encoder(new Uint8Array(64));
+      encoder.write_u8(1);
+      encoder.write_u32(toFrame);
+      encoder.write_u32(toFrame - 1);
+      encoder.write_u32(0);
+      encoder.write_u32(removed.length);
+      removed.forEach(([eid, type]) => encoder.write_u32(cid_pack(eid, type)));
+      return encoder.getBuffer();
+    }
+
+    it("reads a whole-entity removal as a reset at the diff's own frame", () => {
+      const decoded = new Decoder(
+        legacyFrame(20, [
+          [7, ALL_COMPONENTS],
+          [8, 2],
+          [9, ALL_COMPONENTS],
+        ])
+      ).read(Server2Client);
+
+      expect(decoded.diff?.resets).toEqual([
+        [7, 20],
+        [9, 20],
+      ]);
+      expect(decoded.diff?.removed).toEqual([[8, 2]]);
+    });
+
+    it("reads a frame without whole-entity removals as it always did", () => {
+      const decoded = new Decoder(legacyFrame(20, [[8, 2]])).read(Server2Client);
+
+      expect(decoded.diff?.resets).toEqual([]);
+      expect(decoded.diff?.removed).toEqual([[8, 2]]);
+    });
   });
 });

@@ -232,12 +232,13 @@ connection.
 
 The server hands the id of a destroyed entity to a later entity, and the wire carries no entity
 generation, so a client can only tell the two entities apart by the order a diff means: within a
-diff, the removal of a whole entity comes before the snapshots of that id (see
+diff, the reset (the removal of a whole entity) comes before the snapshots of that id (see
 [State diffs](../../vecs-protocol/docs/state-diffs.md)). A delta merges several frames, so it can
-hold the removal of the old entity and the snapshots of the new one. The history keeps the order: an
-entity removed and snapshotted again within the span is pulled as `ALL_COMPONENTS` plus its current
-snapshots, a **reset**, and a span that starts after the removal pulls the snapshots alone. A reset
-also covers an entity that leaves a view and returns within one delta.
+hold the removal of the old entity and the snapshots of the new one. The history keeps the order: it
+pulls the newest reset of every entity reset within the span, with the frame at which it happened,
+next to the snapshots and the removals of single components that follow it, and nothing the span did
+to the entity before. A span that starts after the removal pulls the snapshots alone. A reset also
+covers an entity that leaves a view and returns within one delta.
 
 The reset is a safety net, and the id policy keeps it out of the way. A `ServerWorld` holds a freed
 id out of circulation for more frames than a session keeps: at least `historyFrames + 1`, 65 with
@@ -262,10 +263,10 @@ Do not pass `localEntityIdStart` to a server: it splits the id space for a clien
 would still allocate from the `entity` pool above the split, which the option then does not
 reach.
 
-A reset rebuilds the entity on a client, and a delta starts at the newest frame the server has seen
-acked, so deltas that overlap while an ack is in flight each repeat it until the ack passes the
-removal. The final state is right each time. See
-[Overlapping deltas rebuild the entity again](../../vecs-protocol/docs/state-diffs.md#overlapping-deltas-rebuild-the-entity-again).
+A delta starts at the newest frame the server has seen acked, so deltas that overlap while an ack is
+in flight each repeat the reset until the ack passes the removal. The frame the reset carries is what
+keeps that harmless: a client applies a reset once, and skips a repeat of one it holds already. See
+[A reset applies once](../../vecs-protocol/docs/state-diffs.md#a-reset-applies-once).
 
 ## Closing sessions
 

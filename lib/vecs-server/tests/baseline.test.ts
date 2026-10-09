@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  ALL_COMPONENTS,
   Client2Server,
   ComponentSnapshot,
   RPC,
@@ -339,7 +338,8 @@ describe("a baseline in flight", () => {
     const [delta] = step(rig);
 
     expect(delta.diff).toMatchObject({ fromFrame: 1, toFrame: 5 });
-    expect(delta.diff!.removed).toContainEqual([doomed.eid, ALL_COMPONENTS]);
+    // The entity was destroyed in frame 2, the first frame after the one the client acked.
+    expect(delta.diff!.resets).toEqual([[doomed.eid, 2]]);
   });
 
   it("still carries RPC replies, in frames with no state", async () => {

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { ALL_COMPONENTS, cid_pack } from "@vworlds/vecs-protocol";
+import { cid_pack } from "@vworlds/vecs-protocol";
 import type { EID } from "@vworlds/vecs";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import {
@@ -58,10 +58,14 @@ function SD(p: {
   from: number;
   to: number;
   removed?: number[];
+  resets?: Array<[EID, number]>;
   snapshots: ComponentSnapshot[];
 }): Diff {
   const d = new Diff(p.from, p.to, p.removed);
   d.snapshots = p.snapshots;
+  if (p.resets) {
+    d.resets = new Map(p.resets);
+  }
   return d;
 }
 
@@ -739,13 +743,18 @@ test("renderFrame is the point the interpolators sample, never decreases and nev
   expect(segmentStarts).toBeGreaterThan(20);
 });
 
-// A diff means: the ALL_COMPONENTS removals first, then the snapshots, then the removals of single
-// components. Within it, a snapshot of an eid that the same diff removes with ALL_COMPONENTS belongs
-// to the entity that took the eid after the removal. merge must keep that meaning for every ordering
-// of removals and snapshots, and DiffBuffer.pull must not blend the new entity from the old one.
+// A diff means: its resets first, then its snapshots, then the removals of single components.
+// Within it, a snapshot of an eid that the same diff resets belongs to the entity that took the eid
+// after the removal. A reset carries the server frame of the removal, and a delta repeats it for as
+// long as the ack that would end it is in flight, so the frame is what tells a repeat from a new
+// removal: merge keeps the newest frame of each eid, and drops what an older entity left only for a
+// reset that is newer than the one the other diff holds. DiffBuffer.pull hands out the resets the
+// world has not applied, and must not blend the new entity from the old one.
 
-function ALL(eid: EID): number {
-  return CID(eid, ALL_COMPONENTS);
+type Resets = Array<[EID, number]>;
+
+function resetsOf(diff: Diff): Resets {
+  return [...(diff.resets ?? [])].sort((x, y) => x[0] - y[0]);
 }
 
 function removedOf(diff: Diff): number[] {
@@ -766,15 +775,16 @@ interface MergeCase {
   a: () => Diff;
   /** The newer diff. */
   b: () => Diff;
+  resets: Resets;
   removed: number[];
   snapshots: number[];
   /** The Position of A in the merged diff, when it should have one. */
   position?: { x: number; y: number };
 }
 
-const entityRemovalMergeCases: MergeCase[] = [
+const resetMergeCases: MergeCase[] = [
   {
-    name: "ALL in the newer diff drops the older snapshots of that entity, and only of that entity",
+    name: "a reset in the newer diff drops the older snapshots of that entity, and only of that entity",
     a: () =>
       SD({
         from: 0,
@@ -784,61 +794,129 @@ const entityRemovalMergeCases: MergeCase[] = [
           ...snap({ id: B, xy: 2, color: "blue" }),
         ],
       }),
-    b: () => SD({ from: 1, to: 2, removed: [ALL(A)], snapshots: [] }),
-    removed: [ALL(A)],
+    b: () => SD({ from: 1, to: 2, resets: [[A, 2]], snapshots: [] }),
+    resets: [[A, 2]],
+    removed: [],
     snapshots: sorted(CID(B, PositionWireType), CID(B, ColorWireType)),
   },
   {
-    name: "ALL in the newer diff drops the older snapshots and keeps the newer ones of the same eid",
+    name: "a reset in the newer diff drops the older snapshots and keeps the newer ones of the same eid",
     a: () => SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) }),
-    b: () => SD({ from: 1, to: 2, removed: [ALL(A)], snapshots: [makePosComponent(A, 9, 9)] }),
-    removed: [ALL(A)],
+    b: () => SD({ from: 1, to: 2, resets: [[A, 2]], snapshots: [makePosComponent(A, 9, 9)] }),
+    resets: [[A, 2]],
+    removed: [],
     snapshots: [CID(A, PositionWireType)],
     position: { x: 9, y: 9 },
   },
   {
-    name: "ALL in the older diff stays when the newer one snapshots the eid",
-    a: () => SD({ from: 0, to: 1, removed: [ALL(A)], snapshots: [] }),
+    name: "a reset in the older diff stays when the newer one snapshots the eid",
+    a: () => SD({ from: 0, to: 1, resets: [[A, 1]], snapshots: [] }),
     b: () => SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 5, 5)] }),
-    removed: [ALL(A)],
+    resets: [[A, 1]],
+    removed: [],
     snapshots: [CID(A, PositionWireType)],
     position: { x: 5, y: 5 },
   },
   {
-    name: "ALL and snapshots in the older diff stay, merged with the newer snapshots of the eid",
+    name: "a reset and snapshots in the older diff stay, merged with the newer snapshots of the eid",
     a: () =>
       SD({
         from: 0,
         to: 1,
-        removed: [ALL(A)],
+        resets: [[A, 1]],
         snapshots: snap({ id: A, xy: 1, color: "orange" }),
       }),
     b: () => SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 7, 7)] }),
-    removed: [ALL(A)],
+    resets: [[A, 1]],
+    removed: [],
     snapshots: sorted(CID(A, PositionWireType), CID(A, ColorWireType)),
     position: { x: 7, y: 7 },
   },
   {
-    name: "ALL in both diffs keeps one ALL and only the newer snapshots",
+    name: "a newer reset of the same eid replaces the older reset's frame and drops its snapshots",
     a: () =>
       SD({
         from: 0,
         to: 1,
-        removed: [ALL(A)],
+        resets: [[A, 1]],
         snapshots: snap({ id: A, xy: 1, color: "red" }),
       }),
     b: () =>
       SD({
         from: 1,
-        to: 2,
-        removed: [ALL(A)],
+        to: 3,
+        resets: [[A, 3]],
         snapshots: [makeColorComponent(A, "green")],
       }),
-    removed: [ALL(A)],
+    resets: [[A, 3]],
+    removed: [],
     snapshots: [CID(A, ColorWireType)],
   },
   {
-    name: "ALL in the newer diff drops the older removals of single components of that entity",
+    name: "the same reset repeated by an overlapping delta keeps what the older diff holds, merged with the newer's",
+    a: () =>
+      SD({
+        from: 0,
+        to: 3,
+        resets: [[A, 2]],
+        snapshots: [makePosComponent(A, 1, 1), makeColorComponent(A, "red")],
+      }),
+    b: () =>
+      SD({
+        from: 0,
+        to: 4,
+        resets: [[A, 2]],
+        snapshots: [makePosComponent(A, 5, 5)],
+      }),
+    resets: [[A, 2]],
+    removed: [],
+    snapshots: sorted(CID(A, PositionWireType), CID(A, ColorWireType)),
+    position: { x: 5, y: 5 },
+  },
+  {
+    name: "a repeated reset keeps the removal that follows it in the overlapping delta, and deletes the snapshot it removes",
+    a: () =>
+      SD({
+        from: 0,
+        to: 3,
+        resets: [[A, 2]],
+        snapshots: [makePosComponent(A, 1, 1), makeColorComponent(A, "red")],
+      }),
+    b: () =>
+      SD({
+        from: 0,
+        to: 4,
+        resets: [[A, 2]],
+        removed: [CID(A, ColorWireType)],
+        snapshots: [makePosComponent(A, 5, 5)],
+      }),
+    resets: [[A, 2]],
+    removed: [CID(A, ColorWireType)],
+    snapshots: [CID(A, PositionWireType)],
+    position: { x: 5, y: 5 },
+  },
+  {
+    name: "a reset in the newer diff that is older than the older diff's keeps the older diff's frame and snapshots",
+    a: () => SD({ from: 0, to: 5, resets: [[A, 5]], snapshots: [makePosComponent(A, 2, 2)] }),
+    b: () => SD({ from: 0, to: 6, resets: [[A, 3]], snapshots: [makeColorComponent(A, "blue")] }),
+    resets: [[A, 5]],
+    removed: [],
+    snapshots: sorted(CID(A, PositionWireType), CID(A, ColorWireType)),
+    position: { x: 2, y: 2 },
+  },
+  {
+    name: "resets of different eids in the two diffs are both kept, with their own frames",
+    a: () => SD({ from: 0, to: 1, resets: [[A, 1]], snapshots: [] }),
+    b: () => SD({ from: 1, to: 2, resets: [[B, 2]], snapshots: [] }),
+    resets: [
+      [A, 1],
+      [B, 2],
+    ],
+    removed: [],
+    snapshots: [],
+  },
+  {
+    name: "a reset in the newer diff drops the older removals of single components of that entity",
     a: () =>
       SD({
         from: 0,
@@ -846,28 +924,47 @@ const entityRemovalMergeCases: MergeCase[] = [
         removed: [CID(A, ColorWireType), CID(B, ColorWireType)],
         snapshots: [],
       }),
-    b: () => SD({ from: 1, to: 2, removed: [ALL(A)], snapshots: [] }),
-    removed: sorted(ALL(A), CID(B, ColorWireType)),
+    b: () => SD({ from: 1, to: 2, resets: [[A, 2]], snapshots: [] }),
+    resets: [[A, 2]],
+    removed: [CID(B, ColorWireType)],
     snapshots: [],
   },
   {
-    name: "ALL in the newer diff keeps that diff's own removals of single components",
+    name: "a reset in the newer diff keeps that diff's own removals of single components",
     a: () => SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) }),
     b: () =>
       SD({
         from: 1,
         to: 2,
-        removed: [ALL(A), CID(A, ColorWireType)],
+        resets: [[A, 2]],
+        removed: [CID(A, ColorWireType)],
         snapshots: [makePosComponent(A, 3, 3)],
       }),
-    removed: sorted(ALL(A), CID(A, ColorWireType)),
+    resets: [[A, 2]],
+    removed: [CID(A, ColorWireType)],
     snapshots: [CID(A, PositionWireType)],
     position: { x: 3, y: 3 },
+  },
+  {
+    name: "a newer removal of a component the reset entity was given after the reset stays, next to the reset",
+    a: () =>
+      SD({
+        from: 0,
+        to: 1,
+        resets: [[A, 1]],
+        snapshots: snap({ id: A, xy: 1, color: "red" }),
+      }),
+    b: () => SD({ from: 1, to: 2, removed: [CID(A, ColorWireType)], snapshots: [] }),
+    resets: [[A, 1]],
+    removed: [CID(A, ColorWireType)],
+    snapshots: [CID(A, PositionWireType)],
+    position: { x: 1, y: 1 },
   },
   {
     name: "a newer snapshot of a component the older diff removed still un-deletes it",
     a: () => SD({ from: 0, to: 1, removed: [CID(A, ColorWireType)], snapshots: [] }),
     b: () => SD({ from: 1, to: 2, snapshots: [makeColorComponent(A, "teal")] }),
+    resets: [],
     removed: [],
     snapshots: [CID(A, ColorWireType)],
   },
@@ -875,18 +972,20 @@ const entityRemovalMergeCases: MergeCase[] = [
     name: "a newer removal of a single component deletes the older snapshot",
     a: () => SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) }),
     b: () => SD({ from: 1, to: 2, removed: [CID(A, ColorWireType)], snapshots: [] }),
+    resets: [],
     removed: [CID(A, ColorWireType)],
     snapshots: [CID(A, PositionWireType)],
     position: { x: 1, y: 1 },
   },
 ];
 
-test.each(entityRemovalMergeCases)("merge: $name", (c) => {
+test.each(resetMergeCases)("merge: $name", (c) => {
   const a = c.a();
   const b = c.b();
 
   const merged = merge(a, b);
 
+  expect(resetsOf(merged)).toEqual(c.resets);
   expect(removedOf(merged)).toEqual(c.removed);
   expect(snapshotIds(merged)).toEqual(c.snapshots);
   if (c.position) {
@@ -894,24 +993,63 @@ test.each(entityRemovalMergeCases)("merge: $name", (c) => {
   }
   expect([merged.from, merged.to]).toEqual([a.from, b.to]);
   // The inputs are not touched.
+  expect(resetsOf(a)).toEqual(resetsOf(c.a()));
   expect(removedOf(a)).toEqual(removedOf(c.a()));
   expect(snapshotIds(a)).toEqual(snapshotIds(c.a()));
+  expect(resetsOf(b)).toEqual(resetsOf(c.b()));
   expect(removedOf(b)).toEqual(removedOf(c.b()));
   expect(snapshotIds(b)).toEqual(snapshotIds(c.b()));
 });
 
-test.each(entityRemovalMergeCases)("merge in place gives the same result: $name", (c) => {
+test.each(resetMergeCases)("merge in place gives the same result: $name", (c) => {
   const pure = merge(c.a(), c.b(), false);
   const folded = merge(c.a(), c.b(), false, true);
 
+  expect(resetsOf(folded)).toEqual(resetsOf(pure));
   expect(removedOf(folded)).toEqual(removedOf(pure));
   expect(snapshotIds(folded)).toEqual(snapshotIds(pure));
 });
 
-test("pull applies an entity's removal and the snapshots that reuse its eid in one diff", () => {
+test("merge gives the result resets of its own, so the diffs it merged keep theirs", () => {
+  const withResets = SD({ from: 0, to: 1, resets: [[A, 1]], snapshots: [] });
+  const without = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 5, 5)] });
+  const newer = SD({ from: 1, to: 2, resets: [[B, 2]], snapshots: [] });
+
+  merge(withResets, without)!.resets!.set(C, 9);
+  merge(withResets, newer)!.resets!.set(C, 9);
+  merge(without, newer)!.resets!.set(C, 9);
+
+  expect(resetsOf(withResets)).toEqual([[A, 1]]);
+  expect(resetsOf(newer)).toEqual([[B, 2]]);
+  expect(withResets.resets).toBeDefined();
+  expect(without.resets).toBeUndefined();
+});
+
+test("a diff that resets nothing holds no resets, and merging two of them keeps it that way", () => {
+  const a = SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) });
+  const b = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 5, 5)] });
+
+  expect(a.resets).toBeUndefined();
+  expect(merge(a, b).resets).toBeUndefined();
+  expect(merge(a, b, false, true).resets).toBeUndefined();
+});
+
+test("a reset of an eid the older diff never held is kept for the newer diff's snapshots", () => {
+  const a = SD({ from: 0, to: 1, snapshots: snap({ id: B, xy: 1, color: "red" }) });
+  const b = SD({ from: 1, to: 2, resets: [[A, 2]], snapshots: [makePosComponent(A, 2, 2)] });
+
+  const merged = merge(a, b);
+
+  expect(resetsOf(merged)).toEqual([[A, 2]]);
+  expect(snapshotIds(merged)).toEqual(
+    sorted(CID(A, PositionWireType), CID(B, PositionWireType), CID(B, ColorWireType))
+  );
+});
+
+test("pull applies an entity's reset and the snapshots that reuse its eid in one diff", () => {
   const ip = newDiffBuffer(4, 10);
   const s1 = SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) });
-  const s2 = SD({ from: 1, to: 2, removed: [ALL(A)], snapshots: [] });
+  const s2 = SD({ from: 1, to: 2, resets: [[A, 2]], snapshots: [] });
   const s3 = SD({ from: 2, to: 3, snapshots: [makePosComponent(A, 40, 40)] });
 
   ip.push(s1);
@@ -921,7 +1059,7 @@ test("pull applies an entity's removal and the snapshots that reuse its eid in o
   ip.pull(100); // consumes s1
   const pulled = ip.pull(140); // consumes s2 and s3 in one catch-up pass
 
-  expect(removedOf(pulled)).toEqual([ALL(A)]);
+  expect(resetsOf(pulled)).toEqual([[A, 2]]);
   expect(snapshotIds(pulled)).toEqual([CID(A, PositionWireType)]);
   expect(Pos(pulled, A)).toEqual({ x: 40, y: 40 });
 });
@@ -932,7 +1070,7 @@ test("pull does not blend an entity from the one whose eid it replaces", () => {
   const s2 = SD({
     from: 1,
     to: 2,
-    removed: [ALL(A)],
+    resets: [[A, 2]],
     snapshots: [makePosComponent(A, 100, 100)],
   });
   ip.push(s1);
@@ -944,10 +1082,11 @@ test("pull does not blend an entity from the one whose eid it replaces", () => {
   // Halfway to s2, the old entity stays where it was: the new one is not drawn between the two.
   expect(Pos(midway, A)).toBeUndefined();
   expect(midway.removed).toBeUndefined();
+  expect(midway.resets).toBeUndefined();
 
   const applied = ip.pull(110);
 
-  expect(removedOf(applied)).toEqual([ALL(A)]);
+  expect(resetsOf(applied)).toEqual([[A, 2]]);
   expect(Pos(applied, A)).toEqual({ x: 100, y: 100 });
 });
 
@@ -957,7 +1096,7 @@ test("pull keeps blending the new entity from its own state, not the replaced on
   const s2 = SD({
     from: 1,
     to: 2,
-    removed: [ALL(A)],
+    resets: [[A, 2]],
     snapshots: [makePosComponent(A, 100, 100)],
   });
   const s3 = SD({ from: 2, to: 3, snapshots: [makePosComponent(A, 200, 200)] });
@@ -979,7 +1118,7 @@ test("pull does not blend a component the new entity lacks from the replaced ent
   const s2 = SD({
     from: 1,
     to: 2,
-    removed: [ALL(A)],
+    resets: [[A, 2]],
     snapshots: [makeColorComponent(A, "red")],
   });
   const s3 = SD({ from: 2, to: 3, snapshots: [makePosComponent(A, 100, 100)] });
@@ -990,8 +1129,143 @@ test("pull does not blend a component the new entity lacks from the replaced ent
   ip.pull(100);
   const applied = ip.pull(110); // applies s2, blending toward s3
 
-  expect(removedOf(applied)).toEqual([ALL(A)]);
+  expect(resetsOf(applied)).toEqual([[A, 2]]);
   // There is nothing of the new entity's to blend from, so the position waits for s3.
   expect(Pos(applied, A)).toBeUndefined();
   expect(Pos(ip.pull(120), A)).toEqual({ x: 100, y: 100 });
+});
+
+test("pull hands out a reset newer than the state it starts from, and drops its repeat", () => {
+  const ip = newDiffBuffer(4, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) });
+  // Frame 2 resets A. The delta for frame 3 starts from an ack before it, so it holds the reset
+  // again, and the world holds frame 2 by the time it is pulled.
+  const s2 = SD({ from: 1, to: 2, resets: [[A, 2]], snapshots: [makePosComponent(A, 20, 20)] });
+  const s3 = SD({ from: 1, to: 3, resets: [[A, 2]], snapshots: [makePosComponent(A, 30, 30)] });
+  ip.push(s1);
+  ip.push(s2);
+  ip.push(s3);
+
+  ip.pull(100);
+  const first = ip.pull(110);
+  const second = ip.pull(120);
+
+  expect(resetsOf(first)).toEqual([[A, 2]]);
+  expect(Pos(first, A)).toEqual({ x: 20, y: 20 });
+  expect(second.resets).toBeUndefined();
+  expect(Pos(second, A)).toEqual({ x: 30, y: 30 });
+});
+
+test("pull applies a repeated reset once, when the repeats are pulled in one go", () => {
+  const ip = newDiffBuffer(4, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) });
+  const s2 = SD({ from: 1, to: 2, resets: [[A, 2]], snapshots: [makePosComponent(A, 20, 20)] });
+  const s3 = SD({ from: 1, to: 3, resets: [[A, 2]], snapshots: [makePosComponent(A, 30, 30)] });
+  ip.push(s1);
+  ip.push(s2);
+  ip.push(s3);
+
+  ip.pull(100);
+  const pulled = ip.pull(130); // catches up through s2 and s3 in one pass
+
+  expect(resetsOf(pulled)).toEqual([[A, 2]]);
+  expect(Pos(pulled, A)).toEqual({ x: 30, y: 30 });
+});
+
+test("pull ends with the newest of two resets of one eid, whatever frame the world holds", () => {
+  const start = (): DiffBuffer => {
+    const ip = newDiffBuffer(4, 10);
+    ip.push(SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) }));
+    return ip;
+  };
+  // A is replaced at frame 2, and its replacement is replaced at frame 3.
+  const toB = SD({ from: 1, to: 2, resets: [[A, 2]], snapshots: [makePosComponent(A, 20, 20)] });
+  const toC = SD({ from: 1, to: 3, resets: [[A, 3]], snapshots: [makeColorComponent(A, "C")] });
+
+  // The world holds frame 1, before both: it applies the newer reset, and nothing of B.
+  const before = start();
+  before.push(toB);
+  before.push(toC);
+  before.pull(100);
+  const fromBefore = before.pull(130);
+  expect(resetsOf(fromBefore)).toEqual([[A, 3]]);
+  expect(snapshotIds(fromBefore)).toEqual([CID(A, ColorWireType)]);
+
+  // The world holds frame 2, after the first: only the newer reset is new.
+  const between = start();
+  between.push(toB);
+  between.pull(100);
+  between.pull(110);
+  between.push(toC);
+  const fromBetween = between.pull(120);
+  expect(resetsOf(fromBetween)).toEqual([[A, 3]]);
+  expect(snapshotIds(fromBetween)).toEqual([CID(A, ColorWireType)]);
+
+  // The world holds frame 3, after both: neither is new, and C is updated in place.
+  const after = start();
+  after.push(toB);
+  after.push(toC);
+  after.pull(100);
+  after.pull(130);
+  after.push(
+    SD({
+      from: 1,
+      to: 4,
+      resets: [[A, 3]],
+      snapshots: [makeColorComponent(A, "C"), makePosComponent(A, 6, 6)],
+    })
+  );
+  const fromAfter = after.pull(140);
+  expect(fromAfter.resets).toBeUndefined();
+  expect(snapshotIds(fromAfter)).toEqual(sorted(CID(A, PositionWireType), CID(A, ColorWireType)));
+});
+
+test("pull keeps blending an entity across a reset the world has applied already", () => {
+  const ip = newDiffBuffer(3, 10);
+  const s1 = SD({ from: 0, to: 1, resets: [[A, 1]], snapshots: [makePosComponent(A, 0, 0)] });
+  // An overlapping delta, from before frame 1: it repeats the reset at frame 1.
+  const s2 = SD({ from: 0, to: 2, resets: [[A, 1]], snapshots: [makePosComponent(A, 100, 100)] });
+  ip.push(s1);
+  ip.push(s2);
+
+  ip.pull(100); // renders s1, and starts blending toward s2
+  const midway = ip.pull(105);
+
+  // The reset is not new, so the entity moves toward s2 as any entity does.
+  expect(Pos(midway, A)).toEqual({ x: 50, y: 50 });
+
+  const applied = ip.pull(110);
+
+  expect(applied.resets).toBeUndefined();
+  expect(Pos(applied, A)).toEqual({ x: 100, y: 100 });
+});
+
+test("pull passes on the removals that follow a reset it skips", () => {
+  const ip = newDiffBuffer(4, 10);
+  const s1 = SD({ from: 0, to: 1, snapshots: snap({ id: A, xy: 1, color: "red" }) });
+  const s2 = SD({
+    from: 1,
+    to: 2,
+    resets: [[A, 2]],
+    snapshots: snap({ id: A, xy: 2, color: "blue" }),
+  });
+  // An overlapping delta, from before the reset: the entity lost its color after the reset.
+  const s3 = SD({
+    from: 1,
+    to: 3,
+    resets: [[A, 2]],
+    removed: [CID(A, ColorWireType)],
+    snapshots: [makePosComponent(A, 3, 3)],
+  });
+  ip.push(s1);
+  ip.push(s2);
+  ip.push(s3);
+
+  ip.pull(100);
+  ip.pull(110);
+  const third = ip.pull(120);
+
+  expect(third.resets).toBeUndefined();
+  expect(removedOf(third)).toEqual([CID(A, ColorWireType)]);
+  expect(Pos(third, A)).toEqual({ x: 3, y: 3 });
 });

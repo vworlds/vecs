@@ -14,7 +14,6 @@ import {
   NetworkWorld,
   type CloseNotice,
   type NetworkWorldOptions,
-  type RemovedComponent,
   type RPCHandler,
   type VecsSocket,
   type VecsSocketListener,
@@ -603,16 +602,16 @@ export class ServerWorld extends NetworkWorld {
         view._resyncAll();
       }
 
-      const snapshots: EncodedSnapshot[] = [];
-      const removed: RemovedComponent[] = [];
+      const latest = new StateDiff({ fromFrame: toFrame - 1, toFrame });
+      const { snapshots, removed, resets } = latest;
 
-      // One frame's diff can hold ALL_COMPONENTS for an entity that left the view and the
+      // One frame's diff can hold the reset of an entity that left the view and the
       // snapshots of a different entity that entered it under the same eid, when the eid is
       // reused within the frame (a pool with no reuse wait). The protocol reads that
-      // correctly: within a diff, ALL_COMPONENTS for an eid precedes every snapshot of it,
-      // so the snapshots are the new entity's. See StateDiff.
+      // correctly: within a diff, the reset of an eid precedes every snapshot of it, so the
+      // snapshots are the new entity's. The reset carries this frame. See StateDiff.
       view._exitedView.forEach((entity) => {
-        removed.push([entity.eid, ALL_COMPONENTS]);
+        resets.push([entity.eid, toFrame]);
       });
       view._enteredView.forEach((entity) => {
         this._pushEntitySnapshots(entity, snapshots);
@@ -624,6 +623,11 @@ export class ServerWorld extends NetworkWorld {
         }
         if (u.component) {
           snapshots.push(this._encodeSnapshot(u.entity, u.wireType, u.component));
+        } else if (u.wireType === ALL_COMPONENTS) {
+          // The removal of Networked. A whole entity is removed by a reset, never by an entry of
+          // `removed`; the view's exit of the entity normally carries it, and a visible entity
+          // that has one anyway is reset all the same.
+          resets.push([u.entity.eid, toFrame]);
         } else {
           removed.push([u.entity.eid, u.wireType]);
         }
@@ -632,12 +636,6 @@ export class ServerWorld extends NetworkWorld {
       view._enteredView.clear();
       view._exitedView.clear();
 
-      const latest = new StateDiff({
-        fromFrame: toFrame - 1,
-        toFrame,
-        snapshots,
-        removed,
-      });
       session.history.push(latest);
 
       if (nowMs - session.lastSeenMs > this._disconnectGraceMs) {
@@ -745,6 +743,7 @@ export class ServerWorld extends NetworkWorld {
         toFrame: latest.toFrame,
         snapshots: latest.snapshots,
         removed: latest.removed,
+        resets: latest.resets,
       });
     }
     if (session.needsBaseline) {
@@ -1087,7 +1086,7 @@ function ensureRegistered(world: NetworkWorld, Class: ComponentClass): void {
 }
 
 function isEmpty(diff: StateDiff): boolean {
-  return diff.snapshots.length === 0 && diff.removed.length === 0;
+  return diff.snapshots.length === 0 && diff.removed.length === 0 && diff.resets.length === 0;
 }
 
 /**

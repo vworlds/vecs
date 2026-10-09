@@ -83,35 +83,39 @@ size the window for slow players are in
 
 ## Applying a diff
 
-A delta is applied in place, in a fixed order. `apply` first destroys the entities the diff removes
-outright (`ALL_COMPONENTS`), then applies the snapshots, then removes the single components the diff
-lists. The order is what lets one entity id mean two entities in one diff, as the server reuses the
-ids of destroyed entities and the wire carries no entity generation:
+A delta is applied in place, in a fixed order. `apply` first destroys the entities the diff resets
+(removes outright), then applies the snapshots, then removes the single components the diff lists.
+The order is what lets one entity id mean two entities in one diff, as the server reuses the ids of
+destroyed entities and the wire carries no entity generation:
 
-- A snapshot of an id the same diff removes belongs to the entity that took the id. It creates a
+- A snapshot of an id the same diff resets belongs to the entity that took the id. It creates a
   **new** entity. None of the old entity's components, client-local components, edges or hooks'
   state survive, and the new entity fires its own `add` hooks and `enter` events.
-- A snapshot of an id the diff does not remove updates the entity in place, creating it if the
+- A snapshot of an id the diff does not reset updates the entity in place, creating it if the
   client does not hold it.
 - A removal of a single component comes after the snapshots, so it removes a component a snapshot
   in the same diff added.
 
 The diff buffer keeps the same meaning when it merges frames: after a stall (a hidden tab, a long
-task), several frames are applied in one pull, and a removal of an id in one frame and a snapshot
-of it in a later one come out as one diff that holds both, in this order. Interpolation follows:
-the new entity is never blended from the one it replaced. The rule, and what the server does to
-keep it, are in [State diffs](../../vecs-protocol/docs/state-diffs.md).
+task), several frames are applied in one pull, and a reset of an id in one frame and a snapshot of
+it in a later one come out as one diff that holds both, in this order. Interpolation follows: the
+new entity is never blended from the one it replaced. The rule, and what the server does to keep it,
+are in [State diffs](../../vecs-protocol/docs/state-diffs.md).
+
+A reset applies **once**. The server repeats it in every delta whose span includes it, and a client
+whose acks lag receives those deltas one after another, but a reset carries the server frame at which
+it happened, and the diff buffer hands `apply` only the resets that are newer than the frame the
+world already holds. An entity that left a view and came back within the lag is therefore rebuilt
+once, with one `exit` and one `enter`, as it is for a client that acks at once. A repeat that is
+skipped still updates the entity in place: its snapshots overwrite the components, and its removals
+take away the components the entity lost after the reset, so the final state is the same either way.
 
 Under `progress()` the order takes two systems, `ClientWorld:Pull` and `ClientWorld:Apply`, both in
 `ON_LOAD` and both run before any system you add to the phase. The first runs the handlers of
-server requests, pulls the diff and destroys the removed entities. Destroying is queued inside a
+server requests, pulls the diff and destroys the reset entities. Destroying is queued inside a
 system and completes at the flush after it, which frees the ids, so the second system creates the new
 entities on clean ids. Calling `apply(now)` yourself does both in one call and is only correct
 outside a system or a `defer` scope, where the destruction takes effect at once.
-
-A client that overlaps deltas (its acks lag) can rebuild an entity more than once when it was
-removed and snapshotted again within the lag: see
-[State diffs](../../vecs-protocol/docs/state-diffs.md#overlapping-deltas-rebuild-the-entity-again).
 
 ## Render time
 
@@ -335,7 +339,7 @@ A frame that fails to decode is dropped whole. When the diff inside a decodable 
 the replies in that frame have already settled their calls, as always, but the diff is not applied
 and the close notice in the same frame is not handled. A baseline that cannot be read is rejected
 before anything is torn down, so the replicated entities stay in place and no `reset` event fires.
-For a snapshot, `apply()` stops at the one that failed: the entities the diff removes outright and the
+For a snapshot, `apply()` stops at the one that failed: the entities the diff resets and the
 snapshots before it stay applied, and no later snapshot and no removal of a single component from
 that diff is applied. Replicated entities stay in place, as after any `close()`, and a new socket's
 next baseline resynchronizes them.

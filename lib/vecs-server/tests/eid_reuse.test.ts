@@ -1,10 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import {
-  ALL_COMPONENTS,
-  ComponentSnapshot,
-  Server2Client,
-  type RemovedComponent,
-} from "@vworlds/vecs-protocol";
+import { ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
 import { Decoder, wireType } from "@vworlds/vecs-wire";
 import { DEFAULT_ID_REUSE_WAIT_FRAMES, ON_UPDATE, POST_UPDATE, type Entity } from "@vworlds/vecs";
 import { Networked, type ServerWorld } from "../src/index.js";
@@ -32,10 +27,9 @@ import { ReplicationSim, type SimClient } from "./harness/replication_sim.js";
 //
 // `localSeq` counts the rebuilds of the entity under the eid. A reset travels in every delta whose
 // span includes A's removal, and a delta is built from the newest ack, so a client whose acks lag
-// receives overlapping deltas and rebuilds B once for each of them until its ack passes the
-// removal. Where that can happen the tests only require a rebuilt entity (`localSeq` 2 or more, A's
-// mark is 1) and the right replicated state; where a lone frame carries the reset they require
-// exactly one rebuild.
+// receives overlapping deltas that each repeat it. The reset carries the frame of the removal, and
+// the client applies it once: whatever the lag, B is built exactly once (`localSeq` 2, A's mark is
+// 1), by the first delta that reaches the client, and the repeats update it in place.
 
 class Position {
   @wireType("i32")
@@ -105,12 +99,18 @@ const A_ON_CLIENT: ClientEntityState = {
 /** Acks that take 70 ms to reach the server, a little over two ticks, and a clean link otherwise. */
 const LATE_ACKS: DuplexConditions = { down: {}, up: { oneWayMs: 70 } };
 
+/** Acks that take 175 ms to reach the server, a little over five ticks, and a clean link otherwise. */
+const VERY_LATE_ACKS: DuplexConditions = { down: {}, up: { oneWayMs: 175 } };
+
 /** One server frame as it left for the client, restricted to the eid under test. */
 interface WireFrame {
   fromFrame: number;
   toFrame: number;
   snapshots: string[];
+  /** The removals of single components of the eid. */
   removed: string[];
+  /** The frames at which the diff resets the eid: removes the whole entity. */
+  resets: number[];
   /** The frame was sent while the downlink was cut, or chosen to be lost, so the client never got it. */
   lost: boolean;
 }
@@ -149,6 +149,8 @@ interface HandoverResult {
   /** B was given A's eid. */
   reused: boolean;
   eid: number;
+  /** The server frame in which A was destroyed, which is the frame its reset carries. */
+  destroyFrame: number;
   /** Frames between A's destroy and B's creation, as the server numbers them. */
   frameGap: number;
   /** Frames the delta built for B's frame covers: B's frame minus the session's ack. 1 is a lone frame. */
@@ -207,15 +209,16 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           expect(result.frameGap).toBe(0);
           expect(result.pullSpan).toBe(1);
           expect(result.before).toEqual(A_ON_CLIENT);
-          const carrier = result.wire.find((frame) => frame.removed.length > 0);
-          expect(carrier?.removed).toEqual([`${result.eid}:ALL`]);
+          const carrier = result.wire.find((frame) => frame.resets.length > 0);
+          expect(carrier?.resets).toEqual([result.destroyFrame]);
+          expect(carrier?.removed).toEqual([]);
           expect(carrier?.snapshots).toEqual([`${result.eid}:Position`, `${result.eid}:Team`]);
         });
 
         it("leaves the client with B and exactly B's replicated components, built once", () => {
           const result = getResult();
 
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -244,14 +247,43 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           deltas
             .filter((frame) => frame.snapshots.length > 0)
             .forEach((frame) => {
-              expect(frame.removed).toEqual([`${result.eid}:ALL`]);
+              expect(frame.resets).toEqual([result.destroyFrame]);
+              expect(frame.removed).toEqual([]);
             });
         });
 
         it("leaves the client with B and exactly B's replicated components", () => {
           const result = getResult();
 
-          expectFreshB(result, "overlapping deltas");
+          expectFreshB(result);
+          expect(result.differences).toEqual([]);
+        });
+      }
+    );
+
+    describeScenario(
+      "with acks 5 or more frames late",
+      { quarantine: "off", spawnAfterTicks: 0, ackIntervalMs: FAST_ACK_MS, link: VERY_LATE_ACKS },
+      (getResult) => {
+        it("reuses the eid, and the delta for the frame spans at least 6 frames", () => {
+          const result = getResult();
+
+          expect(result.reused).toBe(true);
+          expect(result.frameGap).toBe(0);
+          expect(result.pullSpan).toBeGreaterThanOrEqual(6);
+        });
+
+        it("repeats the reset in every delta that overlaps, and rebuilds B exactly once", () => {
+          const result = getResult();
+
+          const carriers = result.wire.filter(
+            (frame) => frame.fromFrame !== 0 && frame.resets.length > 0
+          );
+          expect(carriers.length).toBeGreaterThanOrEqual(5);
+          carriers.forEach((frame) => {
+            expect(frame.resets).toEqual([result.destroyFrame]);
+          });
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -271,7 +303,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
         it("leaves the client with B and exactly B's replicated components", () => {
           const result = getResult();
 
-          expectFreshB(result, "overlapping deltas");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -315,7 +347,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           const result = getResult();
 
           expect(result.keptTheSameEntityObject).toBe(false);
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -333,11 +365,11 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           expect(result.pullSpan).toBeGreaterThanOrEqual(3);
           const resets = result.wire.filter(
             (frame) =>
-              frame.fromFrame !== 0 && frame.removed.length > 0 && frame.snapshots.length > 0
+              frame.fromFrame !== 0 && frame.resets.length > 0 && frame.snapshots.length > 0
           );
           expect(resets.length).toBeGreaterThan(0);
           resets.forEach((frame) => {
-            expect(frame.removed).toEqual([`${result.eid}:ALL`]);
+            expect(frame.resets).toEqual([result.destroyFrame]);
             expect(frame.snapshots).toEqual([`${result.eid}:Position`, `${result.eid}:Team`]);
           });
         });
@@ -346,7 +378,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           const result = getResult();
 
           expect(result.keptTheSameEntityObject).toBe(false);
-          expectFreshB(result, "overlapping deltas");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -370,13 +402,13 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           const bFrame = result.wire.find(
             (frame) => frame.fromFrame !== 0 && frame.snapshots.length > 0 && !frame.lost
           );
-          expect(bFrame?.removed).toEqual([`${result.eid}:ALL`]);
+          expect(bFrame?.resets).toEqual([result.destroyFrame]);
         });
 
         it("leaves the client with B and exactly B's replicated components", () => {
           const result = getResult();
 
-          expectFreshB(result, "overlapping deltas");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
 
@@ -407,13 +439,13 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           const bFrame = result.wire.find(
             (frame) => frame.fromFrame !== 0 && frame.snapshots.length > 0 && !frame.lost
           );
-          expect(bFrame?.removed).toEqual([`${result.eid}:ALL`]);
+          expect(bFrame?.resets).toEqual([result.destroyFrame]);
         });
 
         it("leaves the client with B and exactly B's replicated components", () => {
           const result = getResult();
 
-          expectFreshB(result, "overlapping deltas");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -445,7 +477,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           const firstDelivered = result.wire.find(
             (frame) => frame.fromFrame !== 0 && frame.snapshots.length > 0 && !frame.lost
           );
-          expect(firstDelivered?.removed).toEqual([`${result.eid}:ALL`]);
+          expect(firstDelivered?.resets).toEqual([result.destroyFrame]);
           expect(firstDelivered?.snapshots).toEqual([
             `${result.eid}:Position`,
             `${result.eid}:Team`,
@@ -456,7 +488,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           const result = getResult();
 
           expect(result.keptTheSameEntityObject).toBe(false);
-          expectFreshB(result, "overlapping deltas");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -474,7 +506,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           const result = getResult();
 
           expect(result.reused).toBe(true);
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -493,7 +525,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
 
           expect(result.reused).toBe(true);
           expect(result.resets).toBe(2);
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -527,7 +559,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           const result = getResult();
 
           expect(result.resets).toBe(2);
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -546,7 +578,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
 
           expect(result.reused).toBe(true);
           expect(result.resets).toBe(1);
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -569,19 +601,19 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           expect(result.frameGap).toBe(STOCK_QUARANTINE_FRAMES);
           expect(result.resets).toBe(1);
           const deltas = result.wire.filter((frame) => frame.fromFrame !== 0 && !frame.lost);
-          const removal = deltas.find((frame) => frame.removed.length > 0);
+          const removal = deltas.find((frame) => frame.resets.length > 0);
           const creation = deltas.find((frame) => frame.snapshots.length > 0);
-          expect(removal?.removed).toEqual([`${result.eid}:ALL`]);
+          expect(removal?.resets).toEqual([result.destroyFrame]);
           expect(removal?.snapshots).toEqual([]);
           expect(creation?.snapshots).toEqual([`${result.eid}:Position`, `${result.eid}:Team`]);
-          expect(creation?.removed).toEqual([]);
+          expect(creation?.resets).toEqual([]);
         });
 
         it("leaves the client with B and exactly B's replicated components, on a new entity", () => {
           const result = getResult();
 
           expect(result.keptTheSameEntityObject).toBe(false);
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -595,7 +627,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           const result = getResult();
 
           expect(result.reused).toBe(true);
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -635,19 +667,19 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           expect(result.frameGap).toBe(LEGACY_QUARANTINE_FRAMES);
           expect(result.resets).toBe(1);
           const deltas = result.wire.filter((frame) => frame.fromFrame !== 0 && !frame.lost);
-          const removal = deltas.find((frame) => frame.removed.length > 0);
+          const removal = deltas.find((frame) => frame.resets.length > 0);
           const creation = deltas.find((frame) => frame.snapshots.length > 0);
-          expect(removal?.removed).toEqual([`${result.eid}:ALL`]);
+          expect(removal?.resets).toEqual([result.destroyFrame]);
           expect(removal?.snapshots).toEqual([]);
           expect(creation?.snapshots).toEqual([`${result.eid}:Position`, `${result.eid}:Team`]);
-          expect(creation?.removed).toEqual([]);
+          expect(creation?.resets).toEqual([]);
         });
 
         it("leaves the client with B and exactly B's replicated components, on a new entity", () => {
           const result = getResult();
 
           expect(result.keptTheSameEntityObject).toBe(false);
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -661,7 +693,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
           const result = getResult();
 
           expect(result.reused).toBe(true);
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -700,7 +732,7 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
         it("leaves the client with B and exactly B's replicated components", () => {
           const result = getResult();
 
-          expectFreshB(result, "once");
+          expectFreshB(result);
           expect(result.differences).toEqual([]);
         });
       }
@@ -710,19 +742,14 @@ describe("a replicated eid handed from a destroyed entity to a new one", () => {
 
 /**
  * The client holds B under the eid: B's replicated components and nothing of A's, on an entity
- * built after A's, which is what the client-local mark shows (A's is 1). `"once"` also requires
- * that it was built exactly once; `"overlapping deltas"` allows a rebuild for every delta whose
- * span included A's removal.
+ * built exactly once after A's, which is what the client-local mark shows (A's is 1, B's is 2),
+ * however many deltas repeated the reset of A.
  */
-function expectFreshB(result: HandoverResult, rebuilds: "once" | "overlapping deltas"): void {
+function expectFreshB(result: HandoverResult): void {
   expect(result.after).toBeDefined();
   const { localSeq, ...replicated } = result.after as ClientEntityState;
   expect(replicated).toEqual(B_REPLICATED);
-  if (rebuilds === "once") {
-    expect(localSeq).toBe(2);
-  } else {
-    expect(localSeq).toBeGreaterThanOrEqual(2);
-  }
+  expect(localSeq).toBe(2);
 }
 
 /** Run `scenario` once for the tests `define` registers, which read its result. */
@@ -885,6 +912,7 @@ function runOn(simulation: ReplicationSim, scenario: Scenario): HandoverResult {
   return {
     reused: b !== undefined && b.eid === eid,
     eid,
+    destroyFrame: frameOfDestroy,
     frameGap: frameOfSpawn - frameOfDestroy,
     pullSpan: frameOfSpawn - ackAtSpawn,
     before,
@@ -944,13 +972,17 @@ function recordWire(client: SimClient, eid: number): WireFrame[] {
       .map((encoded) => new Decoder(encoded.bytes).read(ComponentSnapshot))
       .filter((snapshot) => snapshot.eid === eid)
       .map((snapshot) => describeSnapshot(snapshot.eid, snapshot.wireType));
-    const removed = diff.removed.filter(([id]) => id === eid).map(describeRemoval);
-    if (snapshots.length > 0 || removed.length > 0) {
+    const removed = diff.removed
+      .filter(([id]) => id === eid)
+      .map(([id, wireTypeId]) => describeSnapshot(id, wireTypeId));
+    const resets = diff.resets.filter(([id]) => id === eid).map(([, frame]) => frame);
+    if (snapshots.length > 0 || removed.length > 0 || resets.length > 0) {
       wire.push({
         fromFrame: diff.fromFrame,
         toFrame: diff.toFrame,
         snapshots,
         removed,
+        resets,
         lost: client.down.blocked,
       });
     }
@@ -966,7 +998,7 @@ function loseFirstRemoval(client: SimClient, eid: number, wire: WireFrame[]): vo
       return false;
     }
     const diff = new Decoder(data).read(Server2Client).diff;
-    if (diff === undefined || !diff.removed.some(([id]) => id === eid)) {
+    if (diff === undefined || !diff.resets.some(([id]) => id === eid)) {
       return false;
     }
     lost = true;
@@ -993,8 +1025,4 @@ const WIRE_TYPE_NAMES = ["", "Position", "Health", "Team"];
 
 function describeSnapshot(eid: number, wireTypeId: number): string {
   return `${eid}:${WIRE_TYPE_NAMES[wireTypeId]}`;
-}
-
-function describeRemoval([eid, wireTypeId]: RemovedComponent): string {
-  return wireTypeId === ALL_COMPONENTS ? `${eid}:ALL` : describeSnapshot(eid, wireTypeId);
 }

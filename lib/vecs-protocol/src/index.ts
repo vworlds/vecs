@@ -25,6 +25,7 @@ export {
   EncodedSnapshot,
   Server2Client,
   StateDiff,
+  type EntityReset,
   type RemovedComponent,
 } from "./messages.js";
 export {
