@@ -59,6 +59,8 @@ world.progress(performance.now(), 16); // call once per frame
 
 ## Documentation
 
+For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
+
 The full documentation lives in [`docs/`](./docs/README.md). Recommended reading order:
 
 1. [Getting started](./docs/getting-started.md) — install to first ticking world.
