@@ -231,15 +231,20 @@ export const phaserNetworkComponents: readonly ComponentClass[];
 export const phaserRenderableComponents: readonly ComponentClass[];
 
 // Dead reckoning (see ../README.md#dead-reckoning). Wire types, but NOT in phaserNetworkComponents
-export class Motion {} // baseline: frame, pose, velocities; optional damping, local center, gravity scale, fast-rotation flag
+export class Motion {} // baseline: frame, pose, velocities (not sent at rest), rest flag
+export class MotionParams {} // body constants: damping, local center, gravity scale, fast-rotation flag; absent = defaults
+export const defaultMotionParams: Readonly<MotionParams>; // the shared, frozen defaults of an entity without MotionParams
 export class MotionClock {} // world step, substeps, gravity, maximum linear speed
-export const phaserMotionComponents: readonly ComponentClass[]; // [MotionClock, Motion], appended by apps
+export const phaserMotionComponents: readonly ComponentClass[]; // [MotionClock, Motion, MotionParams], appended by apps
 export class MotionState {} // integrator state: center of mass, rotation, velocities (f32)
 export class MotionPose {} // origin and angle
-export function motionStateFrom(motion: Motion, out: MotionState): MotionState;
-export function stepMotion(state: MotionState, motion: Motion, clock: MotionClock): void;
-export function motionPose(state: MotionState, motion: Motion, out: MotionPose): MotionPose;
-export function motionAtRest(motion: Motion, clock: MotionClock): boolean; // nothing to step
+export function motionStateFrom(
+  motion: Motion,
+  params: MotionParams,
+  out: MotionState
+): MotionState;
+export function stepMotion(state: MotionState, params: MotionParams, clock: MotionClock): void;
+export function motionPose(state: MotionState, params: MotionParams, out: MotionPose): MotionPose;
 
 // Asset catalog schema (JSON over HTTP; no @wireType)
 export interface AssetDescriptor {
@@ -452,8 +457,8 @@ components, and the tag is meant to be added client-side. An application that wa
 set it lists it in its own network components, after the components it already has, on the server
 and the client alike. `protocol.test.ts` pins the list at 23 entries.
 
-`Motion` and `MotionClock`, the dead-reckoning components, stay out of the list for the same
-reason. Applications append `phaserMotionComponents` to their own network components; see
+`Motion`, `MotionParams` and `MotionClock`, the dead-reckoning components, stay out of the list for
+the same reason. Applications append `phaserMotionComponents` to their own network components; see
 [Dead reckoning](../README.md#dead-reckoning).
 
 Exactly one renderable per entity is enforced server-side by
@@ -825,7 +830,8 @@ The `PhaserServerModule` (zero-config) handles everything in one call:
 
 For bodies whose pose is cheaper to extrapolate than to stream, `DeadReckonedModule` adds the
 `DeadReckoned` tag: such a body carries `Motion` instead of a render pose, and the server sends a
-new baseline only when the body strays from the prediction clients run. See
+new baseline only when the body strays from the prediction clients run. The body constants the
+prediction needs travel apart, in a `MotionParams` that the server sends only when they change. See
 [Dead reckoning](../../vecs-phaser-server/README.md#dead-reckoning).
 
 ### 8.1 Asset catalog (server-owned)

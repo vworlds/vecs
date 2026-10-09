@@ -5,8 +5,10 @@
 
 import { World, type Entity } from "@vworlds/vecs";
 import {
+  defaultMotionParams,
   Motion,
   MotionClock,
+  MotionParams,
   MotionPose,
   MotionState,
   motionPose,
@@ -24,12 +26,16 @@ import {
   Box,
   Circle,
   Damping,
+  GravityScale,
   LinearVelocity,
   Material,
   PhysicsModule,
+  Polygon,
   Position as PhysicsPosition,
   preloadPhysics,
   Rotation as PhysicsRotation,
+  Sleep,
+  type Vec2,
 } from "@vworlds/vecs-physics";
 import { Networked, ServerWorld } from "@vworlds/vecs-server";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
@@ -40,6 +46,17 @@ import { DeadReckoned, DeadReckonedModule, type DeadReckonedOptions } from "../s
 const HZ = 30;
 const STEP_MS = 1000 / HZ;
 const NETWORK_COMPONENTS = [...phaserNetworkComponents, ...phaserMotionComponents];
+const DAMPING = { linear: 0.15, angular: 0.1 };
+/**
+ * An asymmetric convex quadrilateral whose center of mass, (4/3, 7/9), is well away from its
+ * origin.
+ */
+const QUADRILATERAL: Vec2[] = [
+  { x: 0, y: 0 },
+  { x: 3, y: 0 },
+  { x: 3, y: 1 },
+  { x: 0, y: 2 },
+];
 
 beforeAll(async () => {
   await preloadPhysics();
@@ -50,6 +67,8 @@ class Server {
   public readonly world: ServerWorld;
   /** Every baseline the module wrote, as `[eid, frame]`, in order. */
   public readonly baselines: Array<[number, number]> = [];
+  /** Every `MotionParams` the module added or updated, as `[eid, frame]`, in order. */
+  public readonly paramWrites: Array<[number, number]> = [];
   private _now = 0;
 
   public constructor(options: DeadReckonedOptions = {}, gravity = { x: 0, y: 0 }, name = "test") {
@@ -59,11 +78,20 @@ class Server {
     this.world.component(Motion).on("set", (entity, motion) => {
       this.baselines.push([entity.eid, motion.frame]);
     });
+    // The hook runs in the flush after the sync system, so `frame` is the one it stamped the baseline with.
+    this.world.component(MotionParams).on("set", (entity) => {
+      this.paramWrites.push([entity.eid, this.world.frame]);
+    });
   }
 
   /** Baselines written for `entity`, by frame. */
   public framesOf(entity: Entity): number[] {
     return this.baselines.filter(([eid]) => eid === entity.eid).map(([, frame]) => frame);
+  }
+
+  /** Frames at which the module wrote `entity`'s `MotionParams`. */
+  public paramFramesOf(entity: Entity): number[] {
+    return this.paramWrites.filter(([eid]) => eid === entity.eid).map(([, frame]) => frame);
   }
 
   /** Run `steps` server ticks. */
@@ -74,7 +102,10 @@ class Server {
     }
   }
 
-  /** A networked, dead-reckoned dynamic disc of radius 0.5. */
+  /**
+   * A networked, dead-reckoned dynamic body: a disc of radius 0.5, or a convex polygon (whose
+   * center of mass is off the body origin when the outline is).
+   */
   public disc(options: {
     x?: number;
     y?: number;
@@ -82,24 +113,37 @@ class Server {
     vy?: number;
     w?: number;
     damping?: { linear: number; angular: number };
+    gravityScale?: number;
+    bullet?: boolean;
+    /** Keep the body awake however slowly it moves. */
+    insomniac?: boolean;
+    polygon?: Vec2[];
     restitution?: number;
   }): Entity {
     const body = this.world
       .entity()
       .add(Networked)
       .add(DeadReckoned)
-      .set(Body, { type: BodyType.Dynamic })
+      .set(Body, { type: BodyType.Dynamic, bullet: options.bullet ?? false })
       .set(PhysicsPosition, { x: options.x ?? 0, y: options.y ?? 0 })
       .set(LinearVelocity, { x: options.vx ?? 0, y: options.vy ?? 0 })
       .set(AngularVelocity, { value: options.w ?? 0 });
     if (options.damping !== undefined) {
       body.set(Damping, options.damping);
     }
-    this.world
-      .entity()
-      .childOf(body)
-      .set(Circle, { radius: 0.5 })
-      .set(Material, { restitution: options.restitution ?? 0 });
+    if (options.gravityScale !== undefined) {
+      body.set(GravityScale, { value: options.gravityScale });
+    }
+    if (options.insomniac === true) {
+      body.set(Sleep, { enabled: false });
+    }
+    const shape = this.world.entity().childOf(body);
+    if (options.polygon === undefined) {
+      shape.set(Circle, { radius: 0.5 });
+    } else {
+      shape.set(Polygon, { vertices: options.polygon });
+    }
+    shape.set(Material, { restitution: options.restitution ?? 0 });
     return body;
   }
 
@@ -187,6 +231,12 @@ describe("DeadReckonedModule setup", () => {
     const streamedOnly = new ServerWorld({ networkComponents: phaserNetworkComponents });
     streamedOnly.module(PhysicsModule);
     expect(() => streamedOnly.module(DeadReckonedModule)).toThrow(/phaserMotionComponents/);
+
+    const withoutParams = new ServerWorld({
+      networkComponents: [...phaserNetworkComponents, MotionClock, Motion],
+    });
+    withoutParams.module(PhysicsModule);
+    expect(() => withoutParams.module(DeadReckonedModule)).toThrow(/MotionParams/);
   });
 });
 
@@ -244,7 +294,8 @@ describe("the divergence check", () => {
     server.step();
     const spawn = server.framesOf(container);
     expect(spawn).toHaveLength(1);
-    expect(container.get(Motion)).toMatchObject({
+    expect(container.get(Motion)).toMatchObject({ vx: expect.any(Number), rest: false });
+    expect(container.get(MotionParams)).toMatchObject({
       linearDamping: Math.fround(0.15),
       angularDamping: Math.fround(0.1),
     });
@@ -260,7 +311,13 @@ describe("the divergence check", () => {
 
     expect(asleepAt).toBeGreaterThan(20 * HZ);
     expect(server.framesOf(container)).toHaveLength(2);
-    expect(container.get(Motion)).toMatchObject({ vx: 0, vy: 0, w: 0, gravityScale: 0 });
+    expect(container.get(Motion)).toMatchObject({ vx: 0, vy: 0, w: 0, rest: true });
+    // The baseline at rest leaves the constants alone.
+    expect(container.get(MotionParams)).toMatchObject({
+      linearDamping: Math.fround(0.15),
+      angularDamping: Math.fround(0.1),
+    });
+    expect(server.paramFramesOf(container)).toEqual(spawn);
     const resting = { ...container.get(PhysicsPosition) };
     expect(container.get(Motion)).toMatchObject({
       x: Math.fround(resting.x!),
@@ -285,13 +342,14 @@ describe("the divergence check", () => {
       server.step();
       const clock = clockOf(server.world);
       bodies.forEach((body, i) => {
-        const motion = decoded(body.get(Motion)!);
+        const motion = decoded(Motion, body.get(Motion)!);
+        const params = decoded(MotionParams, body.get(MotionParams) ?? defaultMotionParams);
         const { state, pose } = prediction[i]!;
-        motionStateFrom(motion, state);
+        motionStateFrom(motion, params, state);
         for (let n = motion.frame; n < server.world.frame - 1; n++) {
-          stepMotion(state, motion, clock);
+          stepMotion(state, params, clock);
         }
-        motionPose(state, motion, pose);
+        motionPose(state, params, pose);
         const position = body.get(PhysicsPosition)!;
         worst = Math.max(worst, Math.hypot(position.x - pose.x, position.y - pose.y));
       });
@@ -307,7 +365,9 @@ describe("the divergence check", () => {
     server.step(5);
 
     const motion = body.get(Motion)!;
-    expect(decoded(motion)).toEqual({ ...motion });
+    expect(decoded(Motion, motion)).toEqual({ ...motion });
+    const params = body.get(MotionParams)!;
+    expect(decoded(MotionParams, params)).toEqual({ ...params });
   });
 
   it("makes the tolerances configurable", () => {
@@ -344,6 +404,176 @@ describe("the divergence check", () => {
   });
 });
 
+describe("the body constants in MotionParams", () => {
+  it("carries a damped, off-center body's constants with its first moving baseline, then only Motion", () => {
+    const server = new Server();
+    const container = server.disc({
+      vx: 2,
+      vy: -1,
+      w: 0.5,
+      damping: DAMPING,
+      polygon: QUADRILATERAL,
+    });
+
+    server.step();
+    const spawn = server.framesOf(container);
+    expect(spawn).toHaveLength(1);
+    const params = container.get(MotionParams)!;
+    expect(params.linearDamping).toBe(Math.fround(0.15));
+    expect(params.angularDamping).toBe(Math.fround(0.1));
+    expect(params.localCenterX).toBeCloseTo(4 / 3, 6);
+    expect(params.localCenterY).toBeCloseTo(7 / 9, 6);
+    expect(params.gravityScale).toBe(1);
+    expect(params.allowFastRotation).toBe(false);
+    // Written in the frame of the baseline it belongs to, so both land in the same diff.
+    expect(server.paramFramesOf(container)).toEqual(spawn);
+
+    // Two corrections later the constants are still the ones sent with the first baseline.
+    for (const x of [-20, 20]) {
+      container.set(PhysicsPosition, { x, y: 3 });
+      server.step();
+    }
+    expect(server.framesOf(container)).toHaveLength(3);
+    expect(server.paramFramesOf(container)).toEqual(spawn);
+    expect(container.get(MotionParams)).toBe(params);
+  });
+
+  it("never gives a body with default constants a MotionParams", () => {
+    const server = new Server();
+    const bullet = server.disc({ vx: 12, vy: 3, w: 2, bullet: true });
+
+    server.step();
+    for (const x of [-20, 20, -10]) {
+      bullet.set(PhysicsPosition, { x, y: 3 });
+      server.step();
+    }
+
+    expect(server.framesOf(bullet)).toHaveLength(4);
+    expect(bullet.has(MotionParams)).toBe(false);
+    expect(server.paramWrites).toEqual([]);
+  });
+
+  it("carries a gravity scale other than 1", () => {
+    const server = new Server({}, { x: 0, y: -10 });
+    const floaty = server.disc({ vx: 2, vy: 3, gravityScale: 0.5 });
+    const heavy = server.disc({ vx: 2, vy: 3 });
+
+    server.step();
+
+    expect(floaty.get(MotionParams)).toMatchObject({ gravityScale: 0.5, linearDamping: 0 });
+    expect(heavy.has(MotionParams)).toBe(false);
+  });
+
+  it("writes a baseline at rest as the pose only, and leaves MotionParams alone", () => {
+    const server = new Server();
+    const container = server.disc({ vx: 1.5, w: 0.5, damping: DAMPING, polygon: QUADRILATERAL });
+    server.step();
+    const params = container.get(MotionParams)!;
+    const held = { ...params };
+
+    // Stopping it sends one baseline at rest.
+    container.set(LinearVelocity, { x: 0, y: 0 }).set(AngularVelocity, { value: 0 });
+    server.step(3 * HZ);
+
+    expect(server.framesOf(container)).toHaveLength(2);
+    const motion = container.get(Motion)!;
+    expect(motion).toMatchObject({ rest: true, vx: 0, vy: 0, w: 0 });
+    expect(encoded(motion).length).toBe(14);
+    expect(container.get(MotionParams)).toBe(params);
+    expect({ ...params }).toEqual(held);
+    expect(server.paramFramesOf(container)).toHaveLength(1);
+
+    // Moving again sends a moving baseline, which has no new constants to send.
+    container.set(LinearVelocity, { x: 2, y: 0 });
+    server.step(HZ);
+
+    expect(server.framesOf(container)).toHaveLength(3);
+    expect(container.get(Motion)).toMatchObject({ rest: false });
+    expect(container.get(Motion)!.vx).toBeGreaterThan(1);
+    expect(encoded(container.get(Motion)!).length).toBe(26);
+    expect(server.paramFramesOf(container)).toHaveLength(1);
+  });
+
+  it("holds a body at rest that has no velocity and that nothing accelerates, awake or not", () => {
+    const space = new Server();
+    const planet = new Server({}, { x: 0, y: -10 });
+    const drifter = space.disc({ insomniac: true });
+    const hovering = planet.disc({ insomniac: true, gravityScale: 0 });
+    const falling = planet.disc({ insomniac: true });
+
+    space.step();
+    planet.step();
+
+    expect(drifter.get(Motion)).toMatchObject({ rest: true });
+    expect(hovering.get(Motion)).toMatchObject({ rest: true });
+    expect(falling.get(Motion)).toMatchObject({ rest: false });
+    // A baseline at rest sends no constants, even when the body's differ from the defaults.
+    expect(hovering.has(MotionParams)).toBe(false);
+    expect(space.paramWrites).toEqual([]);
+    expect(planet.paramWrites).toEqual([]);
+  });
+
+  it("holds an entity without a body at rest, and gives it no constants", () => {
+    const server = new Server();
+    const effect = server.world
+      .entity()
+      .add(Networked)
+      .add(DeadReckoned)
+      .set(PhysicsPosition, { x: 3, y: 4 })
+      .set(PhysicsRotation, { angle: 0.5 });
+
+    server.step();
+
+    expect(effect.get(Motion)).toMatchObject({ rest: true, x: 3, y: 4 });
+    expect(effect.has(MotionParams)).toBe(false);
+  });
+
+  it("adds the constants at the first moving baseline of a body that began at rest", () => {
+    const server = new Server();
+    const container = server.disc({ damping: DAMPING, polygon: QUADRILATERAL });
+
+    server.step();
+    expect(container.get(Motion)).toMatchObject({ rest: true });
+    expect(container.has(MotionParams)).toBe(false);
+
+    container.set(LinearVelocity, { x: 2, y: 1 });
+    server.step(HZ);
+
+    const frames = server.framesOf(container);
+    expect(frames).toHaveLength(2);
+    expect(container.get(Motion)).toMatchObject({ rest: false });
+    expect(container.get(MotionParams)).toMatchObject({ linearDamping: Math.fround(0.15) });
+    expect(server.paramFramesOf(container)).toEqual([frames[1]]);
+  });
+
+  it("sends one baseline and one MotionParams update, in the same frame, when the damping changes mid-flight", () => {
+    const server = new Server();
+    const container = server.disc({ vx: 1.5, vy: -0.5, w: 0.4, damping: DAMPING });
+    server.step();
+    server.step(HZ);
+    const spawn = server.framesOf(container);
+    expect(spawn).toHaveLength(1);
+    expect(server.paramFramesOf(container)).toEqual(spawn);
+
+    // The body now strays from the path clients extrapolate with the old damping.
+    container.set(Damping, { linear: 0.6, angular: 0.1 });
+    server.step(HZ);
+
+    const frames = server.framesOf(container);
+    expect(frames).toHaveLength(2);
+    expect(server.paramFramesOf(container)).toEqual(frames);
+    expect(container.get(MotionParams)).toMatchObject({
+      linearDamping: Math.fround(0.6),
+      angularDamping: Math.fround(0.1),
+    });
+
+    // The new constants predict the body again: nothing more is sent.
+    server.step(2 * HZ);
+    expect(server.framesOf(container)).toEqual(frames);
+    expect(server.paramFramesOf(container)).toEqual(frames);
+  });
+});
+
 describe("sector transfer", () => {
   it("keeps the body dead reckoned and re-baselines it at the destination's frame", () => {
     const source = new Server({}, { x: 0, y: 0 }, "source");
@@ -373,9 +603,14 @@ function clockOf(world: ServerWorld): MotionClock {
   return entity.get(MotionClock) as MotionClock;
 }
 
-/** `motion` after a trip through the wire codec. */
-function decoded(motion: Readonly<Motion>): Motion {
+/** `value` after a trip through the wire codec. */
+function decoded<T extends object>(Class: new () => T, value: Readonly<T>): T {
+  return new Decoder(encoded(value)).read(Class);
+}
+
+/** `value` as it goes on the wire. */
+function encoded(value: object): Uint8Array {
   const encoder = new Encoder(new Uint8Array(64));
-  encoder.write(motion as Motion);
-  return new Decoder(encoder.getBuffer()).read(Motion);
+  encoder.write(value);
+  return encoder.getBuffer();
 }

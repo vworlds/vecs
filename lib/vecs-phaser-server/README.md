@@ -76,20 +76,22 @@ stamped with `ServerWorld.frame`, and step physics once per tick.
 ### Game code owns the physics pose
 
 On the server, game code reads and writes the physics `Position` and `Rotation` of every entity,
-dead reckoned or streamed, with or without a `Body`. The render `Position` and `Rotation` and
-`Motion` are only wire encodings of that pose, and only the sync systems write them:
+dead reckoned or streamed, with or without a `Body`. The render `Position` and `Rotation`, `Motion`
+and `MotionParams` are only wire encodings of that pose and the body behind it, and only the sync
+systems write them:
 
-| Body                  | Carries                                       | Synced by                                      | Sent                           |
-| --------------------- | --------------------------------------------- | ---------------------------------------------- | ------------------------------ |
-| Streamed (default)    | physics pose + render `Position` / `Rotation` | `phaser.sync.position`, `phaser.sync.rotation` | every change                   |
-| `DeadReckoned`        | physics pose + `Motion`, **no render pose**   | `phaser.sync.motion`                           | a baseline, on divergence only |
-| No `Body` (an effect) | physics pose + render `Position` / `Rotation` | `phaser.sync.position`, `phaser.sync.rotation` | every change                   |
+| Body                  | Carries                                                                                | Synced by                                      | Sent                           |
+| --------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------ |
+| Streamed (default)    | physics pose + render `Position` / `Rotation`                                          | `phaser.sync.position`, `phaser.sync.rotation` | every change                   |
+| `DeadReckoned`        | physics pose + `Motion` (+ `MotionParams` if the constants differ), **no render pose** | `phaser.sync.motion`                           | a baseline, on divergence only |
+| No `Body` (an effect) | physics pose + render `Position` / `Rotation`                                          | `phaser.sync.position`, `phaser.sync.rotation` | every change                   |
 
 The systems match on presence, so each entity takes exactly one path. `DeadReckoned` makes that
 structural:
 
 - Adding it adds `Motion`, the physics `Rotation` and a server-local prediction, and removes the
-  render `Position` and `Rotation`.
+  render `Position` and `Rotation`. `MotionParams` is not part of it: see
+  [Body constants](#body-constants).
 - Adding a render `Position` or `Rotation` to a dead-reckoned entity throws.
 - Decide it at spawn. Removing the tag, or adding it to a body clients already stream, is not
   supported.
@@ -104,12 +106,12 @@ streamed.
 prediction clients run by one step with the shared integrator, starting from the baseline exactly
 as clients decode it, and compares it with the physics pose. It writes a new baseline when:
 
-| Trigger                           | Option              | Default  | Baseline                                                    |
-| --------------------------------- | ------------------- | -------- | ----------------------------------------------------------- |
-| The position strays further than  | `positionTolerance` | 0.01 m   | pose and Box2D's velocities, damping, center, gravity scale |
-| The angle strays further than     | `angleTolerance`    | 0.01 rad | as above                                                    |
-| The body falls asleep             |                     |          | at rest: no velocity, gravity scale 0                       |
-| A moving baseline gets older than | `maxBaselineAge`    | 30 s     | as above; `0` never refreshes                               |
+| Trigger                           | Option              | Default  | Baseline                               |
+| --------------------------------- | ------------------- | -------- | -------------------------------------- |
+| The position strays further than  | `positionTolerance` | 0.01 m   | the pose and Box2D's velocities        |
+| The angle strays further than     | `angleTolerance`    | 0.01 rad | as above                               |
+| The body falls asleep             |                     |          | at rest (`Motion.rest`): the pose only |
+| A moving baseline gets older than | `maxBaselineAge`    | 30 s     | as above; `0` never refreshes          |
 
 Collisions, teleports, joints, forces and changed body settings all show up as divergence, with no
 special case. A new body gets its first baseline on its first step. Each baseline is stamped with
@@ -118,14 +120,42 @@ correction but never loses it. The refresh bounds the steps a client runs to cat
 just started to see; a baseline at rest is never refreshed. An entity without a `Body` that is
 tagged `DeadReckoned` gets baselines at rest whenever game code moves it.
 
-Per body per step the system steps the integrator once and compares, allocating nothing. It asks
-Box2D whether the body sleeps only when its pose did not change, and reads the rest of the body's
-motion only when it writes a baseline. A body at rest costs one comparison.
+A baseline is **at rest** when the body is asleep, when the entity has no body, or when the body
+has no velocity and nothing accelerates it: the world has no gravity, or the body's effective
+gravity scale is 0. The server decides it and sends only the pose and the `rest` flag (14 bytes
+against 26 for a moving baseline, with a frame below 128); clients hold the pose and never step it.
+
+Per body per step the system steps the integrator once and compares, allocating nothing and looking
+up no component. It asks Box2D whether the body sleeps only when its pose did not change, and reads
+the rest of the body's motion only when it writes a baseline. A body at rest costs one comparison.
+
+### Body constants
+
+A body's damping, center of mass, effective gravity scale (0 for a body without mass) and
+`allowFastRotation` do not travel in `Motion`. They live in a `MotionParams` on the same entity,
+which clients step every baseline with, so a correction costs the pose and velocities only.
+`phaser.sync.motion` writes it as follows:
+
+- Each time it writes a **moving** baseline it compares the body's constants, rounded to f32, with
+  the entity's `MotionParams`, or with the defaults (no damping, the center of mass at the origin,
+  a gravity scale of 1, no fast rotation) when the entity has none.
+- Only when they differ does it add the component, or update it in place, and announce it with
+  `modified`, in the same frame as the `Motion`, so both land in the same diff. A body that never
+  leaves the defaults, such as a bullet, never carries one: `DeadReckoned` does not bring it.
+- Once added it is kept and updated, never removed. A baseline at rest leaves it untouched,
+  because nothing is stepped.
+- Changing a body's damping, say, shows up as divergence like any other change: one baseline and
+  one `MotionParams` update follow, in the same frame.
+
+The prediction the system runs keeps its own copy of the constants, taken when it writes the
+baseline. Clients do the same: they copy the entity's `MotionParams` when they take a baseline.
 
 ### Moving to another world
 
 `DeadReckoned` is a plain tag, so `moveSubtree` and `restoreSubtree` carry it (list it when you
 pass a `components` allowlist). `Motion` belongs to the source world, whose frames it counts, and
 the prediction is never captured, so the destination starts the body unprimed and writes a fresh
-baseline, at its own frame, on the body's first step there. Install `DeadReckonedModule` in the
-destination world too; the application does nothing else.
+baseline, at its own frame, on the body's first step there. That baseline compares the body's
+constants with the `MotionParams` that came with it, if any, and writes the component again when
+they differ, so a destination that did not receive it still ends up right. Install
+`DeadReckonedModule` in the destination world too; the application does nothing else.

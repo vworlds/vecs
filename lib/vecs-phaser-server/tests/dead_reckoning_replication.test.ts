@@ -7,6 +7,7 @@ import { ON_STORE, type Entity } from "@vworlds/vecs";
 import {
   Motion,
   MotionClock,
+  MotionParams,
   phaserMotionComponents,
   phaserNetworkComponents,
   Position as RenderPosition,
@@ -22,9 +23,11 @@ import {
   LinearVelocity,
   Material,
   PhysicsModule,
+  Polygon,
   Position as PhysicsPosition,
   preloadPhysics,
   Rotation as PhysicsRotation,
+  type Vec2,
 } from "@vworlds/vecs-physics";
 import { ComponentSnapshot, Server2Client } from "@vworlds/vecs-protocol";
 import { Networked } from "@vworlds/vecs-server";
@@ -44,6 +47,14 @@ import {
 const HZ = 30;
 const NETWORK_COMPONENTS = [...phaserNetworkComponents, ...phaserMotionComponents];
 const MOTION = NETWORK_COMPONENTS.indexOf(Motion) + 1;
+const MOTION_PARAMS = NETWORK_COMPONENTS.indexOf(MotionParams) + 1;
+/** An asymmetric convex quadrilateral whose center of mass, (4/3, 7/9), is far from its origin. */
+const QUADRILATERAL: Vec2[] = [
+  { x: 0, y: 0 },
+  { x: 3, y: 0 },
+  { x: 3, y: 1 },
+  { x: 0, y: 2 },
+];
 /** 200 ms round trip, 5% loss each way, and one datagram in ten overtaken by up to 60 ms. */
 const HARSH_LINK = symmetric({ oneWayMs: 100, loss: 0.05, reorder: 0.1, reorderExtraMs: 60 });
 const POSITION_TOLERANCE = 0.01;
@@ -159,6 +170,8 @@ function disc(
     restitution?: number;
     bullet?: boolean;
     streamed?: boolean;
+    /** A convex outline instead of the disc, which puts the center of mass off the body origin. */
+    polygon?: Vec2[];
   }
 ): Entity {
   const world = run.sim.server;
@@ -178,11 +191,13 @@ function disc(
   if (options.damping !== undefined) {
     body.set(Damping, { linear: options.damping, angular: options.damping * 0.66 });
   }
-  world
-    .entity()
-    .childOf(body)
-    .set(Circle, { radius: options.radius ?? 0.5 })
-    .set(Material, { restitution: options.restitution ?? 0 });
+  const shape = world.entity().childOf(body);
+  if (options.polygon === undefined) {
+    shape.set(Circle, { radius: options.radius ?? 0.5 });
+  } else {
+    shape.set(Polygon, { vertices: options.polygon });
+  }
+  shape.set(Material, { restitution: options.restitution ?? 0 });
   return body;
 }
 
@@ -226,6 +241,24 @@ describe("dead reckoning over a lossy link", () => {
         disc(run, { x: 6, y: -6, vx: 0.5, vy: 0.5, w: 0.2, damping: 0.4 }),
         disc(run, { x: 3, y: -12, vx: 0, vy: 0, w: 0 }),
       ];
+      // An off-center, damped body whose damping changes twice while it flies.
+      const wobbler = disc(run, {
+        x: -8,
+        y: -4,
+        vx: 2.5,
+        vy: 1.5,
+        w: 1.5,
+        damping: 0.15,
+        polygon: QUADRILATERAL,
+        restitution: 1,
+      });
+      run.sim.onTick((tick) => {
+        if (tick === 15 * HZ) {
+          wobbler.set(Damping, { linear: 0.5, angular: 0.3 });
+        } else if (tick === 35 * HZ) {
+          wobbler.set(Damping, { linear: 0, angular: 0 });
+        }
+      });
       // Teleport one body every 7 seconds, as a sector-edge wrap would.
       run.sim.onTick((tick) => {
         if (tick > 0 && tick % (7 * HZ) === 0) {
@@ -287,9 +320,9 @@ describe("dead reckoning over a lossy link", () => {
       expect(run.client.stats.errors).toEqual([]);
       expect(run.client.stats.disconnects).toEqual([]);
       expect(run.client.stats.resets).toHaveLength(1);
-      // Motion arrives exactly as sent: never interpolated, never rolled back.
+      // Motion and MotionParams arrive exactly as sent: never interpolated, never rolled back.
       run.sim.run(1000);
-      expect(run.sim.diffFromServer(run.client, [Motion, MotionClock])).toEqual([]);
+      expect(run.sim.diffFromServer(run.client, [Motion, MotionParams, MotionClock])).toEqual([]);
     }
   );
 
@@ -322,6 +355,101 @@ describe("dead reckoning over a lossy link", () => {
     }
     // Retransmits: a baseline rides every frame until the client's ack for it arrives.
     expect(sent.length).toBeGreaterThan(baselines.length);
+  });
+});
+
+describe("the body constants", () => {
+  it("ride in MotionParams, sent with the baseline that changes them and never for default constants", () => {
+    const run = new Run({ seed: 6, link: symmetric({ oneWayMs: 50 }) });
+    arena(run, 15);
+    const container = disc(run, {
+      x: -6,
+      y: -6,
+      vx: 2,
+      vy: 1.2,
+      w: 0.5,
+      damping: 0.15,
+      polygon: QUADRILATERAL,
+      restitution: 1,
+    });
+    const bullet = disc(run, {
+      x: 6,
+      y: 6,
+      vx: 9,
+      vy: -7,
+      w: 1,
+      radius: 0.1,
+      bullet: true,
+      restitution: 1,
+    });
+    run.sim.onTick((tick) => {
+      if (tick === 10 * HZ) {
+        container.set(Damping, { linear: 0.5, angular: 0.3 });
+      }
+      // A teleport every two seconds is a correction that changes no constant.
+      if (tick > 0 && tick % (2 * HZ) === 0) {
+        container.set(PhysicsPosition, tick % (4 * HZ) === 0 ? { x: -6, y: -6 } : { x: 4, y: -8 });
+      }
+    });
+    // What each diff carries for the two bodies: the Motion and MotionParams payloads.
+    const diffs: Array<{ motion: Uint8Array[]; params: Uint8Array[]; bulletParams: number }> = [];
+    tapFrames(run.client, (message) => {
+      const diff = message.diff;
+      if (diff === undefined) {
+        return;
+      }
+      const carried = { motion: [] as Uint8Array[], params: [] as Uint8Array[], bulletParams: 0 };
+      for (const encoded of diff.snapshots) {
+        const snapshot = new Decoder(encoded.bytes).read(ComponentSnapshot);
+        if (snapshot.wireType === MOTION && snapshot.eid === container.eid) {
+          carried.motion.push(snapshot.payload);
+        } else if (snapshot.wireType === MOTION_PARAMS && snapshot.eid === container.eid) {
+          carried.params.push(snapshot.payload);
+        } else if (snapshot.wireType === MOTION_PARAMS && snapshot.eid === bullet.eid) {
+          carried.bulletParams++;
+        }
+      }
+      diffs.push(carried);
+    });
+
+    run.sim.run(30_000);
+
+    // Whenever the constants ride in a diff, so does the baseline they belong to.
+    const withParams = diffs.filter(({ params }) => params.length > 0);
+    expect(withParams.length).toBeGreaterThan(0);
+    for (const { motion, params } of withParams) {
+      expect(motion).toHaveLength(1);
+      expect(params).toHaveLength(1);
+    }
+    // Two sets of constants in the whole run, the spawn's and the one after the damping changed:
+    // each damped, off-center and 17 bytes (the mask, the damping pair and the local center).
+    const distinct = new Set(withParams.map(({ params }) => params[0]!.join(",")));
+    expect(distinct.size).toBe(2);
+    for (const { params } of withParams) {
+      expect(params[0]!.length).toBe(17);
+    }
+    const damping = [...distinct].map((bytes) => {
+      const payload = Uint8Array.from(bytes.split(",").map(Number));
+      return new Decoder(payload).read(MotionParams).linearDamping;
+    });
+    expect(damping).toEqual([Math.fround(0.15), Math.fround(0.5)]);
+    // Corrections ride without them: far more diffs carry a baseline than carry constants.
+    const withMotion = diffs.filter(({ motion }) => motion.length > 0);
+    expect(withMotion.length).toBeGreaterThan(3 * withParams.length);
+    // A moving baseline is the frame, the flags, the pose and the velocities; one at rest has no
+    // velocities. Either way it carries no constant.
+    for (const { motion } of withMotion) {
+      const baseline = new Decoder(motion[0]!).read(Motion);
+      const frameBytes = baseline.frame < 128 ? 1 : 2;
+      expect(motion[0]!.length).toBe(frameBytes + 1 + (baseline.rest ? 12 : 24));
+    }
+    // A body with the default constants never has any.
+    expect(diffs.reduce((sum, { bulletParams }) => sum + bulletParams, 0)).toBe(0);
+    expect(bullet.has(MotionParams)).toBe(false);
+
+    run.sim.run(1000);
+    expect(run.sim.diffFromServer(run.client, [Motion, MotionParams, MotionClock])).toEqual([]);
+    expect(run.client.stats.errors).toEqual([]);
   });
 });
 
