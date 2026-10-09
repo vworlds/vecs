@@ -1,10 +1,5 @@
-import { IterableArrayMap } from "@vworlds/vecs";
-import {
-  ALL_COMPONENTS,
-  EncodedSnapshot,
-  StateDiff,
-  type RemovedComponent,
-} from "@vworlds/vecs-protocol";
+import { IterableArrayMap, type EID } from "@vworlds/vecs";
+import { ALL_COMPONENTS, EncodedSnapshot, StateDiff } from "@vworlds/vecs-protocol";
 
 /**
  * Default number of frames a session's {@link History} retains: the default of
@@ -22,9 +17,26 @@ const MIN_HISTORY_FRAMES = 2;
 
 const REMOVED = 0;
 
-type RemovedMarker = typeof REMOVED;
-type Slot = EncodedSnapshot | RemovedMarker;
-type EntityHistory = IterableArrayMap<Slot> | RemovedMarker;
+/**
+ * What a pulled span did to one component of an entity: its newest snapshot, or `REMOVED` for a
+ * removal. Under `ALL_COMPONENTS` the slot is the frame of the entity's newest reset instead.
+ * See {@link EntityHistory}.
+ */
+type Slot = EncodedSnapshot | number;
+
+/**
+ * What a pulled span did to one entity, keyed by wire type: per component, its newest snapshot
+ * or `REMOVED` for a removal, and, when the entity was reset in the span (it left the view),
+ * the frame of the newest reset under `ALL_COMPONENTS`. Everything the span did to the entity
+ * before that frame is gone from the map, because it described the entity the reset removed;
+ * what follows describes its replacement, if it came back. A map that holds only the reset
+ * describes an entity that was removed outright.
+ *
+ * The removals of single components that follow a reset stay in the map. A client that applies
+ * the reset has nothing to remove, but one that has applied it already needs them (see
+ * {@link StateDiff}).
+ */
+type EntityHistory = IterableArrayMap<Slot>;
 
 /**
  * Check a `historyFrames` value.
@@ -81,6 +93,16 @@ export function validateRedundancyFrames(frames: number, historyFrames: number):
  * `n >= evictedContentFrame`. A session whose view has not changed for longer
  * than the window can therefore still be served a delta from an ack that is
  * older than the whole window.
+ *
+ * Within one frame's diff, the reset of an entity precedes every snapshot of that entity, so a
+ * snapshot in the same diff belongs to an entity that took the eid after the removal. A pulled
+ * span keeps that meaning across frames: it carries the newest reset of every entity reset
+ * within the span, with its frame, together with the snapshots and the removals of single
+ * components that follow it, and nothing the span did to the entity before. A client that never
+ * received the reset destroys the old entity before it builds the new one; one that has applied
+ * it already, because its frame is not past the frame the client holds, skips it and updates the
+ * entity in place. A span that holds no reset of an entity pulls its snapshots and removals
+ * alone.
  */
 export class History {
   private readonly _buffer: StateDiff[];
@@ -111,7 +133,7 @@ export class History {
   }
 
   /**
-   * The newest frame pushed holding content, a snapshot or a removal: the frame at which the
+   * The newest frame pushed holding content, a snapshot, component removal or entity reset: the frame at which the
    * replicated state last changed. The frame the history started at while none has been.
    *
    * The state at every frame from this one to {@link History.lastFrame} is the same, so a delta
@@ -123,7 +145,7 @@ export class History {
 
   /**
    * The newest frame that has left the window while holding content, a
-   * snapshot or a removal, or `-Infinity` while none has. A client whose ack is
+   * snapshot, component removal or entity reset, or `-Infinity` while none has. A client whose ack is
    * older than this frame is missing something the history no longer has.
    */
   public get evictedContentFrame(): number {
@@ -220,59 +242,58 @@ export class History {
   }
 }
 
+/**
+ * Fold one frame's diff into the span being pulled, in the order a diff means: the entities
+ * it resets, then its snapshots, then its removals of single components.
+ */
 function applyDiff(entities: IterableArrayMap<EntityHistory>, diff: StateDiff): void {
+  const resets = diff.resets;
+  for (let i = 0; i < resets.length; i++) {
+    // Whatever the span did to the entity so far described the one that has just left.
+    const entity = entityOf(entities, resets[i][0]);
+    entity.clear();
+    entity.set(ALL_COMPONENTS, resets[i][1]);
+  }
+
   diff.snapshots.forEach((snapshot) => {
-    let entity = entities.get(snapshot.eid);
-
-    if (entity === undefined || entity === REMOVED) {
-      entity = new IterableArrayMap<Slot>();
-      entities.set(snapshot.eid, entity);
-    }
-
-    entity.set(snapshot.wireType, snapshot);
+    entityOf(entities, snapshot.eid).set(snapshot.wireType, snapshot);
   });
 
   diff.removed.forEach(([eid, wireType]) => {
-    if (wireType === ALL_COMPONENTS) {
-      entities.set(eid, REMOVED);
-      return;
-    }
-
-    const entity = entities.get(eid);
-    if (entity === REMOVED) {
-      return;
-    }
-
-    const components = entity ?? new IterableArrayMap<Slot>();
-    components.set(wireType, REMOVED);
-    entities.set(eid, components);
+    entityOf(entities, eid).set(wireType, REMOVED);
   });
 }
 
+function entityOf(entities: IterableArrayMap<EntityHistory>, eid: EID): EntityHistory {
+  let entity = entities.get(eid);
+  if (entity === undefined) {
+    entity = new IterableArrayMap<Slot>();
+    entities.set(eid, entity);
+  }
+  return entity;
+}
+
 function forgeDiff(from: number, to: number, entities: IterableArrayMap<EntityHistory>): StateDiff {
-  const snapshots: EncodedSnapshot[] = [];
-  const removed: RemovedComponent[] = [];
+  const forged = new StateDiff({ fromFrame: from, toFrame: to });
+  const { snapshots, removed, resets } = forged;
 
   entities.forEach((entity, eid) => {
-    if (entity === REMOVED) {
-      removed.push([eid, ALL_COMPONENTS]);
-      return;
-    }
-
     entity.forEach((slot, wireType) => {
-      if (slot === REMOVED) {
-        removed.push([eid, wireType]);
-      } else {
+      if (typeof slot !== "number") {
         snapshots.push(slot);
+      } else if (wireType === ALL_COMPONENTS) {
+        resets.push([eid, slot]);
+      } else {
+        removed.push([eid, wireType]);
       }
     });
   });
 
-  return new StateDiff({ fromFrame: from, toFrame: to, snapshots, removed });
+  return forged;
 }
 
 function hasContent(diff: StateDiff): boolean {
-  return diff.snapshots.length > 0 || diff.removed.length > 0;
+  return diff.snapshots.length > 0 || diff.removed.length > 0 || diff.resets.length > 0;
 }
 
 function emptyDiff(toFrame: number): StateDiff {

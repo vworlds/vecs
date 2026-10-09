@@ -8,7 +8,6 @@ import {
   Server2Client,
   SessionRPC,
   StateDiff,
-  ALL_COMPONENTS,
   type CloseNotice,
   cid_pack,
   cid_unpack,
@@ -134,6 +133,8 @@ export class ClientWorld extends NetworkWorld {
   private readonly _networkedQuery: InstanceType<typeof Query>;
   private readonly _relationshipTargetEids = new WeakMap<ComponentInstance, readonly EID[]>();
   private _input: unknown;
+  // The diff `_pull` took from the buffer, which `_applyPulled` has yet to apply.
+  private _pulled: Diff | undefined;
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
   private _closeNotice: CloseNotice | undefined;
@@ -166,9 +167,19 @@ export class ClientWorld extends NetworkWorld {
         return [registered.wireType, interpolator] as const;
       }) ?? []
     );
+    // Applying a diff takes two systems, because the world must be able to destroy an entity and
+    // then create another under the same eid, and inside a system a destroy is only queued: it
+    // takes effect at the flush after the system, and until then `getOrCreateEntity(eid)` still
+    // returns the entity being destroyed. The first system pulls the diff and destroys the
+    // entities it removes; the flush that follows it completes the destruction and frees the
+    // eids; the second applies the snapshots and the component removals. Both run in ON_LOAD, in
+    // this order, before any system a game adds to the phase.
+    this.system("ClientWorld:Pull")
+      .phase(ON_LOAD)
+      .run((now) => this._pull(now));
     this.system("ClientWorld:Apply")
       .phase(ON_LOAD)
-      .run((now) => this.apply(now));
+      .run(() => this._applyPulled());
 
     if (options.socket) {
       this.attachSocket(options.socket);
@@ -357,8 +368,9 @@ export class ClientWorld extends NetworkWorld {
    * `{ code: CLOSE_PROTOCOL_ERROR_CODE, reason }` (see
    * {@link ClientWorldDisconnectEvent}) and pending calls reject with
    * `RPC_CLOSED_CODE`, and it applies nothing more from that diff: the snapshots
-   * after the bad one and every removal in the diff are dropped, while the ones
-   * before it stay applied. The replicated entities stay in place, as after any
+   * after the bad one and every component removal in the diff are dropped, while
+   * the entities the diff removes (see below) and the snapshots before the bad
+   * one stay applied. The replicated entities stay in place, as after any
    * `close()`; a later baseline on a new socket resynchronizes them.
    *
    * That handling covers only decoding at this point. An exception thrown by
@@ -369,37 +381,43 @@ export class ClientWorld extends NetworkWorld {
    * interpolator, is not covered either: a payload that fails there still throws
    * out of `apply`.
    *
-   * A diff applies its snapshots first and its removals after. A removal of a component that
+   * A removal of a component that
    * another component on the entity brings through `With` is skipped, so the entity keeps it: a
    * server can replace the source of a client-local component (a streamed pose by a dead-reckoned
    * one) in one diff, setting the new source and removing the old component, and the entity never
    * goes without it. The rule applies to this network removal of a plain component only; destroying
-   * the entity (`ALL_COMPONENTS`) removes everything, and a relationship is removed as sent.
+   * the entity through a reset removes everything, and a relationship is removed as sent.
+   * A bringer set by the same diff counts as present even before its snapshot is attached.
    *
-   * Registered as the world's own `Apply` system in the `ON_LOAD` phase, so
-   * `progress()` drives it; call it directly only for a world with no tick loop.
+   * A diff applies in a fixed order, which is what lets an entity id that the
+   * server reuses mean two entities in one diff:
+   *
+   * 1. The entities the diff resets (removes outright) are destroyed. A reset
+   *    applies only once: the server repeats it in every delta whose span
+   *    includes it, and the diff buffer hands out only the resets newer than the
+   *    state the world already holds, so an overlapping delta does not destroy and
+   *    rebuild the entity again.
+   * 2. The snapshots are applied, creating or updating entities. A snapshot of an
+   *    eid the diff reset in step 1 belongs to the entity that took the eid
+   *    after the removal: it creates a new entity, with none of the destroyed one's
+   *    components, client-local state or edges, and its `add` hooks and `enter`
+   *    events fire. A snapshot of an eid whose reset was applied already updates
+   *    the entity in place.
+   * 3. The removals of single components are applied.
+   *
+   * Registered as two systems in the `ON_LOAD` phase, `ClientWorld:Pull` then
+   * `ClientWorld:Apply`, so `progress()` drives it: step 1 runs in the first, and
+   * the world flushes the destruction before the second applies steps 2 and 3. That
+   * flush is what frees the eid for the new entity. `apply` does the same in one
+   * call, which is only correct outside a system or `defer` scope (inside one the
+   * destruction stays queued, and the snapshots of a reused eid would reach the
+   * entity being destroyed), so call it directly only for a world with no tick loop.
    *
    * @param now - Timestamp in milliseconds to interpolate towards.
    */
   public apply(now: number): void {
-    if (this._rpcInbox.length > 0) {
-      const incoming = this._rpcInbox.splice(0);
-      this._rpc.process(incoming);
-    }
-    const diff = this._diffBuffer.pull(now);
-    for (const snapshot of diff.snapshots) {
-      if (!this._applySnapshot(snapshot)) {
-        return;
-      }
-    }
-    const removed = diff.removed;
-    if (removed === undefined) {
-      return;
-    }
-    for (const key of removed) {
-      const [eid, wireType] = cid_unpack(key);
-      this._removeComponent(eid, wireType, diff);
-    }
+    this._pull(now);
+    this._applyPulled();
   }
 
   /**
@@ -495,6 +513,7 @@ export class ClientWorld extends NetworkWorld {
       new RPCError(RPC_CLOSED_CODE, "ClientWorld disposed before the RPC completed")
     );
     this._rpcInbox.length = 0;
+    this._pulled = undefined;
     this._destroyNetworkEntities();
     this._diffBuffer.reset();
     this.close();
@@ -711,6 +730,50 @@ export class ClientWorld extends NetworkWorld {
   }
 
   /**
+   * Step 1 of {@link ClientWorld.apply}: run the queued server-to-client request handlers, take
+   * the diff for `now` out of the buffer, and destroy the entities it resets. The diff
+   * waits in `_pulled` for {@link ClientWorld._applyPulled}.
+   */
+  private _pull(now: number): void {
+    if (this._rpcInbox.length > 0) {
+      const incoming = this._rpcInbox.splice(0);
+      this._rpc.process(incoming);
+    }
+    const diff = this._diffBuffer.pull(now);
+    this._pulled = diff;
+    // A diff may name an entity this world never materialized: its creation was merged away.
+    diff.resets?.forEach((_, eid) => this.getEntity(eid)?.destroy());
+  }
+
+  /**
+   * Steps 2 and 3 of {@link ClientWorld.apply}: apply the snapshots of the diff
+   * {@link ClientWorld._pull} took, then its removals of single components.
+   *
+   * Stops at the first snapshot that cannot be decoded, which closes the client, so the
+   * snapshots after it and the component removals are dropped.
+   */
+  private _applyPulled(): void {
+    const diff = this._pulled;
+    if (diff === undefined) {
+      return;
+    }
+    this._pulled = undefined;
+    for (const snapshot of diff.snapshots) {
+      if (!this._applySnapshot(snapshot)) {
+        return;
+      }
+    }
+    const removed = diff.removed;
+    if (removed === undefined) {
+      return;
+    }
+    for (const key of removed) {
+      const [eid, wireType] = cid_unpack(key);
+      this._removeComponent(eid, wireType, diff);
+    }
+  }
+
+  /**
    * Decode one snapshot and apply it to its entity.
    *
    * Only the decode is guarded. An exception from creating the entity or from
@@ -774,10 +837,6 @@ export class ClientWorld extends NetworkWorld {
     // whose create snapshot was compressed away before it materialized locally.
     const entity = this.getEntity(eid);
     if (!entity) {
-      return;
-    }
-    if (wireType === ALL_COMPONENTS) {
-      entity.destroy();
       return;
     }
     const registered = this.getNetworkComponent(wireType);

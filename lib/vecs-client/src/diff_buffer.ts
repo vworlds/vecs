@@ -1,5 +1,4 @@
 import {
-  ALL_COMPONENTS,
   ComponentSnapshot as WireComponentSnapshot,
   StateDiff,
   cid_pack,
@@ -54,14 +53,40 @@ export class ComponentSnapshot {
   }
 }
 
-// A Diff carries the component snapshots and removals for a frame range. It
-// keeps two views of the same snapshots: `snapshots` (an ordered array, the
-// form decoded from the wire and consumed by callers) and `smap` (a cid-keyed
-// map, used for fast lookup and overwrite during merge). `smap` is built
-// lazily from `snapshots` on first access. Use `getSnapshot`/`upsertSnapshot`
-// when keyed access should preserve the current representation.
+/**
+ * The component snapshots, removals and resets for a frame range.
+ *
+ * `removed` holds the ids (`cid_pack(eid, wireType)`) of single components that
+ * are gone. `resets` holds the entities that are gone altogether, each with the
+ * server frame of its newest removal. Within one diff the changes apply in a
+ * fixed order, the one `ClientWorld.apply` follows:
+ *
+ * 1. the resets, which destroy their entities;
+ * 2. the snapshots, which create or update entities;
+ * 3. the removals of single components.
+ *
+ * So a snapshot of an eid that the same diff resets belongs to the entity that
+ * took the eid after the removal, never to the one removed. {@link merge} keeps
+ * that meaning when it joins diffs.
+ *
+ * A reset is idempotent, because the server repeats it in every delta whose
+ * span includes it: {@link DiffBuffer.pull} hands out only the resets whose
+ * frame is newer than the state the pull starts from. The others were applied
+ * already, and the snapshots and removals that follow them apply in place.
+ *
+ * A diff keeps two views of the same snapshots: `snapshots` (an ordered array,
+ * the form decoded from the wire and consumed by callers) and `smap` (a
+ * cid-keyed map, used for fast lookup and overwrite during merge). `smap` is
+ * built lazily from `snapshots` on first access. Use `getSnapshot` /
+ * `upsertSnapshot` when keyed access should preserve the current representation.
+ */
 export class Diff {
   public snapshots: ComponentSnapshot[] = [];
+  /**
+   * The entities this diff removes outright, each with the server frame of its newest removal,
+   * or `undefined` when it removes none, which is the usual diff and allocates nothing.
+   */
+  public resets: Map<EID, number> | undefined;
   private _smap: Map<number, ComponentSnapshot> | undefined;
 
   public constructor(
@@ -117,6 +142,9 @@ export function diffFromStateDiff(sd: StateDiff): Diff {
     return new ComponentSnapshot(wire.eid, wire.wireType, wire.payload);
   });
   d.removed = sd.removed.map(([eid, wireType]) => cid_pack(eid, wireType));
+  if (sd.resets.length > 0) {
+    d.resets = new Map(sd.resets);
+  }
   return d;
 }
 
@@ -195,20 +223,21 @@ export class DiffBuffer {
   }
 
   private _updateState(sd: Diff): void {
-    // apply diff to current state
+    // apply diff to current state, in the order a diff means: the entities it resets, then
+    // its snapshots (which may belong to a new entity under a reset eid), then its component
+    // removals.
+    const resets = sd.resets;
+    if (resets !== undefined) {
+      this._state.forEach((_, cid) => {
+        if (resets.has(cid_unpack(cid)[0])) {
+          this._state.delete(cid);
+        }
+      });
+    }
     sd.snapshots?.forEach((s) => {
       this._state.set(s.cid, s);
     });
-    (sd.removed as number[] | undefined)?.forEach((r) => {
-      const [eid, wireType] = cid_unpack(r);
-      if (wireType === ALL_COMPONENTS) {
-        this._state.forEach((_, cid) => {
-          if (cid_unpack(cid)[0] === eid) {
-            this._state.delete(cid);
-          }
-        });
-        return;
-      }
+    sd.removed?.forEach((r) => {
       this._state.delete(r);
     });
     this._stateVersion = sd.to;
@@ -279,6 +308,11 @@ export class DiffBuffer {
       this._pop();
       tsDelta += this.server_tick_interval;
     }
+    // A reset the pull starts past is one the world applied already, in an earlier delta that
+    // overlapped this one. Only the resets that remain destroy an entity: they are the eids
+    // whose rendered state _updateState drops, and _interpolate must not blend from.
+    dropAppliedResets(sd);
+
     // At this point, if something is in the bucket, bucket[0] contains the
     // next target. Position snapshots are blended into the returned diff so
     // callers can render fake frames between server ticks.
@@ -335,6 +369,10 @@ export class DiffBuffer {
    *   drained (it would otherwise become the new starting point and roll
    *   `version` back), or when it is older than everything still buffered;
    *   one for a frame that is still buffered merges into it, as a retransmit.
+   *
+   * Resets in held diffs wait with their snapshots. Release advances received `version`, but
+   * reset deduplication happens in {@link DiffBuffer.pull}, against the rendered state's
+   * starting frame, so an unapplied reset is never mistaken for an already-applied one.
    *
    * @param diff - The diff to buffer.
    * @param optimistic - The server marked the diff optimistic: it may start past
@@ -524,13 +562,26 @@ export class DiffBuffer {
     if (this._componentInterpolators.size === 0) {
       return;
     }
+    // An entity the target resets is replaced by the one whose snapshots follow in the target:
+    // it has no previous state to blend from, so it snaps to its first values. The target
+    // resets it only if its reset is newer than the state this pull reaches: an older one is
+    // applied already, and the entity blends as any other. Likewise an entity the rendered
+    // diff reset: what the rendered state holds under its eid belongs to the removed one, and
+    // only the snapshots the diff itself holds are the new entity's.
+    const targetResets = target.resets;
+    const renderedResets = sd.resets;
     target.snapshots.forEach((targetSnapshot) => {
       const interpolate = this._componentInterpolators.get(targetSnapshot.wireType);
       if (!interpolate) {
         return;
       }
+      const targetResetFrame = targetResets?.get(targetSnapshot.eid);
+      if (targetResetFrame !== undefined && targetResetFrame > sd.to) {
+        return;
+      }
       const sourceSnapshot =
-        sd.getSnapshot(targetSnapshot.cid) ?? this._state.get(targetSnapshot.cid);
+        sd.getSnapshot(targetSnapshot.cid) ??
+        (renderedResets?.has(targetSnapshot.eid) ? undefined : this._state.get(targetSnapshot.cid));
       if (!sourceSnapshot) {
         return;
       }
@@ -576,7 +627,74 @@ function addToSet<T>(set: Set<T>, data: Iterable<T> | undefined): void {
   }
 }
 
-// merge returns the result of merging Diff b on to a.
+// Drop from `diff` the resets the world applied already: those whose frame is not past the
+// state `diff` starts from. A delta starts at the newest frame the server has seen acked, so
+// deltas that overlap while an ack is in flight each repeat a reset, and the frame is what tells
+// a repeat from a new removal. Allocates nothing unless the diff holds resets.
+function dropAppliedResets(diff: Diff): void {
+  const resets = diff.resets;
+  if (resets === undefined) {
+    return;
+  }
+  resets.forEach((frame, eid) => {
+    if (frame <= diff.from) {
+      resets.delete(eid);
+    }
+  });
+  if (resets.size === 0) {
+    diff.resets = undefined;
+  }
+}
+
+// The eids that b resets and a does not, or resets at an older frame. What a holds of them
+// describes the entity b removed. Undefined when there are none, which is the usual merge.
+function supersededBy(b: Diff, a: Diff): Set<EID> | undefined {
+  if (b.resets === undefined) {
+    return undefined;
+  }
+  let eids: Set<EID> | undefined;
+  for (const [eid, frame] of b.resets) {
+    const known = a.resets?.get(eid);
+    if (known === undefined || frame > known) {
+      (eids ??= new Set()).add(eid);
+    }
+  }
+  return eids;
+}
+
+// The resets of a merged diff: the newest frame of each eid. `mutateAccumulator` lets the result
+// reuse a's map; without it, a and b keep their own.
+function mergeResets(a: Diff, b: Diff, mutateAccumulator: boolean): Map<EID, number> | undefined {
+  if (b.resets === undefined) {
+    return mutateAccumulator || a.resets === undefined ? a.resets : new Map(a.resets);
+  }
+  const merged = mutateAccumulator && a.resets !== undefined ? a.resets : new Map(a.resets);
+  for (const [eid, frame] of b.resets) {
+    const known = merged.get(eid);
+    if (known === undefined || frame > known) {
+      merged.set(eid, frame);
+    }
+  }
+  return merged;
+}
+
+// merge returns the result of merging Diff b on to a, where b is the newer diff.
+//
+// A diff applies its resets first, then its snapshots, then its removals of single components
+// (see Diff), and merge keeps that meaning. The result holds the newest frame of each eid's
+// reset, and:
+//
+// - A reset in b that is newer than the one a holds for the eid, or a holds none, ends the
+//   entity a describes: a's snapshots and component removals for the eid are dropped, and the
+//   reset stays in the result together with b's snapshots of the eid, which belong to the
+//   entity that took the eid after the removal.
+// - A reset in b that is not newer than a's is the same removal, repeated by an overlapping
+//   delta: what a holds for the eid follows it, and stays, merged with b's.
+// - A reset in a stays when b holds snapshots of the eid: they are the entity that took the
+//   eid after the removal, merged with a's own snapshots of it.
+// - A snapshot in b of a component that a removed un-deletes it, and a removal in b of a
+//   component that a snapshots deletes it. A removal stays in the result next to a reset of
+//   its entity: a client that has applied the reset already still needs it.
 //
 // When `mutateAccumulator` is true the caller asserts it exclusively owns `a`
 // (a fresh accumulator), letting merge fold `b` into `a` in place. This skips
@@ -621,11 +739,32 @@ export function merge(
     throw new Error("cannot merge snapshots");
   }
 
+  // The eids whose entity b resets, replacing the one a describes. Only a merge that has an
+  // entity to replace pays for the extra passes below, and for the set.
+  const superseded = supersededBy(b, a);
+  const resets = mergeResets(a, b, mutateAccumulator);
+
   const removed = new Set<number>();
   addToSet(removed, a.removed as number[] | undefined);
+  if (superseded !== undefined) {
+    // a's component removals of an entity b resets are moot.
+    removed.forEach((r) => {
+      if (superseded.has(cid_unpack(r)[0])) {
+        removed.delete(r);
+      }
+    });
+  }
   addToSet(removed, b.removed as number[] | undefined);
 
   const as = mutateAccumulator ? a.smap : new Map(a.smap);
+  if (superseded !== undefined) {
+    // a's snapshots of an entity b resets describe the removed entity.
+    as.forEach((_, cid) => {
+      if (superseded.has(cid_unpack(cid)[0])) {
+        as.delete(cid);
+      }
+    });
+  }
   const bs = b.smap;
   bs.forEach((s) => {
     as.set(s.cid, s);
@@ -636,6 +775,7 @@ export function merge(
   const m = mutateAccumulator ? a : new Diff(a.from, b.to, undefined);
   m.to = b.to;
   m.removed = removed.size ? [...removed] : undefined;
+  m.resets = resets;
   m.smap = as;
 
   return m;

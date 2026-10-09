@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ALL_COMPONENTS,
+  cid_pack,
   Client2Server,
   RPC,
   Server2Client,
@@ -10,6 +12,7 @@ import {
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, wireType } from "@vworlds/vecs-wire";
 import type { Entity } from "@vworlds/vecs";
+import { ClientWorld } from "../../vecs-client/src/index.js";
 import {
   NetworkClient,
   Networked,
@@ -207,7 +210,11 @@ function fromFrameOf(frame: Server2Client): number {
 
 /** The frame holds no state: it is an empty diff. */
 function isEmptyDiff(frame: Server2Client): boolean {
-  return frame.diff!.snapshots.length === 0 && frame.diff!.removed.length === 0;
+  return (
+    frame.diff!.snapshots.length === 0 &&
+    frame.diff!.removed.length === 0 &&
+    frame.diff!.resets.length === 0
+  );
 }
 
 async function settlePromises(): Promise<void> {
@@ -216,6 +223,70 @@ async function settlePromises(): Promise<void> {
 }
 
 describe("keepAliveFrames", () => {
+  it.each([false, true])(
+    "delivers a reset-only change exactly once with R=2 K=1 (first send lost: %s)",
+    (lost) => {
+      const rig = createRig({ redundancyFrames: 2, keepAliveFrames: 1 });
+      const clientSocket = new MemorySocket("server");
+      const client = new ClientWorld({
+        networkComponents: [Position],
+        socket: clientSocket,
+        serverTickIntervalMs: TICK_MS,
+      });
+      let removals = 0;
+      client.component(Position).on("remove", (entity) => {
+        if (entity.eid === rig.entity.eid) {
+          removals++;
+        }
+      });
+      const receive = () => {
+        clientSocket.receive(rig.socket.sent[rig.socket.sent.length - 1]);
+        client.progress(nowMs + 1000, TICK_MS);
+      };
+      try {
+        step(rig);
+        receive();
+        ack(rig, 1);
+        rig.entity.destroy();
+        const first = step(rig)[0];
+        expect(first.diff).toMatchObject({
+          snapshots: [],
+          removed: [],
+          resets: [[rig.entity.eid, 2]],
+        });
+        if (!lost) {
+          receive();
+        }
+        const repeat = step(rig)[0];
+        expect(repeat.diff).toMatchObject({
+          snapshots: [],
+          removed: [],
+          resets: [[rig.entity.eid, 2]],
+        });
+        receive();
+        const keepalive = step(rig)[0];
+        expect(keepalive.diff?.fromFrame).toBe(2);
+        expect(isEmptyDiff(keepalive)).toBe(true);
+        expect(keepalive.optimistic).toBe(true);
+        receive();
+        ack(rig, 2);
+        // The reset was a state change, so its repeat and the following keepalive name state frame 2.
+        // A lost repeat and a lost keepalive must not move the base to an empty send frame.
+        expect(step(rig)[0].diff?.fromFrame).toBe(2);
+        receive();
+        expect(client.getEntity(rig.entity.eid)).toBeUndefined();
+        expect(client.getEntity(rig.other.eid)?.get(Position)?.x).toBe(100);
+        expect(removals).toBe(1);
+        client.send();
+        expect(
+          new Decoder(clientSocket.sent[clientSocket.sent.length - 1]).read(Client2Server).gap
+        ).toBe(false);
+      } finally {
+        client.dispose();
+      }
+    }
+  );
+
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])("rejects %s", (keepAliveFrames) => {
     expect(() => new ServerWorld({ keepAliveFrames })).toThrow(
       `keepAliveFrames must be an integer of at least 1, got ${String(keepAliveFrames)}`
@@ -597,22 +668,25 @@ describe("with redundancyFrames", () => {
 });
 
 describe("an unset keepAliveFrames", () => {
-  // The sha256 of every byte the server sent on the script below, recorded from the code before the
-  // option existed (commit f2e88e3): the wire must stay byte for byte what it was.
-  const PINNED_SHA256 = "a0ffe2f16f184be75a2f4e7dc565d8e01507a7a2949396f02447392136a070f5";
+  // #242 adds a frame offset to each whole-entity removal. Pin the resulting wire and also check
+  // that stripping only those offsets reproduces the pre-reset fingerprints below.
+  const PINNED_SHA256 = "79a75c0253a7cf72db92897e1eb48406319c01aeb7bedcc9d439d0784a5ed345";
+  const PRE_RESET_SHA256 = "a0ffe2f16f184be75a2f4e7dc565d8e01507a7a2949396f02447392136a070f5";
   // The same, with redundancyFrames 2, recorded when the base became the state frame of the send R
   // sends ago. That change moved the wire of this script on purpose: the repeats of a change and the
   // fallback after the gap report now start at the frame of the change (the frame labels differ and
   // the bodies are the same), and the fallback ends once the client has acked the last change
   // instead of the last frame sent. The keepalive option must not move it again.
   const PINNED_REDUNDANT_SHA256 =
+    "b51d9af02319a3888359309d1b891ab204e9827575dbd295649ddfe4d8cf068a";
+  const PRE_RESET_REDUNDANT_SHA256 =
     "28158df1b4decf33be9aec10adac2d2dde5dea4bc21e0371daef0e81ac4c01fd";
 
   /**
    * A lagging client on a lossy link: acks trail by five frames, every ninth frame is lost, one
    * ack reports a gap, and the view is busy, then quiet, then busy again, then loses an entity.
    */
-  function script(options: ServerWorldOptions): string {
+  function script(options: ServerWorldOptions, stripResetOffsets = false): string {
     const rig = createRig(options);
     for (let frame = 1; frame <= 120; frame++) {
       const busy = frame <= 40 || (frame >= 80 && frame <= 100);
@@ -636,16 +710,45 @@ describe("an unset keepAliveFrames", () => {
       }
     }
     const hash = createHash("sha256");
-    rig.socket.sent.forEach((bytes) => hash.update(bytes));
+    rig.socket.sent.forEach((bytes) => {
+      if (!stripResetOffsets) {
+        hash.update(bytes);
+        return;
+      }
+      const message = new Decoder(bytes).read(Server2Client);
+      const diff = message.diff!;
+      // This script emits only diff fields and the optional optimistic marker. Reconstruct
+      // the previous layout solely for the fingerprint assertion, never for client decoding.
+      expect(message.rpc).toEqual([]);
+      expect(message.rpcSettledBelow).toBe(0);
+      expect(message.close).toBeUndefined();
+      const encoder = new Encoder(new Uint8Array(64 * 1024));
+      encoder.write_u8(1);
+      encoder.write_u32(diff.toFrame);
+      encoder.write_u32(diff.fromFrame);
+      encoder.write_u32(diff.snapshots.length);
+      diff.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
+      encoder.write_u32(diff.removed.length + diff.resets.length);
+      diff.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
+      diff.resets.forEach(([eid]) => encoder.write_u32(cid_pack(eid, ALL_COMPONENTS)));
+      if (message.optimistic) {
+        encoder.write_u8(6);
+      }
+      hash.update(encoder.getBuffer());
+    });
     return hash.digest("hex");
   }
 
   it("sends exactly the frames it sent before the option existed", () => {
     expect(script({})).toBe(PINNED_SHA256);
+    nowMs = 0;
+    expect(script({}, true)).toBe(PRE_RESET_SHA256);
   });
 
   it("sends exactly the frames it sent without the option, with redundancyFrames", () => {
     expect(script({ redundancyFrames: 2 })).toBe(PINNED_REDUNDANT_SHA256);
+    nowMs = 0;
+    expect(script({ redundancyFrames: 2 }, true)).toBe(PRE_RESET_REDUNDANT_SHA256);
   });
 
   it("is the same as an explicit undefined", () => {

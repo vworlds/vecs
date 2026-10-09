@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  ALL_COMPONENTS,
   Client2Server,
   ComponentSnapshot,
   EncodedSnapshot,
@@ -209,7 +208,7 @@ describe("ClientWorld", () => {
           diff: new StateDiff({
             fromFrame: 0,
             toFrame: 2,
-            removed: [[1000, ALL_COMPONENTS]],
+            resets: [[1000, 2]],
           }),
         })
       )
@@ -275,7 +274,7 @@ describe("ClientWorld", () => {
           diff: new StateDiff({
             fromFrame: 0,
             toFrame: 1,
-            removed: [[1000, ALL_COMPONENTS]],
+            resets: [[1000, 1]],
           }),
         })
       )

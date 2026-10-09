@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  ALL_COMPONENTS,
   Client2Server,
   ComponentSnapshot,
   Server2Client,
@@ -298,6 +297,7 @@ describe("a session whose view covers two cells of an interest grid", () => {
 
     expect(frame.diff!.fromFrame).toBeGreaterThan(0);
     expect(frame.diff!.removed).toEqual([]);
+    expect(frame.diff!.resets).toEqual([]);
     expect(snapshotsOf(frame)).toEqual([{ eid: rig.mover.eid, wireType: 1 }]);
   });
 
@@ -314,6 +314,7 @@ describe("a session whose view covers two cells of an interest grid", () => {
     expect(frames).toHaveLength(6);
     frames.forEach((frame) => {
       expect(frame.diff!.removed).toEqual([]);
+      expect(frame.diff!.resets).toEqual([]);
       expect(snapshotsOf(frame)).toEqual([{ eid: rig.mover.eid, wireType: 1 }]);
     });
   });
@@ -324,7 +325,8 @@ describe("a session whose view covers two cells of an interest grid", () => {
     rig.mover.add(InCell, rig.cells.c);
     const [removal] = rig.step();
     expect(removal.diff!.snapshots).toEqual([]);
-    expect(removal.diff!.removed).toEqual([[rig.mover.eid, ALL_COMPONENTS]]);
+    expect(removal.diff!.removed).toEqual([]);
+    expect(removal.diff!.resets).toEqual([[rig.mover.eid, removal.diff!.toFrame]]);
     ack(rig, removal);
 
     rig.mover.add(InCell, rig.cells.a);

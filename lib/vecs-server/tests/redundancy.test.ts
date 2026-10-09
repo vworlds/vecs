@@ -188,6 +188,30 @@ function move(entity: Entity, x: number): void {
   entity.set(Position, { x, y: 0 });
 }
 
+describe("reset-only content", () => {
+  it("sends resets without a keepalive and arms the ack-timeout probe for a lost reset", () => {
+    const rig = connect({ redundancyFrames: 2 });
+    rig.entity.destroy();
+    const resetFrame = rig.world.frame;
+    const first = step(rig)[0];
+    expect(first.diff).toMatchObject({
+      snapshots: [],
+      removed: [],
+      resets: [[rig.entity.eid, resetFrame]],
+    });
+    expect(step(rig)[0].diff?.resets).toEqual([[rig.entity.eid, resetFrame]]);
+    expect(step(rig)).toEqual([]);
+
+    // Neither content send reached the client, and nothing changed afterwards. The liveness
+    // probe must still fall back from the baseline ack and deliver the reset again.
+    nowMs += 1000;
+    const fallback = step(rig)[0];
+    expect(fallback.optimistic).toBe(false);
+    expect(fallback.diff?.fromFrame).toBe(1);
+    expect(fallback.diff?.resets).toEqual([[rig.entity.eid, resetFrame]]);
+  });
+});
+
 /** The frame number a server frame was sent as. */
 function toFrameOf(frame: Server2Client): number {
   return frame.diff!.toFrame;

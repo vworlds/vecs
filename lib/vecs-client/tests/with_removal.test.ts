@@ -3,12 +3,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  ALL_COMPONENTS,
   ComponentSnapshot,
   EncodedSnapshot,
   encodeRelationshipSnapshot,
   Server2Client,
   StateDiff,
+  type EntityReset,
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
 import { Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
@@ -110,7 +110,7 @@ function relationship<R extends Relationship>(
 /**
  * A client that applies every diff it is sent, one frame per call, as the next frame. `apply`
  * calls `ClientWorld.apply` directly, where mutations take effect at once; `progress` runs it as
- * the world's Apply system does, inside a deferred scope, where they queue until the system ends.
+ * the world's Pull/Apply systems do, with the destruction flushed before snapshots are applied.
  */
 class Client {
   public readonly world: ClientWorld;
@@ -130,13 +130,17 @@ class Client {
   }
 
   /** Send the next frame (a baseline for the first) and apply it. */
-  public frame(snapshots: EncodedSnapshot[], removed: Array<[EID, number]> = []): void {
+  public frame(
+    snapshots: EncodedSnapshot[],
+    removed: Array<[EID, number]> = [],
+    resets: EntityReset[] = []
+  ): void {
     const fromFrame = this._frame === 0 ? 0 : this._frame;
     this._frame++;
     this._socket.receive(
       encode(
         new Server2Client({
-          diff: new StateDiff({ fromFrame, toFrame: this._frame, snapshots, removed }),
+          diff: new StateDiff({ fromFrame, toFrame: this._frame, snapshots, removed, resets }),
         })
       )
     );
@@ -227,7 +231,7 @@ describe.each(["apply", "progress"] as const)(
       expect(client.world.entity(EID_A).has(Pose)).toBe(true);
     });
 
-    it("does not apply to destroying the entity: ALL_COMPONENTS removes everything", () => {
+    it("does not apply to destroying the entity: a reset removes everything", () => {
       const client = new Client(mode);
       const removed: string[] = [];
       client.world.component(Pose).on("remove", () => removed.push("Pose"));
@@ -235,11 +239,32 @@ describe.each(["apply", "progress"] as const)(
       client.frame([set(EID_A, POSE, new Pose()), set(EID_A, MOTION, new Motion())]);
       const entity = client.world.entity(EID_A);
 
-      client.frame([], [[EID_A, ALL_COMPONENTS]]);
+      client.frame([], [], [[EID_A, 2]]);
 
       expect(entity.destroyed).toBe(true);
       expect(removed.sort()).toEqual(["Motion", "Pose"]);
       expect(client.world.getEntity(EID_A)).toBeUndefined();
+    });
+
+    it("destroys With companions on a reset and keeps ones brought by the replacement's same-diff snapshot", () => {
+      const client = new Client(mode);
+      const removed: number[] = [];
+      client.world.component(Pose).on("remove", (_entity, pose) => removed.push(pose.x));
+      client.frame([
+        set(EID_A, POSE, Object.assign(new Pose(), { x: 7 })),
+        set(EID_A, MOTION, new Motion()),
+      ]);
+      const old = client.world.entity(EID_A);
+      client.frame(
+        [set(EID_A, MOTION, Object.assign(new Motion(), { frame: 2 }))],
+        [[EID_A, POSE]],
+        [[EID_A, 2]]
+      );
+      expect(old.destroyed).toBe(true);
+      expect(removed).toEqual([7]);
+      expect(client.world.entity(EID_A)).not.toBe(old);
+      expect(client.world.entity(EID_A).get(Motion)?.frame).toBe(2);
+      expect(client.world.entity(EID_A).get(Pose)?.x).toBe(0);
     });
 
     it("removes a relationship as sent, even while the relationship that brings it is present", () => {

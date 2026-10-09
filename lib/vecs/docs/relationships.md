@@ -40,8 +40,9 @@ component field (`ownerEid = 0`, `target: Entity | undefined`). The world mainta
 cannot maintain a field:
 
 - **A stored eid can come to name another entity.** A destroyed entity's id is reused once its
-  pool's `reuseWaitFrames` have passed: 16 frames by default, and `0` for replicated entities on a
-  `ClientWorld` (see [Id pools](./components.md#id-pools)). Allocation hands out free ids before
+  pool's `reuseWaitFrames` have passed: 16 frames by default, `0` for replicated entities on a
+  `ClientWorld`, and at least `historyFrames + 1` on a `ServerWorld` (see
+  [Id pools](./components.md#id-pools)). Allocation hands out free ids before
   never-used ones, so one of the next entities created takes it. Until an entity does,
   `world.getEntity(id)` returns `undefined`; from then on it returns that live, unrelated entity and
   the stale id looks valid.

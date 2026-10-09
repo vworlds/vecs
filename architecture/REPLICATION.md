@@ -53,8 +53,10 @@ A **send** is a frame in which the session was sent a baseline or a delta with c
 empty, or were withheld while a baseline was in flight, are not sends. The **state frame** of a send
 is the newest frame at which the session's replicated state had changed as of that send: the
 `toFrame` of the newest per-frame diff with content that the server recorded into the session's
-history (`History.lastContentFrame`). A send that carries a new change names its own frame. A send
-that only carries a change again, or carries nothing, names the earlier frame where the state last
+history (`History.lastContentFrame`). A send that carries a new change names its own frame. A diff
+with only an entity reset is content too: it changes the state frame, travels in `R` sends and
+arms the liveness probe. A reset is never a header-only keepalive.
+A send that only carries a change again, or carries nothing, names the earlier frame where the state last
 changed. The frame carries the **optimistic marker** (a field on `Server2Client`) exactly when
 `base > ack`. Unset, the base is the ack, nothing is marked and the wire is byte for byte what it
 always was.
@@ -136,6 +138,11 @@ diffs (`MAX_HELD_DIFFS`, 8: about a round trip of frames at 30 Hz, and a full se
 which is harmless because the fallback supersedes whatever is held). As soon as `version >= from` it
 is applied, and a held diff is dropped once `version >= to`. A late or reordered frame therefore
 heals the gap with no round trip. An unmarked diff with `from > version` is still a protocol error.
+
+Resets carried by held diffs wait with their snapshots. Once released, they apply only if their
+frame is newer than the rendered state at the start of the pull, not the received `version`:
+release advances that version before the world applies the reset. Overlapping deltas keep the
+newest reset per eid and destroy it once. See [State diffs](../lib/vecs-protocol/docs/state-diffs.md).
 
 **The client reports the gap.** Holding a diff sets a flag. The next `send()` carries
 `Client2Server.gap` if a diff is still held at that moment and clears the flag; a gap that closed
@@ -305,10 +312,11 @@ for the frames a keepalive does not cover. Until then `K` = 1 is the value.
 
 ## Compatibility
 
-Both fields are new `Server2Client` and `Client2Server` tags (6 and 7), absent unless set. A decoder
-that predates them rejects the tag, so a server with `redundancyFrames` set must only serve clients
-that understand the marker: deploy clients first. A server without it sends nothing a client of any
-version cannot read, and a new client sends the gap field only after receiving a marked frame.
+The optimistic marker and gap report use `Server2Client` and `Client2Server` tags 6 and 7, absent
+unless set. Entity resets add no message field: they ride in the diff's `removed` section as an
+`ALL_COMPONENTS` cid followed by a frame-offset varint. **Build and deploy client and server
+from the same commit.** There is no backward-compatibility path for the reset layout. Diffs
+without resets retain their previous bytes, and a new client sends a gap only after a marked frame.
 
 The keepalive adds no field. It is a delta with an empty diff, which every client accepts, and it is
 marked optimistic only under `redundancyFrames`, so it needs no deployment order of its own.

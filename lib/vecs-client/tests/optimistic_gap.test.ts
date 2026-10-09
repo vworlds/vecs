@@ -133,6 +133,75 @@ function xOf(client: ClientWorld, eid: EID): number | undefined {
 }
 
 describe("a client that receives an optimistic diff it cannot apply yet", () => {
+  it.each([false, true])(
+    "applies a held reset once across overlapping deltas (drain before release: %s)",
+    (drainBeforeRelease) => {
+      const { client, socket, disconnects } = connect();
+      let adds = 0;
+      let removes = 0;
+      class LocalState {}
+      client.component(LocalState);
+      client.component(Position).on("add", () => adds++);
+      client.component(Position).on("remove", () => removes++);
+      try {
+        socket.receive(baseline());
+        client.progress(0, 10);
+        client.entity(1000).add(LocalState);
+        const held = new Server2Client({
+          optimistic: true,
+          diff: new StateDiff({
+            fromFrame: 3,
+            toFrame: 5,
+            resets: [[1000, 4]],
+            snapshots: [posSnapshot(1000, 50)],
+          }),
+        });
+        socket.receive(encodeMessage(held));
+        socket.receive(encodeMessage(held));
+        client.progress(100, 10);
+        expect(adds).toBe(1);
+        expect(removes).toBe(0);
+        expect(client.entity(1000).has(LocalState)).toBe(true);
+
+        if (drainBeforeRelease) {
+          socket.receive(frame(1, 2, [posSnapshot(1000, 2)]));
+          client.progress(200, 10);
+        }
+        socket.receive(frame(1, 3, [posSnapshot(1000, 3)]));
+        // Release advances the received version to 5 before rendering; it must not suppress reset 4.
+        client.progress(300, 10);
+        expect(xOf(client, 1000)).toBe(50);
+        expect(client.entity(1000).has(LocalState)).toBe(false);
+        expect(adds).toBe(2);
+        expect(removes).toBe(1);
+        client.entity(1000).add(LocalState);
+        socket.receive(
+          encodeMessage(
+            new Server2Client({
+              optimistic: true,
+              diff: new StateDiff({
+                fromFrame: 3,
+                toFrame: 6,
+                resets: [[1000, 4]],
+                snapshots: [posSnapshot(1000, 60)],
+              }),
+            })
+          )
+        );
+        client.progress(400, 10);
+        expect(xOf(client, 1000)).toBe(60);
+        expect(client.entity(1000).has(LocalState)).toBe(true);
+        expect(adds).toBe(2);
+        expect(removes).toBe(1);
+        expect(disconnects).toEqual([]);
+        client.send();
+        expect(lastAck(socket)).toMatchObject({ ackFrame: 6, gap: false });
+      } finally {
+        client.dispose();
+      }
+    }
+  );
+
   it("holds it instead of closing, and reports the gap on its next ack", () => {
     const { client, socket, disconnects } = connect();
     socket.receive(baseline());
