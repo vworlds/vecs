@@ -17,6 +17,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 - [vecs-phaser-client]: Added the Phaser-free `@vworlds/vecs-phaser-client/headless` entry for Node clients (#243), exporting `DeadReckonedModule`, `DeadReckonedModuleConfig`, `phaserInterpolators` and `rotationInterpolator`. The browser entry retains these exports, and publish preparation preserves subpaths with dist-root targets.
 - [vecs-phaser-server] [vecs-phaser-client] [vecs-phaser]: Rest baselines hold exactly their encoded `x`, `y` and `angle` on both peers, bypassing the integrator's center-of-mass and angle round trip. The server sets `Motion.rest` for a sleeping body, an entity without a body, or a body with no velocity and nothing accelerating it. `MotionParams` writes complete before their announcement, including outside deferred mode.
 - [vecs-server]: A same-frame view exit and re-entry of the same entity is cancelled, and its changes are sent as ordinary deltas instead of full snapshots (#239). This also preserves an entity that loses and regains `Networked` in one frame while still sending its component removals. An exit in one frame and entry in a later frame sends a reset followed by a full snapshot.
+- [vecs]: The published manifest no longer carries a `lint-staged` config. Repository commits use the root config, which retains the same TypeScript formatting/linting and Markdown formatting commands.
 
 ## v1.0.50 (2026-10-08)
 
