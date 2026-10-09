@@ -44,6 +44,31 @@ evaluates it against each entity pointing at the candidate and also matches when
 queries and systems. `target` / `parent` are fully reactive to edge changes and target-side changes
 — see [Relationships](./relationships.md#querying-through-relationships).
 
+### The cost of `not` and `.without`
+
+`.without(X)` is `.with({ not: X })` (`lib/vecs/src/query/query.ts`, `without`), and `.with` merges
+into `{ all: [...] }`. A `not` term is built from the world term plus `X`'s term and holds every live
+entity that lacks `X` (`lib/vecs/src/terms/not_term.ts`). It is a world-sized set, independent of
+the query's positive terms, and the `all` term intersects it with them.
+
+| Event                               | Effect on a `not X` term                                                      |
+| ----------------------------------- | ----------------------------------------------------------------------------- |
+| Term built (first use)              | One scan of the whole world seeds the set (`term.ts`, `_initializeFromWorld`) |
+| Entity created or destroyed         | Added to or removed from the set (`world_term.ts`, `entityCreated`)           |
+| `X` added to or removed from entity | The entity leaves or re-enters the set                                        |
+| `X` data modified                   | Nothing (`not_term.ts`, `onTermRefresh` is a no-op)                           |
+
+Terms are cached by canonical key, so the upkeep is paid once per distinct exclusion, not once per
+query. Each query that uses it adds one membership check per change of the set, and the positive
+term comes first, so most checks stop there.
+
+- Use `.without` only when the exclusion is needed, and pair it with positive terms that keep the
+  query's members small. A query with only `.without` terms tracks every entity in the world, so
+  its `enter` fires for each created entity.
+- The creation pattern `.with(NewShape).without(Phaser.GameObjects.NewKind).enter(...)` depends on
+  this: the positive term limits the members, and the exclusion drops the few that already hold the
+  object.
+
 ### `QuerySpec`: adding `cascade` and `hint`
 
 Anywhere a DSL is accepted, you can pass the object form

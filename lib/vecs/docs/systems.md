@@ -44,6 +44,7 @@ the full query DSL (operator semantics in
 .with({ parent: Body })                                   // ChildOf target has Body
 ```
 
+`.without` is not free: see [its cost](./queries-and-filters.md#the-cost-of-not-and-without).
 Multiple `with` calls merge with `all`. The `source` / `children` operators are non-reactive and
 rejected by systems — they are filter-only (see
 [Queries and filters](./queries-and-filters.md#filters-one-shot-scans)).
@@ -131,6 +132,25 @@ Use `.update(C, ...)` by itself when `C` is the membership shape and watched val
 A query or system can register only one `update(C, ...)` callback for each component. A duplicate
 registration throws instead of replacing the existing callback.
 
+#### Repeated writes in one tick
+
+Each routed write is one `update` event, and a system's inbox replays its events in arrival order
+without merging any (`lib/vecs/src/system.ts`, `_pushUpdate` and the drain loop in
+`_runDeferred`). What differs is how many events a write routes:
+
+| Write                      | Events routed for `C` in one drain window                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------ |
+| `entity.set(C, …)` × n     | n: every call queues its own command and fires its own `onSet` and `update`                      |
+| `entity.modified(C)` × n   | 1: the first call sets the dirty bit, the command clears it when it runs, later calls are no-ops |
+| `entity.getMut(C, cb)` × n | 1: it marks modified through the same dirty bit                                                  |
+
+Coalescing needs a queued command, so it applies to calls made while commands are deferred (inside
+system callbacks); outside them `modified` applies immediately. To get one callback per tick, write
+in place and call `modified` (or use `getMut`), or compare before `set` and skip equal values. Do
+not add a per-tick dedupe or batching step in the consumer when producers already use
+`modified`/`getMut`. Source: `lib/vecs/src/entity/entity.components.ts` (`_markModified`, `set`,
+`_notifyRaw`).
+
 ### `.exit(callback)` / `.exit(inject, callback)` / `.exit(options, callback)`
 
 Fires when an entity stops matching (component removed, or entity destroyed). Directly injected
@@ -149,7 +169,9 @@ object remain visible:
 ### `.each(components, callback)` / `.each(options, callback)`
 
 Fires every tick the system runs, once per tracked entity, regardless of change. Use it only for
-genuinely per-frame sweeps — when reacting to change suffices, prefer `update` (see
+genuinely per-frame sweeps — when reacting to change suffices, prefer `update`. An `.each` must
+justify running every tick, and when it does, narrow `.with(...)` to a tag that exists only while
+the work is live (see
 [Design guide](./design-guide.md#each-vs-reactive--dont-scan-when-you-can-react)):
 
 ```ts
