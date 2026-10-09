@@ -213,6 +213,12 @@ export interface BaselineRecord {
   toFrame: number;
 }
 
+/** The newest frame a client had accepted moved forward to `version` at `atMs`. */
+export interface VersionAdvance {
+  atMs: number;
+  version: number;
+}
+
 /** One delta the server handed to a client's socket: the frames it covers and when it was sent. */
 export interface DeltaRecord {
   atMs: number;
@@ -240,10 +246,10 @@ export interface ClientStats {
   /** Acks this client handed to its socket that reported a gap, before loss. */
   gapReportsSent: number;
   /**
-   * The times, in virtual milliseconds, at which the newest frame this client had accepted moved
-   * forward. The gaps between them are how long the client's view stood still.
+   * Each time the newest frame this client had accepted moved forward: when, and to which frame.
+   * The gaps between them are how long the client's view stood still.
    */
-  versionAdvancesAtMs: number[];
+  versionAdvances: VersionAdvance[];
   /** Baselines (`fromFrame === 0`) the server handed to this client's socket, before loss. */
   baselinesSent: BaselineRecord[];
   /** Deltas (frames with a diff that is not a baseline) the server handed to this client's socket. */
@@ -277,7 +283,7 @@ export class SimClient {
     bytesSent: 0,
     optimisticFramesSent: 0,
     gapReportsSent: 0,
-    versionAdvancesAtMs: [],
+    versionAdvances: [],
     baselinesSent: [],
     deltasSent: [],
     baselinesDelivered: 0,
@@ -394,7 +400,7 @@ export class SimClient {
   private _noteVersion(): void {
     const version = this._version;
     if (version > this._lastVersion) {
-      this.stats.versionAdvancesAtMs.push(this._clock.now);
+      this.stats.versionAdvances.push({ atMs: this._clock.now, version });
     }
     this._lastVersion = version;
   }

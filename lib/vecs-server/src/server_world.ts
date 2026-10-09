@@ -41,6 +41,7 @@ import {
 } from "./history.js";
 import { NetworkClient, NetworkInput, Networked } from "./networked.js";
 import { RttEstimator } from "./rtt.js";
+import { SentFrames } from "./sent_frames.js";
 import { TrackerCache, View } from "./view.js";
 
 interface RegisteredComponent {
@@ -140,10 +141,11 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
   historyFrames?: number;
   /**
    * Opt in to the optimistic base: send a healthy session each frame as a delta
-   * from `max(ack, min(frame - redundancyFrames, sentFrame))`, where `sentFrame`
-   * is the newest frame in which the session was sent content, instead of from
-   * the client's newest ack. A change then travels in `redundancyFrames` frames,
-   * not in every frame until it is acked. An integer of at least 1 and less than
+   * from `max(ack, base)`, where `base` is the frame the session was sent
+   * `redundancyFrames` sends ago (a send is a baseline or a delta with content),
+   * instead of from the client's newest ack. A change then travels in
+   * `redundancyFrames` consecutive frames, however sparse the traffic is, not in
+   * every frame until it is acked. An integer of at least 1 and less than
    * {@link ServerWorldOptions.historyFrames}; the constructor throws for any
    * other value. Unset by default, which keeps today's behavior and a
    * byte-identical wire.
@@ -154,9 +156,16 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * whatever the lag, and `redundancyFrames - 1` lost frames in a row cost the
    * client nothing. `1` sends every change once.
    *
+   * The base is always a frame the client was sent, because the client's version
+   * is one. In a view that changes on every frame it is `frame - redundancyFrames`.
+   * In a sparse one the frames sent are far apart and the base is the one
+   * `redundancyFrames` sends back, so a lost frame is absorbed by the next send
+   * however long the quiet stretch in between, and a base is never a frame the
+   * session was not sent.
+   *
    * The price is a stall when the redundancy runs out. A delta based past the ack
-   * presumes the client received the frames in between; when `redundancyFrames`
-   * frames in a row are lost it did not. The client holds the diff it cannot
+   * presumes the client received the frame it is based on; when `redundancyFrames`
+   * sends in a row are lost it did not. The client holds the diff it cannot
    * apply, reports a gap in its next ack, and the server falls back to deltas from
    * the ack until the client has caught up, so the client's view stops for about
    * one round trip. The client's interpolation buffer hides part of that. A change
@@ -258,16 +267,19 @@ class ServerClientSession {
    */
   public baselineAcked = false;
   /**
-   * Newest frame in which the session was sent a baseline or a delta with
-   * content, as opposed to an empty delta riding along with RPC traffic. Only
-   * kept while `redundancyFrames` is set.
+   * The last `redundancyFrames` frames in which the session was sent a baseline
+   * or a delta with content, as opposed to an empty delta riding along with RPC
+   * traffic, or `undefined` while `redundancyFrames` is unset.
    *
-   * Every frame after it either sent nothing because its diff was empty, or was
-   * withheld while a baseline was in flight, and a delta that starts at this frame
-   * covers both. So an optimistic base never goes past it: the client holds
-   * nothing newer than this frame, however quiet the view has been since.
+   * The client's version is always a frame it was sent, so an optimistic base is
+   * the oldest of these, the frame sent `redundancyFrames` sends ago. Every frame
+   * after the newest one either sent nothing because its diff was empty, or was
+   * withheld while a baseline was in flight, and a delta that starts at an older
+   * frame covers both. A base is also never behind the ack, so right after a
+   * baseline it is the baseline's frame, and the delta that ends the wait carries
+   * everything withheld meanwhile.
    */
-  public sentFrame: number;
+  public readonly sent: SentFrames | undefined;
   /**
    * The oldest frame with content sent to the session that the client has not
    * acked, or an older one that has since been acked while nothing newer was
@@ -318,9 +330,14 @@ class ServerClientSession {
   public socket!: VecsSocket;
   public entity!: Entity;
 
-  public constructor(lastFrame = -1, historyFrames = HISTORY_LENGTH) {
+  public constructor(
+    lastFrame = -1,
+    historyFrames = HISTORY_LENGTH,
+    redundancyFrames: number | undefined = undefined
+  ) {
     this.ackFrame = lastFrame;
-    this.sentFrame = lastFrame;
+    this.sent =
+      redundancyFrames === undefined ? undefined : new SentFrames(redundancyFrames, lastFrame);
     this.history = new History(historyFrames, lastFrame);
     this.rtt = new RttEstimator();
   }
@@ -625,9 +642,9 @@ export class ServerWorld extends NetworkWorld {
    * needs a baseline for it, however long it stays quiet.
    *
    * With {@link ServerWorldOptions.redundancyFrames} set, a healthy session's delta
-   * starts at the optimistic base, `max(ack, min(frame - redundancyFrames,
-   * sentFrame))`, instead of at the ack, and the frame carries the optimistic
-   * marker when that is past the ack.
+   * starts at the optimistic base, `max(ack, base)` where `base` is the frame the
+   * session was sent `redundancyFrames` sends ago, instead of at the ack, and the
+   * frame carries the optimistic marker when that is past the ack.
    *
    * Registered as the world's own `Send` system in a phase after `ON_STORE`, so
    * it normally runs as part of `progress()`; call it directly only to drive a
@@ -830,34 +847,35 @@ export class ServerWorld extends NetworkWorld {
    * with `redundancyFrames` and a healthy session, the optimistic base.
    */
   private _deltaBase(session: ServerClientSession, toFrame: number, nowMs: number): number {
-    if (this._redundancyFrames === undefined || !this._isHealthy(session, toFrame, nowMs)) {
+    const sent = session.sent;
+    if (sent === undefined || !this._isHealthy(session, toFrame, nowMs)) {
       return session.ackFrame;
     }
-    return this._optimisticBase(session, toFrame, this._redundancyFrames);
+    return this._optimisticBase(session, sent);
   }
 
   /**
-   * The frame an optimistic delta to `toFrame` starts after:
-   * `max(ack, min(toFrame - redundancy, sentFrame))`.
+   * The frame an optimistic delta starts after: `max(ack, sent.oldest)`, where
+   * `sent.oldest` is the frame the session was sent `redundancyFrames` sends ago.
    *
-   * `toFrame - redundancy` is what makes a change travel in `redundancy` frames
-   * and no more. `sentFrame` caps it at the newest frame the client can hold. In a
-   * busy view they coincide, as the previous frame is the one last sent. After a
-   * quiet stretch they do not: the frames in between sent nothing, so the client
-   * holds only the frame sent before them, and a base past it would read as a gap
-   * on the first change after every pause. The frames skipped hold nothing, so
-   * merging them costs the pull a few empty frames and sends nothing extra.
-   * Right after a baseline the cap is the baseline itself, so the delta that ends
-   * the wait carries everything withheld while it was in flight.
+   * The client's version is always a frame it was sent, so the base must be one,
+   * and a frame number such as `toFrame - redundancyFrames` is not, once traffic
+   * is sparse. With sends at frames 100, 101 and 106 and `redundancyFrames` 2, the
+   * delta of 106 would start at 104, which was never sent. The newest send at
+   * least that old is 101, and a client that lost it is at 100 and would read the
+   * delta as a gap. Two sends back is 100, which the client holds unless it lost
+   * 101 too. In a busy view every frame is a send and the base is
+   * `toFrame - redundancyFrames`.
    *
-   * Never before the ack, so the pull never merges more frames than a plain delta.
+   * It is at least `redundancyFrames` frames before `toFrame`, so a change travels
+   * in `redundancyFrames` consecutive frames, however sparse. Frames after the base
+   * that sent nothing, or were withheld while a baseline was in flight, need no
+   * special case: the pull merges everything after the base. Never before the ack,
+   * so the pull never merges more frames than a plain delta, and right after a
+   * baseline it starts at the baseline, which is the ack.
    */
-  private _optimisticBase(
-    session: ServerClientSession,
-    toFrame: number,
-    redundancy: number
-  ): number {
-    return Math.max(session.ackFrame, Math.min(toFrame - redundancy, session.sentFrame));
+  private _optimisticBase(session: ServerClientSession, sent: SentFrames): number {
+    return Math.max(session.ackFrame, sent.oldest);
   }
 
   /**
@@ -896,10 +914,11 @@ export class ServerWorld extends NetworkWorld {
    */
   private _inFallback(session: ServerClientSession): boolean {
     const since = session.fallbackFrame;
-    if (since === undefined) {
+    const sent = session.sent;
+    if (since === undefined || sent === undefined) {
       return false;
     }
-    if (session.ackFrame < Math.min(since, session.sentFrame)) {
+    if (session.ackFrame < Math.min(since, sent.newest)) {
       return true;
     }
     session.fallbackFrame = undefined;
@@ -926,15 +945,16 @@ export class ServerWorld extends NetworkWorld {
   }
 
   /**
-   * Record that a baseline or a delta with content went out in `frame`: it is the
-   * newest frame the client can hold, and, unless an older one is still waiting,
-   * the one the liveness timer watches.
+   * Record that a baseline or a delta with content went out in `frame`: it joins
+   * the frames an optimistic base is taken from, and, unless an older one is still
+   * waiting, it is the one the liveness timer watches.
    */
   private _noteContentSent(session: ServerClientSession, frame: number, nowMs: number): void {
-    if (this._redundancyFrames === undefined) {
+    const sent = session.sent;
+    if (sent === undefined) {
       return;
     }
-    session.sentFrame = frame;
+    sent.push(frame);
     if (session.probeFrame === undefined || session.ackFrame >= session.probeFrame) {
       session.probeFrame = frame;
       session.probeSentAtMs = nowMs;
@@ -947,7 +967,11 @@ export class ServerWorld extends NetworkWorld {
       return;
     }
     const entity = this.entity().add(Networked).add(NetworkClient).add(View);
-    const session = new ServerClientSession(this._frame - 1, this._historyFrames);
+    const session = new ServerClientSession(
+      this._frame - 1,
+      this._historyFrames,
+      this._redundancyFrames
+    );
     session.socket = socket;
     session.entity = entity;
     session.context = { world: this, caller: entity, connectionId: socket.id };

@@ -142,10 +142,10 @@ export class Server2Client implements IEncodable {
   /**
    * The frame's diff starts past the last frame the server saw the client
    * acknowledge: it is an *optimistic* delta, built on the assumption that the
-   * client already holds the frames in between because the server sent them in
-   * earlier frames that have not been acked yet (`ServerWorldOptions.redundancyFrames`).
+   * client already holds the frame the diff starts at because the server sent it
+   * in an earlier frame that has not been acked yet (`ServerWorldOptions.redundancyFrames`).
    *
-   * A client that has not yet received those frames cannot apply the diff. For an
+   * A client that has not yet received that frame cannot apply the diff. For an
    * unmarked diff that is a protocol error; for a marked one it is a gap: the
    * client holds the diff until the missing frames arrive, and reports the gap in
    * {@link Client2Server.gap} so the server falls back to deltas from the ack.

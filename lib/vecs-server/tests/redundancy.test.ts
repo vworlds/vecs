@@ -19,9 +19,10 @@ import {
 } from "../src/index.js";
 
 // The optimistic base (`ServerWorldOptions.redundancyFrames`): a healthy session is sent each frame as
-// a delta from `max(ack, min(frame - R, sentFrame))` instead of from its ack, marked optimistic when
-// that is past the ack; a gap report or an overdue ack drops it back to deltas from the ack until the
-// client has caught up. Time is mocked, so a round trip is whatever the test says it is.
+// a delta from `max(ack, base)`, where `base` is the frame it was sent R sends ago, instead of from
+// its ack, marked optimistic when that is past the ack; a gap report or an overdue ack drops it back
+// to deltas from the ack until the client has caught up. Time is mocked, so a round trip is whatever
+// the test says it is.
 
 class Position {
   @wireType("i32")
@@ -242,7 +243,9 @@ describe("redundancyFrames", () => {
 describe("the base of a healthy session's delta", () => {
   // The entity moves in every frame and the client's acks trail by LAG frames, so the ack is always
   // far behind. Frame 7 is the first after the baseline's ack: the baseline is the only thing the
-  // client holds, so it is a plain delta from it. From frame 8 on the base is frame - R.
+  // client holds, so it is a plain delta from it. Every frame is sent from then on, so the frame
+  // sent R sends ago is frame - R, once R frames have followed the baseline; until then it is the
+  // baseline itself, which is the ack.
   it.each([1, 2, 3])(
     "starts %i frame(s) before the frame being sent, as long as that is past the ack",
     (redundancy) => {
@@ -253,20 +256,11 @@ describe("the base of a healthy session's delta", () => {
       }
 
       expect(frames.map(toFrameOf)).toEqual([7, 8, 9, 10, 11, 12, 13, 14]);
-      expect(frames.map(fromFrameOf)).toEqual([
-        1,
-        ...[8, 9, 10, 11, 12, 13, 14].map((frame) => frame - redundancy),
-      ]);
-      expect(frames.map((frame) => frame.optimistic)).toEqual([
-        false,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-      ]);
+      const expectedFrom = [7, 8, 9, 10, 11, 12, 13, 14].map((frame) =>
+        frame - redundancy >= 7 ? frame - redundancy : 1
+      );
+      expect(frames.map(fromFrameOf)).toEqual(expectedFrom);
+      expect(frames.map((frame) => frame.optimistic)).toEqual(expectedFrom.map((from) => from > 1));
     }
   );
 
@@ -349,6 +343,89 @@ describe("the base of a healthy session's delta", () => {
   });
 });
 
+describe("the base of a delta in sparse traffic", () => {
+  // The client's version is always a frame it was sent, and it holds the base unless it lost every
+  // one of the last R sends. The base is therefore the frame sent R sends ago, not a frame number.
+
+  it("is a frame the session was sent, which a client that lost the previous copy still holds", () => {
+    // R = 2. The entity moves in frame 7 and the change is sent in frames 7 and 8. It moves again
+    // in frame 11, before frame 7 is acked, and that change is sent in frames 11 and 12. A client
+    // that lost frame 8 is at frame 7 when 11 arrives.
+    const rig = connect({ redundancyFrames: 2 });
+    const [first] = advance(rig, () => move(rig.entity, 1));
+    const [second] = advance(rig);
+    expect(advanceQuietly(rig, 2)).toEqual([]);
+    const [third] = advance(rig, () => move(rig.entity, 2));
+    const [fourth] = advance(rig);
+
+    expect([first, second, third, fourth].map(toFrameOf)).toEqual([7, 8, 11, 12]);
+    expect([first, second].map(fromFrameOf)).toEqual([1, 1]);
+    // 11 - 2 = 9 was never sent, and 8, the newest frame sent, is the one a client that lost it
+    // does not hold: it would read the delta as a gap. 7 is held unless 8 was lost as well.
+    expect(third.diff).toMatchObject({ fromFrame: 7, toFrame: 11 });
+    expect(third.optimistic).toBe(true);
+    expect(xOf(third, rig.entity.eid)).toBe(2);
+    // 12 - 2 = 10 was never sent either. The client holds 8 or, having lost it, 11.
+    expect(fourth.diff).toMatchObject({ fromFrame: 8, toFrame: 12 });
+    expect(fourth.optimistic).toBe(true);
+  });
+
+  it.each([1, 2, 3])(
+    "names only frames the session was sent, with redundancyFrames %i and a change every four frames",
+    (redundancy) => {
+      const rig = connect({ redundancyFrames: redundancy });
+      // The baseline, frame 1, is the first frame the client was sent.
+      const sent = new Set<number>([1]);
+      let optimistic = 0;
+      for (let frame = 7; frame <= 80; frame++) {
+        const change = (frame - 7) % 4 === 0 ? () => move(rig.entity, frame) : undefined;
+        advance(rig, change).forEach((message) => {
+          if (message.optimistic) {
+            optimistic++;
+            expect(sent.has(fromFrameOf(message)), `the base of frame ${toFrameOf(message)}`).toBe(
+              true
+            );
+          }
+          sent.add(toFrameOf(message));
+        });
+      }
+
+      // The run is long enough to have exercised the quiet stretches many times over.
+      expect(optimistic).toBeGreaterThan(10);
+    }
+  );
+
+  it.each([1, 2, 3])(
+    "sends a change in exactly %i consecutive frame(s), however long the quiet stretches around it",
+    (R) => {
+      const rig = connect({ redundancyFrames: R });
+      const carrying: number[] = [];
+      // Changes at 20, 21, 35 and 60: back to back, then after quiet stretches of 13 and 24 frames.
+      const changeAt = new Set([20, 21, 35, 60]);
+      for (let frame = 7; frame <= 75; frame++) {
+        const [sent] = advance(rig, () => {
+          if (changeAt.has(frame)) {
+            move(rig.other, frame);
+          }
+        });
+        if (sent !== undefined && eidsIn(sent).includes(rig.other.eid)) {
+          carrying.push(toFrameOf(sent));
+        }
+      }
+
+      // Each change is in its own frame and the R - 1 after it; two that follow each other close
+      // enough share the frames in between.
+      const expected = new Set<number>();
+      changeAt.forEach((frame) => {
+        for (let i = 0; i < R; i++) {
+          expected.add(frame + i);
+        }
+      });
+      expect(carrying).toEqual([...expected].sort((a, b) => a - b));
+    }
+  );
+});
+
 describe("a session that is not healthy", () => {
   it("is never sent an optimistic delta while its first baseline is in flight", () => {
     const rig = createRig({ redundancyFrames: 2 });
@@ -389,7 +466,7 @@ describe("a session that is not healthy", () => {
     expect(xOf(delta, rig.entity.eid)).toBe(7);
   });
 
-  it("is optimistic again from the very next frame, which presumes the delta that ended the wait", () => {
+  it("is optimistic again once the delta that ended the wait is one of the R frames sent, and not before", () => {
     const rig = connect({ redundancyFrames: 2 });
     const [catchUp, next, afterThat] = [7, 8, 9].map(
       (x) => advance(rig, () => move(rig.entity, x))[0]
@@ -397,9 +474,12 @@ describe("a session that is not healthy", () => {
 
     expect(catchUp.diff).toMatchObject({ fromFrame: 1, toFrame: 7 });
     expect(catchUp.optimistic).toBe(false);
-    expect(next.diff).toMatchObject({ fromFrame: 6, toFrame: 8 });
-    expect(next.optimistic).toBe(true);
+    // The frame sent two sends ago is the baseline, which is also the ack: nothing to presume yet.
+    // A base of 6 would name a frame that went out empty, while the baseline was in flight.
+    expect(next.diff).toMatchObject({ fromFrame: 1, toFrame: 8 });
+    expect(next.optimistic).toBe(false);
     expect(afterThat.diff).toMatchObject({ fromFrame: 7, toFrame: 9 });
+    expect(afterThat.optimistic).toBe(true);
   });
 
   it("is sent a baseline again, not an optimistic delta, once frames it has not acked leave the history", () => {
@@ -494,13 +574,17 @@ describe("a gap report", () => {
     expect(advance(rig)).toEqual([]);
     const [first] = advance(rig, () => move(rig.entity, 2));
     const [second] = advance(rig, () => move(rig.entity, 3));
+    const [third] = advance(rig, () => move(rig.entity, 4));
 
-    // The first change goes out from the ack, as it has nothing newer to presume. The second repeats
-    // the first, so the fallback is over: it starts one redundancy window back, not at the ack.
+    // The first two changes go out from the ack: the two frames sent before them are 7 and 8, and
+    // nothing newer is there to presume. The third starts at the first, the frame sent two sends
+    // ago, not at the ack, so the fallback is over.
     expect(first.diff).toMatchObject({ fromFrame: 8, toFrame: 19 });
     expect(first.optimistic).toBe(false);
-    expect(second.diff).toMatchObject({ fromFrame: 18, toFrame: 20 });
-    expect(second.optimistic).toBe(true);
+    expect(second.diff).toMatchObject({ fromFrame: 8, toFrame: 20 });
+    expect(second.optimistic).toBe(false);
+    expect(third.diff).toMatchObject({ fromFrame: 19, toFrame: 21 });
+    expect(third.optimistic).toBe(true);
   });
 
   it("changes nothing while the session's baseline is in flight, since the client resets on it", () => {
@@ -510,11 +594,17 @@ describe("a gap report", () => {
     advanceQuietly(rig, LAG);
     expect(rig.acked).toBe(1);
 
-    const [catchUp, next] = [7, 8].map((x) => advance(rig, () => move(rig.entity, x))[0]);
+    const [catchUp, next, afterThat] = [7, 8, 9].map(
+      (x) => advance(rig, () => move(rig.entity, x))[0]
+    );
 
+    // As without the report: a delta from the baseline's ack, then the baseline's frame again while
+    // fewer than R frames have followed it, then a delta that presumes the one that ended the wait.
     expect(catchUp.diff).toMatchObject({ fromFrame: 1, toFrame: 7 });
-    expect(next.diff).toMatchObject({ fromFrame: 6, toFrame: 8 });
-    expect(next.optimistic).toBe(true);
+    expect(next.diff).toMatchObject({ fromFrame: 1, toFrame: 8 });
+    expect(next.optimistic).toBe(false);
+    expect(afterThat.diff).toMatchObject({ fromFrame: 7, toFrame: 9 });
+    expect(afterThat.optimistic).toBe(true);
   });
 
   it("is ignored when redundancyFrames is unset", () => {
@@ -585,10 +675,11 @@ describe("an ack that is overdue", () => {
       frames.push(...advance(rig, () => move(rig.entity, x)));
     }
 
-    // Past the catch-up, every delta starts one redundancy window back, never at the lagging ack.
+    // Past the catch-up and the two frames that follow the baseline, every delta starts one
+    // redundancy window back, never at the lagging ack.
     expect(frames).toHaveLength(54);
-    expect(frames.slice(1).every((frame) => frame.optimistic)).toBe(true);
-    expect(frames.slice(1).every((frame) => toFrameOf(frame) - fromFrameOf(frame) === 2)).toBe(
+    expect(frames.slice(2).every((frame) => frame.optimistic)).toBe(true);
+    expect(frames.slice(2).every((frame) => toFrameOf(frame) - fromFrameOf(frame) === 2)).toBe(
       true
     );
   });
