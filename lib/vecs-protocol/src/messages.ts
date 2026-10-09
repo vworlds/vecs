@@ -8,7 +8,6 @@ const FIELD_RPC = 2;
 const FIELD_INPUT = 3;
 const FIELD_CLOSE = 4;
 const FIELD_RPC_SETTLED = 5;
-const FIELD_DIFF_RESETS = 6;
 
 const CLOSE_HAS_CODE = 1;
 const CLOSE_HAS_REASON = 2;
@@ -50,7 +49,8 @@ export class EncodedSnapshot {
 /**
  * One removal of a single component in a {@link StateDiff}: the component of entity `eid` with
  * the given wire type. A whole entity is removed by an {@link EntityReset}, never by a
- * `RemovedComponent`, so `wireType` is never `ALL_COMPONENTS`.
+ * `RemovedComponent`, so `wireType` is never `ALL_COMPONENTS`. The encoder does not check it: on
+ * the wire that value marks a reset, and a decoder would read the next varint as its frame.
  */
 export type RemovedComponent = [eid: EID, wireType: number];
 
@@ -106,13 +106,13 @@ export type EntityReset = [eid: EID, frame: number];
  *
  * ### Wire format
  *
- * `Server2Client` carries a diff without resets as field 1, exactly as it has always been, and
- * a diff with resets as field 6: the same body followed by a count and, for each reset, the eid
- * and `toFrame - frame`, both varints, so a reset that is still in the history costs a few
- * bytes. A peer that predates field 6 rejects it as an unknown tag. Deploy clients before
- * servers. A client reads field 1 from an older server as before, and takes a removal with wire
- * type `ALL_COMPONENTS` in its `removed` list as a reset at `toFrame`, which applies every time.
- * Encoded on its own, outside a `Server2Client`, a `StateDiff` always carries the count of resets.
+ * `Server2Client` carries a diff as field 1. A reset takes an entry of its own in the `removed`
+ * section: the packed id of its eid with wire type `ALL_COMPONENTS`, immediately followed by
+ * `toFrame - frame` as a varint. The frame travels as its distance from `toFrame`, which is one
+ * byte for a reset less than 128 frames old, as the server's history keeps them, so a reset costs
+ * one byte more than the removal of a single component. The count that opens the section counts
+ * entries, a reset being one; the entries of single components come first, then the resets. A
+ * diff without resets is encoded as it was before resets existed.
  */
 export class StateDiff implements IEncodable {
   public toFrame = 0;
@@ -128,59 +128,35 @@ export class StateDiff implements IEncodable {
   }
 
   public wireEncode(encoder: Encoder): void {
-    encodeDiffBody(this, encoder);
-    encoder.write_u32(this.resets.length);
+    encoder.write_u32(this.toFrame);
+    encoder.write_u32(this.fromFrame);
+    encoder.write_u32(this.snapshots.length);
+    this.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
+    encoder.write_u32(this.removed.length + this.resets.length);
+    this.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
     this.resets.forEach(([eid, frame]) => {
-      encoder.write_u32(eid);
+      encoder.write_u32(cid_pack(eid, ALL_COMPONENTS));
       encoder.write_u32(this.toFrame - frame);
     });
   }
 
   public static wireDecode(decoder: Decoder): StateDiff {
-    const diff = decodeDiffBody(decoder);
-    const resetCount = decoder.read_u32();
-    for (let i = 0; i < resetCount; i++) {
-      const eid = decoder.read_u32();
-      diff.resets.push([eid, diff.toFrame - decoder.read_u32()]);
+    const diff = new StateDiff({ toFrame: decoder.read_u32(), fromFrame: decoder.read_u32() });
+    const snapshotCount = decoder.read_u32();
+    for (let i = 0; i < snapshotCount; i++) {
+      diff.snapshots.push(new EncodedSnapshot(decoder.read_bytes()));
+    }
+    const removedCount = decoder.read_u32();
+    for (let i = 0; i < removedCount; i++) {
+      const removal = cid_unpack(decoder.read_u32());
+      if (removal[1] === ALL_COMPONENTS) {
+        diff.resets.push([removal[0], diff.toFrame - decoder.read_u32()]);
+      } else {
+        diff.removed.push(removal);
+      }
     }
     return diff;
   }
-}
-
-// A diff without resets: field 1 of a Server2Client frame, which is all a diff was before resets.
-function encodeDiffBody(diff: StateDiff, encoder: Encoder): void {
-  encoder.write_u32(diff.toFrame);
-  encoder.write_u32(diff.fromFrame);
-  encoder.write_u32(diff.snapshots.length);
-  diff.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
-  encoder.write_u32(diff.removed.length);
-  diff.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
-}
-
-function decodeDiffBody(decoder: Decoder): StateDiff {
-  const diff = new StateDiff({ toFrame: decoder.read_u32(), fromFrame: decoder.read_u32() });
-  const snapshotCount = decoder.read_u32();
-  for (let i = 0; i < snapshotCount; i++) {
-    diff.snapshots.push(new EncodedSnapshot(decoder.read_bytes()));
-  }
-  const removedCount = decoder.read_u32();
-  for (let i = 0; i < removedCount; i++) {
-    diff.removed.push(cid_unpack(decoder.read_u32()));
-  }
-  return diff;
-}
-
-// Field 1 as an older server writes it: whole-entity removals are `removed` entries with wire type
-// ALL_COMPONENTS, which carry no frame. They become resets at `toFrame`, which a client applies.
-function decodeLegacyDiff(decoder: Decoder): StateDiff {
-  const diff = decodeDiffBody(decoder);
-  if (diff.removed.some(([, wireType]) => wireType === ALL_COMPONENTS)) {
-    diff.resets = diff.removed
-      .filter(([, wireType]) => wireType === ALL_COMPONENTS)
-      .map(([eid]): EntityReset => [eid, diff.toFrame]);
-    diff.removed = diff.removed.filter(([, wireType]) => wireType !== ALL_COMPONENTS);
-  }
-  return diff;
 }
 
 /**
@@ -248,13 +224,8 @@ export class Server2Client implements IEncodable {
 
   public wireEncode(encoder: Encoder): void {
     if (this.diff) {
-      if (this.diff.resets.length > 0) {
-        encoder.write_u8(FIELD_DIFF_RESETS);
-        encoder.write(this.diff);
-      } else {
-        encoder.write_u8(FIELD_DIFF);
-        encodeDiffBody(this.diff, encoder);
-      }
+      encoder.write_u8(FIELD_DIFF);
+      encoder.write(this.diff);
     }
     if (this.rpc.length > 0) {
       encoder.write_u8(FIELD_RPC);
@@ -286,9 +257,6 @@ export class Server2Client implements IEncodable {
       const tag = decoder.read_u8();
       switch (tag) {
         case FIELD_DIFF:
-          message.diff = decodeLegacyDiff(decoder);
-          break;
-        case FIELD_DIFF_RESETS:
           message.diff = decoder.read(StateDiff);
           break;
         case FIELD_RPC: {

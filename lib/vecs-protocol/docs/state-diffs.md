@@ -10,8 +10,7 @@ entity.
 - The order a diff means, and what a diff with a reset and snapshots of one id tells the client.
 - Why a reset carries the frame it happened at, and how the client applies it exactly once.
 - Which part of the stack keeps the order and the idempotence.
-- How the server's id quarantine keeps the case rare, how a diff travels on the wire, and why
-  clients deploy before servers.
+- How the server's id quarantine keeps the case rare, and how a diff travels on the wire.
 
 ## The shape of a diff
 
@@ -106,22 +105,27 @@ buffers frames while it is not rendering, and for an entity that returns to a vi
 
 ## On the wire
 
-`Server2Client` carries a diff without resets as field 1, in the layout diffs have always had. A diff
-with resets goes as field 6: the same layout followed by a count and, for each reset, two varints,
-the eid and `toFrame - frame`. The frame travels as its distance from `toFrame`, which is at most the
-history window, so a reset costs a few bytes: the same as the removal it replaced, plus one byte for
-the count in a diff that has any.
+`Server2Client` carries a diff as field 1. A reset has an entry of its own in the `removed` section,
+next to the removals of single components:
 
-## Compatibility
+```text
+toFrame, fromFrame
+snapshot count, then the snapshots
+entry count, then the entries:
+  single-component removal   cid(eid, wireType)
+  reset                      cid(eid, ALL_COMPONENTS), toFrame - frame
+```
 
-Deploy clients before servers.
+Every number is a varint, each snapshot is a length-prefixed buffer, and `cid` is the packed id
+from `lib/vecs-protocol/src/cid.ts`. The entry count counts a reset once, though it takes two
+varints. Entries of single components come first, then the resets. A decoder reads a packed id, and
+when its wire type is `ALL_COMPONENTS` it reads the frame distance that follows. A diff without
+resets is laid out exactly as it was before resets existed.
 
-- A server that sends resets uses field 6 only for a diff that holds one. A client built before
-  resets rejects it as an unknown field tag and closes with the protocol-error code, so an old client
-  fails loudly on the first entity that leaves a view, not silently.
-- A new client reads field 1 from an older server as before. It takes a removal with wire type
-  `ALL_COMPONENTS` in the `removed` list as a reset at the diff's `toFrame`, which always applies, as
-  such a removal always did: an older server's removal carries no frame to compare.
+The frame travels as its distance from `toFrame`, which is at most the history window, so it takes
+one byte for any reset less than 128 frames old, and a reset costs one byte more than the removal
+of a single component. A `removed` entry in memory is never `ALL_COMPONENTS`: the encoder does not
+check it, and a decoder would read the next varint as the frame of a reset.
 
 ## See also
 

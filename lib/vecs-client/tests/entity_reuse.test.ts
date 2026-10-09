@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  ALL_COMPONENTS,
   ComponentSnapshot,
   EncodedSnapshot,
   Server2Client,
@@ -585,38 +584,3 @@ describe.each(DRIVERS)("overlapping deltas that repeat one reset, applied by %s"
     });
   });
 });
-
-describe.each(DRIVERS)(
-  "a whole-entity removal from a server that predates resets, applied by %s",
-  (_, drive) => {
-    it("destroys the entity and builds a new one from the snapshots, as before", () => {
-      const { world, socket } = clientHoldingA(drive);
-      const old = world.entity(A);
-
-      // An older server writes the removal as ALL_COMPONENTS in `removed`, with no frame.
-      deliver(socket, 1, 2, { removed: [[A, ALL_COMPONENTS]], snapshots: [position(A, 9, 9)] });
-      drive(world, 10);
-
-      expect(world.entity(A)).not.toBe(old);
-      expect(componentsOf(world.entity(A))).toEqual({
-        position: { x: 9, y: 9 },
-        health: undefined,
-        mark: undefined,
-      });
-    });
-
-    it("destroys the entity when the snapshots come in a later frame", () => {
-      const { world, socket, positionAdds } = clientHoldingA(drive);
-
-      deliver(socket, 1, 2, { removed: [[A, ALL_COMPONENTS]] });
-      drive(world, 10);
-      expect(() => world.entity(A)).toThrow();
-
-      deliver(socket, 2, 3, { snapshots: [position(A, 4, 4)] });
-      drive(world, 20);
-
-      expect(componentsOf(world.entity(A))).toMatchObject({ position: { x: 4, y: 4 } });
-      expect(positionAdds.filter((eid) => eid === A)).toHaveLength(2);
-    });
-  }
-);
