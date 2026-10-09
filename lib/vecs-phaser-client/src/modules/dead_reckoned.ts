@@ -37,7 +37,6 @@ export interface DeadReckonedModuleConfig {
  * Client half of dead reckoning: extrapolates every entity that carries a {@link Motion} baseline
  * into a client-local render `Position` and `Rotation`. Install it on a `ClientWorld` whose
  * `networkComponents` end with `phaserMotionComponents`, as the server's do:
- * Node clients can import this module from `@vworlds/vecs-phaser-client/headless` without Phaser.
  *
  * ```ts
  * const world = new ClientWorld({
@@ -47,6 +46,8 @@ export interface DeadReckonedModuleConfig {
  * world.module(DeadReckonedModule);
  * world.module(PhaserRenderModule, { scene });
  * ```
+ *
+ * Node clients can import this module from `@vworlds/vecs-phaser-client/headless` without Phaser.
  *
  * `Motion` brings `Position` and `Rotation` with it, so an entity that arrives with only a baseline,
  * on joining or on entering the view, gets a render pose to write. The server never sends one for a

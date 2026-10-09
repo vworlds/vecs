@@ -31,6 +31,14 @@ const distDir = join(packageDir, "dist");
 const sourcePackage = JSON.parse(await readFile(packageJsonPath, "utf8"));
 const dependencies = rewriteDependencies(sourcePackage.dependencies ?? {}, sourcePackage.version);
 const rootDist = rootDistPackages.has(packageName);
+const subpathExports = Object.entries(sourcePackage.exports ?? {}).filter(
+  ([subpath]) => subpath !== "."
+);
+if (!rootDist && subpathExports.length > 0) {
+  throw new Error(
+    `Cannot prepare subpath exports for non-root-dist package ${packageName}: ${subpathExports.map(([subpath]) => subpath).join(", ")}`
+  );
+}
 
 const publishPackage = {
   name: sourcePackage.name,
@@ -49,9 +57,7 @@ const publishPackage = {
           default: `./${packageName}/src/index.js`,
         },
     ...Object.fromEntries(
-      Object.entries(sourcePackage.exports ?? {})
-        .filter(([subpath]) => subpath !== ".")
-        .map(([subpath, target]) => [subpath, rewriteExportTarget(target)])
+      subpathExports.map(([subpath, target]) => [subpath, rewriteExportTarget(target)])
     ),
   },
   repository: {
