@@ -391,9 +391,10 @@ export class ServerWorld extends NetworkWorld {
     ensureRegistered(this, NetworkInput);
     ensureRegistered(this, View);
     ensureRegistered(this, ServerClientSession);
-    this.component(Networked).on("remove", (entity) => {
-      this._record(entity, ALL_COMPONENTS, undefined);
-    });
+    // No removal is recorded when an entity stops being Networked: it leaves every view, and each
+    // view tells its client the entity is gone (see View.exit). A record would only ever reach a
+    // view in which the entity is visible again, because it became Networked once more in the same
+    // frame, and delete from that client an entity it must keep.
     this.component(ServerClientSession).on("remove", (_entity, session) => {
       this._endSession(session);
     });
