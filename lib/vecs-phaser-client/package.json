@@ -24,7 +24,6 @@
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "check:headless": "node --import ../../bench/register-dist.mjs scripts/check-headless.mjs",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
     "test": "vitest run --passWithNoTests"
   },
