@@ -31,6 +31,14 @@ const distDir = join(packageDir, "dist");
 const sourcePackage = JSON.parse(await readFile(packageJsonPath, "utf8"));
 const dependencies = rewriteDependencies(sourcePackage.dependencies ?? {}, sourcePackage.version);
 const rootDist = rootDistPackages.has(packageName);
+const subpathExports = Object.entries(sourcePackage.exports ?? {}).filter(
+  ([subpath]) => subpath !== "."
+);
+if (!rootDist && subpathExports.length > 0) {
+  throw new Error(
+    `Cannot prepare subpath exports for non-root-dist package ${packageName}: ${subpathExports.map(([subpath]) => subpath).join(", ")}`
+  );
+}
 
 const publishPackage = {
   name: sourcePackage.name,
@@ -48,6 +56,9 @@ const publishPackage = {
           types: `./${packageName}/src/index.d.ts`,
           default: `./${packageName}/src/index.js`,
         },
+    ...Object.fromEntries(
+      subpathExports.map(([subpath, target]) => [subpath, rewriteExportTarget(target)])
+    ),
   },
   repository: {
     type: "git",
@@ -65,6 +76,21 @@ if (packageName !== "vecs-wire") {
 }
 
 await writeFile(join(distDir, "package.json"), `${JSON.stringify(publishPackage, null, 2)}\n`);
+
+function rewriteExportTarget(target) {
+  if (typeof target === "string") {
+    return target.replace(/^\.\/dist\//, "./");
+  }
+  if (Array.isArray(target)) {
+    return target.map(rewriteExportTarget);
+  }
+  if (target !== null && typeof target === "object") {
+    return Object.fromEntries(
+      Object.entries(target).map(([condition, value]) => [condition, rewriteExportTarget(value)])
+    );
+  }
+  return target;
+}
 
 function rewriteDependencies(dependencies, version) {
   return Object.fromEntries(

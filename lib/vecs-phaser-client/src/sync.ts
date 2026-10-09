@@ -6,6 +6,7 @@ const TWO_PI = Math.PI * 2;
 
 /**
  * Shortest-arc angular interpolator for raw `Rotation` components.
+ * Also exported by `@vworlds/vecs-phaser-client/headless` for use without Phaser.
  *
  * The returned angle stays in component/math space (radians, CCW-positive); the
  * Phaser Y-flip is still applied later by `CoordSpace.rot()` at render time.
@@ -32,6 +33,7 @@ export const rotationInterpolator: ComponentInterpolator = (source, target, alph
  * Phaser render components: `interpolatePosition` on `Position` and
  * `rotationInterpolator` on `Rotation`. `ClientWorld` resolves each class to
  * its wire type at construction time.
+ * Also exported by `@vworlds/vecs-phaser-client/headless` for use without Phaser.
  *
  * Pass `interpolateRotation: false` to snap rotation updates instead. Position
  * interpolation is always installed; pass an empty `interpolators` to

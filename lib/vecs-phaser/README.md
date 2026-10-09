@@ -79,10 +79,10 @@ prediction, and the server sends a new baseline. A baseline with `rest` set is n
 
 Two modules put it to work, one per side:
 
-| Side   | Module                                                  | Does                                                                                                                                                                                                                             |
-| ------ | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Server | `DeadReckonedModule` from `@vworlds/vecs-phaser-server` | Runs the client's prediction for every body tagged `DeadReckoned` and writes a new `Motion` only when the body strays past a tolerance or falls asleep, with a `MotionParams` when the constants changed. Owns the `MotionClock` |
-| Client | `DeadReckonedModule` from `@vworlds/vecs-phaser-client` | Extrapolates every `Motion` at `ClientWorld.renderFrame` into a client-local `Position` and `Rotation`, stepping it with the entity's `MotionParams`                                                                             |
+| Side   | Module                                                                                                | Does                                                                                                                                                                                                                             |
+| ------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server | `DeadReckonedModule` from `@vworlds/vecs-phaser-server`                                               | Runs the client's prediction for every body tagged `DeadReckoned` and writes a new `Motion` only when the body strays past a tolerance or falls asleep, with a `MotionParams` when the constants changed. Owns the `MotionClock` |
+| Client | `DeadReckonedModule` from `@vworlds/vecs-phaser-client/headless` (also exported by the browser entry) | Extrapolates every `Motion` at `ClientWorld.renderFrame` into a client-local `Position` and `Rotation`, stepping it with the entity's `MotionParams`                                                                             |
 
 ```mermaid
 graph LR

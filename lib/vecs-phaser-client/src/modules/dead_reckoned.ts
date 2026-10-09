@@ -15,7 +15,7 @@ import {
   stepMotion,
 } from "@vworlds/vecs-phaser";
 
-/** Options for {@link DeadReckonedModule}. */
+/** Options for {@link DeadReckonedModule}, also exported by the Phaser-free `/headless` entry. */
 export interface DeadReckonedModuleConfig {
   /**
    * How long a late correction takes to blend in, in milliseconds. Default `100`. A late correction
@@ -46,6 +46,8 @@ export interface DeadReckonedModuleConfig {
  * world.module(DeadReckonedModule);
  * world.module(PhaserRenderModule, { scene });
  * ```
+ *
+ * Node clients can import this module from `@vworlds/vecs-phaser-client/headless` without Phaser.
  *
  * `Motion` brings `Position` and `Rotation` with it, so an entity that arrives with only a baseline,
  * on joining or on entering the view, gets a render pose to write. The server never sends one for a

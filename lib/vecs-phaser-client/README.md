@@ -163,12 +163,37 @@ Pass `phaserInterpolators({ interpolateRotation: false })` to snap rotation
 updates while still interpolating `Position`. To disable interpolation
 entirely, omit `interpolators` (or pass an empty list).
 
+## Headless clients
+
+Use `@vworlds/vecs-phaser-client/headless` for Node bots, e2e tests, probes and tools that
+need client poses without loading Phaser. It exports `DeadReckonedModule`, the type
+`DeadReckonedModuleConfig`, `phaserInterpolators` and `rotationInterpolator`. Browser clients
+can keep importing these from the main entry.
+
+```ts
+import { ClientWorld } from "@vworlds/vecs-client";
+import { phaserMotionComponents, phaserNetworkComponents } from "@vworlds/vecs-phaser";
+import { DeadReckonedModule, phaserInterpolators } from "@vworlds/vecs-phaser-client/headless";
+
+const world = new ClientWorld({
+  networkComponents: [...phaserNetworkComponents, ...phaserMotionComponents],
+  interpolators: phaserInterpolators(),
+});
+world.module(DeadReckonedModule);
+// Attach your transport with world.attachSocket(socket), then progress on your client loop.
+world.progress(performance.now(), 16);
+```
+
+Keep the network component order identical to the server's, including any app components before
+`phaserMotionComponents`. See [Dead reckoning](#dead-reckoning) for clock and correction behavior.
+The main entry also exports renderers and loads Phaser; use the headless subpath in Node.
+
 ## Dead reckoning
 
 `DeadReckonedModule` extrapolates the bodies a server sends as `Motion` baselines instead of
 streamed poses (see [Dead reckoning on the server](../vecs-phaser-server/README.md#dead-reckoning)).
 Append `phaserMotionComponents` to the network components, as the server does, and install the
-module:
+module. For Node clients, use the [headless entry](#headless-clients):
 
 ```ts
 import { phaserMotionComponents, phaserNetworkComponents } from "@vworlds/vecs-phaser";
