@@ -206,6 +206,14 @@ renderers, `DrawBy` children and game systems use them as they use an interpolat
 - **Change only.** It writes the pose in place and calls `modified` only when a value changed, and
   allocates nothing per entity per frame. A body at rest is never stepped.
 - **Reordering.** A baseline older than the one held is ignored.
+- **Body constants.** The damping, center of mass, gravity scale and fast-rotation flag come from
+  the entity's `MotionParams`, which the server sends only when they change, in the same frame as
+  the `Motion` they belong to; an entity without one has the defaults. When the extrapolator takes a
+  newer baseline it copies the entity's `MotionParams` (or the defaults) into its own track and
+  steps that baseline with the copy, so a constants update takes effect at the next baseline and
+  the per-frame path looks up no component.
+- **Rest.** A body is held still, and never stepped, when its baseline says so (`Motion.rest`). The
+  server decides it; the client never works it out from the velocities or the gravity.
 - **Corrections.** A baseline received in time, before the client renders past its frame, applies
   at once. A late one blends its error out linearly over `blendMs` (default 100 ms) of render time;
   one that moves the body further than `snapDistance` (default 1 m) or turns it further than

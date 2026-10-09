@@ -1,11 +1,12 @@
-import { Module, POST_LOAD, With } from "@vworlds/vecs";
+import { Module, POST_LOAD, With, type Entity } from "@vworlds/vecs";
 import { ClientWorld } from "@vworlds/vecs-client";
 import {
+  defaultMotionParams,
   Motion,
   MotionClock,
+  MotionParams,
   MotionPose,
   MotionState,
-  motionAtRest,
   motionPose,
   motionStateFrom,
   Position,
@@ -70,10 +71,17 @@ export interface DeadReckonedModuleConfig {
  * The world's `MotionClock`, which the server sends once, supplies the step, substeps, gravity and
  * speed cap. Until it arrives nothing is extrapolated.
  *
+ * The body constants (damping, center of mass, gravity scale, fast rotation) come from the entity's
+ * `MotionParams`, which the server sends only when they change, in the same frame as the `Motion`
+ * they belong to. An entity without one has the defaults. They take effect at the next rebaseline:
+ * when the extrapolator accepts a newer `Motion` it copies the entity's `MotionParams` (or the
+ * defaults) into its own track, and steps every later frame of that baseline with the copy. Whether
+ * the body is held still is read from `Motion.rest`, which the server decides.
+ *
  * Per entity per frame the system compares the baseline's frame, takes the steps the render frame
- * crossed (usually none or one), interpolates and compares the pose; it allocates nothing. A body
- * at rest is never stepped. On joining or on view entry it steps from the baseline's frame to the
- * present once; the server bounds that with `maxBaselineAge`.
+ * crossed (usually none or one), interpolates and compares the pose; it allocates nothing and looks
+ * up no component. A body at rest is never stepped. On joining or on view entry it steps from the
+ * baseline's frame to the present once; the server bounds that with `maxBaselineAge`.
  *
  * `Motion` itself is not interpolated: register no interpolator for it.
  */
@@ -124,7 +132,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
         }
         const renderFrame = world.renderFrame;
         if (motion.frame > track.frame) {
-          rebaseline(track, motion, clock, renderFrame);
+          rebaseline(entity, track, motion, clock, renderFrame);
         } else {
           extrapolate(track, clock, renderFrame, sample);
           blend(track, clock, renderFrame, sample);
@@ -143,6 +151,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
     // Take a newer baseline. The error between the path the body was drawn on and the new one,
     // both at `renderFrame`, is kept to blend out when the correction is late and small enough.
     function rebaseline(
+      entity: Entity,
       track: MotionTrack,
       motion: Readonly<Motion>,
       clock: Readonly<MotionClock>,
@@ -160,9 +169,13 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
         oldAngle = sample.angle;
       }
 
+      // The body constants come with the baseline: the entity's MotionParams, or the defaults for an
+      // entity without one. The server writes a changed MotionParams in the same frame as the
+      // Motion it belongs to, so this is the only place they are looked up.
       copyMotion(motion, track.baseline);
+      copyParams(entity.get(MotionParams) ?? defaultMotionParams, track.params);
       track.frame = motion.frame;
-      track.rest = motionAtRest(motion, clock);
+      track.rest = motion.rest;
       restart(track, clock);
       extrapolate(track, clock, renderFrame, sample);
 
@@ -213,14 +226,15 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
 
 /**
  * Client-local extrapolation state of one dead-reckoned entity. `Motion` brings it. It holds its own
- * copy of the accepted baseline, so an older `Motion` that a reordered datagram writes over the
- * component cannot change the path, and the two poses the render frame falls between.
+ * copy of the accepted baseline and of the entity's `MotionParams` as they were at that baseline, so
+ * an older `Motion` that a reordered datagram writes over the component cannot change the path, and
+ * the two poses the render frame falls between.
  */
 class MotionTrack {
   /** Frame of the accepted baseline, `-1` before the first. */
   public frame = -1;
 
-  /** The baseline holds the body still ({@link motionAtRest}), so it is never stepped. */
+  /** The baseline holds the body still (`Motion.rest`), so it is never stepped. */
   public rest = false;
 
   /** Steps from the baseline to `from`. */
@@ -240,6 +254,13 @@ class MotionTrack {
 
   /** The accepted baseline. */
   public readonly baseline = new Motion();
+
+  /**
+   * The body constants the baseline is stepped with: a copy of the entity's `MotionParams` (or the
+   * defaults) taken when the baseline was accepted. A copy, so the per-frame path looks up no
+   * component and the integrator's call sites only see one object shape.
+   */
+  public readonly params = new MotionParams();
 
   /** Integrator state one step past `from`, at `to`. */
   public readonly state = new MotionState();
@@ -280,8 +301,8 @@ function extrapolate(
     from.x = to.x;
     from.y = to.y;
     from.angle = to.angle;
-    stepMotion(track.state, track.baseline, clock);
-    motionPose(track.state, track.baseline, to);
+    stepMotion(track.state, track.params, clock);
+    motionPose(track.state, track.params, to);
     track.steps++;
   }
   const fraction = elapsed - steps;
@@ -292,13 +313,13 @@ function extrapolate(
 
 /** Put the track back at its baseline: `from` at the baseline, `to` one step later. */
 function restart(track: MotionTrack, clock: Readonly<MotionClock>): void {
-  const baseline = track.baseline;
-  motionStateFrom(baseline, track.state);
-  motionPose(track.state, baseline, track.from);
+  const params = track.params;
+  motionStateFrom(track.baseline, params, track.state);
+  motionPose(track.state, params, track.from);
   if (!track.rest) {
-    stepMotion(track.state, baseline, clock);
+    stepMotion(track.state, params, clock);
   }
-  motionPose(track.state, baseline, track.to);
+  motionPose(track.state, params, track.to);
   track.steps = 0;
 }
 
@@ -310,6 +331,10 @@ function copyMotion(source: Readonly<Motion>, target: Motion): void {
   target.vx = source.vx;
   target.vy = source.vy;
   target.w = source.w;
+  target.rest = source.rest;
+}
+
+function copyParams(source: Readonly<MotionParams>, target: MotionParams): void {
   target.linearDamping = source.linearDamping;
   target.angularDamping = source.angularDamping;
   target.localCenterX = source.localCenterX;
@@ -326,9 +351,9 @@ function wrapAngle(angle: number): number {
 function requireNetworkComponents(world: ClientWorld): void {
   const registered = (Class: unknown): boolean =>
     world.networkComponents.some((component) => component.Class === Class);
-  if (!registered(Motion) || !registered(MotionClock)) {
+  if (!registered(Motion) || !registered(MotionParams) || !registered(MotionClock)) {
     throw new Error(
-      "DeadReckonedModule needs Motion and MotionClock in the ClientWorld's networkComponents: append phaserMotionComponents, as the server does"
+      "DeadReckonedModule needs Motion, MotionParams and MotionClock in the ClientWorld's networkComponents: append phaserMotionComponents, as the server does"
     );
   }
 }

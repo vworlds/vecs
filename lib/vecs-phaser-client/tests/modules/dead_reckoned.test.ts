@@ -2,12 +2,13 @@
 // pose at ClientWorld.renderFrame. These tests drive renderFrame directly; the end-to-end runs
 // against a real server are in lib/vecs-phaser-server/tests/dead_reckoning_replication.test.ts.
 
-import { ON_UPDATE, World } from "@vworlds/vecs";
+import { ON_UPDATE, World, type Entity } from "@vworlds/vecs";
 import { ClientWorld } from "@vworlds/vecs-client";
 import {
   Arc,
   Motion,
   MotionClock,
+  MotionParams,
   MotionPose,
   MotionState,
   motionPose,
@@ -43,7 +44,7 @@ const CLOCK: Partial<MotionClock> = {
   maxLinearSpeed: 400,
 };
 
-/** A drifting, spinning, damped body. */
+/** A drifting, spinning body. Its entity carries `DAMPING` as its `MotionParams`. */
 const DRIFT: Partial<Motion> = {
   frame: 10,
   x: 1,
@@ -52,13 +53,21 @@ const DRIFT: Partial<Motion> = {
   vx: 3,
   vy: -1,
   w: 0.5,
+};
+
+/** The body constants of a damped body whose center of mass is off its origin. */
+const DAMPING: Partial<MotionParams> = {
   linearDamping: 0.15,
   angularDamping: 0.1,
+  localCenterX: 0.4,
+  localCenterY: -0.2,
 };
 
 /** A ClientWorld with dead reckoning and a `renderFrame` the test sets. */
 class Client {
   public readonly world: ClientWorld;
+  /** The entity that carries the world's `MotionClock`. */
+  public readonly clockEntity: Entity;
   public frame = 0;
   private _now = 0;
 
@@ -73,7 +82,7 @@ class Client {
       this.world.module(PhaserRenderModule, { scene, pixelsPerMeter: PPM });
     }
     this.world.module(DeadReckonedModule, config ?? {});
-    this.world.entity().set(MotionClock, CLOCK);
+    this.clockEntity = this.world.entity().set(MotionClock, CLOCK);
   }
 
   /** Render one frame at `renderFrame`. */
@@ -87,7 +96,7 @@ class Client {
 describe("DeadReckonedModule (client)", () => {
   it("gives a body that arrives with only a baseline a render pose, extrapolated at renderFrame", () => {
     const client = new Client();
-    const body = client.world.entity().set(Motion, DRIFT);
+    const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
 
     client.render(10);
     expect(body.has(Position)).toBe(true);
@@ -103,7 +112,7 @@ describe("DeadReckonedModule (client)", () => {
 
   it("catches up a baseline from long ago in one frame", () => {
     const client = new Client();
-    const body = client.world.entity().set(Motion, DRIFT);
+    const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
 
     client.render(310.5);
 
@@ -112,9 +121,7 @@ describe("DeadReckonedModule (client)", () => {
 
   it("holds a body at rest", () => {
     const client = new Client();
-    const body = client.world
-      .entity()
-      .set(Motion, { frame: 3, x: -4, y: 5, angle: 1, gravityScale: 0 });
+    const body = client.world.entity().set(Motion, { frame: 3, x: -4, y: 5, angle: 1, rest: true });
 
     client.render(3);
     client.render(90.5);
@@ -123,9 +130,141 @@ describe("DeadReckonedModule (client)", () => {
     expect(body.get(Rotation)!.angle).toBeCloseTo(1, 4);
   });
 
+  it("reads whether a body is at rest from the baseline, never from its velocities or the gravity", () => {
+    const client = new Client();
+    // A world with gravity and a body that has velocities: only the baseline's `rest` decides.
+    client.clockEntity.set(MotionClock, { gravityY: -10 });
+    const held = client.world.entity().set(Motion, { ...DRIFT, rest: true });
+    const moving = client.world.entity().set(Motion, DRIFT);
+
+    client.render(20.5);
+
+    expectPose(held, { x: 1, y: 2 });
+    expect(held.get(Rotation)!.angle).toBeCloseTo(0.25, 4);
+    expectPose(moving, pathAt(DRIFT, 20.5, {}, { gravityY: -10 }));
+    expect(moving.get(Position)!.x).toBeGreaterThan(1.5);
+  });
+
+  it("holds a body at rest at its pose, whatever center of mass its constants hold", () => {
+    const client = new Client();
+    const body = client.world
+      .entity()
+      .set(Motion, { frame: 3, x: -4, y: 5, angle: 1, rest: true })
+      .set(MotionParams, DAMPING);
+
+    client.render(3);
+    client.render(90.5);
+
+    // The center of mass is derived from the origin and turned back in f32: a few ulps at most.
+    expect(body.get(Position)!.x).toBeCloseTo(-4, 5);
+    expect(body.get(Position)!.y).toBeCloseTo(5, 5);
+    expect(body.get(Rotation)!.angle).toBeCloseTo(1, 4);
+  });
+
+  it("steps a baseline with its entity's MotionParams, or with the defaults when it has none", () => {
+    const client = new Client();
+    const damped = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
+    const bare = client.world.entity().set(Motion, DRIFT);
+
+    client.render(40.5);
+
+    expectPose(damped, pathAt(DRIFT, 40.5, DAMPING));
+    expectPose(bare, pathAt(DRIFT, 40.5, {}));
+    // The constants matter: the two paths end up apart.
+    const apart = Math.hypot(
+      damped.get(Position)!.x - bare.get(Position)!.x,
+      damped.get(Position)!.y - bare.get(Position)!.y
+    );
+    expect(apart).toBeGreaterThan(0.1);
+  });
+
+  it("applies a gravity scale and fast rotation from the MotionParams", () => {
+    const client = new Client();
+    client.clockEntity.set(MotionClock, { gravityY: -10 });
+    const baseline = { frame: 5, vx: 1, vy: 4, w: 60 };
+    const constants = { gravityScale: 0.25, allowFastRotation: true };
+    const body = client.world.entity().set(Motion, baseline).set(MotionParams, constants);
+
+    client.render(35);
+
+    expectPose(body, pathAt(baseline, 35, constants, { gravityY: -10 }));
+    // The defaults would pull the body down four times as hard: 5 m in a second instead of 1.25 m.
+    const defaults = pathAt(baseline, 35, {}, { gravityY: -10 });
+    expect(body.get(Position)!.y - defaults.y).toBeGreaterThan(3);
+  });
+
+  it("takes new constants at the next baseline, and keeps the old ones until then", () => {
+    const client = new Client();
+    const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
+    client.render(20);
+
+    // The constants alone change nothing: the path is the one the held baseline was taken on.
+    const stronger = { linearDamping: 0.9, angularDamping: 0.7, localCenterX: -0.3 };
+    body.set(MotionParams, stronger);
+    client.render(24.5);
+    expectPose(body, pathAt(DRIFT, 24.5, DAMPING));
+
+    // A newer baseline, received in time, takes the entity's constants as they are by then.
+    const later = pathMotion(DRIFT, 26, DAMPING);
+    body.set(Motion, later);
+    client.render(26.5);
+    client.render(30.25);
+
+    expectPose(body, pathAt(later, 30.25, { ...DAMPING, ...stronger }));
+  });
+
+  it("falls back to the defaults at the next baseline when the constants are gone", () => {
+    const client = new Client();
+    const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
+    client.render(20);
+
+    body.remove(MotionParams);
+    const later = pathMotion(DRIFT, 22, DAMPING);
+    body.set(Motion, later);
+    client.render(22.5);
+    client.render(26.5);
+
+    expectPose(body, pathAt(later, 26.5, {}));
+  });
+
+  it("takes constants that arrive in the same frame as the baseline they belong to", () => {
+    const client = new Client();
+    const body = client.world.entity().set(Motion, DRIFT);
+    client.render(20);
+
+    // One diff: a newer baseline and the constants it needs, applied together.
+    const stronger = { linearDamping: 0.9, localCenterX: -0.3 };
+    const later = pathMotion(DRIFT, 21, {});
+    body.set(MotionParams, stronger).set(Motion, later);
+    client.render(21.5);
+    client.render(27.5);
+
+    expectPose(body, pathAt(later, 27.5, stronger));
+  });
+
+  it("looks the constants up only when it takes a baseline", () => {
+    const client = new Client();
+    const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
+    client.render(10);
+    const get = vi.spyOn(body, "get");
+
+    client.render(10.5);
+    client.render(12);
+    client.render(30.25);
+    expect(get).not.toHaveBeenCalled();
+
+    body.set(Motion, pathMotion(DRIFT, 31, DAMPING));
+    client.render(31.5);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith(MotionParams);
+  });
+
   it("ignores a baseline older than the one it holds", () => {
     const client = new Client();
-    const body = client.world.entity().set(Motion, { ...DRIFT, frame: 20 });
+    const body = client.world
+      .entity()
+      .set(Motion, { ...DRIFT, frame: 20 })
+      .set(MotionParams, DAMPING);
     client.render(20.5);
 
     body.set(Motion, { ...DRIFT, frame: 15, vx: -8 });
@@ -136,7 +275,7 @@ describe("DeadReckonedModule (client)", () => {
 
   it("applies a correction received in time at once", () => {
     const client = new Client();
-    const body = client.world.entity().set(Motion, DRIFT);
+    const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
     client.render(19.6);
 
     const correction = { ...DRIFT, frame: 20, x: 30, y: 2.5, vx: 1 };
@@ -148,7 +287,7 @@ describe("DeadReckonedModule (client)", () => {
 
   it("blends a late correction out over 100 ms", () => {
     const client = new Client();
-    const body = client.world.entity().set(Motion, DRIFT);
+    const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
     client.render(20);
 
     // Frame 18's correction arrives while frame 20.5 renders: 2.5 frames late, 0.3 m off.
@@ -174,7 +313,7 @@ describe("DeadReckonedModule (client)", () => {
     const turned = new Client();
     const tolerant = new Client({ snapDistance: 5, blendMs: 200 });
     const bodies = [far, turned, tolerant].map((client) => {
-      const body = client.world.entity().set(Motion, DRIFT);
+      const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
       client.render(20);
       return body;
     });
@@ -204,7 +343,7 @@ describe("DeadReckonedModule (client)", () => {
     let frame = 12;
     vi.spyOn(world, "renderFrame", "get").mockImplementation(() => frame);
     world.module(DeadReckonedModule);
-    const body = world.entity().set(Motion, DRIFT);
+    const body = world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
 
     world.progress(0, 16);
     expectPose(body, { x: 0, y: 0, angle: 0 });
@@ -217,7 +356,11 @@ describe("DeadReckonedModule (client)", () => {
 
   it("writes the pose before gameplay and render systems, so a DrawBy child keeps up in the same frame", () => {
     const client = new Client(undefined, true);
-    const parent = client.world.entity().set(Motion, DRIFT).set(Arc, { radius: 0.5 });
+    const parent = client.world
+      .entity()
+      .set(Motion, DRIFT)
+      .set(MotionParams, DAMPING)
+      .set(Arc, { radius: 0.5 });
     const child = spawnChild(client.world, parent, { offset: { x: 1, y: 0.5 } });
     const seen: Array<{ x: number; y: number }> = [];
     client.world
@@ -258,22 +401,29 @@ describe("DeadReckonedModule (client)", () => {
   });
 });
 
-/** The baseline's own path at `renderFrame`, sampled the way the extrapolator samples it. */
+/**
+ * The baseline's own path at `renderFrame`, sampled the way the extrapolator samples it, stepped
+ * with `constants` (the body's `MotionParams`; the defaults when empty) in `CLOCK` adjusted by
+ * `clockFields`.
+ */
 function pathAt(
   baseline: Partial<Motion>,
-  renderFrame: number
+  renderFrame: number,
+  constants: Partial<MotionParams> = DAMPING,
+  clockFields: Partial<MotionClock> = {}
 ): { x: number; y: number; angle: number } {
   const motion = Object.assign(new Motion(), baseline);
-  const clock = Object.assign(new MotionClock(), CLOCK);
+  const params = Object.assign(new MotionParams(), constants);
+  const clock = Object.assign(new MotionClock(), CLOCK, clockFields);
   const elapsed = renderFrame - motion.frame;
   const steps = Math.floor(elapsed);
-  const state = motionStateFrom(motion, new MotionState());
+  const state = motionStateFrom(motion, params, new MotionState());
   for (let i = 0; i < steps; i++) {
-    stepMotion(state, motion, clock);
+    stepMotion(state, params, clock);
   }
-  const from = motionPose(state, motion, new MotionPose());
-  stepMotion(state, motion, clock);
-  const to = motionPose(state, motion, new MotionPose());
+  const from = motionPose(state, params, new MotionPose());
+  stepMotion(state, params, clock);
+  const to = motionPose(state, params, new MotionPose());
   const fraction = elapsed - steps;
   return {
     x: from.x + (to.x - from.x) * fraction,
@@ -282,15 +432,23 @@ function pathAt(
   };
 }
 
-/** A baseline on `baseline`'s path at whole frame `frame`, as the server would send it. */
-function pathMotion(baseline: Partial<Motion>, frame: number): Motion {
+/**
+ * A baseline on `baseline`'s path at whole frame `frame` for a body with `constants`, as the
+ * server would send it.
+ */
+function pathMotion(
+  baseline: Partial<Motion>,
+  frame: number,
+  constants: Partial<MotionParams> = DAMPING
+): Motion {
   const motion = Object.assign(new Motion(), baseline);
+  const params = Object.assign(new MotionParams(), constants);
   const clock = Object.assign(new MotionClock(), CLOCK);
-  const state = motionStateFrom(motion, new MotionState());
+  const state = motionStateFrom(motion, params, new MotionState());
   for (let i = motion.frame; i < frame; i++) {
-    stepMotion(state, motion, clock);
+    stepMotion(state, params, clock);
   }
-  const pose = motionPose(state, motion, new MotionPose());
+  const pose = motionPose(state, params, new MotionPose());
   return Object.assign(new Motion(), baseline, {
     frame,
     x: pose.x,

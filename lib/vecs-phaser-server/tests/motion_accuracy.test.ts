@@ -12,6 +12,7 @@ import { World, type Entity } from "@vworlds/vecs";
 import {
   Motion,
   MotionClock,
+  MotionParams,
   MotionPose,
   MotionState,
   motionPose,
@@ -296,7 +297,8 @@ function measure(scenario: Scenario, hz: number, seconds: number): Deviation {
   while (step < baselineStep) {
     progress();
   }
-  const motion = viaWire(Motion, baselineOf(body, scenario, baselineStep));
+  const motion = viaWire(Motion, baselineOf(body, baselineStep));
+  const params = viaWire(MotionParams, paramsOf(scenario));
   const clock = viaWire(MotionClock, {
     stepSeconds,
     subSteps,
@@ -304,7 +306,7 @@ function measure(scenario: Scenario, hz: number, seconds: number): Deviation {
     gravityY: gravity.y,
     maxLinearSpeed,
   });
-  const state = motionStateFrom(motion, new MotionState());
+  const state = motionStateFrom(motion, params, new MotionState());
   const pose = new MotionPose();
 
   const deviation: Deviation = {
@@ -318,8 +320,8 @@ function measure(scenario: Scenario, hz: number, seconds: number): Deviation {
   const lastStep = Math.round(seconds * hz);
   while (step < lastStep) {
     progress();
-    stepMotion(state, motion, clock);
-    motionPose(state, motion, pose);
+    stepMotion(state, params, clock);
+    motionPose(state, params, pose);
 
     const position = body.get(Position)!;
     const angle = body.get(Rotation)!.angle;
@@ -366,11 +368,10 @@ function createBody(world: World, scenario: Scenario): Entity {
   return body;
 }
 
-/** The baseline a server would send for the body: its physics pose, velocities and constants. */
-function baselineOf(body: Entity, scenario: Scenario, frame: number): Partial<Motion> {
+/** The baseline a server would send for the body: its physics pose and velocities. */
+function baselineOf(body: Entity, frame: number): Partial<Motion> {
   const position = body.get(Position)!;
   const velocity = body.get(LinearVelocity)!;
-  const localCenter = scenario.polygon === undefined ? { x: 0, y: 0 } : centroid(scenario.polygon);
   return {
     frame,
     x: position.x,
@@ -379,6 +380,13 @@ function baselineOf(body: Entity, scenario: Scenario, frame: number): Partial<Mo
     vx: velocity.x,
     vy: velocity.y,
     w: body.get(AngularVelocity)!.value,
+  };
+}
+
+/** The constants a server would send for the body in a `MotionParams`. */
+function paramsOf(scenario: Scenario): Partial<MotionParams> {
+  const localCenter = scenario.polygon === undefined ? { x: 0, y: 0 } : centroid(scenario.polygon);
+  return {
     linearDamping: scenario.damping?.linear ?? 0,
     angularDamping: scenario.damping?.angular ?? 0,
     gravityScale: scenario.gravityScale ?? 1,
