@@ -45,7 +45,9 @@ for the damping pair, 8 for the local center and 4 for a gravity scale other tha
 has no damping, its center of mass at the body origin, a gravity scale of 1 and no fast rotation:
 `defaultMotionParams` holds them. A body that never leaves the defaults, such as a bullet, never
 carries the component. Box2D applies no gravity to a body without mass, which the constants cannot
-tell, so a sender sets `gravityScale` to 0 for a kinematic body.
+tell, so a sender sets `gravityScale` to 0 for a kinematic body. Each peer keeps a private
+`MotionParams` per body, copied from the entity's (or from the defaults) when it writes or accepts a
+baseline; `copyMotionParams(source, target)` is that copy, field by field, without allocating.
 
 None of them is in `phaserNetworkComponents`. An application that uses dead reckoning appends
 `phaserMotionComponents` (`MotionClock`, `Motion`, then `MotionParams`) to its own network
@@ -95,9 +97,11 @@ graph LR
 
 A dead-reckoned body carries `Motion` and no render pose on the server, and a streamed one carries
 the render pose and no `Motion`, so each body is on exactly one path; downstream client systems
-cannot tell an extrapolated pose from an interpolated one. See
-[Dead reckoning on the server](../vecs-phaser-server/README.md#dead-reckoning) and
-[on the client](../vecs-phaser-client/README.md#dead-reckoning).
+cannot tell an extrapolated pose from an interpolated one. A body may change path while it lives:
+the server tags or untags it with `DeadReckoned`, and the client keeps its render pose present and
+blends the hand-off. See [Dead reckoning on the server](../vecs-phaser-server/README.md#dead-reckoning),
+[Switching at runtime](../vecs-phaser-server/README.md#switching-at-runtime) and
+[Dead reckoning on the client](../vecs-phaser-client/README.md#dead-reckoning).
 
 Depends on `@vworlds/vecs` and `@vworlds/vecs-wire`.
 

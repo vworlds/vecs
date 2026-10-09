@@ -1,4 +1,15 @@
-import { Exclusive, Module, POST_UPDATE, Traversable } from "@vworlds/vecs";
+import {
+  Exclusive,
+  insertPhaseAfter,
+  Module,
+  ON_STORE,
+  Phase,
+  POST_UPDATE,
+  Traversable,
+  type ComponentClass,
+  type Entity,
+  type World,
+} from "@vworlds/vecs";
 import {
   DrawBy,
   DrawIn,
@@ -7,6 +18,12 @@ import {
   Rotation as RenderRotation,
 } from "@vworlds/vecs-phaser";
 import { Position as PhysicsPosition, Rotation as PhysicsRotation } from "@vworlds/vecs-physics";
+
+/**
+ * Name of the phase in which the pose guards run: right after `ON_STORE`, so after every user
+ * phase, and before `ServerWorld`'s own store phase, which records and sends the frame.
+ */
+export const POSE_GUARD_PHASE = "phaser.PoseGuard";
 
 /**
  * Server-side setup for vecs-backed Phaser worlds, installed with `world.module(PhaserServerModule)`
@@ -50,6 +67,26 @@ import { Position as PhysicsPosition, Rotation as PhysicsRotation } from "@vworl
  * assigned into anyway. An in-place write must always be followed by `modified`, because
  * assignment alone notifies nobody and the hooks, watchers and replication would never see the
  * change.
+ *
+ * ## The unsynced-pose guard
+ *
+ * The two sync systems run in `POST_UPDATE`, so an entity that gets its pose after them, in
+ * `PRE_STORE`, `ON_STORE`, an RPC handler between ticks or any later phase, enters them only on the
+ * next tick, and the frame in flight would carry its render pose at the default (0, 0). A third
+ * system, `phaser.guard.pose`, closes that gap: **no render pose reaches the wire before it
+ * reflects the physics pose, whatever phase created the entity.**
+ *
+ * It runs in {@link POSE_GUARD_PHASE}, a phase inserted right after `ON_STORE` (so after every user
+ * phase) and before `ServerWorld`'s store phase, which records and sends the frame. It drains a
+ * worklist that the `add` hooks of the physics and the render pose fill when an entity holds both
+ * halves of a pair, and copies the physics value into a render pose that differs, change-only and
+ * announced with `modified`, exactly as the sync systems do. An entity that `POST_UPDATE` already
+ * synced costs one comparison. A frame with nothing to drain costs an empty check; modifying a
+ * pose adds no work, and the sync systems are untouched.
+ *
+ * The guard covers an entity created or completed late, not a pose that game code writes late: a
+ * physics pose changed in `ON_STORE` on an entity that was already synced reaches the render pose
+ * on the next tick, as before.
  */
 export class PhaserServerModule extends Module<undefined> {
   public init(): void {
@@ -92,5 +129,69 @@ export class PhaserServerModule extends Module<undefined> {
           }
         }
       );
+
+    installPoseGuard(world);
+  }
+}
+
+// Syncs, before the frame is recorded, every render pose that was created or completed after
+// `phaser.sync.*` ran. The hooks queue an entity only when it holds both halves of a pair, which
+// the second half to arrive always sees, so an entity without a render pose is never queued.
+function installPoseGuard(world: World): void {
+  const guardPhase = world.entity(POSE_GUARD_PHASE).add(Phase);
+  insertPhaseAfter(guardPhase, world.entity(ON_STORE));
+
+  const unsynced = new Set<Entity>();
+  const queueWith = (counterpart: ComponentClass) => (entity: Entity) => {
+    if (entity.has(counterpart)) {
+      unsynced.add(entity);
+    }
+  };
+  world.component(PhysicsPosition).on("add", queueWith(RenderPosition));
+  world.component(RenderPosition).on("add", queueWith(PhysicsPosition));
+  world.component(PhysicsRotation).on("add", queueWith(RenderRotation));
+  world.component(RenderRotation).on("add", queueWith(PhysicsRotation));
+
+  world
+    .system("phaser.guard.pose")
+    .phase(guardPhase)
+    .run(() => {
+      if (unsynced.size === 0) {
+        return;
+      }
+      for (const entity of unsynced) {
+        syncRenderPose(entity);
+      }
+      unsynced.clear();
+    });
+}
+
+// The sync systems' write, for one entity: copy each physics value into its render pose only when
+// it differs, and announce the change. `get` hands out a readonly view, so the in-place write casts
+// it; `modified` follows every write, as in the systems.
+function syncRenderPose(entity: Entity): void {
+  if (entity.destroyed) {
+    return;
+  }
+  const physicsPosition = entity.get(PhysicsPosition);
+  const renderPosition = entity.get(RenderPosition) as RenderPosition | undefined;
+  if (
+    physicsPosition !== undefined &&
+    renderPosition !== undefined &&
+    (renderPosition.x !== physicsPosition.x || renderPosition.y !== physicsPosition.y)
+  ) {
+    renderPosition.x = physicsPosition.x;
+    renderPosition.y = physicsPosition.y;
+    entity.modified(RenderPosition);
+  }
+  const physicsRotation = entity.get(PhysicsRotation);
+  const renderRotation = entity.get(RenderRotation) as RenderRotation | undefined;
+  if (
+    physicsRotation !== undefined &&
+    renderRotation !== undefined &&
+    renderRotation.angle !== physicsRotation.angle
+  ) {
+    renderRotation.angle = physicsRotation.angle;
+    entity.modified(RenderRotation);
   }
 }

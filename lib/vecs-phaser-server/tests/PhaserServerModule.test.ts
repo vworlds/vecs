@@ -1,4 +1,4 @@
-import { Exclusive, ON_STORE, Traversable, type Entity } from "@vworlds/vecs";
+import { Exclusive, ON_STORE, PRE_STORE, Traversable, type Entity } from "@vworlds/vecs";
 import {
   DrawBy,
   DrawIn,
@@ -366,5 +366,150 @@ describe("PhaserServerModule pose sync writes only on change", () => {
     expect(writes).toEqual({ position: 1, rotation: 1 });
     expect(entity.get(RenderPosition)).toMatchObject({ x: 3, y: 4 });
     expect(entity.get(RenderRotation)).toMatchObject({ angle: 1.5 });
+  });
+});
+
+describe("PhaserServerModule pose guard", () => {
+  const LATE_PHASES = [PRE_STORE, ON_STORE] as const;
+
+  it.each(LATE_PHASES)(
+    "syncs a render pose that a system in %s creates, before ServerWorld records the frame",
+    (phase) => {
+      const world = createWorld();
+      world.module(PhaserServerModule);
+      // What each system sees of a new entity's render pose: the user systems of the phase it was
+      // created in see the default, and ServerWorld's store phase sees the physics pose.
+      const seen: Array<{ at: string; x: number }> = [];
+      world
+        .system("test.create")
+        .phase(phase)
+        .run(() => {
+          if (world.frame === 1) {
+            world
+              .entity()
+              .set(PhysicsPosition, { x: 3, y: 4 })
+              .set(PhysicsRotation, { angle: 0.5 })
+              .add(RenderPosition)
+              .add(RenderRotation);
+          }
+        });
+      world
+        .system("test.after-create")
+        .with(RenderPosition)
+        .phase(phase)
+        .each([RenderPosition], (_entity, [position]) => {
+          seen.push({ at: "user", x: position.x });
+        });
+      world
+        .system("test.in-store-phase")
+        .with(RenderPosition)
+        .phase(world.entity(`ServerWorld:${world.name}:Store`))
+        .each([RenderPosition], (_entity, [position]) => {
+          seen.push({ at: "store", x: position.x });
+        });
+
+      world.progress(0, 16);
+
+      expect(seen).toContainEqual({ at: "user", x: 0 });
+      expect(seen).toContainEqual({ at: "store", x: 3 });
+      expect(seen).not.toContainEqual({ at: "store", x: 0 });
+      const entity = [...world.entities.values()].find((candidate) =>
+        candidate.has(RenderPosition)
+      );
+      expect(entity!.get(RenderPosition)).toMatchObject({ x: 3, y: 4 });
+      expect(entity!.get(RenderRotation)).toMatchObject({ angle: 0.5 });
+    }
+  );
+
+  it("runs after every system in ON_STORE and before the systems that record and send the frame", () => {
+    const world = createWorld();
+    world.module(PhaserServerModule);
+    world
+      .system("test.last-user-system")
+      .phase(ON_STORE)
+      .run(() => undefined);
+    world.progress(0, 16);
+
+    const order = world._pipeline.map((system) => system.entity.name);
+    const guard = order.indexOf("phaser.guard.pose");
+
+    expect(guard).toBeGreaterThan(order.indexOf("test.last-user-system"));
+    for (const name of ["View", "Position", "Rotation", "Send"]) {
+      expect(guard).toBeLessThan(order.indexOf(`ServerWorld:test:${name}`));
+    }
+  });
+
+  it("syncs a physics pose that arrives after the render pose, and the other way round", () => {
+    const world = createWorld();
+    world.module(PhaserServerModule);
+    world.progress(0, 16);
+    const renderFirst = world.entity().set(RenderPosition, { x: 0, y: 0 }).add(RenderRotation);
+    const physicsFirst = world.entity().set(PhysicsPosition, { x: 5, y: 6 });
+    let completed = false;
+    // Both arrive in ON_STORE of the next frame, each completing its pair.
+    world
+      .system("test.complete")
+      .phase(ON_STORE)
+      .run(() => {
+        if (!completed) {
+          completed = true;
+          renderFirst.set(PhysicsPosition, { x: 7, y: 8 }).set(PhysicsRotation, { angle: 1 });
+          physicsFirst.set(RenderPosition, { x: 0, y: 0 });
+        }
+      });
+
+    world.progress(16, 16);
+
+    expect(renderFirst.get(RenderPosition)).toMatchObject({ x: 7, y: 8 });
+    expect(renderFirst.get(RenderRotation)).toMatchObject({ angle: 1 });
+    expect(physicsFirst.get(RenderPosition)).toMatchObject({ x: 5, y: 6 });
+  });
+
+  it("writes nothing for a body POST_UPDATE already synced, and nothing in a quiet frame", () => {
+    const world = createWorld();
+    world.module(PhaserServerModule);
+    world
+      .entity()
+      .set(RenderPosition, { x: 0, y: 0 })
+      .set(RenderRotation, { angle: 0 })
+      .set(PhysicsPosition, { x: 1, y: 2 })
+      .set(PhysicsRotation, { angle: 0.5 });
+    // Count the writes after the entity's own, which are not the sync's.
+    const writes = { position: 0, rotation: 0 };
+    world.component(RenderPosition).on("set", () => writes.position++);
+    world.component(RenderRotation).on("set", () => writes.rotation++);
+
+    world.progress(0, 16);
+    const afterFirstFrame = { ...writes };
+    world.progress(16, 16);
+    world.progress(32, 16);
+
+    // The sync wrote each once in POST_UPDATE; the guard found equal values and wrote none.
+    expect(afterFirstFrame).toEqual({ position: 1, rotation: 1 });
+    expect(writes).toEqual({ position: 1, rotation: 1 });
+  });
+
+  it("never creates a render pose, and skips an entity destroyed before the frame ends", () => {
+    const world = createWorld();
+    world.module(PhaserServerModule);
+    const plain = world.entity().set(PhysicsPosition, { x: 3, y: 4 });
+    let doomed: Entity | undefined;
+    world
+      .system("test.spawn-and-destroy")
+      .phase(ON_STORE)
+      .run(() => {
+        if (world.frame === 1) {
+          doomed = world
+            .entity()
+            .set(PhysicsPosition, { x: 1, y: 1 })
+            .set(RenderPosition, { x: 0, y: 0 });
+          doomed.destroy();
+        }
+      });
+
+    expect(() => world.progress(0, 16)).not.toThrow();
+
+    expect(plain.has(RenderPosition)).toBe(false);
+    expect(doomed!.destroyed).toBe(true);
   });
 });

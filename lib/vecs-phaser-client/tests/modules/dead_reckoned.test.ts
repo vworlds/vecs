@@ -2,29 +2,23 @@
 // pose at ClientWorld.renderFrame. These tests drive renderFrame directly; the end-to-end runs
 // against a real server are in lib/vecs-phaser-server/tests/dead_reckoning_replication.test.ts.
 
-import { ON_UPDATE, World, type Entity } from "@vworlds/vecs";
+import { ON_UPDATE, World } from "@vworlds/vecs";
 import { ClientWorld } from "@vworlds/vecs-client";
 import {
   Arc,
   Motion,
   MotionClock,
   MotionParams,
-  MotionPose,
-  MotionState,
-  motionPose,
-  motionStateFrom,
   Offset,
   phaserMotionComponents,
   phaserNetworkComponents,
   Position,
   Rotation,
-  stepMotion,
 } from "@vworlds/vecs-phaser";
 import { describe, expect, it, vi } from "vitest";
 
-import { DeadReckonedModule, PhaserRenderModule } from "../../src/index.js";
-import type { DeadReckonedModuleConfig } from "../../src/index.js";
-import { createMockScene } from "../mock_phaser.js";
+import { DeadReckonedModule } from "../../src/index.js";
+import { Client, CLOCK, DAMPING, DRIFT, pathAt, pathMotion } from "./dead_reckoned_fixtures.js";
 import {
   expectPose,
   expectRendered,
@@ -35,63 +29,6 @@ import {
   SCENE_WIDTH,
   spawnChild,
 } from "./parenting_fixtures.js";
-
-const CLOCK: Partial<MotionClock> = {
-  stepSeconds: Math.fround(1 / 30),
-  subSteps: 4,
-  gravityX: 0,
-  gravityY: 0,
-  maxLinearSpeed: 400,
-};
-
-/** A drifting, spinning body. Its entity carries `DAMPING` as its `MotionParams`. */
-const DRIFT: Partial<Motion> = {
-  frame: 10,
-  x: 1,
-  y: 2,
-  angle: 0.25,
-  vx: 3,
-  vy: -1,
-  w: 0.5,
-};
-
-/** The body constants of a damped body whose center of mass is off its origin. */
-const DAMPING: Partial<MotionParams> = {
-  linearDamping: 0.15,
-  angularDamping: 0.1,
-  localCenterX: 0.4,
-  localCenterY: -0.2,
-};
-
-/** A ClientWorld with dead reckoning and a `renderFrame` the test sets. */
-class Client {
-  public readonly world: ClientWorld;
-  /** The entity that carries the world's `MotionClock`. */
-  public readonly clockEntity: Entity;
-  public frame = 0;
-  private _now = 0;
-
-  public constructor(config?: DeadReckonedModuleConfig, render = false) {
-    this.world = new ClientWorld({
-      networkComponents: [...phaserNetworkComponents, ...phaserMotionComponents],
-    });
-    vi.spyOn(this.world, "renderFrame", "get").mockImplementation(() => this.frame);
-    if (render) {
-      // Installed first, so only the phase order can put the extrapolator ahead of it.
-      const scene = createMockScene(SCENE_WIDTH, SCENE_HEIGHT);
-      this.world.module(PhaserRenderModule, { scene, pixelsPerMeter: PPM });
-    }
-    this.world.module(DeadReckonedModule, config ?? {});
-    this.clockEntity = this.world.entity().set(MotionClock, CLOCK);
-  }
-
-  /** Render one frame at `renderFrame`. */
-  public render(renderFrame: number): void {
-    this.frame = renderFrame;
-    this.world.progress(this._now, 16);
-    this._now += 16;
-  }
-}
 
 describe("DeadReckonedModule (client)", () => {
   it("gives a body that arrives with only a baseline a render pose, extrapolated at renderFrame", () => {
@@ -145,20 +82,27 @@ describe("DeadReckonedModule (client)", () => {
     expect(moving.get(Position)!.x).toBeGreaterThan(1.5);
   });
 
-  it("holds a body at rest at its pose, whatever center of mass its constants hold", () => {
+  it("holds a body at rest at exactly the pose it carries, whatever center of mass its constants hold", () => {
     const client = new Client();
-    const body = client.world
-      .entity()
-      .set(Motion, { frame: 3, x: -4, y: 5, angle: 1, rest: true })
-      .set(MotionParams, DAMPING);
+    // An off-center body, at angles whose cosine and sine round, so a pose derived through the
+    // center of mass and `atan2` would come back a few ulps off.
+    const baselines = [
+      { frame: 3, x: -4.1, y: 5.3, angle: 1 },
+      { frame: 3, x: 2.3, y: -1.7, angle: 0.7 },
+      { frame: 3, x: 9.9, y: 0.1, angle: -2.4 },
+    ].map((pose) => Object.assign(new Motion(), pose, { rest: true }));
+    const bodies = baselines.map((baseline) =>
+      client.world.entity().set(Motion, baseline).set(MotionParams, DAMPING)
+    );
 
     client.render(3);
     client.render(90.5);
 
-    // The center of mass is derived from the origin and turned back in f32: a few ulps at most.
-    expect(body.get(Position)!.x).toBeCloseTo(-4, 5);
-    expect(body.get(Position)!.y).toBeCloseTo(5, 5);
-    expect(body.get(Rotation)!.angle).toBeCloseTo(1, 4);
+    bodies.forEach((body, i) => {
+      expect(body.get(Position)!.x).toBe(baselines[i]!.x);
+      expect(body.get(Position)!.y).toBe(baselines[i]!.y);
+      expect(body.get(Rotation)!.angle).toBe(baselines[i]!.angle);
+    });
   });
 
   it("steps a baseline with its entity's MotionParams, or with the defaults when it has none", () => {
@@ -400,62 +344,3 @@ describe("DeadReckonedModule (client)", () => {
     expect(() => streamedOnly.module(DeadReckonedModule)).toThrow(/phaserMotionComponents/);
   });
 });
-
-/**
- * The baseline's own path at `renderFrame`, sampled the way the extrapolator samples it, stepped
- * with `constants` (the body's `MotionParams`; the defaults when empty) in `CLOCK` adjusted by
- * `clockFields`.
- */
-function pathAt(
-  baseline: Partial<Motion>,
-  renderFrame: number,
-  constants: Partial<MotionParams> = DAMPING,
-  clockFields: Partial<MotionClock> = {}
-): { x: number; y: number; angle: number } {
-  const motion = Object.assign(new Motion(), baseline);
-  const params = Object.assign(new MotionParams(), constants);
-  const clock = Object.assign(new MotionClock(), CLOCK, clockFields);
-  const elapsed = renderFrame - motion.frame;
-  const steps = Math.floor(elapsed);
-  const state = motionStateFrom(motion, params, new MotionState());
-  for (let i = 0; i < steps; i++) {
-    stepMotion(state, params, clock);
-  }
-  const from = motionPose(state, params, new MotionPose());
-  stepMotion(state, params, clock);
-  const to = motionPose(state, params, new MotionPose());
-  const fraction = elapsed - steps;
-  return {
-    x: from.x + (to.x - from.x) * fraction,
-    y: from.y + (to.y - from.y) * fraction,
-    angle: from.angle + (to.angle - from.angle) * fraction,
-  };
-}
-
-/**
- * A baseline on `baseline`'s path at whole frame `frame` for a body with `constants`, as the
- * server would send it.
- */
-function pathMotion(
-  baseline: Partial<Motion>,
-  frame: number,
-  constants: Partial<MotionParams> = DAMPING
-): Motion {
-  const motion = Object.assign(new Motion(), baseline);
-  const params = Object.assign(new MotionParams(), constants);
-  const clock = Object.assign(new MotionClock(), CLOCK);
-  const state = motionStateFrom(motion, params, new MotionState());
-  for (let i = motion.frame; i < frame; i++) {
-    stepMotion(state, params, clock);
-  }
-  const pose = motionPose(state, params, new MotionPose());
-  return Object.assign(new Motion(), baseline, {
-    frame,
-    x: pose.x,
-    y: pose.y,
-    angle: pose.angle,
-    vx: state.vx,
-    vy: state.vy,
-    w: state.w,
-  });
-}

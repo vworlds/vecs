@@ -1,7 +1,7 @@
 import { vi, type MockInstance } from "vitest";
 import { performance } from "node:perf_hooks";
 import { Server2Client, type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
-import { ClientWorld } from "@vworlds/vecs-client";
+import { ClientWorld, type ClientWorldOptions } from "@vworlds/vecs-client";
 import { Decoder } from "@vworlds/vecs-wire";
 import type { ComponentClass, QueryDSL, World } from "@vworlds/vecs";
 import { NetworkClient, Networked, ServerWorld, View } from "../../src/index.js";
@@ -112,6 +112,7 @@ export class ReplicationSim {
       renderMs: this._options.renderMs,
       ackIntervalMs: options.ackIntervalMs ?? this._options.ackIntervalMs,
       link: mergeConditions(this._options.link, options.link),
+      interpolators: options.interpolators,
     });
     this.clients.push(client);
     this._listener.accept(client.serverSocket);
@@ -191,6 +192,8 @@ export interface SimClientOptions {
   link?: Partial<DuplexConditions>;
   /** How often this client acks, in milliseconds. */
   ackIntervalMs?: number;
+  /** Components this client interpolates between server frames; none by default, so they snap. */
+  interpolators?: ClientWorldOptions["interpolators"];
 }
 
 /** One `reset` event the client emitted when it applied a baseline, with the time it did. */
@@ -301,6 +304,7 @@ export class SimClient {
       networkComponents: config.networkComponents,
       serverTickIntervalMs: config.tickMs,
       ackIntervalMs: DISABLED_TIMER_MS,
+      interpolators: config.interpolators,
     });
     this.world.events.on("reset", (event) => {
       this.stats.resets.push({ ...event, atMs: clock.now });
@@ -393,6 +397,7 @@ interface SimClientConfig {
   renderMs: number;
   ackIntervalMs: number;
   link: DuplexConditions;
+  interpolators: ClientWorldOptions["interpolators"];
 }
 
 interface ResolvedOptions {

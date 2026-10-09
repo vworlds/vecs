@@ -3,7 +3,7 @@
 // baseline. Each scenario counts the baselines the server writes; what reaches clients, and when,
 // is in dead_reckoning_replication.test.ts.
 
-import { World, type Entity } from "@vworlds/vecs";
+import { ON_STORE, ON_UPDATE, POST_UPDATE, PRE_STORE, World, type Entity } from "@vworlds/vecs";
 import {
   defaultMotionParams,
   Motion,
@@ -39,7 +39,7 @@ import {
 } from "@vworlds/vecs-physics";
 import { Networked, ServerWorld } from "@vworlds/vecs-server";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { DeadReckoned, DeadReckonedModule, type DeadReckonedOptions } from "../src/index.js";
 
@@ -109,6 +109,7 @@ class Server {
   public disc(options: {
     x?: number;
     y?: number;
+    angle?: number;
     vx?: number;
     vy?: number;
     w?: number;
@@ -119,15 +120,22 @@ class Server {
     insomniac?: boolean;
     polygon?: Vec2[];
     restitution?: number;
+    /** Stream the body's render pose instead of dead reckoning it. */
+    streamed?: boolean;
   }): Entity {
     const body = this.world
       .entity()
       .add(Networked)
-      .add(DeadReckoned)
       .set(Body, { type: BodyType.Dynamic, bullet: options.bullet ?? false })
       .set(PhysicsPosition, { x: options.x ?? 0, y: options.y ?? 0 })
+      .set(PhysicsRotation, { angle: options.angle ?? 0 })
       .set(LinearVelocity, { x: options.vx ?? 0, y: options.vy ?? 0 })
       .set(AngularVelocity, { value: options.w ?? 0 });
+    if (options.streamed === true) {
+      body.add(RenderPosition).add(RenderRotation);
+    } else {
+      body.add(DeadReckoned);
+    }
     if (options.damping !== undefined) {
       body.set(Damping, options.damping);
     }
@@ -574,6 +582,305 @@ describe("the body constants in MotionParams", () => {
   });
 });
 
+describe("switching the tag at runtime", () => {
+  const LATE_PHASES = [ON_UPDATE, POST_UPDATE, PRE_STORE, ON_STORE] as const;
+
+  it("gives a body that leaves dead reckoning its render pose, and takes away Motion, MotionParams and the prediction", () => {
+    const server = new Server();
+    const container = server.disc({
+      x: 3,
+      y: -2,
+      angle: 0.7,
+      vx: 1,
+      vy: 0.5,
+      w: 0.4,
+      damping: DAMPING,
+      polygon: QUADRILATERAL,
+    });
+    server.step(5);
+    expect(container.has(MotionParams)).toBe(true);
+    expect(predictionOf(container)).toBeDefined();
+
+    container.remove(DeadReckoned);
+
+    // Outside a system the switch completes at once.
+    expect(container.has(Motion)).toBe(false);
+    expect(container.has(MotionParams)).toBe(false);
+    expect(predictionOf(container)).toBeUndefined();
+    const position = { ...container.get(PhysicsPosition)! };
+    expect(container.get(RenderPosition)).toMatchObject({ x: position.x, y: position.y });
+    expect(container.get(RenderRotation)).toMatchObject({
+      angle: container.get(PhysicsRotation)!.angle,
+    });
+    // The streamed sync takes over.
+    server.step(3);
+    const moved = container.get(PhysicsPosition)!;
+    expect(moved.x).not.toBe(position.x);
+    expect(container.get(RenderPosition)).toMatchObject({ x: moved.x, y: moved.y });
+    expect(server.framesOf(container)).toHaveLength(1);
+  });
+
+  it.each(LATE_PHASES)(
+    "gives a body that a system in %s takes out of dead reckoning its render pose by the end of the frame",
+    (phase) => {
+      const server = new Server();
+      const rock = server.disc({ x: 1, y: 2, angle: 0.2, vx: 1, w: 0.5 });
+      server.step(3);
+      const switchFrame = server.world.frame;
+      server.world
+        .system("test.leave")
+        .phase(phase)
+        .run(() => {
+          if (server.world.frame === switchFrame) {
+            rock.remove(DeadReckoned);
+          }
+        });
+
+      server.step();
+
+      expect(rock.has(Motion)).toBe(false);
+      expect(predictionOf(rock)).toBeUndefined();
+      const position = rock.get(PhysicsPosition)!;
+      expect(rock.get(RenderPosition)).toMatchObject({ x: position.x, y: position.y });
+      expect(rock.get(RenderRotation)).toMatchObject({ angle: rock.get(PhysicsRotation)!.angle });
+    }
+  );
+
+  it.each(LATE_PHASES)(
+    "removes the render pose of a streamed body that a system in %s makes dead reckoned, and writes its first baseline in that frame",
+    (phase) => {
+      const server = new Server();
+      const rock = server.disc({ x: 1, y: 2, angle: 0.2, vx: 1, w: 0.5, streamed: true });
+      server.step(3);
+      expect(rock.has(Motion)).toBe(false);
+      const switchFrame = server.world.frame;
+      server.world
+        .system("test.join")
+        .phase(phase)
+        .run(() => {
+          if (server.world.frame === switchFrame) {
+            rock.add(DeadReckoned);
+          }
+        });
+
+      server.step();
+
+      expect(rock.has(RenderPosition)).toBe(false);
+      expect(rock.has(RenderRotation)).toBe(false);
+      expect(server.framesOf(rock)).toEqual([switchFrame]);
+      const position = rock.get(PhysicsPosition)!;
+      expect(rock.get(Motion)).toMatchObject({
+        frame: switchFrame,
+        x: Math.fround(position.x),
+        y: Math.fround(position.y),
+      });
+    }
+  );
+
+  it("starts a returning body fresh: a new baseline, and its constants sent again", () => {
+    const server = new Server();
+    const container = server.disc({
+      x: -4,
+      vx: 2,
+      vy: 1,
+      w: 0.5,
+      damping: DAMPING,
+      polygon: QUADRILATERAL,
+    });
+    server.step(HZ);
+    const first = server.framesOf(container);
+    expect(server.paramFramesOf(container)).toEqual(first);
+
+    container.remove(DeadReckoned);
+    server.step(HZ);
+    expect(container.has(MotionParams)).toBe(false);
+    container.add(DeadReckoned);
+    server.step();
+
+    const returned = server.world.frame - 1;
+    expect(server.framesOf(container)).toEqual([...first, returned]);
+    // The constants differ from the defaults, so they come back in the same frame.
+    expect(server.paramFramesOf(container)).toEqual([...first, returned]);
+    expect(container.get(MotionParams)).toMatchObject({
+      linearDamping: Math.fround(0.15),
+      angularDamping: Math.fround(0.1),
+    });
+    expect(container.get(Motion)).toMatchObject({ frame: returned, rest: false });
+    expect(container.has(RenderPosition)).toBe(false);
+  });
+
+  it("keeps the structural rules once a switch completes", () => {
+    const server = new Server();
+    const rock = server.disc({ vx: 1, streamed: true });
+
+    rock.add(DeadReckoned);
+    expect(() => rock.set(RenderPosition, { x: 1, y: 1 })).toThrow(/is DeadReckoned/);
+    expect(() => rock.set(RenderRotation, { angle: 1 })).toThrow(/is DeadReckoned/);
+
+    rock.remove(DeadReckoned);
+    expect(() => rock.set(RenderPosition, { x: 1, y: 1 })).not.toThrow();
+  });
+
+  it("meets no render-pose check when the tag is removed and added in one flush, or added and removed", () => {
+    const server = new Server();
+    const dead = server.disc({ vx: 1, w: 0.5 });
+    const streamed = server.disc({ x: 4, vx: 1, w: 0.5, streamed: true });
+    server.step(3);
+
+    server.world.defer(() => {
+      dead.remove(DeadReckoned);
+      dead.add(DeadReckoned);
+      streamed.add(DeadReckoned);
+      streamed.remove(DeadReckoned);
+    });
+    server.step();
+
+    expect(dead.has(DeadReckoned)).toBe(true);
+    expect(dead.has(RenderPosition)).toBe(false);
+    expect(dead.has(Motion)).toBe(true);
+    expect(server.framesOf(dead)).toHaveLength(2);
+    expect(streamed.has(DeadReckoned)).toBe(false);
+    expect(streamed.has(Motion)).toBe(false);
+    expect(predictionOf(streamed)).toBeUndefined();
+    const position = streamed.get(PhysicsPosition)!;
+    expect(streamed.get(RenderPosition)).toMatchObject({ x: position.x, y: position.y });
+  });
+
+  it("destroys a dead-reckoned entity without writing to it", () => {
+    const server = new Server();
+    const doomed = server.disc({ vx: 1, w: 0.5 });
+    const inSystem = server.disc({ x: 3, vx: 1, w: 0.5 });
+    server.step(3);
+
+    doomed.destroy();
+    server.world
+      .system("test.destroy")
+      .phase(ON_UPDATE)
+      .run(() => inSystem.destroy());
+    expect(() => server.step(2)).not.toThrow();
+
+    expect(doomed.destroyed).toBe(true);
+    expect(inSystem.destroyed).toBe(true);
+    expect(server.world.getEntity(doomed.eid)).toBeUndefined();
+    expect(server.world.getEntity(inSystem.eid)).toBeUndefined();
+  });
+});
+
+describe("a baseline at rest", () => {
+  it("holds exactly the pose it carries, for an off-center body", () => {
+    const server = new Server();
+    const angles = [0.7, -2.4, 3.1];
+    const bodies = angles.map((angle, i) =>
+      server.disc({ x: 2.3 + 20 * i, y: -1.7, angle, polygon: QUADRILATERAL })
+    );
+
+    server.step();
+
+    for (const body of bodies) {
+      const motion = body.get(Motion)!;
+      expect(motion.rest).toBe(true);
+      // Neither the center of mass nor atan2 touches the pose a baseline at rest holds.
+      const held = predictionOf(body)!.pose;
+      expect(held.x).toBe(motion.x);
+      expect(held.y).toBe(motion.y);
+      expect(held.angle).toBe(motion.angle);
+    }
+  });
+
+  it("is not corrected by the round trip the integrator would add", () => {
+    const server = new Server();
+    const body = server.disc({ x: 2.3, y: -1.7, angle: 0.7, polygon: QUADRILATERAL });
+    server.step();
+    const motion = body.get(Motion)!;
+    // What deriving the pose through the integrator's state gives for this off-center body.
+    const params = body.has(MotionParams) ? body.get(MotionParams)! : defaultMotionParams;
+    const state = motionStateFrom(motion, params, new MotionState());
+    const derived = motionPose(state, params, new MotionPose());
+    const held = predictionOf(body)!.pose;
+
+    expect(derived.x !== motion.x || derived.y !== motion.y || derived.angle !== motion.angle).toBe(
+      true
+    );
+    expect(held).toEqual({ x: motion.x, y: motion.y, angle: motion.angle });
+  });
+});
+
+describe("the MotionParams write", () => {
+  it("goes through the callback form of ensure, so it holds outside deferred mode too", () => {
+    const server = new Server();
+    const container = server.disc({ vx: 1, damping: DAMPING, polygon: QUADRILATERAL });
+    const ensure = vi.spyOn(container, "ensure");
+
+    server.step();
+
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(ensure).toHaveBeenCalledWith(MotionParams, expect.any(Function));
+    expect(container.get(MotionParams)).toMatchObject({ linearDamping: Math.fround(0.15) });
+  });
+});
+
+describe("the pose guard", () => {
+  it("writes the first baseline of a body created after POST_UPDATE in the frame it was created", () => {
+    const server = new Server();
+    let created: Entity | undefined;
+    let createdAt = 0;
+    server.world
+      .system("test.spawn")
+      .phase(ON_STORE)
+      .run(() => {
+        if (created === undefined) {
+          createdAt = server.world.frame;
+          created = server.disc({ x: 3, y: 4, angle: 0.5, vx: 2 });
+        }
+      });
+
+    server.step();
+
+    expect(server.framesOf(created!)).toEqual([createdAt]);
+    // No Box2D body exists yet to read velocities from, so the baseline holds the pose at rest.
+    expect(created!.get(Motion)).toMatchObject({ frame: createdAt, x: 3, y: 4, rest: true });
+    expect(created!.get(Motion)!.angle).toBeCloseTo(0.5, 6);
+
+    // The first step creates the body, finds it off its held pose and corrects the baseline.
+    server.step();
+    expect(server.framesOf(created!)).toEqual([createdAt, createdAt + 1]);
+    expect(created!.get(Motion)).toMatchObject({ rest: false });
+    expect(created!.get(Motion)!.vx).toBeCloseTo(2, 5);
+  });
+
+  it("writes nothing more for a body POST_UPDATE already primed", () => {
+    const server = new Server();
+    let created: Entity | undefined;
+    server.world
+      .system("test.spawn")
+      .phase(ON_UPDATE)
+      .run(() => {
+        created ??= server.disc({ x: 3, y: 4, vx: 2 });
+      });
+
+    server.step();
+
+    expect(server.framesOf(created!)).toHaveLength(1);
+  });
+
+  it("does not write a baseline for an entity that lost its tag before the frame ended", () => {
+    const server = new Server();
+    server.world
+      .system("test.spawn-and-leave")
+      .phase(PRE_STORE)
+      .run(() => {
+        if (server.world.frame === 1) {
+          const rock = server.disc({ x: 3, y: 4, vx: 2 });
+          rock.remove(DeadReckoned);
+        }
+      });
+
+    server.step();
+
+    expect(server.baselines).toEqual([]);
+  });
+});
+
 describe("sector transfer", () => {
   it("keeps the body dead reckoned and re-baselines it at the destination's frame", () => {
     const source = new Server({}, { x: 0, y: 0 }, "source");
@@ -596,6 +903,26 @@ describe("sector transfer", () => {
     expect(motion.vx).toBeCloseTo(2, 5);
   });
 });
+
+interface Pose {
+  x: number;
+  y: number;
+  angle: number;
+}
+
+/**
+ * The server-local prediction of `entity`, or `undefined`. Its class is private to the module, so it
+ * is found by name.
+ */
+function predictionOf(entity: Entity): { primed: boolean; pose: Pose } | undefined {
+  let found: { primed: boolean; pose: Pose } | undefined;
+  entity.components.forEach((component) => {
+    if (component.constructor.name === "MotionPrediction") {
+      found = component as { primed: boolean; pose: Pose };
+    }
+  });
+  return found;
+}
 
 /** The `MotionClock` the module created in `world`. */
 function clockOf(world: ServerWorld): MotionClock {

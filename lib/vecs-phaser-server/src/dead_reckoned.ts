@@ -1,5 +1,6 @@
 import { DontSnapshot, Module, POST_UPDATE, With, type Entity } from "@vworlds/vecs";
 import {
+  copyMotionParams,
   defaultMotionParams,
   Motion,
   MotionClock,
@@ -20,7 +21,7 @@ import {
 } from "@vworlds/vecs-physics";
 import { Networked, ServerWorld } from "@vworlds/vecs-server";
 
-import { PhaserServerModule } from "./PhaserServerModule.js";
+import { PhaserServerModule, POSE_GUARD_PHASE } from "./PhaserServerModule.js";
 
 /**
  * Server-only tag that sends a body's pose by dead reckoning instead of streaming it.
@@ -33,14 +34,20 @@ import { PhaserServerModule } from "./PhaserServerModule.js";
  * differ from the defaults, the entity also carries a {@link MotionParams}, which the module adds
  * and keeps up to date.
  *
- * The tag is structural, so the guarantees hold whatever order an entity is built in:
+ * The tag is structural and may be added or removed at any time, so the guarantees hold whatever
+ * order an entity is built in, and a body can change path while it lives:
  *
  * - Adding it adds `Motion`, the physics `Rotation` and a server-local prediction, and removes any
- *   render `Position` and `Rotation` the entity carried.
- * - Adding a render `Position` or `Rotation` to an entity that carries it throws.
+ *   render `Position` and `Rotation` the entity carried. The first baseline is written in the same
+ *   frame, so clients get the `Motion` and the removal of the render pose in one diff.
+ * - Removing it removes `Motion`, `MotionParams` and the prediction, and gives the entity a render
+ *   `Position` and `Rotation` that hold the physics pose, in the same frame.
+ * - Once a switch completes, a dead-reckoned entity carries no render pose, and adding a render
+ *   `Position` or `Rotation` to one throws. The switch itself never trips that check.
  *
- * Decide it at spawn. Removing the tag, or adding it to a body that clients already stream, is not
- * supported: nothing turns a dead-reckoned body back into a streamed one.
+ * A switch costs a baseline (about 26 bytes) one way and a pose update the other, and clients blend
+ * the hand-off, so switch on a change of state, such as dead reckoning a body while it drifts and
+ * streaming it while a joint or a force drives it, not every frame.
  *
  * It is not a network component: clients see the `Motion` it brings, never the tag. A subtree
  * snapshot carries it like any other tag, so a body that moves to another world stays dead
@@ -116,8 +123,40 @@ export interface DeadReckonedOptions {
  * entity's `MotionParams`, or with the defaults when it has none. Only when they differ does it add
  * the component, or update it in place, and announce it with `modified` in the same frame as the
  * `Motion`, so both land in the same diff. A body with default constants, such as a bullet, never
- * carries one. Once added it is kept and updated, never removed, and a baseline at rest leaves it
- * untouched. Clients take the entity's `MotionParams` when they take the baseline.
+ * carries one. Once added it is kept and updated for as long as the entity stays dead reckoned (it
+ * goes with the tag), and a baseline at rest leaves it untouched. Clients take the entity's
+ * `MotionParams` when they take the baseline.
+ *
+ * A baseline at rest bypasses the integrator on both ends: the prediction holds exactly the
+ * baseline's `x`, `y` and `angle`, as clients do, with no center-of-mass round trip and no `atan2`.
+ *
+ * ## Switching at runtime
+ *
+ * {@link DeadReckoned} may be added or removed at any time:
+ *
+ * - **Adding it** to a streamed body removes its render pose and writes the first baseline in the
+ *   same frame, so clients get the `Motion` and the render pose's removal in one diff.
+ * - **Removing it** removes `Motion`, `MotionParams` and the prediction, and adds a render
+ *   `Position` and `Rotation` that hold the current physics pose, in the same frame. Called outside
+ *   a system, the removal completes at once. Called from a system, the removals apply when its
+ *   commands flush and the render pose is added by the pose guard at the end of the frame, so a
+ *   remove and an add of the tag in one flush never meets the check that rejects a render pose on a
+ *   dead-reckoned entity.
+ *
+ * Clients keep the render pose present throughout and blend the hand-off. Switch on a change of
+ * state, not every frame: dead reckon a body while it drifts, stream it while joints or forces
+ * drive it.
+ *
+ * ## The pose guard
+ *
+ * An entity that becomes dead reckoned after `POST_UPDATE`, or is created there, would otherwise
+ * ship its default `Motion` (frame 0 at the origin) until the next tick. The system
+ * `phaser.guard.motion` runs in the phase that {@link PhaserServerModule} places after `ON_STORE`
+ * and before `ServerWorld`'s store phase, and writes the first baseline of every entity whose
+ * prediction is still unprimed, so **no `Motion` reaches the wire before it reflects the physics
+ * pose**. An entity that `phaser.sync.motion` primed in `POST_UPDATE` costs one check; a frame with
+ * nothing queued costs an empty check. A body whose Box2D body does not exist yet gets a baseline at
+ * rest at its physics pose, and its first step corrects it with the real velocities.
  *
  * Per body per step the system steps the integrator once, reads its pose and compares; it allocates
  * nothing and looks up no component. The prediction keeps its own copy of the constants, taken when
@@ -146,6 +185,12 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
 
     world.module(PhaserServerModule);
     world.component(MotionPrediction).snapshotPolicy(DontSnapshot);
+
+    // Entities whose first baseline may not be written yet, and entities that left dead reckoning
+    // and are due a render pose. `phaser.guard.motion` drains both before the frame is recorded.
+    const unprimed = new Set<Entity>();
+    const released = new Set<Entity>();
+
     world
       .component(DeadReckoned)
       .add(With, world.component(Motion).eid)
@@ -154,7 +199,30 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
       .on("add", (entity) => {
         entity.remove(RenderPosition);
         entity.remove(RenderRotation);
+        unprimed.add(entity);
+      })
+      .on("remove", (entity) => {
+        // The hook also fires while the entity is destroyed, and a dying entity takes no writes.
+        if (entity.destroyed) {
+          return;
+        }
+        entity.remove(Motion);
+        entity.remove(MotionParams);
+        entity.remove(MotionPrediction);
+        if (world.deferred) {
+          // The render pose is added by the guard at the end of the frame, not by a command queued
+          // here: a command queued behind a later re-add of the tag in the same flush would meet the
+          // check below and throw. The guard looks at the entity as it is by then.
+          released.add(entity);
+        } else {
+          givePose(entity);
+        }
       });
+    world.component(PhysicsPosition).on("add", (entity) => {
+      if (entity.has(DeadReckoned)) {
+        unprimed.add(entity);
+      }
+    });
     const rejectRenderPose = (entity: Entity): void => {
       if (entity.has(DeadReckoned)) {
         throw new Error(
@@ -287,20 +355,97 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
       // The constants ride in MotionParams, which is written only when the body's differ from the
       // entity's (or the defaults, for an entity with none), in the same frame as the baseline. A
       // baseline at rest never steps, so it leaves them alone. `ensure` adds the component when it
-      // is missing and announces an existing one as modified.
+      // is missing and announces an existing one as modified; the callback form works outside
+      // deferred mode too, where the write must land before the announcement.
       let params: Readonly<MotionParams> = entity.get(MotionParams) ?? defaultMotionParams;
       if (!motion.rest && differsFromBody(params, scratch)) {
-        const next = entity.ensure(MotionParams);
-        assignFromBody(next, scratch);
-        params = next;
+        params = entity.ensure(MotionParams, (next) => assignFromBody(next, scratch));
       }
-      copyParams(params, prediction.params);
+      copyMotionParams(params, prediction.params);
 
-      motionStateFrom(motion, prediction.params, prediction.state);
-      motionPose(prediction.state, prediction.params, prediction.pose);
+      if (motion.rest) {
+        // A baseline at rest bypasses the integrator: peers hold exactly its pose, so the prediction
+        // does too. Deriving it from the integrator state would round-trip the pose through the
+        // center of mass and `atan2`, and drift from what clients hold for an off-center body.
+        prediction.pose.x = motion.x;
+        prediction.pose.y = motion.y;
+        prediction.pose.angle = motion.angle;
+      } else {
+        motionStateFrom(motion, prediction.params, prediction.state);
+        motionPose(prediction.state, prediction.params, prediction.pose);
+      }
       prediction.frame = frame;
       prediction.rest = motion.rest;
       prediction.primed = true;
+    }
+
+    // The pose guard. It runs after every user phase and before the frame is recorded, so a body that
+    // became dead reckoned, or was created, after `phaser.sync.motion` ran this tick still has its
+    // first baseline, and one that left dead reckoning has its render pose, in the frame that ships.
+    world
+      .system("phaser.guard.motion")
+      .phase(POSE_GUARD_PHASE)
+      .run(() => {
+        if (released.size > 0) {
+          releasePoses();
+        }
+        if (unprimed.size > 0) {
+          primeBaselines(world.frame);
+        }
+      });
+
+    // Gives every entity that left dead reckoning, and was not given the tag back, the render pose
+    // its physics pose stands for.
+    function releasePoses(): void {
+      for (const entity of released) {
+        if (!entity.destroyed && !entity.has(DeadReckoned)) {
+          givePose(entity);
+        }
+      }
+      released.clear();
+    }
+
+    // Writes the first baseline of every dead-reckoned entity that `phaser.sync.motion` has not
+    // primed. The tick's step has not run for an entity that has no Box2D body yet, so its baseline
+    // is at rest at the physics pose, and the next step corrects it with the body's velocities.
+    function primeBaselines(frame: number): void {
+      for (const entity of unprimed) {
+        if (entity.destroyed || !entity.has(DeadReckoned)) {
+          continue;
+        }
+        // `get` hands out readonly views; the guard writes in place and announces it, as the system does.
+        const prediction = entity.get(MotionPrediction) as MotionPrediction | undefined;
+        const motion = entity.get(Motion) as Motion | undefined;
+        const position = entity.get(PhysicsPosition);
+        const rotation = entity.get(PhysicsRotation);
+        if (
+          prediction === undefined ||
+          prediction.primed ||
+          motion === undefined ||
+          position === undefined ||
+          rotation === undefined
+        ) {
+          continue;
+        }
+        prediction.lastX = position.x;
+        prediction.lastY = position.y;
+        prediction.lastAngle = rotation.angle;
+        writeBaseline(entity, position, rotation, motion, prediction, frame);
+      }
+      unprimed.clear();
+    }
+
+    // The render pose of a physics pose, for an entity that has none: `Position` and `Rotation` hold
+    // the physics values it carries. An entity that already has a render component keeps it.
+    function givePose(entity: Entity): void {
+      const position = entity.get(PhysicsPosition);
+      if (position !== undefined && !entity.has(RenderPosition)) {
+        entity.set(RenderPosition, { x: position.x, y: position.y });
+      }
+      const rotation = entity.get(PhysicsRotation);
+      if (rotation !== undefined && !entity.has(RenderRotation)) {
+        entity.set(RenderRotation, { angle: rotation.angle });
+      }
     }
   }
 }
@@ -311,7 +456,10 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
  * subtree snapshot, so a restored body starts unprimed and gets a new baseline.
  */
 class MotionPrediction {
-  /** Set once the first baseline is written; an unprimed prediction writes one on its next step. */
+  /**
+   * Set once the first baseline is written. An unprimed prediction gets one on the next step of
+   * `phaser.sync.motion`, or from the pose guard at the end of the frame, whichever comes first.
+   */
   public primed = false;
 
   /** The baseline holds the body still (`Motion.rest`), so the prediction is not stepped. */
@@ -367,15 +515,6 @@ function assignFromBody(params: MotionParams, body: Readonly<BodyMotion>): void 
   params.localCenterY = f32(body.localCenterY);
   params.gravityScale = f32(body.gravityScale);
   params.allowFastRotation = body.allowFastRotation;
-}
-
-function copyParams(source: Readonly<MotionParams>, target: MotionParams): void {
-  target.linearDamping = source.linearDamping;
-  target.angularDamping = source.angularDamping;
-  target.localCenterX = source.localCenterX;
-  target.localCenterY = source.localCenterY;
-  target.gravityScale = source.gravityScale;
-  target.allowFastRotation = source.allowFastRotation;
 }
 
 function requireNetworkComponents(world: ServerWorld): void {

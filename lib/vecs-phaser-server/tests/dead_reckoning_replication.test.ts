@@ -3,7 +3,7 @@
 // lib/vecs-server/tests/harness. It checks what clients render against the server's physics pose,
 // what crosses the wire, and prints the bandwidth dead reckoning saves.
 
-import { ON_STORE, type Entity } from "@vworlds/vecs";
+import { ON_STORE, PRE_STORE, type Entity } from "@vworlds/vecs";
 import {
   Motion,
   MotionClock,
@@ -35,6 +35,7 @@ import { Decoder } from "@vworlds/vecs-wire";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { DeadReckonedModule as ClientDeadReckonedModule } from "../../vecs-phaser-client/src/modules/dead_reckoned.js";
+import { phaserInterpolators } from "../../vecs-phaser-client/src/sync.js";
 import { symmetric, type DuplexConditions } from "../../vecs-server/tests/harness/lossy_link.js";
 import { ReplicationSim, type SimClient } from "../../vecs-server/tests/harness/replication_sim.js";
 import {
@@ -61,6 +62,12 @@ const POSITION_TOLERANCE = 0.01;
 const ANGLE_TOLERANCE = 0.01;
 /** How long after a correction's frame a client's pose may still be off. */
 const TRANSIENT_MS = 150;
+/**
+ * How many server frames before the frame of a switch to dead reckoning a streamed body may already
+ * hold still on a client: the switching diff removes its render pose, so there is nothing to
+ * interpolate toward once its last streamed update has been shown, and a lost update lengthens that.
+ */
+const HANDOFF_LEAD_FRAMES = 4;
 
 let sim: ReplicationSim | undefined;
 const bench: string[] = [];
@@ -100,6 +107,10 @@ class Run {
     link?: DuplexConditions;
     deadReckoning?: boolean;
     options?: DeadReckonedOptions;
+    /** Interpolate the client's streamed poses between server frames, as a game client does. */
+    interpolated?: boolean;
+    /** The client extrapolator's `blendMs`. */
+    blendMs?: number;
   }) {
     this.sim = new ReplicationSim({
       networkComponents: NETWORK_COMPONENTS,
@@ -119,9 +130,10 @@ class Run {
         frames.push(motion.frame);
         this.baselines.set(entity.eid, frames);
       });
+      // Every body's physics pose, dead reckoned or streamed: a body may switch between the two.
       server
         .system("test.truth")
-        .with(DeadReckoned, PhysicsPosition, PhysicsRotation)
+        .with(PhysicsPosition, PhysicsRotation)
         .phase(ON_STORE)
         .each([PhysicsPosition, PhysicsRotation], (entity, [position, rotation]) => {
           let poses = this.truth.get(server.frame);
@@ -132,8 +144,10 @@ class Run {
           poses.set(entity.eid, { x: position.x, y: position.y, angle: rotation.angle });
         });
     }
-    this.client = this.sim.addClient();
-    this.client.world.module(ClientDeadReckonedModule);
+    this.client = this.sim.addClient({
+      interpolators: options.interpolated === true ? phaserInterpolators() : undefined,
+    });
+    this.client.world.module(ClientDeadReckonedModule, { blendMs: options.blendMs });
   }
 
   /** The server's pose of `eid` at fractional frame `frame`, interpolated as a client would. */
@@ -485,6 +499,235 @@ describe("streamed bodies", () => {
     expect(seen.get(RenderRotation)!.angle).toBe(Math.fround(explosion.get(RenderRotation)!.angle));
     expect(seen.has(Motion)).toBe(false);
   });
+});
+
+describe("a body switched between a streamed pose and dead reckoning", () => {
+  /** A streamed decoy that changes every tick, so frames keep flowing and the render frame advances. */
+  function addTraffic(run: Run): void {
+    const decoy = run.sim.server.entity().add(Networked).set(RenderPosition, { x: 50, y: 50 });
+    run.sim.onTick((tick) => {
+      decoy.set(RenderPosition, { x: 50 + tick * 0.01, y: 50 });
+    });
+  }
+
+  /**
+   * A body gliding at constant velocity, streamed, then dead reckoned from t = 2 s, then streamed
+   * again from t = 4 s, over a clean link with an interpolating client. The client's render pose is
+   * sampled at every render frame, and each step is compared with the `v * dt` it should make.
+   */
+  function glide(blendMs: number): {
+    catchUp: number;
+    stall: number;
+    sideways: number;
+    turn: number;
+  } {
+    const run = new Run({
+      seed: 11,
+      link: symmetric({ oneWayMs: 20 }),
+      interpolated: true,
+      blendMs,
+    });
+    addTraffic(run);
+    const v = { x: 0.8, y: 0.6 };
+    const w = 0.5;
+    const body = disc(run, { x: 0, y: 0, vx: v.x, vy: v.y, w, streamed: true });
+    run.sim.onTick((tick) => {
+      if (tick === 2 * HZ) {
+        body.add(DeadReckoned);
+      }
+    });
+    run.sim.server
+      .system("test.release")
+      .phase(PRE_STORE)
+      .run(() => {
+        if (run.sim.server.frame === 4 * HZ + 1) {
+          body.remove(DeadReckoned);
+        }
+      });
+    const samples: Array<{ t: number } & Pose> = [];
+    run.client.world
+      .system("test.sample")
+      .with(RenderPosition, RenderRotation)
+      .phase(ON_STORE)
+      .each([RenderPosition, RenderRotation], (entity, [position, rotation]) => {
+        if (entity.eid === body.eid) {
+          samples.push({
+            t: run.sim.clock.now,
+            x: position.x,
+            y: position.y,
+            angle: rotation.angle,
+          });
+        }
+      });
+
+    run.sim.run(6000);
+
+    // Each step is split into what it moves along the velocity, beyond what `v * dt` says it
+    // should (a catch-up) or short of it (a stall), and what it moves across it.
+    const dt = 1 / 60;
+    const speed = Math.hypot(v.x, v.y);
+    let catchUp = 0;
+    let stall = 0;
+    let sideways = 0;
+    let turn = 0;
+    // From the second second on, once frames are flowing and the first baseline has settled.
+    for (let i = 1; i < samples.length; i++) {
+      const before = samples[i - 1]!;
+      const after = samples[i]!;
+      if (before.t < 1000) {
+        continue;
+      }
+      const ex = after.x - before.x - v.x * dt;
+      const ey = after.y - before.y - v.y * dt;
+      const along = (ex * v.x + ey * v.y) / speed;
+      catchUp = Math.max(catchUp, along);
+      stall = Math.max(stall, -along);
+      sideways = Math.max(sideways, Math.abs((ey * v.x - ex * v.y) / speed));
+      turn = Math.max(turn, Math.abs(after.angle - before.angle - w * dt));
+    }
+    expect(run.client.stats.errors).toEqual([]);
+    return { catchUp, stall, sideways, turn };
+  }
+
+  it("never jumps ahead of its velocity in a render frame, through both hand-offs", () => {
+    const steps = glide(100);
+
+    // The blend spreads the hand-off over `blendMs`: no step exceeds `v * dt` by the tolerance.
+    expect(steps.catchUp).toBeLessThanOrEqual(POSITION_TOLERANCE);
+    expect(steps.sideways).toBeLessThanOrEqual(1e-4);
+    expect(steps.turn).toBeLessThanOrEqual(ANGLE_TOLERANCE);
+    // A streamed body whose updates stop holds its last pose until the baseline's frame (the
+    // switching diff has no render pose to interpolate toward), so a step can fall short of
+    // `v * dt` by all of it, a stall, but the pose never goes backward.
+    expect(steps.stall).toBeLessThanOrEqual(1 / 60 + 1e-6);
+  });
+
+  it("does, without the blend: the first baseline jumps to the path", () => {
+    const steps = glide(0);
+
+    expect(steps.catchUp).toBeGreaterThan(POSITION_TOLERANCE);
+  });
+
+  it.each([1, 2])(
+    "converges, with no protocol error or disconnect, while it is toggled over a lossy link, seed %i",
+    (seed) => {
+      const run = new Run({ seed, link: HARSH_LINK, interpolated: true });
+      arena(run, 15);
+      addTraffic(run);
+      const server = run.sim.server;
+      // Other bodies, to put baselines, corrections and the window of a switch in context.
+      disc(run, { x: -10, y: -10, vx: 5, vy: 3, w: 1, restitution: 1 });
+      disc(run, { x: 8, y: 4, vx: -7, vy: 2.5, w: -3, restitution: 1 });
+      const toggled = disc(run, {
+        x: -14,
+        y: -10,
+        vx: 0.4,
+        vy: 0.3,
+        w: 0.5,
+        damping: 0,
+        polygon: QUADRILATERAL,
+        streamed: true,
+      });
+      // Every switch, as the server frame it takes effect in. The first is at t = 5 s and then
+      // every 1.5 s; even ones run outside a system, odd ones inside a system of a late phase.
+      const switches: number[] = [];
+      const toggleAt = (frame: number, index: number): void => {
+        const toDeadReckoned = index % 2 === 0;
+        const action = (): void => {
+          switches.push(server.frame);
+          if (toDeadReckoned) {
+            toggled.add(DeadReckoned);
+          } else {
+            toggled.remove(DeadReckoned);
+          }
+        };
+        if (index % 4 < 2) {
+          run.sim.onTick((tick) => tick + 1 === frame && action());
+        } else {
+          server
+            .system(`test.toggle.${index}`)
+            .phase(index % 4 === 2 ? PRE_STORE : ON_STORE)
+            .run(() => server.frame === frame && action());
+        }
+      };
+      let toggles = 0;
+      for (let frame = 5 * HZ; frame < 55 * HZ; frame += Math.round(1.5 * HZ)) {
+        toggleAt(frame, toggles++);
+      }
+      // An odd number of switches would leave it dead reckoned; end streamed, to compare it directly.
+      if (toggles % 2 === 1) {
+        toggleAt(55 * HZ, toggles++);
+      }
+
+      const samples: Array<{ frame: number } & Pose> = [];
+      run.client.world
+        .system("test.sample")
+        .with(RenderPosition, RenderRotation)
+        .phase(ON_STORE)
+        .each([RenderPosition, RenderRotation], (entity, [position, rotation]) => {
+          if (entity.eid === toggled.eid) {
+            samples.push({
+              frame: run.client.world.renderFrame,
+              x: position.x,
+              y: position.y,
+              angle: rotation.angle,
+            });
+          }
+        });
+
+      run.sim.run(60_000);
+
+      // The pose is within tolerance of the server's, outside the documented transients: the
+      // 150 ms after a correction, and around a switch. A streamed body whose updates stop holds
+      // its last pose until the baseline's frame, which on this link, with its loss and reordering,
+      // is up to HANDOFF_LEAD_FRAMES frames before the switch; the hand-off then blends out over
+      // 100 ms after it.
+      const transientFrames = TRANSIENT_MS / run.sim.tickMs;
+      const corrections = run.baselines.get(toggled.eid) ?? [];
+      let worstPosition = 0;
+      let worstAngle = 0;
+      let checked = 0;
+      for (const { frame, x, y, angle } of samples) {
+        const truth = run.truthAt(toggled.eid, frame);
+        if (truth === undefined) {
+          continue;
+        }
+        if (
+          corrections.some((start) => frame >= start - 1 && frame <= start + transientFrames) ||
+          switches.some(
+            (start) => frame >= start - HANDOFF_LEAD_FRAMES && frame <= start + transientFrames
+          )
+        ) {
+          continue;
+        }
+        checked++;
+        worstPosition = Math.max(worstPosition, Math.hypot(x - truth.x, y - truth.y));
+        worstAngle = Math.max(worstAngle, Math.abs(wrap(angle - truth.angle)));
+      }
+
+      expect(switches.length).toBeGreaterThan(30);
+      expect(checked).toBeGreaterThan(samples.length / 2);
+      expect(worstPosition).toBeLessThanOrEqual(POSITION_TOLERANCE + 1e-6);
+      expect(worstAngle).toBeLessThanOrEqual(ANGLE_TOLERANCE + 1e-6);
+      expect(run.client.stats.errors).toEqual([]);
+      expect(run.client.stats.disconnects).toEqual([]);
+      expect(run.client.stats.resets).toHaveLength(1);
+      // It ends streamed. Stop it and let the link settle: the client then holds what the server
+      // holds, and no Motion.
+      toggled.set(LinearVelocity, { x: 0, y: 0 }).set(AngularVelocity, { value: 0 });
+      run.sim.run(2500);
+      expect(toggled.has(DeadReckoned)).toBe(false);
+      const shown = run.client.world.entity(toggled.eid);
+      expect(shown.has(Motion)).toBe(false);
+      expect(shown.has(MotionParams)).toBe(false);
+      const sent = toggled.get(RenderPosition)!;
+      expect(shown.get(RenderPosition)).toEqual({ x: Math.fround(sent.x), y: Math.fround(sent.y) });
+      // The client's interpolator keeps angles in [0, 2π).
+      const turn = wrap(shown.get(RenderRotation)!.angle - toggled.get(RenderRotation)!.angle);
+      expect(Math.abs(turn)).toBeLessThan(1e-5);
+      expect(run.sim.diffFromServer(run.client, [MotionClock])).toEqual([]);
+    }
+  );
 });
 
 describe("bandwidth", () => {

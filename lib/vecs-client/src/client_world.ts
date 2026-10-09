@@ -10,6 +10,7 @@ import {
   StateDiff,
   ALL_COMPONENTS,
   type CloseNotice,
+  cid_pack,
   cid_unpack,
   decodeRelationshipSnapshot,
   NetworkWorld,
@@ -28,6 +29,7 @@ import {
   Query,
   ON_LOAD,
   Relationship,
+  With,
 } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import {
@@ -367,6 +369,13 @@ export class ClientWorld extends NetworkWorld {
    * interpolator, is not covered either: a payload that fails there still throws
    * out of `apply`.
    *
+   * A diff applies its snapshots first and its removals after. A removal of a component that
+   * another component on the entity brings through `With` is skipped, so the entity keeps it: a
+   * server can replace the source of a client-local component (a streamed pose by a dead-reckoned
+   * one) in one diff, setting the new source and removing the old component, and the entity never
+   * goes without it. The rule applies to this network removal of a plain component only; destroying
+   * the entity (`ALL_COMPONENTS`) removes everything, and a relationship is removed as sent.
+   *
    * Registered as the world's own `Apply` system in the `ON_LOAD` phase, so
    * `progress()` drives it; call it directly only for a world with no tick loop.
    *
@@ -389,7 +398,7 @@ export class ClientWorld extends NetworkWorld {
     }
     for (const key of removed) {
       const [eid, wireType] = cid_unpack(key);
-      this._removeComponent(eid, wireType);
+      this._removeComponent(eid, wireType, diff);
     }
   }
 
@@ -751,7 +760,7 @@ export class ClientWorld extends NetworkWorld {
     entity.set(relClass, component);
   }
 
-  private _removeComponent(eid: EID, wireType: number): void {
+  private _removeComponent(eid: EID, wireType: number, diff: Diff): void {
     // Merged/interpolated client diffs can contain a net removal for an entity
     // whose create snapshot was compressed away before it materialized locally.
     const entity = this.getEntity(eid);
@@ -763,9 +772,46 @@ export class ClientWorld extends NetworkWorld {
       return;
     }
     const registered = this.getNetworkComponent(wireType);
-    if (registered && entity.get(registered.Class)) {
-      entity.remove(registered.Class);
+    if (registered === undefined || !entity.get(registered.Class)) {
+      return;
     }
+    // The server removed a component that another one on this entity still brings through `With`:
+    // the entity keeps it, as it would for any other holder of the bringer. A server that swaps the
+    // source of a client-local component, such as a streamed pose for a dead-reckoned one, relies
+    // on this to keep the component present throughout.
+    if (this._isBroughtByWith(entity, registered.Class, diff)) {
+      return;
+    }
+    entity.remove(registered.Class);
+  }
+
+  // Whether a component on `entity` brings `Class` through `With`. Only the network-removal path
+  // pays for the lookup, and only for a component that is there to remove. A relationship is never
+  // skipped: `With` brings it one edge at a time, so no component present stands for the whole
+  // relationship.
+  //
+  // The snapshots of the diff being applied are queued, not yet attached, while its removals are
+  // checked, so a bringer that this very diff sets counts as present too.
+  private _isBroughtByWith(entity: Entity, Class: ComponentClass, diff: Diff): boolean {
+    const component = this.component(Class);
+    if (component.meta.isRelationship) {
+      return false;
+    }
+    for (const bringer of component.children(With)) {
+      if (entity.has(bringer) || this._diffSets(diff, entity, bringer)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Whether `diff` carries a snapshot of the component `bringer` for `entity`.
+  private _diffSets(diff: Diff, entity: Entity, bringer: Entity): boolean {
+    const registered = this.networkComponents.find((component) => component.eid === bringer.eid);
+    return (
+      registered !== undefined &&
+      diff.getSnapshot(cid_pack(entity.eid, registered.wireType)) !== undefined
+    );
   }
 
   // Destroy every network entity so an incoming baseline can recreate them
