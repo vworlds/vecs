@@ -11,6 +11,16 @@ import { type ComponentInstance, type EID } from "@vworlds/vecs";
 
 const MAX_LENGTH = 3;
 
+/**
+ * The most optimistic diffs a {@link DiffBuffer} holds while it waits for the
+ * frames before them: a round trip of frames, 8 of them at 30 Hz and a 250 ms
+ * round trip. Holding is an optimization, so a full set evicts its oldest diff
+ * without harm: the delta the server falls back to supersedes whatever is held.
+ * The bound only caps memory when a server keeps sending optimistic diffs to a
+ * client that cannot use them.
+ */
+export const MAX_HELD_DIFFS = 8;
+
 export interface IPosition {
   x: number;
   y: number;
@@ -125,6 +135,16 @@ export class DiffBuffer {
   // version indicates the last version received by the server
   // that can be acknowledged
   public version: number = -1;
+
+  // held contains the optimistic diffs that start past `version`: frames the
+  // server marked as built on a base this client has not received yet. They wait
+  // for it, and are applied by push() as soon as version reaches their start, or
+  // dropped once version has passed their end. At most MAX_HELD_DIFFS.
+  private readonly _held: Diff[] = [];
+
+  // gap is set whenever a diff is held and cleared by takeGap(): the client has
+  // something to tell the server since the last time it asked.
+  private _gap = false;
 
   // tServ tracks the server time approximately
   private _tServ = -1;
@@ -289,6 +309,8 @@ export class DiffBuffer {
   public reset(): void {
     this._state.clear();
     this.bucket.fill(undefined);
+    this._held.length = 0;
+    this._gap = false;
     this.version = -1;
     this._first = undefined;
     this._stateVersion = 0;
@@ -306,7 +328,8 @@ export class DiffBuffer {
    * From then on a diff is judged against `version`, the newest frame received:
    *
    * - one that starts past it is rejected, because a server that honors acks
-   *   never sends one;
+   *   never sends one, unless the server marked it optimistic: then it is held
+   *   until `version` reaches its start (see the `optimistic` parameter);
    * - one for a frame the client already has is stale, a datagram the unordered
    *   channel delivered late or twice, and is discarded when the bucket has
    *   drained (it would otherwise become the new starting point and roll
@@ -314,9 +337,46 @@ export class DiffBuffer {
    *   one for a frame that is still buffered merges into it, as a retransmit.
    *
    * @param diff - The diff to buffer.
-   * @throws If the diff starts after the newest frame this buffer has received.
+   * @param optimistic - The server marked the diff optimistic: it may start past
+   *   the newest frame received, because it presumes the frames in between were
+   *   delivered. Such a diff is held until they arrive instead of rejected; see
+   *   {@link DiffBuffer.takeGap}.
+   * @throws If the diff starts after the newest frame this buffer has received and is
+   *   not optimistic.
    */
-  public push(diff: Diff): void {
+  public push(diff: Diff, optimistic = false): void {
+    if (this.version >= 0 && diff.from > this.version) {
+      if (!optimistic) {
+        throw new Error(
+          `diff starts at frame ${diff.from}, past this client's frame ${this.version}`
+        );
+      }
+      this._hold(diff);
+      return;
+    }
+    this._accept(diff);
+    if (this._held.length > 0) {
+      this._releaseHeld();
+    }
+  }
+
+  /**
+   * Whether the client should tell the server about a gap now, clearing the flag.
+   *
+   * A gap is an optimistic diff that arrived before the frames it was built on.
+   * It is open while a diff is still held. Returns `true` once per detection, and
+   * only if the gap has not closed in the meantime: a late or reordered frame
+   * that arrives before the next ack releases the held diff, and the server has
+   * nothing to fall back for.
+   */
+  public takeGap(): boolean {
+    const open = this._gap && this._held.length > 0;
+    this._gap = false;
+    return open;
+  }
+
+  // accept puts a diff that starts within `version` in its place in the bucket.
+  private _accept(diff: Diff): void {
     // in case of buffer empty or first diff, initialize everything:
     if (this._first === undefined) {
       // An empty bucket does not mean nothing has been received: once pull() has
@@ -332,15 +392,12 @@ export class DiffBuffer {
         if (diff.to <= this.version) {
           return;
         }
-        this._assertStartsWithinVersion(diff);
       }
       this.bucket[0] = diff;
       this._first = diff.to;
       this.version = diff.to;
       return;
     }
-
-    this._assertStartsWithinVersion(diff);
 
     // Locate the index position for this diff in the bucket based on the
     // version of the first item in the bucket:
@@ -393,16 +450,64 @@ export class DiffBuffer {
     }
   }
 
-  // servers should never send a diff we can't handle: one may start at any frame
-  // this client has received, but not past the newest. The below can only happen
-  // if the server is ignoring acks. ClientWorld reports the message to the
-  // application as the `disconnect` reason, so it says what happened:
-  private _assertStartsWithinVersion(diff: Diff): void {
-    if (diff.from > this.version) {
-      throw new Error(
-        `diff starts at frame ${diff.from}, past this client's frame ${this.version}`
-      );
+  // hold keeps an optimistic diff that starts past `version` until the frames it
+  // was built on arrive. A diff for a frame that is already held, a datagram the
+  // unordered channel delivered twice, keeps the older start. A full set drops its
+  // oldest diff to make room.
+  private _hold(diff: Diff): void {
+    this._gap = true;
+    const duplicate = this._held.findIndex((held) => held.to === diff.to);
+    if (duplicate !== -1) {
+      this._held[duplicate] =
+        this._held[duplicate].from <= diff.from ? this._held[duplicate] : diff;
+      return;
     }
+    if (this._held.length >= MAX_HELD_DIFFS) {
+      this._held.splice(this._oldestHeld(), 1);
+    }
+    this._held.push(diff);
+  }
+
+  // releaseHeld applies the held diffs that `version` has reached, oldest first
+  // because applying one can bring the next within reach, and drops the ones that
+  // `version` has passed.
+  private _releaseHeld(): void {
+    for (;;) {
+      for (let i = this._held.length - 1; i >= 0; i--) {
+        if (this._held[i].to <= this.version) {
+          this._held.splice(i, 1);
+        }
+      }
+      const next = this._oldestReachableHeld();
+      if (next === -1) {
+        return;
+      }
+      const [diff] = this._held.splice(next, 1);
+      this._accept(diff);
+    }
+  }
+
+  private _oldestHeld(): number {
+    let oldest = 0;
+    for (let i = 1; i < this._held.length; i++) {
+      if (this._held[i].to < this._held[oldest].to) {
+        oldest = i;
+      }
+    }
+    return oldest;
+  }
+
+  private _oldestReachableHeld(): number {
+    let oldest = -1;
+    for (let i = 0; i < this._held.length; i++) {
+      if (
+        this._held[i].from <= this.version &&
+        (oldest === -1 || this._held[i].to < this._held[oldest].to)
+      ) {
+        oldest = i;
+      }
+    }
+    return oldest;
   }
 
   private _decodeSnapshot(snapshot: ComponentSnapshot): ComponentInstance {

@@ -45,15 +45,32 @@ export class View implements IEntityTrackerListener {
     return this.tracker.has(entity);
   }
 
+  /**
+   * The entity entered the view: it is visible now.
+   *
+   * It is sent to the client as a full snapshot, unless it left the view earlier in
+   * the same frame. Then the client has never been told it left, so it still holds
+   * the entity: the exit is cancelled, nothing is sent for either, and the entity's
+   * changes of the frame go out as ordinary deltas. It is the mirror of
+   * {@link View.exit}, which cancels an enter of the same frame: what the client is
+   * sent is the net of the frame's exits and enters.
+   */
   public enter(entity: Entity): void {
     if (this._visible.has(entity)) {
       return;
     }
     this._visible.add(entity);
-    this._exitedView.delete(entity);
-    this._enteredView.add(entity);
+    if (!this._exitedView.delete(entity)) {
+      this._enteredView.add(entity);
+    }
   }
 
+  /**
+   * The entity left the view: it is not visible now.
+   *
+   * The client is sent a removal, unless the entity entered the view earlier in the
+   * same frame. Then the client has never been told of it, so nothing is sent.
+   */
   public exit(entity: Entity): void {
     if (!this._visible.delete(entity)) {
       return;

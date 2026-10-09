@@ -10,6 +10,8 @@ session's own caller attached.
 - How `handleRpc` gives every handler a `ServerRPCContext` without per-connection registration.
 - How the history window decides between a delta and a full baseline, why a baseline is sent once
   and then awaited, and how to size `historyFrames` for your tick rate and players' latency.
+- How `redundancyFrames` stops a change being resent in every frame until it is acked, and what it
+  costs when frames are lost.
 - How to close one session, how the close lingers until the client received the replies it is owed,
   and how to close all of them at shutdown.
 - How `NetworkClient.closeReason` records why the server hung up.
@@ -226,6 +228,58 @@ To check a setting against real players, count `ClientWorld`'s `reset` events wi
 Each one is a rebuild. A player who sees them in steady play has a window that is too short for their
 connection.
 
+### Redundancy: `redundancyFrames`
+
+A delta starts at the client's ack, which trails the frame being sent by the ack lag. A change that
+happens once and then sits still, such as the baseline of a dead-reckoned body, is therefore in every
+frame's delta until its ack arrives: `ackLag + 1` copies, 7 at 30 Hz and a 200 ms round trip. Changes
+that are superseded by a later one cost nothing extra, because the merge keeps one value per
+component.
+
+`redundancyFrames` trades that for a fixed redundancy. Set it to `R` and every healthy session's
+delta starts at the frame the session was sent `R` sends ago, a baseline or a delta with content,
+instead of at its ack. In a view that changes on every frame that is `R` frames before the frame being
+sent. A change is sent in `R` consecutive frames and no more, whatever the lag and however sparse the
+traffic:
+
+```ts
+const world = new ServerWorld({
+  name: "arena",
+  networkComponents: [Position],
+  historyFrames: 64,
+  redundancyFrames: 2,
+});
+```
+
+It is off by default, and then the wire is byte for byte what it always was. `R` must be an integer
+of at least 1 and less than `historyFrames`; the constructor throws for anything else. The client
+must understand the optimistic marker the server adds to such a frame, so deploy clients first: a
+client built before it closes the connection on the unknown field.
+
+The price is paid when the redundancy runs out. A delta that starts past the ack presumes the client
+received the frame it starts at, and when the last `R` frames sent to it are all lost it did not. A
+base is always a frame the client was sent, so when the traffic is sparse a lost frame is absorbed by
+the next frame sent, however long the quiet stretch between them. The client holds
+the diff it cannot apply, reports the gap in its next ack, and the server sends plain deltas from the
+ack until the client has caught up. The client's view stops for about one round trip. Its
+interpolation buffer hides part of that. A change lost with nothing sent after it is found by a timer
+instead, the same twice-the-smoothed-round-trip timeout that presumes a baseline lost, and costs
+that timeout plus a link delay.
+
+| `redundancyFrames` | A change is sent in           | Lost frames in a row that stall the view |
+| ------------------ | ----------------------------- | ---------------------------------------- |
+| unset              | every frame until it is acked | none: the next frame repeats it          |
+| 1                  | 1 frame                       | 1                                        |
+| 2                  | 2 consecutive frames          | 2                                        |
+| 3                  | 3 consecutive frames          | 3                                        |
+
+The server is optimistic only while a session is healthy: its baseline is acked, none is in flight,
+no fallback is running and its ack is not overdue. A baseline and everything around it work exactly
+as described above. Pick the smallest `R` whose stalls your players accept: on a link with 5% loss
+each way, 2 stalls the view about four times a minute and 3 almost never. The mechanism, the
+fallbacks and the measured trade-off are in
+[Replication](../../../architecture/REPLICATION.md#the-optimistic-base).
+
 ## Closing sessions
 
 `closeSession` ends one connection by id or by entity. It returns `true` when a live session was
@@ -376,22 +430,24 @@ systems.
 
 ## Reference
 
-| Member                                           | Description                                                                                                                                                   |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `world.handleRpc(rpcId, handler)`                | Register a handler for every session, now and later.                                                                                                          |
-| `world.closeSession(connection, reason?, code?)` | Gracefully close one session by connection id or `NetworkClient` entity, telling the client the reason and code. Returns whether it was scheduled.            |
-| `world.shutdown(options?)`                       | Gracefully close every session, flush until gone or `timeoutMs`, close listeners. Idempotent.                                                                 |
-| `world.send()`                                   | Advance one replication frame, sending each session a delta, a baseline, or nothing; called by `progress()`.                                                  |
-| `ServerRPCContext`                               | `{ world, caller, connectionId }` passed as a handler's third argument.                                                                                       |
-| `NetworkClient.id`                               | The connection id.                                                                                                                                            |
-| `NetworkClient.closeReason`                      | Why the server closed the session, or `undefined`.                                                                                                            |
-| `CLOSE_PROTOCOL_ERROR_CODE`                      | Reserved close code `1`: the session was closed because a frame could not be decoded. Also exported by `@vworlds/vecs-protocol`.                              |
-| `closeLingerMs` (`ServerWorldOptions`)           | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                                         |
-| `historyFrames` (`ServerWorldOptions`)           | Frames of history each session keeps: how far behind its ack can be, while its view keeps changing, and still get a delta. Integer of at least 2; default 64. |
+| Member                                           | Description                                                                                                                                                                                                           |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `world.handleRpc(rpcId, handler)`                | Register a handler for every session, now and later.                                                                                                                                                                  |
+| `world.closeSession(connection, reason?, code?)` | Gracefully close one session by connection id or `NetworkClient` entity, telling the client the reason and code. Returns whether it was scheduled.                                                                    |
+| `world.shutdown(options?)`                       | Gracefully close every session, flush until gone or `timeoutMs`, close listeners. Idempotent.                                                                                                                         |
+| `world.send()`                                   | Advance one replication frame, sending each session a delta, a baseline, or nothing; called by `progress()`.                                                                                                          |
+| `ServerRPCContext`                               | `{ world, caller, connectionId }` passed as a handler's third argument.                                                                                                                                               |
+| `NetworkClient.id`                               | The connection id.                                                                                                                                                                                                    |
+| `NetworkClient.closeReason`                      | Why the server closed the session, or `undefined`.                                                                                                                                                                    |
+| `CLOSE_PROTOCOL_ERROR_CODE`                      | Reserved close code `1`: the session was closed because a frame could not be decoded. Also exported by `@vworlds/vecs-protocol`.                                                                                      |
+| `closeLingerMs` (`ServerWorldOptions`)           | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                                                                                                 |
+| `historyFrames` (`ServerWorldOptions`)           | Frames of history each session keeps: how far behind its ack can be, while its view keeps changing, and still get a delta. Integer of at least 2; default 64.                                                         |
+| `redundancyFrames` (`ServerWorldOptions`)        | Opt in to the delta base `redundancyFrames` sends ago, never before the ack: a change goes out in that many consecutive frames, not in every frame until acked. An integer in [1, `historyFrames`); unset by default. |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-server/src/server_world.ts`,
 `lib/vecs-server/src/history.ts` (the window), `lib/vecs-server/src/rtt.ts` (the ack round-trip
-estimate) and `lib/vecs-server/src/networked.ts`.
+estimate) and `lib/vecs-server/src/networked.ts`. The replication design behind them is in
+[Replication](../../../architecture/REPLICATION.md).
 
 ## See also
 

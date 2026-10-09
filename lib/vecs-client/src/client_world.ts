@@ -62,9 +62,9 @@ export type ClientWorldResetHandler = (event: ClientWorldResetEvent) => void;
  * - this client's protocol-error notice, `{ code: CLOSE_PROTOCOL_ERROR_CODE,
  *   reason: "protocol error: ..." }`, when the client could not decode or accept
  *   what the server sent — a frame, a component snapshot inside one, or a diff
- *   that starts after the last frame the client acknowledged — and closed the
- *   connection itself. The reason ends with the message of the error that caused
- *   the close.
+ *   that starts after the last frame the client acknowledged and is not marked
+ *   optimistic — and closed the connection itself. The reason ends with the
+ *   message of the error that caused the close.
  *
  * See {@link CLOSE_PROTOCOL_ERROR_CODE}.
  */
@@ -409,6 +409,10 @@ export class ClientWorld extends NetworkWorld {
    * their requests. The watermark is left off the wire while it is `0`: until the client has
    * made a call and its oldest one has settled.
    *
+   * When the client holds an optimistic frame it cannot apply yet, because the frames it was
+   * built on never arrived, the ack also reports the gap, once, so the server falls back to
+   * deltas from the ack. The report is dropped if a late frame has closed the gap by then.
+   *
    * A synchronous transport error or rejected transport promise closes the client connection,
    * so the ack timer cannot leave an unhandled rejection after a peer disappears.
    */
@@ -420,8 +424,9 @@ export class ClientWorld extends NetworkWorld {
     const rpc = this._rpc.getOutgoing();
     const rpcSettledBelow = this._rpc.settledBelow;
     const ackFrame = this._diffBuffer.version < 0 ? 0 : this._diffBuffer.version;
+    const gap = this._diffBuffer.takeGap();
     const encoder = new Encoder(this._encodeBuffer);
-    encoder.write(new Client2Server({ ackFrame, input: this._input, rpc, rpcSettledBelow }));
+    encoder.write(new Client2Server({ ackFrame, input: this._input, rpc, rpcSettledBelow, gap }));
     try {
       const sent = socket.send(encoder.getBuffer()) as unknown;
       if (sent && typeof (sent as PromiseLike<unknown>).then === "function") {
@@ -536,7 +541,7 @@ export class ClientWorld extends NetworkWorld {
         this._rpc.process(responses);
       }
     }
-    if (message.diff && !this._pushDiff(message.diff)) {
+    if (message.diff && !this._pushDiff(message.diff, message.optimistic)) {
       // The diff could not be read or buffered and the client is already closed:
       // the close notice in the same frame is not handled.
       return;
@@ -549,13 +554,14 @@ export class ClientWorld extends NetworkWorld {
   /**
    * The server sent something this client cannot decode or accept: a frame, a
    * component snapshot inside one, or a diff that starts after the last frame this
-   * client acknowledged. Usually the two sides were built from incompatible
-   * protocol versions. Disconnect through {@link ClientWorld.close}, so
-   * `disconnect` fires once with a notice carrying {@link CLOSE_PROTOCOL_ERROR_CODE}
-   * and a reason that starts `protocol error:`, pending calls reject with
-   * `RPC_CLOSED_CODE`, the ack timer stops and the socket closes, instead of
-   * throwing into the transport or out of {@link ClientWorld.apply}. Nothing is
-   * sent to the server: the protocol has no client-to-server close notice.
+   * client acknowledged without the server marking it optimistic. Usually the two
+   * sides were built from incompatible protocol versions. Disconnect through
+   * {@link ClientWorld.close}, so `disconnect` fires once with a notice carrying
+   * {@link CLOSE_PROTOCOL_ERROR_CODE} and a reason that starts `protocol error:`,
+   * pending calls reject with `RPC_CLOSED_CODE`, the ack timer stops and the
+   * socket closes, instead of throwing into the transport or out of
+   * {@link ClientWorld.apply}. Nothing is sent to the server: the protocol has no
+   * client-to-server close notice.
    *
    * @param error - What the decoder or the diff buffer threw.
    */
@@ -585,18 +591,20 @@ export class ClientWorld extends NetworkWorld {
    * Only the data steps are guarded: reading the snapshots out of the diff, and
    * buffering it. A diff that fails either is a protocol error: a snapshot's
    * envelope is malformed, or the diff starts after the last frame this client
-   * acknowledged, which a server that honors acks never sends. A baseline is read
-   * before anything is torn down, so one that cannot be read leaves the replicated
-   * entities in place. Destroying them and emitting `reset` run application
+   * acknowledged and is not marked optimistic, which a server that honors acks
+   * never sends. A baseline is read before anything is torn down, so one that
+   * cannot be read leaves the replicated entities in place. Destroying them and emitting `reset` run application
    * hooks, so they stay outside the guard and what they throw propagates.
    *
    * @param sd - The diff decoded from the frame.
+   * @param optimistic - The frame carried the optimistic marker, so the diff may start past the
+   *   newest frame this client has: the diff buffer holds it until that frame arrives.
    * @returns `false` when the diff could not be read or buffered: the client has
    *   been closed for a protocol error and the caller must handle nothing more
    *   from the frame. `true` otherwise, including for a stale baseline that was
    *   skipped.
    */
-  private _pushDiff(sd: StateDiff): boolean {
+  private _pushDiff(sd: StateDiff, optimistic: boolean): boolean {
     // A diff with fromFrame === 0 is a full baseline: the complete authoritative
     // state at sd.toFrame. The server sends one when a session starts and
     // whenever the client has fallen so far behind that frames it has not acked
@@ -634,14 +642,14 @@ export class ClientWorld extends NetworkWorld {
       return false;
     }
     if (!baseline) {
-      return this._bufferDiff(diff);
+      return this._bufferDiff(diff, optimistic);
     }
     this._forceBaselineReset = false;
     const initial = !this._baselineApplied;
     this._baselineApplied = true;
     this._destroyNetworkEntities();
     this._diffBuffer.reset();
-    if (!this._bufferDiff(diff)) {
+    if (!this._bufferDiff(diff, false)) {
       return false;
     }
     this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
@@ -650,14 +658,15 @@ export class ClientWorld extends NetworkWorld {
 
   /**
    * Hand a diff to the diff buffer, which rejects one that starts after the last
-   * frame this client acknowledged. That is a protocol error, so the client is
-   * closed instead of the rejection throwing into the transport.
+   * frame this client acknowledged unless the server marked it optimistic. That is
+   * a protocol error, so the client is closed instead of the rejection throwing
+   * into the transport.
    *
    * @returns `false` when the buffer rejected the diff and the client was closed.
    */
-  private _bufferDiff(diff: Diff): boolean {
+  private _bufferDiff(diff: Diff, optimistic: boolean): boolean {
     try {
-      this._diffBuffer.push(diff);
+      this._diffBuffer.push(diff, optimistic);
     } catch (error) {
       this._closeForProtocolError(error);
       return false;

@@ -8,6 +8,8 @@ const FIELD_RPC = 2;
 const FIELD_INPUT = 3;
 const FIELD_CLOSE = 4;
 const FIELD_RPC_SETTLED = 5;
+const FIELD_OPTIMISTIC = 6;
+const FIELD_GAP = 7;
 
 const CLOSE_HAS_CODE = 1;
 const CLOSE_HAS_REASON = 2;
@@ -111,8 +113,8 @@ export interface CloseNotice {
  * - `ClientWorld` reports it on its own `disconnect` event when it closes itself
  *   because a frame from the server, or a component snapshot inside one, cannot
  *   be decoded, or because the server sent a diff the client cannot accept: one
- *   that starts after the last frame the client acknowledged. Nothing is sent to
- *   the server in that case.
+ *   that starts after the last frame the client acknowledged without being marked
+ *   {@link Server2Client.optimistic}. Nothing is sent to the server in that case.
  *
  * `@vworlds/vecs-client` and `@vworlds/vecs-server` re-export it next to
  * `RPC_CLOSED_CODE`, so an application can compare against it without importing
@@ -137,6 +139,24 @@ export class Server2Client implements IEncodable {
    * `ServerWorld`'s frames only because it never sends the field today.
    */
   public rpcSettledBelow = 0;
+  /**
+   * The frame's diff starts past the last frame the server saw the client
+   * acknowledge: it is an *optimistic* delta, built on the assumption that the
+   * client already holds the frame the diff starts at because the server sent it
+   * in an earlier frame that has not been acked yet (`ServerWorldOptions.redundancyFrames`).
+   *
+   * A client that has not yet received that frame cannot apply the diff. For an
+   * unmarked diff that is a protocol error; for a marked one it is a gap: the
+   * client holds the diff until the missing frames arrive, and reports the gap in
+   * {@link Client2Server.gap} so the server falls back to deltas from the ack.
+   *
+   * Encoded as tag 6 and no payload only when `true`, so every frame of a server
+   * that does not enable `redundancyFrames`, which is every frame `ServerWorld`
+   * sends by default, is byte-identical to one built before the field existed. A
+   * decoder that predates the field rejects the tag, so deploy clients before
+   * enabling `redundancyFrames` on a server.
+   */
+  public optimistic = false;
   /** Present only on the graceful-close frame of a deliberate server close. */
   public close: CloseNotice | undefined;
 
@@ -159,6 +179,9 @@ export class Server2Client implements IEncodable {
     if (this.rpcSettledBelow > 0) {
       encoder.write_u8(FIELD_RPC_SETTLED);
       encoder.write_u32(this.rpcSettledBelow);
+    }
+    if (this.optimistic) {
+      encoder.write_u8(FIELD_OPTIMISTIC);
     }
     if (this.close) {
       const { code, reason } = this.close;
@@ -192,6 +215,9 @@ export class Server2Client implements IEncodable {
         }
         case FIELD_RPC_SETTLED:
           message.rpcSettledBelow = decoder.read_u32();
+          break;
+        case FIELD_OPTIMISTIC:
+          message.optimistic = true;
           break;
         case FIELD_CLOSE: {
           const flags = decoder.read_u8();
@@ -236,6 +262,18 @@ export class Client2Server implements IEncodable {
    * session with {@link CLOSE_PROTOCOL_ERROR_CODE} instead.
    */
   public rpcSettledBelow = 0;
+  /**
+   * The client holds an optimistic diff it cannot apply yet, because the frames
+   * before it have not arrived: a gap (see {@link Server2Client.optimistic}). The
+   * server answers by sending the session deltas from its acked frame until the
+   * client has caught up.
+   *
+   * Encoded as tag 7 and no payload only when `true`. A client only ever sets it
+   * after receiving a frame marked optimistic, which a server sends only when
+   * `ServerWorldOptions.redundancyFrames` is set, so for any other server every
+   * frame is byte-identical to one built before the field existed.
+   */
+  public gap = false;
 
   public constructor(values?: Partial<Client2Server>) {
     if (values) {
@@ -258,6 +296,9 @@ export class Client2Server implements IEncodable {
       encoder.write_u8(FIELD_RPC_SETTLED);
       encoder.write_u32(this.rpcSettledBelow);
     }
+    if (this.gap) {
+      encoder.write_u8(FIELD_GAP);
+    }
   }
 
   public static wireDecode(decoder: Decoder): Client2Server {
@@ -277,6 +318,9 @@ export class Client2Server implements IEncodable {
         }
         case FIELD_RPC_SETTLED:
           message.rpcSettledBelow = decoder.read_u32();
+          break;
+        case FIELD_GAP:
+          message.gap = true;
           break;
         default:
           throw new Error(`Invalid Client2Server field tag ${tag}`);

@@ -42,6 +42,30 @@ export function validateHistoryFrames(frames: number): number {
   return frames;
 }
 
+/** Smallest value {@link validateRedundancyFrames} accepts. */
+const MIN_REDUNDANCY_FRAMES = 1;
+
+/**
+ * Check a `redundancyFrames` value against the history window it works in.
+ *
+ * An optimistic delta merges at most `redundancyFrames` frames, so they must all
+ * be in the window: the window has to be longer than the redundancy.
+ *
+ * @param frames - The requested redundancy, in frames.
+ * @param historyFrames - The history window, in frames, already validated.
+ * @returns `frames`, unchanged, once it is known to be valid.
+ * @throws If `frames` is not an integer of at least 1 and less than `historyFrames`.
+ */
+export function validateRedundancyFrames(frames: number, historyFrames: number): number {
+  if (!Number.isInteger(frames) || frames < MIN_REDUNDANCY_FRAMES || frames >= historyFrames) {
+    throw new Error(
+      `redundancyFrames must be an integer of at least ${MIN_REDUNDANCY_FRAMES} and less than ` +
+        `historyFrames (${historyFrames}), got ${String(frames)}`
+    );
+  }
+  return frames;
+}
+
 /**
  * The last `length` frames of one session's replication, each stored as the
  * {@link StateDiff} that took the client from the frame before it to that frame.
@@ -134,11 +158,13 @@ export class History {
    * Merge everything that changed after frame `from`, up to and including
    * frame `to`, into one diff labelled `from`..`to`.
    *
-   * `from` is the frame the client really holds, so the label is always `from`,
-   * never a later frame: the client rejects a diff that starts past its own.
-   * `from` may be older than the window, provided no frame with content after it
-   * has left it; only the frames still in the window are merged, because the
-   * ones that left held nothing.
+   * `from` is the frame the sender presumes the client holds, so the label is
+   * always `from`, never a later frame: the client rejects a diff that starts past
+   * its own, unless the sender marked it optimistic. It is the client's acked
+   * frame for a plain delta, and a later frame for an optimistic one. `from` may be
+   * older than the window, provided no frame with content after it has left it;
+   * only the frames still in the window are merged, because the ones that left
+   * held nothing.
    *
    * @throws If a frame with content after `from` has left the window, or `to` is
    *   not a frame in it.
