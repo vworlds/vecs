@@ -141,14 +141,15 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
   historyFrames?: number;
   /**
    * Opt in to the optimistic base: send a healthy session each frame as a delta
-   * from `max(ack, base)`, where `base` is the frame the session was sent
-   * `redundancyFrames` sends ago (a send is a baseline or a delta with content),
-   * instead of from the client's newest ack. A change then travels in
-   * `redundancyFrames` consecutive frames, however sparse the traffic is, not in
-   * every frame until it is acked. An integer of at least 1 and less than
-   * {@link ServerWorldOptions.historyFrames}; the constructor throws for any
-   * other value. Unset by default, which keeps today's behavior and a
-   * byte-identical wire.
+   * from `max(ack, base)`, where `base` is the state frame of the send
+   * `redundancyFrames` sends ago, instead of from the client's newest ack. A send
+   * is a baseline, a delta with content or a keepalive, and its state frame is the
+   * newest frame at which the session's replicated state had changed as of that
+   * send. A change then travels in `redundancyFrames` consecutive sends, however
+   * sparse the traffic is, not in every frame until it is acked. An integer of at
+   * least 1 and less than {@link ServerWorldOptions.historyFrames}; the constructor
+   * throws for any other value. Unset by default, which keeps today's behavior and
+   * a byte-identical wire.
    *
    * Without it a change that is not superseded is sent again in every frame until
    * its ack arrives, which costs `ackLag + 1` times its size: 7 times at 30 Hz
@@ -156,24 +157,30 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * whatever the lag, and `redundancyFrames - 1` lost frames in a row cost the
    * client nothing. `1` sends every change once.
    *
-   * The base is always a frame the client was sent, because the client's version
-   * is one. In a view that changes on every frame it is `frame - redundancyFrames`.
-   * In a sparse one the frames sent are far apart and the base is the one
-   * `redundancyFrames` sends back, so a lost frame is absorbed by the next send
-   * however long the quiet stretch in between, and a base is never a frame the
-   * session was not sent.
+   * The state is the same from a send's state frame to the send, so a client that
+   * received the send holds the state frame, and a delta from there holds exactly
+   * what one from the send would: no extra bytes. In a view that changes on every
+   * frame every send is its own state frame and the base is
+   * `frame - redundancyFrames`. In a sparse one the sends are far apart and the base
+   * is the state frame of the one `redundancyFrames` sends back, so a lost frame is
+   * absorbed by the next send however long the quiet stretch in between. A send
+   * that carried nothing the client lacked, a keepalive or the repeat of a change
+   * it already holds, names the state frame of the change before it, so losing it
+   * never makes the next delta start past what the client holds. An idle view whose
+   * last change is acked has a base at or before its ack: it presumes nothing.
    *
    * The price is a stall when the redundancy runs out. A delta based past the ack
-   * presumes the client received the frame it is based on; when `redundancyFrames`
-   * sends in a row are lost it did not. The client holds the diff it cannot
-   * apply, reports a gap in its next ack, and the server falls back to deltas from
-   * the ack until the client has caught up, so the client's view stops for about
-   * one round trip. The client's interpolation buffer hides part of that. A change
-   * lost with nothing sent after it is found by a timer instead: if the oldest
-   * content sent to a session stays unacked for twice its smoothed ack round trip
-   * (at least 100 ms, as for a baseline in flight), the server falls back the same
-   * way. Pick the smallest value whose stalls your players can live with: 2
-   * survives any single lost frame, 3 any two in a row.
+   * presumes the client received the frame it is based on; when all of the last
+   * `redundancyFrames` sends that carried a change it lacked are lost it did not.
+   * The client holds the diff it cannot apply, reports a gap in its next ack, and
+   * the server falls back to deltas from the ack until the client has caught up,
+   * so the client's view stops for about one round trip. The client's
+   * interpolation buffer hides part of that. A change lost with nothing sent after
+   * it is found by a timer instead: if the oldest content sent to a session stays
+   * unacked for twice its smoothed ack round trip (at least 100 ms, as for a
+   * baseline in flight), the server falls back the same way. Pick the smallest
+   * value whose stalls your players can live with: 2 survives any single lost
+   * frame, 3 any two in a row.
    *
    * The server is optimistic only while a session is healthy: it has acked a
    * baseline, none is in flight or needed, no fallback is running and its ack is
@@ -208,11 +215,14 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * {@link ServerWorldOptions.redundancyFrames}, and carries the optimistic marker when that base
    * is past the ack. The client applies it, so its version advances, and acks it like any frame.
    * For the optimistic base it counts as a send, because the client was sent it and its version
-   * may be that frame. For the liveness timer it is not content, so one that is lost is never
-   * chased with a fallback. A frame that carries RPC traffic but no diff, as during a baseline
-   * handshake, advances no `renderFrame` and does not count. No keepalive is sent while a
-   * baseline is in flight or needed, nor to a session whose view has never held anything to
-   * acknowledge.
+   * may be that frame, with the state frame of the session's last change: it carries nothing, so
+   * a lost keepalive can never be the base of a frame the client cannot apply. An idle view whose
+   * last change is acked has a base at or before its ack, so its keepalives are plain deltas from
+   * the ack, whatever `redundancyFrames` is. For the liveness timer it is not content, so one that
+   * is lost is never chased with a fallback. A frame that carries RPC traffic but no diff, as
+   * during a baseline handshake, advances no `renderFrame` and does not count. No keepalive is
+   * sent while a baseline is in flight or needed, nor to a session whose view has never held
+   * anything to acknowledge.
    *
    * It costs a header-only frame, 5 bytes of payload at frame numbers below 128 and 9 in the
    * first hours of a server (plus 1 when marked optimistic), every `keepAliveFrames` ticks for
@@ -304,17 +314,19 @@ class ServerClientSession {
    */
   public baselineAcked = false;
   /**
-   * The last `redundancyFrames` frames in which the session was sent a baseline
-   * or a delta with content, as opposed to an empty delta riding along with RPC
-   * traffic, or `undefined` while `redundancyFrames` is unset.
+   * The state frames of the last `redundancyFrames` sends to the session, a send being a
+   * baseline, a delta with content or a keepalive, as opposed to an empty delta riding along
+   * with RPC traffic, or `undefined` while `redundancyFrames` is unset.
    *
-   * The client's version is always a frame it was sent, so an optimistic base is
-   * the oldest of these, the frame sent `redundancyFrames` sends ago. Every frame
-   * after the newest one either sent nothing because its diff was empty, or was
-   * withheld while a baseline was in flight, and a delta that starts at an older
-   * frame covers both. A base is also never behind the ack, so right after a
-   * baseline it is the baseline's frame, and the delta that ends the wait carries
-   * everything withheld meanwhile.
+   * The state frame of a send is the newest frame at which the session's replicated state had
+   * changed as of that send ({@link History.lastContentFrame}). The state is the same from there
+   * to the send, so a client that received the send holds it, and an optimistic base is the
+   * oldest of these, the state frame of the send `redundancyFrames` sends ago. A keepalive or the
+   * repeat of a change the client already holds names the frame of the change, never a frame
+   * that carried nothing. Every frame after the newest send either sent nothing because its diff
+   * was empty, or was withheld while a baseline was in flight, and a delta that starts at an older
+   * frame covers both. A base is also never behind the ack, so right after a baseline it is the
+   * baseline's frame, and the delta that ends the wait carries everything withheld meanwhile.
    */
   public readonly sent: SentFrames | undefined;
   /**
@@ -702,9 +714,10 @@ export class ServerWorld extends NetworkWorld {
    * needs a baseline for it, however long it stays quiet.
    *
    * With {@link ServerWorldOptions.redundancyFrames} set, a healthy session's delta
-   * starts at the optimistic base, `max(ack, base)` where `base` is the frame the
-   * session was sent `redundancyFrames` sends ago, instead of at the ack, and the
-   * frame carries the optimistic marker when that is past the ack.
+   * starts at the optimistic base, `max(ack, base)` where `base` is the state frame
+   * of the send `redundancyFrames` sends ago (the frame its replicated state last
+   * changed in, as of that send), instead of at the ack, and the frame carries the
+   * optimistic marker when that is past the ack.
    *
    * With {@link ServerWorldOptions.keepAliveFrames} set, a session that has acked a baseline
    * and has not been sent a frame with a diff for that many frames is sent one whose diff is
@@ -789,7 +802,7 @@ export class ServerWorld extends NetworkWorld {
       if (diff !== undefined) {
         session.rtt.recordSend(toFrame, nowMs);
         if (content) {
-          this._noteContentSent(session, toFrame, nowMs);
+          this._noteContentSent(session, nowMs);
         }
         if (this._keepAliveFrames !== undefined) {
           this._noteDiffSent(session, toFrame, keepAlive);
@@ -925,23 +938,28 @@ export class ServerWorld extends NetworkWorld {
 
   /**
    * The frame an optimistic delta starts after: `max(ack, sent.oldest)`, where
-   * `sent.oldest` is the frame the session was sent `redundancyFrames` sends ago.
+   * `sent.oldest` is the state frame of the send `redundancyFrames` sends ago: the
+   * newest frame at which the session's state had changed as of that send.
    *
-   * The client's version is always a frame it was sent, so the base must be one,
-   * and a frame number such as `toFrame - redundancyFrames` is not, once traffic
-   * is sparse. With sends at frames 100, 101 and 106 and `redundancyFrames` 2, the
-   * delta of 106 would start at 104, which was never sent. The newest send at
-   * least that old is 101, and a client that lost it is at 100 and would read the
-   * delta as a gap. Two sends back is 100, which the client holds unless it lost
-   * 101 too. In a busy view every frame is a send and the base is
-   * `toFrame - redundancyFrames`.
+   * The client's version is the frame of a send it received, and the session's state is
+   * the same from a send's state frame to the send, so a client at that send holds the
+   * state frame too. A base named by send frame would be wrong in the other direction:
+   * a keepalive, or the repeat of a change the client already holds, carries nothing,
+   * and when it is lost the client is at exactly the state the server is, yet a delta
+   * that starts at it reads as a gap. Starting at the state frame instead costs no
+   * bytes, since `(stateFrame, toFrame]` holds exactly what `(sendFrame, toFrame]` does.
+   * With sends at frames 100 (a change), 101 (its repeat) and 102 (a keepalive) and
+   * `redundancyFrames` 2, the delta of 103 starts at 100, the state frame of the send two
+   * back, and not at 101: a client that received 100 and lost 101 holds 100, and would
+   * read a delta from 101 as a gap.
    *
-   * It is at least `redundancyFrames` frames before `toFrame`, so a change travels
-   * in `redundancyFrames` consecutive frames, however sparse. Frames after the base
-   * that sent nothing, or were withheld while a baseline was in flight, need no
-   * special case: the pull merges everything after the base. Never before the ack,
-   * so the pull never merges more frames than a plain delta, and right after a
-   * baseline it starts at the baseline, which is the ack.
+   * It is at least `redundancyFrames` sends before `toFrame`, so a change travels in
+   * `redundancyFrames` consecutive sends, however sparse. Frames after the base that
+   * sent nothing, or were withheld while a baseline was in flight, need no special case:
+   * the pull merges everything after the base. Never before the ack, so the pull never
+   * merges more frames than a plain delta, and right after a baseline it starts at the
+   * baseline, which is the ack. An idle view that has been acked has nothing to presume
+   * on: its base is the ack, and its keepalives are plain.
    */
   private _optimisticBase(session: ServerClientSession, sent: SentFrames): number {
     return Math.max(session.ackFrame, sent.oldest);
@@ -975,11 +993,14 @@ export class ServerWorld extends NetworkWorld {
   /**
    * Whether a fallback is running, ending it if the client has caught up.
    *
-   * A fallback ends once the ack reaches the frame it began at, or the newest
-   * frame with content that was sent: past that the client holds everything there
-   * is to hold, and there is nothing to fall back for. Without the second
-   * condition a fallback begun in a quiet moment would last until the next change
-   * had been sent and acked.
+   * A fallback ends once the ack reaches the frame it began at, or the state frame of
+   * the newest send, the newest frame with content that was sent: past that the client
+   * holds everything there is to hold, and there is nothing to fall back for. Without
+   * the second condition a fallback begun in a quiet moment would last until the next
+   * change had been sent and acked. A keepalive or a repeat of an older change moves
+   * the newest send forward in time but not its state frame, so a quiet view's
+   * fallback ends when the client has caught up with its last change, not when it has
+   * acked the latest keepalive.
    */
   private _inFallback(session: ServerClientSession): boolean {
     const since = session.fallbackFrame;
@@ -1033,32 +1054,38 @@ export class ServerWorld extends NetworkWorld {
   }
 
   /**
-   * Record that a baseline or a delta with content went out in `frame`: it joins
-   * the frames an optimistic base is taken from, and, unless an older one is still
-   * waiting, it is the one the liveness timer watches.
+   * Record that a baseline or a delta with content went out: its state frame joins the
+   * frames an optimistic base is taken from, and, unless an older one is still waiting,
+   * it is the one the liveness timer watches.
+   *
+   * The probe is a state frame like the ring's entries, so it is satisfied by an ack that
+   * reaches the change, not the send: a repeat of a change the client has acked is
+   * already delivered, and its loss is nothing to chase.
    */
-  private _noteContentSent(session: ServerClientSession, frame: number, nowMs: number): void {
+  private _noteContentSent(session: ServerClientSession, nowMs: number): void {
     const sent = session.sent;
     if (sent === undefined) {
       return;
     }
-    sent.push(frame);
+    const stateFrame = session.history.lastContentFrame;
+    sent.push(stateFrame);
     if (session.probeFrame === undefined || session.ackFrame >= session.probeFrame) {
-      session.probeFrame = frame;
+      session.probeFrame = stateFrame;
       session.probeSentAtMs = nowMs;
     }
   }
 
   /**
    * Record that a frame with a diff went out in `frame`: it restarts the count towards the
-   * session's next keepalive. A keepalive also joins the frames an optimistic base is taken
-   * from, because the client applies it and its version may be that frame; it is not content,
-   * so it is never the one the liveness timer watches.
+   * session's next keepalive. A keepalive also joins the sends an optimistic base is taken
+   * from, because the client applies it and its version may be that frame, with the state
+   * frame it names: the session's last change, which the client holds if it received this
+   * or any later send. It is not content, so it is never the one the liveness timer watches.
    */
   private _noteDiffSent(session: ServerClientSession, frame: number, keepAlive: boolean): void {
     session.lastDiffFrame = frame;
     if (keepAlive) {
-      session.sent?.push(frame);
+      session.sent?.push(session.history.lastContentFrame);
     }
   }
 

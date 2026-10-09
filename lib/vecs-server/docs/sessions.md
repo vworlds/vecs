@@ -239,9 +239,12 @@ that are superseded by a later one cost nothing extra, because the merge keeps o
 component.
 
 `redundancyFrames` trades that for a fixed redundancy. Set it to `R` and every healthy session's
-delta starts at the frame the session was sent `R` sends ago, a baseline or a delta with content,
-instead of at its ack. In a view that changes on every frame that is `R` frames before the frame being
-sent. A change is sent in `R` consecutive frames and no more, whatever the lag and however sparse the
+delta starts at the state frame of the send `R` sends ago, instead of at its ack. A send is a
+baseline, a delta with content or a [keepalive](#keepalive-keepaliveframes), and its state frame is
+the newest frame at which the session's replicated state had changed as of that send: its own frame
+when it carries a new change, and the earlier frame of the change when it only repeats it or carries
+nothing. In a view that changes on every frame that is `R` frames before the frame being sent. A
+change is sent in `R` consecutive sends and no more, whatever the lag and however sparse the
 traffic:
 
 ```ts
@@ -259,9 +262,12 @@ must understand the optimistic marker the server adds to such a frame, so deploy
 client built before it closes the connection on the unknown field.
 
 The price is paid when the redundancy runs out. A delta that starts past the ack presumes the client
-received the frame it starts at, and when the last `R` frames sent to it are all lost it did not. A
-base is always a frame the client was sent, so when the traffic is sparse a lost frame is absorbed by
-the next frame sent, however long the quiet stretch between them. The client holds
+received the frame it starts at, and when the last `R` frames sent to it that carried a change it
+lacked are all lost it did not. The state is the same from a send's state frame to the send, so a
+client that received the send holds the base, and when the traffic is sparse a lost frame is absorbed
+by the next frame sent, however long the quiet stretch between them. A frame that carried nothing the
+client lacked, a keepalive or the repeat of a change it already holds, names the state frame of the
+change before it, so losing it never moves the next delta past what the client holds. The client holds
 the diff it cannot apply, reports the gap in its next ack, and the server sends plain deltas from the
 ack until the client has caught up. The client's view stops for about one round trip. Its
 interpolation buffer hides part of that. A change lost with nothing sent after it is found by a timer
@@ -317,11 +323,12 @@ A keepalive is an ordinary frame with an empty diff, so everything else follows 
   with `redundancyFrames`, the optimistic base, and carries the optimistic marker when that is past
   the ack. The client applies it, its version advances, and it acks it like any frame.
 - **It counts as a send** for the optimistic base, because the client was sent it and its version may
-  be that frame. So in an idle view with `K` 1 and `R` 2 every delta starts two frames back, as in
-  a busy one, and an idle view is as sensitive to lost frames as a busy one: on a link with 5% loss
-  each way `R` 1 reports about four gaps a second and `R` 2 one every two seconds, while `R` 3 or
-  no `R` reports none. It is **not content** for the ack timeout, so a lost keepalive is never chased with a
-  fallback: nothing in it needs delivering.
+  be that frame, with the state frame of the session's last change. It carries nothing, so it names
+  the frame the send before it named, and a lost keepalive can never be the base of a later frame that
+  the client cannot apply. An idle view whose last change is acked has a base at or before its ack:
+  its keepalives are plain deltas from the ack, the same bytes whatever `R` is, and on a link with 5%
+  loss each way it reports no gaps at `R` 1, 2 or 3. It is **not content** for the ack timeout, so a
+  lost keepalive is never chased with a fallback: nothing in it needs delivering.
 - **It is never sent while a baseline is in flight or needed**, and not before the client has acked
   a baseline: the rules above hold, and the session is sent no state. A frame that carries only
   RPC traffic, as then, has no diff, advances no `renderFrame` and does not restart the count. A
@@ -498,7 +505,7 @@ systems.
 | `CLOSE_PROTOCOL_ERROR_CODE`                      | Reserved close code `1`: the session was closed because a frame could not be decoded. Also exported by `@vworlds/vecs-protocol`.                                                                                      |
 | `closeLingerMs` (`ServerWorldOptions`)           | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                                                                                                 |
 | `historyFrames` (`ServerWorldOptions`)           | Frames of history each session keeps: how far behind its ack can be, while its view keeps changing, and still get a delta. Integer of at least 2; default 64.                                                         |
-| `redundancyFrames` (`ServerWorldOptions`)        | Opt in to the delta base `redundancyFrames` sends ago, never before the ack: a change goes out in that many consecutive frames, not in every frame until acked. An integer in [1, `historyFrames`); unset by default. |
+| `redundancyFrames` (`ServerWorldOptions`)        | Opt in to the base at the state frame `redundancyFrames` sends ago, never before the ack: a change goes out in that many sends, not in every frame until acked. An integer in [1, `historyFrames`); unset by default. |
 | `keepAliveFrames` (`ServerWorldOptions`)         | Opt in to a frame with an empty diff for a session that was sent no diff for that many frames, so the client's `renderFrame` keeps moving in an idle scene. An integer of at least 1; unset by default. `1` is safe.  |
 | `world.keepAliveFrames`                          | The configured `keepAliveFrames`, or `undefined`.                                                                                                                                                                     |
 

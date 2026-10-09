@@ -214,6 +214,61 @@ describe("History", () => {
     );
   });
 
+  describe("the frame the state last changed", () => {
+    it("is the frame the history started at until a frame with content is pushed", () => {
+      const history = new History(4, 9);
+      expect(history.lastContentFrame).toBe(9);
+
+      history.push(stateDiff(10));
+      history.push(stateDiff(11));
+
+      expect(history.lastContentFrame).toBe(9);
+    });
+
+    it("is the newest frame pushed with a snapshot or a removal, and no later empty frame moves it", () => {
+      const history = new History(4);
+
+      history.push(stateDiff(0, [snapshot(1, 1)]));
+      expect(history.lastContentFrame).toBe(0);
+      history.push(stateDiff(1));
+      history.push(stateDiff(2, [], [[1, 1]]));
+      expect(history.lastContentFrame).toBe(2);
+      history.push(stateDiff(3));
+      history.push(stateDiff(4));
+      expect(history.lastContentFrame).toBe(2);
+      history.push(stateDiff(5, [], [[1, ALL_COMPONENTS]]));
+      expect(history.lastContentFrame).toBe(5);
+    });
+
+    it("stays when the frame that held the content leaves the window", () => {
+      const history = new History(3);
+      history.push(stateDiff(0, [snapshot(1, 1)]));
+      for (let frame = 1; frame <= 8; frame++) {
+        history.push(stateDiff(frame));
+      }
+
+      expect(history.evictedContentFrame).toBe(0);
+      expect(history.lastContentFrame).toBe(0);
+    });
+
+    it("lets a pull from it or from any later frame answer an empty delta without merging", () => {
+      const history = new History(8);
+      history.push(stateDiff(0, [snapshot(1, 1)]));
+      for (let frame = 1; frame <= 6; frame++) {
+        history.push(stateDiff(frame));
+      }
+
+      for (const from of [0, 2, 5]) {
+        const pulled = history.pull(from, 6);
+        expect(pulled).toMatchObject({ fromFrame: from, toFrame: 6, snapshots: [], removed: [] });
+      }
+      // One frame before it still holds the change.
+      expect(history.pull(-1, 6).snapshots).toEqual([snapshot(1, 1)]);
+      // Pulling past the newest frame is refused, whatever the content.
+      expect(() => history.pull(2, 7)).toThrow("outside history window");
+    });
+  });
+
   describe("frames that left the window", () => {
     it("remembers the newest one that left holding a snapshot or a removal", () => {
       const history = new History(3);

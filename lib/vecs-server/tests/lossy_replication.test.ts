@@ -719,12 +719,13 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
   });
 
   describe("frames lost in sparse traffic, on a link that otherwise loses nothing", () => {
-    // The base of an optimistic delta is the frame sent `R` sends ago, which the client is
-    // certain to hold if it lost at most R - 1 frames in a row. In sparse traffic the frames sent
-    // are far apart in time, so a base chosen by frame number alone ("R frames back") would land on
-    // a frame that was never sent, or on the last copy of the previous change, and the loss of that
-    // one frame would read as a gap. Each run loses `lost` consecutive deltas of the sends of an
-    // otherwise identical run, in turn, and none may make the client report a gap.
+    // The base of an optimistic delta is the state frame of the send `R` sends ago: the frame at
+    // which the view had last changed as of that send, which the client holds if it lost at most
+    // R - 1 sends in a row. In sparse traffic the sends are far apart in time, so a base chosen by
+    // frame number alone ("R frames back") would land on a frame that was never sent, or on the
+    // last copy of the previous change, and the loss of that one frame would read as a gap. Each
+    // run loses `lost` consecutive deltas of the sends of an otherwise identical run, in turn, and
+    // none may make the client report a gap.
     const CLEAN_LINK = symmetric({ oneWayMs: 100 });
     const SCENARIOS: Array<{
       name: string;
@@ -734,15 +735,10 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
     }> = [
       { name: "one change every four frames", mutation: { everyFrames: 4 }, ticks: 150 },
       {
-        // A keepalive is a send, so the frames in between are sends too and the base is always one.
+        // Between the changes the frames are keepalives, which name the state frame of the change
+        // before them.
         name: "four-frame changes + keepalive",
         mutation: { everyFrames: 4 },
-        ticks: 150,
-        keepAliveFrames: 1,
-      },
-      {
-        name: "an idle view + keepalive",
-        mutation: "none",
         ticks: 150,
         keepAliveFrames: 1,
       },
@@ -785,6 +781,7 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
       run.sim.run(SETTLE_MS);
       const result = {
         deltaFrames: client.stats.deltasSent.map((delta) => delta.toFrame),
+        changeFrames: run.changes.map((change) => change.frame),
         gapReports: client.stats.gapReportsSent,
         optimisticFrames: client.stats.optimisticFramesSent,
         summary: summarize(run.sim, client),
@@ -792,6 +789,53 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
       run.sim.dispose();
       sim = undefined;
       return result;
+    }
+
+    /**
+     * What happened when each of `lostSets` was lost in turn, for those runs that were not clean: the
+     * client reported a gap, hit an error or a disconnect, was rebuilt, or ended up different from
+     * the server.
+     */
+    function uncleanRuns(
+      mutation: Mutation,
+      ticks: number,
+      redundancyFrames: number,
+      lostSets: number[][],
+      keepAliveFrames?: number
+    ) {
+      const failures: Array<{
+        lostFrames: number[];
+        gapReports: number;
+        summary: ReturnType<typeof summarize>;
+      }> = [];
+      for (const lostFrames of lostSets) {
+        const run = runLosing(
+          mutation,
+          ticks,
+          redundancyFrames,
+          new Set(lostFrames),
+          keepAliveFrames
+        );
+        const clean =
+          run.gapReports === 0 &&
+          run.summary.errors.length === 0 &&
+          run.summary.disconnects.length === 0 &&
+          run.summary.resets === 1 &&
+          run.summary.differences.length === 0;
+        if (!clean) {
+          failures.push({ lostFrames, gapReports: run.gapReports, summary: run.summary });
+        }
+      }
+      return failures;
+    }
+
+    /** Every run of `count` consecutive frames of `sent`. */
+    function consecutive(sent: number[], count: number): number[][] {
+      const windows: number[][] = [];
+      for (let first = 0; first + count <= sent.length; first++) {
+        windows.push(sent.slice(first, first + count));
+      }
+      return windows;
     }
 
     describe.each(SCENARIOS)("$name", ({ mutation, ticks, keepAliveFrames }) => {
@@ -810,32 +854,117 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
           const sent = reference.deltaFrames;
           expect(sent.length).toBeGreaterThan(8);
 
-          const failures: Array<{
-            lostFrames: number[];
-            gapReports: number;
-            summary: ReturnType<typeof summarize>;
-          }> = [];
-          for (let first = 0; first + lost <= sent.length; first++) {
-            const lostFrames = sent.slice(first, first + lost);
-            const run = runLosing(
-              mutation,
-              ticks,
-              redundancyFrames,
-              new Set(lostFrames),
-              keepAliveFrames
-            );
-            const clean =
-              run.gapReports === 0 &&
-              run.summary.errors.length === 0 &&
-              run.summary.disconnects.length === 0 &&
-              run.summary.resets === 1 &&
-              run.summary.differences.length === 0;
-            if (!clean) {
-              failures.push({ lostFrames, gapReports: run.gapReports, summary: run.summary });
-            }
-          }
+          expect(
+            uncleanRuns(mutation, ticks, redundancyFrames, consecutive(sent, lost), keepAliveFrames)
+          ).toEqual([]);
+        },
+        120_000
+      );
+    });
 
-          expect(failures).toEqual([]);
+    describe("a lost frame that carried nothing the client lacked", () => {
+      // The state frame of a keepalive, or of the repeat of a change the client already holds, is
+      // the frame of that change, so losing it leaves the client exactly where the server's state
+      // is. A base chosen from the frames sent would land on the lost frame instead, and the
+      // client would hold the next delta and report a gap though nothing was missing, as soon as
+      // `R` such frames were lost in a row.
+
+      const IDLE_LOSSES = [
+        { redundancyFrames: 1, lost: 1 },
+        { redundancyFrames: 2, lost: 1 },
+        { redundancyFrames: 2, lost: 2 },
+        { redundancyFrames: 3, lost: 1 },
+        { redundancyFrames: 3, lost: 2 },
+        { redundancyFrames: 3, lost: 3 },
+      ];
+
+      it.each(IDLE_LOSSES)(
+        "an idle view, redundancyFrames $redundancyFrames: $lost consecutive lost keepalives never make the client report a gap",
+        ({ redundancyFrames, lost }) => {
+          const reference = runLosing("none", 80, redundancyFrames, new Set(), 1);
+          // Past the baseline, a keepalive on every frame.
+          expect(reference.deltaFrames.length).toBeGreaterThan(60);
+
+          expect(
+            uncleanRuns("none", 80, redundancyFrames, consecutive(reference.deltaFrames, lost), 1)
+          ).toEqual([]);
+        },
+        120_000
+      );
+
+      const CARRY_SCENARIOS: Array<{ name: string; mutation: Mutation; ticks: number }> = [
+        { name: "one change every four frames", mutation: { everyFrames: 4 }, ticks: 100 },
+        {
+          name: "single changes after quiet stretches",
+          mutation: { atTicks: [12, 14, 17, 22, 30, 43, 64] },
+          ticks: 100,
+        },
+      ];
+
+      describe.each(CARRY_SCENARIOS)("$name", ({ mutation, ticks }) => {
+        it.each([2, 3])(
+          "redundancyFrames %i: the repeats of a change and the first copy of the next, all lost, never make the client report a gap",
+          (redundancyFrames) => {
+            const reference = runLosing(mutation, ticks, redundancyFrames, new Set());
+            const changes = new Set(reference.changeFrames);
+            const sent = reference.deltaFrames;
+            // The R - 1 repeats of a change, then the frame that sends the next one for the first
+            // time: R sends in a row, of which the client has none that it lacked. The first delta
+            // is left out, because it sends for the first time what was withheld while the
+            // baseline was in flight.
+            const lostSets = consecutive(sent, redundancyFrames).filter(
+              (frames) =>
+                frames[0] !== sent[0] &&
+                changes.has(frames[frames.length - 1]) &&
+                frames.slice(0, -1).every((frame) => !changes.has(frame))
+            );
+            expect(lostSets.length).toBeGreaterThan(2);
+
+            expect(uncleanRuns(mutation, ticks, redundancyFrames, lostSets)).toEqual([]);
+          },
+          120_000
+        );
+      });
+
+      it.each([
+        { redundancyFrames: 1, keepAliveFrames: undefined },
+        { redundancyFrames: 2, keepAliveFrames: undefined },
+        { redundancyFrames: 3, keepAliveFrames: undefined },
+        { redundancyFrames: 1, keepAliveFrames: 1 },
+        { redundancyFrames: 2, keepAliveFrames: 1 },
+        { redundancyFrames: 3, keepAliveFrames: 1 },
+      ])(
+        "redundancyFrames $redundancyFrames, keepAliveFrames $keepAliveFrames: losing every send that carried a change still makes the client report a gap, and it recovers",
+        ({ redundancyFrames, keepAliveFrames }) => {
+          // Changes in frames 13, 41 and 49. All R sends of the second are lost, so the client
+          // lacks it, and the first frame after them that starts at it, a keepalive or the third
+          // change, is a gap, well before the ack timeout (about 400 ms) would have found the loss.
+          // The server falls back to the ack and the client catches up.
+          const mutation: Mutation = { atTicks: [12, 40, 48] };
+          const reference = runLosing(mutation, 100, redundancyFrames, new Set(), keepAliveFrames);
+          const second = reference.changeFrames[1];
+          const lostFrames = Array.from({ length: redundancyFrames }, (_, i) => second + i);
+          expect(lostFrames.every((frame) => reference.deltaFrames.includes(frame))).toBe(true);
+
+          const run = runLosing(
+            mutation,
+            100,
+            redundancyFrames,
+            new Set(lostFrames),
+            keepAliveFrames
+          );
+
+          expect(run.gapReports).toBeGreaterThan(0);
+          expect(run.summary).toEqual({
+            errors: [],
+            disconnects: [],
+            resets: 1,
+            baselinesDelivered: 1,
+            baselinesSentAfterFirstReset: 0,
+            enters: 10,
+            exits: 0,
+            differences: [],
+          });
         },
         120_000
       );
@@ -858,37 +987,70 @@ describe("the keepalive (keepAliveFrames) over the same link", () => {
     return advances.slice(1).reduce((longest, atMs, i) => Math.max(longest, atMs - advances[i]), 0);
   }
 
-  it.each([1, 2])(
-    "keeps an idle view moving for 60 s at 200 ms round trip, 5% loss and reordering, with redundancyFrames 2, seed %i",
+  /** The standstills of the client's accepted frame after the warm-up that lasted over `overMs`. */
+  function standstillsOver(client: SimClient, overMs: number): number[] {
+    const advances = client.stats.versionAdvances
+      .map(({ atMs }) => atMs)
+      .filter((atMs) => atMs >= WARMUP_MS);
+    return advances
+      .slice(1)
+      .map((atMs, i) => atMs - advances[i])
+      .filter((durationMs) => durationMs > overMs);
+  }
+
+  // An idle view of 20 entities, kept alive by a keepalive on every frame. After the baseline it
+  // holds no change, so there is nothing for the redundancy to protect, and nothing the client can
+  // lack: a lost keepalive carries no state, so no loss can make it miss anything and none may make
+  // it report a gap. What the redundancy costs here is its bytes only.
+  describe.each([1, 2])(
+    "an idle view for 60 s at 200 ms round trip, 5% loss and reordering, seed %i",
     (seed) => {
-      const run = startSim({
-        seed,
-        entityCount: 20,
-        mutation: "none",
-        redundancyFrames: 2,
-        keepAliveFrames: 1,
-      });
-      const client = run.sim.addClient();
+      it.each([undefined, 1, 2, 3])(
+        "keeps moving and reports no gap, with keepAliveFrames 1 and redundancyFrames %s",
+        (redundancyFrames) => {
+          const run = startSim({
+            seed,
+            entityCount: 20,
+            mutation: "none",
+            redundancyFrames,
+            keepAliveFrames: 1,
+          });
+          const client = run.sim.addClient();
 
-      run.sim.run(RUN_MS);
-      run.freeze();
-      run.sim.run(SETTLE_MS);
+          run.sim.run(RUN_MS);
+          run.freeze();
+          run.sim.run(SETTLE_MS);
 
-      // One rebuild, on connect: a keepalive that goes missing, or a gap report, is never a protocol
-      // error or a disconnect, and the idle client ends where the server is.
-      expect(summarize(run.sim, client)).toMatchObject({
-        errors: [],
-        disconnects: [],
-        resets: 1,
-        enters: 20,
-        exits: 0,
-        differences: [],
-      });
-      // A frame on nearly every tick: the 1800 of a minute at 30 Hz, less the handshake.
-      expect(client.stats.deltasSent.length).toBeGreaterThan(1700);
-      expect(longestStandstillMs(client)).toBeLessThan(STUCK_MS);
-    },
-    120_000
+          if (process.env.VECS_SIM_REPORT !== undefined) {
+            const standstills = standstillsOver(client, 100);
+            console.info(
+              `idle view, seed ${seed}, K=1 R=${String(redundancyFrames ?? "unset").padEnd(5)} ` +
+                `frames ${client.stats.deltasSent.length}, bytes ${client.stats.bytesSent}, ` +
+                `gap reports ${client.stats.gapReportsSent}, ` +
+                `standstills over 100 ms ${standstills.length} ` +
+                `(longest ${longestStandstillMs(client).toFixed(0)} ms), late changes 0 of 0`
+            );
+          }
+
+          // One rebuild, on connect: a keepalive that goes missing is never a protocol error or a
+          // disconnect, and the idle client ends where the server is.
+          expect(summarize(run.sim, client)).toMatchObject({
+            errors: [],
+            disconnects: [],
+            resets: 1,
+            enters: 20,
+            exits: 0,
+            differences: [],
+          });
+          // A frame on nearly every tick: the 1800 of a minute at 30 Hz, less the handshake.
+          expect(client.stats.deltasSent.length).toBeGreaterThan(1700);
+          // No change was ever made after the baseline, so no loss can have cost the client one.
+          expect(client.stats.gapReportsSent).toBe(0);
+          expect(longestStandstillMs(client)).toBeLessThan(STUCK_MS);
+        },
+        120_000
+      );
+    }
   );
 
   describe("on a link that loses nothing", () => {
@@ -923,7 +1085,13 @@ describe("the keepalive (keepAliveFrames) over the same link", () => {
           run.sim.run(SETTLE_MS);
 
           expect(client.stats.gapReportsSent).toBe(0);
-          expect(client.stats.optimisticFramesSent).toBeGreaterThan(50);
+          if (mutation === "none") {
+            // Once the baseline is acked an idle view has nothing the client lacks, so every
+            // keepalive starts at the ack and presumes nothing.
+            expect(client.stats.optimisticFramesSent).toBe(0);
+          } else {
+            expect(client.stats.optimisticFramesSent).toBeGreaterThan(50);
+          }
           expect(summarize(run.sim, client)).toMatchObject({
             errors: [],
             disconnects: [],

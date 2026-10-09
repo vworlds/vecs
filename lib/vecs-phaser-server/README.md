@@ -101,7 +101,8 @@ with an empty diff, a header of 5 to 11 bytes (about 10 in a long-running server
 and the bodies move on every tick. That is 150 to 300 B/s per idle client at 30 Hz, and nothing for a
 session that is sent a diff anyway. A larger value saves bytes at the price of the render frame
 waiting for each keepalive: `2` still looks smooth on a steady link and `3` or more stalls and jumps.
-On a lossy link, leave `redundancyFrames` unset or use `3`. See
+It combines with any `redundancyFrames`: in an idle scene the keepalives are plain deltas from the
+client's ack, so a lost one never makes the client report a gap. See
 [`keepAliveFrames`](../vecs-server/docs/sessions.md#keepalive-keepaliveframes) and
 [Replication](../../architecture/REPLICATION.md#the-keepalive).
 

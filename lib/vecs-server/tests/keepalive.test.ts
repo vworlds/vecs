@@ -288,11 +288,22 @@ describe("an idle session", () => {
 
   it("is sent a frame one byte longer when it is marked optimistic", () => {
     const rig = connect({ keepAliveFrames: 1, redundancyFrames: 2 });
+    // A change in frame 7, sent in 7 and 8, so the keepalives that follow start at it, past the
+    // ack, until the ack reaches it: an idle view has nothing to presume, but just after a change
+    // the client may not have it yet.
+    advance(rig, () => move(rig.entity, 1));
+    advance(rig);
+    const sentBefore = rig.socket.sent.length;
 
     const frames = advanceQuietly(rig, 10);
 
-    expect(frames.slice(-3).every((frame) => frame.optimistic)).toBe(true);
-    expect(rig.socket.sent.slice(-3).map((bytes) => bytes.length)).toEqual([6, 6, 6]);
+    const marked = frames.filter((frame) => frame.optimistic);
+    const plain = frames.filter((frame) => !frame.optimistic);
+    expect(marked.length).toBeGreaterThanOrEqual(3);
+    expect(plain.length).toBeGreaterThanOrEqual(3);
+    expect(rig.socket.sent.slice(sentBefore).map((bytes) => bytes.length)).toEqual(
+      frames.map((frame) => (frame.optimistic ? 6 : 5))
+    );
   });
 
   it("is acked by the client like any frame, which moves its base on", () => {
@@ -438,30 +449,58 @@ describe("a session that waits for a baseline", () => {
 });
 
 describe("with redundancyFrames", () => {
-  it("bases a keepalive on a frame the session was sent, one redundancy window back", () => {
+  it("starts an idle session's keepalives at its ack, plain, since there is nothing it could lack", () => {
     const rig = connect({ keepAliveFrames: 1, redundancyFrames: 2 });
 
     const frames = advanceQuietly(rig, 30);
 
-    // Every frame is a send, so past the baseline the base is two frames back, as in a busy view,
-    // and it is the first frame the client lacks only if it lost both of the last two.
-    const steady = frames.filter((frame) => toFrameOf(frame) >= 10);
-    expect(steady).toHaveLength(27);
-    expect(steady.every((frame) => toFrameOf(frame) - fromFrameOf(frame) === 2)).toBe(true);
-    expect(steady.every((frame) => frame.optimistic)).toBe(true);
+    // The baseline is the only content the session has ever been sent, and it is acked, so past the
+    // first frames the base is the ack, which trails by LAG + 1 frames, and none is marked. A base
+    // taken from the frames sent would run ahead of the ack as it does in a busy view, and a lost
+    // keepalive would read as a gap.
+    const steady = frames.filter((frame) => toFrameOf(frame) >= 14);
+    expect(steady).toHaveLength(23);
+    expect(steady.every((frame) => toFrameOf(frame) - fromFrameOf(frame) === LAG + 1)).toBe(true);
+    expect(frames.every((frame) => !frame.optimistic)).toBe(true);
     expect(frames.every(isEmptyDiff)).toBe(true);
   });
 
-  it("counts a keepalive as a send: two sends back at keepAliveFrames 2 is four frames back", () => {
-    const rig = connect({ keepAliveFrames: 2, redundancyFrames: 2 });
+  it.each([
+    { keepAliveFrames: 1, redundancyFrames: 1 },
+    { keepAliveFrames: 1, redundancyFrames: 2 },
+    { keepAliveFrames: 1, redundancyFrames: 3 },
+    { keepAliveFrames: 2, redundancyFrames: 2 },
+    { keepAliveFrames: 3, redundancyFrames: 2 },
+  ])(
+    "starts every keepalive after a change at the change, or at the ack once that is past it: %o",
+    ({ keepAliveFrames, redundancyFrames }) => {
+      const rig = connect({ keepAliveFrames, redundancyFrames });
+      // A change in frame 7, which is sent in R frames in a row; the keepalives follow.
+      advance(rig, () => move(rig.entity, 1));
+      for (let i = 1; i < redundancyFrames; i++) {
+        advance(rig);
+      }
 
-    const frames = advanceQuietly(rig, 30);
+      let keepalives = 0;
+      let marked = 0;
+      for (let i = 0; i < 40; i++) {
+        const ackedBefore = rig.acked;
+        for (const frame of advance(rig)) {
+          expect(isEmptyDiff(frame)).toBe(true);
+          // The state frame of the sends since the change is 7, whichever send the base is taken
+          // from, so the base is 7 until the ack passes it. The frame sent R sends ago would be
+          // later than that, and a client that lost it would not hold it.
+          expect(fromFrameOf(frame)).toBe(Math.max(7, ackedBefore));
+          expect(frame.optimistic).toBe(7 > ackedBefore);
+          keepalives++;
+          marked += frame.optimistic ? 1 : 0;
+        }
+      }
 
-    // Keepalives at 7, 9, 11, ...: past the first two, each is based on the one before the last.
-    expect(frames.map(toFrameOf).slice(0, 4)).toEqual([7, 9, 11, 13]);
-    const steady = frames.filter((frame) => toFrameOf(frame) >= 11);
-    expect(steady.every((frame) => toFrameOf(frame) - fromFrameOf(frame) === 4)).toBe(true);
-  });
+      expect(keepalives).toBeGreaterThan(10);
+      expect(marked).toBeGreaterThan(0);
+    }
+  );
 
   it.each([
     { keepAliveFrames: 1, redundancyFrames: 1 },
@@ -489,18 +528,17 @@ describe("with redundancyFrames", () => {
     }
   );
 
-  it("does not take a keepalive for content a lost ack should be chased for", () => {
+  it("keeps a client that stops acking on plain keepalives, with no content to chase", () => {
     const rig = connect({ keepAliveFrames: 1, redundancyFrames: 2 });
 
     // The client stops acking, for 1.2 s: far longer than the 480 ms a frame with content is given.
-    // Keepalives hold no content, so there is nothing to chase: the session is not made to fall
-    // back to the ack, and its deltas stay based one redundancy window back.
+    // Keepalives hold no content and the baseline is acked, so there is nothing to chase and
+    // nothing to presume: every keepalive starts at the ack, which is the baseline.
     const frames = steps(rig, 30);
 
     expect(frames).toHaveLength(30);
-    const last = frames[frames.length - 1];
-    expect(toFrameOf(last) - fromFrameOf(last)).toBe(2);
-    expect(last.optimistic).toBe(true);
+    expect(frames.every((frame) => fromFrameOf(frame) === 1)).toBe(true);
+    expect(frames.every((frame) => !frame.optimistic)).toBe(true);
   });
 
   it("still chases a lost change with the ack timeout, and falls back to the ack", () => {
@@ -530,14 +568,45 @@ describe("with redundancyFrames", () => {
     expect(during.optimistic).toBe(false);
     expect(isEmptyDiff(during)).toBe(true);
   });
+
+  it("ends a fallback once the client has acked the last change, not the latest keepalive", () => {
+    const rig = connect({ keepAliveFrames: 1, redundancyFrames: 2 });
+    // A change in frame 7, sent in 7 and 8, then keepalives; the client has acked far past it.
+    advance(rig, () => move(rig.entity, 1));
+    advanceQuietly(rig, 12);
+    expect(rig.acked).toBeGreaterThan(8);
+
+    // A (stale) gap report starts a fallback, but the client holds the only change there is, so it
+    // ends at once. Every keepalive since is newer than the ack, and waiting for the client to ack
+    // the latest of them would keep the session on plain deltas for a round trip.
+    ack(rig, rig.acked, { gap: true });
+    const [during] = advance(rig);
+    expect(during.optimistic).toBe(false);
+    const [change] = advance(rig, () => move(rig.entity, 2));
+    const [repeat] = advance(rig);
+    const [keepalive] = advance(rig);
+
+    // The change is sent in two frames, and the keepalive after them starts at it, ahead of the
+    // ack: the session is optimistic again, with no fallback in the way.
+    expect(isEmptyDiff(change)).toBe(false);
+    expect(isEmptyDiff(repeat)).toBe(false);
+    expect(isEmptyDiff(keepalive)).toBe(true);
+    expect(fromFrameOf(keepalive)).toBe(toFrameOf(change));
+    expect(keepalive.optimistic).toBe(true);
+  });
 });
 
 describe("an unset keepAliveFrames", () => {
   // The sha256 of every byte the server sent on the script below, recorded from the code before the
   // option existed (commit f2e88e3): the wire must stay byte for byte what it was.
   const PINNED_SHA256 = "a0ffe2f16f184be75a2f4e7dc565d8e01507a7a2949396f02447392136a070f5";
+  // The same, with redundancyFrames 2, recorded when the base became the state frame of the send R
+  // sends ago. That change moved the wire of this script on purpose: the repeats of a change and the
+  // fallback after the gap report now start at the frame of the change (the frame labels differ and
+  // the bodies are the same), and the fallback ends once the client has acked the last change
+  // instead of the last frame sent. The keepalive option must not move it again.
   const PINNED_REDUNDANT_SHA256 =
-    "1b30f7d59e14ec51713daeb8827a959521229bb535d118638960c157352e5622";
+    "28158df1b4decf33be9aec10adac2d2dde5dea4bc21e0371daef0e81ac4c01fd";
 
   /**
    * A lagging client on a lossy link: acks trail by five frames, every ninth frame is lost, one
@@ -575,7 +644,7 @@ describe("an unset keepAliveFrames", () => {
     expect(script({})).toBe(PINNED_SHA256);
   });
 
-  it("sends exactly the frames it sent before the option existed, with redundancyFrames", () => {
+  it("sends exactly the frames it sent without the option, with redundancyFrames", () => {
     expect(script({ redundancyFrames: 2 })).toBe(PINNED_REDUNDANT_SHA256);
   });
 

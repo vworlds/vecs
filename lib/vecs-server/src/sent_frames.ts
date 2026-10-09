@@ -1,19 +1,30 @@
 /**
- * The last `capacity` frames in which a session was sent a baseline or a delta
- * with content, which is what an optimistic delta is based on
- * (`ServerWorldOptions.redundancyFrames` is the `capacity`).
+ * The state frames of the last `capacity` sends to a session, which is what an
+ * optimistic delta is based on (`ServerWorldOptions.redundancyFrames` is the
+ * `capacity`).
  *
- * A client's version is always a frame it was sent, so the base of a delta that
- * presumes the client's version must be one too. It is the oldest of the ring, the
- * frame sent `capacity` sends ago:
+ * A send is a baseline, a delta with content or a keepalive. Its **state frame** is
+ * the newest frame at which the session's replicated state had changed as of that
+ * send (`History.lastContentFrame`): the send's own frame when it carries a new
+ * change, and the earlier frame of the change when it only carries it again, as the
+ * later copies of a change do, or carries nothing, as a keepalive. The session's
+ * state is the same at every frame from the state frame to the send, so a delta
+ * that starts at the state frame holds exactly what one starting at the send would.
  *
- * - It is at least `capacity` frames before the one being sent, so a change
- *   travels in `capacity` consecutive frames and no more.
- * - The client holds it, or something newer, unless it lost all of the `capacity`
- *   most recent sends. Up to `capacity - 1` losses in a row cost nothing, however
- *   far apart in time the sends were. A base chosen by frame number alone does
- *   not give that when traffic is sparse: it lands on the last copy of the
- *   previous change, whose loss then reads as a gap.
+ * The base of an optimistic delta is the oldest of the ring, the state frame of the
+ * send `capacity` sends ago:
+ *
+ * - A change is carried by `capacity` consecutive sends: its own, and the next
+ *   `capacity - 1`, whose bases still lie before it. The send after those starts at
+ *   the change and no longer carries it.
+ * - The client holds the base, or something newer, unless it lost all of the
+ *   `capacity` most recent sends. Up to `capacity - 1` losses in a row cost nothing,
+ *   however far apart in time the sends were.
+ * - A lost send that carried nothing the client lacked, a keepalive or a repeat of a
+ *   change it already holds, costs nothing at all: it names the same state frame as
+ *   the send before it, so it never moves the base past what the client holds. A base
+ *   chosen from the frames sent would land on it, and the loss would read as a gap
+ *   though nothing was missing.
  *
  * The ring is allocated when the session is created and holds the frame the
  * session started at until `capacity` frames have been sent. A session's ack is
@@ -26,7 +37,7 @@ export class SentFrames {
   private _oldestSlot = 0;
 
   /**
-   * @param capacity - How many sent frames to retain: `redundancyFrames`.
+   * @param capacity - How many sends to retain: `redundancyFrames`.
    * @param startFrame - The frame before the session's first, which stands in for the
    *   sends that have not happened yet.
    */
@@ -34,22 +45,25 @@ export class SentFrames {
     this._frames = new Float64Array(capacity).fill(startFrame);
   }
 
-  /** The newest frame sent, or the starting frame while none has been. */
+  /** The state frame of the newest send, or the starting frame while none has been. */
   public get newest(): number {
     return this._frames[(this._oldestSlot === 0 ? this._frames.length : this._oldestSlot) - 1];
   }
 
   /**
-   * The frame sent `capacity` sends ago: the base of the next optimistic delta. The
-   * starting frame while fewer than `capacity` frames have been sent.
+   * The state frame of the send `capacity` sends ago: the base of the next optimistic
+   * delta. The starting frame while fewer than `capacity` sends have happened.
    */
   public get oldest(): number {
     return this._frames[this._oldestSlot];
   }
 
-  /** Record that a baseline or a delta with content was sent in `frame`, the newest so far. */
-  public push(frame: number): void {
-    this._frames[this._oldestSlot] = frame;
+  /**
+   * Record a send, the newest so far, whose state frame is `stateFrame`: the frame at
+   * which the session's state last changed, as of this send.
+   */
+  public push(stateFrame: number): void {
+    this._frames[this._oldestSlot] = stateFrame;
     this._oldestSlot = this._oldestSlot + 1 === this._frames.length ? 0 : this._oldestSlot + 1;
   }
 }

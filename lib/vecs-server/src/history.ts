@@ -85,6 +85,7 @@ export function validateRedundancyFrames(frames: number, historyFrames: number):
 export class History {
   private readonly _buffer: StateDiff[];
   private _lastFrame: number;
+  private _lastContentFrame: number;
   private _evictedContentFrame = Number.NEGATIVE_INFINITY;
 
   public constructor(
@@ -92,6 +93,7 @@ export class History {
     lastFrame = -1
   ) {
     this._lastFrame = lastFrame;
+    this._lastContentFrame = lastFrame;
     this._buffer = new Array<StateDiff>(_length);
 
     for (let i = 0; i < _length; i++) {
@@ -106,6 +108,17 @@ export class History {
 
   public get oldestFrame(): number {
     return this._lastFrame - this._length + 1;
+  }
+
+  /**
+   * The newest frame pushed holding content, a snapshot or a removal: the frame at which the
+   * replicated state last changed. The frame the history started at while none has been.
+   *
+   * The state at every frame from this one to {@link History.lastFrame} is the same, so a delta
+   * that starts at or after it is empty, and {@link History.pull} answers one without merging.
+   */
+  public get lastContentFrame(): number {
+    return this._lastContentFrame;
   }
 
   /**
@@ -129,6 +142,9 @@ export class History {
     }
     this._lastFrame = diff.toFrame;
     this._buffer[slot] = diff;
+    if (hasContent(diff)) {
+      this._lastContentFrame = diff.toFrame;
+    }
   }
 
   public get(frame: number): StateDiff {
@@ -184,6 +200,10 @@ export class History {
 
     if (to === from + 1) {
       return this.get(to);
+    }
+
+    if (from >= this._lastContentFrame && to <= this._lastFrame) {
+      return new StateDiff({ fromFrame: from, toFrame: to });
     }
 
     const entities = new IterableArrayMap<EntityHistory>();
