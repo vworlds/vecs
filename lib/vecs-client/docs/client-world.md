@@ -8,6 +8,7 @@ also knows when to let go of all of it.
 
 - How to connect a client world and let replication run.
 - What a baseline does to your replicated entities, and how often to expect one.
+- What the client does with an optimistic frame whose base it never received, and what a gap costs.
 - Which server frame the world renders, and how to put client-computed state on the same timeline.
 - How to call a server RPC and answer server calls.
 - How `dispose` tears a world down and why pending calls must be rejected.
@@ -79,6 +80,30 @@ sending another only if it presumes the first was lost. So a client sees a basel
 and once per real stall, not once per frame. When the server sends them, how it retries, and how to
 size the window for slow players are in
 [Sessions](../../vecs-server/docs/sessions.md#deltas-baselines-and-the-history-window).
+
+## Optimistic frames and gaps
+
+A server built with `redundancyFrames` (see
+[Sessions](../../vecs-server/docs/sessions.md#redundancy-redundancyframes)) sends some deltas from a
+frame later than the one the client last acked, presuming the client already holds it. It marks such
+a frame optimistic. When the frames in between were lost, the diff starts past the newest frame the
+client has, and the client cannot apply it yet. That is not an error, as it is for an unmarked diff,
+and the client does not close.
+
+It holds the diff instead, in a small set that keeps at most 8 and drops the oldest. As soon as the
+client's frame reaches the diff's start the diff is applied, and it is dropped once a later frame has
+passed its end. So a frame that was only delayed or reordered heals with no round trip, and the
+server's fallback delta, which starts from the acked frame, supersedes whatever is still held. While
+it holds a diff the client's ack stays at the last frame it applied, and the next `send()` also
+reports the gap, once per held diff, so that the server sends deltas from the ack until the client has
+caught up. A gap that closed before the ack went out is not reported.
+
+In practice the gap shows as the replicated state standing still for about a round trip after
+`redundancyFrames` frames in a row were lost; the interpolation buffer hides part of it. Nothing
+changes in your code: there is no event for it, and no `reset`. An unmarked diff that starts past the
+client's frame is still a protocol error, as under
+[Frames the client cannot decode](#frames-the-client-cannot-decode). The mechanism is in
+[Replication](../../../architecture/REPLICATION.md#when-the-presumption-is-wrong).
 
 ## Render time
 
@@ -278,8 +303,9 @@ buffer rejects the diff, the client does not throw into the transport or out of 
 `progress()`. The cause is a frame that is truncated or garbled, a field tag this build does not
 know, a snapshot with a malformed envelope or payload, a snapshot of a wire type this world did not
 register, an `Exclusive` relationship snapshot with more than one target, or a diff that starts after
-the last frame the client acknowledged, which a server that honors acks never sends — in practice
-usually a server built from a newer or otherwise incompatible protocol version.
+the last frame the client acknowledged without the server marking it optimistic, which a server that
+honors acks never sends — in practice usually a server built from a newer or otherwise incompatible
+protocol version.
 
 Instead, the client closes the connection through the path `close()` uses: it stops the ack timer,
 emits `disconnect` once, rejects every pending `invoke` with `RPC_CLOSED_CODE`, and closes the
@@ -315,18 +341,18 @@ a payload that fails there still throws out of `apply()`.
 
 ## Reference
 
-| Member                              | Description                                                                             |
-| ----------------------------------- | --------------------------------------------------------------------------------------- |
-| `ClientWorld.connectDgram(options)` | Connect over the dgram transport, then attach; returns a world with a connected socket. |
-| `world.attachSocket(socket)`        | Bind a connected socket and start the ack timer. Throws after disposal.                 |
-| `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                    |
-| `world.invoke(rpcId, params?)`      | Call the server; settles with the reply params as soon as the reply arrives.            |
-| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client; it runs from `apply()`.   |
-| `world.apply(now)`                  | Run the handlers of queued server requests, then apply buffered frames.                 |
-| `world.renderFrame`                 | The fractional server frame the world renders; `0` before the first baseline.           |
-| `world.send()`                      | Send input, outstanding replies, and the current ack frame.                             |
-| `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable.    |
-| `world.dispose()`                   | One-way teardown: reject calls, close the socket, destroy network and local entities.   |
+| Member                              | Description                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| `ClientWorld.connectDgram(options)` | Connect over the dgram transport, then attach; returns a world with a connected socket.  |
+| `world.attachSocket(socket)`        | Bind a connected socket and start the ack timer. Throws after disposal.                  |
+| `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                     |
+| `world.invoke(rpcId, params?)`      | Call the server; settles with the reply params as soon as the reply arrives.             |
+| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client; it runs from `apply()`.    |
+| `world.apply(now)`                  | Run the handlers of queued server requests, then apply buffered frames.                  |
+| `world.renderFrame`                 | The fractional server frame the world renders; `0` before the first baseline.            |
+| `world.send()`                      | Send input, outstanding replies, the current ack frame, and a gap report if one is open. |
+| `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable.     |
+| `world.dispose()`                   | One-way teardown: reject calls, close the socket, destroy network and local entities.    |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-client/src/client_world.ts` and
 `lib/vecs-client/src/diff_buffer.ts`.

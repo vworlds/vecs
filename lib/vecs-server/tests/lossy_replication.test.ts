@@ -395,6 +395,285 @@ describe("replication over a lossy, high-latency link", () => {
   });
 });
 
+describe("the optimistic base (redundancyFrames) over the same link", () => {
+  // Every R is run on the same seed as the run with R unset, so both links see the same loss and
+  // reordering draws and the runs differ only in what the server sends. The link is the one the
+  // sweep above uses: a 200 ms round trip, 5% loss each way and reordering, for 60 s.
+  const REDUNDANCIES = [1, 2, 3];
+  const SEEDS_COMPARED = [1, 2];
+  const RUN_MS = 60_000;
+  /** The connect handshake holds every run's view still for a round trip; stalls start after it. */
+  const WARMUP_MS = 2_000;
+  /** A client whose view stands still longer than this is stuck, not merely waiting out a loss. */
+  const STUCK_MS = 1_000;
+
+  const WORKLOADS: Array<{ name: string; mutation: Mutation }> = [
+    // Every position changes on every frame, so a resend is superseded by the next frame's change
+    // and the merged delta of the unset run is no larger than one frame's.
+    { name: "every component changes on every frame", mutation: "every frame" },
+    // Three entities change per frame, each about every 13 frames, so with an ack lag of 7 frames
+    // a change is not superseded before it is acked and the unset run resends it in every frame.
+    { name: "a few entities change per frame", mutation: { perFrame: 3 } },
+  ];
+
+  /** One run, reduced to what the comparison needs. */
+  interface RedundancyRun {
+    redundancyFrames: number | undefined;
+    bytesSent: number;
+    gapReportsSent: number;
+    optimisticFramesSent: number;
+    /** How long the client's accepted frame stood still, each time it did, after the warm-up. */
+    standstillsMs: number[];
+    summary: ReturnType<typeof summarize>;
+  }
+
+  const unsetRuns = new Map<string, RedundancyRun>();
+
+  function runWith(
+    seed: number,
+    mutation: Mutation,
+    redundancyFrames: number | undefined
+  ): RedundancyRun {
+    const run = startSim({ seed, entityCount: 40, mutation, redundancyFrames });
+    const client = run.sim.addClient();
+    run.sim.run(RUN_MS);
+    const frozenAtMs = run.sim.clock.now;
+    run.freeze();
+    run.sim.run(SETTLE_MS);
+
+    const advances = client.stats.versionAdvancesAtMs.filter(
+      (atMs) => atMs >= WARMUP_MS && atMs <= frozenAtMs
+    );
+    const result: RedundancyRun = {
+      redundancyFrames,
+      bytesSent: client.stats.bytesSent,
+      gapReportsSent: client.stats.gapReportsSent,
+      optimisticFramesSent: client.stats.optimisticFramesSent,
+      standstillsMs: advances.slice(1).map((atMs, index) => atMs - advances[index]),
+      summary: summarize(run.sim, client),
+    };
+    run.sim.dispose();
+    sim = undefined;
+    return result;
+  }
+
+  function unsetRun(seed: number, name: string, mutation: Mutation): RedundancyRun {
+    const key = `${seed}:${name}`;
+    let run = unsetRuns.get(key);
+    if (run === undefined) {
+      run = runWith(seed, mutation, undefined);
+      unsetRuns.set(key, run);
+    }
+    return run;
+  }
+
+  /**
+   * The stalls of `run`: the times its view stood still for more than one frame interval longer
+   * than the longest it ever did in the run with `redundancyFrames` unset on the same seed.
+   */
+  function stallsOf(run: RedundancyRun, unset: RedundancyRun): number[] {
+    const thresholdMs = Math.max(...unset.standstillsMs) + 1000 / 30;
+    return run.standstillsMs.filter((durationMs) => durationMs > thresholdMs);
+  }
+
+  /** One line per run when `VECS_SIM_REPORT` is set: the numbers the design is judged by. */
+  function report(label: string, run: RedundancyRun, unset: RedundancyRun): void {
+    if (process.env.VECS_SIM_REPORT === undefined) {
+      return;
+    }
+    const stalls = stallsOf(run, unset);
+    const meanMs =
+      stalls.length === 0 ? 0 : stalls.reduce((sum, ms) => sum + ms, 0) / stalls.length;
+    console.info(
+      `${label} R=${String(run.redundancyFrames ?? "unset").padEnd(5)} ` +
+        `bytes ${run.bytesSent} (${((100 * run.bytesSent) / unset.bytesSent).toFixed(0)}% of unset), ` +
+        `optimistic frames ${run.optimisticFramesSent}, gap reports ${run.gapReportsSent}, ` +
+        `longest standstill ${Math.max(...run.standstillsMs).toFixed(0)} ms, ` +
+        `stalls ${stalls.length} (mean ${meanMs.toFixed(0)} ms, max ${Math.max(0, ...stalls).toFixed(0)} ms)`
+    );
+  }
+
+  describe.each(WORKLOADS)("$name", ({ name, mutation }) => {
+    describe.each(SEEDS_COMPARED)("seed %i", (seed) => {
+      it.each(REDUNDANCIES)(
+        "redundancyFrames %i: no protocol error, disconnect or rebuild, the client converges and is never stuck",
+        (redundancyFrames) => {
+          const unset = unsetRun(seed, name, mutation);
+          const optimistic = runWith(seed, mutation, redundancyFrames);
+          report(`${name}, seed ${seed},`, unset, unset);
+          report(`${name}, seed ${seed},`, optimistic, unset);
+
+          expect(optimistic.summary).toEqual({
+            errors: [],
+            disconnects: [],
+            resets: 1,
+            baselinesDelivered: 1,
+            baselinesSentAfterFirstReset: 0,
+            enters: 40,
+            exits: 0,
+            differences: [],
+          });
+          expect(Math.max(...optimistic.standstillsMs)).toBeLessThan(STUCK_MS);
+          // Never more than a run that resends every change until it is acked.
+          expect(optimistic.bytesSent).toBeLessThan(unset.bytesSent);
+        },
+        300_000
+      );
+    });
+  });
+
+  describe("alongside the baseline handshake", () => {
+    it("applies one recovery baseline after a stall longer than the window, then goes back to optimistic deltas", () => {
+      const run = startSim({ seed: 3, entityCount: 40, redundancyFrames: 2 });
+      const client = run.sim.addClient();
+      run.sim.run(10_000);
+      expect(client.stats.resets).toHaveLength(1);
+
+      client.setBlocked("both", true);
+      run.sim.run(Math.ceil(1.5 * WINDOW_FRAMES * run.sim.tickMs));
+      client.setBlocked("both", false);
+      const resumedAtMs = run.sim.clock.now;
+      const optimisticBefore = client.stats.optimisticFramesSent;
+      run.sim.run(10_000);
+      run.freeze();
+      run.sim.run(SETTLE_MS);
+
+      // Everything sent during the outage was lost, so one baseline got through after it, and at
+      // most one more was sent because the first was dropped. No optimistic delta ran ahead of it.
+      const recovery = client.stats.resets.filter((reset) => reset.atMs >= resumedAtMs);
+      expect(recovery).toHaveLength(1);
+      expect(client.baselinesSentSince(resumedAtMs)).toBeLessThanOrEqual(2);
+      expect(client.stats.optimisticFramesSent).toBeGreaterThan(optimisticBefore);
+      expect(summarize(run.sim, client)).toMatchObject({
+        errors: [],
+        disconnects: [],
+        resets: 2,
+        differences: [],
+      });
+    }, 120_000);
+
+    it("applies exactly one baseline to a client that joins a busy world mid-stream, and leaves the others alone", () => {
+      const run = startSim({ seed: 11, entityCount: 100, redundancyFrames: 2 });
+      const existing = [run.sim.addClient(), run.sim.addClient()];
+      run.sim.run(5_000);
+
+      const joiner = run.sim.addClient();
+      run.sim.run(10_000);
+      run.freeze();
+      run.sim.run(SETTLE_MS);
+
+      expect(summarize(run.sim, joiner)).toEqual({
+        errors: [],
+        disconnects: [],
+        resets: 1,
+        baselinesDelivered: 1,
+        baselinesSentAfterFirstReset: 0,
+        enters: 100,
+        exits: 0,
+        differences: [],
+      });
+      existing.forEach((client) => {
+        expect(client.baselinesSentSince(5_000)).toBe(0);
+        expect(summarize(run.sim, client)).toMatchObject({
+          errors: [],
+          disconnects: [],
+          resets: 1,
+          differences: [],
+        });
+      });
+    }, 120_000);
+  });
+
+  describe("on a link that loses nothing", () => {
+    const CLEAN_LINK = symmetric({ oneWayMs: 100 });
+
+    it.each(REDUNDANCIES)(
+      "redundancyFrames %i never reports a gap, even when the view goes quiet between changes",
+      (redundancyFrames) => {
+        // One entity changes every 5 frames, so the view is quiet for four of them and the frame
+        // before a change is empty, while the previous change is still unacked (the ack lag is
+        // 7 frames): a base one redundancy window back would name a frame the client never
+        // received, and the client would read the change as a gap.
+        const run = startSim({
+          seed: 1,
+          entityCount: 20,
+          link: CLEAN_LINK,
+          mutation: { everyFrames: 5 },
+          redundancyFrames,
+        });
+        const client = run.sim.addClient();
+
+        run.sim.run(20_000);
+        run.freeze();
+        run.sim.run(SETTLE_MS);
+
+        expect(client.stats.gapReportsSent).toBe(0);
+        expect(client.stats.optimisticFramesSent).toBeGreaterThan(50);
+        expect(summarize(run.sim, client)).toMatchObject({
+          errors: [],
+          disconnects: [],
+          resets: 1,
+          differences: [],
+        });
+      },
+      120_000
+    );
+
+    it("finds a change lost with nothing after it by the ack timeout, and the client has it one link delay later", () => {
+      const run = startSim({
+        seed: 1,
+        entityCount: 5,
+        link: CLEAN_LINK,
+        mutation: "none",
+        redundancyFrames: 2,
+      });
+      const client = run.sim.addClient();
+      run.sim.run(3_000);
+      expect(run.sim.diffFromServer(client)).toEqual([]);
+      const deltasBefore = client.stats.deltasSent.length;
+
+      // The change is made, and the two frames that carry it, with the redundancy of two, are
+      // lost. Nothing else ever changes, so no later frame shows the client a gap.
+      client.setBlocked("down", true);
+      run.touch(0);
+      const changedAtMs = run.sim.clock.now;
+      run.sim.run(2.5 * run.sim.tickMs);
+      client.setBlocked("down", false);
+      const lost = client.stats.deltasSent.slice(deltasBefore);
+      expect(lost).toHaveLength(2);
+      expect(run.sim.diffFromServer(client)).not.toEqual([]);
+
+      let convergedAtMs: number | undefined;
+      while (convergedAtMs === undefined && run.sim.clock.now - changedAtMs < 5_000) {
+        run.sim.run(10);
+        if (run.sim.diffFromServer(client).length === 0) {
+          convergedAtMs = run.sim.clock.now;
+        }
+      }
+
+      // The smoothed round trip is the link's 200 ms plus a wait of up to one ack interval, and the
+      // timeout is twice that: 400 to 467 ms, counted from when the lost frame was sent. The
+      // server notices on the first frame past it and sends the change again from the ack, and it
+      // takes a link delay to arrive and the client's interpolation delay to apply.
+      const resent = client.stats.deltasSent[deltasBefore + 2];
+      const sentAtMs = lost[0].atMs;
+      expect(resent.fromFrame).toBe(lost[0].fromFrame);
+      expect(resent.atMs - sentAtMs).toBeGreaterThan(400);
+      expect(resent.atMs - sentAtMs).toBeLessThanOrEqual(2 * (200 + 1000 / 30) + run.sim.tickMs);
+      expect(convergedAtMs).toBeDefined();
+      expect(convergedAtMs! - sentAtMs).toBeLessThan(
+        2 * (200 + 1000 / 30) + run.sim.tickMs + 100 + 200
+      );
+      expect(summarize(run.sim, client)).toMatchObject({
+        errors: [],
+        disconnects: [],
+        resets: 1,
+        differences: [],
+      });
+    }, 120_000);
+  });
+});
+
 /** How the entities' components change as the run goes on. */
 type Mutation =
   /** Every component of every entity changes on every frame (the default). */
@@ -402,7 +681,9 @@ type Mutation =
   /** Nothing changes by itself; a test changes things with `touch`. */
   | "none"
   /** One entity's position changes on every `everyFrames`th frame. */
-  | { everyFrames: number };
+  | { everyFrames: number }
+  /** `perFrame` entities' positions change on every frame, taking turns. */
+  | { perFrame: number };
 
 interface StartOptions {
   seed: number;
@@ -411,6 +692,8 @@ interface StartOptions {
   mutation?: Mutation;
   /** The server's `historyFrames`; the default when omitted. */
   historyFrames?: number;
+  /** The server's `redundancyFrames`; unset (today's behavior) when omitted. */
+  redundancyFrames?: number;
 }
 
 interface Run {
@@ -429,7 +712,10 @@ function startSim(options: StartOptions): Run {
     networkComponents: [Position, Health],
     seed: options.seed,
     link: options.link ?? HARSH_LINK,
-    serverOptions: { historyFrames: options.historyFrames },
+    serverOptions: {
+      historyFrames: options.historyFrames,
+      redundancyFrames: options.redundancyFrames,
+    },
   });
   sim = simulation;
   const entities: Entity[] = [];
@@ -456,6 +742,14 @@ function startSim(options: StartOptions): Run {
           entity.set(Health, { hp: (entity.get(Health)!.hp + 7) % 101 });
         }
       });
+      return;
+    }
+    if ("perFrame" in mutation) {
+      for (let k = 0; k < mutation.perFrame; k++) {
+        const entity = entities[(tick * mutation.perFrame + k) % entities.length];
+        const position = entity.get(Position)!;
+        entity.set(Position, { x: position.x + 1, y: position.y });
+      }
       return;
     }
     if (tick % mutation.everyFrames === mutation.everyFrames - 1) {
