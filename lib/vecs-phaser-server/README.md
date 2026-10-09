@@ -50,7 +50,8 @@ is vendored and minimal; there is no `@kayahr/tiled` runtime dependency.
 
 `DeadReckonedModule` sends a body's pose as an occasional `Motion` baseline that clients
 extrapolate, instead of streaming every change of its render pose (#217). A body that drifts,
-flies or comes to rest costs nothing between collisions, teleports and falling asleep.
+flies or comes to rest needs no pose traffic between corrections and moving-baseline refreshes,
+but session keepalives still advance the client's render frame.
 
 ### Setting it up
 

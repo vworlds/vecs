@@ -48,7 +48,8 @@ the ack timer, and an ack the transport rejects because it is not ready, such as
 world down as a disconnect. `connectDgram` therefore builds the world without a socket, awaits
 `connect()`, and only then attaches; if `connect()` rejects, it disposes the world, closes the
 socket, and rethrows. The client cannot instead wait for the first server frame before acking: the
-server sends nothing while a session has an empty diff and no RPC replies, and it closes sessions
+server sends nothing before a session has a baseline to acknowledge if its diff is empty and it has
+no RPC traffic, even with keepalives enabled, and it closes sessions
 that stay silent past `disconnectGraceMs`, so a client that withheld its first ack could be
 dropped, or could never deliver an early `invoke`.
 
@@ -58,8 +59,9 @@ Most frames are deltas, which the client applies in place. The server sends a **
 the complete state of the client's view (`fromFrame` 0), in two situations: when the session starts,
 which includes a reconnect, and when the client has fallen so far behind that frames it has not
 acked have left the server's history window, as a backgrounded tab or a stalled connection does. A
-view that is merely quiet gets none: the server sends nothing while nothing changes, and the next
-change arrives as an ordinary delta.
+view that is merely quiet gets no resynchronization: the server sends keepalives if configured,
+otherwise no state while nothing changes, and the next change arrives as an ordinary delta. See
+[Keepalives](../../vecs-server/docs/sessions.md#keepalive-keepaliveframes).
 
 The client applies a baseline as reset-then-rebuild. It destroys every replicated entity and then
 recreates each one from the snapshot, so every `exit` and `enter` fires again, and view systems that

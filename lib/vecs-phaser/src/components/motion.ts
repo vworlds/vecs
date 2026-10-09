@@ -5,10 +5,12 @@ import { wireType, type Decoder, type Encoder } from "@vworlds/vecs-wire";
  * body is held at.
  *
  * A peer that holds a `Motion`, the entity's {@link MotionParams} and the world's {@link MotionClock}
- * predicts the body's pose at any later frame without further traffic, so the server only sends a
- * new `Motion` when the body leaves the predicted path. Every `Motion` is a complete baseline: the
- * replication history keeps only the newest snapshot of a component, so a partial one would lose
- * fields. The body constants the integrator also needs live in `MotionParams`, which the server
+ * predicts the body's pose at later render frames without streaming its pose. Session keepalives
+ * advance `ClientWorld.renderFrame` between corrections; the server sends a new `Motion` when the
+ * body leaves the predicted path, falls asleep or its moving baseline reaches `maxBaselineAge`.
+ * Every `Motion` is a complete baseline: replication history keeps only the newest snapshot of a
+ * component, so a partial one would lose fields. The body constants the integrator also needs live
+ * in `MotionParams`, which the server
  * sends only when they change instead of with every baseline.
  *
  * `x`, `y` and `angle` are the body origin and angle, as the physics pose holds them. `vx` and `vy`

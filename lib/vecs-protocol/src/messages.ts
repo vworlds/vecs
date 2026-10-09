@@ -226,11 +226,10 @@ export class Server2Client implements IEncodable {
    * client holds the diff until the missing frames arrive, and reports the gap in
    * {@link Client2Server.gap} so the server falls back to deltas from the ack.
    *
-   * Encoded as tag 6 and no payload only when `true`, so every frame of a server
-   * that does not enable `redundancyFrames`, which is every frame `ServerWorld`
-   * sends by default, is byte-identical to one built before the field existed. A
-   * decoder that predates the field rejects the tag, so deploy clients before
-   * enabling `redundancyFrames` on a server.
+   * Encoded as tag 6 and no payload only when `true`; a server that does not enable
+   * `redundancyFrames` sends no marker, so it adds no bytes by default. A
+   * decoder that predates the field rejects the tag. The entity-reset wire layout
+   * is also incompatible with 1.0.50: upgrade server and client together.
    */
   public optimistic = false;
   /** Present only on the graceful-close frame of a deliberate server close. */

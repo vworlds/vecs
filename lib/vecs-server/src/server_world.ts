@@ -124,9 +124,9 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * off. A large baseline is often lost on a lossy link, and recovering from
    * that soon matters more than the rebuilds an ack path that stays dead costs.
    *
-   * Only frames with content count. The server sends nothing for an empty diff,
-   * so a client's ack stops advancing while its view is quiet; a frame that
-   * leaves the history empty took nothing with it, so a client whose view did
+   * Only frames with content count. Without keepalives or RPC traffic the server
+   * sends nothing for an empty diff, so a client's ack stops advancing while its
+   * view is quiet. A frame that leaves the history empty took nothing with it, so a client whose view did
    * not change is served a delta from an ack of any age, and is never sent a
    * baseline just for being quiet.
    *
@@ -186,8 +186,8 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * baseline, none is in flight or needed, no fallback is running and its ack is
    * not overdue. Baselines and resynchronization never run ahead of the ack.
    * Frames that start past the ack carry a marker, and clients report gaps, that
-   * clients built before this option do not understand, so deploy clients before
-   * enabling it.
+   * clients built before this option do not understand. The entity-reset wire
+   * layout is also incompatible with 1.0.50: upgrade server and client together.
    */
   redundancyFrames?: number;
   /**

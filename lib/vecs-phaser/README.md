@@ -88,7 +88,7 @@ Two modules put it to work, one per side:
 graph LR
   PP["physics pose"] --> D{"strayed or fell asleep?"}
   D -->|"yes"| M["Motion baseline"]
-  D -->|"no"| N["nothing sent"]
+  D -->|"no"| N["no pose update; session keepalives continue"]
   M -->|"constants changed: same frame"| K["MotionParams"]
   M --> X["client extrapolator at renderFrame"]
   K --> X

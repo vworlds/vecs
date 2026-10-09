@@ -84,10 +84,11 @@ ack.gap; // true: the client is at frame 4 and holds a diff it cannot apply
 ```
 
 Neither field is encoded unless it is `true`, as a bare tag with no payload. A server that does not
-set `redundancyFrames` never sends the marker, so every frame it sends is byte-identical to one built
-before the field existed, and a client only sets `gap` after receiving a marked frame, so it never
-does against such a server. The server enabling `redundancyFrames` must only serve clients that
-understand the marker; the mechanism, its cost and the liveness timer that backs it are in
+set `redundancyFrames` never sends the marker, and a client only sets `gap` after receiving a marked
+frame, so it never does against such a server. The entity-reset wire layout is incompatible with
+1.0.50 even without redundancy: upgrade server and client together. The server enabling
+`redundancyFrames` must only serve clients that understand the marker; the mechanism, its cost and
+the liveness timer that backs it are in
 [Replication](../../../architecture/REPLICATION.md#the-optimistic-base).
 
 ## See also

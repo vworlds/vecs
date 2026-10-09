@@ -181,7 +181,7 @@ anyway, empty: rebuilding from nothing is what clears those entities.
 | ------------------------------------------------------- | --------------------------------------------------------------- |
 | Connecting, window at least 2.5 times the ack lag       | One baseline, then deltas. A second only if the first was lost. |
 | Steady play, window at least 2.5 times the ack lag      | Deltas only.                                                    |
-| A view that stays unchanged, however long               | Nothing, then a plain delta from its old ack when it changes.   |
+| A view that stays unchanged, however long               | Keepalives if enabled; otherwise no state until it changes.     |
 | Changes further apart than the window                   | Deltas only, as long as each is acked before it leaves.         |
 | A stall longer than the window (backgrounded tab, drop) | One baseline once the server can reach it again, then deltas.   |
 | A stall after which nothing is left in its view         | An empty baseline, which clears the entities it held.           |
@@ -296,10 +296,10 @@ const world = new ServerWorld({
 });
 ```
 
-It is off by default, and then the wire is byte for byte what it always was. `R` must be an integer
-of at least 1 and less than `historyFrames`; the constructor throws for anything else. The client
-must understand the optimistic marker the server adds to such a frame, so deploy clients first: a
-client built before it closes the connection on the unknown field.
+It is off by default, so no optimistic marker is sent. `R` must be an integer of at least 1 and less
+than `historyFrames`; the constructor throws for anything else. The client must understand the
+optimistic marker: a client built before it closes the connection on the unknown field. The
+entity-reset wire layout is also incompatible with 1.0.50, so upgrade server and client together.
 
 The price is paid when the redundancy runs out. A delta that starts past the ack presumes the client
 received the frame it starts at, and when the last `R` frames sent to it that carried a change it
