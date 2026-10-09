@@ -726,8 +726,26 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
     // one frame would read as a gap. Each run loses `lost` consecutive deltas of the sends of an
     // otherwise identical run, in turn, and none may make the client report a gap.
     const CLEAN_LINK = symmetric({ oneWayMs: 100 });
-    const SCENARIOS: Array<{ name: string; mutation: Mutation; ticks: number }> = [
+    const SCENARIOS: Array<{
+      name: string;
+      mutation: Mutation;
+      ticks: number;
+      keepAliveFrames?: number;
+    }> = [
       { name: "one change every four frames", mutation: { everyFrames: 4 }, ticks: 150 },
+      {
+        // A keepalive is a send, so the frames in between are sends too and the base is always one.
+        name: "four-frame changes + keepalive",
+        mutation: { everyFrames: 4 },
+        ticks: 150,
+        keepAliveFrames: 1,
+      },
+      {
+        name: "an idle view + keepalive",
+        mutation: "none",
+        ticks: 150,
+        keepAliveFrames: 1,
+      },
       {
         // Quiet stretches of 2, 3, 5, 8, 13, 21, 34 and 55 frames, shorter and longer than the
         // 7 frames the acks lag behind.
@@ -746,7 +764,8 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
       mutation: Mutation,
       ticks: number,
       redundancyFrames: number,
-      lostFrames: ReadonlySet<number>
+      lostFrames: ReadonlySet<number>,
+      keepAliveFrames?: number
     ) {
       const run = startSim({
         seed: 1,
@@ -754,6 +773,7 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
         link: CLEAN_LINK,
         mutation,
         redundancyFrames,
+        keepAliveFrames,
       });
       const client = run.sim.addClient();
       client.down.drop = (data) => {
@@ -774,11 +794,17 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
       return result;
     }
 
-    describe.each(SCENARIOS)("$name", ({ mutation, ticks }) => {
+    describe.each(SCENARIOS)("$name", ({ mutation, ticks, keepAliveFrames }) => {
       it.each(LOSSES)(
         "redundancyFrames $redundancyFrames: $lost consecutive lost deltas never make the client report a gap",
         ({ redundancyFrames, lost }) => {
-          const reference = runLosing(mutation, ticks, redundancyFrames, new Set());
+          const reference = runLosing(
+            mutation,
+            ticks,
+            redundancyFrames,
+            new Set(),
+            keepAliveFrames
+          );
           expect(reference.gapReports).toBe(0);
           expect(reference.optimisticFrames).toBeGreaterThan(0);
           const sent = reference.deltaFrames;
@@ -791,7 +817,13 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
           }> = [];
           for (let first = 0; first + lost <= sent.length; first++) {
             const lostFrames = sent.slice(first, first + lost);
-            const run = runLosing(mutation, ticks, redundancyFrames, new Set(lostFrames));
+            const run = runLosing(
+              mutation,
+              ticks,
+              redundancyFrames,
+              new Set(lostFrames),
+              keepAliveFrames
+            );
             const clean =
               run.gapReports === 0 &&
               run.summary.errors.length === 0 &&
@@ -804,6 +836,100 @@ describe("the optimistic base (redundancyFrames) over the same link", () => {
           }
 
           expect(failures).toEqual([]);
+        },
+        120_000
+      );
+    });
+  });
+});
+
+describe("the keepalive (keepAliveFrames) over the same link", () => {
+  const RUN_MS = 60_000;
+  /** The connect handshake holds every run's view still for a round trip. */
+  const WARMUP_MS = 2_000;
+  /** A client whose view stands still longer than this is stuck, not merely waiting out a loss. */
+  const STUCK_MS = 1_000;
+
+  /** The longest the client's accepted frame stood still between two advances after the warm-up. */
+  function longestStandstillMs(client: SimClient): number {
+    const advances = client.stats.versionAdvances
+      .map(({ atMs }) => atMs)
+      .filter((atMs) => atMs >= WARMUP_MS);
+    return advances.slice(1).reduce((longest, atMs, i) => Math.max(longest, atMs - advances[i]), 0);
+  }
+
+  it.each([1, 2])(
+    "keeps an idle view moving for 60 s at 200 ms round trip, 5% loss and reordering, with redundancyFrames 2, seed %i",
+    (seed) => {
+      const run = startSim({
+        seed,
+        entityCount: 20,
+        mutation: "none",
+        redundancyFrames: 2,
+        keepAliveFrames: 1,
+      });
+      const client = run.sim.addClient();
+
+      run.sim.run(RUN_MS);
+      run.freeze();
+      run.sim.run(SETTLE_MS);
+
+      // One rebuild, on connect: a keepalive that goes missing, or a gap report, is never a protocol
+      // error or a disconnect, and the idle client ends where the server is.
+      expect(summarize(run.sim, client)).toMatchObject({
+        errors: [],
+        disconnects: [],
+        resets: 1,
+        enters: 20,
+        exits: 0,
+        differences: [],
+      });
+      // A frame on nearly every tick: the 1800 of a minute at 30 Hz, less the handshake.
+      expect(client.stats.deltasSent.length).toBeGreaterThan(1700);
+      expect(longestStandstillMs(client)).toBeLessThan(STUCK_MS);
+    },
+    120_000
+  );
+
+  describe("on a link that loses nothing", () => {
+    const CLEAN_LINK = symmetric({ oneWayMs: 100 });
+    const COMBINATIONS = [
+      { keepAliveFrames: 1, redundancyFrames: 1 },
+      { keepAliveFrames: 1, redundancyFrames: 2 },
+      { keepAliveFrames: 1, redundancyFrames: 3 },
+      { keepAliveFrames: 2, redundancyFrames: 2 },
+    ];
+    const WORKLOADS: Array<{ name: string; mutation: Mutation }> = [
+      { name: "an idle view", mutation: "none" },
+      { name: "one change every fifth frame", mutation: { everyFrames: 5 } },
+    ];
+
+    describe.each(WORKLOADS)("$name", ({ mutation }) => {
+      it.each(COMBINATIONS)(
+        "never reports a gap, with keepAliveFrames $keepAliveFrames and redundancyFrames $redundancyFrames",
+        ({ keepAliveFrames, redundancyFrames }) => {
+          const run = startSim({
+            seed: 1,
+            entityCount: 20,
+            link: CLEAN_LINK,
+            mutation,
+            redundancyFrames,
+            keepAliveFrames,
+          });
+          const client = run.sim.addClient();
+
+          run.sim.run(20_000);
+          run.freeze();
+          run.sim.run(SETTLE_MS);
+
+          expect(client.stats.gapReportsSent).toBe(0);
+          expect(client.stats.optimisticFramesSent).toBeGreaterThan(50);
+          expect(summarize(run.sim, client)).toMatchObject({
+            errors: [],
+            disconnects: [],
+            resets: 1,
+            differences: [],
+          });
         },
         120_000
       );
@@ -833,6 +959,8 @@ interface StartOptions {
   historyFrames?: number;
   /** The server's `redundancyFrames`; unset (today's behavior) when omitted. */
   redundancyFrames?: number;
+  /** The server's `keepAliveFrames`; unset (today's behavior) when omitted. */
+  keepAliveFrames?: number;
 }
 
 /** Something changed in server frame `frame`, which the server built at `atMs`. */
@@ -862,6 +990,7 @@ function startSim(options: StartOptions): Run {
     serverOptions: {
       historyFrames: options.historyFrames,
       redundancyFrames: options.redundancyFrames,
+      keepAliveFrames: options.keepAliveFrames,
     },
   });
   sim = simulation;

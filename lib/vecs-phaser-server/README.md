@@ -64,6 +64,7 @@ import { DeadReckoned, DeadReckonedModule } from "@vworlds/vecs-phaser-server";
 const world = new ServerWorld({
   name: "main",
   networkComponents: [...phaserNetworkComponents, ...appComponents, ...phaserMotionComponents],
+  keepAliveFrames: 1,
 });
 world.module(PhysicsModule, { fixedTimeStep: 1 / 30, gravity: { x: 0, y: 0 } });
 world.module(DeadReckonedModule, { positionTolerance: 0.01, angleTolerance: 0.01 });
@@ -84,6 +85,25 @@ step, substeps, gravity and maximum linear speed. Clients cannot extrapolate wit
 session's `View` must see it, for example with `{ any: [InMySector, MotionClock] }`. Adding
 `MotionClock` to any other entity throws. The world must be a `ServerWorld`, since baselines are
 stamped with `ServerWorld.frame`, and step physics once per tick.
+
+### Set `keepAliveFrames: 1`
+
+The module throws at install unless the `ServerWorld` sets `keepAliveFrames`, and `1` is the value
+to use. Clients extrapolate a body at `ClientWorld.renderFrame`, which advances only as frames
+arrive, and the server sends a session nothing while its replicated state is unchanged. A scene of
+bodies that drift between corrections replicates nothing for seconds, so without a keepalive every
+dead-reckoned body freezes at the pose of the last frame and jumps when the next one arrives. In
+Space Rocks, with a parked ship and drifting rocks, that was holds of up to 3.5 s and jumps of about
+3 m. A scene that changes on every tick never notices, which is why this shows only in idle ones.
+
+With `keepAliveFrames: 1` a session that was sent no frame with a diff in the last tick is sent one
+with an empty diff, a header of 5 to 11 bytes (about 10 in a long-running server), so `renderFrame`
+and the bodies move on every tick. That is 150 to 300 B/s per idle client at 30 Hz, and nothing for a
+session that is sent a diff anyway. A larger value saves bytes at the price of the render frame
+waiting for each keepalive: `2` still looks smooth on a steady link and `3` or more stalls and jumps.
+On a lossy link, leave `redundancyFrames` unset or use `3`. See
+[`keepAliveFrames`](../vecs-server/docs/sessions.md#keepalive-keepaliveframes) and
+[Replication](../../architecture/REPLICATION.md#the-keepalive).
 
 ### Game code owns the physics pose
 

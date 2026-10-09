@@ -221,6 +221,13 @@ renderers, `DrawBy` children and game systems use them as they use an interpolat
   `snapAngle` (default 0.5 rad) snaps. `blendMs: 0` turns blending off: every correction snaps.
 - **The clock.** The integrator needs the server's `MotionClock`; until it arrives nothing is
   extrapolated.
+- **Frames must keep arriving.** `renderFrame` advances only as `ClientWorld` applies frames, and
+  holds at the newest one while none arrives, so the extrapolator can only keep a body moving in an
+  idle scene if the server keeps sending frames. The server's `DeadReckonedModule` therefore
+  requires `keepAliveFrames` on its `ServerWorld` (use `1`), and sends a header-only frame to a
+  session that would otherwise get none. A server that does not, such as a custom one, freezes every
+  dead-reckoned body at the pose of the last frame, then jumps it when the next frame arrives. See
+  [Set `keepAliveFrames: 1`](../vecs-phaser-server/README.md#set-keepaliveframes-1).
 
 `Motion` itself is never interpolated: do not register an interpolator for it.
 

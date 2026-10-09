@@ -844,7 +844,10 @@ new baseline only when the body strays from the prediction clients run. The body
 prediction needs travel apart, in a `MotionParams` that the server sends only when they change. The
 tag may be added or removed at any time, so a body can be dead reckoned while it drifts and streamed
 while something drives it; the module's own guard, `phaser.guard.motion`, writes the first baseline
-of a body that becomes dead reckoned late in a frame, in the same frame. See
+of a body that becomes dead reckoned late in a frame, in the same frame. Clients extrapolate at
+`renderFrame`, which advances only as frames arrive, so the module requires the `ServerWorld` to set
+`keepAliveFrames` (use `1`) and throws at install without it: otherwise an idle scene freezes every
+dead-reckoned body until the next frame arrives. See
 [Dead reckoning](../../vecs-phaser-server/README.md#dead-reckoning) and
 [Switching at runtime](../../vecs-phaser-server/README.md#switching-at-runtime).
 

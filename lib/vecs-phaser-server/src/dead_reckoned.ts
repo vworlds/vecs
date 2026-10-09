@@ -90,11 +90,18 @@ export interface DeadReckonedOptions {
  * ```ts
  * const world = new ServerWorld({
  *   networkComponents: [...phaserNetworkComponents, ...appComponents, ...phaserMotionComponents],
+ *   keepAliveFrames: 1,
  * });
  * world.module(PhysicsModule, { fixedTimeStep: 1 / 30 });
  * world.module(DeadReckonedModule);
  * world.entity().add(Networked).add(DeadReckoned).set(Body, { type: BodyType.Dynamic });
  * ```
+ *
+ * The world must set `ServerWorldOptions.keepAliveFrames`, and `1` is the safe value:
+ * clients extrapolate a body at `ClientWorld.renderFrame`, which advances only as frames arrive,
+ * and a session whose replicated state did not change is sent no frame. A scene of dead-reckoned
+ * bodies that drift between corrections is exactly that, so without a keepalive the bodies freeze
+ * until the next frame arrives and then jump. The module throws at install without it.
  *
  * It installs {@link PhaserServerModule}, gives {@link DeadReckoned} its structural guarantees, and
  * creates the world's single {@link MotionClock} entity from the physics settings (step, substeps,
@@ -177,6 +184,7 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
       throw new Error("DeadReckonedModule must be installed on a ServerWorld");
     }
     requireNetworkComponents(world);
+    requireKeepAlive(world);
     const positionTolerance = options?.positionTolerance ?? 0.01;
     const angleTolerance = options?.angleTolerance ?? 0.01;
     const maxBaselineAge = options?.maxBaselineAge ?? 30;
@@ -515,6 +523,14 @@ function assignFromBody(params: MotionParams, body: Readonly<BodyMotion>): void 
   params.localCenterY = f32(body.localCenterY);
   params.gravityScale = f32(body.gravityScale);
   params.allowFastRotation = body.allowFastRotation;
+}
+
+function requireKeepAlive(world: ServerWorld): void {
+  if (world.keepAliveFrames === undefined) {
+    throw new Error(
+      "DeadReckonedModule needs keepAliveFrames in the ServerWorld's options (use 1): clients extrapolate a body at renderFrame, which only advances as frames arrive, and the server sends a session nothing while its replicated state is unchanged, so without keepAliveFrames dead-reckoned bodies freeze in idle scenes and jump when the next frame arrives"
+    );
+  }
 }
 
 function requireNetworkComponents(world: ServerWorld): void {

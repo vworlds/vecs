@@ -163,6 +163,12 @@ Only a reset moves it back. After a reconnect the baseline's frame can even be l
 because the new server's frame counter can start over. And since it never runs past the newest frame
 received, anything that should keep moving while frames are late has to extrapolate past it itself.
 
+The buffer also runs dry when the server has nothing to send: it sends a session no frame while its
+replicated state is unchanged, so in an idle scene `renderFrame` holds at the newest frame and
+anything derived from it stands still, then jumps when the next frame arrives. A server built with
+`keepAliveFrames` (see [Sessions](../../vecs-server/docs/sessions.md#keepalive-keepaliveframes))
+sends a frame with an empty diff instead, and `renderFrame` keeps moving. Dead reckoning needs it.
+
 ## Calling the server
 
 `invoke` sends a call and resolves with the reply's params. It rejects with an

@@ -12,6 +12,8 @@ session's own caller attached.
   and then awaited, and how to size `historyFrames` for your tick rate and players' latency.
 - How `redundancyFrames` stops a change being resent in every frame until it is acked, and what it
   costs when frames are lost.
+- Why a session whose view is quiet is sent nothing, and how `keepAliveFrames` keeps the client's
+  `renderFrame` moving anyway, which dead reckoning needs.
 - How to close one session, how the close lingers until the client received the replies it is owed,
   and how to close all of them at shutdown.
 - How `NetworkClient.closeReason` records why the server hung up.
@@ -280,6 +282,60 @@ each way, 2 stalls the view about four times a minute and 3 almost never. The me
 fallbacks and the measured trade-off are in
 [Replication](../../../architecture/REPLICATION.md#the-optimistic-base).
 
+### Keepalive: `keepAliveFrames`
+
+The server sends a session nothing for an empty diff, so while a view is quiet no frame reaches
+the client and its `renderFrame` holds at the newest frame it applied. The replicated data is
+right, because nothing changed. But whatever the client derives from `renderFrame` instead of from
+data stands still with it, and jumps when the next frame arrives. Dead reckoning is the case that
+matters: a body is extrapolated at `renderFrame`, so in an idle scene it freezes and then jumps.
+In a Space Rocks sector with a parked ship and drifting rocks that was holds of up to 3.5 s and
+jumps of about 3 m. A scene that changes on every tick sends a frame every tick and never notices.
+
+`keepAliveFrames` sets `K`: a session that holds an acked baseline and has not been sent a frame
+with a diff for `K` frames is sent one whose diff is empty.
+
+```ts
+const world = new ServerWorld({
+  name: "arena",
+  networkComponents: [Position],
+  keepAliveFrames: 1,
+});
+```
+
+It is off by default, and then the wire is byte for byte what it always was. `K` must be an integer
+of at least 1; the constructor throws for anything else, and `world.keepAliveFrames` reads the value
+back, which is how `DeadReckonedModule` checks at install that the world sets it. Use `1`: the
+client's `renderFrame` then advances on every tick. Larger values send fewer frames, and the
+client's `renderFrame` waits for each one. Its interpolation buffer spans one missing frame on a
+steady link, so `2` still looks smooth there, but from `3` on the render frame stalls between
+keepalives and jumps when the next arrives.
+
+A keepalive is an ordinary frame with an empty diff, so everything else follows from the rules above:
+
+- **It is labeled like any frame.** It starts at the base the frame would have had anyway, the ack or,
+  with `redundancyFrames`, the optimistic base, and carries the optimistic marker when that is past
+  the ack. The client applies it, its version advances, and it acks it like any frame.
+- **It counts as a send** for the optimistic base, because the client was sent it and its version may
+  be that frame. So in an idle view with `K` 1 and `R` 2 every delta starts two frames back, as in
+  a busy one, and an idle view is as sensitive to lost frames as a busy one: on a link with 5% loss
+  each way `R` 1 reports about four gaps a second and `R` 2 one every two seconds, while `R` 3 or
+  no `R` reports none. It is **not content** for the ack timeout, so a lost keepalive is never chased with a
+  fallback: nothing in it needs delivering.
+- **It is never sent while a baseline is in flight or needed**, and not before the client has acked
+  a baseline: the rules above hold, and the session is sent no state. A frame that carries only
+  RPC traffic, as then, has no diff, advances no `renderFrame` and does not restart the count. A
+  frame that carries RPC traffic with an empty diff does, because the client applies the diff.
+- **A busy session is unaffected.** A frame with a diff of any kind restarts the count, so a session
+  that is sent a diff at least every `K` frames is sent exactly what it is sent without the option.
+
+It costs a header-only frame per `K` ticks for each session that would otherwise be sent nothing:
+5 bytes of payload below frame 128, 7 below 16 384 (about nine minutes at 30 Hz), 9 below two million
+(about 19 hours) and 11 beyond, plus 1 when marked optimistic. At 30 Hz and `K` 1 that is about
+150 to 300 bytes per second per idle client, before the transport's own overhead. The client must
+understand nothing new: an empty diff is a diff, so older clients accept the frames. The mechanism
+and the measured cost are in [Replication](../../../architecture/REPLICATION.md#the-keepalive).
+
 ## Closing sessions
 
 `closeSession` ends one connection by id or by entity. It returns `true` when a live session was
@@ -443,6 +499,8 @@ systems.
 | `closeLingerMs` (`ServerWorldOptions`)           | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                                                                                                 |
 | `historyFrames` (`ServerWorldOptions`)           | Frames of history each session keeps: how far behind its ack can be, while its view keeps changing, and still get a delta. Integer of at least 2; default 64.                                                         |
 | `redundancyFrames` (`ServerWorldOptions`)        | Opt in to the delta base `redundancyFrames` sends ago, never before the ack: a change goes out in that many consecutive frames, not in every frame until acked. An integer in [1, `historyFrames`); unset by default. |
+| `keepAliveFrames` (`ServerWorldOptions`)         | Opt in to a frame with an empty diff for a session that was sent no diff for that many frames, so the client's `renderFrame` keeps moving in an idle scene. An integer of at least 1; unset by default. `1` is safe.  |
+| `world.keepAliveFrames`                          | The configured `keepAliveFrames`, or `undefined`.                                                                                                                                                                     |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-server/src/server_world.ts`,
 `lib/vecs-server/src/history.ts` (the window), `lib/vecs-server/src/rtt.ts` (the ack round-trip

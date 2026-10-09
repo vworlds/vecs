@@ -183,6 +183,43 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * enabling it.
    */
   redundancyFrames?: number;
+  /**
+   * Opt in to the keepalive: a session that holds an acked baseline and has not been sent a
+   * frame with a diff for `keepAliveFrames` frames is sent one whose diff is empty. An integer
+   * of at least 1; the constructor throws for any other value. Unset by default, which keeps
+   * today's behavior and a byte-identical wire.
+   *
+   * Without it the server sends nothing for a session whose replicated state did not change (see
+   * {@link ServerWorldOptions.historyFrames}), and the client's `renderFrame`, which only
+   * advances by applying frames, holds at the newest frame it has until one arrives. Whatever the
+   * client derives from `renderFrame` instead of from replicated data then freezes in an idle
+   * scene and jumps when the next frame arrives. Dead reckoning is the case that matters: a body
+   * is extrapolated at `renderFrame`, so `DeadReckonedModule` requires this option and throws at
+   * install without it. A scene whose state changes on every frame needs none.
+   *
+   * `1` is the safe value: a frame with a diff on every tick, so `renderFrame` never waits. A
+   * larger value sends fewer frames and makes `renderFrame` wait for each one. A client's
+   * interpolation buffer spans one missing frame on a steady link, so `2` still looks smooth
+   * there, but from `3` on the render frame stalls between keepalives and jumps when the next
+   * one arrives.
+   *
+   * A keepalive is an ordinary frame with an empty diff and is labeled like any other: it starts
+   * at the base the frame would have had anyway, including the optimistic one of
+   * {@link ServerWorldOptions.redundancyFrames}, and carries the optimistic marker when that base
+   * is past the ack. The client applies it, so its version advances, and acks it like any frame.
+   * For the optimistic base it counts as a send, because the client was sent it and its version
+   * may be that frame. For the liveness timer it is not content, so one that is lost is never
+   * chased with a fallback. A frame that carries RPC traffic but no diff, as during a baseline
+   * handshake, advances no `renderFrame` and does not count. No keepalive is sent while a
+   * baseline is in flight or needed, nor to a session whose view has never held anything to
+   * acknowledge.
+   *
+   * It costs a header-only frame, 5 bytes of payload at frame numbers below 128 and 9 in the
+   * first hours of a server (plus 1 when marked optimistic), every `keepAliveFrames` ticks for
+   * each session that would otherwise be sent nothing, and nothing for a session that is sent a
+   * diff anyway. Per session and frame it is one integer and no allocation beyond the frame.
+   */
+  keepAliveFrames?: number;
 }
 
 /**
@@ -281,6 +318,13 @@ class ServerClientSession {
    */
   public readonly sent: SentFrames | undefined;
   /**
+   * The newest frame in which the session was sent a diff, with content or without: a
+   * delta, a baseline, or a keepalive. A frame that carried RPC traffic but no diff,
+   * as during a baseline handshake, advances no client version and is not counted.
+   * Only kept while `keepAliveFrames` is set, to tell when the session is due one.
+   */
+  public lastDiffFrame: number;
+  /**
    * The oldest frame with content sent to the session that the client has not
    * acked, or an older one that has since been acked while nothing newer was
    * sent. Kept with {@link probeSentAtMs} to tell whether the client is catching
@@ -336,6 +380,7 @@ class ServerClientSession {
     redundancyFrames: number | undefined = undefined
   ) {
     this.ackFrame = lastFrame;
+    this.lastDiffFrame = lastFrame;
     this.sent =
       redundancyFrames === undefined ? undefined : new SentFrames(redundancyFrames, lastFrame);
     this.history = new History(historyFrames, lastFrame);
@@ -367,6 +412,7 @@ export class ServerWorld extends NetworkWorld {
   private readonly _closeLingerMs: number;
   private readonly _historyFrames: number;
   private readonly _redundancyFrames: number | undefined;
+  private readonly _keepAliveFrames: number | undefined;
   private readonly _listeners: VecsSocketListener[] = [];
   private _shutdown: Promise<void> | undefined;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
@@ -384,6 +430,10 @@ export class ServerWorld extends NetworkWorld {
       options.redundancyFrames === undefined
         ? undefined
         : validateRedundancyFrames(options.redundancyFrames, this._historyFrames);
+    this._keepAliveFrames =
+      options.keepAliveFrames === undefined
+        ? undefined
+        : validateKeepAliveFrames(options.keepAliveFrames);
     this._trackerCache = new TrackerCache(this);
     this._components = this.networkComponents;
     ensureRegistered(this, Networked);
@@ -453,6 +503,15 @@ export class ServerWorld extends NetworkWorld {
    */
   public get frame(): number {
     return this._frame;
+  }
+
+  /**
+   * The {@link ServerWorldOptions.keepAliveFrames} this world was built with, or `undefined`
+   * when it sends nothing to a session whose state did not change. A module whose client half
+   * depends on frames arriving in an idle scene, such as dead reckoning, checks it at install.
+   */
+  public get keepAliveFrames(): number | undefined {
+    return this._keepAliveFrames;
   }
 
   /** @internal */
@@ -647,6 +706,10 @@ export class ServerWorld extends NetworkWorld {
    * session was sent `redundancyFrames` sends ago, instead of at the ack, and the
    * frame carries the optimistic marker when that is past the ack.
    *
+   * With {@link ServerWorldOptions.keepAliveFrames} set, a session that has acked a baseline
+   * and has not been sent a frame with a diff for that many frames is sent one whose diff is
+   * empty, from the base the frame would have had anyway.
+   *
    * Registered as the world's own `Send` system in a phase after `ON_STORE`, so
    * it normally runs as part of `progress()`; call it directly only to drive a
    * world that has no tick loop.
@@ -718,13 +781,18 @@ export class ServerWorld extends NetworkWorld {
       const rpc = session.rpc.getOutgoing();
       const diff = this._stateFor(session, latest, sendsBaseline, nowMs);
 
-      if (!worthAFrame(diff) && rpc.length === 0) {
+      const content = worthAFrame(diff);
+      const keepAlive = !content && this._keepAliveDue(session, diff, toFrame);
+      if (!content && !keepAlive && rpc.length === 0) {
         return;
       }
       if (diff !== undefined) {
         session.rtt.recordSend(toFrame, nowMs);
-        if (worthAFrame(diff)) {
+        if (content) {
           this._noteContentSent(session, toFrame, nowMs);
+        }
+        if (this._keepAliveFrames !== undefined) {
+          this._noteDiffSent(session, toFrame, keepAlive);
         }
       }
       this._sendFrame(
@@ -946,6 +1014,25 @@ export class ServerWorld extends NetworkWorld {
   }
 
   /**
+   * Whether this frame sends the session a keepalive: a frame whose diff is empty. It does when
+   * the world has a `keepAliveFrames`, the session has gone that many frames without being sent a
+   * diff, and `diff` is a delta.
+   *
+   * It is called for a diff that has no content, which is `undefined` while the session waits for
+   * a baseline (none has been acked, or one is in flight or needed: see
+   * {@link ServerWorld._stateFor}), and otherwise an empty delta from a baseline the client holds.
+   * Only the delta qualifies, so no keepalive goes out while a baseline is in flight or needed.
+   */
+  private _keepAliveDue(
+    session: ServerClientSession,
+    diff: StateDiff | undefined,
+    toFrame: number
+  ): boolean {
+    const every = this._keepAliveFrames;
+    return every !== undefined && diff !== undefined && toFrame - session.lastDiffFrame >= every;
+  }
+
+  /**
    * Record that a baseline or a delta with content went out in `frame`: it joins
    * the frames an optimistic base is taken from, and, unless an older one is still
    * waiting, it is the one the liveness timer watches.
@@ -959,6 +1046,19 @@ export class ServerWorld extends NetworkWorld {
     if (session.probeFrame === undefined || session.ackFrame >= session.probeFrame) {
       session.probeFrame = frame;
       session.probeSentAtMs = nowMs;
+    }
+  }
+
+  /**
+   * Record that a frame with a diff went out in `frame`: it restarts the count towards the
+   * session's next keepalive. A keepalive also joins the frames an optimistic base is taken
+   * from, because the client applies it and its version may be that frame; it is not content,
+   * so it is never the one the liveness timer watches.
+   */
+  private _noteDiffSent(session: ServerClientSession, frame: number, keepAlive: boolean): void {
+    session.lastDiffFrame = frame;
+    if (keepAlive) {
+      session.sent?.push(frame);
     }
   }
 
@@ -1293,6 +1393,13 @@ export class ServerWorld extends NetworkWorld {
     encoder.write(value);
     return encoder.getBuffer().slice();
   }
+}
+
+function validateKeepAliveFrames(frames: number): number {
+  if (!Number.isInteger(frames) || frames < 1) {
+    throw new Error(`keepAliveFrames must be an integer of at least 1, got ${String(frames)}`);
+  }
+  return frames;
 }
 
 function ensureRegistered(world: NetworkWorld, Class: ComponentClass): void {

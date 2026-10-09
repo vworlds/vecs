@@ -29,6 +29,8 @@ from the ack is therefore always safe. That is the default, and everything below
 Each frame a session gets `history.pull(ack, frame)`: every change in `(ack, frame]`, merged out of
 the session's history window (#216). A baseline (`fromFrame` 0, the whole view) replaces a delta when
 the client cannot be caught up with one, and while a baseline is in flight the server sends no state.
+A frame whose diff is empty is not sent unless it carries RPC traffic, or a keepalive is due
+([below](#the-keepalive)).
 
 The price is redundancy. The ack lags the frame by a round trip, `L` frames, and a change that is not
 superseded by a later one stays in every frame's delta until its ack arrives: it is sent `L + 1`
@@ -46,9 +48,9 @@ base  = max(ack, the frame the session was sent R sends ago)
 diff  = history.pull(base, frame)
 ```
 
-A **send** is a frame in which the session was sent a baseline or a delta with content. Frames that
-sent nothing because their diff was empty, or were withheld while a baseline was in flight, are not
-sends. The frame carries the **optimistic marker** (a field on `Server2Client`) exactly when
+A **send** is a frame in which the session was sent a baseline or a delta with content, or, with
+`keepAliveFrames`, a [keepalive](#the-keepalive). Frames that sent nothing because their diff was
+empty, or were withheld while a baseline was in flight, are not sends. The frame carries the **optimistic marker** (a field on `Server2Client`) exactly when
 `base > ack`. Unset, the base is the ack, nothing is marked and the wire is byte for byte what it
 always was.
 
@@ -188,6 +190,91 @@ not superseded, and plain deltas resend it for a round trip. `R` = 1 saves the m
 pays for it in fallbacks, each of which sends plain deltas for a round trip; `R` = 2 is the knee;
 `R` = 3 buys the absence of stalls at this loss rate, at a higher steady cost.
 
+## The keepalive
+
+A session whose diff is empty is sent no frame (#216), and for the data that is right: the client
+holds the server's state at its version and nothing is missing. But the client's `renderFrame`, the
+frame it renders, advances only by applying frames, and when its buffer is dry it holds at the newest
+frame applied. Whatever the client derives from `renderFrame` instead of from data stands still with
+it and jumps when the next frame arrives. Dead reckoning is the case that matters: a `Motion`
+baseline is extrapolated at `renderFrame`, and a scene of bodies that drift between corrections
+replicates nothing for seconds. In Space Rocks, with a parked ship and drifting rocks, that was holds
+of up to 3.5 s and jumps of about 3 m. A scene that changes on every tick sends a frame every tick
+and never notices.
+
+`ServerWorldOptions.keepAliveFrames` (`K`, an integer of at least 1) opts in to a **keepalive**: a
+session that holds an acked baseline and has not been sent a frame with a diff for `K` frames is sent
+one whose diff is empty. `DeadReckonedModule` requires it and throws at install without it. Unset,
+the code path is one branch and the wire is byte for byte what it was.
+
+- **It is a plain delta that happens to be empty.** It is labeled by the normal base selection: the
+  ack, or with `redundancyFrames` the optimistic base, with the marker when that is past the ack. The
+  client applies it, its version and `renderFrame` advance, and it acks it like any frame.
+- **It counts as a send.** The client was sent it and its version may be that frame, so it may be
+  the base of a later frame, like any other send. If it did not count, the base would stay at the last
+  frame with content and fall behind the ack, and a change after an idle stretch would be resent in
+  every frame until acked, the cost `redundancyFrames` removes.
+- **It is not content for the liveness probe.** Nothing in it needs delivering, so a lost one is never
+  chased with a fallback.
+- **It is never sent while a baseline is in flight or needed**, and not before a baseline has been
+  acked: the session has no state to build a delta on, and #216 sends it none. The delta the
+  server builds is `undefined` then, and a keepalive needs a delta.
+- **Only a frame with a diff restarts the count**, because only a frame with a diff advances the
+  client's `renderFrame`. A frame with content or a delta that merely rides with RPC traffic does; an
+  RPC-only frame, as while a baseline is in flight, has no diff and does not.
+- **A busy session is unaffected.** A session sent a diff at least every `K` frames gets exactly the
+  frames it gets without the option.
+
+State per session is one integer, `lastDiffFrame`, the newest frame sent with a diff, written once
+per frame sent when `K` is set. A world that does not set the option keeps none of it and spends one
+branch per frame sent, and one more per idle session. The keepalive allocates nothing beyond the
+frame it sends.
+
+### Cost
+
+A header-only frame per `K` ticks for each session that would otherwise be sent nothing, about 10 B of
+payload each in a long-running server: the diff tag, `toFrame` and `fromFrame` as varints and two
+zero counts, plus a byte when marked optimistic.
+
+| Frame number | Below 128 | Below 16 384 (9 min at 30 Hz) | Below 2 097 152 (19 h) | Beyond |
+| ------------ | --------- | ----------------------------- | ---------------------- | ------ |
+| Payload      | 5 B       | 7 B                           | 9 B                    | 11 B   |
+
+At 30 Hz and `K` = 1 that is 150 to 300 B/s per idle client, before the transport's own overhead. On
+the dead-reckoning bandwidth test (200 drifting bodies, one client) it is 732 B/s against 102 146 B/s
+streamed.
+
+The wire is the only cost. On a lossy link the keepalive is a send, so an idle view behaves like a
+busy one: a lost keepalive can be the base of the next frame, and when the last `R` are lost the
+client holds the next diff and reports a gap, though nothing was missing. Running an idle view of
+20 entities on the simulation harness (200 ms round trip, 5% loss each way, reordering, 60 s, seed 1)
+with `K` = 1:
+
+| `R`   | Frames | Bytes  | Gap reports | Standstills over 100 ms (longest) |
+| ----- | ------ | ------ | ----------- | --------------------------------- |
+| unset | 1794   | 12.4 K | 0           | none (100 ms)                     |
+| 1     | 1794   | 13.7 K | 275         | 46 (333 ms)                       |
+| 2     | 1794   | 14.2 K | 28          | 7 (333 ms)                        |
+| 3     | 1794   | 14.2 K | 0           | none (100 ms)                     |
+
+An idle view has nothing for the redundancy to protect, so it only pays the price of the stalls: the
+rows are what a dead-reckoned scene pays between corrections. `R` of 3, or unset, keeps the view
+moving at this loss rate; `R` = 1 should not be combined with the keepalive on a lossy link. A link
+that loses nothing has no gap reports at `R` of 1, 2 or 3
+(`lib/vecs-server/tests/lossy_replication.test.ts`).
+
+A larger `K` saves bytes and makes the client wait: its interpolation buffer spans one missing frame
+on a steady link, so `K` = 2 still renders smoothly, but from `K` = 3 the render frame stalls between
+keepalives and jumps at the next. `K` = 1 is the safe value, and the one dead reckoning documents.
+
+### Future work
+
+A sparse keepalive, `K` of 4 or more, would save most of the bytes of an idle session, but the client
+cannot render it smoothly: `renderFrame` is the frame of the newest applied state, and it never runs
+past it. A client clock that advances `renderFrame` past the newest frame by up to `K`, extrapolating
+between keepalives instead of waiting, would let `K` grow, and dead-reckoned bodies would keep moving
+for the frames a keepalive does not cover. Until then `K` = 1 is the value.
+
 ## Compatibility
 
 Both fields are new `Server2Client` and `Client2Server` tags (6 and 7), absent unless set. A decoder
@@ -195,10 +282,14 @@ that predates them rejects the tag, so a server with `redundancyFrames` set must
 that understand the marker: deploy clients first. A server without it sends nothing a client of any
 version cannot read, and a new client sends the gap field only after receiving a marked frame.
 
+The keepalive adds no field. It is a delta with an empty diff, which every client accepts, and it is
+marked optimistic only under `redundancyFrames`, so it needs no deployment order of its own.
+
 ## Source
 
 | Concern                                            | Where                                 |
 | -------------------------------------------------- | ------------------------------------- |
+| Keepalive: when it is due, what it records         | `lib/vecs-server/src/server_world.ts` |
 | Base, healthy test, fallback, probe, gap handling  | `lib/vecs-server/src/server_world.ts` |
 | The last `R` sends, the base's source              | `lib/vecs-server/src/sent_frames.ts`  |
 | Window, merging `pull`, `validateRedundancyFrames` | `lib/vecs-server/src/history.ts`      |

@@ -119,6 +119,7 @@ class Rig {
       seed: 7,
       tickHz: HZ,
       link: symmetric({ oneWayMs: 20 }),
+      serverOptions: options.deadReckoning === false ? undefined : { keepAliveFrames: 1 },
     });
     const server = this.sim.server;
     server.module(PhysicsModule, { gravity: { x: 0, y: 0 }, fixedTimeStep: 1 / HZ });
@@ -317,14 +318,6 @@ function spawnBody(world: World, options: BodyOptions = {}): Entity {
   return body;
 }
 
-/** Keeps frames flowing: a streamed decoy that changes every tick. Without traffic the client's render frame stalls. */
-function addTraffic(r: Rig): void {
-  const decoy = r.sim.server.entity().add(Networked).set(RenderPosition, { x: 50, y: 50 });
-  r.sim.onTick((tick) => {
-    decoy.set(RenderPosition, { x: 50 + tick * 0.01, y: 50 });
-  });
-}
-
 function names(values: Iterable<string>): string[] {
   return [...values].sort();
 }
@@ -338,7 +331,6 @@ describe("switching a body between a streamed pose and dead reckoning", () => {
   describe.each(PHASES)("in %s", (phase) => {
     it("sends Motion and the removal of the render pose in one diff when a streamed body becomes dead reckoned", () => {
       rig = new Rig();
-      addTraffic(rig);
       const body = spawnBody(rig.server, {
         x: 2,
         y: 1,
@@ -379,7 +371,6 @@ describe("switching a body between a streamed pose and dead reckoning", () => {
 
     it("sends the render pose and the removal of Motion in one diff when a dead-reckoned body becomes streamed", () => {
       rig = new Rig();
-      addTraffic(rig);
       const body = spawnBody(rig.server, { x: 2, y: 1, angle: 0.3, vx: 0.4, vy: 0.3, w: 0.5 });
       rig.watch(body);
       const switchFrame = 40;
@@ -403,7 +394,6 @@ describe("switching a body between a streamed pose and dead reckoning", () => {
 
   it("keeps a pose on the client in every frame, in both directions", () => {
     rig = new Rig();
-    addTraffic(rig);
     const body = spawnBody(rig.server, { vx: 0.4, vy: 0.3, w: 0.5, streamed: true });
     rig.watch(body);
     rig.at(ON_UPDATE, 40, () => body.add(DeadReckoned));
@@ -441,7 +431,6 @@ describe("switching a body between a streamed pose and dead reckoning", () => {
 
   it("keeps a pose on the wire in every frame: no diff leaves an entity with neither Position nor Motion", () => {
     rig = new Rig();
-    addTraffic(rig);
     const body = spawnBody(rig.server, { vx: 0.4, w: 0.5, streamed: true });
     rig.watch(body);
     PHASES.forEach((phase, i) => {
@@ -469,7 +458,6 @@ describe("switching a body between a streamed pose and dead reckoning", () => {
 
   it("switches back and forth any number of times", () => {
     rig = new Rig();
-    addTraffic(rig);
     const body = spawnBody(rig.server, { x: -3, vx: 0.4, vy: -0.2, w: 0.5, streamed: true });
     rig.watch(body);
     // Toggle every 7 frames, in a different phase each time, for ten seconds.
@@ -498,7 +486,6 @@ describe("switching a body between a streamed pose and dead reckoning", () => {
 
   it("sends MotionParams again when a body with non-default constants goes back to dead reckoning", () => {
     rig = new Rig();
-    addTraffic(rig);
     const body = spawnBody(rig.server, {
       x: -4,
       vx: 0.6,
@@ -533,7 +520,6 @@ describe("switching a body between a streamed pose and dead reckoning", () => {
 
   it("survives a remove and an add of the tag in one flush, either way round", () => {
     rig = new Rig();
-    addTraffic(rig);
     const dead = spawnBody(rig.server, { vx: 0.4, w: 0.5 });
     const streamed = spawnBody(rig.server, { x: 5, vx: 0.4, w: 0.5, streamed: true });
     [dead, streamed].forEach((body) => rig!.watch(body));
@@ -567,7 +553,6 @@ describe("the pose guard", () => {
   describe.each([PRE_STORE, ON_STORE])("for a body created in %s", (phase) => {
     it("replicates a streamed body at its physics pose, not at the default render pose", () => {
       rig = new Rig();
-      addTraffic(rig);
       let body: Entity | undefined;
       rig.at(phase, SPAWN_FRAME, () => {
         body = spawnBody(rig!.server, { ...POSE, streamed: true });
@@ -588,7 +573,6 @@ describe("the pose guard", () => {
 
     it("replicates a dead-reckoned body with a baseline at its physics pose, not the default Motion", () => {
       rig = new Rig();
-      addTraffic(rig);
       let body: Entity | undefined;
       rig.at(phase, SPAWN_FRAME, () => {
         body = spawnBody(rig!.server, POSE);
@@ -605,7 +589,6 @@ describe("the pose guard", () => {
 
     it("replicates a body that becomes dead reckoned there at its physics pose, in that frame", () => {
       rig = new Rig();
-      addTraffic(rig);
       const body = spawnBody(rig.server, { ...POSE, streamed: true });
       rig.at(phase, SPAWN_FRAME, () => body.add(DeadReckoned));
       rig.watch(body);
@@ -621,7 +604,6 @@ describe("the pose guard", () => {
 
   it("serves an entity an RPC creates between ticks", async () => {
     rig = new Rig();
-    addTraffic(rig);
     const spawned: Entity[] = [];
     rig.server.handleRpc(101, () => {
       spawned.push(spawnBody(rig!.server, { ...POSE, streamed: true }));
@@ -649,7 +631,6 @@ describe("the pose guard", () => {
 
   it("serves a streamed entity without dead reckoning installed", () => {
     rig = new Rig({ deadReckoning: false });
-    addTraffic(rig);
     let body: Entity | undefined;
     rig.at(ON_STORE, SPAWN_FRAME, () => {
       body = spawnBody(rig!.server, { ...POSE, streamed: true });
@@ -663,7 +644,6 @@ describe("the pose guard", () => {
 
   it("adds nothing to a body that POST_UPDATE already synced", () => {
     rig = new Rig();
-    addTraffic(rig);
     const writes: number[] = [];
     const baselines: number[] = [];
     rig.server.component(RenderPosition).on("set", (entity) => {

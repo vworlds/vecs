@@ -95,6 +95,14 @@ graph LR
   X --> P["Position / Rotation"]
 ```
 
+Dead reckoning needs frames to keep arriving. The client extrapolates at `ClientWorld.renderFrame`,
+which advances only as frames are applied, and a server sends a session nothing while its replicated
+state is unchanged, so in an idle scene every dead-reckoned body would freeze and then jump. The
+server therefore sets `keepAliveFrames: 1` on its `ServerWorld`, which sends a header-only frame to a
+session that would otherwise get none, and `DeadReckonedModule` throws at install without it. `1` is
+the safe value: larger ones save bytes but let the render frame wait. See
+[Set `keepAliveFrames: 1`](../vecs-phaser-server/README.md#set-keepaliveframes-1).
+
 A dead-reckoned body carries `Motion` and no render pose on the server, and a streamed one carries
 the render pose and no `Motion`, so each body is on exactly one path; downstream client systems
 cannot tell an extrapolated pose from an interpolated one. A body may change path while it lives:
