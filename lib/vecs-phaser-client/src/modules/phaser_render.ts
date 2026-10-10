@@ -23,6 +23,11 @@ export interface PhaserRenderModuleConfig {
   readonly pixelsPerMeter?: number;
 }
 
+/**
+ * Owns attached Phaser GameObjects and releases them through component remove hooks.
+ * Container teardown detaches children first so surviving DrawIn entities keep their
+ * GameObjects on the scene display list; ownership cascades still destroy owned children.
+ */
 export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
   public init(config: PhaserRenderModuleConfig): void {
     const coords = new CoordSpace(config.scene, config.pixelsPerMeter);
@@ -81,7 +86,14 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     // always closes the stroke of Ellipse, Rectangle, Star and Triangle, so an
     // OpenPath tag on them is a silent no-op rather than a renderer-dependent one.
 
-    world.component(m.GameObject).on("remove", (_entity, obj) => obj.destroy());
+    world.component(m.GameObject).on("remove", (_entity, obj) => {
+      if (obj instanceof Phaser.GameObjects.Container && obj.list.length > 0) {
+        // Phaser destroys exclusive children by default. ECS ownership, not display
+        // parenting, decides their lifetime; removeAll(false) restores scene placement.
+        obj.removeAll(false);
+      }
+      obj.destroy();
+    });
 
     world.module(DisplaySetupModule, { scene: config.scene });
     world.module(ArcModule, { scene: config.scene, coords });

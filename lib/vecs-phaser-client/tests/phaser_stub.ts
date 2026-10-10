@@ -9,7 +9,7 @@ let nextId = 0;
 
 class MockGameObject {
   readonly calls: RecordedCall[] = [];
-  destroyed = false;
+  isDestroyed = false;
   displayList: unknown = null;
   parentContainer: unknown = null;
   readonly id: number;
@@ -24,7 +24,15 @@ class MockGameObject {
   }
 
   destroy(): void {
-    this.destroyed = true;
+    if (this.isDestroyed) {
+      return;
+    }
+    this.isDestroyed = true;
+    this.preDestroy();
+    if (this.parentContainer) {
+      (this.parentContainer as Container).remove(this, true);
+    }
+    this.displayList = null;
     this.record("destroy");
   }
 
@@ -124,6 +132,8 @@ class MockGameObject {
     return this.record("setTo", ...args);
   }
 
+  protected preDestroy(): void {}
+
   protected record(method: string, ...args: readonly unknown[]): this {
     this.calls.push({ method, args });
     return this;
@@ -150,41 +160,56 @@ function makeShapeClass(
 }
 
 class Container extends MockGameObject {
+  exclusive = true;
   readonly list: MockGameObject[] = [];
 
-  constructor(scene: Phaser.Scene, _x?: number, _y?: number) {
+  constructor(
+    private readonly scene: Phaser.Scene,
+    _x?: number,
+    _y?: number
+  ) {
     super("container", [], Container);
     registerWithScene(scene, this);
   }
 
   add(child: MockGameObject): this {
     // Remove from old parent if any (matching Phaser's exclusive behavior)
-    if (child.parentContainer !== null && child.parentContainer !== this) {
+    if (this.exclusive && child.parentContainer !== null && child.parentContainer !== this) {
       (child.parentContainer as Container).remove(child, false);
     }
     if (!this.list.includes(child)) {
       this.list.push(child);
     }
-    child.parentContainer = this;
-    child.displayList = this;
+    if (this.exclusive) {
+      child.parentContainer = this;
+      child.displayList = null;
+    }
     return this;
   }
 
-  remove(child: MockGameObject, _destroyChild?: boolean): this {
+  remove(child: MockGameObject, destroyChild = false): this {
     const index = this.list.indexOf(child);
     if (index !== -1) {
       this.list.splice(index, 1);
+      if (this.exclusive) {
+        child.parentContainer = null;
+      }
+      if (destroyChild) {
+        child.destroy();
+      } else if (this.exclusive) {
+        this.scene.add.existing(child as unknown as Phaser.GameObjects.GameObject);
+      }
     }
-    child.parentContainer = null;
-    child.displayList = null;
     return this;
   }
 
-  override destroy(): void {
-    // Phaser's Container.destroy() removes all children from the display list.
-    // It does NOT destroy them (destroyChild defaults to false via removeAll).
-    [...this.list].forEach((child) => this.remove(child, false));
-    super.destroy();
+  removeAll(destroyChild = false): this {
+    [...this.list].forEach((child) => this.remove(child, destroyChild));
+    return this;
+  }
+
+  protected override preDestroy(): void {
+    this.removeAll(this.exclusive);
   }
 }
 

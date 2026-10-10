@@ -27,6 +27,8 @@ import * as m from "../markers.js";
  * Reparenting (DrawIn/DrawBy retarget) is handled by `update` watching the
  * relationship — the entity exits the old query and enters the new one,
  * triggering `exit` (detach from old parent) and `enter` (attach to new parent).
+ * Container teardown detaches surviving children before Phaser destroys the parent;
+ * exits skip objects whose Phaser `isDestroyed` flag is set.
  */
 export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
   public init(config: { scene: Phaser.Scene }): void {
@@ -44,7 +46,7 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
       .phase(ON_STORE)
       .enter([m.GameObject], (_entity, [obj]) => {
         const phaserObj = obj as Phaser.GameObjects.GameObject;
-        if (phaserObj.displayList !== null) {
+        if (phaserObj.isDestroyed || phaserObj.displayList !== null) {
           return;
         }
         scene.add.existing(phaserObj);
@@ -71,12 +73,11 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
       )
       .exit((entity) => {
         const obj = entity.get(m.GameObject) as Phaser.GameObjects.GameObject | undefined;
-        if (!obj || (obj as unknown as { destroyed: boolean }).destroyed) {
+        if (!obj || obj.isDestroyed) {
           return;
         }
-        const parent = obj.parentContainer as
-          (Phaser.GameObjects.Container & { destroyed?: boolean }) | null;
-        if (parent && !parent.destroyed) {
+        const parent = obj.parentContainer;
+        if (parent && !parent.isDestroyed) {
           parent.remove(obj, false);
         }
         if (obj.displayList === null) {
@@ -103,7 +104,7 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
         // No Container to detach from; if the GameObject is being destroyed
         // it's already gone.
         const obj = entity.get(m.GameObject) as Phaser.GameObjects.GameObject | undefined;
-        if (!obj || (obj as unknown as { destroyed: boolean }).destroyed) {
+        if (!obj || obj.isDestroyed) {
           return;
         }
         // The child remains on the scene root. Nothing to do.
