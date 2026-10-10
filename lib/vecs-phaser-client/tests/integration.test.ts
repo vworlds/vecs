@@ -50,9 +50,9 @@ describe("PhaserRenderModule integration", () => {
     world.progress(1, 0);
 
     const rectangle = scene.created[1]!;
-    expect(arc.destroyed).toBe(true);
+    expect(arc.isDestroyed).toBe(true);
     expect(rectangle.kind).toBe("rectangle");
-    expect(rectangle.destroyed).toBe(false);
+    expect(rectangle.isDestroyed).toBe(false);
     expect(entity.get(Phaser.GameObjects.Arc)).toBeUndefined();
     expect(entity.get(Phaser.GameObjects.Rectangle)).toBe(rectangle);
     expect(entity.get(m.GameObject)).toBe(rectangle);
@@ -72,9 +72,9 @@ describe("PhaserRenderModule integration", () => {
     const rectangle = scene.add.rectangle(0, 0, 10, 20);
     entity.attach(rectangle);
 
-    expect(arc.destroyed).toBe(true);
+    expect(arc.isDestroyed).toBe(true);
     expect(methods(arc, "destroy")).toHaveLength(1);
-    expect(rectangle.destroyed).toBe(false);
+    expect(rectangle.isDestroyed).toBe(false);
     expect(entity.has(Phaser.GameObjects.Arc)).toBe(false);
     expect(entity.get(Phaser.GameObjects.Rectangle)).toBe(rectangle);
     expect(entity.get(m.GameObject)).toBe(rectangle);
@@ -93,7 +93,7 @@ describe("PhaserRenderModule integration", () => {
     entity.destroy();
     world.progress(1, 0);
 
-    expect(initialArc.destroyed).toBe(true);
+    expect(initialArc.isDestroyed).toBe(true);
     expect(methods(initialArc, "destroy")).toHaveLength(1);
     expect(liveObjects(scene)).toEqual([]);
 
@@ -103,7 +103,7 @@ describe("PhaserRenderModule integration", () => {
 
     const rebuiltArc = scene.created[1]!;
     expect(rebuiltArc).not.toBe(initialArc);
-    expect(rebuiltArc.destroyed).toBe(false);
+    expect(rebuiltArc.isDestroyed).toBe(false);
     expect(rebuiltEntity.get(Phaser.GameObjects.Arc)).toBe(rebuiltArc);
     expect(liveObjects(scene)).toEqual([rebuiltArc]);
   });
@@ -127,8 +127,8 @@ describe("PhaserRenderModule integration", () => {
 
     world.clearAllEntities();
 
-    expect(initialArc.destroyed).toBe(true);
-    expect(initialRectangle.destroyed).toBe(true);
+    expect(initialArc.isDestroyed).toBe(true);
+    expect(initialRectangle.isDestroyed).toBe(true);
     expect(methods(initialArc, "destroy")).toHaveLength(1);
     expect(methods(initialRectangle, "destroy")).toHaveLength(1);
     expect(liveObjects(scene)).toEqual([]);
@@ -154,8 +154,8 @@ describe("PhaserRenderModule integration", () => {
 
     world.dispose();
 
-    expect(initialArc.destroyed).toBe(true);
-    expect(initialRectangle.destroyed).toBe(true);
+    expect(initialArc.isDestroyed).toBe(true);
+    expect(initialRectangle.isDestroyed).toBe(true);
     expect(methods(initialArc, "destroy")).toHaveLength(1);
     expect(methods(initialRectangle, "destroy")).toHaveLength(1);
     expect(liveObjects(scene)).toEqual([]);
@@ -163,7 +163,7 @@ describe("PhaserRenderModule integration", () => {
 });
 
 function liveObjects(scene: MockScene): readonly MockGameObject[] {
-  return scene.created.filter((obj) => !obj.destroyed);
+  return scene.created.filter((obj) => !obj.isDestroyed);
 }
 
 function methods(obj: MockGameObject, method: string): readonly (readonly unknown[])[] {

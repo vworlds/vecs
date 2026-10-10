@@ -137,7 +137,7 @@ describe("DisplaySetupModule: InheritRotation", () => {
       }).not.toThrow();
 
       expect(child.destroyed).toBe(true);
-      expect(obj.destroyed).toBe(true);
+      expect(obj.isDestroyed).toBe(true);
       expect(set).not.toHaveBeenCalled();
       expect(modified).not.toHaveBeenCalled();
       // Not rewritten to the tag's own angle.
@@ -196,7 +196,7 @@ describe("DisplaySetupModule: InheritRotation", () => {
       expect(child.has(InheritRotation)).toBe(true);
       expectPose(child, { x: 0, y: 4, angle: HALF_PI + 0.25 });
       expectRendered(obj, { x: 0, y: 4, angle: HALF_PI + 0.25 });
-      expect(obj.destroyed).toBe(false);
+      expect(obj.isDestroyed).toBe(false);
     });
 
     it("writes nothing to any entity when the world is cleared", () => {
