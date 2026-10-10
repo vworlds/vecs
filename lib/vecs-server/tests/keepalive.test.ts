@@ -213,7 +213,7 @@ function isEmptyDiff(frame: Server2Client): boolean {
   return (
     frame.diff!.snapshots.length === 0 &&
     frame.diff!.removed.length === 0 &&
-    frame.diff!.resets.length === 0
+    frame.diff!.resets === undefined
   );
 }
 
@@ -728,9 +728,9 @@ describe("an unset keepAliveFrames", () => {
       encoder.write_u32(diff.fromFrame);
       encoder.write_u32(diff.snapshots.length);
       diff.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
-      encoder.write_u32(diff.removed.length + diff.resets.length);
+      encoder.write_u32(diff.removed.length + (diff.resets?.length ?? 0));
       diff.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
-      diff.resets.forEach(([eid]) => encoder.write_u32(cid_pack(eid, ALL_COMPONENTS)));
+      diff.resets?.forEach(([eid]) => encoder.write_u32(cid_pack(eid, ALL_COMPONENTS)));
       if (message.optimistic) {
         encoder.write_u8(6);
       }

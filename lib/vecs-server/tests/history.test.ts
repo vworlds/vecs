@@ -334,7 +334,7 @@ describe("History", () => {
 
       expect(pulled.snapshots).toEqual([snapshot(1, 1, 20), snapshot(1, 2, 30)]);
       expect(pulled.removed).toEqual([]);
-      expect(pulled.resets).toEqual([]);
+      expect(pulled.resets).toBeUndefined();
     });
 
     it("repeats the same reset, with the same frame, in every span that includes it", () => {
@@ -362,7 +362,7 @@ describe("History", () => {
 
       expect(pulled.snapshots).toEqual([snapshot(1, 1, 11), snapshot(1, 2, 12)]);
       expect(pulled.removed).toEqual([]);
-      expect(pulled.resets).toEqual([]);
+      expect(pulled.resets).toBeUndefined();
     });
 
     it("returns the frame's own diff, with its reset, for a single-frame pull", () => {
@@ -669,7 +669,7 @@ type ClientState = Map<string, string>;
  */
 function applyDiff(state: ClientState, diff: StateDiff, held: number): ClientState {
   const next = new Map(state);
-  diff.resets.forEach(([eid, frame]) => {
+  diff.resets?.forEach(([eid, frame]) => {
     if (frame > held) {
       [...next.keys()]
         .filter((key) => key.startsWith(`${eid}:`))
@@ -704,7 +704,7 @@ describe("a pulled delta", () => {
         if (!isDeepStrictEqual([...viaDelta].sort(), [...oneByOne].sort())) {
           mismatches.push(`frame ${frame}, from ${from}`);
         }
-        if (pulled.resets.length > 0 && pulled.snapshots.length > 0) {
+        if ((pulled.resets?.length ?? 0) > 0 && pulled.snapshots.length > 0) {
           spansWithAReset++;
         }
       }
@@ -740,7 +740,7 @@ describe("a pulled delta", () => {
           if (!isDeepStrictEqual([...viaDelta].sort(), [...states[frame + 1]].sort())) {
             mismatches.push(`frame ${frame}, acked ${from}, held ${held}`);
           }
-          pulled.resets.forEach(([, resetFrame]) => {
+          pulled.resets?.forEach(([, resetFrame]) => {
             if (resetFrame > held) {
               applied++;
             } else {

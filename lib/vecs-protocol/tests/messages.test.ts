@@ -456,7 +456,7 @@ describe("StateDiff resets", () => {
     expected.write_u32(1);
     expected.write_u32(cid_pack(12, 4));
     expect(encoded).toEqual(expected.getBuffer());
-    expect(new Decoder(encoded).read(Server2Client).diff?.resets).toEqual([]);
+    expect(new Decoder(encoded).read(Server2Client).diff?.resets).toBeUndefined();
   });
 
   it("refuses to encode a reset from a frame after the diff's own", () => {

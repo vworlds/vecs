@@ -975,7 +975,7 @@ function recordWire(client: SimClient, eid: number): WireFrame[] {
     const removed = diff.removed
       .filter(([id]) => id === eid)
       .map(([id, wireTypeId]) => describeSnapshot(id, wireTypeId));
-    const resets = diff.resets.filter(([id]) => id === eid).map(([, frame]) => frame);
+    const resets = (diff.resets ?? []).filter(([id]) => id === eid).map(([, frame]) => frame);
     if (snapshots.length > 0 || removed.length > 0 || resets.length > 0) {
       wire.push({
         fromFrame: diff.fromFrame,
@@ -998,7 +998,7 @@ function loseFirstRemoval(client: SimClient, eid: number, wire: WireFrame[]): vo
       return false;
     }
     const diff = new Decoder(data).read(Server2Client).diff;
-    if (diff === undefined || !diff.resets.some(([id]) => id === eid)) {
+    if (diff === undefined || !diff.resets?.some(([id]) => id === eid)) {
       return false;
     }
     lost = true;

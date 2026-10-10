@@ -297,7 +297,7 @@ describe("a session whose view covers two cells of an interest grid", () => {
 
     expect(frame.diff!.fromFrame).toBeGreaterThan(0);
     expect(frame.diff!.removed).toEqual([]);
-    expect(frame.diff!.resets).toEqual([]);
+    expect(frame.diff!.resets).toBeUndefined();
     expect(snapshotsOf(frame)).toEqual([{ eid: rig.mover.eid, wireType: 1 }]);
   });
 
@@ -314,7 +314,7 @@ describe("a session whose view covers two cells of an interest grid", () => {
     expect(frames).toHaveLength(6);
     frames.forEach((frame) => {
       expect(frame.diff!.removed).toEqual([]);
-      expect(frame.diff!.resets).toEqual([]);
+      expect(frame.diff!.resets).toBeUndefined();
       expect(snapshotsOf(frame)).toEqual([{ eid: rig.mover.eid, wireType: 1 }]);
     });
   });
