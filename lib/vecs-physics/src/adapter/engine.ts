@@ -40,9 +40,10 @@ export interface ResolvedPhysicsOptions {
   enableContinuous: boolean;
 }
 
-/** The three phases the physics systems split across. */
+/** Physics phase spine, including the internal teardown boundary before stepping. */
 export interface PhysicsPhases {
   preStep: Entity;
+  cleanup: Entity;
   step: Entity;
   postStep: Entity;
 }
@@ -103,9 +104,9 @@ export class PhysicsEngine {
   // Bodies whose mass needs recomputing this step (populated by shape lifecycle).
   public readonly dirtyMassBodies = new Set<EID>();
 
-  // Deferred Box2D teardown. Every lifecycle *exit* enqueues its Box2D handle
-  // here and does only vecs-side bookkeeping; a single PhysicsReaper (registered
-  // after every exit/sync consumer, before the step) drains these and performs
+  // Deferred Box2D teardown. Immediate lifecycle query exits enqueue handles
+  // at the structural-change flush, including changes from late preStep systems.
+  // PhysicsReaper drains these in the internal cleanup phase before the step and performs
   // the actual b2Destroy* -- shapes and chains first, then bodies (children
   // before parents, so a body cascade never double-frees an already-reaped
   // shape). Because nothing is destroyed mid-pass, no shape/chain slot is ever

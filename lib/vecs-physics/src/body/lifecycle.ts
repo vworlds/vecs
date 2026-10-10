@@ -35,23 +35,6 @@ export class BodyLifecycleModule extends Module {
         body._bodyId = bodyId;
         engine.entityByBodyIndex.set(bodyId.index1, entity.eid);
       })
-      // Inject `[Body]` so the handle survives the post-`_destroy` snapshot -- by
-      // the time the exit callback runs (next tick's inbox drain), `entity.get(Body)`
-      // would return `undefined`.
-      .exit([Body], (entity, [body]) => {
-        const bodyId = body?._bodyId;
-        if (bodyId === undefined) {
-          return;
-        }
-        // Defer the actual b2DestroyBody (and the reverse-map clear) until after
-        // shape + chain teardown -- see PhysicsBodyDestroyDeferred below and the
-        // pendingBodyDestroys note in PhysicsEngine. Destroying the body here would
-        // cascade-free its shapes' Box2D slots mid-pass, so a child shape created in
-        // the same flush could recycle a freed index1 before the dead shape's
-        // reverse-map entry is cleared, and the dead shape's exit would then wipe the
-        // live child's entry (dropping its sensor/contact events).
-        engine.pendingBodyDestroys.push(bodyId);
-      })
       .update(Body, (entity, body) => {
         const bodyId = body._bodyId;
         if (bodyId === undefined) {
@@ -66,6 +49,18 @@ export class BodyLifecycleModule extends Module {
         engine.box2d.b2Body_SetBullet(bodyId, body.bullet);
       })
       .add(PhysicsSystemTag);
+
+    // Queries observe exits at flush time, even after the preStep systems ran.
+    // Only enqueue here: the cleanup phase destroys children before their bodies.
+    world
+      .query("PhysicsBodyTeardown")
+      .with(Body)
+      .exit([Body], (_entity, [body]) => {
+        if (body._bodyId !== undefined) {
+          engine.pendingBodyDestroys.push(body._bodyId);
+          body._bodyId = undefined;
+        }
+      });
 
     world
       .system("PhysicsBodyLifecycle:Damping")

@@ -35,9 +35,6 @@ export class ChainLifecycleModule extends Module {
           createChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
-      .exit([Chain, { target: [ChildOf, Entity] }], (entity, [chain, parent]) => {
-        destroyChainForEntity(engine, entity, true, parent, chain);
-      })
       .update(
         { watch: Chain, cursor: Iter, inject: [{ target: [ChildOf, [Body]] }] },
         (it, chain, [body]) => {
@@ -45,6 +42,13 @@ export class ChainLifecycleModule extends Module {
         }
       )
       .add(PhysicsSystemTag);
+
+    world
+      .query("PhysicsChainTeardown")
+      .with(chainWithBodyParent)
+      .exit([Chain, { target: [ChildOf, Entity] }], (entity, [chain, parent]) => {
+        destroyChainForEntity(engine, entity, true, parent, chain);
+      });
 
     world
       .system("PhysicsChainLifecycle:ChildOf")

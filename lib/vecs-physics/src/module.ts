@@ -27,7 +27,9 @@ import { ShapePoseModule } from "./shapes/pose_sync.js";
 
 export type { PhysicsOptions } from "./core/module.js";
 
-/** World module that installs physics when registered with `world.module`. */
+/** World module that installs physics when registered with `world.module`.
+ * Internal cleanup runs after preStep and before step, so a pre-step entity
+ * destruction cannot leave a colliding body behind for that step. */
 export class PhysicsModule extends Module<PhysicsOptions | undefined> {
   public init(options: PhysicsOptions | undefined): void {
     const world = this.world;
@@ -45,13 +47,15 @@ export class PhysicsModule extends Module<PhysicsOptions | undefined> {
     world.module(MaterialsModule);
     world.module(EventsModule);
     world.module(EventOptInModule);
-    world.module(PhysicsReaperModule);
     world.module(ShapePoseModule);
     world.module(BodyPoseInModule);
     world.module(KinematicModule);
     world.module(ForcesModule);
-    world.module(BodyMassModule);
     world.module(DebugModule);
+
+    // physics-cleanup: drain flush-time teardown, then recompute surviving mass.
+    world.module(PhysicsReaperModule);
+    world.module(BodyMassModule);
 
     // physics-step: integrator.
     world.module(PhysicsStepModule);

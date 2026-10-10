@@ -65,12 +65,6 @@ export class JointLifecycleModule extends Module {
       .enter([Joint, bodyAInject, bodyBInject], (entity, [joint, bodyA, bodyB]) => {
         createJointForEntity(engine, entity, joint, bodyA, bodyB);
       })
-      // Inject `[Joint]` so the joint handle survives the post-`_destroy` exit
-      // snapshot, then defer the b2DestroyJoint to PhysicsReaper (validity-guarded,
-      // because a connected body's destroy may have detached this joint already).
-      .exit([Joint], (entity, [joint]) => {
-        destroyJointForEntity(engine, entity, true, joint);
-      })
       // Type-component change (e.g. DistanceJoint.length): destroy + recreate now.
       .update(
         { watch: Joint, inject: [bodyAInject, bodyBInject] },
@@ -79,6 +73,13 @@ export class JointLifecycleModule extends Module {
         }
       )
       .add(PhysicsSystemTag);
+
+    world
+      .query("PhysicsJointTeardown")
+      .with(jointWithBothBodies)
+      .exit([Joint], (entity, [joint]) => {
+        destroyJointForEntity(engine, entity, true, joint);
+      });
 
     // JointFrame change: anchors/reference angle are create-time only, so recreate.
     world

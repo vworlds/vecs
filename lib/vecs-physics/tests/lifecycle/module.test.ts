@@ -118,7 +118,8 @@ describe("PhysicsModule", () => {
     expect(world.entity("physics-step").has(Phase)).toBe(true);
     expect(world.entity("physics-post").has(Phase)).toBe(true);
     expect(world.entity("physics-pre").target(DependsOn)).toBe(world.entity(ON_UPDATE));
-    expect(world.entity("physics-step").target(DependsOn)).toBe(world.entity("physics-pre"));
+    expect(world.entity("physics-cleanup").target(DependsOn)).toBe(world.entity("physics-pre"));
+    expect(world.entity("physics-step").target(DependsOn)).toBe(world.entity("physics-cleanup"));
     expect(world.entity("physics-post").target(DependsOn)).toBe(world.entity("physics-step"));
     expect(world.entity(ON_VALIDATE).target(DependsOn)).toBe(world.entity("physics-post"));
   });

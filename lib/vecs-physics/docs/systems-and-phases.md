@@ -60,13 +60,14 @@ Use the default setup when you do not need special ordering around physics.
 
 Vecs creates these built-in pipeline anchors: `vecs::OnLoad`, `vecs::PostLoad`, `vecs::PreUpdate`, `vecs::OnUpdate`, `vecs::OnValidate`, `vecs::PostUpdate`, `vecs::PreStore`, and `vecs::OnStore`.
 
-By default, `PhysicsModule` creates and uses three additional phase entities ordered after `vecs::OnUpdate`:
+By default, `PhysicsModule` creates three configurable physics phases and an internal cleanup phase ordered after `vecs::OnUpdate`:
 
-| Phase          | Purpose                                         |
-| -------------- | ----------------------------------------------- |
-| `physics-pre`  | Read ECS changes and prepare the physics world. |
-| `physics-step` | Step the simulation.                            |
-| `physics-post` | Write results and events back to ECS.           |
+| Phase             | Purpose                                                      |
+| ----------------- | ------------------------------------------------------------ |
+| `physics-pre`     | Read ECS changes and prepare the physics world.              |
+| `physics-cleanup` | Remove queued Box2D resources and recompute mass (internal). |
+| `physics-step`    | Step the simulation.                                         |
+| `physics-post`    | Write results and events back to ECS.                        |
 
 Conceptually, the default frame is driven by the world's pipeline query:
 
@@ -75,6 +76,19 @@ world.progress(now, delta);
 ```
 
 Most projects can use `world.progress(now, delta)` and let Vecs run systems in dependency order.
+
+Destroying an entity in the default phase or anywhere in `physics-pre` removes its body
+before the next simulation step, independent of system registration order. Lifecycle queries
+enqueue teardown at the structural-change flush; `PhysicsReaper` performs Box2D removal in
+`physics-cleanup`, after all pre-step systems. It clears reverse-index entries as it frees
+resources, then `PhysicsMassRecompute` updates the remaining bodies' mass.
+
+Destroying an entity in `physics-post` is also safe, including before pose writeback:
+`PhysicsPoseSyncOut` skips move events for destroyed entities. That body already participated
+in the current step and is removed before the following step. Custom phase names retain the
+internal cleanup boundary. If you insert a phase after `physics-pre` with `insertPhaseAfter`,
+it runs ahead of cleanup and its destroys are also removed before stepping. Keep application
+systems out of the internal cleanup phase.
 
 ## Custom Phase Placement
 
@@ -111,7 +125,7 @@ Use custom placement when input, gameplay, camera, animation, networking, or ren
 A common game loop looks like this:
 
 ```text
-vecs::PreUpdate -> vecs::OnUpdate -> physics-pre -> physics-step -> physics-post -> render
+vecs::PreUpdate -> vecs::OnUpdate -> physics-pre -> physics-cleanup -> physics-step -> physics-post -> render
 ```
 
 In this layout:

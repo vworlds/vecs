@@ -52,11 +52,16 @@ export class EventOptInModule extends Module {
         if (shapeId !== undefined) {
           engine.box2d.b2Shape_EnableSensorEvents(shapeId, true);
         }
-      })
+      });
+    // Disable at the exit flush so a late preStep destroy cannot leave a stale
+    // setter in next tick's inbox after cleanup has already freed the shape.
+    world
+      .query("PhysicsEventOptInTeardown:Sensor")
+      .with({ all: [SingleShape, { any: [SensorEvents, Detectable] }] })
       .exit([SingleShape], (_e, [shape]) => {
         const shapeId = shape._shapeId;
-        // No stale-id guard needed: PhysicsReaper runs after this system, so a
-        // destroyed shape is still live (and not yet slot-recycled) here.
+        // No stale-id guard needed: this exit runs at the flush, before cleanup
+        // can free or recycle the shape's Box2D slot.
         if (shapeId !== undefined) {
           engine.box2d.b2Shape_EnableSensorEvents(shapeId, false);
         }

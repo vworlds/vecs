@@ -36,11 +36,6 @@ export class ShapeLifecycleModule extends Module {
           createShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
-      // Snapshot the target and shape while the relationship still exists; the
-      // exit callback may run after the source entity has been destroyed.
-      .exit([SingleShape, { target: [ChildOf, Entity] }], (entity, [shape, parent]) => {
-        destroyShapeForEntity(engine, entity, true, parent, shape);
-      })
       .update(
         { watch: SingleShape, cursor: Iter, inject: [{ target: [ChildOf, [Body]] }] },
         (it, shape, [body]) => {
@@ -55,6 +50,13 @@ export class ShapeLifecycleModule extends Module {
         }
       )
       .add(PhysicsSystemTag);
+
+    world
+      .query("PhysicsShapeTeardown")
+      .with(singleShapeWithBodyParent)
+      .exit([SingleShape, { target: [ChildOf, Entity] }], (entity, [shape, parent]) => {
+        destroyShapeForEntity(engine, entity, true, parent, shape);
+      });
 
     world
       .system("PhysicsShapeLifecycle:ChildOf")
@@ -138,11 +140,8 @@ function destroyShapeForEntity(
   }
   markParentBodyMassDirty(engine, resolvedParent);
 
-  // Clear the handle on the live component if it still exists (e.g. the
-  // parent body was removed and the shape entity remains, no longer matching
-  // the lifecycle predicate). When `shape` was injected from an exit
-  // snapshot, `entity.get(Shape)` is already cleared by `_destroy` and this
-  // is a no-op.
+  // Clear the handle if the component is still readable at this exit flush
+  // (e.g. a surviving shape whose parent lost Body), before a later create pass.
   const mutableShape = entity.get(SingleShape) as SingleShape | undefined;
   if (mutableShape !== undefined) {
     mutableShape._shapeId = undefined;
