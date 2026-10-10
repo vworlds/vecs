@@ -141,6 +141,7 @@ interface Setup {
 function clientHoldingA(drive: (world: ClientWorld, now: number) => void): Setup {
   const world = new ClientWorld({
     networkComponents: [Position, Health],
+    localEntityIdStart: 100_000,
     serverTickIntervalMs: 10,
   });
   world.component(LocalMark);

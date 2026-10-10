@@ -263,8 +263,8 @@ const world = new ServerWorld({
 });
 ```
 
-Do not pass `localEntityIdStart` to a server: it splits the id space for a client, and the server
-would still allocate from the `entity` pool above the split, which the option then does not reach.
+`localEntityIdStart` splits the id space for a `ClientWorld` only. `ServerWorld` rejects it at
+construction because the server allocates every id from its `entity` pool.
 
 Deltas whose spans include a reset repeat it until their base passes the removal, whether the
 base is the ack or an optimistic state frame. A client applies a reset once, and skips a repeat
