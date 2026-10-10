@@ -73,6 +73,11 @@ for any relationship), unlike `ChildOf`, which uses `Delete`. Destroying a displ
 only removes the edge from each child: the child **entity** is not destroyed, and a `DrawBy` child
 stays on the scene root with the pose it was last resolved to.
 
+For `DrawIn`, the render module's remove hook detaches the Container's children before destroying
+it. Their GameObjects survive and return to the scene display list, including a nested Container
+with its own children intact. Containers retain Phaser's default exclusive parenting semantics;
+only ECS teardown detaches children to keep display parenting separate from ownership.
+
 A display child that must die with its parent needs an ownership edge as well, because the display
 edges never destroy anything. Give it a `ChildOf` edge to the parent, which coexists with `DrawIn`
 and `DrawBy`, or make it an owned target of the parent

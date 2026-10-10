@@ -28,8 +28,8 @@ export class DisplaySetupModule extends Module<{ scene: Phaser.Scene }> {
     });
 
     // DrawIn: native parenting — child of a Container. Detaching (not
-    // destroying) children when a display parent is destroyed. The reparent
-    // system re-adds orphaned children to the scene. No Traversable: native
+    // destroying) children when a display parent is destroyed. The GameObject
+    // remove hook detaches them before Phaser teardown. No Traversable: native
     // children are added to the Phaser Container directly, no ECS cascade.
     const drawIn = world.component(DrawIn);
     drawIn.add(Exclusive);

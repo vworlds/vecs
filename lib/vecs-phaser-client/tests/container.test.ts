@@ -13,7 +13,7 @@ import {
   phaserNetworkComponents,
 } from "@vworlds/vecs-phaser";
 import Phaser from "phaser";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import * as m from "../src/markers.js";
 import { PhaserRenderModule } from "../src/index.js";
@@ -286,17 +286,116 @@ describe("Container lifetime (DrawIn = Remove policy)", () => {
     world.progress(1, 0);
 
     const ellipse = scene.created.find((obj) => obj.kind === "ellipse")!;
-    expect(ellipse.destroyed).toBe(false);
+    expect(ellipse.isDestroyed).toBe(false);
 
     // Destroying the parent removes the DrawIn link (Remove policy).
-    // The child survives; the reparent exit re-adds it to the scene.
+    // The remove hook preserves the GameObject and restores scene placement.
     parent.destroy();
+    expect(ellipse.isDestroyed).toBe(false);
+    expect(child.destroyed).toBe(false);
     world.progress(2, 0);
 
-    expect(ellipse.destroyed).toBe(false);
+    expect(ellipse.isDestroyed).toBe(false);
     expect(child.has(DrawIn)).toBe(false);
     expect(ellipse.parentContainer).toBe(null);
     expect(ellipse.displayList).not.toBe(null);
+  });
+
+  it("preserves a nested Container and its children when only the display parent dies", () => {
+    const { scene, world } = setup();
+    const parent = world.entity().add(Container);
+    const nested = world.entity().add(Container).add(DrawIn, parent);
+    const child = world
+      .entity()
+      .add(Ellipse)
+      .set(Size, { width: 1, height: 1 })
+      .add(DrawIn, nested);
+    world.progress(0, 0);
+    const nestedObj = nested.get(Phaser.GameObjects.Container)!;
+    const childObj = child.get(Phaser.GameObjects.Ellipse)!;
+
+    parent.destroy();
+    world.progress(1, 0);
+
+    expect(nestedObj.isDestroyed).toBe(false);
+    expect(nestedObj.parentContainer).toBe(null);
+    expect(nestedObj.displayList).toBe(scene);
+    expect(childObj.isDestroyed).toBe(false);
+    expect(childObj.parentContainer).toBe(nestedObj);
+  });
+
+  it("still destroys a child owned by the same display parent", () => {
+    const { world } = setup();
+    const parent = world.entity().add(Container);
+    const child = world
+      .entity()
+      .add(Ellipse)
+      .set(Size, { width: 1, height: 1 })
+      .add(DrawIn, parent)
+      .childOf(parent);
+    world.progress(0, 0);
+    const obj = child.get(Phaser.GameObjects.Ellipse)!;
+
+    parent.destroy();
+    world.progress(1, 0);
+
+    expect(child.destroyed).toBe(true);
+    expect(obj.isDestroyed).toBe(true);
+  });
+
+  it("detaches surviving children when the Container component is removed", () => {
+    const { scene, world } = setup();
+    const parent = world.entity().add(Container);
+    const child = world
+      .entity()
+      .add(Ellipse)
+      .set(Size, { width: 1, height: 1 })
+      .add(DrawIn, parent);
+    world.progress(0, 0);
+    const obj = child.get(Phaser.GameObjects.Ellipse)!;
+    const container = parent.get(Phaser.GameObjects.Container)!;
+
+    parent.remove(Container);
+    world.progress(1, 0);
+
+    expect(container.isDestroyed).toBe(true);
+    expect(obj.isDestroyed).toBe(false);
+    expect(obj.parentContainer).toBe(null);
+    expect(obj.displayList).toBe(scene);
+    expect(child.hasTarget(DrawIn, parent)).toBe(true);
+  });
+
+  it("skips child detachment for an empty Container", () => {
+    const { world } = setup();
+    const parent = world.entity().add(Container);
+    world.progress(0, 0);
+    const container = parent.get(Phaser.GameObjects.Container)!;
+    const removeAll = vi.spyOn(container, "removeAll");
+
+    parent.destroy();
+
+    // Only Phaser's own destroy path calls removeAll(true).
+    expect(removeAll.mock.calls).toEqual([[true]]);
+  });
+
+  it("does not re-add an externally destroyed GameObject when DrawIn exits", () => {
+    const { scene, world } = setup();
+    const parent = world.entity().add(Container);
+    const child = world
+      .entity()
+      .add(Ellipse)
+      .set(Size, { width: 1, height: 1 })
+      .add(DrawIn, parent);
+    world.progress(0, 0);
+    const obj = child.get(Phaser.GameObjects.Ellipse)!;
+    obj.destroy();
+    const existing = vi.spyOn(scene.add, "existing");
+
+    child.remove(DrawIn);
+    world.progress(1, 0);
+
+    expect(existing).not.toHaveBeenCalled();
+    expect(obj.displayList).toBe(null);
   });
 });
 
@@ -359,7 +458,7 @@ describe("ChildOf + DrawIn coexistence", () => {
     ownershipParent.destroy();
     world.progress(2, 0);
 
-    expect(ellipse.destroyed).toBe(true);
+    expect(ellipse.isDestroyed).toBe(true);
   });
 
   it("destroying the display parent detaches but does not destroy the child", () => {
@@ -386,7 +485,7 @@ describe("ChildOf + DrawIn coexistence", () => {
     displayParent.destroy();
     world.progress(2, 0);
 
-    expect(ellipse.destroyed).toBe(false);
+    expect(ellipse.isDestroyed).toBe(false);
     expect(child.has(DrawIn)).toBe(false);
     expect(child.has(ChildOf)).toBe(true);
   });
@@ -658,14 +757,14 @@ describe("DrawBy lifetime (Remove policy)", () => {
 
     const ellipses = scene.created.filter((obj) => obj.kind === "ellipse");
     const childEllipse = ellipses[1]!;
-    expect(childEllipse.destroyed).toBe(false);
+    expect(childEllipse.isDestroyed).toBe(false);
 
     // Destroying the parent removes the DrawBy link (Remove policy).
     // The child survives on the scene.
     parent.destroy();
     world.progress(2, 0);
 
-    expect(childEllipse.destroyed).toBe(false);
+    expect(childEllipse.isDestroyed).toBe(false);
     expect(child.has(DrawBy)).toBe(false);
   });
 });

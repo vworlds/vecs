@@ -43,7 +43,7 @@ describe("VPH-64 image renderer", () => {
     entity.remove(Image);
     tick(world);
 
-    expect(image.destroyed).toBe(true);
+    expect(image.isDestroyed).toBe(true);
     expect(entity.get(Phaser.GameObjects.Image)).toBeUndefined();
     expect(entity.get(m.GameObject)).toBeUndefined();
   });
