@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [repo]: Refreshed `package-lock.json` with semver-compatible dependency updates to clear the reported Dependabot alerts. `@vworlds/dgram-server`'s `express@^4.18.2` range admits patched Express 4.22.3 and its patched `proxy-addr`, `qs` and `body-parser` dependencies, so a fresh consumer install can resolve them without changing the published dependency range.
+
 ## v1.0.52 (2026-10-10)
 
 - [vecs-client]: Keep `DiffBuffer` slots aligned with server frames through compaction, including empty slots (#246). Discard a delayed delta when a later buffered delta covers its entire range, including optimistic deltas based on lost sends. Delayed older deltas can no longer roll back a buffered endpoint, disconnect the client, or resurrect a removed component or relationship. Regression coverage also guards exit/re-entry folding (#244, #245).
