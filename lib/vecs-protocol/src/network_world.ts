@@ -20,6 +20,11 @@ export interface RegisteredNetworkComponent {
 export interface NetworkWorldOptions extends Omit<WorldOptions, "idPools"> {
   networkComponents?: readonly ComponentClass[];
   entityIdStart?: EID;
+  /**
+   * Start of the client-local entity id range. This splits a `ClientWorld`'s
+   * entity ids from replicated ids; `ServerWorld` rejects this option because
+   * it allocates every id from its entity pool.
+   */
   localEntityIdStart?: EID;
   /**
    * How many frames the id of a destroyed replicated entity waits before another entity can
@@ -29,10 +34,9 @@ export interface NetworkWorldOptions extends Omit<WorldOptions, "idPools"> {
    *
    * - without `localEntityIdStart`, the single `entity` pool, which is where a server
    *   allocates its replicated entities from with `world.entity()`;
-   * - with `localEntityIdStart`, which splits the id space the way a client does, the
-   *   `network_entity` range below it, whose ids the server assigns and the world only
-   *   reserves. The `entity` pool above it holds client-local entities and keeps the
-   *   default wait.
+   * - with `localEntityIdStart` on a `ClientWorld`, the `network_entity` range below it;
+   *   the `entity` pool above it holds client-local entities. `ServerWorld` rejects this
+   *   option because it allocates every id from its `entity` pool.
    *
    * `ClientWorld` sets `0` for its `network_entity` pool. `ServerWorld` never waits less than
    * `historyFrames + 1` frames, whatever this says.
