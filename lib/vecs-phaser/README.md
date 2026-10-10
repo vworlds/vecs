@@ -56,9 +56,10 @@ Server and client must be built from the same version: the layout of `Motion` an
 `MotionParams` are part of the protocol.
 
 The shared integrator predicts the body from its baseline and its constants. It mirrors Box2D v3's
-free-body step as box2d3-wasm builds it, in f32 and with no `sin`, `cos` or `atan2` per step, so
-every JS engine computes the same states, and from a rotation Box2D holds exactly they equal Box2D's
-bit for bit. It allocates nothing:
+free-body step as box2d3-wasm builds it, using f32 stepping arithmetic and no `sin`, `cos` or `atan2`
+per step. Baseline rotation initialization does use `sin` and `cos`; measured accuracy is from the
+real-WASM tests on the tested runtime, not cross-browser proof. The integrator writes into supplied
+state objects without allocating per step:
 
 ```ts
 import { Motion, MotionClock, MotionParams, MotionPose, MotionState } from "@vworlds/vecs-phaser";

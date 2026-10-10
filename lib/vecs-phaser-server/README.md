@@ -98,8 +98,8 @@ Space Rocks, with a parked ship and drifting rocks, that was holds of up to 3.5 
 3 m. A scene that changes on every tick never notices, which is why this shows only in idle ones.
 
 With `keepAliveFrames: 1` a session that was sent no frame with a diff in the last tick is sent one
-with an empty diff, a header of 5 to 11 bytes (about 10 in a long-running server), so `renderFrame`
-and the bodies move on every tick. That is 150 to 300 B/s per idle client at 30 Hz, and nothing for a
+with an empty diff, a header of 5 to 11 payload bytes, so `renderFrame` and the bodies move on every
+tick. That is 150 to 330 payload B/s per idle client at 30 Hz, excluding transport and ACK overhead, and nothing for a
 session that is sent a diff anyway. A larger value saves bytes at the price of the render frame
 waiting for each keepalive: `2` still looks smooth on a steady link and `3` or more stalls and jumps.
 It combines with any `redundancyFrames`: in an idle scene the keepalives are plain deltas from the

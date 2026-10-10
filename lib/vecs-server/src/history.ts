@@ -60,8 +60,9 @@ const MIN_REDUNDANCY_FRAMES = 1;
 /**
  * Check a `redundancyFrames` value against the history window it works in.
  *
- * An optimistic delta merges at most `redundancyFrames` frames, so they must all
- * be in the window: the window has to be longer than the redundancy.
+ * `redundancyFrames` counts sends, not frames merged by a pull. In sparse traffic
+ * a send's state frame can precede many empty history slots, so a pull can merge
+ * more frames than `redundancyFrames`; `historyFrames` bounds available history.
  *
  * @param frames - The requested redundancy, in frames.
  * @param historyFrames - The history window, in frames, already validated.

@@ -16,13 +16,13 @@
 //   the center of mass from the origin.
 // - `b2Atan2` (src/math_functions.c:71): the angle of a rotation, as `b2Rot.GetAngle` returns it.
 //
-// Box2D computes in `float`, so every operation here is rounded to f32 with `Math.fround`. `+ - * /`
-// and `sqrt` on f32 values, rounded to f32 after each operation, give the exact IEEE single result,
-// so the sequence is the same on every JS engine and equals the wasm's bit for bit (box2d3-wasm
-// builds without fast-math, and wasm has no fused multiply-add). Doubles would not do: Box2D adds
+// Box2D computes in `float`, so the stepping operations here are rounded to f32 with `Math.fround`.
+// `+ - * /` and `sqrt` on f32 values, rounded after each operation, reproduce the IEEE single
+// arithmetic used by wasm without fast-math or fused multiply-add. The executed evidence is the
+// real-WASM accuracy test on its tested runtime; arbitrary rotation initialization below uses
+// `sin` and `cos`, whose final bits may vary across JS engines. Doubles would not do: Box2D adds
 // each substep's displacement in f32, and the same integrator in doubles ends millimeters to
-// centimeters away after a minute. `stepMotion` and `motionPose` call no `sin`, `cos` or `atan2`,
-// whose results the language leaves to the engine.
+// centimeters away after a minute. `stepMotion` and `motionPose` call no `sin`, `cos` or `atan2`.
 
 import type { Motion, MotionClock, MotionParams } from "../components/motion.js";
 
@@ -87,7 +87,8 @@ export class MotionPose {
  * body's rotation, which is within 2.8e-5 rad of the true angle, so a baseline taken from it
  * restarts the body that far off Box2D's rotation and the prediction keeps that small offset (the
  * accuracy tests measure it). A baseline whose rotation Box2D holds exactly, such as angle 0,
- * predicts Box2D's steps bit for bit.
+ * follows the same f32 stepping arithmetic as Box2D; accuracy is established by the real-WASM
+ * tests on the tested runtime.
  *
  * This is the integrator's only use of `Math.cos` and `Math.sin`. An engine may round them
  * differently from another in the last bit of the double; that survives the rounding to f32 only

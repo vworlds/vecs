@@ -381,7 +381,7 @@ A keepalive is an ordinary frame with an empty diff, so everything else follows 
 It costs a header-only frame per `K` ticks for each session that would otherwise be sent nothing:
 5 bytes of payload below frame 128, 7 below 16 384 (about nine minutes at 30 Hz), 9 below two million
 (about 19 hours) and 11 beyond, plus 1 when marked optimistic. At 30 Hz and `K` 1 that is about
-150 to 300 bytes per second per idle client, before the transport's own overhead. The client must
+150 to 330 payload bytes per second per idle client, excluding transport and ACK overhead. The client must
 understand nothing new: an empty diff is a diff, so older clients accept the frames. The mechanism
 and the measured cost are in [Replication](../../../architecture/REPLICATION.md#the-keepalive).
 

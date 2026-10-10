@@ -145,17 +145,19 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * `redundancyFrames` sends ago, instead of from the client's newest ack. A send
    * is a baseline, a delta with content or a keepalive, and its state frame is the
    * newest frame at which the session's replicated state had changed as of that
-   * send. A change then travels in `redundancyFrames` consecutive sends, however
-   * sparse the traffic is, not in every frame until it is acked. An integer of at
+   * send. A change has up to `redundancyFrames` send opportunities, however
+   * sparse the traffic; an ack may stop repeats sooner, later values may
+   * supersede it, and fallback may send more copies. An integer of at
    * least 1 and less than {@link ServerWorldOptions.historyFrames}; the constructor
    * throws for any other value. Unset by default, which keeps today's behavior and
    * a byte-identical wire.
    *
-   * Without it a change that is not superseded is sent again in every frame until
-   * its ack arrives, which costs `ackLag + 1` times its size: 7 times at 30 Hz
-   * and a 200 ms round trip. With it a change costs `redundancyFrames` times,
-   * whatever the lag, and `redundancyFrames - 1` lost frames in a row cost the
-   * client nothing. `1` sends every change once.
+   * Without it a change that is not superseded may be sent in each frame until
+   * its ack arrives, up to `ackLag + 1` opportunities: about 7 at 30 Hz and a
+   * 200 ms round trip. With it a change has up to `redundancyFrames` send
+   * opportunities, whatever the lag; an ack may stop repeats sooner and later
+   * values may supersede it. In-order delivery, or delivery after dependencies
+   * arrive, lets `redundancyFrames - 1` lost sends be absorbed. `1` offers one send.
    *
    * The state is the same from a send's state frame to the send, so a client that
    * received the send holds the state frame, and a delta from there holds exactly
@@ -227,10 +229,10 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * sent while a baseline is in flight or needed, nor to a session whose view has never held
    * anything to acknowledge.
    *
-   * It costs a header-only frame, 5 bytes of payload at frame numbers below 128 and 9 in the
-   * first hours of a server (plus 1 when marked optimistic), every `keepAliveFrames` ticks for
+   * It costs a header-only frame, 5–11 bytes of payload as frame numbers grow (plus 1 when marked
+   * optimistic), every `keepAliveFrames` ticks for
    * each session that would otherwise be sent nothing, and nothing for a session that is sent a
-   * diff anyway. Per session and frame it is one integer and no allocation beyond the frame.
+   * diff anyway. It keeps one session integer; constructing and encoding the frame can allocate.
    */
   keepAliveFrames?: number;
   /**
@@ -360,8 +362,7 @@ class ServerClientSession {
    * The content state frame watched for liveness, or `undefined` when fully acked.
    * New sends leave an unacked probe alone. An ack covering it retargets it to
    * the newest sent content still above the ack and restarts {@link probeSentAtMs}.
-   * A lost change is chased within the ack timeout of the later of its send and
-   * the ack covering the previous probe, plus the next send tick. Keepalives never
+   * See {@link ServerWorldOptions.redundancyFrames} for the probe deadline. Keepalives never
    * arm it. Only kept while `redundancyFrames` is set.
    */
   public probeFrame: number | undefined = undefined;
@@ -1049,9 +1050,8 @@ export class ServerWorld extends NetworkWorld {
 
   /**
    * Whether the client is not catching up with the content sent to it: the probe
-   * is still unacked longer than the ack timeout after it was sent or retargeted.
-   * A lost change is chased within the ack timeout of the later of its send and
-   * the ack covering the previous probe, plus the next send tick.
+   * is still unacked longer than the ack timeout after it was sent or retargeted;
+   * see {@link ServerWorldOptions.redundancyFrames} for the deadline.
    *
    * This is what finds a loss nothing follows. The client detects a lost change
    * from the next frame it receives, but when the change ages out of the
@@ -1098,8 +1098,8 @@ export class ServerWorld extends NetworkWorld {
    * Entity resets are content even without snapshots or single-component removals, so they
    * advance the state frame and arm the probe just like any other state change.
    * An ack covering an older probe retargets it to `sent.newest` if still unacked.
-   * A lost change is chased within the ack timeout of the later of its send and
-   * the ack covering the previous probe, plus the next send tick. Fully acked
+   * The deadline is documented at {@link ServerWorldOptions.redundancyFrames}.
+   * Fully acked
    * content and keepalives never arm the probe.
    */
   private _noteContentSent(session: ServerClientSession, nowMs: number): void {

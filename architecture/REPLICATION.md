@@ -1,6 +1,6 @@
 # Replication
 
-How `ServerWorld` keeps a client's replicated state equal to its own over an unreliable, unordered
+How `ServerWorld` maintains a client's encoded replicated view over an unreliable, unordered
 datagram channel, and what it costs. This is the architecture; the guides for the people who use it
 are [Sessions](../lib/vecs-server/docs/sessions.md) (server),
 [Client world](../lib/vecs-client/docs/client-world.md) (client) and
@@ -10,15 +10,18 @@ are [Sessions](../lib/vecs-server/docs/sessions.md) (server),
 
 The server numbers every frame. A **diff** `(from, to]` says what changed after frame `from`, up to
 and including frame `to`, with each component appearing once at its latest value. The client's
-**version** is the newest `to` it has accepted, and it acks that number.
+**accepted version** is the newest `to` it has accepted into its receive buffer, and it acks that
+number. The exact replication state at a frame is the encoded per-session view reconstructible by
+applying accepted diffs through that frame. It is not literal equality with server memory or with the
+client's rendered ECS: the client applies discrete state on pulls, may render at fractional
+`renderFrame` between applied frames, and may have derived client-local components.
 
-> A client at version `T` holds exactly the server's state at `T`.
-
-It holds by induction, and one rule maintains it: the client accepts a diff only if `from <= version`.
-The state at `version` is exact and the diff carries everything that changed after `from`, at its
-value as of `to`. What changed in `(from, version]` is rewritten with that newer value, and nothing
-is missing. A diff with `from > version` lacks what changed in `(version, from]`, so accepting it
-would break the invariant for good. An ordinary diff like that is a protocol error: the client closes with
+The state claim is inductive under in-order delivery or once a diff's dependencies have arrived. An
+applicable new diff has `from <= acceptedVersion < to`; overlapping changes are replaced by their
+newer values. Stale frames do not roll the accepted version or applied state backward. Resets compose
+with merged diffs and apply once, only when newer than the applied state at the start of the pull.
+A marked optimistic packet may be received but held, so receipt is not acceptance. An ordinary diff
+with `from > acceptedVersion` is a protocol error: the client closes with
 `CLOSE_PROTOCOL_ERROR_CODE` (#213).
 
 The server cannot know the client's version, only its newest ack, which is at or behind it. A delta
@@ -33,10 +36,11 @@ A frame whose diff is empty is not sent unless it carries RPC traffic, or a keep
 ([below](#the-keepalive)).
 
 The price is redundancy. The ack lags the frame by a round trip, `L` frames, and a change that is not
-superseded by a later one stays in every frame's delta until its ack arrives: it is sent `L + 1`
-times. At 30 Hz and a 200 ms round trip that is 7 times. Changes that are superseded cost nothing
-extra, because the merge keeps one value per component, so the waste is in changes that happen once
-and then sit still, such as the baseline of a dead-reckoned body.
+superseded by a later one may be sent up to `L + 1` times before its ack arrives; an ack can stop
+repetition earlier, later values supersede earlier ones, and baseline fallback can send additional
+copies. At 30 Hz and a 200 ms round trip the upper opportunity count is about 7. Changes that are
+superseded cost nothing extra, because the merge keeps one value per component, so the waste is in
+changes that happen once and then sit still, such as the baseline of a dead-reckoned body.
 
 ## The optimistic base
 
@@ -54,8 +58,9 @@ empty, or were withheld while a baseline was in flight, are not sends. The **sta
 is the newest frame at which the session's replicated state had changed as of that send: the
 `toFrame` of the newest per-frame diff with content that the server recorded into the session's
 history (`History.lastContentFrame`). A send that carries a new change names its own frame. A diff
-with only an entity reset is content too: it changes the state frame, travels in `R` sends and
-arms the liveness probe. A reset is never a header-only keepalive.
+with only an entity reset is content too: it changes the state frame, has up to `R` send
+opportunities subject to ack and supersession, and arms the liveness probe. A reset is never a
+header-only keepalive.
 A send that only carries a change again, or carries nothing, names the earlier frame where the state last
 changed. The frame carries the **optimistic marker** (a field on `Server2Client`) exactly when
 `base > ack`. Unset, the base is the ack, nothing is marked and the wire is byte for byte what it
@@ -66,26 +71,27 @@ always was.
   exactly what one from the send would: `(stateFrame, frame]` and `(sendFrame, frame]` merge the same
   changes, with no extra bytes. The base is therefore a frame the client holds whenever it received
   that send or any later one, and the claim never depends on a frame that carried nothing.
-- **The redundancy is counted in sends.** The client holds the base, or a newer frame, unless it lost
-  all of the last `R` sends. Up to `R - 1` lost frames in a row cost nothing, however far apart in
-  time the sends were: `R = 1` sends every change once, `R = 2` survives any single lost frame, `R = 3`
-  any two in a row. In a view that changes on every frame each frame is a send with its own state
-  frame, and the base is `frame - R`.
+- **The redundancy is counted in sends.** With in-order delivery (or once dependencies arrive), the
+  client holds the base, or a newer frame, unless all of the last `R` sends carrying a change it
+  lacked were lost. Up to `R - 1` such losses are absorbed however far apart in time the sends were:
+  `R = 1` offers one send, `R = 2` can absorb one lost send, and `R = 3` two. Reordering can instead
+  hold a marked diff until its dependencies arrive, with zero loss. In a view that changes on every
+  frame each frame is a send with its own state frame, and the base is `frame - R`.
 - **A lost send that carried nothing the client lacked costs nothing at all.** A keepalive, or the
   repeat of a change the client already holds, names the state frame of the change before it, which
   the client holds, so losing it never moves a base past what the client holds. Take `R = 2` and sends
   at 100 (a change), 101 (its repeat) and 102 (a keepalive): the delta of 103 starts at 100, the state
   frame of the send two back, and a client that lost 101 and 102 is at 100 and applies it. Naming the
   frame of the send, 101, would read as a gap, though 100 carried everything.
-- **Every change is carried by `R` consecutive sends, however sparse the traffic.** A change made in
-  frame `c` is a send, and so is each of the next `R - 1` frames, because their bases are still the
-  state frames of older changes, before `c`, and their diffs contain it. The send after those starts
-  at `c`, and no longer carries it. Changes that follow each other closely share the sends in
-  between.
-- **`ack` floors the base**, so a diff never starts before the ack and the pull never merges more
-  frames than a plain delta would: `R` of them in a busy view, where a plain delta merges `L + 1`.
-  Frames since the base that sent nothing hold nothing, so merging them costs a few empty slots and
-  adds nothing to the diff. A view that has not changed since the ack has nothing to presume: every
+- **A change has up to `R` consecutive send opportunities, however sparse the traffic.** A change
+  made in frame `c` is sent, and the next `R - 1` sends can carry it because their bases are still
+  before `c`. An ack can stop those repeats sooner, and later values can supersede it. The send after
+  those starts at `c` and no longer carries it. Fallback can send additional copies.
+- **`ack` floors the base**, so a diff never starts before the ack. `R` counts sends, not history
+  slots: in sparse traffic the state frame of a send can precede many empty frames, so a pull may
+  merge more than `R` frames. `historyFrames` (`H`) bounds available history; if required content
+  has been evicted the server sends a baseline. Frames since the base that sent nothing hold nothing,
+  so they add nothing to the diff. A view that has not changed since the ack has nothing to presume: every
   ring entry is at or before the ack, the base is the ack, and its keepalives are plain deltas.
 - **A baseline needs no special case.** It is a send, and the ack floor does the rest. The baseline
   being in flight makes the session unhealthy, so no state is sent, and once it is acked the ack is
@@ -130,8 +136,9 @@ stateDiagram-v2
 
 ## When the presumption is wrong
 
-The client does not receive a frame the base presumed, because `R` frames in a row were lost, or a
-frame was reordered behind the one built on it. Three mechanisms cover it.
+The client does not yet have a frame the base presumed, because the relevant sends were lost or a
+frame was reordered behind one built on it. Reordering alone can cause a hold without any loss.
+Three mechanisms cover it.
 
 **The client holds the diff.** A marked diff with `from > version` is put in a bounded set of held
 diffs (`MAX_HELD_DIFFS`, 8: about a round trip of frames at 30 Hz, and a full set drops its oldest,
@@ -179,25 +186,28 @@ never arm it. The timeout is the one baselines in flight already use: twice the 
 round trip, at least 100 ms, and 1 s before the first sample (`RttEstimator`, RFC 6298 style, no new
 constants). A lost change is chased within the ack timeout of the later of its send and the ACK
 that covered the previous probe, plus the next send tick. The fallback delta arrives one link delay
-later, provided the missing content is still in history; history eviction requires a baseline.
+later if its content remains in history; if required history has been evicted, the server falls back
+to a baseline instead.
 
-State per session is a ring of the state frames of the last `R` sends (`SentFrames`, `R` numbers
-allocated with the session and written once per send) and three more values: `probeFrame`,
-`probeSentAtMs` and `fallbackFrame`. Retargeting reads `SentFrames.newest` in O(1): content sends
+The ring operations are allocation-free. Per session the ring stores the last `R` state frames.
+Server sessions keep scalar probe/fallback fields even when redundancy is unset, and each client
+`DiffBuffer` has an empty held-diff array even when no diff is held. Diffs, merges, snapshot decoding
+and encoding can allocate.
+Retargeting reads `SentFrames.newest` in O(1): content sends
 push `History.lastContentFrame`, repeats and keepalives push that same state frame, and RPC-only
 sends never push. A keepalive can only be sent after the current content has been sent (none goes
 out while a baseline is needed or in flight), so it cannot advance the newest entry beyond sent
 content. Initial ring padding is at or below the ACK. No extra scalar or per-send timestamps are
 needed. The state frame is read from one integer the history keeps for
 every session, `lastContentFrame`, written once per frame recorded, which is also what lets a pull
-that starts at or after it answer an empty delta without merging a slot. Reading the base is one load,
-and nothing is allocated per frame. A world that does not set `redundancyFrames` allocates no ring and
-keeps none of the rest.
+that starts at or after it answer an empty delta without merging a slot. Reading the base is one load.
+A world that does not set `redundancyFrames` allocates no ring; scalar session bookkeeping remains.
 
 ## Cost and trade-off
 
-A change costs `R` times its size instead of `L + 1`, whatever the lag. The price is paid when
-`R` sends in a row are lost: the client's view stops until the fallback delta reaches it, about one
+A change has up to `R` send opportunities instead of up to `L + 1`, whatever the lag. An ack can
+stop repeats earlier, a later value can supersede it, and fallback can add copies. The stall risk is
+when all `R` sends carrying a change the client lacks are lost: its view stops until the fallback delta reaches it, about one
 round trip after the gap was detected, and about the ack timeout plus a link delay when the report or
 the tail was lost. The client's interpolation buffer, three frames by default, hides part of it.
 Running this on the simulation harness (`lib/vecs-server/tests/lossy_replication.test.ts`: a 200 ms
@@ -266,22 +276,21 @@ the code path is one branch and the wire is byte for byte what it was.
 - **A busy session is unaffected.** A session sent a diff at least every `K` frames gets exactly the
   frames it gets without the option.
 
-State per session is one integer, `lastDiffFrame`, the newest frame sent with a diff, written once
-per frame sent when `K` is set. A world that does not set the option keeps none of it and spends one
-branch per frame sent, and one more per idle session. The keepalive allocates nothing beyond the
-frame it sends.
+State per session includes `lastDiffFrame`, the newest frame sent with a diff, written once per frame
+sent when `K` is set. A world that does not set the option keeps none of this counter and spends one
+branch per frame sent, and one more per idle session. Constructing and encoding the frame can allocate.
 
 ### Cost
 
-A header-only frame per `K` ticks for each session that would otherwise be sent nothing, about 10 B of
-payload each in a long-running server: the diff tag, `toFrame` and `fromFrame` as varints and two
-zero counts, plus a byte when marked optimistic.
+A header-only frame per `K` ticks for each session that would otherwise be sent nothing: the diff
+tag, `toFrame` and `fromFrame` as varints and two zero counts, plus a byte when marked optimistic.
 
 | Frame number | Below 128 | Below 16 384 (9 min at 30 Hz) | Below 2 097 152 (19 h) | Beyond |
 | ------------ | --------- | ----------------------------- | ---------------------- | ------ |
 | Payload      | 5 B       | 7 B                           | 9 B                    | 11 B   |
 
-At 30 Hz and `K` = 1 that is 150 to 300 B/s per idle client, before the transport's own overhead. On
+At 30 Hz and `K` = 1 that is 150 to 330 B/s per idle client (5–11 payload bytes per frame), excluding
+transport and ACK overhead. On
 the dead-reckoning bandwidth test (200 drifting bodies, one client) it is 732 B/s against 102 146 B/s
 streamed.
 
