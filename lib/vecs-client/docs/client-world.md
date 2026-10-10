@@ -73,7 +73,9 @@ the copy the diff buffer still holds, so a late datagram never rolls the client 
 
 The diff buffer keeps slots aligned to server frames even when it compacts gaps with no
 snapshots. Its first slot folds all changes up to the slot's frame; a delta ending before that
-frame is stale and is discarded. Buffered deltas merge in frame order, so a delayed snapshot
+frame is stale and is discarded. A delta starting past the folded first diff is also discarded
+when a later buffered delta covers its entire range, including a delayed optimistic delta whose base the
+client never received separately. Buffered deltas merge in frame order, so a delayed snapshot
 cannot overwrite a newer component or relationship removal.
 
 ```ts

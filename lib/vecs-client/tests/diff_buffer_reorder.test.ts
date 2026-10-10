@@ -81,9 +81,66 @@ function client(id: string): { world: ClientWorld; socket: MemorySocket } {
   return { world, socket };
 }
 
-function receive(socket: MemorySocket, diff: StateDiff): void {
-  socket.receive(encode(new Server2Client({ diff })));
+function receive(socket: MemorySocket, diff: StateDiff, optimistic = false): void {
+  socket.receive(encode(new Server2Client({ diff, optimistic })));
 }
+
+it.each([
+  ["apply", 1, 6, 3, 4],
+  ["progress", 1, 6, 3, 4],
+  ["apply", 1, 5, 2, 3],
+  ["progress", 1, 5, 2, 3],
+  ["apply", 2, 6, 3, 4],
+  ["progress", 2, 6, 3, 4],
+  ["apply", 2, 5, 3, 4],
+  ["progress", 2, 5, 3, 4],
+] as const)(
+  "discards a covered optimistic delta through %s(): baseline %i, fallback %i, late %i -> %i",
+  (mode, first, latest, from, to) => {
+    const { world, socket } = client(`covered-${mode}`);
+    const disconnects: unknown[] = [];
+    world.events.on("disconnect", (notice) => disconnects.push(notice));
+    try {
+      receive(
+        socket,
+        new StateDiff({ fromFrame: 0, toFrame: first, snapshots: [resource(first), tow()] })
+      );
+      world.send(); // Ack receipt without rendering: slot zero still ends at first.
+      receive(
+        socket,
+        new StateDiff({
+          fromFrame: first,
+          toFrame: latest,
+          snapshots: [resource(latest)],
+          removed: [[EID_A, TOWED_BY]],
+        })
+      );
+      // A redundancy send based on a lost state frame, before the fallback.
+      // The exact 1 -> 6 example collapses fully, so the late diff is below
+      // base 6. Partial compaction cases land at slot zero or in a later slot
+      // whose gapped delta would otherwise fail when the prefix is compacted.
+      receive(
+        socket,
+        new StateDiff({ fromFrame: from, toFrame: to, snapshots: [resource(to), tow()] }),
+        true
+      );
+      expect(disconnects).toEqual([]);
+      for (const now of [0, 1000]) {
+        if (mode === "apply") {
+          world.apply(now);
+        } else {
+          world.progress(now, 16);
+        }
+      }
+      expect(disconnects).toEqual([]);
+      expect(world.getEntity(EID_A)?.get(ResourceContainer)?.amount).toBe(latest);
+      expect(world.getEntity(EID_A)?.has(TowedBy)).toBe(false);
+      expect(world.renderFrame).toBe(latest);
+    } finally {
+      world.dispose();
+    }
+  }
+);
 
 it("retains the slot base during a pull before the folded first diff is due", () => {
   const buffer = new DiffBuffer(3, 10);
@@ -197,7 +254,8 @@ it("#246 comment: does not resurrect a removed tow edge from a delayed older del
 
 it("matches in-order applied state for every arrival permutation with one duplicate", () => {
   // The server has seen ack 1, then ack 2. All deltas are valid against the
-  // received baseline at 2, even when delivered out of order. Frame gaps force
+  // received baseline at 2, except the optimistic redundancy delta from lost
+  // state frame 3. That delta is held if early and covered if late. Frame gaps force
   // partial and full compaction; removal at 5 is superseded by re-addition at 6.
   const deltas = [
     new StateDiff({ fromFrame: 1, toFrame: 4, snapshots: [resource(4), tow()] }),
@@ -221,6 +279,7 @@ it("matches in-order applied state for every arrival permutation with one duplic
       snapshots: [resource(10)],
       removed: [[EID_A, TOWED_BY]],
     }),
+    new StateDiff({ fromFrame: 3, toFrame: 4, snapshots: [resource(4), tow()] }),
   ];
   function applyOrder(order: readonly number[]): unknown {
     const { world, socket } = client("permutation");
@@ -228,11 +287,11 @@ it("matches in-order applied state for every arrival permutation with one duplic
     world.events.on("disconnect", (notice) => disconnects.push(notice));
     try {
       receive(socket, new StateDiff({ fromFrame: 0, toFrame: 2, snapshots: [resource(2), tow()] }));
-      world.apply(0);
-      world.apply(1000);
+      world.send(); // Keep the baseline buffered so late 3 -> 4 can hit folded slot zero.
       for (const index of order) {
-        receive(socket, deltas[index]);
+        receive(socket, deltas[index], index === 4);
       }
+      world.apply(0);
       world.apply(2000);
       expect(disconnects, `arrival order ${order.join(",")}`).toEqual([]);
       return {
@@ -244,7 +303,7 @@ it("matches in-order applied state for every arrival permutation with one duplic
       world.dispose();
     }
   }
-  const expected = applyOrder([0, 1, 2, 3]);
+  const expected = applyOrder([0, 4, 1, 2, 3]);
   expect(expected).toEqual({ amount: 10, towedBy: undefined, frame: 10 });
   let count = 0;
   function enumerate(prefix: number[], remaining: number[]): void {
@@ -260,7 +319,7 @@ it("matches in-order applied state for every arrival permutation with one duplic
       );
     }
   }
-  // Enumerate all 5! arrivals, including the duplicate old snapshot delta.
-  enumerate([], [0, 1, 2, 3, 0]);
-  expect(count).toBe(120);
+  // Enumerate all 6! arrivals, including the duplicate old snapshot delta.
+  enumerate([], [0, 1, 2, 3, 4, 0]);
+  expect(count).toBe(720);
 });

@@ -361,7 +361,8 @@ export class DiffBuffer {
    * Put a diff received from the wire in its place in the bucket.
    * Slot i represents frame `base + i`; compaction advances the base by the
    * number of shifted slots, even when those slots are empty. Slot 0 folds
-   * everything up to the base. Diffs ending below that base are stale.
+   * everything up to the base. Diffs ending below that base are stale, as is
+   * a diff starting past the folded prefix whose range a later diff covers.
    *
    * After {@link DiffBuffer.reset}, and before anything has been received
    * (`version` is `-1`), the first diff starts the stream whatever frame it
@@ -375,7 +376,8 @@ export class DiffBuffer {
    *   channel delivered late or twice, and is discarded when the bucket has
    *   drained (it would otherwise become the new starting point and roll
    *   `version` back), or when it is older than everything still buffered;
-   *   one for a frame that is still buffered merges into it, as a retransmit.
+   *   one for a frame that is still buffered merges into it, as a retransmit,
+   *   unless it starts past the folded prefix and a later buffered diff covers its range.
    *
    * Resets in held diffs wait with their snapshots. Release advances received `version`, but
    * reset deduplication happens in {@link DiffBuffer.pull}, against the rendered state's
@@ -421,7 +423,8 @@ export class DiffBuffer {
   }
 
   /**
-   * Insert an accepted diff at `diff.to - base`, discarding negative indices.
+   * Insert an accepted diff at `diff.to - base`, discarding negative indices
+   * and gapped diffs fully covered by a later buffered range.
    * Compact in frame order and advance the slot base by exactly the shift;
    * never infer it from the folded endpoint in slot 0.
    */
@@ -455,6 +458,19 @@ export class DiffBuffer {
     // negative index means this information is too old:
     if (index < 0) {
       return; // too old. Discard
+    }
+    // A late optimistic delta can start past the folded prefix endpoint, even
+    // at slot zero. If a later accepted range carries all its net changes,
+    // discard it instead of merging across that gap now or during compaction.
+    // Keep ordinary retransmits that connect to the prefix for interpolation.
+    const prefix = this.bucket[0];
+    if (prefix !== undefined && diff.from > prefix.to) {
+      for (let i = index + 1; i < this.bucket.length; i++) {
+        const later = this.bucket[i];
+        if (later !== undefined && later.from <= diff.from && later.to >= diff.to) {
+          return;
+        }
+      }
     }
     if (index >= this.bucket.length) {
       // index falls out of the bucket, meaning
