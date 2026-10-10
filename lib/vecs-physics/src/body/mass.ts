@@ -1,10 +1,24 @@
 import { Module, type World } from "@vworlds/vecs";
 
-import { getPhysicsEngine, PhysicsSystemTag, type PhysicsEngine } from "../adapter/engine.js";
+import {
+  getPhysicsEngine,
+  PhysicsSystemTag,
+  type b2BodyId,
+  type PhysicsEngine,
+} from "../adapter/engine.js";
+import { scr_b2MassData } from "../adapter/runtime.js";
 import { PhysicsCoreModule } from "../core/module.js";
 import { Body, BodyType } from "./components.js";
 
 const CODE_DYNAMIC_BODY_WITHOUT_DENSITY = "dynamic-body-without-density";
+
+// Real box2d3-wasm 5.2.0 measurements (#259): centered boxes (half extents
+// 0.01–100 m, including non-square), a rounded box, circle, capsule, regular
+// hexagon, and symmetric boxes had |center| / AABB half-extent <= 1.35e-7.
+// 8 * epsilon_f32 gives ~7x headroom over that peak (~9.54e-7 relative).
+// For the 0.3 x 0.7 m box this is 6.87e-7 m, >1,400x below a 1e-3 m
+// intentional offset. Extent includes Box2D's speculative AABB padding.
+const CENTER_NOISE_RELATIVE = 8 * 2 ** -23;
 
 export class BodyMassModule extends Module {
   public init(): void {
@@ -21,6 +35,7 @@ export class BodyMassModule extends Module {
           const bodyId = world.getEntity(eid)?.get(Body)?._bodyId;
           if (bodyId !== undefined) {
             engine.box2d.b2Body_ApplyMassFromShapes(bodyId);
+            correctMassCenter(engine, bodyId);
           }
         }
         engine.dirtyMassBodies.clear();
@@ -30,6 +45,40 @@ export class BodyMassModule extends Module {
         }
       })
       .add(PhysicsSystemTag);
+  }
+}
+
+function correctMassCenter(engine: PhysicsEngine, bodyId: b2BodyId): void {
+  const { box2d } = engine;
+  // Vecs exposes shape-derived mass only; there is no explicit mass-data API
+  // to override. This correction belongs exclusively to that recompute path.
+  const data = box2d.b2Body_GetMassData(bodyId);
+  try {
+    const center = data.center;
+    const x = center.x;
+    const y = center.y;
+    if (data.mass <= 0 || (x === 0 && y === 0)) {
+      return;
+    }
+    const bounds = box2d.b2Body_ComputeAABB(bodyId);
+    let extent: number;
+    try {
+      const lower = bounds.lowerBound;
+      const upper = bounds.upperBound;
+      extent = Math.max(upper.x - lower.x, upper.y - lower.y) * 0.5;
+      // These property wrappers borrow fields owned by bounds, not new structs.
+    } finally {
+      bounds.delete();
+    }
+    const tolerance = CENTER_NOISE_RELATIVE * extent;
+    if (x * x + y * y <= tolerance * tolerance) {
+      const exact = scr_b2MassData!;
+      exact.mass = data.mass;
+      exact.rotationalInertia = data.rotationalInertia;
+      box2d.b2Body_SetMassData(bodyId, exact);
+    }
+  } finally {
+    data.delete();
   }
 }
 
