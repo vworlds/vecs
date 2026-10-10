@@ -368,10 +368,10 @@ A body destroyed during the same step still gets its `endEvents` correctly emitt
 world.progress(now, delta):
   beginFrame(delta)
     physics-pre:
-      PhysicsBodyLifecycle          (Body enter/exit/update)
-      PhysicsShapeLifecycle         (single-shape enter/exit + ChildOf reparent)
-      PhysicsChainLifecycle         (chain enter/exit + ChildOf reparent)
-      PhysicsJointLifecycle         (joint enter/exit/recreate once both bodies exist)
+      PhysicsBodyLifecycle          (Body enter/update)
+      PhysicsShapeLifecycle         (single-shape enter/update + ChildOf reparent)
+      PhysicsChainLifecycle         (chain enter/update + ChildOf reparent)
+      PhysicsJointLifecycle         (joint enter/recreate once both bodies exist)
       PhysicsJoint{Motor,Limit,LinearSpring,AngularSpring}Sync (feature presence → Box2D setters)
       PhysicsMaterialFilterSync     (Material / CollisionFilter / Sensor)
       PhysicsEventOptInSync         (ContactEvents / HitEvents / SensorEvents opt-in)
@@ -380,8 +380,10 @@ world.progress(now, delta):
       PhysicsKinematicTargets       (drive kinematic bodies to targets)
       PhysicsForceGather            (Force / Torque accumulate)
       PhysicsImpulseAccumulate      (drain Impulse / AngularImpulse)
-      PhysicsMassRecompute          (recompute mass for dirty bodies)
       PhysicsDebugValidation        (debug: true only)
+    physics-cleanup (internal):
+      PhysicsReaper                 (queued joints, shapes, chains, then bodies)
+      PhysicsMassRecompute          (recompute mass after removal)
     physics-step:
       PhysicsStep                   (b2World_Step)
     physics-post:
@@ -391,7 +393,7 @@ world.progress(now, delta):
   endFrame()
 ```
 
-User input/gameplay phases land before `physics-pre`; user render phases after `physics-post`. Explicit phases supplied via `PhysicsOptions` still split across the same three slots in the same order.
+User input/gameplay phases land before `physics-pre`; user render phases after `physics-post`. Explicit phases supplied via `PhysicsOptions` keep the same ordering, with internal cleanup between pre and step. Immediate lifecycle query exits enqueue teardown at the structural-change flush, so a destroy from any pre-step system reaches the reaper before stepping. A post-step destroy leaves a move event that pose-out skips with a non-throwing entity lookup; cleanup removes the body before the following step.
 
 ### Hooks vs systems
 
@@ -408,7 +410,7 @@ Each system below: phase, responsibility, and the box2d3-wasm primitives it call
 Query: `Body`.
 
 - `.enter` — read `Body`, `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, optional tunables. Fill a `b2DefaultBodyDef()`. Call `b2CreateBody(worldId, def)`. Store the `b2BodyId` on `Body._bodyId` and register `engine.entityByBodyIndex.set(bodyId.index1, entity.eid)`.
-- `.exit` — read the body ID from the injected `Body` snapshot, call `b2DestroyBody(id)`, and clear the `entityByBodyIndex` slot. Box2D cascades shape destruction internally.
+- `PhysicsBodyTeardown` query `.exit` — immediately queue the injected body's handle and clear `Body._bodyId`. The reaper destroys it after shapes and chains and clears its reverse-index slot before Box2D can reuse it.
 - `.update(Body, …)` — `type` change → `b2Body_SetType`; `enabled` → `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`. `allowFastRotation` is create-time only under `box2d3-wasm@5.2.0`.
 
 ### `PhysicsShapeLifecycle` (`physics-pre`)
@@ -416,7 +418,7 @@ Query: `Body`.
 Query: `{ all: [SingleShape, { parent: Body }] }`. `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement the internal `SingleShape` tier, so b2Shape-only work never matches chains.
 
 - `.enter` — resolve parent body from the injected parent `Body._bodyId`. Build a `b2ShapeDef` from `Material` / `CollisionFilter` / `Sensor` / event opt-in flags / `ShapePosition` / `ShapeRotation`. Dispatch by geometry type (table below). Store the `b2ShapeId` on `SingleShape._shapeId` and register `engine.entityByShapeIndex.set(shapeId.index1, entity.eid)`.
-- `.exit` — injects `[SingleShape, { target: [ChildOf, Entity] }]` so the parent entity and `_shapeId` are still readable from the exit snapshot. `b2DestroyShape`; clear the `entityByShapeIndex` slot.
+- `PhysicsShapeTeardown` query `.exit` — immediately injects `[SingleShape, { target: [ChildOf, Entity] }]`, queues the shape handle, and marks parent mass dirty. The reaper clears the reverse-index slot and destroys the shape in cleanup.
 - `.update(SingleShape, …)` — destroy + recreate the shape, except `Capsule`/`Segment` updates with degenerate (near-zero-length) endpoints are ignored, preserving the existing valid shape (Box2D parity).
 - `.update(ChildOf, …)` — reparenting between bodies = destroy under old parent, recreate under new.
 
@@ -433,7 +435,7 @@ Query: `{ all: [SingleShape, { parent: Body }] }`. `Box`, `Circle`, `Capsule`, `
 Query: `{ all: [Chain, { parent: Body }] }`. Chain lifecycle is split from single-shape lifecycle because chains are backed by `b2ChainId`, not `b2ShapeId`, and Box2D exposes generated segment shapes for events.
 
 - `.enter` — resolve parent body, build a `b2ChainDef` from filter/material/sensor-event opt-in, transform each `Chain.points` entry by `ShapePosition` and `ShapeRotation`, call `b2CreateChain`, store `Chain._chainId`, then call `b2Chain_GetSegments` and register each returned segment `index1` in `engine.entityByShapeIndex` pointing to the chain entity.
-- `.exit` — injects `[Chain, { target: [ChildOf, Entity] }]`, clears every registered segment index, destroys the chain when `b2Chain_IsValid` is true, and clears `_chainId` on the live component if present.
+- `PhysicsChainTeardown` query `.exit` — immediately injects `[Chain, { target: [ChildOf, Entity] }]`, clears every registered segment index, queues the chain for cleanup, and clears `_chainId` on the live component if present.
 - `.update(Chain, …)` and `.update(ChildOf, …)` — destroy + recreate the chain.
 
 Chains participate in sensor events only. `b2ChainDef` exposes `enableSensorEvents` but not contact or hit event flags, so `ContactEvents`/`HitEvents` runtime toggles intentionally ignore chains. Sensor opt-in changes recreate the chain because Box2D has no per-chain runtime sensor-event setter.
@@ -485,7 +487,7 @@ box2d3-wasm zeroes applied forces inside `b2World_Step` (matches Box2D), so no p
 
 Hook-driven (see **Hooks vs systems**). `world.component(Impulse).on("set", ...)` and `world.component(AngularImpulse).on("set", ...)` fire synchronously on each `set`, accumulating into `engine.pendingLinearImpulse` / `pendingAngularImpulse` keyed by `b2BodyId`. The phase system flushes accumulators via `b2Body_ApplyLinearImpulseToCenter` / `b2Body_ApplyAngularImpulse` for each body that received any. A zero impulse is ignored when it is set, before the body is resolved: it is not accumulated and its `wake` does not count. The flush skips a sum that is exactly zero (no call, no wake), so impulses that cancel out do not wake the body either.
 
-### `PhysicsMassRecompute` (`physics-pre`)
+### `PhysicsMassRecompute` (`physics-cleanup`, after the reaper)
 
 box2d3-wasm auto-recomputes mass when `b2Shape_SetDensity` is called with `updateBodyMass = true`. For bodies in `engine.dirtyMassBodies` (e.g. after shape add/remove), call `b2Body_ApplyMassFromShapes(bodyId)`. Most steady-state frames are no-ops.
 

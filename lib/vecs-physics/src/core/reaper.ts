@@ -11,7 +11,7 @@ export class PhysicsReaperModule extends Module {
     const engine = getPhysicsEngine(world);
     world
       .system("PhysicsReaper")
-      .phase(engine.phases.preStep)
+      .phase(engine.phases.cleanup)
       .run(() => {
         // Joints first: a body destroy below cascade-destroys its joints, so we
         // tear down explicitly-removed joints before their bodies disappear. Guard

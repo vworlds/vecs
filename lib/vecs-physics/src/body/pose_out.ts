@@ -46,7 +46,12 @@ export class BodyPoseOutModule extends Module {
                 continue;
               }
 
-              const entity = world.entity(entityId);
+              // A postStep system may destroy an entity after Box2D produced this event.
+              // Keep the reverse slot until the reaper frees the body; lookup is O(1).
+              const entity = world.getEntity(entityId);
+              if (entity === undefined || entity.destroyed) {
+                continue;
+              }
               const body = entity.get(Body);
               if (body?.type !== BodyType.Dynamic) {
                 continue;

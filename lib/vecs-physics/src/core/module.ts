@@ -62,12 +62,16 @@ export class PhysicsCoreModule extends Module<PhysicsOptions | undefined> {
 
     const phases = {
       preStep: resolvePhase(world, opts.preStepPhase, DEFAULT_PRE_STEP_PHASE),
+      cleanup: world.entity("physics-cleanup").add(Phase),
       step: resolvePhase(world, opts.stepPhase, DEFAULT_STEP_PHASE),
       postStep: resolvePhase(world, opts.postStepPhase, DEFAULT_POST_STEP_PHASE),
     };
     const updatePhase = world.entity(ON_UPDATE);
     insertPhaseAfter(phases.preStep, updatePhase);
     insertPhaseAfter(phases.step, phases.preStep);
+    // A separate boundary covers every user preStep system, including ones
+    // registered after PhysicsModule. Keep the three public phase options intact.
+    insertPhaseAfter(phases.cleanup, phases.preStep);
     insertPhaseAfter(phases.postStep, phases.step);
 
     const box2d = getBox2D();

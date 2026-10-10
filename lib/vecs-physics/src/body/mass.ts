@@ -12,9 +12,10 @@ export class BodyMassModule extends Module {
     world.module(PhysicsCoreModule);
 
     const engine = getPhysicsEngine(world);
+    // The reaper must remove queued shapes before we compute the surviving mass.
     world
       .system("PhysicsMassRecompute")
-      .phase(engine.phases.preStep)
+      .phase(engine.phases.cleanup)
       .run(() => {
         for (const eid of engine.dirtyMassBodies) {
           const bodyId = world.getEntity(eid)?.get(Body)?._bodyId;
