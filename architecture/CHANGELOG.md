@@ -6,6 +6,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 ## Unreleased
 
 - [vecs-server]: `ServerWorld` now rejects `localEntityIdStart` at construction: it splits the entity id space for a `ClientWorld` only, while a server allocates every id from its entity pool.
+
 ## v1.0.52 (2026-10-10)
 
 - [vecs-client]: Keep `DiffBuffer` slots aligned with server frames through compaction, including empty slots (#246). Discard a delayed delta when a later buffered delta covers its entire range, including optimistic deltas based on lost sends. Delayed older deltas can no longer roll back a buffered endpoint, disconnect the client, or resurrect a removed component or relationship. Regression coverage also guards exit/re-entry folding (#244, #245).
