@@ -19,7 +19,10 @@ export enum BodyType {
   Dynamic = "dynamic",
 }
 
-/** Marks an entity as a physics body. Missing `Body` means physics ignores it. */
+/** Marks an entity as a physics body. Missing `Body` means physics ignores it.
+ * Mass comes from child shapes; on recomputation, center-of-mass float noise
+ * within 8 × epsilon_f32 × the Box2D AABB half-extent is corrected to exactly
+ * zero on the body, preserving mass and rotational inertia. */
 export class Body {
   type = BodyType.Static;
   bullet = false;

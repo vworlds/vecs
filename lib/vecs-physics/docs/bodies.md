@@ -69,6 +69,20 @@ world.entity().add(ChildOf, crate).set(Box, { hx: 0.5, hy: 0.5 });
 
 The `Box` is a child entity. Bodies do not define their own collision geometry directly. See [Shapes](./shapes.md).
 
+### Shape-Derived Mass
+
+Mass and rotational inertia come from the body's shapes and their densities. When mass is
+recomputed, `vecs-physics` sets the center of mass to exactly `(0, 0)` if its distance from
+the origin is at most `8 × epsilon_f32 × extent`, where `epsilon_f32 = 2^-23` and `extent`
+is the largest half-extent of the body's Box2D AABB (including speculative padding).
+This removes polygon-centroid float noise from centered bodies while preserving mass and
+rotational inertia. The correction changes the Box2D body itself, so simulation and
+replication use the same value; it runs only on mass recomputation, not every step.
+
+Intentional offsets above this scale-relative tolerance are preserved. For example, a box
+with half-extents `(0.3, 0.7)` retains both 1 mm and 0.1 m shape offsets. There is no public
+explicit mass-data override; configure mass through shape geometry and density.
+
 ## Position And Rotation
 
 `vecs-physics` exports canonical pose components.

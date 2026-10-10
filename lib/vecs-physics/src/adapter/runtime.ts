@@ -15,6 +15,7 @@ export const scr_b2Vec2: b2Vec2[] = [];
 export const scr_b2QueryFilter: b2QueryFilter[] = [];
 export let scr_b2AABB: b2AABB | null = null;
 export let scr_b2ShapeProxy: b2ShapeProxy | null = null;
+export let scr_b2MassData: InstanceType<Box2DModule["b2MassData"]> | null = null;
 
 export async function preloadPhysics(): Promise<void> {
   if (modulePromise) {
@@ -55,6 +56,11 @@ function initializeScratchPools(box2d: Box2DModule): void {
   // b2ShapeProxy: shape casts need exactly 1 (proxy points are copied in by
   // value, so the pool entry is free again as soon as the cast returns).
   scr_b2ShapeProxy = new box2d.b2ShapeProxy();
+
+  // Mass correction runs serially during cleanup, never during a physics step.
+  scr_b2MassData = new box2d.b2MassData();
+  scr_b2Vec2[0]!.Set(0, 0);
+  scr_b2MassData.center = scr_b2Vec2[0]!;
 }
 
 export function getBox2D(): Box2DModule {
