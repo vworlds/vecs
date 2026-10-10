@@ -36,7 +36,7 @@ describe("DeadReckonedModule (client)", () => {
     const body = client.world.entity().set(Motion, { frame: 1, x: 0, rest: true });
     client.render(10);
     body.set(Motion, { frame: 8, x: 0.3, rest: true });
-    client.render(10, 0);
+    client.render(10, 1500);
     expect(body.get(Position)!.x).toBe(0);
     client.render(10, 150);
     expect(body.get(Position)!.x).toBeCloseTo(0.15, 6);
@@ -49,9 +49,11 @@ describe("DeadReckonedModule (client)", () => {
     const body = client.world.entity().set(Position, { x: 0 }).set(Rotation, { angle: 0 });
     client.render(10);
     body.set(Motion, { frame: 10, x: 0.3, rest: true });
-    client.render(10, 0);
+    client.render(10, 1500);
     expect(body.get(Position)!.x).toBe(0);
-    client.render(10, 300);
+    client.render(10, 150);
+    expect(body.get(Position)!.x).toBeCloseTo(0.15, 6);
+    client.render(10, 150);
     expect(body.get(Position)!.x).toBe(0.3);
   });
   it("gives a body that arrives with only a baseline a render pose, extrapolated at renderFrame", () => {

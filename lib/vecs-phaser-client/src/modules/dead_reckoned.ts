@@ -71,7 +71,9 @@ export interface DeadReckonedModuleConfig {
  * - **Dead reckoned to streamed.** On `Motion`'s removal the track stays for the length of the
  *   blend, as a hand-off: the difference between the pose the track would still show and the
  *   freshly streamed one fades out over `blendMs`, added to the interpolated pose, and then the
- *   track is removed. The hand-off writes its own pose instances; replication-owned instances are
+ *   track is removed. Its duration starts at the first rendered sample, which shows the full
+ *   error even when the removal was applied after a render-loop stall. The hand-off writes its
+ *   own pose instances; replication-owned instances are
  *   read-only sources. Its final, unoffset pose stays attached until the network replaces it. A
  *   later `Motion` starts a fresh track from the shown pose.
  *
@@ -220,6 +222,12 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       .without(Motion)
       .phase(POST_LOAD)
       .each([MotionTrack, Position, Rotation], (entity, [track, pos, rot]) => {
+        if (track.handoff) {
+          // The remove hook runs before this tick advances blendClock. Start
+          // the fade when it is first drawn, never during the preceding stall.
+          track.blendFrom = blendClock;
+          track.handoff = false;
+        }
         const remaining = remainingBlend(track);
         if (pos !== track.position) {
           track.sourceX = pos.x;
@@ -304,7 +312,6 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
           track.errorX = ex;
           track.errorY = ey;
           track.errorAngle = ea;
-          track.blendFrom = blendClock;
           track.handoff = true;
           return;
         }
@@ -444,8 +451,9 @@ class MotionTrack {
   public shown = false;
 
   /**
-   * `Motion` is gone and the server streams the pose: this track only fades the difference between
-   * the path it was drawn on and the streamed pose, then removes itself.
+   * A hand-off is awaiting its first rendered sample. That sample stamps blendFrom
+   * with the current render-loop clock and clears this flag, so the removal tick's
+   * delta (including a render-loop stall) does not consume the fade before it is drawn.
    */
   public handoff = false;
 

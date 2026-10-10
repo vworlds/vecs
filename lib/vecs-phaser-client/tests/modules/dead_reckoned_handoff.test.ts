@@ -31,8 +31,7 @@ describe("packet-buffered DR hand-off ownership", () => {
     for (const frame of [2, 2.25, 2.5, 2.75]) {
       world.progress(10 + (frame - 2) * 10, 2.5);
       expect(world.renderFrame).toBe(frame);
-      // Removal is applied in ON_LOAD, before this tick advances the blend clock.
-      const expected = (0.25 * (frame - 2 + 0.25) * 10) / 100;
+      const expected = (0.25 * (frame - 2) * 10) / 100;
       expect(body.get(Position)!.x).toBeCloseTo(expected, 6);
       expect(body.get(Rotation)!.angle).toBeCloseTo(expected, 6);
     }
@@ -46,7 +45,7 @@ describe("packet-buffered DR hand-off ownership", () => {
       }
       world.progress(10 + (frame - 2) * 10, 2.5);
       expect(world.renderFrame).toBe(frame);
-      const left = 1 - ((frame - 2 + 0.25) * 10) / 100;
+      const left = 1 - ((frame - 2) * 10) / 100;
       expect(body.get(Position)!.x).toBeCloseTo(0.25 + (frame - 2) * 0.125 - 0.25 * left, 6);
       expect(body.get(Rotation)!.angle).toBeCloseTo(0.25 + (frame - 2) * 0.0625 - 0.25 * left, 6);
     }
@@ -55,6 +54,8 @@ describe("packet-buffered DR hand-off ownership", () => {
   it("retains its output when no snapshot arrives and completes at the exact source pose", () => {
     const { world, body, send } = setup();
     world.progress(10, 10);
+    expect(body.get(Position)!.x).toBe(0);
+    expect(body.get(Rotation)!.angle).toBe(0);
     const position = body.get(Position);
     const rotation = body.get(Rotation);
     send(3, []);
@@ -62,20 +63,23 @@ describe("packet-buffered DR hand-off ownership", () => {
     expect(world.renderFrame).toBe(2.5);
     expect(body.get(Position)).toBe(position);
     expect(body.get(Rotation)).toBe(rotation);
-    expect(body.get(Position)!.x).toBeCloseTo(0.0375, 6);
-    expect(body.get(Rotation)!.angle).toBeCloseTo(0.0375, 6);
+    expect(body.get(Position)!.x).toBeCloseTo(0.0125, 6);
+    expect(body.get(Rotation)!.angle).toBeCloseTo(0.0125, 6);
     for (let frame = 4; frame <= 13; frame++) {
       send(frame, []);
     }
-    world.progress(120, 105);
+    world.progress(109, 94);
     expect(world.renderFrame).toBe(13);
+    expect(body.get(Position)!.x).toBeCloseTo(0.2475, 6);
+    expect(trackOf(body)).not.toBeUndefined();
+    world.progress(110, 1);
     expect(body.get(Position)).toBe(position);
     expect(body.get(Rotation)).toBe(rotation);
     expect(body.get(Position)!.x).toBe(0.25);
     expect(body.get(Rotation)!.angle).toBe(0.25);
     expect(trackOf(body)).toBeUndefined();
     send(14, pose(0.5, 0.5));
-    world.progress(130, 10);
+    world.progress(150, 40);
     expect(body.get(Position)).not.toBe(position);
     expect(body.get(Position)!.x).toBe(0.5);
     expect(body.get(Rotation)!.angle).toBe(0.5);

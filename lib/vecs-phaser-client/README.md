@@ -286,7 +286,9 @@ showed and the one the new source gives fades out instead of jumping.
   sample can sit up to about a server frame ahead of the pose just shown. A body that enters the
   view with only a baseline has no pose to start from and never blends.
 - **Dead reckoned to streamed.** When `Motion` goes, the track stays for `blendMs` as a hand-off: it
-  adds the difference between the pose the track would still show and the freshly streamed one on
+  starts fading at its first rendered sample, preserving the full error on that frame even after a
+  render-loop stall, and runs for the full configured duration.
+  It adds the difference between the pose the track would still show and the freshly streamed one on
   top of the interpolated `Position` and `Rotation`, fading it linearly to nothing, and then drops
   itself. The track allocates its own output `Position` and `Rotation` once per hand-off and treats
   replication-owned instances as read-only sources, so fading offsets cannot enter interpolation

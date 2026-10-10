@@ -270,13 +270,27 @@ describe("render-loop stalls across an idle pause", () => {
       sim.run(500);
       expect(client.stats.framesSent).toBe(pausedFrames);
       render.mockRestore();
-      sim.run(sim.tickMs / 2 + 0.1);
+      // Resume explicitly with the real elapsed loop delta, not the harness's
+      // normal 60 Hz delta. No server frame arrives during these render samples.
+      client.world.progress(sim.clock.now, 1500);
       const seen = client.world.getEntity(body.eid)!;
       const firstPose = seen.get(Position)!.x;
       const heldFrame = client.world.renderFrame;
+      const motionTrack = seen.components
+        .values()
+        .find((value) => value.constructor.name === "MotionTrack") as {
+        errorX: number;
+        blendFrom: number;
+      };
+      // The entire captured path error must be visible on its first sample.
+      expect(firstPose).toBeCloseTo(target + motionTrack.errorX, 6);
       expect(Math.abs(firstPose - target)).toBeGreaterThan(0);
       expect(Math.abs(firstPose - target)).toBeLessThan(1);
-      sim.run(300);
+      client.world.progress(sim.clock.now + 150, 150);
+      expect(seen.get(Position)!.x).toBeCloseTo(target + (firstPose - target) / 2, 6);
+      client.world.progress(sim.clock.now + 299, 149);
+      expect(seen.get(Position)!.x).not.toBe(target);
+      client.world.progress(sim.clock.now + 300, 1);
       expect(client.world.renderFrame).toBe(heldFrame);
       expect(client.stats.framesSent).toBe(pausedFrames);
       expect(seen.get(Position)!.x).toBe(target);
