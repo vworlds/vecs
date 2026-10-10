@@ -386,6 +386,41 @@ describe("dead reckoning over a lossy link", () => {
 });
 
 describe("the body constants", () => {
+  it("omits the centered box's center fields from its first baseline's MotionParams", () => {
+    const run = new Run({ seed: 259, link: symmetric({ oneWayMs: 0 }) });
+    const body = run.sim.server
+      .entity()
+      .add(Networked)
+      .add(DeadReckoned)
+      .set(Body, { type: BodyType.Dynamic })
+      .set(Damping, { linear: 0.15, angular: 0.1 })
+      .set(LinearVelocity, { x: 1, y: 0 });
+    run.sim.server.entity().childOf(body).set(Box, { hx: 0.3, hy: 0.7 });
+    const payloads: Uint8Array[] = [];
+    tapFrames(run.client, (message) => {
+      for (const encoded of message.diff?.snapshots ?? []) {
+        const snapshot = new Decoder(encoded.bytes).read(ComponentSnapshot);
+        if (snapshot.eid === body.eid && snapshot.wireType === MOTION_PARAMS) {
+          payloads.push(snapshot.payload);
+          expect(
+            message.diff!.snapshots.some((entry) => {
+              const carried = new Decoder(entry.bytes).read(ComponentSnapshot);
+              return carried.eid === body.eid && carried.wireType === MOTION;
+            })
+          ).toBe(true);
+        }
+      }
+    });
+    run.sim.run(500);
+    expect(payloads.length).toBeGreaterThan(0);
+    expect(payloads[0]![0]).toBe(1); // Damping only; local-center mask bit 1 is clear.
+    expect(payloads[0]).toHaveLength(9); // One mask byte + two damping f32s, saving 8 bytes.
+    expect(new Decoder(payloads[0]!).read(MotionParams)).toMatchObject({
+      localCenterX: 0,
+      localCenterY: 0,
+    });
+  });
+
   it("ride in MotionParams, sent with the baseline that changes them and never for default constants", () => {
     const run = new Run({ seed: 6, link: symmetric({ oneWayMs: 50 }) });
     arena(run, 15);
