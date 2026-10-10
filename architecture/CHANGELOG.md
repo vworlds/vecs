@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-client]: Keep `DiffBuffer` slots aligned with server frames through compaction, including empty slots (#246). Delayed older deltas can no longer roll back a buffered endpoint, disconnect the client, or resurrect a removed component or relationship. Regression coverage also guards exit/re-entry folding (#244, #245).
+
 ## v1.0.51 (2026-10-10)
 
 - [vecs-phaser] [vecs-phaser-server] [vecs-phaser-client]: **The dead-reckoning wire is incompatible with 1.0.50; upgrade server and client together.** `Motion` gains `rest: boolean`; `linearDamping`, `angularDamping`, `localCenterX`, `localCenterY`, `gravityScale` and `allowFastRotation` move to the new `MotionParams`. `phaserMotionComponents` is `[MotionClock, Motion, MotionParams]`, with `MotionParams` appended, and both `DeadReckonedModule`s require all three network components. `motionAtRest` is removed: the server decides rest and clients read `Motion.rest`. The integrator signatures are `motionStateFrom(motion, params, out)`, `stepMotion(state, params, clock)` and `motionPose(state, params, out)`. A `Motion` costs 26 bytes moving or 14 at rest with a frame below 128; `MotionParams` costs 1 byte for defaults or 21 with every group. An entity without it uses the exported, frozen `defaultMotionParams`. Moving baselines add or update f32-rounded constants only when they differ, in the same frame as `Motion`; rest baselines leave them untouched. Both peers copy the constants at a baseline using the exported `copyMotionParams(source, target)`, so stepping looks up no component.

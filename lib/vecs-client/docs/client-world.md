@@ -71,6 +71,11 @@ baseline for a frame the client has already passed (a duplicate, or a straggler 
 channel) is ignored, and a delta for a frame it has already received is discarded, or merged into
 the copy the diff buffer still holds, so a late datagram never rolls the client back.
 
+The diff buffer keeps slots aligned to server frames even when it compacts gaps with no
+snapshots. Its first slot folds all changes up to the slot's frame; a delta ending before that
+frame is stale and is discarded. Buffered deltas merge in frame order, so a delayed snapshot
+cannot overwrite a newer component or relationship removal.
+
 ```ts
 world.events.on("reset", ({ initial }) => {
   if (!initial) {
