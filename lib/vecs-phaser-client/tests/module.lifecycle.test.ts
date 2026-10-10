@@ -48,7 +48,7 @@ describe("PhaserRenderModule lifecycle", () => {
     const obj = scene.created[0]!;
     entity.remove(Phaser.GameObjects.Arc);
 
-    expect(obj.destroyed).toBe(true);
+    expect(obj.isDestroyed).toBe(true);
     expect(entity.get(Phaser.GameObjects.Arc)).toBeUndefined();
     expect(entity.get(m.GameObject)).toBeUndefined();
   });

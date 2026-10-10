@@ -42,7 +42,7 @@ describe("VPH-23 renderers", () => {
     entity.remove(Ellipse);
     tick(world);
 
-    expect(ellipse.destroyed).toBe(true);
+    expect(ellipse.isDestroyed).toBe(true);
     expect(entity.get(Phaser.GameObjects.Ellipse)).toBeUndefined();
     expect(entity.get(m.GameObject)).toBeUndefined();
   });
@@ -73,7 +73,7 @@ describe("VPH-23 renderers", () => {
     entity.remove(Star);
     tick(world);
 
-    expect(star.destroyed).toBe(true);
+    expect(star.isDestroyed).toBe(true);
     expect(entity.get(Phaser.GameObjects.Star)).toBeUndefined();
     expect(entity.get(m.GameObject)).toBeUndefined();
   });
@@ -118,7 +118,7 @@ describe("VPH-23 renderers", () => {
     entity.remove(Triangle);
     tick(world);
 
-    expect(triangle.destroyed).toBe(true);
+    expect(triangle.isDestroyed).toBe(true);
     expect(entity.get(Phaser.GameObjects.Triangle)).toBeUndefined();
     expect(entity.get(m.GameObject)).toBeUndefined();
   });

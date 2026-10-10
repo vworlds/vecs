@@ -65,7 +65,7 @@ describe("set A renderers", () => {
     entity.remove(Arc);
     world.progress(2, 0);
 
-    expect(obj.destroyed).toBe(true);
+    expect(obj.isDestroyed).toBe(true);
     expect(methods(obj, "destroy")).toHaveLength(1);
     expect(entity.get(Phaser.GameObjects.Arc)).toBeUndefined();
     expect(entity.get(m.GameObject)).toBeUndefined();

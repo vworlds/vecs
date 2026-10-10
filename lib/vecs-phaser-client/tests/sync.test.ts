@@ -173,14 +173,14 @@ describe("OpenPath sync", () => {
     world.progress(1, 0);
     const polygon = scene.created[1]!;
 
-    expect(arc.destroyed).toBe(true);
+    expect(arc.isDestroyed).toBe(true);
     expect(closePathCalls(arc)).toEqual([[false]]);
     expect(closePathCalls(polygon)).toEqual([[false]]);
 
     entity.destroy();
     world.progress(2, 0);
 
-    expect(polygon.destroyed).toBe(true);
+    expect(polygon.isDestroyed).toBe(true);
     expect(closePathCalls(polygon)).toEqual([[false]]);
   });
 });
