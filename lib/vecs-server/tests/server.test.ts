@@ -342,7 +342,7 @@ describe("ServerWorld", () => {
     expect(socket.sent.length).toBeGreaterThan(removalStart);
     const message = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
     expect(message.diff!.removed).toEqual([]);
-    expect(message.diff!.resets).toEqual([]);
+    expect(message.diff!.resets).toBeUndefined();
     expect(message.diff!.snapshots).toHaveLength(1);
   });
 
@@ -1246,7 +1246,7 @@ describe("ServerWorld", () => {
     expect(view.canSee(session.entity)).toBe(true);
     if (socket.sent.length > baseline) {
       const message = decodeLastMessage(socket);
-      expect(message.diff!.resets.map(([eid]) => eid)).not.toContain(session.entity.eid);
+      expect(message.diff!.resets?.map(([eid]) => eid) ?? []).not.toContain(session.entity.eid);
     }
   });
 

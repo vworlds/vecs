@@ -782,7 +782,7 @@ export class ServerWorld extends NetworkWorld {
       }
 
       const latest = new StateDiff({ fromFrame: toFrame - 1, toFrame });
-      const { snapshots, removed, resets } = latest;
+      const { snapshots, removed } = latest;
 
       // One frame's diff can hold the reset of an entity that left the view and the
       // snapshots of a different entity that entered it under the same eid, when the eid is
@@ -790,7 +790,7 @@ export class ServerWorld extends NetworkWorld {
       // correctly: within a diff, the reset of an eid precedes every snapshot of it, so the
       // snapshots are the new entity's. The reset carries this frame. See StateDiff.
       view._exitedView.forEach((entity) => {
-        resets.push([entity.eid, toFrame]);
+        (latest.resets ??= []).push([entity.eid, toFrame]);
       });
       view._enteredView.forEach((entity) => {
         this._pushEntitySnapshots(entity, snapshots);
@@ -806,7 +806,7 @@ export class ServerWorld extends NetworkWorld {
           // The removal of Networked. A whole entity is removed by a reset, never by an entry of
           // `removed`; the view's exit of the entity normally carries it, and a visible entity
           // that has one anyway is reset all the same.
-          resets.push([u.entity.eid, toFrame]);
+          (latest.resets ??= []).push([u.entity.eid, toFrame]);
         } else {
           removed.push([u.entity.eid, u.wireType]);
         }
@@ -1511,7 +1511,9 @@ function ensureRegistered(world: NetworkWorld, Class: ComponentClass): void {
 }
 
 function isEmpty(diff: StateDiff): boolean {
-  return diff.snapshots.length === 0 && diff.removed.length === 0 && diff.resets.length === 0;
+  return (
+    diff.snapshots.length === 0 && diff.removed.length === 0 && (diff.resets?.length ?? 0) === 0
+  );
 }
 
 /**

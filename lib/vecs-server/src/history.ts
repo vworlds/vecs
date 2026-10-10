@@ -248,11 +248,13 @@ export class History {
  */
 function applyDiff(entities: IterableArrayMap<EntityHistory>, diff: StateDiff): void {
   const resets = diff.resets;
-  for (let i = 0; i < resets.length; i++) {
-    // Whatever the span did to the entity so far described the one that has just left.
-    const entity = entityOf(entities, resets[i][0]);
-    entity.clear();
-    entity.set(ALL_COMPONENTS, resets[i][1]);
+  if (resets !== undefined) {
+    for (let i = 0; i < resets.length; i++) {
+      // Whatever the span did to the entity so far described the one that has just left.
+      const entity = entityOf(entities, resets[i][0]);
+      entity.clear();
+      entity.set(ALL_COMPONENTS, resets[i][1]);
+    }
   }
 
   diff.snapshots.forEach((snapshot) => {
@@ -275,14 +277,14 @@ function entityOf(entities: IterableArrayMap<EntityHistory>, eid: EID): EntityHi
 
 function forgeDiff(from: number, to: number, entities: IterableArrayMap<EntityHistory>): StateDiff {
   const forged = new StateDiff({ fromFrame: from, toFrame: to });
-  const { snapshots, removed, resets } = forged;
+  const { snapshots, removed } = forged;
 
   entities.forEach((entity, eid) => {
     entity.forEach((slot, wireType) => {
       if (typeof slot !== "number") {
         snapshots.push(slot);
       } else if (wireType === ALL_COMPONENTS) {
-        resets.push([eid, slot]);
+        (forged.resets ??= []).push([eid, slot]);
       } else {
         removed.push([eid, wireType]);
       }
@@ -293,7 +295,7 @@ function forgeDiff(from: number, to: number, entities: IterableArrayMap<EntityHi
 }
 
 function hasContent(diff: StateDiff): boolean {
-  return diff.snapshots.length > 0 || diff.removed.length > 0 || diff.resets.length > 0;
+  return diff.snapshots.length > 0 || diff.removed.length > 0 || (diff.resets?.length ?? 0) > 0;
 }
 
 function emptyDiff(toFrame: number): StateDiff {

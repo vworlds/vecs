@@ -142,7 +142,7 @@ export function diffFromStateDiff(sd: StateDiff): Diff {
     return new ComponentSnapshot(wire.eid, wire.wireType, wire.payload);
   });
   d.removed = sd.removed.map(([eid, wireType]) => cid_pack(eid, wireType));
-  if (sd.resets.length > 0) {
+  if (sd.resets !== undefined && sd.resets.length > 0) {
     d.resets = new Map(sd.resets);
   }
   return d;

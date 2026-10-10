@@ -75,7 +75,8 @@ export type EntityReset = [eid: EID, frame: number];
  *
  * `snapshots` carry the new value of a component, which creates the entity if the client does
  * not hold it. `removed` lists single components that are gone. `resets` lists entities that
- * are gone altogether, each with the frame at which it happened.
+ * are gone altogether, each with the frame at which it happened; it is `undefined` when the diff
+ * resets nothing.
  *
  * ### Order within a diff
  *
@@ -121,7 +122,7 @@ export class StateDiff implements IEncodable {
   public fromFrame = 0;
   public snapshots: EncodedSnapshot[] = [];
   public removed: RemovedComponent[] = [];
-  public resets: EntityReset[] = [];
+  public resets: EntityReset[] | undefined = undefined;
 
   public constructor(values?: Partial<StateDiff>) {
     if (values) {
@@ -134,9 +135,9 @@ export class StateDiff implements IEncodable {
     encoder.write_u32(this.fromFrame);
     encoder.write_u32(this.snapshots.length);
     this.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
-    encoder.write_u32(this.removed.length + this.resets.length);
+    encoder.write_u32(this.removed.length + (this.resets?.length ?? 0));
     this.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
-    this.resets.forEach(([eid, frame]) => {
+    this.resets?.forEach(([eid, frame]) => {
       encoder.write_u32(cid_pack(eid, ALL_COMPONENTS));
       encoder.write_u32(this.toFrame - frame);
     });
@@ -152,7 +153,7 @@ export class StateDiff implements IEncodable {
     for (let i = 0; i < removedCount; i++) {
       const removal = cid_unpack(decoder.read_u32());
       if (removal[1] === ALL_COMPONENTS) {
-        diff.resets.push([removal[0], diff.toFrame - decoder.read_u32()]);
+        (diff.resets ??= []).push([removal[0], diff.toFrame - decoder.read_u32()]);
       } else {
         diff.removed.push(removal);
       }

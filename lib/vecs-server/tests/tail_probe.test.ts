@@ -133,7 +133,6 @@ describe.each([1, 2])("partial ACK liveness, R=%i", (redundancyFrames) => {
             fromFrame: 1,
             snapshots: [],
             removed: [],
-            resets: [],
           });
         }
       }
@@ -154,7 +153,8 @@ describe.each([1, 2])("partial ACK liveness, R=%i", (redundancyFrames) => {
     for (let atMs = 400; atMs <= 800; atMs += 40) {
       const frame = run.step(atMs)[0];
       expect(frame.optimistic).toBe(true);
-      expect(frame.diff).toMatchObject({ fromFrame: 3, snapshots: [], removed: [], resets: [] });
+      expect(frame.diff).toMatchObject({ fromFrame: 3, snapshots: [], removed: [] });
+      expect(frame.diff?.resets).toBeUndefined();
     }
     const retry = run.step(801)[0];
     expect(retry.optimistic).toBe(false);

@@ -141,7 +141,7 @@ function serverState(live: Set<Entity>): IterableArrayMap<{ x: number; y: number
 
 function diffRemoves(packet: Uint8Array, eid: EID): boolean {
   const message = new Decoder(packet).read(Server2Client);
-  return message.diff?.resets.some(([e]) => e === eid) ?? false;
+  return message.diff?.resets?.some(([e]) => e === eid) ?? false;
 }
 
 describe("reset storm (inactive tab)", () => {
