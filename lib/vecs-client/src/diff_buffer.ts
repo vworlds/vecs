@@ -153,11 +153,13 @@ export class DiffBuffer {
   private _state = new Map<number, ComponentSnapshot>();
   private _stateVersion: number = 0;
 
-  // first has the version of the first element in the bucket
-  // if first is undefined, then the bucket is empty
-  private _first: number | undefined = undefined;
+  /** Frame represented by slot 0; undefined only when the bucket is empty. */
+  private _base: number | undefined = undefined;
 
-  // bucket is a buffer of state diff snapshots
+  /**
+   * Slot i represents frame `_base + i`. Slot 0 folds everything up to `_base`,
+   * so its diff endpoint may be below the base after compacting empty slots.
+   */
   public readonly bucket: Array<Diff | undefined>;
 
   // version indicates the last version received by the server
@@ -250,6 +252,9 @@ export class DiffBuffer {
       this.bucket[j] = this.bucket[j + 1];
     }
     this.bucket[this.bucket.length - 1] = undefined;
+    if (this._base !== undefined) {
+      this._base++;
+    }
   }
 
   // pull returns a constructed Diff from elements
@@ -262,7 +267,7 @@ export class DiffBuffer {
       // since we are hitting an empty buffer, allow some extra time for it
       // to replenish, by delaying the server time.
       this._tServ = now + this.server_tick_interval * this.bucket.length;
-      this._first = undefined;
+      this._base = undefined;
       this._lastTime = now;
       return sd; // return empty diff
     }
@@ -327,10 +332,9 @@ export class DiffBuffer {
       // Until a frame is applied (sd.to is 0) there is no state to blend
       // from, and nothing is rendered.
       this._renderFrame = sd.to === 0 ? 0 : renderFrom + (target.to - renderFrom) * alpha;
-      this._first = target.to;
     } else {
       this._renderFrame = sd.to;
-      this._first = undefined;
+      this._base = undefined;
     }
 
     // incorporate this diff into our visualization of the state prior
@@ -346,7 +350,7 @@ export class DiffBuffer {
     this._held.length = 0;
     this._gap = false;
     this.version = -1;
-    this._first = undefined;
+    this._base = undefined;
     this._stateVersion = 0;
     this._tServ = -1;
     this._lastTime = -1;
@@ -355,6 +359,10 @@ export class DiffBuffer {
 
   /**
    * Put a diff received from the wire in its place in the bucket.
+   * Slot i represents frame `base + i`; compaction advances the base by the
+   * number of shifted slots, even when those slots are empty. Slot 0 folds
+   * everything up to the base. Diffs ending below that base are stale, as is
+   * a diff starting past the folded prefix whose range a later diff covers.
    *
    * After {@link DiffBuffer.reset}, and before anything has been received
    * (`version` is `-1`), the first diff starts the stream whatever frame it
@@ -368,7 +376,8 @@ export class DiffBuffer {
    *   channel delivered late or twice, and is discarded when the bucket has
    *   drained (it would otherwise become the new starting point and roll
    *   `version` back), or when it is older than everything still buffered;
-   *   one for a frame that is still buffered merges into it, as a retransmit.
+   *   one for a frame that is still buffered merges into it, as a retransmit,
+   *   unless it starts past the folded prefix and a later buffered diff covers its range.
    *
    * Resets in held diffs wait with their snapshots. Release advances received `version`, but
    * reset deduplication happens in {@link DiffBuffer.pull}, against the rendered state's
@@ -413,10 +422,15 @@ export class DiffBuffer {
     return open;
   }
 
-  // accept puts a diff that starts within `version` in its place in the bucket.
+  /**
+   * Insert an accepted diff at `diff.to - base`, discarding negative indices
+   * and gapped diffs fully covered by a later buffered range.
+   * Compact in frame order and advance the slot base by exactly the shift;
+   * never infer it from the folded endpoint in slot 0.
+   */
   private _accept(diff: Diff): void {
     // in case of buffer empty or first diff, initialize everything:
-    if (this._first === undefined) {
+    if (this._base === undefined) {
       // An empty bucket does not mean nothing has been received: once pull() has
       // consumed the buffered frames, `version` still names the newest frame this
       // client has, and only reset() (which makes it -1) starts the stream over. A
@@ -432,43 +446,48 @@ export class DiffBuffer {
         }
       }
       this.bucket[0] = diff;
-      this._first = diff.to;
+      this._base = diff.to;
       this.version = diff.to;
       return;
     }
 
     // Locate the index position for this diff in the bucket based on the
-    // version of the first item in the bucket:
-    let index = diff.to - this._first;
+    // frame represented by slot 0:
+    let index = diff.to - this._base;
 
     // negative index means this information is too old:
     if (index < 0) {
       return; // too old. Discard
     }
+    // A late optimistic delta can start past the folded prefix endpoint, even
+    // at slot zero. If a later accepted range carries all its net changes,
+    // discard it instead of merging across that gap now or during compaction.
+    // Keep ordinary retransmits that connect to the prefix for interpolation.
+    const prefix = this.bucket[0];
+    if (prefix !== undefined && diff.from > prefix.to) {
+      for (let i = index + 1; i < this.bucket.length; i++) {
+        const later = this.bucket[i];
+        if (later !== undefined && later.from <= diff.from && later.to >= diff.to) {
+          return;
+        }
+      }
+    }
     if (index >= this.bucket.length) {
       // index falls out of the bucket, meaning
       // there is old information in the bucket.
-      let d = index - (this.bucket.length - 1);
-      if (d >= this.bucket.length) {
-        // information in the bucket is extremely old
-        // we will merge everything on to bucket[0] + this diff
-        this._first = diff.to;
-        d = this.bucket.length;
-        index = 0;
-      } else {
-        // information was old, but it can be fixed by
-        // merging partially.
-        index = this.bucket.length - d;
+      const shift = index - (this.bucket.length - 1);
+      // When the whole bucket is old, skip the remaining empty frames too,
+      // placing the incoming diff in slot 0.
+      const d = shift >= this.bucket.length ? index : shift;
+      // Fold the prefix once, then shift the suffix once: O(bucket length).
+      for (let i = 1; i <= Math.min(d, this.bucket.length - 1); i++) {
+        this.bucket[0] = merge(this.bucket[0], this.bucket[i]);
       }
-      // the following loop merges as much as needed to make
-      // space for the incoming diff.
-      for (let i = 0; i < d; i++) {
-        this.bucket[0] = merge(this.bucket[0], this.bucket[1]);
-        for (let j = 1; j < this.bucket.length - 1; j++) {
-          this.bucket[j] = this.bucket[j + 1];
-        }
-        this.bucket[this.bucket.length - 1] = undefined;
+      for (let i = 1; i < this.bucket.length; i++) {
+        this.bucket[i] = i + d < this.bucket.length ? this.bucket[i + d] : undefined;
       }
+      this._base += d;
+      index = diff.to - this._base;
     }
     // merge the incoming diff with whatever is at the target
     // index, normally undefined, but it could be a retransmit
@@ -480,7 +499,6 @@ export class DiffBuffer {
     if (this.bucket[0] === undefined) {
       throw new Error("bucket[0] is undefined");
     }
-    this._first = this.bucket[0].to;
 
     // setting `version` allows the session layer to ack this diff.
     if (diff.to > this.version) {
