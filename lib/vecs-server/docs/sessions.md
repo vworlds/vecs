@@ -312,7 +312,9 @@ the diff it cannot apply, reports the gap in its next ack, and the server sends 
 ack until the client has caught up. The client's view stops for about one round trip. Its
 interpolation buffer hides part of that. A change lost with nothing sent after it is found by a timer
 instead, the same twice-the-smoothed-round-trip timeout that presumes a baseline lost, and costs
-that timeout plus a link delay.
+that timeout plus a link delay. If a delayed ACK covers the watched change but newer sent content
+is still unacknowledged, the timer immediately retargets to that tail. See the
+[liveness bound and probe design](../../../architecture/REPLICATION.md#liveness-the-ack-timeout).
 
 | `redundancyFrames` | A change is sent in           | Lost frames in a row that stall the view |
 | ------------------ | ----------------------------- | ---------------------------------------- |
