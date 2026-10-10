@@ -60,6 +60,7 @@ world.progress(performance.now(), 16); // call once per frame
 ## Documentation
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
+For server keepalive gates and the idle replicated-state clock, see [Replication](../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate).
 
 The full documentation lives in [`docs/`](./docs/README.md). Recommended reading order:
 

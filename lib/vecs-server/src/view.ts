@@ -18,6 +18,13 @@ export interface IEntityTrackerListener {
 
 export class View implements IEntityTrackerListener {
   private _dsl: QueryDSL = false;
+  private _gateTracker: IEntityTracker | undefined;
+  private _oldGateTracker: IEntityTracker | undefined;
+
+  /** Number of visible networked entities matching the world's keepalive gate. */
+  public get gateCount(): number {
+    return this._gateTracker?.count ?? 0;
+  }
 
   public get dsl(): QueryDSL {
     return this._dsl;
@@ -31,6 +38,7 @@ export class View implements IEntityTrackerListener {
     if (this._tracker !== undefined && this._old_tracker === undefined) {
       this._old_tracker = this._tracker;
       this._old_tracker_key = this._tracker_key;
+      this._oldGateTracker = this._gateTracker;
     }
   }
 
@@ -81,31 +89,43 @@ export class View implements IEntityTrackerListener {
   }
 
   /** @internal */
-  public _refreshTracker(cache: TrackerCache): void {
+  public _refreshTracker(cache: TrackerCache, gateDsl?: QueryDSL): void {
     const key = cache.getKey(this.dsl);
     if (this._tracker_key === key) {
       if (this._old_tracker === this._tracker) {
         this._old_tracker = undefined;
         this._old_tracker_key = undefined;
+        this._oldGateTracker = undefined;
       }
       return;
     }
 
     if (this._old_tracker !== undefined && this._old_tracker_key === key) {
       const currentTracker = this._tracker;
+      const currentGateTracker = this._gateTracker;
+      this._gateTracker = this._oldGateTracker;
       this._setTracker(this._old_tracker);
       this._tracker_key = this._old_tracker_key;
       if (currentTracker !== undefined && currentTracker !== this._old_tracker) {
         cache.returnTracker(currentTracker);
       }
+      if (currentGateTracker !== undefined && currentGateTracker !== this._oldGateTracker) {
+        cache.returnTracker(currentGateTracker);
+      }
       return;
     }
 
     const currentTracker = this._tracker;
+    const currentGateTracker = this._gateTracker;
+    this._gateTracker =
+      gateDsl === undefined ? undefined : cache.getTracker({ all: [this.dsl, gateDsl] });
     this._setTracker(cache.getTracker(this.dsl));
     this._tracker_key = key;
     if (currentTracker !== undefined && currentTracker !== this._old_tracker) {
       cache.returnTracker(currentTracker);
+    }
+    if (currentGateTracker !== undefined && currentGateTracker !== this._oldGateTracker) {
+      cache.returnTracker(currentGateTracker);
     }
   }
 
@@ -128,6 +148,10 @@ export class View implements IEntityTrackerListener {
 
   /** @internal */
   public _releaseOldTracker(cache: TrackerCache): void {
+    if (this._oldGateTracker !== undefined && this._oldGateTracker !== this._gateTracker) {
+      cache.returnTracker(this._oldGateTracker);
+    }
+    this._oldGateTracker = undefined;
     if (this._old_tracker !== undefined && this._old_tracker !== this._tracker) {
       cache.returnTracker(this._old_tracker);
     }
@@ -137,6 +161,10 @@ export class View implements IEntityTrackerListener {
 
   /** @internal */
   public _releaseTrackers(cache: TrackerCache): void {
+    if (this._gateTracker !== undefined && this._gateTracker !== this._oldGateTracker) {
+      cache.returnTracker(this._gateTracker);
+    }
+    this._gateTracker = undefined;
     const tracker = this._tracker;
     tracker?.unsubscribe(this);
     if (tracker !== undefined && tracker !== this._old_tracker) {

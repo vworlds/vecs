@@ -104,6 +104,11 @@ session that would otherwise get none, and `DeadReckonedModule` throws at instal
 the safe value: larger ones save bytes but let the render frame wait. See
 [Set `keepAliveFrames: 1`](../vecs-phaser-server/README.md#set-keepaliveframes-1).
 
+The server module gates keepalives by default: once no moving baseline is visible and
+the blend settling window is acknowledged, traffic pauses. Shared `MOTION_BLEND_MS = 100`
+is the client default and maximum blend duration; shorter blends and `0` remain valid.
+See [idle gating](../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate).
+
 A dead-reckoned body carries `Motion` and no render pose on the server, and a streamed one carries
 the render pose and no `Motion`, so each body is on exactly one path; downstream client systems
 cannot tell an extrapolated pose from an interpolated one. A body may change path while it lives:

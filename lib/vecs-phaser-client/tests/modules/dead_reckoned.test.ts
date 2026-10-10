@@ -7,6 +7,7 @@ import { ClientWorld } from "@vworlds/vecs-client";
 import {
   Arc,
   Motion,
+  MOTION_BLEND_MS,
   MotionClock,
   MotionParams,
   Offset,
@@ -31,6 +32,23 @@ import {
 } from "./parenting_fixtures.js";
 
 describe("DeadReckonedModule (client)", () => {
+  it("rejects blends longer than the server settle limit", () => {
+    const world = new ClientWorld({
+      networkComponents: [...phaserNetworkComponents, ...phaserMotionComponents],
+    });
+    expect(() => world.module(DeadReckonedModule, { blendMs: MOTION_BLEND_MS + 1 })).toThrow(
+      /server pauses keepalives.*freeze part-way/
+    );
+    world.dispose();
+  });
+
+  it.each([0, 50, MOTION_BLEND_MS])("accepts blendMs %i", (blendMs) => {
+    const world = new ClientWorld({
+      networkComponents: [...phaserNetworkComponents, ...phaserMotionComponents],
+    });
+    expect(() => world.module(DeadReckonedModule, { blendMs })).not.toThrow();
+    world.dispose();
+  });
   it("gives a body that arrives with only a baseline a render pose, extrapolated at renderFrame", () => {
     const client = new Client();
     const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
@@ -255,7 +273,7 @@ describe("DeadReckonedModule (client)", () => {
   it("snaps a late correction above 1 m or 0.5 rad, and takes other limits from its options", () => {
     const far = new Client();
     const turned = new Client();
-    const tolerant = new Client({ snapDistance: 5, blendMs: 200 });
+    const tolerant = new Client({ snapDistance: 5, blendMs: 50 });
     const bodies = [far, turned, tolerant].map((client) => {
       const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
       client.render(20);
@@ -276,8 +294,11 @@ describe("DeadReckonedModule (client)", () => {
     expectPose(bodies[0]!, pathAt(corrections[0]!, 20.5));
     expectPose(bodies[1]!, pathAt(corrections[1]!, 20.5));
     expectPose(bodies[2]!, pathAt(DRIFT, 20.5));
-    tolerant.render(25); // 150 ms of 200: a quarter of the error left
-    expect(bodies[2]!.get(Position)!.x).toBeCloseTo(pathAt(corrections[2]!, 25).x - 0.25 * 1.5, 2);
+    tolerant.render(21.625); // 37.5 ms of 50: a quarter of the error left
+    expect(bodies[2]!.get(Position)!.x).toBeCloseTo(
+      pathAt(corrections[2]!, 21.625).x - 0.25 * 1.5,
+      2
+    );
   });
 
   it("extrapolates nothing until the MotionClock arrives", () => {

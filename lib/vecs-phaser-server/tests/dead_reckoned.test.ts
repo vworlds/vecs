@@ -42,6 +42,7 @@ import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { DeadReckoned, DeadReckonedModule, type DeadReckonedOptions } from "../src/index.js";
+import { DeadReckonedMoving } from "../src/dead_reckoned.js";
 
 const HZ = 30;
 const STEP_MS = 1000 / HZ;
@@ -171,6 +172,43 @@ class Server {
 }
 
 describe("the DeadReckoned tag", () => {
+  it("tracks moving/rest transitions without structural changes on ordinary rebaselines", () => {
+    const server = new Server({ maxBaselineAge: 1 / HZ });
+    const changes: string[] = [];
+    server.world
+      .component(DeadReckonedMoving)
+      .on("add", () => changes.push("add"))
+      .on("remove", () => changes.push("remove"));
+    const body = server.disc({ vx: 2, insomniac: true });
+    server.step();
+    expect(body.has(DeadReckonedMoving)).toBe(true);
+    server.step(10);
+    expect(server.framesOf(body).length).toBeGreaterThan(5);
+    expect(changes).toEqual(["add"]);
+    body.set(LinearVelocity, { x: 0, y: 0 });
+    server.step(2);
+    expect(body.get(Motion)!.rest).toBe(true);
+    expect(body.has(DeadReckonedMoving)).toBe(false);
+    body.set(LinearVelocity, { x: 2, y: 0 });
+    server.step();
+    expect(body.has(DeadReckonedMoving)).toBe(true);
+    body.remove(DeadReckoned);
+    expect(body.has(DeadReckonedMoving)).toBe(false);
+    body.add(DeadReckoned);
+    server.step();
+    expect(body.has(DeadReckonedMoving)).toBe(true);
+    body.destroy();
+    expect(changes).toEqual(["add", "remove", "add", "remove", "add", "remove"]);
+  });
+
+  it("registers no keepalive gate with idleKeepAlive false", () => {
+    const world = new ServerWorld({ networkComponents: NETWORK_COMPONENTS, keepAliveFrames: 1 });
+    world.module(PhysicsModule, { fixedTimeStep: 1 / HZ });
+    const gate = vi.spyOn(world, "keepAliveWhile");
+    world.module(DeadReckonedModule, { idleKeepAlive: false });
+    expect(gate).not.toHaveBeenCalled();
+    world.dispose();
+  });
   it("brings Motion and the physics Rotation, and removes the render pose", () => {
     const server = new Server();
     const entity = server.world
@@ -327,6 +365,7 @@ describe("the divergence check", () => {
     const spawn = server.framesOf(container);
     expect(spawn).toHaveLength(1);
     expect(container.get(Motion)).toMatchObject({ vx: expect.any(Number), rest: false });
+    expect(container.has(DeadReckonedMoving)).toBe(true);
     expect(container.get(MotionParams)).toMatchObject({
       linearDamping: Math.fround(0.15),
       angularDamping: Math.fround(0.1),
@@ -344,6 +383,7 @@ describe("the divergence check", () => {
     expect(asleepAt).toBeGreaterThan(20 * HZ);
     expect(server.framesOf(container)).toHaveLength(2);
     expect(container.get(Motion)).toMatchObject({ vx: 0, vy: 0, w: 0, rest: true });
+    expect(container.has(DeadReckonedMoving)).toBe(false);
     // The baseline at rest leaves the constants alone.
     expect(container.get(MotionParams)).toMatchObject({
       linearDamping: Math.fround(0.15),
@@ -863,12 +903,14 @@ describe("the pose guard", () => {
     expect(server.framesOf(created!)).toEqual([createdAt]);
     // No Box2D body exists yet to read velocities from, so the baseline holds the pose at rest.
     expect(created!.get(Motion)).toMatchObject({ frame: createdAt, x: 3, y: 4, rest: true });
+    expect(created!.has(DeadReckonedMoving)).toBe(false);
     expect(created!.get(Motion)!.angle).toBeCloseTo(0.5, 6);
 
     // The first step creates the body, finds it off its held pose and corrects the baseline.
     server.step();
     expect(server.framesOf(created!)).toEqual([createdAt, createdAt + 1]);
     expect(created!.get(Motion)).toMatchObject({ rest: false });
+    expect(created!.has(DeadReckonedMoving)).toBe(true);
     expect(created!.get(Motion)!.vx).toBeCloseTo(2, 5);
   });
 
@@ -915,7 +957,9 @@ describe("sector transfer", () => {
 
     const moved = source.world.moveSubtree(ship, destination.world);
     const arrived = moved.roots[0]!;
+    expect(arrived.has(DeadReckonedMoving)).toBe(false);
     destination.step();
+    expect(arrived.has(DeadReckonedMoving)).toBe(true);
 
     expect(arrived.has(DeadReckoned)).toBe(true);
     expect(arrived.has(RenderPosition)).toBe(false);

@@ -4,6 +4,7 @@ import {
   copyMotionParams,
   defaultMotionParams,
   Motion,
+  MOTION_BLEND_MS,
   MotionClock,
   MotionParams,
   MotionPose,
@@ -23,6 +24,8 @@ export interface DeadReckonedModuleConfig {
    * already been drawn on the old path; its error fades out over this time instead of jumping. The
    * same blend smooths the hand-off when the server switches a body between a streamed pose and
    * dead reckoning, in either direction. `0` turns blending off: every correction snaps.
+   * Defaults to the shared `MOTION_BLEND_MS`; values above it throw at install because
+   * the server pauses keepalives after that long and a longer blend would freeze part-way.
    */
   readonly blendMs?: number;
 
@@ -97,6 +100,9 @@ export interface DeadReckonedModuleConfig {
  * - A late correction blends: the error between the old and the new path fades out linearly over
  *   `blendMs` of render time. One that moves the body further than `snapDistance` or turns it
  *   further than `snapAngle` snaps instead.
+ * - After an idle keepalive pause, the first moving baseline can be applied up to one frame
+ *   late and then blends like any late correction. The pre-existing buffer compaction race
+ *   is tracked in https://github.com/vworlds/vecs/issues/271.
  *
  * The world's `MotionClock`, which the server sends once, supplies the step, substeps, gravity and
  * speed cap. Until it arrives nothing is extrapolated.
@@ -122,7 +128,13 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       throw new Error("DeadReckonedModule must be installed on a ClientWorld");
     }
     requireNetworkComponents(world);
-    const blendSeconds = (config?.blendMs ?? 100) / 1000;
+    const blendMs = config?.blendMs ?? MOTION_BLEND_MS;
+    if (blendMs > MOTION_BLEND_MS) {
+      throw new Error(
+        `blendMs cannot exceed ${MOTION_BLEND_MS}: the server pauses keepalives after that long, so a longer blend would freeze part-way`
+      );
+    }
+    const blendSeconds = blendMs / 1000;
     const snapDistance = config?.snapDistance ?? 1;
     const snapDistanceSquared = snapDistance * snapDistance;
     const snapAngle = config?.snapAngle ?? 0.5;

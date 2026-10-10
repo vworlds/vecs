@@ -332,6 +332,12 @@ fallbacks and the measured trade-off are in
 
 ### Keepalive: `keepAliveFrames`
 
+Use `world.keepAliveWhile(dsl, settleFrames = 0)` before the first session to pause
+idle keepalives once nothing visible matches and the settling window after the last
+content send is acknowledged. It requires `keepAliveFrames`; registrations OR their
+queries and take the longest settle. No registration preserves the existing cadence
+and bytes. See [the gate, clock contract, and cost](../../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate).
+
 The server sends a session nothing for an empty diff, so while a view is quiet no frame reaches
 the client and its `renderFrame` holds at the newest frame it applied. The replicated data is
 right, because nothing changed. But whatever the client derives from `renderFrame` instead of from

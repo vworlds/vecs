@@ -1,5 +1,8 @@
 import { type ComponentClass } from "@vworlds/vecs";
 
+/** Maximum/default motion blend duration, in milliseconds; also bounds server keepalive settle. */
+export const MOTION_BLEND_MS = 100;
+
 export { Container, DrawBy, DrawIn, InheritRotation } from "./components/parenting.js";
 export { Alpha, Depth, Offset, Position, Rotation, Scale } from "./components/transform.js";
 export { FillStyle, OpenPath, StrokeStyle, Tint } from "./components/style.js";

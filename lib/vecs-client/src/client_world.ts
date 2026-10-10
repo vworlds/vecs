@@ -196,6 +196,9 @@ export class ClientWorld extends NetworkWorld {
    * `N + alpha` in steady play, where M is N + 1. Use it to put state the client computes
    * itself on the same timeline, such as a pose extrapolated from a baseline taken at a known
    * server frame, so that extrapolated and interpolated entities show the same moment.
+   * This is the clock of replicated state: it holds while the session is idle,
+   * including when the server pauses gated keepalives. Drive client-local effects
+   * from the render loop's time rather than this clock.
    *
    * - It is `0` until the first baseline is applied. A baseline that resets the world, on
    *   connect, on reconnect or after a stall, sets it back to `0` as it destroys the replicated

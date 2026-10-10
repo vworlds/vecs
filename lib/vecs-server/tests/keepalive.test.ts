@@ -111,8 +111,9 @@ interface Rig {
 }
 
 /** A world with two replicated entities and one client connected to it. */
-function createRig(options: ServerWorldOptions = {}): Rig {
+function createRig(options: ServerWorldOptions = {}, setup?: (world: ServerWorld) => void): Rig {
   const world = new ServerWorld({ name: "main", networkComponents: [Position], ...options });
+  setup?.(world);
   world.component(NetworkClient).on("set", (entity) => {
     entity.set(View, { dsl: true });
   });
@@ -299,6 +300,92 @@ describe("keepAliveFrames", () => {
 
   it("is undefined on a world that does not set it", () => {
     expect(new ServerWorld().keepAliveFrames).toBeUndefined();
+  });
+});
+
+class Moving {}
+class OtherMoving {}
+class Visible {}
+
+describe("keepAliveWhile", () => {
+  const gated = (settleFrames = 3): Rig =>
+    createRig({ keepAliveFrames: 1 }, (world) => {
+      world.component(Moving);
+      world.keepAliveWhile(Moving, settleFrames);
+    });
+
+  it("requires keepalives and registration before any session has existed", () => {
+    expect(() => new ServerWorld().keepAliveWhile(true)).toThrow(/keepAliveFrames/);
+    const rig = gated();
+    expect(() => rig.world.keepAliveWhile(true)).toThrow(/first session/);
+    rig.socket.close();
+    expect(() => rig.world.keepAliveWhile(true)).toThrow(/first session/);
+  });
+
+  it("awaits the settle ack, keeps sending through lost acks, and sends none during the handshake", () => {
+    const rig = gated();
+    expect(step(rig)[0].diff).toMatchObject({ fromFrame: 0, toFrame: 1 });
+    expect(steps(rig, 3)).toEqual([]);
+    ack(rig, 1);
+    expect(steps(rig, 6).map(toFrameOf)).toEqual([5, 6, 7, 8, 9, 10]);
+    ack(rig, 3);
+    expect(step(rig).map(toFrameOf)).toEqual([11]);
+    ack(rig, 4);
+    expect(steps(rig, 8)).toEqual([]);
+    move(rig.entity, 9);
+    const contentFrame = step(rig)[0].diff!.toFrame;
+    ack(rig, contentFrame);
+    expect(steps(rig, 3)).toHaveLength(3);
+    ack(rig, contentFrame + 3);
+    expect(steps(rig, 8)).toEqual([]);
+  });
+
+  it("resumes for tag addition, view entry, and a view DSL swap", () => {
+    const rig = gated(0);
+    step(rig);
+    ack(rig, 1);
+    expect(step(rig)).toEqual([]);
+    rig.entity.add(Moving);
+    expect(steps(rig, 3).every(isEmptyDiff)).toBe(true);
+    rig.entity.remove(Moving);
+    expect(step(rig)).toEqual([]);
+
+    rig.world.component(Visible);
+    const viewer = [...rig.world.entities.values()].find((entity) => entity.has(NetworkClient))!;
+    viewer.set(View, { dsl: Visible });
+    const hidden = rig.world.entity().add(Networked).add(Moving).set(Position, { x: 50 });
+    const exit = step(rig)[0];
+    ack(rig, exit.diff!.toFrame);
+    expect(step(rig)).toEqual([]);
+    hidden.add(Visible);
+    const entry = step(rig)[0];
+    ack(rig, entry.diff!.toFrame);
+    expect(steps(rig, 2)).toHaveLength(2);
+    viewer.set(View, { dsl: Position });
+    const swapped = step(rig)[0];
+    ack(rig, swapped.diff!.toFrame);
+    expect(steps(rig, 2)).toHaveLength(2);
+    hidden.remove(Moving);
+    expect(step(rig)).toEqual([]);
+  });
+
+  it("ORs registrations and uses the longest settle", () => {
+    const rig = createRig({ keepAliveFrames: 1 }, (world) => {
+      world.component(Moving);
+      world.component(OtherMoving);
+      world.keepAliveWhile(Moving, 4);
+      world.keepAliveWhile(OtherMoving, 1);
+    });
+    step(rig);
+    ack(rig, 1);
+    expect(steps(rig, 4)).toHaveLength(4);
+    ack(rig, 5);
+    expect(step(rig)).toEqual([]);
+    rig.entity.add(OtherMoving);
+    expect(steps(rig, 2)).toHaveLength(2);
+    rig.entity.remove(OtherMoving);
+    rig.entity.add(Moving);
+    expect(steps(rig, 2)).toHaveLength(2);
   });
 });
 

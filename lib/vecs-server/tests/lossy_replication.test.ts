@@ -38,6 +38,81 @@ const SEEDS = [1, 2, 3, 4];
 
 let sim: ReplicationSim | undefined;
 
+class Moving {}
+
+describe("gated idle keepalives over the lossy harness", () => {
+  it.each([undefined, 1, 2, 3])(
+    "pauses and resumes without gaps, fallbacks or extra baselines (R=%s)",
+    (redundancyFrames) => {
+      sim = new ReplicationSim({
+        networkComponents: [Position, Health],
+        seed: 7,
+        link: HARSH_LINK,
+        serverOptions: { keepAliveFrames: 1, redundancyFrames },
+      });
+      sim.server.component(Moving);
+      sim.server.keepAliveWhile(Moving, 5);
+      const body = sim.server.entity().add(Networked).set(Position, { x: 1 });
+      const client = sim.addClient();
+      const fallback = [] as number[];
+      const server = sim.server as unknown as {
+        _sessions: Map<string, { fallbackFrame?: number }>;
+      };
+      sim.onTick(() =>
+        server._sessions.forEach((session) => {
+          if (session.fallbackFrame !== undefined) {
+            fallback.push(session.fallbackFrame);
+          }
+        })
+      );
+      sim.run(2000);
+      const paused = client.stats.framesSent;
+      sim.run(3000);
+      expect(client.stats.framesSent).toBe(paused);
+      body.add(Moving).set(Position, { x: 2 });
+      sim.run(1000);
+      expect(client.stats.framesSent).toBeGreaterThan(paused + 20);
+      body.remove(Moving);
+      body.set(Position, { x: 3 });
+      sim.run(2000);
+      const settled = client.stats.framesSent;
+      sim.run(3000);
+      expect(client.stats.framesSent).toBe(settled);
+      expect(client.stats.gapReportsSent).toBe(0);
+      expect(fallback).toEqual([]);
+      expect(client.stats.baselinesSent).toHaveLength(1);
+      expect(sim.diffFromServer(client)).toEqual([]);
+    }
+  );
+
+  it.each([undefined, 1, 2, 3])(
+    "recovers content lost at the pause edge (R=%s)",
+    (redundancyFrames) => {
+      sim = new ReplicationSim({
+        networkComponents: [Position, Health],
+        seed: 7,
+        link: symmetric({ oneWayMs: 50 }),
+        serverOptions: { keepAliveFrames: 1, redundancyFrames },
+      });
+      sim.server.component(Moving);
+      sim.server.keepAliveWhile(Moving, 5);
+      const body = sim.server.entity().add(Networked).set(Position, { x: 1 });
+      const client = sim.addClient();
+      sim.run(2000);
+      client.setBlocked("down", true);
+      body.set(Position, { x: 9 });
+      sim.run(150);
+      client.setBlocked("down", false);
+      sim.run(2000);
+      expect(sim.diffFromServer(client)).toEqual([]);
+      expect(client.stats.baselinesSent).toHaveLength(1);
+      const paused = client.stats.framesSent;
+      sim.run(1000);
+      expect(client.stats.framesSent).toBe(paused);
+    }
+  );
+});
+
 afterEach(() => {
   sim?.dispose();
   sim = undefined;

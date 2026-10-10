@@ -244,13 +244,17 @@ renderers, `DrawBy` children and game systems use them as they use an interpolat
   at once. A late one blends its error out linearly over `blendMs` (default 100 ms) of render time;
   one that moves the body further than `snapDistance` (default 1 m) or turns it further than
   `snapAngle` (default 0.5 rad) snaps. `blendMs: 0` turns blending off: every correction snaps.
+  The shared `MOTION_BLEND_MS = 100` is also the maximum: a longer value throws because
+  the server pauses idle keepalives after the blend settling window.
 - **The clock.** The integrator needs the server's `MotionClock`; until it arrives nothing is
   extrapolated.
 - **Frames must keep arriving.** `renderFrame` advances only as `ClientWorld` applies frames, and
   holds at the newest one while none arrives, so the extrapolator can only keep a body moving in an
   idle scene if the server keeps sending frames. The server's `DeadReckonedModule` therefore
   requires `keepAliveFrames` on its `ServerWorld` (use `1`), and sends a header-only frame to a
-  session that would otherwise get none. A server that does not, such as a custom one, freezes every
+  session that would otherwise get none while a moving body is visible or a blend is settling.
+  Once idle it pauses by default; `renderFrame` holds. Use render loop time for local effects.
+  A server that sends no keepalives while bodies move, such as a custom one, freezes every
   dead-reckoned body at the pose of the last frame, then jumps it when the next frame arrives. See
   [Set `keepAliveFrames: 1`](../vecs-phaser-server/README.md#set-keepaliveframes-1).
 
