@@ -43,6 +43,9 @@ class Plain {
 class Holder extends Relationship {}
 class Held extends Relationship {}
 
+/** A client-local intermediate that keeps bringing Pose after Motion is removed. */
+class LocalHint {}
+
 const POSE = 1;
 const MOTION = 2;
 const HINT = 3;
@@ -135,7 +138,17 @@ class Client {
     removed: Array<[EID, number]> = [],
     resets: EntityReset[] = []
   ): void {
-    const fromFrame = this._frame === 0 ? 0 : this._frame;
+    this.queue(snapshots, removed, resets);
+    this.apply();
+  }
+
+  /** Buffer an encoded frame without applying it, optionally overlapping earlier deltas. */
+  public queue(
+    snapshots: EncodedSnapshot[],
+    removed: Array<[EID, number]> = [],
+    resets: EntityReset[] = [],
+    fromFrame = this._frame === 0 ? 0 : this._frame
+  ): void {
     this._frame++;
     this._socket.receive(
       encode(
@@ -144,18 +157,117 @@ class Client {
         })
       )
     );
+  }
+
+  /** Apply all buffered frames at the next timestamp, or catch up after a pause. */
+  public apply(now = this._now): void {
     if (this._mode === "apply") {
-      this.world.apply(this._now);
+      this.world.apply(now);
     } else {
-      this.world.progress(this._now, TICK_MS);
+      this.world.progress(now, TICK_MS);
     }
-    this._now += TICK_MS;
+    this._now = now + TICK_MS;
   }
 }
 
 describe.each(["apply", "progress"] as const)(
   "ClientWorld, frames applied by %s: network removal of a component another one brings through With",
   (mode) => {
+    it.each([
+      [POSE, MOTION],
+      [MOTION, POSE],
+    ])("removes companion and bringer together in wire order %s, %s", (first, second) => {
+      const client = new Client(mode);
+      client.frame([set(EID_A, POSE, new Pose()), set(EID_A, MOTION, new Motion())]);
+
+      client.frame(
+        [],
+        [
+          [EID_A, first],
+          [EID_A, second],
+        ]
+      );
+
+      expect(client.world.entity(EID_A).has(Pose)).toBe(false);
+      expect(client.world.entity(EID_A).has(Motion)).toBe(false);
+    });
+
+    it("keeps the companion when only one of two bringers is removed in the same diff", () => {
+      const client = new Client(mode);
+      client.frame([
+        set(EID_A, POSE, Object.assign(new Pose(), { x: 7 })),
+        set(EID_A, MOTION, new Motion()),
+        set(EID_A, HINT, new Hint()),
+      ]);
+
+      client.frame(
+        [],
+        [
+          [EID_A, POSE],
+          [EID_A, MOTION],
+        ]
+      );
+
+      expect(client.world.entity(EID_A).has(Motion)).toBe(false);
+      expect(client.world.entity(EID_A).has(Hint)).toBe(true);
+      expect(client.world.entity(EID_A).get(Pose)?.x).toBe(7);
+    });
+
+    it("keeps the companion brought by a client-local intermediate after its network source leaves", () => {
+      const client = new Client(mode);
+      client.world.component(Motion).add(With, client.world.component(LocalHint));
+      client.world.component(LocalHint).add(With, client.world.component(Pose));
+      client.frame([set(EID_A, POSE, new Pose()), set(EID_A, MOTION, new Motion())]);
+
+      client.frame(
+        [],
+        [
+          [EID_A, POSE],
+          [EID_A, MOTION],
+        ]
+      );
+
+      expect(client.world.entity(EID_A).has(Motion)).toBe(false);
+      expect(client.world.entity(EID_A).has(LocalHint)).toBe(true);
+      expect(client.world.entity(EID_A).has(Pose)).toBe(true);
+    });
+
+    it.each([
+      [POSE, MOTION],
+      [MOTION, POSE],
+    ])(
+      "removes companion and bringer in merged overlapping deltas, wire order %s, %s",
+      (first, second) => {
+        const client = new Client(mode);
+        client.frame([set(EID_A, POSE, new Pose()), set(EID_A, MOTION, new Motion())]);
+        client.queue([set(EID_A, PLAIN, Object.assign(new Plain(), { value: 2 }))]);
+        client.queue(
+          [],
+          [
+            [EID_A, first],
+            [EID_A, second],
+          ],
+          [],
+          1
+        );
+        client.queue(
+          [set(EID_A, PLAIN, Object.assign(new Plain(), { value: 4 }))],
+          [
+            [EID_A, first],
+            [EID_A, second],
+          ],
+          [],
+          1
+        );
+
+        client.apply(10 * TICK_MS);
+
+        expect(client.world.entity(EID_A).has(Pose)).toBe(false);
+        expect(client.world.entity(EID_A).has(Motion)).toBe(false);
+        expect(client.world.entity(EID_A).get(Plain)?.value).toBe(4);
+      }
+    );
+
     it("skips the removal while the bringer is present, and keeps the component's value", () => {
       const client = new Client(mode);
       const removed: string[] = [];

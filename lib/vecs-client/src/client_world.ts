@@ -135,6 +135,7 @@ export class ClientWorld extends NetworkWorld {
   private _input: unknown;
   // The diff `_pull` took from the buffer, which `_applyPulled` has yet to apply.
   private _pulled: Diff | undefined;
+  private _withRemovalKeys: Set<number> | undefined;
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
   private _closeNotice: CloseNotice | undefined;
@@ -767,9 +768,14 @@ export class ClientWorld extends NetworkWorld {
     if (removed === undefined) {
       return;
     }
-    for (const key of removed) {
-      const [eid, wireType] = cid_unpack(key);
-      this._removeComponent(eid, wireType, diff);
+    this._withRemovalKeys = undefined;
+    try {
+      for (const key of removed) {
+        const [eid, wireType] = cid_unpack(key);
+        this._removeComponent(eid, wireType, diff);
+      }
+    } finally {
+      this._withRemovalKeys = undefined;
     }
   }
 
@@ -858,15 +864,32 @@ export class ClientWorld extends NetworkWorld {
   // skipped: `With` brings it one edge at a time, so no component present stands for the whole
   // relationship.
   //
-  // The snapshots of the diff being applied are queued, not yet attached, while its removals are
-  // checked, so a bringer that this very diff sets counts as present too.
+  // Use the diff's final membership: a bringer set by this diff counts as present even while its
+  // snapshot is queued. Otherwise a present network bringer counts only if this diff neither removes
+  // it nor resets its entity. A client-local bringer is judged by entity.has alone; With does not
+  // remove companions, so a local intermediate can keep bringing without a transitive walk.
+  // Index removals lazily, once per applied diff, only upon reaching a present network bringer.
   private _isBroughtByWith(entity: Entity, Class: ComponentClass, diff: Diff): boolean {
     const component = this.component(Class);
     if (component.meta.isRelationship) {
       return false;
     }
     for (const bringer of component.children(With)) {
-      if (entity.has(bringer) || this._diffSets(diff, entity, bringer)) {
+      if (this._diffSets(diff, entity, bringer)) {
+        return true;
+      }
+      if (!entity.has(bringer)) {
+        continue;
+      }
+      const registered = this.networkComponents.find((component) => component.eid === bringer.eid);
+      if (registered === undefined) {
+        return true;
+      }
+      if (diff.resets?.has(entity.eid)) {
+        continue;
+      }
+      this._withRemovalKeys ??= new Set(diff.removed);
+      if (!this._withRemovalKeys.has(cid_pack(entity.eid, registered.wireType))) {
         return true;
       }
     }
