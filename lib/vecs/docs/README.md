@@ -36,6 +36,8 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 
 ## Map
 
+For Node clients that need replicated Phaser poses, see [Headless clients](../../vecs-phaser-client/README.md#headless-clients).
+
 | Guide                                              | Covers                                                                                       |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | [getting-started.md](./getting-started.md)         | A runnable tutorial from `npm install` to a ticking world.                                   |
@@ -57,6 +59,8 @@ sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vec
 `@vworlds/vecs-server`, and `@vworlds/vecs-client` packages:
 
 - [Remote procedure calls](../../vecs-protocol/docs/rpc.md) — the call channel and typed errors.
+- [State diffs](../../vecs-protocol/docs/state-diffs.md) — what a diff carries, the order a client
+  applies it in, and how a reused entity id stays unambiguous.
 - [Sessions and caller context](../../vecs-server/docs/sessions.md) — per-connection RPC context,
   `closeSession`, and exactly-once teardown.
 - [Client world](../../vecs-client/docs/client-world.md) — replication, render time,

@@ -1,7 +1,12 @@
 import { vi, type MockInstance } from "vitest";
 import { performance } from "node:perf_hooks";
-import { Server2Client, type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
-import { ClientWorld } from "@vworlds/vecs-client";
+import {
+  Client2Server,
+  Server2Client,
+  type VecsSocket,
+  type VecsSocketListener,
+} from "@vworlds/vecs-protocol";
+import { ClientWorld, type ClientWorldOptions } from "@vworlds/vecs-client";
 import { Decoder } from "@vworlds/vecs-wire";
 import type { ComponentClass, QueryDSL, World } from "@vworlds/vecs";
 import { NetworkClient, Networked, ServerWorld, View } from "../../src/index.js";
@@ -112,6 +117,7 @@ export class ReplicationSim {
       renderMs: this._options.renderMs,
       ackIntervalMs: options.ackIntervalMs ?? this._options.ackIntervalMs,
       link: mergeConditions(this._options.link, options.link),
+      interpolators: options.interpolators,
     });
     this.clients.push(client);
     this._listener.accept(client.serverSocket);
@@ -191,6 +197,8 @@ export interface SimClientOptions {
   link?: Partial<DuplexConditions>;
   /** How often this client acks, in milliseconds. */
   ackIntervalMs?: number;
+  /** Components this client interpolates between server frames; none by default, so they snap. */
+  interpolators?: ClientWorldOptions["interpolators"];
 }
 
 /** One `reset` event the client emitted when it applied a baseline, with the time it did. */
@@ -206,6 +214,12 @@ export interface ResetRecord {
 export interface BaselineRecord {
   atMs: number;
   toFrame: number;
+}
+
+/** The newest frame a client had accepted moved forward to `version` at `atMs`. */
+export interface VersionAdvance {
+  atMs: number;
+  version: number;
 }
 
 /** One delta the server handed to a client's socket: the frames it covers and when it was sent. */
@@ -228,6 +242,17 @@ export interface DisconnectRecord {
 export interface ClientStats {
   /** Frames the server handed to this client's socket, before loss. */
   framesSent: number;
+  /** Bytes of those frames, before loss. */
+  bytesSent: number;
+  /** Frames among them that carried the optimistic marker, a delta based past the server's ack. */
+  optimisticFramesSent: number;
+  /** Acks this client handed to its socket that reported a gap, before loss. */
+  gapReportsSent: number;
+  /**
+   * Each time the newest frame this client had accepted moved forward: when, and to which frame.
+   * The gaps between them are how long the client's view stood still.
+   */
+  versionAdvances: VersionAdvance[];
   /** Baselines (`fromFrame === 0`) the server handed to this client's socket, before loss. */
   baselinesSent: BaselineRecord[];
   /** Deltas (frames with a diff that is not a baseline) the server handed to this client's socket. */
@@ -258,6 +283,10 @@ export class SimClient {
   public readonly serverSocket: SimSocket;
   public readonly stats: ClientStats = {
     framesSent: 0,
+    bytesSent: 0,
+    optimisticFramesSent: 0,
+    gapReportsSent: 0,
+    versionAdvances: [],
     baselinesSent: [],
     deltasSent: [],
     baselinesDelivered: 0,
@@ -270,6 +299,7 @@ export class SimClient {
 
   private readonly _clock: SimClock;
   private readonly _stopTimers: Array<() => void> = [];
+  private _lastVersion = -1;
 
   /** Use {@link ReplicationSim.addClient} to build one. */
   public constructor(config: SimClientConfig) {
@@ -295,12 +325,14 @@ export class SimClient {
     clientSocket.connect(this.up, this.serverSocket);
     this.down.tap = (data) => this._observeServerFrame(data);
     this.down.onDeliver = (data) => this._observeDelivery(data);
+    this.up.tap = (data) => this._observeClientAck(data);
 
     // The ack timer is the harness's: a ClientWorld interval would run on real time.
     this.world = new ClientWorld({
       networkComponents: config.networkComponents,
       serverTickIntervalMs: config.tickMs,
       ackIntervalMs: DISABLED_TIMER_MS,
+      interpolators: config.interpolators,
     });
     this.world.events.on("reset", (event) => {
       this.stats.resets.push({ ...event, atMs: clock.now });
@@ -349,6 +381,14 @@ export class SimClient {
     this.world.dispose();
   }
 
+  /**
+   * The newest frame the client's diff buffer has accepted, which is what it acks. The harness
+   * reads it from the buffer itself: no public API of `ClientWorld` exposes it.
+   */
+  private get _version(): number {
+    return (this.world as unknown as { _diffBuffer: { version: number } })._diffBuffer.version;
+  }
+
   private _deliver(socket: SimSocket, data: Uint8Array, receiver: "client" | "server"): void {
     try {
       socket.receive(data);
@@ -356,11 +396,32 @@ export class SimClient {
       const message = error instanceof Error ? error.message : String(error);
       this.stats.errors.push(`${receiver} at ${this._clock.now.toFixed(1)} ms: ${message}`);
     }
+    if (receiver === "client") {
+      this._noteVersion();
+    }
+  }
+
+  private _noteVersion(): void {
+    const version = this._version;
+    if (version > this._lastVersion) {
+      this.stats.versionAdvances.push({ atMs: this._clock.now, version });
+    }
+    this._lastVersion = version;
+  }
+
+  private _observeClientAck(data: Uint8Array): void {
+    if (new Decoder(data).read(Client2Server).gap) {
+      this.stats.gapReportsSent++;
+    }
   }
 
   private _observeServerFrame(data: Uint8Array): void {
     this.stats.framesSent++;
+    this.stats.bytesSent += data.length;
     const message = new Decoder(data).read(Server2Client);
+    if (message.optimistic) {
+      this.stats.optimisticFramesSent++;
+    }
     const diff = message.diff;
     if (diff === undefined) {
       return;
@@ -393,6 +454,7 @@ interface SimClientConfig {
   renderMs: number;
   ackIntervalMs: number;
   link: DuplexConditions;
+  interpolators: ClientWorldOptions["interpolators"];
 }
 
 interface ResolvedOptions {

@@ -16,11 +16,16 @@ export {
   Triangle,
 } from "./components/shapes.js";
 export { Text, TextAlign } from "./components/text.js";
-export { Motion, MotionClock } from "./components/motion.js";
+export {
+  copyMotionParams,
+  defaultMotionParams,
+  Motion,
+  MotionClock,
+  MotionParams,
+} from "./components/motion.js";
 export {
   MotionPose,
   MotionState,
-  motionAtRest,
   motionPose,
   motionStateFrom,
   stepMotion,
@@ -41,7 +46,7 @@ import {
   Triangle,
 } from "./components/shapes.js";
 import { Text } from "./components/text.js";
-import { Motion, MotionClock } from "./components/motion.js";
+import { Motion, MotionClock, MotionParams } from "./components/motion.js";
 
 /**
  * All components that participate in the network protocol, in registration order.
@@ -73,8 +78,9 @@ import { Motion, MotionClock } from "./components/motion.js";
  *  23  OpenPath
  *
  * `InheritRotation` is deliberately not listed: it is client-local by default, and appending to this
- * list shifts the wire id of every application component listed after it. Neither are `Motion` and
- * `MotionClock`, for the same reason: applications append {@link phaserMotionComponents} instead.
+ * list shifts the wire id of every application component listed after it. Neither are `Motion`,
+ * `MotionParams` and `MotionClock`, for the same reason: applications append
+ * {@link phaserMotionComponents} instead.
  */
 export const phaserNetworkComponents = [
   Position,
@@ -123,7 +129,7 @@ export const phaserRenderableComponents = [
 ] as const satisfies readonly ComponentClass[];
 
 /**
- * The dead-reckoning wire components, `MotionClock` then `Motion`.
+ * The dead-reckoning wire components, `MotionClock`, `Motion` then `MotionParams`.
  *
  * They are not in {@link phaserNetworkComponents}: that list's order is the protocol, and appending
  * to it would shift the wire id of every application component listed after it. An application that
@@ -133,4 +139,5 @@ export const phaserRenderableComponents = [
 export const phaserMotionComponents = [
   MotionClock,
   Motion,
+  MotionParams,
 ] as const satisfies readonly ComponentClass[];

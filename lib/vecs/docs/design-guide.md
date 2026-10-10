@@ -177,12 +177,25 @@ world.component(Orange).set(Implements, { interfaces: [Fruit] });
 | `Traversable`     | An exclusive relationship hierarchy needs depth or cascade ordering                |
 | `OwnedTarget`     | An exclusive relationship owns its explicitly added target                         |
 | `OneOf`           | A relationship's targets must be direct children of a declared parent (enum-style) |
+| `With`            | Adding one component should bring another along, as a companion it does not own    |
 
 Traits declare policy; modules implement it through hooks and metadata. Configure them in module
 setup, not inside systems. Lifecycle differs by trait: `OwnedTarget` and `Singleton` are setup-time
 policy, `Traversable` backfills, and `Implements` recomputes declarations. Do not assume traits are
 dynamically removable. See the [Components guide](./components.md#component-traits-policy-on-component-entities)
 for the full model and custom-trait guidance.
+
+`With` is a pair-form trait: `world.component(Motion).add(With, world.component(Position))` adds a
+`Position` whenever a `Motion` is added. It only brings the companion along: removing `Motion` does
+not remove `Position`, and a `Position` the entity already holds is left as it is. A networked
+client has one more rule, because the server decides what a client replicates but the client decides
+what it derives. **`ClientWorld.apply` skips a network removal of a component that another
+component present on the entity brings through `With`**, so a server can swap the source of a
+client-local component in one diff, say a streamed `Position` for a dead-reckoned `Motion`, and the
+entity never goes without it: no `remove` hook fires, and the queries and `DrawBy` children that
+match on it never see it leave. A bringer that the same diff sets counts as present. The entity-destroy
+path is unaffected, and a relationship is removed as sent (see
+[Applying a frame](../../vecs-client/docs/client-world.md#applying-a-frame)).
 
 ### Exclusive component groups
 
@@ -901,10 +914,19 @@ system after whatever produces the entity/companion.
   [Pose Updates Fire Only When The Pose Changes](../../vecs-physics/docs/systems-and-phases.md#pose-updates-fire-only-when-the-pose-changes)).
 - **vecs-phaser-server: game code owns the physics pose; the render pose is protocol-private.** On
   the server, read and write the physics `Position` and `Rotation` of every entity, including one
-  without a `Body`. The render `Position` and `Rotation` and the dead-reckoning `Motion` are wire
-  encodings of that pose that only the sync systems write: a `DeadReckoned` body has no render pose
-  at all, and adding one throws (see
+  without a `Body`. The render `Position` and `Rotation` and the dead-reckoning `Motion` and
+  `MotionParams` are wire encodings of that pose that only the sync systems write: a `DeadReckoned`
+  body has no render pose at all, and adding one throws (see
   [Dead reckoning](../../vecs-phaser-server/README.md#dead-reckoning)).
+- **vecs-phaser-server: switch `DeadReckoned` on a change of state, and keep a constantly driven body
+  streamed.** The tag may be added or removed at any time, so a body can be dead reckoned while it
+  drifts and streamed while joints, thrust or a tow drive it (a driven body diverges from its
+  prediction every step and would cost a baseline of about 27 bytes per step against about 22 for a
+  streamed pose update). Toggle it when the state changes, not every frame: each switch costs a
+  baseline one way and a pose update the other, and clients blend the hand-off over `blendMs`. A
+  render pose or `Motion` created or switched late in a frame, in `PRE_STORE`, `ON_STORE` or an RPC
+  handler, is still synced from the physics pose before the frame is recorded (see
+  [Switching at runtime](../../vecs-phaser-server/README.md#switching-at-runtime)).
 - **vecs-client: attach a `ClientWorld` socket only after `socket.connect()` resolves,** so no ack
   precedes the data channel (`connectDgram` does this). Pending `invoke` calls reject with
   `RPC_CLOSED_CODE` on disconnect or `dispose` (see

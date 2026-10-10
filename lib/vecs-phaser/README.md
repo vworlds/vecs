@@ -25,63 +25,92 @@ Also exports the shared asset catalog schema (`AssetDescriptor`, `SpritesheetDes
 
 ## Dead reckoning
 
-`Motion` and `MotionClock` let a client extrapolate a physics body instead of receiving its pose
-every tick (#217). `Motion` is a complete baseline: the body origin, angle and velocities at a
-server frame, plus the body constants that differ from their defaults: damping, local center of
-mass, gravity scale and Box2D's `allowFastRotation`. `MotionClock` is the world's physics step,
-substep count, gravity and maximum linear speed, carried by one entity. `Motion` costs 26 bytes
-with a frame below 128, plus 8 for the damping pair, 8 for the local center and 4 for a gravity
-scale other than 1; `allowFastRotation` is a bit of the mask byte and costs nothing. Box2D applies
-no gravity to a body without mass, which the baseline cannot tell, so set `gravityScale` to 0 for a
-kinematic body.
+`Motion`, `MotionParams` and `MotionClock` let a client extrapolate a physics body instead of
+receiving its pose every tick (#217). They split what the prediction needs by how often it changes:
 
-Neither is in `phaserNetworkComponents`. An application that uses dead reckoning appends
-`phaserMotionComponents` (`MotionClock`, then `Motion`) to its own network components, after its
-existing entries, on the server and the client alike, so no wire id shifts.
+| Component      | Holds                                                                                                                                    | Sent                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `Motion`       | The baseline: the body origin and angle at a server frame, and its velocities unless `rest` is set                                       | with every correction               |
+| `MotionParams` | The body constants: damping, local center of mass, gravity scale and Box2D's `allowFastRotation`. An entity without one has the defaults | only when a body's constants change |
+| `MotionClock`  | The world's physics step, substep count, gravity and maximum linear speed, carried by one entity                                         | once                                |
 
-The shared integrator predicts the body from its baseline. It mirrors Box2D v3's free-body step as
-box2d3-wasm builds it, in f32 and with no `sin`, `cos` or `atan2` per step, so every JS engine
-computes the same states, and from a rotation Box2D holds exactly they equal Box2D's bit for bit.
-It allocates nothing:
+`rest` says the baseline holds the body still, so peers hold its pose and never step it, and the
+velocities are not sent. The server decides it (a sleeping body, or one with no velocity that nothing
+accelerates); a peer never works it out from the velocities and the gravity.
+
+A `Motion` costs 26 bytes with a frame below 128 (the frame as a varint, a flags byte, the pose and
+the velocities as f32) and 14 bytes at rest. A `MotionParams` costs 1 byte for the defaults, plus 8
+for the damping pair, 8 for the local center and 4 for a gravity scale other than 1;
+`allowFastRotation` is a bit of the mask byte and costs nothing. An entity without a `MotionParams`
+has no damping, its center of mass at the body origin, a gravity scale of 1 and no fast rotation:
+`defaultMotionParams` holds them. A body that never leaves the defaults, such as a bullet, never
+carries the component. Box2D applies no gravity to a body without mass, which the constants cannot
+tell, so a sender sets `gravityScale` to 0 for a kinematic body. Each peer keeps a private
+`MotionParams` per body, copied from the entity's (or from the defaults) when it writes or accepts a
+baseline; `copyMotionParams(source, target)` is that copy, field by field, without allocating.
+
+None of them is in `phaserNetworkComponents`. An application that uses dead reckoning appends
+`phaserMotionComponents` (`MotionClock`, `Motion`, then `MotionParams`) to its own network
+components, after its existing entries, on the server and the client alike, so no wire id shifts.
+Server and client must be built from the same version: the layout of `Motion` and the id of
+`MotionParams` are part of the protocol.
+
+The shared integrator predicts the body from its baseline and its constants. It mirrors Box2D v3's
+free-body step as box2d3-wasm builds it, using f32 stepping arithmetic and no `sin`, `cos` or `atan2`
+per step. Baseline rotation initialization does use `sin` and `cos`; measured accuracy is from the
+real-WASM tests on the tested runtime, not cross-browser proof. The integrator writes into supplied
+state objects without allocating per step:
 
 ```ts
-import { Motion, MotionClock, MotionPose, MotionState } from "@vworlds/vecs-phaser";
+import { Motion, MotionClock, MotionParams, MotionPose, MotionState } from "@vworlds/vecs-phaser";
 import { motionPose, motionStateFrom, stepMotion } from "@vworlds/vecs-phaser";
 
-const motion = Object.assign(new Motion(), { vx: 6, vy: -8, w: 2, linearDamping: 0.15 });
+const motion = Object.assign(new Motion(), { vx: 6, vy: -8, w: 2 });
+const params = Object.assign(new MotionParams(), { linearDamping: 0.15 });
 const clock = new MotionClock();
-const state = motionStateFrom(motion, new MotionState());
+const state = motionStateFrom(motion, params, new MotionState());
 const pose = new MotionPose();
 
-stepMotion(state, motion, clock); // one physics step
-motionPose(state, motion, pose); // pose.x, pose.y, pose.angle
+stepMotion(state, params, clock); // one physics step
+motionPose(state, params, pose); // pose.x, pose.y, pose.angle
 ```
 
 Forces, contacts, joints, locked axes and sleep are not modeled: a body they affect leaves the
-prediction, and the server sends a new baseline. `motionAtRest(motion, clock)` tells a baseline that
-holds its body still (no velocity, no gravity acting on it), which neither peer needs to step.
+prediction, and the server sends a new baseline. A baseline with `rest` set is not stepped at all.
 
 Two modules put it to work, one per side:
 
-| Side   | Module                                                  | Does                                                                                                                                                                           |
-| ------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Server | `DeadReckonedModule` from `@vworlds/vecs-phaser-server` | Runs the client's prediction for every body tagged `DeadReckoned` and writes a new `Motion` only when the body strays past a tolerance or falls asleep. Owns the `MotionClock` |
-| Client | `DeadReckonedModule` from `@vworlds/vecs-phaser-client` | Extrapolates every `Motion` at `ClientWorld.renderFrame` into a client-local `Position` and `Rotation`                                                                         |
+| Side   | Module                                                                                                | Does                                                                                                                                                                                                                             |
+| ------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server | `DeadReckonedModule` from `@vworlds/vecs-phaser-server`                                               | Runs the client's prediction for every body tagged `DeadReckoned` and writes a new `Motion` only when the body strays past a tolerance or falls asleep, with a `MotionParams` when the constants changed. Owns the `MotionClock` |
+| Client | `DeadReckonedModule` from `@vworlds/vecs-phaser-client/headless` (also exported by the browser entry) | Extrapolates every `Motion` at `ClientWorld.renderFrame` into a client-local `Position` and `Rotation`, stepping it with the entity's `MotionParams`                                                                             |
 
 ```mermaid
 graph LR
   PP["physics pose"] --> D{"strayed or fell asleep?"}
   D -->|"yes"| M["Motion baseline"]
-  D -->|"no"| N["nothing sent"]
+  D -->|"no"| N["no pose update; session keepalives continue"]
+  M -->|"constants changed: same frame"| K["MotionParams"]
   M --> X["client extrapolator at renderFrame"]
+  K --> X
   X --> P["Position / Rotation"]
 ```
 
+Dead reckoning needs frames to keep arriving. The client extrapolates at `ClientWorld.renderFrame`,
+which advances only as frames are applied, and a server sends a session nothing while its replicated
+state is unchanged, so in an idle scene every dead-reckoned body would freeze and then jump. The
+server therefore sets `keepAliveFrames: 1` on its `ServerWorld`, which sends a header-only frame to a
+session that would otherwise get none, and `DeadReckonedModule` throws at install without it. `1` is
+the safe value: larger ones save bytes but let the render frame wait. See
+[Set `keepAliveFrames: 1`](../vecs-phaser-server/README.md#set-keepaliveframes-1).
+
 A dead-reckoned body carries `Motion` and no render pose on the server, and a streamed one carries
 the render pose and no `Motion`, so each body is on exactly one path; downstream client systems
-cannot tell an extrapolated pose from an interpolated one. See
-[Dead reckoning on the server](../vecs-phaser-server/README.md#dead-reckoning) and
-[on the client](../vecs-phaser-client/README.md#dead-reckoning).
+cannot tell an extrapolated pose from an interpolated one. A body may change path while it lives:
+the server tags or untags it with `DeadReckoned`, and the client keeps its render pose present and
+blends the hand-off. See [Dead reckoning on the server](../vecs-phaser-server/README.md#dead-reckoning),
+[Switching at runtime](../vecs-phaser-server/README.md#switching-at-runtime) and
+[Dead reckoning on the client](../vecs-phaser-client/README.md#dead-reckoning).
 
 Depends on `@vworlds/vecs` and `@vworlds/vecs-wire`.
 

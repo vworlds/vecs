@@ -257,11 +257,224 @@ describe("rpcSettledBelow", () => {
   });
 
   it("still rejects an unknown field tag in either direction", () => {
-    expect(() => new Decoder(Uint8Array.of(7, 6)).read(Client2Server)).toThrow(
-      "Invalid Client2Server field tag 6"
+    expect(() => new Decoder(Uint8Array.of(7, 8)).read(Client2Server)).toThrow(
+      "Invalid Client2Server field tag 8"
     );
-    expect(() => new Decoder(Uint8Array.of(6)).read(Server2Client)).toThrow(
-      "Invalid Server2Client field tag 6"
+    expect(() => new Decoder(Uint8Array.of(8)).read(Server2Client)).toThrow(
+      "Invalid Server2Client field tag 8"
+    );
+  });
+});
+
+describe("optimistic marker and gap report", () => {
+  const diff = new StateDiff({ fromFrame: 3, toFrame: 4 });
+  const answer = [new RPC({ rpcId: 0, callId: 1 })];
+
+  it("round-trips the optimistic marker on a server frame next to every other field", () => {
+    const message = new Server2Client({
+      diff: new StateDiff({ fromFrame: 5, toFrame: 9 }),
+      rpc: [new RPC({ rpcId: 0, callId: 1, params: ["ok"] })],
+      rpcSettledBelow: 9,
+      optimistic: true,
+      close: { code: 4003, reason: "superseded" },
+    });
+
+    const decoded = new Decoder(encodeMessage(message)).read(Server2Client);
+
+    expect(decoded.optimistic).toBe(true);
+    expect(decoded.diff).toMatchObject({ fromFrame: 5, toFrame: 9 });
+    expect(decoded.rpc[0].params).toEqual(["ok"]);
+    expect(decoded.rpcSettledBelow).toBe(9);
+    expect(decoded.close).toEqual({ code: 4003, reason: "superseded" });
+  });
+
+  it("round-trips the gap report on a client ack next to every other field", () => {
+    const message = new Client2Server({
+      ackFrame: 7,
+      input: { keys: ["up"] },
+      rpc: [new RPC({ rpcId: 101, callId: 12, params: [1] })],
+      rpcSettledBelow: 12,
+      gap: true,
+    });
+
+    const decoded = new Decoder(encodeMessage(message)).read(Client2Server);
+
+    expect(decoded.gap).toBe(true);
+    expect(decoded.ackFrame).toBe(7);
+    expect(decoded.input).toEqual({ keys: ["up"] });
+    expect(decoded.rpc[0].callId).toBe(12);
+    expect(decoded.rpcSettledBelow).toBe(12);
+  });
+
+  it("encodes each as a bare tag, 6 on a server frame and 7 on a client ack", () => {
+    expect(encodeMessage(new Server2Client({ optimistic: true }))).toEqual(Uint8Array.of(6));
+    expect(encodeMessage(new Client2Server({ ackFrame: 7, gap: true }))).toEqual(
+      Uint8Array.of(7, 7)
+    );
+  });
+
+  it("is absent by default, so a frame that is not optimistic is byte-identical to before", () => {
+    // Hand-built from the field layout that predates the marker and the report.
+    const legacyFrame = Uint8Array.of(1, 4, 3, 0, 0, 2, 1, 0, 1, 0, 0, 0);
+    expect(encodeMessage(new Server2Client({ diff, rpc: answer }))).toEqual(legacyFrame);
+    expect(encodeMessage(new Server2Client({ diff, rpc: answer, optimistic: false }))).toEqual(
+      legacyFrame
+    );
+    expect(new Decoder(legacyFrame).read(Server2Client).optimistic).toBe(false);
+
+    const ask = [new RPC({ rpcId: 101, callId: 0 })];
+    const legacyAck = Uint8Array.of(7, 2, 1, 101, 0, 0, 0, 0);
+    expect(encodeMessage(new Client2Server({ ackFrame: 7, rpc: ask }))).toEqual(legacyAck);
+    expect(encodeMessage(new Client2Server({ ackFrame: 7, rpc: ask, gap: false }))).toEqual(
+      legacyAck
+    );
+    expect(new Decoder(legacyAck).read(Client2Server).gap).toBe(false);
+  });
+
+  it("leaves a frame without the fields undecorated: the marker and the report default to false", () => {
+    expect(new Server2Client().optimistic).toBe(false);
+    expect(new Client2Server().gap).toBe(false);
+    expect(new Decoder(new Uint8Array()).read(Server2Client).optimistic).toBe(false);
+    expect(new Decoder(Uint8Array.of(0)).read(Client2Server).gap).toBe(false);
+  });
+});
+
+describe("StateDiff resets", () => {
+  const snapshotBytes = encodeMessage(
+    new ComponentSnapshot({ eid: 12, wireType: 3, payload: Uint8Array.of(1, 2, 3) })
+  );
+
+  it("round-trips next to snapshots, removals and replies, each with its own frame", () => {
+    const message = new Server2Client({
+      diff: new StateDiff({
+        fromFrame: 5,
+        toFrame: 9,
+        snapshots: [new EncodedSnapshot(snapshotBytes, 12, 3)],
+        removed: [[12, 4]],
+        resets: [
+          [12, 9],
+          [300, 7],
+          [70_000, 6],
+        ],
+      }),
+      optimistic: true,
+      rpc: [new RPC({ rpcId: 0, callId: 9, params: ["ok"] })],
+    });
+    const decoded = new Decoder(encodeMessage(message)).read(Server2Client);
+    expect(decoded.optimistic).toBe(true);
+    expect(decoded.diff?.resets).toEqual([
+      [12, 9],
+      [300, 7],
+      [70_000, 6],
+    ]);
+    expect(decoded.diff?.removed).toEqual([[12, 4]]);
+    expect(decoded.diff?.snapshots).toHaveLength(1);
+    expect(decoded.diff?.fromFrame).toBe(5);
+    expect(decoded.diff?.toFrame).toBe(9);
+    expect(decoded.rpc[0].params).toEqual(["ok"]);
+  });
+
+  it("round-trips a baseline and a diff that holds nothing else", () => {
+    const baseline = new StateDiff({ fromFrame: 0, toFrame: 40, resets: [[2, 40]] });
+    const bare = new StateDiff({ fromFrame: 8, toFrame: 9, resets: [[2, 9]] });
+
+    expect(
+      new Decoder(encodeMessage(new Server2Client({ diff: baseline }))).read(Server2Client).diff
+    ).toEqual(baseline);
+    expect(
+      new Decoder(encodeMessage(new Server2Client({ diff: bare }))).read(Server2Client).diff
+    ).toEqual(bare);
+  });
+
+  it("round-trips on its own, outside a Server2Client", () => {
+    const diff = new StateDiff({ fromFrame: 8, toFrame: 12, resets: [[2, 11]], removed: [[2, 5]] });
+
+    expect(new Decoder(encodeMessage(diff)).read(StateDiff)).toEqual(diff);
+  });
+
+  it("encodes a reset as its cid and a frame varint, among the removed entries", () => {
+    const message = new Server2Client({
+      diff: new StateDiff({
+        fromFrame: 3,
+        toFrame: 70,
+        removed: [[5, 2]],
+        resets: [
+          [12, 70],
+          [300, 6],
+        ],
+      }),
+    });
+
+    expect(encodeMessage(message)).toEqual(
+      Uint8Array.of(
+        1, // field: diff
+        70, // toFrame
+        3, // fromFrame
+        0, // snapshots
+        3, // removed entries: one component, two resets
+        0x82,
+        0x0a, // cid of eid 5, wire type 2
+        0x80,
+        0x18, // cid of eid 12, ALL_COMPONENTS
+        0, // toFrame - frame
+        0x80,
+        0xd8,
+        0x04, // cid of eid 300, ALL_COMPONENTS
+        64 // toFrame - frame: 70 - 6
+      )
+    );
+  });
+
+  it("costs a byte for the frame of a reset that is still in a 127-frame history", () => {
+    const encoded = (frame: number) =>
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({ fromFrame: 0, toFrame: 1000, resets: [[1, frame]] }),
+        })
+      );
+
+    expect(encoded(1000).length).toBe(encoded(873).length);
+    expect(encoded(872).length).toBe(encoded(873).length + 1);
+  });
+
+  it("encodes a diff without resets byte for byte as it was before resets existed", () => {
+    const diff = new StateDiff({
+      fromFrame: 3,
+      toFrame: 4,
+      snapshots: [new EncodedSnapshot(snapshotBytes, 12, 3)],
+      removed: [[12, 4]],
+    });
+
+    const encoded = encodeMessage(new Server2Client({ diff }));
+
+    const expected = new Encoder(new Uint8Array(64));
+    expected.write_u8(1);
+    expected.write_u32(4);
+    expected.write_u32(3);
+    expected.write_u32(1);
+    expected.write_buffer(snapshotBytes);
+    expected.write_u32(1);
+    expected.write_u32(cid_pack(12, 4));
+    expect(encoded).toEqual(expected.getBuffer());
+    expect(new Decoder(encoded).read(Server2Client).diff?.resets).toBeUndefined();
+  });
+
+  it("refuses to encode a reset from a frame after the diff's own", () => {
+    const diff = new StateDiff({ fromFrame: 3, toFrame: 4, resets: [[1, 5]] });
+
+    expect(() => encodeMessage(new Server2Client({ diff }))).toThrow(RangeError);
+  });
+
+  it("rejects a truncated resets section", () => {
+    const whole = encodeMessage(
+      new Server2Client({ diff: new StateDiff({ fromFrame: 3, toFrame: 4, resets: [[12, 4]] }) })
+    );
+
+    expect(() => new Decoder(whole.slice(0, whole.length - 1)).read(Server2Client)).toThrow(
+      RangeError
+    );
+    expect(() => new Decoder(whole.slice(0, whole.length - 2)).read(Server2Client)).toThrow(
+      RangeError
     );
   });
 });

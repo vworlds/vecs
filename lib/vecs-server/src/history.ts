@@ -1,10 +1,5 @@
-import { IterableArrayMap } from "@vworlds/vecs";
-import {
-  ALL_COMPONENTS,
-  EncodedSnapshot,
-  StateDiff,
-  type RemovedComponent,
-} from "@vworlds/vecs-protocol";
+import { IterableArrayMap, type EID } from "@vworlds/vecs";
+import { ALL_COMPONENTS, EncodedSnapshot, StateDiff } from "@vworlds/vecs-protocol";
 
 /**
  * Default number of frames a session's {@link History} retains: the default of
@@ -22,9 +17,26 @@ const MIN_HISTORY_FRAMES = 2;
 
 const REMOVED = 0;
 
-type RemovedMarker = typeof REMOVED;
-type Slot = EncodedSnapshot | RemovedMarker;
-type EntityHistory = IterableArrayMap<Slot> | RemovedMarker;
+/**
+ * What a pulled span did to one component of an entity: its newest snapshot, or `REMOVED` for a
+ * removal. Under `ALL_COMPONENTS` the slot is the frame of the entity's newest reset instead.
+ * See {@link EntityHistory}.
+ */
+type Slot = EncodedSnapshot | number;
+
+/**
+ * What a pulled span did to one entity, keyed by wire type: per component, its newest snapshot
+ * or `REMOVED` for a removal, and, when the entity was reset in the span (it left the view),
+ * the frame of the newest reset under `ALL_COMPONENTS`. Everything the span did to the entity
+ * before that frame is gone from the map, because it described the entity the reset removed;
+ * what follows describes its replacement, if it came back. A map that holds only the reset
+ * describes an entity that was removed outright.
+ *
+ * The removals of single components that follow a reset stay in the map. A client that applies
+ * the reset has nothing to remove, but one that has applied it already needs them (see
+ * {@link StateDiff}).
+ */
+type EntityHistory = IterableArrayMap<Slot>;
 
 /**
  * Check a `historyFrames` value.
@@ -37,6 +49,31 @@ export function validateHistoryFrames(frames: number): number {
   if (!Number.isInteger(frames) || frames < MIN_HISTORY_FRAMES) {
     throw new Error(
       `historyFrames must be an integer of at least ${MIN_HISTORY_FRAMES}, got ${String(frames)}`
+    );
+  }
+  return frames;
+}
+
+/** Smallest value {@link validateRedundancyFrames} accepts. */
+const MIN_REDUNDANCY_FRAMES = 1;
+
+/**
+ * Check a `redundancyFrames` value against the history window it works in.
+ *
+ * `redundancyFrames` counts sends, not frames merged by a pull. In sparse traffic
+ * a send's state frame can precede many empty history slots, so a pull can merge
+ * more frames than `redundancyFrames`; `historyFrames` bounds available history.
+ *
+ * @param frames - The requested redundancy, in frames.
+ * @param historyFrames - The history window, in frames, already validated.
+ * @returns `frames`, unchanged, once it is known to be valid.
+ * @throws If `frames` is not an integer of at least 1 and less than `historyFrames`.
+ */
+export function validateRedundancyFrames(frames: number, historyFrames: number): number {
+  if (!Number.isInteger(frames) || frames < MIN_REDUNDANCY_FRAMES || frames >= historyFrames) {
+    throw new Error(
+      `redundancyFrames must be an integer of at least ${MIN_REDUNDANCY_FRAMES} and less than ` +
+        `historyFrames (${historyFrames}), got ${String(frames)}`
     );
   }
   return frames;
@@ -57,10 +94,21 @@ export function validateHistoryFrames(frames: number): number {
  * `n >= evictedContentFrame`. A session whose view has not changed for longer
  * than the window can therefore still be served a delta from an ack that is
  * older than the whole window.
+ *
+ * Within one frame's diff, the reset of an entity precedes every snapshot of that entity, so a
+ * snapshot in the same diff belongs to an entity that took the eid after the removal. A pulled
+ * span keeps that meaning across frames: it carries the newest reset of every entity reset
+ * within the span, with its frame, together with the snapshots and the removals of single
+ * components that follow it, and nothing the span did to the entity before. A client that never
+ * received the reset destroys the old entity before it builds the new one; one that has applied
+ * it already, because its frame is not past the frame the client holds, skips it and updates the
+ * entity in place. A span that holds no reset of an entity pulls its snapshots and removals
+ * alone.
  */
 export class History {
   private readonly _buffer: StateDiff[];
   private _lastFrame: number;
+  private _lastContentFrame: number;
   private _evictedContentFrame = Number.NEGATIVE_INFINITY;
 
   public constructor(
@@ -68,6 +116,7 @@ export class History {
     lastFrame = -1
   ) {
     this._lastFrame = lastFrame;
+    this._lastContentFrame = lastFrame;
     this._buffer = new Array<StateDiff>(_length);
 
     for (let i = 0; i < _length; i++) {
@@ -85,8 +134,19 @@ export class History {
   }
 
   /**
+   * The newest frame pushed holding content, a snapshot, component removal or entity reset: the frame at which the
+   * replicated state last changed. The frame the history started at while none has been.
+   *
+   * The state at every frame from this one to {@link History.lastFrame} is the same, so a delta
+   * that starts at or after it is empty, and {@link History.pull} answers one without merging.
+   */
+  public get lastContentFrame(): number {
+    return this._lastContentFrame;
+  }
+
+  /**
    * The newest frame that has left the window while holding content, a
-   * snapshot or a removal, or `-Infinity` while none has. A client whose ack is
+   * snapshot, component removal or entity reset, or `-Infinity` while none has. A client whose ack is
    * older than this frame is missing something the history no longer has.
    */
   public get evictedContentFrame(): number {
@@ -105,6 +165,9 @@ export class History {
     }
     this._lastFrame = diff.toFrame;
     this._buffer[slot] = diff;
+    if (hasContent(diff)) {
+      this._lastContentFrame = diff.toFrame;
+    }
   }
 
   public get(frame: number): StateDiff {
@@ -134,11 +197,13 @@ export class History {
    * Merge everything that changed after frame `from`, up to and including
    * frame `to`, into one diff labelled `from`..`to`.
    *
-   * `from` is the frame the client really holds, so the label is always `from`,
-   * never a later frame: the client rejects a diff that starts past its own.
-   * `from` may be older than the window, provided no frame with content after it
-   * has left it; only the frames still in the window are merged, because the
-   * ones that left held nothing.
+   * `from` is the frame the sender presumes the client holds, so the label is
+   * always `from`, never a later frame: the client rejects a diff that starts past
+   * its own, unless the sender marked it optimistic. It is the client's acked
+   * frame for a plain delta, and a later frame for an optimistic one. `from` may be
+   * older than the window, provided no frame with content after it has left it;
+   * only the frames still in the window are merged, because the ones that left
+   * held nothing.
    *
    * @throws If a frame with content after `from` has left the window, or `to` is
    *   not a frame in it.
@@ -160,6 +225,10 @@ export class History {
       return this.get(to);
     }
 
+    if (from >= this._lastContentFrame && to <= this._lastFrame) {
+      return new StateDiff({ fromFrame: from, toFrame: to });
+    }
+
     const entities = new IterableArrayMap<EntityHistory>();
 
     for (let frame = Math.max(from + 1, this.oldestFrame); frame <= to; frame++) {
@@ -174,59 +243,60 @@ export class History {
   }
 }
 
+/**
+ * Fold one frame's diff into the span being pulled, in the order a diff means: the entities
+ * it resets, then its snapshots, then its removals of single components.
+ */
 function applyDiff(entities: IterableArrayMap<EntityHistory>, diff: StateDiff): void {
-  diff.snapshots.forEach((snapshot) => {
-    let entity = entities.get(snapshot.eid);
-
-    if (entity === undefined || entity === REMOVED) {
-      entity = new IterableArrayMap<Slot>();
-      entities.set(snapshot.eid, entity);
+  const resets = diff.resets;
+  if (resets !== undefined) {
+    for (let i = 0; i < resets.length; i++) {
+      // Whatever the span did to the entity so far described the one that has just left.
+      const entity = entityOf(entities, resets[i][0]);
+      entity.clear();
+      entity.set(ALL_COMPONENTS, resets[i][1]);
     }
+  }
 
-    entity.set(snapshot.wireType, snapshot);
+  diff.snapshots.forEach((snapshot) => {
+    entityOf(entities, snapshot.eid).set(snapshot.wireType, snapshot);
   });
 
   diff.removed.forEach(([eid, wireType]) => {
-    if (wireType === ALL_COMPONENTS) {
-      entities.set(eid, REMOVED);
-      return;
-    }
-
-    const entity = entities.get(eid);
-    if (entity === REMOVED) {
-      return;
-    }
-
-    const components = entity ?? new IterableArrayMap<Slot>();
-    components.set(wireType, REMOVED);
-    entities.set(eid, components);
+    entityOf(entities, eid).set(wireType, REMOVED);
   });
 }
 
+function entityOf(entities: IterableArrayMap<EntityHistory>, eid: EID): EntityHistory {
+  let entity = entities.get(eid);
+  if (entity === undefined) {
+    entity = new IterableArrayMap<Slot>();
+    entities.set(eid, entity);
+  }
+  return entity;
+}
+
 function forgeDiff(from: number, to: number, entities: IterableArrayMap<EntityHistory>): StateDiff {
-  const snapshots: EncodedSnapshot[] = [];
-  const removed: RemovedComponent[] = [];
+  const forged = new StateDiff({ fromFrame: from, toFrame: to });
+  const { snapshots, removed } = forged;
 
   entities.forEach((entity, eid) => {
-    if (entity === REMOVED) {
-      removed.push([eid, ALL_COMPONENTS]);
-      return;
-    }
-
     entity.forEach((slot, wireType) => {
-      if (slot === REMOVED) {
-        removed.push([eid, wireType]);
-      } else {
+      if (typeof slot !== "number") {
         snapshots.push(slot);
+      } else if (wireType === ALL_COMPONENTS) {
+        (forged.resets ??= []).push([eid, slot]);
+      } else {
+        removed.push([eid, wireType]);
       }
     });
   });
 
-  return new StateDiff({ fromFrame: from, toFrame: to, snapshots, removed });
+  return forged;
 }
 
 function hasContent(diff: StateDiff): boolean {
-  return diff.snapshots.length > 0 || diff.removed.length > 0;
+  return diff.snapshots.length > 0 || diff.removed.length > 0 || (diff.resets?.length ?? 0) > 0;
 }
 
 function emptyDiff(toFrame: number): StateDiff {

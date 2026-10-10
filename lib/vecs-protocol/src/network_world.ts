@@ -21,6 +21,22 @@ export interface NetworkWorldOptions extends Omit<WorldOptions, "idPools"> {
   networkComponents?: readonly ComponentClass[];
   entityIdStart?: EID;
   localEntityIdStart?: EID;
+  /**
+   * How many frames the id of a destroyed replicated entity waits before another entity can
+   * take it, a non-negative integer. Defaults to `DEFAULT_ID_REUSE_WAIT_FRAMES`.
+   *
+   * It configures the id pool that holds the world's replicated entities:
+   *
+   * - without `localEntityIdStart`, the single `entity` pool, which is where a server
+   *   allocates its replicated entities from with `world.entity()`;
+   * - with `localEntityIdStart`, which splits the id space the way a client does, the
+   *   `network_entity` range below it, whose ids the server assigns and the world only
+   *   reserves. The `entity` pool above it holds client-local entities and keeps the
+   *   default wait.
+   *
+   * `ClientWorld` sets `0` for its `network_entity` pool. `ServerWorld` never waits less than
+   * `historyFrames + 1` frames, whatever this says.
+   */
   networkEntityReuseWaitFrames?: number;
 }
 
@@ -86,7 +102,12 @@ function buildNetworkIdPools(options: NetworkWorldOptions): IdPoolConfig[] {
   ];
 
   if (options.localEntityIdStart === undefined) {
-    pools.push({ name: "entity", min: entityIdStart });
+    // Every entity comes from this pool, replicated ones included: it is the server's layout.
+    const entityPool: IdPoolConfig = { name: "entity", min: entityIdStart };
+    if (options.networkEntityReuseWaitFrames !== undefined) {
+      entityPool.reuseWaitFrames = options.networkEntityReuseWaitFrames;
+    }
+    pools.push(entityPool);
     return pools;
   }
 

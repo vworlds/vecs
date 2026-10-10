@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  ALL_COMPONENTS,
   ComponentSnapshot,
   EncodedSnapshot,
   encodeRelationshipSnapshot,
@@ -374,7 +373,7 @@ describe("ClientWorld relationship snapshots", () => {
           diff: new StateDiff({
             fromFrame: 1,
             toFrame: 2,
-            removed: [[1001, ALL_COMPONENTS]],
+            resets: [[1001, 2]],
           }),
         })
       )

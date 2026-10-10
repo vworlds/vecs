@@ -8,8 +8,8 @@ import {
   Server2Client,
   SessionRPC,
   StateDiff,
-  ALL_COMPONENTS,
   type CloseNotice,
+  cid_pack,
   cid_unpack,
   decodeRelationshipSnapshot,
   NetworkWorld,
@@ -28,6 +28,7 @@ import {
   Query,
   ON_LOAD,
   Relationship,
+  With,
 } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import {
@@ -60,9 +61,9 @@ export type ClientWorldResetHandler = (event: ClientWorldResetEvent) => void;
  * - this client's protocol-error notice, `{ code: CLOSE_PROTOCOL_ERROR_CODE,
  *   reason: "protocol error: ..." }`, when the client could not decode or accept
  *   what the server sent — a frame, a component snapshot inside one, or a diff
- *   that starts after the last frame the client acknowledged — and closed the
- *   connection itself. The reason ends with the message of the error that caused
- *   the close.
+ *   that starts after the last frame the client acknowledged and is not marked
+ *   optimistic — and closed the connection itself. The reason ends with the
+ *   message of the error that caused the close.
  *
  * See {@link CLOSE_PROTOCOL_ERROR_CODE}.
  */
@@ -132,6 +133,9 @@ export class ClientWorld extends NetworkWorld {
   private readonly _networkedQuery: InstanceType<typeof Query>;
   private readonly _relationshipTargetEids = new WeakMap<ComponentInstance, readonly EID[]>();
   private _input: unknown;
+  // The diff `_pull` took from the buffer, which `_applyPulled` has yet to apply.
+  private _pulled: Diff | undefined;
+  private _withRemovalKeys: Set<number> | undefined;
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
   private _closeNotice: CloseNotice | undefined;
@@ -164,9 +168,19 @@ export class ClientWorld extends NetworkWorld {
         return [registered.wireType, interpolator] as const;
       }) ?? []
     );
+    // Applying a diff takes two systems, because the world must be able to destroy an entity and
+    // then create another under the same eid, and inside a system a destroy is only queued: it
+    // takes effect at the flush after the system, and until then `getOrCreateEntity(eid)` still
+    // returns the entity being destroyed. The first system pulls the diff and destroys the
+    // entities it removes; the flush that follows it completes the destruction and frees the
+    // eids; the second applies the snapshots and the component removals. Both run in ON_LOAD, in
+    // this order, before any system a game adds to the phase.
+    this.system("ClientWorld:Pull")
+      .phase(ON_LOAD)
+      .run((now) => this._pull(now));
     this.system("ClientWorld:Apply")
       .phase(ON_LOAD)
-      .run((now) => this.apply(now));
+      .run(() => this._applyPulled());
 
     if (options.socket) {
       this.attachSocket(options.socket);
@@ -355,8 +369,9 @@ export class ClientWorld extends NetworkWorld {
    * `{ code: CLOSE_PROTOCOL_ERROR_CODE, reason }` (see
    * {@link ClientWorldDisconnectEvent}) and pending calls reject with
    * `RPC_CLOSED_CODE`, and it applies nothing more from that diff: the snapshots
-   * after the bad one and every removal in the diff are dropped, while the ones
-   * before it stay applied. The replicated entities stay in place, as after any
+   * after the bad one and every component removal in the diff are dropped, while
+   * the entities the diff removes (see below) and the snapshots before the bad
+   * one stay applied. The replicated entities stay in place, as after any
    * `close()`; a later baseline on a new socket resynchronizes them.
    *
    * That handling covers only decoding at this point. An exception thrown by
@@ -367,30 +382,43 @@ export class ClientWorld extends NetworkWorld {
    * interpolator, is not covered either: a payload that fails there still throws
    * out of `apply`.
    *
-   * Registered as the world's own `Apply` system in the `ON_LOAD` phase, so
-   * `progress()` drives it; call it directly only for a world with no tick loop.
+   * A removal of a component that
+   * another component on the entity brings through `With` is skipped, so the entity keeps it: a
+   * server can replace the source of a client-local component (a streamed pose by a dead-reckoned
+   * one) in one diff, setting the new source and removing the old component, and the entity never
+   * goes without it. The rule applies to this network removal of a plain component only; destroying
+   * the entity through a reset removes everything, and a relationship is removed as sent.
+   * A bringer set by the same diff counts as present even before its snapshot is attached.
+   *
+   * A diff applies in a fixed order, which is what lets an entity id that the
+   * server reuses mean two entities in one diff:
+   *
+   * 1. The entities the diff resets (removes outright) are destroyed. A reset
+   *    applies only once: the server repeats it in every delta whose span
+   *    includes it, and the diff buffer hands out only the resets newer than the
+   *    state the world already holds, so an overlapping delta does not destroy and
+   *    rebuild the entity again.
+   * 2. The snapshots are applied, creating or updating entities. A snapshot of an
+   *    eid the diff reset in step 1 belongs to the entity that took the eid
+   *    after the removal: it creates a new entity, with none of the destroyed one's
+   *    components, client-local state or edges, and its `add` hooks and `enter`
+   *    events fire. A snapshot of an eid whose reset was applied already updates
+   *    the entity in place.
+   * 3. The removals of single components are applied.
+   *
+   * Registered as two systems in the `ON_LOAD` phase, `ClientWorld:Pull` then
+   * `ClientWorld:Apply`, so `progress()` drives it: step 1 runs in the first, and
+   * the world flushes the destruction before the second applies steps 2 and 3. That
+   * flush is what frees the eid for the new entity. `apply` does the same in one
+   * call, which is only correct outside a system or `defer` scope (inside one the
+   * destruction stays queued, and the snapshots of a reused eid would reach the
+   * entity being destroyed), so call it directly only for a world with no tick loop.
    *
    * @param now - Timestamp in milliseconds to interpolate towards.
    */
   public apply(now: number): void {
-    if (this._rpcInbox.length > 0) {
-      const incoming = this._rpcInbox.splice(0);
-      this._rpc.process(incoming);
-    }
-    const diff = this._diffBuffer.pull(now);
-    for (const snapshot of diff.snapshots) {
-      if (!this._applySnapshot(snapshot)) {
-        return;
-      }
-    }
-    const removed = diff.removed;
-    if (removed === undefined) {
-      return;
-    }
-    for (const key of removed) {
-      const [eid, wireType] = cid_unpack(key);
-      this._removeComponent(eid, wireType);
-    }
+    this._pull(now);
+    this._applyPulled();
   }
 
   /**
@@ -399,6 +427,10 @@ export class ClientWorld extends NetworkWorld {
    * calls have settled, so it can drop the replies it kept for them and ignore late copies of
    * their requests. The watermark is left off the wire while it is `0`: until the client has
    * made a call and its oldest one has settled.
+   *
+   * When the client holds an optimistic frame it cannot apply yet, because the frames it was
+   * built on never arrived, the ack also reports the gap, once, so the server falls back to
+   * deltas from the ack. The report is dropped if a late frame has closed the gap by then.
    *
    * A synchronous transport error or rejected transport promise closes the client connection,
    * so the ack timer cannot leave an unhandled rejection after a peer disappears.
@@ -411,8 +443,9 @@ export class ClientWorld extends NetworkWorld {
     const rpc = this._rpc.getOutgoing();
     const rpcSettledBelow = this._rpc.settledBelow;
     const ackFrame = this._diffBuffer.version < 0 ? 0 : this._diffBuffer.version;
+    const gap = this._diffBuffer.takeGap();
     const encoder = new Encoder(this._encodeBuffer);
-    encoder.write(new Client2Server({ ackFrame, input: this._input, rpc, rpcSettledBelow }));
+    encoder.write(new Client2Server({ ackFrame, input: this._input, rpc, rpcSettledBelow, gap }));
     try {
       const sent = socket.send(encoder.getBuffer()) as unknown;
       if (sent && typeof (sent as PromiseLike<unknown>).then === "function") {
@@ -481,6 +514,7 @@ export class ClientWorld extends NetworkWorld {
       new RPCError(RPC_CLOSED_CODE, "ClientWorld disposed before the RPC completed")
     );
     this._rpcInbox.length = 0;
+    this._pulled = undefined;
     this._destroyNetworkEntities();
     this._diffBuffer.reset();
     this.close();
@@ -527,7 +561,7 @@ export class ClientWorld extends NetworkWorld {
         this._rpc.process(responses);
       }
     }
-    if (message.diff && !this._pushDiff(message.diff)) {
+    if (message.diff && !this._pushDiff(message.diff, message.optimistic)) {
       // The diff could not be read or buffered and the client is already closed:
       // the close notice in the same frame is not handled.
       return;
@@ -540,13 +574,14 @@ export class ClientWorld extends NetworkWorld {
   /**
    * The server sent something this client cannot decode or accept: a frame, a
    * component snapshot inside one, or a diff that starts after the last frame this
-   * client acknowledged. Usually the two sides were built from incompatible
-   * protocol versions. Disconnect through {@link ClientWorld.close}, so
-   * `disconnect` fires once with a notice carrying {@link CLOSE_PROTOCOL_ERROR_CODE}
-   * and a reason that starts `protocol error:`, pending calls reject with
-   * `RPC_CLOSED_CODE`, the ack timer stops and the socket closes, instead of
-   * throwing into the transport or out of {@link ClientWorld.apply}. Nothing is
-   * sent to the server: the protocol has no client-to-server close notice.
+   * client acknowledged without the server marking it optimistic. Usually the two
+   * sides were built from incompatible protocol versions. Disconnect through
+   * {@link ClientWorld.close}, so `disconnect` fires once with a notice carrying
+   * {@link CLOSE_PROTOCOL_ERROR_CODE} and a reason that starts `protocol error:`,
+   * pending calls reject with `RPC_CLOSED_CODE`, the ack timer stops and the
+   * socket closes, instead of throwing into the transport or out of
+   * {@link ClientWorld.apply}. Nothing is sent to the server: the protocol has no
+   * client-to-server close notice.
    *
    * @param error - What the decoder or the diff buffer threw.
    */
@@ -576,18 +611,20 @@ export class ClientWorld extends NetworkWorld {
    * Only the data steps are guarded: reading the snapshots out of the diff, and
    * buffering it. A diff that fails either is a protocol error: a snapshot's
    * envelope is malformed, or the diff starts after the last frame this client
-   * acknowledged, which a server that honors acks never sends. A baseline is read
-   * before anything is torn down, so one that cannot be read leaves the replicated
-   * entities in place. Destroying them and emitting `reset` run application
+   * acknowledged and is not marked optimistic, which a server that honors acks
+   * never sends. A baseline is read before anything is torn down, so one that
+   * cannot be read leaves the replicated entities in place. Destroying them and emitting `reset` run application
    * hooks, so they stay outside the guard and what they throw propagates.
    *
    * @param sd - The diff decoded from the frame.
+   * @param optimistic - The frame carried the optimistic marker, so the diff may start past the
+   *   newest frame this client has: the diff buffer holds it until that frame arrives.
    * @returns `false` when the diff could not be read or buffered: the client has
    *   been closed for a protocol error and the caller must handle nothing more
    *   from the frame. `true` otherwise, including for a stale baseline that was
    *   skipped.
    */
-  private _pushDiff(sd: StateDiff): boolean {
+  private _pushDiff(sd: StateDiff, optimistic: boolean): boolean {
     // A diff with fromFrame === 0 is a full baseline: the complete authoritative
     // state at sd.toFrame. The server sends one when a session starts and
     // whenever the client has fallen so far behind that frames it has not acked
@@ -625,14 +662,14 @@ export class ClientWorld extends NetworkWorld {
       return false;
     }
     if (!baseline) {
-      return this._bufferDiff(diff);
+      return this._bufferDiff(diff, optimistic);
     }
     this._forceBaselineReset = false;
     const initial = !this._baselineApplied;
     this._baselineApplied = true;
     this._destroyNetworkEntities();
     this._diffBuffer.reset();
-    if (!this._bufferDiff(diff)) {
+    if (!this._bufferDiff(diff, false)) {
       return false;
     }
     this.events.emit("reset", { initial, fromFrame: sd.fromFrame, toFrame: sd.toFrame });
@@ -641,14 +678,15 @@ export class ClientWorld extends NetworkWorld {
 
   /**
    * Hand a diff to the diff buffer, which rejects one that starts after the last
-   * frame this client acknowledged. That is a protocol error, so the client is
-   * closed instead of the rejection throwing into the transport.
+   * frame this client acknowledged unless the server marked it optimistic. That is
+   * a protocol error, so the client is closed instead of the rejection throwing
+   * into the transport.
    *
    * @returns `false` when the buffer rejected the diff and the client was closed.
    */
-  private _bufferDiff(diff: Diff): boolean {
+  private _bufferDiff(diff: Diff, optimistic: boolean): boolean {
     try {
-      this._diffBuffer.push(diff);
+      this._diffBuffer.push(diff, optimistic);
     } catch (error) {
       this._closeForProtocolError(error);
       return false;
@@ -690,6 +728,55 @@ export class ClientWorld extends NetworkWorld {
       return (snapshot.payload = decoded.component);
     }
     return (snapshot.payload = decoder.read(registered.Class) as ComponentInstance);
+  }
+
+  /**
+   * Step 1 of {@link ClientWorld.apply}: run the queued server-to-client request handlers, take
+   * the diff for `now` out of the buffer, and destroy the entities it resets. The diff
+   * waits in `_pulled` for {@link ClientWorld._applyPulled}.
+   */
+  private _pull(now: number): void {
+    if (this._rpcInbox.length > 0) {
+      const incoming = this._rpcInbox.splice(0);
+      this._rpc.process(incoming);
+    }
+    const diff = this._diffBuffer.pull(now);
+    this._pulled = diff;
+    // A diff may name an entity this world never materialized: its creation was merged away.
+    diff.resets?.forEach((_, eid) => this.getEntity(eid)?.destroy());
+  }
+
+  /**
+   * Steps 2 and 3 of {@link ClientWorld.apply}: apply the snapshots of the diff
+   * {@link ClientWorld._pull} took, then its removals of single components.
+   *
+   * Stops at the first snapshot that cannot be decoded, which closes the client, so the
+   * snapshots after it and the component removals are dropped.
+   */
+  private _applyPulled(): void {
+    const diff = this._pulled;
+    if (diff === undefined) {
+      return;
+    }
+    this._pulled = undefined;
+    for (const snapshot of diff.snapshots) {
+      if (!this._applySnapshot(snapshot)) {
+        return;
+      }
+    }
+    const removed = diff.removed;
+    if (removed === undefined) {
+      return;
+    }
+    this._withRemovalKeys = undefined;
+    try {
+      for (const key of removed) {
+        const [eid, wireType] = cid_unpack(key);
+        this._removeComponent(eid, wireType, diff);
+      }
+    } finally {
+      this._withRemovalKeys = undefined;
+    }
   }
 
   /**
@@ -751,21 +838,71 @@ export class ClientWorld extends NetworkWorld {
     entity.set(relClass, component);
   }
 
-  private _removeComponent(eid: EID, wireType: number): void {
+  private _removeComponent(eid: EID, wireType: number, diff: Diff): void {
     // Merged/interpolated client diffs can contain a net removal for an entity
     // whose create snapshot was compressed away before it materialized locally.
     const entity = this.getEntity(eid);
     if (!entity) {
       return;
     }
-    if (wireType === ALL_COMPONENTS) {
-      entity.destroy();
+    const registered = this.getNetworkComponent(wireType);
+    if (registered === undefined || !entity.get(registered.Class)) {
       return;
     }
-    const registered = this.getNetworkComponent(wireType);
-    if (registered && entity.get(registered.Class)) {
-      entity.remove(registered.Class);
+    // The server removed a component that another one on this entity still brings through `With`:
+    // the entity keeps it, as it would for any other holder of the bringer. A server that swaps the
+    // source of a client-local component, such as a streamed pose for a dead-reckoned one, relies
+    // on this to keep the component present throughout.
+    if (this._isBroughtByWith(entity, registered.Class, diff)) {
+      return;
     }
+    entity.remove(registered.Class);
+  }
+
+  // Whether a component on `entity` brings `Class` through `With`. Only the network-removal path
+  // pays for the lookup, and only for a component that is there to remove. A relationship is never
+  // skipped: `With` brings it one edge at a time, so no component present stands for the whole
+  // relationship.
+  //
+  // Use the diff's final membership: a bringer set by this diff counts as present even while its
+  // snapshot is queued. Otherwise a present network bringer counts only if this diff neither removes
+  // it nor resets its entity. A client-local bringer is judged by entity.has alone; With does not
+  // remove companions, so a local intermediate can keep bringing without a transitive walk.
+  // Index removals lazily, once per applied diff, only upon reaching a present network bringer.
+  private _isBroughtByWith(entity: Entity, Class: ComponentClass, diff: Diff): boolean {
+    const component = this.component(Class);
+    if (component.meta.isRelationship) {
+      return false;
+    }
+    for (const bringer of component.children(With)) {
+      if (this._diffSets(diff, entity, bringer)) {
+        return true;
+      }
+      if (!entity.has(bringer)) {
+        continue;
+      }
+      const registered = this.networkComponents.find((component) => component.eid === bringer.eid);
+      if (registered === undefined) {
+        return true;
+      }
+      if (diff.resets?.has(entity.eid)) {
+        continue;
+      }
+      this._withRemovalKeys ??= new Set(diff.removed);
+      if (!this._withRemovalKeys.has(cid_pack(entity.eid, registered.wireType))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Whether `diff` carries a snapshot of the component `bringer` for `entity`.
+  private _diffSets(diff: Diff, entity: Entity, bringer: Entity): boolean {
+    const registered = this.networkComponents.find((component) => component.eid === bringer.eid);
+    return (
+      registered !== undefined &&
+      diff.getSnapshot(cid_pack(entity.eid, registered.wireType)) !== undefined
+    );
   }
 
   // Destroy every network entity so an incoming baseline can recreate them

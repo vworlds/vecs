@@ -16,15 +16,15 @@
 //   the center of mass from the origin.
 // - `b2Atan2` (src/math_functions.c:71): the angle of a rotation, as `b2Rot.GetAngle` returns it.
 //
-// Box2D computes in `float`, so every operation here is rounded to f32 with `Math.fround`. `+ - * /`
-// and `sqrt` on f32 values, rounded to f32 after each operation, give the exact IEEE single result,
-// so the sequence is the same on every JS engine and equals the wasm's bit for bit (box2d3-wasm
-// builds without fast-math, and wasm has no fused multiply-add). Doubles would not do: Box2D adds
+// Box2D computes in `float`, so the stepping operations here are rounded to f32 with `Math.fround`.
+// `+ - * /` and `sqrt` on f32 values, rounded after each operation, reproduce the IEEE single
+// arithmetic used by wasm without fast-math or fused multiply-add. The executed evidence is the
+// real-WASM accuracy test on its tested runtime; arbitrary rotation initialization below uses
+// `sin` and `cos`, whose final bits may vary across JS engines. Doubles would not do: Box2D adds
 // each substep's displacement in f32, and the same integrator in doubles ends millimeters to
-// centimeters away after a minute. `stepMotion` and `motionPose` call no `sin`, `cos` or `atan2`,
-// whose results the language leaves to the engine.
+// centimeters away after a minute. `stepMotion` and `motionPose` call no `sin`, `cos` or `atan2`.
 
-import type { Motion, MotionClock } from "../components/motion.js";
+import type { Motion, MotionClock, MotionParams } from "../components/motion.js";
 
 const f32 = Math.fround;
 
@@ -78,30 +78,37 @@ export class MotionPose {
  * Build the integrator state of a baseline.
  *
  * The rotation is the cosine and sine of `motion.angle`, and the center of mass is the origin plus
- * the local center turned by that rotation, as `b2Body_SetTransform` derives it. The velocities are
- * copied. Call this once per baseline, then advance the state with {@link stepMotion}. Pass the
- * baseline as decoded from the wire, so every peer starts from the same f32 values.
+ * the body's local center (from `params`) turned by that rotation, as `b2Body_SetTransform` derives
+ * it. The velocities are copied. Call this once per baseline, then advance the state with
+ * {@link stepMotion}. Pass the baseline and the constants as decoded from the wire, so every peer
+ * starts from the same f32 values.
  *
  * The rotation is only as exact as the angle. A physics `Rotation` holds Box2D's `b2Atan2` of the
  * body's rotation, which is within 2.8e-5 rad of the true angle, so a baseline taken from it
  * restarts the body that far off Box2D's rotation and the prediction keeps that small offset (the
  * accuracy tests measure it). A baseline whose rotation Box2D holds exactly, such as angle 0,
- * predicts Box2D's steps bit for bit.
+ * follows the same f32 stepping arithmetic as Box2D; accuracy is established by the real-WASM
+ * tests on the tested runtime.
  *
  * This is the integrator's only use of `Math.cos` and `Math.sin`. An engine may round them
  * differently from another in the last bit of the double; that survives the rounding to f32 only
  * rarely, then moves the rotation by one f32 step (6e-8 rad), which later steps do not amplify.
  *
  * @param motion The baseline.
+ * @param params The body's constants; {@link defaultMotionParams} for an entity without any.
  * @param out The state to overwrite.
  * @returns `out`.
  */
-export function motionStateFrom(motion: Readonly<Motion>, out: MotionState): MotionState {
+export function motionStateFrom(
+  motion: Readonly<Motion>,
+  params: Readonly<MotionParams>,
+  out: MotionState
+): MotionState {
   const angle = f32(motion.angle);
   const qc = f32(Math.cos(angle));
   const qs = f32(Math.sin(angle));
-  const lx = f32(motion.localCenterX);
-  const ly = f32(motion.localCenterY);
+  const lx = f32(params.localCenterX);
+  const ly = f32(params.localCenterY);
 
   // b2TransformPoint( transform, localCenter ): `( q.c * p.x - q.s * p.y ) + t.p.x`.
   out.cx = f32(f32(f32(qc * lx) - f32(qs * ly)) + f32(motion.x));
@@ -115,28 +122,6 @@ export function motionStateFrom(motion: Readonly<Motion>, out: MotionState): Mot
 }
 
 /**
- * Whether a baseline holds its body still: no linear or angular velocity, and no gravity acting on
- * it (a gravity scale of 0, or a world without gravity).
- *
- * {@link stepMotion} would leave such a body where it is, so a peer may skip stepping it and hold
- * the baseline's pose instead. The server's divergence check and the client's extrapolator both
- * decide with this function, so they skip the same baselines. A sleeping body is sent this way: a
- * zero-velocity baseline with a gravity scale of 0.
- *
- * @param motion The baseline.
- * @param clock The world constants.
- * @returns `true` when the baseline predicts no motion.
- */
-export function motionAtRest(motion: Readonly<Motion>, clock: Readonly<MotionClock>): boolean {
-  return (
-    motion.vx === 0 &&
-    motion.vy === 0 &&
-    motion.w === 0 &&
-    (motion.gravityScale === 0 || (clock.gravityX === 0 && clock.gravityY === 0))
-  );
-}
-
-/**
  * Advance a body by one physics step, in place and without allocating.
  *
  * Runs `clock.subSteps` substeps of Box2D's free-body integration (damping, gravity, the speed
@@ -145,20 +130,22 @@ export function motionAtRest(motion: Readonly<Motion>, clock: Readonly<MotionClo
  * joints, locked axes and sleep are not modeled: a body they affect leaves the predicted path and
  * needs a new baseline.
  *
+ * A baseline at rest ({@link Motion.rest}) is not stepped: its sender holds the pose, and the
+ * caller skips this function for it.
+ *
  * Box2D zeroes the gravity scale of a body without mass (`invMass == 0`, src/solver.c:99). The
- * baseline carries no mass, so its sender must set `gravityScale` to 0 for a kinematic body.
+ * constants carry no mass, so their sender must set `gravityScale` to 0 for a kinematic body.
  *
  * The clock and the body constants are read as f32 values, as they arrive from the wire, so a
  * caller that holds the doubles it encoded steps to the same state as its peers.
  *
  * @param state The state to advance.
- * @param motion The baseline that supplies the body constants (damping, gravity scale, fast
- *   rotation).
+ * @param params The body's constants (damping, gravity scale, fast rotation).
  * @param clock The world constants.
  */
 export function stepMotion(
   state: MotionState,
-  motion: Readonly<Motion>,
+  params: Readonly<MotionParams>,
   clock: Readonly<MotionClock>
 ): void {
   // b2World_Step: a time step of zero returns before the solver runs. Otherwise
@@ -180,13 +167,13 @@ export function stepMotion(
   const maxAngularSpeed = f32(B2_MAX_ROTATION * invDt);
   const maxAngularSpeedSquared = f32(maxAngularSpeed * maxAngularSpeed);
   // Pade approximation of `exp(-c * h)`: `1.0f / ( 1.0f + h * sim->linearDamping )`.
-  const linearDamping = f32(1 / f32(1 + f32(h * f32(motion.linearDamping))));
-  const angularDamping = f32(1 / f32(1 + f32(h * f32(motion.angularDamping))));
+  const linearDamping = f32(1 / f32(1 + f32(h * f32(params.linearDamping))));
+  const angularDamping = f32(1 / f32(1 + f32(h * f32(params.angularDamping))));
   // `b2MulSV( h * gravityScale, gravity )`; the force term is zero.
-  const hg = f32(h * f32(motion.gravityScale));
+  const hg = f32(h * f32(params.gravityScale));
   const gravityDeltaX = f32(hg * f32(clock.gravityX));
   const gravityDeltaY = f32(hg * f32(clock.gravityY));
-  const clampRotation = !motion.allowFastRotation;
+  const clampRotation = !params.allowFastRotation;
 
   let vx = state.vx;
   let vy = state.vy;
@@ -260,19 +247,19 @@ export function stepMotion(
  * predicted pose equals its physics pose exactly. It calls no transcendental function.
  *
  * @param state The state to read.
- * @param motion The baseline that supplies the local center.
+ * @param params The body's constants, which supply the local center.
  * @param out The pose to overwrite.
  * @returns `out`.
  */
 export function motionPose(
   state: Readonly<MotionState>,
-  motion: Readonly<Motion>,
+  params: Readonly<MotionParams>,
   out: MotionPose
 ): MotionPose {
   const qc = state.qc;
   const qs = state.qs;
-  const lx = f32(motion.localCenterX);
-  const ly = f32(motion.localCenterY);
+  const lx = f32(params.localCenterX);
+  const ly = f32(params.localCenterY);
 
   // `b2Sub( center, b2RotateVector( q, localCenter ) )`, with b2RotateVector
   // (include/box2d/math_functions.h:499) `{ q.c * v.x - q.s * v.y, q.s * v.x + q.c * v.y }`.

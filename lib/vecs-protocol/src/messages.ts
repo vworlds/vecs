@@ -1,6 +1,6 @@
 import type { EID } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
-import { cid_pack, cid_unpack } from "./cid.js";
+import { ALL_COMPONENTS, cid_pack, cid_unpack } from "./cid.js";
 import { RPC } from "./rpc.js";
 
 const FIELD_DIFF = 1;
@@ -8,6 +8,8 @@ const FIELD_RPC = 2;
 const FIELD_INPUT = 3;
 const FIELD_CLOSE = 4;
 const FIELD_RPC_SETTLED = 5;
+const FIELD_OPTIMISTIC = 6;
+const FIELD_GAP = 7;
 
 const CLOSE_HAS_CODE = 1;
 const CLOSE_HAS_REASON = 2;
@@ -46,13 +48,81 @@ export class EncodedSnapshot {
   ) {}
 }
 
+/**
+ * One removal of a single component in a {@link StateDiff}: the component of entity `eid` with
+ * the given wire type. A whole entity is removed by an {@link EntityReset}, never by a
+ * `RemovedComponent`, so `wireType` is never `ALL_COMPONENTS`. The encoder does not check it: on
+ * the wire that value marks a reset, and a decoder would read the next varint as its frame.
+ */
 export type RemovedComponent = [eid: EID, wireType: number];
 
+/**
+ * The removal of a whole entity in a {@link StateDiff}, with the server frame at which it
+ * happened: entity `eid` left the client's view (it was destroyed, or went out of sight) at
+ * `frame`, which is never after the diff's `toFrame`.
+ *
+ * The frame is what makes a reset idempotent. A delta starts at the newest frame the server has
+ * seen acked, so deltas that overlap while an ack is in flight each repeat the reset, and the
+ * client tells one it has already applied (its frame is not past the frame the client holds)
+ * from a new one.
+ */
+export type EntityReset = [eid: EID, frame: number];
+
+/**
+ * What changed in a client's view between two frames: the state to take it from frame
+ * `fromFrame` to frame `toFrame`. A `fromFrame` of `0` makes it a baseline, the whole view as
+ * of `toFrame`, which a client applies to an empty world.
+ *
+ * `snapshots` carry the new value of a component, which creates the entity if the client does
+ * not hold it. `removed` lists single components that are gone. `resets` lists entities that
+ * are gone altogether, each with the frame at which it happened; it is `undefined` when the diff
+ * resets nothing.
+ *
+ * ### Order within a diff
+ *
+ * The lists carry no order of their own. A diff means this order, and every producer and
+ * consumer of one must follow it:
+ *
+ * 1. the `resets`, each of which destroys the entity the client holds under its eid, if the
+ *    client has not already (see below);
+ * 2. the snapshots;
+ * 3. the removals of single components.
+ *
+ * So a reset of an eid precedes every snapshot of that eid in the same diff: a diff that holds
+ * both is telling the client that the entity it holds under that eid is gone, and that a new
+ * entity, whose snapshots follow, has taken the eid. The server reuses the id of a destroyed
+ * entity, and the wire carries no entity generation, so this is how a client tells the two
+ * apart. A delta spanning several frames is merged to the same meaning: the newest reset of an
+ * entity in the span is kept next to the snapshots and removals that follow it, which are the
+ * whole of the new entity's state, and everything the span held for the entity before it is
+ * dropped.
+ *
+ * A consumer that applied the snapshots first would create the new entity and then destroy it.
+ *
+ * ### Idempotence
+ *
+ * A reset applies only if its `frame` is newer than the frame the client held before the diff.
+ * Otherwise the client has applied it already, in an earlier delta that overlaps this one, and
+ * skips it: the snapshots and removals that follow update the entity in place. That is why a
+ * removal of a single component recorded after a reset stays in the diff: a client that applies
+ * the reset finds nothing to remove, and one that skips it needs the removal.
+ *
+ * ### Wire format
+ *
+ * `Server2Client` carries a diff as field 1. A reset takes an entry of its own in the `removed`
+ * section: the packed id of its eid with wire type `ALL_COMPONENTS`, immediately followed by
+ * `toFrame - frame` as a varint. The frame travels as its distance from `toFrame`, which is one
+ * byte for a reset less than 128 frames old, as the server's history keeps them, so a reset costs
+ * one byte more than the removal of a single component. The count that opens the section counts
+ * entries, a reset being one; the entries of single components come first, then the resets. A
+ * diff without resets is encoded as it was before resets existed.
+ */
 export class StateDiff implements IEncodable {
   public toFrame = 0;
   public fromFrame = 0;
   public snapshots: EncodedSnapshot[] = [];
   public removed: RemovedComponent[] = [];
+  public resets: EntityReset[] | undefined = undefined;
 
   public constructor(values?: Partial<StateDiff>) {
     if (values) {
@@ -65,8 +135,12 @@ export class StateDiff implements IEncodable {
     encoder.write_u32(this.fromFrame);
     encoder.write_u32(this.snapshots.length);
     this.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
-    encoder.write_u32(this.removed.length);
+    encoder.write_u32(this.removed.length + (this.resets?.length ?? 0));
     this.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
+    this.resets?.forEach(([eid, frame]) => {
+      encoder.write_u32(cid_pack(eid, ALL_COMPONENTS));
+      encoder.write_u32(this.toFrame - frame);
+    });
   }
 
   public static wireDecode(decoder: Decoder): StateDiff {
@@ -77,7 +151,12 @@ export class StateDiff implements IEncodable {
     }
     const removedCount = decoder.read_u32();
     for (let i = 0; i < removedCount; i++) {
-      diff.removed.push(cid_unpack(decoder.read_u32()));
+      const removal = cid_unpack(decoder.read_u32());
+      if (removal[1] === ALL_COMPONENTS) {
+        (diff.resets ??= []).push([removal[0], diff.toFrame - decoder.read_u32()]);
+      } else {
+        diff.removed.push(removal);
+      }
     }
     return diff;
   }
@@ -111,8 +190,8 @@ export interface CloseNotice {
  * - `ClientWorld` reports it on its own `disconnect` event when it closes itself
  *   because a frame from the server, or a component snapshot inside one, cannot
  *   be decoded, or because the server sent a diff the client cannot accept: one
- *   that starts after the last frame the client acknowledged. Nothing is sent to
- *   the server in that case.
+ *   that starts after the last frame the client acknowledged without being marked
+ *   {@link Server2Client.optimistic}. Nothing is sent to the server in that case.
  *
  * `@vworlds/vecs-client` and `@vworlds/vecs-server` re-export it next to
  * `RPC_CLOSED_CODE`, so an application can compare against it without importing
@@ -137,6 +216,23 @@ export class Server2Client implements IEncodable {
    * `ServerWorld`'s frames only because it never sends the field today.
    */
   public rpcSettledBelow = 0;
+  /**
+   * The frame's diff starts past the last frame the server saw the client
+   * acknowledge: it is an *optimistic* delta, built on the assumption that the
+   * client already holds the frame the diff starts at because the server sent it
+   * in an earlier frame that has not been acked yet (`ServerWorldOptions.redundancyFrames`).
+   *
+   * A client that has not yet received that frame cannot apply the diff. For an
+   * unmarked diff that is a protocol error; for a marked one it is a gap: the
+   * client holds the diff until the missing frames arrive, and reports the gap in
+   * {@link Client2Server.gap} so the server falls back to deltas from the ack.
+   *
+   * Encoded as tag 6 and no payload only when `true`; a server that does not enable
+   * `redundancyFrames` sends no marker, so it adds no bytes by default. A
+   * decoder that predates the field rejects the tag. The entity-reset wire layout
+   * is also incompatible with 1.0.50: upgrade server and client together.
+   */
+  public optimistic = false;
   /** Present only on the graceful-close frame of a deliberate server close. */
   public close: CloseNotice | undefined;
 
@@ -159,6 +255,9 @@ export class Server2Client implements IEncodable {
     if (this.rpcSettledBelow > 0) {
       encoder.write_u8(FIELD_RPC_SETTLED);
       encoder.write_u32(this.rpcSettledBelow);
+    }
+    if (this.optimistic) {
+      encoder.write_u8(FIELD_OPTIMISTIC);
     }
     if (this.close) {
       const { code, reason } = this.close;
@@ -192,6 +291,9 @@ export class Server2Client implements IEncodable {
         }
         case FIELD_RPC_SETTLED:
           message.rpcSettledBelow = decoder.read_u32();
+          break;
+        case FIELD_OPTIMISTIC:
+          message.optimistic = true;
           break;
         case FIELD_CLOSE: {
           const flags = decoder.read_u8();
@@ -236,6 +338,18 @@ export class Client2Server implements IEncodable {
    * session with {@link CLOSE_PROTOCOL_ERROR_CODE} instead.
    */
   public rpcSettledBelow = 0;
+  /**
+   * The client holds an optimistic diff it cannot apply yet, because the frames
+   * before it have not arrived: a gap (see {@link Server2Client.optimistic}). The
+   * server answers by sending the session deltas from its acked frame until the
+   * client has caught up.
+   *
+   * Encoded as tag 7 and no payload only when `true`. A client only ever sets it
+   * after receiving a frame marked optimistic, which a server sends only when
+   * `ServerWorldOptions.redundancyFrames` is set, so for any other server every
+   * frame is byte-identical to one built before the field existed.
+   */
+  public gap = false;
 
   public constructor(values?: Partial<Client2Server>) {
     if (values) {
@@ -258,6 +372,9 @@ export class Client2Server implements IEncodable {
       encoder.write_u8(FIELD_RPC_SETTLED);
       encoder.write_u32(this.rpcSettledBelow);
     }
+    if (this.gap) {
+      encoder.write_u8(FIELD_GAP);
+    }
   }
 
   public static wireDecode(decoder: Decoder): Client2Server {
@@ -277,6 +394,9 @@ export class Client2Server implements IEncodable {
         }
         case FIELD_RPC_SETTLED:
           message.rpcSettledBelow = decoder.read_u32();
+          break;
+        case FIELD_GAP:
+          message.gap = true;
           break;
         default:
           throw new Error(`Invalid Client2Server field tag ${tag}`);

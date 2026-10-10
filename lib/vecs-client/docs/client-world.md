@@ -8,6 +8,9 @@ also knows when to let go of all of it.
 
 - How to connect a client world and let replication run.
 - What a baseline does to your replicated entities, and how often to expect one.
+- How a diff is applied, and why a network removal can be skipped.
+- What the client does with an optimistic frame whose base it never received, and what a gap costs.
+- In what order a diff is applied, and how a reused entity id becomes a new entity.
 - Which server frame the world renders, and how to put client-computed state on the same timeline.
 - How to call a server RPC and answer server calls.
 - How `dispose` tears a world down and why pending calls must be rejected.
@@ -18,8 +21,8 @@ also knows when to let go of all of it.
 ## Connecting
 
 Either build the world with a socket or let `connectDgram` do both. The world installs its own
-`Apply` system in the `ON_LOAD` phase, so a normal `progress()` loop applies everything that has
-arrived.
+`Pull` and `Apply` systems in the `ON_LOAD` phase, so a normal `progress()` loop applies everything
+that has arrived.
 
 ```ts
 import { ClientWorld, interpolatePosition } from "@vworlds/vecs-client";
@@ -45,7 +48,8 @@ the ack timer, and an ack the transport rejects because it is not ready, such as
 world down as a disconnect. `connectDgram` therefore builds the world without a socket, awaits
 `connect()`, and only then attaches; if `connect()` rejects, it disposes the world, closes the
 socket, and rethrows. The client cannot instead wait for the first server frame before acking: the
-server sends nothing while a session has an empty diff and no RPC replies, and it closes sessions
+server sends nothing before a session has a baseline to acknowledge if its diff is empty and it has
+no RPC traffic, even with keepalives enabled, and it closes sessions
 that stay silent past `disconnectGraceMs`, so a client that withheld its first ack could be
 dropped, or could never deliver an early `invoke`.
 
@@ -55,8 +59,9 @@ Most frames are deltas, which the client applies in place. The server sends a **
 the complete state of the client's view (`fromFrame` 0), in two situations: when the session starts,
 which includes a reconnect, and when the client has fallen so far behind that frames it has not
 acked have left the server's history window, as a backgrounded tab or a stalled connection does. A
-view that is merely quiet gets none: the server sends nothing while nothing changes, and the next
-change arrives as an ordinary delta.
+view that is merely quiet gets no resynchronization: the server sends keepalives if configured,
+otherwise no state while nothing changes, and the next change arrives as an ordinary delta. See
+[Keepalives](../../vecs-server/docs/sessions.md#keepalive-keepaliveframes).
 
 The client applies a baseline as reset-then-rebuild. It destroys every replicated entity and then
 recreates each one from the snapshot, so every `exit` and `enter` fires again, and view systems that
@@ -79,6 +84,96 @@ sending another only if it presumes the first was lost. So a client sees a basel
 and once per real stall, not once per frame. When the server sends them, how it retries, and how to
 size the window for slow players are in
 [Sessions](../../vecs-server/docs/sessions.md#deltas-baselines-and-the-history-window).
+
+## Applying a frame
+
+`apply()` destroys reset entities first, applies snapshots next, and removes single components last.
+A reset destroys every component, including client-local companions brought through `With`.
+
+A removal of a single component is skipped while another component present on the entity **brings
+it through `With`**, so the entity keeps it. The rule exists for components that a client derives
+from a replicated one. Dead reckoning is the example: `Motion` brings a client-local `Position` and
+`Rotation` (`world.component(Motion).add(With, world.component(Position))`), and the diff in which
+the server switches a streamed body to dead reckoning sets `Motion` and removes `Position` and
+`Rotation`. Applied literally, the entity would end the frame without a render pose, and the
+queries, hooks and `DrawBy` children that match on it would see it leave and come back. With the
+rule it never goes without one: no `remove` hook fires for it, and nothing that watches it
+re-enters.
+
+- A bringer that the same diff sets counts as present, although its snapshot has not been
+  attached yet when the removals are checked.
+- The rule looks at the entity's other components, so a bringer that is gone is no reason to keep a
+  component: once nothing brings it, the server's removal applies. Removing a bringer does not take
+  its companions with it either; `With` only brings them along.
+- It applies to plain components. A relationship is removed as sent, since `With` brings it one
+  edge at a time and no single component stands for the whole relationship.
+- It costs nothing outside the removal path: a diff without removals is applied as before, and a
+  removal of a component that no `With` brings pays one lookup of the component's bringers.
+
+## Optimistic frames and gaps
+
+A server built with `redundancyFrames` (see
+[Sessions](../../vecs-server/docs/sessions.md#redundancy-redundancyframes)) sends some deltas from a
+frame later than the one the client last acked, presuming the client already holds it. It marks such
+a frame optimistic. When the frames in between were lost, the diff starts past the newest frame the
+client has, and the client cannot apply it yet. That is not an error, as it is for an unmarked diff,
+and the client does not close.
+
+It holds the diff instead, in a small set that keeps at most 8 and drops the oldest. As soon as the
+client's frame reaches the diff's start the diff is applied, and it is dropped once a later frame has
+passed its end. So a frame that was only delayed or reordered heals with no round trip, and the
+server's fallback delta, which starts from the acked frame, supersedes whatever is still held. While
+it holds a diff the client's ack stays at the last frame it applied, and the next `send()` also
+reports the gap, once per held diff, so that the server sends deltas from the ack until the client has
+caught up. A gap that closed before the ack went out is not reported.
+
+An entity reset in a held diff waits with its snapshots. Once the diff is released, the reset
+applies only when newer than the rendered state at the start of the pull, so receiving or releasing
+the diff early never suppresses it, and overlapping deltas never destroy the entity twice.
+
+In practice the gap shows as the replicated state standing still for about a round trip after the
+last `redundancyFrames` frames the server sent were all lost and held a change the client lacked; the
+interpolation buffer hides part of it. Nothing
+changes in your code: there is no event for it, and no `reset`. An unmarked diff that starts past the
+client's frame is still a protocol error, as under
+[Frames the client cannot decode](#frames-the-client-cannot-decode). The mechanism is in
+[Replication](../../../architecture/REPLICATION.md#when-the-presumption-is-wrong).
+
+## Resets and reused ids
+
+A delta is applied in place, in a fixed order. `apply` first destroys the entities the diff resets
+(removes outright), then applies the snapshots, then removes the single components the diff lists.
+The order is what lets one entity id mean two entities in one diff, as the server reuses the ids of
+destroyed entities and the wire carries no entity generation:
+
+- A snapshot of an id the same diff resets belongs to the entity that took the id. It creates a
+  **new** entity. None of the old entity's components, client-local components, edges or hooks'
+  state survive, and the new entity fires its own `add` hooks and `enter` events.
+- A snapshot of an id the diff does not reset updates the entity in place, creating it if the
+  client does not hold it.
+- A removal of a single component comes after the snapshots, so it removes a component a snapshot
+  in the same diff added.
+
+The diff buffer keeps the same meaning when it merges frames: after a stall (a hidden tab, a long
+task), several frames are applied in one pull, and a reset of an id in one frame and a snapshot of
+it in a later one come out as one diff that holds both, in this order. Interpolation follows: the
+new entity is never blended from the one it replaced. The rule, and what the server does to keep it,
+are in [State diffs](../../vecs-protocol/docs/state-diffs.md).
+
+A reset applies **once**. The server repeats it in every delta whose span includes it, and a client
+whose acks lag receives those deltas one after another, but a reset carries the server frame at which
+it happened, and the diff buffer hands `apply` only the resets that are newer than the frame the
+world already holds. An entity that left a view and came back within the lag is therefore rebuilt
+once, with one `exit` and one `enter`, as it is for a client that acks at once. A repeat that is
+skipped still updates the entity in place: its snapshots overwrite the components, and its removals
+take away the components the entity lost after the reset, so the final state is the same either way.
+
+Under `progress()` the order takes two systems, `ClientWorld:Pull` and `ClientWorld:Apply`, both in
+`ON_LOAD` and both run before any system you add to the phase. The first runs the handlers of
+server requests, pulls the diff and destroys the reset entities. Destroying is queued inside a
+system and completes at the flush after it, which frees the ids, so the second system creates the new
+entities on clean ids. Calling `apply(now)` yourself does both in one call and is only correct
+outside a system or a `defer` scope, where the destruction takes effect at once.
 
 ## Render time
 
@@ -110,6 +205,12 @@ function sinceFrame(world: ClientWorld, frame: number, stepSeconds: number): num
 Only a reset moves it back. After a reconnect the baseline's frame can even be lower than before,
 because the new server's frame counter can start over. And since it never runs past the newest frame
 received, anything that should keep moving while frames are late has to extrapolate past it itself.
+
+The buffer also runs dry when the server has nothing to send: it sends a session no frame while its
+replicated state is unchanged, so in an idle scene `renderFrame` holds at the newest frame and
+anything derived from it stands still, then jumps when the next frame arrives. A server built with
+`keepAliveFrames` (see [Sessions](../../vecs-server/docs/sessions.md#keepalive-keepaliveframes))
+sends a frame with an empty diff instead, and `renderFrame` keeps moving. Dead reckoning needs it.
 
 ## Calling the server
 
@@ -278,8 +379,9 @@ buffer rejects the diff, the client does not throw into the transport or out of 
 `progress()`. The cause is a frame that is truncated or garbled, a field tag this build does not
 know, a snapshot with a malformed envelope or payload, a snapshot of a wire type this world did not
 register, an `Exclusive` relationship snapshot with more than one target, or a diff that starts after
-the last frame the client acknowledged, which a server that honors acks never sends — in practice
-usually a server built from a newer or otherwise incompatible protocol version.
+the last frame the client acknowledged without the server marking it optimistic, which a server that
+honors acks never sends — in practice usually a server built from a newer or otherwise incompatible
+protocol version.
 
 Instead, the client closes the connection through the path `close()` uses: it stops the ack timer,
 emits `disconnect` once, rejects every pending `invoke` with `RPC_CLOSED_CODE`, and closes the
@@ -302,9 +404,10 @@ A frame that fails to decode is dropped whole. When the diff inside a decodable 
 the replies in that frame have already settled their calls, as always, but the diff is not applied
 and the close notice in the same frame is not handled. A baseline that cannot be read is rejected
 before anything is torn down, so the replicated entities stay in place and no `reset` event fires.
-For a snapshot, `apply()` stops at the one that failed: snapshots before it stay applied, and no
-later snapshot and no removal from that diff is applied. Replicated entities stay in place, as after
-any `close()`, and a new socket's next baseline resynchronizes them.
+For a snapshot, `apply()` stops at the one that failed: the entities the diff resets and the
+snapshots before it stay applied, and no later snapshot and no removal of a single component from
+that diff is applied. Replicated entities stay in place, as after any `close()`, and a new socket's
+next baseline resynchronizes them.
 
 Only reading, buffering and decoding are guarded. An exception thrown by your own code — a `reset`
 handler, an `on("remove")` hook that runs when a baseline destroys the replicated entities, or an
@@ -315,18 +418,18 @@ a payload that fails there still throws out of `apply()`.
 
 ## Reference
 
-| Member                              | Description                                                                             |
-| ----------------------------------- | --------------------------------------------------------------------------------------- |
-| `ClientWorld.connectDgram(options)` | Connect over the dgram transport, then attach; returns a world with a connected socket. |
-| `world.attachSocket(socket)`        | Bind a connected socket and start the ack timer. Throws after disposal.                 |
-| `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                    |
-| `world.invoke(rpcId, params?)`      | Call the server; settles with the reply params as soon as the reply arrives.            |
-| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client; it runs from `apply()`.   |
-| `world.apply(now)`                  | Run the handlers of queued server requests, then apply buffered frames.                 |
-| `world.renderFrame`                 | The fractional server frame the world renders; `0` before the first baseline.           |
-| `world.send()`                      | Send input, outstanding replies, and the current ack frame.                             |
-| `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable.    |
-| `world.dispose()`                   | One-way teardown: reject calls, close the socket, destroy network and local entities.   |
+| Member                              | Description                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| `ClientWorld.connectDgram(options)` | Connect over the dgram transport, then attach; returns a world with a connected socket.  |
+| `world.attachSocket(socket)`        | Bind a connected socket and start the ack timer. Throws after disposal.                  |
+| `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                     |
+| `world.invoke(rpcId, params?)`      | Call the server; settles with the reply params as soon as the reply arrives.             |
+| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client; it runs from `apply()`.    |
+| `world.apply(now)`                  | Run queued server requests, then apply buffered frames in reset/snapshot/removal order.  |
+| `world.renderFrame`                 | The fractional server frame the world renders; `0` before the first baseline.            |
+| `world.send()`                      | Send input, outstanding replies, the current ack frame, and a gap report if one is open. |
+| `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable.     |
+| `world.dispose()`                   | One-way teardown: reject calls, close the socket, destroy network and local entities.    |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-client/src/client_world.ts` and
 `lib/vecs-client/src/diff_buffer.ts`.
