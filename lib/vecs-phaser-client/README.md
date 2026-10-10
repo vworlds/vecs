@@ -246,18 +246,20 @@ renderers, `DrawBy` children and game systems use them as they use an interpolat
   server decides it; the client never works it out from the velocities or the gravity. A baseline
   at rest bypasses the integrator: the track holds exactly the baseline's `x`, `y` and `angle`.
 - **Corrections.** A baseline received in time, before the client renders past its frame, applies
-  at once. A late one blends its error out linearly over `blendMs` (default 100 ms) of render time;
+  at once. A late one blends its error out linearly over `blendMs` (default 100 ms) of render-loop time;
   one that moves the body further than `snapDistance` (default 1 m) or turns it further than
   `snapAngle` (default 0.5 rad) snaps. `blendMs: 0` turns blending off: every correction snaps.
-  The shared `MOTION_BLEND_MS = 100` is also the maximum: a longer value throws because
-  the server pauses idle keepalives after the blend settling window.
+  Longer blends are supported. The module advances one shared blend clock from
+  `progress(now, delta)` in milliseconds, so corrections, first-baseline blends and
+  hand-off fades finish while `renderFrame` holds, including after a backgrounded tab
+  resumes with no further replicated frame arriving.
 - **The clock.** The integrator needs the server's `MotionClock`; until it arrives nothing is
   extrapolated.
 - **Frames must keep arriving.** `renderFrame` advances only as `ClientWorld` applies frames, and
   holds at the newest one while none arrives, so the extrapolator can only keep a body moving in an
   idle scene if the server keeps sending frames. The server's `DeadReckonedModule` therefore
   requires `keepAliveFrames` on its `ServerWorld` (use `1`), and sends a header-only frame to a
-  session that would otherwise get none while a moving body is visible or a blend is settling.
+  session that would otherwise get none while a moving body is visible or the last content send is unacknowledged.
   Once idle it pauses by default; `renderFrame` holds. Use render loop time for local effects.
   A server that sends no keepalives while bodies move, such as a custom one, freezes every
   dead-reckoned body at the pose of the last frame, then jumps it when the next frame arrives. See

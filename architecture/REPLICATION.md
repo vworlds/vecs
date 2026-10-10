@@ -282,31 +282,38 @@ branch per frame sent, and one more per idle session. Constructing and encoding 
 
 ### Pause idle sessions with a gate
 
-Register `world.keepAliveWhile(dsl, settleFrames = 0)` before the first session exists.
-It requires `keepAliveFrames`; several registrations OR their DSLs and use the largest
-settling window. On top of the existing cadence and baseline tests, a keepalive is wanted iff
+Register `world.keepAliveWhile(dsl)` before the first session exists.
+It requires `keepAliveFrames`; several registrations OR their DSLs.
+On top of the existing cadence and baseline tests, a keepalive is wanted iff
 
 ```text
-gateCount(view) > 0 || session.ackFrame < session.settleFrame
-settleFrame = frame of the last content send + settleFrames
+gateCount(view) > 0 || session.ackFrame < session.lastContentSendFrame
 ```
 
-Every content send (baseline, content delta, or fallback resend) moves the settle frame.
-Waiting for its ack lets blends complete even when a change is resent or keepalives or
-acks are lost. Keepalives continue through lost acks; the server never pauses on a timer.
+Every content send (baseline, content delta, or fallback resend) moves `lastContentSendFrame`.
+Waiting for its ack preserves redundant carriers of the last change: with `R = 2`,
+losing its first send is recovered by the following carrier before the pause.
+Keepalives continue through lost acks; the server never pauses on a timer.
 Content always resumes traffic, and query membership resumes the ordinary cadence.
 
 The server's `DeadReckonedModule` registers a gate by default (`idleKeepAlive: true`).
 Its server-local, `DontSnapshot` moving tag follows `Motion.rest`, changing only when
-rest flips or the first baseline primes it. The settle is
-`ceil(MOTION_BLEND_MS / 1000 / stepSeconds) + 2`, covering the shared 100 ms blend plus
-ordering slack. Client `blendMs` may be shorter or `0`; a longer value throws at install.
+rest flips or the first baseline primes it. Set `idleKeepAlive: false` to keep the
+continuous cadence. Client `blendMs` defaults to 100 ms, supports longer values,
+and `0` disables blending.
 
 A paused session is a `keepAliveFrames`-unset session: it is fully acked, the redundancy
 ring contains state frames at or before the ack, and the liveness probe is disarmed.
 Empty history frames never force a baseline. The client drains its buffer and holds;
 its `renderFrame` is the clock of replicated state, not a clock for local effects.
-All visible dead-reckoned baselines are at rest and blends have finished. On resume,
+All visible dead-reckoned baselines are at rest. Motion correction blends, first-baseline
+blends and hand-off fades run on render-loop time, advanced once per `progress(now, delta)`
+in milliseconds. They complete even while `renderFrame` holds. After a render-loop stall,
+the client may receive and acknowledge the entire change before applying it; its blend
+still completes as the render loop resumes, with no further downstream frame needed.
+The existing motion system advances one module-level blend clock in its `run` callback,
+before either per-entity system samples it, adding no per-entity lookup or allocation.
+On resume,
 the existing buffer sweeps to the next frame over its buffer depth. The first moving
 baseline can be applied up to one frame late and then blends like any late correction,
 without a visible jump. The pre-existing compaction race is tracked in
@@ -314,9 +321,9 @@ without a visible jump. The pre-existing compaction race is tracked in
 
 There is no scan: each distinct view/gate combination gets one shared `TrackerCache`
 query, without a listener, released alongside the view tracker. Structural mutations
-maintain its count. The empty-send branch reads that integer and the ack/settle integers;
-content sends write one settle integer. No gate creates no extra query and preserves bytes.
-After the one-time settle tail (plus ack lag), idle downstream traffic is zero rather
+maintain its count. The empty-send branch reads that integer and the ack/content-send integers;
+content sends write one send-frame integer. No gate creates no extra query and preserves bytes.
+Once the last content send is acknowledged, idle downstream traffic is zero rather
 than 30 packets/s at `K = 1`; moving sessions retain the existing cadence.
 
 ### Cost

@@ -1,7 +1,6 @@
 import { ON_STORE } from "@vworlds/vecs";
 import {
   Motion,
-  MOTION_BLEND_MS,
   phaserMotionComponents,
   phaserNetworkComponents,
   Position,
@@ -45,7 +44,8 @@ describe("idle keepalive end to end", () => {
     sim = run.sim;
     let previousFrame = 0;
     let previousX = 1;
-    let first: { baselineFrame: number; renderFrame: number; errorX: number } | undefined;
+    let first:
+      { baselineFrame: number; renderFrame: number; errorX: number; atMs: number } | undefined;
     let completed: { renderFrame: number; x: number } | undefined;
     run.client.world
       .system("resume.observe")
@@ -66,12 +66,17 @@ describe("idle keepalive end to end", () => {
           .values()
           .find((value) => value.constructor.name === "MotionTrack") as { errorX: number };
         if (!motion.rest && first === undefined) {
-          first = { baselineFrame: motion.frame, renderFrame, errorX: track.errorX };
+          first = {
+            baselineFrame: motion.frame,
+            renderFrame,
+            errorX: track.errorX,
+            atMs: run.sim.clock.now,
+          };
         }
         if (
           first !== undefined &&
           completed === undefined &&
-          ((renderFrame - first.renderFrame) / 30) * 1000 >= MOTION_BLEND_MS
+          run.sim.clock.now - first.atMs >= 100
         ) {
           expect(track.errorX).toBe(0);
           completed = { renderFrame, x };
@@ -129,7 +134,7 @@ describe("idle keepalive end to end", () => {
     { kind: "handoff", lost: true },
     { kind: "late correction", lost: false },
     { kind: "late correction", lost: true },
-  ])("finishes a $kind before pausing (first change lost: $lost)", ({ kind, lost }) => {
+  ])("finishes a $kind through a pause (first change lost: $lost)", ({ kind, lost }) => {
     sim = new ReplicationSim({
       networkComponents: [...phaserNetworkComponents, ...phaserMotionComponents],
       seed: 7,
@@ -223,10 +228,68 @@ describe("idle keepalive end to end", () => {
     const fps = client.stats.framesSent - before;
     expect(fps).toBe(idleKeepAlive ? 0 : 30);
     if (idleKeepAlive) {
-      expect(tail).toBeGreaterThanOrEqual(5);
+      expect(tail).toBe(0);
     }
     console.log("IDLE_CADENCE", JSON.stringify({ idleKeepAlive, fps, tail }));
   });
+});
+
+describe("render-loop stalls across an idle pause", () => {
+  it.each(["rest correction", "handoff"])(
+    "finishes a 300 ms $kind with no further downstream frames",
+    (kind) => {
+      sim = new ReplicationSim({
+        networkComponents: [...phaserNetworkComponents, ...phaserMotionComponents],
+        seed: 7,
+        link: symmetric({ oneWayMs: 20 }),
+        serverOptions: { keepAliveFrames: 1, redundancyFrames: 2 },
+      });
+      sim.server.module(PhysicsModule, { fixedTimeStep: 1 / 30, gravity: { x: 0, y: 0 } });
+      sim.server.module(DeadReckonedModule);
+      const body = sim.server
+        .entity()
+        .add(Networked)
+        .add(DeadReckonedMoving)
+        .set(Motion, { frame: 1, x: 0, vx: 0.3, rest: false });
+      const client = sim.addClient({ interpolators: phaserInterpolators() });
+      client.world.module(ClientMotion, { blendMs: 300 });
+      sim.run(1000);
+      const stalledPose = client.world.getEntity(body.eid)!.get(Position)!.x;
+      const target = Math.fround(stalledPose + 0.2);
+      // Stop only progress: receives and ACKs continue, as in a backgrounded tab.
+      const render = vi.spyOn(client.world, "progress").mockImplementation(() => {});
+      body.remove(DeadReckonedMoving);
+      if (kind === "handoff") {
+        body.remove(Motion);
+        body.set(Position, { x: target }).set(Rotation, { angle: 0 });
+      } else {
+        body.set(Motion, { frame: sim.server.frame - 3, x: target, rest: true });
+      }
+      sim.run(1000);
+      const pausedFrames = client.stats.framesSent;
+      sim.run(500);
+      expect(client.stats.framesSent).toBe(pausedFrames);
+      render.mockRestore();
+      sim.run(sim.tickMs / 2 + 0.1);
+      const seen = client.world.getEntity(body.eid)!;
+      const firstPose = seen.get(Position)!.x;
+      const heldFrame = client.world.renderFrame;
+      expect(Math.abs(firstPose - target)).toBeGreaterThan(0);
+      expect(Math.abs(firstPose - target)).toBeLessThan(1);
+      sim.run(300);
+      expect(client.world.renderFrame).toBe(heldFrame);
+      expect(client.stats.framesSent).toBe(pausedFrames);
+      expect(seen.get(Position)!.x).toBe(target);
+      if (kind === "handoff") {
+        expect(
+          seen.components.values().some((value) => value.constructor.name === "MotionTrack")
+        ).toBe(false);
+      }
+      expect(client.stats.baselinesSent).toHaveLength(1);
+      expect(client.stats.gapReportsSent).toBe(0);
+      expect(client.stats.errors).toEqual([]);
+    }
+  );
 });
 
 function resumeRig(oneWayMs: number, idleKeepAlive: boolean) {

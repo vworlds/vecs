@@ -64,6 +64,6 @@ sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vec
 - [Sessions and caller context](../../vecs-server/docs/sessions.md) — per-connection RPC context,
   `closeSession`, and exactly-once teardown.
 - [Idle keepalive gates](../../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate) —
-  query membership, acknowledged settling, and the replicated-state render clock.
+  query membership, acknowledged content, and the replicated-state render clock.
 - [Client world](../../vecs-client/docs/client-world.md) — replication, render time,
   `invoke`/`listen`, and disposal.

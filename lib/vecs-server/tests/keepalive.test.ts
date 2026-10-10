@@ -308,10 +308,10 @@ class OtherMoving {}
 class Visible {}
 
 describe("keepAliveWhile", () => {
-  const gated = (settleFrames = 3): Rig =>
+  const gated = (): Rig =>
     createRig({ keepAliveFrames: 1 }, (world) => {
       world.component(Moving);
-      world.keepAliveWhile(Moving, settleFrames);
+      world.keepAliveWhile(Moving);
     });
 
   it("requires keepalives and registration before any session has existed", () => {
@@ -322,26 +322,30 @@ describe("keepAliveWhile", () => {
     expect(() => rig.world.keepAliveWhile(true)).toThrow(/first session/);
   });
 
-  it("awaits the settle ack, keeps sending through lost acks, and sends none during the handshake", () => {
+  it("awaits the last content send ack, keeps sending through lost acks, and sends none during the handshake", () => {
     const rig = gated();
     expect(step(rig)[0].diff).toMatchObject({ fromFrame: 0, toFrame: 1 });
     expect(steps(rig, 3)).toEqual([]);
+    rig.entity.add(Moving);
     ack(rig, 1);
     expect(steps(rig, 6).map(toFrameOf)).toEqual([5, 6, 7, 8, 9, 10]);
-    ack(rig, 3);
-    expect(step(rig).map(toFrameOf)).toEqual([11]);
-    ack(rig, 4);
+    rig.entity.remove(Moving);
     expect(steps(rig, 8)).toEqual([]);
     move(rig.entity, 9);
-    const contentFrame = step(rig)[0].diff!.toFrame;
-    ack(rig, contentFrame);
-    expect(steps(rig, 3)).toHaveLength(3);
-    ack(rig, contentFrame + 3);
+    step(rig);
+    const repeats = steps(rig, 3);
+    expect(repeats).toHaveLength(3);
+    expect(repeats.every((frame) => !isEmptyDiff(frame))).toBe(true);
+    // Every resend moves lastContentSendFrame, even though its state is unchanged.
+    ack(rig, repeats[1]!.diff!.toFrame);
+    const last = step(rig)[0];
+    expect(isEmptyDiff(last)).toBe(true);
+    ack(rig, last.diff!.toFrame);
     expect(steps(rig, 8)).toEqual([]);
   });
 
   it("resumes for tag addition, view entry, and a view DSL swap", () => {
-    const rig = gated(0);
+    const rig = gated();
     step(rig);
     ack(rig, 1);
     expect(step(rig)).toEqual([]);
@@ -369,17 +373,15 @@ describe("keepAliveWhile", () => {
     expect(step(rig)).toEqual([]);
   });
 
-  it("ORs registrations and uses the longest settle", () => {
+  it("ORs registrations", () => {
     const rig = createRig({ keepAliveFrames: 1 }, (world) => {
       world.component(Moving);
       world.component(OtherMoving);
-      world.keepAliveWhile(Moving, 4);
-      world.keepAliveWhile(OtherMoving, 1);
+      world.keepAliveWhile(Moving);
+      world.keepAliveWhile(OtherMoving);
     });
     step(rig);
     ack(rig, 1);
-    expect(steps(rig, 4)).toHaveLength(4);
-    ack(rig, 5);
     expect(step(rig)).toEqual([]);
     rig.entity.add(OtherMoving);
     expect(steps(rig, 2)).toHaveLength(2);

@@ -219,7 +219,7 @@ anything derived from it stands still, then jumps when the next frame arrives. A
 `keepAliveFrames` (see [Sessions](../../vecs-server/docs/sessions.md#keepalive-keepaliveframes))
 sends a frame with an empty diff instead, and `renderFrame` keeps moving. Dead reckoning needs it.
 With a [keepalive gate](../../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate),
-the server pauses that cadence after visible motion and blends settle. `renderFrame` is
+the server pauses that cadence after visible motion stops and the last content send is acknowledged. `renderFrame` is
 the clock of replicated state and holds while idle; drive client-local effects from
 the render loop's time instead.
 

@@ -108,9 +108,9 @@ client's ack, so a lost one never makes the client report a gap. See
 [Replication](../../architecture/REPLICATION.md#the-keepalive).
 
 By default `idleKeepAlive: true` pauses this cadence once no moving dead-reckoned
-body is visible and the client acknowledges the settling window after the last content
-send. Set `idleKeepAlive: false` to retain continuous keepalives. The shared
-`MOTION_BLEND_MS = 100` bounds client blends and determines the settling window.
+body is visible and the client acknowledges the last content send.
+Set `idleKeepAlive: false` to retain continuous keepalives. Client motion blends
+finish on render-loop time even while replicated frames are paused.
 Idle downstream traffic then falls to zero; `renderFrame` holds, so use the client's
 render loop time for local effects. See [the gate and its cost](../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate).
 

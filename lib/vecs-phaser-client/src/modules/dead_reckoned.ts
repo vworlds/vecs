@@ -4,7 +4,6 @@ import {
   copyMotionParams,
   defaultMotionParams,
   Motion,
-  MOTION_BLEND_MS,
   MotionClock,
   MotionParams,
   MotionPose,
@@ -24,8 +23,8 @@ export interface DeadReckonedModuleConfig {
    * already been drawn on the old path; its error fades out over this time instead of jumping. The
    * same blend smooths the hand-off when the server switches a body between a streamed pose and
    * dead reckoning, in either direction. `0` turns blending off: every correction snaps.
-   * Defaults to the shared `MOTION_BLEND_MS`; values above it throw at install because
-   * the server pauses keepalives after that long and a longer blend would freeze part-way.
+   * Measured in render-loop time from `progress(now, delta)`, so blends complete even
+   * while the replicated-state `renderFrame` holds or after the render loop resumes.
    */
   readonly blendMs?: number;
 
@@ -98,7 +97,9 @@ export interface DeadReckonedModuleConfig {
  * - A correction the client receives in time, before rendering past its frame, applies at once:
  *   it is the server's pose at the frame being rendered.
  * - A late correction blends: the error between the old and the new path fades out linearly over
- *   `blendMs` of render time. One that moves the body further than `snapDistance` or turns it
+ *   `blendMs` of render-loop time, advanced by `progress(now, delta)` in milliseconds.
+ *   It completes even when `renderFrame` holds during an idle keepalive pause, including
+ *   after a render-loop stall. One that moves the body further than `snapDistance` or turns it
  *   further than `snapAngle` snaps instead.
  * - After an idle keepalive pause, the first moving baseline can be applied up to one frame
  *   late and then blends like any late correction. The pre-existing buffer compaction race
@@ -128,13 +129,8 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       throw new Error("DeadReckonedModule must be installed on a ClientWorld");
     }
     requireNetworkComponents(world);
-    const blendMs = config?.blendMs ?? MOTION_BLEND_MS;
-    if (blendMs > MOTION_BLEND_MS) {
-      throw new Error(
-        `blendMs cannot exceed ${MOTION_BLEND_MS}: the server pauses keepalives after that long, so a longer blend would freeze part-way`
-      );
-    }
-    const blendSeconds = blendMs / 1000;
+    const blendMs = config?.blendMs ?? 100;
+    let blendClock = 0;
     const snapDistance = config?.snapDistance ?? 1;
     const snapDistanceSquared = snapDistance * snapDistance;
     const snapAngle = config?.snapAngle ?? 0.5;
@@ -186,6 +182,12 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       .system("phaser.extrapolate.motion")
       .with(Motion, MotionTrack, Position, Rotation)
       .phase(POST_LOAD)
+      // The existing system's run callback precedes each and runs even with no
+      // Motion entities, advancing one shared clock for hand-offs too. World
+      // progress and run callbacks receive delta in milliseconds.
+      .run((_now, delta) => {
+        blendClock += delta;
+      })
       .each([Motion, MotionTrack, Position, Rotation], (entity, [motion, track, pos, rot]) => {
         if (clock === undefined) {
           return;
@@ -195,7 +197,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
           rebaseline(entity, track, motion, clock, renderFrame);
         } else {
           extrapolate(track, clock, renderFrame, sample);
-          blend(track, clock, renderFrame, sample);
+          blend(track, sample);
         }
         if (pos.x !== sample.x || pos.y !== sample.y) {
           pos.x = sample.x;
@@ -218,7 +220,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       .without(Motion)
       .phase(POST_LOAD)
       .each([MotionTrack, Position, Rotation], (entity, [track, pos, rot]) => {
-        const remaining = clock === undefined ? 0 : remainingBlend(track, clock, world.renderFrame);
+        const remaining = remainingBlend(track);
         if (pos !== track.position) {
           track.sourceX = pos.x;
           track.sourceY = pos.y;
@@ -294,7 +296,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
         rotation !== undefined
       ) {
         extrapolate(track, clock, renderFrame, sample);
-        blend(track, clock, renderFrame, sample);
+        blend(track, sample);
         const ex = sample.x - position.x;
         const ey = sample.y - position.y;
         const ea = wrapAngle(sample.angle - rotation.angle);
@@ -302,7 +304,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
           track.errorX = ex;
           track.errorY = ey;
           track.errorAngle = ea;
-          track.blendFrom = renderFrame;
+          track.blendFrom = blendClock;
           track.handoff = true;
           return;
         }
@@ -328,7 +330,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       let oldAngle = 0;
       if (held) {
         extrapolate(track, clock, renderFrame, sample);
-        blend(track, clock, renderFrame, sample);
+        blend(track, sample);
         oldX = sample.x;
         oldY = sample.y;
         oldAngle = sample.angle;
@@ -366,7 +368,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       track.errorX = ex;
       track.errorY = ey;
       track.errorAngle = ea;
-      track.blendFrom = renderFrame;
+      track.blendFrom = blendClock;
       sample.x = oldX;
       sample.y = oldY;
       sample.angle = oldAngle;
@@ -375,32 +377,20 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
     // Whether an error is shown at once instead of blended: it is further than the snap limits, or
     // blending is off.
     function snaps(ex: number, ey: number, ea: number): boolean {
-      return (
-        !(blendSeconds > 0) || ex * ex + ey * ey > snapDistanceSquared || Math.abs(ea) > snapAngle
-      );
+      return !(blendMs > 0) || ex * ex + ey * ey > snapDistanceSquared || Math.abs(ea) > snapAngle;
     }
 
-    // The fraction of a blend's error that is left at `renderFrame`: 1 when it starts, 0 after
-    // `blendMs` of render time.
-    function remainingBlend(
-      track: MotionTrack,
-      clock: Readonly<MotionClock>,
-      renderFrame: number
-    ): number {
-      return 1 - ((renderFrame - track.blendFrom) * clock.stepSeconds) / blendSeconds;
+    // The fraction of a blend's error left on the shared render-loop clock.
+    function remainingBlend(track: MotionTrack): number {
+      return 1 - (blendClock - track.blendFrom) / blendMs;
     }
 
     // Add what is left of a late correction's error to the sampled pose.
-    function blend(
-      track: MotionTrack,
-      clock: Readonly<MotionClock>,
-      renderFrame: number,
-      out: MotionPose
-    ): void {
+    function blend(track: MotionTrack, out: MotionPose): void {
       if (track.errorX === 0 && track.errorY === 0 && track.errorAngle === 0) {
         return;
       }
-      const remaining = remainingBlend(track, clock, renderFrame);
+      const remaining = remainingBlend(track);
       if (!(remaining > 0)) {
         track.errorX = 0;
         track.errorY = 0;
@@ -444,7 +434,7 @@ class MotionTrack {
   /** Angle error of a late correction, in radians. */
   public errorAngle = 0;
 
-  /** Render frame the blending correction was taken at. */
+  /** Shared render-loop blend clock, in milliseconds, when the correction was taken. */
   public blendFrom = 0;
 
   /**

@@ -235,7 +235,7 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * each session that would otherwise be sent nothing, and nothing for a session that is sent a
    * diff anyway. It keeps one session integer; constructing and encoding the frame can allocate.
    * {@link ServerWorld.keepAliveWhile} can gate this cadence on visible query membership
-   * and an acknowledged settling window. With no gate, behavior and bytes are unchanged.
+   * and acknowledgement of the last content send. With no gate, behavior and bytes are unchanged.
    * The client's `renderFrame` is the clock of replicated state and holds while idle;
    * client-local effects should use their render loop's time instead.
    */
@@ -363,8 +363,8 @@ class ServerClientSession {
    * Only kept while `keepAliveFrames` is set, to tell when the session is due one.
    */
   public lastDiffFrame: number;
-  /** Last content send plus the registered settling window; keepalives await this ack. */
-  public settleFrame = 0;
+  /** Last content send; a gated session keeps sending until this frame is acknowledged. */
+  public lastContentSendFrame = 0;
   /**
    * The content state frame watched for liveness, or `undefined` when fully acked.
    * New sends leave an unacked probe alone. An ack covering it retargets it to
@@ -458,7 +458,6 @@ export class ServerWorld extends NetworkWorld {
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
   private _frame = 1;
   private _keepAliveGate: QueryDSL | undefined;
-  private _settleFrames = 0;
   private _sessionCreated = false;
 
   public constructor(options: ServerWorldOptions = {}) {
@@ -571,25 +570,22 @@ export class ServerWorld extends NetworkWorld {
 
   /**
    * Pause keepalives unless the session's view matches `dsl` or its last content send
-   * plus `settleFrames` has not been acknowledged. Membership is tracked reactively,
+   * has not been acknowledged. Membership is tracked reactively,
    * with one shared, listener-free tracker per distinct view/gate combination.
-   * Several registrations OR their queries and take the largest settling window.
+   * Several registrations OR their queries. Pausing only when fully acknowledged
+   * preserves redundant carriers of the last change and disarms its liveness probe.
    * Call before the first session exists; throws after that or without `keepAliveFrames`.
    * With no registration, keepalive behavior and bytes are unchanged.
    */
-  public keepAliveWhile(dsl: QueryDSL, settleFrames = 0): void {
+  public keepAliveWhile(dsl: QueryDSL): void {
     if (this._keepAliveFrames === undefined) {
       throw new Error("keepAliveWhile requires keepAliveFrames");
     }
     if (this._sessionCreated) {
       throw new Error("keepAliveWhile must be registered before the first session exists");
     }
-    if (!Number.isInteger(settleFrames) || settleFrames < 0) {
-      throw new Error("settleFrames must be a non-negative integer");
-    }
     this._keepAliveGate =
       this._keepAliveGate === undefined ? dsl : { any: [this._keepAliveGate, dsl] };
-    this._settleFrames = Math.max(this._settleFrames, settleFrames);
   }
 
   /** @internal */
@@ -789,7 +785,7 @@ export class ServerWorld extends NetworkWorld {
    * and has not been sent a frame with a diff for that many frames is sent one whose diff is
    * empty, from the base the frame would have had anyway.
    * A registered {@link ServerWorld.keepAliveWhile} gate pauses these empty sends once
-   * nothing visible needs the render clock and the settling window is acknowledged.
+   * nothing visible needs the render clock and the last content send is acknowledged.
    *
    * Registered as the world's own `Send` system in a phase after `ON_STORE`, so
    * it normally runs as part of `progress()`; call it directly only to drive a
@@ -875,7 +871,7 @@ export class ServerWorld extends NetworkWorld {
         session.rtt.recordSend(toFrame, nowMs);
         if (content) {
           if (this._keepAliveGate !== undefined) {
-            session.settleFrame = toFrame + this._settleFrames;
+            session.lastContentSendFrame = toFrame;
           }
           this._noteContentSent(session, nowMs);
         }
@@ -1134,7 +1130,7 @@ export class ServerWorld extends NetworkWorld {
       toFrame - session.lastDiffFrame >= every &&
       (this._keepAliveGate === undefined ||
         view.gateCount > 0 ||
-        session.ackFrame < session.settleFrame)
+        session.ackFrame < session.lastContentSendFrame)
     );
   }
 

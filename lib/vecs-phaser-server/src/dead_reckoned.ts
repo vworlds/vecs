@@ -3,7 +3,6 @@ import {
   copyMotionParams,
   defaultMotionParams,
   Motion,
-  MOTION_BLEND_MS,
   MotionClock,
   MotionParams,
   MotionPose,
@@ -63,7 +62,7 @@ export class DeadReckonedMoving {}
 export interface DeadReckonedOptions {
   /**
    * Pause idle keepalives by default (`true`) once no moving dead-reckoned body is
-   * visible and the client acknowledges the blend settling window. `false` keeps
+   * visible and the client acknowledges the last content send. `false` keeps
    * sending at `keepAliveFrames` cadence. The replicated-state render clock holds
    * while paused; client-local effects should use their render loop's time.
    */
@@ -113,9 +112,9 @@ export interface DeadReckonedOptions {
  * and a session whose replicated state did not change is sent no frame. A scene of dead-reckoned
  * bodies that drift between corrections is exactly that, so without a keepalive the bodies freeze
  * until the next frame arrives and then jump. The module throws at install without it.
- * By default it gates keepalives on visible moving bodies and settles every content
- * send for `ceil(MOTION_BLEND_MS / 1000 / stepSeconds) + 2` frames, waiting for the
- * client's ack before pausing. Set `idleKeepAlive: false` for continuous keepalives.
+ * By default it gates keepalives on visible moving bodies and waits for the last
+ * content send's ack before pausing. Client blends finish on render-loop time even
+ * while the replicated-state clock holds. Set `idleKeepAlive: false` for continuous keepalives.
  *
  * It installs {@link PhaserServerModule}, gives {@link DeadReckoned} its structural guarantees, and
  * creates the world's single {@link MotionClock} entity from the physics settings (step, substeps,
@@ -209,10 +208,7 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
     world.component(MotionPrediction).snapshotPolicy(DontSnapshot);
     world.component(DeadReckonedMoving).snapshotPolicy(DontSnapshot);
     if (options?.idleKeepAlive !== false) {
-      world.keepAliveWhile(
-        DeadReckonedMoving,
-        Math.ceil(MOTION_BLEND_MS / 1000 / Math.fround(settings.fixedTimeStep)) + 2
-      );
+      world.keepAliveWhile(DeadReckonedMoving);
     }
 
     // Entities whose first baseline may not be written yet, and entities that left dead reckoning

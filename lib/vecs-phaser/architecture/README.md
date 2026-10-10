@@ -852,7 +852,8 @@ dead-reckoned body until the next frame arrives. See
 [Switching at runtime](../../vecs-phaser-server/README.md#switching-at-runtime).
 
 The server module gates this cadence by default (`idleKeepAlive: true`), pausing
-once no moving body is visible and the blend settling window is acknowledged.
+once no moving body is visible and the last content send is acknowledged. Client motion
+blends and hand-offs finish on render-loop time, independently of `renderFrame`.
 See [the gate and idle clock contract](../../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate).
 
 ### 8.1 Asset catalog (server-owned)
