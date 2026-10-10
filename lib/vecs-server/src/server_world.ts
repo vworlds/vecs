@@ -452,6 +452,11 @@ export class ServerWorld extends NetworkWorld {
   private _frame = 1;
 
   public constructor(options: ServerWorldOptions = {}) {
+    if (options.localEntityIdStart !== undefined) {
+      throw new Error(
+        "localEntityIdStart applies to ClientWorld only; ServerWorld allocates every id from its entity pool"
+      );
+    }
     const historyFrames = validateHistoryFrames(options.historyFrames ?? HISTORY_LENGTH);
     super({
       ...options,

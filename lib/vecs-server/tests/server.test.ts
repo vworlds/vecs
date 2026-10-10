@@ -223,6 +223,16 @@ async function callRpc(
 }
 
 describe("ServerWorld", () => {
+  it("rejects the client-only localEntityIdStart option before constructing the world", () => {
+    expect(() => new ServerWorld({ localEntityIdStart: 10_000 })).toThrow(
+      "localEntityIdStart applies to ClientWorld only; ServerWorld allocates every id from its entity pool"
+    );
+  });
+
+  it("constructs normally without localEntityIdStart", () => {
+    expect(() => new ServerWorld()).not.toThrow();
+  });
+
   it("sends full component snapshots for networked component updates", () => {
     const world = createWorld();
     world.component(LocalOnly);
