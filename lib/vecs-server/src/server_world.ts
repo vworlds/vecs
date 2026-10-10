@@ -176,9 +176,12 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * the server falls back to deltas from the ack until the client has caught up,
    * so the client's view stops for about one round trip. The client's
    * interpolation buffer hides part of that. A change lost with nothing sent after
-   * it is found by a timer instead: if the oldest content sent to a session stays
+   * it is found by a timer instead: if the probed content sent to a session stays
    * unacked for twice its smoothed ack round trip (at least 100 ms, as for a
-   * baseline in flight), the server falls back the same way. Pick the smallest
+   * baseline in flight), the server falls back the same way. An ack covering the
+   * probe retargets it to the newest sent content still unacked, restarting the timer.
+   * A lost change is chased within the ack timeout of the later of its send and
+   * the ack covering the previous probe, plus the next send tick. Pick the smallest
    * value whose stalls your players can live with: 2 survives any single lost
    * frame, 3 any two in a row.
    *
@@ -354,15 +357,15 @@ class ServerClientSession {
    */
   public lastDiffFrame: number;
   /**
-   * The oldest frame with content sent to the session that the client has not
-   * acked, or an older one that has since been acked while nothing newer was
-   * sent. Kept with {@link probeSentAtMs} to tell whether the client is catching
-   * up: once {@link probeSentAtMs} is older than the ack timeout and the ack has
-   * not reached this frame, the session falls back. Only kept while
-   * `redundancyFrames` is set.
+   * The content state frame watched for liveness, or `undefined` when fully acked.
+   * New sends leave an unacked probe alone. An ack covering it retargets it to
+   * the newest sent content still above the ack and restarts {@link probeSentAtMs}.
+   * A lost change is chased within the ack timeout of the later of its send and
+   * the ack covering the previous probe, plus the next send tick. Keepalives never
+   * arm it. Only kept while `redundancyFrames` is set.
    */
   public probeFrame: number | undefined = undefined;
-  /** `performance.now()` when {@link probeFrame} was sent. */
+  /** `performance.now()` when {@link probeFrame} was sent or retargeted by an ack. */
   public probeSentAtMs = 0;
   /**
    * The frame at which the current fallback began, or `undefined` outside one.
@@ -1045,8 +1048,10 @@ export class ServerWorld extends NetworkWorld {
   }
 
   /**
-   * Whether the client is not catching up with the content sent to it: the oldest
-   * content frame still unacked was sent longer ago than the ack timeout.
+   * Whether the client is not catching up with the content sent to it: the probe
+   * is still unacked longer than the ack timeout after it was sent or retargeted.
+   * A lost change is chased within the ack timeout of the later of its send and
+   * the ack covering the previous probe, plus the next send tick.
    *
    * This is what finds a loss nothing follows. The client detects a lost change
    * from the next frame it receives, but when the change ages out of the
@@ -1092,6 +1097,10 @@ export class ServerWorld extends NetworkWorld {
    * already delivered, and its loss is nothing to chase.
    * Entity resets are content even without snapshots or single-component removals, so they
    * advance the state frame and arm the probe just like any other state change.
+   * An ack covering an older probe retargets it to `sent.newest` if still unacked.
+   * A lost change is chased within the ack timeout of the later of its send and
+   * the ack covering the previous probe, plus the next send tick. Fully acked
+   * content and keepalives never arm the probe.
    */
   private _noteContentSent(session: ServerClientSession, nowMs: number): void {
     const sent = session.sent;
@@ -1100,7 +1109,10 @@ export class ServerWorld extends NetworkWorld {
     }
     const stateFrame = session.history.lastContentFrame;
     sent.push(stateFrame);
-    if (session.probeFrame === undefined || session.ackFrame >= session.probeFrame) {
+    if (
+      stateFrame > session.ackFrame &&
+      (session.probeFrame === undefined || session.ackFrame >= session.probeFrame)
+    ) {
       session.probeFrame = stateFrame;
       session.probeSentAtMs = nowMs;
     }
@@ -1238,6 +1250,8 @@ export class ServerWorld extends NetworkWorld {
    * Record the client's ack: move its acked frame forward, take a round-trip
    * sample from it, and, if it covers the baseline in flight, mark the baseline
    * delivered.
+   * When it covers the liveness probe, watch the newest sent content still
+   * unacked from now, or disarm if all sent content is acknowledged.
    *
    * An ack of the baseline's frame or any later one means the client holds that
    * baseline or something newer, so deltas can resume from the ack. An ack older
@@ -1248,6 +1262,18 @@ export class ServerWorld extends NetworkWorld {
     if (ackFrame > session.ackFrame) {
       session.ackFrame = ackFrame;
       session.rtt.recordAck(ackFrame, nowMs);
+      const sent = session.sent;
+      if (
+        sent !== undefined &&
+        session.probeFrame !== undefined &&
+        ackFrame >= session.probeFrame
+      ) {
+        // Content pushes lastContentFrame; keepalives push that same frame and
+        // cannot advance it. RPC-only sends never push. Thus newest is exactly
+        // the newest content state sent, even when the ring wraps or repeats.
+        session.probeFrame = sent.newest > ackFrame ? sent.newest : undefined;
+        session.probeSentAtMs = nowMs;
+      }
     }
     if (session.resyncFrame !== undefined && session.ackFrame >= session.resyncFrame) {
       session.needsBaseline = false;

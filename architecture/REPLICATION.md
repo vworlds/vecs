@@ -167,19 +167,28 @@ it, it ages out of their window, nothing else changes, and no later frame shows 
 the link lost, or a client stuck behind a hole, ends the same way. So the server also watches the
 ack.
 
-The session keeps a **probe**, the state frame of the oldest content send that is still unacked, and
-when it was sent. It is a state frame like the ring's entries, so the repeat of a change the client
+The session keeps a **probe**, a sent content state frame still unacked, and
+when it was sent or retargeted. It is a state frame like the ring's entries, so the repeat of a change the client
 has already acked never arms it: an ack that reaches the change satisfies it, and the loss of a
 repeat is nothing to chase. Once the ack has not reached the probe for longer than the **ack
-timeout** the session falls back exactly as for a gap report. The probe is rearmed by the next
-content frame sent after the ack passes it. The timeout is the one baselines in flight already use: twice the session's smoothed ack
+timeout** the session falls back exactly as for a gap report. New content sends leave an unacked
+probe alone. When an ACK covers it, the server immediately retargets it to the newest sent content
+state frame still above the ACK, restarting the timer at the ACK's arrival; if none remains, it
+disarms. A stale or duplicate ACK never restarts the timer. Fully acked sessions and keepalives alone
+never arm it. The timeout is the one baselines in flight already use: twice the session's smoothed ack
 round trip, at least 100 ms, and 1 s before the first sample (`RttEstimator`, RFC 6298 style, no new
-constants). A single content frame in flight is therefore found within the timeout plus a frame, and
-the fallback delta arrives one link delay later.
+constants). A lost change is chased within the ack timeout of the later of its send and the ACK
+that covered the previous probe, plus the next send tick. The fallback delta arrives one link delay
+later, provided the missing content is still in history; history eviction requires a baseline.
 
 State per session is a ring of the state frames of the last `R` sends (`SentFrames`, `R` numbers
 allocated with the session and written once per send) and three more values: `probeFrame`,
-`probeSentAtMs` and `fallbackFrame`. The state frame is read from one integer the history keeps for
+`probeSentAtMs` and `fallbackFrame`. Retargeting reads `SentFrames.newest` in O(1): content sends
+push `History.lastContentFrame`, repeats and keepalives push that same state frame, and RPC-only
+sends never push. A keepalive can only be sent after the current content has been sent (none goes
+out while a baseline is needed or in flight), so it cannot advance the newest entry beyond sent
+content. Initial ring padding is at or below the ACK. No extra scalar or per-send timestamps are
+needed. The state frame is read from one integer the history keeps for
 every session, `lastContentFrame`, written once per frame recorded, which is also what lets a pull
 that starts at or after it answer an empty delta without merging a slot. Reading the base is one load,
 and nothing is allocated per frame. A world that does not set `redundancyFrames` allocates no ring and
