@@ -5,6 +5,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [repo]: Refreshed `package-lock.json` with semver-compatible dependency updates to clear the reported Dependabot alerts. `@vworlds/dgram-server`'s `express@^4.18.2` range admits patched Express 4.22.3 and its patched `proxy-addr`, `qs` and `body-parser` dependencies, so a fresh consumer install can resolve them without changing the published dependency range.
 - [vecs-server]: `ServerWorld` now rejects `localEntityIdStart` at construction: it splits the entity id space for a `ClientWorld` only, while a server allocates every id from its entity pool.
 
 ## v1.0.52 (2026-10-10)
