@@ -366,6 +366,190 @@ A larger `K` saves bytes and makes the client wait: its interpolation buffer spa
 on a steady link, so `K` = 2 still renders smoothly, but from `K` = 3 the render frame stalls between
 keepalives and jumps at the next. `K` = 1 is the safe value, and the one dead reckoning documents.
 
+### Render-clock characterization (#257)
+
+PR #272 characterizes the current clock without changing production code. Run the seeded matrix:
+
+```bash
+node lib/vecs-phaser-server/tests/render-clock-matrix.mjs
+```
+
+The [harness methodology](../lib/vecs-phaser-server/tests/harness/README.md) defines the 367 selected
+scenarios, skipped combinations, and JSON fields. Measurements use actual fractional
+`ClientWorld.renderFrame` and independently recorded server physics poses. Runs last 30 s, excluding
+2 s of warmup; scheduler-mismatch diagnostics last 60 s, phase diagnostics 6 s. Unless specified,
+tables use 100 ms RTT, 60 Hz rendering, seed 257, gate on, and redundancy unset. Holds are episodes,
+with durations in server ticks (including fractional ticks), not rounded render-frame counters.
+Position errors are meters at rendered time; these isolated straight-line bodies do not rotate.
+Zero error does not imply smooth playback or low latency.
+
+#### 1. The K = 2 hold
+
+| K = 2 condition                                      | Holds | Longest, ticks | Compactions | Diagnosis                                       |
+| ---------------------------------------------------- | ----: | -------------: | ----------: | ----------------------------------------------- |
+| Clean, matched 30 Hz server, 60 Hz renderer          |     0 |              0 |           0 | Smooth for this phase                           |
+| Clean, matched server, 59 Hz renderer                |     0 |              0 |           0 | Renderer phase drift alone did not cause a hold |
+| Clean, matched server, 20/200 ms RTT                 | 0 / 0 |              0 |           0 | Constant latency alone did not cause a hold     |
+| Jitter, 0–40 ms extra each direction                 |     0 |              0 |           0 | This seeded jitter fits the delay cushion       |
+| One downstream send lost every 47 sends              |     9 |              1 |           0 | Newest-received-frame cap                       |
+| 300 ms downstream loss every 5 s                     |     6 |              7 |           0 | Newest-received-frame cap                       |
+| Actual server 29.8 Hz, client configured 30 Hz, 60 s |    13 |           1.49 |           0 | Arrival/scheduling-rate mismatch reaches cap    |
+
+The mismatch reproduces an approximately five-second one-tick hold: the first two start at
+4897.224 and 9730.557 ms; later starts at 22213.891, 27247.224, and 32213.891 ms are approximately
+five seconds apart. Intervening refill/recovery changes the cadence and sometimes produces
+half-tick or 1.5-tick episodes. It is not a strictly periodic five-second oscillator.
+
+Pull-by-pull trace of its first hold (milliseconds; `slots` are diff endpoints):
+
+| Pull time | Frame before → after | Received version | Slots before | `_tServ` before | Dry |
+| --------: | -------------------- | ---------------: | ------------ | --------------: | --- |
+|  4830.557 | 140 → 140.5          |              141 | 141, –, –    |        4847.224 | no  |
+|  4847.224 | 140.5 → 141          |              141 | 141, –, –    |        4847.224 | no  |
+|  4863.891 | 141 → 142            |              143 | 143, –, –    |        4880.557 | no  |
+|  4880.557 | 142 → 143            |              143 | 143, –, –    |        4880.557 | no  |
+|  4897.224 | 143 → 143            |              143 | –, –, –      |        4913.891 | yes |
+|  4913.891 | 143 → 143            |              143 | –, –, –      |        4997.224 | yes |
+|  4930.557 | 143 → 143.333        |              145 | 145, –, –    |        5013.891 | no  |
+|  4947.224 | 143.333 → 143.667    |              145 | 145, –, –    |        5013.891 | no  |
+|  4963.891 | 143.667 → 144        |              145 | 145, –, –    |        5013.891 | no  |
+
+The two held render samples span 33.333 ms, or 0.9933 actual server ticks. The frame is already
+at `version`, the bucket is empty, and there was no `_accept` compaction. The 0.2-frame/s mismatch
+consumes approximately one nominal frame of timing margin per five seconds. Matched-clock runs
+accumulate only about `1e-11` frames of floating-point timing error in 30 s; rounding can decide
+a boundary race but cannot account for this magnitude or cadence.
+
+**Conclusion:** a K = 2 hold can arise from the normal cap after arrival-rate drift or loss, without
+#271. This does not prove which event caused the original SpaceRocks hold: its actual server/arrival
+timestamps were not supplied. Clean matched clocks did not reproduce that observation. The harness
+distinguishes these mechanisms rather than attributing the playtest symptom to an unproven defect.
+
+#### 2. The #271 compaction defect
+
+| Evidence                                         | Production buffer                               | Test-only two-slot refill                      |
+| ------------------------------------------------ | ----------------------------------------------- | ---------------------------------------------- |
+| Resume, K = 1, 40 ms RTT, 59 Hz renderer, seed 4 | First moving frame 121 rendered at 122.05085    | Rendered at 121.03390                          |
+| First-baseline application time                  | 4154.417 ms                                     | 4120.519 ms                                    |
+| Measured compactions                             | 1                                               | 0                                              |
+| Resume position error, mean / p95 / max          | 0.001002 / 0 / 0.068362 m                       | 0 / 0 / 0 m                                    |
+| Eight phase seeds, 40 ms RTT                     | 1 of 8 late first baselines at each of 60/59 Hz | Seed-4/59-Hz control resolves first-frame race |
+
+The non-boundary 59 Hz trace confirms the issue's analysis:
+
+|                     Event time | Bucket/base                           |               Deadline | Applied/rendered                      |
+| -----------------------------: | ------------------------------------- | ---------------------: | ------------------------------------- |
+|               4086.621 ms pull | [121, –, –], base 121                 |            4152.722 ms | applied 1; rendered 41.67797          |
+|               4103.570 ms pull | [121, 122, –], base 121               |            4152.722 ms | applied 1; rendered 62.01695          |
+|               4120.519 ms pull | [121, 122, 123], base 121             |            4152.722 ms | applied 1; rendered 82.35593          |
+|               4137.468 ms pull | [121, 122, 123], base 121             |            4152.722 ms | applied 1; rendered 102.69492         |
+| 4153.333 ms arrival, frame 124 | compacts to [122, 123, 124], base 122 | unchanged, 4152.722 ms | first frame's content folded into 122 |
+|               4154.417 ms pull | [122, 123, 124], base 122             |            4152.722 ms | applied 122; rendered 122.05085       |
+
+The arrival is 0.611 ms **after** the deadline, and the pull 1.695 ms after it. No floating-point
+equality is needed. A three-slot bucket waits three ticks after its last dry pull, so four arrivals
+can beat the first applying pull. Compaction advances `_base` without `_tServ`, discarding the
+first frame's presentation opportunity. The resumed baseline is then classified as late and blended.
+At 60 Hz the same seed additionally exposes a rounded deadline boundary, but that is not required.
+
+The minimal expected-failing regression is
+`lib/vecs-client/tests/render_clock_defects.test.ts`: dry pull at 0, endpoints 120/121/122, pull at
+90 ms, endpoint 123 before the 110 ms pull. First applied frame is 121 rather than 120. Its two
+pulls are deliberately away from the current deadline. The assertion also permits a fix that
+applies 120 at the earlier pull.
+
+This is a **second mechanism**, not the cause of the compaction-free K = 2 mismatch trace. The
+test-only shorter refill validates one remedy's first-frame effect; advancing the timeline after
+already folding the frame cannot by itself restore that lost interpolation sample. No remedy is
+selected or implemented in production here.
+
+#### 3. Intrinsic cap and local timing costs
+
+Clean drifting scene, 28 measured seconds:
+
+|   K | Holds / longest ticks | Mean rate / worst deviation | Jumps >1.5 frames/tick | Delay mean [min, max] | Compactions / dry pulls |
+| --: | --------------------- | --------------------------- | ---------------------: | --------------------- | ----------------------- |
+|   1 | 0 / 0                 | 1.00000 / <1e-12            |                      0 | 3.75 [3.5, 4]         | 0 / 0                   |
+|   2 | 0 / 0                 | 1.00000 / <1e-12            |                      0 | 4.75 [4.5, 5]         | 0 / 0                   |
+|   3 | 140 / 2               | 1.00060 / 2                 |                    278 | 4.252 [3, 5]          | 1 / 537                 |
+|   4 | 210 / 1               | 0.99980 / 1                 |                      0 | 5.25 [4.667, 6]       | 0 / 420                 |
+|   8 | 105 / 5               | 0.99901 / 1.667             |                    629 | 7.25 [5, 10]          | 0 / 1050                |
+
+Every measured hold in all 367 scenarios occurs at the accepted-version cap (within `1e-8`
+frames). The cap is intrinsic; whether a particular hold reaches it depends on refill delay,
+buffer capacity, link timing, and local timing defects. K = 3 is not a theorem that every capped
+clock must stall: a deeper, more delayed interpolation clock could keep future received frames
+available. These are measurements of the current three-slot design.
+
+Clean-run delay endpoint changes are −0.5, −0.5, −1, −0.333, and +0.333 frames for K = 1/2/3/4/8;
+the half-tick server sampling phase and refill cycles explain these bounded endpoint differences.
+All drifting-body mean/p95/max errors are zero at rendered time. Adding one constantly streamed
+body makes all five K values smooth on the clean link: no holds or compactions, mean rate 1,
+delay 3.75 frames, and streamed error at floating-point noise (`max < 4e-15` m).
+
+|   K | Longest hold: jitter / isolated loss / burst loss, ticks | Counterfactual two-slot refill: holds / longest ticks / mean delay |
+| --: | -------------------------------------------------------- | ------------------------------------------------------------------ |
+|   1 | 0 / 1 / 8                                                | 0 / 0 / 3.75                                                       |
+|   2 | 0 / 1 / 7                                                | 168 / 1 / 3.55                                                     |
+|   3 | 3 / 5 / 9                                                | 280 / 1 / 4.25                                                     |
+|   4 | 4 / 5 / 9                                                | 210 / 2 / 4.75                                                     |
+|   8 | 6 / 13 / 13                                              | 105 / 6 / 6.75                                                     |
+
+Shortening refill removes the demonstrated resume race but reduces arrival cushion and can
+**increase** sparse-clock cap holds. It is not evidence of a fully fixed clock. K = 4/8 clean
+holds already occur with zero compactions, so fixing #271 alone cannot remove them. K = 2 needs
+no extrapolation on the tested matched clean link, but remains sensitive to clock-rate mismatch
+and loss. An estimate for a complete timeline fix is therefore bounded by these controls, not a
+claim of smoothness for every K after one patch.
+
+For K = 2, render pauses of 100/500/2000 ms produce 1/7/29 compactions, then one cap hold of
+1/1/1.5 ticks after rendering resumes. DR error remains zero on the constant-velocity path.
+The intentional paused period has no rendered samples; its elapsed time appears in the first
+resumed rate measurement rather than being mislabeled as a sampled hold.
+
+Periodic correction controls have DR mean errors of about 0.001012/0.000952/0.000417/0.000298/0.000060 m
+for K = 1/2/3/4/8; p95 is zero, and maxima are 0.2/0.2/0.2/0.2/0.1 m. Across their fault runs,
+the largest mean is 0.00272 m, p95 remains zero, and max is 0.200001 m. The brief error includes
+the convention of interpolating recorded truth across a teleport while DR retains its prior
+baseline until the correction frame. Constant-velocity streamed loss tests remain nearly exact;
+they do not bound error for curved paths or acceleration. The seed-4 resume transient above is
+the demonstrated defect's visible pose consequence.
+
+#### 4. Cost of the status quo
+
+Downstream wire payload per session after warmup; transport and ACK overhead excluded:
+
+|   K | Moving DR, either gate: packets/s; B/s | Idle, gate off: packets/s; B/s | Idle, gate on: packets/s; B/s | Mixed moving scene: packets/s; B/s (R unset / 2) |
+| --: | -------------------------------------- | ------------------------------ | ----------------------------- | ------------------------------------------------ |
+|   1 | 30; 205.07                             | 30; 205.07                     | 0; 0                          | 30; 595.07 / 625.14                              |
+|   2 | 15; 102.50                             | 15; 102.50                     | 0; 0                          | 30; 595.07 / 625.14                              |
+|   3 | 10; 68.36                              | 10; 68.36                      | 0; 0                          | 30; 595.07 / 625.14                              |
+|   4 | 7.5; 51.25                             | 7.5; 51.25                     | 0; 0                          | 30; 595.07 / 625.14                              |
+|   8 | 3.75; 25.64                            | 3.75; 25.64                    | 0; 0                          | 30; 595.07 / 625.14                              |
+
+Moving-DR and idle costs are identical for redundancy unset/2. The gate changes neither moving
+case; a resting, acknowledged scene pays zero. The mixed scene continuously sends content,
+so K does not reduce its packet rate. R = 2 changes delta bases/markers and payload bytes there.
+The window crosses frame 128, hence slightly less than 7 B per header-only packet on average.
+
+For periodic corrections at R unset, packet rates for K = 1/2/3/4/8 are
+30/15.643/10.643/8.321/4.643 per second, with 246.07/147.93/113.64/97.79/72.61 B/s. Content resends
+and corrections make the rate exceed the pure keepalive cadence. Full R = 2 and recovery
+measurements are in the per-scenario JSON, not inferred from a header-size formula.
+
+#### Clock options, without selecting one
+
+| Option                                                     | Cost                                                                                                                                            | Leaves unsolved / policy needed                                                                                                                                            |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fix startup delay/capacity and keep timeline/base coherent | Local interpolation change; no new wire bytes                                                                                                   | Does not remove cap under loss/rate mismatch; shorter refill can worsen holds; requires #271 before/after matrix                                                           |
+| Correct timeline-rate synchronization only                 | Arrival-rate estimator and controlled resynchronization/slew; additional clock bookkeeping                                                      | Does not restore folded history or render missing streamed state; sparse K still needs latency/buffer policy                                                               |
+| K-aware deeper interpolation buffer                        | More stored history and approximately K-dependent presentation latency, potentially smooth on clean sparse arrivals                             | Loss/long pauses still exhaust received data; startup, compaction, and synchronization must remain coherent                                                                |
+| Bounded presentation extrapolation horizon                 | Prediction/catch-up CPU, synchronization/recovery policy, explicit presentation-clock contract; saves up to 87.5% of header-only sends at K = 8 | Future streamed state does not exist; choose stream hold/prediction behavior, horizon exhaustion, gaps/baselines/reconnect/time discontinuities; keep ACK version separate |
+| Keep K = 1 with idle gate                                  | About 30 moving-session packets/s, 205 B/s in this window; zero settled-idle downstream traffic                                                 | Conservative fallback; does not remove #271 or loss-induced holds                                                                                                          |
+
+No clock option is selected here. The evidence narrows the local defect and shows the remaining
+design trade-offs; it does not authorize a production clock rewrite.
+
 ### Future work
 
 A sparse keepalive, `K` of 4 or more, would save most of the bytes of an idle session, but the client
