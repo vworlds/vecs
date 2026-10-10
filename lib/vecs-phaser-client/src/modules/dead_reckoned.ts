@@ -69,7 +69,9 @@ export interface DeadReckonedModuleConfig {
  * - **Dead reckoned to streamed.** On `Motion`'s removal the track stays for the length of the
  *   blend, as a hand-off: the difference between the pose the track would still show and the
  *   freshly streamed one fades out over `blendMs`, added to the interpolated pose, and then the
- *   track is removed. A later `Motion` starts a fresh track.
+ *   track is removed. The hand-off writes its own pose instances; replication-owned instances are
+ *   read-only sources. Its final, unoffset pose stays attached until the network replaces it. A
+ *   later `Motion` starts a fresh track from the shown pose.
  *
  * In both directions a difference above `snapDistance` or `snapAngle` snaps instead (and
  * `blendMs: 0` snaps every one). An entity in steady state pays nothing for any of it: the hand-off
@@ -196,7 +198,8 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
 
     // The path the body is drawn on when it leaves dead reckoning: the hand-off fades the difference
     // between it and the streamed pose out over `blendMs`, then drops the track. Only an entity in
-    // this state is in the query, so a body in steady state pays nothing for it.
+    // this state is in the query, so a body in steady state pays nothing for it. Replication-owned
+    // instances are read-only: the track owns its output and remembers the last network source.
     world
       .system("phaser.extrapolate.handoff")
       .with(MotionTrack, Position, Rotation)
@@ -204,36 +207,39 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       .phase(POST_LOAD)
       .each([MotionTrack, Position, Rotation], (entity, [track, pos, rot]) => {
         const remaining = clock === undefined ? 0 : remainingBlend(track, clock, world.renderFrame);
-        // A pose instance still being the one written last frame holds the streamed value plus the
-        // offset added then. The network replaces an instance whenever it applies a new value, so
-        // an instance it did not touch gets the old offset taken back before the new one is added.
-        let x = pos.x;
-        let y = pos.y;
-        let angle = rot.angle;
-        if (pos === track.shownPosition) {
-          x -= track.offsetX;
-          y -= track.offsetY;
+        if (pos !== track.position) {
+          track.sourceX = pos.x;
+          track.sourceY = pos.y;
         }
-        if (rot === track.shownRotation) {
-          angle -= track.offsetAngle;
+        if (rot !== track.rotation) {
+          track.sourceAngle = rot.angle;
         }
+        const position = (track.position ??= new Position());
+        const rotation = (track.rotation ??= new Rotation());
         const fading = remaining > 0;
-        track.offsetX = fading ? track.errorX * remaining : 0;
-        track.offsetY = fading ? track.errorY * remaining : 0;
-        track.offsetAngle = fading ? track.errorAngle * remaining : 0;
-        if (x + track.offsetX !== pos.x || y + track.offsetY !== pos.y) {
-          pos.x = x + track.offsetX;
-          pos.y = y + track.offsetY;
+        const x = track.sourceX + (fading ? track.errorX * remaining : 0);
+        const y = track.sourceY + (fading ? track.errorY * remaining : 0);
+        const angle = track.sourceAngle + (fading ? track.errorAngle * remaining : 0);
+        const moved = position.x !== x || position.y !== y;
+        if (moved) {
+          position.x = x;
+          position.y = y;
+        }
+        if (pos !== position) {
+          entity.attach(position);
+        } else if (moved) {
           entity.modified(Position);
         }
-        if (angle + track.offsetAngle !== rot.angle) {
-          rot.angle = angle + track.offsetAngle;
+        const turned = rotation.angle !== angle;
+        if (turned) {
+          rotation.angle = angle;
+        }
+        if (rot !== rotation) {
+          entity.attach(rotation);
+        } else if (turned) {
           entity.modified(Rotation);
         }
-        if (fading) {
-          track.shownPosition = pos;
-          track.shownRotation = rot;
-        } else {
+        if (!fading) {
           entity.remove(MotionTrack);
         }
       });
@@ -402,7 +408,10 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
  * body the server switches to a streamed pose, after the hand-off has faded out. It holds its own
  * copy of the accepted baseline and of the entity's `MotionParams` as they were at that baseline, so
  * an older `Motion` that a reordered datagram writes over the component cannot change the path, and
- * the two poses the render frame falls between.
+ * the two poses the render frame falls between. During a hand-off it owns Position and Rotation
+ * output instances, allocated once, and caches the last network source values. Replication-owned
+ * instances are read-only to the hand-off, including ones held as interpolation history. The owned
+ * output remains attached at the plain source pose when the track is dropped.
  */
 class MotionTrack {
   /** Frame of the accepted baseline, `-1` before the first. */
@@ -438,23 +447,20 @@ class MotionTrack {
    */
   public handoff = false;
 
-  /**
-   * Hand-off to a streamed pose: the Position instance this track last added its offset to, so a
-   * frame that the network did not replace it in takes the offset back before adding the new one.
-   */
-  public shownPosition: Position | undefined = undefined;
+  /** Hand-off output position, allocated at most once and never shared with replication. */
+  public position: Position | undefined = undefined;
 
-  /** The Rotation instance this hand-off last added its offset to. */
-  public shownRotation: Rotation | undefined = undefined;
+  /** Hand-off output rotation, allocated at most once and never shared with replication. */
+  public rotation: Rotation | undefined = undefined;
 
-  /** Offset the hand-off last added to the position, x, in meters. */
-  public offsetX = 0;
+  /** Last network source position, x, in meters, without the fading offset. */
+  public sourceX = 0;
 
-  /** Offset the hand-off last added to the position, y, in meters. */
-  public offsetY = 0;
+  /** Last network source position, y, in meters, without the fading offset. */
+  public sourceY = 0;
 
-  /** Offset the hand-off last added to the angle, in radians. */
-  public offsetAngle = 0;
+  /** Last network source angle, in radians, without the fading offset. */
+  public sourceAngle = 0;
 
   /** The accepted baseline. */
   public readonly baseline = new Motion();
