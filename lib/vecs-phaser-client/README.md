@@ -277,7 +277,11 @@ showed and the one the new source gives fades out instead of jumping.
 - **Dead reckoned to streamed.** When `Motion` goes, the track stays for `blendMs` as a hand-off: it
   adds the difference between the pose the track would still show and the freshly streamed one on
   top of the interpolated `Position` and `Rotation`, fading it linearly to nothing, and then drops
-  itself. A later `Motion` starts a fresh track.
+  itself. The track allocates its own output `Position` and `Rotation` once per hand-off and treats
+  replication-owned instances as read-only sources, so fading offsets cannot enter interpolation
+  history. Without a fresh snapshot it reuses the last source values. At completion its output stays
+  attached at the plain streamed pose until the next network value replaces it. A later `Motion`
+  starts a fresh track from the pose currently shown, including a hand-off reversed mid-blend.
 - **Snaps and steady state.** A difference above `snapDistance` or `snapAngle` shows at once, in
   both directions. An entity in steady state pays nothing for any of this: the hand-off is a second
   system, `phaser.extrapolate.handoff`, whose query holds only the entities in a hand-off.
