@@ -5,6 +5,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs-physics]: Reduce pose-out handle churn (#273) by reading owned body position and optional rotation directly instead of the move event's nested transform views, and read the move count once per step. Preserve exact component values, compare-before-write, dynamic-only writes and destroyed-entity skipping. Add a real-WASM compiled-output benchmark with bit-level final-state checksums; bulk event reads still need an upstream supported address API.
 - [vecs-phaser-client]: Preserve `DrawIn` children's GameObjects when their display Container is destroyed (#235). The remove hook detaches children to the scene display list before Phaser's exclusive Container teardown; ownership cascades still destroy owned children. Display exits use Phaser 4's `isDestroyed` flag, and the test stub now models exclusive child destruction and the real flag.
 - [vecs-physics]: Correct shape-derived center-of-mass float noise to exactly zero on the Box2D body during mass recomputation, preserving mass, inertia, and intentional offsets; centered dead-reckoned bodies omit the center fields from their first baseline.
 - [repo]: Refreshed `package-lock.json` with semver-compatible dependency updates to clear the reported Dependabot alerts. `@vworlds/dgram-server`'s `express@^4.18.2` range admits patched Express 4.22.3 and its patched `proxy-addr`, `qs` and `body-parser` dependencies, so a fresh consumer install can resolve them without changing the published dependency range.

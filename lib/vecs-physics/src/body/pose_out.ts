@@ -6,7 +6,6 @@ import {
   type b2BodyId,
   type PhysicsEngine,
 } from "../adapter/engine.js";
-import { type Box2DModule } from "../adapter/runtime.js";
 import {
   AngularVelocity,
   Body,
@@ -16,14 +15,6 @@ import {
   Rotation,
 } from "./components.js";
 import { PhysicsCoreModule } from "../core/module.js";
-
-type b2Transform = ReturnType<Box2DModule["b2World_GetBodyEvents"]>["GetMoveEvent"] extends (
-  ...args: never[]
-) => infer Move
-  ? Move extends { transform: infer T }
-    ? T
-    : never
-  : never;
 
 export class BodyPoseOutModule extends Module {
   public init(): void {
@@ -37,7 +28,8 @@ export class BodyPoseOutModule extends Module {
       .run(() => {
         const bodyEvents = engine.box2d.b2World_GetBodyEvents(engine.worldId);
         try {
-          for (let i = 0; i < bodyEvents.moveCount; i++) {
+          const moveCount = bodyEvents.moveCount;
+          for (let i = 0; i < moveCount; i++) {
             const move = bodyEvents.GetMoveEvent(i);
             try {
               const bodyId = move.bodyId;
@@ -57,7 +49,7 @@ export class BodyPoseOutModule extends Module {
                 continue;
               }
 
-              writePose(engine, entity, move.transform, bodyId);
+              writePose(engine, entity, bodyId);
             } finally {
               move.delete();
             }
@@ -92,32 +84,35 @@ export class BodyPoseOutModule extends Module {
  * nothing per body: the new values are read into locals and compared directly, and the `{ x, y }`
  * literals exist only on the write path.
  *
- * Embind handle rules, which the compare must keep: `move.transform`, `.p` and `.q` are views into
- * the move event's own memory (same address on every read, `transform.p` even shares the
- * transform's), not copies. Read each once and leave them alone: calling `delete()` on a view runs
- * the C++ destructor on an interior pointer of the event, which corrupts the wasm heap. The event's
- * single `move.delete()` releases the memory. The linear velocity is a by-value return, a heap copy
- * this function owns and deletes.
+ * Read position and optional rotation directly from the body: two owned values instead of the
+ * event's three borrowed `transform`/`p`/`q` handles. Every by-value result is released in `finally`.
+ * Rotation still uses Box2D's `GetAngle`, whose result is not bit-identical to `Math.atan2`.
+ * Velocity reads remain conditional on the corresponding component being present; dead reckoning
+ * reads body motion separately and does not require adding velocity components for pose-out.
  */
-function writePose(
-  engine: PhysicsEngine,
-  entity: Entity,
-  transform: b2Transform,
-  bodyId: b2BodyId
-): void {
-  const p = transform.p;
-  const x = p.x;
-  const y = p.y;
-  const position = entity.get(Position);
-  if (position === undefined || position.x !== x || position.y !== y) {
-    entity.set(Position, { x, y });
+function writePose(engine: PhysicsEngine, entity: Entity, bodyId: b2BodyId): void {
+  const p = engine.box2d.b2Body_GetPosition(bodyId);
+  try {
+    const x = p.x;
+    const y = p.y;
+    const position = entity.get(Position);
+    if (position === undefined || position.x !== x || position.y !== y) {
+      entity.set(Position, { x, y });
+    }
+  } finally {
+    p.delete();
   }
 
   const rotation = entity.get(Rotation);
   if (rotation !== undefined) {
-    const angle = transform.q.GetAngle();
-    if (rotation.angle !== angle) {
-      entity.set(Rotation, { angle });
+    const q = engine.box2d.b2Body_GetRotation(bodyId);
+    try {
+      const angle = q.GetAngle();
+      if (rotation.angle !== angle) {
+        entity.set(Rotation, { angle });
+      }
+    } finally {
+      q.delete();
     }
   }
 
