@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read and update the owner's kanban board (docs/agents/orchestrator.md, "The board").
+# Read and update the owner's kanban board (.agents/workflows/orchestrator.md, "The board").
 # Usage: scripts/orchestrator/board.sh <command>
 #   list [column] [--all] [--tsv]     cards top to bottom, by column (Done only with --all or by name),
 #                                     with assignees; Ready cards also show what blocks them

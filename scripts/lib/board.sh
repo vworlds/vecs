@@ -1,5 +1,5 @@
 # Kanban board helpers (the GitHub project the owner tracks work on). Source it after common.sh;
-# don't run it. Columns, assignees and who moves cards: docs/agents/orchestrator.md, "The board".
+# don't run it. Columns, assignees and who moves cards: .agents/workflows/orchestrator.md, "The board".
 # shellcheck shell=bash
 
 BOARD_PROJECT="${VECS_BOARD_PROJECT:-PVT_kwDOBvP9TM4Bmegb}"

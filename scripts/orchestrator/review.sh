@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Post a review outcome or a reply on a task PR or an issue, move its card and say whose move it
-# is now (docs/agents/orchestrator.md, "The board").
+# is now (.agents/workflows/orchestrator.md, "The board").
 # Usage: scripts/orchestrator/review.sh <pr or issue> <outcome> <comment.md>
 #   changes   back to the worker: the card goes to In progress, nobody is assigned
 #   owner     the owner should read, playtest or decide: the card goes to (or stays in) In review

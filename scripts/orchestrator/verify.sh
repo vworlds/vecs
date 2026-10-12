@@ -1,12 +1,32 @@
 #!/usr/bin/env bash
 # Verify one or more PRs together against origin/dev in the orchestrator's review worktree.
 # Exits non-zero on the first failing step; logs stay in /tmp/vecs-verify/.
-# Usage: scripts/orchestrator/verify.sh [--bench] <pr> [<pr>…]
+# Usage: scripts/orchestrator/verify.sh [--bench] [--packages "<ws> <ws>…"] <pr> [<pr>…]
+#   --packages limits only the test step to the listed npm workspaces; other checks stay full-repo.
 set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 bench=false
-if [ "${1:-}" = --bench ]; then bench=true; shift; fi
-[ $# -gt 0 ] || die "usage: verify.sh [--bench] <pr>…"
+packages_arg=""
+packages_requested=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --bench) bench=true; shift ;;
+    --packages)
+      [ $# -ge 2 ] || die "--packages requires a space-separated workspace list"
+      packages_arg="$2"
+      packages_requested=true
+      shift 2
+      ;;
+    *) break ;;
+  esac
+done
+[ $# -gt 0 ] || die "usage: verify.sh [--bench] [--packages \"<ws> <ws>…\"] <pr>…"
+packages=()
+if $packages_requested; then
+  [ -n "$packages_arg" ] || die "--packages requires a space-separated workspace list"
+  read -r -a packages <<< "$packages_arg"
+  [ "${#packages[@]}" -gt 0 ] || die "--packages requires a space-separated workspace list"
+fi
 main="$(git rev-parse --path-format=absolute --git-common-dir | sed 's|/.git$||')"
 wt="${VECS_REVIEW_WORKTREE:-$main/.worktrees/orchestrator-review}"
 logs="/tmp/vecs-verify"
@@ -33,7 +53,15 @@ step npm-ci env HUSKY=0 npm ci
 step typecheck npm run typecheck
 step lint npm run lint
 step format-check npm run format:check
-step test npm run test
+if [ "${#packages[@]}" -gt 0 ]; then
+  test_index=0
+  for workspace in "${packages[@]}"; do
+    test_index=$((test_index + 1))
+    step "test-$test_index" npm run test -w "$workspace"
+  done
+else
+  step test npm run test
+fi
 step build npm run build
 if $bench; then
   step bench npm run bench:sector
