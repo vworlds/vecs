@@ -107,6 +107,11 @@ transport is in-memory and time is virtual: these are deterministic wire-size me
 not elapsed-time measurements. The default correctness suite keeps a 20-body,
 10-second assertion that dead reckoning uses less than one tenth of streamed bytes.
 
+Normal and stress tests resolve workspace packages from source and run before any
+build. The application Vitest configurations merge their Vite configurations to
+preserve those source aliases while excluding stress files. Built `dist` output is
+required for the standalone bandwidth and sector benchmarks.
+
 ## Check against the previous release
 
 ```bash
