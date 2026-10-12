@@ -7,6 +7,12 @@ npm run test
 npm run typecheck
 ```
 
+The root `npm run test` caps each workspace's Vitest pool at two workers by default to
+limit resource use on shared builders. Override it with `VITEST_MAX_WORKERS=4 npm run test`
+(or another worker count). Forks and per-file isolation retain their Vitest defaults.
+Running a single workspace directly, for example `npm run test -w @vworlds/vecs-physics`,
+retains Vitest's default worker count unless you set `VITEST_MAX_WORKERS` yourself.
+
 When fixing a bug, add a regression test that fails before the fix and passes after it. Put the test in the affected workspace's `tests/` directory:
 
 - `lib/vecs/tests/` for ECS internals (world, entity, query, system, dsl, bitset, ordered-set, etc.).
