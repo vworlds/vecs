@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Merge an approved task PR, mechanically and idempotently:
+#   1. mark the PR ready and squash-merge exactly its head, retrying transient GitHub errors;
+#   2. close the issues the PR says it closes, if GitHub hasn't already;
+#   3. delete the branch, and fast-forward the main checkout if it is clean and on dev;
+#   4. move the PR's card to Done on the board.
+# Re-running after a partial failure continues where it stopped. Stop the PR's worker BEFORE
+# running this.
+# Usage: scripts/orchestrator/merge-task.sh <pr> [--subject text] [--body-file f]
+set -euo pipefail
+. "$(dirname "$0")/../lib/common.sh"
+. "$(dirname "$0")/../lib/board.sh"
+pr="${1:?usage: merge-task.sh <pr> [--subject s] [--body-file f]}"
+shift
+subject="" body_file=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --subject) subject="$2"; shift 2 ;;
+    --body-file) body_file="$2"; shift 2 ;;
+    *) die "unknown option $1" ;;
+  esac
+done
+main="$(git rev-parse --path-format=absolute --git-common-dir | sed 's|/.git$||')"
+cd "$main"
+
+info="$(retry 3 gh pr view "$pr" -R "$REPO_SLUG" --json state,title,headRefName,isDraft,mergeable --jq '[.state,.headRefName,.isDraft,.mergeable,.title] | @tsv')"
+IFS=$'\t' read -r state branch draft mergeable title <<< "$info"
+[ "$state" = CLOSED ] && die "PR #$pr is closed without merging"
+# Read before merging: the list is what the PR body links with "Closes #n".
+closes="$(retry 3 gh api graphql -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG#*/}" -F pr="$pr" -f query='
+  query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) {
+    pullRequest(number: $pr) { closingIssuesReferences(first: 20) { nodes { number } } } } }' \
+  --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].number' || true)"
+
+if [ "$state" = OPEN ]; then
+  [ "$mergeable" = CONFLICTING ] && die "PR #$pr conflicts with dev; ask the worker to rebase"
+  fetch_refs "+dev:refs/remotes/origin/dev" "+refs/heads/$branch:refs/remotes/origin/$branch" || die "fetch failed"
+  head="$(git rev-parse "origin/$branch")"
+  [ "$draft" = true ] && retry 3 gh pr ready "$pr" -R "$REPO_SLUG" >/dev/null
+  [ -n "$subject" ] || subject="$(printf '%s' "$title" | sed -E 's/^\[HOLD[^]]*\] //; s/ \(agent task\)$//') (#$pr)"
+  bf="$(mktemp)"
+  if [ -n "$body_file" ]; then
+    cp "$body_file" "$bf"
+  else
+    printf 'See #%s for the review.%s\n' "$pr" "$(for n in $closes; do printf ' Closes #%s.' "$n"; done)" > "$bf"
+  fi
+  # Tell the watcher this merge is ours, so it doesn't report the PR leaving the open list.
+  mkdir -p "${BOARD_STATE%/board}" && touch "${BOARD_STATE%/board}/merged-$pr"
+  merged=false
+  for attempt in 1 2 3 4; do
+    if gh pr merge "$pr" -R "$REPO_SLUG" --squash --match-head-commit "$head" --subject "$subject" --body-file "$bf"; then merged=true; break; fi
+    [ "$(pr_field "$pr" .state)" = MERGED ] && { merged=true; break; }
+    log "merge attempt $attempt failed; retrying"; sleep $((attempt * 5))
+  done
+  rm -f "$bf"
+  $merged || die "could not merge #$pr"
+fi
+
+sha="$(retry 3 gh api "repos/$REPO_SLUG/pulls/$pr" --jq .merge_commit_sha)"
+for n in $closes; do
+  if [ "$(retry 3 gh api "repos/$REPO_SLUG/issues/$n" --jq .state)" = open ]; then
+    retry 3 gh api -X PATCH "repos/$REPO_SLUG/issues/$n" -f state=closed -f state_reason=completed >/dev/null &&
+      log "closed issue #$n"
+  fi
+  board_move "$n" "Done" || true
+  board_turn "$n" nobody || true
+done
+fetch_refs "+dev:refs/remotes/origin/dev" || die "fetch failed"
+gh api -X DELETE "repos/$REPO_SLUG/git/refs/heads/$branch" >/dev/null 2>&1 && log "deleted branch $branch" || true
+git update-ref -d "refs/remotes/origin/$branch" 2>/dev/null || true
+if [ "$(git rev-parse --abbrev-ref HEAD)" = dev ] && [ -z "$(git status --porcelain --untracked-files=no)" ]; then
+  git merge -q --ff-only origin/dev && log "main checkout fast-forwarded to $(git rev-parse --short HEAD)"
+else
+  log "main checkout not on a clean dev; left alone"
+fi
+board_move "$pr" "Done" || true
+board_turn "$pr" nobody || true
+log "#$pr merged as ${sha:0:8}"
