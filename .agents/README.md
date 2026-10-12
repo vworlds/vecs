@@ -36,6 +36,8 @@ Put step-by-step procedures in `.agents/workflows/`:
 - Bug investigation and fix flow: `workflows/bug-fix.md`.
 - Feature implementation flow: `workflows/feature.md`.
 - Release, publish, or deploy flows: `workflows/release.md`.
+- Worker task-PR protocol: `workflows/task-workflow.md`.
+- Shared board and task-PR orchestration: `workflows/orchestrator.md`.
 
 ## Updating Instructions
 
