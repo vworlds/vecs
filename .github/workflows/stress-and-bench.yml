@@ -1,0 +1,41 @@
+name: Stress and release benchmarks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * *"
+
+concurrency:
+  group: stress-and-bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stress-and-bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: dev
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run stress correctness tests
+        run: npm run test:stress
+      - name: Compare against the previous release
+        run: npm run bench:release-check
+      - name: Publish comparison summary
+        if: always()
+        run: |
+          if [ -f .tmp/release-check/comparison.md ]; then
+            cat .tmp/release-check/comparison.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: release-benchmark-comparison
+          path: .tmp/release-check/comparison.*
+          if-no-files-found: ignore
