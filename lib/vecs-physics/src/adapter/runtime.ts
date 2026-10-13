@@ -1,6 +1,6 @@
 import { cpus } from "node:os";
 
-import Box2DFactory from "box2d3-wasm";
+import Box2DFactory from "@vworlds/box2d3-wasm";
 
 import type { b2AABB, b2QueryFilter, b2ShapeProxy, b2Vec2 } from "./engine.js";
 
