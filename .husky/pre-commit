@@ -1,3 +1,5 @@
-npm run typecheck
+if git diff --cached --name-only -z | node .husky/needs-typecheck.mjs; then
+  npm run typecheck
+fi
 npx lint-staged
 npm run format:check

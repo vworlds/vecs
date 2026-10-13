@@ -21,7 +21,8 @@
     "build": "rimraf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:stress": "vitest run --config vitest.stress.config.ts --passWithNoTests"
   },
   "dependencies": {
     "@vworlds/vecs-phaser": "1.0.52",
