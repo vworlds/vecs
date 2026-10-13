@@ -8,6 +8,8 @@ import {
   type InjectedCallback,
   type InjectSnapshot,
   type MaybeResolvedInjectTuple,
+  type ClockInject,
+  type InjectClock,
 } from "./inject.js";
 import { SOURCE_TRACKED_QUERY_ERROR, Query } from "./query/index.js";
 import type {
@@ -103,7 +105,14 @@ type _SystemInboxEvent =
  *
  * @typeParam R - Component classes guaranteed present on every matched entity.
  */
-export class System<R extends ComponentType[] = []> extends Query<R> implements ITickSource {
+export class System<R extends ComponentType[] = []>
+  extends Query<R, ClockInject>
+  implements ITickSource
+{
+  /** @internal Processing tick timestamp; stable fields on all systems. */
+  public _injectNow = 0;
+  /** @internal Processing tick delta, including cadence accumulation. */
+  public _injectDelta = 0;
   /** @internal Single inbox replayed in arrival order on every `_run`. */
   private readonly _inbox: _SystemInboxEvent[] = [];
   /**
@@ -244,6 +253,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
       return;
     }
     const tickDelta = this._tickSource.lastFireDelta;
+    this._injectNow = now;
+    this._injectDelta = tickDelta;
     const prevSource = this.world._currentSource;
     this.world._currentSource = this.entity;
     try {
@@ -464,6 +475,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * tracked entity.
    * Components declared via {@link with} are non-nullable in the resolved
    * tuple; any other component class may be `undefined` if the entity lacks it.
+   * `Now` and `Delta` tokens resolve to non-optional numbers from this processing
+   * tick, with the same accumulated delta as `run`.
    *
    * `each` does **not** modify the system's query — define membership with
    * {@link with} as usual. It does, however, implicitly
@@ -527,7 +540,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this.track();
     const { components, useIter } = normalizeFanInjectCallbackArgs(arg0);
     const callback = arg1 as InjectedCallback;
-    this._eachCallback = makeInjectedInvoker(this.world, components, useIter, callback);
+    this._eachCallback = makeInjectedInvoker(this.world, components, useIter, callback, this);
     return this;
   }
 
@@ -612,5 +625,10 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public override destroy(): void {
     this.disable();
     super.destroy();
+  }
+
+  /** @internal Used only while registering injecting callbacks. */
+  protected override _getInjectClock(): InjectClock {
+    return this;
   }
 }

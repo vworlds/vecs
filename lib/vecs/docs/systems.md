@@ -224,6 +224,40 @@ anything else resolves as `T | undefined` — guard it. (`enter`/`exit` injectio
 direct components to be present and throws otherwise; list only components your predicate
 guarantees.)
 
+### Clock injection
+
+Import `Now` and `Delta` from `@vworlds/vecs` and include them in a system's `each`, `update`,
+`enter`, or `exit` inject list. Both resolve to non-optional `number` slots regardless of `.with`.
+Mix them freely with direct components and `target`, `targets`, or `down` injects, in any position:
+
+```ts
+import { Now, Delta, Iter } from "@vworlds/vecs";
+
+world
+  .system("Stamp")
+  .with(Position)
+  .update(
+    { watch: Position, onEnter: true, cursor: Iter, inject: [Now, Position, Delta] },
+    (it, position, [now, injectedPosition, delta]) => {
+      console.log(it.entity.eid, position === injectedPosition, now, delta);
+    }
+  );
+```
+
+`Now` is the timestamp passed to the system's processing tick, **not** the time the mutation was
+made. `Delta` is that system's own tick delta in milliseconds, the same value its `run` callback
+receives. An interval, rate, or upstream tick source accumulates time between fires; it does not
+inject the last frame's delta. Deferred enter/exit snapshots retain component references, but
+clock slots are filled at replay from the processing tick, even if the entity died in an earlier
+frame.
+
+Clock tokens are supported only in the four system callback kinds above. Standalone query
+callbacks and synchronous iteration/ordering/grouping have no processing clock: TypeScript
+rejects tokens there, and bypassing the types throws a clear error at registration. With
+`cursor: Iter`, clock slots have `undefined` sources in `it.src`; time remains in the inject tuple.
+Tuple lifetimes are unchanged: `each`/`update` reuse their tuples, while `enter`/`exit` give each
+event its own tuple.
+
 ### Relationship injection
 
 `{ target: [Rel, projection] }` follows the entity's **first** relationship target and flattens the
