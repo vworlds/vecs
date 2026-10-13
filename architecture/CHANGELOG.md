@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [repo]: Run CI, stress benchmarks, and publish on configurable runners; clean persistent runner workspaces after each job.
+
 - [repo]: Make worker pushes fast-forward only and preserve task placeholder commits; start orchestrator verification without stale `dist` output.
 
 ## v1.0.53 (2026-10-13)

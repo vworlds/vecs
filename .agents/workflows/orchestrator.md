@@ -16,6 +16,8 @@ them retry transient GitHub errors and fall back to SSH when HTTPS pushes fail.
 
 Worker branches are updated by fast-forward-only pushes; if a remote branch moved, workers fetch and merge it, never force-push. `verify.sh` removes `lib/*/dist` and `apps/*/dist` after assembling the review merge so checks begin without stale build output, as in CI.
 
+CI and stress jobs use the `CI_RUNNER` repository variable; publishing uses `CI_RELEASE_RUNNER`. Set either to `self-hosted` to select the organisation's runners. Delete the variable to fall back to `ubuntu-latest` (the workflow default).
+
 ## The board
 
 The owner tracks all work on the shared GitHub project
