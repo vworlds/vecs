@@ -48,8 +48,9 @@ export class EventPublishModule extends Module {
     const offsets = eventOffsets(engine);
     // Span headers and touched sets are allocated once and reused each step.
     const spans = engine.fast.alloc(
-      Math.max(engine.fast.layout.contactSpans.size, engine.fast.layout.sensorSpans.size)
+      engine.fast.layout.contactSpans.size + engine.fast.layout.sensorSpans.size
     );
+    const sensorSpans = spans + engine.fast.layout.contactSpans.size;
     const touchedContact = new Set<EID>();
     const touchedSensor = new Set<EID>();
     const touchedHit = new Set<EID>();
@@ -61,8 +62,11 @@ export class EventPublishModule extends Module {
         clearSet(touchedSensor);
         clearSet(touchedHit);
 
+        engine.box2d._b2x_World_GetContactSpans(engine.world, spans);
+        engine.box2d._b2x_World_GetSensorSpans(engine.world, sensorSpans);
+        engine.fast.sync();
         publishContactAndHitEvents(world, engine, spans, offsets, touchedContact, touchedHit);
-        publishSensorEvents(world, engine, spans, offsets, touchedSensor);
+        publishSensorEvents(world, engine, sensorSpans, offsets, touchedSensor);
 
         markModified(world, touchedContact, ContactEvents);
         markModified(world, touchedSensor, SensorEvents);
@@ -131,8 +135,6 @@ function publishContactAndHitEvents(
   touchedHit: Set<EID>
 ): void {
   const fast = engine.fast;
-  engine.box2d._b2x_World_GetContactSpans(engine.world, spans);
-  fast.sync();
   const i32 = fast.i32;
   const u32 = fast.u32;
   const f32 = fast.f32;
@@ -170,7 +172,6 @@ function publishSensorEvents(
   touched: Set<EID>
 ): void {
   const fast = engine.fast;
-  engine.box2d._b2x_World_GetSensorSpans(engine.world, spans);
   const i32 = fast.i32;
   const u32 = fast.u32;
   const header = spans >> 2;
