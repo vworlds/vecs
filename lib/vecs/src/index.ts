@@ -1,8 +1,12 @@
 export { System, type SystemQuery } from "./system.js";
 export { Query, GroupedQuery, Group } from "./query/index.js";
 export type { EntityTestFunc, MaybeRequired, QueryDSL } from "./dsl.js";
-export { Iter } from "./inject.js";
+export { Delta, Iter, Now } from "./inject.js";
 export type {
+  ClockInject,
+  ComponentInjectElement,
+  ComponentInjectTuple,
+  ComponentFanInjectTuple,
   DownInject,
   FanInjectElement,
   FanInjectTuple,
