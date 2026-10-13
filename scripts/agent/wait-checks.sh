@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Ported from vworlds/spacerocks at ed419c54; adapted to Vecs' single ci job.
+# Usage: scripts/agent/wait-checks.sh <pr> [max minutes, default 30]
+# WAIT_CHECKS_SHA=<commit> selects that commit instead of the PR's current head.
+# Run ONCE with a 30-minute tool timeout. Read the digest, not more logs, unless a log
+# could not be read. Exit 2 means post [worker] BLOCKED: checks gave no verdict and stop.
+# The last line is checks: green (0), checks: RED: <checks> (1), or
+# checks: no verdict after N min (<why>) (2). GitHub errors are not code failures.
+set -uo pipefail
+. "$(dirname "$0")/../lib/common.sh"
+
+main() {
+  local pr="${1:?usage: wait-checks.sh <pr> [max minutes]}" minutes="${2:-30}"
+  [[ "$minutes" =~ ^[0-9]+$ ]] || no_verdict "invalid minute limit: $minutes"
+  limit=$((10#$minutes * 60))
+  local head="${WAIT_CHECKS_SHA:-}" run="" state status="" conclusion="" now_head failed job name step
+  until [ -n "$head" ]; do
+    head="$(api "repos/$REPO_SLUG/pulls/$pr" --jq 'select(.state == "open") | .head.sha // empty')" || head=""
+    [ -n "$head" ] || pause 10 "cannot read PR #$pr, or it is not open"
+  done
+
+  # Pin this head; after a push GitHub can still show the previous head's checks.
+  until [ -n "$run" ]; do
+    run="$(api "repos/$REPO_SLUG/actions/workflows/ci.yml/runs?head_sha=$head&per_page=1" \
+      --jq '.workflow_runs[0].id // empty')" || run=""
+    [ -n "$run" ] || pause 10 "no CI run for ${head:0:8} yet"
+  done
+  while :; do
+    if state="$(api "repos/$REPO_SLUG/actions/runs/$run" --jq '"\(.status) \(.conclusion)"')"; then
+      read -r status conclusion <<< "$state"
+      [ "$status" != completed ] || break
+    fi
+    pause 15 "run $run is ${status:-unreadable}"
+  done
+
+  if [ -z "${WAIT_CHECKS_SHA:-}" ]; then
+    until now_head="$(api "repos/$REPO_SLUG/pulls/$pr" --jq '.head.sha // empty')" && [ -n "$now_head" ]; do
+      pause 10 "cannot confirm PR #$pr head"
+    done
+    [ "$now_head" = "$head" ] || no_verdict "the PR head changed while waiting: run it again"
+  fi
+  [ "$conclusion" != success ] || verdict green 0
+
+  # No job-list endpoint: a broken list must not prevent waiting or reading a job log.
+  # Match the selected run, not other workflows or older attempts on this commit.
+  until failed="$(api "repos/$REPO_SLUG/commits/$head/check-runs?filter=all&per_page=100" --paginate \
+    --jq ".check_runs[] | select((.details_url // \"\") | contains(\"/runs/$run/job/\"))
+      | select(.conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"cancelled\")
+      | \"\(.id)\t\(.name)\"")"; do
+    pause 5 "cannot read failed checks for run $run"
+  done
+  [ -n "$failed" ] || verdict "RED: run $run ended as $conclusion, but GitHub names no failed check" 1
+  while IFS=$'\t' read -r job name; do
+    step="$(api "repos/$REPO_SLUG/actions/jobs/$job" --jq '[.steps[]? | select(.conclusion == "failure" or .conclusion == "timed_out") | .name] | join(", ")')" || step=""
+    printf -- '--- %s failed (step: %s):\n' "$name" "${step:-unavailable; no failed step reported}"
+    digest_log "$job" "$run"
+  done <<< "$failed"
+  verdict "RED: $(cut -f2 <<< "$failed" | paste -sd, - | sed 's/,/, /g')" 1
+}
+
+api() { gh api "$@" 2> /dev/null; }
+verdict() {
+  printf 'checks: %s\n' "$1"
+  exit "$2"
+}
+no_verdict() { verdict "no verdict after $(((($(date +%s) - started) + 59) / 60)) min ($1)" 2; }
+pause() {
+  local remaining=$((limit - ($(date +%s) - started))) seconds="$1"
+  [ "$remaining" -gt 0 ] || no_verdict "$2"
+  [ "$seconds" -le "$remaining" ] || seconds="$remaining"
+  sleep "$seconds"
+}
+
+digest_log() {
+  local job="$1" run="$2" log_text part digest totals
+  if ! log_text="$(api --allow-escape-sequences "repos/$REPO_SLUG/actions/jobs/$job/logs")" || [ -z "$log_text" ]; then
+    printf '  (its log could not be read: https://github.com/%s/actions/runs/%s/job/%s)\n' "$REPO_SLUG" "$run" "$job"
+    return
+  fi
+  # Keep the failing step, not successful workspaces or runner cleanup. Do not stop
+  # at the first error annotation: tsc emits one annotation per compiler error.
+  part="$(sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g' -e 's/^[0-9T:.Z-]\{20,\} //' -e 's/^#[0-9]* [0-9.]* //' <<< "$log_text" \
+    | awk '/^##\[group\]Run / { text="" }
+      { text=text $0 "\n" }
+      /##\[error\]Process completed with exit code/ { print text; done=1; exit }
+      END { if (!done) printf "%s", text }')"
+  digest="$(awk '
+    /^ *FAIL / { context=12 }
+    /Test Files|^ *Tests +/ { next }
+    context > 0 { print; context--; next }
+    /error TS[0-9]+|[0-9]+:[0-9]+ +error |\[warn\]|^ERROR: |^Error: |^##\[error\]/ { print; next }
+    /^\/.*\.(ts|tsx|js|mjs|cjs)$/ { print }
+  ' <<< "$part")"
+  totals="$(awk '/^ *FAIL / { failed=1 }
+    /Test Files|^ *Tests +/ { if (failed || /failed/) print }
+  ' <<< "$part" | tail -4)"
+  [ -n "$digest" ] || digest="$(tail -n 25 <<< "$part")"
+  # Header + digest <= 60 lines per failed check. Avoid collapsing identical test
+  # names/errors from different workspaces; each failure remains visible.
+  if [ -n "$totals" ]; then
+    cut -c1-220 <<< "$digest" | head -55
+    cut -c1-220 <<< "$totals"
+  else
+    cut -c1-220 <<< "$digest" | head -59
+  fi
+}
+
+started="$(date +%s)"
+main "$@"

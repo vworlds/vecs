@@ -1,0 +1,14 @@
+2026-10-12T23:30:36.6365842Z ##[group]Run npm ci
+2026-10-12T23:30:36.6365842Z install noise
+2026-10-12T23:32:04.9399164Z ##[group]Run npm run test
+2026-10-12T23:32:13.4782179Z       Tests  939 passed (939)
+2026-10-12T23:33:28.0486234Z  FAIL tests/world.test.ts > removes entities
+2026-10-12T23:33:28.0488847Z AssertionError: expected 2 to be 1
+2026-10-12T23:33:28.0491135Z  Expected: 1
+2026-10-12T23:33:28.0491135Z  Received: 2
+2026-10-12T23:33:28.0491135Z  FAIL tests/query.test.ts > filters entities
+2026-10-12T23:33:28.0491135Z Error: missing entity
+2026-10-12T23:33:28.0529497Z  Test Files  2 failed (2)
+2026-10-12T23:33:28.0532021Z       Tests  2 failed | 3 passed (5)
+2026-10-12T23:33:28.1007269Z ##[error]Process completed with exit code 1.
+2026-10-12T23:33:28.1184424Z cleanup must not appear

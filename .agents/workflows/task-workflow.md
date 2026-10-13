@@ -13,13 +13,14 @@ and branch, never in the main checkout, on `dev` or on `master`.
 Every step below has a script in `scripts/agent/`. Each takes the PR number; use the scripts instead
 of retyping commands.
 
-| Step                                                                                                                                                          | Script                      |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| Prepare your worktree: put the branch on the latest `dev` and `npm ci`. Safe to re-run.                                                                       | `start-task.sh <pr>`        |
-| Read the description and every comment.                                                                                                                       | `read-pr.sh <pr>`           |
-| Push your branch fast-forward only, with retries and an SSH fallback. It refuses an empty branch; if the remote moved, fetch and merge it (never force-push). | `push.sh`                   |
-| Post a comment from a file. It adds `[worker]` if it's missing.                                                                                               | `pr-comment.sh <pr> <file>` |
-| Block until the orchestrator replies or the PR closes. Safe to re-run.                                                                                        | `wait-review.sh <pr>`       |
+| Step                                                                                                                                                          | Script                                          |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Prepare your worktree: put the branch on the latest `dev` and `npm ci`. Safe to re-run.                                                                       | `start-task.sh <pr>`                            |
+| Read the description and every comment.                                                                                                                       | `read-pr.sh <pr>`                               |
+| Push your branch fast-forward only, with retries and an SSH fallback. It refuses an empty branch; if the remote moved, fetch and merge it (never force-push). | `push.sh`                                       |
+| Post a comment from a file. It adds `[worker]` if it's missing.                                                                                               | `pr-comment.sh <pr> <file>`                     |
+| Wait for CI once; last line is the verdict (exit 0 green, 1 red, 2 no verdict).                                                                               | `wait-checks.sh <pr> [max minutes, default 30]` |
+| Block until the orchestrator replies or the PR closes. Safe to re-run.                                                                                        | `wait-review.sh <pr>`                           |
 
 ## While working
 
@@ -36,10 +37,14 @@ of retyping commands.
 
 1. Re-read the comments, merge `origin/dev` (never rebase or force-push), run the full checks, then
    `push.sh`. Keep the PR in draft. Record command exit codes with `${PIPESTATUS[0]}`.
+   Run `wait-checks.sh <pr>` once with a 30-minute timeout, never in a loop. Read its digest;
+   don't fetch more logs unless it says a log could not be read. On exit 2 post
+   `[worker] BLOCKED: checks gave no verdict` with the last line and stop.
 2. Post `[worker] READY FOR REVIEW (round N)` with:
    - what changed and why;
    - deviations from the prompt;
    - evidence: the commands you ran and their counts;
+   - CI: `wait-checks.sh`'s exit code and last line;
    - open questions.
 
    Never claim evidence you didn't produce.
