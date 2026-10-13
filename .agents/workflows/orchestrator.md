@@ -14,6 +14,8 @@ them retry transient GitHub errors and fall back to SSH when HTTPS pushes fail.
 | Read the board, move a card, say whose move it is, read or set what blocks an issue, or open an issue (new work, a follow-up, an idea) and add it to Backlog.                                                                                                                                      | `board.sh list\|move\|next\|mine\|turn\|blocked\|block\|unblock\|issue\|remove`                                    |
 | Post a review outcome or a reply on a PR or an issue, move its card and set whose move it is.                                                                                                                                                                                                      | `review.sh <pr or issue> changes\|owner\|approve\|answer\|ask <comment.md>`                                        |
 
+Worker branches are updated by fast-forward-only pushes; if a remote branch moved, workers fetch and merge it, never force-push. `verify.sh` removes `lib/*/dist` and `apps/*/dist` after assembling the review merge so checks begin without stale build output, as in CI.
+
 ## The board
 
 The owner tracks all work on the shared GitHub project

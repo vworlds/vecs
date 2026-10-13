@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify one or more PRs together against origin/dev in the orchestrator's review worktree.
+# Verify one or more PRs together against origin/dev in the orchestrator's review worktree; remove dist output so checks start as in CI.
 # Exits non-zero on the first failing step; logs stay in /tmp/vecs-verify/.
 # Usage: scripts/orchestrator/verify.sh [--bench] [--packages "<ws> <ws>…"] <pr> [<pr>…]
 #   --packages limits only the test step to the listed npm workspaces; other checks stay full-repo.
@@ -10,7 +10,10 @@ packages_arg=""
 packages_requested=false
 while [ $# -gt 0 ]; do
   case "$1" in
-    --bench) bench=true; shift ;;
+    --bench)
+      bench=true
+      shift
+      ;;
     --packages)
       [ $# -ge 2 ] || die "--packages requires a space-separated workspace list"
       packages_arg="$2"
@@ -40,14 +43,22 @@ fetch_refs "${refs[@]}" || die "fetch failed"
 git reset -q --hard
 git checkout -q --detach origin/dev
 for pr in "$@"; do
-  git -c user.name=orchestrator -c user.email=orchestrator@localhost merge -q --no-edit "origin/verify/$pr" ||
-    { git merge --abort 2>/dev/null; die "PR #$pr does not merge cleanly onto dev (with the PRs before it)"; }
+  git -c user.name=orchestrator -c user.email=orchestrator@localhost merge -q --no-edit "origin/verify/$pr" \
+    || {
+      git merge --abort 2> /dev/null
+      die "PR #$pr does not merge cleanly onto dev (with the PRs before it)"
+    }
 done
 log "verifying $(git rev-parse --short HEAD): dev + PR $*"
 
 step() {
-  local name="$1"; shift
-  if "$@" > "$logs/$name.log" 2>&1; then log "ok    $name"; else log "FAIL  $name ($logs/$name.log)"; tail -20 "$logs/$name.log" >&2; exit 1; fi
+  local name="$1"
+  shift
+  if "$@" > "$logs/$name.log" 2>&1; then log "ok    $name"; else
+    log "FAIL  $name ($logs/$name.log)"
+    tail -20 "$logs/$name.log" >&2
+    exit 1
+  fi
 }
 step npm-ci env HUSKY=0 npm ci
 step typecheck npm run typecheck
