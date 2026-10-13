@@ -40,6 +40,8 @@ of retyping commands.
    Run `wait-checks.sh <pr>` once with a 30-minute timeout, never in a loop. Read its digest;
    don't fetch more logs unless it says a log could not be read. On exit 2 post
    `[worker] BLOCKED: checks gave no verdict` with the last line and stop.
+   Log reads work with `gh` 2.45 and newer; clients that refuse ANSI-containing logs
+   use `curl` for the raw REST download. Unreadable-log diagnostics retain the request error.
 2. Post `[worker] READY FOR REVIEW (round N)` with:
    - what changed and why;
    - deviations from the prompt;

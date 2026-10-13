@@ -72,9 +72,14 @@ pause() {
 }
 
 digest_log() {
-  local job="$1" run="$2" log_text part digest totals
-  if ! log_text="$(api --allow-escape-sequences "repos/$REPO_SLUG/actions/jobs/$job/logs")" || [ -z "$log_text" ]; then
-    printf '  (its log could not be read: https://github.com/%s/actions/runs/%s/job/%s)\n' "$REPO_SLUG" "$run" "$job"
+  local job="$1" run="$2" log_text part digest totals error
+  if ! fetch_log "repos/$REPO_SLUG/actions/jobs/$job/logs" || [ -z "$log_text" ]; then
+    error="$(grep -o -m1 -E 'HTTP [0-9]{3}' <<< "$log_text" | head -1)" || error=""
+    if [ -z "$error" ]; then
+      error="$(grep -m1 -E '^gh: |^curl: |^unknown flag: ' <<< "$log_text")" || error="$(head -1 <<< "$log_text")"
+    fi
+    error="$(printf '%s' "$error" | tr '\r\n' '  ' | cut -c1-220)"
+    printf '  (its log could not be read: %s; https://github.com/%s/actions/runs/%s/job/%s)\n' "${error:-empty log response}" "$REPO_SLUG" "$run" "$job"
     return
   fi
   # Keep the failing step, not successful workspaces or runner cleanup. Do not stop
@@ -103,6 +108,26 @@ digest_log() {
   else
     cut -c1-220 <<< "$digest" | head -59
   fi
+}
+
+# gh 2.45 prints raw ANSI logs; newer gh refuses them without a newer-only flag.
+# Use the portable API call first, and only on that refusal download the same REST
+# endpoint with curl. Both paths return raw ANSI for the sed in digest_log to strip.
+# log_text is local to the caller; keep stderr on failure so tool/HTTP errors survive.
+fetch_log() {
+  local endpoint="$1" token
+  if log_text="$(gh api "$endpoint" 2>&1)"; then return 0; fi
+  if [[ "$log_text" == *'the response contains terminal escape sequences'* ]]; then
+    if ! token="$(gh auth token 2>&1)"; then
+      log_text="$token"
+      return 1
+    fi
+    log_text="$(curl --fail --silent --show-error --location \
+      --header "Authorization: Bearer $token" \
+      "https://api.github.com/$endpoint" 2>&1)"
+    return "$?"
+  fi
+  return 1
 }
 
 started="$(date +%s)"
