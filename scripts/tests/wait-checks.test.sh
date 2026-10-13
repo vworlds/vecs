@@ -11,7 +11,11 @@ export PATH="$tmp/bin:$PATH" TEST_TMP="$tmp" FIXTURES="$root/scripts/tests/fixtu
 cat > "$tmp/bin/gh" << 'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "$*" == 'auth token' ]]; then echo offline-token; exit; fi
+if [[ "$*" == 'auth token' ]]; then
+  echo offline-token
+  if [[ "$CASE" == auth-error ]]; then echo 'gh: auth failed for offline-token' >&2; exit 1; fi
+  exit
+fi
 [[ "$1" == api ]] || exit 90
 shift
 query='.' endpoint=''
@@ -60,7 +64,7 @@ case "$endpoint" in
   */actions/jobs/456/logs)
     if [[ "$CASE" == no-log || "$CASE" == billing ]]; then echo 'gh: Not Found (HTTP 404)' >&2; exit 1; fi
     if [[ "$CASE" == tool-error ]]; then echo 'gh: mock transport failed' >&2; exit 2; fi
-    if [[ "$CASE" == escaped-log ]]; then echo 'the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway' >&2; exit 1; fi
+    if [[ "$CASE" == escaped-log || "$CASE" == curl-error || "$CASE" == auth-error ]]; then echo 'the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway' >&2; exit 1; fi
     fixture=tests
     case "$CASE" in typecheck | lint | format | fallback) fixture="$CASE" ;; esac
     if [[ "$CASE" == cap || "$CASE" == test-cap ]]; then
@@ -77,9 +81,17 @@ MOCK
 cat > "$tmp/bin/curl" << 'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "$CASE" == escaped-log ]] || exit 90
+[[ "$CASE" == escaped-log || "$CASE" == curl-error ]] || exit 90
 [[ "$*" == *'https://api.github.com/repos/vworlds/vecs/actions/jobs/456/logs'* ]] || exit 91
-[[ "$*" == *'Authorization: Bearer offline-token'* ]] || exit 92
+[[ "$*" != *offline-token* ]] || { echo 'curl received token in argv' >&2; exit 92; }
+[[ "$(env)" != *offline-token* ]] || { echo 'curl received token in environment' >&2; exit 93; }
+[[ "$*" == *'--header @-'* ]] || exit 94
+IFS= read -r header
+[[ "$header" == 'Authorization: Bearer offline-token' ]] || exit 95
+if [[ "$CASE" == curl-error ]]; then
+  echo 'curl: request failed for offline-token' >&2
+  exit 22
+fi
 printf '\033[31m'
 cat "$FIXTURES/wait-checks-tests.txt"
 printf '\033[0m'
@@ -140,9 +152,15 @@ check test-cap 1 'Tests  1 failed | 99 passed (100)'
 check no-log 1 'its log could not be read'
 grep -Fq 'HTTP 404' "$tmp/output"
 check tool-error 1 'gh: mock transport failed'
+export token=offline-token
 check escaped-log 1 'AssertionError: expected 2 to be 1'
+unset token
 grep -Fq 'Tests  2 failed | 3 passed (5)' "$tmp/output"
 ! grep -q $'\033' "$tmp/output"
+check curl-error 1 'curl: request failed for [REDACTED]'
+! grep -q offline-token "$tmp/output"
+check auth-error 1 'authentication token could not be read'
+! grep -q offline-token "$tmp/output"
 check billing 1 'no failed step reported'
 grep -Fq 'its log could not be read' "$tmp/output"
 check no-run 2 'checks: no verdict after 0 min (no CI run for head yet)'

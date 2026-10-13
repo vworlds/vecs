@@ -115,17 +115,27 @@ digest_log() {
 # endpoint with curl. Both paths return raw ANSI for the sed in digest_log to strip.
 # log_text is local to the caller; keep stderr on failure so tool/HTTP errors survive.
 fetch_log() {
-  local endpoint="$1" token
+  # Clear an inherited export before shadowing it: Bash can otherwise retain the
+  # global value in child environments even when the local variable is unexported.
+  export -n token
+  local endpoint="$1" status=0
+  local +x token
   if log_text="$(gh api "$endpoint" 2>&1)"; then return 0; fi
   if [[ "$log_text" == *'the response contains terminal escape sequences'* ]]; then
-    if ! token="$(gh auth token 2>&1)"; then
-      log_text="$token"
+    if ! token="$(gh auth token 2> /dev/null)" || [ -z "$token" ]; then
+      # Never echo a failed auth command's output: it might include a credential.
+      log_text="gh: authentication token could not be read"
       return 1
     fi
-    log_text="$(curl --fail --silent --show-error --location \
-      --header "Authorization: Bearer $token" \
-      "https://api.github.com/$endpoint" 2>&1)"
-    return "$?"
+    # Keep credentials out of argv and the download process's environment.
+    log_text="$(
+      unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+      printf 'Authorization: Bearer %s\n' "$token" | curl --fail --silent --show-error --location \
+        --header @- "https://api.github.com/$endpoint" 2>&1
+    )" || status=$?
+    # Even a failed downloader that echoes its input must not leak the token.
+    log_text="${log_text//"$token"/[REDACTED]}"
+    return "$status"
   fi
   return 1
 }
