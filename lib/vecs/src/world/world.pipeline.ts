@@ -40,6 +40,9 @@ export class Pipeline extends Disposal {
       throw new Error("beginFrame() not called before endFrame()");
     }
     this._frameInProgress = false;
+    if (this._disposePending) {
+      this._finishDisposal();
+    }
   }
 
   /** Run every system in the pipeline query order. */

@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs] [vecs-client]: `World.dispose()` now destroys infrastructure and singleton data after application cleanup (#296, #297), so module-owned resources can release through `remove` hooks. Inside a tick the final pass waits for `endFrame()`; outside a tick it follows the enclosing command drain. Component keys follow their carriers; cycles and keys still carried by a synchronous teardown already on the stack are skipped. `clearAllEntities()` retains its throwing behavior. This replaces the infrastructure-survives contract from #230; callers must discard the disposed world.
+
 - [repo]: Port SpaceRocks' adaptive 10-second GraphQL watcher, Done-filtered board reads, per-repository archiving after merges, and opencode 2 HTTP worker launcher with permission/failure events.
 - [repo]: Include tracked shell scripts in the root formatting checks and format pass.
 - [repo]: Install a release benchmark base's own dependencies when its lockfile differs, and report base preparation/build failures as warnings.

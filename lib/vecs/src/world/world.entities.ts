@@ -3,6 +3,7 @@ import { type ComponentRef } from "../component.js";
 import { Entity, Identity, type EID, type EntityClass } from "../entity/index.js";
 import { Deferred } from "./world.deferred.js";
 import type { World } from "./world.js";
+import { carriersFirst } from "./destroy-order.js";
 
 const RESERVED_EID = 0;
 
@@ -114,11 +115,7 @@ export class Entities extends Deferred {
     const pending = new Set(this._entities.values());
     while (pending.size > 0) {
       let destroyed = 0;
-      for (const entity of [...pending]) {
-        const instanceCount = entity.instanceCount();
-        if (instanceCount > (entity._get(entity.eid) ? 1 : 0)) {
-          continue;
-        }
+      for (const entity of carriersFirst([...pending])) {
         entity.destroy();
         pending.delete(entity);
         destroyed++;

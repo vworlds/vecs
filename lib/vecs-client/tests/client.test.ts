@@ -712,11 +712,10 @@ describe("ClientWorld.dispose", () => {
     expect(resource.released).toBe(true);
   });
 
-  it("keeps the client's own query, system and component entities", () => {
+  it("destroys the client's own query, system and component entities", () => {
     const world = createClientWorld({ serverTickIntervalMs: 10 });
     const socket = new MemorySocket("server");
     world.attachSocket(socket);
-    const infrastructure = entityIds(world);
     socket.receive(
       encodeMessage(
         new Server2Client({
@@ -729,7 +728,41 @@ describe("ClientWorld.dispose", () => {
 
     world.dispose();
 
-    expect(entityIds(world)).toEqual(infrastructure);
+    expect(entityIds(world)).toEqual([]);
+  });
+
+  it("disposes from a disconnect handler inside progress, after the rest of the tick", () => {
+    const world = createClientWorld();
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    const calls: string[] = [];
+    const resource = world.component(LocalResource).on("remove", () => calls.push("resource"));
+    world.set(LocalResource, {});
+    world.events.on("disconnect", () => {
+      calls.push("disconnect");
+      world.dispose();
+      world.dispose();
+    });
+    // A malformed component payload is consumed by ClientWorld:Apply in ON_LOAD.
+    socket.receive(
+      encodeMessage(
+        new Server2Client({
+          diff: new StateDiff({
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [makeSnapshot(1000, 1, new Uint8Array([255]))],
+          }),
+        })
+      )
+    );
+    world.system("later").run(() => {
+      calls.push("later");
+      expect(resource.alive).toBe(true);
+    });
+    expect(() => world.progress(0, 0)).not.toThrow();
+    expect(calls).toEqual(["disconnect", "later", "resource"]);
+    expect(socket.closed).toBe(true);
+    expect(entityIds(world)).toEqual([]);
   });
 
   it("refuses new calls, sends, and socket attachments after disposal", async () => {

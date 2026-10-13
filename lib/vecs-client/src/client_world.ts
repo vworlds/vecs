@@ -484,18 +484,20 @@ export class ClientWorld extends NetworkWorld {
    * queued for {@link ClientWorld.apply} are dropped unrun; replicated entities
    * are destroyed, which fires their components' `remove` hooks; the diff
    * buffer resets; the ack timer stops and the socket closes; and finally every
-   * other entity is destroyed through `World.dispose()`. Those are the
+   * other entity is destroyed through `World.dispose()`. These include the
    * client-local ones — UI, effects, `DrawBy` children — and destroying them
    * fires their `remove` hooks too, so render resources such as Phaser
    * GameObjects are released the same way as the replicated ones. A call whose
    * reply already arrived has settled with it, so it is not among the rejected
    * ones.
    *
-   * The client's own component, query and system entities, like those of any
-   * module, stay. A system's `exit` callback only queues its event, and a
-   * disposed world never runs the system again, so release resources in
-   * `remove` hooks. `World.dispose()` documents what else stays and what
-   * happens when it runs inside a system or hook, as it does from a
+   * The client's own component, module, query, system and phase entities are
+   * destroyed last, releasing singleton resources through their `remove` hooks.
+   * Inside `progress()`, infrastructure stays alive until `endFrame()` and the
+   * remaining systems still run. Outside a tick, an enclosing deferred queue
+   * drains before infrastructure teardown. Release resources in `remove` hooks,
+   * not system `exit` callbacks. `World.dispose()` documents ordering and the
+   * synchronous-hook exception, including calls from a
    * `disconnect` handler that {@link ClientWorld.apply} triggers by closing the
    * client for a protocol error.
    *

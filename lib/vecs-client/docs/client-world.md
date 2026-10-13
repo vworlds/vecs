@@ -344,14 +344,16 @@ In order, `dispose`:
 Steps 3 and 6 are what free render resources. A Phaser `GameObject` attached to an entity as a
 component is destroyed by its `remove` hook, so it goes whether the entity is replicated or local,
 and no module-level sweep is needed. Replicated entities go first, then the client-local ones;
-within each group the order is unspecified. The client's own component, query and system entities
-stay, as in any world, and so does data a module stores on a component entity with `world.set`:
-release that yourself. A system's `exit` callback only queues its event, and a disposed world never
-runs the system again, so do the releasing in `remove` hooks.
+within each group the order is unspecified. The client's own infrastructure and module singleton
+data are destroyed last. Use `remove` hooks for their resources too; a system's queued `exit`
+callback need not run before teardown. See the core disposal guide for carrier ordering and the
+synchronous-hook exception.
 
 `dispose()` can run while the world is deferred, for example in a `disconnect` handler that
 `apply()` triggers when it closes the client for a protocol error. The destruction is then queued
-like any `destroy()` and completes when the running system finishes.
+like any `destroy()`: application entities go when the running system finishes, while infrastructure
+stays alive for the rest of the tick and goes at `endFrame()`. Outside a tick, an enclosing `defer`
+queue drains before infrastructure teardown.
 
 A call whose reply has already arrived is not rejected: it settled when the reply came in, so
 disposal only rejects the calls still waiting for one.

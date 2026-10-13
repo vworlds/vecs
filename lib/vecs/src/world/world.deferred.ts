@@ -1,5 +1,6 @@
 import { CommandKind, type Command } from "../command.js";
 import { Queries } from "./world.queries.js";
+import type { World } from "./world.js";
 
 export class Deferred extends Queries {
   /** @internal Single ordered command queue used in deferred mode. */
@@ -8,6 +9,8 @@ export class Deferred extends Queries {
   protected _deferredDepth = 0;
   /** @internal `true` while {@link _processCommandQueue} is iterating, to avoid re-entrant drains. */
   protected _draining = false;
+  /** @internal Infrastructure teardown waiting for a drain or frame boundary. */
+  protected _disposePending = false;
 
   /**
    * @internal Buffered cleanup actions scheduled by `Entity._cleanupIncoming`.
@@ -92,6 +95,8 @@ export class Deferred extends Queries {
       case CommandKind.RemoveTarget:
         cmd.entity._removeTarget(cmd.meta, cmd.target);
         return;
+      case CommandKind.DisposalBarrier:
+        return;
     }
   }
 
@@ -112,6 +117,10 @@ export class Deferred extends Queries {
     } finally {
       this._routingSource = undefined;
       this._draining = false;
+    }
+    // Only the World disposal layer sets this flag; keep the lower layer structurally independent.
+    if (this._disposePending && !this._frameInProgress) {
+      (this as unknown as World)._finishDisposal();
     }
   }
 }
