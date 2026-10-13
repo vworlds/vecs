@@ -10,6 +10,8 @@ export type Box2DModule = Awaited<ReturnType<typeof Box2DFactory>>;
 let modulePromise: Promise<Box2DModule> | null = null;
 let module: Box2DModule | null = null;
 let fastPath: FastPath | null = null;
+/** 64-byte wasm scratch for fast-path pose/motion out-parameters; non-reentrant like scr_*. */
+export let scr_fastOut = 0;
 
 // Global scratch pools for common Box2D structs. Allocated once at module load,
 // reused across queries and other non-reentrant operations.
@@ -33,6 +35,7 @@ export async function preloadPhysics(): Promise<void> {
   modulePromise = Box2DFactory().then((loadedModule) => {
     module = loadedModule;
     fastPath = createFastPath(loadedModule);
+    scr_fastOut = fastPath.alloc(64);
     // Timers only feed b2World_GetProfile, which vecs never reads; they do not affect simulation.
     fastPath.setProfileTimers(false);
     initializeScratchPools(loadedModule);
@@ -75,6 +78,11 @@ export function getBox2D(): Box2DModule {
     );
   }
   return module;
+}
+
+/** `rev` half of a packed fast-path id: world0 | generation << 16. */
+export function rev(id: { world0: number; generation: number }): number {
+  return id.world0 | (id.generation << 16);
 }
 
 /** The b2x_ fast path over the loaded module: raw exports, struct layouts, memory views. */

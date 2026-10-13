@@ -1,7 +1,7 @@
 import { Module } from "@vworlds/vecs";
 
 import { AngularImpulse, Impulse } from "./components.js";
-import { scr_b2Vec2 } from "../adapter/runtime.js";
+import { rev } from "../adapter/runtime.js";
 import {
   getPhysicsEngine,
   PhysicsSystemTag,
@@ -80,9 +80,13 @@ function drainLinearImpulses(engine: PhysicsEngine): void {
     if (!engine.entityByBodyIndex.has(bodyId.index1)) {
       continue;
     }
-    const vec = scr_b2Vec2[0];
-    vec.Set(impulse.x, impulse.y);
-    engine.box2d.b2Body_ApplyLinearImpulseToCenter(bodyId, vec, impulse.wake);
+    engine.fast.module._b2x_Body_ApplyLinearImpulseToCenter(
+      bodyId.index1,
+      rev(bodyId),
+      impulse.x,
+      impulse.y,
+      impulse.wake ? 1 : 0
+    );
   }
   engine.pendingLinearImpulse.clear();
 }
@@ -98,7 +102,12 @@ function drainAngularImpulses(engine: PhysicsEngine): void {
     if (!engine.entityByBodyIndex.has(bodyId.index1)) {
       continue;
     }
-    engine.box2d.b2Body_ApplyAngularImpulse(bodyId, impulse.value, impulse.wake);
+    engine.fast.module._b2x_Body_ApplyAngularImpulse(
+      bodyId.index1,
+      rev(bodyId),
+      impulse.value,
+      impulse.wake ? 1 : 0
+    );
   }
   engine.pendingAngularImpulse.clear();
 }
