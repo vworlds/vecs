@@ -5,6 +5,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [repo]: Make worker pushes fast-forward only and preserve task placeholder commits; start orchestrator verification without stale `dist` output.
 - [repo]: Split short deterministic correctness from file-selected stress horizons, with mutation-verified short replication and integrator cases. Add the full DR bandwidth benchmark, warning-only previous-release comparisons with JSON/Markdown reports, and a nightly/manual stress-and-benchmark workflow. Skip pre-commit typechecking for staged files that cannot affect types while retaining lint-staged and formatting checks. Preserve application Vite source aliases in Vitest so tests run on clean checkouts before any build.
 - [repo]: Ported the shared GitHub board scripts and worker/orchestrator workflows to Vecs, including repo-specific verification and optional sector benchmark checks.
 - [repo]: Reduce test/build resource use without shortening scenarios: physics fuzz uses fail-fast finite checks with seed/step/body diagnostics, client reordering enumerates all 360 distinct duplicate-delta arrival orders, root tests default to two Vitest workers (overridable with `VITEST_MAX_WORKERS`), and root builds compile physics without rebuilding vecs. Standalone physics builds and vecs prepack retain their prerequisite builds. Superseded same-ref CI runs are cancelled.
