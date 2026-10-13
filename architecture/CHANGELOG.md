@@ -5,6 +5,8 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+## v1.0.53 (2026-10-13)
+
 - [vecs]: Add `Now` and `Delta` inject tokens for system `each`, `update`, `enter`, and `exit` callbacks. They read the processing tick and the system's accumulated delta, including delayed exit replay, and mix with component/relationship injects and `Iter`. Standalone queries reject clock injection. Token-free resolver/invoker paths and callback tuple lifetimes are preserved.
 
 - [repo]: Split short deterministic correctness from file-selected stress horizons, with mutation-verified short replication and integrator cases. Add the full DR bandwidth benchmark, warning-only previous-release comparisons with JSON/Markdown reports, and a nightly/manual stress-and-benchmark workflow. Skip pre-commit typechecking for staged files that cannot affect types while retaining lint-staged and formatting checks. Preserve application Vite source aliases in Vitest so tests run on clean checkouts before any build.
