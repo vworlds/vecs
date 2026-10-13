@@ -53,6 +53,7 @@ if [ "$state" = OPEN ]; then
   # Tell the watcher this merge is ours, so it doesn't report the PR leaving the open list.
   mkdir -p "${BOARD_STATE%/board}" && touch "${BOARD_STATE%/board}/merged-$pr"
   merged=false
+  board_hold_startable
   for attempt in 1 2 3 4; do
     if gh pr merge "$pr" -R "$REPO_SLUG" --squash --match-head-commit "$head" --subject "$subject" --body-file "$bf"; then
       merged=true
@@ -89,3 +90,7 @@ fi
 board_move "$pr" "Done" || true
 board_turn "$pr" nobody || true
 log "#$pr merged as ${sha:0:8}"
+board_announce_startable || true
+board_release_startable
+# Done only grows: put away what closed more than two days ago.
+board_archive_done 2 || true

@@ -38,15 +38,17 @@ board_meta() {
   printf '%s\n' "$_BOARD_META"
 }
 
-# board_items: every card in board order (top to bottom), as TSV:
+# board_items [filter]: every card in board order (top to bottom), as TSV:
 #   itemId, column, kind (PR, ISSUE or DRAFT), repo, number, state, title, assignees
-# Assignees are logins joined by commas, or "-".
+# Assignees are logins joined by commas, or "-". <filter> is a project filter such as
+# "-status:Done": whoever doesn't need the Done column leaves it out, because it only grows and
+# every 100 cards cost another request.
 board_items() {
-  local cursor="" page
+  local filter="${1:-}" cursor="" page
   while :; do
-    page="$(_board_gql ${cursor:+-f after="$cursor"} -f query='
-      query($p: ID!, $after: String) { node(id: $p) { ... on ProjectV2 {
-        items(first: 100, after: $after, orderBy: {field: POSITION, direction: ASC}) {
+    page="$(_board_gql ${cursor:+-f after="$cursor"} ${filter:+-f q="$filter"} -f query='
+      query($p: ID!, $after: String, $q: String) { node(id: $p) { ... on ProjectV2 {
+        items(first: 100, after: $after, query: $q, orderBy: {field: POSITION, direction: ASC}) {
           pageInfo { hasNextPage endCursor }
           nodes { id
             status: fieldValueByName(name: "Status") {
@@ -56,8 +58,8 @@ board_items() {
               ... on Issue { number title state repository { nameWithOwner }
                 assignees(first: 10) { nodes { login } } }
               ... on PullRequest { number title state repository { nameWithOwner }
-                assignees(first: 10) { nodes { login } } } } } } } } }')" ||
-      return 1
+                assignees(first: 10) { nodes { login } } } } } } } } }')" \
+      || return 1
     jq -r '.data.node.items.nodes[] | [ .id, (.status.name // "-"),
         ({"PullRequest": "PR", "Issue": "ISSUE", "DraftIssue": "DRAFT"}[.content.__typename // ""] // "?"),
         (.content.repository.nameWithOwner // "-"), ((.content.number // "-") | tostring),
@@ -66,6 +68,94 @@ board_items() {
     [ "$(jq -r '.data.node.items.pageInfo.hasNextPage' <<< "$page")" = true ] || break
     cursor="$(jq -r '.data.node.items.pageInfo.endCursor' <<< "$page")"
   done
+}
+
+# board_first_unblocked <rows>: "#n (KIND): title" of the first "number TAB kind TAB title" row
+# with no open blocker, or nothing. Fails when the blockers cannot be read.
+board_first_unblocked() {
+  local number kind title blocked
+  while IFS=$'\t' read -r number kind title; do
+    [ -n "${number:-}" ] || continue
+    if [ "$kind" = ISSUE ]; then
+      blocked="$(board_blockers "$number" 2> /dev/null | head -1)" || return 1
+      [ -z "$blocked" ] || continue
+    fi
+    printf '#%s (%s): %s\n' "$number" "$kind" "$title"
+    return 0
+  done <<< "$1"
+}
+
+# board_ready_rows / board_approved_rows <items>: this repo's Ready cards, and its approved
+# issues, as "number TAB kind TAB title", in board order.
+board_ready_rows() {
+  awk -F'\t' -v here="$REPO_SLUG" '$2 == "Ready" && $4 == here { print $5 "\t" $3 "\t" $7 }' <<< "$1"
+}
+board_approved_rows() {
+  awk -F'\t' -v here="$REPO_SLUG" '$2 == "Approved" && $4 == here && $3 == "ISSUE" { print $5 "\t" $3 "\t" $7 }' <<< "$1"
+}
+
+# board_hold_startable / board_release_startable: keep NEXT and LAUNCH quiet while our merge
+# is in flight. A hold older than two minutes is ignored so a failed script cannot silence them.
+board_hold_startable() {
+  board_enabled || return 0
+  mkdir -p "$BOARD_STATE" && touch "$BOARD_STATE/.hold-startable"
+}
+board_release_startable() { rm -f "$BOARD_STATE/.hold-startable"; }
+board_startable_held() {
+  local f="$BOARD_STATE/.hold-startable"
+  [ -e "$f" ] && [ $(($(date +%s) - $(stat -c %Y "$f" 2> /dev/null || echo 0))) -lt 120 ]
+}
+
+# board_archive_done [days]: archive this repo's cards in Done whose issue or PR closed more than
+# <days> days ago (default 2). An archived card leaves the board and its listings, and stays in
+# the project's "Archived items" view, from where it can be restored.
+board_archive_done() {
+  board_enabled || return 0
+  local days="${1:-2}" cursor="" page ids="" id n=0
+  # Collect first: archiving while paging would shift the pages.
+  while :; do
+    page="$(_board_gql ${cursor:+-f after="$cursor"} -f query='
+      query($p: ID!, $after: String) { node(id: $p) { ... on ProjectV2 {
+        items(first: 100, after: $after, query: "status:Done") {
+          pageInfo { hasNextPage endCursor }
+          nodes { id content {
+            ... on Issue { closedAt repository { nameWithOwner } }
+            ... on PullRequest { closedAt repository { nameWithOwner } } } } } } } }')" \
+      || return 1
+    ids="$ids $(jq -r --arg here "$REPO_SLUG" --argjson days "$days" '.data.node.items.nodes[]
+      | select(.content.repository.nameWithOwner == $here and .content.closedAt != null)
+      | select((now - (.content.closedAt | fromdateiso8601)) > ($days * 86400)) | .id' <<< "$page" | tr '\n' ' ')"
+    [ "$(jq -r '.data.node.items.pageInfo.hasNextPage' <<< "$page")" = true ] || break
+    cursor="$(jq -r '.data.node.items.pageInfo.endCursor' <<< "$page")"
+  done
+  for id in $ids; do
+    _board_gql -f i="$id" -f query='
+      mutation($p: ID!, $i: ID!) { archiveProjectV2Item(input: {projectId: $p, itemId: $i}) {
+        item { id } } }' > /dev/null || continue
+    rm -f "$BOARD_STATE/$id" "$BOARD_STATE/$id.who"
+    n=$((n + 1))
+  done
+  [ "$n" -eq 0 ] || log "board: archived $n Done card(s) that closed more than $days day(s) ago"
+}
+
+# board_announce_startable: after a step of ours that can unblock cards (a merge closes
+# issues), say what can be started now and record it as already reported, so the watcher
+# doesn't wake its own author for it a few seconds later.
+board_announce_startable() {
+  board_enabled || return 0
+  local items next launch
+  items="$(board_items "-status:Done" 2> /dev/null)" || return 0
+  next="$(board_first_unblocked "$(board_ready_rows "$items")")" || return 0
+  launch="$(board_first_unblocked "$(board_approved_rows "$items")")" || return 0
+  mkdir -p "$BOARD_STATE"
+  if [ "$next" != "$(cat "$BOARD_STATE/.next" 2> /dev/null || true)" ]; then
+    printf '%s\n' "$next" > "$BOARD_STATE/.next"
+    [ -z "$next" ] || log "next: $next"
+  fi
+  if [ "$launch" != "$(cat "$BOARD_STATE/.launch" 2> /dev/null || true)" ]; then
+    printf '%s\n' "$launch" > "$BOARD_STATE/.launch"
+    [ -z "$launch" ] || log "launch: $launch: approved and nothing blocks it"
+  fi
 }
 
 # board_ref <ref>: "<repo> TAB <number>" for 212, #212, owner/repo#212 or a github.com URL.
@@ -86,9 +176,16 @@ board_ref() {
 # (adding an existing one returns its card). A PVTI_… id passes through.
 board_item() {
   local repo="" number="" node
-  case "$1" in PVTI_*) printf '%s\n' "$1"; return 0 ;; esac
+  case "$1" in PVTI_*)
+    printf '%s\n' "$1"
+    return 0
+    ;;
+  esac
   IFS=$'\t' read -r repo number < <(board_ref "$1") || true
-  [ -n "$number" ] || { log "board: cannot read '$1' as an issue or PR"; return 1; }
+  [ -n "$number" ] || {
+    log "board: cannot read '$1' as an issue or PR"
+    return 1
+  }
   node="$(retry 3 gh api "repos/$repo/issues/$number" --jq .node_id)" || return 1
   _board_gql -f c="$node" -f query='
     mutation($p: ID!, $c: ID!) { addProjectV2ItemById(input: {projectId: $p, contentId: $c}) {
@@ -102,9 +199,15 @@ board_remember() { mkdir -p "$BOARD_STATE" && printf '%s\n' "$2" > "$BOARD_STATE
 # board_set <itemId> <column>
 board_set() {
   local item="$1" column field="" option=""
-  column="$(board_column "$2")" || { log "board: unknown column '$2'"; return 1; }
+  column="$(board_column "$2")" || {
+    log "board: unknown column '$2'"
+    return 1
+  }
   IFS=$'\t' read -r field option _ < <(board_meta | awk -F'\t' -v c="$column" '$3 == c') || true
-  [ -n "$option" ] || { log "board: the Status field has no '$column' option"; return 1; }
+  [ -n "$option" ] || {
+    log "board: the Status field has no '$column' option"
+    return 1
+  }
   _board_gql -f i="$item" -f f="$field" -f o="$option" -f query='
     mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) { updateProjectV2ItemFieldValue(input: {
       projectId: $p, itemId: $i, fieldId: $f, value: {singleSelectOptionId: $o}}) {
@@ -191,20 +294,29 @@ board_turn() {
   board_enabled || return 0
   local repo="" number="" me give="" take=""
   IFS=$'\t' read -r repo number < <(board_ref "$1") || true
-  [ -n "$number" ] || { log "board: cannot read '$1' as an issue or PR"; return 1; }
+  [ -n "$number" ] || {
+    log "board: cannot read '$1' as an issue or PR"
+    return 1
+  }
   me="$(board_me)" || return 1
   case "$2" in
     owner) give="$BOARD_OWNER" take="$me" ;;
     me) give="$me" take="$BOARD_OWNER" ;;
     nobody) take="$BOARD_OWNER $me" ;;
-    *) log "board: turn is owner, me or nobody"; return 1 ;;
+    *)
+      log "board: turn is owner, me or nobody"
+      return 1
+      ;;
   esac
   for who in $take; do _board_assignees DELETE "$repo" "$number" "$who" || true; done
   # When we take the owner off, tell the watcher, so it doesn't report it back as their doing.
   case " $take " in *" $BOARD_OWNER "*) mkdir -p "$BOARD_STATE" && touch "$BOARD_STATE/.turn-${repo//\//_}-$number" ;; esac
   if [ -n "$give" ]; then
-    _board_assignees POST "$repo" "$number" "$give" ||
-      { log "warning: could not assign #$number to $give"; return 1; }
+    _board_assignees POST "$repo" "$number" "$give" \
+      || {
+        log "warning: could not assign #$number to $give"
+        return 1
+      }
   fi
   # Taking something ourselves is not news either: the watcher keeps "mine-<n>" for what it has
   # already reported as assigned to us.
@@ -231,8 +343,8 @@ board_block() {
   shift
   for blocker in "$@"; do
     blocker="${blocker#\#}"
-    if gh api "repos/$repo/issues/$number/dependencies/blocked_by" --jq '.[].number' 2> /dev/null |
-      grep -q -x "$blocker"; then
+    if gh api "repos/$repo/issues/$number/dependencies/blocked_by" --jq '.[].number' 2> /dev/null \
+      | grep -q -x "$blocker"; then
       continue
     fi
     id="$(retry 3 gh api "repos/$repo/issues/$blocker" --jq .id)" || return 1
@@ -249,7 +361,7 @@ board_unblock() {
   for blocker in "$@"; do
     blocker="${blocker#\#}"
     id="$(retry 3 gh api "repos/$repo/issues/$blocker" --jq .id)" || return 1
-    gh api -X DELETE "repos/$repo/issues/$number/dependencies/blocked_by/$id" > /dev/null 2>&1 &&
-      log "#$number is no longer blocked by #$blocker"
+    gh api -X DELETE "repos/$repo/issues/$number/dependencies/blocked_by/$id" > /dev/null 2>&1 \
+      && log "#$number is no longer blocked by #$blocker"
   done
 }
