@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   stress-and-bench:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -20,7 +20,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
-          cache: npm
       - name: Install dependencies
         run: npm ci
       - name: Run stress correctness tests
@@ -39,3 +38,8 @@ jobs:
           name: release-benchmark-comparison
           path: .tmp/release-check/comparison.*
           if-no-files-found: ignore
+
+      # Timing warnings on shared self-hosted runners are indicative only.
+      - name: Clean workspace
+        if: always()
+        run: git clean -ffdx

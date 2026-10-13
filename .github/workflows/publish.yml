@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RELEASE_RUNNER || 'ubuntu-latest' }}
     permissions:
       id-token: write
       contents: write
@@ -22,7 +22,6 @@ jobs:
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: npm
 
       - name: Configure git
         run: |
@@ -108,3 +107,9 @@ jobs:
         run: npm publish ./lib/vecs-phaser-client/dist --access public
         env:
           NODE_AUTH_TOKEN: ""
+
+      - name: Clean workspace
+        if: always()
+        run: |
+          git reset --hard
+          git clean -ffdx
