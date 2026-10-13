@@ -265,6 +265,9 @@ function clearSet(set: Set<EID>): void {
 
 function copySet(target: Set<EID>, source: Set<EID>): void {
   clearSet(target);
+  if (source.size === 0) {
+    return;
+  }
   for (const eid of source) {
     target.add(eid);
   }
@@ -339,6 +342,9 @@ function markModified<T extends object>(
   touched: Set<EID>,
   component: new () => T
 ): void {
+  if (touched.size === 0) {
+    return;
+  }
   for (const entityId of touched) {
     world.getEntity(entityId)?.modified(component);
   }
@@ -349,6 +355,9 @@ function clearUntouchedContactEvents(
   previouslyTouched: Set<EID>,
   touched: Set<EID>
 ): void {
+  if (previouslyTouched.size === 0) {
+    return;
+  }
   for (const entityId of previouslyTouched) {
     if (touched.has(entityId)) {
       continue;
@@ -366,6 +375,9 @@ function clearUntouchedSensorEvents(
   previouslyTouched: Set<EID>,
   touched: Set<EID>
 ): void {
+  if (previouslyTouched.size === 0) {
+    return;
+  }
   for (const entityId of previouslyTouched) {
     if (touched.has(entityId)) {
       continue;
@@ -383,6 +395,9 @@ function clearUntouchedHitEvents(
   previouslyTouched: Set<EID>,
   touched: Set<EID>
 ): void {
+  if (previouslyTouched.size === 0) {
+    return;
+  }
   for (const entityId of previouslyTouched) {
     if (touched.has(entityId)) {
       continue;

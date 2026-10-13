@@ -68,6 +68,10 @@ export class ImpulseAccumulateModule extends Module {
 }
 
 function drainLinearImpulses(engine: PhysicsEngine): void {
+  // Avoid allocating an iterator for an empty queue.
+  if (engine.pendingLinearImpulse.size === 0) {
+    return;
+  }
   for (const [bodyId, impulse] of engine.pendingLinearImpulse) {
     // Impulses that cancel out are physically a no-op: skip the wasm call and its wake.
     if (impulse.x === 0 && impulse.y === 0) {
@@ -84,6 +88,9 @@ function drainLinearImpulses(engine: PhysicsEngine): void {
 }
 
 function drainAngularImpulses(engine: PhysicsEngine): void {
+  if (engine.pendingAngularImpulse.size === 0) {
+    return;
+  }
   for (const [bodyId, impulse] of engine.pendingAngularImpulse) {
     if (impulse.value === 0) {
       continue;

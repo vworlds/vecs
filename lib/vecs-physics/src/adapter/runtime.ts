@@ -33,6 +33,8 @@ export async function preloadPhysics(): Promise<void> {
   modulePromise = Box2DFactory().then((loadedModule) => {
     module = loadedModule;
     fastPath = createFastPath(loadedModule);
+    // Timers only feed b2World_GetProfile, which vecs never reads; they do not affect simulation.
+    fastPath.setProfileTimers(false);
     initializeScratchPools(loadedModule);
     return loadedModule;
   });
