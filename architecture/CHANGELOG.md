@@ -6,6 +6,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 ## Unreleased
 
 - [repo]: Port SpaceRocks' adaptive 10-second GraphQL watcher, Done-filtered board reads, per-repository archiving after merges, and opencode 2 HTTP worker launcher with permission/failure events.
+- [repo]: Include tracked shell scripts in the root formatting checks and format pass.
 - [repo]: Install a release benchmark base's own dependencies when its lockfile differs, and report base preparation/build failures as warnings.
 
 ## v1.0.54 (2026-10-13)

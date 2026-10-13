@@ -20,8 +20,8 @@ file="${3:?comment file required}"
 [ -r "$file" ] || die "cannot read $file"
 case "$outcome" in changes | owner | approve | answer | ask) ;; *) die "unknown outcome $outcome" ;; esac
 head -c 14 "$file" | grep -q '^\[orchestrator\]' || die "the comment must start with [orchestrator]"
-url="$(retry 3 gh api -X POST "repos/$REPO_SLUG/issues/$pr/comments" -F body=@"$file" --jq .html_url)" ||
-  die "could not post the comment"
+url="$(retry 3 gh api -X POST "repos/$REPO_SLUG/issues/$pr/comments" -F body=@"$file" --jq .html_url)" \
+  || die "could not post the comment"
 log "posted $url"
 case "$outcome" in
   changes)
