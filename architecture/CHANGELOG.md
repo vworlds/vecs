@@ -6,6 +6,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 ## Unreleased
 
 - [vecs-physics]: Reduce pose-out handle churn (#273) by reading owned body position and optional rotation directly instead of the move event's nested transform views, and read the move count once per step. Preserve exact component values, compare-before-write, dynamic-only writes and destroyed-entity skipping. Add a real-WASM compiled-output benchmark with bit-level final-state checksums; bulk event reads still need an upstream supported address API.
+- [repo]: Run CI, stress benchmarks, and publish on configurable runners; clean persistent runner workspaces after each job.
 - [repo]: Make worker pushes fast-forward only and preserve task placeholder commits; start orchestrator verification without stale `dist` output.
 
 ## v1.0.53 (2026-10-13)
