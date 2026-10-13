@@ -11,6 +11,9 @@ import {
 } from "./components.js";
 import { PhysicsCoreModule } from "../core/module.js";
 
+/** Export moved bodies once per post-step tick and write only changed Dynamic-body components.
+ * The pinned fast path refreshes heap views; optional components and modification routing remain
+ * unchanged, and no per-body Box2D handle, marshalling object or typed-array view is created. */
 export class BodyPoseOutModule extends Module {
   public init(): void {
     const world = this.world;

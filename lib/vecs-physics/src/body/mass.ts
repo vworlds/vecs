@@ -12,7 +12,7 @@ import { Body, BodyType } from "./components.js";
 
 const CODE_DYNAMIC_BODY_WITHOUT_DENSITY = "dynamic-body-without-density";
 
-// Real box2d3-wasm 5.2.0 measurements (#259): centered boxes (half extents
+// Real Box2D measurements (#259), unchanged on the owned 6.0.1 package: centered boxes (half extents
 // 0.01–100 m, including non-square), a rounded box, circle, capsule, regular
 // hexagon, and symmetric boxes had |center| / AABB half-extent <= 1.35e-7.
 // 8 * epsilon_f32 gives ~7x headroom over that peak (~9.54e-7 relative).

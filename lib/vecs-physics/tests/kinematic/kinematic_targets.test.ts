@@ -122,7 +122,7 @@ describe("KinematicTargetPosition convergence", () => {
 
     step(1);
 
-    // box2d3-wasm@5.2.0 baseline: 1 m target at 60 Hz reaches in one step.
+    // @vworlds/box2d3-wasm@6.0.1 baseline: 1 m target at 60 Hz reaches in one step.
     const pos = bodyPosition(bodySim(e.eid));
     expect(pos.x).toBeCloseTo(1, 6);
   });
@@ -225,9 +225,9 @@ describe("KinematicTargetRotation", () => {
       .set(Rotation, { angle: 0 })
       .set(KinematicTargetRotation, { angle: Math.PI / 2, tolerance: 0.001 });
 
-    step(3); // two correction steps to settle against box2d3-wasm@5.2.0 integration.
+    step(3); // two correction steps to settle against @vworlds/box2d3-wasm@6.0.1 integration.
 
-    // box2d3-wasm@5.2.0 baseline: angular target settles within three steps.
+    // @vworlds/box2d3-wasm@6.0.1 baseline: angular target settles within three steps.
     expect(bodyAngle(bodySim(e.eid))).toBeCloseTo(Math.PI / 2, 3);
   });
 

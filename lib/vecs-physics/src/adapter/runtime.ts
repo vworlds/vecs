@@ -1,5 +1,3 @@
-import { cpus } from "node:os";
-
 import Box2DFactory from "@vworlds/box2d3-wasm";
 import { createFastPath, type FastPath } from "@vworlds/box2d3-wasm/fastpath";
 
@@ -21,16 +19,13 @@ export let scr_b2AABB: b2AABB | null = null;
 export let scr_b2ShapeProxy: b2ShapeProxy | null = null;
 export let scr_b2MassData: InstanceType<Box2DModule["b2MassData"]> | null = null;
 
+/** Load the pinned owned Box2D module and fast path once, with profile timers disabled.
+ * Selects single-threaded SIMD when supported; initialization needs no navigator polyfill. */
 export async function preloadPhysics(): Promise<void> {
   if (modulePromise) {
     await modulePromise;
     return;
   }
-
-  // box2d3-wasm reads navigator.hardwareConcurrency during Node initialization.
-  const global = globalThis as unknown as { navigator?: Partial<Navigator> };
-  global.navigator ??= {};
-  (global.navigator as { hardwareConcurrency?: number }).hardwareConcurrency ??= cpus().length;
 
   modulePromise = Box2DFactory().then((loadedModule) => {
     module = loadedModule;

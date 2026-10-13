@@ -38,6 +38,9 @@ interface HitOffsets extends PairOffsets {
   approachSpeed: number;
 }
 
+/** Read contact/hit/sensor spans once per tick and publish fresh public event records in order.
+ * Native reads allocate no per-event wrappers; event components retain clear-in-place arrays
+ * and are marked modified once per receiving entity with new events. */
 export class EventPublishModule extends Module {
   public init(): void {
     const world = this.world;

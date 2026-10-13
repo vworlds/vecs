@@ -158,15 +158,15 @@ export interface PhysicsQueries {
 
   /**
    * Returns whether `entity`'s body is awake: `false` for an entity without a live body. It
-   * allocates nothing, so it is cheap enough to call per body per step.
+   * Uses a scalar fast-path read and allocates nothing, so it is cheap enough per body per step.
    */
   isAwake(entity: Entity): boolean;
 
   /**
    * Reads `entity`'s body motion into `out`: whether it is awake, its velocities, its damping, its
-   * center of mass and the gravity scale Box2D applies to it. Each call reads Box2D, and the two
-   * vectors cost a short-lived wasm copy each, so call it when the values are needed, not every
-   * step.
+   * center of mass and the gravity scale Box2D applies to it. One composite fast-path call reads
+   * the same Box2D getters into reusable wasm scratch, with refreshed memory views and no
+   * per-call handle or marshalling allocation. The supplied output remains caller-owned.
    *
    * @param entity The body entity.
    * @param out The object to overwrite.
