@@ -1,4 +1,5 @@
 import { ArrayMap, type EID, type Entity, type World } from "@vworlds/vecs";
+import { type FastPath, type MoveExporter } from "@vworlds/box2d3-wasm/fastpath";
 
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
 import { type PhysicsQueries } from "./queries.js";
@@ -72,7 +73,13 @@ export function hasPhysicsEngine(world: World): boolean {
 
 export class PhysicsEngine {
   public worldId!: b2WorldId;
+  /** `worldId` packed for the b2x_ fast path: index1 | generation << 16. */
+  public world = 0;
   public readonly box2d!: Box2DModule;
+  /** The b2x_ fast path: raw exports, layouts and whole-memory views. */
+  public readonly fast!: FastPath;
+  /** Reusable buffer that `PhysicsPoseSyncOut` exports the move events into. */
+  public moveExporter!: MoveExporter;
   public readonly phases!: PhysicsPhases;
 
   // Resolved configuration (flattened from PhysicsOptions).
@@ -156,19 +163,25 @@ export class PhysicsEngine {
     box2d: Box2DModule,
     options: ResolvedPhysicsOptions,
     phases: PhysicsPhases,
-    warnSink?: WarnSink
+    warnSink?: WarnSink,
+    fast?: FastPath
   );
   public constructor(
     box2d?: Box2DModule,
     options?: ResolvedPhysicsOptions,
     phases?: PhysicsPhases,
-    warnSink?: WarnSink
+    warnSink?: WarnSink,
+    fast?: FastPath
   ) {
     if (box2d === undefined || options === undefined || phases === undefined) {
       return;
     }
 
     this.box2d = box2d;
+    if (fast !== undefined) {
+      this.fast = fast;
+      this.moveExporter = fast.createMoveExporter(64);
+    }
     this.phases = phases;
     this.gravityX = options.gravityX;
     this.gravityY = options.gravityY;

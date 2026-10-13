@@ -1,6 +1,7 @@
 import { cpus } from "node:os";
 
 import Box2DFactory from "@vworlds/box2d3-wasm";
+import { createFastPath, type FastPath } from "@vworlds/box2d3-wasm/fastpath";
 
 import type { b2AABB, b2QueryFilter, b2ShapeProxy, b2Vec2 } from "./engine.js";
 
@@ -8,6 +9,7 @@ export type Box2DModule = Awaited<ReturnType<typeof Box2DFactory>>;
 
 let modulePromise: Promise<Box2DModule> | null = null;
 let module: Box2DModule | null = null;
+let fastPath: FastPath | null = null;
 
 // Global scratch pools for common Box2D structs. Allocated once at module load,
 // reused across queries and other non-reentrant operations.
@@ -30,6 +32,7 @@ export async function preloadPhysics(): Promise<void> {
 
   modulePromise = Box2DFactory().then((loadedModule) => {
     module = loadedModule;
+    fastPath = createFastPath(loadedModule);
     initializeScratchPools(loadedModule);
     return loadedModule;
   });
@@ -70,4 +73,14 @@ export function getBox2D(): Box2DModule {
     );
   }
   return module;
+}
+
+/** The b2x_ fast path over the loaded module: raw exports, struct layouts, memory views. */
+export function getFastPath(): FastPath {
+  if (!fastPath) {
+    throw new Error(
+      "Box2D module not loaded. Call `await preloadPhysics()` before `world.module(PhysicsModule)`."
+    );
+  }
+  return fastPath;
 }

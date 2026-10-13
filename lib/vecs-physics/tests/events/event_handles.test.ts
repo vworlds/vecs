@@ -150,7 +150,8 @@ describe("physics event handles", () => {
     expect(plain.get("GetBeginEvent")).toBeGreaterThan(0);
     expect(plain.get("GetEndEvent")).toBeGreaterThan(1);
     expect(created.get("GetHitEvent")).toBeGreaterThan(0);
-    expect(created.get("GetMoveEvent")).toBeGreaterThan(0);
+    // Pose-out exports moves through the fast path, without move-event handles.
+    expect(created.get("GetMoveEvent")).toBeUndefined();
     expect(live.size).toBe(0);
   });
 });

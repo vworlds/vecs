@@ -1,11 +1,6 @@
 import { Module, type Entity } from "@vworlds/vecs";
 
-import {
-  getPhysicsEngine,
-  PhysicsSystemTag,
-  type b2BodyId,
-  type PhysicsEngine,
-} from "../adapter/engine.js";
+import { getPhysicsEngine, PhysicsSystemTag } from "../adapter/engine.js";
 import {
   AngularVelocity,
   Body,
@@ -22,44 +17,60 @@ export class BodyPoseOutModule extends Module {
     world.module(PhysicsCoreModule);
 
     const engine = getPhysicsEngine(world);
+    const fast = engine.fast;
+    const move = fast.layout.move;
+    const offsets: MoveOffsets = {
+      bodyIndex: move.bodyIndex >> 2,
+      x: move.x >> 2,
+      y: move.y >> 2,
+      angle: move.angle >> 2,
+      vx: move.vx >> 2,
+      vy: move.vy >> 2,
+      w: move.w >> 2,
+    };
+    const flags = fast.layout.constants.exportVelocity;
     world
       .system("PhysicsPoseSyncOut")
       .phase(engine.phases.postStep)
       .run(() => {
-        const bodyEvents = engine.box2d.b2World_GetBodyEvents(engine.worldId);
-        try {
-          const moveCount = bodyEvents.moveCount;
-          for (let i = 0; i < moveCount; i++) {
-            const move = bodyEvents.GetMoveEvent(i);
-            try {
-              const bodyId = move.bodyId;
-              const entityId = engine.entityByBodyIndex.get(bodyId.index1);
-              if (entityId === undefined) {
-                continue;
-              }
-
-              // A postStep system may destroy an entity after Box2D produced this event.
-              // Keep the reverse slot until the reaper frees the body; lookup is O(1).
-              const entity = world.getEntity(entityId);
-              if (entity === undefined || entity.destroyed) {
-                continue;
-              }
-              const body = entity.get(Body);
-              if (body?.type !== BodyType.Dynamic) {
-                continue;
-              }
-
-              writePose(engine, entity, bodyId);
-            } finally {
-              move.delete();
-            }
+        // Export after preceding postStep systems; exportMoves also refreshes memory views.
+        const exporter = engine.moveExporter;
+        const count = exporter.exportMoves(engine.world, flags);
+        const i32 = fast.i32;
+        const f32 = fast.f32;
+        const stride = exporter.stride;
+        let base = exporter.base;
+        for (let i = 0; i < count; i++, base += stride) {
+          const entityId = engine.entityByBodyIndex.get(i32[base + offsets.bodyIndex]);
+          if (entityId === undefined) {
+            continue;
           }
-        } finally {
-          bodyEvents.delete();
+          // A postStep system may destroy an entity after Box2D produced this event.
+          // Keep the reverse slot until the reaper frees the body; lookup is O(1).
+          const entity = world.getEntity(entityId);
+          if (entity === undefined || entity.destroyed) {
+            continue;
+          }
+          const body = entity.get(Body);
+          if (body?.type !== BodyType.Dynamic) {
+            continue;
+          }
+          writePose(entity, f32, base, offsets);
         }
       })
       .add(PhysicsSystemTag);
   }
+}
+
+/** Word offsets of the b2xMove fields pose-out reads, from the generated layout. */
+interface MoveOffsets {
+  bodyIndex: number;
+  x: number;
+  y: number;
+  angle: number;
+  vx: number;
+  vy: number;
+  w: number;
 }
 
 /**
@@ -84,55 +95,38 @@ export class BodyPoseOutModule extends Module {
  * nothing per body: the new values are read into locals and compared directly, and the `{ x, y }`
  * literals exist only on the write path.
  *
- * Read position and optional rotation directly from the body: two owned values instead of the
- * event's three borrowed `transform`/`p`/`q` handles. Every by-value result is released in `finally`.
- * Rotation still uses Box2D's `GetAngle`, whose result is not bit-identical to `Math.atan2`.
- * Velocity reads remain conditional on the corresponding component being present; dead reckoning
- * reads body motion separately and does not require adding velocity components for pose-out.
+ * Values come from the move record exported after preceding postStep systems. The angle uses
+ * Box2D's b2Rot_GetAngle, preserving its exact bits, and velocities use the same Box2D getters
+ * in wasm. Reading these f32 records creates no embind handle or allocation.
  */
-function writePose(engine: PhysicsEngine, entity: Entity, bodyId: b2BodyId): void {
-  const p = engine.box2d.b2Body_GetPosition(bodyId);
-  try {
-    const x = p.x;
-    const y = p.y;
-    const position = entity.get(Position);
-    if (position === undefined || position.x !== x || position.y !== y) {
-      entity.set(Position, { x, y });
-    }
-  } finally {
-    p.delete();
+function writePose(entity: Entity, f32: Float32Array, base: number, offsets: MoveOffsets): void {
+  const x = f32[base + offsets.x]!;
+  const y = f32[base + offsets.y]!;
+  const position = entity.get(Position);
+  if (position === undefined || position.x !== x || position.y !== y) {
+    entity.set(Position, { x, y });
   }
 
   const rotation = entity.get(Rotation);
   if (rotation !== undefined) {
-    const q = engine.box2d.b2Body_GetRotation(bodyId);
-    try {
-      const angle = q.GetAngle();
-      if (rotation.angle !== angle) {
-        entity.set(Rotation, { angle });
-      }
-    } finally {
-      q.delete();
+    const angle = f32[base + offsets.angle]!;
+    if (rotation.angle !== angle) {
+      entity.set(Rotation, { angle });
     }
   }
 
   const linearVelocity = entity.get(LinearVelocity);
   if (linearVelocity !== undefined) {
-    const linear = engine.box2d.b2Body_GetLinearVelocity(bodyId);
-    try {
-      const vx = linear.x;
-      const vy = linear.y;
-      if (linearVelocity.x !== vx || linearVelocity.y !== vy) {
-        entity.set(LinearVelocity, { x: vx, y: vy });
-      }
-    } finally {
-      linear.delete();
+    const vx = f32[base + offsets.vx]!;
+    const vy = f32[base + offsets.vy]!;
+    if (linearVelocity.x !== vx || linearVelocity.y !== vy) {
+      entity.set(LinearVelocity, { x: vx, y: vy });
     }
   }
 
   const angularVelocity = entity.get(AngularVelocity);
   if (angularVelocity !== undefined) {
-    const value = engine.box2d.b2Body_GetAngularVelocity(bodyId);
+    const value = f32[base + offsets.w]!;
     if (angularVelocity.value !== value) {
       entity.set(AngularVelocity, { value });
     }
