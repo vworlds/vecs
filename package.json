@@ -13,14 +13,17 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @vworlds/vecs && npm run build -w @vworlds/vecs-wire && npm run build -w @vworlds/vecs-protocol && npm run build -w @vworlds/vecs-client && npm run build -w @vworlds/vecs-server && npm run build -w @vworlds/vecs-physics && npm run build -w @vworlds/vecs-phaser && npm run build -w @vworlds/vecs-phaser-server && npm run build -w @vworlds/vecs-phaser-client && npm run build -w @vworlds/vecs-demo-client --if-present && npm run build -w @vworlds/vecs-demo-server --if-present",
+    "build": "npm run build -w @vworlds/vecs && npm run build -w @vworlds/vecs-wire && npm run build -w @vworlds/vecs-protocol && npm run build -w @vworlds/vecs-client && npm run build -w @vworlds/vecs-server && npm run clean -w @vworlds/vecs-physics && npm run compile -w @vworlds/vecs-physics && npm run build -w @vworlds/vecs-phaser && npm run build -w @vworlds/vecs-phaser-server && npm run build -w @vworlds/vecs-phaser-client && npm run build -w @vworlds/vecs-demo-client --if-present && npm run build -w @vworlds/vecs-demo-server --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p bench",
     "lint": "npm run lint --workspaces --if-present && eslint bench",
     "format": "prettier --write . --ignore-unknown && prettier --write --plugin=prettier-plugin-sh \"apps/*/docker/*.sh\" && prettier --write --plugin=prettier-plugin-nginx --parser nginx \"apps/*/docker/nginx.conf\" && dockerfmt -w -n apps/*/docker/Dockerfile",
     "format:check": "prettier --check . --ignore-unknown && prettier --check --plugin=prettier-plugin-sh \"apps/*/docker/*.sh\" && prettier --check --plugin=prettier-plugin-nginx --parser nginx \"apps/*/docker/nginx.conf\" && dockerfmt -c -n apps/*/docker/Dockerfile",
-    "test": "npm run test --workspaces --if-present",
+    "test": "VITEST_MAX_WORKERS=${VITEST_MAX_WORKERS:-2} npm run test --workspaces --if-present",
+    "test:stress": "VITEST_MAX_WORKERS=${VITEST_MAX_WORKERS:-2} npm run test:stress --workspaces --if-present",
     "bench:vecs": "npm run bench:ecs -w @vworlds/vecs",
     "bench:sector": "node --import ./bench/register-dist.mjs bench/sector-tick.ts",
+    "bench:dr-bandwidth": "node --import ./bench/register-dist.mjs bench/dr-bandwidth.ts",
+    "bench:release-check": "node bench/compare.ts --release",
     "bench:compare": "node bench/compare.ts",
     "prepare": "husky"
   },

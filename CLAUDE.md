@@ -10,4 +10,6 @@ Always read the relevant files before doing the matching work:
 - `.agents/rules/testing.md` before fixing bugs, adding features, or changing behavior.
 - `.agents/rules/documentation.md` before adding or changing features, public APIs, or behavior.
 - `.agents/rules/box2d-references.md` before cloning Box2D reference sources for vecs-physics work.
+- `.agents/workflows/task-workflow.md` when working as a task-PR worker.
+- `.agents/workflows/orchestrator.md` when operating the shared project board or coordinating task PRs.
 - `.agents/README.md` before modifying these instructions, and only when explicitly asked to update repo instructions.

@@ -112,6 +112,51 @@ are included in whole-tick timing. The checksum hashes the exact float64 bytes o
 final position, rotation and velocities in creation order. Compare several alternating builds
 with identical counts; checksum disagreement is a behavior change, while timings have host noise.
 
+## Dead-reckoning bandwidth
+
+```bash
+npm run bench:dr-bandwidth
+```
+
+Run the full 200-body scene (50 bullets, 50 damped containers, 100 rocks), with one
+client at 30 Hz, one second of connection warm-up and 60 measured seconds. The three
+modes are streamed, dead reckoned with the default refresh, and dead reckoned without
+refresh. `BENCH_RESULT` contains each mode's total bytes and bytes per second. The
+transport is in-memory and time is virtual: these are deterministic wire-size metrics,
+not elapsed-time measurements. The default correctness suite keeps a 20-body,
+10-second assertion that dead reckoning uses less than one tenth of streamed bytes.
+
+Normal and stress tests resolve workspace packages from source and run before any
+build. The application Vitest configurations merge their Vite configurations to
+preserve those source aliases while excluding stress files. Built `dist` output is
+required for the standalone bandwidth and sector benchmarks.
+
+## Check against the previous release
+
+```bash
+npm run bench:release-check
+```
+
+This extends `compare.ts`: it builds HEAD and the latest reachable release tag
+(`git describe --tags --abbrev=0`), runs the same HEAD benchmark programs against both
+builds, and removes the temporary release worktree when done. Temporary worktrees and
+JSON/Markdown reports live under ignored `.tmp/release-check/`. It uses this checkout's
+installed dependencies in the release worktree. Run `npm ci` first.
+
+The check includes sector tick, DR bandwidth, and an optional physics pose-out benchmark
+when a matching benchmark file is present. It defaults to three alternating runs per
+build; set `BENCH_ROUNDS` to an integer of at least three for more runs. Missing release
+package APIs produce “no previous data” for that benchmark; benchmark crashes fail the
+command. Each deterministic metric is compared exactly, including repeatability within
+each build; all changes are shown, with a warning when bytes increase. Timing means warn
+only above 10% regression and when the absolute difference exceeds both builds'
+run-to-run ranges. Warnings exit zero and become annotations in GitHub Actions.
+
+`comparison.json` contains the release tag, rounds, metric values, deltas, verdicts,
+and timing spread. `comparison.md` contains the single comparison table used in the
+nightly/manual workflow's job summary. The older explicit two-build comparison above
+still enforces identical fingerprints for optimization experiments.
+
 ## ECS microbenchmark
 
 `npm run bench:vecs` runs `lib/vecs/tests/ecs.bench.test.ts` from the TypeScript sources: entity

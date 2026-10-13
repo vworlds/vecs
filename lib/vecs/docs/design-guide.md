@@ -374,6 +374,24 @@ Why:
 Components listed in the inject tuple but **not** guaranteed by `.with(...)` resolve as
 `T | undefined` (the types reflect this) — guard them; the ones in `.with` are always present.
 
+Inject `Now` or `Delta` when a system entity callback needs time, rather than capturing it in a
+separate `.run` callback. They mix with component and relationship injects in any tuple position:
+
+```ts
+import { Delta } from "@vworlds/vecs";
+
+world
+  .system("Move")
+  .with(Position, Velocity)
+  .each([Position, Delta, Velocity], (entity, [pos, delta, vel]) => {
+    pos.x += (vel.vx * delta) / 1000;
+    entity.modified(Position);
+  });
+```
+
+For processing-time semantics, cadence accumulation, and callback support, see
+[System clock injection](./systems.md#clock-injection).
+
 ### `each` vs reactive — don't scan when you can react
 
 - **`.each([...], cb)`** iterates **every matching entity every tick**. Use it only when you

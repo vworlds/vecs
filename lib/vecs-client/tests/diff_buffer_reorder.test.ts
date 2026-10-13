@@ -312,14 +312,19 @@ it("matches in-order applied state for every arrival permutation with one duplic
       count++;
       return;
     }
+    const selected = new Set<number>();
     for (let i = 0; i < remaining.length; i++) {
+      if (selected.has(remaining[i])) {
+        continue;
+      }
+      selected.add(remaining[i]);
       enumerate(
         [...prefix, remaining[i]],
         remaining.filter((_, j) => j !== i)
       );
     }
   }
-  // Enumerate all 6! arrivals, including the duplicate old snapshot delta.
+  // Enumerate all 6!/2! distinct arrivals, including the duplicate old snapshot delta.
   enumerate([], [0, 1, 2, 3, 4, 0]);
-  expect(count).toBe(720);
+  expect(count).toBe(360);
 });

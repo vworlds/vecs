@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs",
-  "version": "1.0.52",
+  "version": "1.0.53",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -19,7 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.types.json",
     "format:check": "prettier --check \"**/*.{ts,md}\" --ignore-path ../../.prettierignore"
   },
   "license": "UNLICENSED",

@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-server",
-  "version": "1.0.52",
+  "version": "1.0.53",
   "private": false,
   "type": "module",
   "main": "src/index.ts",
@@ -9,13 +9,14 @@
     "build": "rimraf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:stress": "vitest run --config vitest.stress.config.ts --passWithNoTests"
   },
   "dependencies": {
     "@vworlds/dgram-server": "^1.0.13",
-    "@vworlds/vecs": "1.0.52",
-    "@vworlds/vecs-protocol": "1.0.52",
-    "@vworlds/vecs-wire": "1.0.52"
+    "@vworlds/vecs": "1.0.53",
+    "@vworlds/vecs-protocol": "1.0.53",
+    "@vworlds/vecs-wire": "1.0.53"
   },
   "license": "UNLICENSED",
   "repository": {
