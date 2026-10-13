@@ -40,12 +40,30 @@ else
 fi
 while [ $# -gt 0 ]; do
   case "$1" in
-    --slug) slug="$2"; shift 2 ;;
-    --title) title="$2"; shift 2 ;;
-    --spec) spec="$2"; shift 2 ;;
-    --part) part=true; shift ;;
-    --unapproved) approved_only=false; shift ;;
-    --hold) hold=true; shift ;;
+    --slug)
+      slug="$2"
+      shift 2
+      ;;
+    --title)
+      title="$2"
+      shift 2
+      ;;
+    --spec)
+      spec="$2"
+      shift 2
+      ;;
+    --part)
+      part=true
+      shift
+      ;;
+    --unapproved)
+      approved_only=false
+      shift
+      ;;
+    --hold)
+      hold=true
+      shift
+      ;;
     *) die "unknown option $1" ;;
   esac
 done
@@ -63,15 +81,15 @@ elif [[ "${ref#\#}" =~ ^[0-9]+$ ]]; then
 elif [[ "$ref" =~ ^E[0-9]+-T[0-9]+[a-z]?$ ]]; then
   # Issues that came from the old plan keep its names. The name is [A-Za-z0-9-] only, so it is
   # safe to inline into the jq program.
-  issue="$(retry 3 gh api --paginate "repos/$REPO_SLUG/issues?state=open&per_page=100" |
-    jq -r "[.[] | select(.pull_request | not) | select(.title | test(\"^$ref( |\$)\"; \"i\"))][0].number // empty")"
+  issue="$(retry 3 gh api --paginate "repos/$REPO_SLUG/issues?state=open&per_page=100" \
+    | jq -r "[.[] | select(.pull_request | not) | select(.title | test(\"^$ref( |\$)\"; \"i\"))][0].number // empty")"
   [ -n "$issue" ] || die "no open issue named $ref"
 else
   die "cannot read '$ref' as an issue number or a plan name"
 fi
 if ! $direct; then
-  info="$(retry 3 gh api "repos/$REPO_SLUG/issues/$issue" --jq '[.state, (has("pull_request") | tostring), .title] | @tsv')" ||
-    die "cannot read issue #$issue"
+  info="$(retry 3 gh api "repos/$REPO_SLUG/issues/$issue" --jq '[.state, (has("pull_request") | tostring), .title] | @tsv')" \
+    || die "cannot read issue #$issue"
   IFS=$'\t' read -r state is_pr issue_title <<< "$info"
   [ "$is_pr" = false ] || die "#$issue is a pull request, not an issue"
   [ "$state" = open ] || die "issue #$issue is $state"
@@ -93,14 +111,18 @@ $hold && pr_title="[HOLD: owner review] $pr_title"
 # The suffix is [a-z0-9-] only, so it is safe to inline into the jq program.
 existing="$(retry 3 gh pr list -R "$REPO_SLUG" --state all --limit 200 --json number,state,headRefName \
   --jq "[.[] | select(.headRefName == \"task-$suffix\" or (.headRefName | test(\"^[0-9]+-$suffix\$\")))][0] | select(.) | \"\\(.number) \\(.state)\"")"
-if [ -n "$existing" ]; then log "PR already exists: #${existing% *} (${existing#* }) for $suffix"; echo "${existing% *}"; exit 0; fi
+if [ -n "$existing" ]; then
+  log "PR already exists: #${existing% *} (${existing#* }) for $suffix"
+  echo "${existing% *}"
+  exit 0
+fi
 # The owner approves an issue before any PR is opened for it.
 if ! $direct && $approved_only && board_enabled; then
   column="$(board_where "$issue")" || die "cannot read the board"
   [ "$column" = Approved ] || die "issue #$issue is in ${column:-no column}, not Approved (--unapproved overrides)"
 fi
 if [ -n "$spec" ]; then
-  retry 3 gh api -X PATCH "repos/$REPO_SLUG/issues/$issue" -F body=@"$spec" >/dev/null || die "could not update the body of #$issue"
+  retry 3 gh api -X PATCH "repos/$REPO_SLUG/issues/$issue" -F body=@"$spec" > /dev/null || die "could not update the body of #$issue"
   log "issue #$issue now carries the agreed text"
 fi
 # Issues and PRs share one number sequence. The number is predicted and checked after creation.
@@ -133,7 +155,7 @@ trap 'rm -f "$body"' EXIT
 } > "$body"
 
 fetch_refs "+dev:refs/remotes/origin/dev" || die "fetch failed"
-if ! git ls-remote --exit-code --heads "https://github.com/$REPO_SLUG.git" "$branch" >/dev/null 2>&1; then
+if ! git ls-remote --exit-code --heads "https://github.com/$REPO_SLUG.git" "$branch" > /dev/null 2>&1; then
   commit="$(git commit-tree "origin/dev^{tree}" -p origin/dev -m "chore: open task${issue:+ for #$issue} ($branch)")"
   push_ref "$commit:refs/heads/$branch" || die "could not push $branch"
 fi

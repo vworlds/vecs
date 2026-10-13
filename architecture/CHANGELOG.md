@@ -5,6 +5,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [repo]: Include tracked shell scripts in the root formatting checks and format pass.
 - [repo]: Install a release benchmark base's own dependencies when its lockfile differs, and report base preparation/build failures as warnings.
 
 ## v1.0.54 (2026-10-13)
