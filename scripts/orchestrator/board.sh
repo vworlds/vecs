@@ -14,6 +14,8 @@
 #   issue <title> <body.md> [column] [label…]   open an issue (new work, a follow-up, an idea)
 #                                     and add it at the bottom of a column (default Backlog)
 #   remove <ref>                      take a card off the board; its issue or PR is untouched
+#   archive [days]                    archive our Done cards that closed more than <days> days ago
+#                                     (default 2); merge-task.sh does it after each merge
 # <ref> is 212, #212, owner/repo#212, a github.com URL or a PVTI_… card id.
 # <column> is Backlog, Ready, "In progress", "In review", Approved or Done; any case, and the short
 # forms progress and review work too.
@@ -21,7 +23,7 @@ set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 . "$(dirname "$0")/../lib/board.sh"
 usage() {
-  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -59,7 +61,10 @@ case "$cmd" in
         *) want="$(board_column "$arg")" || die "unknown column $arg" ;;
       esac
     done
-    items="$(board_items)" || die "could not read the board"
+    # Done is read only when it will be shown.
+    filter="-status:Done"
+    if $all || $tsv || [ "$want" = Done ]; then filter=""; fi
+    items="$(board_items "$filter")" || die "could not read the board"
     if $tsv; then
       printf '%s\n' "$items"
       exit 0
@@ -102,14 +107,14 @@ case "$cmd" in
       fi
       printf '#%s\t%s\t%s\n' "$number" "$kind" "$title"
       break
-    done < <(board_items)
+    done < <(board_items "-status:Done")
     ;;
   mine)
     me="$(board_me)" || die "cannot read my login"
     retry 3 gh api --paginate "repos/$REPO_SLUG/issues?state=open&assignee=$me&per_page=100" \
       --jq '.[] | "#\(.number)\t\(if .pull_request then "PR" else "ISSUE" end)\t\(.title)"'
     # Cards of the other repos on the shared board that are assigned to me.
-    board_items | awk -F'\t' -v here="$REPO_SLUG" -v me="$me" '
+    board_items "-status:Done" | awk -F'\t' -v here="$REPO_SLUG" -v me="$me" '
       $4 != here && $4 != "-" && $6 == "OPEN" && ("," $8 ",") ~ ("," me ",") {
         sub(/^[^\/]*\//, "", $4); print $4 "#" $5 "\t" $3 "\t" $7 }'
     ;;
@@ -120,6 +125,10 @@ case "$cmd" in
   blocked)
     [ $# -eq 1 ] || usage
     board_blockers "$1" | sed 's/^/#/'
+    ;;
+  archive)
+    [ $# -le 1 ] || usage
+    board_archive_done "${1:-2}"
     ;;
   block | unblock)
     [ $# -ge 2 ] || usage

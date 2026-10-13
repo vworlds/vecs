@@ -38,15 +38,17 @@ board_meta() {
   printf '%s\n' "$_BOARD_META"
 }
 
-# board_items: every card in board order (top to bottom), as TSV:
+# board_items [filter]: every card in board order (top to bottom), as TSV:
 #   itemId, column, kind (PR, ISSUE or DRAFT), repo, number, state, title, assignees
-# Assignees are logins joined by commas, or "-".
+# Assignees are logins joined by commas, or "-". <filter> is a project filter such as
+# "-status:Done": whoever doesn't need the Done column leaves it out, because it only grows and
+# every 100 cards cost another request.
 board_items() {
-  local cursor="" page
+  local filter="${1:-}" cursor="" page
   while :; do
-    page="$(_board_gql ${cursor:+-f after="$cursor"} -f query='
-      query($p: ID!, $after: String) { node(id: $p) { ... on ProjectV2 {
-        items(first: 100, after: $after, orderBy: {field: POSITION, direction: ASC}) {
+    page="$(_board_gql ${cursor:+-f after="$cursor"} ${filter:+-f q="$filter"} -f query='
+      query($p: ID!, $after: String, $q: String) { node(id: $p) { ... on ProjectV2 {
+        items(first: 100, after: $after, query: $q, orderBy: {field: POSITION, direction: ASC}) {
           pageInfo { hasNextPage endCursor }
           nodes { id
             status: fieldValueByName(name: "Status") {
@@ -66,6 +68,94 @@ board_items() {
     [ "$(jq -r '.data.node.items.pageInfo.hasNextPage' <<< "$page")" = true ] || break
     cursor="$(jq -r '.data.node.items.pageInfo.endCursor' <<< "$page")"
   done
+}
+
+# board_first_unblocked <rows>: "#n (KIND): title" of the first "number TAB kind TAB title" row
+# with no open blocker, or nothing. Fails when the blockers cannot be read.
+board_first_unblocked() {
+  local number kind title blocked
+  while IFS=$'\t' read -r number kind title; do
+    [ -n "${number:-}" ] || continue
+    if [ "$kind" = ISSUE ]; then
+      blocked="$(board_blockers "$number" 2> /dev/null | head -1)" || return 1
+      [ -z "$blocked" ] || continue
+    fi
+    printf '#%s (%s): %s\n' "$number" "$kind" "$title"
+    return 0
+  done <<< "$1"
+}
+
+# board_ready_rows / board_approved_rows <items>: this repo's Ready cards, and its approved
+# issues, as "number TAB kind TAB title", in board order.
+board_ready_rows() {
+  awk -F'\t' -v here="$REPO_SLUG" '$2 == "Ready" && $4 == here { print $5 "\t" $3 "\t" $7 }' <<< "$1"
+}
+board_approved_rows() {
+  awk -F'\t' -v here="$REPO_SLUG" '$2 == "Approved" && $4 == here && $3 == "ISSUE" { print $5 "\t" $3 "\t" $7 }' <<< "$1"
+}
+
+# board_hold_startable / board_release_startable: keep NEXT and LAUNCH quiet while our merge
+# is in flight. A hold older than two minutes is ignored so a failed script cannot silence them.
+board_hold_startable() {
+  board_enabled || return 0
+  mkdir -p "$BOARD_STATE" && touch "$BOARD_STATE/.hold-startable"
+}
+board_release_startable() { rm -f "$BOARD_STATE/.hold-startable"; }
+board_startable_held() {
+  local f="$BOARD_STATE/.hold-startable"
+  [ -e "$f" ] && [ $(($(date +%s) - $(stat -c %Y "$f" 2> /dev/null || echo 0))) -lt 120 ]
+}
+
+# board_archive_done [days]: archive this repo's cards in Done whose issue or PR closed more than
+# <days> days ago (default 2). An archived card leaves the board and its listings, and stays in
+# the project's "Archived items" view, from where it can be restored.
+board_archive_done() {
+  board_enabled || return 0
+  local days="${1:-2}" cursor="" page ids="" id n=0
+  # Collect first: archiving while paging would shift the pages.
+  while :; do
+    page="$(_board_gql ${cursor:+-f after="$cursor"} -f query='
+      query($p: ID!, $after: String) { node(id: $p) { ... on ProjectV2 {
+        items(first: 100, after: $after, query: "status:Done") {
+          pageInfo { hasNextPage endCursor }
+          nodes { id content {
+            ... on Issue { closedAt repository { nameWithOwner } }
+            ... on PullRequest { closedAt repository { nameWithOwner } } } } } } } }')" \
+      || return 1
+    ids="$ids $(jq -r --arg here "$REPO_SLUG" --argjson days "$days" '.data.node.items.nodes[]
+      | select(.content.repository.nameWithOwner == $here and .content.closedAt != null)
+      | select((now - (.content.closedAt | fromdateiso8601)) > ($days * 86400)) | .id' <<< "$page" | tr '\n' ' ')"
+    [ "$(jq -r '.data.node.items.pageInfo.hasNextPage' <<< "$page")" = true ] || break
+    cursor="$(jq -r '.data.node.items.pageInfo.endCursor' <<< "$page")"
+  done
+  for id in $ids; do
+    _board_gql -f i="$id" -f query='
+      mutation($p: ID!, $i: ID!) { archiveProjectV2Item(input: {projectId: $p, itemId: $i}) {
+        item { id } } }' > /dev/null || continue
+    rm -f "$BOARD_STATE/$id" "$BOARD_STATE/$id.who"
+    n=$((n + 1))
+  done
+  [ "$n" -eq 0 ] || log "board: archived $n Done card(s) that closed more than $days day(s) ago"
+}
+
+# board_announce_startable: after a step of ours that can unblock cards (a merge closes
+# issues), say what can be started now and record it as already reported, so the watcher
+# doesn't wake its own author for it a few seconds later.
+board_announce_startable() {
+  board_enabled || return 0
+  local items next launch
+  items="$(board_items "-status:Done" 2> /dev/null)" || return 0
+  next="$(board_first_unblocked "$(board_ready_rows "$items")")" || return 0
+  launch="$(board_first_unblocked "$(board_approved_rows "$items")")" || return 0
+  mkdir -p "$BOARD_STATE"
+  if [ "$next" != "$(cat "$BOARD_STATE/.next" 2> /dev/null || true)" ]; then
+    printf '%s\n' "$next" > "$BOARD_STATE/.next"
+    [ -z "$next" ] || log "next: $next"
+  fi
+  if [ "$launch" != "$(cat "$BOARD_STATE/.launch" 2> /dev/null || true)" ]; then
+    printf '%s\n' "$launch" > "$BOARD_STATE/.launch"
+    [ -z "$launch" ] || log "launch: $launch: approved and nothing blocks it"
+  fi
 }
 
 # board_ref <ref>: "<repo> TAB <number>" for 212, #212, owner/repo#212 or a github.com URL.
