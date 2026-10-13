@@ -13,16 +13,10 @@ pr_field "$pr" .body > "$tmp/body"
 title="$(pr_field "$pr" .title)"
 sed -i '/^> ⛔ \*\*ON HOLD/,/^$/d' "$tmp/body"
 new_title="${title#\[HOLD: owner review\] }"
-retry 3 gh api -X PATCH "repos/$REPO_SLUG/pulls/$pr" -F "body=@$tmp/body" -f "title=$new_title" > /dev/null
+retry 3 gh api -X PATCH "repos/$REPO_SLUG/pulls/$pr" -F "body=@$tmp/body" -f "title=$new_title" >/dev/null
 if ! pr_field "$pr" '.comments' | grep -q '\[orchestrator\] GO'; then
-  {
-    printf '[orchestrator] GO\n\nThe hold is lifted; work may begin.\n'
-    [ -n "$note" ] && {
-      printf '\n'
-      cat "$note"
-    }
-  } > "$tmp/go"
-  retry 3 gh pr comment "$pr" -R "$REPO_SLUG" --body-file "$tmp/go" > /dev/null
+  { printf '[orchestrator] GO\n\nThe hold is lifted; work may begin.\n'; [ -n "$note" ] && { printf '\n'; cat "$note"; }; } > "$tmp/go"
+  retry 3 gh pr comment "$pr" -R "$REPO_SLUG" --body-file "$tmp/go" >/dev/null
 fi
 board_move "$pr" "In progress" || true
 board_turn "$pr" nobody || true

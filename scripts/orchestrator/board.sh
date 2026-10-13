@@ -20,10 +20,7 @@
 set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 . "$(dirname "$0")/../lib/board.sh"
-usage() {
-  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' >&2
-  exit 2
-}
+usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 # blockers_of <number>: " blocked by #a, #b" for an issue of this repo, or nothing.
 blockers_of() {
@@ -35,11 +32,11 @@ blockers_of() {
 # new_issue <title> <body file>: an open issue with that exact title, created if missing.
 new_issue() {
   local title="$1" body="$2" number
-  number="$(retry 3 gh api --paginate "repos/$REPO_SLUG/issues?state=open&per_page=100" \
-    | jq -r --arg t "$title" '[.[] | select(.pull_request | not) | select(.title == $t)][0].number // empty')"
+  number="$(retry 3 gh api --paginate "repos/$REPO_SLUG/issues?state=open&per_page=100" |
+    jq -r --arg t "$title" '[.[] | select(.pull_request | not) | select(.title == $t)][0].number // empty')"
   if [ -z "$number" ]; then
-    number="$(retry 3 gh api -X POST "repos/$REPO_SLUG/issues" -f title="$title" -F body=@"$body" --jq .number)" \
-      || die "could not create the issue"
+    number="$(retry 3 gh api -X POST "repos/$REPO_SLUG/issues" -f title="$title" -F body=@"$body" --jq .number)" ||
+      die "could not create the issue"
     log "opened #$number: $title"
   else
     log "issue already open: #$number"
@@ -60,18 +57,12 @@ case "$cmd" in
       esac
     done
     items="$(board_items)" || die "could not read the board"
-    if $tsv; then
-      printf '%s\n' "$items"
-      exit 0
-    fi
+    if $tsv; then printf '%s\n' "$items"; exit 0; fi
     for column in "Backlog" "Ready" "In progress" "In review" "Approved" "Done" "-"; do
       [ -z "$want" ] || [ "$want" = "$column" ] || continue
       [ "$column" != Done ] || $all || [ -n "$want" ] || continue
       rows="$(awk -F'\t' -v c="$column" '$2 == c' <<< "$items")"
-      [ -n "$rows" ] || {
-        [ "$column" = "-" ] || printf '== %s (0)\n' "$column"
-        continue
-      }
+      [ -n "$rows" ] || { [ "$column" = "-" ] || printf '== %s (0)\n' "$column"; continue; }
       printf '== %s (%s)\n' "$([ "$column" = "-" ] && echo "No status" || echo "$column")" "$(wc -l <<< "$rows")"
       while IFS=$'\t' read -r _ _ kind repo number _ title who; do
         if [ "$number" = "-" ]; then ref="(draft)"; elif [ "$repo" = "$REPO_SLUG" ]; then ref="#$number"; else ref="${repo#*/}#$number"; fi
@@ -95,10 +86,7 @@ case "$cmd" in
       [ "$column" = Ready ] && [ "$repo" = "$REPO_SLUG" ] || continue
       if [ "$kind" = ISSUE ]; then
         blocked="$(blockers_of "$number")"
-        if [ -n "$blocked" ]; then
-          log "skipped #$number:$blocked"
-          continue
-        fi
+        if [ -n "$blocked" ]; then log "skipped #$number:$blocked"; continue; fi
       fi
       printf '#%s\t%s\t%s\n' "$number" "$kind" "$title"
       break
@@ -131,8 +119,8 @@ case "$cmd" in
     column="$(board_column "${3:-Backlog}")" || die "unknown column ${3:-}"
     number="$(new_issue "$1" "$2")"
     for label in "${@:4}"; do
-      retry 3 gh api -X POST "repos/$REPO_SLUG/issues/$number/labels" -f "labels[]=$label" > /dev/null \
-        || log "warning: could not add label $label"
+      retry 3 gh api -X POST "repos/$REPO_SLUG/issues/$number/labels" -f "labels[]=$label" >/dev/null ||
+        log "warning: could not add label $label"
     done
     board_move "$number" "$column" bottom || exit 1
     echo "$number"

@@ -56,8 +56,8 @@ board_items() {
               ... on Issue { number title state repository { nameWithOwner }
                 assignees(first: 10) { nodes { login } } }
               ... on PullRequest { number title state repository { nameWithOwner }
-                assignees(first: 10) { nodes { login } } } } } } } } }')" \
-      || return 1
+                assignees(first: 10) { nodes { login } } } } } } } } }')" ||
+      return 1
     jq -r '.data.node.items.nodes[] | [ .id, (.status.name // "-"),
         ({"PullRequest": "PR", "Issue": "ISSUE", "DraftIssue": "DRAFT"}[.content.__typename // ""] // "?"),
         (.content.repository.nameWithOwner // "-"), ((.content.number // "-") | tostring),
@@ -86,16 +86,9 @@ board_ref() {
 # (adding an existing one returns its card). A PVTI_… id passes through.
 board_item() {
   local repo="" number="" node
-  case "$1" in PVTI_*)
-    printf '%s\n' "$1"
-    return 0
-    ;;
-  esac
+  case "$1" in PVTI_*) printf '%s\n' "$1"; return 0 ;; esac
   IFS=$'\t' read -r repo number < <(board_ref "$1") || true
-  [ -n "$number" ] || {
-    log "board: cannot read '$1' as an issue or PR"
-    return 1
-  }
+  [ -n "$number" ] || { log "board: cannot read '$1' as an issue or PR"; return 1; }
   node="$(retry 3 gh api "repos/$repo/issues/$number" --jq .node_id)" || return 1
   _board_gql -f c="$node" -f query='
     mutation($p: ID!, $c: ID!) { addProjectV2ItemById(input: {projectId: $p, contentId: $c}) {
@@ -109,15 +102,9 @@ board_remember() { mkdir -p "$BOARD_STATE" && printf '%s\n' "$2" > "$BOARD_STATE
 # board_set <itemId> <column>
 board_set() {
   local item="$1" column field="" option=""
-  column="$(board_column "$2")" || {
-    log "board: unknown column '$2'"
-    return 1
-  }
+  column="$(board_column "$2")" || { log "board: unknown column '$2'"; return 1; }
   IFS=$'\t' read -r field option _ < <(board_meta | awk -F'\t' -v c="$column" '$3 == c') || true
-  [ -n "$option" ] || {
-    log "board: the Status field has no '$column' option"
-    return 1
-  }
+  [ -n "$option" ] || { log "board: the Status field has no '$column' option"; return 1; }
   _board_gql -f i="$item" -f f="$field" -f o="$option" -f query='
     mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) { updateProjectV2ItemFieldValue(input: {
       projectId: $p, itemId: $i, fieldId: $f, value: {singleSelectOptionId: $o}}) {
@@ -204,29 +191,20 @@ board_turn() {
   board_enabled || return 0
   local repo="" number="" me give="" take=""
   IFS=$'\t' read -r repo number < <(board_ref "$1") || true
-  [ -n "$number" ] || {
-    log "board: cannot read '$1' as an issue or PR"
-    return 1
-  }
+  [ -n "$number" ] || { log "board: cannot read '$1' as an issue or PR"; return 1; }
   me="$(board_me)" || return 1
   case "$2" in
     owner) give="$BOARD_OWNER" take="$me" ;;
     me) give="$me" take="$BOARD_OWNER" ;;
     nobody) take="$BOARD_OWNER $me" ;;
-    *)
-      log "board: turn is owner, me or nobody"
-      return 1
-      ;;
+    *) log "board: turn is owner, me or nobody"; return 1 ;;
   esac
   for who in $take; do _board_assignees DELETE "$repo" "$number" "$who" || true; done
   # When we take the owner off, tell the watcher, so it doesn't report it back as their doing.
   case " $take " in *" $BOARD_OWNER "*) mkdir -p "$BOARD_STATE" && touch "$BOARD_STATE/.turn-${repo//\//_}-$number" ;; esac
   if [ -n "$give" ]; then
-    _board_assignees POST "$repo" "$number" "$give" \
-      || {
-        log "warning: could not assign #$number to $give"
-        return 1
-      }
+    _board_assignees POST "$repo" "$number" "$give" ||
+      { log "warning: could not assign #$number to $give"; return 1; }
   fi
   # Taking something ourselves is not news either: the watcher keeps "mine-<n>" for what it has
   # already reported as assigned to us.
@@ -253,8 +231,8 @@ board_block() {
   shift
   for blocker in "$@"; do
     blocker="${blocker#\#}"
-    if gh api "repos/$repo/issues/$number/dependencies/blocked_by" --jq '.[].number' 2> /dev/null \
-      | grep -q -x "$blocker"; then
+    if gh api "repos/$repo/issues/$number/dependencies/blocked_by" --jq '.[].number' 2> /dev/null |
+      grep -q -x "$blocker"; then
       continue
     fi
     id="$(retry 3 gh api "repos/$repo/issues/$blocker" --jq .id)" || return 1
@@ -271,7 +249,7 @@ board_unblock() {
   for blocker in "$@"; do
     blocker="${blocker#\#}"
     id="$(retry 3 gh api "repos/$repo/issues/$blocker" --jq .id)" || return 1
-    gh api -X DELETE "repos/$repo/issues/$number/dependencies/blocked_by/$id" > /dev/null 2>&1 \
-      && log "#$number is no longer blocked by #$blocker"
+    gh api -X DELETE "repos/$repo/issues/$number/dependencies/blocked_by/$id" > /dev/null 2>&1 &&
+      log "#$number is no longer blocked by #$blocker"
   done
 }

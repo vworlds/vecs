@@ -5,10 +5,7 @@ REPO_SLUG="${VECS_REPO:-vworlds/vecs}"
 SSH_KEY="${VECS_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 
 log() { printf '%s\n' "$*" >&2; }
-die() {
-  log "error: $*"
-  exit 1
-}
+die() { log "error: $*"; exit 1; }
 
 # retry <attempts> <cmd...>: run cmd until it succeeds, backing off 2, 4, 8… seconds.
 retry() {
