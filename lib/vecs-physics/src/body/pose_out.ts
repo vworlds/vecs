@@ -29,37 +29,51 @@ export class BodyPoseOutModule extends Module {
       w: move.w >> 2,
     };
     const flags = fast.layout.constants.exportVelocity;
+    // Numeric ids avoid resolving component classes on every moved body.
+    const ids: ComponentIds = {
+      body: world.entity(Body).eid,
+      position: world.entity(Position).eid,
+      rotation: world.entity(Rotation).eid,
+      linearVelocity: world.entity(LinearVelocity).eid,
+      angularVelocity: world.entity(AngularVelocity).eid,
+    };
     world
       .system("PhysicsPoseSyncOut")
       .phase(engine.phases.postStep)
       .run(() => {
         // Export after preceding postStep systems; exportMoves also refreshes memory views.
         const exporter = engine.moveExporter;
+        const bodyEntities = engine.bodyEntities;
         const count = exporter.exportMoves(engine.world, flags);
         const i32 = fast.i32;
         const f32 = fast.f32;
         const stride = exporter.stride;
         let base = exporter.base;
         for (let i = 0; i < count; i++, base += stride) {
-          const entityId = engine.entityByBodyIndex.get(i32[base + offsets.bodyIndex]);
-          if (entityId === undefined) {
-            continue;
-          }
           // A postStep system may destroy an entity after Box2D produced this event.
           // Keep the reverse slot until the reaper frees the body; lookup is O(1).
-          const entity = world.getEntity(entityId);
+          const entity = bodyEntities[i32[base + offsets.bodyIndex]!];
           if (entity === undefined || entity.destroyed) {
             continue;
           }
-          const body = entity.get(Body);
+          const body = entity.get(ids.body) as Body | undefined;
           if (body?.type !== BodyType.Dynamic) {
             continue;
           }
-          writePose(entity, f32, base, offsets);
+          writePose(entity, f32, base, offsets, ids);
         }
       })
       .add(PhysicsSystemTag);
   }
+}
+
+/** Component entity ids resolved once when pose-out is installed. */
+interface ComponentIds {
+  body: number;
+  position: number;
+  rotation: number;
+  linearVelocity: number;
+  angularVelocity: number;
 }
 
 /** Word offsets of the b2xMove fields pose-out reads, from the generated layout. */
@@ -99,15 +113,21 @@ interface MoveOffsets {
  * Box2D's b2Rot_GetAngle, preserving its exact bits, and velocities use the same Box2D getters
  * in wasm. Reading these f32 records creates no embind handle or allocation.
  */
-function writePose(entity: Entity, f32: Float32Array, base: number, offsets: MoveOffsets): void {
+function writePose(
+  entity: Entity,
+  f32: Float32Array,
+  base: number,
+  offsets: MoveOffsets,
+  ids: ComponentIds
+): void {
   const x = f32[base + offsets.x]!;
   const y = f32[base + offsets.y]!;
-  const position = entity.get(Position);
+  const position = entity.get(ids.position) as Position | undefined;
   if (position === undefined || position.x !== x || position.y !== y) {
     entity.set(Position, { x, y });
   }
 
-  const rotation = entity.get(Rotation);
+  const rotation = entity.get(ids.rotation) as Rotation | undefined;
   if (rotation !== undefined) {
     const angle = f32[base + offsets.angle]!;
     if (rotation.angle !== angle) {
@@ -115,7 +135,7 @@ function writePose(entity: Entity, f32: Float32Array, base: number, offsets: Mov
     }
   }
 
-  const linearVelocity = entity.get(LinearVelocity);
+  const linearVelocity = entity.get(ids.linearVelocity) as LinearVelocity | undefined;
   if (linearVelocity !== undefined) {
     const vx = f32[base + offsets.vx]!;
     const vy = f32[base + offsets.vy]!;
@@ -124,7 +144,7 @@ function writePose(entity: Entity, f32: Float32Array, base: number, offsets: Mov
     }
   }
 
-  const angularVelocity = entity.get(AngularVelocity);
+  const angularVelocity = entity.get(ids.angularVelocity) as AngularVelocity | undefined;
   if (angularVelocity !== undefined) {
     const value = f32[base + offsets.w]!;
     if (angularVelocity.value !== value) {

@@ -106,6 +106,8 @@ export class PhysicsEngine {
   // check id generations in hot lookups: correctness comes from clearing each
   // slot on Box2D destruction before Box2D can reuse that index1.
   public readonly entityByBodyIndex = new ArrayMap<EID>();
+  /** Entity objects behind entityByBodyIndex for direct pose-out lookup; set and cleared with it. */
+  public readonly bodyEntities: (Entity | undefined)[] = [];
   public readonly entityByShapeIndex = new ArrayMap<EID>();
 
   // Bodies whose mass needs recomputing this step (populated by shape lifecycle).

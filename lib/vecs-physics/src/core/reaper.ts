@@ -48,6 +48,7 @@ export class PhysicsReaperModule extends Module {
         if (bodies.length > 0) {
           for (const bodyId of bodies) {
             engine.entityByBodyIndex.delete(bodyId.index1);
+            engine.bodyEntities[bodyId.index1] = undefined;
             engine.box2d.b2DestroyBody(bodyId);
           }
           bodies.length = 0;
