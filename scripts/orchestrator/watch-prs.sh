@@ -42,10 +42,16 @@ started="$(date +%s)"
 FIRED="$STATE/.fired"
 QUIET="$STATE/quiet.log"
 rm -f "$FIRED"
-emit() { printf '%s\n' "$*"; touch "$FIRED"; }
+emit() {
+  printf '%s\n' "$*"
+  touch "$FIRED"
+}
 # quiet <line>: worth knowing, not worth a wake-up.
 quiet() { printf '%s\n' "$*" >> "$QUIET"; }
-once() { [ -e "$STATE/$1" ] && return 1; touch "$STATE/$1"; }
+once() {
+  [ -e "$STATE/$1" ] && return 1
+  touch "$STATE/$1"
+}
 key() { printf '%s' "$1" | md5sum | cut -c1-16; }
 # needs_me <first line of a comment>: a worker's READY, QUESTION, DESIGN and BLOCKED do; its
 # other notes don't. Anything that is not a [worker] note does.
@@ -63,7 +69,7 @@ report_comment() {
   if needs_me "$first"; then emit "$line"; else quiet "$line"; fi
   case "$first" in
     "[worker] READY"*)
-      if [ -e "$STATE/open-$number" ]; then board_move "$number" "In review" 2>/dev/null || true; fi
+      if [ -e "$STATE/open-$number" ]; then board_move "$number" "In review" 2> /dev/null || true; fi
       ;;
   esac
 }
@@ -75,12 +81,15 @@ READY_ROWS="" APPROVED_ROWS="" OTHER_ROWS=""
 watch_board() {
   board_enabled || return 0
   local items first=false item column kind repo number title who old was mark line
-  items="$(board_items 2>/dev/null)" || return 0
+  items="$(board_items 2> /dev/null)" || return 0
   mkdir -p "$BOARD_STATE"
-  [ -e "$BOARD_STATE/.seen" ] || { touch "$BOARD_STATE/.seen"; first=true; }
+  [ -e "$BOARD_STATE/.seen" ] || {
+    touch "$BOARD_STATE/.seen"
+    first=true
+  }
   while IFS=$'\t' read -r item column kind repo number _ title who; do
     [ -n "${item:-}" ] || continue
-    was="$(cat "$BOARD_STATE/$item.who" 2>/dev/null || true)"
+    was="$(cat "$BOARD_STATE/$item.who" 2> /dev/null || true)"
     if [ "$was" != "$who" ]; then
       printf '%s\n' "$who" > "$BOARD_STATE/$item.who"
       mark="$BOARD_STATE/.turn-${repo//\//_}-$number"
@@ -96,7 +105,7 @@ watch_board() {
         fi
       fi
     fi
-    old="$(cat "$BOARD_STATE/$item" 2>/dev/null || true)"
+    old="$(cat "$BOARD_STATE/$item" 2> /dev/null || true)"
     [ "$old" = "$column" ] && continue
     printf '%s\n' "$column" > "$BOARD_STATE/$item"
     $first && continue
@@ -128,7 +137,7 @@ first_unblocked() {
   while IFS=$'\t' read -r number kind title; do
     [ -n "${number:-}" ] || continue
     if [ "$kind" = ISSUE ]; then
-      blocked="$(board_blockers "$number" 2>/dev/null | head -1)" || return 1
+      blocked="$(board_blockers "$number" 2> /dev/null | head -1)" || return 1
       [ -z "$blocked" ] || continue
     fi
     printf '#%s (%s): %s\n' "$number" "$kind" "$title"
@@ -145,11 +154,11 @@ watch_next() {
   launch="$(first_unblocked "$APPROVED_ROWS")" || return 0
   rm -f "$STATE/.recheck-next"
   NEXT_SIG="$sig" NEXT_AT="$now"
-  if [ "$launch" != "$(cat "$BOARD_STATE/.launch" 2>/dev/null || true)" ]; then
+  if [ "$launch" != "$(cat "$BOARD_STATE/.launch" 2> /dev/null || true)" ]; then
     printf '%s\n' "$launch" > "$BOARD_STATE/.launch"
     [ -z "$launch" ] || emit "LAUNCH $launch: approved and nothing blocks it"
   fi
-  if [ "$next" != "$(cat "$BOARD_STATE/.next" 2>/dev/null || true)" ]; then
+  if [ "$next" != "$(cat "$BOARD_STATE/.next" 2> /dev/null || true)" ]; then
     printf '%s\n' "$next" > "$BOARD_STATE/.next"
     [ -z "$next" ] || emit "NEXT $next"
   fi
@@ -159,9 +168,9 @@ watch_next() {
 watch_assigned() {
   board_enabled || return 0
   local me mine number kind title
-  me="$(board_me 2>/dev/null)" || return 0
+  me="$(board_me 2> /dev/null)" || return 0
   mine="$(gh api --paginate "repos/$REPO_SLUG/issues?state=open&assignee=$me&per_page=100" \
-    --jq '.[] | "\(.number)\t\(if .pull_request then "PR" else "ISSUE" end)\t\(.title)"' 2>/dev/null)" || return 0
+    --jq '.[] | "\(.number)\t\(if .pull_request then "PR" else "ISSUE" end)\t\(.title)"' 2> /dev/null)" || return 0
   while IFS=$'\t' read -r number kind title; do
     [ -n "${number:-}" ] || continue
     once "mine-$number" && emit "ASSIGNED #$number ($kind): $title"
@@ -189,14 +198,17 @@ watch_assigned() {
 watch_comments() {
   local since now me lines number login url first
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  since="$(cat "$STATE/.comments-since" 2>/dev/null || true)"
-  if [ -z "$since" ]; then printf '%s\n' "$now" > "$STATE/.comments-since"; return 0; fi
-  me="$(board_me 2>/dev/null)" || return 0
+  since="$(cat "$STATE/.comments-since" 2> /dev/null || true)"
+  if [ -z "$since" ]; then
+    printf '%s\n' "$now" > "$STATE/.comments-since"
+    return 0
+  fi
+  me="$(board_me 2> /dev/null)" || return 0
   lines="$(gh api "repos/$REPO_SLUG/issues/comments?since=$since&sort=created&direction=asc&per_page=100" --jq '
       .[] | select(.user.type != "Bot") | select(.user.login != "'"$me"'")
       | select(.body | startswith("[orchestrator]") | not)
       | [(.issue_url | split("/") | last), .user.login, .html_url,
-         (.body | gsub("\r"; "") | split("\n")[0] | gsub("\t"; " ") | .[0:200])] | @tsv' 2>/dev/null)" || return 0
+         (.body | gsub("\r"; "") | split("\n")[0] | gsub("\t"; " ") | .[0:200])] | @tsv' 2> /dev/null)" || return 0
   while IFS=$'\t' read -r number login url first; do
     [ -n "${number:-}" ] || continue
     once "c-$(key "$url")" || continue
@@ -236,11 +248,11 @@ settling=false
 while :; do
   # When the API budget runs low, slow down instead of going blind until it resets.
   polls=$((polls + 1))
-  if [ $((polls % 30)) -eq 0 ] &&
-    [ "$(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null || echo 5000)" -lt 400 ]; then
+  if [ $((polls % 30)) -eq 0 ] \
+    && [ "$(gh api rate_limit --jq '.resources.graphql.remaining' 2> /dev/null || echo 5000)" -lt 400 ]; then
     sleep 120
   fi
-  if lines="$(gh api graphql -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG#*/}" -f query="$PR_QUERY" --jq "$PR_LINES" 2>/dev/null)"; then
+  if lines="$(gh api graphql -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG#*/}" -f query="$PR_QUERY" --jq "$PR_LINES" 2> /dev/null)"; then
     # Open markers first, so a READY in this same poll finds its PR open.
     while IFS=$'\t' read -r what num _; do
       if [ "${what:-}" = O ]; then touch "$STATE/open-$num"; fi
@@ -252,8 +264,8 @@ while :; do
           report_comment "$num" "$first" "PR #$num ($branch) comment: $first"
           ;;
         S)
-          once "s-$(key "$url")" &&
-            emit "PR #$num ($branch) STALE: no worker reply for 30+ min after my last review"
+          once "s-$(key "$url")" \
+            && emit "PR #$num ($branch) STALE: no worker reply for 30+ min after my last review"
           ;;
         P) once "picked-$num" && quiet "PR #$num ($branch) picked up: $url commits" ;;
       esac
@@ -268,7 +280,7 @@ while :; do
         if [ -e "$STATE/merged-$num" ]; then
           rm -f "$STATE/merged-$num"
         else
-          emit "PR #$num is now $(gh pr view "$num" -R "$REPO_SLUG" --json state --jq .state 2>/dev/null || echo '?')"
+          emit "PR #$num is now $(gh pr view "$num" -R "$REPO_SLUG" --json state --jq .state 2> /dev/null || echo '?')"
         fi
       fi
     done

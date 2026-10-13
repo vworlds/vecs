@@ -11,9 +11,13 @@ newer='([.comments[] | select(.body | startswith("[worker]"))] | last | .created
   | join("\n\n---\n\n")'
 while :; do
   if state=$(gh pr view "$pr" -R "$REPO_SLUG" --json state --jq .state); then
-    if [ "$state" != OPEN ]; then echo "PR #$pr is $state: you are dismissed"; exit 0; fi
+    if [ "$state" != OPEN ]; then
+      echo "PR #$pr is $state: you are dismissed"
+      exit 0
+    fi
     if reply=$(gh pr view "$pr" -R "$REPO_SLUG" --json comments --jq "$newer") && [ -n "$reply" ]; then
-      printf '%s\n' "$reply"; exit 0
+      printf '%s\n' "$reply"
+      exit 0
     fi
   fi
   sleep "$poll"
