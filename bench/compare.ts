@@ -18,7 +18,9 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -99,11 +101,12 @@ function runOnce<T = BenchResult>(root: string, file = "sector-tick.ts"): T {
   if (child.status !== 0) {
     throw new Error(`benchmark failed for ${root}:\n${child.stderr}`);
   }
-  const line = child.stdout.split("\n").find((candidate) => candidate.startsWith("BENCH_RESULT "));
-  if (line === undefined) {
-    throw new Error(`benchmark printed no BENCH_RESULT for ${root}:\n${child.stdout}`);
+  const lines = child.stdout.split("\n").filter((candidate) => /^[A-Z_]+_RESULT /.test(candidate));
+  if (lines.length === 0) {
+    throw new Error(`benchmark printed no result for ${root}:\n${child.stdout}`);
   }
-  return JSON.parse(line.slice("BENCH_RESULT ".length)) as T;
+  const results = lines.map((line) => JSON.parse(line.slice(line.indexOf(" ") + 1)) as T);
+  return (results.length === 1 ? results[0] : { results }) as T;
 }
 
 type Metric = { name: string; timing: boolean; bytes: boolean; values: (number | string)[] };
@@ -121,7 +124,8 @@ function releaseCheck(): void {
   const head = resolve(benchDir, "..");
   const output = resolve(head, ".tmp/release-check");
   mkdirSync(output, { recursive: true });
-  const release = command("git", ["describe", "--tags", "--abbrev=0"], head).trim();
+  const release =
+    process.env.BENCH_BASE_REF ?? command("git", ["describe", "--tags", "--abbrev=0"], head).trim();
   const base = mkdtempSync(resolve(output, "release-"));
   const rounds = Number(process.env.BENCH_ROUNDS ?? 3);
   if (!Number.isInteger(rounds) || rounds < 3) {
@@ -130,11 +134,25 @@ function releaseCheck(): void {
   const table: Comparison[] = [];
   let registered = false;
   try {
-    command("git", ["worktree", "add", "--detach", base, release], head);
-    registered = true;
-    symlinkSync(resolve(head, "node_modules"), resolve(base, "node_modules"), "dir");
     build(head);
-    build(base);
+    try {
+      command("git", ["worktree", "add", "--detach", base, release], head);
+      registered = true;
+      if (
+        readFileSync(resolve(base, "package-lock.json"), "utf8") ===
+        readFileSync(resolve(head, "package-lock.json"), "utf8")
+      ) {
+        symlinkSync(resolve(head, "node_modules"), resolve(base, "node_modules"), "dir");
+      } else {
+        command("npm", ["ci"], base, { HUSKY: "0" });
+      }
+      build(base);
+    } catch (error) {
+      const warning = `release check: could not build ${release} for comparison: ${firstErrorLine(error)}`;
+      console.warn(warning);
+      writeFileSync(resolve(output, "comparison.md"), warning + "\n");
+      return;
+    }
     const files = [
       "sector-tick.ts",
       "dr-bandwidth.ts",
@@ -212,6 +230,8 @@ function releaseCheck(): void {
   } finally {
     if (registered) {
       command("git", ["worktree", "remove", "--force", base], head);
+    } else {
+      rmSync(base, { recursive: true, force: true });
     }
   }
 }
@@ -238,11 +258,11 @@ function build(root: string): void {
   }
 }
 
-function command(program: string, args: string[], cwd: string): string {
+function command(program: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): string {
   const child = spawnSync(
     program,
     program === "git" ? ["-c", `safe.directory=${cwd}`, ...args] : args,
-    { cwd, encoding: "utf8" }
+    { cwd, encoding: "utf8", env: env ? { ...process.env, ...env } : process.env }
   );
   if (child.status !== 0) {
     throw new Error(
@@ -250,6 +270,14 @@ function command(program: string, args: string[], cwd: string): string {
     );
   }
   return child.stdout;
+}
+
+function firstErrorLine(error: unknown): string {
+  return (
+    String(error)
+      .split("\n")
+      .find((line) => line.trim() !== "") ?? String(error)
+  );
 }
 
 function extractMetrics(file: string, result: Record<string, unknown>): Metric[] {
@@ -284,7 +312,7 @@ function extractMetrics(file: string, result: Record<string, unknown>): Metric[]
     }
     return {
       name,
-      timing: /(?:Ms$|\.mean$|\.median$|\.p\d+$|\.min$|\.max$|\.stdev$)/.test(name),
+      timing: /(?:NsPerBodyStep$|Ms$|\.mean$|\.median$|\.p\d+$|\.min$|\.max$|\.stdev$)/.test(name),
       bytes: /bytes/i.test(name),
       values: [value],
     };
