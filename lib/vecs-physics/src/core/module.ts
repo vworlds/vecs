@@ -77,7 +77,7 @@ export class PhysicsCoreModule extends Module<PhysicsOptions | undefined> {
     const box2d = getBox2D();
     const resolved = resolveOptions(opts);
     const fast = getFastPath();
-    const engine = new PhysicsEngine(box2d, resolved, phases, opts.debugSink, fast);
+    const engine = new PhysicsEngine(box2d, resolved, phases, fast, opts.debugSink);
     engine.worldId = createWorldId(engine, resolved);
     engine.world = fast.world(engine.worldId);
     world.component(PhysicsEngine).add(Singleton);

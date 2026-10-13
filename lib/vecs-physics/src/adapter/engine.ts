@@ -165,25 +165,28 @@ export class PhysicsEngine {
     box2d: Box2DModule,
     options: ResolvedPhysicsOptions,
     phases: PhysicsPhases,
-    warnSink?: WarnSink,
-    fast?: FastPath
+    fast: FastPath,
+    warnSink?: WarnSink
   );
   public constructor(
     box2d?: Box2DModule,
     options?: ResolvedPhysicsOptions,
     phases?: PhysicsPhases,
-    warnSink?: WarnSink,
-    fast?: FastPath
+    fast?: FastPath,
+    warnSink?: WarnSink
   ) {
-    if (box2d === undefined || options === undefined || phases === undefined) {
+    if (
+      box2d === undefined ||
+      options === undefined ||
+      phases === undefined ||
+      fast === undefined
+    ) {
       return;
     }
 
     this.box2d = box2d;
-    if (fast !== undefined) {
-      this.fast = fast;
-      this.moveExporter = fast.createMoveExporter(64);
-    }
+    this.fast = fast;
+    this.moveExporter = fast.createMoveExporter(64);
     this.phases = phases;
     this.gravityX = options.gravityX;
     this.gravityY = options.gravityY;

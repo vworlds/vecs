@@ -1,7 +1,7 @@
 // The shared dead-reckoning integrator: Box2D v3's step of a free body, reproduced in plain JS.
 //
 // It mirrors, operation for operation and in single precision, how one `b2World_Step` advances a
-// body that nothing touches, as the pinned @vworlds/box2d3-wasm@6.0.1 builds it.
+// body that nothing touches, as the pinned @vworlds/box2d3-wasm@6.0.1 builds it. The package
 // pins Box2D commit 3a4f0da8374af61293a03021c9a0b3ebcfe67948; every `file:line` below refers to that
 // commit, which `.agents/rules/box2d-references.md` tells how to clone.
 //
