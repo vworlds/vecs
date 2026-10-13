@@ -24,6 +24,11 @@ import {
   type InjectTuple,
   type MaybeResolvedInjectTuple,
   type RequiredResolvedInjectTuple,
+  type ClockInject,
+  type ComponentInjectElement,
+  type ComponentInjectTuple,
+  type ComponentFanInjectTuple,
+  type InjectClock,
 } from "../inject.js";
 import { Exclusive, SilenceSource, Traversable } from "../modules/relationships.js";
 import { TermConsumer, TermEventKind, type Term } from "../terms/term.js";
@@ -76,8 +81,12 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  *   (declared via {@link with} or the `hint` field of a {@link QueryConfig}).
  *   Components in `R` appear as non-nullable in {@link orderBy}, {@link forEach},
  *   and {@link update} callback tuples.
+ * @typeParam K - Clock tokens permitted by a System subclass; standalone queries default to none.
  */
-export class Query<R extends ComponentType[] = []> implements TermConsumer {
+export class Query<
+  R extends ComponentType[] = [],
+  K extends ClockInject = never,
+> implements TermConsumer {
   /** True when membership or watched component data changed since the last reset. */
   public changed = false;
   /** @internal DSL predicate used to build the root membership term. */
@@ -187,15 +196,15 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
   }
 
   public forEach(callback: (e: Entity) => void): this;
-  public forEach<const J extends FanInjectTuple>(
+  public forEach<const J extends ComponentFanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach<const J extends FanInjectTuple>(
+  public forEach<const J extends ComponentFanInjectTuple>(
     options: EntityCursorOption & FanInjectCallbackOptions<J>,
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach<const J extends FanInjectTuple>(
+  public forEach<const J extends ComponentFanInjectTuple>(
     options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
@@ -228,7 +237,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
 
   public with<const S extends readonly QuerySpec[]>(
     ...specs: [...S]
-  ): Query<[...R, ...ExtractSpecsRequired<S>]> {
+  ): Query<[...R, ...ExtractSpecsRequired<S>], K> {
     this._assertConfigurable();
     const terms: QueryDSL[] = [];
     let cascade: ComponentRef | undefined;
@@ -263,7 +272,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return this;
   }
 
-  public orderBy<const J extends InjectTuple>(
+  public orderBy<const J extends ComponentInjectTuple>(
     components: readonly [...J],
     compare: (
       entityA: Entity,
@@ -272,7 +281,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       b: MaybeResolvedInjectTuple<J, R>
     ) => number
   ): this;
-  public orderBy<const J extends InjectTuple>(
+  public orderBy<const J extends ComponentInjectTuple>(
     options: EntityCursorOption & OrderByOptions<J>,
     compare: (
       entityA: Entity,
@@ -281,7 +290,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
       b: MaybeResolvedInjectTuple<J, R>
     ) => number
   ): this;
-  public orderBy<const J extends InjectTuple>(
+  public orderBy<const J extends ComponentInjectTuple>(
     options: IterCursorOption & OrderByOptions<J>,
     compare: (
       a: Iter,
@@ -336,11 +345,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     return this;
   }
 
-  public groupBy<K, const J extends FanInjectTuple>(
+  public groupBy<K, const J extends ComponentFanInjectTuple>(
     components: readonly [...J],
     key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
   ): GroupedQuery<K, R>;
-  public groupBy<K, const J extends FanInjectTuple>(
+  public groupBy<K, const J extends ComponentFanInjectTuple>(
     options: GroupByOptions<J>,
     key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
   ): GroupedQuery<K, R>;
@@ -410,15 +419,16 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * membership exit, and watched component updates.
    * ------------------------------------------------------------------------- */
 
-  public enter<const J extends InjectTuple>(
+  /** Register an entry callback; clock tokens require a System processing tick. */
+  public enter<const J extends readonly (ComponentInjectElement | K)[]>(
     inject: readonly [...J],
     callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
-  public enter<const J extends InjectTuple>(
+  public enter<const J extends readonly (ComponentInjectElement | K)[]>(
     options: EntityCursorOption & InjectCallbackOptions<J>,
     callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
-  public enter<const J extends InjectTuple>(
+  public enter<const J extends readonly (ComponentInjectElement | K)[]>(
     options: IterCursorOption & InjectCallbackOptions<J>,
     callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
@@ -428,21 +438,22 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg1?: Function
   ): this {
     this._assertConfigurable();
-    const enter = makeEnterExitCallback(this.world, arg0, arg1);
+    const enter = makeEnterExitCallback(this.world, arg0, arg1, this._getInjectClock());
     this._enterCallback = enter.callback;
     this._enterSnapshotter = enter.snapshotter;
     return this;
   }
 
-  public exit<const J extends InjectTuple>(
+  /** Register an exit callback; components are snapshotted, system clocks are filled at replay. */
+  public exit<const J extends readonly (ComponentInjectElement | K)[]>(
     inject: readonly [...J],
     callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
-  public exit<const J extends InjectTuple>(
+  public exit<const J extends readonly (ComponentInjectElement | K)[]>(
     options: EntityCursorOption & InjectCallbackOptions<J>,
     callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
-  public exit<const J extends InjectTuple>(
+  public exit<const J extends readonly (ComponentInjectElement | K)[]>(
     options: IterCursorOption & InjectCallbackOptions<J>,
     callback: (it: Iter, injected: RequiredResolvedInjectTuple<J>) => void
   ): this;
@@ -452,7 +463,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg1?: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const exit = makeEnterExitCallback(this.world, arg0, arg1);
+    const exit = makeEnterExitCallback(this.world, arg0, arg1, this._getInjectClock());
     this._exitCallback = exit.callback;
     this._exitSnapshotter = exit.snapshotter;
     return this;
@@ -464,6 +475,8 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
    * `update(ComponentClass, callback)` keeps the common component-only form.
    * Use `update({ watch, inject, cursor }, callback)` when the callback
    * needs injected components or an {@link Iter} cursor.
+   * System callbacks may also inject `Now` and `Delta`, both non-optional numbers
+   * from the processing tick. Standalone query callbacks cannot inject clocks.
    *
    * `update` also adds the watched component to the query predicate, so the
    * callback only observes entities that carry it. The callback fires when the
@@ -480,11 +493,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     ComponentClass: C,
     callback: (e: Entity, c: InstanceType<C>) => void
   ): this;
-  public update<C extends ComponentType, const J extends InjectTuple>(
+  public update<C extends ComponentType, const J extends readonly (ComponentInjectElement | K)[]>(
     options: EntityCursorOption & UpdateCallbackOptions<C, J> & { inject: readonly [...J] },
     callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public update<C extends ComponentType, const J extends InjectTuple>(
+  public update<C extends ComponentType, const J extends readonly (ComponentInjectElement | K)[]>(
     options: IterCursorOption & UpdateCallbackOptions<C, J> & { inject: readonly [...J] },
     callback: (it: Iter, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
@@ -497,7 +510,7 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     callback: (it: Iter, c: InstanceType<C>) => void
   ): this;
   public update<C extends ComponentType>(
-    arg0: C | UpdateCallbackOptions<C, InjectTuple>,
+    arg0: C | UpdateCallbackOptions<C, readonly (ComponentInjectElement | K)[]>,
     callback: (e: Entity, c: InstanceType<C>) => void
   ): this;
   public update<C extends ComponentType>(
@@ -505,7 +518,12 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     arg1: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const { componentEid, callback, onEnter } = makeUpdateRegistration(this.world, arg0, arg1);
+    const { componentEid, callback, onEnter } = makeUpdateRegistration(
+      this.world,
+      arg0,
+      arg1,
+      this._getInjectClock()
+    );
     if (this._componentUpdateCallbacks.has(componentEid)) {
       const componentName = this.world.entity(componentEid).meta.Class.name;
       throw new Error(
@@ -646,6 +664,11 @@ export class Query<R extends ComponentType[] = []> implements TermConsumer {
     if (this.built) {
       throw new Error(`query '${this.name}' has already been built`);
     }
+  }
+
+  /** @internal Build-time clock provider; standalone callbacks have no processing clock. */
+  protected _getInjectClock(): InjectClock | undefined {
+    return undefined;
   }
 
   /** @internal */
