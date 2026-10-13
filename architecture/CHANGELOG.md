@@ -6,6 +6,9 @@ the Git release tags and each bullet is tagged with the owning subproject.
 ## Unreleased
 
 - [repo]: Include tracked shell scripts in the root formatting checks and format pass.
+
+## v1.0.54 (2026-10-13)
+
 - [vecs-physics]: Adopt exact `@vworlds/box2d3-wasm@6.0.1` and its supported fast path (#273, #274): raw stepping, bulk pose export, native event spans and scalar body operations remove per-item Box2D read allocations while preserving simulation bits, event ordering and ECS write semantics. Three alternating compiled-output comparisons against dev measured mean whole-tick gains of 10.4× / 9.0× for 500 / 2,000 drifting bodies and 3.4× for a 1,000-body contact pile; pose-out gains were 14.1× / 11.8×. Add forced-memory-growth coverage and retain exact checksum baselines. Profile timers are disabled, and both WASM flavours are single-threaded.
 - [repo]: Run CI, stress benchmarks, and publish on configurable runners; clean persistent runner workspaces after each job.
 - [repo]: Make worker pushes fast-forward only and preserve task placeholder commits; start orchestrator verification without stale `dist` output.
