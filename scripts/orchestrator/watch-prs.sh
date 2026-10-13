@@ -5,7 +5,7 @@
 #     <pr>-<words>, as open-task.sh makes them, or the older task-*). READY also moves the card
 #     to In review;
 #   - COMMENT #n by <login>: a comment by a person other than me on any issue or PR;
-#   - BOARD #n: a Space Rocks card someone else moved to Approved, In review or back to Backlog;
+#   - BOARD #n: a vecs card someone else moved to Approved, In review or back to Backlog;
 #   - NEXT #n: the first card of Ready that nothing blocks changed, so there is work to start
 #     (a new card, a reorder, or a blocker that closed);
 #   - LAUNCH #n: an issue the owner approved can be opened as a task now. It fires when the issue
@@ -14,10 +14,15 @@
 #   - ASSIGNED #n: an open issue or PR newly assigned to me, which means I must act on it;
 #   - OWNER DONE #n: the owner took themselves off a card that was waiting for them;
 #   - STALE: my latest [orchestrator] review has had no reply or commit for 30+ minutes;
-#   - PR #n is now MERGED/CLOSED: a task PR left the open list by someone else's hand.
+#   - PR #n is now MERGED/CLOSED: a task PR left the open list by someone else's hand;
+#   - WORKER #n: the worker of a task PR that is In progress waits for a permission, or its turn
+#     failed. Neither shows on the PR. Asked of the worker server once a minute (worker.sh);
+#   - BUDGET: the account's GraphQL budget is spent down to the reserve. Until the reset it
+#     names, the watcher sees comments and assignments only (those don't need GraphQL): no
+#     board moves, no READY of a worker.
 # What needs nobody is kept quiet and shown with the next real event, under "quiet since the last
 # wake-up": other [worker] notes (ACK, standing by, progress), a worker's first commit, cards that
-# moved to In progress or Done (our scripts or GitHub's automation), cards put in Ready (NEXT
+# moved to In progress (our scripts or GitHub's automation), cards put in Ready (NEXT
 # speaks when one can be started), new cards in Backlog. Our own moves, merges and assignments are
 # never reported back.
 # After the first event it polls once more before exiting, so one action of the owner (comment,
@@ -28,7 +33,17 @@
 # after n minutes without an event, for runners that limit how long a background task may live.
 # A watch that ends this way is not restarted: nobody has done anything for that long, so the
 # owner is away and will say when work resumes.
-# Usage: [INTERVAL=10] [ONESHOT=1] [MAX_MINUTES=n] scripts/orchestrator/watch-prs.sh
+# The budget: GitHub gives an account 5,000 GraphQL points an hour, and the board can only be read
+# with GraphQL. A poll costs 2 points (the task PRs, and the board without its Done column), so
+# polling every 10 s takes 720 an hour. The headers of every GraphQL answer say how many points
+# are left and when they come back: the watcher keeps BUDGET_RESERVE (500) for the scripts run by
+# hand and spreads the rest over the time until the reset, never faster than INTERVAL. It only
+# slows down when something else has been spending the budget. Comments and assignments are read
+# without GraphQL and keep their INTERVAL in any case.
+# Only the headers are right. `gh api rate_limit` and the rateLimit field inside a query both
+# lag, and GitHub keeps more than one counter for an account (answers carry different reset
+# times): the watcher remembers each and goes by the lowest.
+# Usage: [INTERVAL=10] [ONESHOT=1] [MAX_MINUTES=n] [BUDGET_RESERVE=500] scripts/orchestrator/watch-prs.sh
 # Orchestrators: run it as a tracked background task that notifies you when it exits,
 # never with `nohup … &`: an untracked watcher reports to a file nobody reads.
 set -uo pipefail
@@ -37,6 +52,9 @@ set -uo pipefail
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/vecs-watch"
 mkdir -p "$STATE"
 INTERVAL="${INTERVAL:-10}"
+BUDGET_RESERVE="${BUDGET_RESERVE:-500}"
+POLL_COST=2 # GraphQL points a poll costs
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 started="$(date +%s)"
 # emit runs inside pipeline subshells, so "fired" is a marker file, not a variable.
 FIRED="$STATE/.fired"
@@ -73,15 +91,16 @@ report_comment() {
       ;;
   esac
 }
-# The board is shared with other repos: only Space Rocks cards are reported. Moves made by the
+# The board is shared with other repos: only vecs cards are reported. Moves made by the
 # orchestrator scripts are already recorded (board_remember), so they aren't reported back. The
 # first poll only records where every card is. READY_ROWS and APPROVED_ROWS keep those columns
 # for watch_next.
-READY_ROWS="" APPROVED_ROWS="" OTHER_ROWS=""
+READY_ROWS="" APPROVED_ROWS="" OTHER_ROWS="" INPROGRESS_PRS=""
 watch_board() {
   board_enabled || return 0
   local items first=false item column kind repo number title who old was mark line
-  items="$(board_items 2> /dev/null)" || return 0
+  # Without the Done column: it only grows, and nothing there needs anyone.
+  items="$(board_items "-status:Done" 2> /dev/null)" || return 0
   mkdir -p "$BOARD_STATE"
   [ -e "$BOARD_STATE/.seen" ] || {
     touch "$BOARD_STATE/.seen"
@@ -89,6 +108,7 @@ watch_board() {
   }
   while IFS=$'\t' read -r item column kind repo number _ title who; do
     [ -n "${item:-}" ] || continue
+    [ "$column" != Done ] || continue
     was="$(cat "$BOARD_STATE/$item.who" 2> /dev/null || true)"
     if [ "$was" != "$who" ]; then
       printf '%s\n' "$who" > "$BOARD_STATE/$item.who"
@@ -113,7 +133,7 @@ watch_board() {
     line="BOARD #$number ($kind): ${old:-new card} → $column: $title"
     case "$column" in
       # Our scripts and GitHub's own automation put cards here; there is nothing to do.
-      "In progress" | "Done") quiet "$line" ;;
+      "In progress") quiet "$line" ;;
       # A card in Ready matters when it can be started, and NEXT says that; a blocked one waits.
       "Ready") quiet "$line" ;;
       # A new idea parked in Backlog waits for the owner; a card sent back to it is news.
@@ -121,8 +141,16 @@ watch_board() {
       *) emit "$line" ;;
     esac
   done <<< "$items"
+  # Drop state for cards no longer returned (Done, archived or removed).
+  local f id
+  for f in "$BOARD_STATE"/PVTI_*; do
+    [ -e "$f" ] || continue
+    id="${f##*/}" id="${id%.who}"
+    awk -F'\t' -v id="$id" '$1 == id && $2 != "Done" { found = 1 } END { exit !found }' <<< "$items" || rm -f "$f"
+  done
   READY_ROWS="$(awk -F'\t' -v here="$REPO_SLUG" '$2 == "Ready" && $4 == here { print $5 "\t" $3 "\t" $7 }' <<< "$items")"
   APPROVED_ROWS="$(awk -F'\t' -v here="$REPO_SLUG" '$2 == "Approved" && $4 == here && $3 == "ISSUE" { print $5 "\t" $3 "\t" $7 }' <<< "$items")"
+  INPROGRESS_PRS="$(awk -F'\t' -v here="$REPO_SLUG" '$2 == "In progress" && $4 == here && $3 == "PR" { print $5 }' <<< "$items")"
   # Open cards of the other repos, for watch_assigned: repo, number, kind, title, assignees.
   OTHER_ROWS="$(awk -F'\t' -v here="$REPO_SLUG" '$4 != here && $4 != "-" && $6 == "OPEN" { print $4 "\t" $5 "\t" $3 "\t" $7 "\t" $8 }' <<< "$items")"
 }
@@ -131,27 +159,15 @@ watch_board() {
 # its last blocker closes or the relation is removed, so this is looked at again whenever those
 # columns changed, a task PR closed, or a minute has passed. Blockers cost a request per issue.
 NEXT_SIG="" NEXT_AT=0
-# first_unblocked <rows>: "#n (KIND): title" of the first row with no open blocker, or nothing.
-first_unblocked() {
-  local number kind title blocked
-  while IFS=$'\t' read -r number kind title; do
-    [ -n "${number:-}" ] || continue
-    if [ "$kind" = ISSUE ]; then
-      blocked="$(board_blockers "$number" 2> /dev/null | head -1)" || return 1
-      [ -z "$blocked" ] || continue
-    fi
-    printf '#%s (%s): %s\n' "$number" "$kind" "$title"
-    return 0
-  done <<< "$1"
-}
 watch_next() {
   board_enabled || return 0
+  ! board_startable_held || return 0
   local now sig next launch
   now="$(date +%s)"
   sig="$READY_ROWS|$APPROVED_ROWS"
   [ "$sig" != "$NEXT_SIG" ] || [ -e "$STATE/.recheck-next" ] || [ $((now - NEXT_AT)) -ge 60 ] || return 0
-  next="$(first_unblocked "$READY_ROWS")" || return 0
-  launch="$(first_unblocked "$APPROVED_ROWS")" || return 0
+  next="$(board_first_unblocked "$READY_ROWS")" || return 0
+  launch="$(board_first_unblocked "$APPROVED_ROWS")" || return 0
   rm -f "$STATE/.recheck-next"
   NEXT_SIG="$sig" NEXT_AT="$now"
   if [ "$launch" != "$(cat "$BOARD_STATE/.launch" 2> /dev/null || true)" ]; then
@@ -216,8 +232,79 @@ watch_comments() {
   done <<< "$lines"
   printf '%s\n' "$now" > "$STATE/.comments-since"
 }
-# One GraphQL call per poll covers every open task PR, so a short INTERVAL stays far inside the
-# API budget (about 4 points a poll; the budget is 5000 an hour). Lines: O = open task PR,
+# A worker that waits for a permission, or whose turn failed, says nothing on its PR. Ask the
+# worker server about the task PRs that are In progress. <lines> are the PR query's lines.
+watch_workers() {
+  [ -n "${OPENCODE_SERVER_PASSWORD:-}" ] || return 0
+  local what num branch dir line
+  while IFS=$'\t' read -r what num branch _; do
+    [ "${what:-}" = O ] || continue
+    grep -q -x -- "$num" <<< "$INPROGRESS_PRS" || continue
+    dir="$ROOT/.worktrees/auto-$branch"
+    [ -d "$dir" ] || continue
+    line="$("$ROOT/scripts/orchestrator/worker.sh" status "$dir" 2> /dev/null)" || continue
+    # The key leaves the "(3m12s ago)" out: one report per stop, not one per minute.
+    case "$line" in
+      *"WAITING on"*)
+        once "w-$num-$(key "${line% (*}")" \
+          && emit "WORKER #$num ($branch): waits for a permission; see worker.sh permit ${dir#"$ROOT"/}"
+        ;;
+      *" idle (failed) "*)
+        once "w-$num-$(key "${line% (*}")" \
+          && emit "WORKER #$num ($branch): its turn failed; see worker.sh log ${dir#"$ROOT"/}"
+        ;;
+    esac
+  done <<< "$1"
+}
+# pace <points left> <reset, epoch seconds>: when the next GraphQL poll may run (GQL_AT), and
+# whether the budget is spent (BLIND). Comments and assignments keep their INTERVAL.
+GQL_AT=0 BLIND=false
+pace() {
+  local now left wait pause at
+  now="$(date +%s)"
+  left=$(($1 - BUDGET_RESERVE))
+  wait=$(($2 - now))
+  [ "$wait" -gt 0 ] || wait=1
+  at="$(date -u -d "@$2" +%H:%M:%SZ)"
+  GQL_AT=0 BLIND=false
+  if [ "$left" -le 0 ]; then
+    once "budget-$2" \
+      && emit "BUDGET: $1 GraphQL points left of 5000; until $at the watcher sees comments and assignments only"
+    GQL_AT=$(($2 + 5)) BLIND=true
+    return 0
+  fi
+  pause=$(((POLL_COST * wait + left - 1) / left))
+  if [ "$pause" -gt "$INTERVAL" ]; then
+    GQL_AT=$((now + pause))
+    once "slow-$2" && quiet "watcher: $1 GraphQL points left, board and PRs polled slower until $at"
+  fi
+  return 0
+}
+# note_budget <file with a GraphQL answer and its headers>: remember this answer's counter,
+# drop expired counters, and pace by the lowest. Fails when there are no budget headers.
+declare -A BUDGETS=()
+note_budget() {
+  local left="" reset="" now k low="" low_reset=""
+  read -r left reset < <(tr -d '\r' < "$1" 2> /dev/null | awk -F': ' '
+    /^$/ { exit }
+    tolower($1) == "x-ratelimit-remaining" { r = $2 }
+    tolower($1) == "x-ratelimit-reset" { t = $2 }
+    END { print r, t }') || true
+  [[ "$left" =~ ^[0-9]+$ && "$reset" =~ ^[0-9]+$ ]] || return 1
+  now="$(date +%s)"
+  BUDGETS[$reset]="$left"
+  for k in "${!BUDGETS[@]}"; do
+    if [ "$k" -le "$now" ]; then
+      unset "BUDGETS[$k]"
+    elif [ -z "$low" ] || [ "${BUDGETS[$k]}" -lt "$low" ]; then
+      low="${BUDGETS[$k]}" low_reset="$k"
+    fi
+  done
+  pace "${low:-$left}" "${low_reset:-$reset}"
+  [ -z "${WATCH_DEBUG:-}" ] \
+    || log "poll $polls: this answer $left left; lowest of ${#BUDGETS[@]} counter(s) ${low:-$left}; next GraphQL poll in $((GQL_AT > 0 ? GQL_AT - now : INTERVAL))s"
+}
+# One GraphQL call per poll covers every open task PR. Lines: O = open task PR,
 # C = comment, S = stale review, P = commit count.
 PR_QUERY='
   query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
@@ -244,15 +331,23 @@ PR_LINES='
     (select($pr.commits.totalCount > 1)
       | ["P", $pr.number, $pr.headRefName, $pr.commits.totalCount] | @tsv)'
 polls=0
+fails=0
 settling=false
 while :; do
-  # When the API budget runs low, slow down instead of going blind until it resets.
   polls=$((polls + 1))
-  if [ $((polls % 30)) -eq 0 ] \
-    && [ "$(gh api rate_limit --jq '.resources.graphql.remaining' 2> /dev/null || echo 5000)" -lt 400 ]; then
-    sleep 120
+  lines=""
+  turn=true
+  [ "$(date +%s)" -ge "$GQL_AT" ] || turn=false
+  answered=false
+  if $turn; then
+    gh api graphql -i -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG#*/}" -f query="$PR_QUERY" \
+      > "$STATE/.answer" 2> /dev/null && answered=true
+    note_budget "$STATE/.answer" || true
   fi
-  if lines="$(gh api graphql -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG#*/}" -f query="$PR_QUERY" --jq "$PR_LINES" 2> /dev/null)"; then
+  if ! $turn; then
+    :
+  elif $answered && lines="$(sed '1,/^\r\{0,1\}$/d' "$STATE/.answer" | jq -r "$PR_LINES" 2> /dev/null)"; then
+    fails=0
     # Open markers first, so a READY in this same poll finds its PR open.
     while IFS=$'\t' read -r what num _; do
       if [ "${what:-}" = O ]; then touch "$STATE/open-$num"; fi
@@ -284,11 +379,21 @@ while :; do
         fi
       fi
     done
+  elif ! $BLIND; then
+    # GitHub did not answer, or refused: don't hammer it. Back off up to five minutes.
+    lines=""
+    fails=$((fails + 1))
+    backoff=$((INTERVAL * (1 << (fails < 5 ? fails : 5))))
+    [ "$backoff" -le 300 ] || backoff=300
+    GQL_AT=$(($(date +%s) + backoff))
   fi
   watch_comments
-  watch_board
-  watch_next
+  if $turn && ! $BLIND; then
+    watch_board
+    watch_next
+  fi
   watch_assigned
+  if [ $((polls % 6)) -eq 1 ]; then watch_workers "$lines"; fi
   if [ -n "${ONESHOT:-}" ] && [ -e "$FIRED" ]; then
     # One more poll, so the rest of the same action arrives in this wake-up.
     if $settling; then

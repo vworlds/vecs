@@ -8,10 +8,11 @@ them retry transient GitHub errors and fall back to SSH when HTTPS pushes fail.
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Open a task PR: a placeholder branch named `<pr>-<words>` (workers use `.worktrees/auto-<branch>`) plus a draft PR whose body points at the task workflow, `Closes #<issue>` and the task file. `--spec` replaces the issue's body; `--part` is for a PR that is not the issue's last. Idempotent. | `open-task.sh <issue> <task.md> [--spec spec.md] [--part] [--slug s]`, `open-task.sh --direct "<title>" <task.md>` |
 | Lift a hold and post `[orchestrator] GO`.                                                                                                                                                                                                                                                          | `release-hold.sh <pr> [note.md]`                                                                                   |
+| Start a worker in a task PR's worktree, resume or steer it with a new message, see whether it runs and what it did, stop it.                                                                                                                                                                       | `worker.sh start <worktree> <prompt.md>`, `worker.sh send\|status\|log\|stop\|wait\|permit <session or worktree>`  |
 | Watch task PRs (READY, QUESTION, pick-ups, stale reviews, merges), the board and what is assigned to you.                                                                                                                                                                                          | `watch-prs.sh` (`ONESHOT=1` to return after the first event)                                                       |
 | Test-merge one or more PRs onto `dev`, then run every check; `--packages "<ws> <ws>…"` limits only tests, and `--bench` runs the sector benchmark.                                                                                                                                                 | `verify.sh [--bench] [--packages "<ws> <ws>…"] <pr>…`                                                              |
 | Squash-merge, close the task's issue, delete the branch, fast-forward the main checkout. Idempotent.                                                                                                                                                                                               | `merge-task.sh <pr> [--subject s] [--body-file f]`                                                                 |
-| Read the board, move a card, say whose move it is, read or set what blocks an issue, or open an issue (new work, a follow-up, an idea) and add it to Backlog.                                                                                                                                      | `board.sh list\|move\|next\|mine\|turn\|blocked\|block\|unblock\|issue\|remove`                                    |
+| Read the board, move a card, say whose move it is, read or set what blocks an issue, open an issue and add it to Backlog, or archive old Done cards.                                                                                                                                               | `board.sh list\|move\|next\|mine\|turn\|blocked\|block\|unblock\|issue\|remove\|archive`                           |
 | Post a review outcome or a reply on a PR or an issue, move its card and set whose move it is.                                                                                                                                                                                                      | `review.sh <pr or issue> changes\|owner\|approve\|answer\|ask <comment.md>`                                        |
 
 Worker branches are updated by fast-forward-only pushes; if a remote branch moved, workers fetch and merge it, never force-push. `verify.sh` removes `lib/*/dist` and `apps/*/dist` after assembling the review merge so checks begin without stale build output, as in CI.
@@ -114,7 +115,8 @@ This holds for issues and PRs, on the board or not.
 - **Releases are cards of their own.** Record the PRs they carry, whether the wire changes, the
   stress and benchmark comparison, and whether consumers must deploy server and client together.
 - **On Approved:** re-verify if `dev` moved, stop the worker, merge. The merge closes the issue
-  and moves both cards to Done.
+  and moves both cards to Done. `merge-task.sh` then prints what the merge made startable
+  (`next: #n`, `launch: #n`): act on that line, because the watcher will not repeat it.
 
 ### Everything else
 
@@ -127,15 +129,57 @@ This holds for issues and PRs, on the board or not.
   `board.sh move` and `board.sh turn` for anything else, so no card sits in a stale column.
 - **Watch the board while work is going on.** `watch-prs.sh` wakes you only for what needs you:
   a worker's READY, QUESTION, DESIGN or BLOCKED; a person's comment on any issue or PR; a card the owner moved to Approved or In review (`BOARD`); the first unblocked card of Ready changing (`NEXT`); an approved issue that nothing blocks, at once or when its last blocker closes (`LAUNCH`); something newly assigned to you (`ASSIGNED`); the owner taking themselves
-  off a card (`OWNER DONE`); a stale review. Everything else (other worker notes, cards moving to
-  In progress or Done, your own moves and merges) stays quiet and is listed with the next real
-  event. It polls GitHub from the shell every 10 seconds, so it costs nothing while nothing
-  happens. Run it with `ONESHOT=1` and start it again after each event. If it ends on its own
+  off a card (`OWNER DONE`); a worker that waits for a permission or whose turn failed (`WORKER`);
+  a stale review. Everything else (other worker notes, cards moving to
+  In progress, your own moves and merges) stays quiet and is listed with the next real
+  event. It polls GitHub from the shell every 10 seconds without waking the orchestrator while
+  nothing happens, but still spends API points. It slows its GraphQL polls as the
+  budget runs low (`BUDGET` says when only the reserve remains). Run it with `ONESHOT=1` and start it again after each event. If it ends on its own
   (`MAX_MINUTES`, or the runner's limit) because nothing happened for two hours, don't start it
   again: the owner is away and will say when work resumes.
+- **The GraphQL budget is shared.** GitHub gives the account 5,000 GraphQL points an hour for
+  everything it does, and the board can only be read with GraphQL. A typical watcher poll costs
+  two points (task PRs and one page of non-Done cards), about 720 an hour at 10 seconds. It keeps
+  `BUDGET_RESERVE` (default 500) for scripts run by hand and spreads the rest over the time to the
+  reset, never faster than `INTERVAL` (default 10 seconds). With no spendable points it emits one
+  `BUDGET` event per reset window and keeps watching REST comments and assignments only until
+  the reset. Read `X-RateLimit-Remaining` and `X-RateLimit-Reset` from GraphQL response headers
+  (`gh api graphql -i …`), not `gh api rate_limit` or the query's `rateLimit` field: both lag.
+  The watcher remembers counters by reset time and uses the lowest remaining budget.
+- **Never poll the board in a shell loop**, or retry a failed board call in a loop. A card just
+  added can be missing from the listing for minutes although its issue already shows it: read
+  it from the issue (`gh issue view <n> --json projectItems`) instead of waiting for it.
+- **Done is kept short.** `merge-task.sh` runs `board.sh archive [days]` after every merge
+  (default 2). It archives only `vworlds/vecs` cards in Done whose issue or PR closed more than
+  that many days ago; an archive failure does not fail the merge. Archived cards stay in the
+  project's "Archived items" view and can be restored. The watcher and default `list`, `next`
+  and `mine` omit Done; use `board.sh list --all` or `board.sh list Done` to see it.
 - **Keep the watcher smart.** When it wakes you for something that needed no action, or for
   something it could have done itself, change the script so it doesn't happen again.
 - `VECS_BOARD=off` turns the board steps off, for forks and offline work.
+
+## Workers
+
+A worker is an opencode session that works in a task PR's worktree. `worker.sh` talks to the
+opencode 2 HTTP server with the login in the environment (`OPENCODE_BASE_URL`,
+`OPENCODE_SERVER_USERNAME`, `OPENCODE_SERVER_PASSWORD`); `worker.sh health` says whether it
+answers, and `worker.sh models [filter]` lists its models. The default model is `WORKER_MODEL`
+or `codexbal/gpt-6.1-sol`. Session mappings live in
+`${XDG_STATE_HOME:-~/.local/state}/vecs-orchestrator/workers`.
+
+1. After `open-task.sh`, create the worktree:
+   `git worktree add -b <branch> .worktrees/auto-<branch> origin/<branch>`.
+2. `worker.sh start <worktree> <prompt.md> --title "PR <n> work" [--model provider/id]`. The prompt
+   says which PR to read as the task; the task itself is the PR's description. It returns at once
+   and prints the session id; from then on the worktree's path names the session too.
+3. Look at `worker.sh status <worktree>` a minute later: a worker that waits for a permission says
+   so there. `worker.sh permit <worktree>` lists requests; add `once`, `always` or `reject` to answer.
+4. A review round: post the `[orchestrator]` comment with `review.sh`, then
+   `worker.sh send <worktree> <prompt.md>` telling it to read that comment. It resumes an idle
+   worker and steers a running one; `--queue` waits until the current turn finishes.
+5. `worker.sh log <worktree> [n]` shows its last steps. `worker.sh wait <worktree> [seconds]`
+   waits for an idle session (default 600 seconds), exiting 1 if still running.
+6. `worker.sh stop <worktree>` before merging; remove the worktree after the merge.
 
 ## Review and merge
 
@@ -149,6 +193,6 @@ This holds for issues and PRs, on the board or not.
 3. Post the outcome with `review.sh`: `[orchestrator] CHANGES REQUESTED (round N)` (`changes`),
    `[orchestrator] OWNER REVIEW` for gameplay the owner must playtest or anything else they must
    decide (`owner`: the card stays In review, assigned to the owner), or `[orchestrator] APPROVED` (`approve`).
-4. **Stop the worker before merging**, so it doesn't spend tokens reacting to the merge. Workers
-   are opencode jobs; stop the job before merging.
+4. **Stop the worker before merging**, so it doesn't spend tokens reacting to the merge:
+   `worker.sh stop <worktree>`.
 5. `merge-task.sh <pr>`.
