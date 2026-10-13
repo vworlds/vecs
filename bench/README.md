@@ -139,9 +139,10 @@ npm run bench:release-check
 
 This extends `compare.ts`: it builds HEAD and the latest reachable release tag
 (`git describe --tags --abbrev=0`), runs the same HEAD benchmark programs against both
-builds, and removes the temporary release worktree when done. Temporary worktrees and
-JSON/Markdown reports live under ignored `.tmp/release-check/`. It uses this checkout's
-installed dependencies in the release worktree. Run `npm ci` first.
+builds, and removes the temporary release worktree when done. Set `BENCH_BASE_REF` to test a
+specific tag or ref instead. Temporary worktrees and JSON/Markdown reports live under ignored
+`.tmp/release-check/`; matching lockfiles reuse this checkout's dependencies, otherwise the base
+installs its own. Run `npm ci` first.
 
 The check includes sector tick, DR bandwidth, and an optional physics pose-out benchmark
 when a matching benchmark file is present. It defaults to three alternating runs per
