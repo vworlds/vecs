@@ -15,8 +15,14 @@ shift
 subject="" body_file=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --subject) subject="$2"; shift 2 ;;
-    --body-file) body_file="$2"; shift 2 ;;
+    --subject)
+      subject="$2"
+      shift 2
+      ;;
+    --body-file)
+      body_file="$2"
+      shift 2
+      ;;
     *) die "unknown option $1" ;;
   esac
 done
@@ -33,10 +39,10 @@ closes="$(retry 3 gh api graphql -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG
   --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].number' || true)"
 
 if [ "$state" = OPEN ]; then
-  [ "$mergeable" = CONFLICTING ] && die "PR #$pr conflicts with dev; ask the worker to rebase"
+  [ "$mergeable" = CONFLICTING ] && die "PR #$pr conflicts with dev; ask the worker to merge origin/dev"
   fetch_refs "+dev:refs/remotes/origin/dev" "+refs/heads/$branch:refs/remotes/origin/$branch" || die "fetch failed"
   head="$(git rev-parse "origin/$branch")"
-  [ "$draft" = true ] && retry 3 gh pr ready "$pr" -R "$REPO_SLUG" >/dev/null
+  [ "$draft" = true ] && retry 3 gh pr ready "$pr" -R "$REPO_SLUG" > /dev/null
   [ -n "$subject" ] || subject="$(printf '%s' "$title" | sed -E 's/^\[HOLD[^]]*\] //; s/ \(agent task\)$//') (#$pr)"
   bf="$(mktemp)"
   if [ -n "$body_file" ]; then
@@ -48,9 +54,16 @@ if [ "$state" = OPEN ]; then
   mkdir -p "${BOARD_STATE%/board}" && touch "${BOARD_STATE%/board}/merged-$pr"
   merged=false
   for attempt in 1 2 3 4; do
-    if gh pr merge "$pr" -R "$REPO_SLUG" --squash --match-head-commit "$head" --subject "$subject" --body-file "$bf"; then merged=true; break; fi
-    [ "$(pr_field "$pr" .state)" = MERGED ] && { merged=true; break; }
-    log "merge attempt $attempt failed; retrying"; sleep $((attempt * 5))
+    if gh pr merge "$pr" -R "$REPO_SLUG" --squash --match-head-commit "$head" --subject "$subject" --body-file "$bf"; then
+      merged=true
+      break
+    fi
+    [ "$(pr_field "$pr" .state)" = MERGED ] && {
+      merged=true
+      break
+    }
+    log "merge attempt $attempt failed; retrying"
+    sleep $((attempt * 5))
   done
   rm -f "$bf"
   $merged || die "could not merge #$pr"
@@ -59,15 +72,15 @@ fi
 sha="$(retry 3 gh api "repos/$REPO_SLUG/pulls/$pr" --jq .merge_commit_sha)"
 for n in $closes; do
   if [ "$(retry 3 gh api "repos/$REPO_SLUG/issues/$n" --jq .state)" = open ]; then
-    retry 3 gh api -X PATCH "repos/$REPO_SLUG/issues/$n" -f state=closed -f state_reason=completed >/dev/null &&
-      log "closed issue #$n"
+    retry 3 gh api -X PATCH "repos/$REPO_SLUG/issues/$n" -f state=closed -f state_reason=completed > /dev/null \
+      && log "closed issue #$n"
   fi
   board_move "$n" "Done" || true
   board_turn "$n" nobody || true
 done
 fetch_refs "+dev:refs/remotes/origin/dev" || die "fetch failed"
-gh api -X DELETE "repos/$REPO_SLUG/git/refs/heads/$branch" >/dev/null 2>&1 && log "deleted branch $branch" || true
-git update-ref -d "refs/remotes/origin/$branch" 2>/dev/null || true
+gh api -X DELETE "repos/$REPO_SLUG/git/refs/heads/$branch" > /dev/null 2>&1 && log "deleted branch $branch" || true
+git update-ref -d "refs/remotes/origin/$branch" 2> /dev/null || true
 if [ "$(git rev-parse --abbrev-ref HEAD)" = dev ] && [ -z "$(git status --porcelain --untracked-files=no)" ]; then
   git merge -q --ff-only origin/dev && log "main checkout fast-forwarded to $(git rev-parse --short HEAD)"
 else

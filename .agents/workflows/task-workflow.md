@@ -13,13 +13,13 @@ and branch, never in the main checkout, on `dev` or on `master`.
 Every step below has a script in `scripts/agent/`. Each takes the PR number; use the scripts instead
 of retyping commands.
 
-| Step                                                                                    | Script                      |
-| --------------------------------------------------------------------------------------- | --------------------------- |
-| Prepare your worktree: put the branch on the latest `dev` and `npm ci`. Safe to re-run. | `start-task.sh <pr>`        |
-| Read the description and every comment.                                                 | `read-pr.sh <pr>`           |
-| Push your branch, with retries and an SSH fallback. It refuses an empty branch.         | `push.sh`                   |
-| Post a comment from a file. It adds `[worker]` if it's missing.                         | `pr-comment.sh <pr> <file>` |
-| Block until the orchestrator replies or the PR closes. Safe to re-run.                  | `wait-review.sh <pr>`       |
+| Step                                                                                                                                                          | Script                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| Prepare your worktree: put the branch on the latest `dev` and `npm ci`. Safe to re-run.                                                                       | `start-task.sh <pr>`        |
+| Read the description and every comment.                                                                                                                       | `read-pr.sh <pr>`           |
+| Push your branch fast-forward only, with retries and an SSH fallback. It refuses an empty branch; if the remote moved, fetch and merge it (never force-push). | `push.sh`                   |
+| Post a comment from a file. It adds `[worker]` if it's missing.                                                                                               | `pr-comment.sh <pr> <file>` |
+| Block until the orchestrator replies or the PR closes. Safe to re-run.                                                                                        | `wait-review.sh <pr>`       |
 
 ## While working
 
