@@ -15,7 +15,7 @@ import {
   type ResolvedPhysicsOptions,
 } from "../adapter/engine.js";
 import { withAllocated } from "../adapter/disposal.js";
-import { getBox2D } from "../adapter/runtime.js";
+import { getBox2D, getFastPath } from "../adapter/runtime.js";
 
 /** Options for {@link import("../module.js").PhysicsModule}. Every field is optional;
  * omitted fields fall back to Box2D-aligned defaults. */
@@ -76,8 +76,10 @@ export class PhysicsCoreModule extends Module<PhysicsOptions | undefined> {
 
     const box2d = getBox2D();
     const resolved = resolveOptions(opts);
-    const engine = new PhysicsEngine(box2d, resolved, phases, opts.debugSink);
+    const fast = getFastPath();
+    const engine = new PhysicsEngine(box2d, resolved, phases, fast, opts.debugSink);
     engine.worldId = createWorldId(engine, resolved);
+    engine.world = fast.world(engine.worldId);
     world.component(PhysicsEngine).add(Singleton);
     world.component(PhysicsEngine).attach(PhysicsEngine, engine);
   }

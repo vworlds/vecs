@@ -93,6 +93,25 @@ Timings on a shared or virtualized machine are noisy. Compare back to back on an
 machine, use several rounds, and read the per-round ratios rather than a single run. An identical
 build compared against itself shows the noise floor.
 
+## Real-WASM physics pose-out
+
+`physics-pose-out.ts` measures one physics world with 500, then 2,000 dynamic circle bodies.
+They drift and rotate deterministically without contacts, with sleeping disabled. Every body
+carries position, rotation and both velocity components. Timing uses the compiled package output:
+
+```bash
+npm run build -w @vworlds/vecs -w @vworlds/vecs-physics
+node --import ./bench/register-dist.mjs bench/physics-pose-out.ts
+```
+
+After creation and 300 warmup ticks, it measures 1,000 ticks at 30 Hz. Override these counts with
+`BENCH_WARMUP_TICKS` and `BENCH_TICKS`. Each `POSE_OUT_RESULT` line reports nanoseconds per body
+per step for the whole `world.progress` tick (including deferred writes) and for the built
+`PhysicsPoseSyncOut` system alone (excluding its subsequent flush). Two clock reads per step
+are included in whole-tick timing. The checksum hashes the exact float64 bytes of every body's
+final position, rotation and velocities in creation order. Compare several alternating builds
+with identical counts; checksum disagreement is a behavior change, while timings have host noise.
+
 ## Dead-reckoning bandwidth
 
 ```bash

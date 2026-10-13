@@ -263,9 +263,16 @@ Write these components before the physics phases if you want the changes to affe
 After stepping, physics writes results back to ECS:
 
 - Dynamic body `Position` and `Rotation` are updated from simulation output, but only when their value changed.
-- `LinearVelocity` and `AngularVelocity` are updated when those components are present, again only when their value changed. See [Pose Updates Fire Only When The Pose Changes](#pose-updates-fire-only-when-the-pose-changes).
+- `LinearVelocity` and `AngularVelocity` values are exported from Box2D with the moved poses and written only when those components are present and their value changed. Dead reckoning reads body motion separately, so you do not need velocity components solely for that consumer. See [Pose Updates Fire Only When The Pose Changes](#pose-updates-fire-only-when-the-pose-changes).
 - `ContactEvents`, `HitEvents`, and `SensorEvents` are filled and marked modified when new events arrive.
 - Consumed `Impulse` and `AngularImpulse` public fields are silently reset to zero.
+
+The pinned owned Box2D package exports moved poses and velocities in one fast-path call, separately
+from the step, so preceding post-step systems keep their ordering. Contact/hit/sensor records are read
+from native event spans. These Box2D reads create no per-body or per-event wrappers or marshalling
+objects; changed ECS writes and public event records retain their existing allocations and ownership.
+The adapter refreshes memory views after growth and preserves Box2D's exact angle conversion.
+See [pose-out internals](../architecture/ARCHITECTURE.md#physicsposesyncout-physics-post).
 
 Run gameplay systems that react to final physics results after `physics-post`.
 

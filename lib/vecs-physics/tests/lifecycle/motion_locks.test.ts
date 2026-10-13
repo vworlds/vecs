@@ -228,7 +228,7 @@ describe("MotionLocks update handler", () => {
 
 describe("Body.allowFastRotation", () => {
   it("allowFastRotation can be toggled on a body", () => {
-    // Note: b2Body_SetAllowFastRotation is not exposed in box2d3-wasm@5.2.0.
+    // Note: allowFastRotation remains create-time only in the vecs adapter on the owned 6.0.1 package.
     // We verify the world does not crash when allowFastRotation is set in Body.
     const e = world.entity().set(Body, { type: BodyType.Dynamic, allowFastRotation: false });
     step();

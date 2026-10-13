@@ -90,7 +90,7 @@ function trackOwnedHandles(box2d: object) {
 const STEP_MS = 1000 / 60;
 
 describe("physics event handles", () => {
-  it("releases every owned handle created by contact, sensor, hit and body events", () => {
+  it("delivers contact, sensor, hit and body events without any embind event call", () => {
     const world = new World();
     world.module(PhysicsModule, { gravity: { x: 0, y: 0 }, hitEventThreshold: 0.5 });
     const engine = getPhysicsEngine(world);
@@ -118,24 +118,40 @@ describe("physics event handles", () => {
       .entity()
       .set(Body, { type: BodyType.Static })
       .set(Position, { x: 1.5, y: 11 });
-    world.entity().childOf(sensorWall).set(Box, { hx: 0.5, hy: 10 }).add(SensorEvents);
+    const sensorWallShape = world
+      .entity()
+      .childOf(sensorWall)
+      .set(Box, { hx: 0.5, hy: 10 })
+      .add(SensorEvents);
     const bullet = world
       .entity()
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 7.39814, y: 4 })
       .set(LinearVelocity, { x: -20, y: 0 });
-    world.entity().childOf(bullet).set(Circle, { radius: 0.1 }).add(Sensor).add(SensorEvents);
+    const bulletShape = world
+      .entity()
+      .childOf(bullet)
+      .set(Circle, { radius: 0.1 })
+      .add(Sensor)
+      .add(SensorEvents);
 
     world.progress(0, STEP_MS);
     const { live, created, plain } = trackOwnedHandles(engine.box2d);
 
     let sawBegin = false;
     let sawEnd = false;
+    let sawHit = false;
+    let sawSensor = false;
     for (let tick = 1; tick <= 240; tick++) {
       world.progress(tick * STEP_MS, STEP_MS);
       const events = wallShape.get(ContactEvents)!;
       sawBegin ||= events.begin.length > 0;
       sawEnd ||= events.end.length > 0;
+      sawHit ||= wallShape.get(HitEvents)!.hits.length > 0;
+      for (const shape of [sensorWallShape, bulletShape]) {
+        const sensorEvents = shape.get(SensorEvents)!;
+        sawSensor ||= sensorEvents.begin.length + sensorEvents.end.length > 0;
+      }
       if (tick === 60) {
         mover.set(LinearVelocity, { x: 10, y: 0 });
       }
@@ -143,14 +159,11 @@ describe("physics event handles", () => {
 
     expect(sawBegin).toBe(true);
     expect(sawEnd).toBe(true);
-    // Contact begin events are class handles; contact end and sensor begin/end events are plain
-    // value objects that need no release. If a binding change turns one into a handle, `live`
-    // below fails until publish.ts releases it.
-    expect(created.get("GetBeginEvent")).toBe(1);
-    expect(plain.get("GetBeginEvent")).toBeGreaterThan(0);
-    expect(plain.get("GetEndEvent")).toBeGreaterThan(1);
-    expect(created.get("GetHitEvent")).toBeGreaterThan(0);
-    expect(created.get("GetMoveEvent")).toBeGreaterThan(0);
+    expect(sawHit).toBe(true);
+    expect(sawSensor).toBe(true);
+    // The spans and move export create neither event handles nor marshalled value objects.
+    expect([...created.keys()]).toEqual([]);
+    expect([...plain.keys()]).toEqual([]);
     expect(live.size).toBe(0);
   });
 });
