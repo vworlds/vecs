@@ -25,6 +25,11 @@ of retyping commands.
 ## While working
 
 - Stay in scope. Report unrelated problems instead of fixing them.
+- Record your change in `architecture/unreleased/<pr>.md`, never edit
+  `architecture/CHANGELOG.md`. Use the bullet format in
+  [`architecture/unreleased/README.md`](../../architecture/unreleased/README.md);
+  put multiple entries for the same PR in that one fragment. Release collection
+  owns the versioned changelog.
 - Run `HUSKY=0 npm ci` when preparing the worktree. While iterating, run only the suites your
   change touches; run all required full checks once before READY.
 - If the clean solution needs a vecs change, don't work around it. Post `QUESTION: …` saying what

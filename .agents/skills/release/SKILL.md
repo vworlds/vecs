@@ -33,10 +33,12 @@ the pre-push checks and refuses to destroy data:
    descendant of `origin/master` and strictly ahead.
 4. **Merge dev into master** — fast-forward only; never creates a merge commit
    and never rewrites history.
-5. **Label the changelog** — relabel the `## Unreleased` section as
-   `## vX.Y.Z (YYYY-MM-DD)` (next patch from the latest tag), leave a fresh
-   empty `## Unreleased` above it, and commit on master. Aborts if the changelog
-   is missing or the rewrite doesn't match the expected headings.
+5. **Collect the changelog** — validate `architecture/unreleased/*.md`, skipping
+   `README.md`: every non-empty line must start with `- [`. Prepend the bullets
+   under `## vX.Y.Z (YYYY-MM-DD)` (next patch from the current package version),
+   ordered by PR number descending, then slug filename ascending. Commit the
+   changelog and fragment removals together as `docs: changelog for vX.Y.Z`.
+   Abort naming any invalid fragment before writing. No fragments: log and continue.
 6. **Push master** — plain `git push origin master`; no force.
 7. **Wait for CI** — polls `origin` until `origin/master` advances past the
    pushed commit (the `[skip ci]` bump commit) AND a new `vX.Y.Z` tag appears.
@@ -58,9 +60,11 @@ be `v1.0.36`.
 1. Read `.agents/rules/commits.md` and `.agents/workflows/pr-workflow.md` for
    context (the release script follows the same no-force, fast-forward-only
    discipline).
-2. Confirm the CHANGELOG.md's unreleased section reflects the to be published
-   changes accurately and that we're not missing significant features / bugfixes
-   since last release. If so, propose a change and ask for confirmation.
+2. Confirm the fragments in `architecture/unreleased/` reflect the changes to be
+   published accurately and cover significant features / bugfixes since the last
+   release. Check their [format](../../../architecture/unreleased/README.md) with
+   `scripts/agent/check-changelog.sh`. If changes are missing, propose a fragment
+   and ask for confirmation.
 3. Confirm the user wants to release now; the script pushes to `master` and
    triggers a public npm publish.
 4. Run the script and stream its output. Report the new version tag when it
