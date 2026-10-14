@@ -41,7 +41,15 @@
 // Upstream docs: docs/debug-validation.md.
 // Polygon validity is checked via b2ComputeHull (box2d3-wasm); see isValidPolygon.
 
-import { ArrayMap, ChildOf, Module, type EID, type Entity, type Filter } from "@vworlds/vecs";
+import {
+  ArrayMap,
+  ChildOf,
+  Module,
+  type EID,
+  type Entity,
+  type Filter,
+  type Vec2,
+} from "@vworlds/vecs";
 
 import { getPhysicsEngine, PhysicsSystemTag, type PhysicsEngine } from "../adapter/engine.js";
 import { Body, BodyType, Position } from "../body/components.js";
@@ -318,10 +326,7 @@ function _validateBodyShapePositionEntities(
  * Delegates to `b2ComputeHull` (WASM); a hull with count >= 3 is valid. Allocates
  * and frees temporary b2Vec2 objects via the WASM heap.
  */
-function isValidPolygon(
-  engine: PhysicsEngine,
-  vertices: ReadonlyArray<{ x: number; y: number }>
-): boolean {
+function isValidPolygon(engine: PhysicsEngine, vertices: ReadonlyArray<Vec2>): boolean {
   if (vertices.length < 3) {
     return false;
   }

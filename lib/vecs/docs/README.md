@@ -41,7 +41,7 @@ For Node clients that need replicated Phaser poses, see [Headless clients](../..
 | Guide                                              | Covers                                                                                                  |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | [getting-started.md](./getting-started.md)         | A runnable tutorial from `npm install` to a ticking world.                                              |
-| [concepts.md](./concepts.md)                       | The core vocabulary and how the pieces relate.                                                          |
+| [concepts.md](./concepts.md)                       | The core vocabulary and how the pieces relate, including the shared `Vec2` type.                        |
 | [execution-model.md](./execution-model.md)         | `world.progress`, the 8 built-in phases, deferred commands, flush boundaries, event routing.            |
 | [components.md](./components.md)                   | Component registration, hooks, traits, exclusivity, cleanup, aliases, and singletons.                   |
 | [entities.md](./entities.md)                       | Entity creation, mutation, relationship targets, lifecycle, disposal, deferred reads.                   |

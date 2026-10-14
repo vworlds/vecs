@@ -9,6 +9,8 @@ and on every tick. A **World** ties it all together and drives a phased update p
 
 ## Install
 
+The core package also exports the structural `Vec2` type for two-dimensional points and vectors.
+
 ```sh
 npm install @vworlds/vecs
 ```
