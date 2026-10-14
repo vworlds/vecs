@@ -4,6 +4,7 @@ import {
   ON_UPDATE,
   Phase,
   Singleton,
+  type Vec2,
   type Entity,
   type World,
 } from "@vworlds/vecs";
@@ -20,7 +21,7 @@ import { getBox2D, getFastPath } from "../adapter/runtime.js";
 /** Options for {@link import("../module.js").PhysicsModule}. Every field is optional;
  * omitted fields fall back to Box2D-aligned defaults. */
 export type PhysicsOptions = {
-  gravity?: { x: number; y: number }; // default { x: 0, y: -10 }
+  gravity?: Vec2; // default { x: 0, y: -10 }
   fixedTimeStep?: number; // seconds, default 1/60
   subSteps?: number; // default 4
   debug?: boolean; // default false

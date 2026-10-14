@@ -23,16 +23,8 @@ export { Damping, GravityScale, MotionLocks, Sleep } from "./body/tuning.js";
 export { ShapePosition, ShapeRotation } from "./shapes/pose_components.js";
 
 // Geometry
-export {
-  Shape,
-  Box,
-  Circle,
-  Capsule,
-  Segment,
-  Polygon,
-  Chain,
-  type Vec2,
-} from "./shapes/components.js";
+export { Shape, Box, Circle, Capsule, Segment, Polygon, Chain } from "./shapes/components.js";
+export type { Vec2 } from "@vworlds/vecs";
 
 // Material / filter / sensor
 export { Material, CollisionFilter, Sensor, Detectable } from "./materials/components.js";
