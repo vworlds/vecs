@@ -465,7 +465,7 @@ export class Segment {
 Convex polygon geometry.
 
 ```ts
-export type Vec2 = { x: number; y: number };
+import type { Vec2 } from "@vworlds/vecs";
 
 export class Polygon {
   vertices: Vec2[] = [];
