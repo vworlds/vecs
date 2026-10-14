@@ -29,7 +29,10 @@ export type { PhysicsOptions } from "./core/module.js";
 
 /** World module that installs physics when registered with `world.module`.
  * Internal cleanup runs after preStep and before step, so a pre-step entity
- * destruction cannot leave a colliding body behind for that step. */
+ * destruction cannot leave a colliding body behind for that step.
+ * `world.dispose()` releases the owned Box2D world and move buffer through the
+ * engine's remove hook. Box2D permits at most 128 live worlds per process;
+ * registration throws when it cannot create another world. */
 export class PhysicsModule extends Module<PhysicsOptions | undefined> {
   public init(options: PhysicsOptions | undefined): void {
     const world = this.world;

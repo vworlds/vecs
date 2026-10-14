@@ -72,6 +72,8 @@ export function hasPhysicsEngine(world: World): boolean {
 }
 
 export class PhysicsEngine {
+  /** Read only by teardown callbacks, never by the step/pose-out hot path. */
+  public disposed = false;
   public worldId!: b2WorldId;
   /** `worldId` packed for the b2x_ fast path: index1 | generation << 16. */
   public world = 0;
@@ -202,5 +204,25 @@ export class PhysicsEngine {
     this.maximumLinearSpeed = options.maximumLinearSpeed;
     this.enableSleep = options.enableSleep;
     this.enableContinuous = options.enableContinuous;
+  }
+
+  /** Release per-world WASM ownership once; queued child handles die with the world.
+   * Live ids are plain fields: install late-use errors only at teardown. */
+  public dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    if (this.worldId !== undefined) {
+      this.box2d.b2DestroyWorld(this.worldId);
+    }
+    this.moveExporter.dispose();
+    const deadWorld = (): never => {
+      throw new Error("Physics world has been disposed");
+    };
+    Object.defineProperties(this, {
+      worldId: { get: deadWorld, set: deadWorld },
+      world: { get: deadWorld, set: deadWorld },
+    });
   }
 }

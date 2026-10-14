@@ -57,7 +57,7 @@ export class PhysicsCoreModule extends Module<PhysicsOptions | undefined> {
       throw new Error("PhysicsModule has already been registered on this world");
     }
 
-    world.component(PhysicsEngine);
+    world.component(PhysicsEngine).on("remove", (_entity, engine) => engine.dispose());
     world.component(PhysicsSystemTag);
 
     const phases = {
@@ -78,8 +78,13 @@ export class PhysicsCoreModule extends Module<PhysicsOptions | undefined> {
     const resolved = resolveOptions(opts);
     const fast = getFastPath();
     const engine = new PhysicsEngine(box2d, resolved, phases, fast, opts.debugSink);
-    engine.worldId = createWorldId(engine, resolved);
-    engine.world = fast.world(engine.worldId);
+    try {
+      engine.worldId = createWorldId(engine, resolved);
+      engine.world = fast.world(engine.worldId);
+    } catch (error) {
+      engine.dispose();
+      throw error;
+    }
     world.component(PhysicsEngine).add(Singleton);
     world.component(PhysicsEngine).attach(PhysicsEngine, engine);
   }
@@ -101,6 +106,9 @@ function createWorldId(
     def.enableSleep = options.enableSleep;
     def.enableContinuous = options.enableContinuous;
     const worldId = box2d.b2CreateWorld(def);
+    if (worldId.index1 === 0) {
+      throw new Error("Box2D could not create the world: limit of 128 live worlds per process");
+    }
     box2d.b2World_SetContactTuning(
       worldId,
       options.contactHertz,
