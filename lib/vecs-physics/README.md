@@ -41,7 +41,12 @@ for (let i = 0; i < 60; i++) {
 
 const finalPosition = box.get(Position)!;
 console.log(finalPosition.x.toFixed(3), finalPosition.y.toFixed(3));
+world.dispose();
 ```
+
+When finished, [dispose the world](./docs/getting-started.md#disposing-a-physics-world)
+to release its physics resources and live-world slot. See that guide for Box2D's
+128-live-world process limit and the registration error when it is reached.
 
 ## V1 Features
 
