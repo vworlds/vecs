@@ -490,7 +490,7 @@ describe("moveSubtree across two physics worlds", () => {
       .set(Body, { type: BodyType.Dynamic })
       .set(Position, { x: 10, y: 6 })
       .set(LinearVelocity, { x: 0, y: -4 });
-    const shipShape = source.entity().childOf(ship).set(Box, { hx: 1, hy: 1 });
+    const shipShape = source.entity().childOf(ship).set(Box, { hx: 1, hy: 1 }).add(ContactEvents);
     step(source);
 
     // The source world keeps a decoy in the ship's place, so the source's own
@@ -511,11 +511,8 @@ describe("moveSubtree across two physics worlds", () => {
     const result = source.moveSubtree(ship, destination);
     const movedShape = result.entities.get(shipShape.eid)!;
 
-    // Event reporting is opt-in per world, and event buffers are never carried
-    // across: they report on the world that ran the solver. The destination opts
-    // in again on its own.
-    expect(movedShape.get(ContactEvents)).toBeUndefined();
-    movedShape.set(ContactEvents, {});
+    // The opt-in survives automatically, but reports from the source do not.
+    expect(movedShape.get(ContactEvents)).toEqual(new ContactEvents());
     for (let i = 0; i < 200 && movedShape.get(ContactEvents)!.begin.length === 0; i++) {
       step(destination);
     }
