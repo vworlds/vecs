@@ -14,7 +14,8 @@
 #   - ASSIGNED #n: an open issue or PR newly assigned to me, which means I must act on it;
 #   - OWNER DONE #n: the owner took themselves off a card that was waiting for them;
 #   - STALE: my latest [orchestrator] review has had no reply or commit for 30+ minutes;
-#   - PR #n is now MERGED/CLOSED: a task PR left the open list by someone else's hand;
+#   - PR #n is now MERGED/CLOSED: a missing task PR confirmed closed by gh pr view, once per
+#     missing PR per poll. OPEN or failed lookups keep its marker and stay quiet;
 #   - WORKER #n: the worker of a task PR that is In progress waits for a permission, or its turn
 #     failed. Neither shows on the PR. Asked of the worker server once a minute (worker.sh);
 #   - BUDGET: the account's GraphQL budget is spent down to the reserve. Until the reset it
@@ -46,6 +47,7 @@
 # Usage: [INTERVAL=10] [ONESHOT=1] [MAX_MINUTES=n] [BUDGET_RESERVE=500] scripts/orchestrator/watch-prs.sh
 # Orchestrators: run it as a tracked background task that notifies you when it exits,
 # never with `nohup … &`: an untracked watcher reports to a file nobody reads.
+# Answers with GraphQL errors are failed polls: ignore their data and back off.
 set -uo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 . "$(dirname "$0")/../lib/board.sh"
@@ -313,6 +315,8 @@ PR_QUERY='
       comments(last: 40) { nodes { url createdAt body author { login } } }
       commits(last: 1) { totalCount nodes { commit { committedDate } } } } } } }'
 PR_LINES='
+  if (.errors // [] | length) > 0 then error("GraphQL errors") else . end
+  |
   .data.repository.pullRequests.nodes[]
   | select(.headRefName | test("^(task-|[0-9]+-)"))
   | . as $pr
@@ -369,13 +373,15 @@ while :; do
       [ -e "$f" ] || continue
       num="${f##*/open-}"
       if ! grep -q "^O"$'\t'"$num"$'\t' <<< "$lines"; then
+        state="$(gh pr view "$num" -R "$REPO_SLUG" --json state --jq .state 2> /dev/null)" || continue
+        case "$state" in MERGED | CLOSED) ;; *) continue ;; esac
         rm -f "$f"
         touch "$STATE/.recheck-next"
         # merge-task.sh leaves "merged-<pr>": our own merge is not news.
         if [ -e "$STATE/merged-$num" ]; then
           rm -f "$STATE/merged-$num"
         else
-          emit "PR #$num is now $(gh pr view "$num" -R "$REPO_SLUG" --json state --jq .state 2> /dev/null || echo '?')"
+          emit "PR #$num is now $state"
         fi
       fi
     done

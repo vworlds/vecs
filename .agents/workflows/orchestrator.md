@@ -177,9 +177,18 @@ or `codexbal/gpt-6.1-sol`. Session mappings live in
 4. A review round: post the `[orchestrator]` comment with `review.sh`, then
    `worker.sh send <worktree> <prompt.md>` telling it to read that comment. It resumes an idle
    worker and steers a running one; `--queue` waits until the current turn finishes.
+   Use `worker.sh send --now <worktree> <prompt.md>` when a long tool call prevents it from
+   reading steering: it interrupts the turn first, then sends. Do not combine it with `--queue`.
 5. `worker.sh log <worktree> [n]` shows its last steps. `worker.sh wait <worktree> [seconds]`
    waits for an idle session (default 600 seconds), exiting 1 if still running.
 6. `worker.sh stop <worktree>` before merging; remove the worktree after the merge.
+
+If a worker stops on a quota error (codexbal 502 / temporarily disabled subscriptions, or
+ollama-cloud 429 / Pro 5-hour limit), use `worker.sh model <session|dir> <provider/id>`, then send
+"continue where you left off". Keep the same session and its context; never start a replacement
+session in that worktree. Follow the owner's model order: `codexbal/gpt-6.1-sol`, then
+`ollama-cloud/glm-5.3` (no vision), then `opencode/big-pickle`. The model command validates the
+`provider/id` form and reports the HTTP status if the server refuses the switch.
 
 ## Review and merge
 

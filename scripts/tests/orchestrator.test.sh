@@ -90,6 +90,124 @@ check grep -q '/issues/comments?' "$TEST_DIR/blind-calls"
 check grep -q '/issues?state=open&assignee=' "$TEST_DIR/blind-calls"
 check test "$(grep -c 'api graphql' "$TEST_DIR/blind-calls")" = 1
 
+# A missing task PR needs confirmation; even a partial GraphQL answer can be valid JSON.
+gh() {
+  printf '%s\n' "$*" >> "$TEST_DIR/missing-calls"
+  case "$*" in
+    *'api graphql -i'*)
+      printf 'HTTP/2.0 200 OK\n\n'
+      cat "$TEST_DIR/pr-answer.json"
+      ;;
+    'pr view 42 '*)
+      [ "$MISSING_STATE" != failure ] || return 1
+      printf '%s\n' "$MISSING_STATE"
+      ;;
+    *) return 1 ;;
+  esac
+}
+export -f gh
+for scenario in OPEN MERGED CLOSED failure errors; do
+  export MISSING_STATE="$scenario"
+  missing_state="$TEST_DIR/missing-$scenario/vecs-watch"
+  mkdir -p "$missing_state"
+  touch "$missing_state/open-42"
+  printf '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}\n' > "$TEST_DIR/pr-answer.json"
+  if [ "$scenario" = errors ]; then
+    jq '. + {errors:[{message:"partial answer"}]}' "$TEST_DIR/pr-answer.json" > "$TEST_DIR/partial.json"
+    mv "$TEST_DIR/partial.json" "$TEST_DIR/pr-answer.json"
+  fi
+  : > "$TEST_DIR/missing-calls"
+  XDG_STATE_HOME="${missing_state%/vecs-watch}" VECS_BOARD=off MAX_MINUTES=0 \
+    bash scripts/orchestrator/watch-prs.sh > "$TEST_DIR/missing-events"
+  check test "$(grep -c 'api graphql' "$TEST_DIR/missing-calls")" = 1
+  if [ "$scenario" = errors ]; then
+    check test "$(grep -c '^pr view' "$TEST_DIR/missing-calls" || true)" = 0
+  else
+    check test "$(grep -c '^pr view 42 ' "$TEST_DIR/missing-calls")" = 1
+  fi
+  case "$scenario" in
+    MERGED | CLOSED)
+      check grep -qx "PR #42 is now $scenario" "$TEST_DIR/missing-events"
+      check test ! -e "$missing_state/open-42"
+      check test -e "$missing_state/.recheck-next"
+      ;;
+    *)
+      check test ! -s "$TEST_DIR/missing-events"
+      check test -e "$missing_state/open-42"
+      check test ! -e "$missing_state/.recheck-next"
+      ;;
+  esac
+done
+
+# Worker HTTP fakes record request order/body, never contact the server.
+curl() {
+  local method="" url="" body="" out="" arg
+  printf '%s\n' "$@" >> "$TEST_DIR/curl-args"
+  while [ $# -gt 0 ]; do
+    arg="$1"
+    shift
+    case "$arg" in
+      -X)
+        method="$1"
+        shift
+        ;;
+      -d)
+        body="$1"
+        shift
+        ;;
+      -o)
+        out="$1"
+        shift
+        ;;
+      --config)
+        [ "$1" != - ] || cat > "$TEST_DIR/curl-config"
+        shift
+        ;;
+      http*) url="$arg" ;;
+    esac
+  done
+  jq -nc --arg method "$method" --arg url "$url" --arg body "$body" \
+    '{method:$method,url:$url,body:(if $body == "" then null else ($body|fromjson) end)}' >> "$TEST_DIR/requests"
+  printf '{"interrupted":true}\n' > "$out"
+  printf '%s' "${HTTP_STATUS:-204}"
+}
+export -f curl
+export OPENCODE_SERVER_PASSWORD=fixture-secret OPENCODE_BASE_URL=http://fixture
+worker_state="$XDG_STATE_HOME/vecs-orchestrator/workers"
+mkdir -p "$worker_state" "$TEST_DIR/worktree"
+printf 'ses_fixture\n' > "$worker_state/$(realpath "$TEST_DIR/worktree" | tr / _)"
+bash scripts/orchestrator/worker.sh model "$TEST_DIR/worktree" ollama-cloud/glm-5.3 2> "$TEST_DIR/model-log"
+check jq -se 'length == 1 and .[0] == {method:"POST",url:"http://fixture/api/session/ses_fixture/model",body:{model:{providerID:"ollama-cloud",id:"glm-5.3"}}}' "$TEST_DIR/requests"
+check test "$(grep -c fixture-secret "$TEST_DIR/curl-args" || true)" = 0
+check grep -q fixture-secret "$TEST_DIR/curl-config"
+for invalid in noslash /model provider/ 'provider/model extra'; do
+  if bash scripts/orchestrator/worker.sh model ses_fixture "$invalid" 2> "$TEST_DIR/model-log"; then exit 1; fi
+  checks=$((checks + 1))
+done
+check test "$(wc -l < "$TEST_DIR/requests")" = 1
+if HTTP_STATUS=429 bash scripts/orchestrator/worker.sh model ses_fixture opencode/big-pickle 2> "$TEST_DIR/model-log"; then exit 1; fi
+check grep -q 429 "$TEST_DIR/model-log"
+: > "$TEST_DIR/requests"
+printf 'continue where you left off\n' > "$TEST_DIR/prompt.md"
+bash scripts/orchestrator/worker.sh send --now "$TEST_DIR/worktree" "$TEST_DIR/prompt.md" 2> "$TEST_DIR/send-log"
+check jq -se 'map(.url) == ["http://fixture/api/session/ses_fixture/interrupt","http://fixture/api/session/ses_fixture/prompt"] and all(.method == "POST") and .[1].body == {text:"continue where you left off",delivery:"steer"}' "$TEST_DIR/requests"
+: > "$TEST_DIR/requests"
+if HTTP_STATUS=500 bash scripts/orchestrator/worker.sh send --now ses_fixture "$TEST_DIR/prompt.md" 2> "$TEST_DIR/send-log"; then exit 1; fi
+check jq -se 'length == 1 and .[0].url == "http://fixture/api/session/ses_fixture/interrupt"' "$TEST_DIR/requests"
+: > "$TEST_DIR/requests"
+bash scripts/orchestrator/worker.sh send ses_fixture "$TEST_DIR/prompt.md" --queue 2> "$TEST_DIR/send-log"
+check jq -se 'length == 1 and .[0].body.delivery == "queue"' "$TEST_DIR/requests"
+: > "$TEST_DIR/requests"
+bash scripts/orchestrator/worker.sh send ses_fixture "$TEST_DIR/prompt.md" --now 2> "$TEST_DIR/send-log"
+check jq -se 'map(.url) == ["http://fixture/api/session/ses_fixture/interrupt","http://fixture/api/session/ses_fixture/prompt"]' "$TEST_DIR/requests"
+: > "$TEST_DIR/requests"
+if bash scripts/orchestrator/worker.sh send --now ses_fixture "$TEST_DIR/prompt.md" --queue 2> "$TEST_DIR/send-log"; then exit 1; fi
+check test ! -s "$TEST_DIR/requests"
+bash scripts/orchestrator/worker.sh send ses_fixture "$TEST_DIR/prompt.md" 2> "$TEST_DIR/send-log"
+check jq -se 'length == 1 and .[0].body.delivery == "steer"' "$TEST_DIR/requests"
+unset -f curl
+unset OPENCODE_SERVER_PASSWORD OPENCODE_BASE_URL
+
 # Board fixtures include both repos, a draft, a closed card and owner assignments.
 jq -nc '{data:{node:{items:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[
   {id:"PVTI_ready",status:{name:"Ready"},content:{__typename:"PullRequest",number:10,title:"ready",state:"OPEN",repository:{nameWithOwner:"vworlds/vecs"},assignees:{nodes:[]}}},
