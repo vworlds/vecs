@@ -10,12 +10,15 @@ JSDoc on the source in `lib/vecs-server/src/` — read it in your IDE.
    `ServerRPCContext`, the history window and baselines (`historyFrames`), the optimistic base
    (`redundancyFrames`), the idle-session keepalive (`keepAliveFrames`), `closeSession` and its reply-flush linger, close reasons, and exactly-once
    teardown.
+2. [Measuring replication](./replication-timing.md) — opt-in per-frame preparation/encoding and
+   synchronous socket-send breakdowns.
 
 ## Map
 
-| Guide                        | Covers                                                                                                                                                                                                                                      |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [sessions.md](./sessions.md) | `NetworkClient`, `ServerRPCContext`, `world.handleRpc`, `historyFrames` and baselines, `redundancyFrames`, `keepAliveFrames`, `world.closeSession`, the close linger, `world.shutdown` / `VecsListener.close`, `NetworkClient.closeReason`. |
+| Guide                                            | Covers                                                                                                                                                                                                                                      |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [sessions.md](./sessions.md)                     | `NetworkClient`, `ServerRPCContext`, `world.handleRpc`, `historyFrames` and baselines, `redundancyFrames`, `keepAliveFrames`, `world.closeSession`, the close linger, `world.shutdown` / `VecsListener.close`, `NetworkClient.closeReason`. |
+| [replication-timing.md](./replication-timing.md) | Opt-in per-frame replication preparation/encoding and synchronous socket-send breakdowns.                                                                                                                                                   |
 
 ## See also
 

@@ -244,13 +244,15 @@ export class System<R extends ComponentType[] = []>
    *
    * The whole body executes inside a `World.defer` scope; mutations made by
    * callbacks land in the world queue and are processed when `_run` returns.
+   * Returns whether the enabled and cadence gates admitted execution, even
+   * when a reactive system has no pending events or an each query is empty.
    */
-  public _run(now: number, delta: number): void {
+  public _run(now: number, delta: number): boolean {
     if (!this._enabled) {
-      return;
+      return false;
     }
     if (!this._tickSource.didTick) {
-      return;
+      return false;
     }
     const tickDelta = this._tickSource.lastFireDelta;
     this._injectNow = now;
@@ -262,6 +264,7 @@ export class System<R extends ComponentType[] = []>
     } finally {
       this.world._currentSource = prevSource;
     }
+    return true;
   }
 
   /**

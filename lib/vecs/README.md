@@ -67,6 +67,8 @@ For synchronous world teardown and its allowed call sites, see
 System entity callbacks can inject [`Now` and `Delta`](./docs/systems.md#clock-injection) alongside
 components to read the processing tick's timestamp and the system's accumulated tick delta.
 
+For opt-in timings and cadence run counts, see [Measuring systems](./docs/systems.md#measuring-systems).
+
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
 
 The full documentation lives in [`docs/`](./docs/README.md). Recommended reading order:

@@ -28,6 +28,47 @@ Newly created systems enter the pipeline the next time `world.progress` runs. Co
 happen before the system is built (the first `progress`/`flush` after creation); builder calls
 after that throw.
 
+## Measuring systems
+
+Enable opt-in synchronous timing for benchmarks, cadence guards, or live diagnostics:
+
+```ts
+world.stats.enableSystems();
+world.progress(1000, 16);
+for (const { system, runs, totalMs, maxMs } of world.stats.systems()) {
+  console.log(system.name, runs, totalMs, maxMs);
+}
+world.stats.resetSystems(); // clear system and extension-operation totals
+world.stats.disableSystems(); // stop measuring; retain results until reset
+```
+
+Timing is off by default. `progress()` chooses the plain or instrumented loop once per tick;
+the plain loop has no per-system timing branch, counter, or clock read. The instrumented loop
+uses one `performance.now()` pair per pipeline entry and reuses first-seen slots.
+
+`systems()` returns independent snapshots in current pipeline order, including systems with zero
+runs. Each row holds the original `System`, not copied identity or cadence metadata. Newly
+registered systems appear after the next pipeline refresh in `progress()`. Removed systems are
+absent. Reading does not reset the totals.
+
+A run means execution admitted by the system's enabled and tick-source gates, not a callback or
+entity count: an idle reactive system or an empty `each` query still counts when due. Disabled
+and cadence-skipped entries contribute neither runs nor time. For an admitted execution, timing
+includes inbox processing, callbacks, and **the flush after that system**, including command
+routing and hooks. Initial frame preparation and final frame closure are not attributed. An
+execution that throws before completing its flush does not contribute a completed run.
+
+Extensions expose breakdown rows through `world.stats.operations()`, under the same switch and
+reset. See [ServerWorld replication timing](../../vecs-server/docs/replication-timing.md).
+Reading either table allocates snapshots; normal measured ticks reuse slots. Reset keeps slots
+and clears totals, including systems temporarily absent from the pipeline.
+
+When implementing a world extension, choose the measured path once per frame with
+`stats.systemsEnabled`, then call `stats.recordOperation(name, elapsedMs)` once per completed
+operation. It aggregates a finite, non-negative duration into a reusable named slot. This method
+does not read a clock or recheck the switch; it lets an already-measured frame complete even if
+a callback disables future timing. Invalid durations throw `RangeError`.
+
 ## Membership: `with` / `without`
 
 `.with(...)` declares which entities the system tracks. It accepts component classes, arrays, and
