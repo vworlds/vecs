@@ -1,0 +1,5 @@
+2026-10-09T19:37:07.3620060Z ##[group]Run npm run typecheck
+2026-10-09T19:37:07.3620060Z ##[error]tests/publish.test.ts(1,30): error TS2307: Cannot find module 'node:child_process'.
+2026-10-09T19:37:07.3631134Z ##[error]tests/publish.test.ts(2,57): error TS2307: Cannot find module 'node:fs/promises'.
+2026-10-09T19:37:07.3634046Z ##[error]tests/publish.test.ts(3,24): error TS2307: Cannot find module 'node:os'.
+2026-10-09T19:37:32.2678271Z ##[error]Process completed with exit code 2.
