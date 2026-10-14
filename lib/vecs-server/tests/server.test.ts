@@ -222,6 +222,164 @@ async function callRpc(
   return reply;
 }
 
+describe("ServerWorld timing", () => {
+  it("adds per-frame operation rows only when enabled, with synchronous send costs", () => {
+    const world = createWorld();
+    allowAllClientViews(world);
+    const listener = new MockListener();
+    world._attach(listener);
+    const { socket } = connectSession(world, listener);
+    const { socket: secondSocket } = connectSession(world, listener, "client-2");
+    const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
+    tick(world);
+    expect(world.stats.operations()).toEqual([]);
+    ackLatestFrame(socket);
+    ackLatestFrame(secondSocket);
+    world.stats.enableSystems();
+    let clockMs = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => clockMs);
+    const send = vi.spyOn(socket, "send").mockImplementation((bytes) => {
+      // The second client must keep this frame's selected measuring primitive.
+      world.stats.disableSystems();
+      clockMs += 5;
+      socket.sent.push(bytes);
+    });
+    const secondSend = vi.spyOn(secondSocket, "send").mockImplementation((bytes) => {
+      clockMs += 3;
+      secondSocket.sent.push(bytes);
+    });
+    try {
+      entity.set(Position, { x: 3 });
+      tick(world);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(secondSend).toHaveBeenCalledTimes(1);
+      expect(world.stats.operations()).toEqual([
+        { name: "replication:encode", runs: 1, totalMs: 0, maxMs: 0 },
+        { name: "replication:send", runs: 1, totalMs: 8, maxMs: 8 },
+      ]);
+      expect(decodeFirstSnapshotPayload(socket.sent[socket.sent.length - 1])).toEqual({
+        x: 3,
+        y: 2,
+      });
+      world.stats.resetSystems();
+      expect(
+        world.stats
+          .operations()
+          .every((row) => row.runs === 0 && row.totalMs === 0 && row.maxMs === 0)
+      ).toBe(true);
+      world.stats.disableSystems();
+      entity.set(Position, { x: 4 });
+      tick(world);
+      expect(world.stats.operations().every((row) => row.runs === 0)).toBe(true);
+    } finally {
+      clock.mockRestore();
+      send.mockRestore();
+      secondSend.mockRestore();
+    }
+  });
+
+  it("records zero-client frames without reading clocks in the disabled path", () => {
+    const world = createWorld();
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    try {
+      tick(world);
+      expect(clock).not.toHaveBeenCalled();
+      world.stats.enableSystems();
+      tick(world);
+      expect(world.stats.operations()).toEqual([
+        { name: "replication:encode", runs: 1, totalMs: 0, maxMs: 0 },
+        { name: "replication:send", runs: 1, totalMs: 0, maxMs: 0 },
+      ]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("preserves wire bytes and close-linger behavior with timing enabled", () => {
+    function scenario(enabled: boolean): number[][] {
+      const world = createWorld({ redundancyFrames: 2, keepAliveFrames: 1 });
+      if (enabled) {
+        world.stats.enableSystems();
+      }
+      allowAllClientViews(world);
+      const listener = new MockListener();
+      world._attach(listener);
+      const { socket } = connectSession(world, listener);
+      const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
+      tick(world);
+      ackLatestFrame(socket);
+      entity.set(Position, { x: 7 });
+      tick(world);
+      ackLatestFrame(socket);
+      tick(world);
+      world.closeSession(socket.id, "done");
+      tick(world);
+      tick(world);
+      ackCloseFrame(socket);
+      tick(world);
+      expect(socket.closeCalls).toBe(1);
+      if (enabled) {
+        expect(world.stats.operations()[0].runs).toBe(6);
+      }
+      return socket.sent.map((bytes) => Array.from(bytes));
+    }
+    expect(scenario(true)).toEqual(scenario(false));
+  });
+
+  it("preserves every client's wire bytes when switching timing on and off between frames", () => {
+    function scenario(measureFirstFrame: boolean): number[][][] {
+      const world = createWorld();
+      allowAllClientViews(world);
+      const listener = new MockListener();
+      world._attach(listener);
+      const sockets = [
+        connectSession(world, listener, "client-1").socket,
+        connectSession(world, listener, "client-2").socket,
+      ];
+      const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
+      tick(world);
+      sockets.forEach(ackLatestFrame);
+      const initialCounts = sockets.map((socket) => socket.sent.length);
+      if (measureFirstFrame) {
+        world.stats.enableSystems();
+      }
+      entity.set(Position, { x: 3 });
+      tick(world);
+      sockets.forEach(ackLatestFrame);
+      world.stats.disableSystems();
+      entity.set(Position, { x: 4 });
+      tick(world);
+      expect(world.stats.operations().map((row) => row.runs)).toEqual(
+        measureFirstFrame ? [1, 1] : []
+      );
+      return sockets.map((socket, index) => {
+        const frames = socket.sent.slice(initialCounts[index]);
+        expect(frames).toHaveLength(2);
+        expect(decodeFirstSnapshotPayload(frames[0])).toEqual({ x: 3, y: 2 });
+        expect(decodeFirstSnapshotPayload(frames[1])).toEqual({ x: 4, y: 2 });
+        return frames.map((bytes) => Array.from(bytes));
+      });
+    }
+    expect(scenario(true)).toEqual(scenario(false));
+  });
+
+  it("tears down a failed transport on the measured path", () => {
+    const world = createWorld();
+    world.stats.enableSystems();
+    allowAllClientViews(world);
+    const listener = new MockListener();
+    world._attach(listener);
+    const { socket } = connectSession(world, listener);
+    vi.spyOn(socket, "send").mockImplementation(() => {
+      throw new Error("gone");
+    });
+    world.entity().add(Networked).set(Position, { x: 1 });
+    tick(world);
+    expect(socket.closeCalls).toBe(1);
+    expect(world.stats.operations().map((row) => row.runs)).toEqual([1, 1]);
+  });
+});
+
 describe("ServerWorld", () => {
   it("rejects the client-only localEntityIdStart option before constructing the world", () => {
     expect(() => new ServerWorld({ localEntityIdStart: 10_000 })).toThrow(

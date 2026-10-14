@@ -173,6 +173,11 @@ RUN_VECS_ECS_BENCH_COUNTS=16384,65536 RUN_VECS_ECS_BENCH_ROUNDS=7 npm run bench:
 The script pins Vitest's default reporter. Vitest 4 switches to a quieter reporter when it detects
 an AI agent, and that reporter hides the results the benchmark prints.
 
+Set `RUN_VECS_ECS_BENCH_FILTER=SystemsUpdate` to select the four system-update cases.
+Add `RUN_VECS_ECS_BENCH_SYSTEM_STATS=1` to measure those cases with opt-in system timing;
+leave it unset for the default plain-loop baseline. Use odd round counts so the XOR checksum
+does not cancel identical results.
+
 ## Known trade-off: bulk create and destroy
 
 `IterableArrayMap` (`lib/vecs/src/util/array_map.ts`) holds every entity's components and the

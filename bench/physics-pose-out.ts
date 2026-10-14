@@ -48,8 +48,9 @@ function run(count: number): void {
   let poseMs = 0;
   poseOut._run = (now, delta) => {
     const start = performance.now();
-    originalRun(now, delta);
+    const ran = originalRun(now, delta);
     poseMs += performance.now() - start;
+    return ran;
   };
   for (let i = 0; i < warmup; i++) {
     world.progress((i + 1) * dt, dt);
