@@ -24,6 +24,9 @@ class ResidesIn extends Relationship {}
 class WornBy extends Relationship {}
 class OwnedBy extends Relationship {}
 
+const CALL_SITE_ERROR =
+  "dispose() must be called outside progress(), defer, a command drain or an entity's destroy";
+
 /** Count the `remove` hook calls `Class` receives, keyed by the id of the entity they fired for. */
 function countRemovals(world: World, Class: ComponentClass): Map<EID, number> {
   const removals = new Map<EID, number>();
@@ -374,12 +377,12 @@ describe("World.dispose", () => {
       expect(removals.size).toBe(1);
     });
 
-    it("ignores a dispose() called from a remove hook", () => {
+    it("rejects a dispose() re-entered from a teardown hook", () => {
       const w = new World();
       let calls = 0;
       w.component(Handle).on("remove", () => {
         calls++;
-        w.dispose();
+        expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
       });
       w.entity().add(Handle);
       w.entity().add(Handle);
@@ -390,19 +393,66 @@ describe("World.dispose", () => {
     });
   });
 
-  describe("pending commands", () => {
-    it("fully disposes when a remove hook initiates disposal inside defer", () => {
+  describe("call sites and hook commands", () => {
+    it.each(["add", "set", "remove"] as const)(
+      "refuses a %s hook during a command drain and keeps the world usable",
+      (event) => {
+        const w = new World();
+        const component = w.component(Handle);
+        const entity = w.entity();
+        if (event !== "add") {
+          entity.add(Handle);
+        }
+        let calls = 0;
+        const refused = (): void => {
+          calls++;
+          expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
+        };
+        component.on(event, refused);
+        w.defer(() => {
+          if (event === "add") {
+            entity.add(Handle);
+          } else if (event === "set") {
+            entity.set(Handle, {});
+          } else {
+            entity.remove(Handle);
+          }
+        });
+        expect(calls).toBe(1);
+        component.off(event, refused);
+        entity.set(Handle, {});
+        expect(entity.get(Handle)).toEqual(new Handle());
+        w.dispose();
+        expect(entity.destroyed).toBe(true);
+        expect(entityIds(w)).toEqual([]);
+      }
+    );
+
+    it("refuses an explicitly open frame", () => {
+      const w = new World();
+      const entity = w.entity();
+      w.beginFrame(0);
+      expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
+      expect(entity.alive).toBe(true);
+      w.endFrame();
+      w.dispose();
+      expect(entity.destroyed).toBe(true);
+      expect(entityIds(w)).toEqual([]);
+    });
+
+    it("rejects disposal from a remove hook in a command drain", () => {
       const w = new World();
       const events: string[] = [];
       w.component(Handle).on("remove", () => {
         events.push("first");
-        w.dispose();
-        w.dispose();
+        expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
       });
       w.component(Marker).on("remove", () => events.push("remaining"));
       const entity = w.entity().add(Handle).add(Marker);
       expect(() => w.defer(() => entity.destroy())).not.toThrow();
       expect(events).toEqual(["first", "remaining"]);
+      expect(w.entity().alive).toBe(true);
+      w.dispose();
       expect(entityIds(w)).toEqual([]);
     });
 
@@ -416,7 +466,7 @@ describe("World.dispose", () => {
       target.on("remove", () => events.push("target"));
       w.component(Handle).on("remove", () => {
         w.defer(() => target.remove(Marker));
-        w.dispose();
+        expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
         events.push("module");
       });
       const feature = w.module(Feature).add(Handle);
@@ -426,33 +476,34 @@ describe("World.dispose", () => {
       expect(entityIds(w)).toEqual([]);
     });
 
-    it("finishes after an otherwise empty deferred scope", () => {
+    it("refuses an otherwise empty deferred scope without starting disposal", () => {
       const w = new World();
       const component = w.component(Handle);
       w.defer(() => {
-        w.dispose();
+        expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
         expect(component.alive).toBe(true);
       });
+      expect(w.entity().alive).toBe(true);
+      w.dispose();
       expect(entityIds(w)).toEqual([]);
     });
 
     it.each([false, true])(
-      "keeps infrastructure until the tick ends (later throw: %s)",
+      "refuses systems without changing infrastructure (later throw: %s)",
       (throws) => {
         const w = new World();
         const events: string[] = [];
         const component = w.component(Handle).on("remove", () => events.push("resource"));
         w.set(Handle, {});
         const quit = w.system("Quit").run(() => {
-          w.dispose();
-          w.dispose();
+          expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
           expect(component.alive).toBe(true);
         });
         const later = w.system("Later").run(() => {
           expect(component.alive).toBe(true);
           expect(quit.entity.alive).toBe(true);
           events.push("later");
-          w.dispose();
+          expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
           if (throws) {
             throw new Error("later failure");
           }
@@ -462,13 +513,16 @@ describe("World.dispose", () => {
         } else {
           w.progress(0, 0);
         }
+        expect(events).toEqual(["later"]);
+        expect(w.entity().alive).toBe(true);
+        w.dispose();
         expect(events).toEqual(["later", "resource"]);
         expect(later.entity.destroyed).toBe(true);
         expect(entityIds(w)).toEqual([]);
       }
     );
 
-    it("finishes after an enclosing defer drains hook-generated commands", () => {
+    it("settles application hook-generated commands before synchronous infrastructure teardown", () => {
       const w = new World();
       const events: string[] = [];
       const component = w.component(Handle);
@@ -479,36 +533,35 @@ describe("World.dispose", () => {
       component.on("remove", () => events.push("handle"));
       w.set(Handle, {});
       w.entity().add(Marker);
-      w.defer(() => {
-        w.dispose();
-        w.dispose();
-        expect(component.alive).toBe(true);
-      });
+      w.dispose();
       expect(events[0]).toBe("application");
       expect(events.filter((e) => e === "handle")).toHaveLength(2);
       expect(entityIds(w)).toEqual([]);
     });
 
-    it("finishes disposal after a synchronous destroy already on the stack", () => {
+    it("refuses disposal during a synchronous destroy without starting it", () => {
       const w = new World();
       const events: string[] = [];
       const first = w.component(Handle).on("remove", () => {
         events.push("first");
-        w.dispose();
-        w.dispose();
+        expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
         expect(remaining.alive).toBe(true);
       });
       const remaining = w.component(Marker).on("remove", () => events.push("remaining"));
       const entity = w.entity().add(Handle).add(Marker);
       expect(() => entity.destroy()).not.toThrow();
       expect(events).toEqual(["first", "remaining"]);
+      expect(first.alive).toBe(true);
+      expect(remaining.alive).toBe(true);
+      expect(w.entity().alive).toBe(true);
+      w.dispose();
       expect(first.destroyed).toBe(true);
       expect(remaining.destroyed).toBe(true);
       expect(entityIds(w)).toEqual([]);
     });
 
     it.each(["ChildOf", "OwnedTarget"])(
-      "waits for all nested %s cascade hooks before infrastructure teardown",
+      "refuses nested %s cascade hooks, then tears down infrastructure at top level",
       (relationship) => {
         const w = new World();
         const removals = new Map<EID, number>();
@@ -520,8 +573,7 @@ describe("World.dispose", () => {
           events.push(`application:${entity.eid}`);
           expect(resource.alive).toBe(true);
           if (entity === leaf) {
-            w.dispose();
-            w.dispose();
+            expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
           }
         });
         const root = w.entity().add(Handle);
@@ -537,13 +589,16 @@ describe("World.dispose", () => {
         }
         expect(() => root.destroy()).not.toThrow();
         expect(removals).toEqual(new Map([root, middle, leaf].map((entity) => [entity.eid, 1])));
+        expect(events).toHaveLength(3);
+        expect(w.entity().alive).toBe(true);
+        w.dispose();
         expect(events).toHaveLength(4);
         expect(events.at(-1)).toBe("resource");
         expect(entityIds(w)).toEqual([]);
       }
     );
 
-    it("postpones infrastructure until cleanup ops appended after the disposal request finish", () => {
+    it("refuses disposal throughout cleanup ops without disrupting later cascades", () => {
       const w = new World();
       const events: string[] = [];
       w.component(Owns).add(Exclusive).add(OwnedTarget);
@@ -557,9 +612,12 @@ describe("World.dispose", () => {
       w.component(Handle).on("remove", (entity) => {
         events.push(entity === target ? "target" : "child");
         expect(resource.alive).toBe(true);
-        w.dispose();
+        expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
       });
       expect(() => root.destroy()).not.toThrow();
+      expect(events).toEqual(["target", "child"]);
+      expect(w.entity().alive).toBe(true);
+      w.dispose();
       expect(events).toEqual(["target", "child", "resource"]);
       expect(entityIds(w)).toEqual([]);
     });
@@ -590,7 +648,7 @@ describe("World.dispose", () => {
       expect(entityIds(w)).toEqual([]);
     });
 
-    it("runs the queued commands first, then the teardown, firing each hook once", () => {
+    it("refuses defer without disturbing queued commands, then tears down at top level", () => {
       const w = new World();
       const removals = countRemovals(w, Handle);
       const existing = w.entity().add(Handle);
@@ -600,12 +658,16 @@ describe("World.dispose", () => {
         existing.remove(Handle);
         created = w.entity().add(Handle);
 
-        w.dispose();
+        expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
 
         // Nothing changes until the scope closes.
         expect(existing.destroyed).toBe(false);
         expect(created.destroyed).toBe(false);
       });
+
+      expect(existing.destroyed).toBe(false);
+      expect(created.get(Handle)).toEqual(new Handle());
+      w.dispose();
 
       expect(existing.destroyed).toBe(true);
       expect(created.destroyed).toBe(true);
@@ -617,24 +679,33 @@ describe("World.dispose", () => {
       );
     });
 
-    it("completes when a system calls it, once the system's commands flush", () => {
+    it("leaves entities usable after refusing a system call", () => {
       const w = new World();
+      w.component(Marker);
       const removals = countRemovals(w, Handle);
       const entity = w.entity().add(Handle);
-      w.system("Quit").run(() => w.dispose());
+      w.system("Quit").run(() => expect(() => w.dispose()).toThrow(CALL_SITE_ERROR));
 
       w.progress(0, 0);
+
+      expect(entity.alive).toBe(true);
+      entity.add(Marker);
+      expect(entity.has(Marker)).toBe(true);
+      w.dispose();
 
       expect(entity.destroyed).toBe(true);
       expect(removals).toEqual(new Map([[entity.eid, 1]]));
     });
 
-    it("orders component keys after their carriers inside a deferred scope too", () => {
+    it("preserves component keys and carriers after refusing a deferred call", () => {
       const w = new World();
       const key = w.entity();
       const carrier = w.entity().add(key);
 
-      expect(() => w.defer(() => w.dispose())).not.toThrow();
+      expect(() => w.defer(() => w.dispose())).toThrow(CALL_SITE_ERROR);
+      expect(key.alive).toBe(true);
+      expect(carrier.has(key)).toBe(true);
+      w.dispose();
 
       expect(key.destroyed).toBe(true);
       expect(carrier.destroyed).toBe(true);
