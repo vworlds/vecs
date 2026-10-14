@@ -12,6 +12,7 @@ import type { Entity } from "./entity.js";
 const enum DeletionOpKind {
   Destroy,
   Remove,
+  FinishDisposal,
 }
 
 /**
@@ -29,7 +30,14 @@ const enum DeletionOpKind {
  * number at compile time.
  */
 type DeletionOp =
-  [DeletionOpKind.Destroy, Entity] | [DeletionOpKind.Remove, Entity, ComponentMeta, Entity];
+  | [DeletionOpKind.Destroy, Entity]
+  | [DeletionOpKind.Remove, Entity, ComponentMeta, Entity]
+  | [DeletionOpKind.FinishDisposal, () => void];
+
+/** @internal Disposal-only continuation after every operation in the current cascade settles. */
+export function finishDisposalAfterCascade(scope: unknown[], finish: () => void): void {
+  scope.push([DeletionOpKind.FinishDisposal, finish] satisfies DeletionOp);
+}
 
 export class Lifecycle extends Components {
   /**
@@ -197,7 +205,8 @@ export class Lifecycle extends Components {
    * Called by the outermost `Entity._destroy` after its own teardown. Each pass
    * detaches the current scope so recursive destroys triggered by the ops
    * buffer into a fresh scope, which the `while` loop drains in the next
-   * iteration. Exits when a full pass appended nothing new.
+   * iteration. After a full pass appends nothing new, run any disposal continuation last,
+   * so infrastructure outlives every ordinary cascade operation and its hooks.
    */
   private _flushDeletionScope(): void {
     while (this.world._deletionScope && this.world._deletionScope.length > 0) {
@@ -206,8 +215,20 @@ export class Lifecycle extends Components {
       for (const op of ops) {
         if (op[0] === DeletionOpKind.Destroy) {
           op[1]._destroy();
-        } else {
+        } else if (op[0] === DeletionOpKind.Remove) {
           op[1]._removeTarget(op[2], op[3]);
+        } else {
+          // A disposal requested in a hook must wait for later cleanup ops too, not just for
+          // its position in this batch. The array iterator reads live length, so move the marker
+          // behind the remaining ops. All extra boundary checks run only for this disposal op.
+          const pending = this.world._deletionScope as DeletionOp[] | undefined;
+          if (op !== ops[ops.length - 1]) {
+            ops.push(op);
+          } else if (pending?.length) {
+            finishDisposalAfterCascade(pending, op[1]);
+          } else {
+            op[1]();
+          }
         }
       }
     }

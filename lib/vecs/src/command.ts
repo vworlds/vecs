@@ -15,6 +15,8 @@ export const enum CommandKind {
   Attach,
   AddTarget,
   RemoveTarget,
+  /** Disposal-only marker ensuring an empty deferred first pass reaches a drain boundary. */
+  DisposalBarrier,
 }
 
 /**
@@ -65,4 +67,5 @@ type CommandBody =
   | { kind: CommandKind.Remove; entity: Entity; meta: ComponentMeta }
   | { kind: CommandKind.AddTarget; entity: Entity; meta: ComponentMeta; target: Entity }
   | { kind: CommandKind.RemoveTarget; entity: Entity; meta: ComponentMeta; target: Entity }
-  | { kind: CommandKind.Destroy; entity: Entity };
+  | { kind: CommandKind.Destroy; entity: Entity }
+  | { kind: CommandKind.DisposalBarrier };
