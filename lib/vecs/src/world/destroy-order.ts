@@ -30,7 +30,7 @@ export function carriersFirst(entities: Entity[], childOfEid?: EID): Entity[] {
         pending.has(dependent) || outside.has(dependent);
       if (
         !isCarried(key, blocks) &&
-        (childOfEid === undefined || ![...(key._childrenByEid(childOfEid) ?? [])].some(blocks))
+        (childOfEid === undefined || !hasBlockingChild(key, childOfEid, blocks))
       ) {
         ordered.push(key);
         pending.delete(key);
@@ -45,6 +45,24 @@ export function carriersFirst(entities: Entity[], childOfEid?: EID): Entity[] {
 export function isCarried(key: Entity, blocks: (carrier: Entity) => boolean = () => true): boolean {
   for (const carrier of key.meta._carriers ?? []) {
     if (carrier !== key && blocks(carrier)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Test the child set directly without allocating a per-key snapshot. */
+function hasBlockingChild(
+  parent: Entity,
+  childOfEid: EID,
+  blocks: (child: Entity) => boolean
+): boolean {
+  const children = parent._childrenByEid(childOfEid);
+  if (children === undefined) {
+    return false;
+  }
+  for (const child of children) {
+    if (blocks(child)) {
       return true;
     }
   }

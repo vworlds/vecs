@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   type ComponentClass,
   type EID,
@@ -46,6 +46,31 @@ function entityIds(world: World): EID[] {
 }
 
 describe("World.dispose", () => {
+  it("does not read teardown state for mutations without cleanup policies", () => {
+    class PlainRelationship extends Relationship {}
+    const world = new World();
+    world.component(Handle);
+    world.component(PlainRelationship);
+    const descriptor = Object.getOwnPropertyDescriptor(world, "_tearingDownInfrastructure")!;
+    const read = vi.fn(() => false);
+    Object.defineProperty(world, "_tearingDownInfrastructure", { configurable: true, get: read });
+    try {
+      const source = world.entity().add(Handle);
+      const target = world.entity();
+      source.remove(Handle);
+      source.add(PlainRelationship, target);
+      source.remove(PlainRelationship, target);
+      target.meta.onDelete = CleanupPolicy.Remove;
+      source.add(target);
+      target.destroy(); // Remove, not Delete: strips the carrier without consulting teardown state
+      world.component(Handle).destroy(); // unused Throw-policy key
+      source.destroy();
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(world, "_tearingDownInfrastructure", descriptor);
+    }
+  });
+
   describe("application entities", () => {
     it("fires a remove hook on a local component exactly once", () => {
       const w = new World();
@@ -171,6 +196,34 @@ describe("World.dispose", () => {
   });
 
   describe("infrastructure", () => {
+    it("reports an internal invariant instead of spinning on a registered destroyed entity", () => {
+      const world = new World();
+      const broken = world.component(Handle);
+      const corrupt = vi.spyOn(broken, "destroyed", "get").mockReturnValue(true);
+      try {
+        expect(() => world.dispose()).toThrow(
+          `Internal invariant: infrastructure teardown made no progress; registered entities: ${broken.eid} (Handle, destroyed=true)`
+        );
+        expect(world._tearingDownInfrastructure).toBe(false);
+      } finally {
+        corrupt.mockRestore();
+      }
+    });
+
+    it("reports no progress if a broken destroy returns without destroying its entity", () => {
+      const world = new World();
+      const broken = world.component(Handle);
+      const noOp = vi.spyOn(broken, "_destroy").mockImplementation(() => {});
+      try {
+        expect(() => world.dispose()).toThrow(
+          `Internal invariant: infrastructure teardown made no progress; registered entities: ${broken.eid} (Handle, destroyed=false)`
+        );
+        expect(world._tearingDownInfrastructure).toBe(false);
+      } finally {
+        noOp.mockRestore();
+      }
+    });
+
     it("destroys module parents without cascading into still-carried children", () => {
       class Resource {}
       class Carrier {}

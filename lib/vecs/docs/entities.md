@@ -234,7 +234,9 @@ is reset in `finally`. Successful disposal leaves nothing, including component-c
 - **Order.** Among unrelated entities the order is unspecified, so do not make a hook depend on it.
   Pass 2 processes systems and queries first, then modules in reverse registration order, then the
   rest. Beyond those priorities the order is unspecified; it is not a resource dependency contract.
-  There is no infrastructure carriers-first sort or survivor error. `clearAllEntities()` retains its
+  There is no infrastructure carriers-first sort or dependency-survivor error. If an internal bug
+  prevents a full teardown pass from destroying anything, an invariant error names the remaining
+  registered entities instead of looping forever. `clearAllEntities()` retains its
   ordinary cleanup policies and throwing behavior; it orders both carriers before component keys
   and children before parents, and throws if those dependencies cannot be ordered. The suspension
   belongs only to `dispose()`.

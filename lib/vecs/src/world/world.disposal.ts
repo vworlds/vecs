@@ -57,8 +57,9 @@ export class Disposal extends Transfers {
    * the call and leaves the world partial, as it does from any destroy: treat it as a programming
    * error.
    *
-   * @throws An `Error` for a forbidden call site before any disposal mutation, or
-   * an error propagated by a teardown hook (which leaves the world partial).
+   * @throws An `Error` for a forbidden call site before any disposal mutation,
+   * an internal-invariant error if infrastructure teardown makes no progress,
+   * or an error propagated by a teardown hook. The latter errors leave the world partial.
    */
   public dispose(this: World): void {
     this._assertDisposalAllowed();
@@ -92,13 +93,28 @@ export class Disposal extends Transfers {
           ...modules,
           ...entities.filter((entity) => !priority.has(entity)),
         ];
+        let destroyed = 0;
         for (const entity of ordered) {
           if (!entity.destroyed) {
             entity._destroy();
+            if (entity.destroyed) {
+              destroyed++;
+            }
             this.flush();
           }
         }
         this.flush();
+        if (destroyed === 0 && this._entities.size > 0) {
+          throw new Error(
+            `Internal invariant: infrastructure teardown made no progress; registered entities: ${this._entities
+              .values()
+              .map(
+                (entity) =>
+                  `${entity.eid} (${entity.meta.Class.name}, destroyed=${entity.destroyed})`
+              )
+              .join(", ")}`
+          );
+        }
       }
     } finally {
       this._tearingDownInfrastructure = false;
