@@ -497,7 +497,7 @@ export class ClientWorld extends NetworkWorld {
    * remaining systems still run. Outside a tick, an enclosing deferred queue
    * drains before infrastructure teardown. Release resources in `remove` hooks,
    * not system `exit` callbacks. `World.dispose()` documents ordering and the
-   * synchronous-hook exception, including calls from a
+   * synchronous destroy-cascade boundary, including calls from a
    * `disconnect` handler that {@link ClientWorld.apply} triggers by closing the
    * client for a protocol error.
    *

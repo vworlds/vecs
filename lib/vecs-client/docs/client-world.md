@@ -347,7 +347,7 @@ and no module-level sweep is needed. Replicated entities go first, then the clie
 within each group the order is unspecified. The client's own infrastructure and module singleton
 data are destroyed last. Use `remove` hooks for their resources too; a system's queued `exit`
 callback need not run before teardown. See the core disposal guide for carrier ordering and the
-synchronous-hook exception.
+synchronous destroy-cascade boundary.
 
 `dispose()` can run while the world is deferred, for example in a `disconnect` handler that
 `apply()` triggers when it closes the client for a protocol error. The destruction is then queued

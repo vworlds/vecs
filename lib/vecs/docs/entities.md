@@ -226,8 +226,9 @@ you do not need a separate disposal callback.
 - **Order.** Among unrelated entities the order is unspecified, so do not make a hook depend on it.
   Systems and queries go before the components they read; modules prefer reverse registration
   order. Every [component key](#entities-as-component-keys) goes after its carriers, taking
-  precedence over module order when the two conflict. Cyclic or otherwise still-carried keys
-  survive rather than throwing from teardown. `clearAllEntities()` retains its throwing behavior.
+  precedence over module order when the two conflict. If teardown stalls with registered entities,
+  it throws an `Error` listing every survivor's eid, name or component class, and its carriers.
+  Cycles are reported, not broken. `clearAllEntities()` retains its own throwing behavior.
 - **Pending commands.** `dispose()` neither flushes the command queue early nor discards it. Commands
   queued ahead of it run first, in order, and the destruction follows in the same queue, so each
   hook fires once however the component left. At top level nothing is queued, and `dispose()`
@@ -237,13 +238,12 @@ you do not need a separate disposal callback.
   teardown finishes after the enclosing queue drains, including commands appended by application
   hooks. An entity whose creation is still queued is created, then destroyed. The final pass
   drains its own hook-generated commands and repeats while it can destroy more entities.
-- **Synchronous-hook limit.** Outside both a tick and `defer`, calling `dispose()` from a hook
-  while its entity is already being destroyed leaves component keys that entity still carries
-  alive (and any keys they carry). Its remaining ordinary `remove` hooks then finish once without
-  throwing. The component whose hook is running has already detached that carrier and can be
-  destroyed if no other carrier needs it. An ordinary remove hook has also detached its key;
-  the application pass can destroy the remainder of its entity before the final pass. For complete
-  teardown, dispose outside a hook or wrap the triggering mutation in `defer`.
+- **Synchronous hooks.** Calling `dispose()` from a destroy hook postpones infrastructure teardown
+  until the existing deletion scope settles the component walk, remaining hooks and cascade cleanup.
+  Outside a tick or deferred scope, teardown finishes before the outermost destroy returns. In a
+  tick or enclosing `defer`, its usual boundary still applies. An ordinary plain-component remove
+  hook has already detached its key; the application pass destroys the remainder of its entity
+  before infrastructure teardown without a new mutation-boundary check.
 - **After disposal.** A disposed world must not be used again. Nothing enforces it — no other method
   mutation checks are added. Calling `dispose()` again, or from a hook during teardown, does
   nothing. Do not keep spawning from teardown hooks: that prevents the repeated final pass from

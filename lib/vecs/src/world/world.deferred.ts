@@ -1,6 +1,5 @@
 import { CommandKind, type Command } from "../command.js";
 import { Queries } from "./world.queries.js";
-import type { World } from "./world.js";
 
 export class Deferred extends Queries {
   /** @internal Single ordered command queue used in deferred mode. */
@@ -118,9 +117,11 @@ export class Deferred extends Queries {
       this._routingSource = undefined;
       this._draining = false;
     }
-    // Only the World disposal layer sets this flag; keep the lower layer structurally independent.
     if (this._disposePending && !this._frameInProgress) {
-      (this as unknown as World)._finishDisposal();
+      this._finishDisposal();
     }
   }
+
+  /** @internal Completion boundary supplied by the world's disposal layer. */
+  protected _finishDisposal(): void {}
 }
