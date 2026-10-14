@@ -63,6 +63,12 @@ reset. See [ServerWorld replication timing](../../vecs-server/docs/replication-t
 Reading either table allocates snapshots; normal measured ticks reuse slots. Reset keeps slots
 and clears totals, including systems temporarily absent from the pipeline.
 
+When implementing a world extension, choose the measured path once per frame with
+`stats.systemsEnabled`, then call `stats.recordOperation(name, elapsedMs)` once per completed
+operation. It aggregates a finite, non-negative duration into a reusable named slot. This method
+does not read a clock or recheck the switch; it lets an already-measured frame complete even if
+a callback disables future timing. Invalid durations throw `RangeError`.
+
 ## Membership: `with` / `without`
 
 `.with(...)` declares which entities the system tracks. It accepts component classes, arrays, and

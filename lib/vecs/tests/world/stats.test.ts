@@ -4,6 +4,22 @@ import { ON_LOAD, System, World } from "../../src/index.js";
 afterEach(() => vi.restoreAllMocks());
 
 describe("World system timing", () => {
+  it("supports extension recording without rechecking a frame's chosen switch", () => {
+    const world = new World();
+    world.stats.recordOperation("extension", 2);
+    world.stats.recordOperation("extension", 5);
+    expect(world.stats.operations()).toEqual([
+      { name: "extension", runs: 2, totalMs: 7, maxMs: 5 },
+    ]);
+    for (const duration of [-1, NaN, Infinity]) {
+      expect(() => world.stats.recordOperation("extension", duration)).toThrow(RangeError);
+    }
+    expect(world.stats.operations()[0].runs).toBe(2);
+    world.stats.resetSystems();
+    expect(world.stats.operations()).toEqual([
+      { name: "extension", runs: 0, totalMs: 0, maxMs: 0 },
+    ]);
+  });
   it("resets temporarily excluded systems and follows current pipeline membership", () => {
     class Hidden {}
     const world = new World();

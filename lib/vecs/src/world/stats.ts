@@ -52,6 +52,21 @@ export class WorldStats {
     return Array.from(this._operations.values(), (slot) => ({ ...slot }));
   }
 
+  /**
+   * Record one completed extension operation, reusing its first-seen named slot.
+   * World extensions select their instrumented path with `systemsEnabled` once
+   * per frame, then call this method with a finite, non-negative duration in ms.
+   * This method neither reads a clock nor checks the switch again, so an in-flight
+   * measured frame can finish even if a callback changes the switch.
+   * Throws `RangeError` for a negative or non-finite duration.
+   */
+  public recordOperation(name: string, elapsedMs: number): void {
+    if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
+      throw new RangeError("operation duration must be finite and non-negative");
+    }
+    this._record(this._operationSlot(name), elapsedMs);
+  }
+
   /** Clear all system and operation totals without changing the enabled state. */
   public resetSystems(): void {
     this._generation++;
@@ -82,16 +97,6 @@ export class WorldStats {
     return slot;
   }
 
-  /** @internal Allocate extension slots only on their first measured appearance. */
-  public _operationSlot(name: string): OperationTiming {
-    let slot = this._operations.get(name);
-    if (!slot) {
-      slot = { name, runs: 0, totalMs: 0, maxMs: 0 };
-      this._operations.set(name, slot);
-    }
-    return slot;
-  }
-
   /** @internal Aggregate a completed execution without allocating. */
   public _record(slot: Timing, elapsedMs: number): void {
     slot.runs++;
@@ -103,5 +108,14 @@ export class WorldStats {
     slot.runs = 0;
     slot.totalMs = 0;
     slot.maxMs = 0;
+  }
+
+  private _operationSlot(name: string): OperationTiming {
+    let slot = this._operations.get(name);
+    if (!slot) {
+      slot = { name, runs: 0, totalMs: 0, maxMs: 0 };
+      this._operations.set(name, slot);
+    }
+    return slot;
   }
 }

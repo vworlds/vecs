@@ -882,16 +882,17 @@ export class ServerWorld extends NetworkWorld {
   // Keep the plain replication path free of per-connection timing checks.
   // Preparation/encoding is the frame's synchronous work minus socket sends.
   private _sendInstrumented(): void {
-    const encode = this.stats._operationSlot("replication:encode");
-    const send = this.stats._operationSlot("replication:send");
     this._replicationSendMs = 0;
     const start = performance.now();
     try {
       this._prepareAndSendInstrumented();
     } finally {
       const elapsed = performance.now() - start;
-      this.stats._record(encode, Math.max(0, elapsed - this._replicationSendMs));
-      this.stats._record(send, this._replicationSendMs);
+      this.stats.recordOperation(
+        "replication:encode",
+        Math.max(0, elapsed - this._replicationSendMs)
+      );
+      this.stats.recordOperation("replication:send", this._replicationSendMs);
     }
   }
 

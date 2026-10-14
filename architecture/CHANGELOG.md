@@ -5,7 +5,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
-- [vecs] [vecs-server]: Add off-by-default `world.stats` system timing and run counts (#301, #310), with pipeline-ordered snapshots and explicit reset. Admitted runs include the subsequent flush; skipped entries contribute no time. ServerWorld adds per-frame replication preparation/encoding and synchronous socket-send breakdowns through `stats.operations()`, without per-system or per-connection timing checks on the disabled paths.
+- [vecs] [vecs-server]: Add off-by-default `world.stats` system timing and run counts (#301, #310), with pipeline-ordered snapshots and explicit reset. Admitted runs include the subsequent flush; skipped entries contribute no time. ServerWorld adds per-frame replication preparation/encoding and synchronous socket-send breakdowns through `stats.operations()`, without per-system or per-connection timing checks on the disabled paths. World extensions record named durations through `stats.recordOperation()`.
 
 - [vecs-physics] Fixed: `ContactEvents`, `SensorEvents`, and `HitEvents` opt-ins survive subtree moves and restores (#298, #309), including explicit component selection. Custom snapshots preserve presence only and restore fresh empty buffers, so reporting is re-armed without carrying source-world event references.
 - [vecs] [vecs-physics] [vecs-phaser] [vecs-phaser-server]: Export one type-only `Vec2` from `@vworlds/vecs` and reuse it for physics geometry, gravity, Phaser tile points, and validation; physics and geometry-bearing Phaser packages re-export it for convenient imports. No runtime or wire-format changes.
