@@ -450,6 +450,7 @@ export class ServerWorld extends NetworkWorld {
   private _shutdown: Promise<void> | undefined;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
   private _frame = 1;
+  private _replicationSendMs = 0;
 
   public constructor(options: ServerWorldOptions = {}) {
     if (options.localEntityIdStart !== undefined) {
@@ -758,9 +759,19 @@ export class ServerWorld extends NetworkWorld {
    *
    * Registered as the world's own `Send` system in a phase after `ON_STORE`, so
    * it normally runs as part of `progress()`; call it directly only to drive a
-   * world that has no tick loop.
+   * world that has no tick loop. With `stats.enableSystems()`, operation rows
+   * break down synchronous replication preparation/encoding and socket sends
+   * per frame. They overlap the Send system row; async delivery is not timed.
    */
   public send(): void {
+    if (this.stats.systemsEnabled) {
+      this._sendInstrumented();
+    } else {
+      this._sendPlain();
+    }
+  }
+
+  private _sendPlain(): void {
     const toFrame = this._frame++;
     if (this._sessions.size === 0) {
       this._updates.clear();
@@ -866,6 +877,164 @@ export class ServerWorld extends NetworkWorld {
     });
 
     this._updates.clear();
+  }
+
+  // Keep the plain replication path free of per-connection timing checks.
+  // Preparation/encoding is the frame's synchronous work minus socket sends.
+  private _sendInstrumented(): void {
+    const encode = this.stats._operationSlot("replication:encode");
+    const send = this.stats._operationSlot("replication:send");
+    this._replicationSendMs = 0;
+    const start = performance.now();
+    try {
+      this._prepareAndSendInstrumented();
+    } finally {
+      const elapsed = performance.now() - start;
+      this.stats._record(encode, Math.max(0, elapsed - this._replicationSendMs));
+      this.stats._record(send, this._replicationSendMs);
+    }
+  }
+
+  private _prepareAndSendInstrumented(): void {
+    const toFrame = this._frame++;
+    if (this._sessions.size === 0) {
+      this._updates.clear();
+      return;
+    }
+    const nowMs = performance.now();
+    const staleSessions: ServerClientSession[] = [];
+    this._clients.forEach([View, ServerClientSession], (e, [view, session]) => {
+      if (session.closing) {
+        this._lingerOrCloseInstrumented(session, nowMs);
+        return;
+      }
+      view._reconcileVisibility();
+      view._releaseOldTracker(this._trackerCache);
+      const sendsBaseline = this._startsBaseline(session, nowMs);
+      if (sendsBaseline) {
+        view._resyncAll();
+      }
+      const latest = new StateDiff({ fromFrame: toFrame - 1, toFrame });
+      const { snapshots, removed } = latest;
+      view._exitedView.forEach((entity) => {
+        (latest.resets ??= []).push([entity.eid, toFrame]);
+      });
+      view._enteredView.forEach((entity) => {
+        this._pushEntitySnapshots(entity, snapshots);
+      });
+      this._updates.forEach((u) => {
+        if (view._enteredView.has(u.entity) || !view.canSee(u.entity)) {
+          return;
+        }
+        if (u.component) {
+          snapshots.push(this._encodeSnapshot(u.entity, u.wireType, u.component));
+        } else if (u.wireType === ALL_COMPONENTS) {
+          (latest.resets ??= []).push([u.entity.eid, toFrame]);
+        } else {
+          removed.push([u.entity.eid, u.wireType]);
+        }
+      });
+      view._enteredView.clear();
+      view._exitedView.clear();
+      session.history.push(latest);
+      if (nowMs - session.lastSeenMs > this._disconnectGraceMs) {
+        staleSessions.push(session);
+        return;
+      }
+      const rpc = session.rpc.getOutgoing();
+      const diff = this._stateFor(session, latest, sendsBaseline, nowMs);
+      const content = worthAFrame(diff);
+      const keepAlive = !content && this._keepAliveDue(session, diff, toFrame);
+      if (!content && !keepAlive && rpc.length === 0) {
+        return;
+      }
+      if (diff !== undefined) {
+        session.rtt.recordSend(toFrame, nowMs);
+        if (content) {
+          this._noteContentSent(session, nowMs);
+        }
+        if (this._keepAliveFrames !== undefined) {
+          this._noteDiffSent(session, toFrame, keepAlive);
+        }
+      }
+      this._sendFrameInstrumented(
+        session,
+        new Server2Client({
+          diff,
+          rpc,
+          rpcSettledBelow: session.rpc.settledBelow,
+          optimistic: diff !== undefined && diff.fromFrame > session.ackFrame,
+        })
+      );
+    });
+    staleSessions.forEach((session) => {
+      session.entity.getMut(NetworkClient, (client) => {
+        client.closeReason = "disconnect grace period elapsed";
+      });
+      session.entity.destroy();
+    });
+    this._updates.clear();
+  }
+
+  private _sendFrameInstrumented(session: ServerClientSession, message: Server2Client): void {
+    if (session.closed || session.sendFailed) {
+      return;
+    }
+    const fail = (): void => {
+      if (session.sendFailed) {
+        return;
+      }
+      session.sendFailed = true;
+      this._onDisconnect(session.context.connectionId);
+    };
+    try {
+      const bytes = this._encode(message);
+      const start = performance.now();
+      let result: unknown;
+      try {
+        result = session.socket.send(bytes);
+      } finally {
+        this._replicationSendMs += performance.now() - start;
+      }
+      if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
+        (result as PromiseLike<unknown>).then(undefined, fail);
+      }
+    } catch {
+      fail();
+    }
+  }
+
+  private _lingerOrCloseInstrumented(session: ServerClientSession, nowMs: number): void {
+    const flushed = session.closeFlushedFrame;
+    if (flushed !== undefined) {
+      if (session.ackFrame >= session.closeAckFrame || nowMs >= session.closeDeadlineMs) {
+        session.entity.destroy();
+        return;
+      }
+      const late = session.rpc.getOutgoing();
+      if (late.length > 0) {
+        flushed.rpc.push(...late);
+      }
+      this._sendFrameInstrumented(session, flushed);
+      return;
+    }
+    const rpc = session.rpc.getOutgoing();
+    if (rpc.length === 0 && session.closeNotice === undefined) {
+      session.entity.destroy();
+      return;
+    }
+    const toFrame = session.history.lastFrame + 1;
+    session.history.push(new StateDiff({ fromFrame: toFrame - 1, toFrame }));
+    const frame = new Server2Client({
+      diff: new StateDiff({ fromFrame: Math.max(session.ackFrame, 1), toFrame }),
+      rpc,
+      rpcSettledBelow: session.rpc.settledBelow,
+      close: session.closeNotice,
+    });
+    session.closeFlushedFrame = frame;
+    session.closeAckFrame = toFrame;
+    session.closeDeadlineMs = nowMs + this._closeLingerMs;
+    this._sendFrameInstrumented(session, frame);
   }
 
   /**
