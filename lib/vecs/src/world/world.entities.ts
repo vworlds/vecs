@@ -142,10 +142,15 @@ export class Entities extends Deferred {
   }
 
   /**
-   * Parent every entity created synchronously by `fn` to `parent` through ChildOf.
+   * Parent entities created synchronously in `fn`'s body to `parent` through ChildOf.
    * Includes components, modules, queries, systems and ordinary entities. Existing
    * lookups are not reparented; an explicit childOf call replaces the scope parent.
    * Nested scopes restore their caller in finally, even when fn throws.
+   * Entities created by deferred callbacks inside the body are not parented:
+   * query.forEach, enter backfill during query build, or an explicit world.defer.
+   * These are run-time data; the same callback outside the scope would not parent
+   * them either. For example, health bars created per existing ship by an enter
+   * or forEach callback remain roots, unlike definitions created directly in init.
    * Throws while deferred: call outside progress() and defer, not during a command
    * drain. Schedule lazy module loading after progress() returns.
    * The parent must be a live entity of this world. This is a synchronous scope,

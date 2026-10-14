@@ -90,14 +90,21 @@ Guidelines:
 
 ## Scopes and module provenance
 
-`world.scope(parent, fn)` assigns `ChildOf parent` to **every entity created** while the synchronous
-callback runs: plain entities, components, modules, query/system backing entities, and phases.
+`world.scope(parent, fn)` assigns `ChildOf parent` to entities created **synchronously in its body**:
+plain entities, components, modules, query/system backing entities, and phases.
 Nested scopes restore the caller's parent in `finally`, even when the callback throws. Enter scopes
 outside deferred mode: `world.scope()` throws inside `progress()`, a `defer` block, or a command
 drain, without running the callback. Scoped creations use `.childOf(parent)` before their creation
 notification. Existing name/id/class lookups do not reparent anything. An explicit
 `.childOf(other)` afterwards replaces the scope parent, just as any other exclusive `ChildOf` edge.
 The parent must be live and belong to the same world. Async continuations are outside the scope.
+
+Entities created by callbacks that vecs runs deferred inside the body are **not parented**. This
+includes `query.forEach(cb)`, a query's `enter` backfill when built, and an explicit `world.defer`
+inside a module's `init`. Callback-created entities are run-time data: the same callback outside the
+scope would not parent them either. For example, a module's `enter` or `forEach` callback may create
+one health-bar entity per existing ship. Those health bars remain roots; an entity created directly
+in `init` is a child of the module.
 
 ```ts
 import { Entity, Module, World } from "@vworlds/vecs";

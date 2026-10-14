@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ChildOf, Entity, Identity, Module, OneOf, Relationship, World } from "../src/index.js";
 
 describe("World.scope", () => {
-  it("parents every kind of entity created during a module's init", () => {
+  it("parents every kind of entity created directly during a module's init", () => {
     class Position {}
     class Feature extends Module {
       public created: Entity[] = [];
@@ -25,6 +25,39 @@ describe("World.scope", () => {
       feature.created.map(() => feature)
     );
     expect(world.entity().parent).toBeUndefined();
+  });
+
+  it("leaves deferred callback-created runtime entities unparented during module init", () => {
+    class Ship {}
+    class HealthBars extends Module {
+      public direct!: Entity;
+      public entered: Entity[] = [];
+      public iterated: Entity[] = [];
+      public init(): void {
+        const ships = this.world
+          .query("existing ships")
+          .with(Ship)
+          .enter(() => {
+            this.entered.push(this.world.entity());
+          })
+          .build();
+        ships.forEach(() => {
+          this.iterated.push(this.world.entity());
+        });
+        this.direct = this.world.entity();
+      }
+    }
+    const world = new World();
+    world.component(Ship);
+    const ships = [world.entity().add(Ship), world.entity().add(Ship)];
+    const module = world.module(HealthBars);
+    expect(module.direct.parent).toBe(module);
+    expect(module.entered).toHaveLength(ships.length);
+    expect(module.iterated).toHaveLength(ships.length);
+    for (const entity of [...module.entered, ...module.iterated]) {
+      expect(world.entity(entity.eid)).toBe(entity);
+      expect(entity.parent).toBeUndefined();
+    }
   });
 
   it("restores nested scopes and application context after exceptions", () => {
