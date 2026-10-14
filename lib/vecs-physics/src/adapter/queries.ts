@@ -9,10 +9,10 @@
 // b2ShapeProxy) reuse global pools allocated at module load. Transient
 // allocations like b2RayResult are freed via explicit `finally { .delete() }`.
 
-import { type EID, type Entity, type World } from "@vworlds/vecs";
+import { type EID, type Entity, type Vec2, type World } from "@vworlds/vecs";
 
 import { Body } from "../body/components.js";
-import { Box, Capsule, Circle, Polygon, Segment, type Vec2 } from "../shapes/components.js";
+import { Box, Capsule, Circle, Polygon, Segment } from "../shapes/components.js";
 import {
   scr_b2AABB,
   scr_b2QueryFilter,

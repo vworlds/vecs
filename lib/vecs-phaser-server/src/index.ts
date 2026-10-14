@@ -1,4 +1,5 @@
 export { PhaserServerModule } from "./PhaserServerModule.js";
+export type { Vec2 } from "@vworlds/vecs";
 export { DeadReckoned, DeadReckonedModule } from "./dead_reckoned.js";
 export type { DeadReckonedOptions } from "./dead_reckoned.js";
 export { Asset } from "./asset.js";

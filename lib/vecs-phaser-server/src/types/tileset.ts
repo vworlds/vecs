@@ -19,6 +19,8 @@
  * `@kayahr/tiled` at runtime or build time.
  */
 
+import type { Vec2 } from "@vworlds/vecs";
+
 /**
  * Tiled property type discriminant. String/file/color/class serialize as
  * strings; int/float/object as numbers; bool as boolean. Color values are hex
@@ -52,12 +54,7 @@ export interface Frame {
 }
 
 /** A 2D point in pixels. */
-export interface Point {
-  /** X coordinate (px). */
-  x: number;
-  /** Y coordinate (px). */
-  y: number;
-}
+export type Point = Vec2;
 
 /**
  * Public vendored `MapObject` interface — a collision/anchor shape on a tile.
