@@ -229,9 +229,9 @@ world.dispose();
 
 Disposal releases the owned Box2D world, including bodies, shapes, chains and joints,
 and the reusable move-export buffer. Repeated disposal does not release them twice.
-When called inside a system, physics teardown completes at the tick's `endFrame()`;
-inside a deferred scope outside a tick, it completes after the enclosing commands drain.
-See [Disposing a world](../../vecs/docs/entities.md#disposing-a-world) for the ECS contract.
+Call only at the allowed synchronous call sites in
+[Disposing a world](../../vecs/docs/entities.md#disposing-a-world), after the tick or other
+enclosing operation finishes. A refused mid-tick call leaves the physics world live and usable.
 
 Box2D permits **128 live worlds per process**. Disposing one frees its slot, so you can
 create and dispose worlds repeatedly without accumulating live worlds. If Box2D refuses

@@ -49,7 +49,7 @@ describe("physics world disposal", () => {
     }, 25_000);
   }
 
-  it("releases a live physics world after mid-tick disposal", () => {
+  it("refuses mid-tick disposal, keeps physics usable, then releases at top level", () => {
     const world = new World();
     world.module(PhysicsModule);
     const engine = getPhysicsEngine(world);
@@ -64,12 +64,20 @@ describe("physics world disposal", () => {
       .run(() => {
         ran = true;
         expect(engine.box2d.b2World_IsValid(id)).toBe(true);
-        world.dispose();
+        expect(() => world.dispose()).toThrow(
+          "dispose() must be called outside progress(), defer, a command drain or an entity's destroy"
+        );
         expect(engine.box2d.b2World_IsValid(id)).toBe(true);
       });
     expect(() => world.progress(1, 1000 / 30)).not.toThrow();
     expect(ran).toBe(true);
+    expect(body.alive).toBe(true);
+    expect(engine.box2d.b2World_IsValid(id)).toBe(true);
+    expect(() => world.progress(2, 1000 / 30)).not.toThrow();
+    expect(() => world.dispose()).not.toThrow();
     expect(engine.box2d.b2World_IsValid(id)).toBe(false);
+    expect(body.destroyed).toBe(true);
+    expect(world.entities.values()).toEqual([]);
     expect(() => world.dispose()).not.toThrow();
   });
 
