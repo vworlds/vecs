@@ -44,6 +44,8 @@ type CommandBody =
   | {
       kind: CommandKind.CreateEntity;
       entity: Entity;
+      /** Scope parent applied before creation is visible to queries. */
+      parent?: Entity;
       /** Optional callback run once the entity is registered (used by `getOrCreateEntity`). */
       onCreate?: (entity: Entity) => void;
     }

@@ -4,10 +4,14 @@ import { Entity, Identity, type EID, type EntityClass } from "../entity/index.js
 import { Deferred } from "./world.deferred.js";
 import type { World } from "./world.js";
 import { carriersFirst } from "./destroy-order.js";
+import { ChildOf } from "../modules/relationship_types.js";
 
 const RESERVED_EID = 0;
 
 export class Entities extends Deferred {
+  /** @internal Parent applied only to entities created in the current scope. */
+  protected _scope: Entity | undefined = undefined;
+
   /**
    * Return the entity with id `eid`, creating it if it does not yet exist.
    *
@@ -27,6 +31,11 @@ export class Entities extends Deferred {
     if (!e) {
       this._reserveEid(eid);
       e = new Entity(this, eid);
+      const parent = this._scope;
+      if (parent !== undefined) {
+        this._createScopedEntity(e, parent, onCreateCallback);
+        return e;
+      }
       if (this.deferred) {
         // Mirror `_entity`: in deferred mode the entity is not registered or
         // made visible to queries until the queue drains. The reservation above
@@ -110,27 +119,80 @@ export class Entities extends Deferred {
     throw new Error(`No entity with eid ${ref.eid}`);
   }
 
-  /** Destroy every entity currently tracked by the world. */
+  /**
+   * Destroy every tracked entity, ordering both carriers and ChildOf children
+   * before their keys/parents. Retains ordinary cleanup policies; throws when
+   * dependency cycles prevent safe destruction (unlike dispose's final pass).
+   */
   public clearAllEntities(): void {
     const pending = new Set(this._entities.values());
     while (pending.size > 0) {
       let destroyed = 0;
-      for (const entity of carriersFirst([...pending])) {
+      for (const entity of carriersFirst([...pending], this._classRegistry.get(ChildOf)?.eid)) {
         entity.destroy();
         pending.delete(entity);
         destroyed++;
       }
       if (destroyed === 0) {
-        throw new Error("Cannot clear entities because component eids are still in use");
+        throw new Error(
+          "Cannot clear entities because component or ChildOf dependencies cannot be ordered"
+        );
       }
     }
     this.flush();
+  }
+
+  /**
+   * Parent every entity created synchronously by `fn` to `parent` through ChildOf.
+   * Includes components, modules, queries, systems and ordinary entities. Existing
+   * lookups are not reparented; an explicit childOf call replaces the scope parent.
+   * Nested scopes restore their caller in finally, even when fn throws.
+   * Plain deferred creation publishes its parent in the same command. Component
+   * definitions register immediately, including inside defer, with their parent.
+   * The parent must be a live entity of this world. This is a synchronous scope,
+   * not an async context; it does not change deferral or catch callback errors.
+   */
+  public scope(this: World, parent: Entity, fn: () => void): void {
+    this.entity(parent);
+    if (parent.destroyed) {
+      throw new Error("scope parent must be alive");
+    }
+    const previous = this._scope;
+    this._scope = parent;
+    try {
+      fn();
+    } finally {
+      this._scope = previous;
+    }
+  }
+
+  /** @internal Publish a scoped creation atomically with its parent. */
+  protected _createScopedEntity(
+    this: World,
+    entity: Entity,
+    parent: Entity,
+    onCreate?: (e: Entity) => void
+  ): void {
+    if (this.deferred) {
+      this._deferredEntities.set(entity.eid, entity);
+      this._enqueue({ kind: CommandKind.CreateEntity, entity, parent, onCreate });
+    } else {
+      this._entities.set(entity.eid, entity);
+      entity._addTarget(this.entity(ChildOf).meta, parent);
+      this._notifyEntityCreated(entity);
+      onCreate?.(entity);
+    }
   }
 
   /** @internal Create an entity with an id from the entity pool. */
   protected _entity<T extends Entity>(this: World, Constructor: EntityClass<T>): T {
     const eid = this._entityPool.alloc();
     const e = new Constructor(this, eid);
+    const parent = this._scope;
+    if (parent !== undefined) {
+      this._createScopedEntity(e, parent);
+      return e;
+    }
     if (this.deferred) {
       this._deferredEntities.set(eid, e);
       this._enqueue({ kind: CommandKind.CreateEntity, entity: e });

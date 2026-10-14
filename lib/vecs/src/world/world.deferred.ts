@@ -1,5 +1,6 @@
 import { CommandKind, type Command } from "../command.js";
 import { Queries } from "./world.queries.js";
+import { ChildOf } from "../modules/relationship_types.js";
 
 export class Deferred extends Queries {
   /** @internal Single ordered command queue used in deferred mode. */
@@ -68,6 +69,9 @@ export class Deferred extends Queries {
       case CommandKind.CreateEntity:
         this._entities.set(cmd.entity.eid, cmd.entity);
         this._deferredEntities.delete(cmd.entity.eid);
+        if (cmd.parent !== undefined) {
+          cmd.entity._addTarget(cmd.entity.world.entity(ChildOf).meta, cmd.parent);
+        }
         this._notifyEntityCreated(cmd.entity);
         cmd.onCreate?.(cmd.entity);
         return;

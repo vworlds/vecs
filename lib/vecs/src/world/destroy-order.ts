@@ -1,7 +1,10 @@
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
 
-/** Order carriers before their keys; omit cycles and keys carried outside the candidate set. */
-export function carriersFirst(entities: Entity[]): Entity[] {
+/**
+ * Order carriers before their keys and, optionally, children before their parents.
+ * Omit cycles and entities blocked by dependents outside the candidate set.
+ */
+export function carriersFirst(entities: Entity[], childOfEid?: EID): Entity[] {
   const pending = new Set(entities);
   const ordered: Entity[] = [];
   const outside = new Set<Entity>();
@@ -11,12 +14,24 @@ export function carriersFirst(entities: Entity[]): Entity[] {
         outside.add(carrier);
       }
     }
+    if (childOfEid !== undefined) {
+      for (const child of key._childrenByEid(childOfEid) ?? []) {
+        if (!pending.has(child)) {
+          outside.add(child);
+        }
+      }
+    }
   }
   let progressed = true;
   while (progressed) {
     progressed = false;
     for (const key of pending) {
-      if (!isCarried(key, (carrier) => pending.has(carrier) || outside.has(carrier))) {
+      const blocks = (dependent: Entity): boolean =>
+        pending.has(dependent) || outside.has(dependent);
+      if (
+        !isCarried(key, blocks) &&
+        (childOfEid === undefined || ![...(key._childrenByEid(childOfEid) ?? [])].some(blocks))
+      ) {
         ordered.push(key);
         pending.delete(key);
         progressed = true;

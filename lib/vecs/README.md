@@ -66,8 +66,7 @@ System entity callbacks can inject [`Now` and `Delta`](./docs/systems.md#clock-i
 components to read the processing tick's timestamp and the system's accumulated tick delta.
 
 Inspect [system execution order and cadence](./docs/systems.md#introspection) with `world.pipeline`,
-and [component/trait registration provenance](./docs/components.md#registration-provenance) with
-the component builder.
+and [scoped module provenance](./docs/modules.md#scopes-and-module-provenance) through entity parents.
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
 

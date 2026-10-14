@@ -55,7 +55,11 @@ export class Lifecycle extends Components {
       let selfCarry = 0;
       if (entityMeta) {
         selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
-        if (entityMeta.usageCount > selfCarry && entityMeta.onDelete === CleanupPolicy.Throw) {
+        if (
+          !this.world._tearingDownInfrastructure &&
+          entityMeta.usageCount > selfCarry &&
+          entityMeta.onDelete === CleanupPolicy.Throw
+        ) {
           throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
         }
       }
@@ -108,6 +112,8 @@ export class Lifecycle extends Components {
    * Each component fires its `onRemove` hook, the entity is unregistered from
    * the world, and incoming relationship cleanup policies are applied. After
    * destruction the entity must not be used.
+   * World.dispose's final infrastructure pass suspends cleanup policies and
+   * strips live carriers through remove hooks instead of throwing or cascading.
    *
    * A synchronous throw (a `Throw`-policy component entity still in use)
    * happens before any mutation, so the world stays usable. A throw during
@@ -118,6 +124,7 @@ export class Lifecycle extends Components {
     const entityMeta = this._meta;
     if (
       entityMeta &&
+      !this.world._tearingDownInfrastructure &&
       entityMeta.onDelete === CleanupPolicy.Throw &&
       entityMeta.usageCount > (this._components.has(entityMeta.eid) ? 1 : 0)
     ) {
@@ -135,7 +142,8 @@ export class Lifecycle extends Components {
     if (!carriers || carriers.size <= selfCarry) {
       return;
     }
-    const shouldDelete = entityMeta.onDelete === CleanupPolicy.Delete;
+    const shouldDelete =
+      !this.world._tearingDownInfrastructure && entityMeta.onDelete === CleanupPolicy.Delete;
     // forEachSafe tolerates deletion of the current carrier mid-loop: each
     // `_destroy`/`_remove` below detaches only its own carrier from this meta
     // (via `_detachCarrier`), and any further cascade is buffered onto the
@@ -182,7 +190,7 @@ export class Lifecycle extends Components {
         // `sources` is iterated read-only here; re-entrant _removeIncoming
         // mutates it during the scope flush (after this scan completes), not
         // during this forEach, so no snapshot is needed.
-        if (policy === CleanupPolicy.Delete) {
+        if (policy === CleanupPolicy.Delete && !this.world._tearingDownInfrastructure) {
           scope.push([DeletionOpKind.Destroy, source]);
         } else {
           scope.push([DeletionOpKind.Remove, source, relEntity.meta, this]);

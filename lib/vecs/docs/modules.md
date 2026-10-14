@@ -84,10 +84,56 @@ Guidelines:
   placement, component registration. Keep that out of application code.
 - **One module per cohesive thing.** Don't pile unrelated features into one `init`.
 
-Component and trait declarations made during synchronous `init` retain the active module class.
-Nested installs restore their caller's context. Read ownership and duplicate declarations through
-the [component provenance API](./components.md#registration-provenance); this does not add `ChildOf`
-edges or change entity ownership.
+## Scopes and module provenance
+
+`world.scope(parent, fn)` assigns `ChildOf parent` to **every entity created** while the synchronous
+callback runs: plain entities, components, modules, query/system backing entities, and phases.
+Nested scopes restore the caller's parent in `finally`, even when the callback throws. Scopes do not
+change deferral: plain deferred creations publish their parent in the same queued creation, before
+queries can observe them. Component and module definitions register immediately even inside defer,
+with the parent attached directly before their creation notification. Existing name/id/class lookups
+do not reparent anything. An explicit
+`.childOf(other)` afterwards replaces the scope parent, just as any other exclusive `ChildOf` edge.
+The parent must be live and belong to the same world. Async continuations are outside the scope.
+
+```ts
+import { Entity, Module, World } from "@vworlds/vecs";
+
+class Position {}
+class Feature extends Module {
+  public init(): void {
+    this.world.component(Position);
+    this.world.entity("camera");
+  }
+}
+const world = new World();
+const feature = world.module(Feature);
+world.component(Position).parent === feature; // true
+world.entity("camera").parent === feature; // true
+
+function owningModule(entity: Entity): Module | undefined {
+  const visited = new Set<Entity>();
+  for (let parent = entity.parent; parent && !visited.has(parent); parent = parent.parent) {
+    if (parent instanceof Module) return parent;
+    visited.add(parent);
+  }
+  return undefined;
+}
+owningModule(world.component(Position)); // feature
+world.scope(feature, () => world.entity("another child"));
+```
+
+`world.module()` runs a new module's `init` inside `world.scope(moduleEntity, ...)`. Nested modules
+are children of the enclosing scope; their own creations belong to the nested module. Provenance is
+the **nearest module ancestor**, not necessarily the direct parent: a `OneOf` value may be parented
+to its relationship entity, which is parented to the module. This is a real ownership hierarchy:
+ordinary parent destruction cascades through its children, and subtree traversal follows it.
+
+Vecs' own built-in modules installed by the `World` constructor are **not scoped**; their entities
+remain roots. Provenance covers modules installed after the world is constructed, including physics,
+network, Phaser and application modules. Registration outside a scope leaves a root. Idempotent
+re-registration keeps the existing parent: there is no list of duplicate registrars and no record of
+which module added a trait edge. Explicit reparenting changes ownership, not a historical audit.
 
 ## Built-in modules
 
@@ -112,4 +158,5 @@ All are exported, so a custom world setup can reuse them.
 | `init(config)`                                                                 | One-time setup hook; called by the world on first registration.                                     |
 | `world.module(M)` / `world.module(M, config)` / `world.module(M, config, eid)` | Register (first call) or retrieve (later calls) the module. Config after first registration throws. |
 | `this.world`                                                                   | Inside `init`: the owning world (a module is an entity).                                            |
+| `world.scope(parent, fn)`                                                      | Parent all synchronous creations in `fn`; existing lookups are unchanged.                           |
 | `ModuleConfig<T>`                                                              | Utility type extracting a module's config type.                                                     |

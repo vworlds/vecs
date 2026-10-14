@@ -3,7 +3,7 @@
   "include": [
     "src",
     "tests/clock-inject.test.ts",
-    "tests/component-provenance.test.ts",
+    "tests/world-scope.test.ts",
     "tests/system-introspection.test.ts"
   ]
 }

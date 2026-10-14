@@ -10,9 +10,13 @@ type ModuleArgs<T extends Module<any>> =
     : [config: ModuleConfig<T>, eid?: EID];
 
 export class Modules extends Components {
+  /** @internal Constructor-installed core modules predate scoped ChildOf support. */
+  protected _initializingModules = false;
+
   /**
-   * Install a module once and run its synchronous init with registrar context.
-   * Nested installs restore the enclosing module, even when init throws.
+   * Install a module once and run its synchronous init inside its entity scope.
+   * Constructor-installed core modules are unscoped; later modules parent all
+   * newly created entities, including nested modules. Existing entities stay put.
    * Subsequent calls return the existing instance; passing config again throws.
    */
   public module<T extends Module<any>>(
@@ -30,12 +34,10 @@ export class Modules extends Components {
       );
     }
     if (isNew) {
-      const previousModule = this._currentModule;
-      this._currentModule = ModuleClass;
-      try {
+      if (this._initializingModules) {
         mod.init(config as ModuleConfig<T>);
-      } finally {
-        this._currentModule = previousModule;
+      } else {
+        this.scope(mod, () => mod.init(config as ModuleConfig<T>));
       }
     }
     return mod;

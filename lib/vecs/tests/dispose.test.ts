@@ -3,6 +3,7 @@ import {
   type ComponentClass,
   type EID,
   type Entity,
+  CleanupPolicy,
   Exclusive,
   Identity,
   Module,
@@ -170,6 +171,59 @@ describe("World.dispose", () => {
   });
 
   describe("infrastructure", () => {
+    it("destroys module parents without cascading into still-carried children", () => {
+      class Resource {}
+      class Carrier {}
+      class Feature extends Module {
+        public init(): void {
+          this.world.component(Resource).set(Resource, {});
+          this.world.component(Carrier).add(Resource);
+        }
+      }
+      const world = new World();
+      const feature = world.module(Feature);
+      const resource = world.component(Resource);
+      const carrier = world.component(Carrier);
+      const removed = countRemovals(world, Resource);
+      const order: string[] = [];
+      world.component(Handle).on("remove", () => {
+        expect(resource.alive).toBe(true);
+        expect(carrier.alive).toBe(true);
+        order.push("module");
+      });
+      feature.add(Handle);
+      resource.on("remove", () => order.push("resource"));
+      expect(resource.parent).toBe(feature);
+      expect(() => world.dispose()).not.toThrow();
+      expect(order[0]).toBe("module");
+      expect(removed).toEqual(
+        new Map([
+          [resource.eid, 1],
+          [carrier.eid, 1],
+        ])
+      );
+      expect(entityIds(world)).toEqual([]);
+    });
+
+    it("suspends every relationship cleanup policy for infrastructure only", () => {
+      const world = new World();
+      const owner = world.component(Handle);
+      const target = world.component(Marker);
+      world.component(Owns).add(Exclusive).add(OwnedTarget);
+      world.component(ParentOf).add(Exclusive).add(Traversable);
+      world.component(ResidesIn).add(OneOf, owner);
+      world.component(OwnedBy);
+      world.component(WornBy).add(With, OwnedBy);
+      target.childOf(owner);
+      owner.add(Owns, target).add(ParentOf, target).add(ResidesIn, target).add(WornBy, target);
+      owner.meta.onDelete = CleanupPolicy.Delete;
+      const carrier = world.component(class Carrier {}).add(owner);
+      const removals = countRemovals(world, Handle);
+      expect(() => world.dispose()).not.toThrow();
+      expect(removals).toEqual(new Map([[carrier.eid, 1]]));
+      expect(entityIds(world)).toEqual([]);
+    });
+
     it("destroys queries and systems before releasing component data they read", () => {
       const w = new World();
       const component = w.component(Handle);
@@ -186,7 +240,7 @@ describe("World.dispose", () => {
       expect(calls).toBe(1);
     });
 
-    it("gives carrier dependencies precedence when reverse module order is impossible", () => {
+    it("strips infrastructure carriers instead of overriding reverse module order", () => {
       class First extends Module {
         public init(): void {}
       }
@@ -200,7 +254,7 @@ describe("World.dispose", () => {
       const second = w.module(Second).add(Handle);
       first.add(second);
       expect(() => w.dispose()).not.toThrow();
-      expect(events).toEqual([first.eid, second.eid]);
+      expect(events).toEqual([second.eid, first.eid]);
       expect(entityIds(w)).toEqual([]);
     });
 
@@ -242,16 +296,18 @@ describe("World.dispose", () => {
       expect(entityIds(w)).toEqual([]);
     });
 
-    it("reports cyclic survivors and their carriers after destroying unrelated infrastructure", () => {
+    it("strips cyclic infrastructure carriers with exactly one remove per instance", () => {
       const w = new World();
       const first = w.component(Handle);
       const second = w.component(Marker);
       first.add(second);
       second.add(first);
-      expect(() => w.dispose()).toThrow(
-        `Cannot dispose world; entities remain: ${first.eid} (Handle) carried by [${second.eid} (Marker)]; ${second.eid} (Marker) carried by [${first.eid} (Handle)]`
-      );
-      expect(entityIds(w)).toEqual([first.eid, second.eid].sort((a, b) => a - b));
+      const handles = countRemovals(w, Handle);
+      const markers = countRemovals(w, Marker);
+      expect(() => w.dispose()).not.toThrow();
+      expect(handles).toEqual(new Map([[second.eid, 1]]));
+      expect(markers).toEqual(new Map([[first.eid, 1]]));
+      expect(entityIds(w)).toEqual([]);
     });
 
     it("destroys component, module, system, query and phase entities", () => {
@@ -622,16 +678,16 @@ describe("World.dispose", () => {
       expect(entityIds(w)).toEqual([]);
     });
 
-    it("reports named application keys and their blocked Identity dependency", () => {
+    it("strips blocked named keys during the final teardown sweep", () => {
       const w = new World();
       const first = w.entity("first-key");
       const second = w.entity("second-key");
       first.add(second);
       second.add(first);
       const identity = w.entity(Identity);
-      expect(() => w.dispose()).toThrow(
-        `Cannot dispose world; entities remain: ${identity.eid} (Identity) carried by [${first.eid} (first-key), ${second.eid} (second-key)]; ${first.eid} (first-key) carried by [${second.eid} (second-key)]; ${second.eid} (second-key) carried by [${first.eid} (first-key)]`
-      );
+      expect(() => w.dispose()).not.toThrow();
+      expect([first, second, identity].every((entity) => entity.destroyed)).toBe(true);
+      expect(entityIds(w)).toEqual([]);
     });
 
     it("disposes from a synchronous remove hook without repeating its hook", () => {

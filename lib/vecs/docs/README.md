@@ -25,7 +25,7 @@ Read in this order the first time through:
      filters, grouped queries, `Bitset`.
    - [Relationships](./relationships.md) — links, target creation and projection, ownership, hierarchy,
      cleanup cascades.
-   - [Modules](./modules.md) — packaging features, composition, the built-in modules.
+   - [Modules](./modules.md) — packaging features, composition, scopes and module provenance, built-in modules.
    - [Subtree snapshots](./snapshots.md) — capturing, restoring, and moving an entity forest
      between two worlds.
 5. [Design guide](./design-guide.md) — opinionated patterns and anti-patterns distilled from real
@@ -49,7 +49,7 @@ For Node clients that need replicated Phaser poses, see [Headless clients](../..
 | [systems.md](./systems.md)                         | `world.system`, callbacks, injection, ordering, cadence, tick sources, and introspection.        |
 | [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`.                                        |
 | [relationships.md](./relationships.md)             | Relationships, target creation, projection and ownership, hierarchy, traversal, and cleanup.     |
-| [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, composition, built-in modules.                                 |
+| [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, `world.scope`, hierarchy provenance, built-in modules.         |
 | [snapshots.md](./snapshots.md)                     | `snapshotSubtree`, `restoreSubtree`, `moveSubtree`, and `OnSnapshot` capture policies.           |
 | [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                                   |
 | [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.        |

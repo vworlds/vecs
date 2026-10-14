@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { World } from "@vworlds/vecs";
+import { Identity, World } from "@vworlds/vecs";
 import { describe, expect, it, vi } from "vitest";
 import {
   Body,
@@ -12,8 +12,34 @@ import {
   SensorEvents,
 } from "../../src/index.js";
 import { getPhysicsEngine, PhysicsEngine } from "../../src/adapter/engine.js";
+import { BodyModule } from "../../src/body/module.js";
+import { PhysicsSnapshotModule } from "../../src/core/snapshot.js";
 
 describe("physics world disposal", () => {
+  it("scopes installed physics definitions and releases its singleton exactly once", () => {
+    const world = new World();
+    expect(world.component(Identity).parent).toBeUndefined();
+    const physics = world.module(PhysicsModule);
+    expect(world.component(Body).parent?.eid).toBe(world.module(PhysicsSnapshotModule).eid);
+    expect(world.component(PhysicsEngine).parent?.eid).toBe(
+      world.module(PhysicsSnapshotModule).eid
+    );
+    expect(world.module(BodyModule).parent?.eid).toBe(physics.eid);
+    const engine = getPhysicsEngine(world);
+    const release = vi.spyOn(engine, "dispose");
+    let removed = 0;
+    world.component(PhysicsEngine).on("remove", () => {
+      removed++;
+    });
+    try {
+      expect(() => world.dispose()).not.toThrow();
+      expect(removed).toBe(1);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(world.entities.values()).toEqual([]);
+    } finally {
+      release.mockRestore();
+    }
+  });
   for (const mode of ["empty", "chain", "capacity", "memory"]) {
     it(`bounds the isolated ${mode} regression process`, () => {
       // A synchronous WASM hang cannot be interrupted by a Vitest test timeout.
